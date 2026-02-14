@@ -12,7 +12,7 @@ use regex::Regex;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{SocketAddr, TcpStream};
@@ -53,6 +53,26 @@ struct ToolResponse {
     data: Option<Value>,
     error: Option<ToolError>,
     meta: ToolMeta,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PortUsageEntry {
+    protocol: String,
+    local_address: String,
+    remote_address: String,
+    state: Option<String>,
+    pid: u32,
+    process_name: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PortProcessSummary {
+    pid: u32,
+    process_name: String,
+    listening_ports: Vec<String>,
+    connection_count: usize,
 }
 
 #[tauri::command]
@@ -131,9 +151,12 @@ fn execute_tool(domain: &str, action: &str, payload: &Value) -> Result<Value, St
         ("convert", "json_to_xml") => {
             let input = payload["input"].as_str().unwrap_or_default();
             let v: Value = serde_json::from_str(input).map_err(|e| format!("invalid json: {e}"))?;
-            quick_xml::se::to_string(&v)
-                .map(|s| json!(s))
-                .map_err(|e| format!("json->xml failed: {e}"))
+            let root_tag = payload["rootTag"]
+                .as_str()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .unwrap_or("root");
+            Ok(json!(json_to_xml(root_tag, &v)))
         }
         ("convert", "xml_to_json") => {
             let input = payload["input"].as_str().unwrap_or_default();
@@ -446,7 +469,38 @@ fn execute_tool(domain: &str, action: &str, payload: &Value) -> Result<Value, St
                 .output()
                 .map_err(|e| format!("netstat failed: {e}"))?;
             let text = String::from_utf8_lossy(&output.stdout).to_string();
-            Ok(json!(text))
+            let mut entries = parse_netstat_entries(&text);
+            let proc_names = list_process_names();
+            for item in &mut entries {
+                item.process_name = proc_names
+                    .get(&item.pid)
+                    .cloned()
+                    .unwrap_or_else(|| "UNKNOWN".to_string());
+            }
+            let mut state_counts: HashMap<String, usize> = HashMap::new();
+            let mut tcp_count = 0usize;
+            let mut udp_count = 0usize;
+            for item in &entries {
+                match item.protocol.as_str() {
+                    "TCP" => tcp_count += 1,
+                    "UDP" => udp_count += 1,
+                    _ => {}
+                }
+                if let Some(state) = &item.state {
+                    *state_counts.entry(state.clone()).or_insert(0) += 1;
+                }
+            }
+            let process_summaries = build_process_summaries(&entries);
+            Ok(json!({
+                "summary": {
+                    "total": entries.len(),
+                    "tcp": tcp_count,
+                    "udp": udp_count
+                },
+                "stateCounts": state_counts,
+                "processSummaries": process_summaries,
+                "connections": entries
+            }))
         }
         ("file", "split") => file_split(payload),
         ("file", "merge") => file_merge(payload),
@@ -472,6 +526,133 @@ fn get_data_dir() -> Result<PathBuf, String> {
     let p = home.join(".lazycat");
     fs::create_dir_all(&p).map_err(|e| format!("create data dir failed: {e}"))?;
     Ok(p)
+}
+
+fn parse_netstat_entries(raw: &str) -> Vec<PortUsageEntry> {
+    let mut out = Vec::new();
+    for line in raw.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let parts = trimmed.split_whitespace().collect::<Vec<_>>();
+        if parts.is_empty() {
+            continue;
+        }
+        let proto = parts[0].to_ascii_uppercase();
+        if proto != "TCP" && proto != "UDP" {
+            continue;
+        }
+        if proto == "TCP" {
+            if parts.len() < 5 {
+                continue;
+            }
+            let pid = parts[parts.len() - 1].parse::<u32>().unwrap_or(0);
+            let state = parts[parts.len() - 2].to_string();
+            let remote = parts[parts.len() - 3].to_string();
+            let local = parts[parts.len() - 4].to_string();
+            out.push(PortUsageEntry {
+                protocol: "TCP".to_string(),
+                local_address: local,
+                remote_address: remote,
+                state: Some(state),
+                pid,
+                process_name: String::new(),
+            });
+            continue;
+        }
+        if parts.len() < 4 {
+            continue;
+        }
+        let pid = parts[parts.len() - 1].parse::<u32>().unwrap_or(0);
+        let remote = parts[parts.len() - 2].to_string();
+        let local = parts[parts.len() - 3].to_string();
+        out.push(PortUsageEntry {
+            protocol: "UDP".to_string(),
+            local_address: local,
+            remote_address: remote,
+            state: None,
+            pid,
+            process_name: String::new(),
+        });
+    }
+    out
+}
+
+fn list_process_names() -> HashMap<u32, String> {
+    let mut out = HashMap::new();
+    let output = match Command::new("tasklist").args(["/FO", "CSV", "/NH"]).output() {
+        Ok(v) => v,
+        Err(_) => return out,
+    };
+    let text = String::from_utf8_lossy(&output.stdout).to_string();
+    let mut rdr = csv::ReaderBuilder::new()
+        .has_headers(false)
+        .from_reader(text.as_bytes());
+    for rec in rdr.records().flatten() {
+        if rec.len() < 2 {
+            continue;
+        }
+        let name = rec.get(0).unwrap_or("UNKNOWN").trim().to_string();
+        let pid = rec
+            .get(1)
+            .unwrap_or_default()
+            .replace(',', "")
+            .trim()
+            .parse::<u32>()
+            .unwrap_or(0);
+        if pid > 0 && !name.is_empty() {
+            out.insert(pid, name);
+        }
+    }
+    out
+}
+
+fn extract_port(local_address: &str) -> Option<String> {
+    let port = local_address.rsplit(':').next().unwrap_or_default().trim();
+    if port.is_empty() || port == "*" {
+        return None;
+    }
+    if port.chars().all(|c| c.is_ascii_digit()) {
+        return Some(port.to_string());
+    }
+    None
+}
+
+fn build_process_summaries(entries: &[PortUsageEntry]) -> Vec<PortProcessSummary> {
+    let mut grouped: HashMap<u32, (String, BTreeSet<String>, usize)> = HashMap::new();
+    for item in entries {
+        let entry = grouped
+            .entry(item.pid)
+            .or_insert_with(|| (item.process_name.clone(), BTreeSet::new(), 0usize));
+        entry.2 += 1;
+        let is_listening = item
+            .state
+            .as_ref()
+            .map(|s| s.eq_ignore_ascii_case("LISTENING"))
+            .unwrap_or(false)
+            || (item.protocol == "UDP" && item.remote_address == "*:*");
+        if is_listening {
+            if let Some(port) = extract_port(&item.local_address) {
+                entry.1.insert(port);
+            }
+        }
+    }
+    let mut out = grouped
+        .into_iter()
+        .map(|(pid, (process_name, listening_ports, connection_count))| PortProcessSummary {
+            pid,
+            process_name,
+            listening_ports: listening_ports.into_iter().collect(),
+            connection_count,
+        })
+        .collect::<Vec<_>>();
+    out.sort_by(|a, b| {
+        b.connection_count
+            .cmp(&a.connection_count)
+            .then_with(|| a.process_name.cmp(&b.process_name))
+    });
+    out
 }
 
 fn db_conn() -> Result<Connection, String> {
@@ -673,6 +854,131 @@ fn image_convert(payload: &Value) -> Result<Value, String> {
       "height": resized.height(),
       "size": metadata.len()
     }))
+}
+
+fn json_to_xml(root_tag: &str, value: &Value) -> String {
+    let root = sanitize_xml_tag(root_tag, "root");
+    let mut out = String::new();
+    append_xml_node_pretty(&mut out, &root, value, 0);
+    out.trim_end_matches('\n').to_string()
+}
+
+fn append_xml_node_pretty(out: &mut String, tag: &str, value: &Value, depth: usize) {
+    match value {
+        Value::Array(items) => {
+            if items.is_empty() {
+                write_indent(out, depth);
+                out.push('<');
+                out.push_str(tag);
+                out.push_str("/>");
+                out.push('\n');
+                return;
+            }
+            for item in items {
+                append_xml_node_pretty(out, tag, item, depth);
+            }
+        }
+        Value::Object(map) => {
+            if map.is_empty() {
+                write_indent(out, depth);
+                out.push('<');
+                out.push_str(tag);
+                out.push_str("/>");
+                out.push('\n');
+                return;
+            }
+
+            write_indent(out, depth);
+            out.push('<');
+            out.push_str(tag);
+            out.push('>');
+            out.push('\n');
+            for (key, child) in map {
+                let child_tag = sanitize_xml_tag(key, "item");
+                append_xml_node_pretty(out, &child_tag, child, depth + 1);
+            }
+            write_indent(out, depth);
+            out.push_str("</");
+            out.push_str(tag);
+            out.push('>');
+            out.push('\n');
+        }
+        Value::Null => {
+            write_indent(out, depth);
+            out.push('<');
+            out.push_str(tag);
+            out.push_str("/>");
+            out.push('\n');
+        }
+        Value::String(s) => {
+            write_indent(out, depth);
+            out.push('<');
+            out.push_str(tag);
+            out.push('>');
+            out.push_str(&escape_xml_text(s));
+            out.push_str("</");
+            out.push_str(tag);
+            out.push('>');
+            out.push('\n');
+        }
+        Value::Bool(b) => {
+            write_indent(out, depth);
+            out.push('<');
+            out.push_str(tag);
+            out.push('>');
+            out.push_str(if *b { "true" } else { "false" });
+            out.push_str("</");
+            out.push_str(tag);
+            out.push('>');
+            out.push('\n');
+        }
+        Value::Number(n) => {
+            write_indent(out, depth);
+            out.push('<');
+            out.push_str(tag);
+            out.push('>');
+            out.push_str(&n.to_string());
+            out.push_str("</");
+            out.push_str(tag);
+            out.push('>');
+            out.push('\n');
+        }
+    }
+}
+
+fn write_indent(out: &mut String, depth: usize) {
+    for _ in 0..depth {
+        out.push_str("  ");
+    }
+}
+
+fn sanitize_xml_tag(input: &str, fallback: &str) -> String {
+    let mut out = String::new();
+    for ch in input.trim().chars() {
+        if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' || ch == '.' {
+            out.push(ch);
+        } else {
+            out.push('_');
+        }
+    }
+    if out.is_empty() {
+        return fallback.to_string();
+    }
+    if let Some(first) = out.chars().next() {
+        if !first.is_ascii_alphabetic() && first != '_' {
+            out.insert(0, '_');
+        }
+    }
+    out
+}
+
+fn escape_xml_text(input: &str) -> String {
+    input
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
 }
 
 fn main() {

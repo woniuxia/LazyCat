@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="shell">
     <aside class="nav">
       <el-text tag="h2" size="large">Lazycat 懒猫</el-text>
@@ -94,16 +94,10 @@
       <div v-else-if="activeTool === 'formatter'" class="panel-grid">
         <MonacoPane v-model="formatInput" :language="monacoLanguage" />
         <MonacoPane v-model="formatOutput" :language="monacoLanguage" :read-only="true" />
-        <el-select v-model="formatLang" placeholder="语言">
-          <el-option label="JSON" value="json" />
-          <el-option label="XML" value="xml" />
-          <el-option label="HTML" value="html" />
-          <el-option label="Java" value="java" />
-          <el-option label="SQL" value="sql" />
-        </el-select>
         <div>
           <el-button type="primary" @click="formatCode">执行格式化</el-button>
         </div>
+        <el-input :model-value="formatDetectedLabel" readonly />
       </div>
 
       <div v-else-if="activeTool === 'json-xml'" class="panel-grid">
@@ -190,7 +184,7 @@
         <div class="panel-grid-full">
           <el-space>
             <el-button type="primary" @click="saveHosts">保存配置</el-button>
-            <el-button @click="activateHosts">切换为当前配置</el-button>
+            <el-button @click="activateHosts">设为当前配置</el-button>
             <el-button type="danger" @click="deleteHosts">删除配置</el-button>
             <el-button @click="loadHostsProfiles">刷新列表</el-button>
           </el-space>
@@ -198,7 +192,7 @@
         <el-table class="panel-grid-full" :data="hostsProfiles" border>
           <el-table-column prop="name" label="名称" />
           <el-table-column prop="enabled" label="启用" width="80">
-            <template #default="{ row }">{{ row.enabled ? "是" : "否" }}</template>
+            <template #default="{ row }">{{ row.enabled ? "Yes" : "No" }}</template>
           </el-table-column>
           <el-table-column prop="updatedAt" label="更新时间" />
           <el-table-column label="操作" width="110">
@@ -213,7 +207,38 @@
         <div class="panel-grid-full">
           <el-button type="primary" @click="loadPortUsage">查询端口占用</el-button>
         </div>
-        <el-input class="panel-grid-full" v-model="portUsageOutput" type="textarea" :rows="14" readonly />
+        <el-divider class="panel-grid-full" content-position="left">概览</el-divider>
+        <el-descriptions class="panel-grid-full" :column="3" border>
+          <el-descriptions-item label="总连接">{{ portUsageSummary.total }}</el-descriptions-item>
+          <el-descriptions-item label="TCP">{{ portUsageSummary.tcp }}</el-descriptions-item>
+          <el-descriptions-item label="UDP">{{ portUsageSummary.udp }}</el-descriptions-item>
+        </el-descriptions>
+        <el-table class="panel-grid-full" :data="portUsageStateRows" border>
+          <el-table-column prop="state" label="状态" />
+          <el-table-column prop="count" label="数量" width="120" />
+        </el-table>
+        <el-divider class="panel-grid-full" content-position="left">按应用汇总</el-divider>
+        <el-input
+          v-model="portFilter"
+          class="panel-grid-full"
+          placeholder="按端口筛选应用汇总，例如 5173"
+          clearable
+        />
+        <el-table class="panel-grid-full" :data="filteredPortProcessRows" border max-height="280">
+          <el-table-column prop="processName" label="应用" min-width="180" />
+          <el-table-column prop="pid" label="PID" width="100" />
+          <el-table-column prop="listeningPortsText" label="监听端口" min-width="220" />
+          <el-table-column prop="connectionCount" label="连接数" width="120" />
+        </el-table>
+        <el-divider class="panel-grid-full" content-position="left">连接明细</el-divider>
+        <el-table class="panel-grid-full" :data="portConnectionRows" border max-height="360">
+          <el-table-column prop="protocol" label="协议" width="90" />
+          <el-table-column prop="pid" label="PID" width="90" />
+          <el-table-column prop="processName" label="应用" min-width="180" />
+          <el-table-column prop="localAddress" label="本地地址" min-width="220" />
+          <el-table-column prop="remoteAddress" label="远端地址" min-width="220" />
+          <el-table-column prop="state" label="状态" width="130" />
+        </el-table>
       </div>
 
       <div v-else-if="activeTool === 'env'" class="panel-grid">
@@ -298,7 +323,7 @@
         <div class="panel-grid-full">
           <el-space>
             <el-button type="primary" @click="generateCron">生成表达式</el-button>
-            <el-button @click="previewCron">测试未来触发</el-button>
+            <el-button @click="previewCron">预览触发时间</el-button>
           </el-space>
         </div>
         <el-input class="panel-grid-full" v-model="cronOutput" type="textarea" :rows="8" readonly />
@@ -318,10 +343,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import MonacoPane from "./components/MonacoPane.vue";
 import { invokeToolByChannel } from "./bridge/tauri";
+import { formatHtml, formatJava, formatJson, formatSqlCode, formatXml } from "@lazycat/formatters";
 
 interface ToolDef {
   id: string;
@@ -340,11 +366,35 @@ interface HostsProfile {
   enabled: boolean;
   updatedAt: string;
 }
+interface PortUsageSummary {
+  total: number;
+  tcp: number;
+  udp: number;
+}
+interface PortUsageStateRow {
+  state: string;
+  count: number;
+}
+interface PortUsageProcessRow {
+  pid: number;
+  processName: string;
+  listeningPorts: string[];
+  listeningPortsText: string;
+  connectionCount: number;
+}
+interface PortUsageConnectionRow {
+  protocol: string;
+  pid: number;
+  processName: string;
+  localAddress: string;
+  remoteAddress: string;
+  state: string;
+}
 
 const groups: GroupDef[] = [
   {
     id: "codec",
-    name: "编解码与加密",
+    name: "编码与加密",
     tools: [
       { id: "base64", name: "Base64", desc: "Base64 编码与解码" },
       { id: "url", name: "URL 编解码", desc: "URL Encode / Decode" },
@@ -358,7 +408,7 @@ const groups: GroupDef[] = [
     id: "format",
     name: "格式化与转换",
     tools: [
-      { id: "formatter", name: "代码格式化", desc: "JSON/XML/HTML/Java/SQL" },
+      { id: "formatter", name: "代码格式化", desc: "JSON/XML/HTML/Java/SQL 自动识别" },
       { id: "json-xml", name: "JSON/XML", desc: "JSON 与 XML 双向转换" },
       { id: "json-yaml", name: "JSON/YAML", desc: "JSON 转 YAML" },
       { id: "csv-json", name: "CSV/JSON", desc: "CSV 转 JSON" }
@@ -369,7 +419,7 @@ const groups: GroupDef[] = [
     name: "文本与正则",
     tools: [
       { id: "text-process", name: "文本处理", desc: "按行去重与排序" },
-      { id: "regex", name: "正则工具", desc: "正则测试与模板生成" }
+      { id: "regex", name: "正则工具", desc: "表达式生成与测试" }
     ]
   },
   {
@@ -384,10 +434,10 @@ const groups: GroupDef[] = [
   },
   {
     id: "files",
-    name: "文件与图像",
+    name: "文件与图片",
     tools: [
-      { id: "split-merge", name: "切割与合并", desc: "大文件分片与合并" },
-      { id: "image", name: "图片转换", desc: "格式转换、缩放、压缩" }
+      { id: "split-merge", name: "切割与合并", desc: "大文件切片与合并" },
+      { id: "image", name: "图片转换", desc: "格式转换、缩放、裁剪、压缩" }
     ]
   },
   {
@@ -395,9 +445,9 @@ const groups: GroupDef[] = [
     name: "时间与生成器",
     tools: [
       { id: "timestamp", name: "时间戳转换", desc: "时间戳与日期互转" },
-      { id: "uuid", name: "UUID/GUID/密码", desc: "标识和随机密码生成" },
-      { id: "cron", name: "Cron 工具", desc: "Cron 表达式生成与测试" },
-      { id: "manuals", name: "离线手册", desc: "Vue2/Vue3/Element Plus 手册索引" }
+      { id: "uuid", name: "UUID/GUID/密码", desc: "标识与随机密码生成" },
+      { id: "cron", name: "Cron 工具", desc: "Cron 表达式生成与预览" },
+      { id: "manuals", name: "离线手册", desc: "Vue2/Vue3/Element Plus 索引" }
     ]
   }
 ];
@@ -419,7 +469,8 @@ const symmetricAlgorithm = ref("aes-256-cbc");
 
 const formatInput = ref("");
 const formatOutput = ref("");
-const formatLang = ref("json");
+type FormatKind = "json" | "xml" | "html" | "java" | "sql" | "plaintext";
+const formatDetected = ref<FormatKind>("plaintext");
 const monacoLanguage = computed(() => {
   const map: Record<string, string> = {
     json: "json",
@@ -428,7 +479,18 @@ const monacoLanguage = computed(() => {
     java: "java",
     sql: "sql"
   };
-  return map[formatLang.value] ?? "plaintext";
+  return map[formatDetected.value] ?? "plaintext";
+});
+const formatDetectedLabel = computed(() => {
+  const map: Record<FormatKind, string> = {
+    json: "自动识别类型: JSON",
+    xml: "自动识别类型: XML",
+    html: "自动识别类型: HTML",
+    java: "自动识别类型: Java",
+    sql: "自动识别类型: SQL",
+    plaintext: "自动识别类型: 未识别"
+  };
+  return map[formatDetected.value];
 });
 
 const convertInput = ref("");
@@ -455,7 +517,18 @@ const hostsName = ref("");
 const hostsContent = ref("");
 const hostsProfiles = ref<HostsProfile[]>([]);
 
-const portUsageOutput = ref("");
+const portUsageSummary = ref<PortUsageSummary>({ total: 0, tcp: 0, udp: 0 });
+const portUsageStateRows = ref<PortUsageStateRow[]>([]);
+const portProcessRows = ref<PortUsageProcessRow[]>([]);
+const portConnectionRows = ref<PortUsageConnectionRow[]>([]);
+const portFilter = ref("");
+const filteredPortProcessRows = computed(() => {
+  const needle = portFilter.value.trim();
+  if (!needle) {
+    return portProcessRows.value;
+  }
+  return portProcessRows.value.filter((row) => row.listeningPorts.some((port) => port.includes(needle)));
+});
 const envOutput = ref("");
 
 const sourcePath = ref("");
@@ -580,16 +653,79 @@ async function symmetricDecrypt() {
 
 async function formatCode() {
   try {
-    const channelMap: Record<string, string> = {
-      json: "tool:format:json",
-      xml: "tool:format:xml",
-      html: "tool:format:html",
-      java: "tool:format:java",
-      sql: "tool:format:sql"
-    };
-    formatOutput.value = String(await invoke(channelMap[formatLang.value], { input: formatInput.value }));
+    const source = formatInput.value;
+    if (!source.trim()) {
+      formatOutput.value = "";
+      formatDetected.value = "plaintext";
+      return;
+    }
+    const detected = detectFormatKind(source);
+    formatDetected.value = detected;
+    if (detected === "plaintext") {
+      throw new Error("无法识别代码类型，目前支持 JSON/XML/HTML/Java/SQL");
+    }
+    formatOutput.value = await formatByKind(source, detected);
   } catch (error) {
     ElMessage.error((error as Error).message);
+  }
+}
+
+function detectFormatKind(input: string): FormatKind {
+  const source = input.trim();
+  if (!source) {
+    return "plaintext";
+  }
+
+  try {
+    const parsed = JSON.parse(source);
+    if (parsed !== undefined) {
+      return "json";
+    }
+  } catch {
+    // not json
+  }
+
+  if (source.startsWith("<") && source.endsWith(">")) {
+    const lower = source.toLowerCase();
+    if (
+      lower.includes("<!doctype html") ||
+      /<html[\s>]/i.test(source) ||
+      /<(head|body|div|span|script|style|main|section|article|nav|footer|header)[\s>]/i.test(source)
+    ) {
+      return "html";
+    }
+    return "xml";
+  }
+
+  if (
+    /\b(select|insert|update|delete|create|alter|drop|truncate|with)\b/i.test(source) &&
+    /\b(from|into|table|where|values|set|join)\b/i.test(source)
+  ) {
+    return "sql";
+  }
+
+  if (
+    /\b(class|interface|enum|record)\b/.test(source) &&
+    /\b(public|private|protected|static|void|package|import)\b/.test(source)
+  ) {
+    return "java";
+  }
+
+  return "plaintext";
+}
+
+async function formatByKind(input: string, kind: Exclude<FormatKind, "plaintext">): Promise<string> {
+  switch (kind) {
+    case "json":
+      return formatJson(input);
+    case "xml":
+      return formatXml(input);
+    case "html":
+      return formatHtml(input);
+    case "java":
+      return formatJava(input);
+    case "sql":
+      return formatSqlCode(input);
   }
 }
 
@@ -719,7 +855,52 @@ async function deleteHosts() {
 async function loadPortUsage() {
   try {
     const data = await invoke("tool:port:usage", {});
-    portUsageOutput.value = JSON.stringify(data, null, 2);
+    const payload = (data ?? {}) as {
+      summary?: { total?: number; tcp?: number; udp?: number };
+      stateCounts?: Record<string, number>;
+      processSummaries?: Array<{
+        pid?: number;
+        processName?: string;
+        listeningPorts?: string[];
+        connectionCount?: number;
+      }>;
+      connections?: Array<{
+        protocol?: string;
+        pid?: number;
+        processName?: string;
+        localAddress?: string;
+        remoteAddress?: string;
+        state?: string | null;
+      }>;
+    };
+    const summary = payload.summary ?? {};
+    const stateCounts = payload.stateCounts ?? {};
+    const processSummaries = Array.isArray(payload.processSummaries) ? payload.processSummaries : [];
+    const connections = Array.isArray(payload.connections) ? payload.connections : [];
+
+    portUsageSummary.value = {
+      total: summary.total ?? connections.length,
+      tcp: summary.tcp ?? 0,
+      udp: summary.udp ?? 0
+    };
+    portUsageStateRows.value = Object.entries(stateCounts)
+      .map(([state, count]) => ({ state, count }))
+      .sort((a, b) => b.count - a.count);
+    portProcessRows.value = processSummaries.map((item) => ({
+      pid: item.pid ?? 0,
+      processName: item.processName ?? "UNKNOWN",
+      listeningPorts: item.listeningPorts ?? [],
+      listeningPortsText: (item.listeningPorts ?? []).join(", ") || "-",
+      connectionCount: item.connectionCount ?? 0
+    }));
+    portConnectionRows.value = connections.slice(0, 1000).map((item) => ({
+      protocol: item.protocol ?? "",
+      pid: item.pid ?? 0,
+      processName: item.processName ?? "UNKNOWN",
+      localAddress: item.localAddress ?? "",
+      remoteAddress: item.remoteAddress ?? "",
+      state: item.state ?? "-"
+    }));
   } catch (error) {
     ElMessage.error((error as Error).message);
   }
@@ -862,7 +1043,144 @@ async function loadManuals() {
   }
 }
 
+let autoProcessTimer: ReturnType<typeof setTimeout> | null = null;
+
+function getAutoInputFingerprint(): string {
+  switch (activeTool.value) {
+    case "base64":
+    case "url":
+    case "md5":
+    case "qr":
+      return `${activeTool.value}|${textInput.value}`;
+    case "formatter":
+      return `${activeTool.value}|${formatInput.value}`;
+    case "json-xml":
+    case "json-yaml":
+      return `${activeTool.value}|${convertInput.value}`;
+    case "csv-json":
+      return `${activeTool.value}|${convertInput.value}|${csvDelimiter.value}`;
+    case "text-process":
+      return `${activeTool.value}|${textProcessInput.value}|${textCaseSensitive.value}`;
+    case "regex":
+      return `${activeTool.value}|${regexPattern.value}|${regexFlags.value}|${regexInput.value}`;
+    case "network":
+      return `${activeTool.value}|${host.value}|${port.value}|${timeoutMs.value}`;
+    case "timestamp":
+      return `${activeTool.value}|${timeInput.value}`;
+    default:
+      return `${activeTool.value}|noop`;
+  }
+}
+
+async function autoProcessByTool() {
+  switch (activeTool.value) {
+    case "base64":
+      if (!textInput.value.trim()) {
+        textOutput.value = "";
+        return;
+      }
+      await runTextTool("tool:encode:base64-encode");
+      return;
+    case "url":
+      if (!textInput.value.trim()) {
+        textOutput.value = "";
+        return;
+      }
+      await runTextTool("tool:encode:url-encode");
+      return;
+    case "md5":
+      if (!textInput.value.trim()) {
+        textOutput.value = "";
+        return;
+      }
+      await runTextTool("tool:encode:md5");
+      return;
+    case "qr":
+      if (!textInput.value.trim()) {
+        qrDataUrl.value = "";
+        return;
+      }
+      await generateQr();
+      return;
+    case "formatter":
+      await formatCode();
+      return;
+    case "json-xml":
+      if (!convertInput.value.trim()) {
+        convertOutput.value = "";
+        return;
+      }
+      await runConvertTool("tool:convert:json-to-xml");
+      return;
+    case "json-yaml":
+      if (!convertInput.value.trim()) {
+        convertOutput.value = "";
+        return;
+      }
+      await runConvertTool("tool:convert:json-to-yaml");
+      return;
+    case "csv-json":
+      if (!convertInput.value.trim()) {
+        convertOutput.value = "";
+        return;
+      }
+      await csvToJsonAction();
+      return;
+    case "text-process":
+      if (!textProcessInput.value.trim()) {
+        textProcessOutput.value = "";
+        return;
+      }
+      await dedupeLines();
+      return;
+    case "regex":
+      if (!regexPattern.value.trim() && !regexInput.value.trim()) {
+        regexOutput.value = "";
+        return;
+      }
+      await runRegexTest();
+      return;
+    case "network":
+      if (!host.value.trim()) {
+        networkOutput.value = "";
+        return;
+      }
+      await runNetworkTest();
+      return;
+    case "timestamp":
+      if (!timeInput.value.trim()) {
+        timeOutput.value = "";
+        return;
+      }
+      if (/^\d+$/.test(timeInput.value.trim())) {
+        await timestampToDate();
+      } else {
+        await dateToTimestamp();
+      }
+      return;
+    default:
+      return;
+  }
+}
+
+watch(
+  () => getAutoInputFingerprint(),
+  (_next, prev) => {
+    if (prev === undefined) {
+      return;
+    }
+    if (autoProcessTimer) {
+      clearTimeout(autoProcessTimer);
+    }
+    autoProcessTimer = setTimeout(() => {
+      void autoProcessByTool();
+    }, 300);
+  }
+);
+
 onMounted(async () => {
   await Promise.all([loadHostsProfiles(), loadRegexTemplates(), loadManuals()]);
 });
 </script>
+
+

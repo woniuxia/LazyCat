@@ -35,6 +35,33 @@ This file provides project context and collaboration conventions for Claude or o
 - Windows package (NSIS): `pnpm build:win`
 - Windows package (portable alias): `pnpm build:portable`
 
+## Agent Collaboration Rules
+
+- Do not start the app/dev server automatically.
+- Only run `pnpm dev` (or any command that launches the desktop UI) when the user explicitly asks to start it.
+
+## Encoding & Garbled Text (Important)
+
+- Recent issue: garbled Chinese text introduced template/script corruption in `apps/desktop/src/App.vue`:
+  - broken quoted attributes (missing closing `"`),
+  - broken button closing tags (e.g. `?/el-button>`),
+  - broken string literals in `<script>` (unterminated quotes).
+- Typical symptoms:
+  - Vite/Vue parse errors such as:
+    - `Attribute name cannot contain ...`
+    - `Unquoted attribute value cannot contain ...`
+    - `Unterminated string constant`
+    - `Error parsing JavaScript expression`
+- Required handling when touching UI text:
+  - Preserve valid UTF-8 and avoid bulk replacements that may alter punctuation/quotes.
+  - Prefer small, targeted edits.
+  - If garbling is detected, fix structural correctness first (quotes/tags), then fix display text.
+- Required verification after text edits in Vue files:
+  1. `pnpm --filter @lazycat/desktop typecheck`
+  2. `pnpm --filter @lazycat/desktop build:web`
+- Extra note for formatter feature:
+  - Prettier in renderer path must use standalone + explicit plugins (`prettier/standalone`, plus parser plugins), otherwise parser resolution may fail at runtime.
+
 ## Architecture Notes
 
 - Frontend ↔ backend call path:
