@@ -1,0 +1,45 @@
+{
+  "name": "@lazycat/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Lazycat desktop app",
+  "author": "Lazycat Team",
+  "type": "module",
+  "scripts": {
+    "dev": "tauri dev",
+    "build:web": "vite build",
+    "build": "pnpm build:web && tauri build --bundles nsis",
+    "build:tauri": "tauri build --bundles nsis",
+    "build:portable": "pnpm build:web && tauri build --bundles nsis",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "test:e2e": "playwright test"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.0.0",
+    "@element-plus/icons-vue": "^2.3.1",
+    "@lazycat/core": "workspace:*",
+    "@lazycat/crypto": "workspace:*",
+    "@lazycat/db": "workspace:*",
+    "@lazycat/file-tools": "workspace:*",
+    "@lazycat/formatters": "workspace:*",
+    "@lazycat/image-tools": "workspace:*",
+    "@lazycat/ipc-contracts": "workspace:*",
+    "@lazycat/network": "workspace:*",
+    "element-plus": "^2.11.1",
+    "sharp": "^0.33.5",
+    "sql.js": "^1.12.0",
+    "vue": "^3.5.13"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0",
+    "@vitejs/plugin-vue": "^5.2.1",
+    "@playwright/test": "^1.50.1",
+    "monaco-editor": "^0.52.2",
+    "@monaco-editor/loader": "^1.5.0",
+    "typescript": "^5.7.3",
+    "vite": "^6.0.7",
+    "vite-tsconfig-paths": "^5.1.4",
+    "vitest": "^2.1.8"
+  }
+}

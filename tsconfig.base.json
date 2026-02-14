@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "baseUrl": ".",
+    "paths": {
+      "@lazycat/core": ["packages/core/src/index.ts"],
+      "@lazycat/crypto": ["packages/crypto/src/index.ts"],
+      "@lazycat/formatters": ["packages/formatters/src/index.ts"],
+      "@lazycat/network": ["packages/network/src/index.ts"],
+      "@lazycat/file-tools": ["packages/file-tools/src/index.ts"],
+      "@lazycat/image-tools": ["packages/image-tools/src/index.ts"],
+      "@lazycat/db": ["packages/db/src/index.ts"],
+      "@lazycat/ipc-contracts": ["packages/ipc-contracts/src/index.ts"]
+    }
+  }
+}

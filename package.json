@@ -1,0 +1,21 @@
+{
+  "name": "lazycat",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Lazycat - offline developer toolbox desktop app",
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "dev": "pnpm --filter @lazycat/desktop dev",
+    "build": "pnpm -r build",
+    "build:win:precheck": "powershell -ExecutionPolicy Bypass -File scripts/build-tauri-win.ps1",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "test:e2e": "pnpm --filter @lazycat/desktop test:e2e",
+    "build:win": "pnpm --filter @lazycat/desktop build",
+    "build:portable": "pnpm --filter @lazycat/desktop build:portable"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.3"
+  }
+}

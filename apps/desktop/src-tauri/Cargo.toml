@@ -1,0 +1,33 @@
+[package]
+name = "lazycat-desktop"
+version = "0.1.0"
+description = "Lazycat desktop app"
+authors = ["Lazycat Team"]
+edition = "2021"
+
+[lib]
+name = "lazycat_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+urlencoding = "2"
+md5 = "0.7"
+uuid = { version = "1", features = ["v4"] }
+rand = "0.8"
+chrono = { version = "0.4", features = ["serde"] }
+regex = "1"
+csv = "1"
+serde_yaml = "0.9"
+quick-xml = { version = "0.37", features = ["serialize"] }
+qrcode = "0.14"
+image = { version = "0.25", default-features = true }
+rusqlite = { version = "0.32", features = ["bundled"] }
+dirs = "5"
+openssl = { version = "0.10", features = ["vendored"] }

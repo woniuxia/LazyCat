@@ -1,0 +1,17 @@
+node_modules
+dist
+dist-*
+.pnpm-store
+.DS_Store
+coverage
+*.log
+*.tmp
+*.temp
+release
+playwright-report
+test-results
+*.tsbuildinfo
+*.local
+nul
+apps/desktop/src-tauri/target
+apps/desktop/src-tauri/gen
