@@ -1,6 +1,8 @@
-﻿# Lazycat / 懒猫
+# Lazycat / 懒猫
 
 纯离线桌面开发者工具箱，面向日常高频研发操作场景。
+
+#  codex -m gpt-5.3-codex --sandbox workspace-write
 
 ## 技术栈
 

@@ -3,6 +3,7 @@
     <aside class="nav">
       <el-text tag="h2" size="large">Lazycat 懒猫</el-text>
       <el-menu :default-active="activeTool" @select="onSelect">
+        <el-menu-item index="home">首页</el-menu-item>
         <el-sub-menu v-for="group in groups" :key="group.id" :index="group.id">
           <template #title>{{ group.name }}</template>
           <el-menu-item v-for="tool in group.tools" :key="tool.id" :index="tool.id">
@@ -13,48 +14,138 @@
     </aside>
 
     <main class="content">
-      <h1 class="tool-title">{{ currentTool?.name }}</h1>
+      <div class="tool-header">
+        <h1 class="tool-title">{{ currentTool?.name }}</h1>
+        <el-button
+          v-if="activeTool !== HOME_ID && isRealToolId(activeTool)"
+          text
+          :type="isFavorite(activeTool) ? 'warning' : 'info'"
+          @click="toggleFavorite(activeTool)"
+        >
+          {{ isFavorite(activeTool) ? "取消收藏" : "收藏" }}
+        </el-button>
+      </div>
       <p class="tool-desc">{{ currentTool?.desc }}</p>
 
-      <div v-if="activeTool === 'base64'" class="panel-grid">
-        <el-input v-model="textInput" type="textarea" :rows="10" placeholder="输入文本" />
-        <el-input :model-value="textOutput" type="textarea" :rows="10" readonly placeholder="结果" />
+      <div v-if="activeTool === HOME_ID" class="home-panel">
+        <section class="home-section">
+          <div class="home-section-header">
+            <h2>收藏页面</h2>
+            <el-text type="info">优先显示你常用的工具页面</el-text>
+          </div>
+          <div v-if="favoriteTools.length" class="home-card-grid">
+            <div
+              v-for="tool in favoriteTools"
+              :key="tool.id"
+              class="home-tool-card"
+              @click="openToolFromHome(tool.id)"
+              @keyup.enter="openToolFromHome(tool.id)"
+              tabindex="0"
+            >
+              <el-button
+                class="home-tool-card-action"
+                text
+                type="warning"
+                @click.stop="toggleFavorite(tool.id)"
+              >
+                取消收藏
+              </el-button>
+              <div class="home-tool-card-title">{{ tool.name }}</div>
+              <div class="home-tool-card-desc">{{ tool.desc }}</div>
+            </div>
+          </div>
+          <el-empty v-else description="暂无收藏，进入工具页面后点击右上角“收藏”" />
+        </section>
+
+        <section class="home-section">
+          <div class="home-section-header">
+            <h2>最近一个月高频页面</h2>
+            <div class="home-section-header-right">
+              <el-text type="info">按点击次数排序，已排除收藏区页面</el-text>
+              <el-radio-group v-model="homeTopLimit" size="small">
+                <el-radio-button :value="6">Top 6</el-radio-button>
+                <el-radio-button :value="12">Top 12</el-radio-button>
+              </el-radio-group>
+            </div>
+          </div>
+          <div v-if="topMonthlyTools.length" class="home-card-grid">
+            <div
+              v-for="item in topMonthlyTools"
+              :key="item.tool.id"
+              class="home-tool-card"
+              @click="openToolFromHome(item.tool.id)"
+              @keyup.enter="openToolFromHome(item.tool.id)"
+              tabindex="0"
+            >
+              <el-button
+                class="home-tool-card-action"
+                text
+                :type="isFavorite(item.tool.id) ? 'warning' : 'primary'"
+                @click.stop="toggleFavorite(item.tool.id)"
+              >
+                {{ isFavorite(item.tool.id) ? "取消收藏" : "收藏" }}
+              </el-button>
+              <div class="home-tool-card-title">{{ item.tool.name }}</div>
+              <div class="home-tool-card-desc">{{ item.tool.desc }}</div>
+              <div class="home-tool-card-meta">最近30天点击 {{ item.count }} 次</div>
+            </div>
+          </div>
+          <el-empty v-else description="暂无使用记录，先去使用几个工具吧" />
+        </section>
+      </div>
+
+      <div v-else-if="activeTool === 'base64'" class="panel-grid">
+        <el-input v-model="base64Input" type="textarea" :rows="10" placeholder="输入文本" />
+        <el-input :model-value="base64Output" type="textarea" :rows="10" readonly placeholder="结果" />
         <div class="panel-grid-full">
           <el-space>
-            <el-button type="primary" @click="runTextTool('tool:encode:base64-encode')">Base64 编码</el-button>
-            <el-button @click="runTextTool('tool:encode:base64-decode')">Base64 解码</el-button>
+            <el-button type="primary" @click="runBase64Tool('tool:encode:base64-encode')">Base64 编码</el-button>
+            <el-button @click="runBase64Tool('tool:encode:base64-decode')">Base64 解码</el-button>
           </el-space>
         </div>
       </div>
 
       <div v-else-if="activeTool === 'url'" class="panel-grid">
-        <el-input v-model="textInput" type="textarea" :rows="10" placeholder="输入 URL 文本" />
-        <el-input :model-value="textOutput" type="textarea" :rows="10" readonly placeholder="结果" />
+        <el-input v-model="urlInput" type="textarea" :rows="10" placeholder="输入 URL 文本" />
+        <el-input :model-value="urlOutput" type="textarea" :rows="10" readonly placeholder="结果" />
         <div class="panel-grid-full">
           <el-space>
-            <el-button type="primary" @click="runTextTool('tool:encode:url-encode')">URL 编码</el-button>
-            <el-button @click="runTextTool('tool:encode:url-decode')">URL 解码</el-button>
+            <el-button type="primary" @click="runUrlTool('tool:encode:url-encode')">URL 编码</el-button>
+            <el-button @click="runUrlTool('tool:encode:url-decode')">URL 解码</el-button>
           </el-space>
         </div>
       </div>
 
       <div v-else-if="activeTool === 'md5'" class="panel-grid">
-        <el-input v-model="textInput" type="textarea" :rows="10" placeholder="输入文本" />
-        <el-input :model-value="textOutput" type="textarea" :rows="10" readonly placeholder="MD5 结果" />
+        <el-input v-model="md5Input" type="textarea" :rows="10" placeholder="输入文本" />
+        <el-input :model-value="md5Output" type="textarea" :rows="10" readonly placeholder="MD5 结果" />
         <div class="panel-grid-full">
-          <el-button type="primary" @click="runTextTool('tool:encode:md5')">计算 MD5</el-button>
+          <el-button type="primary" @click="runMd5Tool">计算 MD5</el-button>
         </div>
       </div>
 
-      <div v-else-if="activeTool === 'qr'" class="panel-grid">
-        <el-input v-model="textInput" type="textarea" :rows="7" placeholder="输入文本并生成二维码" />
+      <div v-else-if="activeTool === 'qr'" class="qr-layout">
+        <el-input
+          class="qr-layout-full"
+          v-model="qrInput"
+          type="textarea"
+          :rows="7"
+          placeholder="输入文本并生成二维码"
+        />
+        <el-input
+          class="qr-layout-full"
+          :model-value="qrDataUrl"
+          type="textarea"
+          :rows="4"
+          readonly
+          placeholder="Base64 图片（Data URL）"
+        />
+        <div class="qr-layout-action">
+          <el-button type="primary" @click="generateQr">生成二维码</el-button>
+        </div>
         <div class="qr-preview">
           <img v-if="qrDataUrl" :src="qrDataUrl" alt="QR code" class="qr-image" />
           <el-empty v-else description="尚未生成二维码" />
-        </div>
-        <el-input class="panel-grid-full" :model-value="qrDataUrl" type="textarea" :rows="4" readonly placeholder="Data URL" />
-        <div class="panel-grid-full">
-          <el-button type="primary" @click="generateQr">生成二维码</el-button>
         </div>
       </div>
 
@@ -390,6 +481,7 @@ interface PortUsageConnectionRow {
   remoteAddress: string;
   state: string;
 }
+type ToolClickHistory = Record<string, number[]>;
 
 const groups: GroupDef[] = [
   {
@@ -452,11 +544,54 @@ const groups: GroupDef[] = [
   }
 ];
 
-const activeTool = ref("base64");
-const currentTool = computed(() => groups.flatMap((g) => g.tools).find((tool) => tool.id === activeTool.value));
+const HOME_ID = "home";
+const HOME_TOOL: ToolDef = {
+  id: HOME_ID,
+  name: "首页",
+  desc: "收藏页面与最近一个月高频功能入口"
+};
+const FAVORITE_STORAGE_KEY = "lazycat:favorites:v1";
+const TOOL_CLICKS_STORAGE_KEY = "lazycat:tool-clicks:v1";
+const HOME_TOP_LIMIT_STORAGE_KEY = "lazycat:home-top-limit:v1";
+const CLICK_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+const MAX_CLICK_HISTORY_PER_TOOL = 500;
 
-const textInput = ref("");
-const textOutput = ref("");
+const allTools = groups.flatMap((g) => g.tools);
+const allToolMap = new Map(allTools.map((tool) => [tool.id, tool]));
+
+const activeTool = ref(HOME_ID);
+const favoriteToolIds = ref<string[]>([]);
+const toolClickHistory = ref<ToolClickHistory>({});
+const homeTopLimit = ref<6 | 12>(12);
+
+const currentTool = computed(() => {
+  if (activeTool.value === HOME_ID) {
+    return HOME_TOOL;
+  }
+  return allToolMap.get(activeTool.value);
+});
+const favoriteTools = computed(() => favoriteToolIds.value.map((id) => allToolMap.get(id)).filter((item): item is ToolDef => Boolean(item)));
+const topMonthlyTools = computed(() => {
+  const cutoff = Date.now() - CLICK_WINDOW_MS;
+  const favoriteSet = new Set(favoriteToolIds.value);
+  const stats = allTools
+    .filter((tool) => !favoriteSet.has(tool.id))
+    .map((tool) => {
+      const clicks = (toolClickHistory.value[tool.id] ?? []).filter((timestamp) => timestamp >= cutoff).length;
+      return { tool, count: clicks };
+    })
+    .filter((item) => item.count > 0)
+    .sort((a, b) => b.count - a.count);
+  return stats.slice(0, homeTopLimit.value);
+});
+
+const base64Input = ref("");
+const base64Output = ref("");
+const urlInput = ref("");
+const urlOutput = ref("");
+const md5Input = ref("");
+const md5Output = ref("");
+const qrInput = ref("");
 const qrDataUrl = ref("");
 
 const cryptoInput = ref("");
@@ -572,11 +707,115 @@ const cronOutput = ref("");
 const manuals = ref<Array<{ id: string; name: string; path: string }>>([]);
 
 function resetCommonBuffers() {
-  textOutput.value = "";
   qrDataUrl.value = "";
 }
 
+function isRealToolId(id: string) {
+  return allToolMap.has(id);
+}
+
+function isFavorite(id: string) {
+  return favoriteToolIds.value.includes(id);
+}
+
+function toggleFavorite(id: string) {
+  if (!isRealToolId(id)) {
+    return;
+  }
+  if (isFavorite(id)) {
+    favoriteToolIds.value = favoriteToolIds.value.filter((toolId) => toolId !== id);
+    ElMessage.success("已取消收藏");
+    return;
+  }
+  favoriteToolIds.value = [...favoriteToolIds.value, id];
+  ElMessage.success("已加入收藏");
+}
+
+function openToolFromHome(id: string) {
+  onSelect(id);
+}
+
+function persistFavorites() {
+  localStorage.setItem(FAVORITE_STORAGE_KEY, JSON.stringify(favoriteToolIds.value));
+}
+
+function pruneClicks(history: ToolClickHistory): ToolClickHistory {
+  const cutoff = Date.now() - CLICK_WINDOW_MS;
+  const result: ToolClickHistory = {};
+  for (const [toolId, timestamps] of Object.entries(history)) {
+    if (!isRealToolId(toolId) || !Array.isArray(timestamps)) {
+      continue;
+    }
+    const valid = timestamps
+      .filter((item): item is number => typeof item === "number" && Number.isFinite(item) && item >= cutoff)
+      .sort((a, b) => a - b)
+      .slice(-MAX_CLICK_HISTORY_PER_TOOL);
+    if (valid.length) {
+      result[toolId] = valid;
+    }
+  }
+  return result;
+}
+
+function persistClickHistory() {
+  localStorage.setItem(TOOL_CLICKS_STORAGE_KEY, JSON.stringify(pruneClicks(toolClickHistory.value)));
+}
+
+function loadFavoritesFromStorage() {
+  try {
+    const raw = localStorage.getItem(FAVORITE_STORAGE_KEY);
+    if (!raw) {
+      favoriteToolIds.value = [];
+      return;
+    }
+    const parsed = JSON.parse(raw);
+    favoriteToolIds.value = Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === "string" && isRealToolId(id)) : [];
+  } catch {
+    favoriteToolIds.value = [];
+  }
+}
+
+function loadClickHistoryFromStorage() {
+  try {
+    const raw = localStorage.getItem(TOOL_CLICKS_STORAGE_KEY);
+    if (!raw) {
+      toolClickHistory.value = {};
+      return;
+    }
+    const parsed = JSON.parse(raw) as ToolClickHistory;
+    toolClickHistory.value = pruneClicks(parsed);
+  } catch {
+    toolClickHistory.value = {};
+  }
+}
+
+function loadHomeTopLimitFromStorage() {
+  try {
+    const raw = localStorage.getItem(HOME_TOP_LIMIT_STORAGE_KEY);
+    if (raw === "6" || raw === "12") {
+      homeTopLimit.value = Number(raw) as 6 | 12;
+      return;
+    }
+    homeTopLimit.value = 12;
+  } catch {
+    homeTopLimit.value = 12;
+  }
+}
+
+function recordToolClick(id: string) {
+  if (!isRealToolId(id)) {
+    return;
+  }
+  const next = { ...toolClickHistory.value };
+  const history = [...(next[id] ?? []), Date.now()];
+  next[id] = history.slice(-MAX_CLICK_HISTORY_PER_TOOL);
+  toolClickHistory.value = next;
+}
+
 function onSelect(id: string) {
+  if (id !== HOME_ID) {
+    recordToolClick(id);
+  }
   activeTool.value = id;
   resetCommonBuffers();
 }
@@ -585,10 +824,28 @@ async function invoke(channel: string, payload: Record<string, unknown>) {
   return invokeToolByChannel(channel, payload);
 }
 
-async function runTextTool(channel: string) {
+async function runBase64Tool(channel: "tool:encode:base64-encode" | "tool:encode:base64-decode") {
   try {
-    const data = await invoke(channel, { input: textInput.value });
-    textOutput.value = typeof data === "string" ? data : JSON.stringify(data, null, 2);
+    const data = await invoke(channel, { input: base64Input.value });
+    base64Output.value = typeof data === "string" ? data : JSON.stringify(data, null, 2);
+  } catch (error) {
+    ElMessage.error((error as Error).message);
+  }
+}
+
+async function runUrlTool(channel: "tool:encode:url-encode" | "tool:encode:url-decode") {
+  try {
+    const data = await invoke(channel, { input: urlInput.value });
+    urlOutput.value = typeof data === "string" ? data : JSON.stringify(data, null, 2);
+  } catch (error) {
+    ElMessage.error((error as Error).message);
+  }
+}
+
+async function runMd5Tool() {
+  try {
+    const data = await invoke("tool:encode:md5", { input: md5Input.value });
+    md5Output.value = typeof data === "string" ? data : JSON.stringify(data, null, 2);
   } catch (error) {
     ElMessage.error((error as Error).message);
   }
@@ -596,7 +853,7 @@ async function runTextTool(channel: string) {
 
 async function generateQr() {
   try {
-    const data = await invoke("tool:encode:qr", { input: textInput.value });
+    const data = await invoke("tool:encode:qr", { input: qrInput.value });
     qrDataUrl.value = String(data);
   } catch (error) {
     ElMessage.error((error as Error).message);
@@ -1048,10 +1305,13 @@ let autoProcessTimer: ReturnType<typeof setTimeout> | null = null;
 function getAutoInputFingerprint(): string {
   switch (activeTool.value) {
     case "base64":
+      return `${activeTool.value}|${base64Input.value}`;
     case "url":
+      return `${activeTool.value}|${urlInput.value}`;
     case "md5":
+      return `${activeTool.value}|${md5Input.value}`;
     case "qr":
-      return `${activeTool.value}|${textInput.value}`;
+      return `${activeTool.value}|${qrInput.value}`;
     case "formatter":
       return `${activeTool.value}|${formatInput.value}`;
     case "json-xml":
@@ -1075,28 +1335,28 @@ function getAutoInputFingerprint(): string {
 async function autoProcessByTool() {
   switch (activeTool.value) {
     case "base64":
-      if (!textInput.value.trim()) {
-        textOutput.value = "";
+      if (!base64Input.value.trim()) {
+        base64Output.value = "";
         return;
       }
-      await runTextTool("tool:encode:base64-encode");
+      await runBase64Tool("tool:encode:base64-encode");
       return;
     case "url":
-      if (!textInput.value.trim()) {
-        textOutput.value = "";
+      if (!urlInput.value.trim()) {
+        urlOutput.value = "";
         return;
       }
-      await runTextTool("tool:encode:url-encode");
+      await runUrlTool("tool:encode:url-encode");
       return;
     case "md5":
-      if (!textInput.value.trim()) {
-        textOutput.value = "";
+      if (!md5Input.value.trim()) {
+        md5Output.value = "";
         return;
       }
-      await runTextTool("tool:encode:md5");
+      await runMd5Tool();
       return;
     case "qr":
-      if (!textInput.value.trim()) {
+      if (!qrInput.value.trim()) {
         qrDataUrl.value = "";
         return;
       }
@@ -1178,7 +1438,33 @@ watch(
   }
 );
 
+watch(
+  () => favoriteToolIds.value,
+  () => {
+    persistFavorites();
+  },
+  { deep: true }
+);
+
+watch(
+  () => toolClickHistory.value,
+  () => {
+    persistClickHistory();
+  },
+  { deep: true }
+);
+
+watch(
+  () => homeTopLimit.value,
+  (value) => {
+    localStorage.setItem(HOME_TOP_LIMIT_STORAGE_KEY, String(value));
+  }
+);
+
 onMounted(async () => {
+  loadFavoritesFromStorage();
+  loadClickHistoryFromStorage();
+  loadHomeTopLimitFromStorage();
   await Promise.all([loadHostsProfiles(), loadRegexTemplates(), loadManuals()]);
 });
 </script>
