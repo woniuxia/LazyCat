@@ -27,72 +27,16 @@
       </div>
       <p class="tool-desc">{{ currentTool?.desc }}</p>
 
-      <div v-if="activeTool === HOME_ID" class="home-panel">
-        <section class="home-section">
-          <div class="home-section-header">
-            <h2>收藏页面</h2>
-            <el-text type="info">优先显示你常用的工具页面</el-text>
-          </div>
-          <div v-if="favoriteTools.length" class="home-card-grid">
-            <div
-              v-for="tool in favoriteTools"
-              :key="tool.id"
-              class="home-tool-card"
-              @click="openToolFromHome(tool.id)"
-              @keyup.enter="openToolFromHome(tool.id)"
-              tabindex="0"
-            >
-              <el-button
-                class="home-tool-card-action"
-                text
-                type="warning"
-                @click.stop="toggleFavorite(tool.id)"
-              >
-                取消收藏
-              </el-button>
-              <div class="home-tool-card-title">{{ tool.name }}</div>
-              <div class="home-tool-card-desc">{{ tool.desc }}</div>
-            </div>
-          </div>
-          <el-empty v-else description="暂无收藏，进入工具页面后点击右上角“收藏”" />
-        </section>
-
-        <section class="home-section">
-          <div class="home-section-header">
-            <h2>最近一个月高频页面</h2>
-            <div class="home-section-header-right">
-              <el-text type="info">按点击次数排序，已排除收藏区页面</el-text>
-              <el-radio-group v-model="homeTopLimit" size="small">
-                <el-radio-button :value="6">Top 6</el-radio-button>
-                <el-radio-button :value="12">Top 12</el-radio-button>
-              </el-radio-group>
-            </div>
-          </div>
-          <div v-if="topMonthlyTools.length" class="home-card-grid">
-            <div
-              v-for="item in topMonthlyTools"
-              :key="item.tool.id"
-              class="home-tool-card"
-              @click="openToolFromHome(item.tool.id)"
-              @keyup.enter="openToolFromHome(item.tool.id)"
-              tabindex="0"
-            >
-              <el-button
-                class="home-tool-card-action"
-                text
-                :type="isFavorite(item.tool.id) ? 'warning' : 'primary'"
-                @click.stop="toggleFavorite(item.tool.id)"
-              >
-                {{ isFavorite(item.tool.id) ? "取消收藏" : "收藏" }}
-              </el-button>
-              <div class="home-tool-card-title">{{ item.tool.name }}</div>
-              <div class="home-tool-card-desc">{{ item.tool.desc }}</div>
-              <div class="home-tool-card-meta">最近30天点击 {{ item.count }} 次</div>
-            </div>
-          </div>
-          <el-empty v-else description="暂无使用记录，先去使用几个工具吧" />
-        </section>
-      </div>
+      <HomePanel
+        v-if="activeTool === HOME_ID"
+        :favorite-tools="favoriteTools"
+        :top-monthly-tools="topMonthlyTools"
+        :home-top-limit="homeTopLimit"
+        :is-favorite="isFavorite"
+        @open-tool="openToolFromHome"
+        @toggle-favorite="toggleFavorite"
+        @update:home-top-limit="homeTopLimit = $event"
+      />
 
       <div v-else-if="activeTool === 'base64'" class="panel-grid">
         <el-input v-model="base64Input" type="textarea" :rows="10" placeholder="输入文本" />
@@ -124,43 +68,17 @@
         </div>
       </div>
 
-      <div v-else-if="activeTool === 'calc-draft'" class="calc-draft">
-        <div class="calc-draft-list">
-          <el-empty v-if="!calcHistory.length" description="暂无计算记录，输入公式后按回车" />
-          <div
-            v-for="item in calcHistory"
-            :key="item.id"
-            class="calc-row calc-row-history"
-            tabindex="0"
-            @click="onCalcHistoryClick(item)"
-            @keyup.enter="onCalcHistoryClick(item)"
-          >
-            <div class="calc-expression">{{ item.expression }}</div>
-            <div class="calc-result-wrap">
-              <div class="calc-result">= {{ item.resultDisplay }}</div>
-              <div class="calc-time">{{ formatCalcHistoryTime(item.createdAt) }}</div>
-            </div>
-          </div>
-        </div>
-        <div class="calc-row calc-row-active">
-          <el-input
-            class="calc-input"
-            v-model="calcCurrentInput"
-            type="textarea"
-            :rows="3"
-            placeholder="输入计算公式，例如 23.7%*5789+4587，按回车计算并复制结果"
-            @input="onCalcInput"
-            @keydown.enter.exact.prevent="onCalcEnter"
-          />
-          <div class="calc-result calc-result-pending">= {{ calcCurrentPreview || "" }}</div>
-        </div>
-        <div class="calc-draft-actions">
-          <el-space>
-            <el-button type="primary" @click="onCalcEnter">计算并复制</el-button>
-            <el-button @click="clearCalcHistory">清空历史</el-button>
-          </el-space>
-        </div>
-      </div>
+      <CalcDraftPanel
+        v-else-if="activeTool === 'calc-draft'"
+        :history="calcHistory"
+        :current-input="calcCurrentInput"
+        :current-preview="calcCurrentPreview"
+        :format-history-time="formatCalcHistoryTime"
+        @update:current-input="onCalcInput"
+        @enter="onCalcEnter"
+        @clear-history="clearCalcHistory"
+        @history-click="onCalcHistoryClick"
+      />
 
       <div v-else-if="activeTool === 'qr'" class="qr-layout">
         <el-input
@@ -220,14 +138,15 @@
         </div>
       </div>
 
-      <div v-else-if="activeTool === 'formatter'" class="panel-grid">
-        <MonacoPane v-model="formatInput" :language="monacoLanguage" />
-        <MonacoPane v-model="formatOutput" :language="monacoLanguage" :read-only="true" />
-        <div>
-          <el-button type="primary" @click="formatCode">执行格式化</el-button>
-        </div>
-        <el-input :model-value="formatDetectedLabel" readonly />
-      </div>
+      <FormatterPanel
+        v-else-if="activeTool === 'formatter'"
+        :input="formatInput"
+        :output="formatOutput"
+        :language="monacoLanguage"
+        :detected-label="formatDetectedLabel"
+        @update:input="formatInput = $event"
+        @format="formatCode"
+      />
 
       <div v-else-if="activeTool === 'json-xml'" class="panel-grid">
         <el-input v-model="convertInput" type="textarea" :rows="12" placeholder="输入 JSON 或 XML" />
@@ -269,33 +188,22 @@
         </div>
       </div>
 
-      <div v-else-if="activeTool === 'regex'" class="panel-grid">
-        <el-input v-model="regexPattern" placeholder="正则表达式" />
-        <el-input v-model="regexFlags" placeholder="flags，例如 gi" />
-        <el-input v-model="regexInput" class="panel-grid-full" type="textarea" :rows="8" placeholder="待匹配文本" />
-        <el-input v-model="regexOutput" class="panel-grid-full" type="textarea" :rows="8" readonly placeholder="匹配结果" />
-        <el-select v-model="regexKind" placeholder="常用模板">
-          <el-option label="邮箱" value="email" />
-          <el-option label="IPv4" value="ipv4" />
-          <el-option label="URL" value="url" />
-          <el-option label="中国手机号" value="phone-cn" />
-        </el-select>
-        <div>
-          <el-space>
-            <el-button type="primary" @click="runRegexTest">执行匹配</el-button>
-            <el-button @click="applyRegexTemplate">填充模板</el-button>
-            <el-button @click="loadRegexTemplates">查看模板库</el-button>
-          </el-space>
-        </div>
-        <el-input
-          class="panel-grid-full"
-          :model-value="JSON.stringify(regexTemplates, null, 2)"
-          type="textarea"
-          :rows="6"
-          readonly
-          placeholder="模板库"
-        />
-      </div>
+      <RegexPanel
+        v-else-if="activeTool === 'regex'"
+        :pattern="regexPattern"
+        :flags="regexFlags"
+        :input="regexInput"
+        :output="regexOutput"
+        :kind="regexKind"
+        :templates="regexTemplates"
+        @update:pattern="regexPattern = $event"
+        @update:flags="regexFlags = $event"
+        @update:input="regexInput = $event"
+        @update:kind="regexKind = $event"
+        @run="runRegexTest"
+        @apply-template="applyRegexTemplate"
+        @load-templates="loadRegexTemplates"
+      />
 
       <div v-else-if="activeTool === 'network'" class="panel-grid">
         <el-input v-model="host" placeholder="host" />
@@ -307,68 +215,30 @@
         <el-input class="panel-grid-full" v-model="networkOutput" type="textarea" :rows="8" readonly />
       </div>
 
-      <div v-else-if="activeTool === 'hosts'" class="panel-grid">
-        <el-input v-model="hostsName" placeholder="配置名称，例如 local-dev" />
-        <el-input v-model="hostsContent" type="textarea" :rows="8" placeholder="hosts 内容" />
-        <div class="panel-grid-full">
-          <el-space>
-            <el-button type="primary" @click="saveHosts">保存配置</el-button>
-            <el-button @click="activateHosts">设为当前配置</el-button>
-            <el-button type="danger" @click="deleteHosts">删除配置</el-button>
-            <el-button @click="loadHostsProfiles">刷新列表</el-button>
-          </el-space>
-        </div>
-        <el-table class="panel-grid-full" :data="hostsProfiles" border>
-          <el-table-column prop="name" label="名称" />
-          <el-table-column prop="enabled" label="启用" width="80">
-            <template #default="{ row }">{{ row.enabled ? "Yes" : "No" }}</template>
-          </el-table-column>
-          <el-table-column prop="updatedAt" label="更新时间" />
-          <el-table-column label="操作" width="110">
-            <template #default="{ row }">
-              <el-button size="small" @click="pickHosts(row)">载入</el-button>
-            </template>
-          </el-table-column>
-        </el-table>
-      </div>
+      <HostsPanel
+        v-else-if="activeTool === 'hosts'"
+        :name="hostsName"
+        :content="hostsContent"
+        :profiles="hostsProfiles"
+        @update:name="hostsName = $event"
+        @update:content="hostsContent = $event"
+        @save="saveHosts"
+        @activate="activateHosts"
+        @delete="deleteHosts"
+        @refresh="loadHostsProfiles"
+        @pick="pickHosts"
+      />
 
-      <div v-else-if="activeTool === 'ports'" class="panel-grid">
-        <div class="panel-grid-full">
-          <el-button type="primary" @click="loadPortUsage">查询端口占用</el-button>
-        </div>
-        <el-divider class="panel-grid-full" content-position="left">概览</el-divider>
-        <el-descriptions class="panel-grid-full" :column="3" border>
-          <el-descriptions-item label="总连接">{{ portUsageSummary.total }}</el-descriptions-item>
-          <el-descriptions-item label="TCP">{{ portUsageSummary.tcp }}</el-descriptions-item>
-          <el-descriptions-item label="UDP">{{ portUsageSummary.udp }}</el-descriptions-item>
-        </el-descriptions>
-        <el-table class="panel-grid-full" :data="portUsageStateRows" border>
-          <el-table-column prop="state" label="状态" />
-          <el-table-column prop="count" label="数量" width="120" />
-        </el-table>
-        <el-divider class="panel-grid-full" content-position="left">按应用汇总</el-divider>
-        <el-input
-          v-model="portFilter"
-          class="panel-grid-full"
-          placeholder="按端口筛选应用汇总，例如 5173"
-          clearable
-        />
-        <el-table class="panel-grid-full" :data="filteredPortProcessRows" border max-height="280">
-          <el-table-column prop="processName" label="应用" min-width="180" />
-          <el-table-column prop="pid" label="PID" width="100" />
-          <el-table-column prop="listeningPortsText" label="监听端口" min-width="220" />
-          <el-table-column prop="connectionCount" label="连接数" width="120" />
-        </el-table>
-        <el-divider class="panel-grid-full" content-position="left">连接明细</el-divider>
-        <el-table class="panel-grid-full" :data="portConnectionRows" border max-height="360">
-          <el-table-column prop="protocol" label="协议" width="90" />
-          <el-table-column prop="pid" label="PID" width="90" />
-          <el-table-column prop="processName" label="应用" min-width="180" />
-          <el-table-column prop="localAddress" label="本地地址" min-width="220" />
-          <el-table-column prop="remoteAddress" label="远端地址" min-width="220" />
-          <el-table-column prop="state" label="状态" width="130" />
-        </el-table>
-      </div>
+      <PortsPanel
+        v-else-if="activeTool === 'ports'"
+        :summary="portUsageSummary"
+        :state-rows="portUsageStateRows"
+        :filter="portFilter"
+        :filtered-process-rows="filteredPortProcessRows"
+        :connection-rows="portConnectionRows"
+        @load="loadPortUsage"
+        @update:filter="portFilter = $event"
+      />
 
       <div v-else-if="activeTool === 'env'" class="panel-grid">
         <div class="panel-grid-full">
@@ -474,7 +344,12 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
-import MonacoPane from "./components/MonacoPane.vue";
+import HomePanel from "./components/HomePanel.vue";
+import CalcDraftPanel from "./components/CalcDraftPanel.vue";
+import FormatterPanel from "./components/FormatterPanel.vue";
+import RegexPanel from "./components/RegexPanel.vue";
+import HostsPanel from "./components/HostsPanel.vue";
+import PortsPanel from "./components/PortsPanel.vue";
 import { invokeToolByChannel } from "./bridge/tauri";
 import { formatHtml, formatJava, formatJson, formatSqlCode, formatXml } from "@lazycat/formatters";
 
