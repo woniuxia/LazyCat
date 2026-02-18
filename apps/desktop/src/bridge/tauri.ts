@@ -15,6 +15,14 @@ export interface ToolResponse {
   meta?: { duration_ms: number; warnings?: string[] };
 }
 
+export async function registerHotkey(shortcut: string): Promise<void> {
+  await invoke("register_hotkey", { shortcut });
+}
+
+export async function unregisterHotkey(): Promise<void> {
+  await invoke("unregister_hotkey");
+}
+
 const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:encode:base64-encode": { domain: "encode", action: "base64_encode" },
   "tool:encode:base64-decode": { domain: "encode", action: "base64_decode" },

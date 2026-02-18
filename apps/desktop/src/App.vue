@@ -10,6 +10,7 @@
             {{ tool.name }}
           </el-menu-item>
         </el-sub-menu>
+        <el-menu-item index="settings">设置</el-menu-item>
       </el-menu>
     </aside>
 
@@ -337,6 +338,28 @@
           <el-table-column prop="path" label="离线路径" />
         </el-table>
       </div>
+
+      <div v-else-if="activeTool === 'settings'" class="panel-grid">
+        <div class="panel-grid-full">
+          <p style="margin-bottom: 8px; color: var(--el-text-color-secondary); font-size: 13px;">
+            设置全局快捷键后，可在任意位置显示/隐藏主窗口。关闭窗口时会最小化到系统托盘。
+          </p>
+          <el-form label-width="120px" style="max-width: 480px;">
+            <el-form-item label="显示/隐藏快捷键">
+              <el-input
+                v-model="hotkeyInput"
+                placeholder="例如：Alt+Space 或 Ctrl+Shift+L"
+                clearable
+                style="width: 260px;"
+              />
+            </el-form-item>
+            <el-form-item>
+              <el-button type="primary" @click="saveHotkeySettings">保存</el-button>
+              <el-button @click="clearHotkeySettings" style="margin-left: 8px;">清除快捷键</el-button>
+            </el-form-item>
+          </el-form>
+        </div>
+      </div>
     </main>
   </div>
 </template>
@@ -350,7 +373,7 @@ import FormatterPanel from "./components/FormatterPanel.vue";
 import RegexPanel from "./components/RegexPanel.vue";
 import HostsPanel from "./components/HostsPanel.vue";
 import PortsPanel from "./components/PortsPanel.vue";
-import { invokeToolByChannel } from "./bridge/tauri";
+import { invokeToolByChannel, registerHotkey, unregisterHotkey } from "./bridge/tauri";
 import { formatHtml, formatJava, formatJson, formatSqlCode, formatXml } from "@lazycat/formatters";
 
 interface ToolDef {
@@ -474,6 +497,7 @@ const HOME_TOOL: ToolDef = {
 const FAVORITE_STORAGE_KEY = "lazycat:favorites:v1";
 const TOOL_CLICKS_STORAGE_KEY = "lazycat:tool-clicks:v1";
 const HOME_TOP_LIMIT_STORAGE_KEY = "lazycat:home-top-limit:v1";
+const HOTKEY_STORAGE_KEY = "lazycat:hotkey:v1";
 const CALC_DRAFT_HISTORY_STORAGE_KEY = "lazycat:calc-draft-history:v1";
 const CLICK_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 const MAX_CLICK_HISTORY_PER_TOOL = 500;
@@ -487,10 +511,14 @@ const activeTool = ref(HOME_ID);
 const favoriteToolIds = ref<string[]>([]);
 const toolClickHistory = ref<ToolClickHistory>({});
 const homeTopLimit = ref<6 | 12>(12);
+const hotkeyInput = ref("");
 
 const currentTool = computed(() => {
   if (activeTool.value === HOME_ID) {
     return HOME_TOOL;
+  }
+  if (activeTool.value === "settings") {
+    return { id: "settings", name: "设置", desc: "快捷键与应用偏好设置" };
   }
   return allToolMap.get(activeTool.value);
 });
@@ -1584,11 +1612,38 @@ watch(
   }
 );
 
+async function saveHotkeySettings() {
+  const shortcut = hotkeyInput.value.trim();
+  try {
+    await registerHotkey(shortcut);
+    localStorage.setItem(HOTKEY_STORAGE_KEY, shortcut);
+    ElMessage.success(shortcut ? `快捷键 ${shortcut} 已保存` : "快捷键已清除");
+  } catch (e) {
+    ElMessage.error(`保存失败：${(e as Error).message}`);
+  }
+}
+
+async function clearHotkeySettings() {
+  hotkeyInput.value = "";
+  try {
+    await unregisterHotkey();
+    localStorage.removeItem(HOTKEY_STORAGE_KEY);
+    ElMessage.success("快捷键已清除");
+  } catch (e) {
+    ElMessage.error(`清除失败：${(e as Error).message}`);
+  }
+}
+
 onMounted(async () => {
   loadFavoritesFromStorage();
   loadClickHistoryFromStorage();
   loadHomeTopLimitFromStorage();
   loadCalcHistoryFromStorage();
+  const savedHotkey = localStorage.getItem(HOTKEY_STORAGE_KEY) ?? "";
+  hotkeyInput.value = savedHotkey;
+  if (savedHotkey) {
+    try { await registerHotkey(savedHotkey); } catch { /* ignore in non-Tauri env */ }
+  }
   await Promise.all([loadHostsProfiles(), loadRegexTemplates(), loadManuals()]);
 });
 </script>
