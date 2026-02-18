@@ -1,52 +1,28 @@
-import { z } from "zod";
+// IPC contract types for the Tauri bridge.
+// The actual IPC implementation is in apps/desktop/src/bridge/tauri.ts.
 
-export const toolRequestSchema = z.object({
-  requestId: z.string().min(1),
-  toolId: z.string().min(1),
-  payload: z.unknown(),
-  timeoutMs: z.number().int().positive().optional()
-});
-
-export const toolErrorSchema = z.object({
-  code: z.string(),
-  message: z.string(),
-  details: z.unknown().optional()
-});
-
-export const toolResponseSchema = z.object({
-  requestId: z.string().min(1),
-  ok: z.boolean(),
-  data: z.unknown().optional(),
-  error: toolErrorSchema.optional(),
-  meta: z
-    .object({
-      durationMs: z.number().nonnegative(),
-      warnings: z.array(z.string()).optional()
-    })
-    .optional()
-});
-
-export type ToolRequest = z.infer<typeof toolRequestSchema>;
-export type ToolResponse = z.infer<typeof toolResponseSchema>;
-
-export function parseToolRequest(input: unknown): ToolRequest {
-  return toolRequestSchema.parse(input);
+export interface ToolRequest {
+  request_id: string;
+  domain: string;
+  action: string;
+  payload: Record<string, unknown>;
 }
 
-export function successResponse(requestId: string, data: unknown, durationMs: number): ToolResponse {
-  return {
-    requestId,
-    ok: true,
-    data,
-    meta: { durationMs }
-  };
+export interface ToolError {
+  code: string;
+  message: string;
+  details?: unknown;
 }
 
-export function failureResponse(requestId: string, code: string, message: string, durationMs: number): ToolResponse {
-  return {
-    requestId,
-    ok: false,
-    error: { code, message },
-    meta: { durationMs }
-  };
+export interface ToolMeta {
+  duration_ms: number;
+  warnings?: string[];
+}
+
+export interface ToolResponse {
+  request_id: string;
+  ok: boolean;
+  data?: unknown;
+  error?: ToolError;
+  meta?: ToolMeta;
 }

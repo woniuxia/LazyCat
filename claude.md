@@ -66,16 +66,21 @@ This file provides project context and collaboration conventions for Claude or o
 
 - Frontend ↔ backend call path:
   - Vue calls `invokeToolByChannel` in `apps/desktop/src/bridge/tauri.ts`
-  - Channel strings are mapped to `{domain, action}`
-  - Tauri command `tool_execute` dispatches in Rust
+  - Channel strings (e.g. `tool:encode:base64-encode`) are mapped to `{domain, action}` via `CHANNEL_MAP`
+  - Tauri command `tool_execute` dispatches in Rust via a single `match (domain, action)` in `main.rs`
+- Frontend routing: no vue-router; single `App.vue` uses `v-else-if` chains on `activeTool` ref to switch panels
+- Extracted sub-components in `apps/desktop/src/components/`: `HomePanel`, `CalcDraftPanel`, `FormatterPanel`, `RegexPanel`, `HostsPanel`, `PortsPanel`, `MonacoPane`
+- Formatter architecture: XML/HTML/Java/SQL formatting is **passthrough in Rust**; actual formatting is done by `@lazycat/formatters` (Prettier standalone) in the renderer
+- Cron preview (`cron.preview`) is currently a **stub** — returns placeholder strings, not real next-fire times
+- Hosts activate requires **administrator privileges** to write `C:\Windows\System32\drivers\etc\hosts`; auto-backs up original before overwrite
 - Runtime data:
   - App data under `%USERPROFILE%\\.lazycat`
   - Hosts profiles in sqlite
   - Hosts backup directory managed by Rust side
+- State persistence: favorites, tool click history, calc draft history stored in `localStorage`; hosts profiles in SQLite
 
 ## Important Runtime Paths
 
-- Startup logs: `%USERPROFILE%\\.lazycat\\logs\\startup.log`
 - DB file: `%USERPROFILE%\\.lazycat\\lazycat.sqlite`
 - Hosts backups: `%USERPROFILE%\\.lazycat\\hosts-backups`
 
@@ -83,8 +88,12 @@ This file provides project context and collaboration conventions for Claude or o
 
 - `pnpm build` requires Rust toolchain (`cargo`, `rustc`) and platform prerequisites.
 - On Windows, vendored OpenSSL requires `perl` (e.g. Strawberry Perl).
-- Some tools currently use pragmatic implementations and can be deepened (e.g. cron preview precision, advanced formatters).
+- All Rust tool logic lives in a single `apps/desktop/src-tauri/src/main.rs` (~990 lines); no module splitting yet.
+- `packages/core`, `packages/crypto`, `packages/db`, `packages/file-tools`, `packages/image-tools`, `packages/network`, `packages/ipc-contracts` are currently stubs or thin wrappers — actual logic runs in Rust. Only `packages/formatters` is actively used by the renderer (Prettier standalone).
+- Cron preview is a stub (returns placeholder strings). Real next-fire-time calculation not yet implemented.
+- XML/HTML/Java/SQL formatters in Rust are passthrough; formatting quality depends on `@lazycat/formatters` (Prettier).
 - Offline manuals are placeholder snapshots and can be replaced by full static docs.
+- Hosts activate requires running the app as Administrator on Windows.
 
 ## Commit Conventions
 
