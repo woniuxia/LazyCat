@@ -455,6 +455,37 @@ fn execute_tool(domain: &str, action: &str, payload: &Value) -> Result<Value, St
                 "error": result.err().map(|e| e.to_string())
             }))
         }
+        ("network", "http_test") => {
+            let url = payload["url"].as_str().unwrap_or("http://127.0.0.1");
+            let timeout_ms = payload["timeoutMs"].as_u64().unwrap_or(5000);
+            let started = Instant::now();
+            let agent = ureq::AgentBuilder::new()
+                .timeout(Duration::from_millis(timeout_ms))
+                .build();
+            match agent.head(url).call() {
+                Ok(resp) => Ok(json!({
+                    "url": url,
+                    "reachable": true,
+                    "statusCode": resp.status(),
+                    "latencyMs": started.elapsed().as_millis(),
+                    "error": null
+                })),
+                Err(ureq::Error::Status(code, _resp)) => Ok(json!({
+                    "url": url,
+                    "reachable": true,
+                    "statusCode": code,
+                    "latencyMs": started.elapsed().as_millis(),
+                    "error": null
+                })),
+                Err(e) => Ok(json!({
+                    "url": url,
+                    "reachable": false,
+                    "statusCode": null,
+                    "latencyMs": started.elapsed().as_millis(),
+                    "error": e.to_string()
+                }))
+            }
+        }
         ("env", "detect") => {
             let node = Command::new("node")
                 .arg("-v")

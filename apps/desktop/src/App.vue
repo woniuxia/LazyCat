@@ -206,15 +206,7 @@
         @load-templates="loadRegexTemplates"
       />
 
-      <div v-else-if="activeTool === 'network'" class="panel-grid">
-        <el-input v-model="host" placeholder="host" />
-        <el-input-number v-model="port" :min="1" :max="65535" />
-        <el-input-number v-model="timeoutMs" :min="100" :max="10000" />
-        <div>
-          <el-button type="primary" @click="runNetworkTest">测试连通性</el-button>
-        </div>
-        <el-input class="panel-grid-full" v-model="networkOutput" type="textarea" :rows="8" readonly />
-      </div>
+      <NetworkPanel v-else-if="activeTool === 'network'" />
 
       <HostsPanel
         v-else-if="activeTool === 'hosts'"
@@ -286,13 +278,23 @@
       </div>
 
       <div v-else-if="activeTool === 'timestamp'" class="panel-grid">
-        <el-input v-model="timeInput" placeholder="输入时间戳（秒/毫秒）或日期字符串" />
-        <el-input v-model="timeOutput" readonly />
-        <div class="panel-grid-full">
-          <el-space>
-            <el-button type="primary" @click="timestampToDate">时间戳 -> 日期</el-button>
-            <el-button @click="dateToTimestamp">日期 -> 时间戳</el-button>
-          </el-space>
+        <div class="panel-grid-full" style="display:flex;gap:8px;align-items:center;">
+          <span style="white-space:nowrap;color:var(--el-text-color-secondary);font-size:13px;">时间戳 → 日期</span>
+          <el-input v-model="timeInput" placeholder="时间戳" style="flex:1;" />
+          <el-button-group>
+            <el-button :type="timePrecision === 's' ? 'primary' : ''" @click="timePrecision = 's'; onTimePrecisionChange()">秒</el-button>
+            <el-button :type="timePrecision === 'ms' ? 'primary' : ''" @click="timePrecision = 'ms'; onTimePrecisionChange()">毫秒</el-button>
+          </el-button-group>
+          <el-input v-model="timeOutput" readonly placeholder="日期结果" style="flex:1;" />
+        </div>
+        <div class="panel-grid-full" style="display:flex;gap:8px;align-items:center;">
+          <span style="white-space:nowrap;color:var(--el-text-color-secondary);font-size:13px;">日期 → 时间戳</span>
+          <el-input v-model="dateInput" placeholder="日期，如 2024-01-01 00:00:00" style="flex:1;" />
+          <el-button-group>
+            <el-button :type="datePrecision === 's' ? 'primary' : ''" @click="datePrecision = 's'; onDatePrecisionChange()">秒</el-button>
+            <el-button :type="datePrecision === 'ms' ? 'primary' : ''" @click="datePrecision = 'ms'; onDatePrecisionChange()">毫秒</el-button>
+          </el-button-group>
+          <el-input v-model="dateOutput" readonly placeholder="时间戳结果" style="flex:1;" />
         </div>
       </div>
 
@@ -373,6 +375,7 @@ import FormatterPanel from "./components/FormatterPanel.vue";
 import RegexPanel from "./components/RegexPanel.vue";
 import HostsPanel from "./components/HostsPanel.vue";
 import PortsPanel from "./components/PortsPanel.vue";
+import NetworkPanel from "./components/NetworkPanel.vue";
 import { invokeToolByChannel, registerHotkey, unregisterHotkey } from "./bridge/tauri";
 import { formatHtml, formatJava, formatJson, formatSqlCode, formatXml } from "@lazycat/formatters";
 
@@ -600,11 +603,6 @@ const regexOutput = ref("");
 const regexKind = ref<"email" | "ipv4" | "url" | "phone-cn">("email");
 const regexTemplates = ref<unknown[]>([]);
 
-const host = ref("127.0.0.1");
-const port = ref(80);
-const timeoutMs = ref(2000);
-const networkOutput = ref("");
-
 const hostsName = ref("");
 const hostsContent = ref("");
 const hostsProfiles = ref<HostsProfile[]>([]);
@@ -644,6 +642,10 @@ const imageOutput = ref("");
 
 const timeInput = ref("");
 const timeOutput = ref("");
+const timePrecision = ref<"s" | "ms">("s");
+const dateInput = ref("");
+const dateOutput = ref("");
+const datePrecision = ref<"s" | "ms">("s");
 
 const passwordLength = ref(20);
 const passwordSymbols = ref(true);
@@ -944,6 +946,16 @@ function onSelect(id: string) {
   }
   activeTool.value = id;
   resetCommonBuffers();
+  if (id === "timestamp") {
+    timeInput.value = timePrecision.value === "s"
+      ? String(Math.floor(Date.now() / 1000))
+      : String(Date.now());
+    timeOutput.value = "";
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    dateInput.value = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+    dateOutput.value = "";
+  }
 }
 
 async function invoke(channel: string, payload: Record<string, unknown>) {
@@ -1178,19 +1190,6 @@ async function loadRegexTemplates() {
   }
 }
 
-async function runNetworkTest() {
-  try {
-    const data = await invoke("tool:network:tcp-test", {
-      host: host.value,
-      port: port.value,
-      timeoutMs: timeoutMs.value
-    });
-    networkOutput.value = JSON.stringify(data, null, 2);
-  } catch (error) {
-    ElMessage.error((error as Error).message);
-  }
-}
-
 async function loadHostsProfiles() {
   try {
     const data = await invoke("tool:hosts:list", {});
@@ -1352,10 +1351,33 @@ async function timestampToDate() {
 
 async function dateToTimestamp() {
   try {
-    const data = await invoke("tool:time:date-to-timestamp", { input: timeInput.value });
-    timeOutput.value = JSON.stringify(data, null, 2);
+    const data = await invoke("tool:time:date-to-timestamp", { input: dateInput.value }) as { seconds: number; milliseconds: number };
+    dateOutput.value = datePrecision.value === "s" ? String(data.seconds) : String(data.milliseconds);
   } catch (error) {
     ElMessage.error((error as Error).message);
+  }
+}
+
+function onDatePrecisionChange() {
+  if (!dateOutput.value) return;
+  const num = Number(dateOutput.value);
+  if (!Number.isFinite(num)) return;
+  if (datePrecision.value === "ms" && num < 1_000_000_000_000) {
+    dateOutput.value = String(num * 1000);
+  } else if (datePrecision.value === "s" && num >= 1_000_000_000_000) {
+    dateOutput.value = String(Math.floor(num / 1000));
+  }
+}
+
+function onTimePrecisionChange() {
+  const val = timeInput.value.trim();
+  if (/^\d+$/.test(val)) {
+    const num = Number(val);
+    if (timePrecision.value === "ms" && num < 1_000_000_000_000) {
+      timeInput.value = String(num * 1000);
+    } else if (timePrecision.value === "s" && num >= 1_000_000_000_000) {
+      timeInput.value = String(Math.floor(num / 1000));
+    }
   }
 }
 
@@ -1450,9 +1472,9 @@ function getAutoInputFingerprint(): string {
     case "regex":
       return `${activeTool.value}|${regexPattern.value}|${regexFlags.value}|${regexInput.value}`;
     case "network":
-      return `${activeTool.value}|${host.value}|${port.value}|${timeoutMs.value}`;
+      return `${activeTool.value}|noop`;
     case "timestamp":
-      return `${activeTool.value}|${timeInput.value}`;
+      return `${activeTool.value}|${timeInput.value}|${timePrecision.value}|${dateInput.value}|${datePrecision.value}`;
     default:
       return `${activeTool.value}|noop`;
   }
@@ -1527,20 +1549,12 @@ async function autoProcessByTool() {
       await runRegexTest();
       return;
     case "network":
-      if (!host.value.trim()) {
-        networkOutput.value = "";
-        return;
-      }
-      await runNetworkTest();
       return;
     case "timestamp":
-      if (!timeInput.value.trim()) {
-        timeOutput.value = "";
-        return;
-      }
-      if (/^\d+$/.test(timeInput.value.trim())) {
+      if (timeInput.value.trim()) {
         await timestampToDate();
-      } else {
+      }
+      if (dateInput.value.trim()) {
         await dateToTimestamp();
       }
       return;
