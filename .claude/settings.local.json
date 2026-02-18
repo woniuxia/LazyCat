@@ -4,7 +4,16 @@
       "Bash(dir:*)",
       "Bash(pnpm typecheck)",
       "Bash(pnpm --filter:*)",
-      "WebSearch"
+      "WebSearch",
+      "WebFetch(domain:crates.io)",
+      "Bash(Get-Content \"E:\\\\Projects\\\\LazyCat\\\\apps\\\\desktop\\\\src-tauri\\\\src\\\\main.rs\")",
+      "Bash(Measure-Object -Line)",
+      "WebFetch(domain:tauri.app)",
+      "WebFetch(domain:docs.rs)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:www.deepwiki.com)",
+      "WebFetch(domain:stackoverflow.com)",
+      "WebFetch(domain:github.com)"
     ]
   }
 }

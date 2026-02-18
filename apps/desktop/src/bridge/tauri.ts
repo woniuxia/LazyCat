@@ -46,6 +46,7 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:regex:templates": { domain: "regex", action: "templates" },
   "tool:cron:generate": { domain: "cron", action: "generate" },
   "tool:cron:preview": { domain: "cron", action: "preview" },
+  "tool:cron:parse": { domain: "cron", action: "parse" },
   "tool:crypto:rsa-encrypt": { domain: "crypto", action: "rsa_encrypt" },
   "tool:crypto:rsa-decrypt": { domain: "crypto", action: "rsa_decrypt" },
   "tool:crypto:aes-encrypt": { domain: "crypto", action: "aes_encrypt" },

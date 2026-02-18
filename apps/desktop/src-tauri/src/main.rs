@@ -15,7 +15,9 @@ use openssl::rsa::{Padding, Rsa};
 use openssl::symm::{decrypt, encrypt, Cipher};
 use qrcode::QrCode;
 use rand::Rng;
+use cron::Schedule;
 use regex::Regex;
+use std::str::FromStr;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -332,11 +334,35 @@ fn execute_tool(domain: &str, action: &str, payload: &Value) -> Result<Value, St
         ("cron", "preview") => {
             let expression = payload["expression"].as_str().unwrap_or("0 * * * * *");
             let count = payload["count"].as_u64().unwrap_or(5) as usize;
-            let mut out = Vec::new();
-            for i in 0..count {
-                out.push(format!("Preview {} for {}", i + 1, expression));
+            let schedule = Schedule::from_str(expression)
+                .map_err(|e| format!("无效的 Cron 表达式: {e}"))?;
+            let now = Local::now();
+            let times: Vec<String> = schedule
+                .after(&now)
+                .take(count)
+                .map(|t| t.format("%Y-%m-%d %H:%M:%S").to_string())
+                .collect();
+            Ok(json!(times))
+        }
+        ("cron", "parse") => {
+            let expression = payload["expression"].as_str().unwrap_or("").trim();
+            let parts: Vec<&str> = expression.split_whitespace().collect();
+            if parts.len() != 6 {
+                return Err(format!(
+                    "表达式必须包含 6 个字段（秒 分 时 日 月 周），当前 {} 个",
+                    parts.len()
+                ));
             }
-            Ok(json!(out))
+            Schedule::from_str(expression)
+                .map_err(|e| format!("无效的 Cron 表达式: {e}"))?;
+            Ok(json!({
+                "second":     parts[0],
+                "minute":     parts[1],
+                "hour":       parts[2],
+                "dayOfMonth": parts[3],
+                "month":      parts[4],
+                "dayOfWeek":  parts[5]
+            }))
         }
         ("crypto", "rsa_encrypt") => {
             let plaintext = payload["plaintext"].as_str().unwrap_or_default().as_bytes().to_vec();
