@@ -1,32 +1,20 @@
 <template>
   <div class="manual-panel">
-    <div class="manual-tabs">
-      <el-tabs v-model="activeId" @tab-change="onTabChange">
-        <el-tab-pane
-          v-for="m in manuals"
-          :key="m.id"
-          :label="m.name"
-          :name="m.id"
-        />
-      </el-tabs>
+    <div v-if="!activeUrl" class="manual-placeholder">
+      <el-empty description="暂无文档内容" />
     </div>
-    <div class="manual-frame-wrap">
-      <div v-if="!activeUrl" class="manual-placeholder">
-        <el-empty description="暂无文档内容" />
-      </div>
-      <iframe
-        v-else
-        :key="activeUrl"
-        :src="activeUrl"
-        class="manual-frame"
-        sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
-      />
-    </div>
+    <iframe
+      v-else
+      :key="activeUrl"
+      :src="activeUrl"
+      class="manual-frame"
+      sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from "vue";
+import { ref, watch, onMounted } from "vue";
 import { invokeToolByChannel } from "../bridge/tauri";
 
 interface Manual {
@@ -35,28 +23,37 @@ interface Manual {
   url: string;
 }
 
+const props = defineProps<{
+  manualId: string;
+}>();
+
 const manuals = ref<Manual[]>([]);
-const activeId = ref("");
+const activeUrl = ref("");
 
-const activeUrl = computed(
-  () => manuals.value.find((m) => m.id === activeId.value)?.url ?? ""
-);
-
-function onTabChange(id: string) {
-  activeId.value = id;
+/** manualId 格式为 "manual-vue3" -> 后端 id 为 "vue3" */
+function backendId(id: string) {
+  return id.replace(/^manual-/, "");
 }
 
-onMounted(async () => {
+function updateUrl() {
+  const bid = backendId(props.manualId);
+  const found = manuals.value.find((m) => m.id === bid);
+  activeUrl.value = found?.url ?? "";
+}
+
+async function loadManuals() {
   try {
     const data = await invokeToolByChannel("tool:manuals:list", {});
     manuals.value = Array.isArray(data) ? (data as Manual[]) : [];
-    if (manuals.value.length > 0) {
-      activeId.value = manuals.value[0].id;
-    }
   } catch {
-    // 静默失败，显示空状态
+    manuals.value = [];
   }
-});
+  updateUrl();
+}
+
+watch(() => props.manualId, updateUrl);
+
+onMounted(loadManuals);
 </script>
 
 <style scoped>
@@ -66,21 +63,11 @@ onMounted(async () => {
   height: 100%;
   overflow: hidden;
 }
-.manual-tabs {
-  flex-shrink: 0;
-  padding: 0 12px;
-}
-.manual-frame-wrap {
-  flex: 1;
-  overflow: hidden;
-  border: 1px solid var(--el-border-color);
-  border-radius: 4px;
-  margin: 0 12px 12px;
-}
 .manual-frame {
   width: 100%;
   height: 100%;
   border: none;
+  flex: 1;
 }
 .manual-placeholder {
   display: flex;

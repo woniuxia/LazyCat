@@ -1,29 +1,6 @@
 ﻿<template>
   <div class="shell">
-    <aside class="nav">
-      <div class="brand">
-        <span class="brand-name">Lazycat</span>
-        <span class="brand-zh">懒猫</span>
-      </div>
-      <el-menu :default-active="activeTool" @select="onSelect">
-        <el-menu-item index="home">首页</el-menu-item>
-        <el-sub-menu v-for="group in groups" :key="group.id" :index="group.id">
-          <template #title>{{ group.name }}</template>
-          <el-menu-item v-for="tool in group.tools" :key="tool.id" :index="tool.id">
-            {{ tool.name }}
-          </el-menu-item>
-        </el-sub-menu>
-      </el-menu>
-      <div class="nav-bottom">
-        <div
-          class="nav-bottom-item"
-          :class="{ 'is-active': activeTool === 'settings' }"
-          @click="onSelect('settings')"
-        >
-          设置
-        </div>
-      </div>
-    </aside>
+    <SidebarNav :groups="groups" :active-tool="activeTool" @select="onSelect" />
 
     <main ref="contentRef" class="content">
       <div class="tool-header">
@@ -305,7 +282,7 @@
         <el-input class="panel-grid-full" v-model="cronOutput" type="textarea" :rows="8" readonly />
       </div>
 
-      <ManualPanel v-else-if="activeTool === 'manuals'" />
+      <ManualPanel v-else-if="activeTool.startsWith('manual-')" :manual-id="activeTool" />
 
       <div v-else-if="activeTool === 'settings'" class="panel-grid">
         <div class="panel-grid-full">
@@ -352,6 +329,7 @@ import NetworkPanel from "./components/NetworkPanel.vue";
 import ManualPanel from "./components/ManualPanel.vue";
 import EncodePanel from "./components/EncodePanel.vue";
 import CsvJsonPanel from "./components/CsvJsonPanel.vue";
+import SidebarNav from "./components/SidebarNav.vue";
 import { invokeToolByChannel, registerHotkey, unregisterHotkey } from "./bridge/tauri";
 import { formatHtml, formatJava, formatJson, formatSqlCode, formatXml } from "@lazycat/formatters";
 
@@ -461,8 +439,15 @@ const groups: GroupDef[] = [
       { id: "calc-draft", name: "计算草稿", desc: "草稿式计算，回车复制结果并保留历史" },
       { id: "timestamp", name: "时间戳转换", desc: "时间戳与日期互转" },
       { id: "uuid", name: "UUID/GUID/密码", desc: "标识与随机密码生成" },
-      { id: "cron", name: "Cron 工具", desc: "Cron 表达式生成与预览" },
-      { id: "manuals", name: "离线手册", desc: "Vue3 / Element Plus 开发手册" }
+      { id: "cron", name: "Cron 工具", desc: "Cron 表达式生成与预览" }
+    ]
+  },
+  {
+    id: "manuals",
+    name: "离线手册",
+    tools: [
+      { id: "manual-vue3", name: "Vue 3 手册", desc: "Vue 3 中文开发手册" },
+      { id: "manual-element-plus", name: "Element Plus", desc: "Element Plus 组件库文档" }
     ]
   }
 ];

@@ -37,7 +37,16 @@
       "Bash(powershell:*)",
       "Bash(grep:*)",
       "Bash(comm:*)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(for file in nprogress.BjPUxM5y.js)",
+      "Bash(do if [ -f \"$file\" ])",
+      "Bash(then echo \"EXISTS: $file\")",
+      "Bash(else echo \"MISSING: $file\")",
+      "Bash(fi)",
+      "Bash(done)",
+      "Bash(cargo check:*)",
+      "Bash(cargo eval:*)",
+      "Bash(findstr:*)"
     ]
   }
 }

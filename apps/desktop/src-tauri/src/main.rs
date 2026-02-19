@@ -110,8 +110,9 @@ fn handle_manual_request(mut stream: TcpStream, root_dir: &Path) {
                 Some("txt")  => "text/plain; charset=utf-8",
                 Some("wasm") => "application/wasm",
                 None             => {
-                    // 无扩展名：检测 body 是否以 HTML doctype 开头
-                    if body.starts_with(b"<!DOCTYPE") || body.starts_with(b"<html") {
+                    // 无扩展名：检测 body 是否以 HTML doctype 开头（跳过可能的 UTF-8 BOM）
+                    let content = if body.starts_with(&[0xEF, 0xBB, 0xBF]) { &body[3..] } else { &body[..] };
+                    if content.starts_with(b"<!DOCTYPE") || content.starts_with(b"<!doctype") || content.starts_with(b"<html") {
                         "text/html; charset=utf-8"
                     } else {
                         "application/octet-stream"
@@ -742,7 +743,7 @@ fn execute_tool(domain: &str, action: &str, payload: &Value) -> Result<Value, St
             let mut list = Vec::new();
             let known = [
                 ("vue3",         "Vue 3 开发手册",       "/guide/introduction.html"),
-                ("element-plus", "Element Plus 组件库",  "/zh-CN/guide/design"),
+                ("element-plus", "Element Plus 组件库",  "/zh-CN/component/overview"),
             ];
             for (id, name, home) in known {
                 if let Some(port) = servers.and_then(|m| m.get(id)) {

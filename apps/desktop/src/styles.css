@@ -256,6 +256,72 @@ body {
   opacity: 0.85;
 }
 
+/* ---------- Sidebar Toolbar ---------- */
+.nav-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 12px 10px;
+  border-bottom: 1px solid var(--lc-border);
+}
+
+.nav-toolbar .el-input {
+  --el-input-bg-color: var(--lc-surface-2);
+  --el-component-size: 36px;
+}
+
+.nav-toolbar-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.nav-toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 26px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--lc-text-muted);
+  font-size: 12px;
+  font-family: var(--lc-font-body);
+  cursor: pointer;
+  transition: all var(--lc-duration) var(--lc-ease);
+  user-select: none;
+}
+
+.nav-toolbar-btn .el-icon {
+  font-size: 14px;
+}
+
+.nav-toolbar-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--lc-text);
+}
+
+.nav-toolbar-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.nav-toolbar-btn:disabled:hover {
+  background: transparent;
+  color: var(--lc-text-muted);
+}
+
+.nav-empty {
+  padding: 20px 16px;
+  text-align: center;
+  color: var(--lc-text-muted);
+  font-size: 13px;
+}
+
+html[data-theme="light"] .nav-toolbar-btn:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
 /* ---------- Sidebar Menu Overrides ---------- */
 .nav .el-menu {
   --el-menu-bg-color: transparent;
