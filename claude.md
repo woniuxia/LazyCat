@@ -21,8 +21,9 @@
 - `packages/image-tools`: 图片转换/缩放/裁剪/压缩
 - `packages/db`: SQLite 持久化
 - `packages/ipc-contracts`: 请求/响应契约定义
-- `resources/manuals`: 离线手册快照
+- `resources/manuals`: 离线手册（Vue 3、Element Plus）
 - `resources/regex-library`: 内置正则模板
+- `scripts`: 构建脚本（`build-tauri-win.ps1`）
 
 ## 本地命令
 
@@ -73,7 +74,7 @@
   - 通道字符串（如 `tool:encode:base64-encode`）通过 `CHANNEL_MAP` 映射为 `{domain, action}`
   - Tauri 命令 `tool_execute` 在 Rust 端通过 `main.rs` 中的 `match (domain, action)` 分发
 - 前端路由：未使用 vue-router；`App.vue` 通过 `v-else-if` 链式判断 `activeTool` ref 来切换面板
-- 已提取的子组件位于 `apps/desktop/src/components/`：`HomePanel`、`CalcDraftPanel`、`FormatterPanel`、`RegexPanel`、`HostsPanel`、`PortsPanel`、`MonacoPane`、`ManualPanel`、`EncodePanel`
+- 已提取的子组件位于 `apps/desktop/src/components/`：`HomePanel`、`CalcDraftPanel`、`FormatterPanel`、`RegexPanel`、`HostsPanel`、`PortsPanel`、`NetworkPanel`、`MonacoPane`、`ManualPanel`、`EncodePanel`、`CsvJsonPanel`、`SidebarNav`
 - 格式化架构：XML/HTML/Java/SQL 格式化在 Rust 端为**直通模式**；实际格式化由渲染层的 `@lazycat/formatters`（Prettier standalone）完成
 - Cron 预览（`cron.preview`）当前为**桩实现** -- 返回占位字符串，非真实的下次触发时间
 - Hosts 激活需要**管理员权限**写入 `C:\Windows\System32\drivers\etc\hosts`；覆写前自动备份原文件
@@ -92,11 +93,11 @@
 
 - `pnpm build` 需要 Rust 工具链（`cargo`、`rustc`）及平台依赖。
 - Windows 上 vendored OpenSSL 需要 `perl`（如 Strawberry Perl）。
-- 所有 Rust 工具逻辑集中在 `apps/desktop/src-tauri/src/main.rs`（约 990 行），尚未拆分模块。
+- 所有 Rust 工具逻辑集中在 `apps/desktop/src-tauri/src/main.rs`（约 1340 行），尚未拆分模块。
 - `packages/core`、`packages/crypto`、`packages/db`、`packages/file-tools`、`packages/image-tools`、`packages/network`、`packages/ipc-contracts` 当前为桩或薄封装 -- 实际逻辑在 Rust 端。仅 `packages/formatters` 被渲染层实际使用（Prettier standalone）。
 - Cron 预览为桩实现（返回占位字符串），真实的下次触发时间计算尚未实现。
 - Rust 端的 XML/HTML/Java/SQL 格式化为直通模式；格式化质量取决于 `@lazycat/formatters`（Prettier）。
-- 离线手册为占位快照，可替换为完整静态文档。
+- 离线手册已集成 Vue 3 和 Element Plus，可替换或新增更多完整静态文档。
 - Hosts 激活需要以管理员身份运行应用。
 
 ## 离线手册架构
@@ -144,8 +145,9 @@
 3. **注册手册**（`main.rs` 的 `manuals:list` 分支）：
    ```rust
    let known = [
-       ("vue3",  "Vue 3 开发手册",  "/guide/introduction.html"),
-       ("<id>",  "<名称>",          "/<首页路径>"),  // 新增
+       ("vue3",         "Vue 3 开发手册",       "/guide/introduction.html"),
+       ("element-plus", "Element Plus 组件库",  "/zh-CN/component/overview"),
+       ("<id>",         "<名称>",               "/<首页路径>"),  // 新增
    ];
    ```
 
