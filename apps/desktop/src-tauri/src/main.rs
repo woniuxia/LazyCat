@@ -81,6 +81,16 @@ fn handle_manual_request(mut stream: TcpStream, root_dir: &Path) {
     } else {
         file_path
     };
+    // VitePress lean.js fallback: 请求 foo.js 但磁盘只有 foo.lean.js
+    let file_path = if !file_path.exists() {
+        if let Some(ext) = file_path.extension().and_then(|e| e.to_str()) {
+            if ext == "js" {
+                let lean = file_path.with_extension("lean.js");
+                if lean.exists() { lean } else { file_path }
+            } else { file_path }
+        } else { file_path }
+    } else { file_path };
+
     match fs::read(&file_path) {
         Ok(body) => {
             let mime = match file_path.extension().and_then(|e| e.to_str()) {

@@ -35,7 +35,9 @@
       "Bash(test:*)",
       "Bash(find:*)",
       "Bash(powershell:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(comm:*)",
+      "Bash(ls:*)"
     ]
   }
 }
