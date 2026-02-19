@@ -118,14 +118,7 @@
         </div>
       </div>
 
-      <div v-else-if="activeTool === 'csv-json'" class="panel-grid">
-        <el-input v-model="convertInput" type="textarea" :rows="12" placeholder="输入 CSV" />
-        <el-input v-model="convertOutput" type="textarea" :rows="12" readonly placeholder="JSON 结果" />
-        <el-input v-model="csvDelimiter" placeholder="分隔符，默认逗号" />
-        <div>
-          <el-button type="primary" @click="csvToJsonAction">CSV -> JSON</el-button>
-        </div>
-      </div>
+      <CsvJsonPanel v-else-if="activeTool === 'csv-json'" />
 
       <div v-else-if="activeTool === 'text-process'" class="panel-grid">
         <el-input v-model="textProcessInput" type="textarea" :rows="12" placeholder="输入多行文本" />
@@ -340,6 +333,7 @@ import PortsPanel from "./components/PortsPanel.vue";
 import NetworkPanel from "./components/NetworkPanel.vue";
 import ManualPanel from "./components/ManualPanel.vue";
 import EncodePanel from "./components/EncodePanel.vue";
+import CsvJsonPanel from "./components/CsvJsonPanel.vue";
 import { invokeToolByChannel, registerHotkey, unregisterHotkey } from "./bridge/tauri";
 import { formatHtml, formatJava, formatJson, formatSqlCode, formatXml } from "@lazycat/formatters";
 
@@ -545,7 +539,6 @@ const formatDetectedLabel = computed(() => {
 
 const convertInput = ref("");
 const convertOutput = ref("");
-const csvDelimiter = ref(",");
 
 const textProcessInput = ref("");
 const textProcessOutput = ref("");
@@ -1049,14 +1042,6 @@ async function runConvertTool(channel: string) {
   }
 }
 
-async function csvToJsonAction() {
-  try {
-    convertOutput.value = String(await invoke("tool:convert:csv-to-json", { input: convertInput.value, delimiter: csvDelimiter.value }));
-  } catch (error) {
-    ElMessage.error((error as Error).message);
-  }
-}
-
 async function dedupeLines() {
   try {
     textProcessOutput.value = String(
@@ -1370,8 +1355,6 @@ function getAutoInputFingerprint(): string {
     case "json-xml":
     case "json-yaml":
       return `${activeTool.value}|${convertInput.value}`;
-    case "csv-json":
-      return `${activeTool.value}|${convertInput.value}|${csvDelimiter.value}`;
     case "text-process":
       return `${activeTool.value}|${textProcessInput.value}|${textCaseSensitive.value}`;
     case "regex":
@@ -1403,13 +1386,6 @@ async function autoProcessByTool() {
         return;
       }
       await runConvertTool("tool:convert:json-to-yaml");
-      return;
-    case "csv-json":
-      if (!convertInput.value.trim()) {
-        convertOutput.value = "";
-        return;
-      }
-      await csvToJsonAction();
       return;
     case "text-process":
       if (!textProcessInput.value.trim()) {

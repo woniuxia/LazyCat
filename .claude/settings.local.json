@@ -30,7 +30,8 @@
       "Bash(git sparse-checkout:*)",
       "Bash(pnpm run:*)",
       "Bash(pnpm docs:build:*)",
-      "Bash(pnpm list:*)"
+      "Bash(pnpm list:*)",
+      "Bash(pnpm install:*)"
     ]
   }
 }

@@ -4,6 +4,8 @@
   "description": "Default capability for Lazycat desktop app.",
   "windows": ["main"],
   "permissions": [
-    "core:default"
+    "core:default",
+    "dialog:default",
+    "dialog:allow-open"
   ]
 }

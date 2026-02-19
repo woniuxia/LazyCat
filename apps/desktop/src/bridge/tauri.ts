@@ -36,6 +36,7 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:convert:xml-to-json": { domain: "convert", action: "xml_to_json" },
   "tool:convert:json-to-yaml": { domain: "convert", action: "json_to_yaml" },
   "tool:convert:csv-to-json": { domain: "convert", action: "csv_to_json" },
+  "tool:convert:csv-read-file": { domain: "convert", action: "csv_read_file" },
   "tool:text:unique-lines": { domain: "text", action: "unique_lines" },
   "tool:text:sort-lines": { domain: "text", action: "sort_lines" },
   "tool:time:timestamp-to-date": { domain: "time", action: "timestamp_to_date" },
