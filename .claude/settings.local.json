@@ -13,7 +13,20 @@
       "WebFetch(domain:raw.githubusercontent.com)",
       "WebFetch(domain:www.deepwiki.com)",
       "WebFetch(domain:stackoverflow.com)",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "Bash(wget:*)",
+      "Bash(curl:*)",
+      "Bash(node:*)",
+      "Bash(npx --version:*)",
+      "Bash(scoop --version:*)",
+      "Bash(choco:*)",
+      "Bash(pnpm add:*)",
+      "Bash(git --version:*)",
+      "Bash(git clone:*)",
+      "Bash(pnpm install)",
+      "Bash(pnpm build)",
+      "Bash(gh issue view:*)",
+      "Bash(cargo run:*)"
     ]
   }
 }

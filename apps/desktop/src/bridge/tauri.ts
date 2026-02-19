@@ -26,6 +26,8 @@ export async function unregisterHotkey(): Promise<void> {
 const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:encode:base64-encode": { domain: "encode", action: "base64_encode" },
   "tool:encode:base64-decode": { domain: "encode", action: "base64_decode" },
+  "tool:encode:base64-url-encode": { domain: "encode", action: "base64_url_encode" },
+  "tool:encode:base64-url-decode": { domain: "encode", action: "base64_url_decode" },
   "tool:encode:url-encode": { domain: "encode", action: "url_encode" },
   "tool:encode:url-decode": { domain: "encode", action: "url_decode" },
   "tool:encode:md5": { domain: "encode", action: "md5" },

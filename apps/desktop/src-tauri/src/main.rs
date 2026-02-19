@@ -7,7 +7,7 @@ use tauri::{
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
-use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+use base64::{engine::general_purpose::{STANDARD as BASE64, URL_SAFE_NO_PAD as BASE64URL}, Engine};
 use chrono::{Local, TimeZone, Utc};
 use image::ImageFormat;
 use openssl::pkey::{Private, Public};
@@ -24,11 +24,88 @@ use serde_json::{json, Value};
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Read, Write};
-use std::net::{SocketAddr, TcpStream};
+use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 use uuid::Uuid;
+
+static MANUAL_SERVERS: OnceLock<HashMap<String, u16>> = OnceLock::new();
+
+fn start_manual_server(root_dir: PathBuf) -> u16 {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind manual server");
+    let port = listener.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        for stream in listener.incoming().flatten() {
+            let dir = root_dir.clone();
+            std::thread::spawn(move || handle_manual_request(stream, &dir));
+        }
+    });
+    port
+}
+
+fn handle_manual_request(mut stream: TcpStream, root_dir: &Path) {
+    let mut buf = [0u8; 4096];
+    let n = match stream.read(&mut buf) {
+        Ok(n) if n > 0 => n,
+        _ => return,
+    };
+    let request = String::from_utf8_lossy(&buf[..n]);
+    let path = request
+        .lines()
+        .next()
+        .and_then(|line| line.split_whitespace().nth(1))
+        .unwrap_or("/");
+    // 解码 URL 编码的路径 (%xx)
+    let decoded_path = urlencoding::decode(path).unwrap_or_else(|_| path.into());
+    let rel = decoded_path.trim_start_matches('/');
+    let file_path = root_dir.join(rel);
+    // 安全检查：防止路径穿越
+    if !file_path.starts_with(root_dir) {
+        let resp = "HTTP/1.1 403 Forbidden\r\nContent-Length: 9\r\n\r\nForbidden";
+        let _ = stream.write_all(resp.as_bytes());
+        return;
+    }
+    // 如果是目录，尝试 index.html
+    let file_path = if file_path.is_dir() {
+        file_path.join("index.html")
+    } else {
+        file_path
+    };
+    match fs::read(&file_path) {
+        Ok(body) => {
+            let mime = match file_path.extension().and_then(|e| e.to_str()) {
+                Some("html") | Some("htm") => "text/html; charset=utf-8",
+                Some("css")  => "text/css",
+                Some("js") | Some("mjs") => "application/javascript",
+                Some("json") => "application/json",
+                Some("png")  => "image/png",
+                Some("jpg") | Some("jpeg") => "image/jpeg",
+                Some("gif")  => "image/gif",
+                Some("svg")  => "image/svg+xml",
+                Some("woff") => "font/woff",
+                Some("woff2")=> "font/woff2",
+                Some("ttf")  => "font/ttf",
+                Some("ico")  => "image/x-icon",
+                Some("xml")  => "application/xml",
+                Some("txt")  => "text/plain; charset=utf-8",
+                Some("wasm") => "application/wasm",
+                _            => "application/octet-stream",
+            };
+            let header = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: {mime}\r\nContent-Length: {}\r\nAccess-Control-Allow-Origin: *\r\n\r\n",
+                body.len()
+            );
+            let _ = stream.write_all(header.as_bytes());
+            let _ = stream.write_all(&body);
+        }
+        Err(_) => {
+            let resp = "HTTP/1.1 404 Not Found\r\nContent-Length: 9\r\n\r\nNot Found";
+            let _ = stream.write_all(resp.as_bytes());
+        }
+    }
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -126,6 +203,17 @@ fn execute_tool(domain: &str, action: &str, payload: &Value) -> Result<Value, St
             let decoded = BASE64
                 .decode(input)
                 .map_err(|e| format!("base64 decode failed: {e}"))?;
+            Ok(json!(String::from_utf8_lossy(&decoded).to_string()))
+        }
+        ("encode", "base64_url_encode") => {
+            let input = payload["input"].as_str().unwrap_or_default();
+            Ok(json!(BASE64URL.encode(input.as_bytes())))
+        }
+        ("encode", "base64_url_decode") => {
+            let input = payload["input"].as_str().unwrap_or_default();
+            let decoded = BASE64URL
+                .decode(input)
+                .map_err(|e| format!("base64url decode failed: {e}"))?;
             Ok(json!(String::from_utf8_lossy(&decoded).to_string()))
         }
         ("encode", "url_encode") => {
@@ -574,12 +662,15 @@ fn execute_tool(domain: &str, action: &str, payload: &Value) -> Result<Value, St
         ("hosts", "delete") => hosts_delete(payload),
         ("hosts", "activate") => hosts_activate(payload),
         ("manuals", "list") => {
-            let cwd = std::env::current_dir().map_err(|e| e.to_string())?;
-            Ok(json!([
-              {"id":"vue2","name":"Vue 2 开发手册","path":cwd.join("resources").join("manuals").join("vue2").join("index.html")},
-              {"id":"vue3","name":"Vue 3 开发手册","path":cwd.join("resources").join("manuals").join("vue3").join("index.html")},
-              {"id":"element-plus","name":"Element Plus 开发手册","path":cwd.join("resources").join("manuals").join("element-plus").join("index.html")}
-            ]))
+            let servers = MANUAL_SERVERS.get();
+            let mut list = Vec::new();
+            let known = [("vue3", "Vue 3 开发手册")];
+            for (id, name) in known {
+                if let Some(port) = servers.and_then(|m| m.get(id)) {
+                    list.push(json!({"id": id, "name": name, "url": format!("http://127.0.0.1:{port}/guide/introduction.html")}));
+                }
+            }
+            Ok(json!(list))
         }
         _ => Err(format!("unsupported command: {domain}.{action}")),
     }
@@ -1083,6 +1174,35 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(|app| {
+            // 启动离线文档 HTTP 服务器
+            // 打包后从 resource_dir/manuals 读取；开发模式下 fallback 到源码目录
+            let manuals_dir = {
+                let rd = app.path().resource_dir().ok().map(|d| d.join("manuals"));
+                if rd.as_ref().is_some_and(|d| d.exists()) {
+                    rd.unwrap()
+                } else {
+                    // 开发模式：src-tauri/../../../resources/manuals
+                    let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                        .join("../../../resources/manuals");
+                    std::fs::canonicalize(&dev).unwrap_or(dev)
+                }
+            };
+            if manuals_dir.exists() {
+                let mut ports = HashMap::new();
+                if let Ok(entries) = fs::read_dir(&manuals_dir) {
+                    for entry in entries.flatten() {
+                        let path = entry.path();
+                        if path.is_dir() {
+                            if let Some(id) = path.file_name().and_then(|n| n.to_str()) {
+                                let port = start_manual_server(path.clone());
+                                ports.insert(id.to_string(), port);
+                            }
+                        }
+                    }
+                }
+                let _ = MANUAL_SERVERS.set(ports);
+            }
+
             let show_item = MenuItem::with_id(app, "show", "显示", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show_item, &quit_item])?;

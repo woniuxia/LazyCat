@@ -39,35 +39,10 @@
         @update:home-top-limit="homeTopLimit = $event"
       />
 
-      <div v-else-if="activeTool === 'base64'" class="panel-grid">
-        <el-input v-model="base64Input" type="textarea" :rows="10" placeholder="输入文本" />
-        <el-input :model-value="base64Output" type="textarea" :rows="10" readonly placeholder="结果" />
-        <div class="panel-grid-full">
-          <el-space>
-            <el-button type="primary" @click="runBase64Tool('tool:encode:base64-encode')">Base64 编码</el-button>
-            <el-button @click="runBase64Tool('tool:encode:base64-decode')">Base64 解码</el-button>
-          </el-space>
-        </div>
-      </div>
-
-      <div v-else-if="activeTool === 'url'" class="panel-grid">
-        <el-input v-model="urlInput" type="textarea" :rows="10" placeholder="输入 URL 文本" />
-        <el-input :model-value="urlOutput" type="textarea" :rows="10" readonly placeholder="结果" />
-        <div class="panel-grid-full">
-          <el-space>
-            <el-button type="primary" @click="runUrlTool('tool:encode:url-encode')">URL 编码</el-button>
-            <el-button @click="runUrlTool('tool:encode:url-decode')">URL 解码</el-button>
-          </el-space>
-        </div>
-      </div>
-
-      <div v-else-if="activeTool === 'md5'" class="panel-grid">
-        <el-input v-model="md5Input" type="textarea" :rows="10" placeholder="输入文本" />
-        <el-input :model-value="md5Output" type="textarea" :rows="10" readonly placeholder="MD5 结果" />
-        <div class="panel-grid-full">
-          <el-button type="primary" @click="runMd5Tool">计算 MD5</el-button>
-        </div>
-      </div>
+      <EncodePanel
+        v-else-if="['base64', 'url', 'md5', 'qr'].includes(activeTool)"
+        :active-tool="activeTool"
+      />
 
       <CalcDraftPanel
         v-else-if="activeTool === 'calc-draft'"
@@ -80,31 +55,6 @@
         @clear-history="clearCalcHistory"
         @history-click="onCalcHistoryClick"
       />
-
-      <div v-else-if="activeTool === 'qr'" class="qr-layout">
-        <el-input
-          class="qr-layout-full"
-          v-model="qrInput"
-          type="textarea"
-          :rows="7"
-          placeholder="输入文本并生成二维码"
-        />
-        <el-input
-          class="qr-layout-full"
-          :model-value="qrDataUrl"
-          type="textarea"
-          :rows="4"
-          readonly
-          placeholder="Base64 图片（Data URL）"
-        />
-        <div class="qr-layout-action">
-          <el-button type="primary" @click="generateQr">生成二维码</el-button>
-        </div>
-        <div class="qr-preview">
-          <img v-if="qrDataUrl" :src="qrDataUrl" alt="QR code" class="qr-image" />
-          <el-empty v-else description="尚未生成二维码" />
-        </div>
-      </div>
 
       <div v-else-if="activeTool === 'rsa'" class="panel-grid">
         <el-input v-model="cryptoInput" type="textarea" :rows="8" placeholder="明文 / 密文(Base64)" />
@@ -351,15 +301,7 @@
         <el-input class="panel-grid-full" v-model="cronOutput" type="textarea" :rows="8" readonly />
       </div>
 
-      <div v-else-if="activeTool === 'manuals'" class="panel-grid">
-        <div class="panel-grid-full">
-          <el-button type="primary" @click="loadManuals">刷新离线手册列表</el-button>
-        </div>
-        <el-table class="panel-grid-full" :data="manuals" border>
-          <el-table-column prop="name" label="手册名称" />
-          <el-table-column prop="path" label="离线路径" />
-        </el-table>
-      </div>
+      <ManualPanel v-else-if="activeTool === 'manuals'" />
 
       <div v-else-if="activeTool === 'settings'" class="panel-grid">
         <div class="panel-grid-full">
@@ -396,6 +338,8 @@ import RegexPanel from "./components/RegexPanel.vue";
 import HostsPanel from "./components/HostsPanel.vue";
 import PortsPanel from "./components/PortsPanel.vue";
 import NetworkPanel from "./components/NetworkPanel.vue";
+import ManualPanel from "./components/ManualPanel.vue";
+import EncodePanel from "./components/EncodePanel.vue";
 import { invokeToolByChannel, registerHotkey, unregisterHotkey } from "./bridge/tauri";
 import { formatHtml, formatJava, formatJson, formatSqlCode, formatXml } from "@lazycat/formatters";
 
@@ -506,7 +450,7 @@ const groups: GroupDef[] = [
       { id: "timestamp", name: "时间戳转换", desc: "时间戳与日期互转" },
       { id: "uuid", name: "UUID/GUID/密码", desc: "标识与随机密码生成" },
       { id: "cron", name: "Cron 工具", desc: "Cron 表达式生成与预览" },
-      { id: "manuals", name: "离线手册", desc: "Vue2/Vue3/Element Plus 索引" }
+      { id: "manuals", name: "离线手册", desc: "Vue3 开发手册" }
     ]
   }
 ];
@@ -560,20 +504,11 @@ const topMonthlyTools = computed(() => {
   return stats.slice(0, homeTopLimit.value);
 });
 
-const base64Input = ref("");
-const base64Output = ref("");
-const urlInput = ref("");
-const urlOutput = ref("");
-const md5Input = ref("");
-const md5Output = ref("");
 const calcCurrentInput = ref("");
 const calcHistory = ref<CalcDraftEntry[]>([]);
 const calcCurrentPreview = computed(() => {
   return getCalcPreview(calcCurrentInput.value);
 });
-const qrInput = ref("");
-const qrDataUrl = ref("");
-
 const cryptoInput = ref("");
 const cryptoOutput = ref("");
 const publicKeyPem = ref("");
@@ -683,10 +618,8 @@ const cronDow = ref("*");
 const cronExpression = ref("0 * * * * *");
 const cronOutput = ref("");
 
-const manuals = ref<Array<{ id: string; name: string; path: string }>>([]);
-
 function resetCommonBuffers() {
-  qrDataUrl.value = "";
+  // 各面板组件内部管理自身状态
 }
 
 function isRealToolId(id: string) {
@@ -980,42 +913,6 @@ function onSelect(id: string) {
 
 async function invoke(channel: string, payload: Record<string, unknown>) {
   return invokeToolByChannel(channel, payload);
-}
-
-async function runBase64Tool(channel: "tool:encode:base64-encode" | "tool:encode:base64-decode") {
-  try {
-    const data = await invoke(channel, { input: base64Input.value });
-    base64Output.value = typeof data === "string" ? data : JSON.stringify(data, null, 2);
-  } catch (error) {
-    ElMessage.error((error as Error).message);
-  }
-}
-
-async function runUrlTool(channel: "tool:encode:url-encode" | "tool:encode:url-decode") {
-  try {
-    const data = await invoke(channel, { input: urlInput.value });
-    urlOutput.value = typeof data === "string" ? data : JSON.stringify(data, null, 2);
-  } catch (error) {
-    ElMessage.error((error as Error).message);
-  }
-}
-
-async function runMd5Tool() {
-  try {
-    const data = await invoke("tool:encode:md5", { input: md5Input.value });
-    md5Output.value = typeof data === "string" ? data : JSON.stringify(data, null, 2);
-  } catch (error) {
-    ElMessage.error((error as Error).message);
-  }
-}
-
-async function generateQr() {
-  try {
-    const data = await invoke("tool:encode:qr", { input: qrInput.value });
-    qrDataUrl.value = String(data);
-  } catch (error) {
-    ElMessage.error((error as Error).message);
-  }
 }
 
 async function rsaEncryptAction() {
@@ -1464,15 +1361,6 @@ async function parseCron() {
   }
 }
 
-async function loadManuals() {
-  try {
-    const data = await invoke("tool:manuals:list", {});
-    manuals.value = Array.isArray(data) ? (data as Array<{ id: string; name: string; path: string }>) : [];
-  } catch (error) {
-    ElMessage.error((error as Error).message);
-  }
-}
-
 let autoProcessTimer: ReturnType<typeof setTimeout> | null = null;
 
 function getAutoInputFingerprint(): string {
@@ -1683,7 +1571,7 @@ onMounted(async () => {
   if (savedHotkey) {
     try { await registerHotkey(savedHotkey); } catch { /* ignore in non-Tauri env */ }
   }
-  await Promise.all([loadHostsProfiles(), loadRegexTemplates(), loadManuals()]);
+  await Promise.all([loadHostsProfiles(), loadRegexTemplates()]);
 });
 </script>
 
