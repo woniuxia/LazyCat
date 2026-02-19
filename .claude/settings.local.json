@@ -26,7 +26,11 @@
       "Bash(pnpm install)",
       "Bash(pnpm build)",
       "Bash(gh issue view:*)",
-      "Bash(cargo run:*)"
+      "Bash(cargo run:*)",
+      "Bash(git sparse-checkout:*)",
+      "Bash(pnpm run:*)",
+      "Bash(pnpm docs:build:*)",
+      "Bash(pnpm list:*)"
     ]
   }
 }

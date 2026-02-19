@@ -1365,14 +1365,6 @@ let autoProcessTimer: ReturnType<typeof setTimeout> | null = null;
 
 function getAutoInputFingerprint(): string {
   switch (activeTool.value) {
-    case "base64":
-      return `${activeTool.value}|${base64Input.value}`;
-    case "url":
-      return `${activeTool.value}|${urlInput.value}`;
-    case "md5":
-      return `${activeTool.value}|${md5Input.value}`;
-    case "qr":
-      return `${activeTool.value}|${qrInput.value}`;
     case "formatter":
       return `${activeTool.value}|${formatInput.value}`;
     case "json-xml":
@@ -1395,34 +1387,6 @@ function getAutoInputFingerprint(): string {
 
 async function autoProcessByTool() {
   switch (activeTool.value) {
-    case "base64":
-      if (!base64Input.value.trim()) {
-        base64Output.value = "";
-        return;
-      }
-      await runBase64Tool("tool:encode:base64-encode");
-      return;
-    case "url":
-      if (!urlInput.value.trim()) {
-        urlOutput.value = "";
-        return;
-      }
-      await runUrlTool("tool:encode:url-encode");
-      return;
-    case "md5":
-      if (!md5Input.value.trim()) {
-        md5Output.value = "";
-        return;
-      }
-      await runMd5Tool();
-      return;
-    case "qr":
-      if (!qrInput.value.trim()) {
-        qrDataUrl.value = "";
-        return;
-      }
-      await generateQr();
-      return;
     case "formatter":
       await formatCode();
       return;
