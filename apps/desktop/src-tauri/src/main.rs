@@ -67,9 +67,17 @@ fn handle_manual_request(mut stream: TcpStream, root_dir: &Path) {
         let _ = stream.write_all(resp.as_bytes());
         return;
     }
-    // 如果是目录，尝试 index.html
+    // 如果是目录，尝试 index.html；如果文件不存在且无扩展名，尝试加 .html
     let file_path = if file_path.is_dir() {
         file_path.join("index.html")
+    } else if !file_path.exists() && file_path.extension().is_none() {
+        let with_html = file_path.with_extension("html");
+        if with_html.exists() {
+            with_html
+        } else {
+            // 也尝试作为目录 + index.html（无扩展名的无文件情况）
+            file_path.join("index.html")
+        }
     } else {
         file_path
     };
@@ -91,7 +99,15 @@ fn handle_manual_request(mut stream: TcpStream, root_dir: &Path) {
                 Some("xml")  => "application/xml",
                 Some("txt")  => "text/plain; charset=utf-8",
                 Some("wasm") => "application/wasm",
-                _            => "application/octet-stream",
+                None             => {
+                    // 无扩展名：检测 body 是否以 HTML doctype 开头
+                    if body.starts_with(b"<!DOCTYPE") || body.starts_with(b"<html") {
+                        "text/html; charset=utf-8"
+                    } else {
+                        "application/octet-stream"
+                    }
+                }
+                Some(_)          => "application/octet-stream",
             };
             let header = format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: {mime}\r\nContent-Length: {}\r\nAccess-Control-Allow-Origin: *\r\n\r\n",
@@ -714,10 +730,13 @@ fn execute_tool(domain: &str, action: &str, payload: &Value) -> Result<Value, St
         ("manuals", "list") => {
             let servers = MANUAL_SERVERS.get();
             let mut list = Vec::new();
-            let known = [("vue3", "Vue 3 开发手册")];
-            for (id, name) in known {
+            let known = [
+                ("vue3",         "Vue 3 开发手册",       "/guide/introduction.html"),
+                ("element-plus", "Element Plus 组件库",  "/zh-CN/guide/design"),
+            ];
+            for (id, name, home) in known {
                 if let Some(port) = servers.and_then(|m| m.get(id)) {
-                    list.push(json!({"id": id, "name": name, "url": format!("http://127.0.0.1:{port}/guide/introduction.html")}));
+                    list.push(json!({"id": id, "name": name, "url": format!("http://127.0.0.1:{port}{home}")}));
                 }
             }
             Ok(json!(list))

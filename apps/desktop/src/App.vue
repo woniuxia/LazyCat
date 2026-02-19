@@ -1,7 +1,10 @@
 ﻿<template>
   <div class="shell">
     <aside class="nav">
-      <el-text tag="h2" size="large">Lazycat 懒猫</el-text>
+      <div class="brand">
+        <span class="brand-name">Lazycat</span>
+        <span class="brand-zh">懒猫</span>
+      </div>
       <el-menu :default-active="activeTool" @select="onSelect">
         <el-menu-item index="home">首页</el-menu-item>
         <el-sub-menu v-for="group in groups" :key="group.id" :index="group.id">
@@ -10,8 +13,16 @@
             {{ tool.name }}
           </el-menu-item>
         </el-sub-menu>
-        <el-menu-item index="settings">设置</el-menu-item>
       </el-menu>
+      <div class="nav-bottom">
+        <div
+          class="nav-bottom-item"
+          :class="{ 'is-active': activeTool === 'settings' }"
+          @click="onSelect('settings')"
+        >
+          设置
+        </div>
+      </div>
     </aside>
 
     <main ref="contentRef" class="content">
@@ -302,6 +313,13 @@
             设置全局快捷键后，可在任意位置显示/隐藏主窗口。关闭窗口时会最小化到系统托盘。
           </p>
           <el-form label-width="120px" style="max-width: 480px;">
+            <el-form-item label="外观主题">
+              <el-switch
+                v-model="isDarkMode"
+                active-text="深色"
+                inactive-text="浅色"
+              />
+            </el-form-item>
             <el-form-item label="显示/隐藏快捷键">
               <el-input
                 v-model="hotkeyInput"
@@ -444,7 +462,7 @@ const groups: GroupDef[] = [
       { id: "timestamp", name: "时间戳转换", desc: "时间戳与日期互转" },
       { id: "uuid", name: "UUID/GUID/密码", desc: "标识与随机密码生成" },
       { id: "cron", name: "Cron 工具", desc: "Cron 表达式生成与预览" },
-      { id: "manuals", name: "离线手册", desc: "Vue3 开发手册" }
+      { id: "manuals", name: "离线手册", desc: "Vue3 / Element Plus 开发手册" }
     ]
   }
 ];
@@ -460,6 +478,7 @@ const TOOL_CLICKS_STORAGE_KEY = "lazycat:tool-clicks:v1";
 const HOME_TOP_LIMIT_STORAGE_KEY = "lazycat:home-top-limit:v1";
 const HOTKEY_STORAGE_KEY = "lazycat:hotkey:v1";
 const CALC_DRAFT_HISTORY_STORAGE_KEY = "lazycat:calc-draft-history:v1";
+const THEME_STORAGE_KEY = "lazycat:theme:v1";
 const CLICK_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 const MAX_CLICK_HISTORY_PER_TOOL = 500;
 const MAX_CALC_HISTORY = 200;
@@ -473,6 +492,7 @@ const favoriteToolIds = ref<string[]>([]);
 const toolClickHistory = ref<ToolClickHistory>({});
 const homeTopLimit = ref<6 | 12>(12);
 const hotkeyInput = ref("");
+const isDarkMode = ref(true);
 
 const currentTool = computed(() => {
   if (activeTool.value === HOME_ID) {
@@ -1501,7 +1521,22 @@ async function clearHotkeySettings() {
   }
 }
 
+function applyTheme(dark: boolean) {
+  document.documentElement.dataset.theme = dark ? "dark" : "light";
+}
+
+watch(
+  () => isDarkMode.value,
+  (dark) => {
+    applyTheme(dark);
+    localStorage.setItem(THEME_STORAGE_KEY, dark ? "dark" : "light");
+  }
+);
+
 onMounted(async () => {
+  const savedTheme = localStorage.getItem(THEME_STORAGE_KEY);
+  isDarkMode.value = savedTheme !== "light";
+  applyTheme(isDarkMode.value);
   loadFavoritesFromStorage();
   loadClickHistoryFromStorage();
   loadHomeTopLimitFromStorage();

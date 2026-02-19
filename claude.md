@@ -130,6 +130,7 @@ This file provides project context and collaboration conventions for Claude or o
    ```
    - Vue 3 中文：`vuejs-translations/docs-zh-cn`，产物在 `.vitepress/dist/`
    - 注意：务必使用中文翻译仓库，而非英文原版
+   - **Element Plus 例外**：中文翻译由 Crowdin 管理，源码构建需要 Crowdin API token 才能生成中文版。替代方案是用 Puppeteer 抓取线上 SPA 渲染后的 HTML（见下方）
 
 2. **复制构建产物**到 `resources/manuals/<id>/`：
    ```bash
@@ -139,18 +140,34 @@ This file provides project context and collaboration conventions for Claude or o
 3. **注册手册**（`main.rs` 的 `manuals:list` 分支）：
    ```rust
    let known = [
-       ("vue3", "Vue 3 开发手册"),
-       ("<id>", "<名称>"),  // 新增
+       ("vue3",  "Vue 3 开发手册",  "/guide/introduction.html"),
+       ("<id>",  "<名称>",          "/<首页路径>"),  // 新增
    ];
    ```
 
 4. **清理临时目录**，验证 `pnpm dev` 能正确加载
 
+### Puppeteer SPA Scraping (Element Plus 方案)
+
+当文档无法从源码构建中文版时（如 Element Plus 需要 Crowdin API token），用 Puppeteer 抓取线上 SPA：
+
+1. 从 sitemap 获取所有 `/zh-CN/` 页面 URL
+2. 用 Puppeteer (headless Edge/Chrome) 逐页打开，等待 `networkidle0` + `#app .VPContent` 渲染
+3. `page.content()` 获取完整 DOM HTML，将绝对 URL 替换为相对路径后保存
+4. 收集页面中引用的 CSS/JS/字体/图片 URL，用 `fetch` 批量下载
+
+注意事项：
+- SPA 路由的 URL 没有 `.html` 扩展名（如 `/zh-CN/guide/design`），保存为同名文件
+- HTTP 服务器需要处理无扩展名文件：先尝试加 `.html`，再尝试作为目录找 `index.html`，并通过 body 内容检测 MIME 类型
+- Puppeteer 可用系统已装的 Edge：`executablePath: "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"`
+- 100 个页面 + 200 个静态资源，约需 5-10 分钟
+
 ### Pitfalls to Avoid
 
 - **不要用 `website-scraper` / `wget --mirror` 抓取 VitePress 站点** — VitePress 是 SPA，抓取到的是空壳 HTML，JS 渲染的内容不会被保存
-- **必须从源码构建** — `git clone` + `pnpm build` 得到的才是完整的静态产物
+- **优先从源码构建** — `git clone` + `pnpm build` 得到的才是完整的 SSR 静态产物；Puppeteer 抓取是 fallback 方案
 - **注意 `bundle.resources` 路径** — 相对于 `apps/desktop/src-tauri/`，不是项目根目录
+- **Element Plus 源码构建中文版需要 Crowdin API token** — 没有 token 只能构建英文版
 
 ## Commit Conventions
 

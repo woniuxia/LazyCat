@@ -31,7 +31,11 @@
       "Bash(pnpm run:*)",
       "Bash(pnpm docs:build:*)",
       "Bash(pnpm list:*)",
-      "Bash(pnpm install:*)"
+      "Bash(pnpm install:*)",
+      "Bash(test:*)",
+      "Bash(find:*)",
+      "Bash(powershell:*)",
+      "Bash(grep:*)"
     ]
   }
 }
