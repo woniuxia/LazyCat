@@ -15,6 +15,7 @@ pub mod file;
 pub mod image;
 pub mod hosts;
 pub mod manuals;
+pub mod settings;
 
 use serde_json::Value;
 
@@ -36,6 +37,7 @@ pub fn execute_tool(domain: &str, action: &str, payload: &Value) -> Result<Value
         "image"    => image::execute(action, payload),
         "hosts"    => hosts::execute(action, payload),
         "manuals"  => manuals::execute(action, payload),
+        "settings" => settings::execute(action, payload),
         _ => Err(format!("unsupported command: {domain}.{action}")),
     }
 }

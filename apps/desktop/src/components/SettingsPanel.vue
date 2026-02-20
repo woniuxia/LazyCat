@@ -27,15 +27,51 @@
           <el-button @click="clearHotkeySettings" style="margin-left: 8px;">清除快捷键</el-button>
         </el-form-item>
       </el-form>
+
+      <el-divider />
+
+      <h3 style="margin-bottom: 12px;">数据目录</h3>
+      <p style="margin-bottom: 12px; color: var(--el-text-color-secondary); font-size: 13px;">
+        应用数据（数据库、Hosts 备份）存储在此目录。更改目录后需重启应用。
+      </p>
+      <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 16px;">
+        <el-input
+          :model-value="dataDirPath"
+          readonly
+          style="flex: 1; max-width: 400px;"
+          placeholder="加载中..."
+        />
+        <el-button @click="handleChangeDataDir">更改</el-button>
+        <el-button
+          v-if="dataDirIsCustom"
+          @click="handleResetDataDir"
+        >恢复默认</el-button>
+      </div>
+
+      <el-divider />
+
+      <h3 style="margin-bottom: 12px;">数据管理</h3>
+      <p style="margin-bottom: 12px; color: var(--el-text-color-secondary); font-size: 13px;">
+        导出或导入应用数据（设置、收藏、使用记录、Hosts 配置）。升级或迁移时可用于备份恢复。
+      </p>
+      <div style="display: flex; gap: 12px; align-items: center;">
+        <el-button type="primary" @click="handleExport">导出数据</el-button>
+        <el-button @click="handleImport">导入数据</el-button>
+        <el-radio-group v-model="importMode" size="small" style="margin-left: 8px;">
+          <el-radio-button value="merge">合并</el-radio-button>
+          <el-radio-button value="overwrite">覆盖</el-radio-button>
+        </el-radio-group>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ElMessage } from "element-plus";
-import { registerHotkey, unregisterHotkey } from "../bridge/tauri";
-
-const HOTKEY_STORAGE_KEY = "lazycat:hotkey:v1";
+import { ref, onMounted } from "vue";
+import { ElMessage, ElMessageBox } from "element-plus";
+import { save, open } from "@tauri-apps/plugin-dialog";
+import { registerHotkey, unregisterHotkey, invokeToolByChannel } from "../bridge/tauri";
+import { setSetting } from "../composables/useSettings";
 
 const props = defineProps<{
   isDarkMode: boolean;
@@ -47,11 +83,32 @@ const emit = defineEmits<{
   (event: "update:hotkeyInput", value: string): void;
 }>();
 
+const importMode = ref<"merge" | "overwrite">("merge");
+const dataDirPath = ref("");
+const dataDirIsCustom = ref(false);
+
+onMounted(async () => {
+  await loadDataDir();
+});
+
+async function loadDataDir() {
+  try {
+    const result = (await invokeToolByChannel("tool:settings:get-data-dir", {})) as {
+      dataDir: string;
+      isCustom: boolean;
+    };
+    dataDirPath.value = result.dataDir;
+    dataDirIsCustom.value = result.isCustom;
+  } catch {
+    // IPC unavailable
+  }
+}
+
 async function saveHotkeySettings() {
   const shortcut = props.hotkeyInput.trim();
   try {
     await registerHotkey(shortcut);
-    localStorage.setItem(HOTKEY_STORAGE_KEY, shortcut);
+    setSetting("hotkey", shortcut);
     ElMessage.success(shortcut ? `快捷键 ${shortcut} 已保存` : "快捷键已清除");
   } catch (e) {
     ElMessage.error(`保存失败：${(e as Error).message}`);
@@ -62,10 +119,88 @@ async function clearHotkeySettings() {
   emit("update:hotkeyInput", "");
   try {
     await unregisterHotkey();
-    localStorage.removeItem(HOTKEY_STORAGE_KEY);
+    setSetting("hotkey", "");
     ElMessage.success("快捷键已清除");
   } catch (e) {
     ElMessage.error(`清除失败：${(e as Error).message}`);
+  }
+}
+
+async function handleExport() {
+  try {
+    const filePath = await save({
+      defaultPath: `lazycat-backup-${new Date().toISOString().slice(0, 10)}.json`,
+      filters: [{ name: "JSON", extensions: ["json"] }],
+    });
+    if (!filePath) return;
+    await invokeToolByChannel("tool:settings:export-to-file", { path: filePath });
+    ElMessage.success("数据已导出");
+  } catch (e) {
+    ElMessage.error(`导出失败：${(e as Error).message}`);
+  }
+}
+
+async function handleImport() {
+  try {
+    const filePath = await open({
+      multiple: false,
+      filters: [{ name: "JSON", extensions: ["json"] }],
+    });
+    if (!filePath) return;
+    if (importMode.value === "overwrite") {
+      await ElMessageBox.confirm(
+        "覆盖模式将清除所有现有数据并替换为导入内容，确定继续？",
+        "确认覆盖",
+        { type: "warning" },
+      );
+    }
+    await invokeToolByChannel("tool:settings:import-from-file", {
+      path: filePath,
+      mode: importMode.value,
+    });
+    ElMessage.success("数据已导入，重启应用后完全生效");
+  } catch (e) {
+    if ((e as { toString?: () => string })?.toString?.()?.includes("cancel")) return;
+    ElMessage.error(`导入失败：${(e as Error).message}`);
+  }
+}
+
+async function handleChangeDataDir() {
+  try {
+    const dirPath = await open({
+      directory: true,
+      multiple: false,
+      title: "选择数据目录",
+    });
+    if (!dirPath) return;
+    await ElMessageBox.confirm(
+      `将数据迁移到：${dirPath}\n\n迁移后需要重启应用。原目录数据保留作为安全备份。`,
+      "确认更改数据目录",
+      { type: "warning" },
+    );
+    await invokeToolByChannel("tool:settings:set-data-dir", { path: dirPath });
+    dataDirPath.value = dirPath as string;
+    dataDirIsCustom.value = true;
+    ElMessage.success("数据目录已更改，请重启应用");
+  } catch (e) {
+    if ((e as { toString?: () => string })?.toString?.()?.includes("cancel")) return;
+    ElMessage.error(`更改失败：${(e as Error).message}`);
+  }
+}
+
+async function handleResetDataDir() {
+  try {
+    await ElMessageBox.confirm(
+      "恢复为默认数据目录，重启后生效。自定义目录中的数据不会被删除。",
+      "确认恢复默认",
+      { type: "info" },
+    );
+    await invokeToolByChannel("tool:settings:reset-data-dir", {});
+    await loadDataDir();
+    ElMessage.success("已恢复默认数据目录，请重启应用");
+  } catch (e) {
+    if ((e as { toString?: () => string })?.toString?.()?.includes("cancel")) return;
+    ElMessage.error(`恢复失败：${(e as Error).message}`);
   }
 }
 </script>

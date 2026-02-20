@@ -79,15 +79,54 @@
 - Cron 预览（`cron.preview`）当前为**桩实现** -- 返回占位字符串，非真实的下次触发时间
 - Hosts 激活需要**管理员权限**写入 `C:\Windows\System32\drivers\etc\hosts`；覆写前自动备份原文件
 - 运行时数据：
-  - 应用数据目录：`%USERPROFILE%\\.lazycat`
-  - Hosts 配置存储在 SQLite
+  - 默认数据目录：`%USERPROFILE%\\.lazycat`（可通过设置面板自定义）
+  - 指针文件 `%USERPROFILE%\\.lazycat\\config.json` 记录自定义数据目录路径，该文件位置固定不变
+  - Hosts 配置、用户设置均存储在 SQLite
   - Hosts 备份目录由 Rust 端管理
-- 状态持久化：收藏夹、工具点击历史、计算草稿历史存储在 `localStorage`；Hosts 配置存储在 SQLite
+- 状态持久化：收藏夹、工具点击历史、计算草稿历史、外观主题、快捷键等全部存储在 SQLite（`user_settings` 表）；旧版 localStorage 数据在首次启动时自动迁移
 
 ## 重要运行时路径
 
-- 数据库文件: `%USERPROFILE%\\.lazycat\\lazycat.sqlite`
-- Hosts 备份: `%USERPROFILE%\\.lazycat\\hosts-backups`
+- 指针配置: `%USERPROFILE%\\.lazycat\\config.json`（固定位置，记录自定义数据目录）
+- 数据库文件: `<数据目录>\\lazycat.sqlite`（默认 `%USERPROFILE%\\.lazycat\\lazycat.sqlite`）
+- Hosts 备份: `<数据目录>\\hosts-backups`
+
+## 数据管理
+
+### 可配置数据目录
+
+- `helpers.rs` 提供三层路径函数：
+  - `get_base_dir()` -- 固定返回 `~/.lazycat`，创建目录
+  - `get_config_path()` -- 固定返回 `~/.lazycat/config.json`
+  - `get_data_dir()` -- 读 `config.json` 中的 `data_dir` 字段，若存在且路径可达则使用，否则回退 `get_base_dir()`
+- `config.json` 格式：`{"data_dir": "D:\\MyData\\lazycat"}`，该文件永远在 `~/.lazycat/` 下，不随数据目录迁移
+- 容错：自定义路径不可达（外置硬盘拔出等）时静默回退默认目录，不崩溃
+- 迁移策略：复制 `lazycat.sqlite` + `hosts-backups/` 到新目录，旧目录数据保留不删除
+- 安全检查：目标目录已存在 `lazycat.sqlite` 时拒绝迁移，避免覆盖
+
+### 导出/导入
+
+- 导出/导入使用 Tauri 原生文件对话框（`@tauri-apps/plugin-dialog` 的 `save()`/`open()`），不使用浏览器 blob 下载或 `<input type="file">`
+- Rust 端 `export_to_file` 直接调用 `settings_export()` 获取数据后写入指定路径
+- Rust 端 `import_from_file` 读取文件后复用 `settings_import()` 逻辑
+- 导出格式 JSON，包含 `version`、`exportedAt`、`settings`（全部用户设置）、`hosts_profiles`
+- 导入支持 `merge`（合并）和 `overwrite`（覆盖）两种模式
+- 所需权限：`capabilities/default.json` 中需要 `dialog:allow-save` 和 `dialog:allow-open`
+
+### settings 域 IPC 通道一览
+
+| 通道 | Rust action | 说明 |
+|------|-------------|------|
+| `tool:settings:get` | `get` | 读取单个设置项 |
+| `tool:settings:set` | `set` | 写入单个设置项 |
+| `tool:settings:get-all` | `get_all` | 读取全部设置 |
+| `tool:settings:export` | `export` | 导出数据（返回 JSON 值） |
+| `tool:settings:import` | `import` | 导入数据（传入 JSON 字符串） |
+| `tool:settings:export-to-file` | `export_to_file` | 导出数据到指定文件路径 |
+| `tool:settings:import-from-file` | `import_from_file` | 从指定文件路径导入数据 |
+| `tool:settings:get-data-dir` | `get_data_dir` | 获取当前数据目录信息 |
+| `tool:settings:set-data-dir` | `set_data_dir` | 设置自定义数据目录（含迁移） |
+| `tool:settings:reset-data-dir` | `reset_data_dir` | 恢复默认数据目录 |
 
 ## 当前已知限制
 

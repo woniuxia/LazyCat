@@ -29,6 +29,7 @@
     "@tauri-apps/plugin-dialog": "^2.0.0",
     "element-plus": "^2.11.1",
     "sharp": "^0.33.5",
+    "sortablejs": "^1.15.7",
     "sql.js": "^1.12.0",
     "vue": "^3.5.13"
   },
@@ -36,6 +37,7 @@
     "@monaco-editor/loader": "^1.5.0",
     "@playwright/test": "^1.50.1",
     "@tauri-apps/cli": "^2.0.0",
+    "@types/sortablejs": "^1.15.9",
     "@vitejs/plugin-vue": "^5.2.1",
     "monaco-editor": "^0.52.2",
     "typescript": "^5.7.3",

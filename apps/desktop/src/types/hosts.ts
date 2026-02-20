@@ -5,3 +5,9 @@ export interface HostsProfile {
   enabled: boolean;
   updatedAt: string;
 }
+
+export interface HostsBackupEntry {
+  filename: string;
+  size: number;
+  modifiedAt: string;
+}

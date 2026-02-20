@@ -1,11 +1,8 @@
 import { computed, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import type { ToolDef, ToolClickHistory } from "../types";
-import { loadJson, saveJson } from "./useLocalStorage";
+import { getSettingJson, setSettingJson } from "./useSettings";
 
-const FAVORITE_STORAGE_KEY = "lazycat:favorites:v1";
-const TOOL_CLICKS_STORAGE_KEY = "lazycat:tool-clicks:v1";
-const HOME_TOP_LIMIT_STORAGE_KEY = "lazycat:home-top-limit:v1";
 const CLICK_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 const MAX_CLICK_HISTORY_PER_TOOL = 500;
 
@@ -80,30 +77,30 @@ export function useFavorites(allTools: ToolDef[], isRealToolId: (id: string) => 
 
   function loadFromStorage() {
     // Favorites
-    const rawFav = loadJson<string[]>(FAVORITE_STORAGE_KEY, []);
+    const rawFav = getSettingJson<string[]>("favorites", []);
     favoriteToolIds.value = Array.isArray(rawFav)
       ? rawFav.filter((id): id is string => typeof id === "string" && isRealToolId(id))
       : [];
 
     // Click history
-    const rawClicks = loadJson<ToolClickHistory>(TOOL_CLICKS_STORAGE_KEY, {});
+    const rawClicks = getSettingJson<ToolClickHistory>("tool_clicks", {});
     toolClickHistory.value = pruneClicks(rawClicks);
 
     // Home top limit
-    const rawLimit = localStorage.getItem(HOME_TOP_LIMIT_STORAGE_KEY);
+    const rawLimit = getSettingJson<string>("home_top_limit", "12");
     homeTopLimit.value = rawLimit === "6" ? 6 : 12;
   }
 
-  // Auto-persist
-  watch(favoriteToolIds, () => saveJson(FAVORITE_STORAGE_KEY, favoriteToolIds.value), {
+  // Auto-persist to SQLite via useSettings
+  watch(favoriteToolIds, () => setSettingJson("favorites", favoriteToolIds.value), {
     deep: true,
   });
   watch(
     toolClickHistory,
-    () => saveJson(TOOL_CLICKS_STORAGE_KEY, pruneClicks(toolClickHistory.value)),
+    () => setSettingJson("tool_clicks", pruneClicks(toolClickHistory.value)),
     { deep: true },
   );
-  watch(homeTopLimit, (v) => localStorage.setItem(HOME_TOP_LIMIT_STORAGE_KEY, String(v)));
+  watch(homeTopLimit, (v) => setSettingJson("home_top_limit", String(v)));
 
   return {
     favoriteToolIds,

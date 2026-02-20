@@ -73,7 +73,22 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:hosts:list": { domain: "hosts", action: "list" },
   "tool:hosts:delete": { domain: "hosts", action: "delete" },
   "tool:hosts:activate": { domain: "hosts", action: "activate" },
-  "tool:manuals:list": { domain: "manuals", action: "list" }
+  "tool:hosts:reorder": { domain: "hosts", action: "reorder" },
+  "tool:hosts:read-system": { domain: "hosts", action: "read_system" },
+  "tool:hosts:admin-check": { domain: "hosts", action: "admin_check" },
+  "tool:hosts:backup-list": { domain: "hosts", action: "backup_list" },
+  "tool:hosts:backup-restore": { domain: "hosts", action: "backup_restore" },
+  "tool:manuals:list": { domain: "manuals", action: "list" },
+  "tool:settings:get": { domain: "settings", action: "get" },
+  "tool:settings:set": { domain: "settings", action: "set" },
+  "tool:settings:get-all": { domain: "settings", action: "get_all" },
+  "tool:settings:export": { domain: "settings", action: "export" },
+  "tool:settings:import": { domain: "settings", action: "import" },
+  "tool:settings:export-to-file": { domain: "settings", action: "export_to_file" },
+  "tool:settings:import-from-file": { domain: "settings", action: "import_from_file" },
+  "tool:settings:get-data-dir": { domain: "settings", action: "get_data_dir" },
+  "tool:settings:set-data-dir": { domain: "settings", action: "set_data_dir" },
+  "tool:settings:reset-data-dir": { domain: "settings", action: "reset_data_dir" }
 };
 
 export async function invokeToolByChannel(

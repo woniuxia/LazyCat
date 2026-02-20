@@ -42,9 +42,9 @@
 import { computed, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import type { CalcDraftEntry } from "../types";
-import { loadJson, saveJson } from "../composables/useLocalStorage";
+import { getSettingJson, setSettingJson } from "../composables/useSettings";
 
-const CALC_DRAFT_HISTORY_STORAGE_KEY = "lazycat:calc-draft-history:v1";
+const CALC_DRAFT_HISTORY_KEY = "calc_draft_history";
 const MAX_CALC_HISTORY = 200;
 
 const calcCurrentInput = ref("");
@@ -52,11 +52,11 @@ const calcHistory = ref<CalcDraftEntry[]>([]);
 
 const calcCurrentPreview = computed(() => getCalcPreview(calcCurrentInput.value));
 
-// Load history from localStorage on init
+// Load history from settings on init
 calcHistory.value = loadCalcHistoryFromStorage();
 
 function loadCalcHistoryFromStorage(): CalcDraftEntry[] {
-  const parsed = loadJson<unknown[]>(CALC_DRAFT_HISTORY_STORAGE_KEY, []);
+  const parsed = getSettingJson<unknown[]>(CALC_DRAFT_HISTORY_KEY, []);
   if (!Array.isArray(parsed)) return [];
   return parsed
     .filter((item): item is CalcDraftEntry => {
@@ -178,5 +178,5 @@ function formatCalcHistoryTime(timestamp: number) {
 }
 
 // Persist history
-watch(calcHistory, () => saveJson(CALC_DRAFT_HISTORY_STORAGE_KEY, calcHistory.value), { deep: true });
+watch(calcHistory, () => setSettingJson(CALC_DRAFT_HISTORY_KEY, calcHistory.value), { deep: true });
 </script>

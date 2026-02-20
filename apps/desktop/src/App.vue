@@ -41,7 +41,7 @@
 import { computed, onMounted, ref, watch } from "vue";
 import type { ToolDef, SidebarItem } from "./types";
 import { useFavorites } from "./composables/useFavorites";
-import { loadString } from "./composables/useLocalStorage";
+import { initSettings, getSetting, setSetting } from "./composables/useSettings";
 import { registerHotkey } from "./bridge/tauri";
 import { getToolComponent, ENCODE_PANEL_IDS } from "./tool-registry";
 import HomePanel from "./components/HomePanel.vue";
@@ -139,8 +139,6 @@ const sidebarItems: SidebarItem[] = [
 
 const HOME_ID = "home";
 const HOME_TOOL: ToolDef = { id: HOME_ID, name: "首页", desc: "收藏页面与最近一个月高频功能入口" };
-const THEME_STORAGE_KEY = "lazycat:theme:v1";
-const HOTKEY_STORAGE_KEY = "lazycat:hotkey:v1";
 
 const allTools = sidebarItems.flatMap((item) =>
   item.kind === "group" ? item.group.tools : [item.tool]
@@ -238,15 +236,16 @@ function applyTheme(dark: boolean) {
 
 watch(isDarkMode, (dark) => {
   applyTheme(dark);
-  localStorage.setItem(THEME_STORAGE_KEY, dark ? "dark" : "light");
+  setSetting("theme", dark ? "dark" : "light");
 });
 
 onMounted(async () => {
-  const savedTheme = localStorage.getItem(THEME_STORAGE_KEY);
+  await initSettings();
+  const savedTheme = getSetting("theme");
   isDarkMode.value = savedTheme !== "light";
   applyTheme(isDarkMode.value);
   loadFavoritesFromStorage();
-  const savedHotkey = loadString(HOTKEY_STORAGE_KEY);
+  const savedHotkey = getSetting("hotkey") ?? "";
   hotkeyInput.value = savedHotkey;
   if (savedHotkey) {
     try { await registerHotkey(savedHotkey); } catch { /* ignore in non-Tauri env */ }
