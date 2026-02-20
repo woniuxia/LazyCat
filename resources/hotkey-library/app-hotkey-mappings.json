@@ -1,0 +1,462 @@
+[
+  {
+    "id": "discord",
+    "displayName": "Discord",
+    "processNames": ["discord.exe"],
+    "category": "communication",
+    "defaultHotkeys": [
+      { "shortcut": "Ctrl+Shift+M", "action": "静音/取消静音" },
+      { "shortcut": "Ctrl+Shift+D", "action": "取消静音" }
+    ]
+  },
+  {
+    "id": "slack",
+    "displayName": "Slack",
+    "processNames": ["slack.exe"],
+    "category": "communication",
+    "defaultHotkeys": [
+      { "shortcut": "Ctrl+Shift+M", "action": "静音" }
+    ]
+  },
+  {
+    "id": "teams",
+    "displayName": "Microsoft Teams",
+    "processNames": ["teams.exe", "ms-teams.exe"],
+    "category": "communication",
+    "defaultHotkeys": [
+      { "shortcut": "Ctrl+Shift+M", "action": "静音/取消静音" },
+      { "shortcut": "Ctrl+Shift+O", "action": "摄像头开关" }
+    ]
+  },
+  {
+    "id": "wechat",
+    "displayName": "WeChat (微信)",
+    "processNames": ["wechat.exe"],
+    "category": "communication",
+    "defaultHotkeys": [
+      { "shortcut": "Ctrl+Alt+W", "action": "打开微信" },
+      { "shortcut": "Alt+A", "action": "截图" }
+    ]
+  },
+  {
+    "id": "wecom",
+    "displayName": "WeCom (企业微信)",
+    "processNames": ["wecom.exe", "wxwork.exe"],
+    "category": "communication",
+    "defaultHotkeys": [
+      { "shortcut": "Ctrl+Alt+W", "action": "打开企业微信" },
+      { "shortcut": "Alt+A", "action": "截图" }
+    ]
+  },
+  {
+    "id": "qq",
+    "displayName": "QQ",
+    "processNames": ["qq.exe"],
+    "category": "communication",
+    "defaultHotkeys": [
+      { "shortcut": "Ctrl+Alt+Z", "action": "提取消息" },
+      { "shortcut": "Ctrl+Alt+A", "action": "截图" }
+    ]
+  },
+  {
+    "id": "dingtalk",
+    "displayName": "DingTalk (钉钉)",
+    "processNames": ["dingtalk.exe"],
+    "category": "communication",
+    "defaultHotkeys": [
+      { "shortcut": "Ctrl+Shift+S", "action": "截图" },
+      { "shortcut": "Ctrl+Alt+D", "action": "打开钉钉" }
+    ]
+  },
+  {
+    "id": "lark",
+    "displayName": "Lark (飞书)",
+    "processNames": ["lark.exe", "feishu.exe"],
+    "category": "communication",
+    "defaultHotkeys": [
+      { "shortcut": "Ctrl+Shift+S", "action": "截图" },
+      { "shortcut": "Alt+A", "action": "截图" }
+    ]
+  },
+  {
+    "id": "telegram",
+    "displayName": "Telegram",
+    "processNames": ["telegram.exe"],
+    "category": "communication",
+    "defaultHotkeys": []
+  },
+  {
+    "id": "sharex",
+    "displayName": "ShareX",
+    "processNames": ["sharex.exe"],
+    "category": "screenshot",
+    "defaultHotkeys": [
+      { "shortcut": "Ctrl+Shift+PrintScreen", "action": "区域截图" },
+      { "shortcut": "Ctrl+PrintScreen", "action": "全屏截图" },
+      { "shortcut": "Ctrl+Shift+C", "action": "截图到剪贴板" }
+    ]
+  },
+  {
+    "id": "snipaste",
+    "displayName": "Snipaste",
+    "processNames": ["snipaste.exe"],
+    "category": "screenshot",
+    "defaultHotkeys": [
+      { "shortcut": "Ctrl+Shift+S", "action": "截图" },
+      { "shortcut": "Ctrl+Shift+P", "action": "贴图" }
+    ]
+  },
+  {
+    "id": "pixpin",
+    "displayName": "PixPin",
+    "processNames": ["pixpin.exe"],
+    "category": "screenshot",
+    "defaultHotkeys": [
+      { "shortcut": "Alt+A", "action": "截图" },
+      { "shortcut": "Alt+X", "action": "截长图" },
+      { "shortcut": "Alt+C", "action": "OCR 文字识别" },
+      { "shortcut": "Ctrl+Alt+Q", "action": "贴图" }
+    ]
+  },
+  {
+    "id": "greenshot",
+    "displayName": "Greenshot",
+    "processNames": ["greenshot.exe"],
+    "category": "screenshot",
+    "defaultHotkeys": [
+      { "shortcut": "Ctrl+PrintScreen", "action": "区域截图" },
+      { "shortcut": "Ctrl+Shift+PrintScreen", "action": "全屏截图" }
+    ]
+  },
+  {
+    "id": "snagit",
+    "displayName": "Snagit",
+    "processNames": ["snagit32.exe", "snagiteditor.exe"],
+    "category": "screenshot",
+    "defaultHotkeys": [
+      { "shortcut": "Ctrl+Shift+C", "action": "截图" }
+    ]
+  },
+  {
+    "id": "flameshot",
+    "displayName": "Flameshot",
+    "processNames": ["flameshot.exe"],
+    "category": "screenshot",
+    "defaultHotkeys": [
+      { "shortcut": "Ctrl+PrintScreen", "action": "截图" }
+    ]
+  },
+  {
+    "id": "picpick",
+    "displayName": "PicPick",
+    "processNames": ["picpick.exe"],
+    "category": "screenshot",
+    "defaultHotkeys": [
+      { "shortcut": "Ctrl+PrintScreen", "action": "全屏截图" },
+      { "shortcut": "Ctrl+Shift+PrintScreen", "action": "区域截图" }
+    ]
+  },
+  {
+    "id": "obs",
+    "displayName": "OBS Studio",
+    "processNames": ["obs64.exe", "obs32.exe"],
+    "category": "media",
+    "defaultHotkeys": []
+  },
+  {
+    "id": "steam",
+    "displayName": "Steam",
+    "processNames": ["steam.exe", "steamwebhelper.exe"],
+    "category": "gaming",
+    "defaultHotkeys": [
+      { "shortcut": "Shift+F1", "action": "Steam Overlay 帮助" }
+    ]
+  },
+  {
+    "id": "steam-overlay",
+    "displayName": "Steam Overlay",
+    "processNames": ["gameoverlayui.exe"],
+    "category": "gaming",
+    "defaultHotkeys": [
+      { "shortcut": "Shift+F12", "action": "Steam 截图" }
+    ]
+  },
+  {
+    "id": "nvidia-experience",
+    "displayName": "NVIDIA GeForce Experience",
+    "processNames": ["nvidia share.exe", "nvspcaps64.exe", "nvcontainer.exe"],
+    "category": "gaming",
+    "defaultHotkeys": [
+      { "shortcut": "Alt+F1", "action": "截图" },
+      { "shortcut": "Alt+F9", "action": "录制开关" },
+      { "shortcut": "Alt+F10", "action": "保存最后录制" },
+      { "shortcut": "Alt+F12", "action": "FPS 计数器" }
+    ]
+  },
+  {
+    "id": "vscode",
+    "displayName": "Visual Studio Code",
+    "processNames": ["code.exe"],
+    "category": "ide",
+    "defaultHotkeys": []
+  },
+  {
+    "id": "visual-studio",
+    "displayName": "Visual Studio",
+    "processNames": ["devenv.exe"],
+    "category": "ide",
+    "defaultHotkeys": []
+  },
+  {
+    "id": "intellij-idea",
+    "displayName": "IntelliJ IDEA",
+    "processNames": ["idea64.exe"],
+    "category": "ide",
+    "defaultHotkeys": []
+  },
+  {
+    "id": "webstorm",
+    "displayName": "WebStorm",
+    "processNames": ["webstorm64.exe"],
+    "category": "ide",
+    "defaultHotkeys": []
+  },
+  {
+    "id": "pycharm",
+    "displayName": "PyCharm",
+    "processNames": ["pycharm64.exe"],
+    "category": "ide",
+    "defaultHotkeys": []
+  },
+  {
+    "id": "goland",
+    "displayName": "GoLand",
+    "processNames": ["goland64.exe"],
+    "category": "ide",
+    "defaultHotkeys": []
+  },
+  {
+    "id": "rider",
+    "displayName": "Rider",
+    "processNames": ["rider64.exe"],
+    "category": "ide",
+    "defaultHotkeys": []
+  },
+  {
+    "id": "powertoys",
+    "displayName": "PowerToys",
+    "processNames": ["powertoys.exe", "powertoys.runner.exe", "powertoys.fancyzones.exe"],
+    "category": "utility",
+    "defaultHotkeys": [
+      { "shortcut": "Alt+Space", "action": "PowerToys Run" },
+      { "shortcut": "Win+Shift+C", "action": "颜色拾取器" },
+      { "shortcut": "Win+Shift+T", "action": "文字提取器" },
+      { "shortcut": "Win+Shift+M", "action": "测量工具" }
+    ]
+  },
+  {
+    "id": "everything",
+    "displayName": "Everything",
+    "processNames": ["everything.exe"],
+    "category": "utility",
+    "defaultHotkeys": [
+      { "shortcut": "Ctrl+Shift+F", "action": "打开搜索窗口" }
+    ]
+  },
+  {
+    "id": "listary",
+    "displayName": "Listary",
+    "processNames": ["listary.exe"],
+    "category": "utility",
+    "defaultHotkeys": [
+      { "shortcut": "Ctrl+Ctrl", "action": "打开搜索" }
+    ]
+  },
+  {
+    "id": "utools",
+    "displayName": "uTools",
+    "processNames": ["utools.exe"],
+    "category": "utility",
+    "defaultHotkeys": [
+      { "shortcut": "Alt+Space", "action": "打开搜索" }
+    ]
+  },
+  {
+    "id": "autohotkey",
+    "displayName": "AutoHotkey",
+    "processNames": ["autohotkey.exe", "autohotkey64.exe", "autohotkey32.exe"],
+    "category": "utility",
+    "defaultHotkeys": []
+  },
+  {
+    "id": "keypirinha",
+    "displayName": "Keypirinha",
+    "processNames": ["keypirinha-x64.exe"],
+    "category": "utility",
+    "defaultHotkeys": [
+      { "shortcut": "Alt+Space", "action": "打开搜索" }
+    ]
+  },
+  {
+    "id": "clipboardfusion",
+    "displayName": "ClipboardFusion",
+    "processNames": ["clipboardfusion.exe"],
+    "category": "clipboard",
+    "defaultHotkeys": []
+  },
+  {
+    "id": "ditto",
+    "displayName": "Ditto",
+    "processNames": ["ditto.exe"],
+    "category": "clipboard",
+    "defaultHotkeys": [
+      { "shortcut": "Ctrl+`", "action": "打开剪贴板历史" }
+    ]
+  },
+  {
+    "id": "1clipboard",
+    "displayName": "1Clipboard",
+    "processNames": ["1clipboard.exe"],
+    "category": "clipboard",
+    "defaultHotkeys": []
+  },
+  {
+    "id": "bandizip",
+    "displayName": "Bandizip",
+    "processNames": ["bandizip.exe"],
+    "category": "utility",
+    "defaultHotkeys": []
+  },
+  {
+    "id": "potplayer",
+    "displayName": "PotPlayer",
+    "processNames": ["potplayer.exe", "potplayer64.exe", "potplayermini.exe", "potplayermini64.exe"],
+    "category": "media",
+    "defaultHotkeys": []
+  },
+  {
+    "id": "foobar2000",
+    "displayName": "Foobar2000",
+    "processNames": ["foobar2000.exe"],
+    "category": "media",
+    "defaultHotkeys": []
+  },
+  {
+    "id": "spotify",
+    "displayName": "Spotify",
+    "processNames": ["spotify.exe"],
+    "category": "media",
+    "defaultHotkeys": []
+  },
+  {
+    "id": "netease-cloud-music",
+    "displayName": "NetEase Cloud Music (网易云音乐)",
+    "processNames": ["cloudmusic.exe"],
+    "category": "media",
+    "defaultHotkeys": [
+      { "shortcut": "Ctrl+Alt+P", "action": "播放/暂停" },
+      { "shortcut": "Ctrl+Alt+Left", "action": "上一首" },
+      { "shortcut": "Ctrl+Alt+Right", "action": "下一首" },
+      { "shortcut": "Ctrl+Alt+Up", "action": "音量增大" },
+      { "shortcut": "Ctrl+Alt+Down", "action": "音量减小" }
+    ]
+  },
+  {
+    "id": "qq-music",
+    "displayName": "QQ Music (QQ音乐)",
+    "processNames": ["qqmusic.exe"],
+    "category": "media",
+    "defaultHotkeys": [
+      { "shortcut": "Ctrl+Alt+F5", "action": "播放/暂停" },
+      { "shortcut": "Ctrl+Alt+Left", "action": "上一首" },
+      { "shortcut": "Ctrl+Alt+Right", "action": "下一首" },
+      { "shortcut": "Ctrl+Alt+Up", "action": "音量增大" },
+      { "shortcut": "Ctrl+Alt+Down", "action": "音量减小" }
+    ]
+  },
+  {
+    "id": "kugou-music",
+    "displayName": "Kugou Music (酷狗音乐)",
+    "processNames": ["kugou.exe"],
+    "category": "media",
+    "defaultHotkeys": [
+      { "shortcut": "Ctrl+Alt+F5", "action": "播放/暂停" },
+      { "shortcut": "Ctrl+Alt+Left", "action": "上一首" },
+      { "shortcut": "Ctrl+Alt+Right", "action": "下一首" }
+    ]
+  },
+  {
+    "id": "kuwo-music",
+    "displayName": "Kuwo Music (酷我音乐)",
+    "processNames": ["kuwo.exe"],
+    "category": "media",
+    "defaultHotkeys": [
+      { "shortcut": "Ctrl+Alt+F5", "action": "播放/暂停" },
+      { "shortcut": "Ctrl+Alt+Left", "action": "上一首" },
+      { "shortcut": "Ctrl+Alt+Right", "action": "下一首" }
+    ]
+  },
+  {
+    "id": "quicker",
+    "displayName": "Quicker",
+    "processNames": ["quicker.exe"],
+    "category": "utility",
+    "defaultHotkeys": [
+      { "shortcut": "Ctrl+Shift+Q", "action": "打开面板" }
+    ]
+  },
+  {
+    "id": "captura",
+    "displayName": "Captura",
+    "processNames": ["captura.exe"],
+    "category": "screenshot",
+    "defaultHotkeys": [
+      { "shortcut": "Ctrl+Shift+R", "action": "录制" },
+      { "shortcut": "Ctrl+Shift+S", "action": "截图" }
+    ]
+  },
+  {
+    "id": "faststone-capture",
+    "displayName": "FastStone Capture",
+    "processNames": ["faststone.exe", "fscapture.exe"],
+    "category": "screenshot",
+    "defaultHotkeys": [
+      { "shortcut": "Ctrl+Shift+PrintScreen", "action": "截图" }
+    ]
+  },
+  {
+    "id": "screentogif",
+    "displayName": "ScreenToGif",
+    "processNames": ["screentogif.exe"],
+    "category": "screenshot",
+    "defaultHotkeys": []
+  },
+  {
+    "id": "clipclip",
+    "displayName": "ClipClip",
+    "processNames": ["clipclip.exe"],
+    "category": "clipboard",
+    "defaultHotkeys": []
+  },
+  {
+    "id": "nomacs",
+    "displayName": "nomacs",
+    "processNames": ["nomacs.exe"],
+    "category": "media",
+    "defaultHotkeys": []
+  },
+  {
+    "id": "logi-options",
+    "displayName": "Logi Options+",
+    "processNames": ["logioptionsplus.exe"],
+    "category": "utility",
+    "defaultHotkeys": []
+  },
+  {
+    "id": "edge",
+    "displayName": "Microsoft Edge",
+    "processNames": ["microsoftedge.exe"],
+    "category": "browser",
+    "defaultHotkeys": []
+  }
+]

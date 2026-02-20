@@ -7,6 +7,7 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
     match action {
         "split" => file_split(payload),
         "merge" => file_merge(payload),
+        "write_text" => write_text(payload),
         _ => Err(format!("unsupported file action: {action}")),
     }
 }
@@ -69,4 +70,16 @@ fn file_merge(payload: &Value) -> Result<Value, String> {
       "outputPath": output_path.to_string_lossy().to_string(),
       "totalBytes": total_bytes
     }))
+}
+
+fn write_text(payload: &Value) -> Result<Value, String> {
+    let path = payload["path"]
+        .as_str()
+        .ok_or("缺少 path 参数")?;
+    let content = payload["content"]
+        .as_str()
+        .ok_or("缺少 content 参数")?;
+    fs::write(path, content.as_bytes())
+        .map_err(|e| format!("写入文件失败: {e}"))?;
+    Ok(json!({ "path": path }))
 }

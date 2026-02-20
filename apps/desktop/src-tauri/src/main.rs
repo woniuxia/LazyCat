@@ -18,6 +18,7 @@ use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
+use tools::hotkey::HOTKEY_MAPPINGS_DIR;
 use tools::manuals::MANUAL_SERVERS;
 use tools::regex::REGEX_TEMPLATES_DIR;
 
@@ -267,6 +268,19 @@ fn main() {
                 }
             };
             let _ = REGEX_TEMPLATES_DIR.set(regex_dir);
+
+            // 初始化热键映射目录
+            let hotkey_dir = {
+                let rd = app.path().resource_dir().ok().map(|d| d.join("hotkey-library"));
+                if rd.as_ref().is_some_and(|d| d.join("app-hotkey-mappings.json").exists()) {
+                    rd.unwrap()
+                } else {
+                    let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                        .join("../../../resources/hotkey-library");
+                    std::fs::canonicalize(&dev).unwrap_or(dev)
+                }
+            };
+            let _ = HOTKEY_MAPPINGS_DIR.set(hotkey_dir);
 
             let show_item = MenuItem::with_id(app, "show", "显示", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;

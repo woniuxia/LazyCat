@@ -9,3 +9,13 @@ export type {
 export type { CalcDraftEntry } from "./calc";
 export type { RegexTemplate, RegexCaptureGroup, RegexMatchResult } from "./regex";
 export type { TabItem } from "./tabs";
+export type {
+  HotkeyAction,
+  ShortcutSuspect,
+  SuspectApp,
+  HotkeyResult,
+  CheckResponse,
+  ScanResponse,
+  ModifierGroup,
+  DetectOwnerResponse,
+} from "./hotkey";

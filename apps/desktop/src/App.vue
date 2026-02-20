@@ -120,6 +120,7 @@ const sidebarItems: SidebarItem[] = [
         { id: "hosts", name: "Hosts 管理", desc: "多配置保存与切换" },
         { id: "ports", name: "端口占用", desc: "端口与进程查询" },
         { id: "env", name: "环境检测", desc: "Node 与 Java 版本检测" },
+        { id: "hotkey", name: "快捷键检测", desc: "全局快捷键冲突检测" },
       ],
     },
   },

@@ -74,6 +74,7 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:port:usage": { domain: "port", action: "usage" },
   "tool:file:split": { domain: "file", action: "split" },
   "tool:file:merge": { domain: "file", action: "merge" },
+  "tool:file:write-text": { domain: "file", action: "write_text" },
   "tool:image:convert": { domain: "image", action: "convert" },
   "tool:image:info": { domain: "image", action: "info" },
   "tool:hosts:save": { domain: "hosts", action: "save" },
@@ -98,7 +99,9 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:settings:reset-data-dir": { domain: "settings", action: "reset_data_dir" },
   "tool:jwt:decode": { domain: "jwt", action: "decode" },
   "tool:hotkey:check": { domain: "hotkey", action: "check" },
-  "tool:hotkey:scan": { domain: "hotkey", action: "scan" }
+  "tool:hotkey:scan": { domain: "hotkey", action: "scan" },
+  "tool:hotkey:mappings": { domain: "hotkey", action: "mappings" },
+  "tool:hotkey:detect-owner": { domain: "hotkey", action: "detect_owner" }
 };
 
 export async function invokeToolByChannel(
