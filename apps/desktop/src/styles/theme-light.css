@@ -1,0 +1,251 @@
+/* Light Theme */
+
+/* ==========================================
+   Light Theme
+   ========================================== */
+html[data-theme="light"] {
+  /* Core palette */
+  --lc-bg: #f2f4f8;
+  --lc-surface-0: #ffffff;
+  --lc-surface-1: #f7f8fb;
+  --lc-surface-2: #eef0f5;
+  --lc-surface-3: #e4e7ee;
+
+  /* Borders */
+  --lc-border: rgba(0, 0, 0, 0.08);
+  --lc-border-subtle: rgba(0, 0, 0, 0.04);
+  --lc-border-hover: rgba(0, 0, 0, 0.14);
+  --lc-border-active: rgba(90, 156, 248, 0.40);
+
+  /* Text */
+  --lc-text: #1a1d27;
+  --lc-text-secondary: #5a6478;
+  --lc-text-muted: #8c95a8;
+
+  /* Accent — light blue */
+  --lc-accent: #5A9CF8;
+  --lc-accent-light: #7CB4FA;
+  --lc-accent-dim: rgba(90, 156, 248, 0.10);
+  --lc-accent-glow: rgba(90, 156, 248, 0.07);
+
+  /* Depth — softer shadows */
+  --lc-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.05);
+  --lc-shadow-md: 0 4px 14px rgba(0, 0, 0, 0.07);
+  --lc-shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.10);
+  --lc-shadow-glow: 0 0 24px var(--lc-accent-glow);
+
+  /* ---- Element Plus light overrides ---- */
+  --el-color-primary: #5A9CF8;
+  --el-color-primary-light-3: #7FB5F9;
+  --el-color-primary-light-5: #A4CDFA;
+  --el-color-primary-light-7: #C2DFFB;
+  --el-color-primary-light-8: #D4E9FC;
+  --el-color-primary-light-9: #E6F2FE;
+  --el-color-primary-dark-2: #3B82F6;
+
+  --el-bg-color: #ffffff;
+  --el-bg-color-overlay: #ffffff;
+  --el-bg-color-page: #f2f4f8;
+
+  --el-text-color-primary: #1a1d27;
+  --el-text-color-regular: #3a3f50;
+  --el-text-color-secondary: #5a6478;
+  --el-text-color-placeholder: #8c95a8;
+  --el-text-color-disabled: #c0c4cc;
+
+  --el-border-color: rgba(0, 0, 0, 0.10);
+  --el-border-color-light: rgba(0, 0, 0, 0.07);
+  --el-border-color-lighter: rgba(0, 0, 0, 0.05);
+  --el-border-color-extra-light: rgba(0, 0, 0, 0.03);
+  --el-border-color-dark: rgba(0, 0, 0, 0.15);
+  --el-border-color-darker: rgba(0, 0, 0, 0.20);
+
+  --el-fill-color: rgba(0, 0, 0, 0.03);
+  --el-fill-color-light: rgba(0, 0, 0, 0.02);
+  --el-fill-color-lighter: rgba(0, 0, 0, 0.015);
+  --el-fill-color-extra-light: rgba(0, 0, 0, 0.01);
+  --el-fill-color-dark: rgba(0, 0, 0, 0.05);
+  --el-fill-color-darker: rgba(0, 0, 0, 0.07);
+  --el-fill-color-blank: #ffffff;
+
+  --el-mask-color: rgba(255, 255, 255, 0.85);
+  --el-mask-color-extra-light: rgba(255, 255, 255, 0.4);
+
+  --el-box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --el-box-shadow-light: 0 2px 8px rgba(0, 0, 0, 0.06);
+  --el-box-shadow-lighter: 0 1px 4px rgba(0, 0, 0, 0.04);
+  --el-box-shadow-dark: 0 8px 24px rgba(0, 0, 0, 0.12);
+
+  --el-menu-hover-bg-color: rgba(0, 0, 0, 0.04);
+  --el-menu-active-color: var(--lc-accent);
+  --el-menu-text-color: var(--lc-text-secondary);
+  --el-menu-hover-text-color: var(--lc-text);
+
+  --el-disabled-bg-color: rgba(0, 0, 0, 0.02);
+  --el-disabled-text-color: #c0c4cc;
+  --el-disabled-border-color: rgba(0, 0, 0, 0.06);
+
+  --el-overlay-color: rgba(0, 0, 0, 0.5);
+  --el-overlay-color-light: rgba(0, 0, 0, 0.3);
+  --el-overlay-color-lighter: rgba(0, 0, 0, 0.15);
+}
+
+/* Light body background */
+html[data-theme="light"] body {
+  background:
+    radial-gradient(ellipse at 10% 0%, rgba(90, 156, 248, 0.06) 0%, transparent 55%),
+    radial-gradient(ellipse at 90% 100%, rgba(96, 165, 250, 0.05) 0%, transparent 55%),
+    #f2f4f8;
+}
+
+/* Light scrollbar */
+html[data-theme="light"] ::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.10);
+}
+html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.18);
+}
+
+/* Light selection */
+html[data-theme="light"] ::selection {
+  background: rgba(90, 156, 248, 0.15);
+  color: #2558c4;
+}
+
+/* Light sidebar */
+html[data-theme="light"] .nav {
+  background: rgba(255, 255, 255, 0.80);
+}
+
+html[data-theme="light"] .nav .el-menu-item:hover {
+  background: rgba(0, 0, 0, 0.04) !important;
+}
+
+/* Light content inner glow */
+html[data-theme="light"] .content {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+/* Light calc */
+html[data-theme="light"] .calc-row-history:hover {
+  background: rgba(0, 0, 0, 0.025);
+}
+
+html[data-theme="light"] .calc-row-active {
+  background: rgba(90, 156, 248, 0.06);
+}
+
+html[data-theme="light"] .calc-result {
+  color: #3B82F6;
+}
+
+/* Light home cards */
+html[data-theme="light"] .home-tool-card:hover {
+  box-shadow: 0 0 20px rgba(90, 156, 248, 0.08), 0 4px 14px rgba(0, 0, 0, 0.06);
+}
+
+html[data-theme="light"] .home-tool-card::after {
+  background: radial-gradient(
+    ellipse at 30% 0%,
+    rgba(90, 156, 248, 0.06) 0%,
+    transparent 70%
+  );
+}
+
+/* ---- Light Element Plus component overrides ---- */
+
+/* Input / Textarea */
+html[data-theme="light"] .el-input__wrapper,
+html[data-theme="light"] .el-textarea__inner {
+  background-color: #ffffff !important;
+}
+
+/* Select Dropdown */
+html[data-theme="light"] .el-select-dropdown {
+  background-color: #ffffff !important;
+  border: 1px solid var(--lc-border) !important;
+  box-shadow: var(--lc-shadow-md) !important;
+}
+
+html[data-theme="light"] .el-select-dropdown__item.is-hovering {
+  background-color: rgba(0, 0, 0, 0.04) !important;
+}
+
+/* Button Primary — white text on blue */
+html[data-theme="light"] .el-button--primary {
+  --el-button-text-color: #ffffff;
+  --el-button-hover-text-color: #ffffff;
+  --el-button-active-bg-color: #3B82F6;
+  --el-button-active-border-color: #3B82F6;
+}
+
+/* Button Default */
+html[data-theme="light"] .el-button--default {
+  --el-button-bg-color: #ffffff;
+  --el-button-hover-bg-color: #f5f6f8;
+}
+
+/* Table striped rows */
+html[data-theme="light"] .el-table--striped .el-table__body tr.el-table__row--striped td.el-table__cell {
+  background: rgba(0, 0, 0, 0.015) !important;
+}
+
+/* Radio Button checked */
+html[data-theme="light"] .el-radio-button__inner {
+  background: #ffffff !important;
+}
+
+html[data-theme="light"] .el-radio-button__original-radio:checked + .el-radio-button__inner {
+  color: #ffffff !important;
+}
+
+/* Dialog */
+html[data-theme="light"] .el-dialog {
+  background-color: #ffffff !important;
+}
+
+/* Descriptions */
+html[data-theme="light"] .el-descriptions__label {
+  background: #f5f6f8 !important;
+}
+
+html[data-theme="light"] .el-descriptions__content {
+  background: #ffffff !important;
+}
+
+/* Message toast */
+html[data-theme="light"] .el-message {
+  background-color: #ffffff !important;
+  border-color: var(--lc-border) !important;
+  box-shadow: var(--lc-shadow-md) !important;
+}
+
+/* Divider text bg */
+html[data-theme="light"] .el-divider__text {
+  background-color: #ffffff !important;
+}
+
+/* Input Number */
+html[data-theme="light"] .el-input-number__decrease,
+html[data-theme="light"] .el-input-number__increase {
+  background: #f5f6f8 !important;
+}
+
+/* Popper / Tooltip */
+html[data-theme="light"] .el-popper {
+  background: #ffffff !important;
+  border: 1px solid var(--lc-border) !important;
+}
+
+html[data-theme="light"] .el-popper__arrow::before {
+  background: #ffffff !important;
+  border-color: var(--lc-border) !important;
+}
+
+/* Monaco editor light */
+html[data-theme="light"] .monaco-editor .margin,
+html[data-theme="light"] .monaco-editor,
+html[data-theme="light"] .monaco-editor-background,
+html[data-theme="light"] .monaco-editor .inputarea.ime-input {
+  background-color: #ffffff !important;
+}

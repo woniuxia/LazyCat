@@ -64,20 +64,15 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
-
-interface ToolCard {
-  id: string;
-  name: string;
-  desc: string;
-}
+import type { ToolDef } from "../types";
 
 interface TopMonthlyItem {
-  tool: ToolCard;
+  tool: ToolDef;
   count: number;
 }
 
 const props = defineProps<{
-  favoriteTools: ToolCard[];
+  favoriteTools: ToolDef[];
   topMonthlyTools: TopMonthlyItem[];
   homeTopLimit: 6 | 12;
   isFavorite: (id: string) => boolean;

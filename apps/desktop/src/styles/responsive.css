@@ -1,0 +1,131 @@
+/* Responsive, Staggered Card Animation, Inline Style Overrides */
+
+/* ==========================================
+   Responsive
+   ========================================== */
+@media (max-width: 1000px) {
+  .shell {
+    grid-template-columns: 1fr;
+  }
+
+  .nav {
+    margin-right: 0;
+    margin-bottom: 12px;
+    max-height: 45vh;
+  }
+
+  .home-card-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .home-section-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .home-section-header-right {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .panel-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .panel-grid-full {
+    grid-column: auto;
+  }
+
+  .qr-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .qr-layout-full {
+    grid-column: auto;
+  }
+
+  .calc-row {
+    grid-template-columns: 1fr;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .calc-expression {
+    font-size: 24px;
+  }
+
+  .calc-result {
+    font-size: 28px;
+  }
+
+  .calc-result-wrap {
+    width: 100%;
+    justify-items: start;
+  }
+
+  .calc-time {
+    text-align: left;
+  }
+
+  .calc-input .el-textarea__inner {
+    min-height: 90px !important;
+    font-size: 30px;
+  }
+
+  .content {
+    padding: 20px;
+  }
+}
+
+@media (min-width: 1400px) {
+  .home-card-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+/* ==========================================
+   Utility: Staggered card animation
+   ========================================== */
+.home-card-grid > .home-tool-card {
+  animation: cardAppear 0.35s var(--lc-ease-out) both;
+}
+.home-card-grid > .home-tool-card:nth-child(1) { animation-delay: 0.04s; }
+.home-card-grid > .home-tool-card:nth-child(2) { animation-delay: 0.08s; }
+.home-card-grid > .home-tool-card:nth-child(3) { animation-delay: 0.12s; }
+.home-card-grid > .home-tool-card:nth-child(4) { animation-delay: 0.16s; }
+.home-card-grid > .home-tool-card:nth-child(5) { animation-delay: 0.20s; }
+.home-card-grid > .home-tool-card:nth-child(6) { animation-delay: 0.24s; }
+.home-card-grid > .home-tool-card:nth-child(7) { animation-delay: 0.28s; }
+.home-card-grid > .home-tool-card:nth-child(8) { animation-delay: 0.32s; }
+.home-card-grid > .home-tool-card:nth-child(9) { animation-delay: 0.36s; }
+.home-card-grid > .home-tool-card:nth-child(10) { animation-delay: 0.40s; }
+.home-card-grid > .home-tool-card:nth-child(11) { animation-delay: 0.44s; }
+.home-card-grid > .home-tool-card:nth-child(12) { animation-delay: 0.48s; }
+
+@keyframes cardAppear {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* ==========================================
+   Inline style overrides for tool panels
+   ========================================== */
+
+/* Timestamp / Cron inline label color fix */
+.panel-grid span[style*="color:var(--el-text-color-secondary)"] {
+  color: var(--lc-text-muted) !important;
+}
+
+/* Monaco editor dark integration */
+.monaco-editor .margin,
+.monaco-editor,
+.monaco-editor-background,
+.monaco-editor .inputarea.ime-input {
+  background-color: var(--lc-surface-2) !important;
+}

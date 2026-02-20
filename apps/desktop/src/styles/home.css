@@ -1,0 +1,138 @@
+/* Home Panel, Home Section, Home Card Grid, Home Tool Card */
+
+/* ---------- Home Panel ---------- */
+.home-panel {
+  display: grid;
+  gap: 24px;
+}
+
+.home-section {
+  border: 1px solid var(--lc-border);
+  border-radius: var(--lc-radius-md);
+  background: var(--lc-surface-1);
+  padding: 20px;
+}
+
+.home-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.home-section-header h2 {
+  margin: 0;
+  font-family: var(--lc-font-display);
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--lc-text);
+  letter-spacing: -0.2px;
+}
+
+.home-section-header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.home-card-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.home-tool-card {
+  border: 1px solid var(--lc-border);
+  border-radius: var(--lc-radius-md);
+  background: var(--lc-surface-2);
+  text-align: left;
+  padding: 16px;
+  cursor: pointer;
+  transition:
+    border-color var(--lc-duration-slow) var(--lc-ease),
+    box-shadow var(--lc-duration-slow) var(--lc-ease),
+    transform var(--lc-duration) var(--lc-ease),
+    background var(--lc-duration-slow) var(--lc-ease);
+  position: relative;
+  overflow: hidden;
+}
+
+.home-tool-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(
+    ellipse at 30% 0%,
+    rgba(10, 79, 65, 0.10) 0%,
+    transparent 70%
+  );
+  opacity: 0;
+  transition: opacity var(--lc-duration-slow) var(--lc-ease);
+  pointer-events: none;
+}
+
+.home-tool-card:hover {
+  border-color: var(--lc-border-active);
+  box-shadow: 0 0 24px rgba(10, 79, 65, 0.10), 0 4px 14px rgba(0, 0, 0, 0.25);
+  transform: translateY(-2px);
+}
+
+.home-tool-card:hover::after {
+  opacity: 1;
+}
+
+.home-tool-card:focus {
+  outline: 2px solid rgba(10, 79, 65, 0.35);
+  outline-offset: 2px;
+}
+
+.home-tool-card-action {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-4px);
+  transition:
+    opacity var(--lc-duration) var(--lc-ease),
+    transform var(--lc-duration) var(--lc-ease);
+  z-index: 1;
+  color: var(--lc-text-secondary) !important;
+}
+
+.home-tool-card-action:hover {
+  color: var(--lc-accent-light) !important;
+}
+
+.home-tool-card:hover .home-tool-card-action,
+.home-tool-card:focus .home-tool-card-action,
+.home-tool-card:focus-within .home-tool-card-action {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.home-tool-card-title {
+  font-family: var(--lc-font-display);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--lc-text);
+  padding-right: 80px;
+}
+
+.home-tool-card-desc {
+  margin-top: 6px;
+  color: var(--lc-text-secondary);
+  line-height: 1.5;
+  font-size: 13px;
+}
+
+.home-tool-card-meta {
+  margin-top: 10px;
+  color: var(--lc-accent);
+  font-size: 12px;
+  font-weight: 500;
+  opacity: 0.85;
+}

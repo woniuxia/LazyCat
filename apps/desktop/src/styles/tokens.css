@@ -1,0 +1,133 @@
+/* Design Tokens & Element Plus Variable Overrides */
+
+/* ============================================
+   LazyCat -- Midnight Workshop Theme
+   A warm dark developer workspace
+   ============================================ */
+
+/* ---------- Design Tokens ---------- */
+:root {
+  /* Core palette */
+  --lc-bg: #0a0c12;
+  --lc-surface-0: #10131a;
+  --lc-surface-1: #161922;
+  --lc-surface-2: #1c2030;
+  --lc-surface-3: #252a3a;
+
+  /* Borders */
+  --lc-border: rgba(255, 255, 255, 0.06);
+  --lc-border-subtle: rgba(255, 255, 255, 0.03);
+  --lc-border-hover: rgba(255, 255, 255, 0.12);
+  --lc-border-active: rgba(10, 79, 65, 0.45);
+
+  /* Text */
+  --lc-text: #e4e7ef;
+  --lc-text-secondary: #8892a8;
+  --lc-text-muted: #525d73;
+
+  /* Accent (warm amber) */
+  --lc-accent: #0A4F41;
+  --lc-accent-light: #14a085;
+  --lc-accent-dim: rgba(10, 79, 65, 0.18);
+  --lc-accent-glow: rgba(10, 79, 65, 0.12);
+
+  /* Semantic */
+  --lc-success: #34d399;
+  --lc-danger: #f87171;
+  --lc-info: #60a5fa;
+  --lc-warning: #fbbf24;
+
+  /* Depth */
+  --lc-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
+  --lc-shadow-md: 0 4px 14px rgba(0, 0, 0, 0.35);
+  --lc-shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.45);
+  --lc-shadow-glow: 0 0 24px var(--lc-accent-glow);
+
+  /* Radius */
+  --lc-radius-sm: 8px;
+  --lc-radius-md: 12px;
+  --lc-radius-lg: 16px;
+  --lc-radius-xl: 20px;
+
+  /* Typography */
+  --lc-font-display: "Outfit", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --lc-font-body: "DM Sans", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --lc-font-mono: "JetBrains Mono", "Cascadia Code", "Consolas", monospace;
+
+  /* Motion */
+  --lc-ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --lc-ease-out: cubic-bezier(0, 0, 0.2, 1);
+  --lc-duration: 200ms;
+  --lc-duration-slow: 350ms;
+
+  /* ---- Element Plus Variable Overrides ---- */
+  --el-color-primary: #0A4F41;
+  --el-color-primary-light-3: #2a7a68;
+  --el-color-primary-light-5: #54a08e;
+  --el-color-primary-light-7: #8ac3b4;
+  --el-color-primary-light-8: #a8d5c9;
+  --el-color-primary-light-9: #c6e7de;
+  --el-color-primary-dark-2: #083d32;
+
+  --el-color-success: #34d399;
+  --el-color-success-light-3: #5ee0ad;
+  --el-color-success-light-5: #86e8c1;
+  --el-color-success-light-7: #aff0d5;
+  --el-color-success-light-8: #c3f5e1;
+  --el-color-success-light-9: #d8f9ed;
+  --el-color-success-dark-2: #28a97a;
+
+  --el-color-warning: #fbbf24;
+  --el-color-danger: #f87171;
+  --el-color-info: #60a5fa;
+
+  --el-bg-color: #10131a;
+  --el-bg-color-overlay: #1c2030;
+  --el-bg-color-page: #0a0c12;
+
+  --el-text-color-primary: #e4e7ef;
+  --el-text-color-regular: #c0c6d4;
+  --el-text-color-secondary: #8892a8;
+  --el-text-color-placeholder: #525d73;
+  --el-text-color-disabled: #3a4050;
+
+  --el-border-color: rgba(255, 255, 255, 0.08);
+  --el-border-color-light: rgba(255, 255, 255, 0.05);
+  --el-border-color-lighter: rgba(255, 255, 255, 0.03);
+  --el-border-color-extra-light: rgba(255, 255, 255, 0.02);
+  --el-border-color-dark: rgba(255, 255, 255, 0.12);
+  --el-border-color-darker: rgba(255, 255, 255, 0.18);
+
+  --el-fill-color: rgba(255, 255, 255, 0.05);
+  --el-fill-color-light: rgba(255, 255, 255, 0.03);
+  --el-fill-color-lighter: rgba(255, 255, 255, 0.02);
+  --el-fill-color-extra-light: rgba(255, 255, 255, 0.015);
+  --el-fill-color-dark: rgba(255, 255, 255, 0.06);
+  --el-fill-color-darker: rgba(255, 255, 255, 0.08);
+  --el-fill-color-blank: #161922;
+
+  --el-mask-color: rgba(10, 12, 18, 0.85);
+  --el-mask-color-extra-light: rgba(10, 12, 18, 0.4);
+
+  --el-box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --el-box-shadow-light: 0 2px 8px rgba(0, 0, 0, 0.3);
+  --el-box-shadow-lighter: 0 1px 4px rgba(0, 0, 0, 0.2);
+  --el-box-shadow-dark: 0 8px 24px rgba(0, 0, 0, 0.5);
+
+  --el-menu-bg-color: transparent;
+  --el-menu-hover-bg-color: rgba(255, 255, 255, 0.04);
+  --el-menu-active-color: var(--lc-accent);
+  --el-menu-text-color: var(--lc-text-secondary);
+  --el-menu-hover-text-color: var(--lc-text);
+  --el-menu-item-height: 38px;
+  --el-menu-sub-item-height: 38px;
+  --el-menu-item-font-size: 14px;
+
+  --el-disabled-bg-color: rgba(255, 255, 255, 0.02);
+  --el-disabled-text-color: #3a4050;
+  --el-disabled-border-color: rgba(255, 255, 255, 0.04);
+
+  --el-overlay-color: rgba(10, 12, 18, 0.75);
+  --el-overlay-color-light: rgba(10, 12, 18, 0.5);
+  --el-overlay-color-lighter: rgba(10, 12, 18, 0.25);
+}

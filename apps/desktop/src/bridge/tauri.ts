@@ -68,6 +68,7 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:file:split": { domain: "file", action: "split" },
   "tool:file:merge": { domain: "file", action: "merge" },
   "tool:image:convert": { domain: "image", action: "convert" },
+  "tool:image:info": { domain: "image", action: "info" },
   "tool:hosts:save": { domain: "hosts", action: "save" },
   "tool:hosts:list": { domain: "hosts", action: "list" },
   "tool:hosts:delete": { domain: "hosts", action: "delete" },

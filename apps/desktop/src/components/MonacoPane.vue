@@ -25,14 +25,20 @@ const emit = defineEmits<{
 
 const container = ref<HTMLElement | null>(null);
 let editor: monaco.editor.IStandaloneCodeEditor | null = null;
+let monacoModule: typeof monaco | null = null;
 let suppressEmit = false;
+let themeObserver: MutationObserver | null = null;
+
+function currentMonacoTheme(): string {
+  return document.documentElement.dataset.theme === "light" ? "vs" : "vs-dark";
+}
 
 onMounted(async () => {
-  const monacoInstance = await loader.init();
-  editor = monacoInstance.editor.create(container.value as HTMLElement, {
+  monacoModule = await loader.init();
+  editor = monacoModule.editor.create(container.value as HTMLElement, {
     value: props.modelValue,
     language: props.language,
-    theme: "vs",
+    theme: currentMonacoTheme(),
     readOnly: props.readOnly,
     automaticLayout: true,
     minimap: { enabled: false },
@@ -45,6 +51,17 @@ onMounted(async () => {
   editor.onDidChangeModelContent(() => {
     if (suppressEmit || !editor) return;
     emit("update:modelValue", editor.getValue());
+  });
+
+  // Watch for data-theme changes on <html> and switch Monaco theme
+  themeObserver = new MutationObserver(() => {
+    if (monacoModule) {
+      monacoModule.editor.setTheme(currentMonacoTheme());
+    }
+  });
+  themeObserver.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ["data-theme"],
   });
 });
 
@@ -62,16 +79,18 @@ watch(
 watch(
   () => props.language,
   (language) => {
-    if (!editor) return;
+    if (!editor || !monacoModule) return;
     const model = editor.getModel();
     if (!model) return;
-    loader.init().then((monacoInstance) => {
-      monacoInstance.editor.setModelLanguage(model, language ?? "plaintext");
-    });
+    monacoModule.editor.setModelLanguage(model, language ?? "plaintext");
   }
 );
 
 onBeforeUnmount(() => {
+  if (themeObserver) {
+    themeObserver.disconnect();
+    themeObserver = null;
+  }
   if (editor) {
     editor.dispose();
     editor = null;
@@ -83,7 +102,7 @@ onBeforeUnmount(() => {
 .monaco-pane {
   width: 100%;
   height: 360px;
-  border: 1px solid #dce3ef;
+  border: 1px solid var(--lc-border);
   border-radius: 10px;
   overflow: hidden;
 }

@@ -46,7 +46,19 @@
       "Bash(done)",
       "Bash(cargo check:*)",
       "Bash(cargo eval:*)",
-      "Bash(findstr:*)"
+      "Bash(findstr:*)",
+      "Bash(wc:*)",
+      "Bash(cargo tree:*)",
+      "Bash(for f in \"E:\\\\Projects\\\\LazyCat\\\\apps\\\\desktop\\\\src\\\\components\"/*.vue)",
+      "Bash(for file in \"E:\\\\Projects\\\\LazyCat\\\\apps\\\\desktop\\\\src\\\\components\\\\*.vue\")",
+      "Bash(do wc -l \"$file\")",
+      "Bash(for file in *.vue)",
+      "Bash(for dir in \"E:\\\\Projects\\\\LazyCat\\\\packages\\\\*\")",
+      "Bash(pnpm test:*)",
+      "Bash(where:*)",
+      "Bash(copy \"F:\\\\favicon \\(1\\).ico\" \"E:\\\\Projects\\\\LazyCat\\\\apps\\\\desktop\\\\src-tauri\\\\icons\\\\icon.ico\" /Y)",
+      "Bash(copy:*)",
+      "Bash(E:)"
     ]
   }
 }

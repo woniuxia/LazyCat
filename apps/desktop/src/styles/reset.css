@@ -1,0 +1,51 @@
+/* Base Reset, Scrollbar, Selection */
+
+/* ---------- Base Reset ---------- */
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  font-family: var(--lc-font-body);
+  color: var(--lc-text);
+  background: var(--lc-bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  background:
+    radial-gradient(ellipse at 10% 0%, rgba(10, 79, 65, 0.06) 0%, transparent 55%),
+    radial-gradient(ellipse at 90% 100%, rgba(96, 165, 250, 0.025) 0%, transparent 55%),
+    var(--lc-bg);
+}
+
+/* ---------- Scrollbar ---------- */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* ---------- Selection ---------- */
+::selection {
+  background: var(--lc-accent-dim);
+  color: var(--lc-accent-light);
+}
