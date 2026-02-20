@@ -105,7 +105,7 @@ const sidebarItems: SidebarItem[] = [
         { id: "json-yaml", name: "JSON/YAML", desc: "JSON 转 YAML" },
         { id: "csv-json", name: "CSV/JSON", desc: "CSV 转 JSON" },
         { id: "base-converter", name: "进制转换", desc: "二/八/十/十六进制互转" },
-        { id: "color", name: "颜色转换", desc: "HEX/RGB/HSL 互转与预览" },
+        { id: "color", name: "颜色转换", desc: "多格式互转、配色推荐、对比度检查" },
         { id: "text-process", name: "文本处理", desc: "按行去重与排序" },
       ],
     },
