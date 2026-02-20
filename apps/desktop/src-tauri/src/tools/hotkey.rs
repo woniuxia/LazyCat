@@ -3,7 +3,6 @@ use serde_json::Value;
 #[cfg(target_os = "windows")]
 mod win {
     use serde_json::{json, Value};
-    use std::collections::HashMap;
     use std::process::Command;
     use std::thread;
     use windows_sys::Win32::UI::Input::KeyboardAndMouse::*;

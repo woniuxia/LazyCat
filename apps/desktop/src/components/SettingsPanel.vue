@@ -6,12 +6,14 @@
       </p>
       <el-form label-width="120px" style="max-width: 480px;">
         <el-form-item label="外观主题">
-          <el-switch
-            :model-value="isDarkMode"
-            active-text="深色"
-            inactive-text="浅色"
-            @update:model-value="emit('update:isDarkMode', Boolean($event))"
-          />
+          <el-radio-group
+            :model-value="themeMode"
+            @update:model-value="emit('update:themeMode', $event as 'system' | 'dark' | 'light')"
+          >
+            <el-radio-button value="system">跟随系统</el-radio-button>
+            <el-radio-button value="dark">深色</el-radio-button>
+            <el-radio-button value="light">浅色</el-radio-button>
+          </el-radio-group>
         </el-form-item>
         <el-form-item label="显示/隐藏快捷键">
           <el-input
@@ -74,12 +76,12 @@ import { registerHotkey, unregisterHotkey, invokeToolByChannel } from "../bridge
 import { setSetting } from "../composables/useSettings";
 
 const props = defineProps<{
-  isDarkMode: boolean;
+  themeMode: "system" | "dark" | "light";
   hotkeyInput: string;
 }>();
 
 const emit = defineEmits<{
-  (event: "update:isDarkMode", value: boolean): void;
+  (event: "update:themeMode", value: "system" | "dark" | "light"): void;
   (event: "update:hotkeyInput", value: string): void;
 }>();
 

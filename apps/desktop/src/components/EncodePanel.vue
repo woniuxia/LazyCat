@@ -93,6 +93,36 @@
         <el-empty v-else description="尚未生成二维码" />
       </div>
     </div>
+
+    <!-- Hash (SHA/HMAC) -->
+    <div v-else-if="activeTool === 'hash'" class="panel-grid">
+      <div class="panel-grid-full">
+        <el-radio-group v-model="hashAlgo" size="small">
+          <el-radio-button value="sha1">SHA-1</el-radio-button>
+          <el-radio-button value="sha256">SHA-256</el-radio-button>
+          <el-radio-button value="sha512">SHA-512</el-radio-button>
+          <el-radio-button value="hmac-sha256">HMAC-SHA256</el-radio-button>
+        </el-radio-group>
+      </div>
+      <div class="textarea-wrap">
+        <el-input v-model="hashInput" type="textarea" :rows="8" placeholder="输入文本" />
+        <span class="char-count">{{ hashInput.length }} 字符</span>
+      </div>
+      <div v-if="hashAlgo === 'hmac-sha256'" class="panel-grid-full">
+        <el-input v-model="hmacKey" placeholder="HMAC 密钥" />
+      </div>
+      <div class="textarea-wrap">
+        <el-input :model-value="hashOutput" type="textarea" :rows="4" readonly placeholder="散列结果" />
+        <span class="char-count">{{ hashOutput.length }} 字符</span>
+      </div>
+      <div class="panel-grid-full">
+        <el-space>
+          <el-button type="primary" @click="runHash">计算散列</el-button>
+          <el-button @click="copyOutput(hashOutput)">复制结果</el-button>
+          <el-button @click="clearHash">清空</el-button>
+        </el-space>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -115,6 +145,11 @@ const md5Output = ref("");
 
 const qrInput = ref("");
 const qrDataUrl = ref("");
+
+const hashAlgo = ref<"sha1" | "sha256" | "sha512" | "hmac-sha256">("sha256");
+const hashInput = ref("");
+const hashOutput = ref("");
+const hmacKey = ref("");
 
 async function call(channel: string, payload: Record<string, unknown>): Promise<string> {
   const data = await invokeToolByChannel(channel, payload);
@@ -185,6 +220,30 @@ async function generateQr() {
 function clearQr() {
   qrInput.value = "";
   qrDataUrl.value = "";
+}
+
+async function runHash() {
+  try {
+    const channelMap: Record<string, string> = {
+      sha1: "tool:encode:sha1",
+      sha256: "tool:encode:sha256",
+      sha512: "tool:encode:sha512",
+      "hmac-sha256": "tool:encode:hmac-sha256",
+    };
+    const payload: Record<string, unknown> = { input: hashInput.value };
+    if (hashAlgo.value === "hmac-sha256") {
+      payload.key = hmacKey.value;
+    }
+    hashOutput.value = await call(channelMap[hashAlgo.value], payload);
+  } catch (e) {
+    ElMessage.error((e as Error).message);
+  }
+}
+
+function clearHash() {
+  hashInput.value = "";
+  hashOutput.value = "";
+  hmacKey.value = "";
 }
 
 async function copyOutput(text: string) {

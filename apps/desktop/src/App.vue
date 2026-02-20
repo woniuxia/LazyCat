@@ -34,11 +34,12 @@
         v-bind="currentComponentProps"
       />
     </main>
+    <ShortcutHelpOverlay ref="shortcutHelp" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onMounted, onBeforeUnmount, ref, watch } from "vue";
 import type { ToolDef, SidebarItem } from "./types";
 import { useFavorites } from "./composables/useFavorites";
 import { initSettings, getSetting, setSetting } from "./composables/useSettings";
@@ -46,6 +47,7 @@ import { registerHotkey } from "./bridge/tauri";
 import { getToolComponent, ENCODE_PANEL_IDS } from "./tool-registry";
 import HomePanel from "./components/HomePanel.vue";
 import SidebarNav from "./components/SidebarNav.vue";
+import ShortcutHelpOverlay from "./components/ShortcutHelpOverlay.vue";
 
 const sidebarItems: SidebarItem[] = [
   { kind: "tool", tool: { id: "formatter", name: "代码格式化", desc: "JSON/XML/HTML/Java/SQL 自动识别" } },
@@ -62,6 +64,7 @@ const sidebarItems: SidebarItem[] = [
         { id: "base64", name: "Base64", desc: "Base64 编码与解码" },
         { id: "url", name: "URL 编解码", desc: "URL Encode / Decode" },
         { id: "md5", name: "MD5", desc: "计算 MD5 摘要" },
+        { id: "hash", name: "SHA/HMAC", desc: "SHA-1/256/512 与 HMAC-SHA256 散列" },
         { id: "qr", name: "二维码生成", desc: "根据文本生成二维码" },
       ],
     },
@@ -74,6 +77,7 @@ const sidebarItems: SidebarItem[] = [
       tools: [
         { id: "rsa", name: "RSA 加解密", desc: "RSA 公私钥加解密" },
         { id: "aes", name: "AES/DES", desc: "AES 与 DES/3DES 加解密" },
+        { id: "jwt", name: "JWT 解析", desc: "离线解析 JWT Token" },
         { id: "uuid", name: "UUID/GUID/密码", desc: "标识与随机密码生成" },
       ],
     },
@@ -87,6 +91,8 @@ const sidebarItems: SidebarItem[] = [
         { id: "json-xml", name: "JSON/XML", desc: "JSON 与 XML 双向转换" },
         { id: "json-yaml", name: "JSON/YAML", desc: "JSON 转 YAML" },
         { id: "csv-json", name: "CSV/JSON", desc: "CSV 转 JSON" },
+        { id: "base-converter", name: "进制转换", desc: "二/八/十/十六进制互转" },
+        { id: "color", name: "颜色转换", desc: "HEX/RGB/HSL 互转与预览" },
         { id: "text-process", name: "文本处理", desc: "按行去重与排序" },
       ],
     },
@@ -150,8 +156,16 @@ const allToolMap = new Map(allTools.map((tool) => [tool.id, tool]));
 function isRealToolId(id: string) { return allToolMap.has(id); }
 
 const activeTool = ref(HOME_ID);
-const isDarkMode = ref(true);
+const themeMode = ref<"system" | "dark" | "light">("system");
 const hotkeyInput = ref("");
+const shortcutHelp = ref<InstanceType<typeof ShortcutHelpOverlay> | null>(null);
+
+function onKeydown(e: KeyboardEvent) {
+  if (e.ctrlKey && e.key === "/") {
+    e.preventDefault();
+    shortcutHelp.value?.show();
+  }
+}
 
 const {
   homeTopLimit,
@@ -218,11 +232,11 @@ const currentComponentProps = computed(() => {
   if (ENCODE_PANEL_IDS.has(id)) return { activeTool: id };
   // ManualPanel needs manualId prop
   if (id.startsWith("manual-")) return { manualId: id };
-  // SettingsPanel needs isDarkMode and hotkeyInput with two-way binding
+  // SettingsPanel needs themeMode and hotkeyInput with two-way binding
   if (id === "settings") return {
-    isDarkMode: isDarkMode.value,
+    themeMode: themeMode.value,
     hotkeyInput: hotkeyInput.value,
-    "onUpdate:isDarkMode": (v: boolean) => { isDarkMode.value = v; },
+    "onUpdate:themeMode": (v: "system" | "dark" | "light") => { themeMode.value = v; },
     "onUpdate:hotkeyInput": (v: string) => { hotkeyInput.value = v; },
   };
   return {};
@@ -233,25 +247,49 @@ function onSelect(id: string) {
   activeTool.value = id;
 }
 
+function resolveTheme(mode: "system" | "dark" | "light"): boolean {
+  if (mode === "system") return window.matchMedia("(prefers-color-scheme: dark)").matches;
+  return mode === "dark";
+}
+
 function applyTheme(dark: boolean) {
   document.documentElement.dataset.theme = dark ? "dark" : "light";
 }
 
-watch(isDarkMode, (dark) => {
-  applyTheme(dark);
-  setSetting("theme", dark ? "dark" : "light");
+const systemMediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+function onSystemThemeChange() {
+  if (themeMode.value === "system") applyTheme(resolveTheme("system"));
+}
+
+watch(themeMode, (mode) => {
+  applyTheme(resolveTheme(mode));
+  setSetting("theme", mode);
 });
 
 onMounted(async () => {
   await initSettings();
-  const savedTheme = getSetting("theme");
-  isDarkMode.value = savedTheme !== "light";
-  applyTheme(isDarkMode.value);
+  const savedTheme = getSetting("theme") as "system" | "dark" | "light" | null;
+  if (savedTheme === "system" || savedTheme === "dark" || savedTheme === "light") {
+    themeMode.value = savedTheme;
+  } else if (savedTheme === null || savedTheme === undefined) {
+    themeMode.value = "system";
+  } else {
+    // Legacy: "dark" or "light" string from old boolean storage
+    themeMode.value = savedTheme === "light" ? "light" : "dark";
+  }
+  applyTheme(resolveTheme(themeMode.value));
+  systemMediaQuery.addEventListener("change", onSystemThemeChange);
   loadFavoritesFromStorage();
   const savedHotkey = getSetting("hotkey") ?? "";
   hotkeyInput.value = savedHotkey;
   if (savedHotkey) {
     try { await registerHotkey(savedHotkey); } catch { /* ignore in non-Tauri env */ }
   }
+  window.addEventListener("keydown", onKeydown);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener("keydown", onKeydown);
+  systemMediaQuery.removeEventListener("change", onSystemThemeChange);
 });
 </script>
