@@ -39,6 +39,8 @@ encoding_rs = "0.8"
 hex = "0.4"
 hickory-resolver = { version = "0.24", features = ["tokio-runtime"] }
 tokio = { version = "1", features = ["rt"] }
+jsonschema = "0.18"
+roxmltree = "0.20"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = [

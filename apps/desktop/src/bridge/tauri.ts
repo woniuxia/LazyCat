@@ -41,6 +41,9 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:convert:json-to-yaml": { domain: "convert", action: "json_to_yaml" },
   "tool:convert:csv-to-json": { domain: "convert", action: "csv_to_json" },
   "tool:convert:csv-read-file": { domain: "convert", action: "csv_read_file" },
+  "tool:convert:java-bean-to-json": { domain: "convert", action: "java_bean_to_json" },
+  "tool:convert:json-to-js-object": { domain: "convert", action: "json_to_js_object" },
+  "tool:convert:java-bean-to-js-object": { domain: "convert", action: "java_bean_to_js_object" },
   "tool:text:unique-lines": { domain: "text", action: "unique_lines" },
   "tool:text:sort-lines": { domain: "text", action: "sort_lines" },
   "tool:time:timestamp-to-date": { domain: "time", action: "timestamp_to_date" },
@@ -72,6 +75,8 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:dns:system-dns": { domain: "dns", action: "system_dns" },
   "tool:env:detect": { domain: "env", action: "detect" },
   "tool:port:usage": { domain: "port", action: "usage" },
+  "tool:port:process-detail": { domain: "port", action: "process_detail" },
+  "tool:port:kill": { domain: "port", action: "kill" },
   "tool:file:split": { domain: "file", action: "split" },
   "tool:file:merge": { domain: "file", action: "merge" },
   "tool:file:write-text": { domain: "file", action: "write_text" },
@@ -101,7 +106,13 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:hotkey:check": { domain: "hotkey", action: "check" },
   "tool:hotkey:scan": { domain: "hotkey", action: "scan" },
   "tool:hotkey:mappings": { domain: "hotkey", action: "mappings" },
-  "tool:hotkey:detect-owner": { domain: "hotkey", action: "detect_owner" }
+  "tool:hotkey:detect-owner": { domain: "hotkey", action: "detect_owner" },
+  "tool:schema:validate": { domain: "schema", action: "validate" },
+  "tool:schema:generate-example": { domain: "schema", action: "generate_example" },
+  "tool:mybatis:render": { domain: "mybatis", action: "render" },
+  "tool:mybatis:lint": { domain: "mybatis", action: "lint" },
+  "tool:nginx:generate": { domain: "nginx", action: "generate" },
+  "tool:nginx:lint": { domain: "nginx", action: "lint" }
 };
 
 export async function invokeToolByChannel(

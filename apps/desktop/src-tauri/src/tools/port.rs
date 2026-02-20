@@ -191,6 +191,63 @@ pub fn execute(action: &str, _payload: &Value) -> Result<Value, String> {
                 "connections": entries
             }))
         }
+        "process_detail" => process_detail(_payload),
+        "kill" => kill_process(_payload),
         _ => Err(format!("unsupported port action: {action}")),
     }
+}
+
+fn process_detail(payload: &Value) -> Result<Value, String> {
+    let pid = payload["pid"].as_u64().unwrap_or(0) as u32;
+    if pid == 0 {
+        return Err("invalid pid".into());
+    }
+    let output = Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-Command",
+            &format!(
+                "Get-CimInstance Win32_Process -Filter \"ProcessId = {pid}\" | Select-Object ProcessId,Name,ExecutablePath,CommandLine,CreationDate | ConvertTo-Json -Compress"
+            ),
+        ])
+        .output()
+        .map_err(|e| format!("query process detail failed: {e}"))?;
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if stdout.is_empty() || stdout == "null" {
+        return Err(format!("process not found: {pid}"));
+    }
+    let parsed: Value =
+        serde_json::from_str(&stdout).map_err(|e| format!("parse process detail failed: {e}"))?;
+    Ok(json!({
+        "pid": parsed["ProcessId"].as_u64().unwrap_or(pid as u64),
+        "name": parsed["Name"].as_str().unwrap_or("UNKNOWN"),
+        "path": parsed["ExecutablePath"].as_str().unwrap_or(""),
+        "commandLine": parsed["CommandLine"].as_str().unwrap_or(""),
+        "startTime": parsed["CreationDate"].as_str().unwrap_or(""),
+    }))
+}
+
+fn kill_process(payload: &Value) -> Result<Value, String> {
+    let pid = payload["pid"].as_u64().unwrap_or(0) as u32;
+    let force = payload["force"].as_bool().unwrap_or(true);
+    if pid == 0 {
+        return Err("invalid pid".into());
+    }
+    let mut cmd = Command::new("taskkill");
+    cmd.args(["/PID", &pid.to_string()]);
+    if force {
+        cmd.arg("/F");
+    }
+    let output = cmd
+        .output()
+        .map_err(|e| format!("taskkill failed to start: {e}"))?;
+    if output.status.success() {
+        return Ok(json!({ "ok": true, "pid": pid }));
+    }
+    let err = String::from_utf8_lossy(&output.stderr).to_string();
+    let out = String::from_utf8_lossy(&output.stdout).to_string();
+    Err(format!(
+        "taskkill failed: {}",
+        if !err.trim().is_empty() { err.trim() } else { out.trim() }
+    ))
 }

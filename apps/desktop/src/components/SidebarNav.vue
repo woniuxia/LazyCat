@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <aside class="nav">
     <div class="brand">
       <span class="brand-name">Lazycat</span>
@@ -72,8 +72,7 @@
         </template>
       </template>
       <div v-else-if="searchQuery.trim()" class="nav-empty">
-        无匹配工具
-      </div>
+        无匹配工具      </div>
     </el-menu>
 
     <div class="nav-bottom">
@@ -198,3 +197,5 @@ watch(searchQuery, () => {
   });
 });
 </script>
+
+

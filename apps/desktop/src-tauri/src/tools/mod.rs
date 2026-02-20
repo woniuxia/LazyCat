@@ -19,6 +19,9 @@ pub mod manuals;
 pub mod settings;
 pub mod hotkey;
 pub mod jwt;
+pub mod schema;
+pub mod mybatis;
+pub mod nginx;
 
 use serde_json::Value;
 
@@ -44,6 +47,9 @@ pub fn execute_tool(domain: &str, action: &str, payload: &Value) -> Result<Value
         "settings" => settings::execute(action, payload),
         "hotkey"   => hotkey::execute(action, payload),
         "jwt"      => jwt::execute(action, payload),
+        "schema"   => schema::execute(action, payload),
+        "mybatis"  => mybatis::execute(action, payload),
+        "nginx"    => nginx::execute(action, payload),
         _ => Err(format!("unsupported command: {domain}.{action}")),
     }
 }

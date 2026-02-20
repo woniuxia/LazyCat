@@ -68,6 +68,20 @@
 - 格式化功能补充说明：
   - 渲染层中 Prettier 必须使用 standalone + 显式插件（`prettier/standalone` + 解析器插件），否则运行时解析器解析会失败
 
+### 编码硬性要求（2026-02-20 固化）
+
+- 前端源码文件（`*.vue`、`*.ts`、`*.css`、`*.md`）统一使用 **UTF-8（带/不带 BOM 均可）**，禁止使用 ANSI/GBK/UTF-16。
+- 使用 PowerShell 写文件时，必须显式指定 UTF-8：
+  - `Set-Content -Encoding UTF8 ...`
+  - `Out-File -Encoding utf8 ...`
+- 对包含中文的文件，禁止做整文件的大范围正则替换；优先使用小范围、可定位的精确修改（按块或按行）。
+- 如遇 `apply_patch` 报错 `stream did not contain valid UTF-8`，先将目标文件转为 UTF-8 再继续修改，避免在非 UTF-8 文件上直接打补丁。
+- 若出现乱码，按以下顺序处理：
+  1. 先修复语法结构（引号闭合、标签闭合、字符串闭合）。
+  2. 再修复显示文本。
+  3. 最后执行构建验证（`typecheck` + `build:web`）。
+- 菜单/导航/按钮等用户可见文案默认使用中文，避免中英混杂（除通用技术词如 `JSON`、`SQL`、`JWT`）。
+
 ## 架构说明
 
 - 前后端调用链路：
