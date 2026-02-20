@@ -1,0 +1,136 @@
+/* Tab Bar */
+
+.tabbar {
+  display: flex;
+  align-items: stretch;
+  margin: -28px -32px 20px -32px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--lc-border);
+  background: var(--lc-surface-1);
+  border-radius: var(--lc-radius-lg) var(--lc-radius-lg) 0 0;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.tabbar-list {
+  display: flex;
+  align-items: stretch;
+  overflow-x: auto;
+  overflow-y: hidden;
+  flex: 1;
+  scrollbar-width: none;
+}
+
+.tabbar-list::-webkit-scrollbar {
+  display: none;
+}
+
+/* ---------- Tab Item ---------- */
+
+.tabbar-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 14px;
+  height: 38px;
+  font-size: 13px;
+  color: var(--lc-text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+  border-bottom: 2px solid transparent;
+  transition:
+    color var(--lc-duration) var(--lc-ease),
+    background var(--lc-duration) var(--lc-ease),
+    border-color var(--lc-duration) var(--lc-ease);
+}
+
+.tabbar-item:hover {
+  color: var(--lc-text);
+  background: var(--lc-surface-2);
+}
+
+.tabbar-item.is-active {
+  color: var(--lc-text);
+  border-bottom-color: var(--lc-accent);
+}
+
+.tabbar-item-label {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---------- Close Button ---------- */
+
+.tabbar-item-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--lc-text-muted);
+  opacity: 0;
+  transition:
+    opacity var(--lc-duration) var(--lc-ease),
+    background var(--lc-duration) var(--lc-ease),
+    color var(--lc-duration) var(--lc-ease);
+}
+
+.tabbar-item:hover .tabbar-item-close {
+  opacity: 1;
+}
+
+.tabbar-item-close:hover {
+  background: var(--lc-surface-3);
+  color: var(--lc-text);
+}
+
+/* Space holder for pinned tabs (no close button) */
+.tabbar-item-close-placeholder {
+  width: 0;
+}
+
+/* ---------- Context Menu ---------- */
+
+.tabbar-context-menu {
+  position: fixed;
+  z-index: 9999;
+  min-width: 140px;
+  padding: 4px 0;
+  background: var(--lc-surface-2);
+  border: 1px solid var(--lc-border);
+  border-radius: var(--lc-radius-sm);
+  box-shadow: var(--lc-shadow-md);
+}
+
+.tabbar-context-menu-item {
+  display: block;
+  width: 100%;
+  padding: 6px 14px;
+  font-size: 13px;
+  color: var(--lc-text);
+  text-align: left;
+  cursor: pointer;
+  border: none;
+  background: none;
+  white-space: nowrap;
+  transition: background var(--lc-duration) var(--lc-ease);
+}
+
+.tabbar-context-menu-item:hover {
+  background: var(--lc-surface-3);
+}
+
+.tabbar-context-menu-item.is-disabled {
+  color: var(--lc-text-muted);
+  cursor: not-allowed;
+}
+
+.tabbar-context-menu-item.is-disabled:hover {
+  background: none;
+}

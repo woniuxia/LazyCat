@@ -3,6 +3,16 @@
     <SidebarNav :items="sortedSidebarItems" :active-tool="activeTool" @select="onSelect" />
 
     <main class="content">
+      <TabBar
+        v-if="openTabs.length > 1"
+        :tabs="openTabs"
+        :active-id="activeTool"
+        @select="onTabSelect"
+        @close="closeTab"
+        @close-others="closeOthers"
+        @close-left="closeToLeft"
+        @close-right="closeToRight"
+      />
       <div class="tool-header">
         <h1 class="tool-title">{{ currentTool?.name }}</h1>
         <el-button
@@ -42,11 +52,13 @@
 import { computed, onMounted, onBeforeUnmount, ref, watch } from "vue";
 import type { ToolDef, SidebarItem } from "./types";
 import { useFavorites } from "./composables/useFavorites";
+import { useTabs } from "./composables/useTabs";
 import { initSettings, getSetting, setSetting } from "./composables/useSettings";
 import { registerHotkey } from "./bridge/tauri";
 import { getToolComponent, ENCODE_PANEL_IDS } from "./tool-registry";
 import HomePanel from "./components/HomePanel.vue";
 import SidebarNav from "./components/SidebarNav.vue";
+import TabBar from "./components/TabBar.vue";
 import ShortcutHelpOverlay from "./components/ShortcutHelpOverlay.vue";
 
 const sidebarItems: SidebarItem[] = [
@@ -155,7 +167,8 @@ const allTools = sidebarItems.flatMap((item) =>
 const allToolMap = new Map(allTools.map((tool) => [tool.id, tool]));
 function isRealToolId(id: string) { return allToolMap.has(id); }
 
-const activeTool = ref(HOME_ID);
+const { openTabs, activeTabId, openTab, closeTab, closeOthers, closeToLeft, closeToRight } = useTabs();
+const activeTool = activeTabId;
 const themeMode = ref<"system" | "dark" | "light">("system");
 const hotkeyInput = ref("");
 const shortcutHelp = ref<InstanceType<typeof ShortcutHelpOverlay> | null>(null);
@@ -243,8 +256,19 @@ const currentComponentProps = computed(() => {
 });
 
 function onSelect(id: string) {
+  const name = getToolName(id);
   if (id !== HOME_ID) recordToolClick(id);
-  activeTool.value = id;
+  openTab(id, name);
+}
+
+function onTabSelect(id: string) {
+  activeTabId.value = id;
+}
+
+function getToolName(id: string): string {
+  if (id === HOME_ID) return "首页";
+  if (id === "settings") return "设置";
+  return allToolMap.get(id)?.name ?? id;
 }
 
 function resolveTheme(mode: "system" | "dark" | "light"): boolean {

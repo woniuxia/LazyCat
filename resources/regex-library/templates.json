@@ -1,17 +1,902 @@
 [
   {
+    "id": "email",
     "name": "邮箱地址",
     "category": "common",
-    "expression": "^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$"
+    "description": "匹配标准邮箱地址格式",
+    "expression": "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}",
+    "example_input": "联系我：test@example.com 或 admin@mail.cn",
+    "example_match": "test@example.com"
   },
   {
+    "id": "url",
+    "name": "URL 链接",
+    "category": "common",
+    "description": "匹配 HTTP/HTTPS URL",
+    "expression": "https?://[\\w-]+(\\.[\\w-]+)+([\\w.,@?^=%&:/~+#-]*[\\w@?^=%&/~+#-])?",
+    "example_input": "访问 https://www.example.com/path?q=1 获取详情",
+    "example_match": "https://www.example.com/path?q=1"
+  },
+  {
+    "id": "chinese-chars",
+    "name": "中文字符",
+    "category": "common",
+    "description": "匹配所有中文汉字（CJK统一汉字区）",
+    "expression": "[\\u4e00-\\u9fff]+",
+    "example_input": "Hello你好World世界",
+    "example_match": "你好"
+  },
+  {
+    "id": "double-byte",
+    "name": "双字节字符",
+    "category": "common",
+    "description": "匹配双字节字符（含中日韩文字、全角符号等）",
+    "expression": "[^\\x00-\\xff]+",
+    "example_input": "abc你好def１２３",
+    "example_match": "你好"
+  },
+  {
+    "id": "blank-lines",
+    "name": "空白行",
+    "category": "common",
+    "description": "匹配空白行（仅含空格、制表符或完全空行）",
+    "expression": "^\\s*$",
+    "example_input": "第一行\n\n第三行\n   \n第五行",
+    "example_match": ""
+  },
+  {
+    "id": "html-tag",
+    "name": "HTML 标签",
+    "category": "common",
+    "description": "匹配 HTML/XML 标签（开标签和闭标签）",
+    "expression": "</?[a-zA-Z][a-zA-Z0-9]*(?:\\s[^>]*)?>",
+    "example_input": "<div class=\"box\"><span>文本</span></div>",
+    "example_match": "<div class=\"box\">"
+  },
+  {
+    "id": "html-comment",
+    "name": "HTML 注释",
+    "category": "common",
+    "description": "匹配 HTML 注释内容",
+    "expression": "<!--[\\s\\S]*?-->",
+    "example_input": "<!-- 这是注释 --><div>内容</div>",
+    "example_match": "<!-- 这是注释 -->"
+  },
+  {
+    "id": "hex-color",
+    "name": "十六进制颜色",
+    "category": "common",
+    "description": "匹配 CSS 十六进制颜色值（#RGB 或 #RRGGBB）",
+    "expression": "#(?:[0-9a-fA-F]{3}){1,2}\\b",
+    "example_input": "颜色：#fff、#FF5733、#abc123",
+    "example_match": "#fff"
+  },
+  {
+    "id": "qq-number",
+    "name": "QQ 号",
+    "category": "common",
+    "description": "匹配 5-12 位 QQ 号码（首位非零）",
+    "expression": "[1-9]\\d{4,11}",
+    "example_input": "我的QQ是12345678",
+    "example_match": "12345678"
+  },
+  {
+    "id": "wechat-id",
+    "name": "微信号",
+    "category": "common",
+    "description": "匹配微信号（字母开头，6-20位，允许字母数字下划线减号）",
+    "expression": "^[a-zA-Z][a-zA-Z0-9_-]{5,19}$",
+    "example_input": "wx_test_123",
+    "example_match": "wx_test_123"
+  },
+  {
+    "id": "pure-digits",
+    "name": "纯数字",
+    "category": "common",
+    "description": "匹配纯数字字符串",
+    "expression": "^\\d+$",
+    "example_input": "1234567890",
+    "example_match": "1234567890"
+  },
+  {
+    "id": "pure-letters",
+    "name": "纯字母",
+    "category": "common",
+    "description": "匹配纯英文字母字符串",
+    "expression": "^[a-zA-Z]+$",
+    "example_input": "HelloWorld",
+    "example_match": "HelloWorld"
+  },
+
+  {
+    "id": "ipv4",
     "name": "IPv4 地址",
     "category": "network",
-    "expression": "^(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)(\\.(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)){3}$"
+    "description": "匹配标准 IPv4 地址（0.0.0.0 - 255.255.255.255）",
+    "expression": "(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)(?:\\.(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)){3}",
+    "example_input": "服务器IP：192.168.1.100，网关：10.0.0.1",
+    "example_match": "192.168.1.100"
   },
   {
-    "name": "中国手机号",
-    "category": "common",
-    "expression": "^1[3-9]\\d{9}$"
+    "id": "ipv6",
+    "name": "IPv6 地址",
+    "category": "network",
+    "description": "匹配标准 IPv6 地址（简写和完整格式）",
+    "expression": "(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){1,7}:|::(?:[0-9a-fA-F]{1,4}:){0,5}[0-9a-fA-F]{1,4}",
+    "example_input": "地址: 2001:0db8:85a3:0000:0000:8a2e:0370:7334",
+    "example_match": "2001:0db8:85a3:0000:0000:8a2e:0370:7334"
+  },
+  {
+    "id": "ipv4-port",
+    "name": "IPv4 含端口",
+    "category": "network",
+    "description": "匹配 IPv4 地址加端口号",
+    "expression": "(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)(?:\\.(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)){3}:\\d{1,5}",
+    "example_input": "连接到 192.168.1.1:8080 端口",
+    "example_match": "192.168.1.1:8080"
+  },
+  {
+    "id": "mac-address-colon",
+    "name": "MAC 地址（冒号）",
+    "category": "network",
+    "description": "匹配冒号分隔的 MAC 地址",
+    "expression": "(?:[0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}",
+    "example_input": "MAC: 00:1A:2B:3C:4D:5E",
+    "example_match": "00:1A:2B:3C:4D:5E"
+  },
+  {
+    "id": "mac-address-hyphen",
+    "name": "MAC 地址（连字符）",
+    "category": "network",
+    "description": "匹配连字符分隔的 MAC 地址",
+    "expression": "(?:[0-9a-fA-F]{2}-){5}[0-9a-fA-F]{2}",
+    "example_input": "MAC: 00-1A-2B-3C-4D-5E",
+    "example_match": "00-1A-2B-3C-4D-5E"
+  },
+  {
+    "id": "domain-name",
+    "name": "域名",
+    "category": "network",
+    "description": "匹配标准域名（含子域名）",
+    "expression": "(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\\.)+[a-zA-Z]{2,}",
+    "example_input": "访问 www.example.com 或 sub.domain.co.uk",
+    "example_match": "www.example.com"
+  },
+  {
+    "id": "subnet-mask",
+    "name": "子网掩码",
+    "category": "network",
+    "description": "匹配标准子网掩码",
+    "expression": "(?:255|254|252|248|240|224|192|128|0)\\.(?:255|254|252|248|240|224|192|128|0)\\.(?:255|254|252|248|240|224|192|128|0)\\.(?:255|254|252|248|240|224|192|128|0)",
+    "example_input": "子网掩码：255.255.255.0",
+    "example_match": "255.255.255.0"
+  },
+  {
+    "id": "http-url",
+    "name": "HTTP/HTTPS URL",
+    "category": "network",
+    "description": "匹配完整的 HTTP 或 HTTPS URL（含路径和参数）",
+    "expression": "https?://[^\\s<>\"']+",
+    "example_input": "请访问 https://api.example.com/v2/data?page=1&size=10",
+    "example_match": "https://api.example.com/v2/data?page=1&size=10"
+  },
+  {
+    "id": "ftp-url",
+    "name": "FTP URL",
+    "category": "network",
+    "description": "匹配 FTP/FTPS URL",
+    "expression": "ftps?://[^\\s<>\"']+",
+    "example_input": "文件在 ftp://files.example.com/pub/data.zip",
+    "example_match": "ftp://files.example.com/pub/data.zip"
+  },
+  {
+    "id": "port-number",
+    "name": "端口号",
+    "category": "network",
+    "description": "匹配合法端口号（1-65535）",
+    "expression": "\\b(?:[1-9]\\d{0,3}|[1-5]\\d{4}|6[0-4]\\d{3}|65[0-4]\\d{2}|655[0-2]\\d|6553[0-5])\\b",
+    "example_input": "端口：80、443、8080、65535",
+    "example_match": "80"
+  },
+
+  {
+    "id": "china-phone-loose",
+    "name": "手机号（宽松）",
+    "category": "china",
+    "description": "匹配中国大陆手机号，1开头11位数字",
+    "expression": "1[3-9]\\d{9}",
+    "example_input": "联系电话：13812345678，备用：19988776655",
+    "example_match": "13812345678"
+  },
+  {
+    "id": "china-phone-strict",
+    "name": "手机号（严格）",
+    "category": "china",
+    "description": "匹配中国大陆手机号，含虚拟运营商号段",
+    "expression": "^1(?:3\\d|4[5-9]|5[0-35-9]|6[2567]|7[0-8]|8\\d|9[0-35-9])\\d{8}$",
+    "example_input": "13812345678",
+    "example_match": "13812345678"
+  },
+  {
+    "id": "china-landline",
+    "name": "固定电话",
+    "category": "china",
+    "description": "匹配中国大陆固定电话号码（含区号）",
+    "expression": "(?:0\\d{2,3}-)?[2-9]\\d{6,7}",
+    "example_input": "座机：010-88888888，0755-12345678",
+    "example_match": "010-88888888"
+  },
+  {
+    "id": "china-id-card-15",
+    "name": "身份证号（15位）",
+    "category": "china",
+    "description": "匹配旧版15位身份证号码",
+    "expression": "^[1-9]\\d{5}\\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\\d|3[01])\\d{3}$",
+    "example_input": "110101900101001",
+    "example_match": "110101900101001"
+  },
+  {
+    "id": "china-id-card-18",
+    "name": "身份证号（18位）",
+    "category": "china",
+    "description": "匹配18位身份证号码（末位可为X）",
+    "expression": "^[1-9]\\d{5}(?:19|20)\\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\\d|3[01])\\d{3}[\\dXx]$",
+    "example_input": "11010119900101001X",
+    "example_match": "11010119900101001X"
+  },
+  {
+    "id": "china-postcode",
+    "name": "邮政编码",
+    "category": "china",
+    "description": "匹配中国6位邮政编码",
+    "expression": "^[1-9]\\d{5}$",
+    "example_input": "100000",
+    "example_match": "100000"
+  },
+  {
+    "id": "china-credit-code",
+    "name": "统一社会信用代码",
+    "category": "china",
+    "description": "匹配18位统一社会信用代码",
+    "expression": "^[0-9A-HJ-NP-RT-UW-Y]{2}\\d{6}[0-9A-HJ-NP-RT-UW-Y]{10}$",
+    "example_input": "91110108MA01KPGP4L",
+    "example_match": "91110108MA01KPGP4L"
+  },
+  {
+    "id": "china-license-plate",
+    "name": "车牌号（含新能源）",
+    "category": "china",
+    "description": "匹配中国车牌号，含传统和新能源车牌",
+    "expression": "^[京津沪渝冀豫云辽黑湘皖鲁新苏浙赣鄂桂甘晋蒙陕吉闽贵粤川青藏琼宁][A-HJ-NP-Z][A-HJ-NP-Z0-9]{4,5}[A-HJ-NP-Z0-9挂学警港澳]$",
+    "example_input": "京A12345",
+    "example_match": "京A12345"
+  },
+  {
+    "id": "china-bank-card",
+    "name": "银行卡号",
+    "category": "china",
+    "description": "匹配16-19位银行卡号",
+    "expression": "^\\d{16,19}$",
+    "example_input": "6222021234567890123",
+    "example_match": "6222021234567890123"
+  },
+  {
+    "id": "china-passport",
+    "name": "护照号",
+    "category": "china",
+    "description": "匹配中国护照号码（E/G/D/S/P/H开头）",
+    "expression": "^[EeGgDdSsPpHh]\\d{8}$",
+    "example_input": "E12345678",
+    "example_match": "E12345678"
+  },
+  {
+    "id": "china-tax-number",
+    "name": "纳税人识别号",
+    "category": "china",
+    "description": "匹配15、18或20位纳税人识别号",
+    "expression": "^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?(?:[A-Za-z0-9]{2})?$",
+    "example_input": "91110108MA01KPGP4L",
+    "example_match": "91110108MA01KPGP4L"
+  },
+
+  {
+    "id": "date-yyyy-mm-dd",
+    "name": "日期 YYYY-MM-DD",
+    "category": "datetime",
+    "description": "匹配 YYYY-MM-DD 格式日期",
+    "expression": "\\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\\d|3[01])",
+    "example_input": "生日：2024-01-15，入职：2023-12-01",
+    "example_match": "2024-01-15"
+  },
+  {
+    "id": "date-yyyy-slash",
+    "name": "日期 YYYY/MM/DD",
+    "category": "datetime",
+    "description": "匹配 YYYY/MM/DD 格式日期",
+    "expression": "\\d{4}/(?:0[1-9]|1[0-2])/(?:0[1-9]|[12]\\d|3[01])",
+    "example_input": "日期：2024/01/15",
+    "example_match": "2024/01/15"
+  },
+  {
+    "id": "date-dd-mm-yyyy",
+    "name": "日期 DD/MM/YYYY",
+    "category": "datetime",
+    "description": "匹配 DD/MM/YYYY 格式日期",
+    "expression": "(?:0[1-9]|[12]\\d|3[01])/(?:0[1-9]|1[0-2])/\\d{4}",
+    "example_input": "日期：15/01/2024",
+    "example_match": "15/01/2024"
+  },
+  {
+    "id": "time-hh-mm-ss",
+    "name": "时间 HH:mm:ss",
+    "category": "datetime",
+    "description": "匹配24小时制时间",
+    "expression": "(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d",
+    "example_input": "时间：14:30:59，23:59:00",
+    "example_match": "14:30:59"
+  },
+  {
+    "id": "iso8601",
+    "name": "ISO 8601 日期时间",
+    "category": "datetime",
+    "description": "匹配 ISO 8601 格式（含时区）",
+    "expression": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:?\\d{2})?",
+    "example_input": "时间戳：2024-01-15T14:30:00.000Z",
+    "example_match": "2024-01-15T14:30:00.000Z"
+  },
+  {
+    "id": "unix-timestamp-sec",
+    "name": "Unix 时间戳（秒）",
+    "category": "datetime",
+    "description": "匹配10位Unix时间戳（秒级）",
+    "expression": "\\b1[0-9]{9}\\b",
+    "example_input": "时间戳：1705312200",
+    "example_match": "1705312200"
+  },
+  {
+    "id": "unix-timestamp-ms",
+    "name": "Unix 时间戳（毫秒）",
+    "category": "datetime",
+    "description": "匹配13位Unix时间戳（毫秒级）",
+    "expression": "\\b1[0-9]{12}\\b",
+    "example_input": "时间戳：1705312200000",
+    "example_match": "1705312200000"
+  },
+  {
+    "id": "chinese-date",
+    "name": "中文日期",
+    "category": "datetime",
+    "description": "匹配中文格式日期（X年X月X日）",
+    "expression": "\\d{2,4}年(?:0?[1-9]|1[0-2])月(?:0?[1-9]|[12]\\d|3[01])日",
+    "example_input": "2024年1月15日举办活动",
+    "example_match": "2024年1月15日"
+  },
+  {
+    "id": "time-12h",
+    "name": "12小时制时间",
+    "category": "datetime",
+    "description": "匹配12小时制时间（含AM/PM）",
+    "expression": "(?:0?[1-9]|1[0-2]):[0-5]\\d(?::[0-5]\\d)?\\s*(?:AM|PM|am|pm)",
+    "example_input": "会议在 2:30 PM 开始",
+    "example_match": "2:30 PM"
+  },
+  {
+    "id": "date-range",
+    "name": "日期范围",
+    "category": "datetime",
+    "description": "匹配 YYYY-MM-DD ~ YYYY-MM-DD 格式的日期范围",
+    "expression": "\\d{4}-\\d{2}-\\d{2}\\s*(?:~|至|到|--)\\s*\\d{4}-\\d{2}-\\d{2}",
+    "example_input": "有效期：2024-01-01 ~ 2024-12-31",
+    "example_match": "2024-01-01 ~ 2024-12-31"
+  },
+
+  {
+    "id": "camel-case",
+    "name": "camelCase 标识符",
+    "category": "programming",
+    "description": "匹配小驼峰命名标识符",
+    "expression": "\\b[a-z][a-zA-Z0-9]*[A-Z][a-zA-Z0-9]*\\b",
+    "example_input": "let myVariableName = getValue();",
+    "example_match": "myVariableName"
+  },
+  {
+    "id": "snake-case",
+    "name": "snake_case 标识符",
+    "category": "programming",
+    "description": "匹配下划线命名标识符",
+    "expression": "\\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\\b",
+    "example_input": "let my_variable_name = get_value();",
+    "example_match": "my_variable_name"
+  },
+  {
+    "id": "screaming-snake",
+    "name": "SCREAMING_SNAKE 常量",
+    "category": "programming",
+    "description": "匹配大写下划线常量命名",
+    "expression": "\\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\\b",
+    "example_input": "const MAX_RETRY_COUNT = 3;",
+    "example_match": "MAX_RETRY_COUNT"
+  },
+  {
+    "id": "java-package",
+    "name": "Java 包名",
+    "category": "programming",
+    "description": "匹配 Java 包名格式",
+    "expression": "\\b(?:[a-z_][a-z0-9_]*\\.)+[a-z_][a-z0-9_]*\\b",
+    "example_input": "import com.example.service.UserService;",
+    "example_match": "com.example.service"
+  },
+  {
+    "id": "semver",
+    "name": "语义版本号",
+    "category": "programming",
+    "description": "匹配语义化版本号（SemVer）",
+    "expression": "\\bv?\\d+\\.\\d+\\.\\d+(?:-[a-zA-Z0-9.]+)?(?:\\+[a-zA-Z0-9.]+)?\\b",
+    "example_input": "版本 v2.1.0-beta.1+build.123",
+    "example_match": "v2.1.0-beta.1+build.123"
+  },
+  {
+    "id": "json-key",
+    "name": "JSON 键名",
+    "category": "programming",
+    "description": "匹配 JSON 中双引号括起的键名",
+    "expression": "\"([^\"]+)\"\\s*:",
+    "example_input": "{\"name\": \"张三\", \"age\": 25}",
+    "example_match": "\"name\":"
+  },
+  {
+    "id": "single-line-comment",
+    "name": "单行注释",
+    "category": "programming",
+    "description": "匹配 // 风格的单行注释",
+    "expression": "//.*$",
+    "example_input": "let x = 1; // 初始化变量",
+    "example_match": "// 初始化变量"
+  },
+  {
+    "id": "multi-line-comment",
+    "name": "多行注释",
+    "category": "programming",
+    "description": "匹配 /* */ 风格的多行注释",
+    "expression": "/\\*[\\s\\S]*?\\*/",
+    "example_input": "/* 这是\n多行注释 */\ncode();",
+    "example_match": "/* 这是\n多行注释 */"
+  },
+  {
+    "id": "import-path",
+    "name": "import 路径",
+    "category": "programming",
+    "description": "匹配 ES Module / TypeScript import 的路径部分",
+    "expression": "(?:from|import)\\s+[\"']([^\"']+)[\"']",
+    "example_input": "import { ref } from 'vue';",
+    "example_match": "from 'vue'"
+  },
+  {
+    "id": "css-selector",
+    "name": "CSS 选择器",
+    "category": "programming",
+    "description": "匹配常见 CSS 类选择器和 ID 选择器",
+    "expression": "[.#][a-zA-Z_-][a-zA-Z0-9_-]*",
+    "example_input": ".container #main .btn-primary",
+    "example_match": ".container"
+  },
+
+  {
+    "id": "amount-integer",
+    "name": "整数金额",
+    "category": "finance",
+    "description": "匹配正整数金额",
+    "expression": "\\b[1-9]\\d*\\b",
+    "example_input": "总价：1500 元",
+    "example_match": "1500"
+  },
+  {
+    "id": "amount-decimal",
+    "name": "小数金额",
+    "category": "finance",
+    "description": "匹配含小数的金额（1-2位小数）",
+    "expression": "\\b\\d+\\.\\d{1,2}\\b",
+    "example_input": "单价：99.50 元，运费：12.5 元",
+    "example_match": "99.50"
+  },
+  {
+    "id": "amount-thousands",
+    "name": "千分位金额",
+    "category": "finance",
+    "description": "匹配千分位分隔的金额",
+    "expression": "\\b\\d{1,3}(?:,\\d{3})*(?:\\.\\d{1,2})?\\b",
+    "example_input": "总额：1,234,567.89 元",
+    "example_match": "1,234,567.89"
+  },
+  {
+    "id": "positive-integer",
+    "name": "正整数",
+    "category": "finance",
+    "description": "匹配正整数（不含前导零）",
+    "expression": "^[1-9]\\d*$",
+    "example_input": "42",
+    "example_match": "42"
+  },
+  {
+    "id": "negative-integer",
+    "name": "负整数",
+    "category": "finance",
+    "description": "匹配负整数",
+    "expression": "^-[1-9]\\d*$",
+    "example_input": "-42",
+    "example_match": "-42"
+  },
+  {
+    "id": "positive-float",
+    "name": "正浮点数",
+    "category": "finance",
+    "description": "匹配正浮点数",
+    "expression": "^\\d+\\.\\d+$",
+    "example_input": "3.14",
+    "example_match": "3.14"
+  },
+  {
+    "id": "negative-float",
+    "name": "负浮点数",
+    "category": "finance",
+    "description": "匹配负浮点数",
+    "expression": "^-\\d+\\.\\d+$",
+    "example_input": "-3.14",
+    "example_match": "-3.14"
+  },
+  {
+    "id": "scientific-notation",
+    "name": "科学计数法",
+    "category": "finance",
+    "description": "匹配科学计数法表示的数字",
+    "expression": "-?\\d+\\.?\\d*[eE][+-]?\\d+",
+    "example_input": "光速约 3.0e8 米/秒",
+    "example_match": "3.0e8"
+  },
+  {
+    "id": "percentage",
+    "name": "百分比",
+    "category": "finance",
+    "description": "匹配百分比数值",
+    "expression": "-?\\d+\\.?\\d*%",
+    "example_input": "增长率：15.5%，下降 -2.3%",
+    "example_match": "15.5%"
+  },
+  {
+    "id": "rmb-amount",
+    "name": "人民币金额",
+    "category": "finance",
+    "description": "匹配带人民币符号的金额",
+    "expression": "[\\u00a5\\uffe5]\\s?\\d+(?:,\\d{3})*(?:\\.\\d{1,2})?",
+    "example_input": "价格：\u00a5199.00，合计：\uffe51,234.56",
+    "example_match": "\u00a5199.00"
+  },
+
+  {
+    "id": "windows-path",
+    "name": "Windows 路径",
+    "category": "address",
+    "description": "匹配 Windows 文件路径",
+    "expression": "[a-zA-Z]:\\\\(?:[^\\\\/:*?\"<>|\\r\\n]+\\\\)*[^\\\\/:*?\"<>|\\r\\n]*",
+    "example_input": "文件位于 C:\\Users\\test\\Documents\\file.txt",
+    "example_match": "C:\\Users\\test\\Documents\\file.txt"
+  },
+  {
+    "id": "unix-path",
+    "name": "Unix 路径",
+    "category": "address",
+    "description": "匹配 Unix/Linux 文件路径",
+    "expression": "(?:/[^/\\s]+)+",
+    "example_input": "配置文件：/etc/nginx/nginx.conf",
+    "example_match": "/etc/nginx/nginx.conf"
+  },
+  {
+    "id": "unc-path",
+    "name": "UNC 路径",
+    "category": "address",
+    "description": "匹配 Windows UNC 网络路径",
+    "expression": "\\\\\\\\[^\\\\/:*?\"<>|\\s]+(?:\\\\[^\\\\/:*?\"<>|\\s]+)*",
+    "example_input": "共享目录：\\\\server\\share\\folder",
+    "example_match": "\\\\server\\share\\folder"
+  },
+  {
+    "id": "file-extension",
+    "name": "文件扩展名",
+    "category": "address",
+    "description": "匹配文件扩展名",
+    "expression": "\\.[a-zA-Z0-9]{1,10}$",
+    "example_input": "document.pdf",
+    "example_match": ".pdf"
+  },
+  {
+    "id": "image-filename",
+    "name": "图片文件名",
+    "category": "address",
+    "description": "匹配常见图片文件名",
+    "expression": "[\\w.-]+\\.(?:jpe?g|png|gif|bmp|svg|webp|ico|tiff?)",
+    "example_input": "上传 photo.jpg 和 icon.png",
+    "example_match": "photo.jpg"
+  },
+  {
+    "id": "doc-filename",
+    "name": "文档文件名",
+    "category": "address",
+    "description": "匹配常见文档文件名",
+    "expression": "[\\w.-]+\\.(?:docx?|xlsx?|pptx?|pdf|txt|csv|md)",
+    "example_input": "附件：report.docx 和 data.xlsx",
+    "example_match": "report.docx"
+  },
+  {
+    "id": "latitude-longitude",
+    "name": "经纬度",
+    "category": "address",
+    "description": "匹配经纬度坐标对（纬度,经度）",
+    "expression": "-?(?:[1-8]?\\d(?:\\.\\d+)?|90(?:\\.0+)?)\\s*,\\s*-?(?:1[0-7]\\d(?:\\.\\d+)?|180(?:\\.0+)?|\\d{1,2}(?:\\.\\d+)?)",
+    "example_input": "坐标：39.9042,116.4074",
+    "example_match": "39.9042,116.4074"
+  },
+  {
+    "id": "china-address",
+    "name": "中文省市区",
+    "category": "address",
+    "description": "匹配中文省市区地址开头部分",
+    "expression": "[\\u4e00-\\u9fff]{2,}(?:省|自治区|市|区|县|镇|乡|村|街道)",
+    "example_input": "北京市朝阳区建国门外大街",
+    "example_match": "北京市"
+  },
+
+  {
+    "id": "json-string",
+    "name": "JSON 字符串值",
+    "category": "data",
+    "description": "匹配 JSON 中双引号括起的字符串值（含转义）",
+    "expression": "\"(?:[^\"\\\\]|\\\\.)*\"",
+    "example_input": "{\"msg\": \"hello\\nworld\"}",
+    "example_match": "\"msg\""
+  },
+  {
+    "id": "xml-tag",
+    "name": "XML 标签",
+    "category": "data",
+    "description": "匹配 XML 标签（含属性）",
+    "expression": "<([a-zA-Z][a-zA-Z0-9]*)[^>]*>",
+    "example_input": "<user id=\"1\" name=\"test\">",
+    "example_match": "<user id=\"1\" name=\"test\">"
+  },
+  {
+    "id": "csv-field",
+    "name": "CSV 字段",
+    "category": "data",
+    "description": "匹配 CSV 中的单个字段（含引号字段）",
+    "expression": "(?:\"(?:[^\"]|\"\")*\"|[^,\"\\r\\n]*)",
+    "example_input": "\"张三\",25,\"北京,朝阳\"",
+    "example_match": "\"张三\""
+  },
+  {
+    "id": "base64",
+    "name": "Base64 编码",
+    "category": "data",
+    "description": "匹配 Base64 编码字符串",
+    "expression": "(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?",
+    "example_input": "编码：SGVsbG8gV29ybGQ=",
+    "example_match": "SGVsbG8gV29ybGQ="
+  },
+  {
+    "id": "uuid-v4",
+    "name": "UUID v4",
+    "category": "data",
+    "description": "匹配 UUID v4 格式",
+    "expression": "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}",
+    "example_input": "ID: 550e8400-e29b-41d4-a716-446655440000",
+    "example_match": "550e8400-e29b-41d4-a716-446655440000"
+  },
+  {
+    "id": "md5-hash",
+    "name": "MD5 哈希",
+    "category": "data",
+    "description": "匹配32位MD5哈希值",
+    "expression": "\\b[a-fA-F0-9]{32}\\b",
+    "example_input": "MD5: d41d8cd98f00b204e9800998ecf8427e",
+    "example_match": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  {
+    "id": "sha256-hash",
+    "name": "SHA-256 哈希",
+    "category": "data",
+    "description": "匹配64位SHA-256哈希值",
+    "expression": "\\b[a-fA-F0-9]{64}\\b",
+    "example_input": "SHA256: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "example_match": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "id": "jwt-token",
+    "name": "JWT Token",
+    "category": "data",
+    "description": "匹配 JWT 令牌格式（三段Base64URL）",
+    "expression": "eyJ[A-Za-z0-9_-]+\\.eyJ[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+",
+    "example_input": "Token: eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abc123",
+    "example_match": "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abc123"
+  },
+  {
+    "id": "data-uri",
+    "name": "Data URI",
+    "category": "data",
+    "description": "匹配 Data URI 格式",
+    "expression": "data:[a-zA-Z0-9/+.-]+(?:;[a-zA-Z0-9=]+)*(?:;base64)?,\\S+",
+    "example_input": "src=\"data:image/png;base64,iVBOR...\"",
+    "example_match": "data:image/png;base64,iVBOR..."
+  },
+  {
+    "id": "mime-type",
+    "name": "MIME 类型",
+    "category": "data",
+    "description": "匹配标准 MIME 类型",
+    "expression": "\\b[a-zA-Z]+/[a-zA-Z0-9.+-]+\\b",
+    "example_input": "Content-Type: application/json",
+    "example_match": "application/json"
+  },
+
+  {
+    "id": "strong-password",
+    "name": "强密码",
+    "category": "password",
+    "description": "至少8位，含大小写字母、数字和特殊字符",
+    "expression": "^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[!@#$%^&*()_+=-]).{8,}$",
+    "example_input": "Abc@1234",
+    "example_match": "Abc@1234"
+  },
+  {
+    "id": "medium-password",
+    "name": "中等密码",
+    "category": "password",
+    "description": "至少6位，含字母和数字",
+    "expression": "^(?=.*[a-zA-Z])(?=.*\\d).{6,}$",
+    "example_input": "abc123",
+    "example_match": "abc123"
+  },
+  {
+    "id": "weak-password-detect",
+    "name": "弱密码检测",
+    "category": "password",
+    "description": "检测纯数字或纯字母的弱密码",
+    "expression": "^(?:\\d+|[a-zA-Z]+)$",
+    "example_input": "123456",
+    "example_match": "123456"
+  },
+  {
+    "id": "username",
+    "name": "用户名",
+    "category": "password",
+    "description": "4-20位字母数字下划线，字母开头",
+    "expression": "^[a-zA-Z][a-zA-Z0-9_]{3,19}$",
+    "example_input": "user_name_01",
+    "example_match": "user_name_01"
+  },
+  {
+    "id": "username-chinese",
+    "name": "含中文用户名",
+    "category": "password",
+    "description": "2-20位，允许中文、字母、数字、下划线",
+    "expression": "^[\\u4e00-\\u9fffa-zA-Z][\\u4e00-\\u9fffa-zA-Z0-9_]{1,19}$",
+    "example_input": "张三_test",
+    "example_match": "张三_test"
+  },
+  {
+    "id": "api-key-pattern",
+    "name": "API Key 格式",
+    "category": "password",
+    "description": "匹配常见 API Key 格式（32-64位十六进制或Base64）",
+    "expression": "\\b[a-zA-Z0-9]{32,64}\\b",
+    "example_input": "key: sk1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6",
+    "example_match": "sk1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6"
+  },
+  {
+    "id": "repeated-chars",
+    "name": "连续重复字符",
+    "category": "password",
+    "description": "匹配连续3个及以上相同字符",
+    "expression": "(.)\\1{2,}",
+    "example_input": "密码 aaa111bbb 含重复字符",
+    "example_match": "aaa"
+  },
+  {
+    "id": "no-space-string",
+    "name": "无空格字符串",
+    "category": "password",
+    "description": "匹配不含空格的字符串",
+    "expression": "^\\S+$",
+    "example_input": "no-spaces-here",
+    "example_match": "no-spaces-here"
+  },
+
+  {
+    "id": "chinese-punctuation",
+    "name": "中文标点",
+    "category": "text",
+    "description": "匹配中文标点符号",
+    "expression": "[\\u3000-\\u303f\\uff00-\\uffef]+",
+    "example_input": "你好，世界！（测试）",
+    "example_match": "\uff0c"
+  },
+  {
+    "id": "english-punctuation",
+    "name": "英文标点",
+    "category": "text",
+    "description": "匹配英文标点符号",
+    "expression": "[!\"#$%&'()*+,-./:;<=>?@\\[\\]^_`{|}~]+",
+    "example_input": "Hello, World! (test)",
+    "example_match": ","
+  },
+  {
+    "id": "emoji",
+    "name": "Emoji 表情",
+    "category": "text",
+    "description": "匹配常见 Emoji 表情符号",
+    "expression": "[\\u{1f300}-\\u{1f9ff}\\u{2600}-\\u{26ff}\\u{2700}-\\u{27bf}]+",
+    "example_input": "Hello World",
+    "example_match": ""
+  },
+  {
+    "id": "extra-spaces",
+    "name": "多余空格",
+    "category": "text",
+    "description": "匹配连续多个空格",
+    "expression": " {2,}",
+    "example_input": "文本  有   多余    空格",
+    "example_match": "  "
+  },
+  {
+    "id": "leading-trailing-spaces",
+    "name": "行首尾空白",
+    "category": "text",
+    "description": "匹配行首或行尾的空白字符",
+    "expression": "^\\s+|\\s+$",
+    "example_input": "  有空格的文本  ",
+    "example_match": "  "
+  },
+  {
+    "id": "markdown-link",
+    "name": "Markdown 链接",
+    "category": "text",
+    "description": "匹配 Markdown 链接语法",
+    "expression": "\\[([^\\]]+)\\]\\(([^)]+)\\)",
+    "example_input": "请访问 [官网](https://example.com) 了解更多",
+    "example_match": "[官网](https://example.com)"
+  },
+  {
+    "id": "markdown-image",
+    "name": "Markdown 图片",
+    "category": "text",
+    "description": "匹配 Markdown 图片语法",
+    "expression": "!\\[([^\\]]*)\\]\\(([^)]+)\\)",
+    "example_input": "截图：![截图](./screenshot.png)",
+    "example_match": "![截图](./screenshot.png)"
+  },
+  {
+    "id": "phone-mask",
+    "name": "手机号脱敏",
+    "category": "text",
+    "description": "匹配手机号中间4位（用于脱敏替换为****）",
+    "expression": "(1[3-9]\\d)\\d{4}(\\d{4})",
+    "example_input": "手机：13812345678",
+    "example_match": "13812345678"
+  },
+  {
+    "id": "email-mask",
+    "name": "邮箱脱敏",
+    "category": "text",
+    "description": "匹配邮箱用户名部分（用于脱敏）",
+    "expression": "([a-zA-Z0-9._%+-]{1,3})[a-zA-Z0-9._%+-]*(@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,})",
+    "example_input": "邮箱：testuser@example.com",
+    "example_match": "testuser@example.com"
+  },
+  {
+    "id": "cn-en-space",
+    "name": "中英混排空格",
+    "category": "text",
+    "description": "匹配中英文之间缺少空格的位置（用于插入空格）",
+    "expression": "(?<=[\\u4e00-\\u9fff])(?=[a-zA-Z0-9])|(?<=[a-zA-Z0-9])(?=[\\u4e00-\\u9fff])",
+    "example_input": "使用Vue3开发React应用",
+    "example_match": ""
   }
 ]

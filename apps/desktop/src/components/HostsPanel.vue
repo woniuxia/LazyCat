@@ -407,7 +407,6 @@ function initSortable(retries = 5) {
     handle: ".drag-handle",
     ghostClass: "sortable-ghost",
     forceFallback: true,
-    fallbackOnBody: true,
     onEnd: async (evt) => {
       const { oldIndex, newIndex } = evt;
       if (oldIndex == null || newIndex == null || oldIndex === newIndex) return;

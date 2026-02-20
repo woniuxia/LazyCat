@@ -19,6 +19,7 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use tools::manuals::MANUAL_SERVERS;
+use tools::regex::REGEX_TEMPLATES_DIR;
 
 fn start_manual_server(root_dir: PathBuf) -> u16 {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind manual server");
@@ -253,6 +254,19 @@ fn main() {
                 }
                 let _ = MANUAL_SERVERS.set(ports);
             }
+
+            // 初始化正则模板目录
+            let regex_dir = {
+                let rd = app.path().resource_dir().ok().map(|d| d.join("regex-library"));
+                if rd.as_ref().is_some_and(|d| d.join("templates.json").exists()) {
+                    rd.unwrap()
+                } else {
+                    let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                        .join("../../../resources/regex-library");
+                    std::fs::canonicalize(&dev).unwrap_or(dev)
+                }
+            };
+            let _ = REGEX_TEMPLATES_DIR.set(regex_dir);
 
             let show_item = MenuItem::with_id(app, "show", "显示", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
