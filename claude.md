@@ -84,7 +84,13 @@
   - 指针文件 `%USERPROFILE%\\.lazycat\\config.json` 记录自定义数据目录路径，该文件位置固定不变
   - Hosts 配置、用户设置均存储在 SQLite
   - Hosts 备份目录由 Rust 端管理
-- 状态持久化：收藏夹、工具点击历史、计算草稿历史、外观主题、快捷键等全部存储在 SQLite（`user_settings` 表）；旧版 localStorage 数据在首次启动时自动迁移
+- 菜单显隐：`useMenuVisibility` composable 管理侧边栏工具的显示/隐藏
+  - 数据模型：deny-list（被隐藏的工具 ID 数组），SQLite key `menu_visibility`，新增工具默认可见
+  - 数据流管线：`sidebarItems`（静态定义）→ `sortedSidebarItems`（热度排序）→ `visibleSidebarItems`（过滤隐藏+自动提升）→ `SidebarNav :items`
+  - 分组只剩 1 个可见子项时自动提升为一级菜单，0 个则整组消失
+  - `allTools`/`allToolMap` 始终基于未过滤的 `sidebarItems`，隐藏工具仍可通过标签页、收藏、首页访问
+  - 设置入口：`SettingsPanel` → `MenuVisibilityDialog`（el-tree 树形复选框）
+- 状态持久化：收藏夹、工具点击历史、计算草稿历史、外观主题、快捷键、菜单显隐等全部存储在 SQLite（`user_settings` 表）；旧版 localStorage 数据在首次启动时自动迁移
 
 ## 重要运行时路径
 
