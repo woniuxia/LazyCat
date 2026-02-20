@@ -35,6 +35,7 @@ const toolRegistry: Record<string, Component> = {
   jwt: defineAsyncComponent(() => import("./components/JwtPanel.vue")),
   "base-converter": defineAsyncComponent(() => import("./components/BaseConverterPanel.vue")),
   color: defineAsyncComponent(() => import("./components/ColorPanel.vue")),
+  "escape-unescape": defineAsyncComponent(() => import("./components/EscapeUnescapePanel.vue")),
   diff: defineAsyncComponent(() => import("./components/DiffPanel.vue")),
   markdown: defineAsyncComponent(() => import("./components/MarkdownPanel.vue")),
   "nginx-helper": defineAsyncComponent(() => import("./components/NginxPanel.vue")),

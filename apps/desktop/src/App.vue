@@ -109,6 +109,7 @@ const sidebarItems: SidebarItem[] = [
         { id: "mybatis-helper", name: "MyBatis 助手", desc: "动态 SQL 渲染与占位符展开" },
         { id: "base-converter", name: "进制转换", desc: "二/八/十/十六进制转换" },
         { id: "color", name: "颜色转换", desc: "颜色格式互转与对比度检查" },
+        { id: "escape-unescape", name: "转义/反转义", desc: "JSON/HTML/SQL/JS 字符串转义与反转义" },
         { id: "text-process", name: "文本处理", desc: "按行去重与排序" }
       ]
     }

@@ -62,6 +62,7 @@ declare module 'vue' {
     ElTree: typeof import('element-plus/es')['ElTree']
     EncodePanel: typeof import('./src/components/EncodePanel.vue')['default']
     EnvPanel: typeof import('./src/components/EnvPanel.vue')['default']
+    EscapeUnescapePanel: typeof import('./src/components/EscapeUnescapePanel.vue')['default']
     FormatterPanel: typeof import('./src/components/FormatterPanel.vue')['default']
     HomePanel: typeof import('./src/components/HomePanel.vue')['default']
     HostsPanel: typeof import('./src/components/HostsPanel.vue')['default']
