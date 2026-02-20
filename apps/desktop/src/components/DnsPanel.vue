@@ -17,9 +17,16 @@
         />
         <el-button type="primary" :loading="loading" @click="runQuery">查询</el-button>
       </div>
+      <div v-if="systemDnsHint" class="system-dns-hint">
+        系统 IPv4 DNS: {{ systemDnsHint }}
+      </div>
     </div>
 
-    <template v-if="result">
+    <div v-if="loading" class="dns-loading-placeholder">
+      <el-skeleton animated :rows="6" />
+    </div>
+
+    <template v-else-if="result">
       <div class="result-meta">
         <el-tag size="small" type="info">DNS: {{ result.server }}</el-tag>
         <el-tag size="small" type="info">耗时: {{ result.elapsed_ms }} ms</el-tag>
@@ -50,13 +57,35 @@
     <div v-else-if="!loading" class="empty-hint">
       输入域名后点击"查询"，获取 A/AAAA/CNAME/MX/NS/TXT/SOA/SRV 记录
     </div>
+
+    <div class="record-section">
+      <el-divider content-position="left">历史查询</el-divider>
+      <el-table :data="queryHistory" size="small" border stripe>
+        <el-table-column prop="domain" label="域名" min-width="220" show-overflow-tooltip />
+        <el-table-column prop="dnsServer" label="DNS 服务器" min-width="180" show-overflow-tooltip />
+        <el-table-column label="上一次查询时间" width="180">
+          <template #default="{ row }">
+            {{ formatHistoryTime(row.queriedAt) }}
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="96" align="center">
+          <template #default="{ row }">
+            <el-button size="small" @click="fillFromHistory(row)">回填</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <div v-if="queryHistory.length === 0" class="empty-hint history-empty">
+        暂无历史查询记录
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from "vue";
+import { ref, computed, onMounted } from "vue";
 import { ElMessage } from "element-plus";
 import { invokeToolByChannel } from "../bridge/tauri";
+import { getSettingJson, setSettingJson } from "../composables/useSettings";
 
 interface DnsResult {
   domain: string;
@@ -74,6 +103,17 @@ interface ColumnDef {
 interface RecordTypeDef {
   type: string;
   columns: ColumnDef[];
+}
+
+interface DnsHistoryEntry {
+  domain: string;
+  dnsServer: string;
+  queriedAt: number;
+}
+
+interface SystemDnsResponse {
+  ipv4?: string[];
+  all?: string[];
 }
 
 const RECORD_TYPES: RecordTypeDef[] = [
@@ -112,19 +152,94 @@ const RECORD_TYPES: RecordTypeDef[] = [
   },
 ];
 
+const DNS_QUERY_HISTORY_KEY = "dns_query_history";
+const MAX_DNS_QUERY_HISTORY = 100;
+
 const domain = ref("");
 const dnsServer = ref("");
 const loading = ref(false);
 const result = ref<DnsResult | null>(null);
+const systemDnsIpv4List = ref<string[]>([]);
+const queryHistory = ref<DnsHistoryEntry[]>(loadDnsQueryHistory());
 
 const noRecords = computed(() => {
   if (!result.value) return false;
   return RECORD_TYPES.every((rt) => getRecords(rt.type).length === 0);
 });
 
+const systemDnsHint = computed(() => {
+  if (systemDnsIpv4List.value.length === 0) return "";
+  return systemDnsIpv4List.value.join(", ");
+});
+
 function getRecords(type: string): Record<string, unknown>[] {
   if (!result.value) return [];
   return result.value.records[type] ?? [];
+}
+
+function loadDnsQueryHistory(): DnsHistoryEntry[] {
+  const parsed = getSettingJson<unknown[]>(DNS_QUERY_HISTORY_KEY, []);
+  if (!Array.isArray(parsed)) return [];
+  const entries = parsed.filter((item): item is DnsHistoryEntry => {
+    const x = item as Record<string, unknown>;
+    return (
+      typeof x?.domain === "string" &&
+      typeof x?.dnsServer === "string" &&
+      typeof x?.queriedAt === "number"
+    );
+  });
+  entries.sort((a, b) => b.queriedAt - a.queriedAt);
+  return entries.slice(0, MAX_DNS_QUERY_HISTORY);
+}
+
+function persistDnsQueryHistory() {
+  setSettingJson(DNS_QUERY_HISTORY_KEY, queryHistory.value);
+}
+
+function appendHistory(domainValue: string, dnsServerValue: string) {
+  const normalizedDomain = domainValue.trim();
+  const normalizedServer = dnsServerValue.trim();
+  if (!normalizedDomain) return;
+
+  const next: DnsHistoryEntry = {
+    domain: normalizedDomain,
+    dnsServer: normalizedServer,
+    queriedAt: Date.now(),
+  };
+  const deduped = queryHistory.value.filter(
+    (item) => !(item.domain === next.domain && item.dnsServer === next.dnsServer),
+  );
+  queryHistory.value = [next, ...deduped].slice(0, MAX_DNS_QUERY_HISTORY);
+  persistDnsQueryHistory();
+}
+
+function fillFromHistory(item: DnsHistoryEntry) {
+  domain.value = item.domain;
+  dnsServer.value = item.dnsServer;
+}
+
+function formatHistoryTime(timestamp: number): string {
+  const date = new Date(timestamp);
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  const hh = String(date.getHours()).padStart(2, "0");
+  const mi = String(date.getMinutes()).padStart(2, "0");
+  const ss = String(date.getSeconds()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`;
+}
+
+async function loadSystemDnsDefaults() {
+  try {
+    const data = (await invokeToolByChannel("tool:dns:system-dns", {})) as SystemDnsResponse;
+    const ipv4 = Array.isArray(data?.ipv4) ? data.ipv4.filter((v) => typeof v === "string") : [];
+    systemDnsIpv4List.value = ipv4;
+    if (!dnsServer.value.trim() && ipv4.length > 0) {
+      dnsServer.value = ipv4[0];
+    }
+  } catch {
+    // Ignore system DNS loading failures; user can still type server manually.
+  }
 }
 
 async function runQuery() {
@@ -142,12 +257,17 @@ async function runQuery() {
       server: dnsServer.value.trim(),
     });
     result.value = data as DnsResult;
+    appendHistory(d, dnsServer.value);
   } catch (e) {
     ElMessage.error((e as Error).message);
   } finally {
     loading.value = false;
   }
 }
+
+onMounted(() => {
+  loadSystemDnsDefaults();
+});
 </script>
 
 <style scoped>
@@ -170,8 +290,18 @@ async function runQuery() {
   gap: 8px;
 }
 
+.system-dns-hint {
+  margin-top: 6px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+
 .record-section {
   margin-bottom: 4px;
+}
+
+.dns-loading-placeholder {
+  margin-top: 4px;
 }
 
 .empty-hint {
@@ -179,5 +309,9 @@ async function runQuery() {
   font-size: 13px;
   text-align: center;
   padding: 32px 0;
+}
+
+.history-empty {
+  padding: 10px 0 2px;
 }
 </style>

@@ -243,6 +243,12 @@ function pickHosts(profile: HostsProfile) {
   hostsContent.value = profile.content;
 }
 
+function loadActiveProfileToEditor() {
+  const activeProfile = hostsProfiles.value.find((p) => p.enabled);
+  if (!activeProfile) return;
+  pickHosts(activeProfile);
+}
+
 async function saveHosts() {
   if (!hostsName.value.trim()) {
     ElMessage.warning("\u8BF7\u8F93\u5165\u914D\u7F6E\u540D\u79F0");
@@ -426,6 +432,7 @@ function initSortable(retries = 5) {
 // --- lifecycle ---
 onMounted(async () => {
   await loadHostsProfiles();
+  loadActiveProfileToEditor();
   checkAdminAccess();
   loadBackupList();
   await nextTick();

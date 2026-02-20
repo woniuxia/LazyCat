@@ -1,9 +1,9 @@
 ﻿<template>
   <aside class="nav">
-    <div class="brand">
+    <button class="brand brand-link" type="button" title="返回首页" @click="goHome">
       <span class="brand-name">Lazycat</span>
       <span class="brand-zh">懒猫</span>
-    </div>
+    </button>
 
     <div class="nav-toolbar">
       <el-input
@@ -185,6 +185,11 @@ function locateCurrentTool() {
       }
     }, 300);
   });
+}
+
+function goHome() {
+  searchQuery.value = "";
+  emit("select", "home");
 }
 
 watch(searchQuery, () => {

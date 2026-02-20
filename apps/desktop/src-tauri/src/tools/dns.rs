@@ -2,6 +2,7 @@ use serde_json::{json, Value};
 use std::time::Instant;
 use std::net::IpAddr;
 use std::str::FromStr;
+use std::collections::HashSet;
 use hickory_resolver::config::{ResolverConfig, ResolverOpts, NameServerConfig, Protocol};
 use hickory_resolver::TokioAsyncResolver;
 use hickory_resolver::proto::rr::RecordType;
@@ -9,8 +10,31 @@ use hickory_resolver::proto::rr::RecordType;
 pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
     match action {
         "resolve" => resolve(payload),
+        "system_dns" => system_dns(),
         _ => Err(format!("unsupported dns action: {action}")),
     }
+}
+
+fn system_dns() -> Result<Value, String> {
+    let config = ResolverConfig::default();
+    let mut ipv4 = Vec::<String>::new();
+    let mut all = Vec::<String>::new();
+    let mut seen = HashSet::<String>::new();
+
+    for ns in config.name_servers() {
+        let ip = ns.socket_addr.ip().to_string();
+        if seen.insert(ip.clone()) {
+            if ns.socket_addr.ip().is_ipv4() {
+                ipv4.push(ip.clone());
+            }
+            all.push(ip);
+        }
+    }
+
+    Ok(json!({
+        "ipv4": ipv4,
+        "all": all,
+    }))
 }
 
 fn resolve(payload: &Value) -> Result<Value, String> {

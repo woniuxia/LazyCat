@@ -45,6 +45,24 @@
   user-select: none;
 }
 
+.brand-link {
+  width: 100%;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--lc-duration) var(--lc-ease);
+}
+
+.brand-link:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.brand-link:focus-visible {
+  outline: 1px solid var(--lc-accent);
+  outline-offset: -1px;
+}
+
 .brand-name {
   font-family: var(--lc-font-display);
   font-size: 22px;
@@ -124,6 +142,10 @@
 
 html[data-theme="light"] .nav-toolbar-btn:hover {
   background: rgba(0, 0, 0, 0.05);
+}
+
+html[data-theme="light"] .brand-link:hover {
+  background: rgba(0, 0, 0, 0.03);
 }
 
 /* ---------- Sidebar Menu Overrides ---------- */
