@@ -1,6 +1,6 @@
 <template>
   <div class="shell">
-    <SidebarNav :items="sortedSidebarItems" :active-tool="activeTool" @select="onSelect" />
+    <SidebarNav :items="visibleSidebarItems" :active-tool="activeTool" @select="onSelect" />
 
     <main class="content">
       <TabBar
@@ -53,6 +53,7 @@ import { computed, onMounted, onBeforeUnmount, ref, watch } from "vue";
 import type { ToolDef, SidebarItem } from "./types";
 import { useFavorites } from "./composables/useFavorites";
 import { useTabs } from "./composables/useTabs";
+import { useMenuVisibility } from "./composables/useMenuVisibility";
 import { initSettings, getSetting, setSetting } from "./composables/useSettings";
 import { registerHotkey } from "./bridge/tauri";
 import { getToolComponent, ENCODE_PANEL_IDS } from "./tool-registry";
@@ -232,6 +233,9 @@ const sortedSidebarItems = computed<SidebarItem[]>(() => {
   });
 });
 
+const { visibleSidebarItems, getHiddenIds, setHiddenIds, loadMenuVisibility } =
+  useMenuVisibility(sortedSidebarItems);
+
 const currentTool = computed(() => {
   if (activeTool.value === HOME_ID) return HOME_TOOL;
   if (activeTool.value === "settings") return { id: "settings", name: "设置", desc: "快捷键与应用偏好设置" };
@@ -250,6 +254,9 @@ const currentComponentProps = computed(() => {
   if (id === "settings") return {
     themeMode: themeMode.value,
     hotkeyInput: hotkeyInput.value,
+    sidebarItems,
+    getHiddenIds,
+    setHiddenIds,
     "onUpdate:themeMode": (v: "system" | "dark" | "light") => { themeMode.value = v; },
     "onUpdate:hotkeyInput": (v: string) => { hotkeyInput.value = v; },
   };
@@ -305,6 +312,7 @@ onMounted(async () => {
   applyTheme(resolveTheme(themeMode.value));
   systemMediaQuery.addEventListener("change", onSystemThemeChange);
   loadFavoritesFromStorage();
+  loadMenuVisibility();
   const savedHotkey = getSetting("hotkey") ?? "";
   hotkeyInput.value = savedHotkey;
   if (savedHotkey) {

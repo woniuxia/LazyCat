@@ -15,6 +15,12 @@
             <el-radio-button value="light">浅色</el-radio-button>
           </el-radio-group>
         </el-form-item>
+        <el-form-item label="菜单显示">
+          <el-button @click="menuVisibilityDialog?.show()">配置显示项</el-button>
+          <span style="margin-left: 8px; color: var(--el-text-color-secondary); font-size: 12px;">
+            自定义侧边栏显示的工具
+          </span>
+        </el-form-item>
         <el-form-item label="显示/隐藏快捷键">
           <el-input
             :model-value="hotkeyInput"
@@ -65,6 +71,12 @@
         </el-radio-group>
       </div>
     </div>
+    <MenuVisibilityDialog
+      ref="menuVisibilityDialog"
+      :sidebar-items="sidebarItems"
+      :get-hidden-ids="getHiddenIds"
+      :set-hidden-ids="setHiddenIds"
+    />
   </div>
 </template>
 
@@ -74,10 +86,15 @@ import { ElMessage, ElMessageBox } from "element-plus";
 import { save, open } from "@tauri-apps/plugin-dialog";
 import { registerHotkey, unregisterHotkey, invokeToolByChannel } from "../bridge/tauri";
 import { setSetting } from "../composables/useSettings";
+import type { SidebarItem } from "../types";
+import MenuVisibilityDialog from "./MenuVisibilityDialog.vue";
 
 const props = defineProps<{
   themeMode: "system" | "dark" | "light";
   hotkeyInput: string;
+  sidebarItems: SidebarItem[];
+  getHiddenIds: () => string[];
+  setHiddenIds: (ids: string[]) => void;
 }>();
 
 const emit = defineEmits<{
@@ -88,6 +105,7 @@ const emit = defineEmits<{
 const importMode = ref<"merge" | "overwrite">("merge");
 const dataDirPath = ref("");
 const dataDirIsCustom = ref(false);
+const menuVisibilityDialog = ref<InstanceType<typeof MenuVisibilityDialog>>();
 
 onMounted(async () => {
   await loadDataDir();
