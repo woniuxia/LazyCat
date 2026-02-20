@@ -9,6 +9,7 @@ pub mod cron;
 pub mod crypto;
 pub mod format;
 pub mod network;
+pub mod dns;
 pub mod env;
 pub mod port;
 pub mod file;
@@ -31,6 +32,7 @@ pub fn execute_tool(domain: &str, action: &str, payload: &Value) -> Result<Value
         "crypto"   => crypto::execute(action, payload),
         "format"   => format::execute(action, payload),
         "network"  => network::execute(action, payload),
+        "dns"      => dns::execute(action, payload),
         "env"      => env::execute(action, payload),
         "port"     => port::execute(action, payload),
         "file"     => file::execute(action, payload),

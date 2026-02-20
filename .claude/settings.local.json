@@ -59,7 +59,8 @@
       "Bash(copy \"F:\\\\favicon \\(1\\).ico\" \"E:\\\\Projects\\\\LazyCat\\\\apps\\\\desktop\\\\src-tauri\\\\icons\\\\icon.ico\" /Y)",
       "Bash(copy:*)",
       "Bash(E:)",
-      "Bash(git -C \"E:\\\\Projects\\\\LazyCat\" log --oneline -20)"
+      "Bash(git -C \"E:\\\\Projects\\\\LazyCat\" log --oneline -20)",
+      "Bash(npx eslint:*)"
     ]
   }
 }

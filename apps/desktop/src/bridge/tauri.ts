@@ -63,6 +63,7 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:format:sql": { domain: "format", action: "sql" },
   "tool:network:tcp-test": { domain: "network", action: "tcp_test" },
   "tool:network:http-test": { domain: "network", action: "http_test" },
+  "tool:dns:resolve": { domain: "dns", action: "resolve" },
   "tool:env:detect": { domain: "env", action: "detect" },
   "tool:port:usage": { domain: "port", action: "usage" },
   "tool:file:split": { domain: "file", action: "split" },

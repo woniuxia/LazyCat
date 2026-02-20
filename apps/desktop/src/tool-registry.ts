@@ -20,6 +20,7 @@ const toolRegistry: Record<string, Component> = {
   network: defineAsyncComponent(() => import("./components/NetworkPanel.vue")),
   hosts: defineAsyncComponent(() => import("./components/HostsPanel.vue")),
   ports: defineAsyncComponent(() => import("./components/PortsPanel.vue")),
+  dns: defineAsyncComponent(() => import("./components/DnsPanel.vue")),
   env: defineAsyncComponent(() => import("./components/EnvPanel.vue")),
   "split-merge": defineAsyncComponent(() => import("./components/SplitMergePanel.vue")),
   image: defineAsyncComponent(() => import("./components/ImagePanel.vue")),

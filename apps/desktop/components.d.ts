@@ -15,6 +15,7 @@ declare module 'vue' {
     CalcDraftPanel: typeof import('./src/components/CalcDraftPanel.vue')['default']
     CronPanel: typeof import('./src/components/CronPanel.vue')['default']
     CsvJsonPanel: typeof import('./src/components/CsvJsonPanel.vue')['default']
+    DnsPanel: typeof import('./src/components/DnsPanel.vue')['default']
     ElButton: typeof import('element-plus/es')['ElButton']
     ElButtonGroup: typeof import('element-plus/es')['ElButtonGroup']
     ElCheckbox: typeof import('element-plus/es')['ElCheckbox']

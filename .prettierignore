@@ -1,0 +1,11 @@
+dist
+dist-renderer
+dist-ts
+node_modules
+.tauri
+src-tauri
+resources
+auto-imports.d.ts
+components.d.ts
+*.sqlite
+*.bak
