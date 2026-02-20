@@ -73,10 +73,14 @@
       :loading="listLoading"
       row-key="id"
     >
-      <el-table-column prop="name" label="名称" min-width="180">
+      <el-table-column width="36" align="center">
+        <template #default="{ row }">
+          <span v-if="row.enabled" class="hosts-status-dot" title="当前激活"></span>
+        </template>
+      </el-table-column>
+      <el-table-column prop="name" label="名称" min-width="180" align="center">
         <template #default="{ row }">
           {{ row.name }}
-          <el-tag v-if="row.enabled" type="success" size="small" style="margin-left:6px">当前激活</el-tag>
         </template>
       </el-table-column>
       <el-table-column prop="updatedAt" label="更新时间" width="180">
@@ -85,6 +89,11 @@
       <el-table-column label="操作" width="110" align="center">
         <template #default="{ row }">
           <el-button size="small" @click="pickHosts(row)">载入</el-button>
+        </template>
+      </el-table-column>
+      <el-table-column width="56" align="center">
+        <template #default>
+          <el-icon class="drag-handle"><Rank /></el-icon>
         </template>
       </el-table-column>
     </el-table>
@@ -130,11 +139,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
-import { WarningFilled } from "@element-plus/icons-vue";
+import { WarningFilled, Rank } from "@element-plus/icons-vue";
 import Sortable from "sortablejs";
-import type { SortableEvent } from "sortablejs";
 import { invokeToolByChannel } from "../bridge/tauri";
 import type { HostsProfile, HostsBackupEntry } from "../types";
 
@@ -386,48 +394,43 @@ function profileRowClass({ row }: { row: HostsProfile }): string {
 // --- drag sort ---
 let sortableInstance: Sortable | null = null;
 
-async function onSortEnd(evt: SortableEvent) {
-  const { oldIndex, newIndex } = evt;
-  if (oldIndex == null || newIndex == null || oldIndex === newIndex) return;
-  const list = [...hostsProfiles.value];
-  const [moved] = list.splice(oldIndex, 1);
-  list.splice(newIndex, 0, moved);
-  hostsProfiles.value = list;
-  const ids = list.map((p) => p.id);
-  try {
-    await invokeToolByChannel("tool:hosts:reorder", { ids });
-  } catch (error) {
-    ElMessage.error((error as Error).message);
-    await loadHostsProfiles();
-  }
-}
-
-function initSortable() {
-  if (sortableInstance) {
-    sortableInstance.destroy();
-    sortableInstance = null;
-  }
+function initSortable(retries = 5) {
+  if (sortableInstance) return;
   const tableEl = profileTableRef.value?.$el as HTMLElement | undefined;
-  if (!tableEl) return;
-  const tbody = tableEl.querySelector<HTMLElement>(".el-table__body-wrapper tbody");
-  if (!tbody) return;
+  const tbody = tableEl?.querySelector<HTMLElement>(".el-table__body-wrapper tbody");
+  if (!tbody || tbody.children.length === 0) {
+    if (retries > 0) setTimeout(() => initSortable(retries - 1), 200);
+    return;
+  }
   sortableInstance = Sortable.create(tbody, {
     animation: 150,
+    handle: ".drag-handle",
     ghostClass: "sortable-ghost",
-    onEnd: onSortEnd,
+    forceFallback: true,
+    fallbackOnBody: true,
+    onEnd: async (evt) => {
+      const { oldIndex, newIndex } = evt;
+      if (oldIndex == null || newIndex == null || oldIndex === newIndex) return;
+      const moved = hostsProfiles.value.splice(oldIndex, 1)[0];
+      hostsProfiles.value.splice(newIndex, 0, moved);
+      const ids = hostsProfiles.value.map((p) => p.id);
+      try {
+        await invokeToolByChannel("tool:hosts:reorder", { ids });
+      } catch (error) {
+        ElMessage.error((error as Error).message);
+        await loadHostsProfiles();
+      }
+    },
   });
 }
 
-watch(hostsProfiles, async () => {
-  await nextTick();
-  initSortable();
-});
-
 // --- lifecycle ---
-onMounted(() => {
-  loadHostsProfiles();
+onMounted(async () => {
+  await loadHostsProfiles();
   checkAdminAccess();
   loadBackupList();
+  await nextTick();
+  initSortable();
 });
 
 onBeforeUnmount(() => {
@@ -472,8 +475,22 @@ onBeforeUnmount(() => {
   background-color: var(--el-color-success-light-9) !important;
 }
 
-:deep(.el-table__body-wrapper tbody .el-table__row) {
+.hosts-status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: var(--el-color-success);
+}
+
+.drag-handle {
   cursor: grab;
+  color: var(--el-text-color-placeholder);
+  font-size: 16px;
+}
+
+.drag-handle:active {
+  cursor: grabbing;
 }
 
 :deep(.sortable-ghost) {

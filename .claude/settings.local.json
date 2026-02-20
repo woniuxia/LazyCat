@@ -58,7 +58,8 @@
       "Bash(where:*)",
       "Bash(copy \"F:\\\\favicon \\(1\\).ico\" \"E:\\\\Projects\\\\LazyCat\\\\apps\\\\desktop\\\\src-tauri\\\\icons\\\\icon.ico\" /Y)",
       "Bash(copy:*)",
-      "Bash(E:)"
+      "Bash(E:)",
+      "Bash(git -C \"E:\\\\Projects\\\\LazyCat\" log --oneline -20)"
     ]
   }
 }

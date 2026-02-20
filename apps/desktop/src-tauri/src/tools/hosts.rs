@@ -45,7 +45,7 @@ fn hosts_save(payload: &Value) -> Result<Value, String> {
 fn hosts_list() -> Result<Value, String> {
     let conn = db_conn()?;
     let mut stmt = conn
-        .prepare("SELECT id, name, content, enabled, updated_at, sort_order FROM hosts_profiles ORDER BY sort_order ASC, id ASC")
+        .prepare("SELECT id, name, content, enabled, updated_at, sort_order FROM hosts_profiles ORDER BY enabled DESC, sort_order ASC, id ASC")
         .map_err(|e| format!("prepare query failed: {e}"))?;
     let rows = stmt
         .query_map([], |row| {
