@@ -17,6 +17,8 @@ pub mod image;
 pub mod hosts;
 pub mod manuals;
 pub mod settings;
+pub mod hotkey;
+pub mod jwt;
 
 use serde_json::Value;
 
@@ -40,6 +42,8 @@ pub fn execute_tool(domain: &str, action: &str, payload: &Value) -> Result<Value
         "hosts"    => hosts::execute(action, payload),
         "manuals"  => manuals::execute(action, payload),
         "settings" => settings::execute(action, payload),
+        "hotkey"   => hotkey::execute(action, payload),
+        "jwt"      => jwt::execute(action, payload),
         _ => Err(format!("unsupported command: {domain}.{action}")),
     }
 }

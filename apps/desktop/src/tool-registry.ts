@@ -9,6 +9,7 @@ const toolRegistry: Record<string, Component> = {
   url: defineAsyncComponent(() => import("./components/EncodePanel.vue")),
   md5: defineAsyncComponent(() => import("./components/EncodePanel.vue")),
   qr: defineAsyncComponent(() => import("./components/EncodePanel.vue")),
+  hash: defineAsyncComponent(() => import("./components/EncodePanel.vue")),
   rsa: defineAsyncComponent(() => import("./components/RsaPanel.vue")),
   aes: defineAsyncComponent(() => import("./components/AesPanel.vue")),
   formatter: defineAsyncComponent(() => import("./components/FormatterPanel.vue")),
@@ -28,6 +29,12 @@ const toolRegistry: Record<string, Component> = {
   timestamp: defineAsyncComponent(() => import("./components/TimestampPanel.vue")),
   uuid: defineAsyncComponent(() => import("./components/UuidPanel.vue")),
   cron: defineAsyncComponent(() => import("./components/CronPanel.vue")),
+  jwt: defineAsyncComponent(() => import("./components/JwtPanel.vue")),
+  "base-converter": defineAsyncComponent(() => import("./components/BaseConverterPanel.vue")),
+  color: defineAsyncComponent(() => import("./components/ColorPanel.vue")),
+  diff: defineAsyncComponent(() => import("./components/DiffPanel.vue")),
+  markdown: defineAsyncComponent(() => import("./components/MarkdownPanel.vue")),
+  hotkey: defineAsyncComponent(() => import("./components/HotkeyPanel.vue")),
   settings: defineAsyncComponent(() => import("./components/SettingsPanel.vue")),
 };
 
@@ -40,4 +47,4 @@ export function getToolComponent(id: string): Component | undefined {
 }
 
 /** IDs for which EncodePanel needs to receive activeTool prop */
-export const ENCODE_PANEL_IDS = new Set(["base64", "url", "md5", "qr"]);
+export const ENCODE_PANEL_IDS = new Set(["base64", "url", "md5", "qr", "hash"]);

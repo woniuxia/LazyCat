@@ -2146,6 +2146,7 @@ dependencies = [
  "csv",
  "dirs 5.0.1",
  "encoding_rs",
+ "hex",
  "hickory-resolver",
  "image",
  "md5",
@@ -2166,6 +2167,7 @@ dependencies = [
  "ureq",
  "urlencoding",
  "uuid",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

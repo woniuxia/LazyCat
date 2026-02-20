@@ -1,11 +1,13 @@
 <template>
-  <div class="panel-grid">
-    <MonacoPane :model-value="formatInput" :language="monacoLanguage" @update:model-value="formatInput = $event" />
-    <MonacoPane :model-value="formatOutput" :language="monacoLanguage" :read-only="true" @update:model-value="noop" />
-    <div>
+  <div class="formatter-layout">
+    <div class="formatter-toolbar">
       <el-button type="primary" @click="formatCode">执行格式化</el-button>
+      <el-input :model-value="formatDetectedLabel" readonly style="max-width: 300px" />
     </div>
-    <el-input :model-value="formatDetectedLabel" readonly />
+    <div class="formatter-editors">
+      <MonacoPane :model-value="formatInput" :language="monacoLanguage" @update:model-value="formatInput = $event" />
+      <MonacoPane :model-value="formatOutput" :language="monacoLanguage" :read-only="true" @update:model-value="noop" />
+    </div>
   </div>
 </template>
 
@@ -102,3 +104,32 @@ watch(formatInput, () => {
   timer = setTimeout(() => formatCode(), 300);
 });
 </script>
+
+<style scoped>
+.formatter-layout {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  gap: 12px;
+}
+
+.formatter-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.formatter-editors {
+  flex: 1;
+  display: flex;
+  gap: 14px;
+  min-height: 200px;
+}
+
+.formatter-editors > * {
+  flex: 1;
+  min-width: 0;
+}
+</style>

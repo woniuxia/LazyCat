@@ -36,5 +36,12 @@ openssl = { version = "0.10", features = ["vendored"] }
 ureq = { version = "2", features = ["tls"] }
 tauri-plugin-dialog = "2"
 encoding_rs = "0.8"
+hex = "0.4"
 hickory-resolver = { version = "0.24", features = ["tokio-runtime"] }
 tokio = { version = "1", features = ["rt"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+  "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_Foundation",
+] }

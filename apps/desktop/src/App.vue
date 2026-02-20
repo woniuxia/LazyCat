@@ -51,6 +51,8 @@ const sidebarItems: SidebarItem[] = [
   { kind: "tool", tool: { id: "formatter", name: "代码格式化", desc: "JSON/XML/HTML/Java/SQL 自动识别" } },
   { kind: "tool", tool: { id: "calc-draft", name: "计算草稿", desc: "草稿式计算，回车复制结果并保留历史" } },
   { kind: "tool", tool: { id: "regex", name: "正则工具", desc: "表达式生成与测试" } },
+  { kind: "tool", tool: { id: "diff", name: "文本对比", desc: "双栏文本差异对比" } },
+  { kind: "tool", tool: { id: "markdown", name: "Markdown", desc: "Markdown 编辑与实时预览" } },
   {
     kind: "group",
     group: {

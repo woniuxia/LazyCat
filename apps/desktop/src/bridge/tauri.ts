@@ -31,6 +31,10 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:encode:url-encode": { domain: "encode", action: "url_encode" },
   "tool:encode:url-decode": { domain: "encode", action: "url_decode" },
   "tool:encode:md5": { domain: "encode", action: "md5" },
+  "tool:encode:sha1": { domain: "encode", action: "sha1" },
+  "tool:encode:sha256": { domain: "encode", action: "sha256" },
+  "tool:encode:sha512": { domain: "encode", action: "sha512" },
+  "tool:encode:hmac-sha256": { domain: "encode", action: "hmac_sha256" },
   "tool:encode:qr": { domain: "encode", action: "qr_generate" },
   "tool:convert:json-to-xml": { domain: "convert", action: "json_to_xml" },
   "tool:convert:xml-to-json": { domain: "convert", action: "xml_to_json" },
@@ -47,6 +51,7 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:regex:test": { domain: "regex", action: "test" },
   "tool:regex:generate": { domain: "regex", action: "generate" },
   "tool:regex:templates": { domain: "regex", action: "templates" },
+  "tool:regex:replace": { domain: "regex", action: "replace" },
   "tool:cron:generate": { domain: "cron", action: "generate" },
   "tool:cron:preview": { domain: "cron", action: "preview" },
   "tool:cron:parse": { domain: "cron", action: "parse" },
@@ -64,6 +69,7 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:network:tcp-test": { domain: "network", action: "tcp_test" },
   "tool:network:http-test": { domain: "network", action: "http_test" },
   "tool:dns:resolve": { domain: "dns", action: "resolve" },
+  "tool:dns:system-dns": { domain: "dns", action: "system_dns" },
   "tool:env:detect": { domain: "env", action: "detect" },
   "tool:port:usage": { domain: "port", action: "usage" },
   "tool:file:split": { domain: "file", action: "split" },
@@ -89,7 +95,10 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:settings:import-from-file": { domain: "settings", action: "import_from_file" },
   "tool:settings:get-data-dir": { domain: "settings", action: "get_data_dir" },
   "tool:settings:set-data-dir": { domain: "settings", action: "set_data_dir" },
-  "tool:settings:reset-data-dir": { domain: "settings", action: "reset_data_dir" }
+  "tool:settings:reset-data-dir": { domain: "settings", action: "reset_data_dir" },
+  "tool:jwt:decode": { domain: "jwt", action: "decode" },
+  "tool:hotkey:check": { domain: "hotkey", action: "check" },
+  "tool:hotkey:scan": { domain: "hotkey", action: "scan" }
 };
 
 export async function invokeToolByChannel(

@@ -60,7 +60,10 @@
       "Bash(copy:*)",
       "Bash(E:)",
       "Bash(git -C \"E:\\\\Projects\\\\LazyCat\" log --oneline -20)",
-      "Bash(npx eslint:*)"
+      "Bash(npx eslint:*)",
+      "Bash(git -C \"E:\\\\Projects\\\\LazyCat\" status apps/desktop/src-tauri/src/tools/jwt.rs)",
+      "Bash(git -C \"E:\\\\Projects\\\\LazyCat\" log --oneline -5 -- apps/desktop/src-tauri/src/tools/jwt.rs)",
+      "Bash(git show:*)"
     ]
   }
 }

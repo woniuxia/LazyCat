@@ -101,7 +101,8 @@ onBeforeUnmount(() => {
 <style scoped>
 .monaco-pane {
   width: 100%;
-  height: 360px;
+  height: 100%;
+  min-height: 200px;
   border: 1px solid var(--lc-border);
   border-radius: 10px;
   overflow: hidden;
