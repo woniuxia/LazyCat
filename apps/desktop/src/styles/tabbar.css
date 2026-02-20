@@ -8,21 +8,16 @@
   border-bottom: 1px solid var(--lc-border);
   background: var(--lc-surface-1);
   border-radius: var(--lc-radius-lg) var(--lc-radius-lg) 0 0;
-  overflow: hidden;
   flex-shrink: 0;
 }
 
 .tabbar-list {
   display: flex;
-  align-items: stretch;
-  overflow-x: auto;
-  overflow-y: hidden;
+  align-items: center;
+  flex-wrap: wrap;
   flex: 1;
-  scrollbar-width: none;
-}
-
-.tabbar-list::-webkit-scrollbar {
-  display: none;
+  gap: 4px 0;
+  padding: 4px 0;
 }
 
 /* ---------- Tab Item ---------- */
@@ -31,19 +26,19 @@
   position: relative;
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 0 14px;
-  height: 38px;
+  justify-content: center;
+  padding: 0 24px;
+  height: 32px;
   font-size: 13px;
   color: var(--lc-text-secondary);
   cursor: pointer;
   white-space: nowrap;
   user-select: none;
-  border-bottom: 2px solid transparent;
+  border-radius: var(--lc-radius-sm);
+  margin: 0 2px;
   transition:
     color var(--lc-duration) var(--lc-ease),
-    background var(--lc-duration) var(--lc-ease),
-    border-color var(--lc-duration) var(--lc-ease);
+    background var(--lc-duration) var(--lc-ease);
 }
 
 .tabbar-item:hover {
@@ -52,8 +47,8 @@
 }
 
 .tabbar-item.is-active {
-  color: var(--lc-text);
-  border-bottom-color: var(--lc-accent);
+  color: var(--lc-accent);
+  background: var(--lc-surface-2);
 }
 
 .tabbar-item-label {
@@ -62,9 +57,25 @@
   text-overflow: ellipsis;
 }
 
+/* Vertical divider between tabs */
+.tabbar-item + .tabbar-item::before {
+  content: "";
+  position: absolute;
+  left: -2px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 1px;
+  height: 14px;
+  background: var(--lc-border);
+}
+
 /* ---------- Close Button ---------- */
 
 .tabbar-item-close {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -90,9 +101,9 @@
   color: var(--lc-text);
 }
 
-/* Space holder for pinned tabs (no close button) */
+/* Pinned tabs: no close button, no space reserved */
 .tabbar-item-close-placeholder {
-  width: 0;
+  display: none;
 }
 
 /* ---------- Context Menu ---------- */
