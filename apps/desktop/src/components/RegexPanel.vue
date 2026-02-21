@@ -139,7 +139,7 @@
         </el-table-column>
         <el-table-column label="操作" width="70" align="center" fixed="right">
           <template #default="{ row }">
-            <el-button class="template-use-btn" type="primary" link size="small" @click="useTemplate(row)">使用</el-button>
+            <el-button class="template-use-btn" text size="small" @click="useTemplate(row)">使用</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -433,10 +433,12 @@ onMounted(() => loadTemplates());
   scrollbar-width: thin;
 }
 
-.template-use-btn {
-  --el-button-text-color: var(--el-color-primary);
-  --el-button-hover-text-color: var(--el-color-primary-light-3);
+.regex-panel :deep(.template-use-btn) {
+  --el-button-text-color: var(--lc-accent);
+  --el-button-hover-text-color: var(--lc-accent-light);
   --el-button-active-text-color: var(--el-color-primary-dark-2);
+  font-weight: 600;
 }
+
 </style>
 

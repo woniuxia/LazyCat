@@ -26,3 +26,15 @@ export type {
   CronPreviewV2Response,
   CronDescribeResponse,
 } from "./cron";
+export type {
+  TextLineEnding,
+  TextMatchMode,
+  TextSortOrder,
+  TextOperationType,
+  TextOperation,
+  TextProcessRequest,
+  TextPreviewSample,
+  TextProcessStats,
+  TextProcessResponse,
+  TextPreset,
+} from "./text";

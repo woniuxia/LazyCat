@@ -182,3 +182,34 @@ Cron 工具原先仅提供基础 6 字段输入与简单预览，缺少规范化
 - apps/desktop/src-tauri/Cargo.toml
 
 **使用次数**: 0
+
+## 2026-02-21: 文本处理工具重做（清洗 + 提取 + 双栏统计）
+**场景**:
+将“文本处理”从仅按行去重/排序升级为可配置的文本清洗与提取管线，并增强结果展示。
+
+**问题**:
+1. 旧能力过窄，仅 2 个后端 action，难以覆盖日志/配置清洗场景。
+2. 前端缺少操作编排、统计反馈、差异预览，用户难以判断处理效果。
+3. 文本面板存在文案乱码风险，影响可读性和可维护性。
+
+**解决**:
+1. Rust `text` 域替换为统一 `process` action，支持 trim/remove-empty/dedupe/sort/filter/replace/prefix/suffix/extract-column。
+2. 新增 `presets` action，返回日志清洗、配置键提取、错误日志提取等预设。
+3. 前端 `TextProcessPanel` 重写为双栏对照，新增操作区、统计卡片、变更样本表、自动执行与预设套用。
+4. 通道映射改为 `tool:text:process` + `tool:text:presets`，移除旧 `unique-lines/sort-lines`。
+5. 新增 `types/text.ts` 并统一导出，明确请求/响应与操作类型。
+
+**关键点**:
+1. 采用“前后端协同”：Rust 提供稳定算子，前端负责编排与展示。
+2. 变更样本做数量上限控制（`previewLimit`），避免大文本导致前端卡顿。
+3. 直接替换旧通道前先全仓检索调用点，确认仅单点使用后再切换。
+
+**涉及文件**:
+- apps/desktop/src/components/TextProcessPanel.vue
+- apps/desktop/src/bridge/tauri.ts
+- apps/desktop/src/types/text.ts
+- apps/desktop/src/types/index.ts
+- apps/desktop/src-tauri/src/tools/text.rs
+- apps/desktop/src/App.vue
+
+**使用次数**: 0

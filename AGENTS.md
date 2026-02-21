@@ -10,6 +10,7 @@
 - 平台：Windows 优先
 - 技术栈：Tauri 2 + Vue 3 + TypeScript + Rust
 - 终端环境：PowerShell（命令串联使用 `;`，不要依赖 `&&`）
+- 本机脚本能力：已安装 `Python` 与 `Node.js`，可用于处理小型脚本、数据修复与临时排障
 
 ## 2. 仓库结构
 

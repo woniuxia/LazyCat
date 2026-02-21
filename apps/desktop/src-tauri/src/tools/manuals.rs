@@ -12,7 +12,7 @@ pub fn execute(action: &str, _payload: &Value) -> Result<Value, String> {
             let known = [
                 ("vue3",         "Vue 3 开发手册",       "/guide/introduction.html"),
                 ("element-plus", "Element Plus 组件库",  "/zh-CN/component/overview"),
-                ("mdn-js",       "MDN JavaScript 手册",  "/zh-CN/docs/Web/JavaScript/"),
+                ("mdn-js",       "MDN JavaScript 手册",  "/zh-CN/docs/Web/JavaScript/Guide/"),
             ];
             for (id, name, home) in known {
                 if let Some(port) = servers.and_then(|m| m.get(id)) {

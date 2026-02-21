@@ -109,6 +109,44 @@ fn handle_manual_request(mut stream: TcpStream, root_dir: &Path) {
                 }
                 Some(_)          => "application/octet-stream",
             };
+            // 对 HTML 响应注入 CSS+JS，隐藏离线无用的 MDN 导航弹窗和 UI 元素
+            let body = if mime.starts_with("text/html") {
+                const INJECT: &[u8] = b"<style>\
+                    .notification-bar,.mdn-cta,.article-actions-container,.place,.top-banner,\
+                    .page-layout__banner,mdn-placement-top,mdn-placement-bottom,\
+                    .navigation__popup,.menu__panel,.menu__panel-title,.menu__panel-content,\
+                    .page-layout__footer,.pong-box,.top-level-entry-container .menu__panel,\
+                    .content-section.article-footer,.bb-banner,#bb-banner,.spsr-container,\
+                    .preference-tooltip\
+                    {display:none!important}\
+                    </style>\
+                    <script>\
+                    (function(){\
+                      function removePopups(){\
+                        document.querySelectorAll('[class*=\"popup\"],[class*=\"modal\"],[class*=\"banner\"],[class*=\"notification\"],[class*=\"cta\"],[class*=\"overlay\"]').forEach(function(el){\
+                          var s=window.getComputedStyle(el);\
+                          if((s.position==='fixed'||s.position==='sticky')&&el.getBoundingClientRect().width>100){\
+                            el.style.setProperty('display','none','important');\
+                          }\
+                        });\
+                      }\
+                      document.addEventListener('DOMContentLoaded',removePopups);\
+                      setTimeout(removePopups,1000);\
+                      setTimeout(removePopups,3000);\
+                    })();\
+                    </script>";
+                if let Some(pos) = body.windows(7).position(|w| w == b"</head>") {
+                    let mut patched = Vec::with_capacity(body.len() + INJECT.len());
+                    patched.extend_from_slice(&body[..pos]);
+                    patched.extend_from_slice(INJECT);
+                    patched.extend_from_slice(&body[pos..]);
+                    patched
+                } else {
+                    body
+                }
+            } else {
+                body
+            };
             let header = format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: {mime}\r\nContent-Length: {}\r\nAccess-Control-Allow-Origin: *\r\n\r\n",
                 body.len()

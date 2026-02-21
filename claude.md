@@ -9,6 +9,7 @@
 - 主要平台: Windows
 - 开发环境: Windows（命令行使用 PowerShell，不支持 `&&` 链接命令，使用 `;` 分隔）
 - 运行时: Tauri 2 + Vue 3 + TypeScript
+- 本机脚本能力: 已安装 `Python` 与 `Node.js`，可用于处理小型脚本、数据修复与临时排障
 
 ## 仓库结构
 
