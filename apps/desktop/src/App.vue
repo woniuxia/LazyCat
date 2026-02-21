@@ -176,7 +176,8 @@ const sidebarItems: SidebarItem[] = [
       name: "离线手册",
       tools: [
         { id: "manual-vue3", name: "Vue 3 手册", desc: "Vue 3 中文开发手册" },
-        { id: "manual-element-plus", name: "Element Plus", desc: "Element Plus 组件文档" }
+        { id: "manual-element-plus", name: "Element Plus", desc: "Element Plus 组件文档" },
+        { id: "manual-mdn-js", name: "JavaScript", desc: "MDN JavaScript 中文参考手册" }
       ]
     }
   }

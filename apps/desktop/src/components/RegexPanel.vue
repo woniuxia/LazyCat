@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="regex-panel">
     <!-- 正则输入区 -->
     <div class="regex-input-section">
@@ -139,7 +139,7 @@
         </el-table-column>
         <el-table-column label="操作" width="70" align="center" fixed="right">
           <template #default="{ row }">
-            <el-button type="primary" link size="small" @click="useTemplate(row)">使用</el-button>
+            <el-button class="template-use-btn" type="primary" link size="small" @click="useTemplate(row)">使用</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -432,4 +432,11 @@ onMounted(() => loadTemplates());
 .template-table :deep(.el-table__body-wrapper) {
   scrollbar-width: thin;
 }
+
+.template-use-btn {
+  --el-button-text-color: var(--el-color-primary);
+  --el-button-hover-text-color: var(--el-color-primary-light-3);
+  --el-button-active-text-color: var(--el-color-primary-dark-2);
+}
 </style>
+
