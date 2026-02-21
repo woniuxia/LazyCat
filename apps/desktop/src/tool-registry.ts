@@ -20,6 +20,7 @@ const toolRegistry: Record<string, Component> = {
   "java-bean-js": defineAsyncComponent(() => import("./components/JavaBeanJsPanel.vue")),
   "mybatis-helper": defineAsyncComponent(() => import("./components/MybatisPanel.vue")),
   "text-process": defineAsyncComponent(() => import("./components/TextProcessPanel.vue")),
+  "naming-case": defineAsyncComponent(() => import("./components/NamingCasePanel.vue")),
   regex: defineAsyncComponent(() => import("./components/RegexPanel.vue")),
   network: defineAsyncComponent(() => import("./components/NetworkPanel.vue")),
   hosts: defineAsyncComponent(() => import("./components/HostsPanel.vue")),

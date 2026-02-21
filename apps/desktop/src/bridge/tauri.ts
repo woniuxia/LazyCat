@@ -46,6 +46,7 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:convert:java-bean-to-js-object": { domain: "convert", action: "java_bean_to_js_object" },
   "tool:text:process": { domain: "text", action: "process" },
   "tool:text:presets": { domain: "text", action: "presets" },
+  "tool:text:naming-convert": { domain: "text", action: "naming_convert" },
   "tool:time:timestamp-to-date": { domain: "time", action: "timestamp_to_date" },
   "tool:time:date-to-timestamp": { domain: "time", action: "date_to_timestamp" },
   "tool:gen:uuid": { domain: "gen", action: "uuid" },
