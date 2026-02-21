@@ -177,6 +177,63 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
         set_schema_version(conn, 7)?;
     }
 
+    // Migration 8: snippets workspace v2 schema
+    if current < 8 {
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS snippet_folders_v2 (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                parent_id INTEGER DEFAULT NULL,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (parent_id) REFERENCES snippet_folders_v2(id) ON DELETE CASCADE
+            );
+            CREATE TABLE IF NOT EXISTS snippet_entries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
+                folder_id INTEGER DEFAULT NULL,
+                is_favorite INTEGER NOT NULL DEFAULT 0,
+                primary_language TEXT NOT NULL DEFAULT 'plaintext',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                last_used_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                use_count INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY (folder_id) REFERENCES snippet_folders_v2(id) ON DELETE SET NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_entries_last_used_at ON snippet_entries(last_used_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_entries_updated_at ON snippet_entries(updated_at DESC);
+            CREATE TABLE IF NOT EXISTS snippet_fragments_v2 (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                entry_id INTEGER NOT NULL,
+                label TEXT NOT NULL DEFAULT 'main',
+                language TEXT NOT NULL DEFAULT 'plaintext',
+                code TEXT NOT NULL DEFAULT '',
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY (entry_id) REFERENCES snippet_entries(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_fragments_v2_entry_sort ON snippet_fragments_v2(entry_id, sort_order);
+            CREATE TABLE IF NOT EXISTS snippet_entry_tags (
+                entry_id INTEGER NOT NULL,
+                tag TEXT NOT NULL,
+                PRIMARY KEY (entry_id, tag),
+                FOREIGN KEY (entry_id) REFERENCES snippet_entries(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_entry_tags_tag ON snippet_entry_tags(tag);"
+        )
+        .map_err(|e| format!("migration 8 failed: {e}"))?;
+        let _ = conn.execute_batch(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS snippet_fts USING fts5(
+                entry_id UNINDEXED,
+                title,
+                description,
+                tags_text,
+                code_text
+            );"
+        );
+        set_schema_version(conn, 8)?;
+    }
+
     Ok(())
 }
 

@@ -75,6 +75,14 @@
   .content {
     padding: 20px;
   }
+
+  .snippet-workspace-shell {
+    padding: 10px;
+  }
+
+  .snippet-workspace-header {
+    padding: 10px 12px;
+  }
 }
 
 @media (min-width: 1400px) {

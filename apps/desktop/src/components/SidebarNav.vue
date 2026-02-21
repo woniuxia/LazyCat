@@ -1,6 +1,12 @@
 ﻿<template>
   <aside class="nav">
-    <button class="brand brand-link" type="button" title="返回首页" @click="goHome">
+    <button
+      class="brand brand-link"
+      type="button"
+      title="左键返回首页，右键打开代码片段工作区"
+      @click="goHome"
+      @contextmenu.prevent="openSnippetWorkspace"
+    >
       <span class="brand-name">Lazycat</span>
       <span class="brand-zh">懒猫</span>
     </button>
@@ -99,6 +105,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   select: [id: string];
+  openSnippetWorkspace: [];
 }>();
 
 const searchQuery = ref("");
@@ -190,6 +197,10 @@ function locateCurrentTool() {
 function goHome() {
   searchQuery.value = "";
   emit("select", "home");
+}
+
+function openSnippetWorkspace() {
+  emit("openSnippetWorkspace");
 }
 
 watch(searchQuery, () => {

@@ -1,6 +1,11 @@
 ﻿<template>
-  <div class="shell">
-    <SidebarNav :items="visibleSidebarItems" :active-tool="activeTool" @select="onSelect" />
+  <div v-if="viewMode === 'main'" class="shell">
+    <SidebarNav
+      :items="visibleSidebarItems"
+      :active-tool="activeTool"
+      @select="onSelect"
+      @open-snippet-workspace="enterSnippetWorkspace"
+    />
 
     <main class="content">
       <TabBar
@@ -46,6 +51,16 @@
     </main>
     <ShortcutHelpOverlay ref="shortcutHelp" />
   </div>
+
+  <div v-else class="snippet-workspace-shell">
+    <header class="snippet-workspace-header">
+      <el-button text type="primary" @click="exitSnippetWorkspaceToHome">返回首页</el-button>
+      <h1>代码片段工作区</h1>
+    </header>
+    <main class="snippet-workspace-body">
+      <SnippetPanel />
+    </main>
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -58,6 +73,7 @@ import { initSettings, getSetting, setSetting } from "./composables/useSettings"
 import { registerHotkey } from "./bridge/tauri";
 import { getToolComponent, ENCODE_PANEL_IDS } from "./tool-registry";
 import HomePanel from "./components/HomePanel.vue";
+import SnippetPanel from "./components/SnippetPanel.vue";
 import SidebarNav from "./components/SidebarNav.vue";
 import TabBar from "./components/TabBar.vue";
 import ShortcutHelpOverlay from "./components/ShortcutHelpOverlay.vue";
@@ -166,6 +182,7 @@ const sidebarItems: SidebarItem[] = [
   }
 ];
 const HOME_ID = "home";
+const SNIPPETS_ID = "snippets";
 const HOME_TOOL: ToolDef = { id: HOME_ID, name: "首页", desc: "收藏工具与近一个月高频工具入口" };
 
 const allTools = sidebarItems.flatMap((item) =>
@@ -176,6 +193,7 @@ function isRealToolId(id: string) { return allToolMap.has(id); }
 
 const { openTabs, activeTabId, openTab, closeTab, closeOthers, closeToLeft, closeToRight } = useTabs();
 const activeTool = activeTabId;
+const viewMode = ref<"main" | "snippet-workspace">("main");
 const themeMode = ref<"system" | "dark" | "light">("system");
 const hotkeyInput = ref("");
 const shortcutHelp = ref<InstanceType<typeof ShortcutHelpOverlay> | null>(null);
@@ -198,15 +216,12 @@ const {
   loadFromStorage: loadFavoritesFromStorage,
 } = useFavorites(allTools, isRealToolId);
 
-/** 杩?30 澶╁唴鏌愬伐鍏风殑鐐瑰嚮娆℃暟 */
 function recentClickCount(toolId: string): number {
   const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
   return (toolClickHistory.value[toolId] ?? []).filter((ts) => ts >= cutoff).length;
 }
 
-/** 鎸夌偣鍑荤儹搴︽帓搴忕殑渚ц竟鏍忥細涓€绾ф寜瀛愰」鍚堣鐐瑰嚮闄嶅簭锛屼簩绾ф寜鐐瑰嚮闄嶅簭锛涙棤鐐瑰嚮鐨勪繚鎸佸師搴?*/
 const sortedSidebarItems = computed<SidebarItem[]>(() => {
-  // 涓烘瘡涓竴绾ф潯鐩绠楁€荤偣鍑绘暟
   const withScore = sidebarItems.map((item, idx) => {
     let total: number;
     if (item.kind === "tool") {
@@ -217,7 +232,6 @@ const sortedSidebarItems = computed<SidebarItem[]>(() => {
     return { item, total, originalIndex: idx };
   });
 
-  // 稳定排序：有点击记录的按点击数降序，无点击记录保持原顺序
   withScore.sort((a, b) => {
     if (a.total === 0 && b.total === 0) return a.originalIndex - b.originalIndex;
     if (a.total === 0) return 1;
@@ -227,7 +241,6 @@ const sortedSidebarItems = computed<SidebarItem[]>(() => {
 
   return withScore.map(({ item }) => {
     if (item.kind === "tool") return item;
-    // 浜岀骇鑿滃崟鎸夌偣鍑绘暟闄嶅簭鎺掑簭
     const sortedTools = [...item.group.tools].sort((a, b) => {
       const ca = recentClickCount(a.id);
       const cb = recentClickCount(b.id);
@@ -251,11 +264,8 @@ const currentComponent = computed(() => getToolComponent(activeTool.value));
 
 const currentComponentProps = computed(() => {
   const id = activeTool.value;
-  // EncodePanel needs activeTool prop
   if (ENCODE_PANEL_IDS.has(id)) return { activeTool: id };
-  // ManualPanel needs manualId prop
   if (id.startsWith("manual-")) return { manualId: id };
-  // SettingsPanel needs themeMode and hotkeyInput with two-way binding
   if (id === "settings") return {
     themeMode: themeMode.value,
     hotkeyInput: hotkeyInput.value,
@@ -269,6 +279,7 @@ const currentComponentProps = computed(() => {
 });
 
 function onSelect(id: string) {
+  viewMode.value = "main";
   const name = getToolName(id);
   if (id !== HOME_ID) recordToolClick(id);
   openTab(id, name);
@@ -282,6 +293,17 @@ function getToolName(id: string): string {
   if (id === HOME_ID) return "首页";
   if (id === "settings") return "设置";
   return allToolMap.get(id)?.name ?? id;
+}
+
+function enterSnippetWorkspace() {
+  viewMode.value = "snippet-workspace";
+  recordToolClick(SNIPPETS_ID);
+  openTab(SNIPPETS_ID, getToolName(SNIPPETS_ID));
+}
+
+function exitSnippetWorkspaceToHome() {
+  viewMode.value = "main";
+  onSelect(HOME_ID);
 }
 
 function resolveTheme(mode: "system" | "dark" | "light"): boolean {
@@ -311,7 +333,6 @@ onMounted(async () => {
   } else if (savedTheme === null || savedTheme === undefined) {
     themeMode.value = "system";
   } else {
-    // Legacy: "dark" or "light" string from old boolean storage
     themeMode.value = savedTheme === "light" ? "light" : "dark";
   }
   applyTheme(resolveTheme(themeMode.value));
@@ -331,8 +352,3 @@ onBeforeUnmount(() => {
   systemMediaQuery.removeEventListener("change", onSystemThemeChange);
 });
 </script>
-
-
-
-
-

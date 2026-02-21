@@ -1,65 +1,372 @@
-use rusqlite::params;
+﻿use rusqlite::{params, Connection};
 use serde_json::{json, Value};
 
 use super::helpers::db_conn;
 
+const INIT_KEY: &str = "snippet_workspace_v2_initialized";
+
 pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
     match action {
-        "list" => snippet_list(payload),
-        "get" => snippet_get(payload),
-        "create" => snippet_create(payload),
-        "update" => snippet_update(payload),
-        "delete" => snippet_delete(payload),
-        "toggle_favorite" => snippet_toggle_favorite(payload),
-        "folder_list" => folder_list(),
-        "folder_create" => folder_create(payload),
-        "folder_update" => folder_update(payload),
-        "folder_delete" => folder_delete(payload),
-        "tags" => tag_list(),
+        "v2_init" => v2_init(payload),
+        "v2_list" | "list" => v2_list(payload),
+        "v2_get" | "get" => v2_get(payload),
+        "v2_create" | "create" => v2_create(payload),
+        "v2_update" | "update" => v2_update(payload),
+        "v2_delete" | "delete" => v2_delete(payload),
+        "v2_search" | "search" => v2_search(payload),
+        "v2_mark_used" => v2_mark_used(payload),
+        "v2_tag_stats" | "tags" => v2_tag_stats(),
+        "v2_folder_list" | "folder_list" => v2_folder_list(),
+        "v2_folder_create" | "folder_create" => v2_folder_create(payload),
+        "v2_folder_update" | "folder_update" => v2_folder_update(payload),
+        "v2_folder_delete" | "folder_delete" => v2_folder_delete(payload),
+        "toggle_favorite" => toggle_favorite(payload),
         "language_stats" => language_stats(),
-        "search" => snippet_search(payload),
+        "batch_update" => batch_update(payload),
+        "batch_delete" => batch_delete(payload),
         _ => Err(format!("unsupported snippets action: {action}")),
     }
 }
 
-/// List snippets with optional filters: folder_id, tag, language, keyword, is_favorite
-/// Supports sort_by: "updated_at" (default), "created_at", "title"
-fn snippet_list(payload: &Value) -> Result<Value, String> {
+fn parse_ids(payload: &Value) -> Result<Vec<i64>, String> {
+    let ids = payload["ids"]
+        .as_array()
+        .ok_or("ids is required and must be an array")?;
+    let mut out = Vec::new();
+    for v in ids {
+        if let Some(id) = v.as_i64() {
+            if id > 0 && !out.contains(&id) {
+                out.push(id);
+            }
+        }
+    }
+    if out.is_empty() {
+        return Err("ids is empty".to_string());
+    }
+    Ok(out)
+}
+
+fn parse_tags(payload: &Value, key: &str) -> Vec<String> {
+    payload[key]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str())
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_string())
+                .collect::<Vec<String>>()
+        })
+        .unwrap_or_default()
+}
+
+fn parse_fragments(payload: &Value) -> Vec<(String, String, String)> {
+    let mut frags = payload["fragments"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .map(|f| {
+                    (
+                        f["label"].as_str().unwrap_or("main").to_string(),
+                        f["language"].as_str().unwrap_or("plaintext").to_string(),
+                        f["code"].as_str().unwrap_or_default().to_string(),
+                    )
+                })
+                .collect::<Vec<(String, String, String)>>()
+        })
+        .unwrap_or_default();
+
+    if frags.is_empty() {
+        frags.push((
+            "main".to_string(),
+            "plaintext".to_string(),
+            String::new(),
+        ));
+    }
+
+    frags
+}
+
+fn parse_sort(payload: &Value) -> &'static str {
+    match payload["sort_by"].as_str().unwrap_or("last_used") {
+        "updated_at" => "se.updated_at DESC",
+        "created_at" => "se.created_at DESC",
+        "title" => "se.title COLLATE NOCASE ASC",
+        _ => "se.last_used_at DESC, se.use_count DESC, se.updated_at DESC",
+    }
+}
+
+fn has_fts(conn: &Connection) -> bool {
+    conn.query_row(
+        "SELECT count(*) > 0 FROM sqlite_master WHERE type='table' AND name='snippet_fts'",
+        [],
+        |r| r.get::<_, bool>(0),
+    )
+    .unwrap_or(false)
+}
+
+fn set_initialized(conn: &Connection) -> Result<(), String> {
+    conn.execute(
+        "INSERT INTO user_settings (key, value, updated_at) VALUES (?1, '1', CURRENT_TIMESTAMP)
+         ON CONFLICT(key) DO UPDATE SET value='1', updated_at=CURRENT_TIMESTAMP",
+        params![INIT_KEY],
+    )
+    .map_err(|e| format!("set init flag failed: {e}"))?;
+    Ok(())
+}
+
+fn is_initialized(conn: &Connection) -> Result<bool, String> {
+    let value: Option<String> = conn
+        .query_row(
+            "SELECT value FROM user_settings WHERE key = ?1",
+            params![INIT_KEY],
+            |r| r.get(0),
+        )
+        .ok();
+    Ok(value.as_deref() == Some("1"))
+}
+
+fn reset_v2_schema(conn: &Connection) -> Result<(), String> {
+    conn.execute_batch(
+        "DROP TABLE IF EXISTS snippet_entry_tags;
+         DROP TABLE IF EXISTS snippet_fragments_v2;
+         DROP TABLE IF EXISTS snippet_entries;
+         DROP TABLE IF EXISTS snippet_folders_v2;
+         DROP TABLE IF EXISTS snippet_fts;
+
+         CREATE TABLE IF NOT EXISTS snippet_folders_v2 (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            parent_id INTEGER DEFAULT NULL,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (parent_id) REFERENCES snippet_folders_v2(id) ON DELETE CASCADE
+         );
+
+         CREATE TABLE IF NOT EXISTS snippet_entries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            folder_id INTEGER DEFAULT NULL,
+            is_favorite INTEGER NOT NULL DEFAULT 0,
+            primary_language TEXT NOT NULL DEFAULT 'plaintext',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            last_used_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            use_count INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY (folder_id) REFERENCES snippet_folders_v2(id) ON DELETE SET NULL
+         );
+
+         CREATE INDEX IF NOT EXISTS idx_entries_last_used_at ON snippet_entries(last_used_at DESC);
+         CREATE INDEX IF NOT EXISTS idx_entries_updated_at ON snippet_entries(updated_at DESC);
+
+         CREATE TABLE IF NOT EXISTS snippet_fragments_v2 (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            entry_id INTEGER NOT NULL,
+            label TEXT NOT NULL DEFAULT 'main',
+            language TEXT NOT NULL DEFAULT 'plaintext',
+            code TEXT NOT NULL DEFAULT '',
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY (entry_id) REFERENCES snippet_entries(id) ON DELETE CASCADE
+         );
+
+         CREATE INDEX IF NOT EXISTS idx_fragments_v2_entry_sort ON snippet_fragments_v2(entry_id, sort_order);
+
+         CREATE TABLE IF NOT EXISTS snippet_entry_tags (
+            entry_id INTEGER NOT NULL,
+            tag TEXT NOT NULL,
+            PRIMARY KEY (entry_id, tag),
+            FOREIGN KEY (entry_id) REFERENCES snippet_entries(id) ON DELETE CASCADE
+         );
+
+         CREATE INDEX IF NOT EXISTS idx_entry_tags_tag ON snippet_entry_tags(tag);",
+    )
+    .map_err(|e| format!("reset v2 schema failed: {e}"))?;
+    let _ = conn.execute_batch(
+        "CREATE VIRTUAL TABLE IF NOT EXISTS snippet_fts USING fts5(
+            entry_id UNINDEXED,
+            title,
+            description,
+            tags_text,
+            code_text
+         );",
+    );
+
+    Ok(())
+}
+
+fn rebuild_fts_for_entry(conn: &Connection, entry_id: i64) -> Result<(), String> {
+    if !has_fts(conn) {
+        return Ok(());
+    }
+
+    conn.execute("DELETE FROM snippet_fts WHERE entry_id = ?1", params![entry_id])
+        .map_err(|e| format!("delete fts row failed: {e}"))?;
+
+    let row = conn
+        .query_row(
+            "SELECT
+                se.title,
+                se.description,
+                COALESCE((
+                    SELECT GROUP_CONCAT(tag, ' ')
+                    FROM snippet_entry_tags et
+                    WHERE et.entry_id = se.id
+                ), ''),
+                COALESCE((
+                    SELECT GROUP_CONCAT(code, ' ')
+                    FROM snippet_fragments_v2 sf
+                    WHERE sf.entry_id = se.id
+                ), '')
+             FROM snippet_entries se
+             WHERE se.id = ?1",
+            params![entry_id],
+            |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, String>(3)?,
+                ))
+            },
+        )
+        .ok();
+
+    if let Some((title, description, tags_text, code_text)) = row {
+        conn.execute(
+            "INSERT INTO snippet_fts(entry_id, title, description, tags_text, code_text) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![entry_id, title, description, tags_text, code_text],
+        )
+        .map_err(|e| format!("insert fts row failed: {e}"))?;
+    }
+
+    Ok(())
+}
+
+fn collect_tags(conn: &Connection, entry_id: i64) -> Result<Value, String> {
+    let mut stmt = conn
+        .prepare("SELECT tag FROM snippet_entry_tags WHERE entry_id = ?1 ORDER BY tag ASC")
+        .map_err(|e| format!("prepare tags failed: {e}"))?;
+    let rows = stmt
+        .query_map(params![entry_id], |r| r.get::<_, String>(0))
+        .map_err(|e| format!("query tags failed: {e}"))?;
+
+    let mut tags = Vec::new();
+    for row in rows {
+        tags.push(Value::String(row.map_err(|e| e.to_string())?));
+    }
+    Ok(Value::Array(tags))
+}
+
+fn collect_fragments(conn: &Connection, entry_id: i64) -> Result<Value, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, label, language, code, sort_order
+             FROM snippet_fragments_v2
+             WHERE entry_id = ?1
+             ORDER BY sort_order ASC",
+        )
+        .map_err(|e| format!("prepare fragments failed: {e}"))?;
+
+    let rows = stmt
+        .query_map(params![entry_id], |r| {
+            Ok(json!({
+                "id": r.get::<_, i64>(0)?,
+                "label": r.get::<_, String>(1)?,
+                "language": r.get::<_, String>(2)?,
+                "code": r.get::<_, String>(3)?,
+                "sortOrder": r.get::<_, i64>(4)?,
+            }))
+        })
+        .map_err(|e| format!("query fragments failed: {e}"))?;
+
+    let mut frags = Vec::new();
+    for row in rows {
+        frags.push(row.map_err(|e| e.to_string())?);
+    }
+    Ok(Value::Array(frags))
+}
+
+fn entry_summary_row_to_json(row: &rusqlite::Row<'_>) -> rusqlite::Result<Value> {
+    Ok(json!({
+        "id": row.get::<_, i64>(0)?,
+        "title": row.get::<_, String>(1)?,
+        "description": row.get::<_, String>(2)?,
+        "folderId": row.get::<_, Option<i64>>(3)?,
+        "isFavorite": row.get::<_, i64>(4)? == 1,
+        "primaryLanguage": row.get::<_, String>(5)?,
+        "createdAt": row.get::<_, String>(6)?,
+        "updatedAt": row.get::<_, String>(7)?,
+        "lastUsedAt": row.get::<_, String>(8)?,
+        "useCount": row.get::<_, i64>(9)?,
+        "fragmentCount": row.get::<_, i64>(10)?,
+        "tagCsv": row.get::<_, Option<String>>(11)?.unwrap_or_default(),
+    }))
+}
+
+fn row_with_tags(mut row: Value) -> Value {
+    let tags = row["tagCsv"]
+        .as_str()
+        .unwrap_or_default()
+        .split('\u{1f}')
+        .filter(|s| !s.is_empty())
+        .map(|s| Value::String(s.to_string()))
+        .collect::<Vec<Value>>();
+    row["tags"] = Value::Array(tags);
+    row.as_object_mut().map(|obj| obj.remove("tagCsv"));
+    row
+}
+
+fn v2_init(payload: &Value) -> Result<Value, String> {
+    let confirm = payload["confirm"].as_bool().unwrap_or(false);
+    let conn = db_conn()?;
+
+    if is_initialized(&conn)? {
+        return Ok(json!({ "initialized": true, "requiresConfirm": false }));
+    }
+
+    if !confirm {
+        return Ok(json!({
+            "initialized": false,
+            "requiresConfirm": true,
+            "message": "首次进入将清空旧代码片段数据并重建工作区。"
+        }));
+    }
+
+    reset_v2_schema(&conn)?;
+    set_initialized(&conn)?;
+    Ok(json!({ "initialized": true, "requiresConfirm": false }))
+}
+
+fn v2_list(payload: &Value) -> Result<Value, String> {
     let conn = db_conn()?;
     let folder_id = payload["folder_id"].as_i64();
     let tag = payload["tag"].as_str().unwrap_or_default();
-    let language = payload["language"].as_str().unwrap_or_default();
-    let is_favorite = payload["is_favorite"].as_bool();
-    let sort_by = payload["sort_by"].as_str().unwrap_or("updated_at");
-
-    let order_clause = match sort_by {
-        "created_at" => "s.created_at DESC",
-        "title" => "s.title ASC",
-        _ => "s.updated_at DESC",
-    };
+    let favorite_only = payload["favorite_only"].as_bool().unwrap_or(false);
+    let untagged_only = payload["untagged_only"].as_bool().unwrap_or(false);
+    let recent_days = payload["recent_days"].as_i64().unwrap_or(0);
+    let order_clause = parse_sort(payload);
 
     let mut conditions = Vec::new();
-    let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+    let mut params_boxed: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
 
     if let Some(fid) = folder_id {
-        conditions.push("s.folder_id = ?".to_string());
-        param_values.push(Box::new(fid));
+        conditions.push("se.folder_id = ?".to_string());
+        params_boxed.push(Box::new(fid));
     }
     if !tag.is_empty() {
-        conditions.push(
-            "s.id IN (SELECT snippet_id FROM snippet_tags WHERE tag = ?)".to_string(),
-        );
-        param_values.push(Box::new(tag.to_string()));
+        conditions.push("EXISTS (SELECT 1 FROM snippet_entry_tags et2 WHERE et2.entry_id = se.id AND et2.tag = ?)".to_string());
+        params_boxed.push(Box::new(tag.to_string()));
     }
-    if !language.is_empty() {
-        conditions.push(
-            "s.id IN (SELECT snippet_id FROM snippet_fragments WHERE language = ?)".to_string(),
-        );
-        param_values.push(Box::new(language.to_string()));
+    if favorite_only {
+        conditions.push("se.is_favorite = 1".to_string());
     }
-    if let Some(fav) = is_favorite {
-        conditions.push("s.is_favorite = ?".to_string());
-        param_values.push(Box::new(fav as i64));
+    if untagged_only {
+        conditions.push("NOT EXISTS (SELECT 1 FROM snippet_entry_tags et3 WHERE et3.entry_id = se.id)".to_string());
+    }
+    if recent_days > 0 {
+        conditions.push("se.last_used_at >= datetime('now', ?)".to_string());
+        params_boxed.push(Box::new(format!("-{recent_days} days")));
     }
 
     let where_clause = if conditions.is_empty() {
@@ -69,425 +376,600 @@ fn snippet_list(payload: &Value) -> Result<Value, String> {
     };
 
     let sql = format!(
-        "SELECT s.id, s.title, s.description, s.folder_id, s.is_favorite, s.created_at, s.updated_at
-         FROM snippets s {} ORDER BY {}",
+        "SELECT
+            se.id,
+            se.title,
+            se.description,
+            se.folder_id,
+            se.is_favorite,
+            se.primary_language,
+            se.created_at,
+            se.updated_at,
+            se.last_used_at,
+            se.use_count,
+            (SELECT COUNT(*) FROM snippet_fragments_v2 sf WHERE sf.entry_id = se.id) AS fragment_count,
+            (
+                SELECT GROUP_CONCAT(tag, CHAR(31))
+                FROM (
+                    SELECT tag FROM snippet_entry_tags et
+                    WHERE et.entry_id = se.id
+                    ORDER BY tag ASC
+                )
+            ) AS tag_csv
+         FROM snippet_entries se
+         {}
+         ORDER BY {}",
         where_clause, order_clause
     );
 
-    let mut stmt = conn.prepare(&sql).map_err(|e| format!("prepare snippet list: {e}"))?;
-    let params_ref: Vec<&dyn rusqlite::types::ToSql> = param_values.iter().map(|p| p.as_ref()).collect();
+    let mut stmt = conn.prepare(&sql).map_err(|e| format!("prepare v2_list failed: {e}"))?;
+    let params_ref: Vec<&dyn rusqlite::types::ToSql> = params_boxed.iter().map(|p| p.as_ref()).collect();
     let rows = stmt
-        .query_map(params_ref.as_slice(), |row| {
-            Ok(json!({
-                "id": row.get::<_, i64>(0)?,
-                "title": row.get::<_, String>(1)?,
-                "description": row.get::<_, String>(2)?,
-                "folderId": row.get::<_, Option<i64>>(3)?,
-                "isFavorite": row.get::<_, i64>(4)? == 1,
-                "createdAt": row.get::<_, String>(5)?,
-                "updatedAt": row.get::<_, String>(6)?,
-            }))
-        })
-        .map_err(|e| format!("query snippets: {e}"))?;
+        .query_map(params_ref.as_slice(), entry_summary_row_to_json)
+        .map_err(|e| format!("query v2_list failed: {e}"))?;
 
     let mut out = Vec::new();
-    for r in rows {
-        let mut snippet = r.map_err(|e| e.to_string())?;
-        let sid = snippet["id"].as_i64().unwrap();
-        // Attach tags
-        snippet["tags"] = get_snippet_tags(&conn, sid)?;
-        // Attach first fragment language for display
-        let lang: String = conn
-            .query_row(
-                "SELECT language FROM snippet_fragments WHERE snippet_id = ?1 ORDER BY sort_order ASC LIMIT 1",
-                params![sid],
-                |row| row.get(0),
-            )
-            .unwrap_or_else(|_| "plaintext".to_string());
-        snippet["language"] = json!(lang);
-        out.push(snippet);
+    for row in rows {
+        out.push(row_with_tags(row.map_err(|e| e.to_string())?));
     }
+
     Ok(Value::Array(out))
 }
 
-/// Get a single snippet with all fragments and tags
-fn snippet_get(payload: &Value) -> Result<Value, String> {
-    let id = payload["id"].as_i64().ok_or("id is required")?;
+fn v2_get(payload: &Value) -> Result<Value, String> {
+    let entry_id = payload["id"].as_i64().ok_or("id is required")?;
     let conn = db_conn()?;
 
     let mut snippet = conn
         .query_row(
-            "SELECT id, title, description, folder_id, is_favorite, created_at, updated_at FROM snippets WHERE id = ?1",
-            params![id],
-            |row| {
+            "SELECT id, title, description, folder_id, is_favorite, primary_language, created_at, updated_at, last_used_at, use_count
+             FROM snippet_entries WHERE id = ?1",
+            params![entry_id],
+            |r| {
                 Ok(json!({
-                    "id": row.get::<_, i64>(0)?,
-                    "title": row.get::<_, String>(1)?,
-                    "description": row.get::<_, String>(2)?,
-                    "folderId": row.get::<_, Option<i64>>(3)?,
-                    "isFavorite": row.get::<_, i64>(4)? == 1,
-                    "createdAt": row.get::<_, String>(5)?,
-                    "updatedAt": row.get::<_, String>(6)?,
+                    "id": r.get::<_, i64>(0)?,
+                    "title": r.get::<_, String>(1)?,
+                    "description": r.get::<_, String>(2)?,
+                    "folderId": r.get::<_, Option<i64>>(3)?,
+                    "isFavorite": r.get::<_, i64>(4)? == 1,
+                    "primaryLanguage": r.get::<_, String>(5)?,
+                    "createdAt": r.get::<_, String>(6)?,
+                    "updatedAt": r.get::<_, String>(7)?,
+                    "lastUsedAt": r.get::<_, String>(8)?,
+                    "useCount": r.get::<_, i64>(9)?,
                 }))
             },
         )
-        .map_err(|e| format!("snippet not found: {e}"))?;
+        .map_err(|e| format!("v2_get not found: {e}"))?;
 
-    snippet["tags"] = get_snippet_tags(&conn, id)?;
-    snippet["fragments"] = get_snippet_fragments(&conn, id)?;
+    snippet["tags"] = collect_tags(&conn, entry_id)?;
+    snippet["fragments"] = collect_fragments(&conn, entry_id)?;
     Ok(snippet)
 }
 
-fn get_snippet_tags(conn: &rusqlite::Connection, snippet_id: i64) -> Result<Value, String> {
-    let mut stmt = conn
-        .prepare("SELECT tag FROM snippet_tags WHERE snippet_id = ?1 ORDER BY tag")
-        .map_err(|e| format!("prepare tags: {e}"))?;
-    let rows = stmt
-        .query_map(params![snippet_id], |row| row.get::<_, String>(0))
-        .map_err(|e| format!("query tags: {e}"))?;
-    let mut tags = Vec::new();
-    for r in rows {
-        tags.push(Value::String(r.map_err(|e| e.to_string())?));
-    }
-    Ok(Value::Array(tags))
-}
-
-fn get_snippet_fragments(conn: &rusqlite::Connection, snippet_id: i64) -> Result<Value, String> {
-    let mut stmt = conn
-        .prepare("SELECT id, label, language, code, sort_order FROM snippet_fragments WHERE snippet_id = ?1 ORDER BY sort_order ASC")
-        .map_err(|e| format!("prepare fragments: {e}"))?;
-    let rows = stmt
-        .query_map(params![snippet_id], |row| {
-            Ok(json!({
-                "id": row.get::<_, i64>(0)?,
-                "label": row.get::<_, String>(1)?,
-                "language": row.get::<_, String>(2)?,
-                "code": row.get::<_, String>(3)?,
-                "sortOrder": row.get::<_, i64>(4)?,
-            }))
-        })
-        .map_err(|e| format!("query fragments: {e}"))?;
-    let mut out = Vec::new();
-    for r in rows {
-        out.push(r.map_err(|e| e.to_string())?);
-    }
-    Ok(Value::Array(out))
-}
-
-/// Create a snippet with fragments and tags
-fn snippet_create(payload: &Value) -> Result<Value, String> {
-    let title = payload["title"].as_str().unwrap_or("未命名片段");
+fn v2_create(payload: &Value) -> Result<Value, String> {
+    let conn = db_conn()?;
+    let title = payload["title"].as_str().unwrap_or("未命名片段").trim();
     let description = payload["description"].as_str().unwrap_or_default();
     let folder_id = payload["folderId"].as_i64();
-    let conn = db_conn()?;
+    let is_favorite = payload["isFavorite"].as_bool().unwrap_or(false);
+    let fragments = parse_fragments(payload);
+    let tags = parse_tags(payload, "tags");
+
+    let primary_language = fragments
+        .first()
+        .map(|(_, language, _)| language.clone())
+        .unwrap_or_else(|| "plaintext".to_string());
 
     conn.execute(
-        "INSERT INTO snippets (title, description, folder_id) VALUES (?1, ?2, ?3)",
-        params![title, description, folder_id],
+        "INSERT INTO snippet_entries (title, description, folder_id, is_favorite, primary_language, last_used_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, CURRENT_TIMESTAMP)",
+        params![
+            if title.is_empty() { "未命名片段" } else { title },
+            description,
+            folder_id,
+            if is_favorite { 1 } else { 0 },
+            primary_language
+        ],
     )
-    .map_err(|e| format!("create snippet: {e}"))?;
-    let snippet_id = conn.last_insert_rowid();
+    .map_err(|e| format!("v2_create entry failed: {e}"))?;
 
-    // Insert fragments
-    let fragments = payload["fragments"].as_array();
-    if let Some(frags) = fragments {
-        for (i, f) in frags.iter().enumerate() {
-            let label = f["label"].as_str().unwrap_or("main");
-            let language = f["language"].as_str().unwrap_or("plaintext");
-            let code = f["code"].as_str().unwrap_or_default();
-            conn.execute(
-                "INSERT INTO snippet_fragments (snippet_id, label, language, code, sort_order) VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![snippet_id, label, language, code, i as i64],
-            )
-            .map_err(|e| format!("create fragment: {e}"))?;
-        }
-    } else {
-        // Default: one empty fragment
+    let entry_id = conn.last_insert_rowid();
+
+    for (idx, (label, language, code)) in fragments.iter().enumerate() {
         conn.execute(
-            "INSERT INTO snippet_fragments (snippet_id, label, language, code, sort_order) VALUES (?1, 'main', 'plaintext', '', 0)",
-            params![snippet_id],
+            "INSERT INTO snippet_fragments_v2 (entry_id, label, language, code, sort_order)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![entry_id, label, language, code, idx as i64],
         )
-        .map_err(|e| format!("create default fragment: {e}"))?;
+        .map_err(|e| format!("v2_create fragments failed: {e}"))?;
     }
 
-    // Insert tags
-    if let Some(tags) = payload["tags"].as_array() {
-        for t in tags {
-            if let Some(tag) = t.as_str() {
-                if !tag.is_empty() {
-                    conn.execute(
-                        "INSERT OR IGNORE INTO snippet_tags (snippet_id, tag) VALUES (?1, ?2)",
-                        params![snippet_id, tag],
-                    )
-                    .map_err(|e| format!("create tag: {e}"))?;
-                }
-            }
-        }
+    for tag in &tags {
+        conn.execute(
+            "INSERT OR IGNORE INTO snippet_entry_tags (entry_id, tag) VALUES (?1, ?2)",
+            params![entry_id, tag],
+        )
+        .map_err(|e| format!("v2_create tags failed: {e}"))?;
     }
 
-    snippet_get(&json!({"id": snippet_id}))
+    rebuild_fts_for_entry(&conn, entry_id)?;
+    v2_get(&json!({ "id": entry_id }))
 }
 
-/// Update snippet: full replace of fragments and tags
-fn snippet_update(payload: &Value) -> Result<Value, String> {
-    let id = payload["id"].as_i64().ok_or("id is required")?;
+fn v2_update(payload: &Value) -> Result<Value, String> {
+    let entry_id = payload["id"].as_i64().ok_or("id is required")?;
     let conn = db_conn()?;
 
-    // Update main fields if provided
     if let Some(title) = payload["title"].as_str() {
         conn.execute(
-            "UPDATE snippets SET title = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2",
-            params![title, id],
+            "UPDATE snippet_entries SET title = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2",
+            params![if title.trim().is_empty() { "未命名片段" } else { title.trim() }, entry_id],
         )
-        .map_err(|e| format!("update title: {e}"))?;
+        .map_err(|e| format!("v2_update title failed: {e}"))?;
     }
+
     if payload.get("description").is_some() {
-        let desc = payload["description"].as_str().unwrap_or_default();
         conn.execute(
-            "UPDATE snippets SET description = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2",
-            params![desc, id],
+            "UPDATE snippet_entries SET description = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2",
+            params![payload["description"].as_str().unwrap_or_default(), entry_id],
         )
-        .map_err(|e| format!("update description: {e}"))?;
+        .map_err(|e| format!("v2_update description failed: {e}"))?;
     }
+
     if payload.get("folderId").is_some() {
-        let folder_id = payload["folderId"].as_i64();
         conn.execute(
-            "UPDATE snippets SET folder_id = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2",
-            params![folder_id, id],
+            "UPDATE snippet_entries SET folder_id = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2",
+            params![payload["folderId"].as_i64(), entry_id],
         )
-        .map_err(|e| format!("update folder: {e}"))?;
+        .map_err(|e| format!("v2_update folder failed: {e}"))?;
     }
 
-    // Replace fragments if provided
-    if let Some(frags) = payload["fragments"].as_array() {
-        conn.execute("DELETE FROM snippet_fragments WHERE snippet_id = ?1", params![id])
-            .map_err(|e| format!("clear fragments: {e}"))?;
-        for (i, f) in frags.iter().enumerate() {
-            let label = f["label"].as_str().unwrap_or("main");
-            let language = f["language"].as_str().unwrap_or("plaintext");
-            let code = f["code"].as_str().unwrap_or_default();
+    if payload.get("isFavorite").is_some() {
+        let flag = payload["isFavorite"].as_bool().unwrap_or(false);
+        conn.execute(
+            "UPDATE snippet_entries SET is_favorite = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2",
+            params![if flag { 1 } else { 0 }, entry_id],
+        )
+        .map_err(|e| format!("v2_update favorite failed: {e}"))?;
+    }
+
+    if payload.get("fragments").is_some() {
+        let frags = parse_fragments(payload);
+        let primary_language = frags
+            .first()
+            .map(|(_, language, _)| language.clone())
+            .unwrap_or_else(|| "plaintext".to_string());
+
+        conn.execute(
+            "DELETE FROM snippet_fragments_v2 WHERE entry_id = ?1",
+            params![entry_id],
+        )
+        .map_err(|e| format!("v2_update clear fragments failed: {e}"))?;
+
+        for (idx, (label, language, code)) in frags.iter().enumerate() {
             conn.execute(
-                "INSERT INTO snippet_fragments (snippet_id, label, language, code, sort_order) VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![id, label, language, code, i as i64],
+                "INSERT INTO snippet_fragments_v2 (entry_id, label, language, code, sort_order)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![entry_id, label, language, code, idx as i64],
             )
-            .map_err(|e| format!("insert fragment: {e}"))?;
+            .map_err(|e| format!("v2_update insert fragment failed: {e}"))?;
+        }
+
+        conn.execute(
+            "UPDATE snippet_entries SET primary_language = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2",
+            params![primary_language, entry_id],
+        )
+        .map_err(|e| format!("v2_update primary language failed: {e}"))?;
+    }
+
+    if payload.get("tags").is_some() {
+        let tags = parse_tags(payload, "tags");
+        conn.execute(
+            "DELETE FROM snippet_entry_tags WHERE entry_id = ?1",
+            params![entry_id],
+        )
+        .map_err(|e| format!("v2_update clear tags failed: {e}"))?;
+
+        for tag in &tags {
+            conn.execute(
+                "INSERT OR IGNORE INTO snippet_entry_tags (entry_id, tag) VALUES (?1, ?2)",
+                params![entry_id, tag],
+            )
+            .map_err(|e| format!("v2_update insert tag failed: {e}"))?;
         }
     }
 
-    // Replace tags if provided
-    if let Some(tags) = payload["tags"].as_array() {
-        conn.execute("DELETE FROM snippet_tags WHERE snippet_id = ?1", params![id])
-            .map_err(|e| format!("clear tags: {e}"))?;
-        for t in tags {
-            if let Some(tag) = t.as_str() {
-                if !tag.is_empty() {
-                    conn.execute(
-                        "INSERT OR IGNORE INTO snippet_tags (snippet_id, tag) VALUES (?1, ?2)",
-                        params![id, tag],
-                    )
-                    .map_err(|e| format!("insert tag: {e}"))?;
-                }
-            }
-        }
-    }
-
-    // Touch updated_at
-    conn.execute(
-        "UPDATE snippets SET updated_at = CURRENT_TIMESTAMP WHERE id = ?1",
-        params![id],
-    )
-    .map_err(|e| format!("touch updated_at: {e}"))?;
-
-    snippet_get(&json!({"id": id}))
+    rebuild_fts_for_entry(&conn, entry_id)?;
+    v2_get(&json!({ "id": entry_id }))
 }
 
-fn snippet_delete(payload: &Value) -> Result<Value, String> {
-    let id = payload["id"].as_i64().ok_or("id is required")?;
+fn v2_delete(payload: &Value) -> Result<Value, String> {
+    let entry_id = payload["id"].as_i64().ok_or("id is required")?;
     let conn = db_conn()?;
-    conn.execute("DELETE FROM snippets WHERE id = ?1", params![id])
-        .map_err(|e| format!("delete snippet: {e}"))?;
-    Ok(json!({"ok": true}))
+    conn.execute("DELETE FROM snippet_entries WHERE id = ?1", params![entry_id])
+        .map_err(|e| format!("v2_delete failed: {e}"))?;
+    conn.execute("DELETE FROM snippet_fts WHERE entry_id = ?1", params![entry_id])
+        .ok();
+    Ok(json!({ "ok": true }))
 }
 
-fn snippet_toggle_favorite(payload: &Value) -> Result<Value, String> {
-    let id = payload["id"].as_i64().ok_or("id is required")?;
+fn v2_mark_used(payload: &Value) -> Result<Value, String> {
+    let entry_id = payload["id"].as_i64().ok_or("id is required")?;
     let conn = db_conn()?;
     conn.execute(
-        "UPDATE snippets SET is_favorite = 1 - is_favorite, updated_at = CURRENT_TIMESTAMP WHERE id = ?1",
-        params![id],
+        "UPDATE snippet_entries
+         SET last_used_at = CURRENT_TIMESTAMP,
+             use_count = use_count + 1,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?1",
+        params![entry_id],
     )
-    .map_err(|e| format!("toggle favorite: {e}"))?;
-    let fav: i64 = conn
-        .query_row("SELECT is_favorite FROM snippets WHERE id = ?1", params![id], |r| r.get(0))
-        .map_err(|e| format!("read favorite: {e}"))?;
-    Ok(json!({"id": id, "isFavorite": fav == 1}))
+    .map_err(|e| format!("v2_mark_used failed: {e}"))?;
+
+    Ok(json!({ "ok": true }))
 }
 
-/// List all folders as flat list (frontend builds tree)
-fn folder_list() -> Result<Value, String> {
-    let conn = db_conn()?;
-    let mut stmt = conn
-        .prepare("SELECT id, name, parent_id, sort_order, created_at FROM snippet_folders ORDER BY sort_order ASC, id ASC")
-        .map_err(|e| format!("prepare folder list: {e}"))?;
-    let rows = stmt
-        .query_map([], |row| {
-            Ok(json!({
-                "id": row.get::<_, i64>(0)?,
-                "name": row.get::<_, String>(1)?,
-                "parentId": row.get::<_, Option<i64>>(2)?,
-                "sortOrder": row.get::<_, i64>(3)?,
-                "createdAt": row.get::<_, String>(4)?,
-            }))
-        })
-        .map_err(|e| format!("query folders: {e}"))?;
-    let mut out = Vec::new();
-    for r in rows {
-        let mut folder = r.map_err(|e| e.to_string())?;
-        let fid = folder["id"].as_i64().unwrap();
-        // Count snippets in this folder
-        let count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM snippets WHERE folder_id = ?1", params![fid], |r| r.get(0))
-            .unwrap_or(0);
-        folder["snippetCount"] = json!(count);
-        out.push(folder);
-    }
-    Ok(Value::Array(out))
-}
-
-fn folder_create(payload: &Value) -> Result<Value, String> {
-    let name = payload["name"].as_str().unwrap_or("新建文件夹");
-    let parent_id = payload["parentId"].as_i64();
-    let conn = db_conn()?;
-    let next_order: i64 = conn
-        .query_row("SELECT COALESCE(MAX(sort_order), 0) + 1 FROM snippet_folders", [], |r| r.get(0))
-        .unwrap_or(0);
-    conn.execute(
-        "INSERT INTO snippet_folders (name, parent_id, sort_order) VALUES (?1, ?2, ?3)",
-        params![name, parent_id, next_order],
-    )
-    .map_err(|e| format!("create folder: {e}"))?;
-    let id = conn.last_insert_rowid();
-    Ok(json!({"id": id, "name": name, "parentId": parent_id, "sortOrder": next_order}))
-}
-
-fn folder_update(payload: &Value) -> Result<Value, String> {
-    let id = payload["id"].as_i64().ok_or("id is required")?;
-    let conn = db_conn()?;
-    if let Some(name) = payload["name"].as_str() {
-        conn.execute("UPDATE snippet_folders SET name = ?1 WHERE id = ?2", params![name, id])
-            .map_err(|e| format!("rename folder: {e}"))?;
-    }
-    if payload.get("parentId").is_some() {
-        let parent_id = payload["parentId"].as_i64();
-        conn.execute("UPDATE snippet_folders SET parent_id = ?1 WHERE id = ?2", params![parent_id, id])
-            .map_err(|e| format!("move folder: {e}"))?;
-    }
-    Ok(json!({"ok": true}))
-}
-
-fn folder_delete(payload: &Value) -> Result<Value, String> {
-    let id = payload["id"].as_i64().ok_or("id is required")?;
-    let conn = db_conn()?;
-    // Set snippets in this folder to no folder
-    conn.execute("UPDATE snippets SET folder_id = NULL WHERE folder_id = ?1", params![id])
-        .map_err(|e| format!("unlink snippets: {e}"))?;
-    // Also unlink snippets in child folders
-    conn.execute("UPDATE snippets SET folder_id = NULL WHERE folder_id IN (SELECT id FROM snippet_folders WHERE parent_id = ?1)", params![id])
-        .map_err(|e| format!("unlink child snippets: {e}"))?;
-    conn.execute("DELETE FROM snippet_folders WHERE id = ?1", params![id])
-        .map_err(|e| format!("delete folder: {e}"))?;
-    Ok(json!({"ok": true}))
-}
-
-/// List all tags with usage count
-fn tag_list() -> Result<Value, String> {
-    let conn = db_conn()?;
-    let mut stmt = conn
-        .prepare("SELECT tag, COUNT(*) as cnt FROM snippet_tags GROUP BY tag ORDER BY cnt DESC, tag ASC")
-        .map_err(|e| format!("prepare tag list: {e}"))?;
-    let rows = stmt
-        .query_map([], |row| {
-            Ok(json!({
-                "tag": row.get::<_, String>(0)?,
-                "count": row.get::<_, i64>(1)?,
-            }))
-        })
-        .map_err(|e| format!("query tags: {e}"))?;
-    let mut out = Vec::new();
-    for r in rows {
-        out.push(r.map_err(|e| e.to_string())?);
-    }
-    Ok(Value::Array(out))
-}
-
-fn snippet_search(payload: &Value) -> Result<Value, String> {
-    let keyword = payload["keyword"].as_str().unwrap_or_default();
+fn v2_search(payload: &Value) -> Result<Value, String> {
+    let keyword = payload["keyword"].as_str().unwrap_or_default().trim();
     if keyword.is_empty() {
-        return snippet_list(&json!({}));
+        return v2_list(payload);
     }
-    let like = format!("%{}%", keyword);
+
+    let conn = db_conn()?;
+    let folder_id = payload["folder_id"].as_i64();
+    let tag = payload["tag"].as_str().unwrap_or_default();
+    let favorite_only = payload["favorite_only"].as_bool().unwrap_or(false);
+    let untagged_only = payload["untagged_only"].as_bool().unwrap_or(false);
+    let recent_days = payload["recent_days"].as_i64().unwrap_or(0);
+    let order_clause = parse_sort(payload);
+
+    let mut conditions = Vec::new();
+    let mut params_boxed: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+
+    if has_fts(&conn) {
+        conditions.push("se.id IN (SELECT entry_id FROM snippet_fts WHERE snippet_fts MATCH ?)".to_string());
+        params_boxed.push(Box::new(keyword.to_string()));
+    } else {
+        let like = format!("%{keyword}%");
+        conditions.push(
+            "(
+                se.title LIKE ? OR
+                se.description LIKE ? OR
+                EXISTS (SELECT 1 FROM snippet_entry_tags etf WHERE etf.entry_id = se.id AND etf.tag LIKE ?) OR
+                EXISTS (SELECT 1 FROM snippet_fragments_v2 sff WHERE sff.entry_id = se.id AND sff.code LIKE ?)
+             )"
+                .to_string(),
+        );
+        params_boxed.push(Box::new(like.clone()));
+        params_boxed.push(Box::new(like.clone()));
+        params_boxed.push(Box::new(like.clone()));
+        params_boxed.push(Box::new(like));
+    }
+
+    if let Some(fid) = folder_id {
+        conditions.push("se.folder_id = ?".to_string());
+        params_boxed.push(Box::new(fid));
+    }
+    if !tag.is_empty() {
+        conditions.push("EXISTS (SELECT 1 FROM snippet_entry_tags et2 WHERE et2.entry_id = se.id AND et2.tag = ?)".to_string());
+        params_boxed.push(Box::new(tag.to_string()));
+    }
+    if favorite_only {
+        conditions.push("se.is_favorite = 1".to_string());
+    }
+    if untagged_only {
+        conditions.push("NOT EXISTS (SELECT 1 FROM snippet_entry_tags et3 WHERE et3.entry_id = se.id)".to_string());
+    }
+    if recent_days > 0 {
+        conditions.push("se.last_used_at >= datetime('now', ?)".to_string());
+        params_boxed.push(Box::new(format!("-{recent_days} days")));
+    }
+
+    let where_clause = format!("WHERE {}", conditions.join(" AND "));
+
+    let sql = format!(
+        "SELECT
+            se.id,
+            se.title,
+            se.description,
+            se.folder_id,
+            se.is_favorite,
+            se.primary_language,
+            se.created_at,
+            se.updated_at,
+            se.last_used_at,
+            se.use_count,
+            (SELECT COUNT(*) FROM snippet_fragments_v2 sf WHERE sf.entry_id = se.id) AS fragment_count,
+            (
+                SELECT GROUP_CONCAT(tag, CHAR(31))
+                FROM (
+                    SELECT tag FROM snippet_entry_tags et
+                    WHERE et.entry_id = se.id
+                    ORDER BY tag ASC
+                )
+            ) AS tag_csv
+         FROM snippet_entries se
+         {}
+         ORDER BY {}",
+        where_clause, order_clause
+    );
+
+    let mut stmt = conn
+        .prepare(&sql)
+        .map_err(|e| format!("prepare v2_search failed: {e}"))?;
+    let params_ref: Vec<&dyn rusqlite::types::ToSql> = params_boxed.iter().map(|p| p.as_ref()).collect();
+    let rows = stmt
+        .query_map(params_ref.as_slice(), entry_summary_row_to_json)
+        .map_err(|e| format!("query v2_search failed: {e}"))?;
+
+    let mut out = Vec::new();
+    for row in rows {
+        out.push(row_with_tags(row.map_err(|e| e.to_string())?));
+    }
+
+    Ok(Value::Array(out))
+}
+
+fn v2_tag_stats() -> Result<Value, String> {
     let conn = db_conn()?;
     let mut stmt = conn
         .prepare(
-            "SELECT DISTINCT s.id, s.title, s.description, s.folder_id, s.is_favorite, s.created_at, s.updated_at
-             FROM snippets s
-             LEFT JOIN snippet_fragments sf ON sf.snippet_id = s.id
-             LEFT JOIN snippet_tags st ON st.snippet_id = s.id
-             WHERE s.title LIKE ?1
-                OR s.description LIKE ?1
-                OR sf.code LIKE ?1
-                OR st.tag LIKE ?1
-             ORDER BY s.updated_at DESC"
+            "SELECT tag, COUNT(*) AS cnt
+             FROM snippet_entry_tags
+             GROUP BY tag
+             ORDER BY cnt DESC, tag ASC",
         )
-        .map_err(|e| format!("prepare search: {e}"))?;
+        .map_err(|e| format!("prepare v2_tag_stats failed: {e}"))?;
+
     let rows = stmt
-        .query_map(params![like], |row| {
+        .query_map([], |r| {
             Ok(json!({
-                "id": row.get::<_, i64>(0)?,
-                "title": row.get::<_, String>(1)?,
-                "description": row.get::<_, String>(2)?,
-                "folderId": row.get::<_, Option<i64>>(3)?,
-                "isFavorite": row.get::<_, i64>(4)? == 1,
-                "createdAt": row.get::<_, String>(5)?,
-                "updatedAt": row.get::<_, String>(6)?,
+                "tag": r.get::<_, String>(0)?,
+                "count": r.get::<_, i64>(1)?,
             }))
         })
-        .map_err(|e| format!("search snippets: {e}"))?;
+        .map_err(|e| format!("query v2_tag_stats failed: {e}"))?;
+
     let mut out = Vec::new();
-    for r in rows {
-        let mut snippet = r.map_err(|e| e.to_string())?;
-        let sid = snippet["id"].as_i64().unwrap();
-        snippet["tags"] = get_snippet_tags(&conn, sid)?;
-        let lang: String = conn
-            .query_row(
-                "SELECT language FROM snippet_fragments WHERE snippet_id = ?1 ORDER BY sort_order ASC LIMIT 1",
-                params![sid],
-                |row| row.get(0),
-            )
-            .unwrap_or_else(|_| "plaintext".to_string());
-        snippet["language"] = json!(lang);
-        out.push(snippet);
+    for row in rows {
+        out.push(row.map_err(|e| e.to_string())?);
     }
     Ok(Value::Array(out))
 }
 
-/// Count fragments per language, sorted by count descending
+fn v2_folder_list() -> Result<Value, String> {
+    let conn = db_conn()?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT
+                f.id,
+                f.name,
+                f.parent_id,
+                f.sort_order,
+                f.created_at,
+                COUNT(se.id) AS snippet_count
+             FROM snippet_folders_v2 f
+             LEFT JOIN snippet_entries se ON se.folder_id = f.id
+             GROUP BY f.id, f.name, f.parent_id, f.sort_order, f.created_at
+             ORDER BY f.sort_order ASC, f.id ASC",
+        )
+        .map_err(|e| format!("prepare v2_folder_list failed: {e}"))?;
+
+    let rows = stmt
+        .query_map([], |r| {
+            Ok(json!({
+                "id": r.get::<_, i64>(0)?,
+                "name": r.get::<_, String>(1)?,
+                "parentId": r.get::<_, Option<i64>>(2)?,
+                "sortOrder": r.get::<_, i64>(3)?,
+                "createdAt": r.get::<_, String>(4)?,
+                "snippetCount": r.get::<_, i64>(5)?,
+            }))
+        })
+        .map_err(|e| format!("query v2_folder_list failed: {e}"))?;
+
+    let mut out = Vec::new();
+    for row in rows {
+        out.push(row.map_err(|e| e.to_string())?);
+    }
+
+    Ok(Value::Array(out))
+}
+
+fn v2_folder_create(payload: &Value) -> Result<Value, String> {
+    let conn = db_conn()?;
+    let name = payload["name"].as_str().unwrap_or("新建文件夹").trim();
+    let parent_id = payload["parentId"].as_i64();
+    let next_order: i64 = conn
+        .query_row(
+            "SELECT COALESCE(MAX(sort_order), 0) + 1 FROM snippet_folders_v2",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap_or(1);
+
+    conn.execute(
+        "INSERT INTO snippet_folders_v2 (name, parent_id, sort_order) VALUES (?1, ?2, ?3)",
+        params![if name.is_empty() { "新建文件夹" } else { name }, parent_id, next_order],
+    )
+    .map_err(|e| format!("v2_folder_create failed: {e}"))?;
+
+    Ok(json!({ "ok": true, "id": conn.last_insert_rowid() }))
+}
+
+fn v2_folder_update(payload: &Value) -> Result<Value, String> {
+    let conn = db_conn()?;
+    let folder_id = payload["id"].as_i64().ok_or("id is required")?;
+
+    if let Some(name) = payload["name"].as_str() {
+        conn.execute(
+            "UPDATE snippet_folders_v2 SET name = ?1 WHERE id = ?2",
+            params![if name.trim().is_empty() { "未命名文件夹" } else { name.trim() }, folder_id],
+        )
+        .map_err(|e| format!("v2_folder_update name failed: {e}"))?;
+    }
+
+    if payload.get("parentId").is_some() {
+        conn.execute(
+            "UPDATE snippet_folders_v2 SET parent_id = ?1 WHERE id = ?2",
+            params![payload["parentId"].as_i64(), folder_id],
+        )
+        .map_err(|e| format!("v2_folder_update parent failed: {e}"))?;
+    }
+
+    Ok(json!({ "ok": true }))
+}
+
+fn v2_folder_delete(payload: &Value) -> Result<Value, String> {
+    let conn = db_conn()?;
+    let folder_id = payload["id"].as_i64().ok_or("id is required")?;
+
+    conn.execute(
+        "UPDATE snippet_entries SET folder_id = NULL WHERE folder_id = ?1",
+        params![folder_id],
+    )
+    .map_err(|e| format!("v2_folder_delete unlink failed: {e}"))?;
+
+    conn.execute(
+        "DELETE FROM snippet_folders_v2 WHERE id = ?1",
+        params![folder_id],
+    )
+    .map_err(|e| format!("v2_folder_delete failed: {e}"))?;
+
+    Ok(json!({ "ok": true }))
+}
+
+fn toggle_favorite(payload: &Value) -> Result<Value, String> {
+    let entry_id = payload["id"].as_i64().ok_or("id is required")?;
+    let conn = db_conn()?;
+    conn.execute(
+        "UPDATE snippet_entries
+         SET is_favorite = 1 - is_favorite, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?1",
+        params![entry_id],
+    )
+    .map_err(|e| format!("toggle_favorite failed: {e}"))?;
+    let favorite: i64 = conn
+        .query_row(
+            "SELECT is_favorite FROM snippet_entries WHERE id = ?1",
+            params![entry_id],
+            |r| r.get(0),
+        )
+        .map_err(|e| format!("read favorite failed: {e}"))?;
+    Ok(json!({ "id": entry_id, "isFavorite": favorite == 1 }))
+}
+
 fn language_stats() -> Result<Value, String> {
     let conn = db_conn()?;
     let mut stmt = conn
-        .prepare("SELECT language, COUNT(*) as cnt FROM snippet_fragments GROUP BY language ORDER BY cnt DESC, language ASC")
-        .map_err(|e| format!("prepare language stats: {e}"))?;
+        .prepare(
+            "SELECT language, COUNT(*) AS cnt
+             FROM snippet_fragments_v2
+             GROUP BY language
+             ORDER BY cnt DESC, language ASC",
+        )
+        .map_err(|e| format!("prepare language_stats failed: {e}"))?;
+
     let rows = stmt
-        .query_map([], |row| {
+        .query_map([], |r| {
             Ok(json!({
-                "language": row.get::<_, String>(0)?,
-                "count": row.get::<_, i64>(1)?,
+                "language": r.get::<_, String>(0)?,
+                "count": r.get::<_, i64>(1)?,
             }))
         })
-        .map_err(|e| format!("query language stats: {e}"))?;
+        .map_err(|e| format!("query language_stats failed: {e}"))?;
+
     let mut out = Vec::new();
-    for r in rows {
-        out.push(r.map_err(|e| e.to_string())?);
+    for row in rows {
+        out.push(row.map_err(|e| e.to_string())?);
     }
     Ok(Value::Array(out))
+}
+
+fn batch_update(payload: &Value) -> Result<Value, String> {
+    let ids = parse_ids(payload)?;
+    let set_favorite = payload.get("setFavorite").and_then(|v| v.as_bool());
+    let has_folder = payload.get("folderId").is_some();
+    let folder_id = payload["folderId"].as_i64();
+    let add_tags = parse_tags(payload, "addTags");
+    let remove_tags = parse_tags(payload, "removeTags");
+
+    if set_favorite.is_none() && !has_folder && add_tags.is_empty() && remove_tags.is_empty() {
+        return Err("batch_update requires at least one operation".to_string());
+    }
+
+    let mut conn = db_conn()?;
+    let tx = conn
+        .transaction()
+        .map_err(|e| format!("batch_update begin tx failed: {e}"))?;
+
+    for id in &ids {
+        if let Some(flag) = set_favorite {
+            tx.execute(
+                "UPDATE snippet_entries
+                 SET is_favorite = ?1, updated_at = CURRENT_TIMESTAMP
+                 WHERE id = ?2",
+                params![if flag { 1 } else { 0 }, id],
+            )
+            .map_err(|e| format!("batch_update favorite failed: {e}"))?;
+        }
+        if has_folder {
+            tx.execute(
+                "UPDATE snippet_entries
+                 SET folder_id = ?1, updated_at = CURRENT_TIMESTAMP
+                 WHERE id = ?2",
+                params![folder_id, id],
+            )
+            .map_err(|e| format!("batch_update folder failed: {e}"))?;
+        }
+        for tag in &add_tags {
+            tx.execute(
+                "INSERT OR IGNORE INTO snippet_entry_tags (entry_id, tag) VALUES (?1, ?2)",
+                params![id, tag],
+            )
+            .map_err(|e| format!("batch_update add tag failed: {e}"))?;
+        }
+        for tag in &remove_tags {
+            tx.execute(
+                "DELETE FROM snippet_entry_tags WHERE entry_id = ?1 AND tag = ?2",
+                params![id, tag],
+            )
+            .map_err(|e| format!("batch_update remove tag failed: {e}"))?;
+        }
+        tx.execute(
+            "UPDATE snippet_entries SET updated_at = CURRENT_TIMESTAMP WHERE id = ?1",
+            params![id],
+        )
+        .map_err(|e| format!("batch_update touch failed: {e}"))?;
+    }
+
+    tx.commit()
+        .map_err(|e| format!("batch_update commit failed: {e}"))?;
+
+    let conn = db_conn()?;
+    for id in &ids {
+        rebuild_fts_for_entry(&conn, *id)?;
+    }
+
+    Ok(json!({ "ok": true, "affected": ids.len() }))
+}
+
+fn batch_delete(payload: &Value) -> Result<Value, String> {
+    let ids = parse_ids(payload)?;
+    let mut conn = db_conn()?;
+    let tx = conn
+        .transaction()
+        .map_err(|e| format!("batch_delete begin tx failed: {e}"))?;
+    let mut affected = 0;
+    for id in &ids {
+        affected += tx
+            .execute("DELETE FROM snippet_entries WHERE id = ?1", params![id])
+            .map_err(|e| format!("batch_delete delete failed: {e}"))?;
+        tx.execute("DELETE FROM snippet_fts WHERE entry_id = ?1", params![id])
+            .ok();
+    }
+    tx.commit()
+        .map_err(|e| format!("batch_delete commit failed: {e}"))?;
+    Ok(json!({ "ok": true, "affected": affected }))
 }

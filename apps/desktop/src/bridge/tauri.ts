@@ -125,7 +125,22 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:snippets:folder-delete": { domain: "snippets", action: "folder_delete" },
   "tool:snippets:tags": { domain: "snippets", action: "tags" },
   "tool:snippets:language-stats": { domain: "snippets", action: "language_stats" },
-  "tool:snippets:search": { domain: "snippets", action: "search" }
+  "tool:snippets:search": { domain: "snippets", action: "search" },
+  "tool:snippets:batch-update": { domain: "snippets", action: "batch_update" },
+  "tool:snippets:batch-delete": { domain: "snippets", action: "batch_delete" },
+  "tool:snippets:v2:init": { domain: "snippets", action: "v2_init" },
+  "tool:snippets:v2:list": { domain: "snippets", action: "v2_list" },
+  "tool:snippets:v2:get": { domain: "snippets", action: "v2_get" },
+  "tool:snippets:v2:create": { domain: "snippets", action: "v2_create" },
+  "tool:snippets:v2:update": { domain: "snippets", action: "v2_update" },
+  "tool:snippets:v2:delete": { domain: "snippets", action: "v2_delete" },
+  "tool:snippets:v2:search": { domain: "snippets", action: "v2_search" },
+  "tool:snippets:v2:mark-used": { domain: "snippets", action: "v2_mark_used" },
+  "tool:snippets:v2:tag-stats": { domain: "snippets", action: "v2_tag_stats" },
+  "tool:snippets:v2:folder-list": { domain: "snippets", action: "v2_folder_list" },
+  "tool:snippets:v2:folder-create": { domain: "snippets", action: "v2_folder_create" },
+  "tool:snippets:v2:folder-update": { domain: "snippets", action: "v2_folder_update" },
+  "tool:snippets:v2:folder-delete": { domain: "snippets", action: "v2_folder_delete" }
 };
 
 export async function invokeToolByChannel(

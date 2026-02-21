@@ -1,679 +1,834 @@
-<template>
-  <div class="snippet-panel">
-    <!-- 左栏：导航 -->
-    <aside class="snippet-nav">
-      <div class="nav-section">
-        <div class="nav-item" :class="{ active: navMode === 'all' }" @click="setNav('all')">
-          全部片段 <span class="count">({{ totalCount }})</span>
-        </div>
-        <div class="nav-item" :class="{ active: navMode === 'favorite' }" @click="setNav('favorite')">
-          收藏 <span class="count">({{ favoriteCount }})</span>
-        </div>
+﻿<template>
+  <div class="snippet-v2">
+    <aside class="left-pane">
+      <div class="left-header">代码片段</div>
+      <el-input
+        v-model="keyword"
+        class="left-search"
+        placeholder="搜索标题、内容、标签"
+        clearable
+        @input="onSearchInput"
+      />
+
+      <div class="filter-group">
+        <button class="filter-chip" :class="{ active: viewPreset === 'all' }" @click="setPreset('all')">全部</button>
+        <button class="filter-chip" :class="{ active: viewPreset === 'favorite' }" @click="setPreset('favorite')">收藏</button>
+        <button class="filter-chip" :class="{ active: viewPreset === 'recent7' }" @click="setPreset('recent7')">最近 7 天</button>
+        <button class="filter-chip" :class="{ active: viewPreset === 'untagged' }" @click="setPreset('untagged')">无标签</button>
       </div>
 
-      <div class="nav-section">
-        <div class="nav-section-header">
-          <span>文件夹</span>
-          <el-button text size="small" @click="createFolder">+</el-button>
+      <section class="left-section">
+        <div class="section-title">标签</div>
+        <div class="tag-list">
+          <button
+            class="tag-item"
+            :class="{ active: selectedTag === '' }"
+            @click="selectedTag = ''; loadSnippets()"
+          >
+            全部标签
+          </button>
+          <button
+            v-for="item in tagStats"
+            :key="item.tag"
+            class="tag-item"
+            :class="{ active: selectedTag === item.tag }"
+            @click="selectedTag = item.tag; loadSnippets()"
+          >
+            <span>{{ item.tag }}</span>
+            <span class="count">{{ item.count }}</span>
+          </button>
         </div>
-        <el-tree
-          ref="folderTreeRef"
-          :data="folderTree"
-          node-key="id"
-          :props="{ label: 'name', children: 'children' }"
-          :highlight-current="true"
-          :expand-on-click-node="false"
-          @node-click="onFolderClick"
-          @node-contextmenu="onFolderContext"
-        >
-          <template #default="{ data }">
-            <span class="folder-node">
-              <span>{{ data.name }}</span>
-              <span class="count">({{ data.snippetCount ?? 0 }})</span>
-            </span>
-          </template>
-        </el-tree>
-      </div>
+      </section>
 
-      <div class="nav-section">
-        <div class="nav-section-header"><span>标签</span></div>
-        <div
-          v-for="t in tagList"
-          :key="t.tag"
-          class="nav-item tag-item"
-          :class="{ active: navMode === 'tag' && activeTag === t.tag }"
-          @click="setNav('tag', t.tag)"
-        >
-          {{ t.tag }} <span class="count">({{ t.count }})</span>
+      <section class="left-section">
+        <div class="section-title-row">
+          <span class="section-title">文件夹</span>
+          <el-button text size="small" @click="createFolder">新建</el-button>
         </div>
-<!-- PLACEHOLDER_TEMPLATE_CONTINUE -->
-        <div v-if="tagList.length === 0" class="nav-empty">暂无标签</div>
-      </div>
+        <div class="folder-list">
+          <button
+            class="folder-item"
+            :class="{ active: selectedFolderId === null }"
+            @click="selectedFolderId = null; loadSnippets()"
+          >
+            全部文件夹
+          </button>
+          <button
+            v-for="folder in folders"
+            :key="folder.id"
+            class="folder-item"
+            :class="{ active: selectedFolderId === folder.id }"
+            @click="selectedFolderId = folder.id; loadSnippets()"
+          >
+            <span>{{ folder.name }}</span>
+            <span class="count">{{ folder.snippetCount }}</span>
+          </button>
+        </div>
+      </section>
     </aside>
 
-    <!-- 中栏：片段列表 -->
-    <section class="snippet-list">
-      <div class="list-toolbar">
-        <el-input v-model="searchKeyword" placeholder="搜索..." clearable size="small" @input="onSearchDebounced" />
-        <el-select v-model="filterLanguage" placeholder="语言" clearable size="small" style="width: 110px; margin-left: 6px" @change="loadSnippets">
-          <el-option v-for="lang in sortedLanguages" :key="lang" :label="lang" :value="lang" />
-        </el-select>
-      </div>
-      <div class="list-sort">
-        <el-radio-group v-model="sortBy" size="small" @change="loadSnippets">
-          <el-radio-button value="updated_at">最近修改</el-radio-button>
-          <el-radio-button value="created_at">最近创建</el-radio-button>
-          <el-radio-button value="title">标题</el-radio-button>
-        </el-radio-group>
-      </div>
-      <div class="list-items">
-        <div
-          v-for="s in snippetList"
-          :key="s.id"
-          class="snippet-card"
-          :class="{ active: selectedId === s.id }"
-          @click="selectSnippet(s.id)"
-        >
-          <div class="card-title">
-            <span>{{ s.title }}</span>
-            <span v-if="s.isFavorite" class="fav-icon">&#9733;</span>
-          </div>
-          <div class="card-meta">
-            <span class="lang-badge">{{ s.language }}</span>
-            <span class="time">{{ formatTime(s.updatedAt) }}</span>
-          </div>
+    <section class="middle-pane">
+      <header class="middle-header">
+        <div>
+          <h2>片段列表</h2>
+          <p>{{ listSubTitle }}</p>
         </div>
-        <div v-if="snippetList.length === 0" class="list-empty">暂无片段</div>
-      </div>
-      <div class="list-footer">
-        <el-button type="primary" size="small" @click="createSnippet">新建片段</el-button>
+        <div class="middle-actions">
+          <el-select v-model="sortBy" size="small" style="width: 140px" @change="loadSnippets">
+            <el-option label="最近使用" value="last_used" />
+            <el-option label="最近修改" value="updated_at" />
+            <el-option label="最近创建" value="created_at" />
+            <el-option label="标题" value="title" />
+          </el-select>
+          <el-button type="primary" size="small" @click="createSnippet">新建片段</el-button>
+        </div>
+      </header>
+
+      <div class="snippet-list">
+        <button
+          v-for="item in snippets"
+          :key="item.id"
+          class="snippet-item"
+          :class="{ active: selectedId === item.id }"
+          @click="selectSnippet(item.id)"
+        >
+          <div class="snippet-item-head">
+            <span class="snippet-title">{{ item.title }}</span>
+            <span class="snippet-meta">{{ item.primaryLanguage }}</span>
+          </div>
+          <div class="snippet-item-desc">{{ item.description || '暂无描述' }}</div>
+          <div class="snippet-item-footer">
+            <span>{{ formatTime(item.lastUsedAt || item.updatedAt) }}</span>
+            <span>{{ item.fragmentCount }} 段</span>
+            <span>使用 {{ item.useCount }}</span>
+          </div>
+          <div class="snippet-tags">
+            <span v-for="tag in item.tags" :key="tag" class="list-tag">{{ tag }}</span>
+          </div>
+        </button>
+        <div v-if="!snippets.length" class="empty">暂无结果</div>
       </div>
     </section>
-<!-- PLACEHOLDER_EDITOR_SECTION -->
-    <!-- 右栏：编辑器 -->
-    <section v-if="current" class="snippet-editor">
-      <div class="editor-header">
-        <el-input v-model="current.title" placeholder="片段标题" @input="autoSave" />
-        <div class="editor-actions">
-          <el-button text :type="current.isFavorite ? 'warning' : 'info'" @click="toggleFav">
-            {{ current.isFavorite ? "取消收藏" : "收藏" }}
-          </el-button>
-          <el-button text type="primary" @click="copyCode">复制代码</el-button>
-          <el-popconfirm title="确定删除此片段？" @confirm="deleteSnippet">
-            <template #reference><el-button text type="danger">删除</el-button></template>
-          </el-popconfirm>
-        </div>
-      </div>
 
-      <el-input v-model="current.description" type="textarea" :rows="2" placeholder="描述（可选）" @input="autoSave" style="margin-bottom: 8px" />
+    <section class="right-pane">
+      <template v-if="current">
+        <header class="editor-header">
+          <el-input v-model="current.title" placeholder="片段标题" @input="scheduleSave" />
+          <div class="editor-actions">
+            <el-button text :type="current.isFavorite ? 'warning' : 'info'" @click="toggleFavorite">
+              {{ current.isFavorite ? '取消收藏' : '收藏' }}
+            </el-button>
+            <el-button text type="primary" @click="copyCurrentCode">复制代码</el-button>
+            <el-popconfirm title="确定删除该片段？" @confirm="deleteSnippet">
+              <template #reference><el-button text type="danger">删除</el-button></template>
+            </el-popconfirm>
+          </div>
+        </header>
 
-      <div class="tag-editor">
-        <el-tag v-for="tag in current.tags" :key="tag" closable size="small" @close="removeTag(tag)" style="margin-right: 4px">{{ tag }}</el-tag>
         <el-input
-          v-if="tagInputVisible"
-          ref="tagInputRef"
-          v-model="tagInputValue"
-          size="small"
-          style="width: 80px"
-          @keyup.enter="confirmTag"
-          @blur="confirmTag"
+          v-model="current.description"
+          type="textarea"
+          :rows="2"
+          placeholder="描述（可选）"
+          @input="scheduleSave"
         />
-        <el-button v-else text size="small" @click="showTagInput">+ 标签</el-button>
-      </div>
 
-      <div class="fragment-tabs">
-        <el-tabs v-model="activeFragIdx" type="card" editable @edit="onFragTabEdit">
-          <el-tab-pane
-            v-for="(frag, idx) in current.fragments"
-            :key="idx"
-            :name="String(idx)"
+        <div class="meta-row">
+          <el-select
+            v-model="current.folderId"
+            clearable
+            size="small"
+            placeholder="文件夹"
+            style="width: 180px"
+            @change="scheduleSave"
           >
-            <template #label>
-              <span v-if="renamingFragIdx !== idx" @dblclick.stop="startFragRename(idx)">{{ frag.label }}</span>
-              <el-input
-                v-else
-                v-model="fragRenameValue"
-                size="small"
-                style="width: 80px"
-                @keyup.enter="confirmFragRename"
-                @blur="confirmFragRename"
-                @click.stop
-                :ref="(el: any) => { if (el) fragRenameInputRef = el; }"
-              />
-            </template>
-          </el-tab-pane>
-        </el-tabs>
-        <el-select
-          v-if="activeFragment"
-          v-model="activeFragment.language"
-          size="small"
-          style="width: 140px"
-          filterable
-          @change="onLanguageChange"
-        >
-          <el-option v-for="lang in sortedLanguages" :key="lang" :label="lang" :value="lang" />
-        </el-select>
-      </div>
+            <el-option label="无文件夹" :value="null" />
+            <el-option v-for="folder in folders" :key="folder.id" :label="folder.name" :value="folder.id" />
+          </el-select>
 
-      <div class="editor-body">
-        <MonacoPane
-          v-if="activeFragment"
-          :key="selectedId + '-' + activeFragIdx"
-          v-model="activeFragment.code"
-          :language="activeFragment.language"
-          @update:model-value="autoSave"
-        />
-      </div>
+          <div class="tags-editor">
+            <el-tag
+              v-for="tag in current.tags"
+              :key="tag"
+              size="small"
+              closable
+              @close="removeTag(tag)"
+            >{{ tag }}</el-tag>
+            <el-input
+              v-if="tagInputVisible"
+              ref="tagInputRef"
+              v-model="tagInput"
+              size="small"
+              style="width: 96px"
+              @keyup.enter="confirmTag"
+              @blur="confirmTag"
+            />
+            <el-button v-else text size="small" @click="showTagInput">+标签</el-button>
+          </div>
+        </div>
+
+        <div class="fragment-row">
+          <el-tabs v-model="activeFragmentName" type="card" editable @edit="onTabEdit">
+            <el-tab-pane v-for="(frag, idx) in current.fragments" :key="idx" :name="String(idx)">
+              <template #label>
+                <span v-if="renamingIdx !== idx" @dblclick.stop="startRename(idx)">{{ frag.label }}</span>
+                <el-input
+                  v-else
+                  v-model="renameValue"
+                  size="small"
+                  style="width: 96px"
+                  @keyup.enter="confirmRename"
+                  @blur="confirmRename"
+                />
+              </template>
+            </el-tab-pane>
+          </el-tabs>
+          <el-select
+            v-if="activeFragment"
+            v-model="activeFragment.language"
+            size="small"
+            style="width: 160px"
+            filterable
+            @change="scheduleSave"
+          >
+            <el-option v-for="lang in languageOptions" :key="lang" :label="lang" :value="lang" />
+          </el-select>
+        </div>
+
+        <div class="editor-body">
+          <MonacoPane
+            v-if="activeFragment"
+            :key="current.id + '-' + activeFragmentName"
+            v-model="activeFragment.code"
+            :language="activeFragment.language"
+            @update:model-value="scheduleSave"
+          />
+        </div>
+      </template>
+      <div v-else class="empty">请选择或创建片段</div>
     </section>
-
-    <section v-else class="snippet-editor snippet-empty-hint">
-      <div class="empty-text">选择或新建一个片段</div>
-    </section>
-
-    <!-- 文件夹右键菜单 -->
-    <teleport to="body">
-      <div v-if="folderCtx.visible" class="ctx-menu" :style="{ left: folderCtx.x + 'px', top: folderCtx.y + 'px' }">
-        <div class="ctx-item" @click="renameFolderPrompt">重命名</div>
-        <div class="ctx-item" @click="addSubFolder">新建子文件夹</div>
-        <div class="ctx-item danger" @click="deleteFolderConfirm">删除</div>
-      </div>
-    </teleport>
   </div>
 </template>
-<!-- PLACEHOLDER_SCRIPT -->
+
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick } from "vue";
-import { invokeToolByChannel } from "../bridge/tauri";
+import { computed, nextTick, onMounted, onBeforeUnmount, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import MonacoPane from "./MonacoPane.vue";
+import { invokeToolByChannel } from "../bridge/tauri";
 
-interface Fragment { id?: number; label: string; language: string; code: string; sortOrder: number }
-interface Snippet {
-  id: number; title: string; description: string; folderId: number | null;
-  isFavorite: boolean; createdAt: string; updatedAt: string;
-  tags: string[]; fragments: Fragment[]; language?: string;
+interface SnippetSummary {
+  id: number;
+  title: string;
+  description: string;
+  folderId: number | null;
+  isFavorite: boolean;
+  primaryLanguage: string;
+  createdAt: string;
+  updatedAt: string;
+  lastUsedAt: string;
+  useCount: number;
+  fragmentCount: number;
+  tags: string[];
 }
-interface Folder { id: number; name: string; parentId: number | null; snippetCount: number; children?: Folder[] }
-interface TagInfo { tag: string; count: number }
+
+interface Fragment {
+  id?: number;
+  label: string;
+  language: string;
+  code: string;
+  sortOrder: number;
+}
+
+interface SnippetDetail {
+  id: number;
+  title: string;
+  description: string;
+  folderId: number | null;
+  isFavorite: boolean;
+  fragments: Fragment[];
+  tags: string[];
+}
+
+interface FolderItem {
+  id: number;
+  name: string;
+  parentId: number | null;
+  snippetCount: number;
+}
+
+interface TagStat {
+  tag: string;
+  count: number;
+}
 
 const defaultLanguages = [
-  "javascript","typescript","python","java","go","rust","sql","html","css",
-  "json","xml","yaml","bash","shell","markdown","plaintext","c","cpp","csharp",
-  "php","ruby","swift","kotlin","scala","lua","r","dart","dockerfile","graphql","toml",
+  "javascript", "typescript", "python", "java", "go", "rust", "sql", "html", "css",
+  "json", "xml", "yaml", "bash", "shell", "markdown", "plaintext", "c", "cpp", "csharp",
+  "php", "ruby", "swift", "kotlin", "scala", "lua", "r", "dart", "dockerfile", "graphql", "toml"
 ];
 
-interface LangStat { language: string; count: number }
-const langStats = ref<LangStat[]>([]);
-
-// Languages sorted by usage count, unused ones appended in default order
-const sortedLanguages = computed(() => {
-  const usedSet = new Set(langStats.value.map(s => s.language));
-  const used = langStats.value.map(s => s.language);
-  const unused = defaultLanguages.filter(l => !usedSet.has(l));
-  return [...used, ...unused];
-});
-
-// --- State ---
-const navMode = ref<"all" | "favorite" | "folder" | "tag">("all");
-const activeFolderId = ref<number | null>(null);
-const activeTag = ref("");
-const searchKeyword = ref("");
-const filterLanguage = ref("");
-const sortBy = ref("updated_at");
-const snippetList = ref<Snippet[]>([]);
+const keyword = ref("");
+const selectedTag = ref("");
+const selectedFolderId = ref<number | null>(null);
+const sortBy = ref<"last_used" | "updated_at" | "created_at" | "title">("last_used");
+const viewPreset = ref<"all" | "favorite" | "recent7" | "untagged">("all");
+const snippets = ref<SnippetSummary[]>([]);
+const current = ref<SnippetDetail | null>(null);
 const selectedId = ref<number | null>(null);
-const current = ref<Snippet | null>(null);
-const folderList = ref<Folder[]>([]);
-const tagList = ref<TagInfo[]>([]);
-const activeFragIdx = ref("0");
+const tagStats = ref<TagStat[]>([]);
+const folders = ref<FolderItem[]>([]);
+const activeFragmentName = ref("0");
 const tagInputVisible = ref(false);
-const tagInputValue = ref("");
-const tagInputRef = ref<HTMLInputElement | null>(null);
-const folderTreeRef = ref<InstanceType<any> | null>(null);
-const renamingFragIdx = ref<number | null>(null);
-const fragRenameValue = ref("");
-let fragRenameInputRef: any = null;
-
+const tagInput = ref("");
+const tagInputRef = ref();
+const renamingIdx = ref<number | null>(null);
+const renameValue = ref("");
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 let searchTimer: ReturnType<typeof setTimeout> | null = null;
 
-const totalCount = computed(() => snippetList.value.length);
-const favoriteCount = computed(() => snippetList.value.filter(s => s.isFavorite).length);
+const listSubTitle = computed(() => `共 ${snippets.value.length} 条结果`);
 
 const activeFragment = computed(() => {
   if (!current.value) return null;
-  const idx = parseInt(activeFragIdx.value, 10);
+  const idx = Number(activeFragmentName.value);
   return current.value.fragments[idx] ?? null;
 });
 
-// --- Folder tree builder ---
-const folderTree = computed(() => {
-  const map = new Map<number, Folder & { children: Folder[] }>();
-  for (const f of folderList.value) {
-    map.set(f.id, { ...f, children: [] });
+const languageOptions = computed(() => {
+  const used = new Set<string>();
+  if (current.value) {
+    for (const frag of current.value.fragments) used.add(frag.language);
   }
-  const roots: Folder[] = [];
-  for (const f of map.values()) {
-    if (f.parentId && map.has(f.parentId)) {
-      map.get(f.parentId)!.children!.push(f);
-    } else {
-      roots.push(f);
-    }
-  }
-  return roots;
+  return [...Array.from(used), ...defaultLanguages.filter((l) => !used.has(l))];
 });
 
-// --- Context menu ---
-const folderCtx = reactive({ visible: false, x: 0, y: 0, folderId: 0, folderName: "" });
-function closeFolderCtx() { folderCtx.visible = false; }
-// PLACEHOLDER_SCRIPT_METHODS
-
-// --- IPC helpers ---
-async function ipc(channel: string, payload: Record<string, unknown> = {}) {
-  return invokeToolByChannel(`tool:snippets:${channel}`, payload);
+async function ipc<T>(channel: string, payload: Record<string, unknown> = {}): Promise<T> {
+  return (await invokeToolByChannel(channel, payload)) as T;
 }
 
-// --- Data loading ---
+async function ensureInitialized() {
+  const check = await ipc<{ initialized: boolean; requiresConfirm: boolean }>("tool:snippets:v2:init", { confirm: false });
+  if (check.initialized) return true;
+
+  const { value } = await ElMessageBox.prompt(
+    "首次进入代码片段工作区将清空旧片段数据。请输入 DELETE 继续。",
+    "危险操作确认",
+    {
+      inputPlaceholder: "DELETE",
+      confirmButtonText: "确认清空",
+      cancelButtonText: "取消",
+    }
+  );
+
+  if ((value ?? "").trim().toUpperCase() !== "DELETE") {
+    ElMessage.warning("未输入 DELETE，已取消初始化");
+    return false;
+  }
+
+  await ipc("tool:snippets:v2:init", { confirm: true });
+  ElMessage.success("代码片段工作区已重建");
+  return true;
+}
+
+function buildQuery() {
+  return {
+    folder_id: selectedFolderId.value,
+    tag: selectedTag.value,
+    sort_by: sortBy.value,
+    favorite_only: viewPreset.value === "favorite",
+    untagged_only: viewPreset.value === "untagged",
+    recent_days: viewPreset.value === "recent7" ? 7 : 0,
+  };
+}
+
 async function loadSnippets() {
-  try {
-    if (searchKeyword.value) {
-      snippetList.value = (await ipc("search", { keyword: searchKeyword.value })) as Snippet[];
-    } else {
-      const params: Record<string, unknown> = { sort_by: sortBy.value };
-      if (navMode.value === "favorite") params.is_favorite = true;
-      if (navMode.value === "folder" && activeFolderId.value !== null) params.folder_id = activeFolderId.value;
-      if (navMode.value === "tag" && activeTag.value) params.tag = activeTag.value;
-      if (filterLanguage.value) params.language = filterLanguage.value;
-      snippetList.value = (await ipc("list", params)) as Snippet[];
-    }
-  } catch (e: any) {
-    ElMessage.error(e.message ?? "加载片段失败");
+  const query = buildQuery();
+  const data = keyword.value.trim()
+    ? await ipc<SnippetSummary[]>("tool:snippets:v2:search", { ...query, keyword: keyword.value.trim() })
+    : await ipc<SnippetSummary[]>("tool:snippets:v2:list", query);
+
+  snippets.value = data;
+  if (selectedId.value && !data.some((item) => item.id === selectedId.value)) {
+    selectedId.value = null;
+    current.value = null;
   }
 }
 
-async function loadFolders() {
-  try {
-    folderList.value = (await ipc("folder-list")) as Folder[];
-  } catch { /* ignore */ }
+async function loadMeta() {
+  [tagStats.value, folders.value] = await Promise.all([
+    ipc<TagStat[]>("tool:snippets:v2:tag-stats"),
+    ipc<FolderItem[]>("tool:snippets:v2:folder-list"),
+  ]);
 }
 
-async function loadTags() {
-  try {
-    tagList.value = (await ipc("tags")) as TagInfo[];
-  } catch { /* ignore */ }
-}
-
-async function loadLangStats() {
-  try {
-    langStats.value = (await ipc("language-stats")) as LangStat[];
-  } catch { /* ignore */ }
-}
-
-async function loadAll() {
-  await Promise.all([loadSnippets(), loadFolders(), loadTags(), loadLangStats()]);
-}
-
-// --- Navigation ---
-function setNav(mode: "all" | "favorite" | "tag", tag?: string) {
-  navMode.value = mode;
-  activeFolderId.value = null;
-  activeTag.value = tag ?? "";
-  if (folderTreeRef.value) folderTreeRef.value.setCurrentKey(null);
-  loadSnippets();
-}
-
-function onFolderClick(data: Folder) {
-  navMode.value = "folder";
-  activeFolderId.value = data.id;
-  activeTag.value = "";
-  loadSnippets();
-}
-
-// --- Snippet selection ---
 async function selectSnippet(id: number) {
-  try {
-    selectedId.value = id;
-    const data = (await ipc("get", { id })) as Snippet;
-    current.value = data;
-    activeFragIdx.value = "0";
-  } catch (e: any) {
-    ElMessage.error(e.message ?? "加载片段失败");
-  }
+  selectedId.value = id;
+  current.value = await ipc<SnippetDetail>("tool:snippets:v2:get", { id });
+  activeFragmentName.value = "0";
+  await ipc("tool:snippets:v2:mark-used", { id });
+  void loadSnippets();
 }
 
-// --- CRUD ---
 async function createSnippet() {
-  try {
-    const params: Record<string, unknown> = { title: "未命名片段" };
-    if (navMode.value === "folder" && activeFolderId.value !== null) {
-      params.folderId = activeFolderId.value;
-    }
-    const data = (await ipc("create", params)) as Snippet;
-    await loadAll();
-    selectSnippet(data.id);
-  } catch (e: any) {
-    ElMessage.error(e.message ?? "创建失败");
-  }
+  const created = await ipc<SnippetDetail>("tool:snippets:v2:create", {
+    title: "未命名片段",
+    description: "",
+    folderId: selectedFolderId.value,
+    tags: selectedTag.value ? [selectedTag.value] : [],
+    fragments: [{ label: "main", language: "plaintext", code: "" }],
+  });
+  await loadMeta();
+  await loadSnippets();
+  await selectSnippet(created.id);
 }
 
-function autoSave() {
-  if (saveTimer) clearTimeout(saveTimer);
-  saveTimer = setTimeout(doSave, 800);
-}
-
-async function doSave() {
+function scheduleSave() {
   if (!current.value) return;
-  try {
-    await ipc("update", {
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = setTimeout(async () => {
+    if (!current.value) return;
+    await ipc("tool:snippets:v2:update", {
       id: current.value.id,
       title: current.value.title,
       description: current.value.description,
       folderId: current.value.folderId,
+      isFavorite: current.value.isFavorite,
       tags: current.value.tags,
-      fragments: current.value.fragments.map((f, i) => ({
-        label: f.label, language: f.language, code: f.code, sortOrder: i,
-      })),
+      fragments: current.value.fragments,
     });
-    // Refresh list metadata without losing selection
-    await Promise.all([loadSnippets(), loadTags(), loadLangStats()]);
-  } catch { /* silent */ }
+    await loadSnippets();
+    await loadMeta();
+  }, 420);
 }
 
 async function deleteSnippet() {
   if (!current.value) return;
-  try {
-    await ipc("delete", { id: current.value.id });
-    current.value = null;
-    selectedId.value = null;
-    await loadAll();
-  } catch (e: any) {
-    ElMessage.error(e.message ?? "删除失败");
-  }
+  await ipc("tool:snippets:v2:delete", { id: current.value.id });
+  current.value = null;
+  selectedId.value = null;
+  await loadSnippets();
+  await loadMeta();
 }
 
-async function toggleFav() {
-  if (!current.value) return;
-  try {
-    const res = (await ipc("toggle-favorite", { id: current.value.id })) as { isFavorite: boolean };
-    current.value.isFavorite = res.isFavorite;
-    await loadSnippets();
-  } catch { /* ignore */ }
-}
-// PLACEHOLDER_SCRIPT_REST
-
-// --- Copy ---
-function copyCode() {
-  if (!activeFragment.value) return;
-  navigator.clipboard.writeText(activeFragment.value.code).then(
-    () => ElMessage.success("已复制"),
-    () => ElMessage.error("复制失败"),
-  );
+function setPreset(preset: "all" | "favorite" | "recent7" | "untagged") {
+  viewPreset.value = preset;
+  void loadSnippets();
 }
 
-// --- Tags ---
-function removeTag(tag: string) {
-  if (!current.value) return;
-  current.value.tags = current.value.tags.filter(t => t !== tag);
-  autoSave();
+function onSearchInput() {
+  if (searchTimer) clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => {
+    void loadSnippets();
+  }, 260);
 }
+
 function showTagInput() {
   tagInputVisible.value = true;
-  nextTick(() => { (tagInputRef.value as any)?.focus?.(); });
+  void nextTick(() => tagInputRef.value?.focus?.());
 }
+
 function confirmTag() {
-  const v = tagInputValue.value.trim();
-  if (v && current.value && !current.value.tags.includes(v)) {
-    current.value.tags.push(v);
-    autoSave();
+  const val = tagInput.value.trim();
+  if (current.value && val && !current.value.tags.includes(val)) {
+    current.value.tags.push(val);
+    scheduleSave();
   }
+  tagInput.value = "";
   tagInputVisible.value = false;
-  tagInputValue.value = "";
 }
 
-// --- Fragment tabs ---
-function onFragTabEdit(targetName: string | undefined, action: "add" | "remove") {
+function removeTag(tag: string) {
   if (!current.value) return;
+  current.value.tags = current.value.tags.filter((t) => t !== tag);
+  scheduleSave();
+}
+
+function startRename(index: number) {
+  if (!current.value) return;
+  renamingIdx.value = index;
+  renameValue.value = current.value.fragments[index]?.label ?? "";
+}
+
+function confirmRename() {
+  if (!current.value || renamingIdx.value === null) return;
+  const idx = renamingIdx.value;
+  const value = renameValue.value.trim();
+  current.value.fragments[idx].label = value || `片段 ${idx + 1}`;
+  renamingIdx.value = null;
+  scheduleSave();
+}
+
+function onTabEdit(targetName: string | number, action: "add" | "remove") {
+  if (!current.value) return;
+
   if (action === "add") {
-    current.value.fragments.push({ label: `tab${current.value.fragments.length + 1}`, language: "plaintext", code: "", sortOrder: current.value.fragments.length });
-    activeFragIdx.value = String(current.value.fragments.length - 1);
-    autoSave();
-  } else if (action === "remove" && targetName !== undefined) {
-    const idx = parseInt(targetName, 10);
-    if (current.value.fragments.length <= 1) return;
+    const idx = current.value.fragments.length;
+    current.value.fragments.push({
+      label: `片段 ${idx + 1}`,
+      language: "plaintext",
+      code: "",
+      sortOrder: idx,
+    });
+    activeFragmentName.value = String(idx);
+    scheduleSave();
+    return;
+  }
+
+  if (action === "remove") {
+    const idx = Number(targetName);
+    if (!Number.isFinite(idx) || current.value.fragments.length <= 1) return;
     current.value.fragments.splice(idx, 1);
-    if (parseInt(activeFragIdx.value, 10) >= current.value.fragments.length) {
-      activeFragIdx.value = String(current.value.fragments.length - 1);
-    }
-    autoSave();
+    current.value.fragments.forEach((frag, i) => { frag.sortOrder = i; });
+    activeFragmentName.value = String(Math.max(0, idx - 1));
+    scheduleSave();
   }
 }
 
-function startFragRename(idx: number) {
-  if (!current.value) return;
-  renamingFragIdx.value = idx;
-  fragRenameValue.value = current.value.fragments[idx].label;
-  nextTick(() => { fragRenameInputRef?.focus?.(); });
-}
-
-function confirmFragRename() {
-  if (renamingFragIdx.value === null || !current.value) return;
-  const v = fragRenameValue.value.trim();
-  if (v) {
-    current.value.fragments[renamingFragIdx.value].label = v;
-    autoSave();
-  }
-  renamingFragIdx.value = null;
-  fragRenameValue.value = "";
-}
-
-const langExtMap: Record<string, string> = {
-  javascript: ".js", typescript: ".ts", python: ".py", java: ".java", go: ".go",
-  rust: ".rs", sql: ".sql", html: ".html", css: ".css", json: ".json",
-  xml: ".xml", yaml: ".yml", bash: ".sh", shell: ".sh", markdown: ".md",
-  plaintext: ".txt", c: ".c", cpp: ".cpp", csharp: ".cs", php: ".php",
-  ruby: ".rb", swift: ".swift", kotlin: ".kt", scala: ".scala", lua: ".lua",
-  r: ".r", dart: ".dart", dockerfile: "", graphql: ".graphql", toml: ".toml",
-  vue: ".vue", jsx: ".jsx", tsx: ".tsx", scss: ".scss", less: ".less",
-  powershell: ".ps1", perl: ".pl",
-};
-
-function onLanguageChange(lang: string) {
-  if (!current.value) return;
-  const frag = activeFragment.value;
-  if (!frag) return;
-  const ext = langExtMap[lang];
-  // Only auto-append if label has no extension (no dot) and ext is non-empty
-  if (ext && !frag.label.includes(".")) {
-    frag.label = frag.label + ext;
-  }
-  autoSave();
-}
-
-// --- Folder operations ---
-async function createFolder() {
-  try {
-    const { value } = await ElMessageBox.prompt("文件夹名称", "新建文件夹", { inputValue: "新建文件夹", confirmButtonText: "创建", cancelButtonText: "取消" });
-    if (value) {
-      await ipc("folder-create", { name: value });
-      await loadFolders();
-    }
-  } catch { /* cancelled */ }
-}
-
-function onFolderContext(ev: MouseEvent, data: Folder) {
-  ev.preventDefault();
-  folderCtx.visible = true;
-  folderCtx.x = ev.clientX;
-  folderCtx.y = ev.clientY;
-  folderCtx.folderId = data.id;
-  folderCtx.folderName = data.name;
-}
-
-async function renameFolderPrompt() {
-  closeFolderCtx();
-  try {
-    const { value } = await ElMessageBox.prompt("新名称", "重命名文件夹", { inputValue: folderCtx.folderName, confirmButtonText: "确定", cancelButtonText: "取消" });
-    if (value) {
-      await ipc("folder-update", { id: folderCtx.folderId, name: value });
-      await loadFolders();
-    }
-  } catch { /* cancelled */ }
-}
-
-async function addSubFolder() {
-  closeFolderCtx();
-  try {
-    const { value } = await ElMessageBox.prompt("子文件夹名称", "新建子文件夹", { inputValue: "子文件夹", confirmButtonText: "创建", cancelButtonText: "取消" });
-    if (value) {
-      await ipc("folder-create", { name: value, parentId: folderCtx.folderId });
-      await loadFolders();
-    }
-  } catch { /* cancelled */ }
-}
-
-async function deleteFolderConfirm() {
-  closeFolderCtx();
-  try {
-    await ElMessageBox.confirm(`删除文件夹「${folderCtx.folderName}」？其中的片段不会被删除。`, "确认删除", { confirmButtonText: "删除", cancelButtonText: "取消", type: "warning" });
-    await ipc("folder-delete", { id: folderCtx.folderId });
-    if (activeFolderId.value === folderCtx.folderId) {
-      navMode.value = "all";
-      activeFolderId.value = null;
-    }
-    await loadAll();
-  } catch { /* cancelled */ }
-}
-
-// --- Search debounce ---
-function onSearchDebounced() {
-  if (searchTimer) clearTimeout(searchTimer);
-  searchTimer = setTimeout(loadSnippets, 300);
-}
-
-// --- Time format ---
-function formatTime(iso: string): string {
-  if (!iso) return "";
-  const d = new Date(iso.replace(" ", "T"));
+function formatTime(value: string): string {
+  if (!value) return "";
+  const date = new Date(value.replace(" ", "T"));
   const now = new Date();
-  if (d.toDateString() === now.toDateString()) {
-    return d.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+  if (date.toDateString() === now.toDateString()) {
+    return date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
   }
-  return d.toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" });
+  return date.toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" });
 }
 
-// --- Lifecycle ---
-onMounted(() => {
-  loadAll();
-  document.addEventListener("click", closeFolderCtx);
+async function copyCurrentCode() {
+  if (!activeFragment.value) return;
+  await navigator.clipboard.writeText(activeFragment.value.code || "");
+  ElMessage.success("代码已复制");
+  if (current.value) {
+    await ipc("tool:snippets:v2:mark-used", { id: current.value.id });
+    await loadSnippets();
+  }
+}
+
+async function toggleFavorite() {
+  if (!current.value) return;
+  current.value.isFavorite = !current.value.isFavorite;
+  scheduleSave();
+}
+
+async function createFolder() {
+  const { value } = await ElMessageBox.prompt("文件夹名称", "新建文件夹", {
+    inputValue: "新建文件夹",
+    confirmButtonText: "创建",
+    cancelButtonText: "取消",
+  });
+  if ((value ?? "").trim()) {
+    await ipc("tool:snippets:v2:folder-create", { name: value.trim() });
+    await loadMeta();
+  }
+}
+
+onMounted(async () => {
+  try {
+    const ready = await ensureInitialized();
+    if (!ready) return;
+    await loadMeta();
+    await loadSnippets();
+  } catch (error) {
+    ElMessage.error((error as Error).message || "代码片段工作区初始化失败");
+  }
 });
+
 onBeforeUnmount(() => {
   if (saveTimer) clearTimeout(saveTimer);
   if (searchTimer) clearTimeout(searchTimer);
-  document.removeEventListener("click", closeFolderCtx);
 });
 </script>
-<!-- PLACEHOLDER_STYLE -->
+
 <style scoped>
-.snippet-panel {
-  display: flex;
+.snippet-v2 {
+  display: grid;
+  grid-template-columns: 260px 320px 1fr;
   height: 100%;
-  gap: 0;
+  overflow: hidden;
+  background: var(--lc-surface-0);
+}
+
+.left-pane,
+.middle-pane,
+.right-pane {
+  min-height: 0;
+}
+
+.left-pane {
+  border-right: 1px solid var(--lc-border);
+  padding: 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+}
+
+.left-header {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--lc-text);
+}
+
+.filter-group {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.filter-chip {
+  border: 1px solid var(--lc-border);
+  background: var(--lc-surface-1);
+  color: var(--lc-text-secondary);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.filter-chip.active {
+  border-color: var(--lc-accent);
+  color: var(--lc-accent);
+  background: var(--lc-accent-dim);
+}
+
+.left-section {
+  border-top: 1px solid var(--lc-border-subtle);
+  padding-top: 10px;
+}
+
+.section-title,
+.section-title-row {
+  font-size: 12px;
+  color: var(--lc-text-muted);
+  margin-bottom: 6px;
+}
+
+.section-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.tag-list,
+.folder-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tag-item,
+.folder-item {
+  border: none;
+  background: transparent;
+  color: var(--lc-text-secondary);
+  border-radius: 8px;
+  text-align: left;
+  padding: 6px 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.tag-item:hover,
+.folder-item:hover {
+  background: var(--lc-surface-2);
+  color: var(--lc-text);
+}
+
+.tag-item.active,
+.folder-item.active {
+  background: var(--lc-accent-dim);
+  color: var(--lc-accent);
+}
+
+.count {
+  font-size: 11px;
+  color: var(--lc-text-muted);
+}
+
+.middle-pane {
+  border-right: 1px solid var(--lc-border);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.middle-header {
+  padding: 14px 14px 10px;
+  border-bottom: 1px solid var(--lc-border-subtle);
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.middle-header h2 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.middle-header p {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--lc-text-muted);
+}
+
+.middle-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.snippet-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.snippet-item {
+  width: 100%;
+  border: 1px solid var(--lc-border-subtle);
+  background: var(--lc-surface-1);
+  border-radius: 10px;
+  padding: 10px;
+  margin-bottom: 8px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.snippet-item.active {
+  border-color: var(--lc-accent);
+  box-shadow: inset 0 0 0 1px var(--lc-accent-dim);
+}
+
+.snippet-item-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.snippet-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--lc-text);
+}
+
+.snippet-meta,
+.snippet-item-footer {
+  font-size: 11px;
+  color: var(--lc-text-muted);
+}
+
+.snippet-item-desc {
+  margin-top: 6px;
+  color: var(--lc-text-secondary);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.snippet-item-footer {
+  margin-top: 8px;
+  display: flex;
+  gap: 10px;
+}
+
+.snippet-tags {
+  margin-top: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.list-tag {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 99px;
+  background: var(--lc-surface-2);
+  color: var(--lc-text-muted);
+}
+
+.right-pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 14px;
+  gap: 10px;
+}
+
+.editor-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.editor-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.tags-editor {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.fragment-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fragment-row .el-tabs {
+  flex: 1;
+  min-width: 0;
+}
+
+.editor-body {
+  flex: 1;
+  min-height: 0;
+  border: 1px solid var(--lc-border-subtle);
+  border-radius: 10px;
   overflow: hidden;
 }
 
-/* --- Left nav --- */
-.snippet-nav {
-  width: 200px;
-  min-width: 200px;
-  border-right: 1px solid var(--lc-border);
-  overflow-y: auto;
-  padding: 8px 0;
+.empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--lc-text-muted);
+  font-size: 13px;
 }
-.nav-section { padding: 4px 0; }
-.nav-section + .nav-section { border-top: 1px solid var(--lc-border); }
-.nav-section-header {
-  display: flex; justify-content: space-between; align-items: center;
-  padding: 4px 12px; font-size: 12px; color: var(--lc-text-muted);
-}
-.nav-item {
-  padding: 6px 12px; cursor: pointer; font-size: 13px;
-  color: var(--lc-text-secondary); display: flex; justify-content: space-between;
-}
-.nav-item:hover { color: var(--lc-text); background: var(--lc-surface-2); }
-.nav-item.active { color: var(--lc-accent-light); background: var(--lc-accent-dim); }
-.nav-empty { padding: 6px 12px; font-size: 12px; color: var(--lc-text-muted); }
-.count { font-size: 11px; color: var(--lc-text-muted); }
-.folder-node { display: flex; gap: 4px; align-items: center; font-size: 13px; }
-.tag-item { font-size: 12px; }
 
-/* --- Middle list --- */
-.snippet-list {
-  width: 260px; min-width: 260px;
-  border-right: 1px solid var(--lc-border);
-  display: flex; flex-direction: column; overflow: hidden;
+@media (max-width: 1200px) {
+  .snippet-v2 {
+    grid-template-columns: 220px 280px 1fr;
+  }
 }
-.list-toolbar { display: flex; padding: 8px; }
-.list-sort { padding: 0 8px 6px; }
-.list-items { flex: 1; overflow-y: auto; }
-.snippet-card {
-  padding: 8px 12px; cursor: pointer;
-  border-bottom: 1px solid var(--lc-border-subtle);
-}
-.snippet-card:hover { background: var(--lc-surface-2); }
-.snippet-card.active { background: var(--lc-accent-dim); }
-.card-title {
-  display: flex; justify-content: space-between; align-items: center;
-  font-size: 13px; color: var(--lc-text);
-}
-.card-title .fav-icon { color: #e6a23c; font-size: 14px; }
-.card-meta { display: flex; gap: 8px; margin-top: 4px; font-size: 11px; color: var(--lc-text-muted); }
-.lang-badge {
-  background: var(--lc-surface-3); padding: 1px 6px; border-radius: 3px; font-size: 10px;
-}
-.list-empty { padding: 24px; text-align: center; color: var(--lc-text-muted); font-size: 13px; }
-.list-footer { padding: 8px; border-top: 1px solid var(--lc-border); }
-/* PLACEHOLDER_STYLE_REST */
 
-/* --- Right editor --- */
-.snippet-editor {
-  flex: 1; display: flex; flex-direction: column; overflow: hidden; padding: 12px;
-}
-.snippet-empty-hint {
-  align-items: center; justify-content: center;
-}
-.empty-text { color: var(--lc-text-muted); font-size: 14px; }
-.editor-header {
-  display: flex; justify-content: space-between; align-items: center;
-  margin-bottom: 8px; gap: 8px;
-}
-.editor-actions { display: flex; gap: 4px; flex-shrink: 0; }
-.tag-editor { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-bottom: 8px; }
-.fragment-tabs {
-  display: flex; align-items: center; gap: 8px; margin-bottom: 4px;
-}
-.fragment-tabs .el-tabs { flex: 1; }
-.fragment-tabs :deep(.el-tabs__header) { margin-bottom: 0; }
-.editor-body { flex: 1; min-height: 0; }
+@media (max-width: 960px) {
+  .snippet-v2 {
+    grid-template-columns: 1fr;
+    grid-template-rows: 260px 1fr 1fr;
+  }
 
-/* --- Context menu --- */
-.ctx-menu {
-  position: fixed; z-index: 9999;
-  background: var(--lc-surface-1); border: 1px solid var(--lc-border);
-  border-radius: 6px; padding: 4px 0; min-width: 120px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-}
-.ctx-item {
-  padding: 6px 16px; font-size: 13px; cursor: pointer;
-  color: var(--lc-text-secondary);
-}
-.ctx-item:hover { background: var(--lc-surface-2); color: var(--lc-text); }
-.ctx-item.danger { color: #f56c6c; }
-.ctx-item.danger:hover { background: rgba(245,108,108,0.1); }
-
-/* el-tree overrides */
-.snippet-nav :deep(.el-tree) { background: transparent; }
-.snippet-nav :deep(.el-tree-node__content) { height: 28px; }
-.snippet-nav :deep(.el-tree-node.is-current > .el-tree-node__content) {
-  background: var(--lc-accent-dim); color: var(--lc-accent-light);
+  .left-pane,
+  .middle-pane {
+    border-right: none;
+    border-bottom: 1px solid var(--lc-border);
+  }
 }
 </style>
