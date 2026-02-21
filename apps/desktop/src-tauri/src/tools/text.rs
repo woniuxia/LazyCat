@@ -80,10 +80,99 @@ fn default_preview_limit() -> usize {
     200
 }
 
+fn split_identifier(s: &str) -> Vec<String> {
+    let mut words = Vec::new();
+    let mut current = String::new();
+    for ch in s.chars() {
+        if ch == '_' || ch == '-' || ch == '.' || ch == ' ' {
+            if !current.is_empty() {
+                words.push(current.to_lowercase());
+                current.clear();
+            }
+        } else if ch.is_uppercase() && !current.is_empty() && current.chars().last().map_or(false, |c| c.is_lowercase()) {
+            words.push(current.to_lowercase());
+            current.clear();
+            current.push(ch);
+        } else {
+            current.push(ch);
+        }
+    }
+    if !current.is_empty() {
+        words.push(current.to_lowercase());
+    }
+    words
+}
+
+fn capitalize(s: &str) -> String {
+    let mut chars = s.chars();
+    match chars.next() {
+        None => String::new(),
+        Some(c) => c.to_uppercase().to_string() + &chars.as_str().to_lowercase(),
+    }
+}
+
+fn naming_convert(payload: &Value) -> Result<Value, String> {
+    let input = payload["input"]
+        .as_str()
+        .ok_or_else(|| "missing input".to_string())?;
+
+    let mut camel_lines = Vec::new();
+    let mut pascal_lines = Vec::new();
+    let mut snake_lines = Vec::new();
+    let mut screaming_lines = Vec::new();
+    let mut kebab_lines = Vec::new();
+    let mut dot_lines = Vec::new();
+
+    for line in input.split('\n') {
+        let words = split_identifier(line);
+        if words.is_empty() {
+            camel_lines.push(String::new());
+            pascal_lines.push(String::new());
+            snake_lines.push(String::new());
+            screaming_lines.push(String::new());
+            kebab_lines.push(String::new());
+            dot_lines.push(String::new());
+            continue;
+        }
+
+        // camelCase
+        let camel: String = words.iter().enumerate().map(|(i, w)| {
+            if i == 0 { w.to_lowercase() } else { capitalize(w) }
+        }).collect();
+        camel_lines.push(camel);
+
+        // PascalCase
+        let pascal: String = words.iter().map(|w| capitalize(w)).collect();
+        pascal_lines.push(pascal);
+
+        // snake_case
+        snake_lines.push(words.join("_"));
+
+        // SCREAMING_SNAKE_CASE
+        screaming_lines.push(words.join("_").to_uppercase());
+
+        // kebab-case
+        kebab_lines.push(words.join("-"));
+
+        // dot.case
+        dot_lines.push(words.join("."));
+    }
+
+    Ok(json!({
+        "camelCase": camel_lines.join("\n"),
+        "pascalCase": pascal_lines.join("\n"),
+        "snakeCase": snake_lines.join("\n"),
+        "screamingSnake": screaming_lines.join("\n"),
+        "kebabCase": kebab_lines.join("\n"),
+        "dotCase": dot_lines.join("\n"),
+    }))
+}
+
 pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
     match action {
         "process" => process_text(payload),
         "presets" => Ok(json!(builtin_presets())),
+        "naming_convert" => naming_convert(payload),
         _ => Err(format!("unsupported text action: {action}")),
     }
 }
@@ -550,5 +639,31 @@ mod tests {
             ],
         );
         assert_eq!(data["output"], "错误");
+    }
+
+    #[test]
+    fn naming_convert_camel() {
+        let r = execute("naming_convert", &json!({"input": "hello_world"})).unwrap();
+        assert_eq!(r["camelCase"], "helloWorld");
+        assert_eq!(r["pascalCase"], "HelloWorld");
+        assert_eq!(r["snakeCase"], "hello_world");
+        assert_eq!(r["screamingSnake"], "HELLO_WORLD");
+        assert_eq!(r["kebabCase"], "hello-world");
+        assert_eq!(r["dotCase"], "hello.world");
+    }
+
+    #[test]
+    fn naming_convert_from_camel() {
+        let r = execute("naming_convert", &json!({"input": "helloWorld"})).unwrap();
+        assert_eq!(r["snakeCase"], "hello_world");
+        assert_eq!(r["kebabCase"], "hello-world");
+    }
+
+    #[test]
+    fn naming_convert_multiline() {
+        let r = execute("naming_convert", &json!({"input": "hello_world
+foo_bar"})).unwrap();
+        assert_eq!(r["camelCase"], "helloWorld
+fooBar");
     }
 }
