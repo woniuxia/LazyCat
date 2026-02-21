@@ -39,6 +39,7 @@ const toolRegistry: Record<string, Component> = {
   diff: defineAsyncComponent(() => import("./components/DiffPanel.vue")),
   markdown: defineAsyncComponent(() => import("./components/MarkdownPanel.vue")),
   "nginx-helper": defineAsyncComponent(() => import("./components/NginxPanel.vue")),
+  snippets: defineAsyncComponent(() => import("./components/SnippetPanel.vue")),
   hotkey: defineAsyncComponent(() => import("./components/HotkeyPanel.vue")),
   settings: defineAsyncComponent(() => import("./components/SettingsPanel.vue")),
 };

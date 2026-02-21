@@ -22,6 +22,7 @@ pub mod jwt;
 pub mod schema;
 pub mod mybatis;
 pub mod nginx;
+pub mod snippets;
 
 use serde_json::Value;
 
@@ -50,6 +51,7 @@ pub fn execute_tool(domain: &str, action: &str, payload: &Value) -> Result<Value
         "schema"   => schema::execute(action, payload),
         "mybatis"  => mybatis::execute(action, payload),
         "nginx"    => nginx::execute(action, payload),
+        "snippets" => snippets::execute(action, payload),
         _ => Err(format!("unsupported command: {domain}.{action}")),
     }
 }

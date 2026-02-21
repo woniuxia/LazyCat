@@ -112,7 +112,20 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:mybatis:render": { domain: "mybatis", action: "render" },
   "tool:mybatis:lint": { domain: "mybatis", action: "lint" },
   "tool:nginx:generate": { domain: "nginx", action: "generate" },
-  "tool:nginx:lint": { domain: "nginx", action: "lint" }
+  "tool:nginx:lint": { domain: "nginx", action: "lint" },
+  "tool:snippets:list": { domain: "snippets", action: "list" },
+  "tool:snippets:get": { domain: "snippets", action: "get" },
+  "tool:snippets:create": { domain: "snippets", action: "create" },
+  "tool:snippets:update": { domain: "snippets", action: "update" },
+  "tool:snippets:delete": { domain: "snippets", action: "delete" },
+  "tool:snippets:toggle-favorite": { domain: "snippets", action: "toggle_favorite" },
+  "tool:snippets:folder-list": { domain: "snippets", action: "folder_list" },
+  "tool:snippets:folder-create": { domain: "snippets", action: "folder_create" },
+  "tool:snippets:folder-update": { domain: "snippets", action: "folder_update" },
+  "tool:snippets:folder-delete": { domain: "snippets", action: "folder_delete" },
+  "tool:snippets:tags": { domain: "snippets", action: "tags" },
+  "tool:snippets:language-stats": { domain: "snippets", action: "language_stats" },
+  "tool:snippets:search": { domain: "snippets", action: "search" }
 };
 
 export async function invokeToolByChannel(

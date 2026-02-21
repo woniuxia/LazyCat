@@ -64,6 +64,7 @@ import ShortcutHelpOverlay from "./components/ShortcutHelpOverlay.vue";
 
 const sidebarItems: SidebarItem[] = [
   { kind: "tool", tool: { id: "formatter", name: "代码格式化", desc: "JSON/XML/HTML/Java/SQL 自动格式化" } },
+  { kind: "tool", tool: { id: "snippets", name: "代码片段", desc: "代码片段收藏与管理" } },
   { kind: "tool", tool: { id: "calc-draft", name: "计算草稿", desc: "草稿式计算，保留历史记录" } },
   { kind: "tool", tool: { id: "regex", name: "正则工具", desc: "表达式生成与测试" } },
   { kind: "tool", tool: { id: "diff", name: "文本对比", desc: "双栏文本差异对比" } },

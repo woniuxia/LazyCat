@@ -110,6 +110,73 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
         set_schema_version(conn, 3)?;
     }
 
+    // Migration 4: snippet_folders table
+    if current < 4 {
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS snippet_folders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                parent_id INTEGER DEFAULT NULL,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (parent_id) REFERENCES snippet_folders(id) ON DELETE CASCADE
+            );"
+        )
+        .map_err(|e| format!("migration 4 failed: {e}"))?;
+        set_schema_version(conn, 4)?;
+    }
+
+    // Migration 5: snippets table
+    if current < 5 {
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS snippets (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
+                folder_id INTEGER DEFAULT NULL,
+                is_favorite INTEGER NOT NULL DEFAULT 0,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (folder_id) REFERENCES snippet_folders(id) ON DELETE SET NULL
+            );"
+        )
+        .map_err(|e| format!("migration 5 failed: {e}"))?;
+        set_schema_version(conn, 5)?;
+    }
+
+    // Migration 6: snippet_fragments table (multi-tab code)
+    if current < 6 {
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS snippet_fragments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                snippet_id INTEGER NOT NULL,
+                label TEXT NOT NULL DEFAULT 'main',
+                language TEXT NOT NULL DEFAULT 'plaintext',
+                code TEXT NOT NULL DEFAULT '',
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY (snippet_id) REFERENCES snippets(id) ON DELETE CASCADE
+            );"
+        )
+        .map_err(|e| format!("migration 6 failed: {e}"))?;
+        set_schema_version(conn, 6)?;
+    }
+
+    // Migration 7: snippet_tags table
+    if current < 7 {
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS snippet_tags (
+                snippet_id INTEGER NOT NULL,
+                tag TEXT NOT NULL,
+                PRIMARY KEY (snippet_id, tag),
+                FOREIGN KEY (snippet_id) REFERENCES snippets(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_snippet_tags_tag ON snippet_tags(tag);"
+        )
+        .map_err(|e| format!("migration 7 failed: {e}"))?;
+        set_schema_version(conn, 7)?;
+    }
+
     Ok(())
 }
 
