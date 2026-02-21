@@ -1,0 +1,962 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light dark" data-renderer="Doc"><head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>JavaScript 数据类型和数据结构 - JavaScript | MDN</title>
+          
+          <script>try {
+  document.documentElement.dataset.theme =
+    localStorage.getItem("theme") || "light dark";
+} catch (error) {
+  console.warn("Unable to set theme", error);
+}
+
+try {
+  if (localStorage.getItem("nop") === "yes") {
+    document.documentElement.dataset["nop"] = "yes";
+  }
+} catch (error) {
+  console.warn("Unable to set nop", error);
+}
+</script>
+          <link rel="stylesheet" href="/static/client/styles-global.a07d817ce6828637.css" fetchpriority="high"><link rel="stylesheet" href="/static/client/270.66bae6059a1c23f9.css" fetchpriority="high"><link rel="stylesheet" href="/static/client/styles-reference-layout.f17861486ef2423f.css" fetchpriority="high"><link rel="stylesheet" href="/static/client/styles-content-section.223c658fb1d74922.css" fetchpriority="high"><link rel="stylesheet" href="/static/client/styles-heading-anchor.0eec5185ab9425b7.css" fetchpriority="high"><link rel="stylesheet" href="/static/client/styles-translation-banner.733afddcfc7c2042.css" fetchpriority="high"><link rel="stylesheet" href="/static/client/styles-reference-toc.9b9bd019efd16b86.css" fetchpriority="high"><link rel="stylesheet" href="/static/client/styles-article-footer.81ae18c89fc527dc.css" fetchpriority="high"><link rel="stylesheet" href="/static/client/styles-left-sidebar.81864a1b1af13cdc.css" fetchpriority="high"><link rel="stylesheet" href="/static/client/styles-page-layout.5a4354f33e894319.css" fetchpriority="high"><link rel="stylesheet" href="/static/client/styles-a11y-menu.5796ee87cb69f93f.css" fetchpriority="high"><link rel="stylesheet" href="/static/client/styles-navigation.013b4a4ed330892a.css" fetchpriority="high"><link rel="stylesheet" href="/static/client/styles-logo.aea5ff6edf1b9cfb.css" fetchpriority="high"><link rel="stylesheet" href="/static/client/styles-menu.c41c14be9597dcd9.css" fetchpriority="high"><link rel="stylesheet" href="/static/client/styles-breadcrumbs-bar.9a51a3c76a6231d0.css" fetchpriority="high"><link rel="stylesheet" href="/static/client/styles-breadcrumbs.d06ce8d09f42feb8.css" fetchpriority="high"><link rel="stylesheet" href="/static/client/styles-footer.a2850e459e2d290b.css" fetchpriority="high">
+          <link rel="preload" href="/static/client/jetbrains-mono-latin.119994ed445212c7.woff2" as="font" type="font/woff2" crossorigin="anonymous" fetchpriority="low"><link rel="preload" href="/static/client/inter-latin.9a3b1bc220d426ef.woff2" as="font" type="font/woff2" crossorigin="anonymous" fetchpriority="low">
+          <script src="/static/client/runtime.0893fdb4c5a1e2a5.js" type="module"></script><script src="/static/client/1111.53dba753dc3eb961.js" type="module"></script><script src="/static/client/8903.ce3ee42276c345b9.js" type="module"></script><script src="/static/client/index.66cf57a08977d826.js" type="module"></script>
+          
+    <link rel="icon" sizes="32x32" href="https://developer.mozilla.org/favicon.ico">
+    <link rel="icon" type="image/svg+xml" href="https://developer.mozilla.org/favicon.svg">
+   <meta name="description" content="编程语言都有内置的数据结构，但各种编程语言的数据结构常有不同之处。本文尝试列出 JavaScript 语言中内置的数据结构及其属性。它们可以用来构建其他的数据结构。"><meta name="og:url" content="https://developer.mozilla.org/zh-CN/docs/Web/JavaScript/Guide/Data_structures"><meta name="og:title" content="JavaScript 数据类型和数据结构 - JavaScript | MDN"><meta name="og:locale" content="zh_CN"><meta name="og:description" content="编程语言都有内置的数据结构，但各种编程语言的数据结构常有不同之处。本文尝试列出 JavaScript 语言中内置的数据结构及其属性。它们可以用来构建其他的数据结构。"><meta name="og:image" content="https://developer.mozilla.org/mdn-social-image.46ac2375.png"><meta name="og:image:type" content="image/png"><meta name="og:image:height" content="1024"><meta name="og:image:width" content="1024"><meta name="og:image:alt" content="The MDN logo"><meta name="og:site_name" content="MDN Web Docs"><meta name="twitter:card" content="summary"><meta name="twitter:creator" content="MozDevNet">
+          <link rel="canonical" href="https://developer.mozilla.org/zh-CN/docs/Web/JavaScript/Guide/Data_structures">
+          <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+          <link rel="manifest" href="/manifest.json">
+          <link rel="search" type="application/opensearchdescription+xml" href="/opensearch.xml" title="MDN Web Docs">
+          <link rel="alternate" type="application/rss+xml" title="MDN Blog RSS Feed" href="https://developer.mozilla.org/en-US/blog/rss.xml">
+        <script async="" src="https://www.googletagmanager.com/gtag/js?id=G-PWTK27XVWP"></script></head>
+        
+      <body class="page-layout">
+        <ul class="a11y-menu">
+      <li><a href="#content">Skip to main content</a></li>
+      <li><a href="#search">Skip to search</a></li>
+    </ul>
+        <div class="page-layout__banner" data-scheme="">
+          <mdn-placement-top></mdn-placement-top>
+        </div>
+        <header class="page-layout__header">
+          
+      <nav class="navigation" data-scheme="" data-open="false">
+        <div class="navigation__logo">
+      <a href="/zh-CN/" class="logo">
+        <svg class="logo__image" width="83" height="24" viewBox="0 0 83 24" role="img">
+          <title>MDN</title>
+          <path class="logo__letter" d="M9.4 0 2.81 21.17H.12L6.69 0H9.4Zm2.38 0v21.17H9.4V0h2.4Zm9.27 0-6.56 21.17H11.8L18.36 0h2.69Zm2.39 0v21.17h-2.4V0h2.4Z"></path>
+          <path class="logo__text" d="M45.55 16.83h-3.93v-1.27h.87v-3.63c0-.85-.16-1.45-.48-1.82a1.65 1.65 0 0 0-1.3-.52c-.74 0-1.3.25-1.66.78a2.98 2.98 0 0 0-.58 1.58v3.59h1.38v1.26h-3.93v-1.26h.87v-3.6c0-.88-.16-1.48-.48-1.83a1.7 1.7 0 0 0-1.29-.52 1.93 1.93 0 0 0-1.65.75 2.85 2.85 0 0 0-.58 1.6v3.62h1.59v1.27h-4.64v-1.27h1.37V9.75h-1.4V8.46h3.08v1.47c.28-.48.62-.87 1.08-1.2a3 3 0 0 1 1.68-.45c.67 0 1.22.16 1.73.48.5.32.85.8 1.03 1.47.25-.57.62-1.03 1.13-1.4.5-.37 1.1-.55 1.81-.55.8 0 1.5.25 2.05.75.55.51.85 1.3.85 2.35v4.18h1.4v1.27Zm9.77 0H52.3v-1.66c-.27.51-.66.95-1.13 1.29-.56.4-1.23.59-1.9.55-1.11 0-2-.37-2.67-1.12a4.41 4.41 0 0 1-1-3.06c0-1.15.3-2.2.93-3.15.6-.94 1.58-1.43 2.94-1.43 1.36 0 2.25.5 2.83 1.5V5.22h-2V3.93h3.63v11.63h1.38v1.27Zm-3.06-3.86v-1.02a2.28 2.28 0 0 0-.73-1.67 2.4 2.4 0 0 0-1.66-.65 2.18 2.18 0 0 0-1.88.9 3.63 3.63 0 0 0-.65 2.2c0 .95.23 1.68.7 2.19.45.5 1.03.76 1.7.76.73 0 1.33-.3 1.79-.88.48-.6.71-1.21.73-1.83Zm14.14 3.86h-4.43v-1.27h1.37v-3.63c0-.85-.16-1.45-.5-1.82a1.68 1.68 0 0 0-1.31-.52c-.71 0-1.29.23-1.7.69a2.52 2.52 0 0 0-.67 1.6v3.66h1.38v1.26H56.1v-1.26h1.38v-5.8h-1.42V8.47h3.12V9.9c.6-1.06 1.57-1.6 2.92-1.6.83 0 1.54.26 2.12.77.57.5.85 1.28.85 2.34v4.19h1.38v1.24h-.05Z"></path>
+          <path class="logo__cursor" d="M67.71 21.98H83V24H67.71v-2.02Z"></path>
+        </svg>
+      </a>
+    </div>
+        <div class="navigation__search" data-view="mobile">
+          <mdn-search-button></mdn-search-button>
+        </div>
+        <button class="navigation__button" type="button" aria-expanded="false" aria-controls="navigation__popup" aria-label="Toggle navigation"></button>
+        <div class="navigation__popup" id="navigation__popup">
+          <div class="navigation__menu">
+      <nav class="menu">
+        <div class="menu__tab" data-section="html">
+            <mdn-dropdown loaded="">
+                  <button class="menu__tab-button" type="button" slot="button" aria-expanded="false" aria-controls="uid_bzjjqnuqx3">
+                    <span class="menu__tab-label">HTML</span>
+                  </button>
+                  <div class="menu__panel" slot="dropdown" id="uid_bzjjqnuqx3">
+                    <p class="menu__panel-title">
+                      <a href="/zh-CN/docs/Web/HTML" data-glean-id="menu_click_menu: html -&gt; /zh-CN/docs/Web/HTML">HTML: Markup language</a>
+                    </p>
+                    <div class="menu__panel-content">
+                      <dl>
+                              <dt>HTML reference</dt>
+                              <dd><ul>
+                          <li>
+                                <a href="/zh-CN/docs/Web/HTML/Reference/Elements" data-glean-id="menu_click_submenu: html -&gt; /zh-CN/docs/Web/HTML/Reference/Elements">Elements</a>
+                              </li><li>
+                                <a href="/zh-CN/docs/Web/HTML/Reference/Global_attributes" data-glean-id="menu_click_submenu: html -&gt; /zh-CN/docs/Web/HTML/Reference/Global_attributes">Global attributes</a>
+                              </li><li>
+                                <a href="/zh-CN/docs/Web/HTML/Reference/Attributes" data-glean-id="menu_click_submenu: html -&gt; /zh-CN/docs/Web/HTML/Reference/Attributes">Attributes</a>
+                              </li><li>
+                                <a href="/zh-CN/docs/Web/HTML/Reference" aria-label="See all HTML references" title="See all HTML references" data-glean-id="menu_click_submenu: html -&gt; /zh-CN/docs/Web/HTML/Reference">See all…</a>
+                              </li>
+                        </ul></dd>
+                            </dl><dl>
+                              <dt>HTML guides</dt>
+                              <dd><ul>
+                          <li>
+                                <a href="/zh-CN/docs/Web/HTML/Guides/Responsive_images" data-glean-id="menu_click_submenu: html -&gt; /zh-CN/docs/Web/HTML/Guides/Responsive_images">Responsive images</a>
+                              </li><li>
+                                <a href="/zh-CN/docs/Web/HTML/Guides/Cheatsheet" data-glean-id="menu_click_submenu: html -&gt; /zh-CN/docs/Web/HTML/Guides/Cheatsheet">HTML cheatsheet</a>
+                              </li><li>
+                                <a href="/zh-CN/docs/Web/HTML/Guides/Date_and_time_formats" data-glean-id="menu_click_submenu: html -&gt; /zh-CN/docs/Web/HTML/Guides/Date_and_time_formats">Date &amp; time formats</a>
+                              </li><li>
+                                <a href="/zh-CN/docs/Web/HTML/Guides" aria-label="See all HTML guides" title="See all HTML guides" data-glean-id="menu_click_submenu: html -&gt; /zh-CN/docs/Web/HTML/Guides">See all…</a>
+                              </li>
+                        </ul></dd>
+                            </dl><dl>
+                              <dt>Markup languages</dt>
+                              <dd><ul>
+                          <li>
+                                <a href="/zh-CN/docs/Web/SVG" data-glean-id="menu_click_submenu: html -&gt; /zh-CN/docs/Web/SVG">SVG</a>
+                              </li><li>
+                                <a href="/zh-CN/docs/Web/MathML" data-glean-id="menu_click_submenu: html -&gt; /zh-CN/docs/Web/MathML">MathML</a>
+                              </li><li>
+                                <a href="/zh-CN/docs/Web/XML" data-glean-id="menu_click_submenu: html -&gt; /zh-CN/docs/Web/XML">XML</a>
+                              </li>
+                        </ul></dd>
+                            </dl>
+                    </div>
+                  </div>
+                </mdn-dropdown>
+          </div><div class="menu__tab" data-section="css">
+            <mdn-dropdown loaded="">
+                  <button class="menu__tab-button" type="button" slot="button" aria-expanded="false" aria-controls="uid_uz3kuspmqu8">
+                    <span class="menu__tab-label">CSS</span>
+                  </button>
+                  <div class="menu__panel" slot="dropdown" id="uid_uz3kuspmqu8">
+                    <p class="menu__panel-title">
+                      <a href="/zh-CN/docs/Web/CSS" data-glean-id="menu_click_menu: css -&gt; /zh-CN/docs/Web/CSS">CSS: Styling language</a>
+                    </p>
+                    <div class="menu__panel-content">
+                      <dl>
+                              <dt>CSS reference</dt>
+                              <dd><ul>
+                          <li>
+                                <a href="/zh-CN/docs/Web/CSS/Reference/Properties" data-glean-id="menu_click_submenu: css -&gt; /zh-CN/docs/Web/CSS/Reference/Properties">Properties</a>
+                              </li><li>
+                                <a href="/zh-CN/docs/Web/CSS/Reference/Selectors" data-glean-id="menu_click_submenu: css -&gt; /zh-CN/docs/Web/CSS/Reference/Selectors">Selectors</a>
+                              </li><li>
+                                <a class="only-in-en-us" href="/en-US/docs/Web/CSS/Reference/At-rules" data-glean-id="menu_click_submenu: css -&gt; /en-US/docs/Web/CSS/Reference/At-rules">At-rules</a>
+                              </li><li>
+                                <a href="/zh-CN/docs/Web/CSS/Reference/Values" data-glean-id="menu_click_submenu: css -&gt; /zh-CN/docs/Web/CSS/Reference/Values">Values</a>
+                              </li><li>
+                                <a href="/zh-CN/docs/Web/CSS/Reference" aria-label="See all CSS references" title="See all CSS references" data-glean-id="menu_click_submenu: css -&gt; /zh-CN/docs/Web/CSS/Reference">See all…</a>
+                              </li>
+                        </ul></dd>
+                            </dl><dl>
+                              <dt>CSS guides</dt>
+                              <dd><ul>
+                          <li>
+                                <a href="/zh-CN/docs/Web/CSS/Guides/Box_model/Introduction" data-glean-id="menu_click_submenu: css -&gt; /zh-CN/docs/Web/CSS/Guides/Box_model/Introduction">Box model</a>
+                              </li><li>
+                                <a href="/zh-CN/docs/Web/CSS/Guides/Animations/Using" data-glean-id="menu_click_submenu: css -&gt; /zh-CN/docs/Web/CSS/Guides/Animations/Using">Animations</a>
+                              </li><li>
+                                <a href="/zh-CN/docs/Web/CSS/Guides/Flexible_box_layout/Basic_concepts" data-glean-id="menu_click_submenu: css -&gt; /zh-CN/docs/Web/CSS/Guides/Flexible_box_layout/Basic_concepts">Flexbox</a>
+                              </li><li>
+                                <a href="/zh-CN/docs/Web/CSS/Guides/Colors/Applying_color" data-glean-id="menu_click_submenu: css -&gt; /zh-CN/docs/Web/CSS/Guides/Colors/Applying_color">Colors</a>
+                              </li><li>
+                                <a href="/zh-CN/docs/Web/CSS/Guides" aria-label="See all CSS guides" title="See all CSS guides" data-glean-id="menu_click_submenu: css -&gt; /zh-CN/docs/Web/CSS/Guides">See all…</a>
+                              </li>
+                        </ul></dd>
+                            </dl><dl>
+                              <dt>Layout cookbook</dt>
+                              <dd><ul>
+                          <li>
+                                <a href="/zh-CN/docs/Web/CSS/How_to/Layout_cookbook/Column_layouts" data-glean-id="menu_click_submenu: css -&gt; /zh-CN/docs/Web/CSS/How_to/Layout_cookbook/Column_layouts">Column layouts</a>
+                              </li><li>
+                                <a href="/zh-CN/docs/Web/CSS/How_to/Layout_cookbook/Center_an_element" data-glean-id="menu_click_submenu: css -&gt; /zh-CN/docs/Web/CSS/How_to/Layout_cookbook/Center_an_element">Centering an element</a>
+                              </li><li>
+                                <a href="/zh-CN/docs/Web/CSS/How_to/Layout_cookbook/Card" data-glean-id="menu_click_submenu: css -&gt; /zh-CN/docs/Web/CSS/How_to/Layout_cookbook/Card">Card component</a>
+                              </li><li>
+                                <a href="/zh-CN/docs/Web/CSS/How_to/Layout_cookbook" data-glean-id="menu_click_submenu: css -&gt; /zh-CN/docs/Web/CSS/How_to/Layout_cookbook">See all…</a>
+                              </li>
+                        </ul></dd>
+                            </dl>
+                    </div>
+                  </div>
+                </mdn-dropdown>
+          </div><div class="menu__tab" data-section="javascript">
+            <mdn-dropdown loaded="">
+                  <button class="menu__tab-button" type="button" slot="button" aria-expanded="false" aria-controls="uid_lm6voyyxwu">
+                    <span class="menu__tab-label" data-type="long">JavaScript</span><span class="menu__tab-label" data-type="short">JS</span>
+                  </button>
+                  <div class="menu__panel" slot="dropdown" id="uid_lm6voyyxwu">
+                    <p class="menu__panel-title">
+                      <a href="/zh-CN/docs/Web/JavaScript" data-glean-id="menu_click_menu: javascript -&gt; /zh-CN/docs/Web/JavaScript">JavaScript: Scripting language</a>
+                    </p>
+                    <div class="menu__panel-content">
+                      <dl>
+                              <dt>JS reference</dt>
+                              <dd><ul>
+                          <li>
+                                <a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects" data-glean-id="menu_click_submenu: javascript -&gt; /zh-CN/docs/Web/JavaScript/Reference/Global_Objects">Standard built-in objects</a>
+                              </li><li>
+                                <a href="/zh-CN/docs/Web/JavaScript/Reference/Operators" data-glean-id="menu_click_submenu: javascript -&gt; /zh-CN/docs/Web/JavaScript/Reference/Operators">Expressions &amp; operators</a>
+                              </li><li>
+                                <a href="/zh-CN/docs/Web/JavaScript/Reference/Statements" data-glean-id="menu_click_submenu: javascript -&gt; /zh-CN/docs/Web/JavaScript/Reference/Statements">Statements &amp; declarations</a>
+                              </li><li>
+                                <a href="/zh-CN/docs/Web/JavaScript/Reference/Functions" data-glean-id="menu_click_submenu: javascript -&gt; /zh-CN/docs/Web/JavaScript/Reference/Functions">Functions</a>
+                              </li><li>
+                                <a href="/zh-CN/docs/Web/JavaScript/Reference" aria-label="See all JavaScript references" title="See all JavaScript references" data-glean-id="menu_click_submenu: javascript -&gt; /zh-CN/docs/Web/JavaScript/Reference">See all…</a>
+                              </li>
+                        </ul></dd>
+                            </dl><dl>
+                              <dt>JS guides</dt>
+                              <dd><ul>
+                          <li>
+                                <a href="/zh-CN/docs/Web/JavaScript/Guide/Control_flow_and_error_handling" data-glean-id="menu_click_submenu: javascript -&gt; /zh-CN/docs/Web/JavaScript/Guide/Control_flow_and_error_handling">Control flow &amp; error handing</a>
+                              </li><li>
+                                <a href="/zh-CN/docs/Web/JavaScript/Guide/Loops_and_iteration" data-glean-id="menu_click_submenu: javascript -&gt; /zh-CN/docs/Web/JavaScript/Guide/Loops_and_iteration">Loops and iteration</a>
+                              </li><li>
+                                <a href="/zh-CN/docs/Web/JavaScript/Guide/Working_with_objects" data-glean-id="menu_click_submenu: javascript -&gt; /zh-CN/docs/Web/JavaScript/Guide/Working_with_objects">Working with objects</a>
+                              </li><li>
+                                <a href="/zh-CN/docs/Web/JavaScript/Guide/Using_classes" data-glean-id="menu_click_submenu: javascript -&gt; /zh-CN/docs/Web/JavaScript/Guide/Using_classes">Using classes</a>
+                              </li><li>
+                                <a href="/zh-CN/docs/Web/JavaScript/Guide" aria-label="See all JavaScript guides" title="See all JavaScript guides" data-glean-id="menu_click_submenu: javascript -&gt; /zh-CN/docs/Web/JavaScript/Guide">See all…</a>
+                              </li>
+                        </ul></dd>
+                            </dl>
+                    </div>
+                  </div>
+                </mdn-dropdown>
+          </div><div class="menu__tab" data-section="webapis">
+            <mdn-dropdown loaded="">
+                  <button class="menu__tab-button" type="button" slot="button" aria-expanded="false" aria-controls="uid_osgrc40o6p">
+                    <span class="menu__tab-label">Web APIs</span>
+                  </button>
+                  <div class="menu__panel" slot="dropdown" id="uid_osgrc40o6p">
+                    <p class="menu__panel-title">
+                      <a href="/zh-CN/docs/Web/API" data-glean-id="menu_click_menu: webapis -&gt; /zh-CN/docs/Web/API">Web APIs: Programming interfaces</a>
+                    </p>
+                    <div class="menu__panel-content">
+                      <dl>
+                              <dt>Web API reference</dt>
+                              <dd><ul>
+                          <li>
+                                <a href="/zh-CN/docs/Web/API/File_System_API" data-glean-id="menu_click_submenu: webapis -&gt; /zh-CN/docs/Web/API/File_System_API">File system API</a>
+                              </li><li>
+                                <a href="/zh-CN/docs/Web/API/Fetch_API" data-glean-id="menu_click_submenu: webapis -&gt; /zh-CN/docs/Web/API/Fetch_API">Fetch API</a>
+                              </li><li>
+                                <a href="/zh-CN/docs/Web/API/Geolocation_API" data-glean-id="menu_click_submenu: webapis -&gt; /zh-CN/docs/Web/API/Geolocation_API">Geolocation API</a>
+                              </li><li>
+                                <a href="/zh-CN/docs/Web/API/HTML_DOM_API" data-glean-id="menu_click_submenu: webapis -&gt; /zh-CN/docs/Web/API/HTML_DOM_API">HTML DOM API</a>
+                              </li><li>
+                                <a href="/zh-CN/docs/Web/API/Push_API" data-glean-id="menu_click_submenu: webapis -&gt; /zh-CN/docs/Web/API/Push_API">Push API</a>
+                              </li><li>
+                                <a href="/zh-CN/docs/Web/API/Service_Worker_API" data-glean-id="menu_click_submenu: webapis -&gt; /zh-CN/docs/Web/API/Service_Worker_API">Service worker API</a>
+                              </li><li>
+                                <a href="/zh-CN/docs/Web/API" aria-label="See all Web API guides" title="See all Web API guides" data-glean-id="menu_click_submenu: webapis -&gt; /zh-CN/docs/Web/API">See all…</a>
+                              </li>
+                        </ul></dd>
+                            </dl><dl>
+                              <dt>Web API guides</dt>
+                              <dd><ul>
+                          <li>
+                                <a href="/zh-CN/docs/Web/API/Web_Animations_API/Using_the_Web_Animations_API" data-glean-id="menu_click_submenu: webapis -&gt; /zh-CN/docs/Web/API/Web_Animations_API/Using_the_Web_Animations_API">Using the Web animation API</a>
+                              </li><li>
+                                <a href="/zh-CN/docs/Web/API/Fetch_API/Using_Fetch" data-glean-id="menu_click_submenu: webapis -&gt; /zh-CN/docs/Web/API/Fetch_API/Using_Fetch">Using the Fetch API</a>
+                              </li><li>
+                                <a href="/zh-CN/docs/Web/API/History_API/Working_with_the_History_API" data-glean-id="menu_click_submenu: webapis -&gt; /zh-CN/docs/Web/API/History_API/Working_with_the_History_API">Working with the History API</a>
+                              </li><li>
+                                <a href="/zh-CN/docs/Web/API/Web_Speech_API/Using_the_Web_Speech_API" data-glean-id="menu_click_submenu: webapis -&gt; /zh-CN/docs/Web/API/Web_Speech_API/Using_the_Web_Speech_API">Using the Web speech API</a>
+                              </li><li>
+                                <a href="/zh-CN/docs/Web/API/Web_Workers_API/Using_web_workers" data-glean-id="menu_click_submenu: webapis -&gt; /zh-CN/docs/Web/API/Web_Workers_API/Using_web_workers">Using web workers</a>
+                              </li>
+                        </ul></dd>
+                            </dl>
+                    </div>
+                  </div>
+                </mdn-dropdown>
+          </div><div class="menu__tab" data-section="all">
+            <mdn-dropdown loaded="">
+                  <button class="menu__tab-button" type="button" slot="button" aria-expanded="false" aria-controls="uid_7lbryd52n1a">
+                    <span class="menu__tab-label">All</span>
+                  </button>
+                  <div class="menu__panel" slot="dropdown" id="uid_7lbryd52n1a">
+                    <p class="menu__panel-title">
+                      <a href="/zh-CN/docs/Web" data-glean-id="menu_click_menu: all -&gt; /zh-CN/docs/Web">All web technology</a>
+                    </p>
+                    <div class="menu__panel-content">
+                      <dl>
+                              <dt>Technologies</dt>
+                              <dd><ul>
+                          <li>
+                                <a href="/zh-CN/docs/Web/Accessibility" data-glean-id="menu_click_submenu: all -&gt; /zh-CN/docs/Web/Accessibility">Accessibility</a>
+                              </li><li>
+                                <a href="/zh-CN/docs/Web/HTTP" data-glean-id="menu_click_submenu: all -&gt; /zh-CN/docs/Web/HTTP">HTTP</a>
+                              </li><li>
+                                <a href="/zh-CN/docs/Web/URI" data-glean-id="menu_click_submenu: all -&gt; /zh-CN/docs/Web/URI">URI</a>
+                              </li><li>
+                                <a href="/zh-CN/docs/Mozilla/Add-ons/WebExtensions" data-glean-id="menu_click_submenu: all -&gt; /zh-CN/docs/Mozilla/Add-ons/WebExtensions">Web extensions</a>
+                              </li><li>
+                                <a href="/zh-CN/docs/WebAssembly" data-glean-id="menu_click_submenu: all -&gt; /zh-CN/docs/WebAssembly">WebAssembly</a>
+                              </li><li>
+                                <a href="/zh-CN/docs/Web/WebDriver" data-glean-id="menu_click_submenu: all -&gt; /zh-CN/docs/Web/WebDriver">WebDriver</a>
+                              </li><li>
+                                <a href="/zh-CN/docs/Web" aria-label="See all web technology references" title="See all web technology references" data-glean-id="menu_click_submenu: all -&gt; /zh-CN/docs/Web">See all…</a>
+                              </li>
+                        </ul></dd>
+                            </dl><dl>
+                              <dt>Topics</dt>
+                              <dd><ul>
+                          <li>
+                                <a href="/zh-CN/docs/Web/Media" data-glean-id="menu_click_submenu: all -&gt; /zh-CN/docs/Web/Media">Media</a>
+                              </li><li>
+                                <a href="/zh-CN/docs/Web/Performance" data-glean-id="menu_click_submenu: all -&gt; /zh-CN/docs/Web/Performance">Performance</a>
+                              </li><li>
+                                <a href="/zh-CN/docs/Web/Privacy" data-glean-id="menu_click_submenu: all -&gt; /zh-CN/docs/Web/Privacy">Privacy</a>
+                              </li><li>
+                                <a href="/zh-CN/docs/Web/Security" data-glean-id="menu_click_submenu: all -&gt; /zh-CN/docs/Web/Security">Security</a>
+                              </li><li>
+                                <a href="/zh-CN/docs/Web/Progressive_web_apps" data-glean-id="menu_click_submenu: all -&gt; /zh-CN/docs/Web/Progressive_web_apps">Progressive web apps</a>
+                              </li>
+                        </ul></dd>
+                            </dl>
+                    </div>
+                  </div>
+                </mdn-dropdown>
+          </div><div class="menu__tab" data-section="learn">
+            <mdn-dropdown loaded="">
+                  <button class="menu__tab-button" type="button" slot="button" aria-expanded="false" aria-controls="uid_75wys6s6ud8">
+                    <span class="menu__tab-label">Learn</span>
+                  </button>
+                  <div class="menu__panel" slot="dropdown" id="uid_75wys6s6ud8">
+                    <p class="menu__panel-title">
+                      <a href="/zh-CN/docs/Learn_web_development" data-glean-id="menu_click_menu: learn -&gt; /zh-CN/docs/Learn_web_development">Learn web development</a>
+                    </p>
+                    <div class="menu__panel-content">
+                      <dl>
+                              <dt>Frontend developer course</dt>
+                              <dd><ul>
+                          <li>
+                                <a href="/zh-CN/docs/Learn_web_development/Getting_started" data-glean-id="menu_click_submenu: learn -&gt; /zh-CN/docs/Learn_web_development/Getting_started">Getting started modules</a>
+                              </li><li>
+                                <a href="/zh-CN/docs/Learn_web_development/Core" data-glean-id="menu_click_submenu: learn -&gt; /zh-CN/docs/Learn_web_development/Core">Core modules</a>
+                              </li><li>
+                                <a class="only-in-en-us" href="/en-US/curriculum/" data-glean-id="menu_click_submenu: learn -&gt; /en-US/curriculum/">MDN Curriculum</a>
+                              </li>
+                        </ul></dd>
+                            </dl><dl>
+                              <dt>Learn HTML</dt>
+                              <dd><ul>
+                          <li>
+                                <a href="/zh-CN/docs/Learn_web_development/Core/Structuring_content" data-glean-id="menu_click_submenu: learn -&gt; /zh-CN/docs/Learn_web_development/Core/Structuring_content">Structuring content with HTML module</a>
+                              </li>
+                        </ul></dd>
+                            </dl><dl>
+                              <dt>Learn CSS</dt>
+                              <dd><ul>
+                          <li>
+                                <a href="/zh-CN/docs/Learn_web_development/Core/Styling_basics" data-glean-id="menu_click_submenu: learn -&gt; /zh-CN/docs/Learn_web_development/Core/Styling_basics">CSS styling basics module</a>
+                              </li><li>
+                                <a href="/zh-CN/docs/Learn_web_development/Core/CSS_layout" data-glean-id="menu_click_submenu: learn -&gt; /zh-CN/docs/Learn_web_development/Core/CSS_layout">CSS layout module</a>
+                              </li>
+                        </ul></dd>
+                            </dl><dl>
+                              <dt>Learn JavaScript</dt>
+                              <dd><ul>
+                          <li>
+                                <a href="/zh-CN/docs/Learn_web_development/Core/Scripting" data-glean-id="menu_click_submenu: learn -&gt; /zh-CN/docs/Learn_web_development/Core/Scripting">Dynamic scripting with JavaScript module</a>
+                              </li>
+                        </ul></dd>
+                            </dl>
+                    </div>
+                  </div>
+                </mdn-dropdown>
+          </div><div class="menu__tab" data-section="tools">
+            <mdn-dropdown loaded="">
+                  <button class="menu__tab-button" type="button" slot="button" aria-expanded="false" aria-controls="uid_qo27aqj21zl">
+                    <span class="menu__tab-label">Tools</span>
+                  </button>
+                  <div class="menu__panel" slot="dropdown" id="uid_qo27aqj21zl">
+                    <p class="menu__panel-title">
+                      Discover our tools
+                    </p>
+                    <div class="menu__panel-content">
+                      <ul>
+                          <li>
+                                <a class="menu__panel-icon only-in-en-us" data-icon="circle-play" href="/en-US/play" data-glean-id="menu_click_submenu: tools -&gt; /en-US/play">Playground</a>
+                              </li><li>
+                                <a class="menu__panel-icon only-in-en-us" data-icon="shield-check" href="/en-US/observatory" data-glean-id="menu_click_submenu: tools -&gt; /en-US/observatory">HTTP Observatory</a>
+                              </li>
+                        </ul><ul>
+                          <li>
+                                <a href="/zh-CN/docs/Web/CSS/CSS_backgrounds_and_borders/Border-image_generator" data-glean-id="menu_click_submenu: tools -&gt; /zh-CN/docs/Web/CSS/CSS_backgrounds_and_borders/Border-image_generator">Border-image generator</a>
+                              </li><li>
+                                <a href="/zh-CN/docs/Web/CSS/CSS_backgrounds_and_borders/Border-radius_generator" data-glean-id="menu_click_submenu: tools -&gt; /zh-CN/docs/Web/CSS/CSS_backgrounds_and_borders/Border-radius_generator">Border-radius generator</a>
+                              </li><li>
+                                <a href="/zh-CN/docs/Web/CSS/CSS_backgrounds_and_borders/Box-shadow_generator" data-glean-id="menu_click_submenu: tools -&gt; /zh-CN/docs/Web/CSS/CSS_backgrounds_and_borders/Box-shadow_generator">Box-shadow generator</a>
+                              </li><li>
+                                <a href="/zh-CN/docs/Web/CSS/CSS_colors/Color_format_converter" data-glean-id="menu_click_submenu: tools -&gt; /zh-CN/docs/Web/CSS/CSS_colors/Color_format_converter">Color format converter</a>
+                              </li><li>
+                                <a href="/zh-CN/docs/Web/CSS/CSS_colors/Color_mixer" data-glean-id="menu_click_submenu: tools -&gt; /zh-CN/docs/Web/CSS/CSS_colors/Color_mixer">Color mixer</a>
+                              </li><li>
+                                <a href="/zh-CN/docs/Web/CSS/CSS_shapes/Shape_generator" data-glean-id="menu_click_submenu: tools -&gt; /zh-CN/docs/Web/CSS/CSS_shapes/Shape_generator">Shape generator</a>
+                              </li>
+                        </ul>
+                    </div>
+                  </div>
+                </mdn-dropdown>
+          </div><div class="menu__tab" data-section="about">
+            <mdn-dropdown loaded="">
+                  <button class="menu__tab-button" type="button" slot="button" aria-expanded="false" aria-controls="uid_th1qyxf0mi">
+                    <span class="menu__tab-label">About</span>
+                  </button>
+                  <div class="menu__panel" slot="dropdown" id="uid_th1qyxf0mi">
+                    <p class="menu__panel-title">
+                      Get to know MDN better
+                    </p>
+                    <div class="menu__panel-content">
+                      <ul>
+                          <li>
+                                <a class="menu__panel-icon only-in-en-us" data-icon="mdn-m" href="/en-US/about" data-glean-id="menu_click_submenu: about -&gt; /en-US/about">About MDN</a>
+                              </li><li>
+                                <a class="menu__panel-icon only-in-en-us" data-icon="chart-no-axes-combined" href="/en-US/advertising" data-glean-id="menu_click_submenu: about -&gt; /en-US/advertising">Advertise with us</a>
+                              </li>
+                        </ul><ul>
+                          <li>
+                                <a class="menu__panel-icon only-in-en-us" data-icon="users" href="/en-US/community" data-glean-id="menu_click_submenu: about -&gt; /en-US/community">Community</a>
+                              </li><li>
+                                <a class="menu__panel-icon external" data-icon="github" href="https://github.com/mdn" data-glean-id="menu_click_submenu: about -&gt; https://github.com/mdn">MDN on GitHub</a>
+                              </li>
+                        </ul>
+                    </div>
+                  </div>
+                </mdn-dropdown>
+          </div><div class="menu__tab" data-section="blog">
+            <a class="menu__tab-link" href="/en-US/blog/" data-glean-id="menu_click_link: top-level -&gt; /en-US/blog/">Blog</a>
+          </div>
+      </nav>
+    </div>
+          <div class="navigation__search" data-view="desktop">
+            <mdn-search-button></mdn-search-button>
+          </div>
+          <mdn-user-menu locale="zh-CN"></mdn-user-menu>
+        </div>
+      </nav>
+      <mdn-search-modal id="search"></mdn-search-modal>
+     
+      <div class="breadcrumbs-bar" data-scheme="">
+        <mdn-toggle-sidebar></mdn-toggle-sidebar> 
+      <ol class="breadcrumbs" vocab="https://schema.org/" typeof="BreadcrumbList">
+        
+            <li property="itemListElement" typeof="ListItem">
+              <a href="/zh-CN/docs/Web" property="item" typeof="WebPage"><span property="name">面向开发者的 Web 技术</span></a>
+              <meta property="position" content="1">
+            </li>
+          
+            <li property="itemListElement" typeof="ListItem">
+              <a href="/zh-CN/docs/Web/JavaScript" property="item" typeof="WebPage"><span property="name">JavaScript</span></a>
+              <meta property="position" content="2">
+            </li>
+          
+            <li property="itemListElement" typeof="ListItem">
+              <a href="/zh-CN/docs/Web/JavaScript/Guide" property="item" typeof="WebPage"><span property="name">JavaScript 指南</span></a>
+              <meta property="position" content="3">
+            </li>
+          
+            <li property="itemListElement" typeof="ListItem">
+              <a href="/zh-CN/docs/Web/JavaScript/Guide/Data_structures" property="item" typeof="WebPage"><span property="name">JavaScript 数据类型和数据结构</span></a>
+              <meta property="position" content="4">
+            </li>
+          
+      </ol>
+    
+        <mdn-collection-save-button doc-url="/zh-CN/docs/Web/JavaScript/Guide/Data_structures" doc-title="JavaScript 数据类型和数据结构"></mdn-collection-save-button>
+        <mdn-color-theme></mdn-color-theme>
+        <mdn-language-switcher locale="zh-CN" native="中文 (简体)" translations="[{&quot;locale&quot;:&quot;en-US&quot;,&quot;title&quot;:&quot;JavaScript data types and data structures&quot;,&quot;native&quot;:&quot;English (US)&quot;},{&quot;locale&quot;:&quot;de&quot;,&quot;title&quot;:&quot;JavaScript-Datentypen und Datenstrukturen&quot;,&quot;native&quot;:&quot;Deutsch&quot;},{&quot;locale&quot;:&quot;es&quot;,&quot;title&quot;:&quot;Tipos de datos y estructuras en JavaScript&quot;,&quot;native&quot;:&quot;Español&quot;},{&quot;locale&quot;:&quot;fr&quot;,&quot;title&quot;:&quot;Types et structures de données JavaScript&quot;,&quot;native&quot;:&quot;Français&quot;},{&quot;locale&quot;:&quot;ja&quot;,&quot;title&quot;:&quot;JavaScript のデータ型とデータ構造&quot;,&quot;native&quot;:&quot;日本語&quot;},{&quot;locale&quot;:&quot;ko&quot;,&quot;title&quot;:&quot;JavaScript의 타입과 자료구조&quot;,&quot;native&quot;:&quot;한국어&quot;},{&quot;locale&quot;:&quot;pt-BR&quot;,&quot;title&quot;:&quot;Estrutura de dados do Javascript&quot;,&quot;native&quot;:&quot;Português (do&nbsp;Brasil)&quot;},{&quot;locale&quot;:&quot;ru&quot;,&quot;title&quot;:&quot;Типы и структуры данных JavaScript&quot;,&quot;native&quot;:&quot;Русский&quot;},{&quot;locale&quot;:&quot;zh-CN&quot;,&quot;title&quot;:&quot;JavaScript 数据类型和数据结构&quot;,&quot;native&quot;:&quot;中文 (简体)&quot;},{&quot;locale&quot;:&quot;zh-TW&quot;,&quot;title&quot;:&quot;JavaScript 的資料型別與資料結構&quot;,&quot;native&quot;:&quot;正體中文 (繁體)&quot;}]" url="/zh-CN/docs/Web/JavaScript/Guide/Data_structures"></mdn-language-switcher>
+      </div>
+    
+        </header>
+        <div class="page-layout__main">
+      <div class="layout__2-sidebars-inline reference-layout">
+        <main id="content" class="layout__content">
+          <div class="layout__header reference-layout__header">
+            
+            <div class="translation-banner notecard note">
+      <p>此页面由社区从英文翻译而来。<a href="/zh-CN/docs/MDN/Community/Contributing/Translated_content#活跃语言">了解更多并加入 MDN Web Docs 社区。</a></p>
+      <p></p><p class="translation-banner__switch" lang="en-US">
+      <mdn-button data-variant="secondary" href="/en-US/docs/Web/JavaScript/Guide/Data_structures">View in English</mdn-button>
+      <mdn-language-always-redirect-button to="en-US" locale="zh-CN">Always switch to English</mdn-language-always-redirect-button>
+    </p><p></p>
+    </div>
+            <mdn-survey></mdn-survey>
+            <h1>JavaScript 数据类型和数据结构</h1>
+             <section class="content-section">
+    
+    <p>编程语言都有内置的数据结构，但各种编程语言的数据结构常有不同之处。本文尝试列出 JavaScript 语言中内置的数据结构及其属性。它们可以用来构建其他的数据结构。</p>
+<p><a href="/zh-CN/docs/Web/JavaScript/Guide/Language_overview">语言概述</a>对常见的数据类型提供了类似的总结，但是更倾向于和其他语言进行比较。</p>
+  </section>
+          </div>
+          <aside class="layout__right-sidebar reference-layout__toc">
+            <nav class="reference-toc">
+      <h2>In this article</h2>
+      <ul>
+        <li><a href="#动态类型和弱类型">动态类型和弱类型</a></li><li><a href="#原始值">原始值</a></li><li><a href="#object">Object</a></li><li><a href="#强制类型转换">强制类型转换</a></li><li><a href="#参见">参见</a></li>
+      </ul>
+    </nav>
+            <mdn-placement-sidebar></mdn-placement-sidebar>
+          </aside>
+          <div class="layout__body reference-layout__body">
+            <section class="content-section" aria-labelledby="动态类型和弱类型">
+    <!--lit-part 50EKWhDlzIY=--><!--lit-node 0--><h2 id="动态类型和弱类型" class="heading"><!--lit-node 1--><a class="heading-anchor" href="#动态类型和弱类型">动态类型和弱类型</a></h2><!--/lit-part-->
+    <p>JavaScript 是一门有着<a href="https://zh.wikipedia.org/wiki/類型系統#靜態和動態檢查" class="external" target="_blank">动态类型</a>的<a href="https://zh.wikipedia.org/wiki/动态语言" class="external" target="_blank">动态</a>语言。JavaScript 中的变量与任何特定值类型没有任何直接关联，任何变量都可以被赋值（和被重新赋值）为各种类型的值：</p>
+<mdn-code-example class="brush: js notranslate"></mdn-code-example>
+<p>JavaScript 也是一门<a href="https://zh.wikipedia.org/wiki/強弱型別" class="external" target="_blank">弱类型</a>语言，这意味着当运算涉及不匹配的类型时，它允许隐式类型转换，而不是抛出类型错误。</p>
+<mdn-code-example class="brush: js notranslate"></mdn-code-example>
+<p>隐式强制转换是非常方便的，但当转换在不期望发生的地方发生时，或者与期望发生的方向不同时（例如，字符串转换为数字，而不是数字转换为字符串），就会产生难以捉摸的错误。对于 <a href="#symbol_类型">symbol</a> 和 <a href="#bigint_类型">BigInt</a>，JavaScript 有意禁止了某些隐式类型转换。</p>
+  </section><section class="content-section" aria-labelledby="原始值">
+    <!--lit-part G+H+KpDVYXU=--><!--lit-node 0--><h2 id="原始值" class="heading"><!--lit-node 1--><a class="heading-anchor" href="#原始值">原始值</a></h2><!--/lit-part-->
+    <p>除了 <a href="#object">Object</a> 以外，所有的类型都定义了<a href="/zh-CN/docs/Glossary/Immutable">不可变的</a>、在语言最底层直接表示的值。我们将这些类型的值称为<em>原始值</em>。</p>
+<p>除了 <a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/null"><code>null</code></a> 以外，所有的原始类型都可以使用 <a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/typeof"><code>typeof</code></a> 运算符进行测试。<code>typeof null</code> 返回 <code>"object"</code>，因此必须使用 <code>=== null</code> 来测试 <code>null</code>。</p>
+<p>除了 <a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/null"><code>null</code></a> 和 <a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/undefined"><code>undefined</code></a> 以外，所有的原始类型都有对应的对象包装类型，它们为处理原始值提供了有用的方法。例如，<a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Number"><code>Number</code></a> 对象提供了像 <a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Number/toExponential"><code>toExponential()</code></a> 这样的方法。当在原始值上访问属性时，JavaScript 会自动将值包装成对应的包装对象，并访问对象上的属性。然而，在 <code>null</code> 或 <code>undefined</code> 上访问属性时，会抛出 <code>TypeError</code> 异常，这需要使用<a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Optional_chaining">可选链</a>运算符。</p>
+<figure class="table-container"><table>
+<thead>
+<tr>
+<th>类型</th>
+<th><code>typeof</code> 返回值</th>
+<th>对象包装器</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="#null_类型">Null</a></td>
+<td><code>"object"</code></td>
+<td>不适用</td>
+</tr>
+<tr>
+<td><a href="#undefined_类型">Undefined</a></td>
+<td><code>"undefined"</code></td>
+<td>不适用</td>
+</tr>
+<tr>
+<td><a href="#boolean_类型">Boolean</a></td>
+<td><code>"boolean"</code></td>
+<td><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Boolean"><code>Boolean</code></a></td>
+</tr>
+<tr>
+<td><a href="#number_类型">Number</a></td>
+<td><code>"number"</code></td>
+<td><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Number"><code>Number</code></a></td>
+</tr>
+<tr>
+<td><a href="#bigint_类型">BigInt</a></td>
+<td><code>"bigint"</code></td>
+<td><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/BigInt"><code>BigInt</code></a></td>
+</tr>
+<tr>
+<td><a href="#string_类型">String</a></td>
+<td><code>"string"</code></td>
+<td><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/String"><code>String</code></a></td>
+</tr>
+<tr>
+<td><a href="#symbol_类型">Symbol</a></td>
+<td><code>"symbol"</code></td>
+<td><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Symbol"><code>Symbol</code></a></td>
+</tr>
+</tbody>
+</table></figure>
+<p>对象包装器类的参考页面包含每个类型可用的方法和属性的更多信息，以及原始类型自身语义的详细描述。</p>
+  </section><section class="content-section" aria-labelledby="null_类型">
+    <!--lit-part UY32qhlBQAY=--><!--lit-node 0--><h3 id="null_类型" class="heading"><!--lit-node 1--><a class="heading-anchor" href="#null_类型">Null 类型</a></h3><!--/lit-part-->
+    <p>Null 类型只有一个值：<a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/null"><code>null</code></a>。</p>
+  </section><section class="content-section" aria-labelledby="undefined_类型">
+    <!--lit-part ZNsUzC170zM=--><!--lit-node 0--><h3 id="undefined_类型" class="heading"><!--lit-node 1--><a class="heading-anchor" href="#undefined_类型">Undefined 类型</a></h3><!--/lit-part-->
+    <p>Undefined 类型只有一个值：<a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/undefined"><code>undefined</code></a>。</p>
+<p>从概念上讲，<code>undefined</code> 表示<em>值</em>缺失，<code>null</code> 表示<em>对象</em>缺失（这也解释了 <a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/typeof#typeof_null"><code>typeof null === "object"</code></a>）。当某些东西没有值时，JavaScript 语言通常默认为 <code>undefined</code>：</p>
+<ul>
+<li>没有值的 <a href="/zh-CN/docs/Web/JavaScript/Reference/Statements/return"><code>return</code></a> 语句（<code>return;</code>），隐式返回 <code>undefined</code>。</li>
+<li>访问不存在的<a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Object">对象</a>属性（<code>obj.iDontExist</code>），返回 <code>undefined</code>。</li>
+<li>变量声明时没有初始化（<code>let x;</code>），隐式初始化为 <code>undefined</code>。</li>
+<li>许多像 <a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Array/find"><code>Array.prototype.find()</code></a> 和 <a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Map/get"><code>Map.prototype.get()</code></a> 的方法，当没有找到元素时，返回 <code>undefined</code>。</li>
+</ul>
+<p><code>null</code> 在核心语言中使用频率少得多。最重要的地方是<a href="/zh-CN/docs/Web/JavaScript/Guide/Inheritance_and_the_prototype_chain">原型链</a>的末端，其次是与原型交互的方法，如 <a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Object/getPrototypeOf"><code>Object.getPrototypeOf()</code></a>、<a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Object/create"><code>Object.create()</code></a> 等，接受或返回 <code>null</code> 而不是 <code>undefined</code>。</p>
+<p><code>null</code> 是一个<a href="/zh-CN/docs/Web/JavaScript/Reference/Lexical_grammar#关键字">关键字</a>，但 <code>undefined</code> 是一个普通的<a href="/zh-CN/docs/Web/JavaScript/Reference/Lexical_grammar#标识符">标识符</a>，这个标识符恰好是一个全局属性。实际上区别很小，因为 <code>undefined</code> 不应该被重新定义或者遮蔽。</p>
+  </section><section class="content-section" aria-labelledby="boolean_类型">
+    <!--lit-part X1xyS2iPCYA=--><!--lit-node 0--><h3 id="boolean_类型" class="heading"><!--lit-node 1--><a class="heading-anchor" href="#boolean_类型">Boolean 类型</a></h3><!--/lit-part-->
+    <p><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Boolean"><code>Boolean</code></a> 类型表示一个逻辑实体并且包括两个值：<code>true</code> 和 <code>false</code>。</p>
+<p>布尔值通常用于条件运算，包括<a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Conditional_operator">三元运算符</a>、<a href="/zh-CN/docs/Web/JavaScript/Reference/Statements/if...else"><code>if...else</code></a>、<a href="/zh-CN/docs/Web/JavaScript/Reference/Statements/while"><code>while</code></a> 等。</p>
+  </section><section class="content-section" aria-labelledby="number_类型">
+    <!--lit-part dU97SQUlc9Q=--><!--lit-node 0--><h3 id="number_类型" class="heading"><!--lit-node 1--><a class="heading-anchor" href="#number_类型">Number 类型</a></h3><!--/lit-part-->
+    <p><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Number"><code>Number</code></a> 类型是一种<a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Number#number_编码">基于 IEEE 754 标准的双精度 64 位二进制格式的值</a>。它能够存储 2<sup>-1074</sup>（<a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Number/MIN_VALUE"><code>Number.MIN_VALUE</code></a>）和 2<sup>1023</sup> × (2 - 2<sup>-52</sup>)（<a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Number/MAX_VALUE"><code>Number.MAX_VALUE</code></a>）之间的正浮点数，以及相同范围的负浮点数，但是它仅能安全地存储在 -(2<sup>53</sup> − 1)（<a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Number/MIN_SAFE_INTEGER"><code>Number.MIN_SAFE_INTEGER</code></a>）到 2<sup>53</sup> − 1（<a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Number/MAX_SAFE_INTEGER"><code>Number.MAX_SAFE_INTEGER</code></a>）范围内的整数。超出这个范围，JavaScript 将不能安全地表示整数；相反，它们将由双精度浮点近似值表示。你可以使用 <a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Number/isSafeInteger"><code>Number.isSafeInteger()</code></a> 检查一个数是否在安全的整数范围内。</p>
+<p>超出表示范围的值会自动转换：</p>
+<ul>
+<li>大于 <a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Number/MAX_VALUE"><code>Number.MAX_VALUE</code></a> 的正值被转换为 <code>+Infinity</code>。</li>
+<li>小于 <a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Number/MIN_VALUE"><code>Number.MIN_VALUE</code></a> 的正值被转换为 <code>+0</code>。</li>
+<li>小于 -<a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Number/MAX_VALUE"><code>Number.MAX_VALUE</code></a> 的负值被转换为 <code>-Infinity</code>。</li>
+<li>大于 -<a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Number/MIN_VALUE"><code>Number.MIN_VALUE</code></a> 的负值被转换为 <code>-0</code>。</li>
+</ul>
+<p><code>+Infinity</code> 和 <code>-Infinity</code> 行为类似于数学上的无穷大，但是有一些细微的区别；更多细节，参见 <a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Number/POSITIVE_INFINITY"><code>Number.POSITIVE_INFINITY</code></a> 和 <a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Number/NEGATIVE_INFINITY"><code>Number.NEGATIVE_INFINITY</code></a>。</p>
+<p>Number 类型仅有一个具有多个表现形式的值：<code>-0</code> 和 <code>+0</code> 都表示 <code>0</code>（其中 <code>0</code> 是 <code>+0</code> 的别名）。实际上，这两者之间几乎没有区别；例如，<code>+0 === -0</code> 是 <code>true</code>。然而，当你除以 0 的时候，你会注意到区别：</p>
+<mdn-code-example class="brush: js notranslate"></mdn-code-example>
+<p><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/NaN"><code>NaN</code></a>（“<strong>N</strong>ot <strong>a</strong> <strong>N</strong>umber”）是一个特殊种类的数字值，当算术运算的结果不能表示为数字时，通常会遇到它。它也是 JavaScript 中唯一不等于自身的值。</p>
+<p>虽然 number 在概念上是一个“数学的值”，并且总是隐式的编码为浮点类型，但是 JavaScript 提供了<a href="/zh-CN/docs/Web/JavaScript/Guide/Expressions_and_operators#位运算符">位运算符</a>。当应用位运算符时，number 首先转换为 32 位整数。</p>
+<div class="notecard note">
+<p><strong>备注：</strong>尽管位运算符<em>可以</em>使用<a href="https://zh.wikipedia.org/wiki/掩码" class="external" target="_blank">位掩码</a>来表示单个数字中的几个布尔值，但这通常不是最佳实践。JavaScript 提供了表示一组布尔值的其他方法（如布尔数组，或将布尔值赋值给具名属性的对象）。位掩码也往往让代码更难阅读、理解和维护。</p>
+</div>
+<p>在非常受限的环境中使用此类技术可能很必要，例如在试图应对本地存储的限制时，或在极端情况下（例如当网络上的每个位计数时）。只有当它是最后的优化大小的措施时，才应考虑这项技术。</p>
+  </section><section class="content-section" aria-labelledby="bigint_类型">
+    <!--lit-part OIoi3lTp73A=--><!--lit-node 0--><h3 id="bigint_类型" class="heading"><!--lit-node 1--><a class="heading-anchor" href="#bigint_类型">BigInt 类型</a></h3><!--/lit-part-->
+    <p><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/BigInt"><code>BigInt</code></a> 类型是 JavaScript 中的数字原始类型，它可以表示任意大小的整数。使用 BigInt，你可以安全地存储和操作巨大的整数，即便是超过 Number 的安全整数限制（<a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Number/MAX_SAFE_INTEGER"><code>Number.MAX_SAFE_INTEGER</code></a>）。</p>
+<p>BigInt 通过在整数末尾添加 <code>n</code> 或调用 <a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/BigInt/BigInt"><code>BigInt()</code></a> 函数创建。</p>
+<p>本例演示了递增 <a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Number/MAX_SAFE_INTEGER"><code>Number.MAX_SAFE_INTEGER</code></a> 会返回预期的结果：</p>
+<mdn-code-example class="brush: js notranslate"></mdn-code-example>
+<p>你可以使用大多数运算符处理 BigInt，包括 <code>+</code>、<code>*</code>、<code>-</code>、<code>**</code> 和 <code>%</code>——唯一被禁止的是 <a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Unsigned_right_shift"><code>&gt;&gt;&gt;</code></a>。BigInt 并不是<a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Strict_equality">严格等于</a>有着相同数学值的 Number，而是<a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Equality">非严格相等</a>。</p>
+<p>BigInt 值和 number 值相比，不总是更精确，也不总是更不精确，因为 BigInt 不能表示小数，但能更精确地表示大整数。这两种类型都不能相互替代。如果在算术表达式中将 BigInt 值和常规 number 值混合，或者它们相互<a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Number#number_强制转换">隐式转换</a>，则抛出 <a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/TypeError"><code>TypeError</code></a>。</p>
+  </section><section class="content-section" aria-labelledby="string_类型">
+    <!--lit-part 3Igo7Lqxg+o=--><!--lit-node 0--><h3 id="string_类型" class="heading"><!--lit-node 1--><a class="heading-anchor" href="#string_类型">String 类型</a></h3><!--/lit-part-->
+    <p><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/String"><code>String</code></a> 类型表示文本数据并编码为 <a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/String#utf-16_字符、unicode_码位和字素簇">UTF-16 码元</a>的 16 位无符号整数值序列。字符串中的每个元素在字符串中占据一个位置。第一个元素的索引为 <code>0</code>，下一个的索引为 <code>1</code>，依此类推。字符串的<a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/String/length">长度</a>是其中的 UTF-16 码元的数量，这可能与 Unicode 字符的实际数量不符；更多细节参见 <a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/String#utf-16_字符、unicode_码位和字素簇"><code>String</code></a> 参考页面。</p>
+<p>JavaScript 字符串是不可变的。这意味着一旦字符串被创建，就不可能修改它。字符串方法会基于当前字符串的内容创建一个新的字符串——例如：</p>
+<ul>
+<li>使用 <a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/String/substring"><code>substring()</code></a> 获取原始字符串的子字符串。</li>
+<li>使用串联运算符（<code>+</code>）或 <a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/String/concat"><code>concat()</code></a> 将两个字符串串联。</li>
+</ul>
+<h4 id="注意代码中的“字符串类型”！">注意代码中的“字符串类型”！</h4>
+<p>使用字符串来表示复杂的数据可能很诱人。这样做会带来短期的好处：</p>
+<ul>
+<li>通过字符串拼接构造复杂的字符串很容易。</li>
+<li>字符串容易调试（你看到的打印内容始终是字符串中的内容）。</li>
+<li>字符串是许多 API 的常见标准（<a href="/zh-CN/docs/Web/API/HTMLInputElement">input 字段</a>、<a href="/zh-CN/docs/Web/API/Web_Storage_API">local storage</a> 中的值，以及 <a href="/zh-CN/docs/Web/API/Window/fetch"><code>fetch()</code></a> 使用 <a href="/zh-CN/docs/Web/API/Response/text"><code>Response.text()</code></a> 时的响应，等等）而且这些 API 可能只能与字符串一同使用。</li>
+</ul>
+<p>按照常规，用字符串表示任何数据结构是可能的。但这并不总是一个好主意。例如，使用一个分隔符，可以模拟一个列表（然而 JavaScript 数组更适合）。不幸的是，当分隔符是某个“列表”元素时，列表就遭到破坏。这时可以选择转义字符，等等。所有这些都需要约定，并造成不必要的维护负担。</p>
+<p>表示文本数据时推荐使用字符串。当需要表示复杂的数据时，使用字符串<em>解析</em>并使用适当的抽象。</p>
+  </section><section class="content-section" aria-labelledby="symbol_类型">
+    <!--lit-part Ishcu5eaORM=--><!--lit-node 0--><h3 id="symbol_类型" class="heading"><!--lit-node 1--><a class="heading-anchor" href="#symbol_类型">Symbol 类型</a></h3><!--/lit-part-->
+    <p><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Symbol"><code>Symbol</code></a> 是一种<strong>唯一</strong>并且<strong>不可变</strong>的原始值，并且可以用作对象属性的键（如下）。在某些程序语言中，Symbol 也被称作“原子”。symbol 的目的是创建唯一的属性键，保证不会与其他代码中的键产生冲突。</p>
+  </section><section class="content-section" aria-labelledby="object">
+    <!--lit-part BUw9kzOWZ+I=--><!--lit-node 0--><h2 id="object" class="heading"><!--lit-node 1--><a class="heading-anchor" href="#object">Object</a></h2><!--/lit-part-->
+    <p>在计算机科学中，对象是指内存中的值，这块内存可能被<a href="/zh-CN/docs/Glossary/Identifier">标识符</a>引用。在 JavaScript 中，对象是唯一<a href="/zh-CN/docs/Glossary/Mutable">可变</a>的值。事实上，<a href="/zh-CN/docs/Web/JavaScript/Reference/Functions">函数</a>也是具有可<em>调用</em>这个额外能力的对象。</p>
+  </section><section class="content-section" aria-labelledby="属性">
+    <!--lit-part 3P1x0wZ+nag=--><!--lit-node 0--><h3 id="属性" class="heading"><!--lit-node 1--><a class="heading-anchor" href="#属性">属性</a></h3><!--/lit-part-->
+    <p>在 JavaScript 中，对象可以被看作是一个属性的集合。用<a href="/zh-CN/docs/Web/JavaScript/Guide/Grammar_and_types#对象字面量">对象字面量语法</a>会初始化一组有限的属性；然后，可以添加和移除属性。对象属性等价于键值对。属性键要么是<a href="#string_类型">字符串</a>，要么是 <a href="#symbol_类型">symbol</a>。当其他类型（如数字）用于索引对象时，值会隐式地转化为字符串。属性值可以是任何类型的值，包括其他对象，从而可以构建复杂的数据结构。</p>
+<p>有两种类型的对象属性：<a href="#数据属性"><em>数据</em>属性</a>和<a href="#访问器属性"><em>访问器</em>属性</a>。每个属性都有对应的<em>特性</em>。每个特性由 JavaScript 引擎进行内部访问，但是你可以通过 <a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Object/defineProperty"><code>Object.defineProperty()</code></a> 设置它们，或通过 <a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Object/getOwnPropertyDescriptor"><code>Object.getOwnPropertyDescriptor()</code></a> 读取它们。你可以在 <a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Object/defineProperty"><code>Object.defineProperty()</code></a> 页面阅读更多有关各种细微差别的信息。</p>
+<h4 id="数据属性">数据属性</h4>
+<p>数据属性将键与值相关联。它可以由以下特性描述：</p>
+<dl>
+<dt id="value"><a href="#value"><code>value</code></a></dt>
+<dd>
+<p>通过属性的 get 访问获取值。可以是任意的 JavaScript 值。</p>
+</dd>
+<dt id="writable"><a href="#writable"><code>writable</code></a></dt>
+<dd>
+<p>布尔值，表示属性是否可以通过赋值进行修改。</p>
+</dd>
+<dt id="enumerable"><a href="#enumerable"><code>enumerable</code></a></dt>
+<dd>
+<p>布尔值，表示属性是否可以通过 <a href="/zh-CN/docs/Web/JavaScript/Reference/Statements/for...in"><code>for...in</code></a> 循环进行枚举。另请参阅<a href="/zh-CN/docs/Web/JavaScript/Guide/Enumerability_and_ownership_of_properties">属性的可枚举性和所有权</a>，以了解枚举性如何与其他函数和语法交互。</p>
+</dd>
+<dt id="configurable"><a href="#configurable"><code>configurable</code></a></dt>
+<dd>
+<p>布尔值，表示属性是否可以删除，是否可以更改为访问器属性，以及是否可以更改其特性。</p>
+</dd>
+</dl>
+<h4 id="访问器属性">访问器属性</h4>
+<p>将键与两个访问器函数（<code>get</code> 和 <code>set</code>）相关联，以获取或者存储值。</p>
+<div class="notecard note">
+<p><strong>备注：</strong>重要的是，意识到它是访问器<em>属性</em>——而不是访问器<em>方法</em>。我们可以将函数作为值给一个 JavaScript 对象提供近似于类的访问器——但这并不能使该对象成为类。</p>
+</div>
+<p>访问器属性有以下特性：</p>
+<dl>
+<dt id="get"><a href="#get"><code>get</code></a></dt>
+<dd>
+<p>当执行值的 get 访问时，使用一个空的参数列表调用函数获取属性值。参见 <a href="/zh-CN/docs/Web/JavaScript/Reference/Functions/get">getter</a>。可能是 <code>undefined</code>。</p>
+</dd>
+<dt id="set"><a href="#set"><code>set</code></a></dt>
+<dd>
+<p>使用包含赋予的值的参数调用函数。每当尝试更改指定属性时执行。参见 <a href="/zh-CN/docs/Web/JavaScript/Reference/Functions/set">setter</a>。可能是 <code>undefined</code>。</p>
+</dd>
+<dt id="enumerable_2"><a href="#enumerable_2"><code>enumerable</code></a></dt>
+<dd>
+<p>布尔值，表示属性是否可以通过 <a href="/zh-CN/docs/Web/JavaScript/Reference/Statements/for...in"><code>for...in</code></a> 循环进行枚举。另请参阅<a href="/zh-CN/docs/Web/JavaScript/Guide/Enumerability_and_ownership_of_properties">属性的可枚举性和所有权</a>，以了解枚举性如何与其他函数和语法交互。</p>
+</dd>
+<dt id="configurable_2"><a href="#configurable_2"><code>configurable</code></a></dt>
+<dd>
+<p>布尔值，表示属性是否可以删除，是否可以更改为访问器属性，以及是否可以更改其特性。</p>
+</dd>
+</dl>
+<p>对象的<a href="/zh-CN/docs/Web/JavaScript/Guide/Inheritance_and_the_prototype_chain">原型</a>指向另一个对象或者 <code>null</code>——从概念上讲，它是对象的隐藏属性，通常表示为 <code>[[Prototype]]</code>。对象的 <code>[[Prototype]]</code> 的属性也可以在对象自身上访问。</p>
+<p>对象是临时的键值对，因此经常被用作 map。不过，这可能存在人体工程学、安全性和性能方面的问题。请使用 <a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Map"><code>Map</code></a> 存储任意的数据。<a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Map#object_和_map_的比较"><code>Map</code> 参考</a>对使用普通对象和使用 map 存储键值之间的利弊进行了更详细的讨论。</p>
+  </section><section class="content-section" aria-labelledby="date">
+    <!--lit-part Eri1UQXI6PY=--><!--lit-node 0--><h3 id="date" class="heading"><!--lit-node 1--><a class="heading-anchor" href="#date">Date</a></h3><!--/lit-part-->
+    <p>当表示日期时，最好的选择是使用 JavaScript 中内置的 <a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Date"><code>Date</code></a> 工具类。</p>
+  </section><section class="content-section" aria-labelledby="索引类集合：数组和类型化数组">
+    <!--lit-part FD6rOQUesHQ=--><!--lit-node 0--><h3 id="索引类集合：数组和类型化数组" class="heading"><!--lit-node 1--><a class="heading-anchor" href="#索引类集合：数组和类型化数组">索引类集合：数组和类型化数组</a></h3><!--/lit-part-->
+    <p><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Array">数组</a>是整数键的属性和 <code>length</code> 属性之间有着特殊关系的常规对象。</p>
+<p>此外，数组继承了 <code>Array.prototype</code> 的一组操作数组的便捷方法。例如，<a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Array/indexOf"><code>indexOf()</code></a>（搜索数组中的一个值）或 <a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Array/push"><code>push()</code></a>（向数组追加一个元素），等等。这使得数组成为表示有序列表的理想选择。</p>
+<p><a href="/zh-CN/docs/Web/JavaScript/Guide/Typed_arrays">类型化数组</a>表示底层二进制缓冲区的类数组视图，并且提供了与数组相对应的类似语义的方法。“类型化数组”是一系列数据结构的总话术语，包括 <code>Int8Array</code>、<code>Float32Array</code> 等等。获取更多细节，请查看<a href="/zh-CN/docs/Web/JavaScript/Guide/Typed_arrays">类型化数组</a>页。类型化数组通常与 <a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/ArrayBuffer"><code>ArrayBuffer</code></a> 和 <a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/DataView"><code>DataView</code></a> 一起使用。</p>
+  </section><section class="content-section" aria-labelledby="带键的集合：map、set、weakmap、weakset">
+    <!--lit-part kiGQZshX/ho=--><!--lit-node 0--><h3 id="带键的集合：map、set、weakmap、weakset" class="heading"><!--lit-node 1--><a class="heading-anchor" href="#带键的集合：map、set、weakmap、weakset">带键的集合：Map、Set、WeakMap、WeakSet</a></h3><!--/lit-part-->
+    <p>这些数据结构把对象的引用当作键。<a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Set"><code>Set</code></a> 和 <a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/WeakSet"><code>WeakSet</code></a> 表示唯一值的集合，而 <a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Map"><code>Map</code></a> 和 <a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/WeakMap"><code>WeakMap</code></a> 表示键值相关联的集合。</p>
+<p>你也可以自己实现 <code>Map</code> 和 <code>Set</code>。然而，因为对象不能比较（例如，在 <code>&lt;</code>“小于”的意义上），另一方面，引擎也没有暴露对象的散列函数，因此查找性能必定是线性的。它们的原生实现（包括 <code>WeakMap</code>）有着近似对数到常数时间的查找性能。</p>
+<p>通常，要将数据绑定到 DOM 节点，可以直接在对象上设置属性，或使用 <code>data-*</code> 属性。这样做的缺点是，在同一上下文中运行的任何脚本都可以使用这些数据。而 <code>Map</code> 和 <code>WeakMap</code> 则可以轻松地将数据<em>隐蔽地</em>绑定到对象上。</p>
+<p><code>WeakMap</code> 和 <code>WeakSet</code> 只允许将可垃圾回收的值作为键，这些键要么是对象，要么是<a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Symbol#全局共享的_symbol">未注册的 symbol</a>，即使键仍在集合中，也可能被回收。它们专门用于<a href="/zh-CN/docs/Web/JavaScript/Guide/Memory_management#帮助内存管理的数据结构">优化内存使用</a>。</p>
+  </section><section class="content-section" aria-labelledby="结构化数据：json">
+    <!--lit-part rDLkFbLDa7Q=--><!--lit-node 0--><h3 id="结构化数据：json" class="heading"><!--lit-node 1--><a class="heading-anchor" href="#结构化数据：json">结构化数据：JSON</a></h3><!--/lit-part-->
+    <p>JSON（<strong>J</strong>ava<strong>S</strong>cript <strong>O</strong>bject <strong>N</strong>otation）是一种轻量级的数据交换格式，来源于 JavaScript，同时也被多种语言所使用。JSON 构建了通用的数据结构，可以在不同环境之间传输，甚至可以跨语言传输。更多细节，请参见 <a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/JSON"><code>JSON</code></a>。</p>
+  </section><section class="content-section" aria-labelledby="标准库中的更多对象">
+    <!--lit-part szxaPV1cBBQ=--><!--lit-node 0--><h3 id="标准库中的更多对象" class="heading"><!--lit-node 1--><a class="heading-anchor" href="#标准库中的更多对象">标准库中的更多对象</a></h3><!--/lit-part-->
+    <p>JavaScript 有一个内置对象的标准库。请阅读<a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects">参考</a>了解有关内置对象的更多信息。</p>
+  </section><section class="content-section" aria-labelledby="强制类型转换">
+    <!--lit-part Lu8kUp/4V/E=--><!--lit-node 0--><h2 id="强制类型转换" class="heading"><!--lit-node 1--><a class="heading-anchor" href="#强制类型转换">强制类型转换</a></h2><!--/lit-part-->
+    <p>如上所述，JavaScript 是一门<a href="#动态类型和弱类型">弱类型</a>语言。这意味着你可以经常使用与预期类型不同的类型的值，JavaScript 语言将为你把它转换为正确的类型。为此，JavaScript 定义了一些强制转换规则。</p>
+  </section><section class="content-section" aria-labelledby="原始值强制转换">
+    <!--lit-part j7suDcYyCZk=--><!--lit-node 0--><h3 id="原始值强制转换" class="heading"><!--lit-node 1--><a class="heading-anchor" href="#原始值强制转换">原始值强制转换</a></h3><!--/lit-part-->
+    <p><a href="https://tc39.es/ecma262/multipage/abstract-operations.html#sec-toprimitive" class="external" target="_blank">原始值强制转换</a>过程用于得到期望的原始值，但对实际的类型应该是什么并没有强烈的偏好。通常情况下可以接受 <a href="#string_类型">string</a>、<a href="#number_类型">number</a> 或 <a href="#bigint_类型">BigInt</a>。例如：</p>
+<ul>
+<li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Date/Date"><code>Date()</code></a> 构造函数，当它收到一个不是 <code>Date</code> 实例的参数时——字符串表示日期字符串，而 number 表示时间戳。</li>
+<li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Addition"><code>+</code></a> 运算符——如果某个操作数是字符串，执行字符串串联；否则，执行数字相加。</li>
+<li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Equality"><code>==</code></a> 运算符——如果某个操作数是原始值，而另一个操作数是对象（object），则该对象将转换为没有首选类型的原始值。</li>
+</ul>
+<p>如果值已经是原始值，则此操作不会进行任何转换。对象将依次调用它的 <a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Symbol/toPrimitive"><code>[Symbol.toPrimitive]()</code></a>（将 <code>default</code> 作为 hint 值）、<code>valueOf()</code> 和 <code>toString()</code> 方法，将其转换为原始值。注意，原始值转换会在 <code>toString()</code> 方法之前调用 <code>valueOf()</code> 方法，这与 <a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Number#number_强制转换">number 强制转换</a>的行为相似，但与<a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/String#字符串强制转换">字符串强制转换</a>不同。</p>
+<p><code>[Symbol.toPrimitive]()</code> 方法，如果存在，则必须返回原始值——返回对象，会导致 <a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/TypeError"><code>TypeError</code></a>。对于 <code>valueOf()</code> 和 <code>toString()</code>，如果其中一个返回对象，则忽略其返回值，从而使用另一个的返回值；如果两者都不存在，或者两者都没有返回原始值，则抛出 <a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/TypeError"><code>TypeError</code></a>。例如，在下面的代码中：</p>
+<mdn-code-example class="brush: js notranslate"></mdn-code-example>
+<p><code>{}</code> 和 <code>[]</code> 都没有 <code>[Symbol.toPrimitive]()</code> 方法。<code>{}</code> 和 <code>[]</code> 都从 <a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Object/valueOf"><code>Object.prototype.valueOf</code></a> 继承 <code>valueOf()</code>，其返回对象自身。因为返回值是对象，所以它被忽略。因此，调用 <code>toString()</code> 方法。<a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Object/toString"><code>{}.toString()</code></a> 返回 <code>"[object Object]"</code>，而 <a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Array/toString"><code>[].toString()</code></a> 返回 <code>""</code>，因此这个结果是它们的串联：<code>"[object Object]"</code>。</p>
+<p>在强制转换为任意的原始类型时，<code>[Symbol.toPrimitive]()</code> 方法总是优先调用。原始值强制转换的行为通常与 number 强制转换类似，因为优先调用了 <code>valueOf()</code>；然而，有着自定义 <code>[Symbol.toPrimitive]()</code> 方法的对象可以选择返回任意的原始值。<a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Date"><code>Date</code></a> 和 <a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Symbol"><code>Symbol</code></a> 对象是唯一重写 <code>[Symbol.toPrimitive]()</code> 方法的对象。<a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Date/Symbol.toPrimitive"><code>Date.prototype[Symbol.toPrimitive]()</code></a> 将 <code>"string"</code> 视为 <code>"default"</code> hint，而 <a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Symbol/Symbol.toPrimitive"><code>Symbol.prototype[Symbol.toPrimitive]()</code></a> 忽略 hint 并始终返回一个 symbol。</p>
+  </section><section class="content-section" aria-labelledby="数字类型强制转换">
+    <!--lit-part X8J7ksnAYhE=--><!--lit-node 0--><h3 id="数字类型强制转换" class="heading"><!--lit-node 1--><a class="heading-anchor" href="#数字类型强制转换">数字类型强制转换</a></h3><!--/lit-part-->
+    <p>有两种数字类型：<a href="#number_类型">Number</a> 和 <a href="#bigint_类型">BigInt</a>。有时候，JavaScript 语言期望使用 number 或 BigInt（例如 <a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Array/slice"><code>Array.prototype.slice()</code></a>，其中索引必须是 number）；其他时候，它可能容忍并且根据操作数的类型执行不同的运算。有关不允许从其他类型隐式转换的严格强制转换过程，请参阅 <a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Number#number_强制转换">number 强制转换</a>和 <a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/BigInt#bigint_强制转换">BigInt 强制转换</a>。</p>
+<p>数字类型强制转换与 <a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Number#number_强制转换">number 强制转换</a>几乎相同，只是 BigInt 会按原样返回，而不是引起 <a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/TypeError"><code>TypeError</code></a>。强制数字类型转换用于所有算术运算，因为它们重载了 number 和 BigInt 类型。唯一例外的是<a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Unary_plus">一元加</a>，它总是实施 number 强制转换。</p>
+  </section><section class="content-section" aria-labelledby="其他类型强制转换">
+    <!--lit-part 2VddyCi6g9g=--><!--lit-node 0--><h3 id="其他类型强制转换" class="heading"><!--lit-node 1--><a class="heading-anchor" href="#其他类型强制转换">其他类型强制转换</a></h3><!--/lit-part-->
+    <p>除了 Null、Undefined 以及 Symbol 类型以外，所有的数据类型都有它们各自的强制转换过程。更多细节，请参见<a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/String#字符串强制转换">字符串强制转换</a>、<a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Boolean#布尔值强制转换">布尔值强制转换</a>以及<a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Object#对象强制转换">对象强制转换</a>。</p>
+<p>你可能已经注意到，有三种不同的路径可以将对象转换为原始值：</p>
+<ul>
+<li><a href="#原始值强制转换">原始值强制转换</a>：<code>[Symbol.toPrimitive]("default")</code> → <code>valueOf()</code> → <code>toString()</code></li>
+<li><a href="#数字类型强制转换">数字类型强制转换</a>、<a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Number#number_强制转换">number 强制转换</a>、<a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/BigInt#bigint_强制转换">BigInt 强制转换</a>：<code>[Symbol.toPrimitive]("number")</code> → <code>valueOf()</code> → <code>toString()</code></li>
+<li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/String#字符串强制转换">字符串强制转换</a>：<code>[Symbol.toPrimitive]("string")</code> → <code>toString()</code> → <code>valueOf()</code></li>
+</ul>
+<p>在所有情况下，<code>[Symbol.toPrimitive]()</code> 如果存在，必须可调用并返回原始值，而如果 <code>valueOf</code> 或 <code>toString</code> 不可调用或返回对象，它们将被忽略。在过程结束时，如果成功，结果保证是原始值。然后，由此产生的原始值会根据上下文进一步的进行强制类型转换。</p>
+  </section><section class="content-section" aria-labelledby="参见">
+    <!--lit-part wfvrFmG3SoA=--><!--lit-node 0--><h2 id="参见" class="heading"><!--lit-node 1--><a class="heading-anchor" href="#参见">参见</a></h2><!--/lit-part-->
+    <ul>
+<li><a href="https://github.com/trekhleb/javascript-algorithms" class="external" target="_blank">JavaScript 数据结构和算法</a>，由 Oleksii Trekhleb 撰写</li>
+<li><a href="https://github.com/humanwhocodes/computer-science-in-javascript" class="external" target="_blank">JavaScript 中的计算机科学</a>，由 Nicholas C. Zakas 撰写</li>
+</ul>
+  </section> 
+      <section class="content-section article-footer" aria-labelledby="feedback">
+        <div class="article-footer__inner">
+          <div class="article-footer__svg-container"><!--lit-part +YwD1wS6984=--><svg xmlns="http://www.w3.org/2000/svg" width="162" height="162" fill="none" viewBox="0 0 162 162"><mask id="b" fill="#fff"><path d="M97.203 47.04c8.113-7.886 18.004-13.871 28.906-17.492a78 78 0 0 1 33.969-3.39c11.443 1.39 22.401 5.295 32.024 11.411s17.656 14.28 23.476 23.86c5.819 9.579 9.269 20.318 10.083 31.385a69.85 69.85 0 0 1-5.387 32.44c-4.358 10.272-11.115 19.443-19.747 26.801-8.632 7.359-18.908 12.709-30.034 15.637l-6.17-21.698c7.666-2.017 14.746-5.703 20.694-10.773 5.948-5.071 10.603-11.389 13.606-18.467a48.14 48.14 0 0 0 3.712-22.352c-.561-7.625-2.938-15.025-6.948-21.625s-9.544-12.226-16.175-16.44-14.181-6.904-22.065-7.863a53.75 53.75 0 0 0-23.405 2.336c-7.513 2.495-14.327 6.62-19.918 12.053z"></path></mask><path stroke="url(#a)" stroke-dasharray="6, 6" stroke-width="2" d="M97.203 47.04c8.113-7.886 18.004-13.871 28.906-17.492a78 78 0 0 1 33.969-3.39c11.443 1.39 22.401 5.295 32.024 11.411s17.656 14.28 23.476 23.86c5.819 9.579 9.269 20.318 10.083 31.385a69.85 69.85 0 0 1-5.387 32.44c-4.358 10.272-11.115 19.443-19.747 26.801-8.632 7.359-18.908 12.709-30.034 15.637l-6.17-21.698c7.666-2.017 14.746-5.703 20.694-10.773 5.948-5.071 10.603-11.389 13.606-18.467a48.14 48.14 0 0 0 3.712-22.352c-.561-7.625-2.938-15.025-6.948-21.625s-9.544-12.226-16.175-16.44-14.181-6.904-22.065-7.863a53.75 53.75 0 0 0-23.405 2.336c-7.513 2.495-14.327 6.62-19.918 12.053z" mask="url(#b)" style="stroke:url(#a)" transform="translate(-63.992 -25.587)"></path><ellipse cx="8.066" cy="111.597" fill="currentColor" rx="53.677" ry="53.699" transform="matrix(.71707 -.697 .7243 .6895 0 0)"></ellipse><g clip-path="url(#c)" transform="translate(-63.992 -25.587)"><path fill="#9abff5" d="m144.256 137.379 32.906 12.434a4.41 4.41 0 0 1 2.559 5.667l-9.326 24.679a4.41 4.41 0 0 1-5.667 2.559l-8.226-3.108-2.332 6.17c-.466 1.233-.375 1.883-1.609 1.417l-2.253-.527c-.411-.155-.95-.594-1.206-1.161l-4.734-10.484-12.545-4.741a4.41 4.41 0 0 1-2.559-5.667l9.325-24.679a4.41 4.41 0 0 1 5.667-2.559m9.961 29.617 8.227 3.108 3.264-8.638-.498-6.768-4.113-1.555.548 7.258-4.319-1.632zm-12.339-4.663 8.226 3.108 3.264-8.637-.498-6.769-4.113-1.554.548 7.257-4.319-1.632z"></path></g><g clip-path="url(#d)" transform="translate(-63.992 -25.587)"><path fill="#81b0f3" d="M135.35 60.136 86.67 41.654c-3.346-1.27-7.124.428-8.394 3.775L64.414 81.938c-1.27 3.347.428 7.125 3.774 8.395l12.17 4.62-3.465 9.128c-.693 1.826-1.432 2.457.394 3.15l3.014 1.625c.609.231 1.637.274 2.477-.104l15.53-6.983 18.56 7.047c3.346 1.27 7.124-.428 8.395-3.775l13.862-36.51c1.27-3.346-.428-7.124-3.775-8.395M95.261 83.207l-12.17-4.62 4.852-12.779 7.19-7.017 6.085 2.31-7.725 7.51 6.389 2.426zm18.255 6.93-12.17-4.62 4.852-12.778 7.189-7.017 6.085 2.31-7.725 7.51 6.39 2.426z"></path></g><defs><clipPath id="c"><path fill="#fff" d="m198.638 146.586-65.056-24.583-24.583 65.057 65.056 24.582z"></path></clipPath><clipPath id="d"><path fill="#fff" d="m66.438 14.055 96.242 36.54-36.54 96.243-96.243-36.54z"></path></clipPath><linearGradient id="a" x1="97.203" x2="199.995" y1="47.04" y2="152.793" gradientUnits="userSpaceOnUse"><stop stop-color="#086DFC"></stop><stop offset=".246" stop-color="#2C81FA"></stop><stop offset=".516" stop-color="#5497F8"></stop><stop offset=".821" stop-color="#80B0F6"></stop><stop offset="1" stop-color="#9ABFF5"></stop></linearGradient></defs></svg><!--/lit-part--></div>
+          <h2 id="feedback">Help improve MDN</h2>
+          <mdn-content-feedback locale="zh-CN"></mdn-content-feedback>
+          <a class="article-footer__contribute" href="/zh-CN/docs/MDN/Community/Getting_started">Learn how to contribute</a> <p class="article-footer__last-modified">
+    This page was last modified on <time datetime="2025-07-16T08:48:27.000Z">2025年7月16日</time> by <a href="/zh-CN/docs/Web/JavaScript/Guide/Data_structures/contributors.txt">MDN contributors</a>.
+  </p> <div class="article-footer__links">
+    <a class="external" href="https://github.com/mdn/translated-content/blob/main/files/zh-cn/web/javascript/guide/data_structures/index.md?plain=1" title="Folder: zh-cn/web/javascript/guide/data_structures (Opens in a new tab)" target="_blank" rel="noopener">View this page on GitHub</a> • <a class="external" href="https://github.com/mdn/translated-content/issues/new?template=page-report-zh-cn.yml&amp;mdn-url=https%3A%2F%2Fdeveloper.mozilla.org%2Fzh-CN%2Fdocs%2FWeb%2FJavaScript%2FGuide%2FData_structures&amp;metadata=%3C%21--+Do+not+make+changes+below+this+line+--%3E%0A%3Cdetails%3E%0A%3Csummary%3EPage+report+details%3C%2Fsummary%3E%0A%0A*+Folder%3A+%60zh-cn%2Fweb%2Fjavascript%2Fguide%2Fdata_structures%60%0A*+MDN+URL%3A+https%3A%2F%2Fdeveloper.mozilla.org%2Fzh-CN%2Fdocs%2FWeb%2FJavaScript%2FGuide%2FData_structures%0A*+GitHub+URL%3A+https%3A%2F%2Fgithub.com%2Fmdn%2Ftranslated-content%2Fblob%2Fmain%2Ffiles%2Fzh-cn%2Fweb%2Fjavascript%2Fguide%2Fdata_structures%2Findex.md%0A*+Last+commit%3A+https%3A%2F%2Fgithub.com%2Fmdn%2Ftranslated-content%2Fcommit%2Fd471fe723eee439484bbc28987ec4a85174c6577%0A*+Document+last+modified%3A+2025-07-16T08%3A48%3A27.000Z%0A%0A%3C%2Fdetails%3E" title="This will take you to GitHub to file a new issue." target="_blank" rel="noopener">Report a problem with this content</a>
+  </div>
+        </div>
+      </section>
+    
+          </div>
+        </main>
+        <aside class="layout__left-sidebar" id="main-sidebar">
+          <nav class="left-sidebar">
+      <div class="left-sidebar__header">
+        <mdn-sidebar-filter></mdn-sidebar-filter>
+      </div>
+      <div class="left-sidebar__content"><ol><li class="section"><a href="/zh-CN/docs/Web/JavaScript">JavaScript</a></li><li class="section"><span>教程</span></li><li><details><summary><a href="/zh-CN/docs/Web/JavaScript/Guide">JavaScript 指南</a></summary><ol><li><a href="/zh-CN/docs/Web/JavaScript/Guide/Introduction">介绍</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Guide/Grammar_and_types">语法和数据类型</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Guide/Control_flow_and_error_handling">流程控制与错误处理</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Guide/Loops_and_iteration">循环与迭代</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Guide/Functions">函数</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Guide/Expressions_and_operators">表达式与运算符</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Guide/Numbers_and_strings">数字与字符串</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Guide/Representing_dates_times">表达日期与时间</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Guide/Regular_expressions">正则表达式</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Guide/Indexed_collections">索引集合类</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Guide/Keyed_collections">带键的集合</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Guide/Working_with_objects">使用对象</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Guide/Using_classes">使用类</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Guide/Using_promises">使用 Promise</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Guide/Typed_arrays">JavaScript 类型化数组</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Guide/Iterators_and_generators">迭代器和生成器</a></li><li><a href="/en-US/docs/Web/JavaScript/Guide/Resource_management" class="only-in-en-us">资源管理</a></li><li><a href="/en-US/docs/Web/JavaScript/Guide/Internationalization" class="only-in-en-us">国际化</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Guide/Modules">JavaScript 模块</a></li></ol></details></li><li><details open=""><summary><span>中级</span></summary><ol><li><a href="/zh-CN/docs/Web/JavaScript/Guide/Language_overview">语言概述</a></li><li><em><a href="/zh-CN/docs/Web/JavaScript/Guide/Data_structures" aria-current="page">JavaScript 数据结构</a></em></li><li><a href="/zh-CN/docs/Web/JavaScript/Guide/Equality_comparisons_and_sameness">如何正确判断相等性</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Guide/Enumerability_and_ownership_of_properties">属性的可枚举性和所有权</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Guide/Closures">闭包</a></li></ol></details></li><li><details><summary><span>高级</span></summary><ol><li><a href="/zh-CN/docs/Web/JavaScript/Guide/Inheritance_and_the_prototype_chain">继承和原型链</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Guide/Meta_programming">元编程</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Guide/Memory_management">内存管理</a></li></ol></details></li><li class="section"><a href="/zh-CN/docs/Web/JavaScript/Reference">参考</a></li><li><details><summary><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects">内置对象</a></summary><ol><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/AggregateError">AggregateError</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Array">Array</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/ArrayBuffer">ArrayBuffer</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Global_Objects/AsyncDisposableStack" class="only-in-en-us">AsyncDisposableStack</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/AsyncFunction">AsyncFunction</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/AsyncGenerator">AsyncGenerator</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/AsyncGeneratorFunction">AsyncGeneratorFunction</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/AsyncIterator">AsyncIterator</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Atomics">Atomics</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/BigInt">BigInt</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/BigInt64Array">BigInt64Array</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Global_Objects/BigUint64Array" class="only-in-en-us">BigUint64Array</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Boolean">Boolean</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/DataView">DataView</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Date">Date</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/decodeURI">decodeURI()</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/decodeURIComponent">decodeURIComponent()</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Global_Objects/DisposableStack" class="only-in-en-us">DisposableStack</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/encodeURI">encodeURI()</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/encodeURIComponent">encodeURIComponent()</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Error">Error</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/escape">escape()</a><abbr class="icon icon-deprecated" title="已弃用。请不要在新的网站中使用。">
+<span class="visually-hidden">已弃用</span>
+</abbr></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/eval">eval()</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/EvalError">EvalError</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Global_Objects/FinalizationRegistry" class="only-in-en-us">FinalizationRegistry</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Global_Objects/Float16Array" class="only-in-en-us">Float16Array</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Float32Array">Float32Array</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Float64Array">Float64Array</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Function">Function</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Generator">Generator</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/GeneratorFunction">GeneratorFunction</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/globalThis">globalThis</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Infinity">Infinity</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Int8Array">Int8Array</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Int16Array">Int16Array</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Int32Array">Int32Array</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/InternalError">InternalError</a><abbr class="icon icon-nonstandard" title="非标准。请在使用前检查跨浏览器支持。">
+<span class="visually-hidden">非标准</span>
+</abbr></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Intl">Intl</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/isFinite">isFinite()</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/isNaN">isNaN()</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Iterator">Iterator</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/JSON">JSON</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Map">Map</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Math">Math</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/NaN">NaN</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Number">Number</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Object">Object</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/parseFloat">parseFloat</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/parseInt">parseInt</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Promise">Promise</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Proxy">Proxy</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/RangeError">RangeError</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/ReferenceError">ReferenceError</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Reflect">Reflect</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/RegExp">RegExp</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Set">Set</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/SharedArrayBuffer">SharedArrayBuffer</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/String">String</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Global_Objects/SuppressedError" class="only-in-en-us">SuppressedError</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Symbol">Symbol</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/SyntaxError">SyntaxError</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Global_Objects/Temporal" class="only-in-en-us">Temporal</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/TypedArray">TypedArray</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/TypeError">TypeError</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Uint8Array">Uint8Array</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Uint8ClampedArray">Uint8ClampedArray</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Uint16Array">Uint16Array</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Uint32Array">Uint32Array</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/undefined">undefined</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/unescape">unescape()</a><abbr class="icon icon-deprecated" title="已弃用。请不要在新的网站中使用。">
+<span class="visually-hidden">已弃用</span>
+</abbr></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/URIError">URIError</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/WeakMap">WeakMap</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/WeakRef">WeakRef</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/WeakSet">WeakSet</a></li></ol></details></li><li><details><summary><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators">表达式和运算符</a></summary><ol><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Addition">加法（+）</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Addition_assignment">加法赋值（+=）</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Assignment">赋值（=）</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/async_function">异步函数（async function）表达式</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/async_function*">async function* 表达式</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/await">await</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Bitwise_AND">按位与（&amp;）</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Bitwise_AND_assignment">按位与赋值（&amp;=）</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Bitwise_NOT">按位非（~）</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Bitwise_OR">按位或（|）</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Bitwise_OR_assignment">按位或赋值（|=）</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Bitwise_XOR">按位异或（^）</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Bitwise_XOR_assignment">按位异或赋值 (^=)</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/class">类表达式</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Comma_operator">逗号运算符（,）</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Conditional_operator">条件（三元）运算符</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Decrement">自减（--）</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/delete">delete 运算符</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Destructuring">解构</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Division">除法（/）</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Division_assignment">除法赋值（/=）</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Equality">相等（==）</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Exponentiation">幂（**）</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Exponentiation_assignment">幂赋值（**=）</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/function">函数表达式</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/function*">function* 表达式</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Greater_than">大于（&gt;）</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Greater_than_or_equal">大于等于（&gt;=）</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Grouping">圆括号运算符</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/import.meta">import.meta</a><ol><li><a href="/en-US/docs/Web/JavaScript/Reference/Operators/import.meta/resolve" class="only-in-en-us">import.meta.resolve()</a></li></ol></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/import">import()</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/in">in</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Increment">自增（++）</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Inequality">不相等（!=）</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/instanceof">instanceof</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Left_shift">左移 (&lt;&lt;)</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Left_shift_assignment">左移赋值（&lt;&lt;=）</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Less_than">小于（&lt;）</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Less_than_or_equal">小于等于（&lt;=）</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Logical_AND">逻辑与（&amp;&amp;）</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Logical_AND_assignment">逻辑与赋值（&amp;&amp;=）</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Logical_NOT">逻辑非（!）</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Logical_OR">逻辑或（||）</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Logical_OR_assignment">逻辑或赋值（||=）</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Multiplication">乘法（*）</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Multiplication_assignment">乘法赋值（*=）</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/new">new</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/new.target">new.target</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/null">null</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Nullish_coalescing_assignment">逻辑空赋值（??=）</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Nullish_coalescing">空值合并运算符（??）</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Object_initializer">对象初始化器</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Operator_precedence">运算符优先级</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Optional_chaining">可选链运算符（?.）</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Property_accessors">属性访问器</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Remainder">取余（%）</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Remainder_assignment">取余赋值（%=）</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Right_shift">右移（&gt;&gt;）</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Right_shift_assignment">右移赋值（&gt;&gt;=）</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Spread_syntax">展开语法（...）</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Strict_equality">严格相等（===）</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Strict_inequality">严格不相等（!==）</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Subtraction">减法（-）</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Subtraction_assignment">减法赋值（-=）</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/super">super</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/this">this</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/typeof">typeof</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Unary_negation">一元减（-）</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Unary_plus">一元加（+）</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Unsigned_right_shift">无符号右移（&gt;&gt;&gt;）</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/Unsigned_right_shift_assignment">无符号右移赋值（&gt;&gt;&gt;=）</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/void">void 运算符</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/yield">yield</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Operators/yield*">yield*</a></li></ol></details></li><li><details><summary><a href="/zh-CN/docs/Web/JavaScript/Reference/Statements">语句和声明</a></summary><ol><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Statements/async_function">async function</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Statements/async_function*">async function*</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Statements/await_using" class="only-in-en-us">await using</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Statements/block">块语句</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Statements/break">break</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Statements/class">class</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Statements/const">const</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Statements/continue">continue</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Statements/debugger">debugger</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Statements/do...while">do...while</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Statements/Empty">空语句</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Statements/export">export</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Statements/Expression_statement">表达式语句</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Statements/for">for</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Statements/for-await...of">for await...of</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Statements/for...in">for...in</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Statements/for...of">for...of</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Statements/function">function</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Statements/function*">function*</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Statements/if...else">if...else</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Statements/import">import</a><ol><li><a href="/en-US/docs/Web/JavaScript/Reference/Statements/import/with" class="only-in-en-us">Import attributes</a></li></ol></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Statements/label">label</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Statements/let">let</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Statements/return">return</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Statements/switch">switch</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Statements/throw">throw</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Statements/try...catch">try...catch</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Statements/using">using</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Statements/var">var</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Statements/while">while</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Statements/with">with</a><abbr class="icon icon-deprecated" title="已弃用。请不要在新的网站中使用。">
+<span class="visually-hidden">已弃用</span>
+</abbr></li></ol></details></li><li><details><summary><a href="/zh-CN/docs/Web/JavaScript/Reference/Functions">函数</a></summary><ol><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Functions/Arrow_functions">箭头函数表达式</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Functions/Default_parameters">默认参数值</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Functions/get">getter</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Functions/Method_definitions">方法的定义</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Functions/rest_parameters">剩余参数</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Functions/set">setter</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Functions/arguments">arguments 对象</a><ol><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Functions/arguments/Symbol.iterator">arguments[Symbol.iterator]()</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Functions/arguments/callee">arguments.callee</a><abbr class="icon icon-deprecated" title="已弃用。请不要在新的网站中使用。">
+<span class="visually-hidden">已弃用</span>
+</abbr></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Functions/arguments/length">arguments.length</a></li></ol></li></ol></details></li><li><details><summary><a href="/zh-CN/docs/Web/JavaScript/Reference/Classes">类</a></summary><ol><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Classes/constructor">构造函数</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Classes/extends">extends</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Classes/Private_elements">私有元素</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Classes/Public_class_fields">公有类字段</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Classes/static">static</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Classes/Static_initialization_blocks">静态初始化块</a></li></ol></details></li><li><details><summary><a href="/zh-CN/docs/Web/JavaScript/Reference/Regular_expressions">正则表达式</a></summary><ol><li><a href="/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Backreference" class="only-in-en-us">Backreference: \1, \2</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Capturing_group" class="only-in-en-us">Capturing group: (...)</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Character_class_escape" class="only-in-en-us">Character class escape: \d, \D, \w, \W, \s, \S</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Character_class" class="only-in-en-us">Character class: [...], [^...]</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Regular_expressions/Character_escape">字符转义：\\n、\\u{...}</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Disjunction" class="only-in-en-us">Disjunction: |</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Input_boundary_assertion" class="only-in-en-us">Input boundary assertion: ^, $</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Regular_expressions/Literal_character">字面字符：a、b</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Lookahead_assertion" class="only-in-en-us">Lookahead assertion: (?=...), (?!...)</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Lookbehind_assertion" class="only-in-en-us">Lookbehind assertion: (?&lt;=...), (?&lt;!...)</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Modifier" class="only-in-en-us">Modifier: (?ims-ims:...)</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Named_backreference" class="only-in-en-us">Named backreference: \k&lt;name&gt;</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Named_capturing_group" class="only-in-en-us">Named capturing group: (?&lt;name&gt;...)</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Non-capturing_group" class="only-in-en-us">Non-capturing group: (?:...)</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Regular_expressions/Quantifier">量词：*、+、?、{n}、{n,}、{n,m}</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Regular_expressions/Unicode_character_class_escape">Unicode 字符类转义：\p{...}、\P{...}</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Regular_expressions/Wildcard">通配符：.</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Word_boundary_assertion" class="only-in-en-us">Word boundary assertion: \b, \B</a></li></ol></details></li><li><details><summary><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors">错误</a></summary><ol><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Promise_any_all_rejected" class="only-in-en-us">AggregateError: No Promise in Promise.any was resolved</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/Property_access_denied">Error: Permission denied to access property "x"</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/Too_much_recursion">InternalError: too much recursion</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/Not_a_valid_code_point">RangeError: argument is not a valid code point</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/BigInt_division_by_zero">RangeError: BigInt division by zero</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/BigInt_negative_exponent" class="only-in-en-us">RangeError: BigInt negative exponent</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Form_must_be_one_of" class="only-in-en-us">RangeError: form must be one of 'NFC', 'NFD', 'NFKC', or 'NFKD'</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/Invalid_array_length">RangeError: invalid array length</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/Invalid_date">RangeError: invalid date</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/Precision_range">RangeError: precision is out of range</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/Bad_radix">RangeError: radix must be an integer</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/Resulting_string_too_large">RangeError: repeat count must be less than infinity</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/Negative_repetition_count">RangeError: repeat count must be non-negative</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Cant_be_converted_to_BigInt_because_it_isnt_an_integer" class="only-in-en-us">RangeError: x can't be converted to BigInt because it isn't an integer</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/Not_defined">ReferenceError: "x" is not defined</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/Undeclared_var">ReferenceError: assignment to undeclared variable "x"</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/Cant_access_lexical_declaration_before_init">ReferenceError: can't access lexical declaration`X' before initialization</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Super_not_called" class="only-in-en-us">ReferenceError: must call super constructor before using 'this' in derived class constructor</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Super_called_twice" class="only-in-en-us">ReferenceError: super() called twice in derived class constructor</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Bad_strict_arguments_eval" class="only-in-en-us">SyntaxError: 'arguments'/'eval' can't be defined or assigned to in strict mode code</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/Deprecated_octal_literal">SyntaxError: "0"-prefixed octal literals are deprecated</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/Strict_non_simple_params">SyntaxError: "use strict" not allowed in function with non-simple parameters</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/Reserved_identifier">SyntaxError: "x" is a reserved identifier</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Regex_backslash_at_end_of_pattern" class="only-in-en-us">SyntaxError: \ at end of pattern</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/Invalid_for-of_initializer">SyntaxError: a declaration in the head of a for-of loop can't have an initializer</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/Delete_in_strict_mode">SyntaxError: applying the 'delete' operator to an unqualified name is deprecated</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Arguments_not_allowed" class="only-in-en-us">SyntaxError: arguments is not valid in fields</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Bad_await" class="only-in-en-us">SyntaxError: await is only valid in async functions, async generators and modules</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/await_yield_in_parameter" class="only-in-en-us">SyntaxError: await/yield expression can't be used in parameter</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Cant_use_nullish_coalescing_unparenthesized" class="only-in-en-us">SyntaxError: cannot use `??` unparenthesized within `||` and `&amp;&amp;` expressions</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Regex_character_class_escape_in_class_range" class="only-in-en-us">SyntaxError: character class escape cannot be used in class range in regular expression</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Bad_continue" class="only-in-en-us">SyntaxError: continue must be inside loop</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Regex_duplicate_capture_group_name" class="only-in-en-us">SyntaxError: duplicate capture group name in regular expression</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Duplicate_parameter" class="only-in-en-us">SyntaxError: duplicate formal argument x</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/Invalid_for-in_initializer">SyntaxError: for-in loop head declarations may not have initializers</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/Unnamed_function_statement">SyntaxError: function statement requires a name</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Function_label" class="only-in-en-us">SyntaxError: functions cannot be labelled</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Either_be_both_static_or_non-static" class="only-in-en-us">SyntaxError: getter and setter for private name #x should either be both static or non-static</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Getter_no_arguments" class="only-in-en-us">SyntaxError: getter functions must have no arguments</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/Identifier_after_number">SyntaxError: identifier starts immediately after numeric literal</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/Illegal_character">SyntaxError: illegal character</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/import_decl_module_top_level" class="only-in-en-us">SyntaxError: import declarations may only appear at top level of a module</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Regex_incomplete_quantifier" class="only-in-en-us">SyntaxError: incomplete quantifier in regular expression</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/Invalid_assignment_left-hand_side">SyntaxError: invalid assignment left-hand side</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Invalid_BigInt_syntax" class="only-in-en-us">SyntaxError: invalid BigInt syntax</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Regex_invalid_capture_group_name" class="only-in-en-us">SyntaxError: invalid capture group name in regular expression</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Regex_invalid_char_in_class" class="only-in-en-us">SyntaxError: invalid character in class in regular expression</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Regex_invalid_class_set_operation" class="only-in-en-us">SyntaxError: invalid class set operation in regular expression</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Regex_invalid_decimal_escape" class="only-in-en-us">SyntaxError: invalid decimal escape in regular expression</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Regex_invalid_identity_escape" class="only-in-en-us">SyntaxError: invalid identity escape in regular expression</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Regex_invalid_named_capture_reference" class="only-in-en-us">SyntaxError: invalid named capture reference in regular expression</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Regex_invalid_property_name" class="only-in-en-us">SyntaxError: invalid property name in regular expression</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Regex_invalid_range_in_character_class" class="only-in-en-us">SyntaxError: invalid range in character class</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Regex_invalid_group" class="only-in-en-us">SyntaxError: invalid regexp group</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/Bad_regexp_flag">SyntaxError: invalid regular expression flag "x"</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Regex_invalid_unicode_escape" class="only-in-en-us">SyntaxError: invalid unicode escape in regular expression</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/JSON_bad_parse">SyntaxError: JSON.parse: bad parsing</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Label_not_found" class="only-in-en-us">SyntaxError: label not found</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/Missing_colon_after_property_id">SyntaxError: missing : after property id</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/Missing_parenthesis_after_argument_list">SyntaxError: missing ) after argument list</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/Missing_parenthesis_after_condition">SyntaxError: missing ) after condition</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/Missing_bracket_after_list">SyntaxError: missing ] after element list</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/Missing_curly_after_function_body">SyntaxError: missing } after function body</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/Missing_curly_after_property_list">SyntaxError: missing } after property list</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/Missing_initializer_in_const">SyntaxError: missing = in const declaration</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/Missing_formal_parameter">SyntaxError: missing formal parameter</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/Missing_name_after_dot_operator">SyntaxError: missing name after . operator</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/No_variable_name">SyntaxError: missing variable name</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Regex_negated_char_class_with_strings" class="only-in-en-us">SyntaxError: negated character class with strings in regular expression</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Bad_new_optional" class="only-in-en-us">SyntaxError: new keyword cannot be used with an optional chain</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Regex_nothing_to_repeat" class="only-in-en-us">SyntaxError: nothing to repeat</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Regex_numbers_out_of_order_in_quantifier" class="only-in-en-us">SyntaxError: numbers out of order in {} quantifier.</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Deprecated_octal_escape_sequence" class="only-in-en-us">SyntaxError: octal escape sequences can't be used in untagged template literals or in strict mode code</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Parameter_after_rest_parameter" class="only-in-en-us">SyntaxError: parameter after rest parameter</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Cant_delete_private_fields" class="only-in-en-us">SyntaxError: private fields can't be deleted</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Duplicate_proto" class="only-in-en-us">SyntaxError: property name __proto__ appears more than once in object literal</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Regex_raw_bracket" class="only-in-en-us">SyntaxError: raw bracket is not allowed in regular expression with unicode flag</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/Redeclared_parameter">SyntaxError: redeclaration of formal parameter "x"</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Undeclared_private_field_or_method" class="only-in-en-us">SyntaxError: reference to undeclared private field or method #x</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Rest_with_default" class="only-in-en-us">SyntaxError: rest parameter may not have a default</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/Bad_return">SyntaxError: return not in function</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Setter_one_argument" class="only-in-en-us">SyntaxError: setter functions must have one argument</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/String_literal_EOL">SyntaxError: string literal contains an unescaped line break</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Bad_super_call" class="only-in-en-us">SyntaxError: super() is only valid in derived class constructors</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Bad_optional_template" class="only-in-en-us">SyntaxError: tagged template cannot be used with optional chain</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Hash_outside_class" class="only-in-en-us">SyntaxError: Unexpected '#' used outside of class body</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/Unexpected_token">SyntaxError: Unexpected token</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Bad_break" class="only-in-en-us">SyntaxError: unlabeled break must be inside loop or switch</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Unparenthesized_unary_expr_lhs_exponentiation" class="only-in-en-us">SyntaxError: unparenthesized unary expression can't appear on the left-hand side of '**'</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Bad_super_prop" class="only-in-en-us">SyntaxError: use of super property/member accesses only valid within methods or eval code within methods</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/Deprecated_source_map_pragma">SyntaxError: Using //@ to indicate sourceURL pragmas is deprecated. Use //# instead</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/Deprecated_caller_or_arguments_usage">ReferenceError: deprecated caller or arguments usage</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/is_not_iterable">TypeError: 'x' is not iterable</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/Unexpected_type">TypeError: "x" is (not) "y"</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/Not_a_constructor">TypeError: "x" is not a constructor</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/Not_a_function">TypeError: "x" is not a function</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/No_non-null_object">TypeError: "x" is not a non-null object</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/Read-only">TypeError: "x" is read-only</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Already_executing_generator" class="only-in-en-us">TypeError: already executing generator</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/BigInt_not_serializable" class="only-in-en-us">TypeError: BigInt value can't be serialized in JSON</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Builtin_ctor_no_new" class="only-in-en-us">TypeError: calling a builtin X constructor without new is forbidden</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Get_set_missing_private" class="only-in-en-us">TypeError: can't access/set private field or method: object is not the right class</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/Cant_assign_to_property">TypeError: can't assign to property "x" on "y": not an object</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Cant_convert_BigInt_to_number" class="only-in-en-us">TypeError: can't convert BigInt to number</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Cant_convert_x_to_BigInt" class="only-in-en-us">TypeError: can't convert x to BigInt</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/Cant_define_property_object_not_extensible">TypeError: can't define property "x": "obj" is not extensible</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/Non_configurable_array_element">TypeError: can't delete non-configurable array element</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/Cant_redefine_property">TypeError: can't redefine non-configurable property "x"</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Cant_set_prototype" class="only-in-en-us">TypeError: can't set prototype of this object</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Cyclic_prototype" class="only-in-en-us">TypeError: can't set prototype: it would cause a prototype chain cycle</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/in_operator_no_object">TypeError: invalid 'in' operand "x"</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Class_ctor_no_new" class="only-in-en-us">TypeError: class constructors must be invoked with 'new'</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/Cyclic_object_value">TypeError: cyclic object value</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Invalid_derived_return" class="only-in-en-us">TypeError: derived class constructor returned invalid value x</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Private_setter_only" class="only-in-en-us">TypeError: getting private setter-only property</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Private_double_initialization" class="only-in-en-us">TypeError: Initializing an object twice is an error with private fields/methods</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/invalid_right_hand_side_instanceof_operand">TypeError: invalid 'instanceof' operand 'x'</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/Array_sort_argument">TypeError: invalid Array.prototype.sort argument</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/Invalid_const_assignment">TypeError: invalid assignment to const "x"</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Constructor_cant_be_used_directly" class="only-in-en-us">TypeError: Iterator/AsyncIterator constructor can't be used directly</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Requires_global_RegExp" class="only-in-en-us">TypeError: matchAll/replaceAll must be called with a global RegExp</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/More_arguments_needed">TypeError: More arguments needed</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/No_properties">TypeError: "x" has no properties</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/Cant_delete">TypeError: property "x" is non-configurable and can't be deleted</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/Reduce_of_empty_array_with_no_initial_value">TypeError: Reduce of empty array with no initial value</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/Getter_only">TypeError: setting getter-only property "x"</a></li><li><a href="/en-US/docs/Web/JavaScript/Reference/Errors/Key_not_weakly_held" class="only-in-en-us">TypeError: WeakSet key/WeakMap value 'x' must be an object or an unregistered symbol</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/Called_on_incompatible_type">X.prototype.y called on incompatible type</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/Malformed_URI">URIError: malformed URI sequence</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/Already_has_pragma">Warning: -file- is being assigned a //# sourceMappingURL, but already has one</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Errors/Stmt_after_return">Warning: unreachable code after return statement</a></li></ol></details></li><li><details><summary><span>更多</span></summary><ol><li><a href="/zh-CN/docs/Web/JavaScript/Reference/JavaScript_technologies_overview">JavaScript 技术概要</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Execution_model">运行模型</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Lexical_grammar">词法文法</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Iteration_protocols">迭代协议</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Strict_mode">严格模式</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Template_literals">模板字符串</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Trailing_commas">尾后逗号</a></li><li><a href="/zh-CN/docs/Web/JavaScript/Reference/Deprecated_and_obsolete_features">已废弃的特性</a></li></ol></details></li></ol></div>
+    </nav>
+        </aside>
+      </div>
+    </div>
+        <div class="page-layout__footer">
+      <mdn-placement-bottom></mdn-placement-bottom>
+      <footer class="footer">
+        <div class="footer__mdn">
+          <div class="footer__intro">
+            <a class="footer__logo" href="/" aria-label="MDN logo"><!--lit-part eLWenVoT9SE=--><svg xmlns="http://www.w3.org/2000/svg" width="83" height="24" viewBox="0 0 83 24"><path d="M9.4 0 2.81 21.17H.12L6.69 0zm2.38 0v21.17H9.4V0h2.4Zm9.27 0-6.56 21.17H11.8L18.36 0zm2.39 0v21.17h-2.4V0zm22.11 16.83h-3.93v-1.27h.87v-3.63c0-.85-.16-1.45-.48-1.82a1.65 1.65 0 0 0-1.3-.52c-.74 0-1.3.25-1.66.78a3 3 0 0 0-.58 1.58v3.59h1.38v1.26h-3.93v-1.26h.87v-3.6c0-.88-.16-1.48-.48-1.83a1.7 1.7 0 0 0-1.29-.52 1.93 1.93 0 0 0-1.65.75 2.85 2.85 0 0 0-.58 1.6v3.62h1.59v1.27h-4.64v-1.27h1.37V9.75h-1.4V8.46h3.08v1.47c.28-.48.62-.87 1.08-1.2a3 3 0 0 1 1.68-.45c.67 0 1.22.16 1.73.48.5.32.85.8 1.03 1.47.25-.57.62-1.03 1.13-1.4.5-.37 1.1-.55 1.81-.55.8 0 1.5.25 2.05.75.55.51.85 1.3.85 2.35v4.18h1.4zm9.77 0H52.3v-1.66c-.27.51-.66.95-1.13 1.29-.56.4-1.23.59-1.9.55-1.11 0-2-.37-2.67-1.12a4.4 4.4 0 0 1-1-3.06c0-1.15.3-2.2.93-3.15.6-.94 1.58-1.43 2.94-1.43s2.25.5 2.83 1.5V5.22h-2V3.93h3.63v11.63h1.38v1.27Zm-3.06-3.86v-1.02a2.28 2.28 0 0 0-.73-1.67 2.4 2.4 0 0 0-1.66-.65 2.18 2.18 0 0 0-1.88.9 3.63 3.63 0 0 0-.65 2.2c0 .95.23 1.68.7 2.19.45.5 1.03.76 1.7.76.73 0 1.33-.3 1.79-.88.48-.6.71-1.21.73-1.83m14.14 3.86h-4.43v-1.27h1.37v-3.63c0-.85-.16-1.45-.5-1.82a1.68 1.68 0 0 0-1.31-.52c-.71 0-1.29.23-1.7.69a2.52 2.52 0 0 0-.67 1.6v3.66h1.38v1.26H56.1v-1.26h1.38v-5.8h-1.42V8.47h3.12V9.9c.6-1.06 1.57-1.6 2.92-1.6.83 0 1.54.26 2.12.77.57.5.85 1.28.85 2.34v4.19h1.38v1.24h-.05Zm1.31 5.15H83V24H67.71z"></path></svg><!--/lit-part--></a>
+            <p>
+              Your blueprint for a better internet.
+            </p>
+          </div>
+
+          <ul class="footer__socials">
+            
+                <li>
+                  <a href="https://github.com/mdn/" target="_blank" rel="noopener" aria-label="MDN on GitHub" data-icon="github"></a>
+                </li>
+              
+                <li>
+                  <a href="https://bsky.app/profile/developer.mozilla.org" target="_blank" rel="noopener" aria-label="MDN on Bluesky" data-icon="bluesky"></a>
+                </li>
+              
+                <li>
+                  <a href="https://x.com/mozdevnet" target="_blank" rel="noopener" aria-label="MDN on X" data-icon="x"></a>
+                </li>
+              
+                <li>
+                  <a href="https://mastodon.social/@mdn" target="_blank" rel="noopener" aria-label="MDN on Mastodon" data-icon="mastodon"></a>
+                </li>
+              
+                <li>
+                  <a href="/en-US/blog/rss.xml" target="_blank" rel="noopener" aria-label="MDN blog RSS feed" data-icon="rss"></a>
+                </li>
+              
+          </ul>
+
+          
+              <dl class="footer__links">
+                <dt>MDN</dt>
+                <dd>
+                  <ul>
+                    
+                        <li>
+                          <a href="/en-US/about" class="" target="" rel="">
+                            About
+                          </a>
+                        </li>
+                      
+                        <li>
+                          <a href="/en-US/blog/" class="" target="" rel="">
+                            Blog
+                          </a>
+                        </li>
+                      
+                        <li>
+                          <a href="https://www.mozilla.org/en-US/careers/listings/" class="external" target="_blank" rel="noopener">
+                            Mozilla careers
+                          </a>
+                        </li>
+                      
+                        <li>
+                          <a href="/en-US/advertising" class="" target="" rel="">
+                            Advertise with us
+                          </a>
+                        </li>
+                      
+                        <li>
+                          <a href="/en-US/plus" class="" target="" rel="">
+                            MDN Plus
+                          </a>
+                        </li>
+                      
+                        <li>
+                          <a href="https://support.mozilla.org/products/mdn-plus" class="external" target="_blank" rel="noopener">
+                            Product help
+                          </a>
+                        </li>
+                      
+                  </ul>
+                </dd>
+              </dl>
+            
+              <dl class="footer__links">
+                <dt>Contribute</dt>
+                <dd>
+                  <ul>
+                    
+                        <li>
+                          <a href="/en-US/community" class="" target="" rel="">
+                            MDN Community
+                          </a>
+                        </li>
+                      
+                        <li>
+                          <a href="/en-US/docs/MDN/Community" class="" target="" rel="">
+                            Community resources
+                          </a>
+                        </li>
+                      
+                        <li>
+                          <a href="/en-US/docs/MDN/Writing_guidelines" class="" target="" rel="">
+                            Writing guidelines
+                          </a>
+                        </li>
+                      
+                        <li>
+                          <a href="/discord" class="external" target="_blank" rel="noopener">
+                            MDN Discord
+                          </a>
+                        </li>
+                      
+                        <li>
+                          <a href="https://github.com/mdn" class="external" target="_blank" rel="noopener">
+                            MDN on GitHub
+                          </a>
+                        </li>
+                      
+                  </ul>
+                </dd>
+              </dl>
+            
+              <dl class="footer__links">
+                <dt>Developers</dt>
+                <dd>
+                  <ul>
+                    
+                        <li>
+                          <a href="/en-US/docs/Web" class="" target="" rel="">
+                            Web technologies
+                          </a>
+                        </li>
+                      
+                        <li>
+                          <a href="/en-US/docs/Learn_web_development" class="" target="" rel="">
+                            Learn web development
+                          </a>
+                        </li>
+                      
+                        <li>
+                          <a href="/en-US/docs/MDN/Guides" class="" target="" rel="">
+                            Guides
+                          </a>
+                        </li>
+                      
+                        <li>
+                          <a href="/en-US/docs/MDN/Tutorials" class="" target="" rel="">
+                            Tutorials
+                          </a>
+                        </li>
+                      
+                        <li>
+                          <a href="/en-US/docs/Glossary" class="" target="" rel="">
+                            Glossary
+                          </a>
+                        </li>
+                      
+                        <li>
+                          <a href="https://hacks.mozilla.org/" class="external" target="_blank" rel="noopener">
+                            Hacks blog
+                          </a>
+                        </li>
+                      
+                  </ul>
+                </dd>
+              </dl>
+            
+        </div>
+
+        <div class="footer__mozilla">
+          <a class="footer__logo" href="https://www.mozilla.org/" aria-label="Mozilla logo"><!--lit-part /TOdX171+us=--><svg xmlns="http://www.w3.org/2000/svg" width="128" height="30" viewBox="0 0 256 60"><path d="m13.32 22.1 5.1 24.3h2.1l5.1-24.3H39.3v37.34h-7.26V28.46h-2.1l-6.96 30.98h-7.02L9.02 28.46h-2.1v31H-.35V22.1h13.66Zm45.12 8.74c8.73 0 13.8 5.15 13.8 14.57S67.14 60 58.44 60c-8.73 0-13.8-5.17-13.8-14.59 0-9.43 5.07-14.57 13.8-14.57m0 23.34c4.1 0 6.16-2.1 6.16-6.73v-4.12c0-4.62-2.06-6.73-6.16-6.73s-6.15 2.1-6.15 6.73v4.12c0 4.63 2.05 6.73 6.15 6.73m17.68-.14 14.82-17.26H76.32v-5.41h23.31v5.4L84.84 54.05h15.03v5.4H76.13v-5.41Zm28.07-22.67h10.7v28.07h-7.25V36.77h-3.48v-5.4zm3.44-9.27h7.26v5.4h-7.25v-5.4Zm12.62 0h10.72v37.34h-7.24V27.5h-3.48zm16.08 0h10.7v37.34h-7.25V27.5h-3.48v-5.4zm27.8 8.74c4.24 0 7.08 2.05 7.87 5.63h2.1v-5.1h8.88v5.4h-3.47v17.28h3.47v5.4h-4.25c-3 0-4.63-1.63-4.63-4.62v-.48H172c-.78 3.58-3.63 5.63-7.88 5.63-6.68 0-11.4-5.59-11.4-14.58 0-9 4.72-14.55 11.4-14.55m2.2 23.34c4.1 0 5.93-2.1 5.93-6.73v-4.12c0-4.62-1.82-6.73-5.94-6.73-3.99 0-5.92 2.1-5.92 6.73v4.13c0 4.62 1.92 6.72 5.93 6.72m46.28 5.27h-7.26V0h7.26zm6.3-28.41h30.8v-2.1l-20.4-7.32v-5.88l20.4-7.33v-2.1h-24.27V0h30.79v12l-16.62 5.63v2.11l16.61 5.64v12H218.9zm0-24.73h6.5v6.52h-6.5z"></path></svg><!--/lit-part--></a>
+          <ul>
+            
+                <li>
+                  <a href="https://www.mozilla.org/privacy/websites/" class="external">Website Privacy Notice</a>
+                </li>
+              
+                <li>
+                  <a href="https://www.mozilla.org/en-US/privacy/websites/data-preferences/" class="external">Telemetry Settings</a>
+                </li>
+              
+                <li>
+                  <a href="https://www.mozilla.org/about/legal/terms/mozilla" class="external">Legal</a>
+                </li>
+              
+                <li>
+                  <a href="https://www.mozilla.org/about/governance/policies/participation/" class="external">Community Participation Guidelines</a>
+                </li>
+              
+          </ul>
+          <p>
+            Visit <a href="https://www.mozilla.org/">Mozilla Corporation’s</a> not-for-profit parent, the <a href="https://foundation.mozilla.org/">Mozilla Foundation</a>.<br>
+            Portions of this content are ©1998–2026 by individual mozilla.org contributors. Content available under <a href="/docs/MDN/Writing_guidelines/Attrib_copyright_license">a Creative Commons license</a>.
+          </p>
+        </div>
+      </footer>
+    </div>
+      
+    
+      
+    </body></html>
