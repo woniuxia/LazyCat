@@ -54,7 +54,7 @@
 
   <div v-else class="snippet-workspace-shell">
     <header class="snippet-workspace-header">
-      <el-button text type="primary" @click="exitSnippetWorkspaceToHome">返回首页</el-button>
+      <el-button class="snippet-back-btn" text @click="exitSnippetWorkspaceToHome">返回首页</el-button>
       <h1>代码片段工作区</h1>
     </header>
     <main class="snippet-workspace-body">
@@ -279,6 +279,10 @@ const currentComponentProps = computed(() => {
 });
 
 function onSelect(id: string) {
+  if (id === SNIPPETS_ID) {
+    enterSnippetWorkspace();
+    return;
+  }
   viewMode.value = "main";
   const name = getToolName(id);
   if (id !== HOME_ID) recordToolClick(id);

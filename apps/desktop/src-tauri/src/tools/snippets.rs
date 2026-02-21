@@ -449,7 +449,7 @@ fn v2_get(payload: &Value) -> Result<Value, String> {
 
 fn v2_create(payload: &Value) -> Result<Value, String> {
     let conn = db_conn()?;
-    let title = payload["title"].as_str().unwrap_or("未命名片段").trim();
+    let title = payload["title"].as_str().unwrap_or_default();
     let description = payload["description"].as_str().unwrap_or_default();
     let folder_id = payload["folderId"].as_i64();
     let is_favorite = payload["isFavorite"].as_bool().unwrap_or(false);
@@ -465,7 +465,7 @@ fn v2_create(payload: &Value) -> Result<Value, String> {
         "INSERT INTO snippet_entries (title, description, folder_id, is_favorite, primary_language, last_used_at)
          VALUES (?1, ?2, ?3, ?4, ?5, CURRENT_TIMESTAMP)",
         params![
-            if title.is_empty() { "未命名片段" } else { title },
+            title,
             description,
             folder_id,
             if is_favorite { 1 } else { 0 },
@@ -504,7 +504,7 @@ fn v2_update(payload: &Value) -> Result<Value, String> {
     if let Some(title) = payload["title"].as_str() {
         conn.execute(
             "UPDATE snippet_entries SET title = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2",
-            params![if title.trim().is_empty() { "未命名片段" } else { title.trim() }, entry_id],
+            params![title.trim(), entry_id],
         )
         .map_err(|e| format!("v2_update title failed: {e}"))?;
     }

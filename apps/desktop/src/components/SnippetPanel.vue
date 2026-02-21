@@ -40,37 +40,15 @@
         </div>
       </section>
 
-      <section class="left-section">
-        <div class="section-title-row">
-          <span class="section-title">文件夹</span>
-          <el-button text size="small" @click="createFolder">新建</el-button>
-        </div>
-        <div class="folder-list">
-          <button
-            class="folder-item"
-            :class="{ active: selectedFolderId === null }"
-            @click="selectedFolderId = null; loadSnippets()"
-          >
-            全部文件夹
-          </button>
-          <button
-            v-for="folder in folders"
-            :key="folder.id"
-            class="folder-item"
-            :class="{ active: selectedFolderId === folder.id }"
-            @click="selectedFolderId = folder.id; loadSnippets()"
-          >
-            <span>{{ folder.name }}</span>
-            <span class="count">{{ folder.snippetCount }}</span>
-          </button>
-        </div>
-      </section>
     </aside>
 
     <section class="middle-pane">
       <header class="middle-header">
-        <div>
-          <h2>片段列表</h2>
+        <div class="middle-header-left">
+          <div class="middle-header-title-row">
+            <h2>片段列表</h2>
+            <el-button type="primary" size="small" @click="createSnippet">新建片段</el-button>
+          </div>
           <p>{{ listSubTitle }}</p>
         </div>
         <div class="middle-actions">
@@ -80,7 +58,6 @@
             <el-option label="最近创建" value="created_at" />
             <el-option label="标题" value="title" />
           </el-select>
-          <el-button type="primary" size="small" @click="createSnippet">新建片段</el-button>
         </div>
       </header>
 
@@ -93,14 +70,13 @@
           @click="selectSnippet(item.id)"
         >
           <div class="snippet-item-head">
-            <span class="snippet-title">{{ item.title }}</span>
+            <span class="snippet-title">{{ item.title || "（空白标题）" }}</span>
             <span class="snippet-meta">{{ item.primaryLanguage }}</span>
           </div>
           <div class="snippet-item-desc">{{ item.description || '暂无描述' }}</div>
           <div class="snippet-item-footer">
             <span>{{ formatTime(item.lastUsedAt || item.updatedAt) }}</span>
             <span>{{ item.fragmentCount }} 段</span>
-            <span>使用 {{ item.useCount }}</span>
           </div>
           <div class="snippet-tags">
             <span v-for="tag in item.tags" :key="tag" class="list-tag">{{ tag }}</span>
@@ -134,62 +110,68 @@
         />
 
         <div class="meta-row">
-          <el-select
-            v-model="current.folderId"
-            clearable
-            size="small"
-            placeholder="文件夹"
-            style="width: 180px"
-            @change="scheduleSave"
-          >
-            <el-option label="无文件夹" :value="null" />
-            <el-option v-for="folder in folders" :key="folder.id" :label="folder.name" :value="folder.id" />
-          </el-select>
-
-          <div class="tags-editor">
-            <el-tag
-              v-for="tag in current.tags"
-              :key="tag"
-              size="small"
-              closable
-              @close="removeTag(tag)"
-            >{{ tag }}</el-tag>
-            <el-input
-              v-if="tagInputVisible"
-              ref="tagInputRef"
-              v-model="tagInput"
-              size="small"
-              style="width: 96px"
-              @keyup.enter="confirmTag"
-              @blur="confirmTag"
-            />
-            <el-button v-else text size="small" @click="showTagInput">+标签</el-button>
+          <div class="tag-block">
+            <div class="tag-block-header">
+              <span class="tag-block-title">标签</span>
+              <el-autocomplete
+                v-if="tagInputVisible"
+                ref="tagInputRef"
+                v-model="tagInput"
+                size="small"
+                style="width: 120px"
+                :fetch-suggestions="queryTagSuggestions"
+                placeholder="输入标签"
+                @keyup.enter="confirmTag"
+                @select="onSelectTagSuggestion"
+                @blur="confirmTag"
+              />
+              <el-button v-else text size="small" @click="showTagInput">+标签</el-button>
+            </div>
+            <div class="tags-editor">
+              <el-tag
+                v-for="tag in current.tags"
+                :key="tag"
+                size="small"
+                closable
+                @close="removeTag(tag)"
+              >{{ tag }}</el-tag>
+            </div>
           </div>
         </div>
 
         <div class="fragment-row">
-          <el-tabs v-model="activeFragmentName" type="card" editable @edit="onTabEdit">
-            <el-tab-pane v-for="(frag, idx) in current.fragments" :key="idx" :name="String(idx)">
-              <template #label>
-                <span v-if="renamingIdx !== idx" @dblclick.stop="startRename(idx)">{{ frag.label }}</span>
-                <el-input
-                  v-else
-                  v-model="renameValue"
-                  size="small"
-                  style="width: 96px"
-                  @keyup.enter="confirmRename"
-                  @blur="confirmRename"
-                />
-              </template>
-            </el-tab-pane>
-          </el-tabs>
+          <div class="fragment-tabs-inline">
+            <el-tabs
+              v-model="activeFragmentName"
+              class="fragment-tabs"
+              type="card"
+              :addable="false"
+              :closable="true"
+              @tab-remove="onTabRemove"
+            >
+              <el-tab-pane v-for="(frag, idx) in current.fragments" :key="idx" :name="String(idx)">
+                <template #label>
+                  <span v-if="renamingIdx !== idx" @dblclick.stop="startRename(idx)">{{ frag.label }}</span>
+                  <el-input
+                    v-else
+                    v-model="renameValue"
+                    size="small"
+                    style="width: 96px"
+                    @keyup.enter="confirmRename"
+                    @blur="confirmRename"
+                  />
+                </template>
+              </el-tab-pane>
+            </el-tabs>
+            <el-button class="add-fragment-btn" text size="small" @click="addFragment">+片段</el-button>
+          </div>
           <el-select
             v-if="activeFragment"
             v-model="activeFragment.language"
             size="small"
             style="width: 160px"
             filterable
-            @change="scheduleSave"
+            @change="onFragmentLanguageChange"
           >
             <el-option v-for="lang in languageOptions" :key="lang" :label="lang" :value="lang" />
           </el-select>
@@ -220,7 +202,6 @@ interface SnippetSummary {
   id: number;
   title: string;
   description: string;
-  folderId: number | null;
   isFavorite: boolean;
   primaryLanguage: string;
   createdAt: string;
@@ -243,17 +224,9 @@ interface SnippetDetail {
   id: number;
   title: string;
   description: string;
-  folderId: number | null;
   isFavorite: boolean;
   fragments: Fragment[];
   tags: string[];
-}
-
-interface FolderItem {
-  id: number;
-  name: string;
-  parentId: number | null;
-  snippetCount: number;
 }
 
 interface TagStat {
@@ -267,16 +240,47 @@ const defaultLanguages = [
   "php", "ruby", "swift", "kotlin", "scala", "lua", "r", "dart", "dockerfile", "graphql", "toml"
 ];
 
+const languageExtensionMap: Record<string, string> = {
+  javascript: "js",
+  typescript: "ts",
+  python: "py",
+  java: "java",
+  go: "go",
+  rust: "rs",
+  sql: "sql",
+  html: "html",
+  css: "css",
+  json: "json",
+  xml: "xml",
+  yaml: "yml",
+  bash: "sh",
+  shell: "sh",
+  markdown: "md",
+  plaintext: "txt",
+  c: "c",
+  cpp: "cpp",
+  csharp: "cs",
+  php: "php",
+  ruby: "rb",
+  swift: "swift",
+  kotlin: "kt",
+  scala: "scala",
+  lua: "lua",
+  r: "r",
+  dart: "dart",
+  dockerfile: "dockerfile",
+  graphql: "graphql",
+  toml: "toml",
+};
+
 const keyword = ref("");
 const selectedTag = ref("");
-const selectedFolderId = ref<number | null>(null);
 const sortBy = ref<"last_used" | "updated_at" | "created_at" | "title">("last_used");
 const viewPreset = ref<"all" | "favorite" | "recent7" | "untagged">("all");
 const snippets = ref<SnippetSummary[]>([]);
 const current = ref<SnippetDetail | null>(null);
 const selectedId = ref<number | null>(null);
 const tagStats = ref<TagStat[]>([]);
-const folders = ref<FolderItem[]>([]);
 const activeFragmentName = ref("0");
 const tagInputVisible = ref(false);
 const tagInput = ref("");
@@ -332,7 +336,6 @@ async function ensureInitialized() {
 
 function buildQuery() {
   return {
-    folder_id: selectedFolderId.value,
     tag: selectedTag.value,
     sort_by: sortBy.value,
     favorite_only: viewPreset.value === "favorite",
@@ -355,10 +358,7 @@ async function loadSnippets() {
 }
 
 async function loadMeta() {
-  [tagStats.value, folders.value] = await Promise.all([
-    ipc<TagStat[]>("tool:snippets:v2:tag-stats"),
-    ipc<FolderItem[]>("tool:snippets:v2:folder-list"),
-  ]);
+  tagStats.value = await ipc<TagStat[]>("tool:snippets:v2:tag-stats");
 }
 
 async function selectSnippet(id: number) {
@@ -371,9 +371,8 @@ async function selectSnippet(id: number) {
 
 async function createSnippet() {
   const created = await ipc<SnippetDetail>("tool:snippets:v2:create", {
-    title: "未命名片段",
+    title: "",
     description: "",
-    folderId: selectedFolderId.value,
     tags: selectedTag.value ? [selectedTag.value] : [],
     fragments: [{ label: "main", language: "plaintext", code: "" }],
   });
@@ -391,7 +390,6 @@ function scheduleSave() {
       id: current.value.id,
       title: current.value.title,
       description: current.value.description,
-      folderId: current.value.folderId,
       isFavorite: current.value.isFavorite,
       tags: current.value.tags,
       fragments: current.value.fragments,
@@ -437,6 +435,25 @@ function confirmTag() {
   tagInputVisible.value = false;
 }
 
+function queryTagSuggestions(queryString: string, cb: (items: Array<{ value: string }>) => void) {
+  const existed = new Set((current.value?.tags ?? []).map((tag) => tag.toLowerCase()));
+  const normalizedQuery = queryString.trim().toLowerCase();
+  const candidates = tagStats.value
+    .map((item) => item.tag)
+    .filter((tag) => !existed.has(tag.toLowerCase()));
+
+  const filtered = normalizedQuery
+    ? candidates.filter((tag) => tag.toLowerCase().includes(normalizedQuery))
+    : candidates;
+
+  cb(filtered.slice(0, 8).map((tag) => ({ value: tag })));
+}
+
+function onSelectTagSuggestion(item: { value: string }) {
+  tagInput.value = item.value;
+  confirmTag();
+}
+
 function removeTag(tag: string) {
   if (!current.value) return;
   current.value.tags = current.value.tags.filter((t) => t !== tag);
@@ -458,30 +475,40 @@ function confirmRename() {
   scheduleSave();
 }
 
-function onTabEdit(targetName: string | number, action: "add" | "remove") {
+function addFragment() {
   if (!current.value) return;
+  const idx = current.value.fragments.length;
+  current.value.fragments.push({
+    label: `片段 ${idx + 1}`,
+    language: "plaintext",
+    code: "",
+    sortOrder: idx,
+  });
+  activeFragmentName.value = String(idx);
+  scheduleSave();
+}
 
-  if (action === "add") {
-    const idx = current.value.fragments.length;
-    current.value.fragments.push({
-      label: `片段 ${idx + 1}`,
-      language: "plaintext",
-      code: "",
-      sortOrder: idx,
-    });
-    activeFragmentName.value = String(idx);
-    scheduleSave();
-    return;
+function onTabRemove(targetName: string | number) {
+  if (!current.value) return;
+  const idx = Number(targetName);
+  if (!Number.isFinite(idx) || current.value.fragments.length <= 1) return;
+  current.value.fragments.splice(idx, 1);
+  current.value.fragments.forEach((frag, i) => { frag.sortOrder = i; });
+  activeFragmentName.value = String(Math.max(0, idx - 1));
+  scheduleSave();
+}
+
+function onFragmentLanguageChange() {
+  if (!activeFragment.value) return;
+  const fragment = activeFragment.value;
+  const currentLabel = fragment.label.trim();
+
+  if (currentLabel && !/\.[a-z0-9]+$/i.test(currentLabel)) {
+    const ext = languageExtensionMap[fragment.language.toLowerCase()] ?? fragment.language.toLowerCase();
+    fragment.label = `${currentLabel}.${ext}`;
   }
 
-  if (action === "remove") {
-    const idx = Number(targetName);
-    if (!Number.isFinite(idx) || current.value.fragments.length <= 1) return;
-    current.value.fragments.splice(idx, 1);
-    current.value.fragments.forEach((frag, i) => { frag.sortOrder = i; });
-    activeFragmentName.value = String(Math.max(0, idx - 1));
-    scheduleSave();
-  }
+  scheduleSave();
 }
 
 function formatTime(value: string): string {
@@ -508,18 +535,6 @@ async function toggleFavorite() {
   if (!current.value) return;
   current.value.isFavorite = !current.value.isFavorite;
   scheduleSave();
-}
-
-async function createFolder() {
-  const { value } = await ElMessageBox.prompt("文件夹名称", "新建文件夹", {
-    inputValue: "新建文件夹",
-    confirmButtonText: "创建",
-    cancelButtonText: "取消",
-  });
-  if ((value ?? "").trim()) {
-    await ipc("tool:snippets:v2:folder-create", { name: value.trim() });
-    await loadMeta();
-  }
 }
 
 onMounted(async () => {
@@ -596,28 +611,19 @@ onBeforeUnmount(() => {
   padding-top: 10px;
 }
 
-.section-title,
-.section-title-row {
+.section-title {
   font-size: 12px;
   color: var(--lc-text-muted);
   margin-bottom: 6px;
 }
 
-.section-title-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.tag-list,
-.folder-list {
+.tag-list {
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
 
-.tag-item,
-.folder-item {
+.tag-item {
   border: none;
   background: transparent;
   color: var(--lc-text-secondary);
@@ -630,14 +636,12 @@ onBeforeUnmount(() => {
   justify-content: space-between;
 }
 
-.tag-item:hover,
-.folder-item:hover {
+.tag-item:hover {
   background: var(--lc-surface-2);
   color: var(--lc-text);
 }
 
-.tag-item.active,
-.folder-item.active {
+.tag-item.active {
   background: var(--lc-accent-dim);
   color: var(--lc-accent);
 }
@@ -659,6 +663,17 @@ onBeforeUnmount(() => {
   border-bottom: 1px solid var(--lc-border-subtle);
   display: flex;
   justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.middle-header-left {
+  min-width: 0;
+}
+
+.middle-header-title-row {
+  display: flex;
+  align-items: center;
   gap: 8px;
 }
 
@@ -712,6 +727,10 @@ onBeforeUnmount(() => {
   font-size: 14px;
   font-weight: 600;
   color: var(--lc-text);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .snippet-meta,
@@ -731,8 +750,10 @@ onBeforeUnmount(() => {
 
 .snippet-item-footer {
   margin-top: 8px;
-  display: flex;
-  gap: 10px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  column-gap: 8px;
 }
 
 .snippet-tags {
@@ -773,9 +794,27 @@ onBeforeUnmount(() => {
 
 .meta-row {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  align-items: flex-start;
+  justify-content: flex-start;
   gap: 10px;
+}
+
+.tag-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+
+.tag-block-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tag-block-title {
+  font-size: 12px;
+  color: var(--lc-text-muted);
 }
 
 .tags-editor {
@@ -789,11 +828,28 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
 }
 
-.fragment-row .el-tabs {
+.fragment-tabs-inline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   flex: 1;
   min-width: 0;
+}
+
+.fragment-tabs {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.fragment-tabs-inline :deep(.el-tabs__header) {
+  margin: 0;
+}
+
+.add-fragment-btn {
+  flex-shrink: 0;
 }
 
 .editor-body {

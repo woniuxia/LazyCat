@@ -20,6 +20,7 @@ declare module 'vue' {
     DiffPanel: typeof import('./src/components/DiffPanel.vue')['default']
     DnsPanel: typeof import('./src/components/DnsPanel.vue')['default']
     ElAlert: typeof import('element-plus/es')['ElAlert']
+    ElAutocomplete: typeof import('element-plus/es')['ElAutocomplete']
     ElButton: typeof import('element-plus/es')['ElButton']
     ElButtonGroup: typeof import('element-plus/es')['ElButtonGroup']
     ElCheckbox: typeof import('element-plus/es')['ElCheckbox']
