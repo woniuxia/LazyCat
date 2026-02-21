@@ -272,3 +272,21 @@ fn hosts_backup_restore(payload: &Value) -> Result<Value, String> {
     write_hosts_file(&backup_content)?;
     Ok(json!({ "ok": true, "restoredFrom": filename }))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn save_empty_name_should_fail() {
+        let err = execute("save", &json!({ "name": "", "content": "" })).expect_err("empty name");
+        assert!(err.contains("hosts profile name is empty"));
+    }
+
+    #[test]
+    fn backup_restore_empty_filename_should_fail() {
+        let err = execute("backup_restore", &json!({ "filename": "" })).expect_err("must fail");
+        assert!(err.contains("backup filename is empty"));
+    }
+}

@@ -55,3 +55,21 @@ pub fn execute_tool(domain: &str, action: &str, payload: &Value) -> Result<Value
         _ => Err(format!("unsupported command: {domain}.{action}")),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn unsupported_domain_should_fail() {
+        let err = execute_tool("nope", "x", &json!({})).expect_err("must fail");
+        assert!(err.contains("unsupported command"));
+    }
+
+    #[test]
+    fn known_domain_should_dispatch() {
+        let out = execute_tool("gen", "uuid", &json!({})).expect("dispatch");
+        assert!(out.as_str().map(|s| s.len() == 36).unwrap_or(false));
+    }
+}

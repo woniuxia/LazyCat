@@ -213,3 +213,44 @@ Cron 工具原先仅提供基础 6 字段输入与简单预览，缺少规范化
 - apps/desktop/src/App.vue
 
 **使用次数**: 0
+
+## 2026-02-21: Backend Unit Test Expansion for Critical Tool Domains
+**场景**: 为 Rust 后端 tools 域补充单元测试，重点覆盖编码转换、加解密、模板渲染与高风险输入分支。
+**问题**:
+1. 现有测试主要集中在 cron/text，核心安全与转换能力覆盖不足。
+2. 多个 action 缺少错误分支验证，回归时容易出现静默偏差。
+3. 系统能力（network/dns/file/image/env/port 等）缺少稳定 smoke 测试。
+**解决**:
+1. 为 `encode/crypto/convert/jwt/schema/mybatis/nginx` 增加核心单测与错误分支。
+2. 为 `network/dns/file/image/env/port/format/gen/time/regex/manuals/mod` 增加稳定测试。
+3. 调整易波动断言（如 OpenSSL DES 可用性、resize 等比行为、url_decode 容错行为）以避免假阳性失败。
+4. 统一执行 `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml`，最终 76/76 通过。
+**关键点**:
+1. 避免新增测试依赖导致环境下载失败；优先使用标准库与现有依赖。
+2. 对系统相关能力尽量使用本地回环与临时文件，避免依赖外网和真实系统状态。
+3. 对第三方库行为差异（OpenSSL provider、urlencoding 容错）采用兼容断言。
+**涉及文件**:
+- apps/desktop/src-tauri/Cargo.toml
+- apps/desktop/src-tauri/src/tools/encode.rs
+- apps/desktop/src-tauri/src/tools/crypto.rs
+- apps/desktop/src-tauri/src/tools/convert.rs
+- apps/desktop/src-tauri/src/tools/jwt.rs
+- apps/desktop/src-tauri/src/tools/schema.rs
+- apps/desktop/src-tauri/src/tools/mybatis.rs
+- apps/desktop/src-tauri/src/tools/nginx.rs
+- apps/desktop/src-tauri/src/tools/network.rs
+- apps/desktop/src-tauri/src/tools/dns.rs
+- apps/desktop/src-tauri/src/tools/file.rs
+- apps/desktop/src-tauri/src/tools/image.rs
+- apps/desktop/src-tauri/src/tools/env.rs
+- apps/desktop/src-tauri/src/tools/port.rs
+- apps/desktop/src-tauri/src/tools/regex.rs
+- apps/desktop/src-tauri/src/tools/manuals.rs
+- apps/desktop/src-tauri/src/tools/settings.rs
+- apps/desktop/src-tauri/src/tools/snippets.rs
+- apps/desktop/src-tauri/src/tools/hotkey.rs
+- apps/desktop/src-tauri/src/tools/format.rs
+- apps/desktop/src-tauri/src/tools/gen.rs
+- apps/desktop/src-tauri/src/tools/time.rs
+- apps/desktop/src-tauri/src/tools/mod.rs
+**使用次数**: 0

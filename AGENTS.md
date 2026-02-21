@@ -3,6 +3,9 @@
 本文件定义在本仓库内工作的编码代理（Codex/Claude/其他）统一执行规范。
 如与用户明确指令冲突，以用户指令为准。
 
+> **双文件同步约束**：本文件（`AGENTS.md`）与 `CLAUDE.md` 共同维护项目规范。
+> 更新本文件的任何章节时，必须同步检查并更新 `CLAUDE.md` 中的对应内容，保持两者一致。
+
 ## 1. 项目概览
 
 - 项目：Lazycat（懒猫）
@@ -101,17 +104,32 @@ UI 文本改动后至少执行：
 
 ## 9. 手册架构与扩展（新增）
 
-- 离线手册采用“每个手册独立本地 HTTP 端口”方式，避免 VitePress 绝对路径资源冲突。
+- 离线手册采用"每个手册独立本地 HTTP 端口"方式，避免 VitePress 绝对路径资源冲突。
 - 手册列表来源于 Rust 端 `manuals:list` 的已注册项，新增手册需同步更新注册表。
-- 新增手册优先“源码构建产物复制”方案；无法源码构建（如需外部 token）时可使用 Puppeteer 抓取作为兜底。
+- 新增手册优先"源码构建产物复制"方案；无法源码构建（如需外部 token）时可使用 Puppeteer 抓取作为兜底。
 - 修改手册加载逻辑后，必须同时验证开发态与打包态路径解析。
 
-新增手册标准步骤：
+新增手册**必须同时修改两处**（缺一不可）：
 
 1. 准备手册静态产物（优先构建产物，兜底 Puppeteer 抓取）。
 2. 复制到 `resources/manuals/<id>/`。
-3. 在 Rust 端 `manuals:list` 中注册 `<id>/<name>/<entry>`。
-4. 构建并人工验证 iframe 可加载、站内链接可跳转。
+3. **`apps/desktop/src-tauri/src/tools/manuals.rs`** 的 `known` 数组中注册 `(id, name, entry_path)`。
+4. **`apps/desktop/src/App.vue`** 的 `sidebarItems` 离线手册分组中增加 `{ id: "manual-<id>", name, desc }`。
+   - 前端 id 格式必须为 `manual-<id>`，`ManualPanel.vue` 会自动去掉前缀与后端匹配。
+5. 构建并人工验证 iframe 可加载、站内链接可跳转。
+
+**Puppeteer 抓取要点（MDN 类型）**：
+- SPA 路由无扩展名的路径（如 `/zh-CN/docs/Web/JavaScript/Reference/Array`）必须保存为 `<path>/index.html`，直接保存为同名文件会导致子路径 `ENOTDIR`。
+- 使用系统 Edge：`C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`。
+- ESM 脚本中用 `createRequire(import.meta.url)` 导入 CJS 的 puppeteer。
+- Windows 不支持路径含 `*` 的文件名（约 5 个 MDN 特殊页面），可忽略。
+- 抓取脚本模板：`scripts/scrape-mdn-js.mjs`（可参考复用）。
+
+**HTML 注入机制（离线噪音清除）**：
+- HTTP 服务器在 `handle_manual_request` 中对所有 HTML 响应在 `</head>` 前注入 CSS + JS。
+- 位置：`apps/desktop/src-tauri/src/main.rs` → `INJECT` 常量。
+- CSS 隐藏已知噪音元素，JS 兜底扫描 `fixed`/`sticky` 定位弹窗（DOMContentLoaded + 1s + 3s 三次）。
+- **新增手册有离线噪音时**，只需在 `INJECT` 的 CSS 选择器列表末尾追加对应 class/id，无需改其他文件。
 
 ## 10. settings 通道约定（新增）
 
@@ -219,12 +237,18 @@ UI 文本改动后至少执行：
 ## 19. 手册与资源维护清单
 
 - 新增手册后，必须在 `manuals.rs` 的 `known` 列表注册，否则前端不会显示入口。
+- 必须同时在 `App.vue` 的 `sidebarItems` 中添加 `manual-<id>` 条目，否则侧边栏不显示。
 - 手册首页路径必须可直接被本地 HTTP 服务访问（建议验证 200 + 资源加载）。
 - 若新增手册文件量大，提交前先与用户确认是否合并到同一提交。
 - 变更 `resources/manuals` 后建议验证：
   1. `manuals:list` 是否返回目标手册
   2. 前端 `manual-<id>` 是否能打开
   3. 站内跳转和静态资源是否正常
+- **HTML 注入选择器维护**：`apps/desktop/src-tauri/src/main.rs` → `handle_manual_request` → `INJECT` 常量。
+  当前隐藏的元素（截至 2026-02-21）：
+  - MDN：`.navigation__popup`、`.menu__panel` 系列、`.page-layout__footer`、`.page-layout__banner`、`mdn-placement-*`、`.bb-banner`、`#bb-banner`、`.spsr-container`、`.content-section.article-footer`
+  - Vue 3：`.preference-tooltip`
+  - 通用：`.notification-bar`、`.mdn-cta`、`.top-banner`、`.pong-box`、`.article-actions-container`
 
 ## 20. Windows 构建脚本约定（补充）
 

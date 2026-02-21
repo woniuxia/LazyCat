@@ -55,3 +55,41 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         _ => Err(format!("unsupported jwt action: {action}")),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn b64url_json(v: &Value) -> String {
+        URL_SAFE_NO_PAD.encode(serde_json::to_vec(v).expect("serialize"))
+    }
+
+    #[test]
+    fn decode_valid_jwt_should_return_parts_and_exp_status() {
+        let header = json!({"alg":"HS256","typ":"JWT"});
+        let payload = json!({"sub":"u1","exp": chrono::Utc::now().timestamp() + 3600});
+        let token = format!(
+            "{}.{}.{}",
+            b64url_json(&header),
+            b64url_json(&payload),
+            URL_SAFE_NO_PAD.encode("sig")
+        );
+
+        let out = execute("decode", &json!({ "token": token })).expect("decode");
+        assert_eq!(out["header"]["alg"], "HS256");
+        assert_eq!(out["payload"]["sub"], "u1");
+        assert_eq!(out["signature"], "736967");
+        assert_eq!(out["expired"], false);
+        assert!(out["exp_readable"].as_str().unwrap_or_default().contains("UTC"));
+    }
+
+    #[test]
+    fn decode_invalid_token_should_fail() {
+        let err = execute("decode", &json!({ "token": "a.b" })).expect_err("invalid parts");
+        assert!(err.contains("expected 3 parts"));
+
+        let err = execute("decode", &json!({ "token": "bad.abc.def" })).expect_err("bad header");
+        assert!(err.contains("Failed to decode header") || err.contains("Failed to parse header JSON"));
+    }
+}

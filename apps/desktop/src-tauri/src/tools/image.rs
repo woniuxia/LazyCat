@@ -122,3 +122,44 @@ fn image_convert(payload: &Value) -> Result<Value, String> {
       "size": metadata.len()
     }))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn image_info_and_convert_should_work() {
+        let dir = std::env::temp_dir().join(format!("lazycat-image-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        let input = dir.join("input.png");
+        let output = dir.join("out.jpg");
+
+        let img = image::DynamicImage::new_rgba8(16, 8);
+        img.save_with_format(&input, ImageFormat::Png).expect("save input");
+
+        let info = execute(
+            "info",
+            &json!({ "inputPath": input.to_string_lossy().to_string() }),
+        )
+        .expect("info");
+        assert_eq!(info["width"], 16);
+        assert_eq!(info["height"], 8);
+
+        let converted = execute(
+            "convert",
+            &json!({
+                "inputPath": input.to_string_lossy().to_string(),
+                "outputPath": output.to_string_lossy().to_string(),
+                "format": "jpeg",
+                "width": 10,
+                "height": 10,
+                "quality": 70
+            }),
+        )
+        .expect("convert");
+        assert_eq!(converted["width"], 10);
+        assert_eq!(converted["height"], 5);
+        assert!(std::path::Path::new(output.to_string_lossy().as_ref()).exists());
+    }
+}

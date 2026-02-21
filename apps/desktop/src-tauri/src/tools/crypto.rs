@@ -92,3 +92,203 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         _ => Err(format!("unsupported crypto action: {action}")),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn rsa_encrypt_decrypt_round_trip() {
+        let keypair = Rsa::generate(2048).expect("generate keypair");
+        let private_pem = String::from_utf8(keypair.private_key_to_pem().expect("private pem"))
+            .expect("utf8 private pem");
+        let public_pem = String::from_utf8(keypair.public_key_to_pem().expect("public pem"))
+            .expect("utf8 public pem");
+
+        let plaintext = "LazyCat RSA ✅";
+        let cipher = execute(
+            "rsa_encrypt",
+            &json!({
+                "plaintext": plaintext,
+                "publicKeyPem": public_pem
+            }),
+        )
+        .expect("rsa encrypt");
+
+        let output = execute(
+            "rsa_decrypt",
+            &json!({
+                "cipherTextBase64": cipher,
+                "privateKeyPem": private_pem
+            }),
+        )
+        .expect("rsa decrypt");
+
+        assert_eq!(output, json!(plaintext));
+    }
+
+    #[test]
+    fn aes_round_trip_for_all_supported_algorithms() {
+        let plaintext = "hello aes";
+
+        let out128 = execute(
+            "aes_encrypt",
+            &json!({
+                "plaintext": plaintext,
+                "key": "1234567890abcdef",
+                "iv": "abcdef1234567890",
+                "algorithm": "aes-128-cbc"
+            }),
+        )
+        .expect("aes128 enc");
+        let dec128 = execute(
+            "aes_decrypt",
+            &json!({
+                "cipherTextBase64": out128,
+                "key": "1234567890abcdef",
+                "iv": "abcdef1234567890",
+                "algorithm": "aes-128-cbc"
+            }),
+        )
+        .expect("aes128 dec");
+        assert_eq!(dec128, json!(plaintext));
+
+        let out192 = execute(
+            "aes_encrypt",
+            &json!({
+                "plaintext": plaintext,
+                "key": "1234567890abcdef12345678",
+                "iv": "abcdef1234567890",
+                "algorithm": "aes-192-cbc"
+            }),
+        )
+        .expect("aes192 enc");
+        let dec192 = execute(
+            "aes_decrypt",
+            &json!({
+                "cipherTextBase64": out192,
+                "key": "1234567890abcdef12345678",
+                "iv": "abcdef1234567890",
+                "algorithm": "aes-192-cbc"
+            }),
+        )
+        .expect("aes192 dec");
+        assert_eq!(dec192, json!(plaintext));
+
+        // Unknown algorithm should fall back to aes-256-cbc.
+        let out256 = execute(
+            "aes_encrypt",
+            &json!({
+                "plaintext": plaintext,
+                "key": "1234567890abcdef1234567890abcdef",
+                "iv": "abcdef1234567890",
+                "algorithm": "unknown"
+            }),
+        )
+        .expect("aes256 enc");
+        let dec256 = execute(
+            "aes_decrypt",
+            &json!({
+                "cipherTextBase64": out256,
+                "key": "1234567890abcdef1234567890abcdef",
+                "iv": "abcdef1234567890",
+                "algorithm": "aes-256-cbc"
+            }),
+        )
+        .expect("aes256 dec");
+        assert_eq!(dec256, json!(plaintext));
+    }
+
+    #[test]
+    fn des_round_trip_for_des_and_3des() {
+        let plaintext = "hello des";
+
+        // In some OpenSSL builds (provider restrictions), DES-CBC may be unavailable.
+        match execute(
+            "des_encrypt",
+            &json!({
+                "plaintext": plaintext,
+                "key": "12345678",
+                "iv": "abcdefgh",
+                "algorithm": "des-cbc"
+            }),
+        ) {
+            Ok(out_des) => {
+                let dec_des = execute(
+                    "des_decrypt",
+                    &json!({
+                        "cipherTextBase64": out_des,
+                        "key": "12345678",
+                        "iv": "abcdefgh",
+                        "algorithm": "des-cbc"
+                    }),
+                )
+                .expect("des dec");
+                assert_eq!(dec_des, json!(plaintext));
+            }
+            Err(err) => {
+                assert!(err.contains("des encrypt failed"));
+            }
+        }
+
+        let out_3des = execute(
+            "des_encrypt",
+            &json!({
+                "plaintext": plaintext,
+                "key": "123456789012345678901234",
+                "iv": "abcdefgh",
+                "algorithm": "des-ede3-cbc"
+            }),
+        )
+        .expect("3des enc");
+        let dec_3des = execute(
+            "des_decrypt",
+            &json!({
+                "cipherTextBase64": out_3des,
+                "key": "123456789012345678901234",
+                "iv": "abcdefgh",
+                "algorithm": "des-ede3-cbc"
+            }),
+        )
+        .expect("3des dec");
+        assert_eq!(dec_3des, json!(plaintext));
+    }
+
+    #[test]
+    fn crypto_invalid_inputs_should_fail() {
+        let err = execute(
+            "rsa_encrypt",
+            &json!({
+                "plaintext": "x",
+                "publicKeyPem": "bad pem"
+            }),
+        )
+        .expect_err("invalid public key should fail");
+        assert!(err.contains("invalid public key"));
+
+        let err = execute(
+            "aes_encrypt",
+            &json!({
+                "plaintext": "x",
+                "key": "short",
+                "iv": "short",
+                "algorithm": "aes-256-cbc"
+            }),
+        )
+        .expect_err("invalid key/iv should fail");
+        assert!(err.contains("aes encrypt failed"));
+
+        let err = execute(
+            "aes_decrypt",
+            &json!({
+                "cipherTextBase64": "%%%bad-base64%%%",
+                "key": "1234567890abcdef1234567890abcdef",
+                "iv": "abcdef1234567890",
+                "algorithm": "aes-256-cbc"
+            }),
+        )
+        .expect_err("invalid base64 should fail");
+        assert!(err.contains("invalid base64"));
+    }
+}

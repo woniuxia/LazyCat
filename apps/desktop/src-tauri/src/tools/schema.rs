@@ -136,3 +136,45 @@ fn example_from_schema(schema: &Value, warnings: &mut Vec<String>) -> Value {
         _ => Value::Null,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn validate_should_return_true_for_valid_document() {
+        let schema = r#"{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}"#;
+        let doc = r#"{"name":"lazycat"}"#;
+        let out = execute("validate", &json!({ "schema": schema, "document": doc })).expect("validate");
+        assert_eq!(out["valid"], true);
+        assert_eq!(out["errors"], json!([]));
+    }
+
+    #[test]
+    fn validate_should_return_errors_for_invalid_document() {
+        let schema = r#"{"type":"object","properties":{"age":{"type":"integer"}},"required":["age"]}"#;
+        let doc = r#"{"age":"x"}"#;
+        let out = execute("validate", &json!({ "schema": schema, "document": doc })).expect("validate");
+        assert_eq!(out["valid"], false);
+        assert!(out["errors"].as_array().map_or(0, |a| a.len()) >= 1);
+    }
+
+    #[test]
+    fn generate_example_should_handle_enum_and_one_of() {
+        let schema_enum = r#"{"type":"string","enum":["A","B"]}"#;
+        let out = execute("generate_example", &json!({ "schema": schema_enum })).expect("example");
+        assert_eq!(out["example"], "A");
+
+        let schema_oneof = r#"{"oneOf":[{"type":"integer"},{"type":"string"}]}"#;
+        let out = execute("generate_example", &json!({ "schema": schema_oneof })).expect("example");
+        assert_eq!(out["example"], 0);
+        assert!(out["warnings"].as_array().map_or(0, |a| a.len()) >= 1);
+    }
+
+    #[test]
+    fn schema_empty_input_should_fail() {
+        let err = execute("validate", &json!({ "schema": "", "document": "{}" })).expect_err("empty schema");
+        assert!(err.contains("schema is empty"));
+    }
+}

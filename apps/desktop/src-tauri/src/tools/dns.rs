@@ -295,3 +295,32 @@ async fn query_srv(resolver: &TokioAsyncResolver, name: &str) -> Value {
         Err(_) => json!([]),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn system_dns_should_return_arrays() {
+        let out = execute("system_dns", &json!({})).expect("system dns");
+        assert!(out["ipv4"].is_array());
+        assert!(out["all"].is_array());
+    }
+
+    #[test]
+    fn resolve_empty_domain_should_fail() {
+        let err = execute("resolve", &json!({ "domain": "" })).expect_err("must fail");
+        assert!(err.contains("domain is required"));
+    }
+
+    #[test]
+    fn resolve_invalid_server_should_fail() {
+        let err = execute(
+            "resolve",
+            &json!({ "domain": "example.com", "server": "not-an-ip" }),
+        )
+        .expect_err("must fail");
+        assert!(err.contains("invalid DNS server address"));
+    }
+}

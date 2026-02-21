@@ -83,3 +83,66 @@ fn write_text(payload: &Value) -> Result<Value, String> {
         .map_err(|e| format!("写入文件失败: {e}"))?;
     Ok(json!({ "path": path }))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use std::fs;
+
+    #[test]
+    fn split_and_merge_should_keep_content() {
+        let dir = std::env::temp_dir().join(format!("lazycat-file-{}", std::process::id()));
+        fs::create_dir_all(&dir).expect("mkdir");
+        let source = dir.join("source.bin");
+        let output_dir = dir.join("parts");
+        let merged = dir.join("merged.bin");
+        let content = vec![1u8; 1024 * 1024 + 123];
+        fs::write(&source, &content).expect("write source");
+
+        let split_out = execute(
+            "split",
+            &json!({
+                "sourcePath": source.to_string_lossy().to_string(),
+                "outputDir": output_dir.to_string_lossy().to_string(),
+                "chunkSizeMb": 1
+            }),
+        )
+        .expect("split");
+        assert!(split_out["chunkCount"].as_u64().unwrap_or(0) >= 2);
+
+        let mut parts = fs::read_dir(&output_dir)
+            .expect("list parts")
+            .filter_map(|e| e.ok().map(|v| v.path()))
+            .collect::<Vec<_>>();
+        parts.sort();
+        let parts_json = parts
+            .iter()
+            .map(|p| json!(p.to_string_lossy().to_string()))
+            .collect::<Vec<_>>();
+
+        execute(
+            "merge",
+            &json!({
+                "parts": parts_json,
+                "outputPath": merged.to_string_lossy().to_string()
+            }),
+        )
+        .expect("merge");
+
+        let merged_content = fs::read(&merged).expect("read merged");
+        assert_eq!(merged_content, content);
+    }
+
+    #[test]
+    fn write_text_should_write_file() {
+        let path = std::env::temp_dir().join(format!("lazycat-write-{}.txt", std::process::id()));
+        execute(
+            "write_text",
+            &json!({ "path": path.to_string_lossy().to_string(), "content": "abc" }),
+        )
+        .expect("write_text");
+        assert_eq!(fs::read_to_string(&path).expect("read"), "abc");
+        let _ = fs::remove_file(path);
+    }
+}

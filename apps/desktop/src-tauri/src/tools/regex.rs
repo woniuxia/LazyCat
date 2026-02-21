@@ -141,3 +141,67 @@ fn load_templates() -> Result<Vec<Value>, String> {
         serde_json::from_str(&content).map_err(|e| format!("failed to parse templates: {e}"))?;
     Ok(templates)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use std::fs;
+    use std::sync::Once;
+
+    static INIT: Once = Once::new();
+
+    fn init_templates_dir() {
+        INIT.call_once(|| {
+            let dir = std::env::temp_dir().join(format!("lazycat-regex-{}", std::process::id()));
+            fs::create_dir_all(&dir).expect("create temp regex dir");
+            fs::write(
+                dir.join("templates.json"),
+                r#"[{"id":"email","expression":"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}"},{"id":"digits","expression":"\\d+"}]"#,
+            )
+            .expect("write templates");
+            let _ = REGEX_TEMPLATES_DIR.set(dir);
+        });
+    }
+
+    #[test]
+    fn test_action_should_return_matches_and_groups() {
+        let out = execute(
+            "test",
+            &json!({
+                "pattern": "(?P<name>foo)(\\d+)",
+                "flags": "g",
+                "input": "foo12 bar foo34"
+            }),
+        )
+        .expect("regex test");
+        let arr = out.as_array().cloned().unwrap_or_default();
+        assert_eq!(arr.len(), 2);
+        assert_eq!(arr[0]["groups"][0]["name"], "name");
+    }
+
+    #[test]
+    fn replace_action_should_work() {
+        let out = execute(
+            "replace",
+            &json!({
+                "pattern": "\\d+",
+                "flags": "g",
+                "input": "a1b2",
+                "replacement": "X"
+            }),
+        )
+        .expect("replace");
+        assert_eq!(out, json!("aXbX"));
+    }
+
+    #[test]
+    fn templates_and_generate_should_work() {
+        init_templates_dir();
+        let templates = execute("templates", &json!({})).expect("templates");
+        assert!(templates.as_array().map_or(0, |a| a.len()) >= 1);
+
+        let generated = execute("generate", &json!({ "kind": "digits" })).expect("generate");
+        assert_eq!(generated, json!(r"\d+"));
+    }
+}

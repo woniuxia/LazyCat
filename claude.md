@@ -2,6 +2,9 @@
 
 本文件为 Claude 或其他编码代理提供项目上下文和协作规范。
 
+> **双文件同步约束**：本文件（`CLAUDE.md`）与 `AGENTS.md` 共同维护项目规范。
+> 更新本文件的任何章节时，必须同步检查并更新 `AGENTS.md` 中的对应内容，保持两者一致。
+
 ## 项目信息
 
 - 名称: Lazycat (懒猫)
@@ -203,31 +206,58 @@
    cp -r .vitepress/dist resources/manuals/<id>
    ```
 
-3. **注册手册**（`main.rs` 的 `manuals:list` 分支）：
+3. **注册手册**——两处都要改：
+
+   `apps/desktop/src-tauri/src/tools/manuals.rs` 的 `known` 数组：
    ```rust
    let known = [
        ("vue3",         "Vue 3 开发手册",       "/guide/introduction.html"),
        ("element-plus", "Element Plus 组件库",  "/zh-CN/component/overview"),
+       ("mdn-js",       "MDN JavaScript 手册",  "/zh-CN/docs/Web/JavaScript/Guide/"),
        ("<id>",         "<名称>",               "/<首页路径>"),  // 新增
    ];
    ```
 
+   `apps/desktop/src/App.vue` 的 `sidebarItems` 离线手册分组：
+   ```ts
+   { id: "manual-<id>", name: "<名称>", desc: "<描述>" }
+   ```
+
+   **注意**：前端 id 格式为 `manual-<id>`，`ManualPanel.vue` 会自动去掉 `manual-` 前缀与后端 id 匹配。
+
 4. **清理临时目录**，验证 `pnpm dev` 能正确加载
 
-### Puppeteer SPA 抓取方案（Element Plus 适用）
+### Puppeteer SPA 抓取方案（Element Plus / MDN 适用）
 
-当文档无法从源码构建中文版时（如 Element Plus 需要 Crowdin API token），用 Puppeteer 抓取线上 SPA：
+当文档无法从源码构建中文版时，用 Puppeteer 抓取线上 SPA：
 
-1. 从 sitemap 获取所有 `/zh-CN/` 页面 URL
-2. 用 Puppeteer (headless Edge/Chrome) 逐页打开，等待 `networkidle0` + `#app .VPContent` 渲染
-3. `page.content()` 获取完整 DOM HTML，将绝对 URL 替换为相对路径后保存
-4. 收集页面中引用的 CSS/JS/字体/图片 URL，用 `fetch` 批量下载
+1. 从首页出发递归收集同前缀链接，并发抓取（建议 CONCURRENCY=3，DELAY=600ms 避免限速）
+2. 用 Puppeteer（headless Edge）逐页打开，等待 `networkidle0` + 主内容区渲染
+3. `page.content()` 获取完整 DOM HTML 后保存
+4. 收集页面中引用的静态资源 URL，用 `fetch` 批量下载
 
 注意事项：
-- SPA 路由的 URL 没有 `.html` 扩展名（如 `/zh-CN/guide/design`），保存为同名文件
-- HTTP 服务器需要处理无扩展名文件：先尝试加 `.html`，再尝试作为目录找 `index.html`，并通过 body 内容检测 MIME 类型
+- **SPA 路由无扩展名**（如 `/zh-CN/docs/Web/JavaScript/Reference/Array`）必须保存为 `<path>/index.html`，否则子路径写入时报 `ENOTDIR`
+- HTTP 服务器已处理无扩展名路径（先尝试加 `.html`，再找 `index.html`），MDN 内链接直接可用
 - Puppeteer 可用系统已装的 Edge：`executablePath: "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"`
-- 100 个页面 + 200 个静态资源，约需 5-10 分钟
+- ESM 脚本中用 `createRequire(import.meta.url)` 导入 CJS 的 puppeteer
+- Windows 文件系统不支持路径含 `*` 的页面名（如 `async_function*`），约 5 个页面无法保存，可忽略
+- 抓取脚本模板：`scripts/scrape-mdn-js.mjs`（可参考复用）
+
+### HTML 注入机制（离线噪音清除）
+
+HTTP 服务器在返回 HTML 响应时，在 `</head>` 前注入一段 CSS + JS，隐藏各手册中离线无用的导航弹窗、广告、页脚等元素。
+
+**注入位置**：`apps/desktop/src-tauri/src/main.rs` → `handle_manual_request` 函数，`Ok(body)` 分支
+
+**当前隐藏的元素**：
+- MDN：`.navigation__popup`、`.menu__panel` 系列、`.page-layout__footer`、`.page-layout__banner`、`mdn-placement-*`、`.bb-banner`、`#bb-banner`、`.spsr-container`、`.content-section.article-footer`
+- Vue 3：`.preference-tooltip`（API 风格切换提示弹窗）
+- 通用：`.notification-bar`、`.mdn-cta`、`.top-banner`、`.pong-box`
+
+**新增手册需隐藏元素时**：直接在 `INJECT` 常量的 CSS 选择器列表中追加，无需其他改动。
+
+**JS 兜底**：`DOMContentLoaded` + 1s + 3s 三次扫描，强制隐藏所有 `fixed`/`sticky` 定位且宽度 > 100px 的弹窗元素。
 
 ### 常见坑点
 
@@ -235,6 +265,9 @@
 - **优先从源码构建** — `git clone` + `pnpm build` 得到的才是完整的 SSR 静态产物；Puppeteer 抓取是 fallback 方案
 - **注意 `bundle.resources` 路径** — 相对于 `apps/desktop/src-tauri/`，不是项目根目录
 - **Element Plus 源码构建中文版需要 Crowdin API token** — 没有 token 只能构建英文版
+- **MDN 类型手册无扩展名路径必须保存为目录下 index.html** — 直接保存为同名文件会导致子路径 `ENOTDIR` 错误
+- **注册新手册必须同时改两处** — `manuals.rs` 的 `known` 数组 + `App.vue` 的 `sidebarItems`，缺一不可
+- **新手册有离线噪音时** — 在 `main.rs` 的 `INJECT` CSS 选择器中追加对应 class/id 即可，无需改其他文件
 
 ## 流程记录 (process.md)
 

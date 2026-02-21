@@ -38,3 +38,54 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         _ => Err(format!("unsupported gen action: {action}")),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn uuid_and_guid_should_match_expected_shapes() {
+        let uuid = execute("uuid", &json!({})).expect("uuid");
+        let s = uuid.as_str().unwrap_or_default();
+        assert_eq!(s.len(), 36);
+        assert!(s.chars().filter(|c| *c == '-').count() == 4);
+
+        let guid = execute("guid", &json!({})).expect("guid");
+        let g = guid.as_str().unwrap_or_default();
+        assert!(g.starts_with('{') && g.ends_with('}'));
+    }
+
+    #[test]
+    fn password_should_obey_length_and_charset() {
+        let out = execute(
+            "password",
+            &json!({
+                "length": 24,
+                "uppercase": false,
+                "lowercase": true,
+                "numbers": true,
+                "symbols": false
+            }),
+        )
+        .expect("password");
+        let s = out.as_str().unwrap_or_default();
+        assert_eq!(s.len(), 24);
+        assert!(s.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()));
+    }
+
+    #[test]
+    fn password_empty_charset_should_fail() {
+        let err = execute(
+            "password",
+            &json!({
+                "uppercase": false,
+                "lowercase": false,
+                "numbers": false,
+                "symbols": false
+            }),
+        )
+        .expect_err("must fail");
+        assert!(err.contains("password charset is empty"));
+    }
+}

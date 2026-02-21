@@ -501,3 +501,70 @@ fn truthy(v: &Value) -> bool {
         Value::Object(map) => !map.is_empty(),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn render_with_if_where_and_foreach_should_work() {
+        let tpl = r#"
+        <script>
+        SELECT * FROM users
+        <where>
+          <if test="name != null"> AND name = #{name} </if>
+          <if test="ids != null">
+            AND id IN
+            <foreach collection="ids" item="item" open="(" close=")" separator=",">
+              #{item}
+            </foreach>
+          </if>
+        </where>
+        </script>
+        "#;
+        let out = execute(
+            "render",
+            &json!({
+                "sqlTemplate": tpl,
+                "params": r#"{"name":"tom","ids":[1,2,3]}"#
+            }),
+        )
+        .expect("render");
+        let sql = out["sql"].as_str().unwrap_or_default();
+        assert!(sql.contains("SELECT * FROM users WHERE"));
+        assert!(sql.contains("name = 'tom'"));
+        assert!(sql.contains("id IN (1,2,3)"));
+        assert!(out["bindings"].as_array().map_or(0, |a| a.len()) >= 2);
+    }
+
+    #[test]
+    fn render_should_block_unsafe_dollar_substitution_when_enabled() {
+        let out = execute(
+            "render",
+            &json!({
+                "sqlTemplate": "SELECT * FROM t ORDER BY ${orderBy}",
+                "params": r#"{"orderBy":"id; DROP TABLE t;"}"#,
+                "safeSubstitution": true
+            }),
+        )
+        .expect("render");
+        let sql = out["sql"].as_str().unwrap_or_default();
+        assert!(sql.contains("/*blocked*/"));
+        assert!(out["warnings"].as_array().map_or(0, |a| a.len()) >= 1);
+    }
+
+    #[test]
+    fn lint_should_report_tag_errors_and_warn_for_dollar() {
+        let out = execute(
+            "lint",
+            &json!({
+                "sqlTemplate": "<if test=\"a\">x</where> ${raw}"
+            }),
+        )
+        .expect("lint");
+        let issues = out["issues"].as_array().cloned().unwrap_or_default();
+        assert!(issues.iter().any(|v| v["level"] == "error"));
+        assert!(issues.iter().any(|v| v["level"] == "warn"));
+    }
+}

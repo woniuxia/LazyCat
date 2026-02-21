@@ -298,3 +298,21 @@ fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> Result<()
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn settings_get_empty_key_should_fail() {
+        let err = execute("get", &json!({ "key": "" })).expect_err("empty key");
+        assert!(err.contains("settings key is empty"));
+    }
+
+    #[test]
+    fn settings_unknown_action_should_fail() {
+        let err = execute("unknown", &json!({})).expect_err("unknown action");
+        assert!(err.contains("unsupported settings action"));
+    }
+}

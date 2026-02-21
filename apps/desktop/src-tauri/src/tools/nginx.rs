@@ -317,3 +317,57 @@ fn normalize_api_prefix(raw: &str) -> String {
         format!("{with_leading}/")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn generate_http_config_should_include_core_blocks() {
+        let out = execute(
+            "generate",
+            &json!({
+                "serverName": "localhost",
+                "root": "/var/www/html",
+                "apiPrefix": "api",
+                "apiUpstream": "http://127.0.0.1:8080"
+            }),
+        )
+        .expect("generate");
+        let cfg = out["config"].as_str().unwrap_or_default();
+        assert!(cfg.contains("server {"));
+        assert!(cfg.contains("location / {"));
+        assert!(cfg.contains("location /api/ {"));
+        assert!(cfg.contains("proxy_pass http://127.0.0.1:8080;"));
+    }
+
+    #[test]
+    fn generate_https_without_cert_should_fail() {
+        let err = execute(
+            "generate",
+            &json!({
+                "serverName": "localhost",
+                "root": "/var/www/html",
+                "apiUpstream": "http://127.0.0.1:8080",
+                "enableHttps": true
+            }),
+        )
+        .expect_err("must fail");
+        assert!(err.contains("sslCert and sslKey are required"));
+    }
+
+    #[test]
+    fn lint_should_report_errors_for_invalid_config() {
+        let cfg = r#"
+        server {
+          listen 443 ssl;
+          location / {
+            try_files $uri $uri/ /index.html
+          }
+        "#;
+        let out = execute("lint", &json!({ "config": cfg })).expect("lint");
+        assert_eq!(out["valid"], false);
+        assert!(out["issues"].as_array().map_or(0, |a| a.len()) >= 1);
+    }
+}

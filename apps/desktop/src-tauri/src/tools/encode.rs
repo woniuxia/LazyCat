@@ -90,3 +90,90 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         _ => Err(format!("unsupported encode action: {action}")),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn base64_round_trip_with_unicode() {
+        let input = "Hello, 懒猫 😺";
+        let encoded = execute("base64_encode", &json!({ "input": input })).expect("encode");
+        let decoded = execute("base64_decode", &json!({ "input": encoded })).expect("decode");
+        assert_eq!(decoded, json!(input));
+    }
+
+    #[test]
+    fn base64_url_round_trip() {
+        let input = "a+b/c?d=e";
+        let encoded = execute("base64_url_encode", &json!({ "input": input })).expect("encode");
+        let decoded = execute("base64_url_decode", &json!({ "input": encoded })).expect("decode");
+        assert_eq!(decoded, json!(input));
+    }
+
+    #[test]
+    fn url_encode_decode_round_trip() {
+        let input = "a b+中/文?x=1&y=2";
+        let encoded = execute("url_encode", &json!({ "input": input })).expect("url encode");
+        let decoded = execute("url_decode", &json!({ "input": encoded })).expect("url decode");
+        assert_eq!(decoded, json!(input));
+    }
+
+    #[test]
+    fn digest_vectors_should_match() {
+        let input = "hello";
+        assert_eq!(
+            execute("md5", &json!({ "input": input })).expect("md5"),
+            json!("5d41402abc4b2a76b9719d911017c592")
+        );
+        assert_eq!(
+            execute("sha1", &json!({ "input": input })).expect("sha1"),
+            json!("aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d")
+        );
+        assert_eq!(
+            execute("sha256", &json!({ "input": input })).expect("sha256"),
+            json!("2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824")
+        );
+        assert_eq!(
+            execute("sha512", &json!({ "input": input })).expect("sha512"),
+            json!("9b71d224bd62f3785d96d46ad3ea3d73319bfb c2890caadae2dff72519673ca72323c3d99ba5c11d7c7acc6e14b8c5da0c4663475c2e5c3adef46f73bcdec043".replace(' ', ""))
+        );
+    }
+
+    #[test]
+    fn hmac_sha256_vector_should_match() {
+        let output = execute(
+            "hmac_sha256",
+            &json!({
+                "input": "The quick brown fox jumps over the lazy dog",
+                "key": "key"
+            }),
+        )
+        .expect("hmac");
+        assert_eq!(
+            output,
+            json!("f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8")
+        );
+    }
+
+    #[test]
+    fn qr_generate_should_return_png_data_url() {
+        let output = execute("qr_generate", &json!({ "input": "lazycat" })).expect("qr");
+        let s = output.as_str().expect("string output");
+        assert!(s.starts_with("data:image/png;base64,"));
+        let b64 = s.trim_start_matches("data:image/png;base64,");
+        let bytes = BASE64.decode(b64).expect("valid base64 image");
+        assert!(bytes.starts_with(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]));
+    }
+
+    #[test]
+    fn invalid_decode_inputs_should_fail() {
+        let err = execute("base64_decode", &json!({ "input": "%%%not-base64%%%" })).expect_err("must fail");
+        assert!(err.contains("base64 decode failed"));
+
+        // urlencoding crate keeps invalid escape fragments as-is instead of erroring.
+        let out = execute("url_decode", &json!({ "input": "%" })).expect("url decode passthrough");
+        assert_eq!(out, json!("%"));
+    }
+}

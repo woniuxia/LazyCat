@@ -432,3 +432,140 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         _ => Err(format!("unsupported convert action: {action}")),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use std::fs;
+
+    #[test]
+    fn json_xml_yaml_conversions_should_work() {
+        let input = r#"{"name":"lazycat","age":1,"active":true}"#;
+        let xml = execute("json_to_xml", &json!({ "input": input, "rootTag": "user" }))
+            .expect("json_to_xml");
+        let xml_text = xml.as_str().expect("xml string");
+        assert!(xml_text.contains("<user>"));
+        assert!(xml_text.contains("<name>lazycat</name>"));
+
+        let xml_input = "<root><name>lazycat</name><age>1</age></root>";
+        let json_out = execute("xml_to_json", &json!({ "input": xml_input })).expect("xml_to_json");
+        let json_text = json_out.as_str().expect("json string");
+        assert!(json_text.contains("\"name\""));
+
+        let yaml = execute("json_to_yaml", &json!({ "input": input })).expect("json_to_yaml");
+        let yaml_text = yaml.as_str().expect("yaml string");
+        assert!(yaml_text.contains("name: lazycat"));
+    }
+
+    #[test]
+    fn csv_to_json_should_support_header_and_selected_columns() {
+        let csv = "name,age,city\nalice,18,sz\nbob,20,sh";
+        let out = execute(
+            "csv_to_json",
+            &json!({
+                "input": csv,
+                "delimiter": ",",
+                "hasHeader": true,
+                "selectedColumns": [0, 2]
+            }),
+        )
+        .expect("csv_to_json");
+        let text = out.as_str().expect("json text");
+        assert!(text.contains("\"name\""));
+        assert!(text.contains("\"city\""));
+        assert!(!text.contains("\"age\""));
+    }
+
+    #[test]
+    fn csv_to_json_without_header_should_generate_col_names() {
+        let csv = "a,1\nb,2";
+        let out = execute(
+            "csv_to_json",
+            &json!({
+                "input": csv,
+                "delimiter": ",",
+                "hasHeader": false
+            }),
+        )
+        .expect("csv_to_json");
+        let text = out.as_str().expect("json text");
+        assert!(text.contains("\"col1\""));
+        assert!(text.contains("\"col2\""));
+    }
+
+    #[test]
+    fn csv_read_file_should_read_utf8_and_fail_for_missing_file() {
+        let path = std::env::temp_dir().join(format!("lazycat-convert-{}.csv", std::process::id()));
+        fs::write(&path, "姓名,年龄\n猫,2".as_bytes()).expect("write temp csv");
+        let out = execute(
+            "csv_read_file",
+            &json!({ "path": path.to_string_lossy().to_string() }),
+        )
+        .expect("csv_read_file");
+        assert!(out.as_str().unwrap_or_default().contains("姓名"));
+        let _ = fs::remove_file(&path);
+
+        let err = execute("csv_read_file", &json!({ "path": "__not_found__.csv" }))
+            .expect_err("should fail");
+        assert!(err.contains("read csv file failed"));
+    }
+
+    #[test]
+    fn java_bean_and_json_to_js_object_should_work() {
+        let bean = r#"
+            public class User {
+              @JsonProperty("user_name")
+              private String name;
+              private Integer age;
+              private List<String> tags;
+            }
+        "#;
+        let out = execute("java_bean_to_json", &json!({ "bean": bean })).expect("java_bean_to_json");
+        let obj = out.as_object().expect("object");
+        let json_text = obj
+            .get("json")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        assert!(json_text.contains("\"user_name\""));
+        assert!(json_text.contains("\"age\""));
+        assert!(json_text.contains("\"tags\""));
+
+        let js = execute(
+            "json_to_js_object",
+            &json!({
+                "json": r#"{"a":1,"b":"x"}"#,
+                "quoteStyle": "double"
+            }),
+        )
+        .expect("json_to_js_object");
+        let js_text = js["jsObject"].as_str().unwrap_or_default();
+        assert!(js_text.contains("const payload ="));
+
+        let bean_js = execute(
+            "java_bean_to_js_object",
+            &json!({
+                "bean": bean,
+                "quoteStyle": "single"
+            }),
+        )
+        .expect("java_bean_to_js_object");
+        assert!(bean_js["jsObject"].as_str().unwrap_or_default().contains("const payload ="));
+    }
+
+    #[test]
+    fn convert_invalid_inputs_should_fail() {
+        let err = execute("json_to_xml", &json!({ "input": "{bad json}" })).expect_err("invalid json");
+        assert!(err.contains("invalid json"));
+
+        let err = execute("xml_to_json", &json!({ "input": "<root>" })).expect_err("invalid xml");
+        assert!(err.contains("invalid xml"));
+
+        let err = execute("java_bean_to_json", &json!({ "bean": "" })).expect_err("empty bean");
+        assert!(err.contains("bean is empty"));
+
+        let err = execute("json_to_js_object", &json!({ "json": "" })).expect_err("empty json");
+        assert!(err.contains("json is empty"));
+    }
+}

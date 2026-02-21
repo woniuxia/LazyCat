@@ -251,3 +251,50 @@ fn kill_process(payload: &Value) -> Result<Value, String> {
         if !err.trim().is_empty() { err.trim() } else { out.trim() }
     ))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn parse_netstat_entries_should_parse_tcp_and_udp() {
+        let raw = "TCP    127.0.0.1:8080   0.0.0.0:0   LISTENING   1234\nUDP    0.0.0.0:5353   *:*   4321";
+        let entries = parse_netstat_entries(raw);
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].protocol, "TCP");
+        assert_eq!(entries[1].protocol, "UDP");
+    }
+
+    #[test]
+    fn build_process_summaries_should_group_by_pid() {
+        let entries = vec![
+            PortUsageEntry {
+                protocol: "TCP".to_string(),
+                local_address: "127.0.0.1:8080".to_string(),
+                remote_address: "0.0.0.0:0".to_string(),
+                state: Some("LISTENING".to_string()),
+                pid: 1,
+                process_name: "a.exe".to_string(),
+            },
+            PortUsageEntry {
+                protocol: "UDP".to_string(),
+                local_address: "0.0.0.0:5353".to_string(),
+                remote_address: "*:*".to_string(),
+                state: None,
+                pid: 1,
+                process_name: "a.exe".to_string(),
+            },
+        ];
+        let out = build_process_summaries(&entries);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].pid, 1);
+        assert!(out[0].connection_count >= 2);
+    }
+
+    #[test]
+    fn invalid_pid_should_fail() {
+        let err = execute("process_detail", &json!({ "pid": 0 })).expect_err("invalid pid");
+        assert!(err.contains("invalid pid"));
+    }
+}

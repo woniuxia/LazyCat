@@ -805,3 +805,14 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         Err("快捷键冲突检测仅支持 Windows 平台".to_string())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unsupported_action_should_fail() {
+        let err = execute("unknown", &Value::Null).expect_err("must fail");
+        assert!(err.contains("unsupported hotkey action") || err.contains("Windows"));
+    }
+}

@@ -111,3 +111,16 @@ pub fn execute(action: &str, _payload: &Value) -> Result<Value, String> {
         _ => Err(format!("unsupported env action: {action}")),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn detect_should_return_summary_structure() {
+        let out = execute("detect", &json!({})).expect("detect");
+        assert!(out["summary"]["total"].as_u64().unwrap_or(0) >= 1);
+        assert!(out["tools"].is_array());
+    }
+}

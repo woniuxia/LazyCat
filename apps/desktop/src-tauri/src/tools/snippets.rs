@@ -973,3 +973,21 @@ fn batch_delete(payload: &Value) -> Result<Value, String> {
         .map_err(|e| format!("batch_delete commit failed: {e}"))?;
     Ok(json!({ "ok": true, "affected": affected }))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn unsupported_action_should_fail() {
+        let err = execute("unknown", &json!({})).expect_err("must fail");
+        assert!(err.contains("unsupported snippets action"));
+    }
+
+    #[test]
+    fn batch_update_without_operation_should_fail() {
+        let err = execute("batch_update", &json!({ "ids": [1] })).expect_err("must fail");
+        assert!(err.contains("batch_update requires at least one operation"));
+    }
+}
