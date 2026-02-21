@@ -8,6 +8,36 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-02-21: 添加 MDN JavaScript 中文手册（Puppeteer 抓取方案）
+
+**场景**: 将 MDN JS 中文手册（https://developer.mozilla.org/zh-CN/docs/Web/JavaScript）添加为离线手册
+
+**问题**:
+1. MDN 是 React SSR + 客户端水合的 SPA，没有静态构建产物可直接使用
+2. Yari（MDN 官方构建系统）整站产物数 GB，不现实
+3. 页面路径无 `.html` 扩展名（如 `/zh-CN/docs/Web/JavaScript/Reference/Array`）
+4. Windows 文件系统不支持 `*` 字符，5 个路径含星号的页面（如 `async_function*`）无法保存
+
+**解决**:
+1. 用 Puppeteer + 系统 Edge（`C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`）抓取
+2. 抓取脚本：`scripts/scrape-mdn-js.mjs`，使用 `createRequire` 导入 pnpm 本地 puppeteer
+3. 无扩展名 URL 路径一律保存为 `<path>/index.html`（避免同名文件与目录冲突，ENOTDIR 错误）
+4. 注册到 `manuals.rs`：`("mdn-js", "MDN JavaScript 手册", "/zh-CN/docs/Web/JavaScript/")`
+5. `tauri.conf.json` 的 `bundle.resources` 已有 `**/*` 通配符，自动覆盖新手册目录
+
+**关键点**:
+1. `createRequire(import.meta.url)` 以脚本所在目录为基准解析相对路径，ESM 脚本中导入 CJS 模块的正确方式
+2. SPA 路由的无扩展名路径必须保存为目录下 `index.html`，否则子路径写入时报 ENOTDIR
+3. HTTP 服务器已处理无扩展名路径（`file_path.extension().is_none()` → 尝试加 `.html` 或 `index.html`），MDN 内链接直接可用
+4. 含 `*` 字符的页面在 Windows 下无法保存，属于不可绕过的 OS 限制，影响 5 个页面，可忽略
+
+**涉及文件**:
+- `scripts/scrape-mdn-js.mjs`（新建，抓取脚本）
+- `apps/desktop/src-tauri/src/tools/manuals.rs`（注册新手册）
+- `resources/manuals/mdn-js/`（新建，872 个文件，72.3 MB）
+
+**使用次数**: 0
+
 ## 2026-02-20: 六方案全量重构（类型集中化 + Composables + App.vue 拆分 + Rust 模块化 + 构建优化 + CSS 分层）
 
 **场景**: 项目存在巨型 App.vue (1538行)、巨型 main.rs (1341行)、重复接口定义、Element Plus 全量导入、CSS 单文件、Monaco 主题不联动等6个架构问题
@@ -117,5 +147,38 @@
 - apps/desktop/src/styles/responsive.css
 - apps/desktop/src-tauri/src/tools/snippets.rs
 - apps/desktop/src-tauri/src/tools/helpers.rs
+
+**使用次数**: 0
+
+## 2026-02-21: Cron 工具易用性 V2（Spring 6 字段标准 + 5 字段兼容 + 时区预览）
+**场景**:
+Cron 工具原先仅提供基础 6 字段输入与简单预览，缺少规范化、模板、规则描述与时区切换，易用性不足。
+
+**问题**:
+1. 用户输入 5 字段表达式时无兼容策略，容易报错。
+2. 缺少“表达式含义”反馈，用户难以快速确认规则。
+3. 预览结果固定本地时间，跨环境排查不便。
+4. 前端与后端接口粒度较粗，不利于扩展。
+
+**解决**:
+1. Rust `cron` 工具新增 action：`normalize`、`preview_v2`、`describe`。
+2. 标准化策略固定为 Spring 6 字段；兼容 5 字段时自动补秒 `0` 并返回 warnings。
+3. 预览支持时区参数（local / UTC / IANA 时区），并返回结构化时间项（display/iso/epochMs）。
+4. Cron 面板重构为四段式：表达式规范化、字段构建、模板应用、预览表格。
+5. 新增前端 `types/cron.ts`，统一响应类型定义。
+6. 增加 Rust 单元测试覆盖 normalize、时区回退、常见描述规则。
+
+**关键点**:
+1. 保留旧 `tool:cron:preview/parse`，新增 v2 能力，降低回归风险。
+2. 7 字段（含 year）明确拒绝，避免隐式不兼容。
+3. 时区解析失败回退 local 并给 warning，不中断主流程。
+
+**涉及文件**:
+- apps/desktop/src/components/CronPanel.vue
+- apps/desktop/src/bridge/tauri.ts
+- apps/desktop/src/types/cron.ts
+- apps/desktop/src/types/index.ts
+- apps/desktop/src-tauri/src/tools/cron.rs
+- apps/desktop/src-tauri/Cargo.toml
 
 **使用次数**: 0
