@@ -170,3 +170,68 @@ UI 文本改动后至少执行：
 2. `pnpm --filter @lazycat/desktop build:web`
 3. `pnpm test`
 4. `pnpm test:e2e`
+
+## 16. 功能地图（项目现状）
+
+以下为当前前端工具分组（以 `apps/desktop/src/App.vue` 为准）：
+
+- 常驻一级：`formatter`、`snippets`、`calc-draft`、`regex`、`diff`、`markdown`
+- 编解码：`base64`、`url`、`md5`、`hash`、`qr`
+- 加密与安全：`rsa`、`aes`、`jwt`、`uuid`
+- 数据转换：`json-xml`、`json-yaml`、`json-schema`、`csv-json`、`java-bean-js`、`mybatis-helper`、`base-converter`、`color`、`escape-unescape`、`text-process`
+- 网络与系统：`network`、`dns`、`hosts`、`ports`、`env`、`nginx-helper`、`hotkey`
+- 文件与媒体：`split-merge`、`image`
+- 时间工具：`timestamp`、`cron`
+- 离线手册：`manual-vue3`、`manual-element-plus`、`manual-mdn-js`
+
+新增/调整工具时，必须同步以下三个来源：
+
+1. `apps/desktop/src/App.vue`（侧边栏分组与文案）
+2. `apps/desktop/src/tool-registry.ts`（工具 ID -> 面板组件）
+3. `apps/desktop/src/bridge/tauri.ts`（`CHANNEL_MAP`）
+
+## 17. 关键状态流（前端）
+
+- 主界面与代码片段工作区双视图：`viewMode = main | snippet-workspace`。
+- 标签页体系：`useTabs` 管理打开、切换、关闭、左右批量关闭。
+- 收藏与首页热度：`useFavorites` 管理收藏、点击历史、近 30 天高频工具。
+- 菜单显隐：`useMenuVisibility` 维护 deny-list；分组在过滤后可能被自动提升为一级菜单。
+- 设置入口：`SettingsPanel` 负责主题、快捷键、菜单显隐等，配置通过 settings IPC 持久化。
+
+涉及以上能力改动时，优先复用现有 composables，避免在组件内重复造状态逻辑。
+
+## 18. Rust 工具域（后端现状）
+
+`apps/desktop/src-tauri/src/tools/mod.rs` 当前域包括：
+
+- `encode`、`convert`、`text`、`time`、`gen`、`regex`、`cron`
+- `crypto`、`format`、`network`、`dns`、`env`、`port`
+- `file`、`image`、`hosts`、`manuals`、`settings`
+- `hotkey`、`jwt`、`schema`、`mybatis`、`nginx`、`snippets`
+
+新增域时至少完成：
+
+1. 在 `tools/mod.rs` 声明模块并接入 `execute_tool` 分发
+2. 前端 `CHANNEL_MAP` 增加映射
+3. 对应面板增加错误态和加载态
+
+## 19. 手册与资源维护清单
+
+- 新增手册后，必须在 `manuals.rs` 的 `known` 列表注册，否则前端不会显示入口。
+- 手册首页路径必须可直接被本地 HTTP 服务访问（建议验证 200 + 资源加载）。
+- 若新增手册文件量大，提交前先与用户确认是否合并到同一提交。
+- 变更 `resources/manuals` 后建议验证：
+  1. `manuals:list` 是否返回目标手册
+  2. 前端 `manual-<id>` 是否能打开
+  3. 站内跳转和静态资源是否正常
+
+## 20. Windows 构建脚本约定（补充）
+
+`scripts/build-tauri-win.ps1` 目前会执行：
+
+1. 校验 `cargo`、`perl`
+2. 检测 `VsDevCmd.bat` 与 `kernel32.lib`
+3. 先构建渲染层：`pnpm --filter @lazycat/desktop build:web`
+4. 再在 VS 开发者环境执行：`pnpm --filter @lazycat/desktop build:tauri`
+
+涉及 Windows 打包问题时，优先使用 `pnpm build:win:precheck` 复现与排查。
