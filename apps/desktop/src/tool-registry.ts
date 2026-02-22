@@ -48,6 +48,7 @@ const toolRegistry: Record<string, Component> = {
   markdown: defineAsyncComponent(() => import("./components/MarkdownPanel.vue")),
   "nginx-helper": defineAsyncComponent(() => import("./components/NginxPanel.vue")),
   snippets: defineAsyncComponent(() => import("./components/SnippetPanel.vue")),
+  vault: defineAsyncComponent(() => import("./components/VaultPanel.vue")),
   hotkey: defineAsyncComponent(() => import("./components/HotkeyPanel.vue")),
   settings: defineAsyncComponent(() => import("./components/SettingsPanel.vue")),
 };

@@ -62,7 +62,7 @@
   transition: all var(--lc-duration) var(--lc-ease);
 }
 
-.el-button--primary {
+.el-button.el-button--primary {
   --el-button-bg-color: var(--lc-accent);
   --el-button-border-color: var(--lc-accent);
   --el-button-text-color: #ffffff;

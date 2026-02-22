@@ -5,6 +5,7 @@
       :active-tool="activeTool"
       @select="onSelect"
       @open-snippet-workspace="enterSnippetWorkspace"
+      @open-vault-workspace="enterVaultWorkspace"
     />
     <div
       class="resize-handle"
@@ -62,13 +63,23 @@
     <ShortcutHelpOverlay ref="shortcutHelp" />
   </div>
 
-  <div v-else class="snippet-workspace-shell">
+  <div v-else-if="viewMode === 'snippet-workspace'" class="snippet-workspace-shell">
     <header class="snippet-workspace-header">
       <el-button class="snippet-back-btn" text @click="exitSnippetWorkspaceToHome">返回首页</el-button>
       <h1>代码片段工作区</h1>
     </header>
     <main class="snippet-workspace-body">
       <SnippetPanel />
+    </main>
+  </div>
+
+  <div v-else-if="viewMode === 'vault-workspace'" class="vault-workspace-shell">
+    <header class="vault-workspace-header">
+      <el-button class="vault-back-btn" text @click="exitVaultWorkspaceToHome">返回首页</el-button>
+      <h1>密码管理</h1>
+    </header>
+    <main class="vault-workspace-body">
+      <VaultPanel />
     </main>
   </div>
 </template>
@@ -84,6 +95,7 @@ import { registerHotkey } from "./bridge/tauri";
 import { getToolComponent, ENCODE_PANEL_IDS } from "./tool-registry";
 import HomePanel from "./components/HomePanel.vue";
 import SnippetPanel from "./components/SnippetPanel.vue";
+import VaultPanel from "./components/VaultPanel.vue";
 import SidebarNav from "./components/SidebarNav.vue";
 import TabBar from "./components/TabBar.vue";
 import ShortcutHelpOverlay from "./components/ShortcutHelpOverlay.vue";
@@ -120,7 +132,8 @@ const sidebarItems: SidebarItem[] = [
         { id: "jwt", name: "JWT 解析", desc: "离线解析 JWT Token" },
         { id: "uuid", name: "UUID/GUID", desc: "UUID 与 GUID 生成" },
         { id: "password", name: "密码工具", desc: "随机密码生成与强度分析" },
-        { id: "bcrypt", name: "Bcrypt", desc: "Bcrypt 哈希生成与验证" }
+        { id: "bcrypt", name: "Bcrypt", desc: "Bcrypt 哈希生成与验证" },
+        { id: "vault", name: "密码管理", desc: "应用/服务器/数据库密码加密存储" }
       ]
     }
   },
@@ -202,6 +215,7 @@ const sidebarItems: SidebarItem[] = [
 ];
 const HOME_ID = "home";
 const SNIPPETS_ID = "snippets";
+const VAULT_ID = "vault";
 const HOME_TOOL: ToolDef = { id: HOME_ID, name: "首页", desc: "收藏工具与近一个月高频工具入口" };
 
 const allTools = sidebarItems.flatMap((item) =>
@@ -212,7 +226,7 @@ function isRealToolId(id: string) { return allToolMap.has(id); }
 
 const { openTabs, activeTabId, openTab, closeTab, closeOthers, closeToLeft, closeToRight } = useTabs();
 const activeTool = activeTabId;
-const viewMode = ref<"main" | "snippet-workspace">("main");
+const viewMode = ref<"main" | "snippet-workspace" | "vault-workspace">("main");
 const themeMode = ref<"system" | "dark" | "light">("system");
 const hotkeyInput = ref("");
 const shortcutHelp = ref<InstanceType<typeof ShortcutHelpOverlay> | null>(null);
@@ -335,6 +349,10 @@ function onSelect(id: string) {
     enterSnippetWorkspace();
     return;
   }
+  if (id === VAULT_ID) {
+    enterVaultWorkspace();
+    return;
+  }
   viewMode.value = "main";
   const name = getToolName(id);
   if (id !== HOME_ID) recordToolClick(id);
@@ -358,6 +376,17 @@ function enterSnippetWorkspace() {
 }
 
 function exitSnippetWorkspaceToHome() {
+  viewMode.value = "main";
+  onSelect(HOME_ID);
+}
+
+function enterVaultWorkspace() {
+  viewMode.value = "vault-workspace";
+  recordToolClick(VAULT_ID);
+  openTab(VAULT_ID, getToolName(VAULT_ID));
+}
+
+function exitVaultWorkspaceToHome() {
   viewMode.value = "main";
   onSelect(HOME_ID);
 }

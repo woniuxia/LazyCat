@@ -24,6 +24,7 @@ pub mod mybatis;
 pub mod nginx;
 pub mod snippets;
 pub mod pdf;
+pub mod vault;
 
 use serde_json::Value;
 
@@ -54,6 +55,7 @@ pub fn execute_tool(domain: &str, action: &str, payload: &Value) -> Result<Value
         "nginx"    => nginx::execute(action, payload),
         "snippets" => snippets::execute(action, payload),
         "pdf"      => pdf::execute(action, payload),
+        "vault"    => vault::execute(action, payload),
         _ => Err(format!("unsupported command: {domain}.{action}")),
     }
 }

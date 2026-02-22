@@ -161,7 +161,18 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:snippets:v2:folder-delete": { domain: "snippets", action: "v2_folder_delete" },
   "tool:pdf:info":  { domain: "pdf", action: "info" },
   "tool:pdf:split": { domain: "pdf", action: "split" },
-  "tool:pdf:merge": { domain: "pdf", action: "merge" }
+  "tool:pdf:merge": { domain: "pdf", action: "merge" },
+  "tool:vault:status":          { domain: "vault", action: "status" },
+  "tool:vault:setup":           { domain: "vault", action: "setup" },
+  "tool:vault:unlock":          { domain: "vault", action: "unlock" },
+  "tool:vault:lock":            { domain: "vault", action: "lock" },
+  "tool:vault:change-password": { domain: "vault", action: "change_password" },
+  "tool:vault:list":            { domain: "vault", action: "list" },
+  "tool:vault:get":             { domain: "vault", action: "get" },
+  "tool:vault:create":          { domain: "vault", action: "create" },
+  "tool:vault:update":          { domain: "vault", action: "update" },
+  "tool:vault:delete":          { domain: "vault", action: "delete" },
+  "tool:vault:open-url":        { domain: "vault", action: "open_url" }
 };
 
 export async function invokeToolByChannel(

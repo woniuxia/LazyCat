@@ -234,6 +234,33 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
         set_schema_version(conn, 8)?;
     }
 
+    // Migration 9: vault tables (password manager)
+    if current < 9 {
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS vault_canary (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                salt TEXT NOT NULL,
+                iv TEXT NOT NULL,
+                encrypted TEXT NOT NULL,
+                iterations INTEGER NOT NULL DEFAULT 600000,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS vault_entries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                category TEXT NOT NULL CHECK (category IN ('app', 'server', 'database')),
+                title TEXT NOT NULL DEFAULT '',
+                environment TEXT NOT NULL DEFAULT '',
+                iv TEXT NOT NULL,
+                encrypted_blob TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_vault_category ON vault_entries(category);"
+        )
+        .map_err(|e| format!("migration 9 failed: {e}"))?;
+        set_schema_version(conn, 9)?;
+    }
+
     Ok(())
 }
 

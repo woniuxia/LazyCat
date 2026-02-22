@@ -106,5 +106,8 @@ declare module 'vue' {
     TextProcessPanel: typeof import('./src/components/TextProcessPanel.vue')['default']
     TimestampPanel: typeof import('./src/components/TimestampPanel.vue')['default']
     UuidPanel: typeof import('./src/components/UuidPanel.vue')['default']
+    VaultEntryDialog: typeof import('./src/components/VaultEntryDialog.vue')['default']
+    VaultLockScreen: typeof import('./src/components/VaultLockScreen.vue')['default']
+    VaultPanel: typeof import('./src/components/VaultPanel.vue')['default']
   }
 }

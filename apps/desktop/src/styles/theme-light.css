@@ -181,7 +181,7 @@ html[data-theme="light"] .el-select-dropdown__item.is-hovering {
 }
 
 /* Button Primary -- white text on blue */
-html[data-theme="light"] .el-button--primary {
+html[data-theme="light"] .el-button.el-button--primary {
   --el-button-text-color: #ffffff;
   --el-button-hover-text-color: #ffffff;
   --el-button-active-bg-color: #0284c7;

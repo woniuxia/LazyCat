@@ -1,15 +1,22 @@
 ﻿<template>
   <aside class="nav">
-    <button
-      class="brand brand-link"
-      type="button"
-      title="左键返回首页，右键打开代码片段工作区"
-      @click="goHome"
-      @contextmenu.prevent="openSnippetWorkspace"
-    >
-      <span class="brand-name">Lazycat</span>
-      <span class="brand-zh">懒猫</span>
-    </button>
+    <el-dropdown trigger="contextmenu" @command="onBrandCommand">
+      <button
+        class="brand brand-link"
+        type="button"
+        title="左键返回首页，右键打开快捷入口"
+        @click="goHome"
+      >
+        <span class="brand-name">Lazycat</span>
+        <span class="brand-zh">懒猫</span>
+      </button>
+      <template #dropdown>
+        <el-dropdown-menu>
+          <el-dropdown-item command="snippets">代码片段</el-dropdown-item>
+          <el-dropdown-item command="vault">密码管理</el-dropdown-item>
+        </el-dropdown-menu>
+      </template>
+    </el-dropdown>
 
     <div class="nav-toolbar">
       <el-input
@@ -106,6 +113,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   select: [id: string];
   openSnippetWorkspace: [];
+  openVaultWorkspace: [];
 }>();
 
 const searchQuery = ref("");
@@ -199,8 +207,12 @@ function goHome() {
   emit("select", "home");
 }
 
-function openSnippetWorkspace() {
-  emit("openSnippetWorkspace");
+function onBrandCommand(command: string) {
+  if (command === "snippets") {
+    emit("openSnippetWorkspace");
+  } else if (command === "vault") {
+    emit("openVaultWorkspace");
+  }
 }
 
 watch(searchQuery, () => {
