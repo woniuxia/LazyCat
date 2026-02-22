@@ -675,9 +675,29 @@ fn get_type_for_lang(sql_type: &str, lang: &str) -> String {
 fn generate_java(table: &SqlTable, naming: &str, comments: bool) -> String {
     let class_name = table_name_to_class(&table.name);
     let mut out = String::new();
+
+    // Collect imports
+    let mut imports = vec!["lombok.Data".to_string()];
+    for col in &table.columns {
+        let type_name = get_type_for_lang(&col.sql_type, "java");
+        match type_name.as_str() {
+            "LocalDateTime" => { imports.push("java.time.LocalDateTime".into()); }
+            "LocalDate" => { imports.push("java.time.LocalDate".into()); }
+            "LocalTime" => { imports.push("java.time.LocalTime".into()); }
+            "BigDecimal" => { imports.push("java.math.BigDecimal".into()); }
+            _ => {}
+        }
+    }
+    imports.sort();
+    imports.dedup();
+    for imp in &imports {
+        out.push_str(&format!("import {};\n", imp));
+    }
+    out.push('\n');
+
+    out.push_str("@Data\n");
     out.push_str(&format!("public class {} {{\n", class_name));
 
-    // Fields
     for col in &table.columns {
         if comments {
             if let Some(ref c) = col.comment {
@@ -688,25 +708,6 @@ fn generate_java(table: &SqlTable, naming: &str, comments: bool) -> String {
         let type_name = get_type_for_lang(&col.sql_type, "java");
         out.push_str(&format!("    private {} {};\n", type_name, field_name));
         out.push('\n');
-    }
-
-    // Getters and Setters
-    for col in &table.columns {
-        let field_name = convert_field_name(&col.name, naming);
-        let type_name = get_type_for_lang(&col.sql_type, "java");
-        let capitalized = {
-            let mut c = field_name.chars();
-            match c.next() {
-                Some(f) => f.to_ascii_uppercase().to_string() + c.as_str(),
-                None => String::new(),
-            }
-        };
-        out.push_str(&format!("    public {} get{}() {{\n", type_name, capitalized));
-        out.push_str(&format!("        return {};\n", field_name));
-        out.push_str("    }\n\n");
-        out.push_str(&format!("    public void set{}({} {}) {{\n", capitalized, type_name, field_name));
-        out.push_str(&format!("        this.{} = {};\n", field_name, field_name));
-        out.push_str("    }\n\n");
     }
 
     out.push_str("}\n");
@@ -1324,8 +1325,10 @@ mod tests {
         assert!(code.contains("private Integer age;"));
         assert!(code.contains("private LocalDateTime createdAt;"));
         assert!(code.contains("/** primary key */"));
-        assert!(code.contains("getId()"));
-        assert!(code.contains("setUserName("));
+        assert!(code.contains("@Data"));
+        assert!(code.contains("import lombok.Data;"));
+        assert!(!code.contains("getId()"));
+        assert!(!code.contains("setUserName("));
 
         let tables = r["tables"].as_array().unwrap();
         assert_eq!(tables.len(), 1);
