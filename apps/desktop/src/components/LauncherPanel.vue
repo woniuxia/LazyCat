@@ -1,31 +1,31 @@
 <template>
   <div class="launcher-panel" @dragover.prevent @dragenter.prevent>
-    <div class="launcher-toolbar">
-      <el-input
-        v-model="searchQuery"
-        placeholder="搜索应用..."
-        clearable
-        style="width: 240px;"
-      />
-      <div style="display: flex; gap: 8px; align-items: center;">
-        <el-button-group>
-          <el-button :type="viewType === 'grid' ? 'primary' : ''" size="small" @click="viewType = 'grid'">网格</el-button>
-          <el-button :type="viewType === 'list' ? 'primary' : ''" size="small" @click="viewType = 'list'">列表</el-button>
-        </el-button-group>
-        <el-button @click="settingsDialogVisible = true">设置</el-button>
+    <div class="launcher-groups">
+      <div
+        v-for="g in groupList"
+        :key="g"
+        class="group-item"
+        :class="{ active: activeGroup === g }"
+        @click="activeGroup = g"
+      >
+        {{ g }} ({{ groupCount(g) }})
       </div>
     </div>
 
-    <div class="launcher-body">
-      <div class="launcher-groups">
-        <div
-          v-for="g in groupList"
-          :key="g"
-          class="group-item"
-          :class="{ active: activeGroup === g }"
-          @click="activeGroup = g"
-        >
-          {{ g }} ({{ groupCount(g) }})
+    <div class="launcher-main">
+      <div class="launcher-toolbar">
+        <el-input
+          v-model="searchQuery"
+          placeholder="搜索应用..."
+          clearable
+          style="width: 240px;"
+        />
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <el-button-group>
+            <el-button :type="viewType === 'grid' ? 'primary' : ''" size="small" @click="viewType = 'grid'">网格</el-button>
+            <el-button :type="viewType === 'list' ? 'primary' : ''" size="small" @click="viewType = 'list'">列表</el-button>
+          </el-button-group>
+          <el-button @click="settingsDialogVisible = true">设置</el-button>
         </div>
       </div>
 
@@ -561,69 +561,165 @@ async function deleteGroup(groupName: string) {
 }
 </script>
 <style scoped>
-.launcher-panel { display: flex; flex-direction: column; height: 100%; gap: 12px; }
-.launcher-toolbar { display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
-.launcher-body { display: flex; flex: 1; gap: 12px; min-height: 0; }
+.launcher-panel {
+  display: flex;
+  height: 100%;
+}
 .launcher-groups {
-  width: 140px; flex-shrink: 0; overflow-y: auto;
-  border-right: 1px solid var(--el-border-color-lighter);
-  padding-right: 8px;
+  width: 160px;
+  flex-shrink: 0;
+  overflow-y: auto;
+  border-right: 1px solid var(--lc-border-subtle);
+  padding: 8px 0;
+  background: var(--lc-surface-1);
 }
 .group-item {
-  padding: 6px 10px; border-radius: 4px; cursor: pointer;
-  font-size: 13px; color: var(--el-text-color-regular);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  padding: 8px 16px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--lc-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background 0.15s, color 0.15s;
 }
-.group-item:hover { background: var(--el-fill-color-light); }
-.group-item.active { background: var(--el-color-primary-light-9); color: var(--el-color-primary); font-weight: 600; }
-.launcher-content { flex: 1; overflow-y: auto; min-height: 0; }
+.group-item:hover {
+  background: var(--lc-accent-dim);
+}
+.group-item.active {
+  background: var(--lc-accent-dim);
+  color: var(--lc-accent);
+  font-weight: 600;
+}
+.launcher-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.launcher-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--lc-border-subtle);
+}
+.launcher-content {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  padding: 16px;
+}
 .launcher-empty {
-  display: flex; align-items: center; justify-content: center;
-  height: 200px; color: var(--el-text-color-secondary); font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 200px;
+  color: var(--lc-text-secondary);
+  font-size: 14px;
 }
 
 /* Grid */
 .launcher-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
-  gap: 12px; padding: 4px;
+  gap: 12px;
+  padding: 4px;
 }
 .grid-card {
-  display: flex; flex-direction: column; align-items: center; gap: 6px;
-  padding: 12px 8px; border-radius: 8px; cursor: pointer;
-  transition: background 0.15s;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 8px;
+  border-radius: var(--lc-radius-md);
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s;
 }
-.grid-card:hover { background: var(--el-fill-color-light); }
-.app-icon { width: 40px; height: 40px; object-fit: contain; }
+.grid-card:hover {
+  background: var(--lc-accent-dim);
+}
+.grid-card:active {
+  transform: scale(0.96);
+}
+.app-icon {
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+}
 .app-name {
-  font-size: 12px; text-align: center; max-width: 90px;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  color: var(--el-text-color-regular);
+  font-size: 12px;
+  text-align: center;
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--lc-text);
 }
 
 /* List */
-.launcher-list { display: flex; flex-direction: column; }
-.list-row {
-  display: flex; align-items: center; gap: 10px;
-  padding: 8px 12px; cursor: pointer; border-radius: 4px;
+.launcher-list {
+  display: flex;
+  flex-direction: column;
 }
-.list-row:hover { background: var(--el-fill-color-light); }
-.list-icon { width: 28px; height: 28px; object-fit: contain; flex-shrink: 0; }
-.list-name { font-size: 13px; min-width: 120px; }
-.list-path { font-size: 12px; color: var(--el-text-color-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.list-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  cursor: pointer;
+  border-radius: var(--lc-radius-sm);
+  transition: background 0.15s;
+}
+.list-row:hover {
+  background: var(--lc-accent-dim);
+}
+.list-icon {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+.list-name {
+  font-size: 14px;
+  min-width: 140px;
+  color: var(--lc-text);
+}
+.list-path {
+  font-size: 12px;
+  color: var(--lc-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* Context menu */
 .launcher-ctx-menu {
-  position: fixed; z-index: 9999;
-  background: var(--el-bg-color-overlay); border: 1px solid var(--el-border-color-lighter);
-  border-radius: 6px; padding: 4px 0; min-width: 160px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  position: fixed;
+  z-index: 9999;
+  background: var(--lc-surface-0);
+  border: 1px solid var(--lc-border);
+  border-radius: var(--lc-radius-md);
+  padding: 4px 0;
+  min-width: 160px;
+  box-shadow: var(--lc-shadow-lg);
 }
 .ctx-item {
-  padding: 8px 16px; font-size: 13px; cursor: pointer;
-  color: var(--el-text-color-regular);
+  padding: 8px 16px;
+  font-size: 13px;
+  cursor: pointer;
+  color: var(--lc-text);
+  transition: background 0.15s;
 }
-.ctx-item:hover { background: var(--el-fill-color-light); }
-.ctx-danger { color: var(--el-color-danger); }
-.ctx-danger:hover { background: var(--el-color-danger-light-9); }
+.ctx-item:hover {
+  background: var(--lc-accent-dim);
+}
+.ctx-danger {
+  color: var(--lc-danger);
+}
+.ctx-danger:hover {
+  background: color-mix(in srgb, var(--lc-danger) 10%, transparent);
+}
 </style>
 

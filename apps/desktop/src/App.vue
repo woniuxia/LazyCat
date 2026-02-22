@@ -6,6 +6,7 @@
       @select="onSelect"
       @open-snippet-workspace="enterSnippetWorkspace"
       @open-vault-workspace="enterVaultWorkspace"
+      @open-launcher-workspace="enterLauncherWorkspace"
     />
     <div
       class="resize-handle"
@@ -82,6 +83,16 @@
       <VaultPanel />
     </main>
   </div>
+
+  <div v-else-if="viewMode === 'launcher-workspace'" class="launcher-workspace-shell">
+    <header class="launcher-workspace-header">
+      <el-button class="launcher-back-btn" text @click="exitLauncherWorkspaceToHome">返回首页</el-button>
+      <h1>快捷启动</h1>
+    </header>
+    <main class="launcher-workspace-body">
+      <LauncherPanel />
+    </main>
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -97,6 +108,7 @@ import { getToolComponent, ENCODE_PANEL_IDS } from "./tool-registry";
 import HomePanel from "./components/HomePanel.vue";
 import SnippetPanel from "./components/SnippetPanel.vue";
 import VaultPanel from "./components/VaultPanel.vue";
+import LauncherPanel from "./components/LauncherPanel.vue";
 import SidebarNav from "./components/SidebarNav.vue";
 import TabBar from "./components/TabBar.vue";
 import ShortcutHelpOverlay from "./components/ShortcutHelpOverlay.vue";
@@ -218,6 +230,7 @@ const sidebarItems: SidebarItem[] = [
 const HOME_ID = "home";
 const SNIPPETS_ID = "snippets";
 const VAULT_ID = "vault";
+const LAUNCHER_ID = "launcher";
 const HOME_TOOL: ToolDef = { id: HOME_ID, name: "首页", desc: "收藏工具与近一个月高频工具入口" };
 
 const allTools = sidebarItems.flatMap((item) =>
@@ -228,7 +241,7 @@ function isRealToolId(id: string) { return allToolMap.has(id); }
 
 const { openTabs, activeTabId, openTab, closeTab, closeOthers, closeToLeft, closeToRight } = useTabs();
 const activeTool = activeTabId;
-const viewMode = ref<"main" | "snippet-workspace" | "vault-workspace">("main");
+const viewMode = ref<"main" | "snippet-workspace" | "vault-workspace" | "launcher-workspace">("main");
 const themeMode = ref<"system" | "dark" | "light">("system");
 const hotkeyInput = ref("");
 const snippetsHotkeyInput = ref("");
@@ -364,6 +377,10 @@ function onSelect(id: string) {
     enterVaultWorkspace();
     return;
   }
+  if (id === LAUNCHER_ID) {
+    enterLauncherWorkspace();
+    return;
+  }
   viewMode.value = "main";
   const name = getToolName(id);
   if (id !== HOME_ID) recordToolClick(id);
@@ -398,6 +415,17 @@ function enterVaultWorkspace() {
 }
 
 function exitVaultWorkspaceToHome() {
+  viewMode.value = "main";
+  onSelect(HOME_ID);
+}
+
+function enterLauncherWorkspace() {
+  viewMode.value = "launcher-workspace";
+  recordToolClick(LAUNCHER_ID);
+  openTab(LAUNCHER_ID, getToolName(LAUNCHER_ID));
+}
+
+function exitLauncherWorkspaceToHome() {
   viewMode.value = "main";
   onSelect(HOME_ID);
 }
@@ -464,7 +492,7 @@ onMounted(async () => {
     await listen<string>("hotkey-navigate", (event) => {
       if (event.payload === "snippets") enterSnippetWorkspace();
       else if (event.payload === "vault") enterVaultWorkspace();
-      else if (event.payload === "launcher") onSelect("launcher");
+      else if (event.payload === "launcher") enterLauncherWorkspace();
     });
   } catch { /* ignore in non-Tauri env */ }
   window.addEventListener("keydown", onKeydown);

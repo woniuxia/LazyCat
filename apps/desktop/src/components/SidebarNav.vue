@@ -115,6 +115,7 @@ const emit = defineEmits<{
   select: [id: string];
   openSnippetWorkspace: [];
   openVaultWorkspace: [];
+  openLauncherWorkspace: [];
 }>();
 
 const searchQuery = ref("");
@@ -210,7 +211,7 @@ function goHome() {
 
 function onBrandCommand(command: string) {
   if (command === "launcher") {
-    emit("select", "launcher");
+    emit("openLauncherWorkspace");
   } else if (command === "snippets") {
     emit("openSnippetWorkspace");
   } else if (command === "vault") {
