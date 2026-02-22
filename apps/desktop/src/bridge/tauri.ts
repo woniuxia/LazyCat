@@ -165,7 +165,16 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:vault:create":          { domain: "vault", action: "create" },
   "tool:vault:update":          { domain: "vault", action: "update" },
   "tool:vault:delete":          { domain: "vault", action: "delete" },
-  "tool:vault:open-url":        { domain: "vault", action: "open_url" }
+  "tool:vault:open-url":        { domain: "vault", action: "open_url" },
+  "tool:launcher:scan":          { domain: "launcher", action: "scan" },
+  "tool:launcher:list":          { domain: "launcher", action: "list" },
+  "tool:launcher:add":           { domain: "launcher", action: "add" },
+  "tool:launcher:add-manual":    { domain: "launcher", action: "add_manual" },
+  "tool:launcher:update":        { domain: "launcher", action: "update" },
+  "tool:launcher:remove":        { domain: "launcher", action: "remove" },
+  "tool:launcher:reorder":       { domain: "launcher", action: "reorder" },
+  "tool:launcher:launch":        { domain: "launcher", action: "launch" },
+  "tool:launcher:open-folder":   { domain: "launcher", action: "open_folder" }
 };
 
 export async function invokeToolByChannel(

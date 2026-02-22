@@ -48,6 +48,15 @@
             @update:model-value="emit('update:vaultHotkeyInput', String($event ?? ''))"
           />
         </el-form-item>
+        <el-form-item label="快捷启动快捷键">
+          <el-input
+            :model-value="launcherHotkeyInput"
+            placeholder="例如：Ctrl+Shift+Q"
+            clearable
+            style="width: 260px;"
+            @update:model-value="emit('update:launcherHotkeyInput', String($event ?? ''))"
+          />
+        </el-form-item>
         <el-form-item>
           <el-button type="primary" @click="saveHotkeySettings">保存</el-button>
           <el-button @click="clearHotkeySettings" style="margin-left: 8px;">清除快捷键</el-button>
@@ -112,6 +121,7 @@ const props = defineProps<{
   hotkeyInput: string;
   snippetsHotkeyInput: string;
   vaultHotkeyInput: string;
+  launcherHotkeyInput: string;
   sidebarItems: SidebarItem[];
   getHiddenIds: () => string[];
   setHiddenIds: (ids: string[]) => void;
@@ -122,6 +132,7 @@ const emit = defineEmits<{
   (event: "update:hotkeyInput", value: string): void;
   (event: "update:snippetsHotkeyInput", value: string): void;
   (event: "update:vaultHotkeyInput", value: string): void;
+  (event: "update:launcherHotkeyInput", value: string): void;
 }>();
 
 const importMode = ref<"merge" | "overwrite">("merge");
@@ -160,6 +171,10 @@ async function saveHotkeySettings() {
     await registerNamedHotkey("vault", vault);
     setSetting("hotkey_vault", vault);
 
+    const launcher = props.launcherHotkeyInput.trim();
+    await registerNamedHotkey("launcher", launcher);
+    setSetting("hotkey_launcher", launcher);
+
     ElMessage.success("快捷键已保存");
   } catch (e) {
     ElMessage.error(`保存失败：${(e as Error).message}`);
@@ -170,13 +185,16 @@ async function clearHotkeySettings() {
   emit("update:hotkeyInput", "");
   emit("update:snippetsHotkeyInput", "");
   emit("update:vaultHotkeyInput", "");
+  emit("update:launcherHotkeyInput", "");
   try {
     await unregisterHotkey();
     await unregisterNamedHotkey("snippets");
     await unregisterNamedHotkey("vault");
+    await unregisterNamedHotkey("launcher");
     setSetting("hotkey", "");
     setSetting("hotkey_snippets", "");
     setSetting("hotkey_vault", "");
+    setSetting("hotkey_launcher", "");
     ElMessage.success("快捷键已清除");
   } catch (e) {
     ElMessage.error(`清除失败：${(e as Error).message}`);

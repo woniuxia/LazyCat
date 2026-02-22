@@ -261,6 +261,26 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
         set_schema_version(conn, 9)?;
     }
 
+    // Migration 10: launcher_entries (quick launcher)
+    if current < 10 {
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS launcher_entries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                exe_path TEXT NOT NULL,
+                arguments TEXT NOT NULL DEFAULT '',
+                icon_base64 TEXT NOT NULL DEFAULT '',
+                group_name TEXT NOT NULL DEFAULT '',
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_launcher_exe_path ON launcher_entries(exe_path);"
+        )
+        .map_err(|e| format!("migration 10 failed: {e}"))?;
+        set_schema_version(conn, 10)?;
+    }
+
     Ok(())
 }
 

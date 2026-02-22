@@ -25,6 +25,7 @@ pub mod nginx;
 pub mod snippets;
 pub mod pdf;
 pub mod vault;
+pub mod launcher;
 
 use serde_json::Value;
 
@@ -56,6 +57,7 @@ pub fn execute_tool(domain: &str, action: &str, payload: &Value) -> Result<Value
         "snippets" => snippets::execute(action, payload),
         "pdf"      => pdf::execute(action, payload),
         "vault"    => vault::execute(action, payload),
+        "launcher" => launcher::execute(action, payload),
         _ => Err(format!("unsupported command: {domain}.{action}")),
     }
 }

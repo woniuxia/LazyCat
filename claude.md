@@ -49,6 +49,7 @@
 - 开始复杂任务前，先检查 `process.md` 是否有相关经验。
 - 当 `process.md` 中某条经验使用次数 >= 3 时，固化到 `CLAUDE.md`。
 - 较大变动（跨多文件、新增功能、架构调整等）在确认更改有效后，应及时提交一次代码，避免大量改动堆积导致回滚困难或提交信息模糊。
+- 网页抓取策略：`WebFetch` 失败时（网络限制、域名验证不通过等），应主动 fallback 到 Playwright（`browser_navigate` + `browser_snapshot`）。Playwright 作为真实浏览器，对国内网站和 SPA 页面的兼容性更好。
 
 ## 编码与乱码问题（重要）
 

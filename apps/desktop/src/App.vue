@@ -108,6 +108,7 @@ const sidebarItems: SidebarItem[] = [
   { kind: "tool", tool: { id: "regex", name: "正则工具", desc: "表达式生成与测试" } },
   { kind: "tool", tool: { id: "diff", name: "文本对比", desc: "双栏文本差异对比" } },
   { kind: "tool", tool: { id: "markdown", name: "Markdown", desc: "Markdown 编辑与实时预览" } },
+  { kind: "tool", tool: { id: "launcher", name: "快捷启动", desc: "常用程序快速启动与管理" } },
   {
     kind: "group",
     group: {
@@ -232,6 +233,7 @@ const themeMode = ref<"system" | "dark" | "light">("system");
 const hotkeyInput = ref("");
 const snippetsHotkeyInput = ref("");
 const vaultHotkeyInput = ref("");
+const launcherHotkeyInput = ref("");
 const shortcutHelp = ref<InstanceType<typeof ShortcutHelpOverlay> | null>(null);
 
 /* ---------- Sidebar Resize ---------- */
@@ -340,6 +342,7 @@ const currentComponentProps = computed(() => {
     hotkeyInput: hotkeyInput.value,
     snippetsHotkeyInput: snippetsHotkeyInput.value,
     vaultHotkeyInput: vaultHotkeyInput.value,
+    launcherHotkeyInput: launcherHotkeyInput.value,
     sidebarItems,
     getHiddenIds,
     setHiddenIds,
@@ -347,6 +350,7 @@ const currentComponentProps = computed(() => {
     "onUpdate:hotkeyInput": (v: string) => { hotkeyInput.value = v; },
     "onUpdate:snippetsHotkeyInput": (v: string) => { snippetsHotkeyInput.value = v; },
     "onUpdate:vaultHotkeyInput": (v: string) => { vaultHotkeyInput.value = v; },
+    "onUpdate:launcherHotkeyInput": (v: string) => { launcherHotkeyInput.value = v; },
   };
   return {};
 });
@@ -451,10 +455,16 @@ onMounted(async () => {
   if (savedVaultHotkey) {
     try { await registerNamedHotkey("vault", savedVaultHotkey); } catch { /* ignore */ }
   }
+  const savedLauncherHotkey = getSetting("hotkey_launcher") ?? "";
+  launcherHotkeyInput.value = savedLauncherHotkey;
+  if (savedLauncherHotkey) {
+    try { await registerNamedHotkey("launcher", savedLauncherHotkey); } catch { /* ignore */ }
+  }
   try {
     await listen<string>("hotkey-navigate", (event) => {
       if (event.payload === "snippets") enterSnippetWorkspace();
       else if (event.payload === "vault") enterVaultWorkspace();
+      else if (event.payload === "launcher") onSelect("launcher");
     });
   } catch { /* ignore in non-Tauri env */ }
   window.addEventListener("keydown", onKeydown);
