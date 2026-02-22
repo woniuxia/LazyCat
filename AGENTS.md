@@ -184,6 +184,8 @@ UI 文本改动后至少执行：
 - `chore:`
 - `test:`
 
+提交信息使用中文描述，例如：`feat(launcher): 添加分组管理和使用次数排序`
+
 推送前建议检查：
 
 1. `pnpm typecheck`

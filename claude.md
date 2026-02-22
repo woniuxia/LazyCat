@@ -351,7 +351,8 @@ HTTP 服务器在返回 HTML 响应时，在 `</head>` 前注入一段 CSS + JS�
   - `docs: ...`
   - `chore: ...`
   - `test: ...`
-- 每次提交按领域聚焦（ui/core/build/test）。
+- 每次提交按领域聚焦（ui/core/build/test）
+- 提交信息使用中文描述，例如：`feat(launcher): 添加分组管理和使用次数排序`
 
 ## 提交前检查
 
