@@ -71,6 +71,12 @@ importers:
       element-plus:
         specifier: ^2.11.1
         version: 2.13.2(vue@3.5.28(typescript@5.9.3))
+      railroad-diagrams:
+        specifier: ^1.0.0
+        version: 1.0.0
+      regexp-tree:
+        specifier: ^0.1.27
+        version: 0.1.27
       sharp:
         specifier: ^0.33.5
         version: 0.33.5
@@ -1589,6 +1595,10 @@ packages:
     resolution: {integrity: sha512-9u/XQ1pvrQtYyMpZe7DXKv2p5CNvyVwzUB6uhLAnQwHMSgKMBR62lc7AHljaeteeHXn11XTAaLLUVZYVZyuRBQ==}
     engines: {node: '>= 20.19.0'}
 
+  regexp-tree@0.1.27:
+    resolution: {integrity: sha512-iETxpjK6YoRWJG5o6hXLwvjYAoW+FEZn9os0PD/b6AP6xQwsa/Y7lCVgIixBbUPMfhu+i2LtdeAqVTgGlQarfA==}
+    hasBin: true
+
   ret@0.1.15:
     resolution: {integrity: sha512-TTlYpa+OL+vMMNG24xSlQGEJ3B/RzEfUlLct7b5G/ytav+wPrplCpVMFuwzXbkecJrb6IYo1iFb0S9v37754mg==}
     engines: {node: '>=0.12'}
@@ -3101,6 +3111,8 @@ snapshots:
       ret: 0.1.15
 
   readdirp@5.0.0: {}
+
+  regexp-tree@0.1.27: {}
 
   ret@0.1.15: {}
 

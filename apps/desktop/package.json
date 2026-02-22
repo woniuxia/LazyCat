@@ -28,6 +28,8 @@
     "@tauri-apps/api": "^2.0.0",
     "@tauri-apps/plugin-dialog": "^2.0.0",
     "element-plus": "^2.11.1",
+    "railroad-diagrams": "^1.0.0",
+    "regexp-tree": "^0.1.27",
     "sharp": "^0.33.5",
     "sortablejs": "^1.15.7",
     "sql.js": "^1.12.0",

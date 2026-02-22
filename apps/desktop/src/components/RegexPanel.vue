@@ -22,6 +22,38 @@
       </div>
     </div>
 
+    <!-- 正则可视化 -->
+    <div class="regex-viz-section">
+      <el-collapse v-model="vizCollapse">
+        <el-collapse-item name="railroad" title="正则可视化">
+          <div v-if="vizSvg && !vizError" class="viz-toolbar">
+            <el-button-group size="small">
+              <el-button @click="zoomIn">放大</el-button>
+              <el-button @click="zoomReset">重置</el-button>
+              <el-button @click="zoomOut">缩小</el-button>
+            </el-button-group>
+            <span class="viz-zoom-label">{{ Math.round(vizScale * 100) }}%</span>
+          </div>
+          <div v-if="vizError" class="viz-error">
+            <span>{{ vizError }}</span>
+          </div>
+          <div
+            v-else-if="vizSvg"
+            class="viz-scroll-container"
+          >
+            <div
+              class="viz-svg-wrapper"
+              :style="{ transform: `scale(${vizScale})`, transformOrigin: 'top left' }"
+              v-html="vizSvg"
+            ></div>
+          </div>
+          <div v-else class="viz-empty">
+            <span class="text-muted">输入正则表达式后自动生成铁路图</span>
+          </div>
+        </el-collapse-item>
+      </el-collapse>
+    </div>
+
     <!-- 匹配测试区 -->
     <div class="regex-test-section">
       <div class="regex-test-grid">
@@ -152,6 +184,7 @@ import { computed, onMounted, ref, watch, shallowRef, markRaw } from "vue";
 import { ElMessage } from "element-plus";
 import { Search } from "@element-plus/icons-vue";
 import { invokeToolByChannel } from "../bridge/tauri";
+import { regexToSvg } from "../utils/regex-to-railroad";
 import type { RegexTemplate, RegexMatchResult } from "../types/regex";
 
 const SearchIcon = shallowRef(markRaw(Search));
@@ -172,6 +205,41 @@ const matchCount = ref(-1);
 const searchQuery = ref("");
 const selectedCategory = ref("");
 const allTemplates = ref<RegexTemplate[]>([]);
+
+// 正则可视化状态
+const vizCollapse = ref(["railroad"]);
+const vizSvg = ref("");
+const vizError = ref("");
+const vizScale = ref(1);
+const VIZ_SCALE_STEP = 0.15;
+const VIZ_SCALE_MIN = 0.25;
+const VIZ_SCALE_MAX = 3;
+
+function zoomIn() {
+  vizScale.value = Math.min(VIZ_SCALE_MAX, vizScale.value + VIZ_SCALE_STEP);
+}
+function zoomOut() {
+  vizScale.value = Math.max(VIZ_SCALE_MIN, vizScale.value - VIZ_SCALE_STEP);
+}
+function zoomReset() {
+  vizScale.value = 1;
+}
+
+function updateVisualization(pat: string) {
+  if (!pat.trim()) {
+    vizSvg.value = "";
+    vizError.value = "";
+    return;
+  }
+  const result = regexToSvg(pat);
+  if (result.startsWith("Error:")) {
+    vizSvg.value = "";
+    vizError.value = result.slice(7);
+  } else {
+    vizSvg.value = result;
+    vizError.value = "";
+  }
+}
 
 const flags = computed(() => {
   let f = "";
@@ -320,6 +388,13 @@ watch([pattern, flags, input], () => {
   }, 300);
 });
 
+// 可视化跟随 pattern 变化（独立 debounce，避免频繁渲染）
+let vizTimer: ReturnType<typeof setTimeout> | null = null;
+watch(pattern, (val) => {
+  if (vizTimer) clearTimeout(vizTimer);
+  vizTimer = setTimeout(() => updateVisualization(val), 500);
+});
+
 onMounted(() => loadTemplates());
 </script>
 
@@ -438,6 +513,81 @@ onMounted(() => loadTemplates());
   --el-button-hover-text-color: var(--lc-accent-light);
   --el-button-active-text-color: var(--el-color-primary-dark-2);
   font-weight: 600;
+}
+
+/* 正则可视化 */
+.regex-viz-section {
+  border: 1px solid var(--lc-border);
+  border-radius: var(--lc-radius-md);
+  background: var(--lc-surface-1);
+}
+
+.regex-viz-section :deep(.el-collapse) {
+  border: none;
+}
+
+.regex-viz-section :deep(.el-collapse-item__header) {
+  padding: 0 12px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--lc-text);
+  background: transparent;
+  border-bottom: 1px solid var(--lc-border);
+}
+
+.regex-viz-section :deep(.el-collapse-item__wrap) {
+  background: transparent;
+  border-bottom: none;
+}
+
+.regex-viz-section :deep(.el-collapse-item__content) {
+  padding: 12px;
+}
+
+.viz-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.viz-zoom-label {
+  color: var(--lc-text-muted);
+  font-size: 12px;
+  font-family: var(--lc-font-mono, monospace);
+}
+
+.viz-scroll-container {
+  overflow: auto;
+  max-height: 400px;
+  border: 1px solid var(--lc-border);
+  border-radius: var(--lc-radius-sm, 4px);
+  background: var(--lc-surface-2, #181825);
+  padding: 12px;
+}
+
+.viz-svg-wrapper {
+  display: inline-block;
+  min-width: fit-content;
+}
+
+.viz-svg-wrapper :deep(svg) {
+  display: block;
+}
+
+.viz-error {
+  padding: 10px;
+  color: var(--el-color-danger);
+  font-size: 13px;
+  border: 1px solid var(--el-color-danger);
+  border-radius: var(--lc-radius-sm, 4px);
+  background: rgba(220, 38, 38, 0.08);
+}
+
+.viz-empty {
+  padding: 20px;
+  text-align: center;
+  font-size: 13px;
 }
 
 </style>
