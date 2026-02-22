@@ -12,6 +12,7 @@
       </button>
       <template #dropdown>
         <el-dropdown-menu>
+          <el-dropdown-item command="launcher">快捷启动</el-dropdown-item>
           <el-dropdown-item command="snippets">代码片段</el-dropdown-item>
           <el-dropdown-item command="vault">密码管理</el-dropdown-item>
         </el-dropdown-menu>
@@ -208,7 +209,9 @@ function goHome() {
 }
 
 function onBrandCommand(command: string) {
-  if (command === "snippets") {
+  if (command === "launcher") {
+    emit("select", "launcher");
+  } else if (command === "snippets") {
     emit("openSnippetWorkspace");
   } else if (command === "vault") {
     emit("openVaultWorkspace");

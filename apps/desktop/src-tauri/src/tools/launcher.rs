@@ -16,6 +16,10 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         "reorder" => reorder_entries(payload),
         "launch" => launch_app(payload),
         "open_folder" => open_folder(payload),
+        "list_groups" => list_groups(),
+        "create_group" => create_group(payload),
+        "rename_group" => rename_group(payload),
+        "delete_group" => delete_group(payload),
         _ => Err(format!("launcher: unknown action '{action}'")),
     }
 }
@@ -150,8 +154,8 @@ fn list_entries() -> Result<Value, String> {
     let mut stmt = conn
         .prepare(
             "SELECT id, name, exe_path, arguments, icon_base64, group_name, sort_order,
-                    created_at, updated_at
-             FROM launcher_entries ORDER BY sort_order ASC, id ASC",
+                    launch_count, created_at, updated_at
+             FROM launcher_entries ORDER BY launch_count DESC, sort_order ASC, id ASC",
         )
         .map_err(|e| format!("list query failed: {e}"))?;
 
@@ -165,8 +169,9 @@ fn list_entries() -> Result<Value, String> {
                 "icon_base64": row.get::<_, String>(4)?,
                 "group_name": row.get::<_, String>(5)?,
                 "sort_order": row.get::<_, i64>(6)?,
-                "created_at": row.get::<_, String>(7)?,
-                "updated_at": row.get::<_, String>(8)?,
+                "launch_count": row.get::<_, i64>(7)?,
+                "created_at": row.get::<_, String>(8)?,
+                "updated_at": row.get::<_, String>(9)?,
             }))
         })
         .map_err(|e| format!("list map failed: {e}"))?;
@@ -286,6 +291,14 @@ fn launch_app(payload: &Value) -> Result<Value, String> {
         return Err(format!("file not found: {exe_path}"));
     }
 
+    // Increment launch_count
+    let conn = db_conn()?;
+    conn.execute(
+        "UPDATE launcher_entries SET launch_count = launch_count + 1 WHERE exe_path = ?1",
+        params![exe_path],
+    )
+    .ok();
+
     // Directories: open in default file manager
     if p.is_dir() {
         open::that(exe_path).map_err(|e| format!("open folder failed: {e}"))?;
@@ -340,5 +353,118 @@ fn open_folder(payload: &Value) -> Result<Value, String> {
         .parent()
         .ok_or("cannot determine parent directory")?;
     open::that(parent).map_err(|e| format!("open folder failed: {e}"))?;
+    Ok(json!({ "ok": true }))
+}
+
+// ── Group management (stored in user_settings) ──
+
+const GROUPS_SETTINGS_KEY: &str = "launcher_groups";
+
+fn get_groups_from_settings() -> Vec<String> {
+    let conn = match db_conn() {
+        Ok(c) => c,
+        Err(_) => return Vec::new(),
+    };
+    let mut stmt = match conn.prepare("SELECT value FROM user_settings WHERE key = ?1") {
+        Ok(s) => s,
+        Err(_) => return Vec::new(),
+    };
+    let value: Option<String> = stmt
+        .query_row(params![GROUPS_SETTINGS_KEY], |row| row.get(0))
+        .ok();
+    match value {
+        Some(v) => serde_json::from_str(&v).unwrap_or_default(),
+        None => Vec::new(),
+    }
+}
+
+fn save_groups_to_settings(groups: &[String]) -> Result<(), String> {
+    let conn = db_conn()?;
+    let value = serde_json::to_string(groups).map_err(|e| format!("serialize failed: {e}"))?;
+    conn.execute(
+        "INSERT OR REPLACE INTO user_settings (key, value) VALUES (?1, ?2)",
+        params![GROUPS_SETTINGS_KEY, value],
+    )
+    .map_err(|e| format!("save groups failed: {e}"))?;
+    Ok(())
+}
+
+fn list_groups() -> Result<Value, String> {
+    let groups = get_groups_from_settings();
+    Ok(json!({ "groups": groups }))
+}
+
+fn create_group(payload: &Value) -> Result<Value, String> {
+    let name = payload
+        .get("name")
+        .and_then(|v| v.as_str())
+        .ok_or("missing name")?
+        .trim();
+    if name.is_empty() {
+        return Err("分组名称不能为空".into());
+    }
+    let mut groups = get_groups_from_settings();
+    if groups.iter().any(|g| g.eq_ignore_ascii_case(name)) {
+        return Err("分组名称已存在".into());
+    }
+    groups.push(name.to_string());
+    save_groups_to_settings(&groups)?;
+    Ok(json!({ "ok": true }))
+}
+
+fn rename_group(payload: &Value) -> Result<Value, String> {
+    let old_name = payload
+        .get("old_name")
+        .and_then(|v| v.as_str())
+        .ok_or("missing old_name")?;
+    let new_name = payload
+        .get("new_name")
+        .and_then(|v| v.as_str())
+        .ok_or("missing new_name")?
+        .trim();
+    if new_name.is_empty() {
+        return Err("分组名称不能为空".into());
+    }
+
+    let mut groups = get_groups_from_settings();
+    let idx = groups
+        .iter()
+        .position(|g| g == old_name)
+        .ok_or("分组不存在")?;
+    if groups.iter().any(|g| g.eq_ignore_ascii_case(new_name) && g != old_name) {
+        return Err("分组名称已存在".into());
+    }
+    groups[idx] = new_name.to_string();
+    save_groups_to_settings(&groups)?;
+
+    // Update entries with old group name
+    let conn = db_conn()?;
+    conn.execute(
+        "UPDATE launcher_entries SET group_name = ?1, updated_at = CURRENT_TIMESTAMP WHERE group_name = ?2",
+        params![new_name, old_name],
+    )
+    .map_err(|e| format!("update entries failed: {e}"))?;
+
+    Ok(json!({ "ok": true }))
+}
+
+fn delete_group(payload: &Value) -> Result<Value, String> {
+    let name = payload
+        .get("name")
+        .and_then(|v| v.as_str())
+        .ok_or("missing name")?;
+
+    let mut groups = get_groups_from_settings();
+    groups.retain(|g| g != name);
+    save_groups_to_settings(&groups)?;
+
+    // Move entries to "未分组" (empty string)
+    let conn = db_conn()?;
+    conn.execute(
+        "UPDATE launcher_entries SET group_name = '', updated_at = CURRENT_TIMESTAMP WHERE group_name = ?1",
+        params![name],
+    )
+    .map_err(|e| format!("update entries failed: {e}"))?;
+
     Ok(json!({ "ok": true }))
 }

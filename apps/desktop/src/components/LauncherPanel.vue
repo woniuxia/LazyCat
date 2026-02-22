@@ -16,18 +16,14 @@
       </div>
     </div>
 
-    <div class="launcher-body" @dragover.prevent @dragenter.prevent>
-      <div class="launcher-groups" @dragover.prevent @dragenter.prevent @drop.prevent>
+    <div class="launcher-body">
+      <div class="launcher-groups">
         <div
           v-for="g in groupList"
           :key="g"
           class="group-item"
-          :class="{ active: activeGroup === g, 'drop-target': dropTargetGroup === g }"
+          :class="{ active: activeGroup === g }"
           @click="activeGroup = g"
-          @dragenter.prevent="onGroupDragOver(g, $event)"
-          @dragover.prevent="onGroupDragOver(g, $event)"
-          @dragleave="onGroupDragLeave"
-          @drop.stop.prevent="onGroupDrop(g)"
         >
           {{ g }} ({{ groupCount(g) }})
         </div>
@@ -49,6 +45,7 @@
             @dragstart="onDragStart(idx, $event)"
             @dragover.prevent="onDragOver(idx)"
             @drop="onDrop(idx)"
+            @dragend="onDragEnd"
             @contextmenu.prevent="onContextMenu(entry, $event)"
           >
             <img
@@ -56,7 +53,7 @@
               :src="'data:image/png;base64,' + entry.icon_base64"
               class="app-icon"
             />
-            <div v-else class="app-icon-placeholder">?</div>
+            <img v-else :src="defaultIcon" class="app-icon" />
             <span class="app-name" :title="entry.name">{{ entry.name }}</span>
           </div>
         </div>
@@ -72,6 +69,7 @@
             @dragstart="onDragStart(idx, $event)"
             @dragover.prevent="onDragOver(idx)"
             @drop="onDrop(idx)"
+            @dragend="onDragEnd"
             @contextmenu.prevent="onContextMenu(entry, $event)"
           >
             <img
@@ -79,7 +77,7 @@
               :src="'data:image/png;base64,' + entry.icon_base64"
               class="list-icon"
             />
-            <div v-else class="list-icon-placeholder">?</div>
+            <img v-else :src="defaultIcon" class="list-icon" />
             <span class="list-name">{{ entry.name }}</span>
             <span class="list-path">{{ entry.exe_path }}</span>
           </div>
@@ -173,6 +171,9 @@
           </div>
         </el-tab-pane>
         <el-tab-pane label="分组管理" name="groups">
+          <div style="margin-bottom: 12px;">
+            <el-button type="primary" size="small" @click="createGroup">新建分组</el-button>
+          </div>
           <div v-if="userGroups.length === 0" style="color: var(--el-text-color-secondary); font-size: 13px; padding: 20px 0; text-align: center;">
             暂无自定义分组
           </div>
@@ -196,6 +197,7 @@ import { ref, computed, onMounted, onBeforeUnmount } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invokeToolByChannel } from "../bridge/tauri";
+import defaultIcon from "../assets/icon.png";
 
 interface LauncherEntry {
   id: number;
@@ -205,6 +207,7 @@ interface LauncherEntry {
   icon_base64: string;
   group_name: string;
   sort_order: number;
+  launch_count: number;
 }
 
 interface ScanItem {
@@ -215,6 +218,7 @@ interface ScanItem {
 }
 
 const entries = ref<LauncherEntry[]>([]);
+const customGroups = ref<string[]>([]);
 const searchQuery = ref("");
 const viewType = ref<"grid" | "list">("grid");
 const activeGroup = ref("全部");
@@ -242,19 +246,24 @@ const settingsTab = ref("add");
 
 // Drag state
 const dragIdx = ref(-1);
-const dragEntry = ref<LauncherEntry | null>(null);
-const dropTargetGroup = ref("");
 const justDragged = ref(false);
 
 // Computed
 const groupList = computed(() => {
-  const groups = new Set(entries.value.map((e) => e.group_name || "未分组"));
+  const groups = new Set<string>();
+  // Add custom groups first
+  customGroups.value.forEach((g) => groups.add(g));
+  // Add groups from entries
+  entries.value.forEach((e) => groups.add(e.group_name || "未分组"));
   return ["全部", ...Array.from(groups).sort()];
 });
 
-const userGroups = computed(() =>
-  Array.from(new Set(entries.value.map((e) => e.group_name).filter(Boolean)))
-);
+const userGroups = computed(() => {
+  const groups = new Set<string>();
+  customGroups.value.forEach((g) => groups.add(g));
+  entries.value.map((e) => e.group_name).filter(Boolean).forEach((g) => groups.add(g));
+  return Array.from(groups).sort();
+});
 
 function groupCount(g: string): number {
   if (g === "全部") return entries.value.length;
@@ -289,7 +298,16 @@ async function loadEntries() {
   }
 }
 
-onMounted(() => { loadEntries(); document.addEventListener("click", hideCtx); });
+async function loadGroups() {
+  try {
+    const res = (await invokeToolByChannel("tool:launcher:list-groups", {})) as { groups: string[] };
+    customGroups.value = res.groups;
+  } catch (e) {
+    // ignore
+  }
+}
+
+onMounted(() => { loadEntries(); loadGroups(); document.addEventListener("click", hideCtx); });
 onBeforeUnmount(() => { document.removeEventListener("click", hideCtx); });
 
 // Launch
@@ -443,7 +461,6 @@ async function saveEdit() {
 // Drag & drop reorder
 function onDragStart(idx: number, e: DragEvent) {
   dragIdx.value = idx;
-  dragEntry.value = filteredEntries.value[idx];
   justDragged.value = true;
   if (e.dataTransfer) {
     e.dataTransfer.effectAllowed = "move";
@@ -454,6 +471,10 @@ function onDragStart(idx: number, e: DragEvent) {
 function onDragOver(idx: number) {
   // visual feedback could be added here
   void idx;
+}
+
+function onDragEnd() {
+  dragIdx.value = -1;
 }
 
 async function onDrop(targetIdx: number) {
@@ -472,37 +493,6 @@ async function onDrop(targetIdx: number) {
   }
 }
 
-// Drag to group
-function onGroupDragOver(g: string, e: DragEvent) {
-  if (dragEntry.value) {
-    dropTargetGroup.value = g;
-    if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
-  }
-}
-
-function onGroupDragLeave() {
-  dropTargetGroup.value = "";
-}
-
-async function onGroupDrop(g: string) {
-  dropTargetGroup.value = "";
-  if (!dragEntry.value) return;
-  const entry = dragEntry.value;
-  dragEntry.value = null;
-  dragIdx.value = -1;
-
-  const newGroup = g === "全部" ? "" : g === "未分组" ? "" : g;
-  if (entry.group_name === newGroup) return;
-
-  try {
-    await invokeToolByChannel("tool:launcher:update", { id: entry.id, group_name: newGroup });
-    ElMessage.success(`已移至「${g}」`);
-    await loadEntries();
-  } catch (e) {
-    ElMessage.error(`移动失败：${(e as Error).message}`);
-  }
-}
-
 // Group management
 const groupTableData = computed(() =>
   userGroups.value.map((g) => ({
@@ -511,21 +501,43 @@ const groupTableData = computed(() =>
   }))
 );
 
+async function createGroup() {
+  try {
+    const { value: newName } = await ElMessageBox.prompt("输入分组名称", "新建分组", {
+      confirmButtonText: "确定",
+      cancelButtonText: "取消",
+      inputValidator: (v) => {
+        if (!v || !v.trim()) return "分组名称不能为空";
+        if (userGroups.value.includes(v.trim())) return "分组名称已存在";
+        return true;
+      },
+    });
+    if (!newName) return;
+    await invokeToolByChannel("tool:launcher:create-group", { name: newName.trim() });
+    ElMessage.success(`分组「${newName.trim()}」已创建`);
+    await loadGroups();
+  } catch (e) {
+    if ((e as { toString?: () => string })?.toString?.()?.includes("cancel")) return;
+    ElMessage.error(`创建分组失败：${(e as Error).message}`);
+  }
+}
+
 async function startRenameGroup(oldName: string) {
   try {
     const { value: newName } = await ElMessageBox.prompt("输入新的分组名称", "重命名分组", {
       inputValue: oldName,
       confirmButtonText: "确定",
       cancelButtonText: "取消",
-      inputValidator: (v) => (v && v.trim() ? true : "分组名称不能为空"),
+      inputValidator: (v) => {
+        if (!v || !v.trim()) return "分组名称不能为空";
+        if (v.trim() !== oldName && userGroups.value.includes(v.trim())) return "分组名称已存在";
+        return true;
+      },
     });
     if (!newName || newName.trim() === oldName) return;
-    const targets = entries.value.filter((e) => e.group_name === oldName);
-    for (const t of targets) {
-      await invokeToolByChannel("tool:launcher:update", { id: t.id, group_name: newName.trim() });
-    }
+    await invokeToolByChannel("tool:launcher:rename-group", { old_name: oldName, new_name: newName.trim() });
     ElMessage.success("分组已重命名");
-    await loadEntries();
+    await Promise.all([loadEntries(), loadGroups()]);
   } catch (e) {
     if ((e as { toString?: () => string })?.toString?.()?.includes("cancel")) return;
     ElMessage.error(`重命名失败：${(e as Error).message}`);
@@ -539,12 +551,9 @@ async function deleteGroup(groupName: string) {
       "确认删除分组",
       { type: "warning" },
     );
-    const targets = entries.value.filter((e) => e.group_name === groupName);
-    for (const t of targets) {
-      await invokeToolByChannel("tool:launcher:update", { id: t.id, group_name: "" });
-    }
+    await invokeToolByChannel("tool:launcher:delete-group", { name: groupName });
     ElMessage.success("分组已删除");
-    await loadEntries();
+    await Promise.all([loadEntries(), loadGroups()]);
   } catch (e) {
     if ((e as { toString?: () => string })?.toString?.()?.includes("cancel")) return;
     ElMessage.error(`删除分组失败：${(e as Error).message}`);
@@ -567,7 +576,6 @@ async function deleteGroup(groupName: string) {
 }
 .group-item:hover { background: var(--el-fill-color-light); }
 .group-item.active { background: var(--el-color-primary-light-9); color: var(--el-color-primary); font-weight: 600; }
-.group-item.drop-target { background: var(--el-color-primary-light-7); color: var(--el-color-primary); outline: 2px dashed var(--el-color-primary); outline-offset: -2px; }
 .launcher-content { flex: 1; overflow-y: auto; min-height: 0; }
 .launcher-empty {
   display: flex; align-items: center; justify-content: center;
@@ -587,12 +595,6 @@ async function deleteGroup(groupName: string) {
 }
 .grid-card:hover { background: var(--el-fill-color-light); }
 .app-icon { width: 40px; height: 40px; object-fit: contain; }
-.app-icon-placeholder {
-  width: 40px; height: 40px; border-radius: 8px;
-  background: var(--el-fill-color); display: flex;
-  align-items: center; justify-content: center;
-  font-size: 18px; color: var(--el-text-color-secondary);
-}
 .app-name {
   font-size: 12px; text-align: center; max-width: 90px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -607,12 +609,6 @@ async function deleteGroup(groupName: string) {
 }
 .list-row:hover { background: var(--el-fill-color-light); }
 .list-icon { width: 28px; height: 28px; object-fit: contain; flex-shrink: 0; }
-.list-icon-placeholder {
-  width: 28px; height: 28px; border-radius: 4px; flex-shrink: 0;
-  background: var(--el-fill-color); display: flex;
-  align-items: center; justify-content: center;
-  font-size: 14px; color: var(--el-text-color-secondary);
-}
 .list-name { font-size: 13px; min-width: 120px; }
 .list-path { font-size: 12px; color: var(--el-text-color-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Context menu */

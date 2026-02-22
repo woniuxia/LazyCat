@@ -174,7 +174,11 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:launcher:remove":        { domain: "launcher", action: "remove" },
   "tool:launcher:reorder":       { domain: "launcher", action: "reorder" },
   "tool:launcher:launch":        { domain: "launcher", action: "launch" },
-  "tool:launcher:open-folder":   { domain: "launcher", action: "open_folder" }
+  "tool:launcher:open-folder":   { domain: "launcher", action: "open_folder" },
+  "tool:launcher:list-groups":   { domain: "launcher", action: "list_groups" },
+  "tool:launcher:create-group":  { domain: "launcher", action: "create_group" },
+  "tool:launcher:rename-group":  { domain: "launcher", action: "rename_group" },
+  "tool:launcher:delete-group":  { domain: "launcher", action: "delete_group" }
 };
 
 export async function invokeToolByChannel(

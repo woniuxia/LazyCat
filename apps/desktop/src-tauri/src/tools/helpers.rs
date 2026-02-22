@@ -281,6 +281,15 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
         set_schema_version(conn, 10)?;
     }
 
+    // Migration 11: add launch_count column to launcher_entries
+    if current < 11 {
+        conn.execute_batch(
+            "ALTER TABLE launcher_entries ADD COLUMN launch_count INTEGER NOT NULL DEFAULT 0;"
+        )
+        .map_err(|e| format!("migration 11 failed: {e}"))?;
+        set_schema_version(conn, 11)?;
+    }
+
     Ok(())
 }
 
