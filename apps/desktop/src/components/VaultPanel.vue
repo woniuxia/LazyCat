@@ -332,9 +332,14 @@ async function onCopyPassword(entry: VaultListEntry) {
       try {
         const current = await navigator.clipboard.readText();
         if (current === pw) await navigator.clipboard.writeText("");
-      } catch { /* ignore */ }
+      } catch {
+        // readText may fail due to permissions; clear unconditionally as fallback
+        try { await navigator.clipboard.writeText(""); } catch { /* ignore */ }
+      }
     }, 30_000);
-  } catch { /* ignore */ }
+  } catch {
+    ElMessage.error("无法写入剪贴板");
+  }
 }
 
 async function onEditEntry(entry: VaultListEntry) {
@@ -359,10 +364,14 @@ async function onDeleteEntry(entry: VaultListEntry) {
       cancelButtonText: "取消",
       type: "warning",
     });
+  } catch {
+    return; // user cancelled
+  }
+  try {
     await invokeToolByChannel("tool:vault:delete", { id: entry.id });
     await loadEntries();
-  } catch {
-    // cancelled
+  } catch (err) {
+    handleVaultError(err);
   }
 }
 
@@ -423,6 +432,8 @@ function handleVaultError(err: unknown) {
     unlocked.value = false;
     entries.value = [];
     revealedPasswords.clear();
+  } else if (msg) {
+    ElMessage.error(msg);
   }
 }
 
@@ -446,10 +457,12 @@ function startAutoLockCheck() {
   }, 30_000);
 }
 
-function hideRevealedPasswords() {
-  if (revealedPasswords.size > 0) {
-    revealedPasswords.clear();
-  }
+function hideRevealedPasswords(event: MouseEvent) {
+  if (revealedPasswords.size === 0) return;
+  const target = event.target as HTMLElement;
+  // Don't hide if clicking inside the password cell or action buttons
+  if (target.closest('.vault-pw-text, .vault-pw-mask, .el-button, .el-table__fixed-right')) return;
+  revealedPasswords.clear();
 }
 
 onMounted(() => {
@@ -460,6 +473,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   if (activityTimer) clearInterval(activityTimer);
+  if (pwClipboardTimer) clearTimeout(pwClipboardTimer);
   document.removeEventListener("click", hideRevealedPasswords);
 });
 </script>
@@ -560,8 +574,8 @@ onBeforeUnmount(() => {
 
 .vault-nav__actions {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  justify-content: center;
+  gap: 4px;
   padding-top: 12px;
   border-top: 1px solid var(--lc-border);
 }

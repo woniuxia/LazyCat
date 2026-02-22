@@ -7,6 +7,7 @@ use rusqlite::params;
 use serde_json::{json, Value};
 use std::sync::Mutex;
 use std::time::Instant;
+use zeroize::Zeroize;
 
 use super::helpers::db_conn;
 
@@ -60,7 +61,7 @@ fn get_session_key() -> Result<[u8; KEY_LEN], String> {
         None => Err("vault_locked".to_string()),
         Some(session) => {
             if session.last_activity.elapsed().as_secs() > session.timeout_secs {
-                session.key.fill(0);
+                session.key.zeroize();
                 *guard = None;
                 Err("vault_locked_timeout".to_string())
             } else {
@@ -184,7 +185,7 @@ fn cmd_unlock(payload: &Value) -> Result<Value, String> {
 fn cmd_lock(_payload: &Value) -> Result<Value, String> {
     let mut guard = VAULT_SESSION.lock().map_err(|e| format!("session lock: {e}"))?;
     if let Some(session) = guard.as_mut() {
-        session.key.fill(0);
+        session.key.zeroize();
     }
     *guard = None;
     Ok(json!({ "ok": true }))
@@ -508,33 +509,14 @@ fn cmd_open_url(payload: &Value) -> Result<Value, String> {
     if url.is_empty() {
         return Err("empty url".to_string());
     }
-    // Basic validation
-    if !url.starts_with("http://") && !url.starts_with("https://") {
-        return Err("url must start with http:// or https://".to_string());
+    // Validate URL structure to prevent injection
+    let parsed = url::Url::parse(url).map_err(|_| "无效的 URL 格式".to_string())?;
+    match parsed.scheme() {
+        "http" | "https" => {}
+        _ => return Err("仅支持 http/https 链接".to_string()),
     }
 
-    #[cfg(target_os = "windows")]
-    {
-        std::process::Command::new("cmd")
-            .args(["/C", "start", "", url])
-            .spawn()
-            .map_err(|e| format!("open url failed: {e}"))?;
-    }
-    #[cfg(target_os = "macos")]
-    {
-        std::process::Command::new("open")
-            .arg(url)
-            .spawn()
-            .map_err(|e| format!("open url failed: {e}"))?;
-    }
-    #[cfg(target_os = "linux")]
-    {
-        std::process::Command::new("xdg-open")
-            .arg(url)
-            .spawn()
-            .map_err(|e| format!("open url failed: {e}"))?;
-    }
-
+    open::that(url).map_err(|e| format!("打开链接失败: {e}"))?;
     Ok(json!({ "ok": true }))
 }
 

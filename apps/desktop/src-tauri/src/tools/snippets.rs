@@ -338,14 +338,13 @@ fn v2_init(payload: &Value) -> Result<Value, String> {
     Ok(json!({ "initialized": true, "requiresConfirm": false }))
 }
 
-fn v2_list(payload: &Value) -> Result<Value, String> {
-    let conn = db_conn()?;
+/// Shared filter-building for v2_list and v2_search.
+fn build_v2_filters(payload: &Value) -> (Vec<String>, Vec<Box<dyn rusqlite::types::ToSql>>) {
     let folder_id = payload["folder_id"].as_i64();
     let tag = payload["tag"].as_str().unwrap_or_default();
     let favorite_only = payload["favorite_only"].as_bool().unwrap_or(false);
     let untagged_only = payload["untagged_only"].as_bool().unwrap_or(false);
     let recent_days = payload["recent_days"].as_i64().unwrap_or(0);
-    let order_clause = parse_sort(payload);
 
     let mut conditions = Vec::new();
     let mut params_boxed: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
@@ -369,12 +368,10 @@ fn v2_list(payload: &Value) -> Result<Value, String> {
         params_boxed.push(Box::new(format!("-{recent_days} days")));
     }
 
-    let where_clause = if conditions.is_empty() {
-        String::new()
-    } else {
-        format!("WHERE {}", conditions.join(" AND "))
-    };
+    (conditions, params_boxed)
+}
 
+fn execute_v2_query(conn: &rusqlite::Connection, where_clause: &str, order_clause: &str, params_boxed: Vec<Box<dyn rusqlite::types::ToSql>>) -> Result<Value, String> {
     let sql = format!(
         "SELECT
             se.id,
@@ -402,11 +399,11 @@ fn v2_list(payload: &Value) -> Result<Value, String> {
         where_clause, order_clause
     );
 
-    let mut stmt = conn.prepare(&sql).map_err(|e| format!("prepare v2_list failed: {e}"))?;
+    let mut stmt = conn.prepare(&sql).map_err(|e| format!("prepare query failed: {e}"))?;
     let params_ref: Vec<&dyn rusqlite::types::ToSql> = params_boxed.iter().map(|p| p.as_ref()).collect();
     let rows = stmt
         .query_map(params_ref.as_slice(), entry_summary_row_to_json)
-        .map_err(|e| format!("query v2_list failed: {e}"))?;
+        .map_err(|e| format!("query failed: {e}"))?;
 
     let mut out = Vec::new();
     for row in rows {
@@ -414,6 +411,20 @@ fn v2_list(payload: &Value) -> Result<Value, String> {
     }
 
     Ok(Value::Array(out))
+}
+
+fn v2_list(payload: &Value) -> Result<Value, String> {
+    let conn = db_conn()?;
+    let order_clause = parse_sort(payload);
+    let (conditions, params_boxed) = build_v2_filters(payload);
+
+    let where_clause = if conditions.is_empty() {
+        String::new()
+    } else {
+        format!("WHERE {}", conditions.join(" AND "))
+    };
+
+    execute_v2_query(&conn, &where_clause, &order_clause, params_boxed)
 }
 
 fn v2_get(payload: &Value) -> Result<Value, String> {
@@ -617,22 +628,15 @@ fn v2_search(payload: &Value) -> Result<Value, String> {
     }
 
     let conn = db_conn()?;
-    let folder_id = payload["folder_id"].as_i64();
-    let tag = payload["tag"].as_str().unwrap_or_default();
-    let favorite_only = payload["favorite_only"].as_bool().unwrap_or(false);
-    let untagged_only = payload["untagged_only"].as_bool().unwrap_or(false);
-    let recent_days = payload["recent_days"].as_i64().unwrap_or(0);
     let order_clause = parse_sort(payload);
-
-    let mut conditions = Vec::new();
-    let mut params_boxed: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+    let (mut conditions, mut params_boxed) = build_v2_filters(payload);
 
     if has_fts(&conn) {
-        conditions.push("se.id IN (SELECT entry_id FROM snippet_fts WHERE snippet_fts MATCH ?)".to_string());
-        params_boxed.push(Box::new(keyword.to_string()));
+        conditions.insert(0, "se.id IN (SELECT entry_id FROM snippet_fts WHERE snippet_fts MATCH ?)".to_string());
+        params_boxed.insert(0, Box::new(keyword.to_string()));
     } else {
         let like = format!("%{keyword}%");
-        conditions.push(
+        conditions.insert(0,
             "(
                 se.title LIKE ? OR
                 se.description LIKE ? OR
@@ -641,74 +645,20 @@ fn v2_search(payload: &Value) -> Result<Value, String> {
              )"
                 .to_string(),
         );
-        params_boxed.push(Box::new(like.clone()));
-        params_boxed.push(Box::new(like.clone()));
-        params_boxed.push(Box::new(like.clone()));
-        params_boxed.push(Box::new(like));
-    }
-
-    if let Some(fid) = folder_id {
-        conditions.push("se.folder_id = ?".to_string());
-        params_boxed.push(Box::new(fid));
-    }
-    if !tag.is_empty() {
-        conditions.push("EXISTS (SELECT 1 FROM snippet_entry_tags et2 WHERE et2.entry_id = se.id AND et2.tag = ?)".to_string());
-        params_boxed.push(Box::new(tag.to_string()));
-    }
-    if favorite_only {
-        conditions.push("se.is_favorite = 1".to_string());
-    }
-    if untagged_only {
-        conditions.push("NOT EXISTS (SELECT 1 FROM snippet_entry_tags et3 WHERE et3.entry_id = se.id)".to_string());
-    }
-    if recent_days > 0 {
-        conditions.push("se.last_used_at >= datetime('now', ?)".to_string());
-        params_boxed.push(Box::new(format!("-{recent_days} days")));
+        // Insert 4 like params at positions 0..3, before the existing filter params
+        let like_params: Vec<Box<dyn rusqlite::types::ToSql>> = vec![
+            Box::new(like.clone()),
+            Box::new(like.clone()),
+            Box::new(like.clone()),
+            Box::new(like),
+        ];
+        let mut new_params = like_params;
+        new_params.append(&mut params_boxed);
+        params_boxed = new_params;
     }
 
     let where_clause = format!("WHERE {}", conditions.join(" AND "));
-
-    let sql = format!(
-        "SELECT
-            se.id,
-            se.title,
-            se.description,
-            se.folder_id,
-            se.is_favorite,
-            se.primary_language,
-            se.created_at,
-            se.updated_at,
-            se.last_used_at,
-            se.use_count,
-            (SELECT COUNT(*) FROM snippet_fragments_v2 sf WHERE sf.entry_id = se.id) AS fragment_count,
-            (
-                SELECT GROUP_CONCAT(tag, CHAR(31))
-                FROM (
-                    SELECT tag FROM snippet_entry_tags et
-                    WHERE et.entry_id = se.id
-                    ORDER BY tag ASC
-                )
-            ) AS tag_csv
-         FROM snippet_entries se
-         {}
-         ORDER BY {}",
-        where_clause, order_clause
-    );
-
-    let mut stmt = conn
-        .prepare(&sql)
-        .map_err(|e| format!("prepare v2_search failed: {e}"))?;
-    let params_ref: Vec<&dyn rusqlite::types::ToSql> = params_boxed.iter().map(|p| p.as_ref()).collect();
-    let rows = stmt
-        .query_map(params_ref.as_slice(), entry_summary_row_to_json)
-        .map_err(|e| format!("query v2_search failed: {e}"))?;
-
-    let mut out = Vec::new();
-    for row in rows {
-        out.push(row_with_tags(row.map_err(|e| e.to_string())?));
-    }
-
-    Ok(Value::Array(out))
+    execute_v2_query(&conn, &where_clause, &order_clause, params_boxed)
 }
 
 fn v2_tag_stats() -> Result<Value, String> {

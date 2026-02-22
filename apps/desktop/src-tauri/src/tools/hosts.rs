@@ -130,7 +130,8 @@ fn hosts_reorder(payload: &Value) -> Result<Value, String> {
 }
 
 fn hosts_path() -> PathBuf {
-    PathBuf::from("C:\\Windows\\System32\\drivers\\etc\\hosts")
+    let system_root = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_string());
+    PathBuf::from(system_root).join("System32").join("drivers").join("etc").join("hosts")
 }
 
 /// Try direct write first; on PermissionDenied, trigger UAC elevation via PowerShell.
@@ -174,9 +175,10 @@ fn elevated_write_hosts(content: &str) -> Result<(), String> {
     fs::write(&script_path, &ps1).map_err(|e| format!("write elevate script failed: {e}"))?;
 
     // Outer PowerShell launches the script elevated via -Verb RunAs
+    let escaped_script = script_path.to_string_lossy().replace('\'', "''");
     let launcher = format!(
-        "Start-Process -FilePath 'powershell.exe' -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File \"{}\"' -Verb RunAs -Wait",
-        script_path.to_string_lossy()
+        "Start-Process -FilePath 'powershell.exe' -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File ''{}''' -Verb RunAs -Wait",
+        escaped_script
     );
 
     let status = Command::new("powershell")

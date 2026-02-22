@@ -104,7 +104,7 @@ onBeforeUnmount(() => {
   height: 100%;
   min-height: 200px;
   border: 1px solid var(--lc-border);
-  border-radius: 10px;
+  border-radius: var(--lc-radius-md, 10px);
   overflow: hidden;
 }
 </style>

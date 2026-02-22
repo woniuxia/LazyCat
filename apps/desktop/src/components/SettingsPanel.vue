@@ -30,6 +30,24 @@
             @update:model-value="emit('update:hotkeyInput', String($event ?? ''))"
           />
         </el-form-item>
+        <el-form-item label="代码片段快捷键">
+          <el-input
+            :model-value="snippetsHotkeyInput"
+            placeholder="例如：Ctrl+Shift+S"
+            clearable
+            style="width: 260px;"
+            @update:model-value="emit('update:snippetsHotkeyInput', String($event ?? ''))"
+          />
+        </el-form-item>
+        <el-form-item label="密码管理快捷键">
+          <el-input
+            :model-value="vaultHotkeyInput"
+            placeholder="例如：Ctrl+Shift+V"
+            clearable
+            style="width: 260px;"
+            @update:model-value="emit('update:vaultHotkeyInput', String($event ?? ''))"
+          />
+        </el-form-item>
         <el-form-item>
           <el-button type="primary" @click="saveHotkeySettings">保存</el-button>
           <el-button @click="clearHotkeySettings" style="margin-left: 8px;">清除快捷键</el-button>
@@ -84,7 +102,7 @@
 import { ref, onMounted } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { save, open } from "@tauri-apps/plugin-dialog";
-import { registerHotkey, unregisterHotkey, invokeToolByChannel } from "../bridge/tauri";
+import { registerHotkey, unregisterHotkey, registerNamedHotkey, unregisterNamedHotkey, invokeToolByChannel } from "../bridge/tauri";
 import { setSetting } from "../composables/useSettings";
 import type { SidebarItem } from "../types";
 import MenuVisibilityDialog from "./MenuVisibilityDialog.vue";
@@ -92,6 +110,8 @@ import MenuVisibilityDialog from "./MenuVisibilityDialog.vue";
 const props = defineProps<{
   themeMode: "system" | "dark" | "light";
   hotkeyInput: string;
+  snippetsHotkeyInput: string;
+  vaultHotkeyInput: string;
   sidebarItems: SidebarItem[];
   getHiddenIds: () => string[];
   setHiddenIds: (ids: string[]) => void;
@@ -100,6 +120,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   (event: "update:themeMode", value: "system" | "dark" | "light"): void;
   (event: "update:hotkeyInput", value: string): void;
+  (event: "update:snippetsHotkeyInput", value: string): void;
+  (event: "update:vaultHotkeyInput", value: string): void;
 }>();
 
 const importMode = ref<"merge" | "overwrite">("merge");
@@ -125,11 +147,20 @@ async function loadDataDir() {
 }
 
 async function saveHotkeySettings() {
-  const shortcut = props.hotkeyInput.trim();
   try {
-    await registerHotkey(shortcut);
-    setSetting("hotkey", shortcut);
-    ElMessage.success(shortcut ? `快捷键 ${shortcut} 已保存` : "快捷键已清除");
+    const toggle = props.hotkeyInput.trim();
+    await registerHotkey(toggle);
+    setSetting("hotkey", toggle);
+
+    const snippets = props.snippetsHotkeyInput.trim();
+    await registerNamedHotkey("snippets", snippets);
+    setSetting("hotkey_snippets", snippets);
+
+    const vault = props.vaultHotkeyInput.trim();
+    await registerNamedHotkey("vault", vault);
+    setSetting("hotkey_vault", vault);
+
+    ElMessage.success("快捷键已保存");
   } catch (e) {
     ElMessage.error(`保存失败：${(e as Error).message}`);
   }
@@ -137,9 +168,15 @@ async function saveHotkeySettings() {
 
 async function clearHotkeySettings() {
   emit("update:hotkeyInput", "");
+  emit("update:snippetsHotkeyInput", "");
+  emit("update:vaultHotkeyInput", "");
   try {
     await unregisterHotkey();
+    await unregisterNamedHotkey("snippets");
+    await unregisterNamedHotkey("vault");
     setSetting("hotkey", "");
+    setSetting("hotkey_snippets", "");
+    setSetting("hotkey_vault", "");
     ElMessage.success("快捷键已清除");
   } catch (e) {
     ElMessage.error(`清除失败：${(e as Error).message}`);

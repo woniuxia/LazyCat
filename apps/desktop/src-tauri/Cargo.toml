@@ -7,7 +7,7 @@ edition = "2021"
 
 [lib]
 name = "lazycat_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
+crate-type = ["cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -27,7 +27,7 @@ chrono-tz = "0.10"
 cron = "0.12"
 regex = "1"
 csv = "1"
-serde_yaml = "0.9"
+serde_yml = "0.0.12"
 toml = "0.8"
 quick-xml = { version = "0.37", features = ["serialize"] }
 qrcode = "0.14"
@@ -40,11 +40,14 @@ tauri-plugin-dialog = "2"
 encoding_rs = "0.8"
 hex = "0.4"
 hickory-resolver = { version = "0.24", features = ["tokio-runtime"] }
-tokio = { version = "1", features = ["rt"] }
+tokio = { version = "1", features = ["rt", "macros"] }
 jsonschema = "0.18"
 roxmltree = "0.20"
 bcrypt = "0.15"
 lopdf = "0.34"
+open = "5"
+url = "2"
+zeroize = "1"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = [

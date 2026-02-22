@@ -5,7 +5,7 @@ mod tools;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager, WindowEvent,
+    Emitter, Manager, WindowEvent,
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
@@ -13,6 +13,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::fs;
+use std::sync::Mutex;
+
+/// Stores currently registered shortcut strings keyed by name (e.g. "toggle", "snippets", "vault").
+static REGISTERED_SHORTCUTS: std::sync::LazyLock<Mutex<HashMap<String, String>>> =
+    std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
@@ -24,7 +29,7 @@ use tools::regex::REGEX_TEMPLATES_DIR;
 
 fn start_manual_server(root_dir: PathBuf) -> u16 {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind manual server");
-    let port = listener.local_addr().unwrap().port();
+    let port = listener.local_addr().expect("get manual server port").port();
     std::thread::spawn(move || {
         for stream in listener.incoming().flatten() {
             let dir = root_dir.clone();
@@ -35,12 +40,22 @@ fn start_manual_server(root_dir: PathBuf) -> u16 {
 }
 
 fn handle_manual_request(mut stream: TcpStream, root_dir: &Path) {
-    let mut buf = [0u8; 4096];
-    let n = match stream.read(&mut buf) {
-        Ok(n) if n > 0 => n,
-        _ => return,
-    };
-    let request = String::from_utf8_lossy(&buf[..n]);
+    let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(5)));
+    let mut buf = Vec::with_capacity(4096);
+    let mut tmp = [0u8; 4096];
+    loop {
+        let n = match stream.read(&mut tmp) {
+            Ok(0) => return,
+            Ok(n) => n,
+            Err(_) => return,
+        };
+        buf.extend_from_slice(&tmp[..n]);
+        // Check if we've received the full HTTP headers
+        if buf.windows(4).any(|w| w == b"\r\n\r\n") || buf.len() > 8192 {
+            break;
+        }
+    }
+    let request = String::from_utf8_lossy(&buf);
     let path = request
         .lines()
         .next()
@@ -226,38 +241,84 @@ fn tool_execute(request: ToolRequest) -> ToolResponse {
     }
 }
 
-#[tauri::command]
-fn register_hotkey(app: tauri::AppHandle, shortcut: String) -> Result<(), String> {
+/// Re-register all shortcuts from the global map.
+/// Called after any add/remove to keep the shortcut manager in sync.
+fn sync_all_shortcuts(app: &tauri::AppHandle) -> Result<(), String> {
     let manager = app.global_shortcut();
-    // Unregister all existing shortcuts first
     manager.unregister_all().map_err(|e| e.to_string())?;
-    if shortcut.is_empty() {
-        return Ok(());
-    }
-    let sc: Shortcut = shortcut.parse().map_err(|e| format!("{e}"))?;
-    manager
-        .on_shortcut(sc, move |app_handle, _sc, event| {
-            if event.state == ShortcutState::Pressed {
-                if let Some(window) = app_handle.get_webview_window("main") {
-                    let visible = window.is_visible().unwrap_or(false);
-                    if visible {
-                        let _ = window.hide();
-                    } else {
-                        let _ = window.show();
-                        let _ = window.set_focus();
+
+    let map = REGISTERED_SHORTCUTS.lock().map_err(|e| format!("快捷键锁定失败: {e}"))?;
+    for (name, shortcut_str) in map.iter() {
+        if shortcut_str.is_empty() {
+            continue;
+        }
+        let sc: Shortcut = shortcut_str.parse().map_err(|e| format!("{e}"))?;
+        let name_owned = name.clone();
+        manager
+            .on_shortcut(sc, move |app_handle, _sc, event| {
+                if event.state != ShortcutState::Pressed {
+                    return;
+                }
+                match name_owned.as_str() {
+                    "toggle" => {
+                        if let Some(window) = app_handle.get_webview_window("main") {
+                            let visible = window.is_visible().unwrap_or(false);
+                            if visible {
+                                let _ = window.hide();
+                            } else {
+                                let _ = window.show();
+                                let _ = window.set_focus();
+                            }
+                        }
+                    }
+                    other => {
+                        // For "snippets", "vault", etc. – show window + emit event
+                        if let Some(window) = app_handle.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                            let _ = window.emit("hotkey-navigate", other);
+                        }
                     }
                 }
-            }
-        })
-        .map_err(|e| e.to_string())?;
+            })
+            .map_err(|e| e.to_string())?;
+    }
     Ok(())
 }
 
 #[tauri::command]
+fn register_hotkey(app: tauri::AppHandle, shortcut: String) -> Result<(), String> {
+    // Backward-compatible: register as "toggle"
+    register_named_hotkey(app, "toggle".into(), shortcut)
+}
+
+#[tauri::command]
 fn unregister_hotkey(app: tauri::AppHandle) -> Result<(), String> {
-    app.global_shortcut()
-        .unregister_all()
-        .map_err(|e| e.to_string())
+    unregister_named_hotkey(app, "toggle".into())
+}
+
+#[tauri::command]
+fn register_named_hotkey(app: tauri::AppHandle, name: String, shortcut: String) -> Result<(), String> {
+    {
+        let mut map = REGISTERED_SHORTCUTS.lock().map_err(|e| format!("快捷键锁定失败: {e}"))?;
+        if shortcut.is_empty() {
+            map.remove(&name);
+        } else {
+            // Validate first
+            let _: Shortcut = shortcut.parse().map_err(|e| format!("{e}"))?;
+            map.insert(name, shortcut);
+        }
+    }
+    sync_all_shortcuts(&app)
+}
+
+#[tauri::command]
+fn unregister_named_hotkey(app: tauri::AppHandle, name: String) -> Result<(), String> {
+    {
+        let mut map = REGISTERED_SHORTCUTS.lock().map_err(|e| format!("快捷键锁定失败: {e}"))?;
+        map.remove(&name);
+    }
+    sync_all_shortcuts(&app)
 }
 
 fn main() {
@@ -324,7 +385,7 @@ fn main() {
             let quit_item = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
             TrayIconBuilder::new()
-                .icon(app.default_window_icon().unwrap().clone())
+                .icon(app.default_window_icon().expect("app icon missing").clone())
                 .menu(&menu)
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => {
@@ -369,7 +430,9 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             tool_execute,
             register_hotkey,
-            unregister_hotkey
+            unregister_hotkey,
+            register_named_hotkey,
+            unregister_named_hotkey
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

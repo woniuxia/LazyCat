@@ -23,6 +23,14 @@ export async function unregisterHotkey(): Promise<void> {
   await invoke("unregister_hotkey");
 }
 
+export async function registerNamedHotkey(name: string, shortcut: string): Promise<void> {
+  await invoke("register_named_hotkey", { name, shortcut });
+}
+
+export async function unregisterNamedHotkey(name: string): Promise<void> {
+  await invoke("unregister_named_hotkey", { name });
+}
+
 const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:encode:base64-encode": { domain: "encode", action: "base64_encode" },
   "tool:encode:base64-decode": { domain: "encode", action: "base64_decode" },
@@ -131,21 +139,6 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:mybatis:lint": { domain: "mybatis", action: "lint" },
   "tool:nginx:generate": { domain: "nginx", action: "generate" },
   "tool:nginx:lint": { domain: "nginx", action: "lint" },
-  "tool:snippets:list": { domain: "snippets", action: "list" },
-  "tool:snippets:get": { domain: "snippets", action: "get" },
-  "tool:snippets:create": { domain: "snippets", action: "create" },
-  "tool:snippets:update": { domain: "snippets", action: "update" },
-  "tool:snippets:delete": { domain: "snippets", action: "delete" },
-  "tool:snippets:toggle-favorite": { domain: "snippets", action: "toggle_favorite" },
-  "tool:snippets:folder-list": { domain: "snippets", action: "folder_list" },
-  "tool:snippets:folder-create": { domain: "snippets", action: "folder_create" },
-  "tool:snippets:folder-update": { domain: "snippets", action: "folder_update" },
-  "tool:snippets:folder-delete": { domain: "snippets", action: "folder_delete" },
-  "tool:snippets:tags": { domain: "snippets", action: "tags" },
-  "tool:snippets:language-stats": { domain: "snippets", action: "language_stats" },
-  "tool:snippets:search": { domain: "snippets", action: "search" },
-  "tool:snippets:batch-update": { domain: "snippets", action: "batch_update" },
-  "tool:snippets:batch-delete": { domain: "snippets", action: "batch_delete" },
   "tool:snippets:v2:init": { domain: "snippets", action: "v2_init" },
   "tool:snippets:v2:list": { domain: "snippets", action: "v2_list" },
   "tool:snippets:v2:get": { domain: "snippets", action: "v2_get" },

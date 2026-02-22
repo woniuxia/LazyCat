@@ -54,8 +54,11 @@ fn resolve(payload: &Value) -> Result<Value, String> {
 
     let started = Instant::now();
 
-    let rt = tokio::runtime::Runtime::new()
-        .map_err(|e| format!("failed to create runtime: {e}"))?;
+    use std::sync::OnceLock;
+    static DNS_RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
+    let rt = DNS_RUNTIME.get_or_init(|| {
+        tokio::runtime::Runtime::new().expect("create DNS runtime")
+    });
 
     let result = rt.block_on(async {
         let resolver = if server.is_empty() {
@@ -71,14 +74,16 @@ fn resolve(payload: &Value) -> Result<Value, String> {
 
         let domain_name = format!("{}.", domain.trim_end_matches('.'));
 
-        let a_records = query_a(&resolver, &domain_name).await;
-        let aaaa_records = query_aaaa(&resolver, &domain_name).await;
-        let cname_records = query_cname(&resolver, &domain_name).await;
-        let mx_records = query_mx(&resolver, &domain_name).await;
-        let ns_records = query_ns(&resolver, &domain_name).await;
-        let txt_records = query_txt(&resolver, &domain_name).await;
-        let soa_records = query_soa(&resolver, &domain_name).await;
-        let srv_records = query_srv(&resolver, &domain_name).await;
+        let (a_records, aaaa_records, cname_records, mx_records, ns_records, txt_records, soa_records, srv_records) = tokio::join!(
+            query_a(&resolver, &domain_name),
+            query_aaaa(&resolver, &domain_name),
+            query_cname(&resolver, &domain_name),
+            query_mx(&resolver, &domain_name),
+            query_ns(&resolver, &domain_name),
+            query_txt(&resolver, &domain_name),
+            query_soa(&resolver, &domain_name),
+            query_srv(&resolver, &domain_name),
+        );
 
         Ok::<Value, String>(json!({
             "A": a_records,

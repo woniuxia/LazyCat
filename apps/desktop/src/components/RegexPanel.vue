@@ -180,7 +180,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch, shallowRef, markRaw } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch, shallowRef, markRaw } from "vue";
 import { ElMessage } from "element-plus";
 import { Search } from "@element-plus/icons-vue";
 import { invokeToolByChannel } from "../bridge/tauri";
@@ -393,6 +393,11 @@ let vizTimer: ReturnType<typeof setTimeout> | null = null;
 watch(pattern, (val) => {
   if (vizTimer) clearTimeout(vizTimer);
   vizTimer = setTimeout(() => updateVisualization(val), 500);
+});
+
+onBeforeUnmount(() => {
+  if (timer) clearTimeout(timer);
+  if (vizTimer) clearTimeout(vizTimer);
 });
 
 onMounted(() => loadTemplates());

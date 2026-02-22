@@ -86,12 +86,13 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onBeforeUnmount, ref, watch } from "vue";
+import { listen } from "@tauri-apps/api/event";
 import type { ToolDef, SidebarItem } from "./types";
 import { useFavorites } from "./composables/useFavorites";
 import { useTabs } from "./composables/useTabs";
 import { useMenuVisibility } from "./composables/useMenuVisibility";
 import { initSettings, getSetting, setSetting } from "./composables/useSettings";
-import { registerHotkey } from "./bridge/tauri";
+import { registerHotkey, registerNamedHotkey } from "./bridge/tauri";
 import { getToolComponent, ENCODE_PANEL_IDS } from "./tool-registry";
 import HomePanel from "./components/HomePanel.vue";
 import SnippetPanel from "./components/SnippetPanel.vue";
@@ -229,6 +230,8 @@ const activeTool = activeTabId;
 const viewMode = ref<"main" | "snippet-workspace" | "vault-workspace">("main");
 const themeMode = ref<"system" | "dark" | "light">("system");
 const hotkeyInput = ref("");
+const snippetsHotkeyInput = ref("");
+const vaultHotkeyInput = ref("");
 const shortcutHelp = ref<InstanceType<typeof ShortcutHelpOverlay> | null>(null);
 
 /* ---------- Sidebar Resize ---------- */
@@ -335,11 +338,15 @@ const currentComponentProps = computed(() => {
   if (id === "settings") return {
     themeMode: themeMode.value,
     hotkeyInput: hotkeyInput.value,
+    snippetsHotkeyInput: snippetsHotkeyInput.value,
+    vaultHotkeyInput: vaultHotkeyInput.value,
     sidebarItems,
     getHiddenIds,
     setHiddenIds,
     "onUpdate:themeMode": (v: "system" | "dark" | "light") => { themeMode.value = v; },
     "onUpdate:hotkeyInput": (v: string) => { hotkeyInput.value = v; },
+    "onUpdate:snippetsHotkeyInput": (v: string) => { snippetsHotkeyInput.value = v; },
+    "onUpdate:vaultHotkeyInput": (v: string) => { vaultHotkeyInput.value = v; },
   };
   return {};
 });
@@ -434,6 +441,22 @@ onMounted(async () => {
   if (savedHotkey) {
     try { await registerHotkey(savedHotkey); } catch { /* ignore in non-Tauri env */ }
   }
+  const savedSnippetsHotkey = getSetting("hotkey_snippets") ?? "";
+  snippetsHotkeyInput.value = savedSnippetsHotkey;
+  if (savedSnippetsHotkey) {
+    try { await registerNamedHotkey("snippets", savedSnippetsHotkey); } catch { /* ignore */ }
+  }
+  const savedVaultHotkey = getSetting("hotkey_vault") ?? "";
+  vaultHotkeyInput.value = savedVaultHotkey;
+  if (savedVaultHotkey) {
+    try { await registerNamedHotkey("vault", savedVaultHotkey); } catch { /* ignore */ }
+  }
+  try {
+    await listen<string>("hotkey-navigate", (event) => {
+      if (event.payload === "snippets") enterSnippetWorkspace();
+      else if (event.payload === "vault") enterVaultWorkspace();
+    });
+  } catch { /* ignore in non-Tauri env */ }
   window.addEventListener("keydown", onKeydown);
 });
 

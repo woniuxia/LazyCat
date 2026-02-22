@@ -154,7 +154,7 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
             let epoch = 1_700_000_000_000u64; // custom epoch: 2023-11-14
             let now = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .unwrap()
+                .map_err(|e| format!("系统时钟异常: {e}"))?
                 .as_millis() as u64;
             let ts = (now - epoch) & 0x1FFFFFFFFFF; // 41 bits
             let mut rng = rand::thread_rng();

@@ -91,53 +91,9 @@
   flex-shrink: 0;
 }
 
-/* ---------- Snippet Workspace ---------- */
-.snippet-workspace-shell {
-  display: flex;
-  flex-direction: column;
-  width: 100%;
-  height: 100%;
-  gap: 12px;
-  padding: 12px;
-}
-
-.snippet-workspace-header {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  border: 1px solid var(--lc-border-subtle);
-  border-radius: var(--lc-radius-md);
-  background: transparent;
-  padding: 12px 16px;
-}
-
-.snippet-workspace-header h1 {
-  margin: 0;
-  font-family: var(--lc-font-display);
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--lc-text);
-}
-
-.snippet-workspace-header .snippet-back-btn {
-  color: var(--lc-accent);
-}
-
-.snippet-workspace-header .snippet-back-btn:hover {
-  background: var(--lc-accent-dim);
-  color: var(--lc-accent);
-}
-
-.snippet-workspace-body {
-  flex: 1;
-  min-height: 0;
-  border: 1px solid var(--lc-border);
-  border-radius: var(--lc-radius-lg);
-  background: var(--lc-surface-0);
-  overflow: hidden;
-}
-
-/* ---------- Vault Workspace ---------- */
+/* ---------- Workspace Panel (shared) ---------- */
+.workspace-panel-shell,
+.snippet-workspace-shell,
 .vault-workspace-shell {
   display: flex;
   flex-direction: column;
@@ -147,6 +103,8 @@
   padding: 12px;
 }
 
+.workspace-panel-header,
+.snippet-workspace-header,
 .vault-workspace-header {
   display: flex;
   align-items: center;
@@ -157,6 +115,8 @@
   padding: 12px 16px;
 }
 
+.workspace-panel-header h1,
+.snippet-workspace-header h1,
 .vault-workspace-header h1 {
   margin: 0;
   font-family: var(--lc-font-display);
@@ -165,15 +125,21 @@
   color: var(--lc-text);
 }
 
+.workspace-panel-header .workspace-back-btn,
+.snippet-workspace-header .snippet-back-btn,
 .vault-workspace-header .vault-back-btn {
   color: var(--lc-accent);
 }
 
+.workspace-panel-header .workspace-back-btn:hover,
+.snippet-workspace-header .snippet-back-btn:hover,
 .vault-workspace-header .vault-back-btn:hover {
   background: var(--lc-accent-dim);
   color: var(--lc-accent);
 }
 
+.workspace-panel-body,
+.snippet-workspace-body,
 .vault-workspace-body {
   flex: 1;
   min-height: 0;

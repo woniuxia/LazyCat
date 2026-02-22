@@ -12,7 +12,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import MonacoPane from "./MonacoPane.vue";
 import { formatHtml, formatJava, formatJson, formatSqlCode, formatXml } from "@lazycat/formatters";
@@ -102,6 +102,10 @@ let timer: ReturnType<typeof setTimeout> | null = null;
 watch(formatInput, () => {
   if (timer) clearTimeout(timer);
   timer = setTimeout(() => formatCode(), 300);
+});
+
+onBeforeUnmount(() => {
+  if (timer) clearTimeout(timer);
 });
 </script>
 

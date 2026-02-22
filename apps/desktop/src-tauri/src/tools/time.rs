@@ -22,7 +22,7 @@ fn date_diff(payload: &Value) -> Result<Value, String> {
     let mut cursor = earlier;
     while cursor.with_year(cursor.year() + 1).map_or(false, |next| next <= later) {
         y += 1;
-        cursor = cursor.with_year(cursor.year() + 1).unwrap();
+        cursor = cursor.with_year(cursor.year() + 1).ok_or("日期计算溢出")?;
     }
     while {
         let next_month = if cursor.month() == 12 {
@@ -39,14 +39,14 @@ fn date_diff(payload: &Value) -> Result<Value, String> {
     } {
         m += 1;
         cursor = if cursor.month() == 12 {
-            NaiveDate::from_ymd_opt(cursor.year() + 1, 1, cursor.day().min(28)).unwrap()
+            NaiveDate::from_ymd_opt(cursor.year() + 1, 1, cursor.day().min(28)).ok_or("日期计算溢出")?
         } else {
             let next_m = cursor.month() + 1;
             let max_day = NaiveDate::from_ymd_opt(cursor.year(), next_m, 1)
                 .and_then(|d| d.pred_opt())
                 .map(|d| d.day())
                 .unwrap_or(28);
-            NaiveDate::from_ymd_opt(cursor.year(), next_m, cursor.day().min(max_day)).unwrap()
+            NaiveDate::from_ymd_opt(cursor.year(), next_m, cursor.day().min(max_day)).ok_or("日期计算溢出")?
         };
     }
     d = (later - cursor).num_days() as u32;
@@ -73,7 +73,7 @@ fn date_add(payload: &Value) -> Result<Value, String> {
     let hours = add["hours"].as_i64().unwrap_or(0);
     let minutes = add["minutes"].as_i64().unwrap_or(0);
 
-    let dt = date.and_hms_opt(0, 0, 0).unwrap();
+    let dt = date.and_hms_opt(0, 0, 0).ok_or("日期时间构造失败")?;
     let result = dt
         + chrono::Duration::days(days)
         + chrono::Duration::hours(hours)

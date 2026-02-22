@@ -59,7 +59,13 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host "Running Tauri build in VS developer environment..."
-$cmd = "`"$vsDevCmd`" -arch=x64 && pnpm --filter @lazycat/desktop build:tauri"
+# Ensure Strawberry Perl is first in PATH (MSYS2 perl lacks modules needed by openssl-src)
+$strawberryPerl = "C:\Strawberry\perl\bin"
+if (Test-Path $strawberryPerl) {
+  $env:Path = "$strawberryPerl;$($env:Path)"
+  Write-Host "Prepended Strawberry Perl to PATH: $strawberryPerl"
+}
+$cmd = "`"$vsDevCmd`" -arch=x64 && set PATH=$strawberryPerl;%PATH% && pnpm --filter @lazycat/desktop build:tauri"
 cmd /c $cmd
 if ($LASTEXITCODE -ne 0) {
   throw "Tauri build failed with exit code $LASTEXITCODE"

@@ -115,7 +115,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, watch } from "vue";
-import { ElMessageBox } from "element-plus";
+import { ElMessageBox, ElMessage } from "element-plus";
 import { invokeToolByChannel } from "../bridge/tauri";
 
 const DB_DEFAULT_PORT: Record<string, number> = {
@@ -277,7 +277,8 @@ async function onSave() {
     visible.value = false;
     emit("saved");
   } catch (err) {
-    console.error("save vault entry failed:", err);
+    const msg = (err as Error).message || "未知错误";
+    ElMessage.error(`保存失败: ${msg}`);
   } finally {
     saving.value = false;
   }
