@@ -93,7 +93,7 @@
   - 通道字符串（如 `tool:encode:base64-encode`）通过 `CHANNEL_MAP` 映射为 `{domain, action}`
   - Tauri 命令 `tool_execute` 在 Rust 端通过 `main.rs` 中的 `match (domain, action)` 分发
 - 前端路由：未使用 vue-router；`App.vue` 通过 `v-else-if` 链式判断 `activeTool` ref 来切换面板
-- 已提取的子组件位于 `apps/desktop/src/components/`：`HomePanel`、`CalcDraftPanel`、`FormatterPanel`、`RegexPanel`、`HostsPanel`、`PortsPanel`、`NetworkPanel`、`MonacoPane`、`ManualPanel`、`EncodePanel`、`CsvJsonPanel`、`SidebarNav`
+- 已提取的子组件位于 `apps/desktop/src/components/`：`HomePanel`、`CalcDraftPanel`、`FormatterPanel`、`RegexPanel`、`HostsPanel`、`PortsPanel`、`NetworkPanel`、`MonacoPane`、`ManualPanel`、`EncodePanel`、`CsvJsonPanel`、`SidebarNav`、`SqlEntityPanel`、`PdfPanel`、`NamingCasePanel`、`ConfigConvertPanel`、`HttpStatusPanel`、`ChmodCalcPanel`、`DateCalcPanel`、`BcryptPanel`、`EscapeUnescapePanel`、`NginxPanel`、`HotkeyPanel`、`ImagePanel` 等
 - 格式化架构：XML/HTML/Java/SQL 格式化在 Rust 端为**直通模式**；实际格式化由渲染层的 `@lazycat/formatters`（Prettier standalone）完成
 - Cron 预览（`cron.preview`）当前为**桩实现** -- 返回占位字符串，非真实的下次触发时间
 - Hosts 激活需要**管理员权限**写入 `C:\Windows\System32\drivers\etc\hosts`；覆写前自动备份原文件
@@ -109,6 +109,21 @@
   - `allTools`/`allToolMap` 始终基于未过滤的 `sidebarItems`，隐藏工具仍可通过标签页、收藏、首页访问
   - 设置入口：`SettingsPanel` → `MenuVisibilityDialog`（el-tree 树形复选框）
 - 状态持久化：收藏夹、工具点击历史、计算草稿历史、外观主题、快捷键、菜单显隐等全部存储在 SQLite（`user_settings` 表）；旧版 localStorage 数据在首次启动时自动迁移
+- PDF 工具：
+  - Rust 后端模块 `tools/pdf.rs`，使用 `lopdf` crate 操作 PDF
+  - 三个 action：`info`（元数据提取）、`split`（按页码范围拆分为多个文件）、`merge`（合并多个 PDF）
+  - 拆分输出到目录，每个页码范围生成独立文件（如 `文件名_p1.pdf`、`文件名_p2-5.pdf`）
+  - 页码范围留空时逐页拆分
+  - IPC 通道：`tool:pdf:info` / `tool:pdf:split` / `tool:pdf:merge`
+- SQL 转实体类：
+  - Rust 后端在 `tools/convert.rs` 中实现 `sql_to_entity` action
+  - 支持 6 种目标语言：Java（Lombok @Data）、TypeScript、Go、Python、Kotlin、C#
+  - IPC 通道：`tool:convert:sql-to-entity`
+- 正则可视化：
+  - 纯前端实现，无需后端参与
+  - 使用 `regexp-tree` 解析正则 AST + `railroad-diagrams` 渲染铁路图 SVG
+  - 转换逻辑位于 `apps/desktop/src/utils/regex-to-railroad.ts`
+  - 集成在 `RegexPanel.vue` 中，500ms 防抖自动渲染，支持缩放控制
 
 ## 重要运行时路径
 
@@ -153,11 +168,23 @@
 | `tool:settings:set-data-dir` | `set_data_dir` | 设置自定义数据目录（含迁移） |
 | `tool:settings:reset-data-dir` | `reset_data_dir` | 恢复默认数据目录 |
 
+## 添加新工具的标准流程
+
+每个新工具需改动以下文件（如需后端 Rust 支持）：
+
+1. **`apps/desktop/src/App.vue`** -- `sidebarItems` 数组中注册 tool/group entry
+2. **`apps/desktop/src/tool-registry.ts`** -- `toolRegistry` 注册异步组件
+3. **`apps/desktop/src/components/XxxPanel.vue`** -- 新建面板组件
+4. **`apps/desktop/src/bridge/tauri.ts`** -- `CHANNEL_MAP` 添加 IPC 通道（如需后端）
+5. **`apps/desktop/src-tauri/src/tools/`** -- 新建 Rust 模块 + 在 `mod.rs` 注册（如需后端）
+
+纯前端工具（如正则可视化）仅需步骤 1-3。
+
 ## 当前已知限制
 
 - `pnpm build` 需要 Rust 工具链（`cargo`、`rustc`）及平台依赖。
 - Windows 上 vendored OpenSSL 需要 `perl`（如 Strawberry Perl）。
-- 所有 Rust 工具逻辑集中在 `apps/desktop/src-tauri/src/main.rs`（约 1340 行），尚未拆分模块。
+- 所有 Rust 工具逻辑已拆分为独立模块，位于 `apps/desktop/src-tauri/src/tools/` 目录下，由 `mod.rs` 统一分发。
 - `packages/core`、`packages/crypto`、`packages/db`、`packages/file-tools`、`packages/image-tools`、`packages/network`、`packages/ipc-contracts` 当前为桩或薄封装 -- 实际逻辑在 Rust 端。仅 `packages/formatters` 被渲染层实际使用（Prettier standalone）。
 - Cron 预览为桩实现（返回占位字符串），真实的下次触发时间计算尚未实现。
 - Rust 端的 XML/HTML/Java/SQL 格式化为直通模式；格式化质量取决于 `@lazycat/formatters`（Prettier）。

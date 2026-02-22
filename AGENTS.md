@@ -196,11 +196,11 @@ UI 文本改动后至少执行：
 
 - 常驻一级：`formatter`、`snippets`、`calc-draft`、`regex`、`diff`、`markdown`
 - 编解码：`base64`、`url`、`md5`、`hash`、`qr`
-- 加密与安全：`rsa`、`aes`、`jwt`、`uuid`
-- 数据转换：`json-xml`、`json-yaml`、`json-schema`、`csv-json`、`java-bean-js`、`mybatis-helper`、`base-converter`、`color`、`escape-unescape`、`text-process`
-- 网络与系统：`network`、`dns`、`hosts`、`ports`、`env`、`nginx-helper`、`hotkey`
-- 文件与媒体：`split-merge`、`image`
-- 时间工具：`timestamp`、`cron`
+- 加密与安全：`rsa`、`aes`、`jwt`、`uuid`、`password`、`bcrypt`
+- 数据转换：`json-process`、`json-schema`、`csv-json`、`java-bean-js`、`mybatis-helper`、`base-converter`、`color`、`escape-unescape`、`text-process`、`naming-case`、`config-convert`、`sql-entity`
+- 网络与系统：`network`、`dns`、`hosts`、`ports`、`env`、`nginx-helper`、`hotkey`、`http-status`、`chmod-calc`
+- 文件与媒体：`split-merge`、`pdf`、`image`
+- 时间工具：`timestamp`、`cron`、`date-calc`
 - 离线手册：`manual-vue3`、`manual-element-plus`、`manual-mdn-js`
 
 新增/调整工具时，必须同步以下三个来源：
@@ -226,7 +226,7 @@ UI 文本改动后至少执行：
 - `encode`、`convert`、`text`、`time`、`gen`、`regex`、`cron`
 - `crypto`、`format`、`network`、`dns`、`env`、`port`
 - `file`、`image`、`hosts`、`manuals`、`settings`
-- `hotkey`、`jwt`、`schema`、`mybatis`、`nginx`、`snippets`
+- `hotkey`、`jwt`、`schema`、`mybatis`、`nginx`、`snippets`、`pdf`
 
 新增域时至少完成：
 
@@ -234,7 +234,50 @@ UI 文本改动后至少执行：
 2. 前端 `CHANNEL_MAP` 增加映射
 3. 对应面板增加错误态和加载态
 
-## 19. 手册与资源维护清单
+## 19. 添加新工具的标准流程
+
+每个新工具需改动以下文件（如需后端 Rust 支持）：
+
+1. **`apps/desktop/src/App.vue`** -- `sidebarItems` 数组中注册 tool/group entry
+2. **`apps/desktop/src/tool-registry.ts`** -- `toolRegistry` 注册异步组件
+3. **`apps/desktop/src/components/XxxPanel.vue`** -- 新建面板组件
+4. **`apps/desktop/src/bridge/tauri.ts`** -- `CHANNEL_MAP` 添加 IPC 通道（如需后端）
+5. **`apps/desktop/src-tauri/src/tools/`** -- 新建 Rust 模块 + 在 `mod.rs` 注册（如需后端）
+
+纯前端工具仅需步骤 1-3。
+
+## 20. 近期新增工具架构备注
+
+### PDF 工具（`pdf` 域）
+
+- Rust 后端模块：`tools/pdf.rs`，使用 `lopdf` crate（`Cargo.toml` 中 `lopdf = "0.34"`）
+- 三个 action：
+  - `info` -- 提取元数据（页数、文件大小、PDF 版本、页面尺寸、纸张类型、标题/作者/创建日期等）
+  - `split` -- 按页码范围拆分为多个独立 PDF 文件，输出到指定目录；页码范围留空时逐页拆分
+  - `merge` -- 合并多个 PDF 为一个文件
+- IPC 通道：`tool:pdf:info` / `tool:pdf:split` / `tool:pdf:merge`
+- 前端面板：`PdfPanel.vue`，三个 Tab（信息/拆分/合并）
+- lopdf API 注意事项：
+  - `doc.version` 是 `String` 类型，不是 tuple
+  - `Object::as_reference()` 返回 `Result`，需 `.ok()` 转为 `Option` 再链式调用
+
+### SQL 转实体类（`convert` 域 `sql_to_entity` action）
+
+- 在现有 `tools/convert.rs` 中新增 action，无需新增 Rust 模块
+- 支持 6 种语言：Java（Lombok @Data）、TypeScript、Go、Python、Kotlin、C#
+- Java 实体使用 `@Data` 注解 + 自动收集 import（`lombok.Data`、`java.time.*`、`java.math.BigDecimal`）
+- IPC 通道：`tool:convert:sql-to-entity`
+- 前端面板：`SqlEntityPanel.vue`
+
+### 正则可视化（纯前端）
+
+- 无需后端，集成在现有 `RegexPanel.vue` 中
+- 前端依赖：`regexp-tree`（正则 AST 解析）+ `railroad-diagrams`（铁路图 SVG 渲染）
+- 转换逻辑：`apps/desktop/src/utils/regex-to-railroad.ts`
+- 类型声明：`apps/desktop/src/types/railroad-diagrams.d.ts`
+- 500ms 防抖自动渲染，支持缩放（0.25x - 3x）
+
+## 21. 手册与资源维护清单
 
 - 新增手册后，必须在 `manuals.rs` 的 `known` 列表注册，否则前端不会显示入口。
 - 必须同时在 `App.vue` 的 `sidebarItems` 中添加 `manual-<id>` 条目，否则侧边栏不显示。
@@ -250,7 +293,7 @@ UI 文本改动后至少执行：
   - Vue 3：`.preference-tooltip`
   - 通用：`.notification-bar`、`.mdn-cta`、`.top-banner`、`.pong-box`、`.article-actions-container`
 
-## 20. Windows 构建脚本约定（补充）
+## 22. Windows 构建脚本约定（补充）
 
 `scripts/build-tauri-win.ps1` 目前会执行：
 
