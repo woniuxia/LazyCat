@@ -1,5 +1,6 @@
 use serde_json::{json, Value};
 use std::fs;
+use std::collections::BTreeMap;
 
 fn json_to_xml(root_tag: &str, value: &Value) -> String {
     let root = sanitize_xml_tag(root_tag, "root");
@@ -290,6 +291,150 @@ fn parse_java_fields(bean: &str) -> (serde_json::Map<String, Value>, Vec<Value>,
     (map, fields, warnings)
 }
 
+fn parse_properties(input: &str) -> Result<Value, String> {
+    let mut root = serde_json::Map::new();
+    for line in input.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with('!') {
+            continue;
+        }
+        if let Some(pos) = trimmed.find('=') {
+            let key = trimmed[..pos].trim();
+            let val = trimmed[pos + 1..].trim();
+            // Support nested keys: a.b.c = v
+            let parts: Vec<&str> = key.split('.').collect();
+            set_nested(&mut root, &parts, Value::String(val.to_string()));
+        }
+    }
+    Ok(Value::Object(root))
+}
+
+fn set_nested(map: &mut serde_json::Map<String, Value>, parts: &[&str], value: Value) {
+    if parts.len() == 1 {
+        map.insert(parts[0].to_string(), value);
+        return;
+    }
+    let entry = map
+        .entry(parts[0].to_string())
+        .or_insert_with(|| Value::Object(serde_json::Map::new()));
+    if let Value::Object(ref mut child) = entry {
+        set_nested(child, &parts[1..], value);
+    }
+}
+
+fn parse_env(input: &str) -> Result<Value, String> {
+    let mut map = serde_json::Map::new();
+    for line in input.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        if let Some(pos) = trimmed.find('=') {
+            let key = trimmed[..pos].trim();
+            let val = trimmed[pos + 1..].trim().trim_matches('"').trim_matches('\'');
+            map.insert(key.to_string(), Value::String(val.to_string()));
+        }
+    }
+    Ok(Value::Object(map))
+}
+
+fn serialize_properties(value: &Value) -> String {
+    let mut lines = Vec::new();
+    flatten_value(value, "", &mut lines);
+    lines.sort();
+    lines.join("\n")
+}
+
+fn flatten_value(value: &Value, prefix: &str, lines: &mut Vec<String>) {
+    match value {
+        Value::Object(map) => {
+            for (k, v) in map {
+                let key = if prefix.is_empty() {
+                    k.clone()
+                } else {
+                    format!("{prefix}.{k}")
+                };
+                flatten_value(v, &key, lines);
+            }
+        }
+        _ => {
+            let s = match value {
+                Value::String(s) => s.clone(),
+                Value::Null => String::new(),
+                other => other.to_string(),
+            };
+            lines.push(format!("{prefix}={s}"));
+        }
+    }
+}
+
+fn serialize_env(value: &Value) -> String {
+    let mut lines = Vec::new();
+    if let Value::Object(map) = value {
+        let sorted: BTreeMap<_, _> = map.iter().collect();
+        for (k, v) in sorted {
+            let s = match v {
+                Value::String(s) => s.clone(),
+                Value::Null => String::new(),
+                other => other.to_string(),
+            };
+            lines.push(format!("{k}={s}"));
+        }
+    } else {
+        flatten_value(value, "", &mut lines);
+        lines.sort();
+    }
+    lines.join("\n")
+}
+
+fn config_convert(payload: &Value) -> Result<Value, String> {
+    let input = payload["input"].as_str().unwrap_or_default();
+    let from = payload["from"].as_str().unwrap_or_default();
+    let to = payload["to"].as_str().unwrap_or_default();
+
+    let intermediate: Value = match from {
+        "properties" => parse_properties(input)?,
+        "yaml" => serde_yaml::from_str(input).map_err(|e| format!("YAML 解析失败: {e}"))?,
+        "toml" => toml::from_str(input).map_err(|e| format!("TOML 解析失败: {e}"))?,
+        "env" => parse_env(input)?,
+        _ => return Err(format!("不支持的源格式: {from}")),
+    };
+
+    let output = match to {
+        "properties" => serialize_properties(&intermediate),
+        "yaml" => serde_yaml::to_string(&intermediate).map_err(|e| format!("YAML 序列化失败: {e}"))?,
+        "toml" => toml::to_string_pretty(&intermediate).map_err(|e| format!("TOML 序列化失败: {e}"))?,
+        "env" => serialize_env(&intermediate),
+        _ => return Err(format!("不支持的目标格式: {to}")),
+    };
+
+    Ok(json!({ "output": output }))
+}
+
+fn yaml_validate(payload: &Value) -> Result<Value, String> {
+    let input = payload["input"].as_str().unwrap_or_default();
+    match serde_yaml::from_str::<Value>(input) {
+        Ok(_) => Ok(json!({ "valid": true, "error": null })),
+        Err(e) => {
+            let loc = e.location();
+            Ok(json!({
+                "valid": false,
+                "error": {
+                    "line": loc.map(|l| l.line()).unwrap_or(0),
+                    "message": e.to_string(),
+                }
+            }))
+        }
+    }
+}
+
+fn yaml_format(payload: &Value) -> Result<Value, String> {
+    let input = payload["input"].as_str().unwrap_or_default();
+    let value: Value = serde_yaml::from_str(input).map_err(|e| format!("YAML 解析失败: {e}"))?;
+    let output = serde_yaml::to_string(&value).map_err(|e| format!("YAML 序列化失败: {e}"))?;
+    Ok(json!({ "output": output }))
+}
+
 pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
     match action {
         "json_to_xml" => {
@@ -429,6 +574,9 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
                 "warnings": warnings
             }))
         }
+        "config_convert" => config_convert(payload),
+        "yaml_validate" => yaml_validate(payload),
+        "yaml_format" => yaml_format(payload),
         _ => Err(format!("unsupported convert action: {action}")),
     }
 }
@@ -567,5 +715,61 @@ mod tests {
 
         let err = execute("json_to_js_object", &json!({ "json": "" })).expect_err("empty json");
         assert!(err.contains("json is empty"));
+    }
+
+    #[test]
+    fn config_convert_properties_to_yaml() {
+        let r = execute("config_convert", &json!({
+            "input": "server.port=8080\nserver.host=localhost",
+            "from": "properties",
+            "to": "yaml"
+        })).unwrap();
+        let output = r["output"].as_str().unwrap();
+        assert!(output.contains("server"));
+        assert!(output.contains("8080"));
+    }
+
+    #[test]
+    fn config_convert_yaml_to_toml() {
+        let r = execute("config_convert", &json!({
+            "input": "server:\n  port: 8080",
+            "from": "yaml",
+            "to": "toml"
+        })).unwrap();
+        let output = r["output"].as_str().unwrap();
+        assert!(output.contains("[server]"));
+        assert!(output.contains("8080"));
+    }
+
+    #[test]
+    fn config_convert_env_to_properties() {
+        let r = execute("config_convert", &json!({
+            "input": "DB_HOST=localhost\nDB_PORT=5432",
+            "from": "env",
+            "to": "properties"
+        })).unwrap();
+        let output = r["output"].as_str().unwrap();
+        assert!(output.contains("DB_HOST=localhost"));
+    }
+
+    #[test]
+    fn yaml_validate_valid() {
+        let r = execute("yaml_validate", &json!({"input": "key: value\nlist:\n  - a\n  - b"})).unwrap();
+        assert_eq!(r["valid"], true);
+        assert!(r["error"].is_null());
+    }
+
+    #[test]
+    fn yaml_validate_invalid() {
+        let r = execute("yaml_validate", &json!({"input": "key: [unclosed"})).unwrap();
+        assert_eq!(r["valid"], false);
+        assert!(r["error"]["message"].as_str().unwrap().len() > 0);
+    }
+
+    #[test]
+    fn yaml_format_indent() {
+        let r = execute("yaml_format", &json!({"input": "key:   value\nlist:\n    - a", "indent": 2})).unwrap();
+        let output = r["output"].as_str().unwrap();
+        assert!(output.contains("key:"));
     }
 }

@@ -47,6 +47,12 @@ export interface TextProcessStats {
   inputChars: number;
   outputChars: number;
   durationMs: number;
+  charsWithSpaces: number;
+  charsNoSpaces: number;
+  chineseChars: number;
+  englishWords: number;
+  bytesUtf8: number;
+  longestLine: number;
 }
 
 export interface TextProcessResponse {

@@ -108,7 +108,9 @@ const sidebarItems: SidebarItem[] = [
         { id: "rsa", name: "RSA 加解密", desc: "RSA 公私钥加解密" },
         { id: "aes", name: "AES/DES", desc: "AES / DES / 3DES 加解密" },
         { id: "jwt", name: "JWT 解析", desc: "离线解析 JWT Token" },
-        { id: "uuid", name: "UUID/GUID/密码", desc: "标识与随机密码生成" }
+        { id: "uuid", name: "UUID/GUID", desc: "UUID 与 GUID 生成" },
+        { id: "password", name: "密码工具", desc: "随机密码生成与强度分析" },
+        { id: "bcrypt", name: "Bcrypt", desc: "Bcrypt 哈希生成与验证" }
       ]
     }
   },
@@ -118,8 +120,7 @@ const sidebarItems: SidebarItem[] = [
       id: "text",
       name: "数据转换",
       tools: [
-        { id: "json-xml", name: "JSON/XML", desc: "JSON 与 XML 双向转换" },
-        { id: "json-yaml", name: "JSON/YAML", desc: "JSON 与 YAML 双向转换" },
+        { id: "json-process", name: "JSON 处理", desc: "JSON 格式化/压缩/XML/YAML 互转" },
         { id: "json-schema", name: "JSON Schema", desc: "JSON Schema 校验与样例生成" },
         { id: "csv-json", name: "CSV/JSON", desc: "CSV 转 JSON" },
         { id: "java-bean-js", name: "JavaBean 转 JS", desc: "Java Bean 转 JSON 与 JS Object" },
@@ -129,6 +130,7 @@ const sidebarItems: SidebarItem[] = [
         { id: "escape-unescape", name: "转义/反转义", desc: "JSON/HTML/SQL/JS 字符串转义与反转义" },
         { id: "text-process", name: "文本处理", desc: "文本清洗、过滤提取与结果统计" },
         { id: "naming-case", name: "命名转换", desc: "camelCase/snake_case/PascalCase 互转" },
+        { id: "config-convert", name: "配置互转", desc: "Properties/YAML/TOML/.env 格式互转" },
       ]
     }
   },
@@ -144,7 +146,9 @@ const sidebarItems: SidebarItem[] = [
         { id: "ports", name: "端口占用", desc: "端口占用与进程分析" },
         { id: "env", name: "环境检测", desc: "检测 Node 与 Java 版本" },
         { id: "nginx-helper", name: "Nginx 助手", desc: "静态站点 + API 反代配置生成与校验" },
-        { id: "hotkey", name: "快捷键检测", desc: "全局快捷键冲突检测" }
+        { id: "hotkey", name: "快捷键检测", desc: "全局快捷键冲突检测" },
+        { id: "http-status", name: "HTTP 状态码", desc: "HTTP 状态码速查与说明" },
+        { id: "chmod-calc", name: "chmod 计算器", desc: "Linux 文件权限数字/符号互转" },
       ]
     }
   },
@@ -166,7 +170,8 @@ const sidebarItems: SidebarItem[] = [
       name: "时间工具",
       tools: [
         { id: "timestamp", name: "时间戳转换", desc: "时间戳与日期互转" },
-        { id: "cron", name: "Cron 工具", desc: "Cron 表达式生成与预览" }
+        { id: "cron", name: "Cron 工具", desc: "Cron 表达式生成与预览" },
+        { id: "date-calc", name: "日期计算器", desc: "日期间隔与日期加减计算" }
       ]
     }
   },

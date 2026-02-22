@@ -58,119 +58,150 @@
       </div>
     </div>
 
-    <div class="operation-grid">
-      <section class="operation-card">
-        <div class="op-title">基础清洗</div>
-        <el-space wrap>
-          <el-checkbox v-model="ops.trim">行首尾去空白</el-checkbox>
-          <el-checkbox v-model="ops.removeEmpty">移除空行</el-checkbox>
-          <el-checkbox v-model="ops.dedupe">按行去重</el-checkbox>
-          <el-checkbox v-model="ops.sort">按行排序</el-checkbox>
-        </el-space>
-        <div class="inline-options">
-          <el-checkbox v-model="ops.caseSensitive">区分大小写</el-checkbox>
-          <el-select v-model="ops.sortOrder" style="width: 120px" :disabled="!ops.sort">
-            <el-option label="升序" value="asc" />
-            <el-option label="降序" value="desc" />
-          </el-select>
-        </div>
-      </section>
+    <el-tabs v-model="activeTab" class="process-tabs">
+      <el-tab-pane label="操作选项" name="ops">
+        <div class="operation-grid">
+          <section class="operation-card">
+            <div class="op-title">基础清洗</div>
+            <el-space wrap>
+              <el-checkbox v-model="ops.trim">行首尾去空白</el-checkbox>
+              <el-checkbox v-model="ops.removeEmpty">移除空行</el-checkbox>
+              <el-checkbox v-model="ops.dedupe">按行去重</el-checkbox>
+              <el-checkbox v-model="ops.sort">按行排序</el-checkbox>
+            </el-space>
+            <div class="inline-options">
+              <el-checkbox v-model="ops.caseSensitive">区分大小写</el-checkbox>
+              <el-select v-model="ops.sortOrder" style="width: 120px" :disabled="!ops.sort">
+                <el-option label="升序" value="asc" />
+                <el-option label="降序" value="desc" />
+              </el-select>
+            </div>
+          </section>
 
-      <section class="operation-card">
-        <div class="op-title">过滤与替换</div>
-        <div class="op-row">
-          <el-checkbox v-model="ops.includeFilter">仅保留匹配行</el-checkbox>
-          <el-select v-model="ops.includeMode" style="width: 120px" :disabled="!ops.includeFilter">
-            <el-option label="包含" value="contains" />
-            <el-option label="全等" value="equals" />
-            <el-option label="正则" value="regex" />
-          </el-select>
-          <el-input v-model="ops.includePattern" :disabled="!ops.includeFilter" placeholder="匹配规则" />
-        </div>
-        <div class="op-row">
-          <el-checkbox v-model="ops.excludeFilter">排除匹配行</el-checkbox>
-          <el-select v-model="ops.excludeMode" style="width: 120px" :disabled="!ops.excludeFilter">
-            <el-option label="包含" value="contains" />
-            <el-option label="全等" value="equals" />
-            <el-option label="正则" value="regex" />
-          </el-select>
-          <el-input v-model="ops.excludePattern" :disabled="!ops.excludeFilter" placeholder="匹配规则" />
-        </div>
-        <div class="op-row">
-          <el-checkbox v-model="ops.replace">替换</el-checkbox>
-          <el-select v-model="ops.replaceMode" style="width: 120px" :disabled="!ops.replace">
-            <el-option label="文本" value="contains" />
-            <el-option label="正则" value="regex" />
-          </el-select>
-          <el-input v-model="ops.replacePattern" :disabled="!ops.replace" placeholder="待替换内容" />
-          <el-input v-model="ops.replaceWith" :disabled="!ops.replace" placeholder="替换为" />
-        </div>
-      </section>
+          <section class="operation-card">
+            <div class="op-title">过滤与替换</div>
+            <div class="op-row">
+              <el-checkbox v-model="ops.includeFilter">仅保留匹配行</el-checkbox>
+              <el-select v-model="ops.includeMode" style="width: 120px" :disabled="!ops.includeFilter">
+                <el-option label="包含" value="contains" />
+                <el-option label="全等" value="equals" />
+                <el-option label="正则" value="regex" />
+              </el-select>
+              <el-input v-model="ops.includePattern" :disabled="!ops.includeFilter" placeholder="匹配规则" />
+            </div>
+            <div class="op-row">
+              <el-checkbox v-model="ops.excludeFilter">排除匹配行</el-checkbox>
+              <el-select v-model="ops.excludeMode" style="width: 120px" :disabled="!ops.excludeFilter">
+                <el-option label="包含" value="contains" />
+                <el-option label="全等" value="equals" />
+                <el-option label="正则" value="regex" />
+              </el-select>
+              <el-input v-model="ops.excludePattern" :disabled="!ops.excludeFilter" placeholder="匹配规则" />
+            </div>
+            <div class="op-row">
+              <el-checkbox v-model="ops.replace">替换</el-checkbox>
+              <el-select v-model="ops.replaceMode" style="width: 120px" :disabled="!ops.replace">
+                <el-option label="文本" value="contains" />
+                <el-option label="正则" value="regex" />
+              </el-select>
+              <el-input v-model="ops.replacePattern" :disabled="!ops.replace" placeholder="待替换内容" />
+              <el-input v-model="ops.replaceWith" :disabled="!ops.replace" placeholder="替换为" />
+            </div>
+          </section>
 
-      <section class="operation-card">
-        <div class="op-title">提取与拼接</div>
-        <div class="op-row">
-          <el-checkbox v-model="ops.extractColumn">提取列</el-checkbox>
-          <el-input v-model="ops.delimiter" :disabled="!ops.extractColumn" placeholder="分隔符，如 =" />
-          <el-input-number
-            v-model="ops.columnIndex"
-            :disabled="!ops.extractColumn"
-            :min="1"
-            :max="50"
-            controls-position="right"
-          />
-          <el-checkbox v-model="ops.keepUnmatched" :disabled="!ops.extractColumn">保留未命中行</el-checkbox>
+          <section class="operation-card">
+            <div class="op-title">提取与拼接</div>
+            <div class="op-row">
+              <el-checkbox v-model="ops.extractColumn">提取列</el-checkbox>
+              <el-input v-model="ops.delimiter" :disabled="!ops.extractColumn" placeholder="分隔符，如 =" />
+              <el-input-number
+                v-model="ops.columnIndex"
+                :disabled="!ops.extractColumn"
+                :min="1"
+                :max="50"
+                controls-position="right"
+              />
+              <el-checkbox v-model="ops.keepUnmatched" :disabled="!ops.extractColumn">保留未命中行</el-checkbox>
+            </div>
+            <div class="op-row">
+              <el-checkbox v-model="ops.addPrefix">添加前缀</el-checkbox>
+              <el-input v-model="ops.prefixValue" :disabled="!ops.addPrefix" placeholder="前缀内容" />
+            </div>
+            <div class="op-row">
+              <el-checkbox v-model="ops.addSuffix">添加后缀</el-checkbox>
+              <el-input v-model="ops.suffixValue" :disabled="!ops.addSuffix" placeholder="后缀内容" />
+            </div>
+          </section>
         </div>
-        <div class="op-row">
-          <el-checkbox v-model="ops.addPrefix">添加前缀</el-checkbox>
-          <el-input v-model="ops.prefixValue" :disabled="!ops.addPrefix" placeholder="前缀内容" />
+      </el-tab-pane>
+
+      <el-tab-pane label="统计信息" name="stats">
+        <div class="summary-grid">
+          <div class="summary-item">
+            <div class="summary-label">输入行数</div>
+            <div class="summary-value">{{ stats.inputLines }}</div>
+          </div>
+          <div class="summary-item">
+            <div class="summary-label">输出行数</div>
+            <div class="summary-value">{{ stats.outputLines }}</div>
+          </div>
+          <div class="summary-item">
+            <div class="summary-label">变更行数</div>
+            <div class="summary-value accent">{{ stats.changedLines }}</div>
+          </div>
+          <div class="summary-item">
+            <div class="summary-label">耗时</div>
+            <div class="summary-value">{{ stats.durationMs }} ms</div>
+          </div>
+          <div class="summary-item">
+            <div class="summary-label">字符数(含空格)</div>
+            <div class="summary-value">{{ stats.charsWithSpaces }}</div>
+          </div>
+          <div class="summary-item">
+            <div class="summary-label">字符数(不含空格)</div>
+            <div class="summary-value">{{ stats.charsNoSpaces }}</div>
+          </div>
+          <div class="summary-item">
+            <div class="summary-label">中文字数</div>
+            <div class="summary-value">{{ stats.chineseChars }}</div>
+          </div>
+          <div class="summary-item">
+            <div class="summary-label">英文单词</div>
+            <div class="summary-value">{{ stats.englishWords }}</div>
+          </div>
+          <div class="summary-item">
+            <div class="summary-label">UTF-8 字节</div>
+            <div class="summary-value">{{ stats.bytesUtf8 }}</div>
+          </div>
+          <div class="summary-item">
+            <div class="summary-label">最长行</div>
+            <div class="summary-value">{{ stats.longestLine }}</div>
+          </div>
         </div>
-        <div class="op-row">
-          <el-checkbox v-model="ops.addSuffix">添加后缀</el-checkbox>
-          <el-input v-model="ops.suffixValue" :disabled="!ops.addSuffix" placeholder="后缀内容" />
+      </el-tab-pane>
+
+      <el-tab-pane label="变更预览" name="preview">
+        <el-alert
+          v-if="warnings.length > 0"
+          type="warning"
+          :closable="false"
+          show-icon
+          :title="warnings[0]"
+          style="margin-bottom: 8px"
+        />
+        <div class="preview-card">
+          <div class="card-head">
+            <span>变更样本 ({{ preview.changed }})</span>
+            <span class="meta">最多展示 {{ previewLimit }} 条</span>
+          </div>
+          <el-table :data="preview.samples" border stripe size="small" max-height="240">
+            <el-table-column prop="line" label="行号" width="80" align="center" />
+            <el-table-column prop="before" label="处理前" min-width="260" show-overflow-tooltip />
+            <el-table-column prop="after" label="处理后" min-width="260" show-overflow-tooltip />
+          </el-table>
         </div>
-      </section>
-    </div>
-
-    <el-alert
-      v-if="warnings.length > 0"
-      type="warning"
-      :closable="false"
-      show-icon
-      :title="warnings[0]"
-      class="warning-alert"
-    />
-
-    <div class="summary-grid">
-      <div class="summary-item">
-        <div class="summary-label">输入行数</div>
-        <div class="summary-value">{{ stats.inputLines }}</div>
-      </div>
-      <div class="summary-item">
-        <div class="summary-label">输出行数</div>
-        <div class="summary-value">{{ stats.outputLines }}</div>
-      </div>
-      <div class="summary-item">
-        <div class="summary-label">变更行数</div>
-        <div class="summary-value accent">{{ stats.changedLines }}</div>
-      </div>
-      <div class="summary-item">
-        <div class="summary-label">耗时</div>
-        <div class="summary-value">{{ stats.durationMs }} ms</div>
-      </div>
-    </div>
-
-    <div class="preview-card">
-      <div class="card-head">
-        <span>变更样本 ({{ preview.changed }})</span>
-        <span class="meta">最多展示 {{ previewLimit }} 条</span>
-      </div>
-      <el-table :data="preview.samples" border stripe size="small" max-height="240">
-        <el-table-column prop="line" label="行号" width="80" align="center" />
-        <el-table-column prop="before" label="处理前" min-width="260" show-overflow-tooltip />
-        <el-table-column prop="after" label="处理后" min-width="260" show-overflow-tooltip />
-      </el-table>
-    </div>
+      </el-tab-pane>
+    </el-tabs>
   </div>
 </template>
 
@@ -183,6 +214,7 @@ import type { TextLineEnding, TextMatchMode, TextOperation, TextPreset, TextProc
 const previewLimit = 200;
 const processing = ref(false);
 const autoRun = ref(true);
+const activeTab = ref("ops");
 const lineEnding = ref<TextLineEnding>("keep");
 
 const textInput = ref("");
@@ -198,6 +230,12 @@ const stats = reactive({
   inputChars: 0,
   outputChars: 0,
   durationMs: 0,
+  charsWithSpaces: 0,
+  charsNoSpaces: 0,
+  chineseChars: 0,
+  englishWords: 0,
+  bytesUtf8: 0,
+  longestLine: 0,
 });
 
 const preview = reactive({
@@ -294,6 +332,12 @@ function assignStats(next: TextProcessResponse["stats"]) {
   stats.inputChars = next.inputChars;
   stats.outputChars = next.outputChars;
   stats.durationMs = next.durationMs;
+  stats.charsWithSpaces = next.charsWithSpaces ?? 0;
+  stats.charsNoSpaces = next.charsNoSpaces ?? 0;
+  stats.chineseChars = next.chineseChars ?? 0;
+  stats.englishWords = next.englishWords ?? 0;
+  stats.bytesUtf8 = next.bytesUtf8 ?? 0;
+  stats.longestLine = next.longestLine ?? 0;
 }
 
 function assignPreview(next: TextProcessResponse["preview"]) {
@@ -427,6 +471,12 @@ function clearAll() {
     inputChars: 0,
     outputChars: 0,
     durationMs: 0,
+    charsWithSpaces: 0,
+    charsNoSpaces: 0,
+    chineseChars: 0,
+    englishWords: 0,
+    bytesUtf8: 0,
+    longestLine: 0,
   });
   assignPreview({ changed: 0, samples: [] });
 }
@@ -556,7 +606,7 @@ onMounted(() => {
 
 .summary-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
   gap: 10px;
 }
 
@@ -581,17 +631,13 @@ onMounted(() => {
   color: var(--lc-accent-light);
 }
 
-.warning-alert {
-  margin-top: 2px;
-}
-
 @media (max-width: 1100px) {
   .text-grid {
     grid-template-columns: 1fr;
   }
 
   .summary-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
   }
 
   .op-row {

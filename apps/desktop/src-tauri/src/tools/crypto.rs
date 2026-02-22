@@ -4,6 +4,20 @@ use openssl::rsa::{Padding, Rsa};
 use openssl::symm::{decrypt, encrypt, Cipher};
 use serde_json::{json, Value};
 
+fn bcrypt_hash(payload: &Value) -> Result<Value, String> {
+    let password = payload["password"].as_str().unwrap_or_default();
+    let cost = payload["cost"].as_u64().unwrap_or(12) as u32;
+    let hash = bcrypt::hash(password, cost).map_err(|e| format!("bcrypt hash failed: {e}"))?;
+    Ok(json!({ "hash": hash }))
+}
+
+fn bcrypt_verify(payload: &Value) -> Result<Value, String> {
+    let password = payload["password"].as_str().unwrap_or_default();
+    let hash = payload["hash"].as_str().unwrap_or_default();
+    let valid = bcrypt::verify(password, hash).map_err(|e| format!("bcrypt verify failed: {e}"))?;
+    Ok(json!({ "valid": valid }))
+}
+
 pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
     match action {
         "rsa_encrypt" => {
@@ -89,6 +103,8 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
             let out = decrypt(cipher, key, Some(iv), &cipher_data).map_err(|e| format!("des decrypt failed: {e}"))?;
             Ok(json!(String::from_utf8_lossy(&out).to_string()))
         }
+        "bcrypt_hash" => bcrypt_hash(payload),
+        "bcrypt_verify" => bcrypt_verify(payload),
         _ => Err(format!("unsupported crypto action: {action}")),
     }
 }
@@ -290,5 +306,28 @@ mod tests {
         )
         .expect_err("invalid base64 should fail");
         assert!(err.contains("invalid base64"));
+    }
+
+    #[test]
+    fn bcrypt_hash_generates() {
+        let r = execute("bcrypt_hash", &json!({"password": "test123", "cost": 4})).unwrap();
+        let hash = r["hash"].as_str().unwrap();
+        assert!(hash.starts_with("$2b$04$"));
+    }
+
+    #[test]
+    fn bcrypt_verify_correct() {
+        let r = execute("bcrypt_hash", &json!({"password": "test123", "cost": 4})).unwrap();
+        let hash = r["hash"].as_str().unwrap();
+        let v = execute("bcrypt_verify", &json!({"password": "test123", "hash": hash})).unwrap();
+        assert_eq!(v["valid"], true);
+    }
+
+    #[test]
+    fn bcrypt_verify_wrong() {
+        let r = execute("bcrypt_hash", &json!({"password": "test123", "cost": 4})).unwrap();
+        let hash = r["hash"].as_str().unwrap();
+        let v = execute("bcrypt_verify", &json!({"password": "wrong", "hash": hash})).unwrap();
+        assert_eq!(v["valid"], false);
     }
 }

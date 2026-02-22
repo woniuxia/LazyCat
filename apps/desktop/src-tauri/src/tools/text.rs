@@ -214,6 +214,12 @@ fn process_text(payload: &Value) -> Result<Value, String> {
             "inputChars": input_chars,
             "outputChars": output_chars,
             "durationMs": duration_ms,
+            "charsWithSpaces": request.input.chars().count(),
+            "charsNoSpaces": request.input.chars().filter(|c| !c.is_whitespace()).count(),
+            "chineseChars": request.input.chars().filter(|c| ('一'..='鿿').contains(c)).count(),
+            "englishWords": request.input.split_whitespace().filter(|w| w.chars().any(|c| c.is_ascii_alphabetic())).count(),
+            "bytesUtf8": request.input.len(),
+            "longestLine": request.input.lines().map(|l| l.chars().count()).max().unwrap_or(0),
         },
         "preview": {
             "changed": changed_lines,
@@ -665,5 +671,24 @@ mod tests {
 foo_bar"})).unwrap();
         assert_eq!(r["camelCase"], "helloWorld
 fooBar");
+    }
+
+    #[test]
+    fn process_returns_extended_stats() {
+        let r = execute("process", &json!({
+            "input": "Hello 你好
+World",
+            "ops": { "trim": false, "removeEmpty": false, "dedupe": false, "sort": false,
+                     "includeFilter": false, "excludeFilter": false, "replace": false,
+                     "addPrefix": false, "addSuffix": false, "extractColumn": false },
+            "lineEnding": "keep"
+        })).unwrap();
+        let stats = &r["stats"];
+        assert!(stats["charsWithSpaces"].as_u64().unwrap() > 0);
+        assert!(stats["charsNoSpaces"].as_u64().unwrap() > 0);
+        assert!(stats["chineseChars"].as_u64().unwrap() >= 2);
+        assert!(stats["englishWords"].as_u64().unwrap() >= 2);
+        assert!(stats["bytesUtf8"].as_u64().unwrap() > 0);
+        assert!(stats["longestLine"].as_u64().unwrap() > 0);
     }
 }

@@ -28,6 +28,7 @@ cron = "0.12"
 regex = "1"
 csv = "1"
 serde_yaml = "0.9"
+toml = "0.8"
 quick-xml = { version = "0.37", features = ["serialize"] }
 qrcode = "0.14"
 image = { version = "0.25", default-features = true }
@@ -42,6 +43,7 @@ hickory-resolver = { version = "0.24", features = ["tokio-runtime"] }
 tokio = { version = "1", features = ["rt"] }
 jsonschema = "0.18"
 roxmltree = "0.20"
+bcrypt = "0.15"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = [
