@@ -44,6 +44,7 @@ tokio = { version = "1", features = ["rt"] }
 jsonschema = "0.18"
 roxmltree = "0.20"
 bcrypt = "0.15"
+lopdf = "0.34"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = [

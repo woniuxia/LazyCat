@@ -33,6 +33,7 @@ const toolRegistry: Record<string, Component> = {
   dns: defineAsyncComponent(() => import("./components/DnsPanel.vue")),
   env: defineAsyncComponent(() => import("./components/EnvPanel.vue")),
   "split-merge": defineAsyncComponent(() => import("./components/SplitMergePanel.vue")),
+  pdf: defineAsyncComponent(() => import("./components/PdfPanel.vue")),
   image: defineAsyncComponent(() => import("./components/ImagePanel.vue")),
   "calc-draft": defineAsyncComponent(() => import("./components/CalcDraftPanel.vue")),
   timestamp: defineAsyncComponent(() => import("./components/TimestampPanel.vue")),

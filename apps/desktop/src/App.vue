@@ -160,6 +160,7 @@ const sidebarItems: SidebarItem[] = [
       name: "文件与媒体",
       tools: [
         { id: "split-merge", name: "切分与合并", desc: "大文件切片与合并" },
+        { id: "pdf", name: "PDF 工具", desc: "PDF 合并、拆分与信息查看" },
         { id: "image", name: "图片转换", desc: "格式转换、缩放、裁剪、压缩" }
       ]
     }

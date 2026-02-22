@@ -158,7 +158,10 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:snippets:v2:folder-list": { domain: "snippets", action: "v2_folder_list" },
   "tool:snippets:v2:folder-create": { domain: "snippets", action: "v2_folder_create" },
   "tool:snippets:v2:folder-update": { domain: "snippets", action: "v2_folder_update" },
-  "tool:snippets:v2:folder-delete": { domain: "snippets", action: "v2_folder_delete" }
+  "tool:snippets:v2:folder-delete": { domain: "snippets", action: "v2_folder_delete" },
+  "tool:pdf:info":  { domain: "pdf", action: "info" },
+  "tool:pdf:split": { domain: "pdf", action: "split" },
+  "tool:pdf:merge": { domain: "pdf", action: "merge" }
 };
 
 export async function invokeToolByChannel(
