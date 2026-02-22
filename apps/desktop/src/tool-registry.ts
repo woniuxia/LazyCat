@@ -21,6 +21,7 @@ const toolRegistry: Record<string, Component> = {
   "text-process": defineAsyncComponent(() => import("./components/TextProcessPanel.vue")),
   "naming-case": defineAsyncComponent(() => import("./components/NamingCasePanel.vue")),
   "config-convert": defineAsyncComponent(() => import("./components/ConfigConvertPanel.vue")),
+  "sql-entity": defineAsyncComponent(() => import("./components/SqlEntityPanel.vue")),
   "http-status": defineAsyncComponent(() => import("./components/HttpStatusPanel.vue")),
   "chmod-calc": defineAsyncComponent(() => import("./components/ChmodCalcPanel.vue")),
   "date-calc": defineAsyncComponent(() => import("./components/DateCalcPanel.vue")),

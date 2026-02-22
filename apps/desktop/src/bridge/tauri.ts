@@ -47,6 +47,7 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:convert:config-convert": { domain: "convert", action: "config_convert" },
   "tool:convert:yaml-validate": { domain: "convert", action: "yaml_validate" },
   "tool:convert:yaml-format": { domain: "convert", action: "yaml_format" },
+  "tool:convert:sql-to-entity": { domain: "convert", action: "sql_to_entity" },
   "tool:text:process": { domain: "text", action: "process" },
   "tool:text:presets": { domain: "text", action: "presets" },
   "tool:text:naming-convert": { domain: "text", action: "naming_convert" },

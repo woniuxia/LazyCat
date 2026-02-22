@@ -100,6 +100,7 @@ declare module 'vue' {
     SidebarNav: typeof import('./src/components/SidebarNav.vue')['default']
     SnippetPanel: typeof import('./src/components/SnippetPanel.vue')['default']
     SplitMergePanel: typeof import('./src/components/SplitMergePanel.vue')['default']
+    SqlEntityPanel: typeof import('./src/components/SqlEntityPanel.vue')['default']
     TabBar: typeof import('./src/components/TabBar.vue')['default']
     TextProcessPanel: typeof import('./src/components/TextProcessPanel.vue')['default']
     TimestampPanel: typeof import('./src/components/TimestampPanel.vue')['default']

@@ -387,6 +387,533 @@ fn serialize_env(value: &Value) -> String {
     lines.join("\n")
 }
 
+// ── SQL to Entity Class ──────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+struct SqlColumn {
+    name: String,
+    sql_type: String,
+    nullable: bool,
+    default_val: Option<String>,
+    comment: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct SqlTable {
+    name: String,
+    columns: Vec<SqlColumn>,
+}
+
+fn parse_create_tables(sql: &str) -> Vec<SqlTable> {
+    let re_table = regex::Regex::new(
+        r#"(?is)CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[`"\[]?(\w+)[`"\]]?\s*\("#
+    ).unwrap();
+
+    let mut tables = Vec::new();
+    for cap in re_table.captures_iter(sql) {
+        let table_name = cap.get(1).unwrap().as_str().to_string();
+        let start = cap.get(0).unwrap().end();
+        // Find the matching closing paren, respecting nesting
+        if let Some(body) = find_paren_body(sql, start) {
+            let columns = parse_columns(&body);
+            tables.push(SqlTable { name: table_name, columns });
+        }
+    }
+    tables
+}
+
+fn find_paren_body(sql: &str, start: usize) -> Option<String> {
+    let bytes = sql.as_bytes();
+    let mut depth = 1;
+    let mut i = start;
+    let mut in_single_quote = false;
+    while i < bytes.len() && depth > 0 {
+        let ch = bytes[i] as char;
+        if in_single_quote {
+            if ch == '\'' {
+                // Check for escaped quote ''
+                if i + 1 < bytes.len() && bytes[i + 1] == b'\'' {
+                    i += 2;
+                    continue;
+                }
+                in_single_quote = false;
+            }
+        } else {
+            match ch {
+                '\'' => in_single_quote = true,
+                '(' => depth += 1,
+                ')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return Some(sql[start..i].to_string());
+                    }
+                }
+                _ => {}
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+fn parse_columns(body: &str) -> Vec<SqlColumn> {
+    let mut columns = Vec::new();
+    // Split by top-level commas (not inside parentheses)
+    let parts = split_top_level_commas(body);
+
+    let re_col = regex::Regex::new(
+        r#"(?i)^\s*[`"\[]?(\w+)[`"\]]?\s+([\w]+(?:\s*\([^)]*\))?(?:\s+(?:UNSIGNED|SIGNED|ZEROFILL))*)"#
+    ).unwrap();
+    let re_not_null = regex::Regex::new(r"(?i)\bNOT\s+NULL\b").unwrap();
+    let re_default = regex::Regex::new(r"(?i)\bDEFAULT\s+('(?:[^']*(?:''[^']*)*)'|[^\s,]+)").unwrap();
+    let re_comment = regex::Regex::new(r"(?i)\bCOMMENT\s+'((?:[^']*(?:''[^']*)*)*)'").unwrap();
+
+    // Keywords that indicate a constraint, not a column definition
+    let constraint_keywords = [
+        "PRIMARY", "KEY", "UNIQUE", "INDEX", "CONSTRAINT", "CHECK", "FOREIGN",
+        "FULLTEXT", "SPATIAL", "PARTITION",
+    ];
+
+    for part in &parts {
+        let trimmed = part.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        // Skip constraint lines
+        let first_word = trimmed.split_whitespace().next().unwrap_or("").to_uppercase();
+        let first_word_clean = first_word.trim_start_matches('`').trim_start_matches('"').trim_start_matches('[');
+        if constraint_keywords.iter().any(|k| first_word_clean == *k) {
+            continue;
+        }
+        if let Some(cap) = re_col.captures(trimmed) {
+            let col_name = cap.get(1).unwrap().as_str().to_string();
+            let col_type = cap.get(2).unwrap().as_str().trim().to_string();
+            let nullable = !re_not_null.is_match(trimmed);
+            let default_val = re_default.captures(trimmed)
+                .and_then(|c| c.get(1))
+                .map(|m| m.as_str().trim_matches('\'').to_string());
+            let comment = re_comment.captures(trimmed)
+                .and_then(|c| c.get(1))
+                .map(|m| m.as_str().replace("''", "'"));
+            columns.push(SqlColumn {
+                name: col_name,
+                sql_type: col_type,
+                nullable,
+                default_val,
+                comment,
+            });
+        }
+    }
+    columns
+}
+
+fn split_top_level_commas(s: &str) -> Vec<String> {
+    let mut parts = Vec::new();
+    let mut current = String::new();
+    let mut depth = 0;
+    let mut in_quote = false;
+    for ch in s.chars() {
+        if in_quote {
+            current.push(ch);
+            if ch == '\'' {
+                in_quote = false;
+            }
+        } else {
+            match ch {
+                '\'' => { in_quote = true; current.push(ch); }
+                '(' => { depth += 1; current.push(ch); }
+                ')' => { depth -= 1; current.push(ch); }
+                ',' if depth == 0 => {
+                    parts.push(current.clone());
+                    current.clear();
+                }
+                _ => current.push(ch),
+            }
+        }
+    }
+    if !current.trim().is_empty() {
+        parts.push(current);
+    }
+    parts
+}
+
+fn to_camel_case(name: &str) -> String {
+    let mut result = String::new();
+    let mut upper_next = false;
+    for ch in name.chars() {
+        if ch == '_' {
+            upper_next = true;
+        } else if upper_next {
+            result.push(ch.to_ascii_uppercase());
+            upper_next = false;
+        } else {
+            result.push(ch.to_ascii_lowercase());
+        }
+    }
+    result
+}
+
+fn to_pascal_case(name: &str) -> String {
+    let camel = to_camel_case(name);
+    let mut chars = camel.chars();
+    match chars.next() {
+        Some(c) => c.to_ascii_uppercase().to_string() + chars.as_str(),
+        None => String::new(),
+    }
+}
+
+fn convert_field_name(name: &str, naming: &str) -> String {
+    match naming {
+        "camelCase" => to_camel_case(name),
+        "snake_case" => name.to_ascii_lowercase(),
+        _ => name.to_string(), // "original"
+    }
+}
+
+fn table_name_to_class(name: &str) -> String {
+    // Remove common prefixes like t_, tb_, tbl_
+    let stripped = regex::Regex::new(r"^(?i)(t_|tb_|tbl_)")
+        .unwrap()
+        .replace(name, "")
+        .to_string();
+    to_pascal_case(&stripped)
+}
+
+struct TypeMapping {
+    java: &'static str,
+    typescript: &'static str,
+    go: &'static str,
+    python: &'static str,
+    kotlin: &'static str,
+    csharp: &'static str,
+}
+
+fn map_sql_type(sql_type: &str) -> TypeMapping {
+    let upper = sql_type.to_uppercase();
+    let base = upper.split('(').next().unwrap_or("").trim();
+
+    // TINYINT(1) is boolean
+    if base == "TINYINT" {
+        let re = regex::Regex::new(r"\(\s*1\s*\)").unwrap();
+        if re.is_match(&upper) {
+            return TypeMapping {
+                java: "Boolean", typescript: "boolean", go: "bool",
+                python: "bool", kotlin: "Boolean", csharp: "bool",
+            };
+        }
+    }
+
+    match base {
+        "VARCHAR" | "CHAR" | "TEXT" | "TINYTEXT" | "MEDIUMTEXT" | "LONGTEXT" | "NVARCHAR" | "NCHAR" | "CLOB" => TypeMapping {
+            java: "String", typescript: "string", go: "string",
+            python: "str", kotlin: "String", csharp: "string",
+        },
+        "INT" | "INTEGER" | "SMALLINT" | "TINYINT" | "MEDIUMINT" => TypeMapping {
+            java: "Integer", typescript: "number", go: "int32",
+            python: "int", kotlin: "Int", csharp: "int",
+        },
+        "BIGINT" => TypeMapping {
+            java: "Long", typescript: "number", go: "int64",
+            python: "int", kotlin: "Long", csharp: "long",
+        },
+        "DATETIME" | "TIMESTAMP" => TypeMapping {
+            java: "LocalDateTime", typescript: "Date", go: "time.Time",
+            python: "datetime", kotlin: "LocalDateTime", csharp: "DateTime",
+        },
+        "DATE" => TypeMapping {
+            java: "LocalDate", typescript: "string", go: "time.Time",
+            python: "date", kotlin: "LocalDate", csharp: "DateTime",
+        },
+        "TIME" => TypeMapping {
+            java: "LocalTime", typescript: "string", go: "string",
+            python: "time", kotlin: "LocalTime", csharp: "TimeSpan",
+        },
+        "DECIMAL" | "NUMERIC" => TypeMapping {
+            java: "BigDecimal", typescript: "number", go: "float64",
+            python: "Decimal", kotlin: "BigDecimal", csharp: "decimal",
+        },
+        "BOOLEAN" | "BOOL" => TypeMapping {
+            java: "Boolean", typescript: "boolean", go: "bool",
+            python: "bool", kotlin: "Boolean", csharp: "bool",
+        },
+        "FLOAT" | "REAL" => TypeMapping {
+            java: "Float", typescript: "number", go: "float32",
+            python: "float", kotlin: "Float", csharp: "float",
+        },
+        "DOUBLE" | "DOUBLE PRECISION" => TypeMapping {
+            java: "Double", typescript: "number", go: "float64",
+            python: "float", kotlin: "Double", csharp: "double",
+        },
+        "BLOB" | "BINARY" | "VARBINARY" | "TINYBLOB" | "MEDIUMBLOB" | "LONGBLOB" | "BYTEA" => TypeMapping {
+            java: "byte[]", typescript: "Buffer", go: "[]byte",
+            python: "bytes", kotlin: "ByteArray", csharp: "byte[]",
+        },
+        "BIT" => TypeMapping {
+            java: "Boolean", typescript: "boolean", go: "bool",
+            python: "bool", kotlin: "Boolean", csharp: "bool",
+        },
+        _ => TypeMapping {
+            java: "String", typescript: "string", go: "string",
+            python: "str", kotlin: "String", csharp: "string",
+        },
+    }
+}
+
+fn get_type_for_lang(sql_type: &str, lang: &str) -> String {
+    let m = map_sql_type(sql_type);
+    match lang {
+        "java" => m.java.to_string(),
+        "typescript" => m.typescript.to_string(),
+        "go" => m.go.to_string(),
+        "python" => m.python.to_string(),
+        "kotlin" => m.kotlin.to_string(),
+        "csharp" => m.csharp.to_string(),
+        _ => m.java.to_string(),
+    }
+}
+
+fn generate_java(table: &SqlTable, naming: &str, comments: bool) -> String {
+    let class_name = table_name_to_class(&table.name);
+    let mut out = String::new();
+    out.push_str(&format!("public class {} {{\n", class_name));
+
+    // Fields
+    for col in &table.columns {
+        if comments {
+            if let Some(ref c) = col.comment {
+                out.push_str(&format!("    /** {} */\n", c));
+            }
+        }
+        let field_name = convert_field_name(&col.name, naming);
+        let type_name = get_type_for_lang(&col.sql_type, "java");
+        out.push_str(&format!("    private {} {};\n", type_name, field_name));
+        out.push('\n');
+    }
+
+    // Getters and Setters
+    for col in &table.columns {
+        let field_name = convert_field_name(&col.name, naming);
+        let type_name = get_type_for_lang(&col.sql_type, "java");
+        let capitalized = {
+            let mut c = field_name.chars();
+            match c.next() {
+                Some(f) => f.to_ascii_uppercase().to_string() + c.as_str(),
+                None => String::new(),
+            }
+        };
+        out.push_str(&format!("    public {} get{}() {{\n", type_name, capitalized));
+        out.push_str(&format!("        return {};\n", field_name));
+        out.push_str("    }\n\n");
+        out.push_str(&format!("    public void set{}({} {}) {{\n", capitalized, type_name, field_name));
+        out.push_str(&format!("        this.{} = {};\n", field_name, field_name));
+        out.push_str("    }\n\n");
+    }
+
+    out.push_str("}\n");
+    out
+}
+
+fn generate_typescript(table: &SqlTable, naming: &str, comments: bool) -> String {
+    let class_name = table_name_to_class(&table.name);
+    let mut out = String::new();
+    out.push_str(&format!("export interface {} {{\n", class_name));
+    for col in &table.columns {
+        if comments {
+            if let Some(ref c) = col.comment {
+                out.push_str(&format!("  /** {} */\n", c));
+            }
+        }
+        let field_name = convert_field_name(&col.name, naming);
+        let type_name = get_type_for_lang(&col.sql_type, "typescript");
+        let nullable_mark = if col.nullable { "?" } else { "" };
+        out.push_str(&format!("  {}{}: {};\n", field_name, nullable_mark, type_name));
+    }
+    out.push_str("}\n");
+    out
+}
+
+fn generate_go(table: &SqlTable, naming: &str, comments: bool) -> String {
+    let struct_name = table_name_to_class(&table.name);
+    let mut out = String::new();
+    out.push_str(&format!("type {} struct {{\n", struct_name));
+    for col in &table.columns {
+        let field_name = to_pascal_case(&col.name);
+        let type_name = get_type_for_lang(&col.sql_type, "go");
+        // Pointer type for nullable fields
+        let go_type = if col.nullable && !type_name.starts_with("[]") {
+            format!("*{}", type_name)
+        } else {
+            type_name
+        };
+        let db_name = convert_field_name(&col.name, naming);
+        let comment_str = if comments {
+            col.comment.as_ref().map(|c| format!(" // {}", c)).unwrap_or_default()
+        } else {
+            String::new()
+        };
+        out.push_str(&format!(
+            "\t{} {} `json:\"{}\" db:\"{}\"`{}\n",
+            field_name, go_type, db_name, col.name.to_ascii_lowercase(), comment_str
+        ));
+    }
+    out.push_str("}\n");
+    out
+}
+
+fn generate_python(table: &SqlTable, naming: &str, comments: bool) -> String {
+    let class_name = table_name_to_class(&table.name);
+    let mut out = String::new();
+    out.push_str("from dataclasses import dataclass\n");
+    out.push_str("from typing import Optional\n");
+    // Check if we need date imports
+    let needs_datetime = table.columns.iter().any(|c| {
+        let u = c.sql_type.to_uppercase();
+        let b = u.split('(').next().unwrap_or("").trim();
+        matches!(b, "DATETIME" | "TIMESTAMP" | "DATE" | "TIME")
+    });
+    let needs_decimal = table.columns.iter().any(|c| {
+        let u = c.sql_type.to_uppercase();
+        let b = u.split('(').next().unwrap_or("").trim();
+        matches!(b, "DECIMAL" | "NUMERIC")
+    });
+    if needs_datetime {
+        out.push_str("from datetime import datetime, date, time\n");
+    }
+    if needs_decimal {
+        out.push_str("from decimal import Decimal\n");
+    }
+    out.push('\n');
+    out.push('\n');
+    out.push_str("@dataclass\n");
+    out.push_str(&format!("class {}:\n", class_name));
+    if comments {
+        // Class docstring with table name
+        out.push_str(&format!("    \"\"\"Table: {}\"\"\"\n\n", table.name));
+    }
+    for col in &table.columns {
+        let field_name = convert_field_name(&col.name, naming);
+        let type_name = get_type_for_lang(&col.sql_type, "python");
+        let full_type = if col.nullable {
+            format!("Optional[{}]", type_name)
+        } else {
+            type_name
+        };
+        let default_str = if col.nullable { " = None" } else { "" };
+        if comments {
+            if let Some(ref c) = col.comment {
+                out.push_str(&format!("    # {}\n", c));
+            }
+        }
+        out.push_str(&format!("    {}: {}{}\n", field_name, full_type, default_str));
+    }
+    out
+}
+
+fn generate_kotlin(table: &SqlTable, naming: &str, comments: bool) -> String {
+    let class_name = table_name_to_class(&table.name);
+    let mut out = String::new();
+    out.push_str(&format!("data class {}(\n", class_name));
+    let len = table.columns.len();
+    for (i, col) in table.columns.iter().enumerate() {
+        if comments {
+            if let Some(ref c) = col.comment {
+                out.push_str(&format!("    /** {} */\n", c));
+            }
+        }
+        let field_name = convert_field_name(&col.name, naming);
+        let type_name = get_type_for_lang(&col.sql_type, "kotlin");
+        let nullable_mark = if col.nullable { "?" } else { "" };
+        let comma = if i < len - 1 { "," } else { "" };
+        out.push_str(&format!("    val {}: {}{}{}\n", field_name, type_name, nullable_mark, comma));
+    }
+    out.push_str(")\n");
+    out
+}
+
+fn capitalize_first(s: &str) -> String {
+    let mut chars = s.chars();
+    match chars.next() {
+        Some(c) => c.to_ascii_uppercase().to_string() + chars.as_str(),
+        None => String::new(),
+    }
+}
+
+fn generate_csharp(table: &SqlTable, naming: &str, comments: bool) -> String {
+    let class_name = table_name_to_class(&table.name);
+    let mut out = String::new();
+    out.push_str(&format!("public class {}\n{{\n", class_name));
+    for col in &table.columns {
+        if comments {
+            if let Some(ref c) = col.comment {
+                out.push_str(&format!("    /// <summary>{}</summary>\n", c));
+            }
+        }
+        let field_name = match naming {
+            "camelCase" => capitalize_first(&to_camel_case(&col.name)),
+            "snake_case" => capitalize_first(&col.name.to_ascii_lowercase()),
+            _ => capitalize_first(&col.name),
+        };
+        let type_name = get_type_for_lang(&col.sql_type, "csharp");
+        let nullable_mark = if col.nullable { "?" } else { "" };
+        out.push_str(&format!("    public {}{} {} {{ get; set; }}\n\n", type_name, nullable_mark, field_name));
+    }
+    out.push_str("}\n");
+    out
+}
+
+fn sql_to_entity(payload: &Value) -> Result<Value, String> {
+    let sql = payload["sql"].as_str().unwrap_or_default();
+    if sql.trim().is_empty() {
+        return Err("SQL is empty".into());
+    }
+    let language = payload["language"].as_str().unwrap_or("java").to_lowercase();
+    let options = &payload["options"];
+    let comments = options["comments"].as_bool().unwrap_or(true);
+    let naming = options["naming"].as_str().unwrap_or("camelCase");
+
+    let tables = parse_create_tables(sql);
+    if tables.is_empty() {
+        return Err("No CREATE TABLE statements found".into());
+    }
+
+    let mut code_parts: Vec<String> = Vec::new();
+    let mut table_infos: Vec<Value> = Vec::new();
+
+    for table in &tables {
+        let code = match language.as_str() {
+            "java" => generate_java(table, naming, comments),
+            "typescript" => generate_typescript(table, naming, comments),
+            "go" => generate_go(table, naming, comments),
+            "python" => generate_python(table, naming, comments),
+            "kotlin" => generate_kotlin(table, naming, comments),
+            "csharp" => generate_csharp(table, naming, comments),
+            _ => return Err(format!("Unsupported language: {}", language)),
+        };
+        code_parts.push(code);
+
+        let col_infos: Vec<Value> = table.columns.iter().map(|c| {
+            json!({
+                "name": c.name,
+                "type": c.sql_type,
+                "nullable": c.nullable,
+                "default": c.default_val,
+                "comment": c.comment,
+            })
+        }).collect();
+
+        table_infos.push(json!({
+            "name": table.name,
+            "columns": col_infos,
+        }));
+    }
+
+    let code = code_parts.join("\n");
+    Ok(json!({
+        "code": code,
+        "tables": table_infos,
+    }))
+}
+
 fn config_convert(payload: &Value) -> Result<Value, String> {
     let input = payload["input"].as_str().unwrap_or_default();
     let from = payload["from"].as_str().unwrap_or_default();
@@ -577,6 +1104,7 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         "config_convert" => config_convert(payload),
         "yaml_validate" => yaml_validate(payload),
         "yaml_format" => yaml_format(payload),
+        "sql_to_entity" => sql_to_entity(payload),
         _ => Err(format!("unsupported convert action: {action}")),
     }
 }
@@ -771,5 +1299,180 @@ mod tests {
         let r = execute("yaml_format", &json!({"input": "key:   value\nlist:\n    - a", "indent": 2})).unwrap();
         let output = r["output"].as_str().unwrap();
         assert!(output.contains("key:"));
+    }
+
+    #[test]
+    fn sql_to_entity_java_basic() {
+        let sql = r#"
+            CREATE TABLE t_user (
+                id BIGINT NOT NULL AUTO_INCREMENT COMMENT 'primary key',
+                user_name VARCHAR(100) NOT NULL COMMENT 'user name',
+                age INT DEFAULT 0,
+                created_at DATETIME NOT NULL,
+                PRIMARY KEY (id)
+            );
+        "#;
+        let r = execute("sql_to_entity", &json!({
+            "sql": sql,
+            "language": "java",
+            "options": { "comments": true, "naming": "camelCase" }
+        })).unwrap();
+        let code = r["code"].as_str().unwrap();
+        assert!(code.contains("public class User"));
+        assert!(code.contains("private Long id;"));
+        assert!(code.contains("private String userName;"));
+        assert!(code.contains("private Integer age;"));
+        assert!(code.contains("private LocalDateTime createdAt;"));
+        assert!(code.contains("/** primary key */"));
+        assert!(code.contains("getId()"));
+        assert!(code.contains("setUserName("));
+
+        let tables = r["tables"].as_array().unwrap();
+        assert_eq!(tables.len(), 1);
+        assert_eq!(tables[0]["name"], "t_user");
+        let cols = tables[0]["columns"].as_array().unwrap();
+        assert_eq!(cols.len(), 4);
+        assert_eq!(cols[0]["name"], "id");
+        assert_eq!(cols[0]["nullable"], false);
+    }
+
+    #[test]
+    fn sql_to_entity_typescript() {
+        let sql = "CREATE TABLE orders (id INT NOT NULL, total DECIMAL(10,2), status VARCHAR(20));";
+        let r = execute("sql_to_entity", &json!({
+            "sql": sql,
+            "language": "typescript",
+            "options": { "comments": false, "naming": "camelCase" }
+        })).unwrap();
+        let code = r["code"].as_str().unwrap();
+        assert!(code.contains("export interface Orders"));
+        assert!(code.contains("id: number;"));
+        assert!(code.contains("total?: number;"));
+        assert!(code.contains("status?: string;"));
+    }
+
+    #[test]
+    fn sql_to_entity_go() {
+        let sql = "CREATE TABLE `product` (id BIGINT NOT NULL, name VARCHAR(255), price FLOAT);";
+        let r = execute("sql_to_entity", &json!({
+            "sql": sql,
+            "language": "go",
+            "options": { "comments": false, "naming": "camelCase" }
+        })).unwrap();
+        let code = r["code"].as_str().unwrap();
+        assert!(code.contains("type Product struct"));
+        assert!(code.contains("Id int64"));
+        assert!(code.contains("*string"));
+        assert!(code.contains("json:\"name\""));
+    }
+
+    #[test]
+    fn sql_to_entity_python() {
+        let sql = "CREATE TABLE user_profile (user_id INT NOT NULL, bio TEXT, created DATE NOT NULL);";
+        let r = execute("sql_to_entity", &json!({
+            "sql": sql,
+            "language": "python",
+            "options": { "comments": true, "naming": "snake_case" }
+        })).unwrap();
+        let code = r["code"].as_str().unwrap();
+        assert!(code.contains("@dataclass"));
+        assert!(code.contains("class UserProfile:"));
+        assert!(code.contains("user_id: int"));
+        assert!(code.contains("bio: Optional[str]"));
+        assert!(code.contains("from datetime import"));
+    }
+
+    #[test]
+    fn sql_to_entity_kotlin() {
+        let sql = "CREATE TABLE IF NOT EXISTS config (id INT NOT NULL, value TEXT, active BOOLEAN);";
+        let r = execute("sql_to_entity", &json!({
+            "sql": sql,
+            "language": "kotlin",
+            "options": { "comments": false, "naming": "camelCase" }
+        })).unwrap();
+        let code = r["code"].as_str().unwrap();
+        assert!(code.contains("data class Config("));
+        assert!(code.contains("val id: Int"));
+        assert!(code.contains("val value: String?"));
+        assert!(code.contains("val active: Boolean?"));
+    }
+
+    #[test]
+    fn sql_to_entity_csharp() {
+        let sql = "CREATE TABLE [order_items] (id INT NOT NULL, order_id BIGINT NOT NULL, quantity INT DEFAULT 1);";
+        let r = execute("sql_to_entity", &json!({
+            "sql": sql,
+            "language": "csharp",
+            "options": { "comments": false, "naming": "camelCase" }
+        })).unwrap();
+        let code = r["code"].as_str().unwrap();
+        assert!(code.contains("public class OrderItems"));
+        assert!(code.contains("public int Id { get; set; }"));
+        assert!(code.contains("public long OrderId { get; set; }"));
+        assert!(code.contains("public int? Quantity { get; set; }"));
+    }
+
+    #[test]
+    fn sql_to_entity_multiple_tables() {
+        let sql = r#"
+            CREATE TABLE users (id INT NOT NULL, name VARCHAR(100));
+            CREATE TABLE roles (id INT NOT NULL, role_name VARCHAR(50) NOT NULL);
+        "#;
+        let r = execute("sql_to_entity", &json!({
+            "sql": sql,
+            "language": "java",
+            "options": { "comments": false, "naming": "camelCase" }
+        })).unwrap();
+        let tables = r["tables"].as_array().unwrap();
+        assert_eq!(tables.len(), 2);
+        let code = r["code"].as_str().unwrap();
+        assert!(code.contains("public class Users"));
+        assert!(code.contains("public class Roles"));
+    }
+
+    #[test]
+    fn sql_to_entity_empty_input() {
+        let err = execute("sql_to_entity", &json!({
+            "sql": "",
+            "language": "java",
+            "options": {}
+        })).expect_err("empty sql");
+        assert!(err.contains("SQL is empty"));
+    }
+
+    #[test]
+    fn sql_to_entity_no_create_table() {
+        let err = execute("sql_to_entity", &json!({
+            "sql": "SELECT * FROM users;",
+            "language": "java",
+            "options": {}
+        })).expect_err("no create table");
+        assert!(err.contains("No CREATE TABLE"));
+    }
+
+    #[test]
+    fn sql_to_entity_tinyint1_is_boolean() {
+        let sql = "CREATE TABLE flags (id INT NOT NULL, active TINYINT(1) NOT NULL, count TINYINT(4));";
+        let r = execute("sql_to_entity", &json!({
+            "sql": sql,
+            "language": "java",
+            "options": { "comments": false, "naming": "camelCase" }
+        })).unwrap();
+        let code = r["code"].as_str().unwrap();
+        assert!(code.contains("private Boolean active;"));
+        assert!(code.contains("private Integer count;"));
+    }
+
+    #[test]
+    fn sql_to_entity_snake_case_naming() {
+        let sql = "CREATE TABLE user_settings (user_id INT NOT NULL, config_value TEXT);";
+        let r = execute("sql_to_entity", &json!({
+            "sql": sql,
+            "language": "java",
+            "options": { "comments": false, "naming": "snake_case" }
+        })).unwrap();
+        let code = r["code"].as_str().unwrap();
+        assert!(code.contains("private Integer user_id;"));
+        assert!(code.contains("private String config_value;"));
     }
 }

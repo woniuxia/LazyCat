@@ -131,6 +131,7 @@ const sidebarItems: SidebarItem[] = [
         { id: "text-process", name: "文本处理", desc: "文本清洗、过滤提取与结果统计" },
         { id: "naming-case", name: "命名转换", desc: "camelCase/snake_case/PascalCase 互转" },
         { id: "config-convert", name: "配置互转", desc: "Properties/YAML/TOML/.env 格式互转" },
+        { id: "sql-entity", name: "SQL 转实体类", desc: "CREATE TABLE 转 Java/TS/Go/Python 实体" },
       ]
     }
   },
