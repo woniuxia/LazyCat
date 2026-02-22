@@ -82,14 +82,14 @@
 }
 
 .calc-row-history:focus {
-  outline: 2px solid rgba(10, 79, 65, 0.30);
+  outline: 2px solid rgba(56, 189, 248, 0.25);
   outline-offset: -2px;
 }
 
 .calc-row-active {
   border: 1px solid var(--lc-border-active);
   border-radius: var(--lc-radius-md);
-  background: rgba(10, 79, 65, 0.08);
+  background: rgba(56, 189, 248, 0.06);
   align-items: stretch;
 }
 
@@ -138,4 +138,26 @@
 .calc-draft-actions {
   display: flex;
   justify-content: flex-end;
+}
+
+/* ---------- Panel Switch Transition ---------- */
+.panel-switch-enter-active {
+  transition: opacity 180ms var(--lc-ease), transform 180ms var(--lc-ease);
+}
+.panel-switch-leave-active {
+  transition: opacity 120ms var(--lc-ease);
+}
+.panel-switch-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
+.panel-switch-enter-to {
+  opacity: 1;
+  transform: translateY(0);
+}
+.panel-switch-leave-from {
+  opacity: 1;
+}
+.panel-switch-leave-to {
+  opacity: 0;
 }

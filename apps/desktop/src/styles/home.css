@@ -23,11 +23,25 @@
 
 .home-section-header h2 {
   margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 0;
   font-family: var(--lc-font-display);
   font-size: 17px;
   font-weight: 600;
   color: var(--lc-text);
   letter-spacing: -0.2px;
+}
+
+.home-section-header h2::before {
+  content: "";
+  display: inline-block;
+  width: 3px;
+  height: 16px;
+  background: var(--lc-accent);
+  border-radius: 2px;
+  margin-right: 10px;
+  flex-shrink: 0;
 }
 
 .home-section-header-right {
@@ -42,41 +56,67 @@
   gap: 12px;
 }
 
+/* ---------- Tool Card ---------- */
 .home-tool-card {
   border: 1px solid var(--lc-border);
   border-radius: var(--lc-radius-md);
   background: var(--lc-surface-2);
   text-align: left;
-  padding: 16px;
+  padding: 20px;
   cursor: pointer;
   transition:
-    border-color var(--lc-duration-slow) var(--lc-ease),
-    box-shadow var(--lc-duration-slow) var(--lc-ease),
-    transform var(--lc-duration) var(--lc-ease),
-    background var(--lc-duration-slow) var(--lc-ease);
+    border-color 300ms var(--lc-ease),
+    box-shadow 300ms var(--lc-ease),
+    transform 200ms var(--lc-ease);
   position: relative;
   overflow: hidden;
+  animation: cardReveal 0.4s var(--lc-ease-out) both;
+  animation-delay: calc(var(--card-index, 0) * 50ms);
 }
 
+/* Top accent bar */
+.home-tool-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    var(--lc-accent) 50%,
+    transparent 100%
+  );
+  opacity: 0;
+  transition: opacity 300ms var(--lc-ease);
+}
+
+/* Cursor-following radial glow */
 .home-tool-card::after {
   content: "";
   position: absolute;
   inset: 0;
   border-radius: inherit;
   background: radial-gradient(
-    ellipse at 30% 0%,
-    rgba(10, 79, 65, 0.10) 0%,
+    300px circle at var(--mx, 50%) var(--my, 50%),
+    rgba(56, 189, 248, 0.06) 0%,
     transparent 70%
   );
   opacity: 0;
-  transition: opacity var(--lc-duration-slow) var(--lc-ease);
+  transition: opacity 300ms var(--lc-ease);
   pointer-events: none;
 }
 
 .home-tool-card:hover {
   border-color: var(--lc-border-active);
-  box-shadow: 0 0 24px rgba(10, 79, 65, 0.10), 0 4px 14px rgba(0, 0, 0, 0.25);
+  box-shadow:
+    0 0 24px rgba(56, 189, 248, 0.06),
+    0 8px 24px rgba(0, 0, 0, 0.2);
   transform: translateY(-2px);
+}
+
+.home-tool-card:hover::before {
+  opacity: 1;
 }
 
 .home-tool-card:hover::after {
@@ -84,10 +124,22 @@
 }
 
 .home-tool-card:focus {
-  outline: 2px solid rgba(10, 79, 65, 0.35);
+  outline: 2px solid rgba(56, 189, 248, 0.35);
   outline-offset: 2px;
 }
 
+@keyframes cardReveal {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* ---------- Card Action ---------- */
 .home-tool-card-action {
   position: absolute;
   top: 8px;
@@ -114,6 +166,7 @@
   transform: translateY(0);
 }
 
+/* ---------- Card Content ---------- */
 .home-tool-card-title {
   font-family: var(--lc-font-display);
   font-size: 15px;

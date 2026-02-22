@@ -1,57 +1,57 @@
 /* Light Theme */
 
 /* ==========================================
-   Light Theme
+   Light Theme -- Arctic Light
    ========================================== */
 html[data-theme="light"] {
   /* Core palette */
-  --lc-bg: #f2f4f8;
+  --lc-bg: #f0f4f8;
   --lc-surface-0: #ffffff;
-  --lc-surface-1: #f7f8fb;
-  --lc-surface-2: #eef0f5;
-  --lc-surface-3: #e4e7ee;
+  --lc-surface-1: #f6f8fb;
+  --lc-surface-2: #ecf0f6;
+  --lc-surface-3: #e0e5ee;
 
   /* Borders */
-  --lc-border: rgba(0, 0, 0, 0.08);
-  --lc-border-subtle: rgba(0, 0, 0, 0.04);
-  --lc-border-hover: rgba(0, 0, 0, 0.14);
-  --lc-border-active: rgba(90, 156, 248, 0.40);
+  --lc-border: rgba(56, 130, 220, 0.10);
+  --lc-border-subtle: rgba(56, 130, 220, 0.05);
+  --lc-border-hover: rgba(56, 130, 220, 0.20);
+  --lc-border-active: rgba(56, 189, 248, 0.40);
 
   /* Text */
-  --lc-text: #1a1d27;
-  --lc-text-secondary: #5a6478;
-  --lc-text-muted: #8c95a8;
+  --lc-text: #0f172a;
+  --lc-text-secondary: #475569;
+  --lc-text-muted: #94a3b8;
 
-  /* Accent — light blue */
-  --lc-accent: #5A9CF8;
-  --lc-accent-light: #7CB4FA;
-  --lc-accent-dim: rgba(90, 156, 248, 0.10);
-  --lc-accent-glow: rgba(90, 156, 248, 0.07);
+  /* Accent -- sky blue */
+  --lc-accent: #0ea5e9;
+  --lc-accent-light: #38bdf8;
+  --lc-accent-dim: rgba(14, 165, 233, 0.08);
+  --lc-accent-glow: rgba(14, 165, 233, 0.05);
 
-  /* Depth — softer shadows */
+  /* Depth -- softer shadows */
   --lc-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.05);
   --lc-shadow-md: 0 4px 14px rgba(0, 0, 0, 0.07);
   --lc-shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.10);
   --lc-shadow-glow: 0 0 24px var(--lc-accent-glow);
 
   /* ---- Element Plus light overrides ---- */
-  --el-color-primary: #5A9CF8;
-  --el-color-primary-light-3: #7FB5F9;
-  --el-color-primary-light-5: #A4CDFA;
-  --el-color-primary-light-7: #C2DFFB;
-  --el-color-primary-light-8: #D4E9FC;
-  --el-color-primary-light-9: #E6F2FE;
-  --el-color-primary-dark-2: #3B82F6;
+  --el-color-primary: #0ea5e9;
+  --el-color-primary-light-3: #38bdf8;
+  --el-color-primary-light-5: #67d4fc;
+  --el-color-primary-light-7: #a3e3fc;
+  --el-color-primary-light-8: #baeafd;
+  --el-color-primary-light-9: #d4f2fe;
+  --el-color-primary-dark-2: #0284c7;
 
   --el-bg-color: #ffffff;
   --el-bg-color-overlay: #ffffff;
-  --el-bg-color-page: #f2f4f8;
+  --el-bg-color-page: #f0f4f8;
 
-  --el-text-color-primary: #1a1d27;
-  --el-text-color-regular: #3a3f50;
-  --el-text-color-secondary: #5a6478;
-  --el-text-color-placeholder: #8c95a8;
-  --el-text-color-disabled: #c0c4cc;
+  --el-text-color-primary: #0f172a;
+  --el-text-color-regular: #334155;
+  --el-text-color-secondary: #475569;
+  --el-text-color-placeholder: #94a3b8;
+  --el-text-color-disabled: #cbd5e1;
 
   --el-border-color: rgba(0, 0, 0, 0.10);
   --el-border-color-light: rgba(0, 0, 0, 0.07);
@@ -82,7 +82,7 @@ html[data-theme="light"] {
   --el-menu-hover-text-color: var(--lc-text);
 
   --el-disabled-bg-color: rgba(0, 0, 0, 0.02);
-  --el-disabled-text-color: #c0c4cc;
+  --el-disabled-text-color: #cbd5e1;
   --el-disabled-border-color: rgba(0, 0, 0, 0.06);
 
   --el-overlay-color: rgba(0, 0, 0, 0.5);
@@ -93,9 +93,9 @@ html[data-theme="light"] {
 /* Light body background */
 html[data-theme="light"] body {
   background:
-    radial-gradient(ellipse at 10% 0%, rgba(90, 156, 248, 0.06) 0%, transparent 55%),
-    radial-gradient(ellipse at 90% 100%, rgba(96, 165, 250, 0.05) 0%, transparent 55%),
-    #f2f4f8;
+    radial-gradient(ellipse at 8% 0%, rgba(14, 165, 233, 0.05) 0%, transparent 50%),
+    radial-gradient(ellipse at 92% 100%, rgba(56, 189, 248, 0.04) 0%, transparent 50%),
+    #f0f4f8;
 }
 
 /* Light scrollbar */
@@ -108,13 +108,15 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
 
 /* Light selection */
 html[data-theme="light"] ::selection {
-  background: rgba(90, 156, 248, 0.15);
-  color: #2558c4;
+  background: rgba(14, 165, 233, 0.15);
+  color: #0369a1;
 }
 
 /* Light sidebar */
 html[data-theme="light"] .nav {
-  background: rgba(255, 255, 255, 0.80);
+  background: rgba(255, 255, 255, 0.78);
+  backdrop-filter: blur(24px) saturate(140%);
+  -webkit-backdrop-filter: blur(24px) saturate(140%);
 }
 
 html[data-theme="light"] .nav .el-menu-item:hover {
@@ -132,24 +134,31 @@ html[data-theme="light"] .calc-row-history:hover {
 }
 
 html[data-theme="light"] .calc-row-active {
-  background: rgba(90, 156, 248, 0.06);
+  background: rgba(14, 165, 233, 0.06);
 }
 
 html[data-theme="light"] .calc-result {
-  color: #3B82F6;
+  color: #0284c7;
 }
 
 /* Light home cards */
 html[data-theme="light"] .home-tool-card:hover {
-  box-shadow: 0 0 20px rgba(90, 156, 248, 0.08), 0 4px 14px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 0 20px rgba(14, 165, 233, 0.08), 0 8px 24px rgba(0, 0, 0, 0.06);
 }
 
 html[data-theme="light"] .home-tool-card::after {
   background: radial-gradient(
-    ellipse at 30% 0%,
-    rgba(90, 156, 248, 0.06) 0%,
+    300px circle at var(--mx, 50%) var(--my, 50%),
+    rgba(14, 165, 233, 0.05) 0%,
     transparent 70%
   );
+}
+
+/* Light tabbar */
+html[data-theme="light"] .tabbar {
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 
 /* ---- Light Element Plus component overrides ---- */
@@ -171,12 +180,12 @@ html[data-theme="light"] .el-select-dropdown__item.is-hovering {
   background-color: rgba(0, 0, 0, 0.04) !important;
 }
 
-/* Button Primary — white text on blue */
+/* Button Primary -- white text on blue */
 html[data-theme="light"] .el-button--primary {
   --el-button-text-color: #ffffff;
   --el-button-hover-text-color: #ffffff;
-  --el-button-active-bg-color: #3B82F6;
-  --el-button-active-border-color: #3B82F6;
+  --el-button-active-bg-color: #0284c7;
+  --el-button-active-border-color: #0284c7;
 }
 
 /* Button Default */

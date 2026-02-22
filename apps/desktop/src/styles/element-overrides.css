@@ -69,8 +69,8 @@
   --el-button-hover-bg-color: var(--lc-accent-light);
   --el-button-hover-border-color: var(--lc-accent-light);
   --el-button-hover-text-color: #ffffff;
-  --el-button-active-bg-color: #083d32;
-  --el-button-active-border-color: #083d32;
+  --el-button-active-bg-color: #0284c7;
+  --el-button-active-border-color: #0284c7;
   font-weight: 600;
 }
 

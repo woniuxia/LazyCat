@@ -1,10 +1,17 @@
 ﻿<template>
-  <div v-if="viewMode === 'main'" class="shell">
+  <div v-if="viewMode === 'main'" class="shell" :style="{ gridTemplateColumns: sidebarWidth + 'px 1fr' }">
     <SidebarNav
       :items="visibleSidebarItems"
       :active-tool="activeTool"
       @select="onSelect"
       @open-snippet-workspace="enterSnippetWorkspace"
+    />
+    <div
+      class="resize-handle"
+      :class="{ 'is-dragging': isResizing }"
+      :style="{ left: (sidebarWidth + 12) + 'px' }"
+      @mousedown="startResize"
+      @dblclick="resetSidebarWidth"
     />
 
     <main class="content">
@@ -31,23 +38,26 @@
       </div>
       <p class="tool-desc">{{ currentTool?.desc }}</p>
 
-      <HomePanel
-        v-if="activeTool === HOME_ID"
-        :favorite-tools="favoriteTools"
-        :top-monthly-tools="topMonthlyTools"
-        :home-top-limit="homeTopLimit"
-        :is-favorite="isFavorite"
-        @open-tool="onSelect"
-        @toggle-favorite="toggleFavorite"
-        @update:home-top-limit="homeTopLimit = $event"
-      />
+      <Transition name="panel-switch" mode="out-in">
+        <HomePanel
+          v-if="activeTool === HOME_ID"
+          key="home"
+          :favorite-tools="favoriteTools"
+          :top-monthly-tools="topMonthlyTools"
+          :home-top-limit="homeTopLimit"
+          :is-favorite="isFavorite"
+          @open-tool="onSelect"
+          @toggle-favorite="toggleFavorite"
+          @update:home-top-limit="homeTopLimit = $event"
+        />
 
-      <component
-        v-else-if="currentComponent"
-        :is="currentComponent"
-        :key="activeTool"
-        v-bind="currentComponentProps"
-      />
+        <component
+          v-else-if="currentComponent"
+          :is="currentComponent"
+          :key="activeTool"
+          v-bind="currentComponentProps"
+        />
+      </Transition>
     </main>
     <ShortcutHelpOverlay ref="shortcutHelp" />
   </div>
@@ -207,6 +217,39 @@ const themeMode = ref<"system" | "dark" | "light">("system");
 const hotkeyInput = ref("");
 const shortcutHelp = ref<InstanceType<typeof ShortcutHelpOverlay> | null>(null);
 
+/* ---------- Sidebar Resize ---------- */
+const SIDEBAR_MIN = 200;
+const SIDEBAR_MAX = 400;
+const SIDEBAR_DEFAULT = 260;
+const sidebarWidth = ref(SIDEBAR_DEFAULT);
+const isResizing = ref(false);
+
+function startResize(e: MouseEvent) {
+  e.preventDefault();
+  isResizing.value = true;
+  const startX = e.clientX;
+  const startW = sidebarWidth.value;
+
+  function onMove(ev: MouseEvent) {
+    const delta = ev.clientX - startX;
+    sidebarWidth.value = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, startW + delta));
+  }
+  function onUp() {
+    isResizing.value = false;
+    document.removeEventListener("mousemove", onMove);
+    document.removeEventListener("mouseup", onUp);
+    setSetting("sidebar_width", String(sidebarWidth.value));
+    window.dispatchEvent(new Event("resize"));
+  }
+  document.addEventListener("mousemove", onMove);
+  document.addEventListener("mouseup", onUp);
+}
+
+function resetSidebarWidth() {
+  sidebarWidth.value = SIDEBAR_DEFAULT;
+  setSetting("sidebar_width", String(SIDEBAR_DEFAULT));
+}
+
 function onKeydown(e: KeyboardEvent) {
   if (e.ctrlKey && e.key === "/") {
     e.preventDefault();
@@ -352,6 +395,11 @@ onMounted(async () => {
   systemMediaQuery.addEventListener("change", onSystemThemeChange);
   loadFavoritesFromStorage();
   loadMenuVisibility();
+  const savedSidebarWidth = getSetting("sidebar_width");
+  if (savedSidebarWidth) {
+    const w = Number(savedSidebarWidth);
+    if (w >= SIDEBAR_MIN && w <= SIDEBAR_MAX) sidebarWidth.value = w;
+  }
   const savedHotkey = getSetting("hotkey") ?? "";
   hotkeyInput.value = savedHotkey;
   if (savedHotkey) {

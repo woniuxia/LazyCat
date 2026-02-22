@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="home-panel">
     <section class="home-section">
       <div class="home-section-header">
@@ -7,12 +7,15 @@
       </div>
       <div v-if="favoriteTools.length" class="home-card-grid">
         <div
-          v-for="tool in favoriteTools"
+          v-for="(tool, index) in favoriteTools"
           :key="tool.id"
           class="home-tool-card"
+          :style="{ '--card-index': index }"
           tabindex="0"
           @click="emit('openTool', tool.id)"
           @keyup.enter="emit('openTool', tool.id)"
+          @mousemove="onCardMouseMove"
+          @mouseleave="onCardMouseLeave"
         >
           <el-button class="home-tool-card-action" text type="warning" @click.stop="emit('toggleFavorite', tool.id)">
             取消收藏
@@ -21,7 +24,7 @@
           <div class="home-tool-card-desc">{{ tool.desc }}</div>
         </div>
       </div>
-      <el-empty v-else description="暂无收藏，进入工具页面后点击右上角“收藏”" />
+      <el-empty v-else description='暂无收藏，进入工具页面后点击右上角"收藏"' />
     </section>
 
     <section class="home-section">
@@ -37,12 +40,15 @@
       </div>
       <div v-if="topMonthlyTools.length" class="home-card-grid">
         <div
-          v-for="item in topMonthlyTools"
+          v-for="(item, index) in topMonthlyTools"
           :key="item.tool.id"
           class="home-tool-card"
+          :style="{ '--card-index': index }"
           tabindex="0"
           @click="emit('openTool', item.tool.id)"
           @keyup.enter="emit('openTool', item.tool.id)"
+          @mousemove="onCardMouseMove"
+          @mouseleave="onCardMouseLeave"
         >
           <el-button
             class="home-tool-card-action"
@@ -88,4 +94,17 @@ const homeTopLimitModel = computed({
   get: () => props.homeTopLimit,
   set: (value) => emit("update:homeTopLimit", value)
 });
+
+function onCardMouseMove(e: MouseEvent) {
+  const card = e.currentTarget as HTMLElement;
+  const rect = card.getBoundingClientRect();
+  card.style.setProperty("--mx", `${e.clientX - rect.left}px`);
+  card.style.setProperty("--my", `${e.clientY - rect.top}px`);
+}
+
+function onCardMouseLeave(e: MouseEvent) {
+  const card = e.currentTarget as HTMLElement;
+  card.style.removeProperty("--mx");
+  card.style.removeProperty("--my");
+}
 </script>
