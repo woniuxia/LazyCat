@@ -150,51 +150,54 @@ fn build_process_summaries(entries: &[PortUsageEntry]) -> Vec<PortProcessSummary
     out
 }
 
-pub fn execute(action: &str, _payload: &Value) -> Result<Value, String> {
+pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
     match action {
-        "usage" => {
-            let output = Command::new("netstat")
-                .arg("-ano")
-                .output()
-                .map_err(|e| format!("netstat failed: {e}"))?;
-            let text = String::from_utf8_lossy(&output.stdout).to_string();
-            let mut entries = parse_netstat_entries(&text);
-            let proc_names = list_process_names();
-            for item in &mut entries {
-                item.process_name = proc_names
-                    .get(&item.pid)
-                    .cloned()
-                    .unwrap_or_else(|| "UNKNOWN".to_string());
-            }
-            let mut state_counts: HashMap<String, usize> = HashMap::new();
-            let mut tcp_count = 0usize;
-            let mut udp_count = 0usize;
-            for item in &entries {
-                match item.protocol.as_str() {
-                    "TCP" => tcp_count += 1,
-                    "UDP" => udp_count += 1,
-                    _ => {}
-                }
-                if let Some(state) = &item.state {
-                    *state_counts.entry(state.clone()).or_insert(0) += 1;
-                }
-            }
-            let process_summaries = build_process_summaries(&entries);
-            Ok(json!({
-                "summary": {
-                    "total": entries.len(),
-                    "tcp": tcp_count,
-                    "udp": udp_count
-                },
-                "stateCounts": state_counts,
-                "processSummaries": process_summaries,
-                "connections": entries
-            }))
-        }
-        "process_detail" => process_detail(_payload),
-        "kill" => kill_process(_payload),
+        "usage" => port_usage(payload),
+        "process_detail" => process_detail(payload),
+        "kill" => kill_process(payload),
         _ => Err(format!("unsupported port action: {action}")),
     }
+}
+
+/// 获取端口占用信息
+fn port_usage(_payload: &Value) -> Result<Value, String> {
+    let output = Command::new("netstat")
+        .arg("-ano")
+        .output()
+        .map_err(|e| format!("netstat failed: {e}"))?;
+    let text = String::from_utf8_lossy(&output.stdout).to_string();
+    let mut entries = parse_netstat_entries(&text);
+    let proc_names = list_process_names();
+    for item in &mut entries {
+        item.process_name = proc_names
+            .get(&item.pid)
+            .cloned()
+            .unwrap_or_else(|| "UNKNOWN".to_string());
+    }
+    let mut state_counts: HashMap<String, usize> = HashMap::new();
+    let mut tcp_count = 0usize;
+    let mut udp_count = 0usize;
+    for item in &entries {
+        match item.protocol.as_str() {
+            "TCP" => tcp_count += 1,
+            "UDP" => udp_count += 1,
+            _ => {}
+        }
+        if let Some(state) = &item.state {
+            *state_counts.entry(state.clone()).or_insert(0) += 1;
+        }
+    }
+    let process_summaries = build_process_summaries(&entries);
+    Ok(json!({
+        "summary": {
+            "total": entries.len(),
+            "tcp": tcp_count,
+            "udp": udp_count
+        },
+        "stateCounts": state_counts,
+        "processSummaries": process_summaries,
+        "connections": entries
+    }))
 }
 
 fn process_detail(payload: &Value) -> Result<Value, String> {

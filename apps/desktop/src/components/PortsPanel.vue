@@ -1,7 +1,9 @@
 <template>
   <div class="panel-grid">
     <div class="panel-grid-full">
-      <el-button type="primary" @click="loadPortUsage">查询端口占用</el-button>
+      <el-button type="primary" :loading="loading" @click="loadPortUsage">
+        {{ loading ? "查询中..." : "查询端口占用" }}
+      </el-button>
     </div>
 
     <el-divider class="panel-grid-full" content-position="left">概览</el-divider>
@@ -38,8 +40,19 @@
       </el-table-column>
     </el-table>
 
-    <el-divider class="panel-grid-full" content-position="left">连接明细</el-divider>
-    <el-table class="panel-grid-full" :data="portConnectionRows" border max-height="360">
+    <el-divider class="panel-grid-full" content-position="left">
+      连接明细
+      <el-tag v-if="truncatedCount > 0" type="warning" size="small" style="margin-left: 8px">
+        已截断 {{ truncatedCount }} 条
+      </el-tag>
+    </el-divider>
+    <el-input
+      class="panel-grid-full"
+      v-model="connectionFilter"
+      placeholder="按协议/PID/应用/地址/状态过滤"
+      clearable
+    />
+    <el-table class="panel-grid-full" :data="filteredConnectionRows" border max-height="360">
       <el-table-column prop="protocol" label="协议" width="90" />
       <el-table-column prop="pid" label="PID" width="90" />
       <el-table-column prop="processName" label="应用" min-width="180" />
@@ -65,26 +78,28 @@ import { computed, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { invokeToolByChannel } from "../bridge/tauri";
 import type {
+  PortUsageResponse,
   PortUsageSummary,
   PortUsageStateRow,
   PortUsageProcessRow,
   PortUsageConnectionRow,
+  PortProcessDetailResponse,
 } from "../types";
+
+const MAX_CONNECTIONS = 1200;
+
+const loading = ref(false);
+const truncatedCount = ref(0);
 
 const portUsageSummary = ref<PortUsageSummary>({ total: 0, tcp: 0, udp: 0 });
 const portUsageStateRows = ref<PortUsageStateRow[]>([]);
 const portProcessRows = ref<PortUsageProcessRow[]>([]);
 const portConnectionRows = ref<PortUsageConnectionRow[]>([]);
 const portFilter = ref("");
+const connectionFilter = ref("");
 
 const detailVisible = ref(false);
-const processDetail = ref<{
-  pid: number;
-  name: string;
-  path: string;
-  commandLine: string;
-  startTime: string;
-} | null>(null);
+const processDetail = ref<PortProcessDetailResponse | null>(null);
 
 const filteredPortProcessRows = computed(() => {
   const needle = portFilter.value.trim().toLowerCase();
@@ -98,31 +113,33 @@ const filteredPortProcessRows = computed(() => {
   });
 });
 
+const filteredConnectionRows = computed(() => {
+  const needle = connectionFilter.value.trim().toLowerCase();
+  if (!needle) return portConnectionRows.value;
+  return portConnectionRows.value.filter((row) => {
+    return (
+      row.protocol.toLowerCase().includes(needle) ||
+      String(row.pid).includes(needle) ||
+      row.processName.toLowerCase().includes(needle) ||
+      row.localAddress.toLowerCase().includes(needle) ||
+      row.remoteAddress.toLowerCase().includes(needle) ||
+      row.state.toLowerCase().includes(needle)
+    );
+  });
+});
+
 async function loadPortUsage() {
+  loading.value = true;
+  truncatedCount.value = 0;
   try {
     const data = await invokeToolByChannel("tool:port:usage", {});
-    const payload = (data ?? {}) as {
-      summary?: { total?: number; tcp?: number; udp?: number };
-      stateCounts?: Record<string, number>;
-      processSummaries?: Array<{
-        pid?: number;
-        processName?: string;
-        listeningPorts?: string[];
-        connectionCount?: number;
-      }>;
-      connections?: Array<{
-        protocol?: string;
-        pid?: number;
-        processName?: string;
-        localAddress?: string;
-        remoteAddress?: string;
-        state?: string | null;
-      }>;
-    };
+    const payload = (data ?? {}) as PortUsageResponse;
 
-    const summary = payload.summary ?? {};
+    const summary = payload.summary ?? { total: 0, tcp: 0, udp: 0 };
     const stateCounts = payload.stateCounts ?? {};
-    const processSummaries = Array.isArray(payload.processSummaries) ? payload.processSummaries : [];
+    const processSummaries = Array.isArray(payload.processSummaries)
+      ? payload.processSummaries
+      : [];
     const connections = Array.isArray(payload.connections) ? payload.connections : [];
 
     portUsageSummary.value = {
@@ -143,7 +160,11 @@ async function loadPortUsage() {
       connectionCount: item.connectionCount ?? 0,
     }));
 
-    portConnectionRows.value = connections.slice(0, 1200).map((item) => ({
+    if (connections.length > MAX_CONNECTIONS) {
+      truncatedCount.value = connections.length - MAX_CONNECTIONS;
+    }
+
+    portConnectionRows.value = connections.slice(0, MAX_CONNECTIONS).map((item) => ({
       protocol: item.protocol ?? "",
       pid: item.pid ?? 0,
       processName: item.processName ?? "UNKNOWN",
@@ -153,6 +174,8 @@ async function loadPortUsage() {
     }));
   } catch (error) {
     ElMessage.error((error as Error).message);
+  } finally {
+    loading.value = false;
   }
 }
 
@@ -160,13 +183,7 @@ async function showProcessDetail(pid: number) {
   try {
     const data = (await invokeToolByChannel("tool:port:process-detail", {
       pid,
-    })) as {
-      pid: number;
-      name: string;
-      path: string;
-      commandLine: string;
-      startTime: string;
-    };
+    })) as PortProcessDetailResponse;
     processDetail.value = data;
     detailVisible.value = true;
   } catch (error) {
