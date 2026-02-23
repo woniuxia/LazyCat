@@ -396,6 +396,7 @@ async function loadSystemDnsDefaults() {
     systemDnsIpv4List.value = ipv4;
     if (!dnsServer.value.trim() && ipv4.length > 0) {
       dnsServer.value = ipv4[0];
+      selectedPreset.value = PRESET_DNS_SERVERS.find((p) => p.ip === ipv4[0])?.label ?? null;
     }
   } catch {
     // 忽略系统 DNS 加载失败

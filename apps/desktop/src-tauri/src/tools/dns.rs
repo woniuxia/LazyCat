@@ -55,17 +55,15 @@ fn ipv4_to_ptr(addr: &std::net::Ipv4Addr) -> String {
 
 /// 将 IPv6 地址转为 PTR 查询名（ip6.arpa.）
 fn ipv6_to_ptr(addr: &std::net::Ipv6Addr) -> String {
-    let segments = addr.octets();
-    let hex: String = segments.iter()
+    let octets = addr.octets();
+    let dotted = octets.iter()
         .flat_map(|b| [b >> 4, b & 0xf])
         .rev()
-        .map(|n| char::from_digit(n as u32, 16).unwrap())
-        .collect::<Vec<char>>()
-        .chunks(1)
-        .map(|c| c[0].to_string())
+        .map(|n| char::from_digit(n as u32, 16).expect("nibble 0-15 is always valid hex"))
+        .map(|c| c.to_string())
         .collect::<Vec<_>>()
         .join(".");
-    format!("{}.ip6.arpa.", hex)
+    format!("{}.ip6.arpa.", dotted)
 }
 
 fn resolve(payload: &Value) -> Result<Value, String> {
@@ -91,6 +89,12 @@ fn resolve(payload: &Value) -> Result<Value, String> {
         Ok(IpAddr::V4(v4)) => ipv4_to_ptr(&v4),
         Ok(IpAddr::V6(v6)) => ipv6_to_ptr(&v6),
         Err(_) => String::new(),
+    };
+
+    let server_display = if server.is_empty() {
+        "system".to_string()
+    } else {
+        server.clone()
     };
 
     let domain_owned = domain.to_string();
@@ -132,12 +136,6 @@ fn resolve(payload: &Value) -> Result<Value, String> {
             "PTR": ptr_records,
         }))
     })?;
-
-    let server_display = if payload["server"].as_str().unwrap_or("").trim().is_empty() {
-        "system".to_string()
-    } else {
-        payload["server"].as_str().unwrap_or("").trim().to_string()
-    };
 
     Ok(json!({
         "domain": domain,
@@ -228,7 +226,16 @@ fn compare(payload: &Value) -> Result<Value, String> {
 
         let mut out = vec![];
         while let Some(r) = set.join_next().await {
-            out.push(r.expect("task panicked"));
+            match r {
+                Ok(v) => out.push(v),
+                Err(e) => out.push(json!({
+                    "server": "unknown",
+                    "ip": "",
+                    "elapsed_ms": serde_json::Value::Null,
+                    "addresses": [],
+                    "error": format!("task error: {e}"),
+                })),
+            }
         }
         out
     });
@@ -503,5 +510,16 @@ mod tests {
         use std::net::Ipv4Addr;
         let addr = Ipv4Addr::new(8, 8, 8, 8);
         assert_eq!(ipv4_to_ptr(&addr), "8.8.8.8.in-addr.arpa.");
+    }
+
+    #[test]
+    fn ipv6_to_ptr_test() {
+        use std::net::Ipv6Addr;
+        // 2001:4860:4860::8888 (Google IPv6 DNS)
+        let addr: Ipv6Addr = "2001:4860:4860::8888".parse().unwrap();
+        assert_eq!(
+            ipv6_to_ptr(&addr),
+            "8.8.8.8.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.6.8.4.0.6.8.4.1.0.0.2.ip6.arpa."
+        );
     }
 }
