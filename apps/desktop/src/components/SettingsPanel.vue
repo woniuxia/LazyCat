@@ -530,6 +530,7 @@ async function handleCloseToTrayChange(value: boolean) {
   background: var(--el-fill-color-blank);
   border-radius: 8px;
   transition: all 0.2s ease;
+  flex-wrap: wrap;
 }
 
 .setting-item:hover {
@@ -568,7 +569,8 @@ async function handleCloseToTrayChange(value: boolean) {
 }
 
 .setting-control-column {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   flex-direction: column;
   align-items: stretch;
 }
