@@ -22,39 +22,31 @@
           </span>
         </el-form-item>
         <el-form-item label="显示/隐藏快捷键">
-          <el-input
+          <ShortcutRecorder
             :model-value="hotkeyInput"
-            placeholder="例如：Alt+Space 或 Ctrl+Shift+L"
-            clearable
-            style="width: 260px;"
-            @update:model-value="emit('update:hotkeyInput', String($event ?? ''))"
+            :check-conflict="makeConflictChecker('hotkeyInput')"
+            @update:model-value="emit('update:hotkeyInput', $event)"
           />
         </el-form-item>
         <el-form-item label="代码片段快捷键">
-          <el-input
+          <ShortcutRecorder
             :model-value="snippetsHotkeyInput"
-            placeholder="例如：Ctrl+Shift+S"
-            clearable
-            style="width: 260px;"
-            @update:model-value="emit('update:snippetsHotkeyInput', String($event ?? ''))"
+            :check-conflict="makeConflictChecker('snippetsHotkeyInput')"
+            @update:model-value="emit('update:snippetsHotkeyInput', $event)"
           />
         </el-form-item>
         <el-form-item label="密码管理快捷键">
-          <el-input
+          <ShortcutRecorder
             :model-value="vaultHotkeyInput"
-            placeholder="例如：Ctrl+Shift+V"
-            clearable
-            style="width: 260px;"
-            @update:model-value="emit('update:vaultHotkeyInput', String($event ?? ''))"
+            :check-conflict="makeConflictChecker('vaultHotkeyInput')"
+            @update:model-value="emit('update:vaultHotkeyInput', $event)"
           />
         </el-form-item>
         <el-form-item label="快捷启动快捷键">
-          <el-input
+          <ShortcutRecorder
             :model-value="launcherHotkeyInput"
-            placeholder="例如：Ctrl+Shift+Q"
-            clearable
-            style="width: 260px;"
-            @update:model-value="emit('update:launcherHotkeyInput', String($event ?? ''))"
+            :check-conflict="makeConflictChecker('launcherHotkeyInput')"
+            @update:model-value="emit('update:launcherHotkeyInput', $event)"
           />
         </el-form-item>
         <el-form-item>
@@ -115,6 +107,7 @@ import { registerHotkey, unregisterHotkey, registerNamedHotkey, unregisterNamedH
 import { setSetting } from "../composables/useSettings";
 import type { SidebarItem } from "../types";
 import MenuVisibilityDialog from "./MenuVisibilityDialog.vue";
+import ShortcutRecorder from "./ShortcutRecorder.vue";
 
 const props = defineProps<{
   themeMode: "system" | "dark" | "light";
@@ -139,6 +132,22 @@ const importMode = ref<"merge" | "overwrite">("merge");
 const dataDirPath = ref("");
 const dataDirIsCustom = ref(false);
 const menuVisibilityDialog = ref<InstanceType<typeof MenuVisibilityDialog>>();
+
+const HOTKEY_FIELDS = [
+  { key: "hotkeyInput" as const, label: "显示/隐藏" },
+  { key: "snippetsHotkeyInput" as const, label: "代码片段" },
+  { key: "vaultHotkeyInput" as const, label: "密码管理" },
+  { key: "launcherHotkeyInput" as const, label: "快捷启动" },
+] as const;
+
+function makeConflictChecker(selfKey: typeof HOTKEY_FIELDS[number]["key"]) {
+  return (shortcut: string): string | undefined => {
+    for (const f of HOTKEY_FIELDS) {
+      if (f.key !== selfKey && props[f.key] === shortcut) return f.label;
+    }
+    return undefined;
+  };
+}
 
 onMounted(async () => {
   await loadDataDir();

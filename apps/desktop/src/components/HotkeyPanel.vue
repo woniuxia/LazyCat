@@ -3,16 +3,12 @@
     <!-- 单个快捷键检测 -->
     <el-divider class="panel-grid-full" content-position="left">单个快捷键检测</el-divider>
     <div class="panel-grid-full input-row">
-      <input
+      <ShortcutRecorder
         ref="recorderRef"
-        class="shortcut-recorder"
-        :class="{ focused: recorderFocused }"
-        readonly
-        :value="shortcutInput"
-        :placeholder="recorderFocused ? '请按下快捷键组合...' : '点击此处录入快捷键'"
-        @focus="recorderFocused = true"
-        @blur="recorderFocused = false"
-        @keydown="onRecorderKeydown"
+        v-model="shortcutInput"
+        width="auto"
+        style="flex: 1; min-width: 240px;"
+        @update:model-value="singleResult = null; singleSuspects = []; singleDetectResult = null"
       />
       <el-button type="primary" :disabled="!shortcutInput" :loading="checkLoading" @click="checkSingle">检测</el-button>
       <el-button @click="clearSingle">清除</el-button>
@@ -309,6 +305,7 @@ import { ref, computed, reactive } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { ArrowDown } from "@element-plus/icons-vue";
 import { invokeToolByChannel } from "../bridge/tauri";
+import ShortcutRecorder from "./ShortcutRecorder.vue";
 import type {
   ShortcutSuspect,
   SuspectApp,
@@ -319,8 +316,7 @@ import type {
   DetectOwnerResponse,
 } from "../types";
 
-const recorderRef = ref<HTMLInputElement | null>(null);
-const recorderFocused = ref(false);
+const recorderRef = ref<InstanceType<typeof ShortcutRecorder> | null>(null);
 const shortcutInput = ref("");
 const checkLoading = ref(false);
 const singleResult = ref<CheckResponse | null>(null);
@@ -340,107 +336,6 @@ const singleDetectLoading = ref(false);
 const singleDetectResult = ref<DetectOwnerResponse | null>(null);
 const scanDetectResults = reactive<Record<string, DetectOwnerResponse>>({});
 const scanDetectLoadingKeys = reactive<Record<string, boolean>>({});
-
-const MODIFIER_KEYS = new Set([
-  "Control", "Alt", "Shift", "Meta",
-  "ControlLeft", "ControlRight",
-  "AltLeft", "AltRight",
-  "ShiftLeft", "ShiftRight",
-  "MetaLeft", "MetaRight",
-]);
-
-function keyEventToShortcut(e: KeyboardEvent): string | null {
-  if (MODIFIER_KEYS.has(e.key)) return null;
-
-  const parts: string[] = [];
-  if (e.ctrlKey) parts.push("Ctrl");
-  if (e.altKey) parts.push("Alt");
-  if (e.shiftKey) parts.push("Shift");
-  if (e.metaKey) parts.push("Win");
-
-  if (parts.length === 0) return null;
-
-  const keyName = mapKeyName(e);
-  if (!keyName) return null;
-
-  parts.push(keyName);
-  return parts.join("+");
-}
-
-function mapKeyName(e: KeyboardEvent): string | null {
-  const { key, code } = e;
-
-  // Function keys
-  if (/^F(\d+)$/.test(key)) return key;
-
-  // Letters (use code to get consistent uppercase)
-  if (/^Key([A-Z])$/.test(code)) return code.slice(3);
-
-  // Digits (top row)
-  if (/^Digit(\d)$/.test(code)) return code.slice(5);
-
-  // Numpad digits
-  if (/^Numpad(\d)$/.test(code)) return `Numpad${code.slice(6)}`;
-
-  // Special keys
-  const specialMap: Record<string, string> = {
-    Space: "Space",
-    Enter: "Enter",
-    Tab: "Tab",
-    Escape: "Esc",
-    Backspace: "Backspace",
-    Delete: "Delete",
-    Insert: "Insert",
-    Home: "Home",
-    End: "End",
-    PageUp: "PageUp",
-    PageDown: "PageDown",
-    ArrowUp: "Up",
-    ArrowDown: "Down",
-    ArrowLeft: "Left",
-    ArrowRight: "Right",
-    PrintScreen: "PrintScreen",
-    ScrollLock: "ScrollLock",
-    Pause: "Pause",
-    NumLock: "NumLock",
-    CapsLock: "CapsLock",
-  };
-
-  if (specialMap[key]) return specialMap[key];
-
-  // Punctuation via code
-  const punctMap: Record<string, string> = {
-    Semicolon: ";",
-    Equal: "=",
-    Comma: ",",
-    Minus: "-",
-    Period: ".",
-    Slash: "/",
-    Backquote: "`",
-    BracketLeft: "[",
-    Backslash: "\\",
-    BracketRight: "]",
-    Quote: "'",
-  };
-
-  if (punctMap[code]) return punctMap[code];
-
-  // Fallback: use key if single char
-  if (key.length === 1) return key.toUpperCase();
-
-  return null;
-}
-
-function onRecorderKeydown(e: KeyboardEvent) {
-  e.preventDefault();
-  e.stopPropagation();
-  const sc = keyEventToShortcut(e);
-  if (sc) {
-    shortcutInput.value = sc;
-    singleResult.value = null;
-    singleSuspects.value = [];
-  }
-}
 
 function clearSingle() {
   shortcutInput.value = "";
@@ -701,35 +596,6 @@ async function handleExport(command: string) {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
-}
-
-.shortcut-recorder {
-  flex: 1;
-  min-width: 240px;
-  height: 32px;
-  padding: 0 12px;
-  border: 1px solid var(--el-border-color);
-  border-radius: 4px;
-  font-size: 14px;
-  font-weight: 600;
-  letter-spacing: 1px;
-  color: var(--el-text-color-primary);
-  background: var(--el-bg-color);
-  outline: none;
-  cursor: pointer;
-  transition: border-color 0.2s;
-  font-family: inherit;
-}
-
-.shortcut-recorder::placeholder {
-  font-weight: 400;
-  letter-spacing: 0;
-  color: var(--el-text-color-placeholder);
-}
-
-.shortcut-recorder.focused {
-  border-color: var(--el-color-primary);
-  box-shadow: 0 0 0 1px var(--el-color-primary-light-5);
 }
 
 .suspects-detail {

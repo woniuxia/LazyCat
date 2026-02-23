@@ -14,10 +14,15 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::fs;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Stores currently registered shortcut strings keyed by name (e.g. "toggle", "snippets", "vault").
 static REGISTERED_SHORTCUTS: std::sync::LazyLock<Mutex<HashMap<String, String>>> =
     std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Flag: when true, the window subclass suppresses WM_SYSCOMMAND (SC_KEYMENU)
+/// so Alt+Space does not open the system menu during shortcut recording.
+static RECORDING_MODE: AtomicBool = AtomicBool::new(false);
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
@@ -321,6 +326,61 @@ fn unregister_named_hotkey(app: tauri::AppHandle, name: String) -> Result<(), St
     sync_all_shortcuts(&app)
 }
 
+/// Window subclass ID (arbitrary unique value)
+#[cfg(windows)]
+const SUBCLASS_ID: usize = 0x4C5A_4341; // "LZCA"
+
+/// Subclass procedure: intercepts WM_SYSCOMMAND to block system menu during recording.
+#[cfg(windows)]
+unsafe extern "system" fn recording_subclass_proc(
+    hwnd: windows_sys::Win32::Foundation::HWND,
+    msg: u32,
+    wparam: windows_sys::Win32::Foundation::WPARAM,
+    lparam: windows_sys::Win32::Foundation::LPARAM,
+    _uid_subclass: usize,
+    _ref_data: usize,
+) -> windows_sys::Win32::Foundation::LRESULT {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{WM_SYSCOMMAND, SC_KEYMENU};
+    // SC_KEYMENU is triggered by Alt+Space (and Alt+key for menu mnemonics).
+    // Block it when recording mode is active so the system menu won't appear.
+    if msg == WM_SYSCOMMAND && (wparam & 0xFFF0) == SC_KEYMENU as usize {
+        if RECORDING_MODE.load(Ordering::Relaxed) {
+            return 0;
+        }
+    }
+    windows_sys::Win32::UI::Shell::DefSubclassProc(hwnd, msg, wparam, lparam)
+}
+
+#[tauri::command]
+fn pause_all_shortcuts(app: tauri::AppHandle) -> Result<(), String> {
+    let manager = app.global_shortcut();
+    manager.unregister_all().map_err(|e| e.to_string())?;
+    RECORDING_MODE.store(true, Ordering::Relaxed);
+    // Install subclass on first call; subsequent calls are harmless (same ID = update)
+    #[cfg(windows)]
+    if let Some(window) = app.get_webview_window("main") {
+        if let Ok(hwnd) = window.hwnd() {
+            unsafe {
+                windows_sys::Win32::UI::Shell::SetWindowSubclass(
+                    hwnd.0,
+                    Some(recording_subclass_proc),
+                    SUBCLASS_ID,
+                    0,
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn resume_all_shortcuts(app: tauri::AppHandle) -> Result<(), String> {
+    RECORDING_MODE.store(false, Ordering::Relaxed);
+    // Subclass remains installed but becomes a no-op (flag is false).
+    // No need to remove it — keeps things simple and avoids race conditions.
+    sync_all_shortcuts(&app)
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -432,7 +492,9 @@ fn main() {
             register_hotkey,
             unregister_hotkey,
             register_named_hotkey,
-            unregister_named_hotkey
+            unregister_named_hotkey,
+            pause_all_shortcuts,
+            resume_all_shortcuts
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

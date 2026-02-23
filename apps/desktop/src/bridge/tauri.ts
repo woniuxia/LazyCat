@@ -31,6 +31,14 @@ export async function unregisterNamedHotkey(name: string): Promise<void> {
   await invoke("unregister_named_hotkey", { name });
 }
 
+export async function pauseAllShortcuts(): Promise<void> {
+  await invoke("pause_all_shortcuts");
+}
+
+export async function resumeAllShortcuts(): Promise<void> {
+  await invoke("resume_all_shortcuts");
+}
+
 const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:encode:base64-encode": { domain: "encode", action: "base64_encode" },
   "tool:encode:base64-decode": { domain: "encode", action: "base64_decode" },

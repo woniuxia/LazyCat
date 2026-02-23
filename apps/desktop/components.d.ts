@@ -100,6 +100,7 @@ declare module 'vue' {
     RsaPanel: typeof import('./src/components/RsaPanel.vue')['default']
     SettingsPanel: typeof import('./src/components/SettingsPanel.vue')['default']
     ShortcutHelpOverlay: typeof import('./src/components/ShortcutHelpOverlay.vue')['default']
+    ShortcutRecorder: typeof import('./src/components/ShortcutRecorder.vue')['default']
     SidebarNav: typeof import('./src/components/SidebarNav.vue')['default']
     SnippetPanel: typeof import('./src/components/SnippetPanel.vue')['default']
     SplitMergePanel: typeof import('./src/components/SplitMergePanel.vue')['default']
