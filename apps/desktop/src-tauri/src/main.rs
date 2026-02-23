@@ -8,6 +8,7 @@ use tauri::{
     Emitter, Manager, WindowEvent,
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
+use tauri_plugin_autostart::MacosLauncher;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -216,9 +217,9 @@ struct ToolResponse {
 }
 
 #[tauri::command]
-fn tool_execute(request: ToolRequest) -> ToolResponse {
+fn tool_execute(app: tauri::AppHandle, request: ToolRequest) -> ToolResponse {
     let start = Instant::now();
-    match tools::execute_tool(&request.domain, &request.action, &request.payload) {
+    match tools::execute_tool_with_app(&request.domain, &request.action, &request.payload, &app) {
         Ok(data) => ToolResponse {
             request_id: request.request_id,
             ok: true,
@@ -385,6 +386,10 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_autostart::init(
+            MacosLauncher::LaunchAgent,
+            Some(vec!["--minimized"]),
+        ))
         .setup(|app| {
             // 启动离线文档 HTTP 服务器
             // 打包后从 resource_dir/manuals 读取；开发模式下 fallback 到源码目录
@@ -441,6 +446,23 @@ fn main() {
             };
             let _ = HOTKEY_MAPPINGS_DIR.set(hotkey_dir);
 
+            // 检查是否为开机自启动且用户设置了启动时最小化
+            let args: Vec<String> = std::env::args().collect();
+            let is_autostart = args.contains(&"--minimized".to_string());
+
+            if is_autostart {
+                // 读取用户设置
+                if let Ok(conn) = tools::helpers::db_conn() {
+                    if let Ok(value) = tools::db::get_setting(&conn, "autostart_minimized") {
+                        if value == "true" {
+                            if let Some(window) = app.get_webview_window("main") {
+                                let _ = window.hide();
+                            }
+                        }
+                    }
+                }
+            }
+
             let show_item = MenuItem::with_id(app, "show", "显示", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
@@ -483,8 +505,21 @@ fn main() {
         })
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
-                api.prevent_close();
-                let _ = window.hide();
+                // 读取用户设置
+                let app_handle = window.app_handle();
+                let close_to_tray = match tools::helpers::db_conn() {
+                    Ok(conn) => {
+                        tools::db::get_setting(&conn, "close_to_tray")
+                            .unwrap_or_else(|_| "true".to_string()) == "true"
+                    }
+                    Err(_) => true, // 数据库连接失败，使用默认行为（隐藏到托盘）
+                };
+
+                if close_to_tray {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+                // 否则允许窗口关闭（应用退出）
             }
         })
         .invoke_handler(tauri::generate_handler![

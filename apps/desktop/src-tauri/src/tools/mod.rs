@@ -62,6 +62,18 @@ pub fn execute_tool(domain: &str, action: &str, payload: &Value) -> Result<Value
     }
 }
 
+pub fn execute_tool_with_app(
+    domain: &str,
+    action: &str,
+    payload: &Value,
+    app: &tauri::AppHandle,
+) -> Result<Value, String> {
+    match domain {
+        "settings" => settings::execute_with_app(action, payload, app),
+        _ => execute_tool(domain, action, payload),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

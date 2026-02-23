@@ -25,6 +25,11 @@ const settings = reactive<Record<string, string>>({});
 const loaded = ref(false);
 const loadPromise = ref<Promise<void> | null>(null);
 
+// 新增：开机自启动相关状态
+const autostartEnabled = ref(false);
+const autostartMinimized = ref(false);
+const closeToTray = ref(true); // 默认开启，保持当前行为
+
 async function loadAll(): Promise<void> {
   try {
     const data = (await invokeToolByChannel("tool:settings:get-all", {})) as
@@ -78,6 +83,10 @@ export function initSettings(): Promise<void> {
     if (Object.keys(settings).length === 0) {
       await migrateFromLocalStorage();
     }
+    // 加载开机自启动相关设置
+    autostartMinimized.value = settings.autostart_minimized === "true";
+    closeToTray.value = settings.close_to_tray !== "false"; // 默认 true
+    await checkAutostartStatus(); // 查询系统实际状态
     loaded.value = true;
   })();
   return loadPromise.value;
@@ -127,4 +136,64 @@ export function setSettingJson(key: string, value: unknown): void {
  */
 export function isSettingsLoaded(): boolean {
   return loaded.value;
+}
+
+/**
+ * 启用开机自启动
+ */
+export async function enableAutostart(): Promise<void> {
+  await invokeToolByChannel("tool:settings:enable-autostart", {});
+  autostartEnabled.value = true;
+}
+
+/**
+ * 禁用开机自启动
+ */
+export async function disableAutostart(): Promise<void> {
+  await invokeToolByChannel("tool:settings:disable-autostart", {});
+  autostartEnabled.value = false;
+}
+
+/**
+ * 查询开机自启动状态
+ */
+export async function checkAutostartStatus(): Promise<void> {
+  try {
+    const result = await invokeToolByChannel("tool:settings:is-autostart-enabled", {}) as { enabled: boolean };
+    autostartEnabled.value = result.enabled;
+  } catch {
+    // IPC 失败，保持当前状态
+  }
+}
+
+/**
+ * 设置启动时最小化
+ */
+export async function setAutostartMinimized(value: boolean): Promise<void> {
+  await setSetting("autostart_minimized", value.toString());
+  autostartMinimized.value = value;
+}
+
+/**
+ * 设置关闭时最小化到托盘
+ */
+export async function setCloseToTray(value: boolean): Promise<void> {
+  await setSetting("close_to_tray", value.toString());
+  closeToTray.value = value;
+}
+
+/**
+ * 导出开机自启动相关状态
+ */
+export function useAutostartSettings() {
+  return {
+    autostartEnabled,
+    autostartMinimized,
+    closeToTray,
+    enableAutostart,
+    disableAutostart,
+    checkAutostartStatus,
+    setAutostartMinimized,
+    setCloseToTray,
+  };
 }

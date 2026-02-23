@@ -21,6 +21,15 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
     }
 }
 
+pub fn execute_with_app(action: &str, payload: &Value, app: &tauri::AppHandle) -> Result<Value, String> {
+    match action {
+        "enable_autostart" => enable_autostart(app),
+        "disable_autostart" => disable_autostart(app),
+        "is_autostart_enabled" => is_autostart_enabled(app),
+        _ => execute(action, payload),
+    }
+}
+
 fn settings_get(payload: &Value) -> Result<Value, String> {
     let key = payload["key"].as_str().unwrap_or_default();
     if key.is_empty() {
@@ -297,6 +306,44 @@ fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> Result<()
         }
     }
     Ok(())
+}
+
+fn enable_autostart(app: &tauri::AppHandle) -> Result<Value, String> {
+    app.autolaunch().enable()
+        .map_err(|e| format!("enable autostart failed: {e}"))?;
+
+    // 同时保存到数据库
+    let conn = db_conn()?;
+    conn.execute(
+        "INSERT INTO user_settings(key, value, updated_at) VALUES(?1, ?2, CURRENT_TIMESTAMP)
+         ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP",
+        params!["autostart_enabled", "true"],
+    )
+    .map_err(|e| format!("save setting failed: {e}"))?;
+
+    Ok(json!({ "success": true }))
+}
+
+fn disable_autostart(app: &tauri::AppHandle) -> Result<Value, String> {
+    app.autolaunch().disable()
+        .map_err(|e| format!("disable autostart failed: {e}"))?;
+
+    // 同时保存到数据库
+    let conn = db_conn()?;
+    conn.execute(
+        "INSERT INTO user_settings(key, value, updated_at) VALUES(?1, ?2, CURRENT_TIMESTAMP)
+         ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP",
+        params!["autostart_enabled", "false"],
+    )
+    .map_err(|e| format!("save setting failed: {e}"))?;
+
+    Ok(json!({ "success": true }))
+}
+
+fn is_autostart_enabled(app: &tauri::AppHandle) -> Result<Value, String> {
+    let enabled = app.autolaunch().is_enabled()
+        .map_err(|e| format!("check autostart status failed: {e}"))?;
+    Ok(json!({ "enabled": enabled }))
 }
 
 #[cfg(test)]

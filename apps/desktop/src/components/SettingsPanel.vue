@@ -2,7 +2,7 @@
   <div class="panel-grid">
     <div class="panel-grid-full">
       <p style="margin-bottom: 8px; color: var(--el-text-color-secondary); font-size: 13px;">
-        设置全局快捷键后，可在任意位置显示/隐藏主窗口。关闭窗口时会最小化到系统托盘。
+        设置全局快捷键后，可在任意位置显示/隐藏主窗口。
       </p>
       <el-form label-width="120px" style="max-width: 480px;">
         <el-form-item label="外观主题">
@@ -55,6 +55,41 @@
         </el-form-item>
       </el-form>
 
+      <el-divider content-position="left">系统集成</el-divider>
+
+      <el-form label-width="140px" style="max-width: 520px;">
+        <el-form-item label="开机自启动">
+          <el-switch
+            v-model="autostartEnabled"
+            @change="handleAutostartChange"
+          />
+          <div style="margin-top: 4px; color: var(--el-text-color-secondary); font-size: 12px;">
+            应用将在系统启动时自动运行
+          </div>
+        </el-form-item>
+
+        <el-form-item label="启动时最小化到托盘">
+          <el-switch
+            v-model="autostartMinimized"
+            :disabled="!autostartEnabled"
+            @change="handleAutostartMinimizedChange"
+          />
+          <div style="margin-top: 4px; color: var(--el-text-color-secondary); font-size: 12px;">
+            仅在开机自启动时生效，手动启动时始终显示窗口
+          </div>
+        </el-form-item>
+
+        <el-form-item label="关闭时最小化到托盘">
+          <el-switch
+            v-model="closeToTray"
+            @change="handleCloseToTrayChange"
+          />
+          <div style="margin-top: 4px; color: var(--el-text-color-secondary); font-size: 12px;">
+            关闭时隐藏到系统托盘而非退出应用
+          </div>
+        </el-form-item>
+      </el-form>
+
       <el-divider />
 
       <h3 style="margin-bottom: 12px;">数据目录</h3>
@@ -104,10 +139,20 @@ import { ref, onMounted } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { save, open } from "@tauri-apps/plugin-dialog";
 import { registerHotkey, unregisterHotkey, registerNamedHotkey, unregisterNamedHotkey, invokeToolByChannel } from "../bridge/tauri";
-import { setSetting } from "../composables/useSettings";
+import { setSetting, useAutostartSettings } from "../composables/useSettings";
 import type { SidebarItem } from "../types";
 import MenuVisibilityDialog from "./MenuVisibilityDialog.vue";
 import ShortcutRecorder from "./ShortcutRecorder.vue";
+
+const {
+  autostartEnabled,
+  autostartMinimized,
+  closeToTray,
+  enableAutostart,
+  disableAutostart,
+  setAutostartMinimized,
+  setCloseToTray,
+} = useAutostartSettings();
 
 const props = defineProps<{
   themeMode: "system" | "dark" | "light";
@@ -285,6 +330,46 @@ async function handleResetDataDir() {
   } catch (e) {
     if ((e as { toString?: () => string })?.toString?.()?.includes("cancel")) return;
     ElMessage.error(`恢复失败：${(e as Error).message}`);
+  }
+}
+
+async function handleAutostartChange(value: boolean) {
+  try {
+    if (value) {
+      await enableAutostart();
+      ElMessage.success("已启用开机自启动");
+    } else {
+      await disableAutostart();
+      // 关闭开机自启动时，同时关闭"启动时最小化"
+      if (autostartMinimized.value) {
+        await setAutostartMinimized(false);
+      }
+      ElMessage.success("已禁用开机自启动");
+    }
+  } catch (error) {
+    ElMessage.error(`设置失败：${(error as Error).message}`);
+    // 回滚状态
+    autostartEnabled.value = !value;
+  }
+}
+
+async function handleAutostartMinimizedChange(value: boolean) {
+  try {
+    await setAutostartMinimized(value);
+    ElMessage.success(value ? "已启用启动时最小化" : "已禁用启动时最小化");
+  } catch (error) {
+    ElMessage.error(`设置失败：${(error as Error).message}`);
+    autostartMinimized.value = !value;
+  }
+}
+
+async function handleCloseToTrayChange(value: boolean) {
+  try {
+    await setCloseToTray(value);
+    ElMessage.success(value ? "关闭时将最小化到托盘" : "关闭时将退出应用");
+  } catch (error) {
+    ElMessage.error(`设置失败：${(error as Error).message}`);
+    closeToTray.value = !value;
   }
 }
 </script>
