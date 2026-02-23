@@ -91,18 +91,6 @@
         </button>
       </div>
 
-      <!-- HTTP 快捷路径 -->
-      <div v-if="protocol !== 'tcp'" class="quick-paths">
-        <button
-          v-for="path in quickPaths"
-          :key="path"
-          class="quick-path-btn"
-          @click="applyQuickHttpPath(path)"
-        >
-          {{ path }}
-        </button>
-      </div>
-
       <!-- 测试按钮 -->
       <button
         class="test-button"
@@ -328,8 +316,6 @@ const quickPorts = [
   { host: "127.0.0.1", port: 5173, name: "Vite", icon: "⚡" }
 ];
 
-const quickPaths = ["/health", "/actuator/health", "/api/health", "/status"];
-
 const protocol = ref<Protocol>("tcp");
 const host = ref("127.0.0.1");
 const port = ref(80);
@@ -502,27 +488,6 @@ function applyQuickTarget(nextHost: string, nextPort: number) {
   port.value = nextPort;
 }
 
-function applyQuickHttpPath(path: string) {
-  if (protocol.value === "tcp") {
-    protocol.value = "http";
-  }
-  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
-  const normalized = normalizeHttpUrl(httpUrl.value, protocol.value);
-  if (!normalized || normalized === `${protocol.value}://`) {
-    httpUrl.value = `${protocol.value}://127.0.0.1${normalizedPath}`;
-    return;
-  }
-  try {
-    const parsed = new URL(normalized);
-    parsed.pathname = normalizedPath;
-    parsed.search = "";
-    parsed.hash = "";
-    httpUrl.value = parsed.toString();
-  } catch {
-    // Ignore malformed url here, runTest will show validation.
-  }
-}
-
 function normalizeHttpUrl(raw: string, p: Protocol): string {
   const trimmed = raw.trim();
   if (!trimmed) return "";
@@ -638,8 +603,6 @@ function formatTime(timestamp: number): string {
   display: flex;
   flex-direction: column;
   gap: 20px;
-  max-width: 900px;
-  margin: 0 auto;
 }
 
 /* 控制台区域 */
@@ -889,31 +852,6 @@ function formatTime(timestamp: number): string {
 .port-name {
   font-size: 11px;
   color: var(--el-text-color-secondary);
-}
-
-/* HTTP 快捷路径 */
-.quick-paths {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 20px;
-}
-
-.quick-path-btn {
-  padding: 6px 12px;
-  border: 1px solid var(--el-border-color);
-  border-radius: 6px;
-  background: var(--el-fill-color-light);
-  color: var(--el-text-color-secondary);
-  font-size: 12px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.quick-path-btn:hover {
-  border-color: var(--el-color-primary);
-  color: var(--el-color-primary);
-  background: var(--el-color-primary-light-9);
 }
 
 /* 测试按钮 */
