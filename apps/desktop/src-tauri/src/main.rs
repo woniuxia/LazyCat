@@ -132,17 +132,19 @@ fn handle_manual_request(mut stream: TcpStream, root_dir: &Path) {
             };
             // 对 HTML 响应注入 CSS+JS，隐藏离线无用的 MDN 导航弹窗和 UI 元素
             let body = if mime.starts_with("text/html") {
-                const INJECT: &[u8] = b"<style>\
+                const INJECT: &str = "<style>\
                     .notification-bar,.mdn-cta,.article-actions-container,.place,.top-banner,\
                     .page-layout__banner,mdn-placement-top,mdn-placement-bottom,\
                     .navigation__popup,.menu__panel,.menu__panel-title,.menu__panel-content,\
                     .page-layout__footer,.pong-box,.top-level-entry-container .menu__panel,\
                     .content-section.article-footer,.bb-banner,#bb-banner,.spsr-container,\
-                    .preference-tooltip\
+                    .preference-tooltip,.vp-repl,[class*=\"repl\"]\
                     {display:none!important}\
+                    .repl-notice{padding:1rem;background:#f5f5f5;border:1px solid #ddd;border-radius:4px;margin:1rem 0;color:#666;}\
                     </style>\
                     <script>\
                     (function(){\
+                      window.aa=function(){};\
                       function removePopups(){\
                         document.querySelectorAll('[class*=\"popup\"],[class*=\"modal\"],[class*=\"banner\"],[class*=\"notification\"],[class*=\"cta\"],[class*=\"overlay\"]').forEach(function(el){\
                           var s=window.getComputedStyle(el);\
@@ -151,15 +153,29 @@ fn handle_manual_request(mut stream: TcpStream, root_dir: &Path) {
                           }\
                         });\
                       }\
-                      document.addEventListener('DOMContentLoaded',removePopups);\
+                      function disableRepl(){\
+                        document.querySelectorAll('.vp-repl,[class*=\"repl\"]').forEach(function(el){\
+                          el.style.display='none';\
+                          var notice=document.createElement('div');\
+                          notice.className='repl-notice';\
+                          notice.textContent='离线模式下交互式示例不可用,请参考静态代码示例';\
+                          if(el.parentNode){el.parentNode.insertBefore(notice,el);}\
+                        });\
+                        document.querySelectorAll('script[src*=\"rom3\"],script[src*=\"cdn.jsdelivr.net\"],script[src*=\"unpkg.com\"],script[src*=\"perfops.net\"]').forEach(function(s){s.remove();});\
+                      }\
+                      document.addEventListener('DOMContentLoaded',function(){\
+                        removePopups();\
+                        disableRepl();\
+                      });\
                       setTimeout(removePopups,1000);\
                       setTimeout(removePopups,3000);\
+                      setTimeout(disableRepl,500);\
                     })();\
                     </script>";
                 if let Some(pos) = body.windows(7).position(|w| w == b"</head>") {
                     let mut patched = Vec::with_capacity(body.len() + INJECT.len());
                     patched.extend_from_slice(&body[..pos]);
-                    patched.extend_from_slice(INJECT);
+                    patched.extend_from_slice(INJECT.as_bytes());
                     patched.extend_from_slice(&body[pos..]);
                     patched
                 } else {
