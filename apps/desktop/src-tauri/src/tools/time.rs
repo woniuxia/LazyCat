@@ -1,4 +1,4 @@
-use chrono::{Datelike, Local, NaiveDate, TimeZone, Utc};
+use chrono::{Datelike, Local, NaiveDate, NaiveDateTime, TimeZone, Utc};
 use serde_json::{json, Value};
 
 fn date_diff(payload: &Value) -> Result<Value, String> {
@@ -11,8 +11,7 @@ fn date_diff(payload: &Value) -> Result<Value, String> {
 
     let duration = end.signed_duration_since(start);
     let total_days = duration.num_days().unsigned_abs();
-    let hours = total_days * 24;
-    let minutes = hours * 60;
+    let _hours = total_days * 24;
 
     // Natural language: X年X月X天
     let (mut y, mut m, d);
@@ -101,8 +100,8 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
             let dt = chrono::DateTime::parse_from_rfc3339(input)
                 .map(|d| d.with_timezone(&Utc))
                 .or_else(|_| {
-                    Local
-                        .datetime_from_str(input, "%Y-%m-%d %H:%M:%S")
+                    NaiveDateTime::parse_from_str(input, "%Y-%m-%d %H:%M:%S")
+                        .map(|naive| Local.from_local_datetime(&naive).single().unwrap_or_else(|| Local.from_utc_datetime(&naive)))
                         .map(|d| d.with_timezone(&Utc))
                 })
                 .map_err(|e| format!("invalid datetime: {e}"))?;

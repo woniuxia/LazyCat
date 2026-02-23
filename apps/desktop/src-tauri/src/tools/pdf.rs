@@ -227,6 +227,7 @@ fn guess_paper_size(w: f64, h: f64) -> String {
 
 /// Parse a page range string like "1-3,5,7-10" into a sorted set of 1-indexed page numbers.
 /// Validates against max_page (total page count).
+#[allow(dead_code)]
 fn parse_ranges(ranges: &str, max_page: u32) -> Result<BTreeSet<u32>, String> {
     let mut result = BTreeSet::new();
 
