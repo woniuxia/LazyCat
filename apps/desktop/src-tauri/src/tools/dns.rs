@@ -5,6 +5,7 @@ use std::str::FromStr;
 use std::collections::HashSet;
 use std::sync::OnceLock;
 use hickory_resolver::config::{ResolverConfig, ResolverOpts, NameServerConfig, Protocol};
+use hickory_resolver::system_conf::read_system_conf;
 use hickory_resolver::TokioAsyncResolver;
 use hickory_resolver::proto::rr::RecordType;
 
@@ -25,19 +26,38 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
     }
 }
 
+fn get_system_resolver_config() -> (ResolverConfig, ResolverOpts) {
+    read_system_conf().unwrap_or_else(|_| (ResolverConfig::default(), ResolverOpts::default()))
+}
+
+/// 判断是否为 Windows 虚拟 DNS 占位地址（fec0:0:0:ffff::*），这类地址不可用
+fn is_windows_virtual_dns(ip: &IpAddr) -> bool {
+    match ip {
+        IpAddr::V6(v6) => {
+            let segments = v6.segments();
+            segments[0] == 0xfec0 && segments[1] == 0 && segments[2] == 0 && segments[3] == 0xffff
+        }
+        _ => false,
+    }
+}
+
 fn system_dns() -> Result<Value, String> {
-    let config = ResolverConfig::default();
+    let (config, _) = get_system_resolver_config();
     let mut ipv4 = Vec::<String>::new();
     let mut all = Vec::<String>::new();
     let mut seen = HashSet::<String>::new();
 
     for ns in config.name_servers() {
-        let ip = ns.socket_addr.ip().to_string();
-        if seen.insert(ip.clone()) {
-            if ns.socket_addr.ip().is_ipv4() {
-                ipv4.push(ip.clone());
+        let ip = ns.socket_addr.ip();
+        if is_windows_virtual_dns(&ip) {
+            continue;
+        }
+        let ip_str = ip.to_string();
+        if seen.insert(ip_str.clone()) {
+            if ip.is_ipv4() {
+                ipv4.push(ip_str.clone());
             }
-            all.push(ip);
+            all.push(ip_str);
         }
     }
 
@@ -100,7 +120,8 @@ fn resolve(payload: &Value) -> Result<Value, String> {
     let domain_owned = domain.to_string();
     let result = rt.block_on(async move {
         let resolver = if server.is_empty() {
-            TokioAsyncResolver::tokio(ResolverConfig::default(), ResolverOpts::default())
+            let (sys_config, sys_opts) = get_system_resolver_config();
+            TokioAsyncResolver::tokio(sys_config, sys_opts)
         } else {
             let ip: IpAddr = IpAddr::from_str(&server)
                 .map_err(|e| format!("invalid DNS server address: {e}"))?;
@@ -175,7 +196,8 @@ fn compare(payload: &Value) -> Result<Value, String> {
                 let display = if s.is_empty() { "系统".to_string() } else { s.clone() };
 
                 let resolver_result: Result<TokioAsyncResolver, String> = if s.is_empty() {
-                    Ok(TokioAsyncResolver::tokio(ResolverConfig::default(), ResolverOpts::default()))
+                    let (sys_config, sys_opts) = get_system_resolver_config();
+                    Ok(TokioAsyncResolver::tokio(sys_config, sys_opts))
                 } else {
                     IpAddr::from_str(&s)
                         .map_err(|e| format!("invalid server: {e}"))
