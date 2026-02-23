@@ -490,8 +490,6 @@ onMounted(() => {
 </script>
 
 <style scoped>
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Orbitron:wght@600;800&display=swap');
-
 .dns-panel {
   padding: 0;
   display: flex;
@@ -499,7 +497,7 @@ onMounted(() => {
   gap: 0;
   background: #ffffff;
   min-height: 100vh;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--lc-font-mono);
   position: relative;
   overflow: hidden;
 }
@@ -524,7 +522,7 @@ onMounted(() => {
 
 .dns-tabs :deep(.el-tabs__item) {
   color: #666;
-  font-family: 'Orbitron', sans-serif;
+  font-family: var(--lc-font-display);
   font-weight: 600;
   font-size: 14px;
   letter-spacing: 1px;
@@ -626,7 +624,7 @@ onMounted(() => {
 
 .input-row :deep(.el-input__inner) {
   color: #333;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--lc-font-mono);
   font-size: 13px;
 }
 
@@ -638,7 +636,7 @@ onMounted(() => {
   background: linear-gradient(135deg, #0066cc 0%, #0088ff 100%);
   border: none;
   color: #ffffff;
-  font-family: 'Orbitron', sans-serif;
+  font-family: var(--lc-font-display);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 1px;
@@ -687,7 +685,7 @@ onMounted(() => {
   background: #ffffff;
   border: 1px solid #d0d0d0;
   color: #666;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--lc-font-mono);
   font-size: 12px;
   padding: 8px 16px;
   transition: all 0.3s ease;
@@ -718,7 +716,7 @@ onMounted(() => {
   background: #f0f7ff;
   border: 1px solid #b3d9ff;
   color: #0066cc;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--lc-font-mono);
   font-size: 12px;
   padding: 6px 14px;
 }
@@ -727,7 +725,7 @@ onMounted(() => {
   background: #fff0f6;
   border: 1px solid #ffb3d9;
   color: #cc0066;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--lc-font-mono);
   font-size: 12px;
   transition: all 0.3s ease;
 }
@@ -740,7 +738,7 @@ onMounted(() => {
 .system-dns-hint {
   color: #666;
   font-size: 12px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--lc-font-mono);
   padding: 8px 12px;
   background: #f0f7ff;
   border-left: 3px solid #0066cc;
@@ -771,7 +769,7 @@ onMounted(() => {
 .record-section :deep(.el-divider__text) {
   background: transparent;
   color: #0066cc;
-  font-family: 'Orbitron', sans-serif;
+  font-family: var(--lc-font-display);
   font-weight: 600;
   font-size: 14px;
   letter-spacing: 2px;
@@ -793,7 +791,7 @@ onMounted(() => {
 .record-section :deep(.el-table th) {
   background: transparent;
   color: #0066cc;
-  font-family: 'Orbitron', sans-serif;
+  font-family: var(--lc-font-display);
   font-weight: 600;
   font-size: 12px;
   letter-spacing: 1px;
@@ -804,7 +802,7 @@ onMounted(() => {
 .record-section :deep(.el-table td) {
   border-color: #f0f0f0;
   color: #333;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--lc-font-mono);
   font-size: 13px;
 }
 
@@ -823,7 +821,7 @@ onMounted(() => {
 
 .record-section :deep(.el-button--text) {
   color: #cc0066;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--lc-font-mono);
   font-size: 12px;
   transition: all 0.3s ease;
 }
@@ -856,7 +854,7 @@ onMounted(() => {
   font-size: 14px;
   text-align: center;
   padding: 48px 24px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--lc-font-mono);
   background: #f8f9fa;
   border: 1px dashed #d0d0d0;
   border-radius: 8px;
@@ -871,7 +869,7 @@ onMounted(() => {
 .compare-servers-label {
   font-size: 13px;
   color: #666;
-  font-family: 'Orbitron', sans-serif;
+  font-family: var(--lc-font-display);
   font-weight: 600;
   letter-spacing: 1px;
   text-transform: uppercase;
@@ -902,7 +900,7 @@ onMounted(() => {
 
 .compare-server-item :deep(.el-checkbox__label) {
   color: #333;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--lc-font-mono);
   font-size: 13px;
 }
 
@@ -914,7 +912,7 @@ onMounted(() => {
 .server-ip {
   color: #999;
   font-size: 12px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--lc-font-mono);
 }
 
 .custom-server-row {
@@ -927,7 +925,7 @@ onMounted(() => {
 .error-text {
   color: #cc0033;
   font-size: 12px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--lc-font-mono);
 }
 
 .empty-text {
