@@ -192,9 +192,9 @@
       <div class="history-filters">
         <select v-model="historyProtocolFilter" class="filter-select">
           <option value="all">全部协议</option>
+          <option value="ping">PING</option>
           <option value="tcp">TCP</option>
           <option value="udp">UDP</option>
-          <option value="ping">PING</option>
         </select>
         <select v-model="historyResultFilter" class="filter-select">
           <option value="all">全部结果</option>
@@ -300,9 +300,9 @@ const NETWORK_HISTORY_KEY = "network_test_history";
 const MAX_HISTORY = 50;
 
 const protocols = [
+  { value: "ping" as Protocol, label: "PING" },
   { value: "tcp" as Protocol, label: "TCP" },
-  { value: "udp" as Protocol, label: "UDP" },
-  { value: "ping" as Protocol, label: "PING" }
+  { value: "udp" as Protocol, label: "UDP" }
 ];
 
 const quickPorts = [
@@ -319,7 +319,7 @@ const quickPorts = [
   { host: "127.0.0.1", port: 5060, name: "SIP", icon: "📞" }
 ];
 
-const protocol = ref<Protocol>("tcp");
+const protocol = ref<Protocol>("ping");
 const host = ref("127.0.0.1");
 const port = ref(80);
 const timeoutMs = ref(2000);
