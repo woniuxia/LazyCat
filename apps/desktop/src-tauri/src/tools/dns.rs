@@ -3,14 +3,24 @@ use std::time::Instant;
 use std::net::IpAddr;
 use std::str::FromStr;
 use std::collections::HashSet;
+use std::sync::OnceLock;
 use hickory_resolver::config::{ResolverConfig, ResolverOpts, NameServerConfig, Protocol};
 use hickory_resolver::TokioAsyncResolver;
 use hickory_resolver::proto::rr::RecordType;
+
+static DNS_RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
+
+fn get_runtime() -> &'static tokio::runtime::Runtime {
+    DNS_RUNTIME.get_or_init(|| {
+        tokio::runtime::Runtime::new().expect("create DNS runtime")
+    })
+}
 
 pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
     match action {
         "resolve" => resolve(payload),
         "system_dns" => system_dns(),
+        "compare" => compare(payload),
         _ => Err(format!("unsupported dns action: {action}")),
     }
 }
@@ -37,6 +47,27 @@ fn system_dns() -> Result<Value, String> {
     }))
 }
 
+/// 将 IPv4 地址转为 PTR 查询名，如 8.8.8.8 -> 8.8.8.8.in-addr.arpa.
+fn ipv4_to_ptr(addr: &std::net::Ipv4Addr) -> String {
+    let octets = addr.octets();
+    format!("{}.{}.{}.{}.in-addr.arpa.", octets[3], octets[2], octets[1], octets[0])
+}
+
+/// 将 IPv6 地址转为 PTR 查询名（ip6.arpa.）
+fn ipv6_to_ptr(addr: &std::net::Ipv6Addr) -> String {
+    let segments = addr.octets();
+    let hex: String = segments.iter()
+        .flat_map(|b| [b >> 4, b & 0xf])
+        .rev()
+        .map(|n| char::from_digit(n as u32, 16).unwrap())
+        .collect::<Vec<char>>()
+        .chunks(1)
+        .map(|c| c[0].to_string())
+        .collect::<Vec<_>>()
+        .join(".");
+    format!("{}.ip6.arpa.", hex)
+}
+
 fn resolve(payload: &Value) -> Result<Value, String> {
     let domain = payload["domain"]
         .as_str()
@@ -53,14 +84,17 @@ fn resolve(payload: &Value) -> Result<Value, String> {
         .to_string();
 
     let started = Instant::now();
+    let rt = get_runtime();
 
-    use std::sync::OnceLock;
-    static DNS_RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
-    let rt = DNS_RUNTIME.get_or_init(|| {
-        tokio::runtime::Runtime::new().expect("create DNS runtime")
-    });
+    // 判断输入是否为 IP，若是则构造 PTR 查询名
+    let ptr_name = match IpAddr::from_str(domain) {
+        Ok(IpAddr::V4(v4)) => ipv4_to_ptr(&v4),
+        Ok(IpAddr::V6(v6)) => ipv6_to_ptr(&v6),
+        Err(_) => String::new(),
+    };
 
-    let result = rt.block_on(async {
+    let domain_owned = domain.to_string();
+    let result = rt.block_on(async move {
         let resolver = if server.is_empty() {
             TokioAsyncResolver::tokio(ResolverConfig::default(), ResolverOpts::default())
         } else {
@@ -72,9 +106,9 @@ fn resolve(payload: &Value) -> Result<Value, String> {
             TokioAsyncResolver::tokio(config, ResolverOpts::default())
         };
 
-        let domain_name = format!("{}.", domain.trim_end_matches('.'));
+        let domain_name = format!("{}.", domain_owned.trim_end_matches('.'));
 
-        let (a_records, aaaa_records, cname_records, mx_records, ns_records, txt_records, soa_records, srv_records) = tokio::join!(
+        let (a_records, aaaa_records, cname_records, mx_records, ns_records, txt_records, soa_records, srv_records, ptr_records) = tokio::join!(
             query_a(&resolver, &domain_name),
             query_aaaa(&resolver, &domain_name),
             query_cname(&resolver, &domain_name),
@@ -83,6 +117,7 @@ fn resolve(payload: &Value) -> Result<Value, String> {
             query_txt(&resolver, &domain_name),
             query_soa(&resolver, &domain_name),
             query_srv(&resolver, &domain_name),
+            query_ptr(&resolver, &ptr_name),
         );
 
         Ok::<Value, String>(json!({
@@ -94,13 +129,14 @@ fn resolve(payload: &Value) -> Result<Value, String> {
             "TXT": txt_records,
             "SOA": soa_records,
             "SRV": srv_records,
+            "PTR": ptr_records,
         }))
     })?;
 
-    let server_display = if server.is_empty() {
+    let server_display = if payload["server"].as_str().unwrap_or("").trim().is_empty() {
         "system".to_string()
     } else {
-        server
+        payload["server"].as_str().unwrap_or("").trim().to_string()
     };
 
     Ok(json!({
@@ -109,6 +145,100 @@ fn resolve(payload: &Value) -> Result<Value, String> {
         "records": result,
         "elapsed_ms": started.elapsed().as_millis() as u64,
     }))
+}
+
+fn compare(payload: &Value) -> Result<Value, String> {
+    let domain = payload["domain"]
+        .as_str()
+        .unwrap_or("")
+        .trim();
+    if domain.is_empty() {
+        return Err("domain is required".to_string());
+    }
+
+    let servers: Vec<String> = match payload["servers"].as_array() {
+        Some(arr) if !arr.is_empty() => arr.iter()
+            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+            .collect(),
+        _ => return Err("servers must be a non-empty array".to_string()),
+    };
+
+    let rt = get_runtime();
+    let domain_owned = domain.to_string();
+
+    let mut results: Vec<Value> = rt.block_on(async move {
+        let mut set = tokio::task::JoinSet::new();
+
+        for server_ip in servers {
+            let d = domain_owned.clone();
+            let s = server_ip.clone();
+            set.spawn(async move {
+                let started = Instant::now();
+                let display = if s.is_empty() { "系统".to_string() } else { s.clone() };
+
+                let resolver_result: Result<TokioAsyncResolver, String> = if s.is_empty() {
+                    Ok(TokioAsyncResolver::tokio(ResolverConfig::default(), ResolverOpts::default()))
+                } else {
+                    IpAddr::from_str(&s)
+                        .map_err(|e| format!("invalid server: {e}"))
+                        .map(|ip| {
+                            let ns = NameServerConfig::new(std::net::SocketAddr::new(ip, 53), Protocol::Udp);
+                            let mut cfg = ResolverConfig::new();
+                            cfg.add_name_server(ns);
+                            TokioAsyncResolver::tokio(cfg, ResolverOpts::default())
+                        })
+                };
+
+                match resolver_result {
+                    Err(e) => json!({
+                        "server": display,
+                        "ip": s,
+                        "elapsed_ms": serde_json::Value::Null,
+                        "addresses": [],
+                        "error": e,
+                    }),
+                    Ok(resolver) => {
+                        let domain_name = format!("{}.", d.trim_end_matches('.'));
+                        match resolver.lookup(&domain_name, RecordType::A).await {
+                            Ok(lookup) => {
+                                let addrs: Vec<String> = lookup.record_iter()
+                                    .filter_map(|r| r.data().and_then(|d| d.as_a()).map(|a| a.0.to_string()))
+                                    .collect();
+                                let elapsed = started.elapsed().as_millis() as u64;
+                                json!({
+                                    "server": display,
+                                    "ip": s,
+                                    "elapsed_ms": elapsed,
+                                    "addresses": addrs,
+                                    "error": serde_json::Value::Null,
+                                })
+                            },
+                            Err(e) => json!({
+                                "server": display,
+                                "ip": s,
+                                "elapsed_ms": serde_json::Value::Null,
+                                "addresses": [],
+                                "error": e.to_string(),
+                            }),
+                        }
+                    }
+                }
+            });
+        }
+
+        let mut out = vec![];
+        while let Some(r) = set.join_next().await {
+            out.push(r.expect("task panicked"));
+        }
+        out
+    });
+
+    // 按 elapsed_ms 升序，error（Null）排最后
+    results.sort_by_key(|v| {
+        v["elapsed_ms"].as_u64().unwrap_or(u64::MAX)
+    });
+
+    Ok(serde_json::Value::Array(results))
 }
 
 async fn query_a(resolver: &TokioAsyncResolver, name: &str) -> Value {
@@ -301,6 +431,31 @@ async fn query_srv(resolver: &TokioAsyncResolver, name: &str) -> Value {
     }
 }
 
+async fn query_ptr(resolver: &TokioAsyncResolver, ptr_name: &str) -> Value {
+    if ptr_name.is_empty() {
+        return json!([]);
+    }
+    match resolver.lookup(ptr_name, RecordType::PTR).await {
+        Ok(lookup) => {
+            let records: Vec<Value> = lookup.record_iter()
+                .filter_map(|r| {
+                    if let Some(data) = r.data() {
+                        if let Some(ptr) = data.as_ptr() {
+                            return Some(json!({
+                                "hostname": ptr.0.to_string(),
+                                "ttl": r.ttl(),
+                            }));
+                        }
+                    }
+                    None
+                })
+                .collect();
+            json!(records)
+        }
+        Err(_) => json!([]),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -327,5 +482,26 @@ mod tests {
         )
         .expect_err("must fail");
         assert!(err.contains("invalid DNS server address"));
+    }
+
+    #[test]
+    fn compare_empty_domain_should_fail() {
+        let err = execute("compare", &json!({ "domain": "", "servers": [""] }))
+            .expect_err("must fail");
+        assert!(err.contains("domain"));
+    }
+
+    #[test]
+    fn compare_empty_servers_should_fail() {
+        let err = execute("compare", &json!({ "domain": "example.com", "servers": [] }))
+            .expect_err("must fail");
+        assert!(err.contains("servers"));
+    }
+
+    #[test]
+    fn ipv4_to_ptr_test() {
+        use std::net::Ipv4Addr;
+        let addr = Ipv4Addr::new(8, 8, 8, 8);
+        assert_eq!(ipv4_to_ptr(&addr), "8.8.8.8.in-addr.arpa.");
     }
 }
