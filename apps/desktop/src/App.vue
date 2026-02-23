@@ -105,13 +105,16 @@ import { useMenuVisibility } from "./composables/useMenuVisibility";
 import { initSettings, getSetting, setSetting } from "./composables/useSettings";
 import { registerHotkey, registerNamedHotkey } from "./bridge/tauri";
 import { getToolComponent, ENCODE_PANEL_IDS } from "./tool-registry";
+import { defineAsyncComponent } from "vue";
 import HomePanel from "./components/HomePanel.vue";
-import SnippetPanel from "./components/SnippetPanel.vue";
-import VaultPanel from "./components/VaultPanel.vue";
-import LauncherPanel from "./components/LauncherPanel.vue";
 import SidebarNav from "./components/SidebarNav.vue";
 import TabBar from "./components/TabBar.vue";
 import ShortcutHelpOverlay from "./components/ShortcutHelpOverlay.vue";
+
+// 工作区组件使用动态导入，避免与 tool-registry 重复打包
+const SnippetPanel = defineAsyncComponent(() => import("./components/SnippetPanel.vue"));
+const VaultPanel = defineAsyncComponent(() => import("./components/VaultPanel.vue"));
+const LauncherPanel = defineAsyncComponent(() => import("./components/LauncherPanel.vue"));
 
 const sidebarItems: SidebarItem[] = [
   { kind: "tool", tool: { id: "formatter", name: "代码格式化", desc: "JSON/XML/HTML/Java/SQL 自动格式化" } },
