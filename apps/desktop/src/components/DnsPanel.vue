@@ -369,7 +369,11 @@ function formatHistoryTime(timestamp: number): string {
 }
 
 function selectPreset(preset: PresetDns) {
-  dnsServer.value = preset.ip;
+  if (preset.ip === "" && systemDnsIpv4List.value.length > 0) {
+    dnsServer.value = systemDnsIpv4List.value[0];
+  } else {
+    dnsServer.value = preset.ip;
+  }
   selectedPreset.value = preset.label;
 }
 
