@@ -453,8 +453,13 @@ fn main() {
             if is_autostart {
                 // 读取用户设置
                 if let Ok(conn) = tools::helpers::db_conn() {
-                    if let Ok(value) = tools::db::get_setting(&conn, "autostart_minimized") {
-                        if value == "true" {
+                    let value: Result<String, _> = conn.query_row(
+                        "SELECT value FROM user_settings WHERE key = ?1",
+                        ["autostart_minimized"],
+                        |row| row.get(0),
+                    );
+                    if let Ok(val) = value {
+                        if val == "true" {
                             if let Some(window) = app.get_webview_window("main") {
                                 let _ = window.hide();
                             }
@@ -506,11 +511,14 @@ fn main() {
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 // 读取用户设置
-                let app_handle = window.app_handle();
                 let close_to_tray = match tools::helpers::db_conn() {
                     Ok(conn) => {
-                        tools::db::get_setting(&conn, "close_to_tray")
-                            .unwrap_or_else(|_| "true".to_string()) == "true"
+                        let value: Result<String, _> = conn.query_row(
+                            "SELECT value FROM user_settings WHERE key = ?1",
+                            ["close_to_tray"],
+                            |row| row.get(0),
+                        );
+                        value.unwrap_or_else(|_| "true".to_string()) == "true"
                     }
                     Err(_) => true, // 数据库连接失败，使用默认行为（隐藏到托盘）
                 };

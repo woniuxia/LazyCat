@@ -2,6 +2,7 @@ use rusqlite::params;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::fs;
+use tauri_plugin_autostart::ManagerExt;
 
 use super::helpers::{db_conn, get_data_dir, get_base_dir, get_config_path};
 
