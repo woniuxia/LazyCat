@@ -43,6 +43,11 @@
           <div class="result-meta">
             <el-tag size="small" type="info">DNS: {{ result.server }}</el-tag>
             <el-tag size="small" type="info">耗时: {{ result.elapsed_ms }} ms</el-tag>
+            <el-button
+              v-if="getRecords('A').length > 1"
+              size="small"
+              @click="copyAllIpv4"
+            >复制全部 IPv4</el-button>
           </div>
 
           <template v-for="rt in RECORD_TYPES" :key="rt.type">
@@ -58,6 +63,11 @@
                   show-overflow-tooltip
                 />
                 <el-table-column prop="ttl" label="TTL (s)" width="100" />
+                <el-table-column v-if="rt.type === 'A'" label="" width="66" align="center">
+                  <template #default="{ row }">
+                    <el-button size="small" text @click="copyAddress(String(row.address))">复制</el-button>
+                  </template>
+                </el-table-column>
               </el-table>
             </div>
           </template>
@@ -380,6 +390,22 @@ function selectPreset(preset: PresetDns) {
 function onServerInput() {
   // 手动修改时清除预置高亮
   selectedPreset.value = null;
+}
+
+function copyAddress(address: string) {
+  navigator.clipboard.writeText(address).then(() => {
+    ElMessage.success("已复制");
+  }).catch(() => {
+    ElMessage.error("复制失败");
+  });
+}
+
+function copyAllIpv4() {
+  const addresses = getRecords("A")
+    .map((r) => String((r as Record<string, unknown>).address ?? ""))
+    .filter(Boolean)
+    .join("\n");
+  copyAddress(addresses);
 }
 
 function addCustomServer() {
