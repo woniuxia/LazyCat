@@ -60,18 +60,6 @@
           </div>
         </template>
 
-        <template v-else>
-          <div class="input-group">
-            <label>URL 地址</label>
-            <input
-              v-model="httpUrl"
-              type="text"
-              :placeholder="protocol === 'https' ? 'https://api.example.com' : 'http://localhost:8080'"
-              @keyup.enter="runTest"
-            />
-          </div>
-        </template>
-
         <!-- 超时滑块 -->
         <div class="timeout-control">
           <label>超时时间</label>
@@ -207,8 +195,6 @@
           <option value="tcp">TCP</option>
           <option value="udp">UDP</option>
           <option value="ping">PING</option>
-          <option value="http">HTTP</option>
-          <option value="https">HTTPS</option>
         </select>
         <select v-model="historyResultFilter" class="filter-select">
           <option value="all">全部结果</option>
@@ -286,7 +272,7 @@ import { ElMessage } from "element-plus";
 import { invokeToolByChannel } from "../bridge/tauri";
 import { getSettingJson, setSettingJson } from "../composables/useSettings";
 
-type Protocol = "tcp" | "udp" | "ping" | "http" | "https";
+type Protocol = "tcp" | "udp" | "ping";
 
 interface TestResult {
   reachable: boolean;
@@ -316,9 +302,7 @@ const MAX_HISTORY = 50;
 const protocols = [
   { value: "tcp" as Protocol, label: "TCP" },
   { value: "udp" as Protocol, label: "UDP" },
-  { value: "ping" as Protocol, label: "PING" },
-  { value: "http" as Protocol, label: "HTTP" },
-  { value: "https" as Protocol, label: "HTTPS" }
+  { value: "ping" as Protocol, label: "PING" }
 ];
 
 const quickPorts = [
@@ -339,7 +323,6 @@ const protocol = ref<Protocol>("tcp");
 const host = ref("127.0.0.1");
 const port = ref(80);
 const timeoutMs = ref(2000);
-const httpUrl = ref("");
 const loading = ref(false);
 const retryingFailed = ref(false);
 const result = ref<TestResult | null>(null);
@@ -351,10 +334,10 @@ const historyKeyword = ref("");
 
 const resultTargetText = computed(() => {
   if (!result.value) return "-";
-  if (protocol.value === "tcp") {
-    return `${result.value.host ?? host.value}:${result.value.port ?? port.value}`;
+  if (protocol.value === "ping") {
+    return host.value;
   }
-  return result.value.url ?? normalizeHttpUrl(httpUrl.value, protocol.value);
+  return `${result.value.host ?? host.value}:${result.value.port ?? port.value}`;
 });
 
 const filteredHistory = computed(() => {
@@ -404,21 +387,6 @@ function statusCategory(code: number): string {
 
 watch(protocol, () => {
   result.value = null;
-  if (protocol.value === "http") {
-    if (!httpUrl.value.trim()) {
-      httpUrl.value = "http://";
-    } else if (httpUrl.value.startsWith("https://")) {
-      httpUrl.value = `http://${httpUrl.value.slice("https://".length)}`;
-    }
-    if (port.value === 443) port.value = 80;
-  } else if (protocol.value === "https") {
-    if (!httpUrl.value.trim()) {
-      httpUrl.value = "https://";
-    } else if (httpUrl.value.startsWith("http://")) {
-      httpUrl.value = `https://${httpUrl.value.slice("http://".length)}`;
-    }
-    if (port.value === 80) port.value = 443;
-  }
 });
 
 function loadHistory(): NetworkHistoryItem[] {
@@ -429,7 +397,7 @@ function loadHistory(): NetworkHistoryItem[] {
     return (
       typeof v?.id === "string" &&
       typeof v?.checkedAt === "number" &&
-      (v?.protocol === "tcp" || v?.protocol === "udp" || v?.protocol === "ping" || v?.protocol === "http" || v?.protocol === "https") &&
+      (v?.protocol === "tcp" || v?.protocol === "udp" || v?.protocol === "ping") &&
       typeof v?.target === "string" &&
       typeof v?.timeoutMs === "number" &&
       typeof v?.reachable === "boolean" &&
@@ -474,10 +442,8 @@ function reuseHistory(item: NetworkHistoryItem) {
     if (Number.isFinite(parsedPort) && parsedPort >= 1 && parsedPort <= 65535) {
       port.value = parsedPort;
     }
-  } else if (item.protocol === "ping") {
-    host.value = item.target;
   } else {
-    httpUrl.value = item.target;
+    host.value = item.target;
   }
 }
 
@@ -509,44 +475,15 @@ function applyQuickTarget(nextHost: string, nextPort: number) {
   port.value = nextPort;
 }
 
-function normalizeHttpUrl(raw: string, p: Protocol): string {
-  const trimmed = raw.trim();
-  if (!trimmed) return "";
-  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
-    return trimmed;
-  }
-  return `${p}://${trimmed}`;
-}
-
 async function runTest() {
   if (loading.value) return;
 
   const currentProtocol = protocol.value;
 
   // 验证输入
-  if (currentProtocol === "tcp" || currentProtocol === "udp") {
-    if (!host.value.trim()) {
-      ElMessage.warning("请输入主机地址");
-      return;
-    }
-  } else if (currentProtocol === "ping") {
-    if (!host.value.trim()) {
-      ElMessage.warning("请输入主机地址");
-      return;
-    }
-  } else {
-    const normalizedUrl = normalizeHttpUrl(httpUrl.value, currentProtocol);
-    if (!normalizedUrl) {
-      ElMessage.warning("请输入 URL");
-      return;
-    }
-    try {
-      new URL(normalizedUrl);
-      httpUrl.value = normalizedUrl;
-    } catch {
-      ElMessage.warning("URL 格式不正确");
-      return;
-    }
+  if (!host.value.trim()) {
+    ElMessage.warning("请输入主机地址");
+    return;
   }
 
   result.value = null;
@@ -571,7 +508,8 @@ async function runTest() {
       });
       nextResult = data as TestResult;
       target = `${host.value.trim()}:${port.value}`;
-    } else if (currentProtocol === "ping") {
+    } else {
+      // ping
       const data = await invokeToolByChannel("tool:network:ping-test", {
         host: host.value.trim(),
         timeoutMs: timeoutMs.value,
@@ -579,13 +517,6 @@ async function runTest() {
       });
       nextResult = data as TestResult;
       target = host.value.trim();
-    } else {
-      const data = await invokeToolByChannel("tool:network:http-test", {
-        url: httpUrl.value.trim(),
-        timeoutMs: timeoutMs.value
-      });
-      nextResult = data as TestResult;
-      target = httpUrl.value.trim();
     }
 
     result.value = nextResult;
@@ -612,10 +543,8 @@ async function runTest() {
     let target = "";
     if (currentProtocol === "tcp" || currentProtocol === "udp") {
       target = `${host.value.trim()}:${port.value}`;
-    } else if (currentProtocol === "ping") {
-      target = host.value.trim();
     } else {
-      target = httpUrl.value.trim();
+      target = host.value.trim();
     }
 
     appendHistory({
@@ -739,14 +668,6 @@ function formatTime(timestamp: number): string {
 
 .protocol-indicator.tcp {
   background: #409eff;
-}
-
-.protocol-indicator.http {
-  background: #67c23a;
-}
-
-.protocol-indicator.https {
-  background: #e6a23c;
 }
 
 .protocol-indicator.udp {
