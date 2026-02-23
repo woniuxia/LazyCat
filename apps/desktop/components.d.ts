@@ -93,6 +93,7 @@ declare module 'vue' {
     NetworkPanel: typeof import('./src/components/NetworkPanel.vue')['default']
     NginxPanel: typeof import('./src/components/NginxPanel.vue')['default']
     PasswordPanel: typeof import('./src/components/PasswordPanel.vue')['default']
+    PasswordStrengthIndicator: typeof import('./src/components/PasswordStrengthIndicator.vue')['default']
     PdfPanel: typeof import('./src/components/PdfPanel.vue')['default']
     PortsPanel: typeof import('./src/components/PortsPanel.vue')['default']
     RegexPanel: typeof import('./src/components/RegexPanel.vue')['default']

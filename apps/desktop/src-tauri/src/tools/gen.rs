@@ -26,7 +26,7 @@ fn password_strength(payload: &Value) -> Result<Value, String> {
         found
     };
 
-    // Check for keyboard sequential patterns
+    // Check for keyboard sequential patterns (3+ consecutive characters)
     let keyboard_rows = [
         "qwertyuiop",
         "asdfghjkl",
@@ -38,9 +38,10 @@ fn password_strength(payload: &Value) -> Result<Value, String> {
         let lower = password.to_lowercase();
         let chars: Vec<char> = lower.chars().collect();
         let mut found = false;
-        if chars.len() >= 4 {
-            for i in 0..chars.len().saturating_sub(3) {
-                let slice: String = chars[i..i + 4].iter().collect();
+        // Check 3+ consecutive keyboard characters
+        if chars.len() >= 3 {
+            for i in 0..chars.len().saturating_sub(2) {
+                let slice: String = chars[i..i + 3].iter().collect();
                 let rev: String = slice.chars().rev().collect();
                 for row in &keyboard_rows {
                     if row.contains(&slice) || row.contains(&rev) {
@@ -51,15 +52,14 @@ fn password_strength(payload: &Value) -> Result<Value, String> {
                 if found { break; }
             }
         }
-        // Also check common sequential like abcd, 1234
-        if !found && chars.len() >= 4 {
-            for i in 0..chars.len().saturating_sub(3) {
+        // Also check common sequential like abc, 123
+        if !found && chars.len() >= 3 {
+            for i in 0..chars.len().saturating_sub(2) {
                 let c0 = chars[i] as i32;
                 let c1 = chars[i + 1] as i32;
                 let c2 = chars[i + 2] as i32;
-                let c3 = chars[i + 3] as i32;
-                if (c1 - c0 == 1 && c2 - c1 == 1 && c3 - c2 == 1)
-                    || (c0 - c1 == 1 && c1 - c2 == 1 && c2 - c3 == 1)
+                if (c1 - c0 == 1 && c2 - c1 == 1)
+                    || (c0 - c1 == 1 && c1 - c2 == 1)
                 {
                     found = true;
                     break;
@@ -72,7 +72,7 @@ fn password_strength(payload: &Value) -> Result<Value, String> {
     // Score calculation (each 0-20, total 0-100)
     let length_score: u64 = if len < 6 {
         0
-    } else if len <= 8 {
+    } else if len < 10 {
         5
     } else if len <= 12 {
         10
@@ -85,7 +85,7 @@ fn password_strength(payload: &Value) -> Result<Value, String> {
     let case_score: u64 = if has_upper && has_lower { 20 } else { 0 };
     let digit_score: u64 = if has_digit { 20 } else { 0 };
     let special_score: u64 = if has_special { 20 } else { 0 };
-    let repeat_score: u64 = if len >= 8 && !has_consecutive_repeat { 20 } else if len >= 8 { 0 } else { 0 };
+    let repeat_score: u64 = if len >= 10 && !has_consecutive_repeat { 20 } else if len >= 10 { 0 } else { 0 };
 
     let mut score = length_score + case_score + digit_score + special_score + repeat_score;
     // Penalize keyboard sequences
@@ -106,8 +106,8 @@ fn password_strength(payload: &Value) -> Result<Value, String> {
     let details = json!([
         {
             "rule": "length",
-            "passed": len >= 8,
-            "message": if len >= 8 { format!("长度 {} 位，达标", len) } else { format!("长度仅 {} 位，建议至少 8 位", len) }
+            "passed": len >= 10,
+            "message": if len >= 10 { format!("长度 {} 位，达标", len) } else { format!("长度仅 {} 位，建议至少 10 位", len) }
         },
         {
             "rule": "case_mix",
@@ -126,13 +126,13 @@ fn password_strength(payload: &Value) -> Result<Value, String> {
         },
         {
             "rule": "no_repeat",
-            "passed": len >= 8 && !has_consecutive_repeat,
-            "message": if len < 8 { "密码过短，无法评估重复" } else if !has_consecutive_repeat { "无连续重复字符" } else { "存在连续重复字符(3+)" }
+            "passed": len >= 10 && !has_consecutive_repeat,
+            "message": if len < 10 { "密码过短，无法评估重复" } else if !has_consecutive_repeat { "无连续重复字符" } else { "存在连续重复字符(3+)" }
         },
         {
             "rule": "no_keyboard_seq",
             "passed": !has_keyboard_seq,
-            "message": if !has_keyboard_seq { "无键盘连续字符" } else { "包含键盘连续字符(如 qwer/asdf/1234)，易被字典攻击" }
+            "message": if !has_keyboard_seq { "无键盘连续字符" } else { "包含键盘连续字符(如 qwe/asd/123)，易被字典攻击" }
         }
     ]);
 

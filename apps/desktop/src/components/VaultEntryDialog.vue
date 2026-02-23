@@ -3,6 +3,7 @@
     v-model="visible"
     :title="isEdit ? '编辑凭据' : '新建凭据'"
     width="420px"
+    class="vault-entry-dialog"
     :before-close="onBeforeClose"
     destroy-on-close
     @closed="onClosed"
@@ -38,6 +39,7 @@
         </el-form-item>
         <el-form-item label="密码">
           <el-input v-model="form.password" type="password" show-password placeholder="密码" />
+          <PasswordStrengthIndicator :password="form.password" :immediate="isEdit" />
         </el-form-item>
       </template>
 
@@ -58,6 +60,7 @@
         </el-form-item>
         <el-form-item label="密码">
           <el-input v-model="form.password" type="password" show-password placeholder="密码" />
+          <PasswordStrengthIndicator :password="form.password" :immediate="isEdit" />
         </el-form-item>
       </template>
 
@@ -90,6 +93,7 @@
         </el-form-item>
         <el-form-item label="密码">
           <el-input v-model="form.password" type="password" show-password placeholder="密码" />
+          <PasswordStrengthIndicator :password="form.password" :immediate="isEdit" />
         </el-form-item>
         <el-form-item label="数据库名">
           <el-input v-model="form.dbName" placeholder="数据库名称" />
@@ -117,6 +121,7 @@
 import { ref, reactive, watch } from "vue";
 import { ElMessageBox, ElMessage } from "element-plus";
 import { invokeToolByChannel } from "../bridge/tauri";
+import PasswordStrengthIndicator from "./PasswordStrengthIndicator.vue";
 
 const DB_DEFAULT_PORT: Record<string, number> = {
   Kingbase: 54321,
@@ -309,5 +314,23 @@ defineExpose({ show });
 
 .vault-entry-form__port {
   width: 130px;
+}
+</style>
+
+<style>
+/* Dialog enter animation (unscoped for el-dialog) */
+.vault-entry-dialog .el-dialog {
+  animation: dialog-enter 0.25s var(--lc-ease-out);
+}
+
+@keyframes dialog-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
 }
 </style>

@@ -1,136 +1,144 @@
 <template>
   <div class="vault-panel">
     <!-- Lock screen -->
-    <VaultLockScreen
-      v-if="!unlocked"
-      :mode="vaultSetup ? 'unlock' : 'setup'"
-      @unlocked="onUnlocked"
-    />
+    <Transition name="fade" mode="out-in">
+      <VaultLockScreen
+        v-if="!unlocked"
+        key="lock"
+        :mode="vaultSetup ? 'unlock' : 'setup'"
+        @unlocked="onUnlocked"
+      />
 
-    <!-- Main 2-column layout: nav + table -->
-    <div v-else class="vault-main">
-      <!-- Left: Navigation tree -->
-      <aside class="vault-nav">
-        <div
-          class="vault-nav-item vault-nav-item--root"
-          :class="{ 'is-active': !activeEnv && !activeCategory }"
-          @click="clearFilter"
-        >
-          <span>全部</span>
-          <span class="vault-nav-item__count">{{ entries.length }}</span>
-        </div>
-
-        <template v-for="env in ENV_LIST" :key="env.value">
+      <!-- Main 2-column layout: nav + table -->
+      <div v-else key="main" class="vault-main">
+        <!-- Left: Navigation tree -->
+        <aside class="vault-nav">
           <div
-            class="vault-nav-item vault-nav-item--env"
-            :class="{ 'is-active': activeEnv === env.value && !activeCategory }"
-            @click="onClickEnv(env.value)"
+            class="vault-nav-item vault-nav-item--root"
+            :class="{ 'is-active': !activeEnv && !activeCategory }"
+            @click="clearFilter"
           >
-            <span class="vault-nav-item__dot" :class="env.cls" />
-            <span class="vault-nav-item__label">{{ env.value }}</span>
-            <span class="vault-nav-item__count">{{ envCount(env.value) }}</span>
+            <span>全部</span>
+            <span class="vault-nav-item__count">{{ entries.length }}</span>
           </div>
-          <div
-            v-for="cat in CAT_LIST"
-            :key="cat.value"
-            class="vault-nav-item vault-nav-item--cat"
-            :class="{ 'is-active': activeEnv === env.value && activeCategory === cat.value }"
-            @click.stop="onClickCat(env.value, cat.value)"
-          >
-            <span>{{ cat.label }}</span>
-            <span class="vault-nav-item__count">{{ envCatCount(env.value, cat.value) }}</span>
-          </div>
-        </template>
 
-        <div class="vault-nav__spacer" />
-
-        <div class="vault-nav__actions">
-          <el-button text size="small" @click="showChangePassword = true">修改密码</el-button>
-          <el-button text size="small" @click="onLock">锁定</el-button>
-        </div>
-      </aside>
-
-      <!-- Right: Table area -->
-      <div class="vault-table-area">
-        <div class="vault-table-area__header">
-          <el-input
-            v-model="keyword"
-            placeholder="搜索凭据..."
-            clearable
-            class="vault-table-area__search"
-          />
-          <el-button type="primary" @click="onCreateEntry">新建</el-button>
-        </div>
-
-        <div class="vault-table-area__body" v-if="filteredEntries.length">
-          <el-table
-            :data="filteredEntries"
-            stripe
-            size="small"
-            style="width: 100%"
-            height="100%"
-            :header-cell-style="{ background: 'var(--lc-surface-1)', color: 'var(--lc-text-secondary)', fontSize: '12px' }"
-          >
-            <el-table-column label="环境" width="70" align="center">
-              <template #default="{ row }">
-                <span
-                  v-if="row.environment"
-                  class="vault-env-tag"
-                  :class="envClass(row.environment)"
-                >{{ row.environment }}</span>
-              </template>
-            </el-table-column>
-
-            <el-table-column label="类型" width="80" align="center">
-              <template #default="{ row }">
-                {{ categoryLabel(row.category) }}
-              </template>
-            </el-table-column>
-
-            <el-table-column label="名称" min-width="140" show-overflow-tooltip>
-              <template #default="{ row }">
-                {{ row.title || '(未命名)' }}
-              </template>
-            </el-table-column>
-
-            <el-table-column label="账号" min-width="140" show-overflow-tooltip prop="account" />
-
-            <el-table-column label="密码" width="120">
-              <template #default="{ row }">
-                <span
-                  v-if="revealedPasswords.has(row.id)"
-                  class="vault-pw-text"
-                  title="点击复制"
-                  @click.stop="onCopyPassword(row)"
-                >{{ revealedPasswords.get(row.id) || '(空)' }}</span>
-                <span
-                  v-else
-                  class="vault-pw-mask"
-                  title="点击显示密码"
-                  @click.stop="onTogglePassword(row)"
-                >******</span>
-              </template>
-            </el-table-column>
-
-            <el-table-column label="其他信息" min-width="200" show-overflow-tooltip prop="summary" />
-
-            <el-table-column label="操作" width="120" fixed="right" align="center">
-              <template #default="{ row }">
-                <el-button text size="small" @click="onEditEntry(row)">编辑</el-button>
-                <el-button text size="small" type="danger" @click="onDeleteEntry(row)">删除</el-button>
-              </template>
-            </el-table-column>
-          </el-table>
-        </div>
-        <div v-else class="vault-table-area__empty">
-          <p v-if="keyword">没有匹配的凭据</p>
-          <template v-else>
-            <p>还没有凭据</p>
-            <el-button type="primary" text @click="onCreateEntry">创建第一条</el-button>
+          <template v-for="env in ENV_LIST" :key="env.value">
+            <div
+              class="vault-nav-item vault-nav-item--env"
+              :class="{ 'is-active': activeEnv === env.value && !activeCategory }"
+              @click="onClickEnv(env.value)"
+            >
+              <span class="vault-nav-item__dot" :class="env.cls" />
+              <span class="vault-nav-item__label">{{ env.value }}</span>
+              <span class="vault-nav-item__count">{{ envCount(env.value) }}</span>
+            </div>
+            <div
+              v-for="cat in CAT_LIST"
+              :key="cat.value"
+              class="vault-nav-item vault-nav-item--cat"
+              :class="{ 'is-active': activeEnv === env.value && activeCategory === cat.value }"
+              @click.stop="onClickCat(env.value, cat.value)"
+            >
+              <span>{{ cat.label }}</span>
+              <span class="vault-nav-item__count">{{ envCatCount(env.value, cat.value) }}</span>
+            </div>
           </template>
+
+          <div class="vault-nav__spacer" />
+
+          <div class="vault-nav__actions">
+            <el-button text size="small" @click="showChangePassword = true">修改密码</el-button>
+            <el-button text size="small" @click="onLock">锁定</el-button>
+          </div>
+        </aside>
+
+        <!-- Right: Table area -->
+        <div class="vault-table-area">
+          <div class="vault-table-area__header">
+            <el-input
+              v-model="keyword"
+              placeholder="搜索凭据..."
+              clearable
+              class="vault-table-area__search"
+            />
+            <el-button type="primary" @click="onCreateEntry">新建</el-button>
+          </div>
+
+          <div class="vault-table-area__body" v-if="filteredEntries.length">
+            <el-table
+              :data="filteredEntries"
+              stripe
+              size="small"
+              style="width: 100%"
+              height="100%"
+              :row-class-name="getRowClass"
+              :header-cell-style="{ background: 'var(--lc-surface-1)', color: 'var(--lc-text-secondary)', fontSize: '12px' }"
+            >
+              <el-table-column label="环境" width="70" align="center">
+                <template #default="{ row }">
+                  <span
+                    v-if="row.environment"
+                    class="vault-env-tag"
+                    :class="envClass(row.environment)"
+                  >{{ row.environment }}</span>
+                </template>
+              </el-table-column>
+
+              <el-table-column label="类型" width="80" align="center">
+                <template #default="{ row }">
+                  {{ categoryLabel(row.category) }}
+                </template>
+              </el-table-column>
+
+              <el-table-column label="名称" min-width="140" show-overflow-tooltip>
+                <template #default="{ row }">
+                  {{ row.title || '(未命名)' }}
+                </template>
+              </el-table-column>
+
+              <el-table-column label="账号" min-width="140" show-overflow-tooltip prop="account" />
+
+              <el-table-column label="密码" width="120">
+                <template #default="{ row }">
+                  <Transition name="pw-reveal" mode="out-in">
+                    <span
+                      v-if="revealedPasswords.has(row.id)"
+                      key="revealed"
+                      class="vault-pw-text"
+                      title="点击复制"
+                      @click.stop="onCopyPassword(row)"
+                    >{{ revealedPasswords.get(row.id) || '(空)' }}</span>
+                    <span
+                      v-else
+                      key="masked"
+                      class="vault-pw-mask"
+                      title="点击显示密码"
+                      @click.stop="onTogglePassword(row)"
+                    >******</span>
+                  </Transition>
+                </template>
+              </el-table-column>
+
+              <el-table-column label="其他信息" min-width="200" show-overflow-tooltip prop="summary" />
+
+              <el-table-column label="操作" width="120" fixed="right" align="center">
+                <template #default="{ row }">
+                  <el-button text size="small" @click="onEditEntry(row)">编辑</el-button>
+                  <el-button text size="small" type="danger" @click="onDeleteEntry(row)">删除</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+          <div v-else class="vault-table-area__empty">
+            <p v-if="keyword">没有匹配的凭据</p>
+            <template v-else>
+              <p>还没有凭据</p>
+              <el-button type="primary" text @click="onCreateEntry">创建第一条</el-button>
+            </template>
+          </div>
         </div>
       </div>
-    </div>
+    </Transition>
 
     <VaultEntryDialog ref="entryDialog" @saved="onEntrySaved" />
 
@@ -216,6 +224,7 @@ let activityTimer: ReturnType<typeof setInterval> | null = null;
 // Password reveal/copy state
 const revealedPasswords = reactive(new Map<number, string>());
 let pwClipboardTimer: ReturnType<typeof setTimeout> | null = null;
+const copyFeedbackRow = ref<number | null>(null);
 
 const filteredEntries = computed(() => {
   let list = entries.value;
@@ -276,6 +285,10 @@ function envClass(env: string) {
   return "";
 }
 
+function getRowClass({ row }: { row: VaultListEntry }): string {
+  return copyFeedbackRow.value === row.id ? "copy-success" : "";
+}
+
 async function checkStatus() {
   try {
     const res = (await invokeToolByChannel("tool:vault:status", {})) as {
@@ -326,6 +339,12 @@ async function onCopyPassword(entry: VaultListEntry) {
   if (!pw) return;
   try {
     await navigator.clipboard.writeText(pw);
+    copyFeedbackRow.value = entry.id;
+    setTimeout(() => {
+      if (copyFeedbackRow.value === entry.id) {
+        copyFeedbackRow.value = null;
+      }
+    }, 1500);
     ElMessage.success("密码已复制");
     if (pwClipboardTimer) clearTimeout(pwClipboardTimer);
     pwClipboardTimer = setTimeout(async () => {
@@ -666,5 +685,42 @@ onBeforeUnmount(() => {
 
 .vault-pw-text:hover {
   color: var(--lc-accent);
+}
+
+/* --- Transitions --- */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity var(--lc-duration-slow) var(--lc-ease);
+}
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
+.pw-reveal-enter-active,
+.pw-reveal-leave-active {
+  transition: opacity 150ms var(--lc-ease), transform 150ms var(--lc-ease);
+}
+.pw-reveal-enter-from {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+.pw-reveal-leave-to {
+  opacity: 0;
+  transform: translateY(4px);
+}
+
+/* --- Copy feedback --- */
+.vault-table-area :deep(.copy-success) {
+  animation: copy-flash 1.5s var(--lc-ease);
+}
+
+@keyframes copy-flash {
+  0%, 100% {
+    background-color: transparent;
+  }
+  20% {
+    background-color: rgba(56, 189, 248, 0.15);
+  }
 }
 </style>
