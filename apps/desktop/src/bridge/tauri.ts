@@ -101,6 +101,8 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:format:java": { domain: "format", action: "java" },
   "tool:format:sql": { domain: "format", action: "sql" },
   "tool:network:tcp-test": { domain: "network", action: "tcp_test" },
+  "tool:network:udp-test": { domain: "network", action: "udp_test" },
+  "tool:network:ping-test": { domain: "network", action: "ping_test" },
   "tool:network:http-test": { domain: "network", action: "http_test" },
   "tool:network:http-status-list": { domain: "network", action: "http_status_list" },
   "tool:network:http-status-lookup": { domain: "network", action: "http_status_lookup" },

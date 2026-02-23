@@ -60,3 +60,4 @@ windows-sys = { version = "0.59", features = [
   "Win32_UI_Shell",
 ] }
 windows-icons = "0.3"
+winping = "0.10"

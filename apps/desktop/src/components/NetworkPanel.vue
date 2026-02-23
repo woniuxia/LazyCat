@@ -85,8 +85,7 @@
           class="quick-port-card"
           @click="applyQuickTarget(item.host, item.port)"
         >
-          <span class="port-icon">{{ item.icon }}</span>
-          <span class="port-number">:{{ item.port }}</span>
+          <span class="port-number">{{ item.port }}</span>
           <span class="port-name">{{ item.name }}</span>
         </button>
       </div>
@@ -104,10 +103,29 @@
       </button>
     </div>
 
+    <!-- 测试结果 loading 状态 -->
+    <div v-if="loading" class="result-loading">
+      <div class="loading-signal">
+        <div class="signal-core" />
+        <div class="signal-wave w1" />
+        <div class="signal-wave w2" />
+        <div class="signal-wave w3" />
+        <div class="signal-dot d1" />
+        <div class="signal-dot d2" />
+        <div class="signal-dot d3" />
+      </div>
+      <div class="loading-info">
+        <div class="loading-status">
+          <span class="status-animated">PROBING</span>
+        </div>
+        <div class="loading-target">{{ resultTargetText }}</div>
+        <div class="loading-protocol">{{ protocol.toUpperCase() }}</div>
+      </div>
+    </div>
+
     <!-- 结果展示区域 -->
-    <Transition name="result-slide">
+    <Transition v-else-if="result" name="result-slide">
       <div
-        v-if="result && !loading"
         class="result-panel"
         :class="result.reachable ? 'result-success' : 'result-failed'"
       >
@@ -152,7 +170,7 @@
       </div>
     </Transition>
 
-    <div v-if="!loading && !result" class="empty-state">
+    <div v-else class="empty-state">
       <div class="empty-icon">📡</div>
       <p>输入目标地址，开始连通性测试</p>
     </div>
@@ -306,17 +324,12 @@ const protocols = [
 ];
 
 const quickPorts = [
-  { host: "127.0.0.1", port: 80, name: "HTTP", icon: "🌐" },
-  { host: "127.0.0.1", port: 443, name: "HTTPS", icon: "🔒" },
-  { host: "127.0.0.1", port: 3306, name: "MySQL", icon: "🐬" },
-  { host: "127.0.0.1", port: 6379, name: "Redis", icon: "⚡" },
-  { host: "127.0.0.1", port: 5432, name: "PostgreSQL", icon: "🐘" },
-  { host: "127.0.0.1", port: 8080, name: "Dev", icon: "🛠️" },
-  { host: "127.0.0.1", port: 3000, name: "Node", icon: "📦" },
-  { host: "127.0.0.1", port: 5173, name: "Vite", icon: "⚡" },
-  { host: "127.0.0.1", port: 53, name: "DNS", icon: "📡" },
-  { host: "127.0.0.1", port: 161, name: "SNMP", icon: "🔍" },
-  { host: "127.0.0.1", port: 5060, name: "SIP", icon: "📞" }
+  { host: "127.0.0.1", port: 22, name: "SSH" },
+  { host: "127.0.0.1", port: 80, name: "HTTP" },
+  { host: "127.0.0.1", port: 443, name: "HTTPS" },
+  { host: "127.0.0.1", port: 3306, name: "MySQL" },
+  { host: "127.0.0.1", port: 6379, name: "Redis" },
+  { host: "127.0.0.1", port: 8080, name: "Dev" }
 ];
 
 const protocol = ref<Protocol>("ping");
@@ -332,12 +345,11 @@ const historyProtocolFilter = ref<"all" | Protocol>("all");
 const historyResultFilter = ref<"all" | "success" | "failed">("all");
 const historyKeyword = ref("");
 
+// 测试时的目标（测试开始时固定，不受输入框变化影响）
+const testTarget = ref("");
+
 const resultTargetText = computed(() => {
-  if (!result.value) return "-";
-  if (protocol.value === "ping") {
-    return host.value;
-  }
-  return `${result.value.host ?? host.value}:${result.value.port ?? port.value}`;
+  return testTarget.value || "-";
 });
 
 const filteredHistory = computed(() => {
@@ -471,7 +483,10 @@ async function retryFailedHistory() {
 
 function applyQuickTarget(nextHost: string, nextPort: number) {
   protocol.value = "tcp";
-  host.value = nextHost;
+  // 如果用户已输入主机地址，保留它，不覆盖
+  if (!host.value.trim()) {
+    host.value = nextHost;
+  }
   port.value = nextPort;
 }
 
@@ -488,9 +503,16 @@ async function runTest() {
 
   result.value = null;
   loading.value = true;
+
+  // 固定测试目标，不受后续输入框变化影响
+  if (currentProtocol === "tcp" || currentProtocol === "udp") {
+    testTarget.value = `${host.value.trim()}:${port.value}`;
+  } else {
+    testTarget.value = host.value.trim();
+  }
+
   try {
     let nextResult: TestResult;
-    let target = "";
 
     if (currentProtocol === "tcp") {
       const data = await invokeToolByChannel("tool:network:tcp-test", {
@@ -499,7 +521,6 @@ async function runTest() {
         timeoutMs: timeoutMs.value
       });
       nextResult = data as TestResult;
-      target = `${host.value.trim()}:${port.value}`;
     } else if (currentProtocol === "udp") {
       const data = await invokeToolByChannel("tool:network:udp-test", {
         host: host.value.trim(),
@@ -507,23 +528,21 @@ async function runTest() {
         timeoutMs: timeoutMs.value
       });
       nextResult = data as TestResult;
-      target = `${host.value.trim()}:${port.value}`;
     } else {
       // ping
       const data = await invokeToolByChannel("tool:network:ping-test", {
         host: host.value.trim(),
         timeoutMs: timeoutMs.value,
-        count: 4
+        count: 3
       });
       nextResult = data as TestResult;
-      target = host.value.trim();
     }
 
     result.value = nextResult;
     lastCheckedAt.value = Date.now();
     appendHistory({
       protocol: currentProtocol,
-      target: target,
+      target: testTarget.value,
       timeoutMs: timeoutMs.value,
       reachable: nextResult.reachable,
       latencyMs: Number(nextResult.latencyMs ?? 0),
@@ -540,16 +559,9 @@ async function runTest() {
     result.value = failedResult;
     lastCheckedAt.value = Date.now();
 
-    let target = "";
-    if (currentProtocol === "tcp" || currentProtocol === "udp") {
-      target = `${host.value.trim()}:${port.value}`;
-    } else {
-      target = host.value.trim();
-    }
-
     appendHistory({
       protocol: currentProtocol,
-      target: target,
+      target: testTarget.value,
       timeoutMs: timeoutMs.value,
       reachable: false,
       latencyMs: 0,
@@ -789,52 +801,38 @@ function formatTime(timestamp: number): string {
 
 /* 快捷端口网格 */
 .quick-ports-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
   margin-bottom: 16px;
 }
 
-@media (max-width: 640px) {
-  .quick-ports-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
-
 .quick-port-card {
-  display: flex;
-  flex-direction: column;
+  display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 12px 8px;
-  border: 1px solid var(--el-border-color);
-  border-radius: 10px;
-  background: var(--el-bg-color);
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 4px;
+  background: var(--el-fill-color-light);
   cursor: pointer;
-  transition: all 0.2s var(--lc-ease);
+  transition: all 0.15s ease;
 }
 
 .quick-port-card:hover {
   border-color: var(--el-color-primary);
-  background: var(--el-color-primary-light-9);
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-}
-
-.port-icon {
-  font-size: 20px;
-  line-height: 1;
+  background: var(--el-fill-color);
 }
 
 .port-number {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--el-text-color-primary);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--el-color-primary);
   font-family: var(--lc-font-mono);
 }
 
 .port-name {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--el-text-color-secondary);
 }
 
@@ -1153,6 +1151,229 @@ function formatTime(timestamp: number): string {
 
 .empty-state p {
   font-size: 14px;
+}
+
+/* 结果 loading 状态 - 信号探测风格 */
+.result-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: linear-gradient(135deg, var(--el-bg-color) 0%, var(--el-fill-color-light) 100%);
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 16px;
+  overflow: hidden;
+  position: relative;
+  gap: 16px;
+  min-height: 140px;
+}
+
+.result-loading::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 50% 40%, rgba(64, 158, 255, 0.04) 0%, transparent 60%);
+  pointer-events: none;
+}
+
+/* 信号发射器容器 */
+.loading-signal {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  flex-shrink: 0;
+}
+
+/* 中心核心点 */
+.signal-core {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 16px;
+  height: 16px;
+  transform: translate(-50%, -50%);
+  background: var(--el-color-primary);
+  border-radius: 50%;
+  z-index: 10;
+  box-shadow:
+    0 0 12px var(--el-color-primary),
+    0 0 24px rgba(64, 158, 255, 0.4);
+  animation: core-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes core-pulse {
+  0%, 100% {
+    transform: translate(-50%, -50%) scale(1);
+    box-shadow: 0 0 12px var(--el-color-primary), 0 0 24px rgba(64, 158, 255, 0.4);
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(1.15);
+    box-shadow: 0 0 16px var(--el-color-primary), 0 0 32px rgba(64, 158, 255, 0.5);
+  }
+}
+
+/* 扩散波纹 */
+.signal-wave {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  border-radius: 50%;
+  border: 2px solid var(--el-color-primary);
+  transform: translate(-50%, -50%);
+  opacity: 0;
+  animation: wave-expand 2.4s ease-out infinite;
+}
+
+.signal-wave.w1 {
+  width: 30px;
+  height: 30px;
+  animation-delay: 0s;
+}
+
+.signal-wave.w2 {
+  width: 30px;
+  height: 30px;
+  animation-delay: 0.8s;
+}
+
+.signal-wave.w3 {
+  width: 30px;
+  height: 30px;
+  animation-delay: 1.6s;
+}
+
+@keyframes wave-expand {
+  0% {
+    width: 20px;
+    height: 20px;
+    opacity: 0.8;
+    border-width: 2px;
+  }
+  100% {
+    width: 64px;
+    height: 64px;
+    opacity: 0;
+    border-width: 1px;
+  }
+}
+
+/* 回波粒子 */
+.signal-dot {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  background: var(--el-color-primary-light-3);
+  border-radius: 50%;
+  opacity: 0;
+  animation: dot-orbit 3s linear infinite;
+}
+
+.signal-dot.d1 {
+  animation-delay: 0s;
+}
+
+.signal-dot.d2 {
+  animation-delay: 1s;
+}
+
+.signal-dot.d3 {
+  animation-delay: 2s;
+}
+
+@keyframes dot-orbit {
+  0% {
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    opacity: 0;
+  }
+  10% {
+    opacity: 0.9;
+  }
+  45% {
+    opacity: 0.6;
+  }
+  50% {
+    left: calc(50% + 26px);
+    top: 50%;
+    transform: translate(-50%, -50%);
+    opacity: 0.4;
+  }
+  90% {
+    opacity: 0.7;
+  }
+  100% {
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    opacity: 0;
+  }
+}
+
+/* 加载信息区 */
+.loading-info {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  z-index: 1;
+}
+
+.loading-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.status-animated {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  color: var(--el-color-primary);
+  font-family: var(--lc-font-mono);
+  animation: status-blink 1.2s step-end infinite;
+}
+
+@keyframes status-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.loading-target {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+  font-family: var(--lc-font-mono);
+  letter-spacing: -0.3px;
+}
+
+.loading-protocol {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  width: fit-content;
+  padding: 3px 10px;
+  background: var(--el-fill-color);
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--el-text-color-secondary);
+  letter-spacing: 0.5px;
+}
+
+.loading-protocol::before {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--el-color-primary);
+  animation: protocol-dot 0.6s ease-in-out infinite alternate;
+}
+
+@keyframes protocol-dot {
+  from { opacity: 0.4; }
+  to { opacity: 1; }
 }
 
 /* 历史记录面板 */

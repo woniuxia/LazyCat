@@ -1,7 +1,9 @@
 use serde_json::{json, Value};
 use std::net::{SocketAddr, TcpStream, UdpSocket};
-use std::process::Command;
-use std::time::{Duration, Instant};
+use std::time::Instant;
+
+#[cfg(windows)]
+use std::time::Duration;
 
 struct HttpStatus {
     code: u16,
@@ -258,96 +260,153 @@ fn udp_test(payload: &Value) -> Result<Value, String> {
 }
 
 /// PING 测试
-/// Windows 上使用系统 ping 命令（避免使用 raw socket 需要管理员权限的问题）
+/// Windows 上使用 winping 库（Windows ICMP API），无需管理员权限
+#[cfg(windows)]
 fn ping_test(payload: &Value) -> Result<Value, String> {
+    use winping::{Buffer, Pinger};
+
     let host = payload["host"].as_str().unwrap_or("127.0.0.1");
-    let timeout_ms = payload["timeoutMs"].as_u64().unwrap_or(2000);
-    let count = payload["count"].as_u64().unwrap_or(4);
-    let started = Instant::now();
+    let count = payload["count"].as_u64().unwrap_or(3).min(10).max(1);
+    let interval_ms = 100;
 
-    // Windows 上 ping 命令参数
-    // -n count: 发送次数
-    // -w timeout: 每次超时（毫秒）
-    // -4: 强制使用 IPv4
-    let output = Command::new("ping")
-        .args(&["-n", &count.to_string(), "-w", &timeout_ms.to_string(), "-4", host])
-        .output();
+    let pinger = Pinger::new().map_err(|e| format!("初始化 ping 失败: {e}"))?;
+    let dest = host.parse().map_err(|e| format!("无效地址: {e}"))?;
 
-    match output {
-        Ok(result) => {
-            let stdout = String::from_utf8_lossy(&result.stdout);
-            let stderr = String::from_utf8_lossy(&result.stderr);
-            let combined = format!("{}{}", stdout, stderr);
+    let mut success_count = 0u64;
+    let mut total_latency = 0u64;
+    let mut latencies: Vec<u64> = Vec::new();
 
-            // 解析结果
-            let packet_loss = parse_ping_packet_loss(&combined);
-            let avg_latency = parse_ping_avg_latency(&combined);
-            let is_reachable = result.status.success() && packet_loss < 100;
-
-            Ok(json!({
-                "host": host,
-                "reachable": is_reachable,
-                "latencyMs": avg_latency.unwrap_or(started.elapsed().as_millis() as u64),
-                "packetLoss": packet_loss,
-                "packetsSent": count,
-                "packetsReceived": count - (count * packet_loss / 100),
-                "error": if is_reachable { Value::Null } else { Value::String("无法到达目标主机".to_string()) },
-                "rawOutput": combined
-            }))
+    for i in 0..count {
+        if i > 0 {
+            std::thread::sleep(Duration::from_millis(interval_ms));
         }
-        Err(e) => Ok(json!({
-            "host": host,
-            "reachable": false,
-            "latencyMs": started.elapsed().as_millis(),
-            "packetLoss": 100,
-            "packetsSent": count,
-            "packetsReceived": 0,
-            "error": format!("执行 ping 命令失败: {e}"),
-            "rawOutput": ""
-        }))
+
+        let mut buffer = Buffer::new();
+        match pinger.send(dest, &mut buffer) {
+            Ok(rtt) => {
+                success_count += 1;
+                total_latency += rtt as u64;
+                latencies.push(rtt as u64);
+            }
+            Err(_) => {}
+        }
     }
+
+    let is_reachable = success_count > 0;
+    let avg_latency = if success_count > 0 {
+        total_latency / success_count
+    } else {
+        0
+    };
+    let packet_loss = if count > 0 {
+        ((count - success_count) * 100) / count
+    } else {
+        100
+    };
+
+    Ok(json!({
+        "host": host,
+        "reachable": is_reachable,
+        "latencyMs": avg_latency,
+        "packetLoss": packet_loss,
+        "packetsSent": count,
+        "packetsReceived": success_count,
+        "latencies": latencies,
+        "error": if is_reachable { Value::Null } else { Value::String("无法到达目标主机".to_string()) }
+    }))
 }
 
-/// 解析 ping 输出中的丢包率
-fn parse_ping_packet_loss(output: &str) -> u64 {
-    // Windows 格式: 丢失 = 0 (0% 丢失)，
-    // 或: Lost = 0 (0% loss)
-    for line in output.lines() {
-        let lower = line.to_lowercase();
-        if lower.contains("丢失") || lower.contains("loss") {
-            // 查找百分比数字
-            if let Some(start) = lower.find('(') {
-                if let Some(end) = lower.find('%') {
-                    let num_str = &lower[start + 1..end];
-                    if let Ok(num) = num_str.trim().parse::<u64>() {
-                        return num;
+/// PING 测试（非 Windows 平台保留系统命令实现）
+#[cfg(not(windows))]
+fn ping_test(payload: &Value) -> Result<Value, String> {
+    use std::process::Command;
+    use std::time::Duration;
+
+    let host = payload["host"].as_str().unwrap_or("127.0.0.1");
+    let timeout_ms = payload["timeoutMs"].as_u64().unwrap_or(2000);
+    let count = payload["count"].as_u64().unwrap_or(3).min(10).max(1);
+    let started = Instant::now();
+
+    let mut success_count = 0u64;
+    let mut total_latency = 0u64;
+    let mut latencies: Vec<u64> = Vec::new();
+    let mut last_error: Option<String> = None;
+
+    for i in 0..count {
+        if i > 0 {
+            std::thread::sleep(Duration::from_millis(100));
+        }
+
+        let output = Command::new("ping")
+            .args(&["-n", "1", "-w", &timeout_ms.to_string(), host])
+            .output();
+
+        match output {
+            Ok(result) => {
+                let stdout = String::from_utf8_lossy(&result.stdout);
+                let stderr = String::from_utf8_lossy(&result.stderr);
+                let combined = format!("{}{}", stdout, stderr);
+
+                let latency = parse_ping_single_latency(&combined);
+
+                if result.status.success() {
+                    if latency.is_some() {
+                        success_count += 1;
+                        let lat = latency.unwrap();
+                        total_latency += lat;
+                        latencies.push(lat);
+                    } else {
+                        last_error = Some("请求超时".to_string());
                     }
+                } else {
+                    last_error = Some("无法到达目标主机".to_string());
                 }
+            }
+            Err(e) => {
+                last_error = Some(format!("执行 ping 命令失败: {e}"));
             }
         }
     }
-    // 如果无法解析，假设 100% 丢失
-    100
+
+    let is_reachable = success_count > 0;
+    let avg_latency = if success_count > 0 {
+        total_latency / success_count
+    } else {
+        started.elapsed().as_millis() as u64
+    };
+    let packet_loss = if count > 0 {
+        ((count - success_count) * 100) / count
+    } else {
+        100
+    };
+
+    Ok(json!({
+        "host": host,
+        "reachable": is_reachable,
+        "latencyMs": avg_latency,
+        "packetLoss": packet_loss,
+        "packetsSent": count,
+        "packetsReceived": success_count,
+        "error": if is_reachable { Value::Null } else { Value::String(last_error.unwrap_or_else(|| "无法到达目标主机".to_string())) },
+        "latencies": latencies
+    }))
 }
 
-/// 解析 ping 输出中的平均延迟
-fn parse_ping_avg_latency(output: &str) -> Option<u64> {
-    // Windows 格式: 平均 = 1ms，
-    // 或: Average = 1ms
-    for line in output.lines() {
-        let lower = line.to_lowercase();
-        if lower.contains("平均") || lower.contains("average") {
-            // 查找 = 后面的数字
-            if let Some(eq_pos) = lower.find('=') {
-                let after_eq = &lower[eq_pos + 1..];
-                // 提取数字部分
-                let num_part: String = after_eq
-                    .chars()
-                    .take_while(|c| c.is_ascii_digit() || *c == '.')
-                    .collect();
-                if let Ok(num) = num_part.parse::<f64>() {
-                    return Some(num as u64);
-                }
+/// 解析单次 ping 延迟（非 Windows 平台使用）
+#[cfg(not(windows))]
+fn parse_ping_single_latency(output: &str) -> Option<u64> {
+    let lower = output.to_lowercase();
+
+    for line in lower.lines() {
+        if let Some(pos) = line.find("time=").or_else(|| line.find("时间=")) {
+            let after = &line[pos + 5..];
+            let num_str: String = after
+                .chars()
+                .skip_while(|c| *c == '<' || *c == ' ')
+                .take_while(|c| c.is_ascii_digit() || *c == '.')
+                .collect();
+            if let Ok(num) = num_str.parse::<f64>() {
+                return Some(num as u64);
             }
         }
     }
