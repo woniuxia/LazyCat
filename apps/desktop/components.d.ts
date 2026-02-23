@@ -25,6 +25,7 @@ declare module 'vue' {
     DnsPanel: typeof import('./src/components/DnsPanel.vue')['default']
     ElAlert: typeof import('element-plus/es')['ElAlert']
     ElAutocomplete: typeof import('element-plus/es')['ElAutocomplete']
+    ElBadge: typeof import('element-plus/es')['ElBadge']
     ElButton: typeof import('element-plus/es')['ElButton']
     ElButtonGroup: typeof import('element-plus/es')['ElButtonGroup']
     ElCard: typeof import('element-plus/es')['ElCard']
@@ -112,5 +113,8 @@ declare module 'vue' {
     VaultEntryDialog: typeof import('./src/components/VaultEntryDialog.vue')['default']
     VaultLockScreen: typeof import('./src/components/VaultLockScreen.vue')['default']
     VaultPanel: typeof import('./src/components/VaultPanel.vue')['default']
+  }
+  export interface GlobalDirectives {
+    vLoading: typeof import('element-plus/es')['ElLoadingDirective']
   }
 }
