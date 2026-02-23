@@ -77,6 +77,7 @@ fn hosts_delete(payload: &Value) -> Result<Value, String> {
 fn hosts_activate(payload: &Value) -> Result<Value, String> {
     let profile_name = payload["profileName"].as_str().unwrap_or_default();
     let mut content = payload["content"].as_str().unwrap_or_default().to_string();
+
     let conn = db_conn()?;
     if content.is_empty() {
         let mut stmt = conn
@@ -137,6 +138,7 @@ fn hosts_path() -> PathBuf {
 /// Try direct write first; on PermissionDenied, trigger UAC elevation via PowerShell.
 fn write_hosts_file(content: &str) -> Result<(), String> {
     let path = hosts_path();
+
     match fs::write(&path, content.as_bytes()) {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
@@ -144,7 +146,9 @@ fn write_hosts_file(content: &str) -> Result<(), String> {
             // Verify the elevated write actually succeeded
             let actual = fs::read_to_string(&path)
                 .map_err(|e| format!("verify hosts write failed: {e}"))?;
-            if actual.replace('\r', "") != content.replace('\r', "") {
+            let content_normalized = content.replace('\r', "");
+            let actual_normalized = actual.replace('\r', "");
+            if actual_normalized != content_normalized {
                 return Err("hosts 文件未被更新，UAC 提权可能被取消".into());
             }
             Ok(())
@@ -161,38 +165,106 @@ fn elevated_write_hosts(content: &str) -> Result<(), String> {
     let data_dir = get_data_dir()?;
     let temp_path = data_dir.join("hosts-pending.tmp");
     let script_path = data_dir.join("hosts-elevate.ps1");
+    let marker_path = data_dir.join("hosts-elevate.marker");
     let hosts = hosts_path();
+
+    // Clean up any leftover marker from previous runs
+    let _ = fs::remove_file(&marker_path);
 
     fs::write(&temp_path, content).map_err(|e| format!("write temp file failed: {e}"))?;
 
-    // PS1 script: copy temp file to hosts location, then clean up temp
+    // PS1 script: 直接执行复制操作（假设已经是管理员）
+    let temp_path_escaped = temp_path.to_string_lossy().to_string().replace("'", "''");
+    let host_path_escaped = hosts.to_string_lossy().to_string().replace("'", "''");
+    let marker_path_escaped = marker_path.to_string_lossy().to_string().replace("'", "''");
+
     let ps1 = format!(
-        "Copy-Item -LiteralPath '{}' -Destination '{}' -Force\r\nRemove-Item -LiteralPath '{}' -Force\r\n",
-        temp_path.to_string_lossy().replace('\'', "''"),
-        hosts.to_string_lossy().replace('\'', "''"),
-        temp_path.to_string_lossy().replace('\'', "''"),
+        r#"Write-Host "执行复制..."
+try {{
+    Copy-Item -LiteralPath '{temp}' -Destination '{host}' -Force
+    New-Item -ItemType File -Path '{marker}' -Force | Out-Null
+    Remove-Item -LiteralPath '{temp}' -Force -ErrorAction SilentlyContinue
+    Write-Host "复制成功"
+    exit 0
+}} catch {{
+    Write-Host "复制失败: $_"
+    exit 1
+}}"#,
+        temp = temp_path_escaped,
+        host = host_path_escaped,
+        marker = marker_path_escaped,
     );
     fs::write(&script_path, &ps1).map_err(|e| format!("write elevate script failed: {e}"))?;
 
-    // Outer PowerShell launches the script elevated via -Verb RunAs
-    let escaped_script = script_path.to_string_lossy().replace('\'', "''");
-    let launcher = format!(
-        "Start-Process -FilePath 'powershell.exe' -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File ''{}''' -Verb RunAs -Wait",
-        escaped_script
+    // 方案1: 使用 cmd /c runas (会弹窗让用户输入密码，不适合)
+    // 方案2: 使用 powershell -Verb runAs (需要交互式窗口)
+    // 方案3: 使用 VBScript 启动提权 PowerShell
+
+    // 创建 VBScript 来启动提权的 PowerShell
+    let vbs_path = data_dir.join("hosts-elevate.vbs");
+    let vbs_content = format!(
+        r#"Set UAC = CreateObject("Shell.Application")
+UAC.ShellExecute "powershell.exe", "-NoProfile -ExecutionPolicy Bypass -File ""{}""", "", "runas", 1
+Set UAC = Nothing"#,
+        script_path.to_string_lossy()
     );
+    fs::write(&vbs_path, vbs_content).map_err(|e| format!("write vbs script failed: {e}"))?;
 
-    let status = Command::new("powershell")
-        .args(["-NoProfile", "-Command", &launcher])
+    // 启动 VBScript，它会显示 UAC 对话框
+    let vbs_path_str = vbs_path.to_string_lossy().to_string();
+    let _status = Command::new("wscript")
+        .arg(&vbs_path_str)
         .status()
-        .map_err(|e| format!("launch UAC elevation failed: {e}"))?;
+        .map_err(|e| format!("launch VBS failed: {e}"))?;
 
-    // Cleanup (script may have self-cleaned temp already)
-    let _ = fs::remove_file(&script_path);
-    let _ = fs::remove_file(&temp_path);
+    // VBS 是非阻塞的，我们需要等待用户完成操作
+    // 轮询检查标记文件或 hosts 文件内容变化
+    let mut attempts = 0;
+    let max_attempts = 30; // 最多等待 30 秒
+    let mut success = false;
 
-    if !status.success() {
-        return Err("UAC 提权被取消或失败".into());
+    while attempts < max_attempts {
+        std::thread::sleep(std::time::Duration::from_secs(1));
+
+        // 检查标记文件
+        if marker_path.exists() {
+            success = true;
+            break;
+        }
+
+        // 检查 hosts 文件内容
+        if let Ok(current_content) = fs::read_to_string(&hosts) {
+            let content_normalized = content.replace('\r', "");
+            let current_normalized = current_content.replace('\r', "");
+            if content_normalized == current_normalized {
+                success = true;
+                break;
+            }
+        }
+
+        attempts += 1;
     }
+
+    // 清理 VBS 脚本
+    let _ = fs::remove_file(&vbs_path);
+
+    // Cleanup script file
+    let _ = fs::remove_file(&script_path);
+
+    if !success {
+        // 最终验证
+        let verify_content = fs::read_to_string(&hosts).unwrap_or_default();
+        let content_normalized = content.replace('\r', "");
+        let verify_normalized = verify_content.replace('\r', "");
+        if verify_normalized != content_normalized {
+            let _ = fs::remove_file(&temp_path);
+            return Err("hosts 文件未被更新，UAC 提权可能被取消".into());
+        }
+    }
+
+    // Clean up marker and temp file
+    let _ = fs::remove_file(&marker_path);
+    let _ = fs::remove_file(&temp_path);
 
     Ok(())
 }
