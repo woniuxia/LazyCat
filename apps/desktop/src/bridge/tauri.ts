@@ -109,6 +109,7 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:network:chmod-calc": { domain: "network", action: "chmod_calc" },
   "tool:dns:resolve": { domain: "dns", action: "resolve" },
   "tool:dns:system-dns": { domain: "dns", action: "system_dns" },
+  "tool:dns:compare": { domain: "dns", action: "compare" },
   "tool:env:detect": { domain: "env", action: "detect" },
   "tool:port:usage": { domain: "port", action: "usage" },
   "tool:port:process-detail": { domain: "port", action: "process_detail" },
