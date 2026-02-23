@@ -1,5 +1,6 @@
 use serde_json::{json, Value};
-use std::net::{SocketAddr, TcpStream};
+use std::net::{SocketAddr, TcpStream, UdpSocket};
+use std::process::Command;
 use std::time::{Duration, Instant};
 
 struct HttpStatus {
@@ -150,6 +151,209 @@ fn chmod_calc(payload: &Value) -> Result<Value, String> {
     }))
 }
 
+/// UDP 端口测试
+/// UDP 是无连接协议，测试原理：
+/// 1. 尝试绑定本地 UDP 端口
+/// 2. 尝试向目标发送数据（0字节）
+/// 3. 设置读取超时，如果收到 ICMP 不可达则判定为端口不可达
+/// 注意：由于 UDP 的特性，无法 100% 确认端口开放，只能判断是否有明显的拒绝响应
+fn udp_test(payload: &Value) -> Result<Value, String> {
+    let host = payload["host"].as_str().unwrap_or("127.0.0.1");
+    let port = payload["port"].as_u64().unwrap_or(53) as u16;
+    let timeout_ms = payload["timeoutMs"].as_u64().unwrap_or(2000);
+    let started = Instant::now();
+
+    let target_addr: SocketAddr = format!("{host}:{port}")
+        .parse()
+        .map_err(|e| format!("invalid address: {e}"))?;
+
+    // 绑定本地任意端口
+    let socket = UdpSocket::bind("0.0.0.0:0")
+        .map_err(|e| format!("failed to bind udp socket: {e}"))?;
+
+    // 设置读写超时
+    socket
+        .set_read_timeout(Some(Duration::from_millis(timeout_ms)))
+        .map_err(|e| format!("failed to set timeout: {e}"))?;
+    socket
+        .set_write_timeout(Some(Duration::from_millis(timeout_ms)))
+        .map_err(|e| format!("failed to set timeout: {e}"))?;
+
+    // 尝试连接（仅设置默认地址，不实际发送数据）
+    let connect_result = socket.connect(target_addr);
+
+    // UDP "连接" 几乎总是"成功"，因为它只是设置默认地址
+    // 真正的测试是尝试发送数据后看是否有 ICMP 错误
+    if connect_result.is_err() {
+        return Ok(json!({
+            "host": host,
+            "port": port,
+            "reachable": false,
+            "latencyMs": started.elapsed().as_millis(),
+            "error": "无法连接到目标地址"
+        }));
+    }
+
+    // 发送一个空 UDP 数据包
+    let send_result = socket.send(&[]);
+    if let Err(e) = send_result {
+        return Ok(json!({
+            "host": host,
+            "port": port,
+            "reachable": false,
+            "latencyMs": started.elapsed().as_millis(),
+            "error": format!("发送失败: {e}")
+        }));
+    }
+
+    // 尝试接收响应（大多数 UDP 服务不会响应空包）
+    // 但我们设置一个短暂的超时来检测 ICMP 不可达错误
+    let mut buf = [0u8; 1];
+    match socket.recv(&mut buf) {
+        Ok(_) => {
+            // 收到响应，说明端口是开放的
+            Ok(json!({
+                "host": host,
+                "port": port,
+                "reachable": true,
+                "latencyMs": started.elapsed().as_millis(),
+                "error": null
+            }))
+        }
+        Err(e) => {
+            let error_kind = e.kind();
+            let error_msg = e.to_string().to_lowercase();
+            let elapsed = started.elapsed().as_millis();
+
+            // 检测 ICMP 不可达错误（Windows 和 Linux 的错误信息不同）
+            let is_unreachable = error_kind == std::io::ErrorKind::ConnectionRefused
+                || error_msg.contains("unreachable")
+                || error_msg.contains("icmp")
+                || error_msg.contains("拒绝")
+                || error_msg.contains("refused");
+
+            if is_unreachable {
+                // 明确收到 ICMP 不可达，端口关闭
+                Ok(json!({
+                    "host": host,
+                    "port": port,
+                    "reachable": false,
+                    "latencyMs": elapsed,
+                    "error": "端口不可达（可能被防火墙阻止或服务未运行）"
+                }))
+            } else {
+                // 超时或其他原因，无法确定状态
+                // UDP 无响应是正常情况，我们标记为可能可达
+                Ok(json!({
+                    "host": host,
+                    "port": port,
+                    "reachable": true,
+                    "latencyMs": elapsed,
+                    "error": null,
+                    "note": "UDP 无响应（这是正常行为，端口可能开放）"
+                }))
+            }
+        }
+    }
+}
+
+/// PING 测试
+/// Windows 上使用系统 ping 命令（避免使用 raw socket 需要管理员权限的问题）
+fn ping_test(payload: &Value) -> Result<Value, String> {
+    let host = payload["host"].as_str().unwrap_or("127.0.0.1");
+    let timeout_ms = payload["timeoutMs"].as_u64().unwrap_or(2000);
+    let count = payload["count"].as_u64().unwrap_or(4);
+    let started = Instant::now();
+
+    // Windows 上 ping 命令参数
+    // -n count: 发送次数
+    // -w timeout: 每次超时（毫秒）
+    // -4: 强制使用 IPv4
+    let output = Command::new("ping")
+        .args(&["-n", &count.to_string(), "-w", &timeout_ms.to_string(), "-4", host])
+        .output();
+
+    match output {
+        Ok(result) => {
+            let stdout = String::from_utf8_lossy(&result.stdout);
+            let stderr = String::from_utf8_lossy(&result.stderr);
+            let combined = format!("{}{}", stdout, stderr);
+
+            // 解析结果
+            let packet_loss = parse_ping_packet_loss(&combined);
+            let avg_latency = parse_ping_avg_latency(&combined);
+            let is_reachable = result.status.success() && packet_loss < 100;
+
+            Ok(json!({
+                "host": host,
+                "reachable": is_reachable,
+                "latencyMs": avg_latency.unwrap_or(started.elapsed().as_millis() as u64),
+                "packetLoss": packet_loss,
+                "packetsSent": count,
+                "packetsReceived": count - (count * packet_loss / 100),
+                "error": if is_reachable { Value::Null } else { Value::String("无法到达目标主机".to_string()) },
+                "rawOutput": combined
+            }))
+        }
+        Err(e) => Ok(json!({
+            "host": host,
+            "reachable": false,
+            "latencyMs": started.elapsed().as_millis(),
+            "packetLoss": 100,
+            "packetsSent": count,
+            "packetsReceived": 0,
+            "error": format!("执行 ping 命令失败: {e}"),
+            "rawOutput": ""
+        }))
+    }
+}
+
+/// 解析 ping 输出中的丢包率
+fn parse_ping_packet_loss(output: &str) -> u64 {
+    // Windows 格式: 丢失 = 0 (0% 丢失)，
+    // 或: Lost = 0 (0% loss)
+    for line in output.lines() {
+        let lower = line.to_lowercase();
+        if lower.contains("丢失") || lower.contains("loss") {
+            // 查找百分比数字
+            if let Some(start) = lower.find('(') {
+                if let Some(end) = lower.find('%') {
+                    let num_str = &lower[start + 1..end];
+                    if let Ok(num) = num_str.trim().parse::<u64>() {
+                        return num;
+                    }
+                }
+            }
+        }
+    }
+    // 如果无法解析，假设 100% 丢失
+    100
+}
+
+/// 解析 ping 输出中的平均延迟
+fn parse_ping_avg_latency(output: &str) -> Option<u64> {
+    // Windows 格式: 平均 = 1ms，
+    // 或: Average = 1ms
+    for line in output.lines() {
+        let lower = line.to_lowercase();
+        if lower.contains("平均") || lower.contains("average") {
+            // 查找 = 后面的数字
+            if let Some(eq_pos) = lower.find('=') {
+                let after_eq = &lower[eq_pos + 1..];
+                // 提取数字部分
+                let num_part: String = after_eq
+                    .chars()
+                    .take_while(|c| c.is_ascii_digit() || *c == '.')
+                    .collect();
+                if let Ok(num) = num_part.parse::<f64>() {
+                    return Some(num as u64);
+                }
+            }
+        }
+    }
+    None
+}
+
 pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
     match action {
         "tcp_test" => {
@@ -203,6 +407,8 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         "http_status_list" => http_status_list(payload),
         "http_status_lookup" => http_status_lookup(payload),
         "chmod_calc" => chmod_calc(payload),
+        "udp_test" => udp_test(payload),
+        "ping_test" => ping_test(payload),
         _ => Err(format!("unsupported network action: {action}")),
     }
 }
