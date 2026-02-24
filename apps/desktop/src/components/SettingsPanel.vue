@@ -161,6 +161,31 @@
         </div>
       </section>
 
+      <!-- 智能助手 -->
+      <section class="settings-section">
+        <div class="section-header">
+          <div class="section-icon">&#x1F50D;</div>
+          <div class="section-title">
+            <h3>智能助手</h3>
+            <p>自动检测剪贴板内容并提供快捷操作</p>
+          </div>
+        </div>
+        <div class="section-content">
+          <div class="setting-item">
+            <div class="setting-label">
+              <span class="label-text">剪贴板智能检测</span>
+              <span class="label-desc">窗口激活时自动检测剪贴板内容类型，提供一键跳转</span>
+            </div>
+            <div class="setting-control">
+              <el-switch
+                v-model="clipboardDetection"
+                @change="handleClipboardDetectionChange"
+              />
+            </div>
+          </div>
+        </div>
+      </section>
+
       <!-- 数据管理 -->
       <section class="settings-section">
         <div class="section-header">
@@ -226,7 +251,7 @@ import { ref, onMounted } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { save, open } from "@tauri-apps/plugin-dialog";
 import { registerHotkey, unregisterHotkey, registerNamedHotkey, unregisterNamedHotkey, invokeToolByChannel } from "../bridge/tauri";
-import { setSetting, useAutostartSettings } from "../composables/useSettings";
+import { setSetting, getSetting, useAutostartSettings } from "../composables/useSettings";
 import type { SidebarItem } from "../types";
 import MenuVisibilityDialog from "./MenuVisibilityDialog.vue";
 import ShortcutRecorder from "./ShortcutRecorder.vue";
@@ -263,6 +288,7 @@ const emit = defineEmits<{
 const importMode = ref<"merge" | "overwrite">("merge");
 const dataDirPath = ref("");
 const dataDirIsCustom = ref(false);
+const clipboardDetection = ref(true);
 const menuVisibilityDialog = ref<InstanceType<typeof MenuVisibilityDialog>>();
 
 const HOTKEY_FIELDS = [
@@ -283,6 +309,7 @@ function makeConflictChecker(selfKey: typeof HOTKEY_FIELDS[number]["key"]) {
 
 onMounted(async () => {
   await loadDataDir();
+  clipboardDetection.value = getSetting("clipboard_detection") !== "false";
 });
 
 async function loadDataDir() {
@@ -456,6 +483,11 @@ async function handleCloseToTrayChange(value: boolean) {
     ElMessage.error(`设置失败：${(error as Error).message}`);
     closeToTray.value = !value;
   }
+}
+
+function handleClipboardDetectionChange(value: boolean) {
+  setSetting("clipboard_detection", value ? "true" : "false");
+  ElMessage.success(value ? "已启用剪贴板智能检测" : "已关闭剪贴板智能检测");
 }
 </script>
 

@@ -40,6 +40,8 @@
       </div>
       <p class="tool-desc">{{ currentTool?.desc }}</p>
 
+      <ClipboardSuggestionBar @open-tool="onClipboardToolOpen" />
+
       <Transition name="panel-switch" mode="out-in">
         <HomePanel
           v-if="activeTool === HOME_ID"
@@ -93,6 +95,7 @@
       <LauncherPanel />
     </main>
   </div>
+
 </template>
 
 <script setup lang="ts">
@@ -110,11 +113,15 @@ import HomePanel from "./components/HomePanel.vue";
 import SidebarNav from "./components/SidebarNav.vue";
 import TabBar from "./components/TabBar.vue";
 import ShortcutHelpOverlay from "./components/ShortcutHelpOverlay.vue";
+import ClipboardSuggestionBar from "./components/ClipboardSuggestionBar.vue";
+import { useClipboardSuggestion } from "./composables/useClipboardSuggestion";
 
 // 工作区组件使用动态导入，避免与 tool-registry 重复打包
 const SnippetPanel = defineAsyncComponent(() => import("./components/SnippetPanel.vue"));
 const VaultPanel = defineAsyncComponent(() => import("./components/VaultPanel.vue"));
 const LauncherPanel = defineAsyncComponent(() => import("./components/LauncherPanel.vue"));
+
+const { detectClipboard } = useClipboardSuggestion();
 
 const sidebarItems: SidebarItem[] = [
   { kind: "tool", tool: { id: "formatter", name: "代码格式化", desc: "JSON/XML/HTML/Java/SQL 自动格式化" } },
@@ -433,6 +440,12 @@ function exitLauncherWorkspaceToHome() {
   onSelect(HOME_ID);
 }
 
+function onClipboardToolOpen(toolId: string, toolName: string) {
+  viewMode.value = "main";
+  recordToolClick(toolId);
+  openTab(toolId, toolName);
+}
+
 function resolveTheme(mode: "system" | "dark" | "light"): boolean {
   if (mode === "system") return window.matchMedia("(prefers-color-scheme: dark)").matches;
   return mode === "dark";
@@ -499,6 +512,14 @@ onMounted(async () => {
     });
   } catch { /* ignore in non-Tauri env */ }
   window.addEventListener("keydown", onKeydown);
+
+  // 剪贴板智能检测：窗口获焦时自动检测
+  try {
+    await listen("tauri://focus", async () => {
+      if (getSetting("clipboard_detection") === "false") return;
+      await detectClipboard();
+    });
+  } catch { /* ignore in non-Tauri env */ }
 });
 
 onBeforeUnmount(() => {

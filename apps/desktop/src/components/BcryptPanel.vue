@@ -32,8 +32,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from "vue";
+import { onMounted, ref } from "vue";
 import { invokeToolByChannel } from "../bridge/tauri";
+import { useClipboardSuggestion } from "../composables/useClipboardSuggestion";
 
 const hashPassword = ref("");
 const hashCost = ref(10);
@@ -72,6 +73,12 @@ async function doVerify() {
 function copyText(text: string) {
   navigator.clipboard.writeText(text);
 }
+
+const { consumePendingInput } = useClipboardSuggestion();
+onMounted(() => {
+  const pending = consumePendingInput("bcrypt");
+  if (pending) verifyHash.value = pending;
+});
 </script>
 
 <style scoped>

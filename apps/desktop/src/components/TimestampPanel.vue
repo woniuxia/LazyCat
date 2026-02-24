@@ -90,9 +90,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from "vue";
+import { onMounted, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { invokeToolByChannel } from "../bridge/tauri";
+import { useClipboardSuggestion } from "../composables/useClipboardSuggestion";
 
 type Precision = "s" | "ms";
 type JavaDateType =
@@ -446,6 +447,12 @@ watch([timeInput, timePrecision, dateInput, datePrecision], () => {
 watch([javaInput, javaSourceType, javaTargetType], () => {
   convertJavaDateTime();
   generateJavaCode();
+});
+
+const { consumePendingInput } = useClipboardSuggestion();
+onMounted(() => {
+  const pending = consumePendingInput("timestamp");
+  if (pending) timeInput.value = pending;
 });
 </script>
 

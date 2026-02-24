@@ -285,7 +285,8 @@ fn sync_all_shortcuts(app: &tauri::AppHandle) -> Result<(), String> {
                     "toggle" => {
                         if let Some(window) = app_handle.get_webview_window("main") {
                             let visible = window.is_visible().unwrap_or(false);
-                            if visible {
+                            let focused = window.is_focused().unwrap_or(false);
+                            if visible && focused {
                                 let _ = window.hide();
                             } else {
                                 let _ = window.show();
@@ -512,7 +513,8 @@ fn main() {
                         let app = tray.app_handle();
                         if let Some(window) = app.get_webview_window("main") {
                             let visible = window.is_visible().unwrap_or(false);
-                            if visible {
+                            let focused = window.is_focused().unwrap_or(false);
+                            if visible && focused {
                                 let _ = window.hide();
                             } else {
                                 let _ = window.show();

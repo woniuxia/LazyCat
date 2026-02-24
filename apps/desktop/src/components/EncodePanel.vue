@@ -127,11 +127,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from "vue";
+import { onMounted, ref } from "vue";
 import { ElMessage } from "element-plus";
 import { invokeToolByChannel } from "../bridge/tauri";
+import { useClipboardSuggestion } from "../composables/useClipboardSuggestion";
 
-defineProps<{ activeTool: string }>();
+const props = defineProps<{ activeTool: string }>();
 
 const base64Input = ref("");
 const base64Output = ref("");
@@ -255,6 +256,15 @@ async function copyOutput(text: string) {
     ElMessage.error("复制失败");
   }
 }
+
+const { consumePendingInput } = useClipboardSuggestion();
+onMounted(() => {
+  const pending = consumePendingInput(props.activeTool);
+  if (pending) {
+    if (props.activeTool === "base64") base64Input.value = pending;
+    else if (props.activeTool === "url") urlInput.value = pending;
+  }
+});
 </script>
 
 <style scoped>

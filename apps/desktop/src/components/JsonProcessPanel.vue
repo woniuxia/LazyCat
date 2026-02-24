@@ -24,9 +24,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from "vue";
+import { onMounted, ref } from "vue";
 import { ElMessage } from "element-plus";
 import { invokeToolByChannel } from "../bridge/tauri";
+import { useClipboardSuggestion } from "../composables/useClipboardSuggestion";
 
 const input = ref("");
 const output = ref("");
@@ -102,6 +103,12 @@ async function formatYaml() {
     ElMessage.error((error as Error).message);
   }
 }
+
+const { consumePendingInput } = useClipboardSuggestion();
+onMounted(() => {
+  const pending = consumePendingInput("json-process");
+  if (pending) input.value = pending;
+});
 </script>
 
 <style scoped>

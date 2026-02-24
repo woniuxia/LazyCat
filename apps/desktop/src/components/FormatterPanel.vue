@@ -12,10 +12,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import MonacoPane from "./MonacoPane.vue";
 import { formatHtml, formatJava, formatJson, formatSqlCode, formatXml } from "@lazycat/formatters";
+import { useClipboardSuggestion } from "../composables/useClipboardSuggestion";
 
 type FormatKind = "json" | "xml" | "html" | "java" | "sql" | "plaintext";
 
@@ -106,6 +107,12 @@ watch(formatInput, () => {
 
 onBeforeUnmount(() => {
   if (timer) clearTimeout(timer);
+});
+
+const { consumePendingInput } = useClipboardSuggestion();
+onMounted(() => {
+  const pending = consumePendingInput("formatter");
+  if (pending) formatInput.value = pending;
 });
 </script>
 
