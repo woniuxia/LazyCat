@@ -399,6 +399,43 @@ fn resume_all_shortcuts(app: tauri::AppHandle) -> Result<(), String> {
     sync_all_shortcuts(&app)
 }
 
+// ─── Packet Capture Commands ───────────────────────────────────
+
+#[tauri::command]
+fn check_npcap_installed() -> bool {
+    tools::capture::check_npcap()
+}
+
+#[tauri::command]
+fn list_capture_interfaces() -> Result<Vec<tools::capture::InterfaceInfo>, String> {
+    tools::capture::list_interfaces()
+}
+
+#[tauri::command]
+fn start_capture(
+    session_id: String,
+    interface: String,
+    filter: String,
+    on_packet: tauri::ipc::Channel<tools::capture::CaptureEvent>,
+) -> Result<(), String> {
+    tools::capture::start_capture(session_id, interface, filter, on_packet)
+}
+
+#[tauri::command]
+fn stop_capture(session_id: String) -> Result<tools::capture::CaptureStats, String> {
+    tools::capture::stop_capture(&session_id)
+}
+
+#[tauri::command]
+fn clear_capture_session(session_id: String) -> Result<(), String> {
+    tools::capture::clear_session(&session_id)
+}
+
+#[tauri::command]
+fn export_pcap(session_id: String, path: String) -> Result<(), String> {
+    tools::capture::export_pcap(&session_id, &path)
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -555,7 +592,13 @@ fn main() {
             register_named_hotkey,
             unregister_named_hotkey,
             pause_all_shortcuts,
-            resume_all_shortcuts
+            resume_all_shortcuts,
+            check_npcap_installed,
+            list_capture_interfaces,
+            start_capture,
+            stop_capture,
+            clear_capture_session,
+            export_pcap
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

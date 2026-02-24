@@ -26,6 +26,7 @@ pub mod snippets;
 pub mod pdf;
 pub mod vault;
 pub mod launcher;
+pub mod capture;
 
 use serde_json::Value;
 

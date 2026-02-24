@@ -50,6 +50,12 @@ open = "5"
 url = "2"
 zeroize = "1"
 lnk = "0.5"
+pcap = { version = "2", optional = true }
+etherparse = { version = "0.16", optional = true }
+libc = { version = "0.2", optional = true }
+
+[features]
+capture = ["pcap", "etherparse", "libc"]
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = [

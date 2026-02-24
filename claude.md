@@ -38,8 +38,40 @@
 - 构建（Windows 预检）: `pnpm build:win:precheck`
 - 单元测试: `pnpm test`
 - E2E 测试: `pnpm test:e2e`
-- Windows 打包（NSIS）: `pnpm build:win`
-- Windows 打包（便携版）: `pnpm build:portable`
+- Windows 打包（NSIS 安装包）: `pnpm build:win`
+- Windows 打包（NSIS 安装包，slim）: `pnpm build:portable`（实际也是 NSIS，见下方说明）
+
+### 打绿色免安装包（解压即用）
+
+`pnpm build:portable` 实际执行的是 `tauri build --bundles nsis`，产物仍为 NSIS 安装包，不是免安装 zip。要制作解压即用的绿色便携包，需手动打包：
+
+1. **先构建 release 产物**（如已构建可跳过）：
+   ```bash
+   pnpm build:portable   # 或 pnpm build:win，都会生成 release 产物
+   ```
+
+2. **用 7z 打包关键文件**：
+   ```bash
+   cd apps/desktop/src-tauri/target/release
+   7z a -tzip Lazycat_0.1.0_x64_portable.zip \
+     lazycat-desktop.exe \
+     lazycat_lib.dll \
+     manuals/ \
+     regex-library/
+   ```
+
+3. **产物**：`apps/desktop/src-tauri/target/release/Lazycat_0.1.0_x64_portable.zip`
+
+**需要打包的文件清单**：
+
+| 文件/目录 | 说明 |
+|-----------|------|
+| `lazycat-desktop.exe` | 主程序 |
+| `lazycat_lib.dll` | Rust 动态库 |
+| `manuals/` | 离线手册资源 |
+| `regex-library/` | 内置正则模板 |
+
+**注意**：用户机器需已安装 WebView2 运行时（Windows 11 自带，Windows 10 可能需手动安装）。
 
 ## 代理协作规则
 

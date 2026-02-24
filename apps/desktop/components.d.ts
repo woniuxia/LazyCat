@@ -15,6 +15,7 @@ declare module 'vue' {
     BaseConverterPanel: typeof import('./src/components/BaseConverterPanel.vue')['default']
     BcryptPanel: typeof import('./src/components/BcryptPanel.vue')['default']
     CalcDraftPanel: typeof import('./src/components/CalcDraftPanel.vue')['default']
+    CapturePanel: typeof import('./src/components/CapturePanel.vue')['default']
     ChmodCalcPanel: typeof import('./src/components/ChmodCalcPanel.vue')['default']
     ClipboardSuggestionBar: typeof import('./src/components/ClipboardSuggestionBar.vue')['default']
     ColorPanel: typeof import('./src/components/ColorPanel.vue')['default']

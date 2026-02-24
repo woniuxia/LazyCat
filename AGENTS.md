@@ -34,8 +34,9 @@
 - 单测：`pnpm test`
 - E2E：`pnpm test:e2e`
 - Windows 预检：`pnpm build:win:precheck`
-- Windows 打包：`pnpm build:win`
-- 便携版打包：`pnpm build:portable`
+- Windows 打包（NSIS 安装包）：`pnpm build:win`
+- Windows 打包（NSIS，同上）：`pnpm build:portable`
+- 绿色免安装包：先执行 `pnpm build:portable`，再手动 `7z a -tzip` 打包 `target/release/` 下的 `lazycat-desktop.exe`、`lazycat_lib.dll`、`manuals/`、`regex-library/`（详见 CLAUDE.md "打绿色免安装包" 章节）
 
 ## 4. 代理执行规则
 
