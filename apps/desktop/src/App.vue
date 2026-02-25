@@ -1,55 +1,58 @@
-﻿<template>
-  <div class="shell" :style="{ gridTemplateColumns: sidebarWidth + 'px 1fr' }">
-    <SidebarNav
-      :items="visibleSidebarItems"
+<template>
+  <div class="app-shell">
+    <TopBar
+      ref="topBarRef"
+      :all-items="visibleSidebarItems"
       :active-tool="activeTool"
       @select="onSelect"
+      @goto-home="onSelect(HOME_ID)"
+      @goto-settings="onSelect('settings')"
     />
-    <div
-      class="resize-handle"
-      :class="{ 'is-dragging': isResizing }"
-      :style="{ left: (sidebarWidth + 12) + 'px' }"
-      @mousedown="startResize"
-      @dblclick="resetSidebarWidth"
-    />
+
+    <!-- Tab Bar -->
+    <div v-if="showTabBar" class="tab-bar-wrap">
+      <button
+        class="tab-item"
+        :class="{ 'is-active': activeTool === HOME_ID, 'is-pinned': true }"
+        @click="onTabSelect(HOME_ID)"
+      >
+        <span class="tab-name">首页</span>
+      </button>
+      <button
+        v-for="tab in openTabs.filter(t => t.id !== HOME_ID)"
+        :key="tab.id"
+        class="tab-item"
+        :class="{ 'is-active': activeTool === tab.id }"
+        @click="onTabSelect(tab.id)"
+      >
+        <span class="tab-name">{{ tab.name }}</span>
+        <span
+          v-if="!tab.pinned"
+          class="tab-close"
+          @click.stop="closeTab(tab.id)"
+        >
+          <el-icon><Close /></el-icon>
+        </span>
+      </button>
+      <button class="tab-bar-new-btn" @click="focusSearch">
+        <el-icon><Plus /></el-icon>
+        <span>新工具</span>
+      </button>
+    </div>
 
     <main class="content">
-      <TabBar
-        v-if="openTabs.length > 1"
-        :tabs="openTabs"
-        :active-id="activeTool"
-        @select="onTabSelect"
-        @close="closeTab"
-        @close-others="closeOthers"
-        @close-left="closeToLeft"
-        @close-right="closeToRight"
-      />
-      <div class="tool-header">
-        <h1 class="tool-title">{{ currentTool?.name }}</h1>
-        <el-button
-          v-if="activeTool !== HOME_ID && isRealToolId(activeTool)"
-          text
-          :type="isFavorite(activeTool) ? 'warning' : 'info'"
-          @click="toggleFavorite(activeTool)"
-        >
-          {{ isFavorite(activeTool) ? "取消收藏" : "收藏" }}
-        </el-button>
-      </div>
-      <p class="tool-desc">{{ currentTool?.desc }}</p>
-
       <ClipboardSuggestionBar @open-tool="onClipboardToolOpen" />
 
       <Transition name="panel-switch" mode="out-in">
         <HomePanel
           v-if="activeTool === HOME_ID"
           key="home"
+          :all-items="visibleSidebarItems"
           :favorite-tools="favoriteTools"
           :top-monthly-tools="topMonthlyTools"
-          :home-top-limit="homeTopLimit"
           :is-favorite="isFavorite"
           @open-tool="onSelect"
           @toggle-favorite="toggleFavorite"
-          @update:home-top-limit="homeTopLimit = $event"
         />
 
         <component
@@ -68,6 +71,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onBeforeUnmount, ref, watch } from "vue";
 import { listen } from "@tauri-apps/api/event";
+import { Close, Plus } from "@element-plus/icons-vue";
 import type { ToolDef, SidebarItem } from "./types";
 import { useFavorites } from "./composables/useFavorites";
 import { useTabs } from "./composables/useTabs";
@@ -76,8 +80,7 @@ import { initSettings, getSetting, setSetting } from "./composables/useSettings"
 import { registerHotkey, registerNamedHotkey } from "./bridge/tauri";
 import { getToolComponent, ENCODE_PANEL_IDS } from "./tool-registry";
 import HomePanel from "./components/HomePanel.vue";
-import SidebarNav from "./components/SidebarNav.vue";
-import TabBar from "./components/TabBar.vue";
+import TopBar from "./components/TopBar.vue";
 import ShortcutHelpOverlay from "./components/ShortcutHelpOverlay.vue";
 import ClipboardSuggestionBar from "./components/ClipboardSuggestionBar.vue";
 import { useClipboardSuggestion } from "./composables/useClipboardSuggestion";
@@ -216,39 +219,7 @@ const snippetsHotkeyInput = ref("");
 const vaultHotkeyInput = ref("");
 const launcherHotkeyInput = ref("");
 const shortcutHelp = ref<InstanceType<typeof ShortcutHelpOverlay> | null>(null);
-
-/* ---------- Sidebar Resize ---------- */
-const SIDEBAR_MIN = 200;
-const SIDEBAR_MAX = 400;
-const SIDEBAR_DEFAULT = 260;
-const sidebarWidth = ref(SIDEBAR_DEFAULT);
-const isResizing = ref(false);
-
-function startResize(e: MouseEvent) {
-  e.preventDefault();
-  isResizing.value = true;
-  const startX = e.clientX;
-  const startW = sidebarWidth.value;
-
-  function onMove(ev: MouseEvent) {
-    const delta = ev.clientX - startX;
-    sidebarWidth.value = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, startW + delta));
-  }
-  function onUp() {
-    isResizing.value = false;
-    document.removeEventListener("mousemove", onMove);
-    document.removeEventListener("mouseup", onUp);
-    setSetting("sidebar_width", String(sidebarWidth.value));
-    window.dispatchEvent(new Event("resize"));
-  }
-  document.addEventListener("mousemove", onMove);
-  document.addEventListener("mouseup", onUp);
-}
-
-function resetSidebarWidth() {
-  sidebarWidth.value = SIDEBAR_DEFAULT;
-  setSetting("sidebar_width", String(SIDEBAR_DEFAULT));
-}
+const topBarRef = ref<InstanceType<typeof TopBar> | null>(null);
 
 function onKeydown(e: KeyboardEvent) {
   if (e.ctrlKey && e.key === "/") {
@@ -324,6 +295,7 @@ const currentComponentProps = computed(() => {
     snippetsHotkeyInput: snippetsHotkeyInput.value,
     vaultHotkeyInput: vaultHotkeyInput.value,
     launcherHotkeyInput: launcherHotkeyInput.value,
+    homeTopLimit: homeTopLimit.value,
     sidebarItems,
     getHiddenIds,
     setHiddenIds,
@@ -332,8 +304,14 @@ const currentComponentProps = computed(() => {
     "onUpdate:snippetsHotkeyInput": (v: string) => { snippetsHotkeyInput.value = v; },
     "onUpdate:vaultHotkeyInput": (v: string) => { vaultHotkeyInput.value = v; },
     "onUpdate:launcherHotkeyInput": (v: string) => { launcherHotkeyInput.value = v; },
+    "onUpdate:homeTopLimit": (v: number) => { homeTopLimit.value = v; },
   };
   return {};
+});
+
+// Show tab bar when there are tabs other than home, or home is not active
+const showTabBar = computed(() => {
+  return openTabs.value.length > 1 || (openTabs.value.length === 1 && openTabs.value[0].id !== HOME_ID);
 });
 
 function onSelect(id: string) {
@@ -355,6 +333,10 @@ function getToolName(id: string): string {
 function onClipboardToolOpen(toolId: string, toolName: string) {
   recordToolClick(toolId);
   openTab(toolId, toolName);
+}
+
+function focusSearch() {
+  topBarRef.value?.focusSearch();
 }
 
 function resolveTheme(mode: "system" | "dark" | "light"): boolean {
@@ -390,11 +372,6 @@ onMounted(async () => {
   systemMediaQuery.addEventListener("change", onSystemThemeChange);
   loadFavoritesFromStorage();
   loadMenuVisibility();
-  const savedSidebarWidth = getSetting("sidebar_width");
-  if (savedSidebarWidth) {
-    const w = Number(savedSidebarWidth);
-    if (w >= SIDEBAR_MIN && w <= SIDEBAR_MAX) sidebarWidth.value = w;
-  }
   const savedHotkey = getSetting("hotkey") ?? "";
   hotkeyInput.value = savedHotkey;
   if (savedHotkey) {

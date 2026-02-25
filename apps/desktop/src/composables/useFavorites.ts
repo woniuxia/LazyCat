@@ -9,7 +9,7 @@ const MAX_CLICK_HISTORY_PER_TOOL = 500;
 export function useFavorites(allTools: ToolDef[], isRealToolId: (id: string) => boolean) {
   const favoriteToolIds = ref<string[]>([]);
   const toolClickHistory = ref<ToolClickHistory>({});
-  const homeTopLimit = ref<6 | 12>(12);
+  const homeTopLimit = ref<number>(12);
 
   const allToolMap = new Map(allTools.map((t) => [t.id, t]));
 
@@ -88,7 +88,8 @@ export function useFavorites(allTools: ToolDef[], isRealToolId: (id: string) => 
 
     // Home top limit
     const rawLimit = getSettingJson<string>("home_top_limit", "12");
-    homeTopLimit.value = rawLimit === "6" ? 6 : 12;
+    const parsed = parseInt(rawLimit, 10);
+    homeTopLimit.value = Number.isFinite(parsed) && parsed > 0 ? parsed : 12;
   }
 
   // Auto-persist to SQLite via useSettings

@@ -37,6 +37,24 @@
               <el-button @click="menuVisibilityDialog?.show()">配置显示项</el-button>
             </div>
           </div>
+
+          <div class="setting-item">
+            <div class="setting-label">
+              <span class="label-text">最近常用显示数量</span>
+              <span class="label-desc">首页"最近常用"区域显示的工具条数（按近30天点击次数排序）</span>
+            </div>
+            <div class="setting-control">
+              <el-input-number
+                :model-value="homeTopLimit"
+                :min="1"
+                :max="50"
+                :step="1"
+                controls-position="right"
+                style="width: 120px"
+                @update:model-value="(v) => emit('update:homeTopLimit', v ?? 12)"
+              />
+            </div>
+          </div>
         </div>
       </section>
 
@@ -272,6 +290,7 @@ const props = defineProps<{
   snippetsHotkeyInput: string;
   vaultHotkeyInput: string;
   launcherHotkeyInput: string;
+  homeTopLimit: number;
   sidebarItems: SidebarItem[];
   getHiddenIds: () => string[];
   setHiddenIds: (ids: string[]) => void;
@@ -283,6 +302,7 @@ const emit = defineEmits<{
   (event: "update:snippetsHotkeyInput", value: string): void;
   (event: "update:vaultHotkeyInput", value: string): void;
   (event: "update:launcherHotkeyInput", value: string): void;
+  (event: "update:homeTopLimit", value: number): void;
 }>();
 
 const importMode = ref<"merge" | "overwrite">("merge");

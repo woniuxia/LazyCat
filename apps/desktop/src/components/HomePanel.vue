@@ -1,11 +1,11 @@
 <template>
   <div class="home-panel">
-    <section class="home-section">
+    <!-- Favorite Tools Section -->
+    <section v-if="favoriteTools.length" class="home-section">
       <div class="home-section-header">
-        <h2>收藏页面</h2>
-        <el-text type="info">优先显示你常用的工具页面</el-text>
+        <h2>★ 常用工具</h2>
       </div>
-      <div v-if="favoriteTools.length" class="home-card-grid">
+      <div class="home-card-grid">
         <div
           v-for="(tool, index) in favoriteTools"
           :key="tool.id"
@@ -24,21 +24,14 @@
           <div class="home-tool-card-desc">{{ tool.desc }}</div>
         </div>
       </div>
-      <el-empty v-else description='暂无收藏，进入工具页面后点击右上角"收藏"' />
     </section>
 
-    <section class="home-section">
+    <!-- Top Monthly Tools Section -->
+    <section v-if="topMonthlyTools.length" class="home-section">
       <div class="home-section-header">
-        <h2>最近一个月高频页面</h2>
-        <div class="home-section-header-right">
-          <el-text type="info">按点击次数排序，已排除收藏区页面</el-text>
-          <el-radio-group v-model="homeTopLimitModel" size="small">
-            <el-radio-button :value="6">Top 6</el-radio-button>
-            <el-radio-button :value="12">Top 12</el-radio-button>
-          </el-radio-group>
-        </div>
+        <h2>最近常用</h2>
       </div>
-      <div v-if="topMonthlyTools.length" class="home-card-grid">
+      <div class="home-card-grid">
         <div
           v-for="(item, index) in topMonthlyTools"
           :key="item.tool.id"
@@ -60,39 +53,112 @@
           </el-button>
           <div class="home-tool-card-title">{{ item.tool.name }}</div>
           <div class="home-tool-card-desc">{{ item.tool.desc }}</div>
-          <div class="home-tool-card-meta">最近30天点击 {{ item.count }} 次</div>
         </div>
       </div>
-      <el-empty v-else description="暂无使用记录，先去使用几个工具吧" />
+    </section>
+
+    <!-- Grouped Tools Sections -->
+    <section
+      v-for="(group, groupIndex) in groupedTools"
+      :key="group.id"
+      class="home-section"
+    >
+      <div class="home-section-header">
+        <h2>{{ group.name }}</h2>
+        <span class="group-count">{{ group.tools.length }} 个工具</span>
+      </div>
+      <div class="home-card-grid">
+        <div
+          v-for="(tool, toolIndex) in group.tools"
+          :key="tool.id"
+          class="home-tool-card"
+          :style="{ '--card-index': groupIndex * 10 + toolIndex }"
+          tabindex="0"
+          @click="emit('openTool', tool.id)"
+          @keyup.enter="emit('openTool', tool.id)"
+          @mousemove="onCardMouseMove"
+          @mouseleave="onCardMouseLeave"
+        >
+          <el-button
+            class="home-tool-card-action"
+            text
+            :type="isFavorite(tool.id) ? 'warning' : 'primary'"
+            @click.stop="emit('toggleFavorite', tool.id)"
+          >
+            {{ isFavorite(tool.id) ? "取消收藏" : "收藏" }}
+          </el-button>
+          <div class="home-tool-card-title">{{ tool.name }}</div>
+          <div class="home-tool-card-desc">{{ tool.desc }}</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Empty State -->
+    <section v-if="!hasAnyContent" class="home-section">
+      <el-empty description="暂无工具，点击右上角设置可显示更多工具">
+        <template #image>
+          <div style="font-size: 48px;">🐱</div>
+        </template>
+      </el-empty>
     </section>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed } from "vue";
-import type { ToolDef } from "../types";
+import type { ToolDef, SidebarItem } from "../types";
 
 interface TopMonthlyItem {
   tool: ToolDef;
   count: number;
 }
 
+interface GroupedTool {
+  id: string;
+  name: string;
+  tools: ToolDef[];
+}
+
 const props = defineProps<{
+  allItems: SidebarItem[];
   favoriteTools: ToolDef[];
   topMonthlyTools: TopMonthlyItem[];
-  homeTopLimit: 6 | 12;
   isFavorite: (id: string) => boolean;
 }>();
 
 const emit = defineEmits<{
   (event: "openTool", id: string): void;
   (event: "toggleFavorite", id: string): void;
-  (event: "update:homeTopLimit", value: 6 | 12): void;
 }>();
+// Extract grouped tools from allItems
+const groupedTools = computed<GroupedTool[]>(() => {
+  const groups: GroupedTool[] = [];
+  for (const item of props.allItems) {
+    if (item.kind === "group") {
+      groups.push({
+        id: item.group.id,
+        name: item.group.name,
+        tools: item.group.tools,
+      });
+    } else {
+      // Single tools go into an "其他" group or individual section
+      // For single tools, we create a pseudo-group
+      groups.push({
+        id: item.tool.id,
+        name: item.tool.name,
+        tools: [item.tool],
+      });
+    }
+  }
+  return groups;
+});
 
-const homeTopLimitModel = computed({
-  get: () => props.homeTopLimit,
-  set: (value) => emit("update:homeTopLimit", value)
+const hasAnyContent = computed(() => {
+  return (
+    props.favoriteTools.length > 0 ||
+    props.topMonthlyTools.length > 0 ||
+    groupedTools.value.length > 0
+  );
 });
 
 function onCardMouseMove(e: MouseEvent) {
@@ -108,3 +174,11 @@ function onCardMouseLeave(e: MouseEvent) {
   card.style.removeProperty("--my");
 }
 </script>
+
+<style scoped>
+.group-count {
+  font-size: 12px;
+  color: var(--lc-text-secondary);
+  font-weight: 400;
+}
+</style>
