@@ -15,5 +15,7 @@ test-results
 nul
 apps/desktop/src-tauri/target
 apps/desktop/src-tauri/gen
+apps/desktop/src-tauri/WebView2
 .claude
 .worktrees
+.playwright-mcp

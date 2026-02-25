@@ -13,22 +13,19 @@
 
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from "vue";
-import loader from "@monaco-editor/loader/lib/es/loader/index.js";
-import type * as monaco from "monaco-editor";
+import monaco from "../utils/monaco-setup";
 
 const diffContainer = ref<HTMLElement | null>(null);
 const renderSideBySide = ref(true);
 let diffEditor: monaco.editor.IStandaloneDiffEditor | null = null;
-let monacoModule: typeof monaco | null = null;
 let themeObserver: MutationObserver | null = null;
 
 function currentMonacoTheme(): string {
   return document.documentElement.dataset.theme === "light" ? "vs" : "vs-dark";
 }
 
-onMounted(async () => {
-  monacoModule = await loader.init();
-  diffEditor = monacoModule.editor.createDiffEditor(diffContainer.value as HTMLElement, {
+onMounted(() => {
+  diffEditor = monaco.editor.createDiffEditor(diffContainer.value as HTMLElement, {
     theme: currentMonacoTheme(),
     automaticLayout: true,
     renderSideBySide: renderSideBySide.value,
@@ -37,12 +34,12 @@ onMounted(async () => {
     originalEditable: true,
   });
 
-  const originalModel = monacoModule.editor.createModel("", "plaintext");
-  const modifiedModel = monacoModule.editor.createModel("", "plaintext");
+  const originalModel = monaco.editor.createModel("", "plaintext");
+  const modifiedModel = monaco.editor.createModel("", "plaintext");
   diffEditor.setModel({ original: originalModel, modified: modifiedModel });
 
   themeObserver = new MutationObserver(() => {
-    if (monacoModule) monacoModule.editor.setTheme(currentMonacoTheme());
+    monaco.editor.setTheme(currentMonacoTheme());
   });
   themeObserver.observe(document.documentElement, {
     attributes: true,

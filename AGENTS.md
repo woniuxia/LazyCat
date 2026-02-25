@@ -36,7 +36,32 @@
 - Windows 预检：`pnpm build:win:precheck`
 - Windows 打包（NSIS 安装包）：`pnpm build:win`
 - Windows 打包（NSIS，同上）：`pnpm build:portable`
-- 绿色免安装包：先执行 `pnpm build:portable`，再手动 `7z a -tzip` 打包 `target/release/` 下的 `lazycat-desktop.exe`、`lazycat_lib.dll`、`manuals/`、`regex-library/`（详见 CLAUDE.md "打绿色免安装包" 章节）
+- 绿色免安装包：详见 CLAUDE.md "Windows 打包方式总览" 章节
+
+### Windows 打包方式总览
+
+根据是否内嵌 WebView2 运行时，共四种打包方式：
+
+| 方式 | 含 WebView2 | 产物 | 离线可用 | 适用场景 |
+|------|:-----------:|------|:--------:|----------|
+| NSIS（轻量） | 否 | `.exe` ~19MB | 否 | 目标机有 WebView2 或可联网 |
+| NSIS（离线） | 是 | `.exe` ~218MB | 是 | 离线 Win10 部署（需 fixedRuntime 配置） |
+| 绿色包（轻量） | 否 | `.zip` ~30MB | 否 | 目标机有 WebView2 |
+| 绿色包（离线） | 是 | `.zip` ~290MB | 是 | 离线环境解压即用 |
+
+**WebView2 离线原理**：`tauri.conf.json` 无需修改。`main.rs` 启动时扫描 exe 同级目录的 `Microsoft.WebView2.FixedVersionRuntime.*` 目录，设置 `WEBVIEW2_BROWSER_EXECUTABLE_FOLDER` 环境变量，`WebView2Loader.dll` 据此使用本地运行时。
+
+**离线模式前置**：需在 `src-tauri/WebView2/` 下放置解压后的 WebView2 Fixed Runtime（从微软 CAB 文件用 7z 提取，~604MB，已 gitignore）。
+
+**构建命令**：`pnpm build:portable`（等价于 `pnpm build:web && tauri build --bundles nsis`）。必须用 `tauri build` 而非 `cargo build --release`，后者不嵌入前端资源会导致白屏。
+
+**绿色包**：构建后手动 `7z a -tzip` 打包 `target/release/` 下的 `lazycat-desktop.exe`、`lazycat_lib.dll`、`manuals/`、`regex-library/`、`hotkey-library/`（离线模式还需包含 WebView2 运行时目录）。
+
+**devtools**：`Cargo.toml` 中 tauri 已启用 `devtools` feature，release 模式右键可打开开发者工具。
+
+**Monaco Editor**：已从 CDN 改为 Vite ESM 本地打包（`src/utils/monaco-setup.ts`），离线环境可用。
+
+**注意**：`offlineInstaller` 模式在某些环境下安装失败（错误码 `-2147219700`），不推荐。完整操作步骤见 CLAUDE.md。
 
 ## 4. 代理执行规则
 

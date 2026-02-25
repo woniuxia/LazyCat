@@ -4,8 +4,7 @@
 
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from "vue";
-import loader from "@monaco-editor/loader/lib/es/loader/index.js";
-import type * as monaco from "monaco-editor";
+import monaco from "../utils/monaco-setup";
 
 const props = withDefaults(
   defineProps<{
@@ -25,7 +24,6 @@ const emit = defineEmits<{
 
 const container = ref<HTMLElement | null>(null);
 let editor: monaco.editor.IStandaloneCodeEditor | null = null;
-let monacoModule: typeof monaco | null = null;
 let suppressEmit = false;
 let themeObserver: MutationObserver | null = null;
 
@@ -33,9 +31,8 @@ function currentMonacoTheme(): string {
   return document.documentElement.dataset.theme === "light" ? "vs" : "vs-dark";
 }
 
-onMounted(async () => {
-  monacoModule = await loader.init();
-  editor = monacoModule.editor.create(container.value as HTMLElement, {
+onMounted(() => {
+  editor = monaco.editor.create(container.value as HTMLElement, {
     value: props.modelValue,
     language: props.language,
     theme: currentMonacoTheme(),
@@ -55,9 +52,7 @@ onMounted(async () => {
 
   // Watch for data-theme changes on <html> and switch Monaco theme
   themeObserver = new MutationObserver(() => {
-    if (monacoModule) {
-      monacoModule.editor.setTheme(currentMonacoTheme());
-    }
+    monaco.editor.setTheme(currentMonacoTheme());
   });
   themeObserver.observe(document.documentElement, {
     attributes: true,
@@ -79,10 +74,10 @@ watch(
 watch(
   () => props.language,
   (language) => {
-    if (!editor || !monacoModule) return;
+    if (!editor) return;
     const model = editor.getModel();
     if (!model) return;
-    monacoModule.editor.setModelLanguage(model, language ?? "plaintext");
+    monaco.editor.setModelLanguage(model, language ?? "plaintext");
   }
 );
 

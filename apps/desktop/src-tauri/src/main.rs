@@ -437,6 +437,35 @@ fn export_pcap(session_id: String, path: String) -> Result<(), String> {
 }
 
 fn main() {
+    // 绿色免安装包支持：检测 exe 同级目录下的 WebView2 Fixed Runtime，
+    // 设置环境变量让 WebView2Loader.dll 使用本地运行时而非系统安装版本。
+    // 必须在 Tauri 初始化之前调用。
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(exe_path) = std::env::current_exe() {
+            if let Some(exe_dir) = exe_path.parent() {
+                // 查找 exe 同级的 Microsoft.WebView2.FixedVersionRuntime.* 目录
+                if let Ok(entries) = std::fs::read_dir(exe_dir) {
+                    for entry in entries.flatten() {
+                        let name = entry.file_name();
+                        let name_str = name.to_string_lossy();
+                        if name_str.starts_with("Microsoft.WebView2.FixedVersionRuntime.")
+                            && entry.path().is_dir()
+                        {
+                            unsafe {
+                                std::env::set_var(
+                                    "WEBVIEW2_BROWSER_EXECUTABLE_FOLDER",
+                                    entry.path(),
+                                );
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
@@ -561,6 +590,7 @@ fn main() {
                     }
                 })
                 .build(app)?;
+
             Ok(())
         })
         .on_window_event(|window, event| {

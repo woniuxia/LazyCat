@@ -26,7 +26,6 @@ export default defineConfig({
       output: {
         manualChunks: {
           "element-plus": ["element-plus"],
-          "monaco-editor": ["monaco-editor"],
         },
       },
     },
