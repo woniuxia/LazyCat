@@ -1,4 +1,4 @@
-import { ref } from "vue";
+import { ref, watch, onMounted } from "vue";
 import type { ClipboardDetectResult } from "../utils/clipboard-detect";
 import { detectClipboardContent } from "../utils/clipboard-detect";
 
@@ -52,6 +52,29 @@ export function useClipboardSuggestion() {
   }
 
   /**
+   * 在目标面板中调用：同时处理首次挂载和已挂载后的 pendingInput 变更。
+   * 解决面板已打开时再次触发智能助手不会更新内容的问题。
+   */
+  function watchPendingInput(
+    toolId: string | (() => string),
+    apply: (text: string) => void,
+  ): void {
+    const resolveId = typeof toolId === "function" ? toolId : () => toolId;
+
+    onMounted(() => {
+      const pending = consumePendingInput(resolveId());
+      if (pending) apply(pending);
+    });
+
+    watch(pendingInput, (val) => {
+      if (val && val.toolId === resolveId()) {
+        const text = consumePendingInput(resolveId());
+        if (text) apply(text);
+      }
+    });
+  }
+
+  /**
    * 关闭通知。
    */
   function dismiss(): void {
@@ -66,6 +89,7 @@ export function useClipboardSuggestion() {
     detectClipboard,
     applyAction,
     consumePendingInput,
+    watchPendingInput,
     dismiss,
   };
 }

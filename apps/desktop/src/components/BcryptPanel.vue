@@ -32,7 +32,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { ref } from "vue";
 import { invokeToolByChannel } from "../bridge/tauri";
 import { useClipboardSuggestion } from "../composables/useClipboardSuggestion";
 
@@ -74,11 +74,8 @@ function copyText(text: string) {
   navigator.clipboard.writeText(text);
 }
 
-const { consumePendingInput } = useClipboardSuggestion();
-onMounted(() => {
-  const pending = consumePendingInput("bcrypt");
-  if (pending) verifyHash.value = pending;
-});
+const { watchPendingInput } = useClipboardSuggestion();
+watchPendingInput("bcrypt", (text) => { verifyHash.value = text; });
 </script>
 
 <style scoped>

@@ -80,15 +80,11 @@
     padding: 20px;
   }
 
-  .workspace-panel-shell,
-  .snippet-workspace-shell,
-  .vault-workspace-shell {
+  .workspace-panel-shell {
     padding: 10px;
   }
 
-  .workspace-panel-header,
-  .snippet-workspace-header,
-  .vault-workspace-header {
+  .workspace-panel-header {
     padding: 10px 12px;
   }
 }

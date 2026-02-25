@@ -1,12 +1,9 @@
 ﻿<template>
-  <div v-if="viewMode === 'main'" class="shell" :style="{ gridTemplateColumns: sidebarWidth + 'px 1fr' }">
+  <div class="shell" :style="{ gridTemplateColumns: sidebarWidth + 'px 1fr' }">
     <SidebarNav
       :items="visibleSidebarItems"
       :active-tool="activeTool"
       @select="onSelect"
-      @open-snippet-workspace="enterSnippetWorkspace"
-      @open-vault-workspace="enterVaultWorkspace"
-      @open-launcher-workspace="enterLauncherWorkspace"
     />
     <div
       class="resize-handle"
@@ -66,36 +63,6 @@
     <ShortcutHelpOverlay ref="shortcutHelp" />
   </div>
 
-  <div v-else-if="viewMode === 'snippet-workspace'" class="snippet-workspace-shell">
-    <header class="snippet-workspace-header">
-      <el-button class="snippet-back-btn" text @click="exitSnippetWorkspaceToHome">返回首页</el-button>
-      <h1>代码片段工作区</h1>
-    </header>
-    <main class="snippet-workspace-body">
-      <SnippetPanel />
-    </main>
-  </div>
-
-  <div v-else-if="viewMode === 'vault-workspace'" class="vault-workspace-shell">
-    <header class="vault-workspace-header">
-      <el-button class="vault-back-btn" text @click="exitVaultWorkspaceToHome">返回首页</el-button>
-      <h1>密码管理</h1>
-    </header>
-    <main class="vault-workspace-body">
-      <VaultPanel />
-    </main>
-  </div>
-
-  <div v-else-if="viewMode === 'launcher-workspace'" class="launcher-workspace-shell">
-    <header class="launcher-workspace-header">
-      <el-button class="launcher-back-btn" text @click="exitLauncherWorkspaceToHome">返回首页</el-button>
-      <h1>快捷启动</h1>
-    </header>
-    <main class="launcher-workspace-body">
-      <LauncherPanel />
-    </main>
-  </div>
-
 </template>
 
 <script setup lang="ts">
@@ -108,18 +75,12 @@ import { useMenuVisibility } from "./composables/useMenuVisibility";
 import { initSettings, getSetting, setSetting } from "./composables/useSettings";
 import { registerHotkey, registerNamedHotkey } from "./bridge/tauri";
 import { getToolComponent, ENCODE_PANEL_IDS } from "./tool-registry";
-import { defineAsyncComponent } from "vue";
 import HomePanel from "./components/HomePanel.vue";
 import SidebarNav from "./components/SidebarNav.vue";
 import TabBar from "./components/TabBar.vue";
 import ShortcutHelpOverlay from "./components/ShortcutHelpOverlay.vue";
 import ClipboardSuggestionBar from "./components/ClipboardSuggestionBar.vue";
 import { useClipboardSuggestion } from "./composables/useClipboardSuggestion";
-
-// 工作区组件使用动态导入，避免与 tool-registry 重复打包
-const SnippetPanel = defineAsyncComponent(() => import("./components/SnippetPanel.vue"));
-const VaultPanel = defineAsyncComponent(() => import("./components/VaultPanel.vue"));
-const LauncherPanel = defineAsyncComponent(() => import("./components/LauncherPanel.vue"));
 
 const { detectClipboard } = useClipboardSuggestion();
 
@@ -239,9 +200,6 @@ const sidebarItems: SidebarItem[] = [
   }
 ];
 const HOME_ID = "home";
-const SNIPPETS_ID = "snippets";
-const VAULT_ID = "vault";
-const LAUNCHER_ID = "launcher";
 const HOME_TOOL: ToolDef = { id: HOME_ID, name: "首页", desc: "收藏工具与近一个月高频工具入口" };
 
 const allTools = sidebarItems.flatMap((item) =>
@@ -252,7 +210,6 @@ function isRealToolId(id: string) { return allToolMap.has(id); }
 
 const { openTabs, activeTabId, openTab, closeTab, closeOthers, closeToLeft, closeToRight } = useTabs();
 const activeTool = activeTabId;
-const viewMode = ref<"main" | "snippet-workspace" | "vault-workspace" | "launcher-workspace">("main");
 const themeMode = ref<"system" | "dark" | "light">("system");
 const hotkeyInput = ref("");
 const snippetsHotkeyInput = ref("");
@@ -380,19 +337,6 @@ const currentComponentProps = computed(() => {
 });
 
 function onSelect(id: string) {
-  if (id === SNIPPETS_ID) {
-    enterSnippetWorkspace();
-    return;
-  }
-  if (id === VAULT_ID) {
-    enterVaultWorkspace();
-    return;
-  }
-  if (id === LAUNCHER_ID) {
-    enterLauncherWorkspace();
-    return;
-  }
-  viewMode.value = "main";
   const name = getToolName(id);
   if (id !== HOME_ID) recordToolClick(id);
   openTab(id, name);
@@ -408,41 +352,7 @@ function getToolName(id: string): string {
   return allToolMap.get(id)?.name ?? id;
 }
 
-function enterSnippetWorkspace() {
-  viewMode.value = "snippet-workspace";
-  recordToolClick(SNIPPETS_ID);
-  openTab(SNIPPETS_ID, getToolName(SNIPPETS_ID));
-}
-
-function exitSnippetWorkspaceToHome() {
-  viewMode.value = "main";
-  onSelect(HOME_ID);
-}
-
-function enterVaultWorkspace() {
-  viewMode.value = "vault-workspace";
-  recordToolClick(VAULT_ID);
-  openTab(VAULT_ID, getToolName(VAULT_ID));
-}
-
-function exitVaultWorkspaceToHome() {
-  viewMode.value = "main";
-  onSelect(HOME_ID);
-}
-
-function enterLauncherWorkspace() {
-  viewMode.value = "launcher-workspace";
-  recordToolClick(LAUNCHER_ID);
-  openTab(LAUNCHER_ID, getToolName(LAUNCHER_ID));
-}
-
-function exitLauncherWorkspaceToHome() {
-  viewMode.value = "main";
-  onSelect(HOME_ID);
-}
-
 function onClipboardToolOpen(toolId: string, toolName: string) {
-  viewMode.value = "main";
   recordToolClick(toolId);
   openTab(toolId, toolName);
 }
@@ -507,9 +417,9 @@ onMounted(async () => {
   }
   try {
     await listen<string>("hotkey-navigate", (event) => {
-      if (event.payload === "snippets") enterSnippetWorkspace();
-      else if (event.payload === "vault") enterVaultWorkspace();
-      else if (event.payload === "launcher") enterLauncherWorkspace();
+      if (event.payload === "snippets") onSelect("snippets");
+      else if (event.payload === "vault") onSelect("vault");
+      else if (event.payload === "launcher") onSelect("launcher");
     });
   } catch { /* ignore in non-Tauri env */ }
   window.addEventListener("keydown", onKeydown);

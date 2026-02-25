@@ -90,7 +90,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, watch } from "vue";
+import { ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { invokeToolByChannel } from "../bridge/tauri";
 import { useClipboardSuggestion } from "../composables/useClipboardSuggestion";
@@ -449,11 +449,8 @@ watch([javaInput, javaSourceType, javaTargetType], () => {
   generateJavaCode();
 });
 
-const { consumePendingInput } = useClipboardSuggestion();
-onMounted(() => {
-  const pending = consumePendingInput("timestamp");
-  if (pending) timeInput.value = pending;
-});
+const { watchPendingInput } = useClipboardSuggestion();
+watchPendingInput("timestamp", (text) => { timeInput.value = text; });
 </script>
 
 <style scoped>

@@ -37,7 +37,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, watch } from "vue";
+import { ref, watch } from "vue";
 import { invokeToolByChannel } from "../bridge/tauri";
 import { useClipboardSuggestion } from "../composables/useClipboardSuggestion";
 
@@ -79,11 +79,8 @@ watch(token, (val) => {
   }, 200);
 });
 
-const { consumePendingInput } = useClipboardSuggestion();
-onMounted(() => {
-  const pending = consumePendingInput("jwt");
-  if (pending) token.value = pending;
-});
+const { watchPendingInput } = useClipboardSuggestion();
+watchPendingInput("jwt", (text) => { token.value = text; });
 </script>
 
 <style scoped>

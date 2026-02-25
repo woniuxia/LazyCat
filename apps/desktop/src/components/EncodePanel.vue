@@ -127,7 +127,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { ref } from "vue";
 import { ElMessage } from "element-plus";
 import { invokeToolByChannel } from "../bridge/tauri";
 import { useClipboardSuggestion } from "../composables/useClipboardSuggestion";
@@ -257,13 +257,10 @@ async function copyOutput(text: string) {
   }
 }
 
-const { consumePendingInput } = useClipboardSuggestion();
-onMounted(() => {
-  const pending = consumePendingInput(props.activeTool);
-  if (pending) {
-    if (props.activeTool === "base64") base64Input.value = pending;
-    else if (props.activeTool === "url") urlInput.value = pending;
-  }
+const { watchPendingInput } = useClipboardSuggestion();
+watchPendingInput(() => props.activeTool, (text) => {
+  if (props.activeTool === "base64") base64Input.value = text;
+  else if (props.activeTool === "url") urlInput.value = text;
 });
 </script>
 

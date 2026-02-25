@@ -92,9 +92,7 @@
 }
 
 /* ---------- Workspace Panel (shared) ---------- */
-.workspace-panel-shell,
-.snippet-workspace-shell,
-.vault-workspace-shell {
+.workspace-panel-shell {
   display: flex;
   flex-direction: column;
   width: 100%;
@@ -103,9 +101,7 @@
   padding: 12px;
 }
 
-.workspace-panel-header,
-.snippet-workspace-header,
-.vault-workspace-header {
+.workspace-panel-header {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -115,9 +111,7 @@
   padding: 12px 16px;
 }
 
-.workspace-panel-header h1,
-.snippet-workspace-header h1,
-.vault-workspace-header h1 {
+.workspace-panel-header h1 {
   margin: 0;
   font-family: var(--lc-font-display);
   font-size: 18px;
@@ -125,64 +119,20 @@
   color: var(--lc-text);
 }
 
-.workspace-panel-header .workspace-back-btn,
-.snippet-workspace-header .snippet-back-btn,
-.vault-workspace-header .vault-back-btn {
+.workspace-panel-header .workspace-back-btn {
   color: var(--lc-accent);
 }
 
-.workspace-panel-header .workspace-back-btn:hover,
-.snippet-workspace-header .snippet-back-btn:hover,
-.vault-workspace-header .vault-back-btn:hover {
+.workspace-panel-header .workspace-back-btn:hover {
   background: var(--lc-accent-dim);
   color: var(--lc-accent);
 }
 
-.workspace-panel-body,
-.snippet-workspace-body,
-.vault-workspace-body,
-.launcher-workspace-body {
+.workspace-panel-body {
   flex: 1;
   min-height: 0;
   border: 1px solid var(--lc-border);
   border-radius: var(--lc-radius-lg);
   background: var(--lc-surface-0);
   overflow: hidden;
-}
-
-/* ---------- Launcher Workspace ---------- */
-.launcher-workspace-shell {
-  display: flex;
-  flex-direction: column;
-  width: 100%;
-  height: 100%;
-  gap: 12px;
-  padding: 12px;
-}
-
-.launcher-workspace-header {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  border: 1px solid var(--lc-border-subtle);
-  border-radius: var(--lc-radius-md);
-  background: transparent;
-  padding: 12px 16px;
-}
-
-.launcher-workspace-header h1 {
-  margin: 0;
-  font-family: var(--lc-font-display);
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--lc-text);
-}
-
-.launcher-workspace-header .launcher-back-btn {
-  color: var(--lc-accent);
-}
-
-.launcher-workspace-header .launcher-back-btn:hover {
-  background: var(--lc-accent-dim);
-  color: var(--lc-accent);
 }

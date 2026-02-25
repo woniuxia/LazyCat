@@ -41,37 +41,110 @@
 - Windows 打包（NSIS 安装包）: `pnpm build:win`
 - Windows 打包（NSIS 安装包，slim）: `pnpm build:portable`（实际也是 NSIS，见下方说明）
 
-### 打绿色免安装包（解压即用）
+### Windows 打包方式总览
 
-`pnpm build:portable` 实际执行的是 `tauri build --bundles nsis`，产物仍为 NSIS 安装包，不是免安装 zip。要制作解压即用的绿色便携包，需手动打包：
+LazyCat 依赖 WebView2 运行时。Windows 11 自带，Windows 10 不一定有。根据是否内嵌 WebView2，共有四种打包方式：
 
-1. **先构建 release 产物**（如已构建可跳过）：
+| 方式 | 含 WebView2 | 产物格式 | 体积 | 离线可用 | 适用场景 |
+|------|:-----------:|----------|------|:--------:|----------|
+| NSIS 安装包（轻量） | 否 | `.exe` 安装包 | ~19 MB | 否 | 目标机已有 WebView2 或可联网 |
+| NSIS 安装包（离线） | 是 | `.exe` 安装包 | ~218 MB | 是 | 离线环境 Win10 部署（需 fixedRuntime 配置） |
+| 绿色免安装包（轻量） | 否 | `.zip` | ~30 MB | 否 | 目标机已有 WebView2 |
+| 绿色免安装包（离线） | 是 | `.zip` | ~290 MB | 是 | 离线环境解压即用 |
+
+### WebView2 离线支持原理
+
+`tauri.conf.json` 中**不需要**配置 `webviewInstallMode`，保持默认即可。
+
+离线 WebView2 支持通过 Rust 代码实现（`main.rs` 的 `main()` 函数开头）：
+- 启动时扫描 exe 同级目录，查找 `Microsoft.WebView2.FixedVersionRuntime.*` 目录
+- 找到后设置 `WEBVIEW2_BROWSER_EXECUTABLE_FOLDER` 环境变量
+- `WebView2Loader.dll` 读取该环境变量，使用本地运行时而非系统安装版本
+- 必须在 `tauri::Builder::default()` 之前执行
+
+这意味着同一个二进制文件同时支持两种场景：
+- exe 同级有 WebView2 运行时目录 -> 使用本地运行时（离线绿色包）
+- exe 同级没有 -> 使用系统安装的 WebView2（NSIS 安装包、Win11）
+
+### 准备 WebView2 Fixed Runtime（仅离线模式需要，一次性操作）
+
+1. 获取 CAB 文件：从微软官方下载 `Microsoft.WebView2.FixedVersionRuntime.<版本>.x64.cab`
+2. 用 7z 提取到 `src-tauri/WebView2/` 目录：
    ```bash
-   pnpm build:portable   # 或 pnpm build:win，都会生成 release 产物
+   mkdir -p apps/desktop/src-tauri/WebView2
+   7z x "路径/Microsoft.WebView2.FixedVersionRuntime.145.0.3800.70.x64.cab" \
+     -o"apps/desktop/src-tauri/WebView2" -y
    ```
+3. 提取后目录结构为 `src-tauri/WebView2/Microsoft.WebView2.FixedVersionRuntime.145.0.3800.70.x64/msedgewebview2.exe`
+4. `WebView2/` 目录已在 `.gitignore` 中排除，不会提交到仓库（~604MB）
 
-2. **用 7z 打包关键文件**：
-   ```bash
-   cd apps/desktop/src-tauri/target/release
-   7z a -tzip Lazycat_0.1.0_x64_portable.zip \
-     lazycat-desktop.exe \
-     lazycat_lib.dll \
-     manuals/ \
-     regex-library/
-   ```
+### 构建命令
 
-3. **产物**：`apps/desktop/src-tauri/target/release/Lazycat_0.1.0_x64_portable.zip`
+所有打包方式共用同一个构建命令，`tauri.conf.json` 无需修改：
 
-**需要打包的文件清单**：
+```bash
+pnpm build:portable   # 等价于 pnpm build:web && tauri build --bundles nsis
+```
 
-| 文件/目录 | 说明 |
-|-----------|------|
-| `lazycat-desktop.exe` | 主程序 |
-| `lazycat_lib.dll` | Rust 动态库 |
-| `manuals/` | 离线手册资源 |
-| `regex-library/` | 内置正则模板 |
+产物：
+- NSIS 安装包：`target/release/bundle/nsis/Lazycat_0.1.0_x64-setup.exe`
+- Release 二进制：`target/release/lazycat-desktop.exe` + `lazycat_lib.dll`
 
-**注意**：用户机器需已安装 WebView2 运行时（Windows 11 自带，Windows 10 可能需手动安装）。
+### 绿色免安装包打包（手动 7z）
+
+`pnpm build:portable` 产物仍为 NSIS 安装包。绿色包需在构建后手动用 7z 打包。
+
+**轻量版**（不含 WebView2）：
+```bash
+cd apps/desktop/src-tauri/target/release
+7z a -tzip Lazycat_0.1.0_x64_portable.zip \
+  lazycat-desktop.exe \
+  lazycat_lib.dll \
+  manuals/ \
+  regex-library/ \
+  hotkey-library/
+```
+
+**离线版**（含 WebView2）：
+```bash
+cd apps/desktop/src-tauri/target/release
+7z a -tzip Lazycat_0.1.0_x64_portable.zip \
+  lazycat-desktop.exe \
+  lazycat_lib.dll \
+  manuals/ \
+  regex-library/ \
+  hotkey-library/ \
+  ../../WebView2/Microsoft.WebView2.FixedVersionRuntime.145.0.3800.70.x64/
+```
+
+### 绿色包文件清单
+
+| 文件/目录 | 说明 | 是否必需 |
+|-----------|------|:--------:|
+| `lazycat-desktop.exe` | 主程序 | 是 |
+| `lazycat_lib.dll` | Rust 动态库 | 是 |
+| `manuals/` | 离线手册资源 | 是 |
+| `regex-library/` | 内置正则模板 | 是 |
+| `hotkey-library/` | 快捷键库 | 是 |
+| `Microsoft.WebView2.FixedVersionRuntime.*/` | WebView2 运行时 | 仅离线模式 |
+
+### 打包注意事项
+
+- **必须用 `tauri build` 构建**，不能用 `cargo build --release`。后者不会将 `dist-renderer` 前端资源嵌入二进制，运行时会回退到 `devUrl`（localhost）导致白屏
+- `Cargo.toml` 中 tauri 已启用 `devtools` feature，release 模式下右键页面可选择"检查"打开开发者工具
+- WebView2 Fixed Runtime **不会自动更新**，后续需手动更新 CAB 文件以获取安全补丁
+- `offlineInstaller` 模式（`tauri.conf.json` 中 `type: "offlineInstaller"`）在某些环境下安装会失败（错误码 `-2147219700`），不推荐使用
+- `fixedRuntime` 配置仅影响 NSIS 打包器，不影响编译后的二进制行为；绿色包的离线 WebView2 支持完全由 `main.rs` 中的环境变量注入实现
+- 构建机器需要 Rust 工具链（`cargo`、`rustc`）、Perl（OpenSSL 编译）、7z（绿色包打包）
+- 构建时若 `lazycat-desktop.exe` 被占用（os error 5），需先关闭运行中的程序
+
+### Monaco Editor 本地化
+
+Monaco Editor 已从 CDN 加载改为 Vite ESM 本地打包，确保离线环境可用：
+- 配置文件：`apps/desktop/src/utils/monaco-setup.ts`，统一初始化 Monaco 及 5 个 worker（editor/json/css/html/ts）
+- `MonacoPane.vue` 和 `DiffPanel.vue` 直接导入本地模块，不再依赖 `@monaco-editor/loader` 的 CDN
+- 构建产物中包含 `monaco-setup-*.js`（~3.3MB）和 5 个 `*.worker-*.js` 文件
+- CSP 中 `worker-src 'self' blob:` 已满足 worker 加载需求，无需额外配置
 
 ## 代理协作规则
 
