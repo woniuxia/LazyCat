@@ -15,6 +15,7 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
     match action {
         "render" => render(payload),
         "lint" => lint(payload),
+        "extract_params" => extract_params(payload),
         _ => Err(format!("unsupported mybatis action: {action}")),
     }
 }
@@ -103,6 +104,77 @@ fn lint(payload: &Value) -> Result<Value, String> {
     }
 
     Ok(json!({ "issues": issues }))
+}
+
+fn extract_params(payload: &Value) -> Result<Value, String> {
+    let sql_template = payload["sqlTemplate"].as_str().unwrap_or_default();
+    if sql_template.trim().is_empty() {
+        return Ok(json!({ "params": [] }));
+    }
+
+    // 收集 foreach item 局部变量（需排除）
+    let foreach_item_re =
+        Regex::new(r#"<foreach\b[^>]*\bitem\s*=\s*["']([^"']+)["']"#).map_err(|e| e.to_string())?;
+    let mut local_vars: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for cap in foreach_item_re.captures_iter(sql_template) {
+        if let Some(m) = cap.get(1) {
+            local_vars.insert(m.as_str().to_string());
+        }
+    }
+
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut params: Vec<String> = Vec::new();
+
+    // 占位符根段 #{name} / ${name}
+    let ph_re = Regex::new(r"[#$]\{\s*([a-zA-Z_][a-zA-Z0-9_.]*)\s*\}").map_err(|e| e.to_string())?;
+    for cap in ph_re.captures_iter(sql_template) {
+        if let Some(m) = cap.get(1) {
+            let root = m.as_str().split('.').next().unwrap_or_default().to_string();
+            if !root.is_empty() && !local_vars.contains(&root) && seen.insert(root.clone()) {
+                params.push(root);
+            }
+        }
+    }
+
+    // foreach collection 属性
+    let coll_re =
+        Regex::new(r#"<foreach\b[^>]*\bcollection\s*=\s*["']([^"']+)["']"#).map_err(|e| e.to_string())?;
+    for cap in coll_re.captures_iter(sql_template) {
+        if let Some(m) = cap.get(1) {
+            let name = m.as_str().to_string();
+            if !local_vars.contains(&name) && seen.insert(name.clone()) {
+                params.push(name);
+            }
+        }
+    }
+
+    // test 表达式中的标识符
+    let test_re =
+        Regex::new(r#"<(?:if|when)\b[^>]*\btest\s*=\s*["']([^"']+)["']"#).map_err(|e| e.to_string())?;
+    let keywords: std::collections::HashSet<&str> = [
+        "null", "true", "false", "and", "or", "not", "instanceof", "_parameter", "_databaseId",
+    ]
+    .iter()
+    .cloned()
+    .collect();
+    let ident_re = Regex::new(r"\b([a-zA-Z_][a-zA-Z0-9_]*)\b").map_err(|e| e.to_string())?;
+    for cap in test_re.captures_iter(sql_template) {
+        if let Some(m) = cap.get(1) {
+            for ic in ident_re.captures_iter(m.as_str()) {
+                if let Some(im) = ic.get(1) {
+                    let ident = im.as_str().to_string();
+                    if !keywords.contains(ident.as_str())
+                        && !local_vars.contains(&ident)
+                        && seen.insert(ident.clone())
+                    {
+                        params.push(ident);
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(json!({ "params": params }))
 }
 
 fn render_xml_template(template: &str, ctx: &mut RenderContext) -> Result<String, String> {
