@@ -15,8 +15,8 @@
           v-for="cat in CAT_OPTIONS"
           :key="cat.value"
           class="vault-type-option"
-          :class="{ 'is-active': form.category === cat.value, 'is-disabled': isEdit }"
-          @click="!isEdit && (form.category = cat.value)"
+          :class="{ 'is-active': form.category === cat.value }"
+          @click="form.category = cat.value"
         >
           <div class="vault-type-icon">
             <svg v-if="cat.value === 'app'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -308,6 +308,20 @@ watch(() => form.dbType, (newType) => {
   }
 });
 
+watch(() => form.category, (newCat, oldCat) => {
+  if (!isEdit.value) return;
+  // app <-> server/database: 互迁 url <-> address
+  if (oldCat === "app" && (newCat === "server" || newCat === "database")) {
+    if (!form.address && form.url) form.address = form.url;
+  } else if ((oldCat === "server" || oldCat === "database") && newCat === "app") {
+    if (!form.url && form.address) form.url = form.address;
+  }
+  // 切换到 database 时填充默认端口
+  if (newCat === "database" && form.dbType in DB_DEFAULT_PORT) {
+    form.port = DB_DEFAULT_PORT[form.dbType];
+  }
+});
+
 const emit = defineEmits<{
   (e: "saved"): void;
 }>();
@@ -448,11 +462,6 @@ defineExpose({ show });
 .vault-type-option.is-active {
   border-color: var(--lc-accent);
   background: var(--lc-accent-dim);
-}
-
-.vault-type-option.is-disabled {
-  cursor: not-allowed;
-  opacity: 0.6;
 }
 
 .vault-type-icon {

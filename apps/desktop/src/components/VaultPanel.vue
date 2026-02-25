@@ -3,14 +3,14 @@
     <!-- Lock screen -->
     <Transition name="fade" mode="out-in">
       <VaultLockScreen
-        v-if="!unlocked"
+        v-if="initialized && !unlocked"
         key="lock"
         :mode="vaultSetup ? 'unlock' : 'setup'"
         @unlocked="onUnlocked"
       />
 
       <!-- Main 2-column layout: nav + list -->
-      <div v-else key="main" class="vault-main">
+      <div v-else-if="initialized" key="main" class="vault-main">
         <!-- Left: Navigation tree -->
         <aside class="vault-nav">
           <div class="vault-nav-header">
@@ -161,8 +161,22 @@
                 </div>
 
                 <div class="vault-list-col name">
-                  <span class="vault-entry-title" :title="entry.title">{{ entry.title || '(未命名)' }}</span>
+                  <div class="vault-entry-title-row">
+                    <span class="vault-entry-title" :title="entry.title">{{ entry.title || '(未命名)' }}</span>
+                  </div>
                   <span v-if="entry.summary" class="vault-entry-summary" :title="entry.summary">{{ entry.summary }}</span>
+                  <button
+                    v-if="entryUrl(entry)"
+                    class="vault-open-url-btn"
+                    title="在浏览器中打开"
+                    @click.stop="onOpenUrl(entry)"
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                      <polyline points="15 3 21 3 21 9" />
+                      <line x1="10" y1="14" x2="21" y2="3" />
+                    </svg>
+                  </button>
                 </div>
 
                 <div class="vault-list-col account">
@@ -212,6 +226,12 @@
                     <button class="vault-action-btn" title="编辑" @click="onEditEntry(entry)">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+                      </svg>
+                    </button>
+                    <button class="vault-action-btn" title="复制为副本" @click="onDuplicateEntry(entry)">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect width="14" height="14" x="8" y="8" rx="2" />
+                        <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
                       </svg>
                     </button>
                     <button class="vault-action-btn danger" title="删除" @click="onDeleteEntry(entry)">
@@ -301,6 +321,7 @@ interface VaultDetail {
 
 const vaultSetup = ref(false);
 const unlocked = ref(false);
+const initialized = ref(false);
 const entries = ref<VaultListEntry[]>([]);
 const keyword = ref("");
 const activeEnv = ref("");
@@ -417,6 +438,8 @@ async function checkStatus() {
     }
   } catch {
     // IPC not available
+  } finally {
+    initialized.value = true;
   }
 }
 
@@ -537,6 +560,42 @@ async function onDeleteEntry(entry: VaultListEntry) {
   }
 }
 
+async function onDuplicateEntry(entry: VaultListEntry) {
+  try {
+    const res = (await invokeToolByChannel("tool:vault:get", { id: entry.id })) as VaultDetail;
+    const payload: Record<string, unknown> = {
+      ...res.fields,
+      category: res.category,
+      title: `${res.title} (副本)`,
+      environment: res.environment,
+    };
+    await invokeToolByChannel("tool:vault:create", payload);
+    await loadEntries();
+    ElMessage.success("已创建副本");
+  } catch (err) {
+    handleVaultError(err);
+  }
+}
+
+function extractUrl(text: string): string {
+  const m = text.match(/https?:\/\/[^\s]+/);
+  return m ? m[0] : "";
+}
+
+function entryUrl(entry: VaultListEntry): string {
+  return extractUrl(entry.title) || extractUrl(entry.summary);
+}
+
+async function onOpenUrl(entry: VaultListEntry) {
+  const url = entryUrl(entry);
+  if (!url) return;
+  try {
+    await invokeToolByChannel("tool:vault:open-url", { url });
+  } catch (err) {
+    handleVaultError(err);
+  }
+}
+
 async function onEntrySaved() {
   await loadEntries();
 }
@@ -647,7 +706,7 @@ onBeforeUnmount(() => {
 
 .vault-main {
   display: grid;
-  grid-template-columns: 220px 1fr;
+  grid-template-columns: 178px 1fr;
   width: 100%;
   height: 100%;
   gap: 0;
@@ -657,7 +716,7 @@ onBeforeUnmount(() => {
 .vault-nav {
   display: flex;
   flex-direction: column;
-  padding: 20px 12px;
+  padding: 16px 10px;
   border-right: 1px solid var(--lc-border);
   background: var(--lc-surface-0);
   overflow-y: auto;
@@ -934,7 +993,7 @@ onBeforeUnmount(() => {
 .vault-list-header {
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   padding: 12px 20px;
   border-bottom: 1px solid var(--lc-border);
   background: var(--lc-surface-1);
@@ -954,7 +1013,7 @@ onBeforeUnmount(() => {
 .vault-list-item {
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   padding: 14px 8px;
   margin-bottom: 4px;
   border-radius: var(--lc-radius-md);
@@ -994,36 +1053,37 @@ onBeforeUnmount(() => {
 }
 
 .vault-list-col.env {
-  width: 90px;
+  width: 76px;
   flex-shrink: 0;
 }
 
 .vault-list-col.type {
-  width: 80px;
+  width: 68px;
   flex-shrink: 0;
 }
 
 .vault-list-col.name {
-  width: 320px;
-  flex-shrink: 0;
+  flex: 1;
+  min-width: 150px;
   flex-direction: column;
   gap: 2px;
   min-width: 0;
+  position: relative;
 }
 
 .vault-list-col.account {
-  width: 160px;
+  width: 150px;
   flex-shrink: 0;
   min-width: 0;
 }
 
 .vault-list-col.password {
-  width: 220px;
+  width: 200px;
   flex-shrink: 0;
 }
 
 .vault-list-col.actions {
-  width: 80px;
+  width: 110px;
   flex-shrink: 0;
 }
 
@@ -1095,6 +1155,46 @@ onBeforeUnmount(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   text-align: center;
+}
+
+/* --- Entry Title Row --- */
+.vault-entry-title-row {
+  width: 100%;
+  min-width: 0;
+}
+
+.vault-open-url-btn {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: var(--lc-radius-sm);
+  background: transparent;
+  color: var(--lc-text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: all 150ms var(--lc-ease);
+}
+
+.vault-list-item:hover .vault-open-url-btn {
+  opacity: 1;
+}
+
+.vault-open-url-btn:hover {
+  background: var(--lc-accent-dim);
+  color: var(--lc-accent);
+}
+
+.vault-open-url-btn svg {
+  width: 12px;
+  height: 12px;
 }
 
 /* --- Account Button --- */
