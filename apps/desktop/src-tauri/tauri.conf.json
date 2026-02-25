@@ -25,6 +25,10 @@
     "active": true,
     "targets": "all",
     "icon": ["icons/icon.ico", "icons/icon.png"],
-    "resources": ["../../../resources/manuals/**/*", "../../../resources/regex-library/**/*", "../../../resources/hotkey-library/**/*"]
+    "resources": {
+      "../../../resources/manuals/": "manuals/",
+      "../../../resources/regex-library/": "regex-library/",
+      "../../../resources/hotkey-library/": "hotkey-library/"
+    }
   }
 }
