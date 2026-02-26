@@ -291,6 +291,8 @@ fn sync_all_shortcuts(app: &tauri::AppHandle) -> Result<(), String> {
                             } else {
                                 let _ = window.show();
                                 let _ = window.set_focus();
+                                #[cfg(windows)]
+                                force_foreground(&window);
                             }
                         }
                     }
@@ -299,6 +301,8 @@ fn sync_all_shortcuts(app: &tauri::AppHandle) -> Result<(), String> {
                         if let Some(window) = app_handle.get_webview_window("main") {
                             let _ = window.show();
                             let _ = window.set_focus();
+                            #[cfg(windows)]
+                            force_foreground(&window);
                             let _ = window.emit("hotkey-navigate", other);
                         }
                     }
@@ -345,6 +349,48 @@ fn unregister_named_hotkey(app: tauri::AppHandle, name: String) -> Result<(), St
 }
 
 /// Window subclass ID (arbitrary unique value)
+/// Force a window to the foreground on Windows using the AttachThreadInput trick.
+/// Windows 10+ restricts SetForegroundWindow to the current foreground process;
+/// this workaround temporarily attaches our thread's input queue to the foreground
+/// thread so that the call succeeds reliably.
+#[cfg(windows)]
+fn force_foreground(window: &tauri::WebviewWindow) {
+    use windows_sys::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetForegroundWindow, GetWindowThreadProcessId, SetForegroundWindow,
+        ShowWindow, SW_RESTORE, IsIconic,
+    };
+
+    let Ok(hwnd_raw) = window.hwnd() else { return };
+    let hwnd = hwnd_raw.0;
+
+    unsafe {
+        // Restore if minimized
+        if IsIconic(hwnd) != 0 {
+            ShowWindow(hwnd, SW_RESTORE);
+        }
+
+        let foreground = GetForegroundWindow();
+        if foreground.is_null() || foreground == hwnd {
+            // No foreground window or we are already it – just call directly
+            SetForegroundWindow(hwnd);
+            return;
+        }
+
+        let fg_thread = GetWindowThreadProcessId(foreground, std::ptr::null_mut());
+        let our_thread = GetCurrentThreadId();
+
+        if fg_thread != our_thread && fg_thread != 0 {
+            // Attach our input queue to the foreground thread's
+            AttachThreadInput(our_thread, fg_thread, 1); // TRUE
+            SetForegroundWindow(hwnd);
+            AttachThreadInput(our_thread, fg_thread, 0); // FALSE – detach
+        } else {
+            SetForegroundWindow(hwnd);
+        }
+    }
+}
+
 #[cfg(windows)]
 const SUBCLASS_ID: usize = 0x4C5A_4341; // "LZCA"
 
@@ -562,6 +608,8 @@ fn main() {
                         if let Some(window) = app.get_webview_window("main") {
                             let _ = window.show();
                             let _ = window.set_focus();
+                            #[cfg(windows)]
+                            force_foreground(&window);
                         }
                     }
                     "quit" => {
@@ -585,6 +633,8 @@ fn main() {
                             } else {
                                 let _ = window.show();
                                 let _ = window.set_focus();
+                                #[cfg(windows)]
+                                force_foreground(&window);
                             }
                         }
                     }
