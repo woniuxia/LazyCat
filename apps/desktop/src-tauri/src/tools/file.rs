@@ -49,17 +49,14 @@ fn file_split(payload: &Value) -> Result<Value, String> {
 }
 
 fn file_merge(payload: &Value) -> Result<Value, String> {
-    let parts = payload["parts"]
-        .as_array()
-        .ok_or("parts should be array".to_string())?;
+    let parts = collect_merge_parts(payload)?;
     let output_path = PathBuf::from(payload["outputPath"].as_str().unwrap_or_default());
     if let Some(parent) = output_path.parent() {
         fs::create_dir_all(parent).map_err(|e| format!("create output parent failed: {e}"))?;
     }
     let mut writer = File::create(&output_path).map_err(|e| format!("create output failed: {e}"))?;
     let mut total_bytes = 0usize;
-    for p in parts {
-        let part_path = PathBuf::from(p.as_str().unwrap_or_default());
+    for part_path in &parts {
         let bytes = fs::read(&part_path).map_err(|e| format!("read part failed: {e}"))?;
         total_bytes += bytes.len();
         writer
@@ -68,8 +65,51 @@ fn file_merge(payload: &Value) -> Result<Value, String> {
     }
     Ok(json!({
       "outputPath": output_path.to_string_lossy().to_string(),
-      "totalBytes": total_bytes
+      "totalBytes": total_bytes,
+      "partCount": parts.len()
     }))
+}
+
+fn collect_merge_parts(payload: &Value) -> Result<Vec<PathBuf>, String> {
+    let mut parts = payload["parts"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str())
+                .map(PathBuf::from)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    if !parts.is_empty() {
+        return Ok(parts);
+    }
+
+    let parts_dir_str = payload["partsDir"].as_str().unwrap_or_default().trim().to_string();
+    if parts_dir_str.is_empty() {
+        return Err("parts is empty and partsDir is missing".into());
+    }
+
+    let parts_dir = PathBuf::from(parts_dir_str);
+    if !parts_dir.exists() {
+        return Err("partsDir not found".into());
+    }
+    if !parts_dir.is_dir() {
+        return Err("partsDir should be a directory".into());
+    }
+
+    let mut candidates = fs::read_dir(&parts_dir)
+        .map_err(|e| format!("read partsDir failed: {e}"))?
+        .filter_map(|entry| entry.ok().map(|v| v.path()))
+        .filter(|path| path.is_file())
+        .collect::<Vec<_>>();
+    candidates.sort();
+    parts.append(&mut candidates);
+
+    if parts.is_empty() {
+        return Err("no files found in partsDir".into());
+    }
+    Ok(parts)
 }
 
 fn write_text(payload: &Value) -> Result<Value, String> {
@@ -125,6 +165,39 @@ mod tests {
             "merge",
             &json!({
                 "parts": parts_json,
+                "outputPath": merged.to_string_lossy().to_string()
+            }),
+        )
+        .expect("merge");
+
+        let merged_content = fs::read(&merged).expect("read merged");
+        assert_eq!(merged_content, content);
+    }
+
+    #[test]
+    fn merge_should_support_parts_dir() {
+        let dir = std::env::temp_dir().join(format!("lazycat-file-dir-{}", std::process::id()));
+        fs::create_dir_all(&dir).expect("mkdir");
+        let source = dir.join("source.bin");
+        let output_dir = dir.join("parts");
+        let merged = dir.join("merged.bin");
+        let content = vec![7u8; 1024 * 1024 + 223];
+        fs::write(&source, &content).expect("write source");
+
+        execute(
+            "split",
+            &json!({
+                "sourcePath": source.to_string_lossy().to_string(),
+                "outputDir": output_dir.to_string_lossy().to_string(),
+                "chunkSizeMb": 1
+            }),
+        )
+        .expect("split");
+
+        execute(
+            "merge",
+            &json!({
+                "partsDir": output_dir.to_string_lossy().to_string(),
                 "outputPath": merged.to_string_lossy().to_string()
             }),
         )
