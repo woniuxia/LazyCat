@@ -36,12 +36,16 @@
   </div>
 </template>
 
+<script lang="ts">
+const jwtState = { token: "" };
+</script>
+
 <script setup lang="ts">
-import { ref, watch } from "vue";
+import { onBeforeUnmount, ref, watch } from "vue";
 import { invokeToolByChannel } from "../bridge/tauri";
 import { useClipboardSuggestion } from "../composables/useClipboardSuggestion";
 
-const token = ref("");
+const token = ref(jwtState.token);
 const decoded = ref<{
   header: string;
   payload: string;
@@ -81,6 +85,11 @@ watch(token, (val) => {
 
 const { watchPendingInput } = useClipboardSuggestion();
 watchPendingInput("jwt", (text) => { token.value = text; });
+
+onBeforeUnmount(() => {
+  if (timer) clearTimeout(timer);
+  jwtState.token = token.value;
+});
 </script>
 
 <style scoped>

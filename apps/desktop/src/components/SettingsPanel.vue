@@ -40,8 +40,8 @@
 
           <div class="setting-item">
             <div class="setting-label">
-              <span class="label-text">最近常用显示数量</span>
-              <span class="label-desc">首页"最近常用"区域显示的工具条数（按近30天点击次数排序）</span>
+              <span class="label-text">常用工具显示数量</span>
+              <span class="label-desc">首页"常用工具"区域显示的工具总数（收藏全部优先显示，其余按近30天点击次数排序）</span>
             </div>
             <div class="setting-control">
               <el-input-number
@@ -260,6 +260,8 @@
       :sidebar-items="sidebarItems"
       :get-hidden-ids="getHiddenIds"
       :set-hidden-ids="setHiddenIds"
+      :get-tool-search-meta-map="getToolSearchMetaMap"
+      :set-tool-search-meta-map="setToolSearchMetaMap"
     />
   </div>
 </template>
@@ -270,7 +272,7 @@ import { ElMessage, ElMessageBox } from "element-plus";
 import { save, open } from "@tauri-apps/plugin-dialog";
 import { registerHotkey, unregisterHotkey, registerNamedHotkey, unregisterNamedHotkey, invokeToolByChannel } from "../bridge/tauri";
 import { setSetting, getSetting, useAutostartSettings } from "../composables/useSettings";
-import type { SidebarItem } from "../types";
+import type { SidebarItem, ToolSearchMetaMap } from "../types";
 import MenuVisibilityDialog from "./MenuVisibilityDialog.vue";
 import ShortcutRecorder from "./ShortcutRecorder.vue";
 
@@ -294,6 +296,8 @@ const props = defineProps<{
   sidebarItems: SidebarItem[];
   getHiddenIds: () => string[];
   setHiddenIds: (ids: string[]) => void;
+  getToolSearchMetaMap: () => ToolSearchMetaMap;
+  setToolSearchMetaMap: (map: ToolSearchMetaMap) => void;
 }>();
 
 const emit = defineEmits<{

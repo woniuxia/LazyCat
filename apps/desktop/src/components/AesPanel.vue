@@ -20,16 +20,28 @@
   </div>
 </template>
 
+<script lang="ts">
+const aesState = { input: "", output: "", key: "", iv: "", algorithm: "aes-256-cbc" };
+</script>
+
 <script setup lang="ts">
-import { ref } from "vue";
+import { onBeforeUnmount, ref } from "vue";
 import { ElMessage } from "element-plus";
 import { invokeToolByChannel } from "../bridge/tauri";
 
-const cryptoInput = ref("");
-const cryptoOutput = ref("");
-const symmetricKey = ref("");
-const symmetricIv = ref("");
-const symmetricAlgorithm = ref("aes-256-cbc");
+const cryptoInput = ref(aesState.input);
+const cryptoOutput = ref(aesState.output);
+const symmetricKey = ref(aesState.key);
+const symmetricIv = ref(aesState.iv);
+const symmetricAlgorithm = ref(aesState.algorithm);
+
+onBeforeUnmount(() => {
+  aesState.input = cryptoInput.value;
+  aesState.output = cryptoOutput.value;
+  aesState.key = symmetricKey.value;
+  aesState.iv = symmetricIv.value;
+  aesState.algorithm = symmetricAlgorithm.value;
+});
 
 async function symmetricEncrypt() {
   try {

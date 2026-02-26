@@ -39,8 +39,27 @@
   </div>
 </template>
 
+<script lang="ts">
+const sqlEntityState = {
+  language: "java",
+  naming: "camelCase",
+  comments: true,
+  sqlInput: `CREATE TABLE t_user (
+  id BIGINT NOT NULL AUTO_INCREMENT COMMENT '主键',
+  user_name VARCHAR(100) NOT NULL COMMENT '用户名',
+  email VARCHAR(200) COMMENT '邮箱地址',
+  age INT DEFAULT 0 COMMENT '年龄',
+  balance DECIMAL(10,2) COMMENT '余额',
+  active TINYINT(1) NOT NULL DEFAULT 1 COMMENT '是否启用',
+  created_at DATETIME NOT NULL COMMENT '创建时间',
+  PRIMARY KEY (id)
+);`,
+  codeOutput: "",
+};
+</script>
+
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, onBeforeUnmount, ref } from "vue";
 import { ElMessage } from "element-plus";
 import { invokeToolByChannel } from "../bridge/tauri";
 
@@ -59,20 +78,11 @@ const namingStyles = [
   { label: "原始", value: "original" },
 ];
 
-const language = ref("java");
-const naming = ref("camelCase");
-const comments = ref(true);
-const sqlInput = ref(`CREATE TABLE t_user (
-  id BIGINT NOT NULL AUTO_INCREMENT COMMENT '主键',
-  user_name VARCHAR(100) NOT NULL COMMENT '用户名',
-  email VARCHAR(200) COMMENT '邮箱地址',
-  age INT DEFAULT 0 COMMENT '年龄',
-  balance DECIMAL(10,2) COMMENT '余额',
-  active TINYINT(1) NOT NULL DEFAULT 1 COMMENT '是否启用',
-  created_at DATETIME NOT NULL COMMENT '创建时间',
-  PRIMARY KEY (id)
-);`);
-const codeOutput = ref("");
+const language = ref(sqlEntityState.language);
+const naming = ref(sqlEntityState.naming);
+const comments = ref(sqlEntityState.comments);
+const sqlInput = ref(sqlEntityState.sqlInput);
+const codeOutput = ref(sqlEntityState.codeOutput);
 const tableCount = ref(0);
 const generating = ref(false);
 
@@ -116,6 +126,14 @@ async function copyOutput() {
     ElMessage.error("复制失败");
   }
 }
+
+onBeforeUnmount(() => {
+  sqlEntityState.language = language.value;
+  sqlEntityState.naming = naming.value;
+  sqlEntityState.comments = comments.value;
+  sqlEntityState.sqlInput = sqlInput.value;
+  sqlEntityState.codeOutput = codeOutput.value;
+});
 </script>
 
 <style scoped>

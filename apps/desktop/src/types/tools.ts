@@ -4,6 +4,14 @@ export interface ToolDef {
   desc: string;
 }
 
+export interface ToolSearchMeta {
+  aliases: string[];
+  abbreviation: string;
+  description: string;
+}
+
+export type ToolSearchMetaMap = Record<string, ToolSearchMeta>;
+
 export interface GroupDef {
   id: string;
   name: string;

@@ -28,8 +28,12 @@
   </div>
 </template>
 
+<script lang="ts">
+const configConvertState = { fromFormat: "properties", toFormat: "yaml", input: "", output: "" };
+</script>
+
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, onBeforeUnmount, ref } from "vue";
 import { ElMessage } from "element-plus";
 import { invokeToolByChannel } from "../bridge/tauri";
 
@@ -40,11 +44,18 @@ const formats = [
   { label: ".env", value: "env" },
 ];
 
-const fromFormat = ref("properties");
-const toFormat = ref("yaml");
-const input = ref("");
-const output = ref("");
+const fromFormat = ref(configConvertState.fromFormat);
+const toFormat = ref(configConvertState.toFormat);
+const input = ref(configConvertState.input);
+const output = ref(configConvertState.output);
 const converting = ref(false);
+
+onBeforeUnmount(() => {
+  configConvertState.fromFormat = fromFormat.value;
+  configConvertState.toFormat = toFormat.value;
+  configConvertState.input = input.value;
+  configConvertState.output = output.value;
+});
 
 const fromLabel = computed(() => formats.find((f) => f.value === fromFormat.value)?.label ?? "");
 const toLabel = computed(() => formats.find((f) => f.value === toFormat.value)?.label ?? "");

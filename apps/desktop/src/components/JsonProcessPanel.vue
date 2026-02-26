@@ -23,14 +23,23 @@
   </div>
 </template>
 
+<script lang="ts">
+const jsonProcessState = { input: "", output: "" };
+</script>
+
 <script setup lang="ts">
-import { ref } from "vue";
+import { onBeforeUnmount, ref } from "vue";
 import { ElMessage } from "element-plus";
 import { invokeToolByChannel } from "../bridge/tauri";
 import { useClipboardSuggestion } from "../composables/useClipboardSuggestion";
 
-const input = ref("");
-const output = ref("");
+const input = ref(jsonProcessState.input);
+const output = ref(jsonProcessState.output);
+
+onBeforeUnmount(() => {
+  jsonProcessState.input = input.value;
+  jsonProcessState.output = output.value;
+});
 
 function copyOutput() {
   navigator.clipboard.writeText(output.value).then(() => {

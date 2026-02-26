@@ -1,11 +1,13 @@
 import { computed, ref } from "vue";
 import type { ComputedRef, Ref } from "vue";
-import type { SidebarItem } from "../types";
+import type { SidebarItem, ToolSearchMetaMap } from "../types";
 import { getSettingJson, setSettingJson } from "./useSettings";
 
 const STORAGE_KEY = "menu_visibility";
+const SEARCH_META_KEY = "tool_search_meta_v1";
 
 const hiddenToolIds: Ref<Set<string>> = ref(new Set());
+const toolSearchMetaMap = ref<ToolSearchMetaMap>({});
 
 export function useMenuVisibility(sortedSidebarItems: ComputedRef<SidebarItem[]>) {
   /** 过滤隐藏项 + 自动提升后的菜单 */
@@ -40,15 +42,27 @@ export function useMenuVisibility(sortedSidebarItems: ComputedRef<SidebarItem[]>
     setSettingJson(STORAGE_KEY, ids);
   }
 
+  function getToolSearchMetaMap(): ToolSearchMetaMap {
+    return toolSearchMetaMap.value;
+  }
+
+  function setToolSearchMetaMap(map: ToolSearchMetaMap) {
+    toolSearchMetaMap.value = map;
+    setSettingJson(SEARCH_META_KEY, map);
+  }
+
   function loadMenuVisibility() {
     const ids = getSettingJson<string[]>(STORAGE_KEY, []);
     hiddenToolIds.value = new Set(ids);
+    toolSearchMetaMap.value = getSettingJson<ToolSearchMetaMap>(SEARCH_META_KEY, {});
   }
 
   return {
     visibleSidebarItems,
     getHiddenIds,
     setHiddenIds,
+    getToolSearchMetaMap,
+    setToolSearchMetaMap,
     loadMenuVisibility,
   };
 }

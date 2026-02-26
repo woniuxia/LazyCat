@@ -179,6 +179,19 @@
   </div>
 </template>
 
+<script lang="ts">
+const regexState = {
+  pattern: "",
+  flagG: true,
+  flagI: false,
+  flagM: false,
+  flagS: false,
+  flagX: false,
+  input: "",
+  replacement: "",
+};
+</script>
+
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch, shallowRef, markRaw } from "vue";
 import { ElMessage } from "element-plus";
@@ -189,14 +202,14 @@ import type { RegexTemplate, RegexMatchResult } from "../types/regex";
 
 const SearchIcon = shallowRef(markRaw(Search));
 
-const pattern = ref("");
-const flagG = ref(true);
-const flagI = ref(false);
-const flagM = ref(false);
-const flagS = ref(false);
-const flagX = ref(false);
-const input = ref("");
-const replacement = ref("");
+const pattern = ref(regexState.pattern);
+const flagG = ref(regexState.flagG);
+const flagI = ref(regexState.flagI);
+const flagM = ref(regexState.flagM);
+const flagS = ref(regexState.flagS);
+const flagX = ref(regexState.flagX);
+const input = ref(regexState.input);
+const replacement = ref(regexState.replacement);
 const matchResults = ref<RegexMatchResult[]>([]);
 const replaceResult = ref<string | null>(null);
 const activeResultTab = ref("matches");
@@ -398,6 +411,14 @@ watch(pattern, (val) => {
 onBeforeUnmount(() => {
   if (timer) clearTimeout(timer);
   if (vizTimer) clearTimeout(vizTimer);
+  regexState.pattern = pattern.value;
+  regexState.flagG = flagG.value;
+  regexState.flagI = flagI.value;
+  regexState.flagM = flagM.value;
+  regexState.flagS = flagS.value;
+  regexState.flagX = flagX.value;
+  regexState.input = input.value;
+  regexState.replacement = replacement.value;
 });
 
 onMounted(() => loadTemplates());

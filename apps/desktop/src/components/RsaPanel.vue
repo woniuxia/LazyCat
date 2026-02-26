@@ -13,15 +13,26 @@
   </div>
 </template>
 
+<script lang="ts">
+const rsaState = { input: "", output: "", publicKey: "", privateKey: "" };
+</script>
+
 <script setup lang="ts">
-import { ref } from "vue";
+import { onBeforeUnmount, ref } from "vue";
 import { ElMessage } from "element-plus";
 import { invokeToolByChannel } from "../bridge/tauri";
 
-const cryptoInput = ref("");
-const cryptoOutput = ref("");
-const publicKeyPem = ref("");
-const privateKeyPem = ref("");
+const cryptoInput = ref(rsaState.input);
+const cryptoOutput = ref(rsaState.output);
+const publicKeyPem = ref(rsaState.publicKey);
+const privateKeyPem = ref(rsaState.privateKey);
+
+onBeforeUnmount(() => {
+  rsaState.input = cryptoInput.value;
+  rsaState.output = cryptoOutput.value;
+  rsaState.publicKey = publicKeyPem.value;
+  rsaState.privateKey = privateKeyPem.value;
+});
 
 async function rsaEncrypt() {
   try {

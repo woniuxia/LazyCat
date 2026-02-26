@@ -210,6 +210,29 @@
       </div>
 
       <div class="vault-form-section">
+        <div class="vault-section-title">标签</div>
+        <el-form-item>
+          <el-select
+            v-model="form.tags"
+            multiple
+            filterable
+            allow-create
+            default-first-option
+            :reserve-keyword="false"
+            placeholder="输入标签后按回车添加"
+            class="vault-tags-select"
+          >
+            <el-option
+              v-for="tag in existingTags"
+              :key="tag"
+              :label="tag"
+              :value="tag"
+            />
+          </el-select>
+        </el-form-item>
+      </div>
+
+      <div class="vault-form-section">
         <div class="vault-section-title">备注</div>
         <el-form-item>
           <el-input v-model="form.notes" type="textarea" :rows="2" placeholder="添加备注信息（可选）" />
@@ -268,7 +291,12 @@ interface FormState {
   port: number;
   dbName: string;
   schema: string;
+  tags: string[];
 }
+
+const props = defineProps<{
+  existingTags?: string[];
+}>();
 
 const visible = ref(false);
 const isEdit = ref(false);
@@ -289,6 +317,7 @@ const defaultForm = (): FormState => ({
   port: DB_DEFAULT_PORT["Kingbase"],
   dbName: "",
   schema: "",
+  tags: [],
 });
 
 const form = reactive<FormState>(defaultForm());
@@ -332,6 +361,7 @@ function show(entry?: {
   title: string;
   environment: string;
   fields: Record<string, unknown>;
+  tags?: string[];
 }) {
   Object.assign(form, defaultForm());
   if (entry) {
@@ -351,6 +381,7 @@ function show(entry?: {
     form.port = (f.port as number) || 3306;
     form.dbName = (f.dbName as string) || "";
     form.schema = (f.schema as string) || "";
+    form.tags = entry.tags || [];
   } else {
     isEdit.value = false;
   }
@@ -388,6 +419,7 @@ async function onSave() {
       account: form.account,
       password: form.password,
       notes: form.notes,
+      tags: form.tags,
     };
     if (form.category === "app") {
       payload.url = form.url;
@@ -569,6 +601,22 @@ defineExpose({ show });
   display: flex;
   justify-content: flex-end;
   gap: 12px;
+}
+
+/* --- Tags Select --- */
+.vault-tags-select {
+  width: 100%;
+}
+
+.vault-tags-select :deep(.el-select__tags) {
+  flex-wrap: wrap;
+  max-height: none;
+}
+
+.vault-tags-select :deep(.el-tag) {
+  background: var(--lc-accent-dim);
+  border-color: var(--lc-accent);
+  color: var(--lc-accent);
 }
 </style>
 

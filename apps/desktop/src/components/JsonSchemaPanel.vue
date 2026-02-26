@@ -49,8 +49,27 @@
   </div>
 </template>
 
+<script lang="ts">
+const jsonSchemaDefaults = {
+  schema: `{
+  "type": "object",
+  "required": ["id", "name"],
+  "properties": {
+    "id": { "type": "integer" },
+    "name": { "type": "string" },
+    "email": { "type": "string", "format": "email" }
+  }
+}`,
+  document: `{
+  "id": 1,
+  "name": "lazycat"
+}`,
+};
+const jsonSchemaState = { schema: jsonSchemaDefaults.schema, document: jsonSchemaDefaults.document, example: "" };
+</script>
+
 <script setup lang="ts">
-import { ref } from "vue";
+import { onBeforeUnmount, ref } from "vue";
 import { ElMessage } from "element-plus";
 import { invokeToolByChannel } from "../bridge/tauri";
 
@@ -65,20 +84,9 @@ interface SchemaValidationResult {
   errors: SchemaValidationError[];
 }
 
-const schemaInput = ref(`{
-  "type": "object",
-  "required": ["id", "name"],
-  "properties": {
-    "id": { "type": "integer" },
-    "name": { "type": "string" },
-    "email": { "type": "string", "format": "email" }
-  }
-}`);
-const documentInput = ref(`{
-  "id": 1,
-  "name": "lazycat"
-}`);
-const exampleOutput = ref("");
+const schemaInput = ref(jsonSchemaState.schema);
+const documentInput = ref(jsonSchemaState.document);
+const exampleOutput = ref(jsonSchemaState.example);
 const validationResult = ref<SchemaValidationResult | null>(null);
 
 async function validateSchema() {
@@ -111,4 +119,10 @@ function applyExample() {
   if (!exampleOutput.value.trim()) return;
   documentInput.value = exampleOutput.value;
 }
+
+onBeforeUnmount(() => {
+  jsonSchemaState.schema = schemaInput.value;
+  jsonSchemaState.document = documentInput.value;
+  jsonSchemaState.example = exampleOutput.value;
+});
 </script>

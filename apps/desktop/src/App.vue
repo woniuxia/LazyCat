@@ -2,8 +2,9 @@
   <div class="app-shell">
     <TopBar
       ref="topBarRef"
-      :all-items="visibleSidebarItems"
+      :all-items="sidebarItems"
       :active-tool="activeTool"
+      :search-meta-map="toolSearchMetaMap"
       @select="onSelect"
       @goto-home="onSelect(HOME_ID)"
       @goto-settings="onSelect('settings')"
@@ -48,11 +49,11 @@
           v-if="activeTool === HOME_ID"
           key="home"
           :all-items="visibleSidebarItems"
-          :favorite-tools="favoriteTools"
-          :top-monthly-tools="topMonthlyTools"
+          :merged-home-tools="mergedHomeTools"
           :is-favorite="isFavorite"
           @open-tool="onSelect"
           @toggle-favorite="toggleFavorite"
+          @reorder-favorites="reorderFavorites"
         />
 
         <component
@@ -231,10 +232,10 @@ function onKeydown(e: KeyboardEvent) {
 const {
   homeTopLimit,
   toolClickHistory,
-  favoriteTools,
-  topMonthlyTools,
+  mergedHomeTools,
   isFavorite,
   toggleFavorite,
+  reorderFavorites,
   recordToolClick,
   loadFromStorage: loadFavoritesFromStorage,
 } = useFavorites(allTools, isRealToolId);
@@ -274,8 +275,16 @@ const sortedSidebarItems = computed<SidebarItem[]>(() => {
   });
 });
 
-const { visibleSidebarItems, getHiddenIds, setHiddenIds, loadMenuVisibility } =
+const {
+  visibleSidebarItems,
+  getHiddenIds,
+  setHiddenIds,
+  getToolSearchMetaMap,
+  setToolSearchMetaMap,
+  loadMenuVisibility,
+} =
   useMenuVisibility(sortedSidebarItems);
+const toolSearchMetaMap = computed(() => getToolSearchMetaMap());
 
 const currentTool = computed(() => {
   if (activeTool.value === HOME_ID) return HOME_TOOL;
@@ -299,6 +308,8 @@ const currentComponentProps = computed(() => {
     sidebarItems,
     getHiddenIds,
     setHiddenIds,
+    getToolSearchMetaMap,
+    setToolSearchMetaMap,
     "onUpdate:themeMode": (v: "system" | "dark" | "light") => { themeMode.value = v; },
     "onUpdate:hotkeyInput": (v: string) => { hotkeyInput.value = v; },
     "onUpdate:snippetsHotkeyInput": (v: string) => { snippetsHotkeyInput.value = v; },

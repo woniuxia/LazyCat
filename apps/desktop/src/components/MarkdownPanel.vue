@@ -9,11 +9,19 @@
   </div>
 </template>
 
+<script lang="ts">
+const markdownState = { source: "# Markdown 预览\n\n在左侧编辑，右侧实时预览。\n\n- 列表项 1\n- 列表项 2\n\n```js\nconsole.log('hello');\n```\n" };
+</script>
+
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, onBeforeUnmount, ref } from "vue";
 import MonacoPane from "./MonacoPane.vue";
 
-const source = ref("# Markdown 预览\n\n在左侧编辑，右侧实时预览。\n\n- 列表项 1\n- 列表项 2\n\n```js\nconsole.log('hello');\n```\n");
+const source = ref(markdownState.source);
+
+onBeforeUnmount(() => {
+  markdownState.source = source.value;
+});
 
 const escapeHtml = (text: string): string =>
   text

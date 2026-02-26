@@ -205,8 +205,44 @@
   </div>
 </template>
 
+<script lang="ts">
+const textProcessState = {
+  input: "",
+  output: "",
+  selectedPresetId: "",
+  lineEnding: "keep",
+  autoRun: true,
+  ops: {
+    trim: true,
+    removeEmpty: true,
+    dedupe: false,
+    sort: false,
+    caseSensitive: false,
+    sortOrder: "asc",
+    includeFilter: false,
+    includeMode: "contains",
+    includePattern: "",
+    excludeFilter: false,
+    excludeMode: "contains",
+    excludePattern: "",
+    replace: false,
+    replaceMode: "contains",
+    replacePattern: "",
+    replaceWith: "",
+    extractColumn: false,
+    delimiter: "=",
+    columnIndex: 1,
+    keepUnmatched: false,
+    addPrefix: false,
+    prefixValue: "",
+    addSuffix: false,
+    suffixValue: "",
+  },
+};
+</script>
+
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { invokeToolByChannel } from "../bridge/tauri";
 import type { TextLineEnding, TextMatchMode, TextOperation, TextPreset, TextProcessResponse } from "../types";

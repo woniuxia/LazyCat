@@ -42,15 +42,24 @@
   </div>
 </template>
 
+<script lang="ts">
+type EscapeMode = "json" | "html" | "sql" | "js";
+const escapeState = { mode: "json" as EscapeMode, input: "", output: "" };
+</script>
+
 <script setup lang="ts">
-import { ref } from "vue";
+import { onBeforeUnmount, ref } from "vue";
 import { ElMessage } from "element-plus";
 
-type EscapeMode = "json" | "html" | "sql" | "js";
+const mode = ref<EscapeMode>(escapeState.mode);
+const input = ref(escapeState.input);
+const output = ref(escapeState.output);
 
-const mode = ref<EscapeMode>("json");
-const input = ref("");
-const output = ref("");
+onBeforeUnmount(() => {
+  escapeState.mode = mode.value;
+  escapeState.input = input.value;
+  escapeState.output = output.value;
+});
 
 const HTML_ESCAPE_MAP: Record<string, string> = {
   "&": "&amp;",

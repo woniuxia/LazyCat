@@ -20,9 +20,9 @@
           v-model="searchQuery"
           type="text"
           class="search-input"
-          placeholder="搜索工具... 按 / 聚焦"
+          placeholder="搜索工具、快捷启动... 按 / 聚焦"
           @keydown="onSearchKeydown"
-          @focus="isDropdownOpen = true"
+          @focus="onSearchFocus"
         />
         <span v-if="searchQuery" class="search-clear" @click="clearSearch">
           <el-icon><CircleClose /></el-icon>
@@ -30,31 +30,30 @@
         <span v-else class="search-shortcut">/</span>
       </div>
 
-      <!-- Search Dropdown -->
-      <div v-if="isDropdownOpen" class="search-dropdown" ref="dropdownRef">
-        <template v-if="filteredItems.length > 0">
+      <div v-if="isDropdownOpen" ref="dropdownRef" class="search-dropdown">
+        <template v-if="flattenedResults.length > 0">
           <div
             v-for="(item, index) in flattenedResults"
             :key="item.key"
             class="search-result-item"
             :class="{
               'is-highlighted': highlightedIndex === index,
-              'is-group-header': item.isGroupHeader
+              'is-group-header': item.kind === 'header',
             }"
-            @click="selectTool(item.id)"
+            @click="onRowClick(item)"
             @mouseenter="highlightedIndex = index"
           >
-            <template v-if="item.isGroupHeader">
-              <span class="result-group-name">{{ item.groupName }}</span>
+            <template v-if="item.kind === 'header'">
+              <span class="result-group-name">{{ item.label }}</span>
             </template>
             <template v-else>
               <span class="result-name">{{ item.name }}</span>
-              <span class="result-group">{{ item.groupName }}</span>
+              <span class="result-group">{{ item.group }}</span>
             </template>
           </div>
         </template>
         <div v-else-if="searchQuery.trim()" class="search-empty">
-          无匹配工具
+          无匹配结果
         </div>
         <div v-else class="search-hint">
           <div class="search-hint-item">
@@ -84,13 +83,54 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, nextTick } from "vue";
+import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from "vue";
+import { ElMessage } from "element-plus";
 import { Search, CircleClose, Setting } from "@element-plus/icons-vue";
-import type { SidebarItem, ToolDef } from "../types";
+import type { SidebarItem, ToolSearchMetaMap } from "../types";
+import { invokeToolByChannel } from "../bridge/tauri";
+import { matchScore } from "../utils/fuzzy-match";
+import { buildToolIndex } from "../utils/search-index";
+
+interface LauncherEntry {
+  id: number;
+  name: string;
+  exe_path: string;
+  arguments: string;
+  group_name: string;
+  launch_count: number;
+}
+
+interface ToolResult {
+  kind: "tool";
+  key: string;
+  id: string;
+  name: string;
+  group: string;
+  score: number;
+}
+
+interface LauncherResult {
+  kind: "launcher";
+  key: string;
+  id: string;
+  name: string;
+  group: string;
+  score: number;
+  entry: LauncherEntry;
+}
+
+interface HeaderRow {
+  kind: "header";
+  key: string;
+  label: string;
+}
+
+type SearchRow = ToolResult | LauncherResult | HeaderRow;
 
 const props = defineProps<{
   allItems: SidebarItem[];
   activeTool: string;
+  searchMetaMap: ToolSearchMetaMap;
 }>();
 
 const emit = defineEmits<{
@@ -104,87 +144,139 @@ const searchInputRef = ref<HTMLInputElement | null>(null);
 const dropdownRef = ref<HTMLElement | null>(null);
 const isDropdownOpen = ref(false);
 const highlightedIndex = ref(-1);
+const launcherEntries = ref<LauncherEntry[]>([]);
+const launcherLoaded = ref(false);
+const launcherLoading = ref(false);
 
 const isSettingsActive = computed(() => props.activeTool === "settings");
+const indexedTools = computed(() => buildToolIndex(props.allItems, props.searchMetaMap));
 
-// Filter logic adapted from SidebarNav.vue
-const filteredItems = computed<SidebarItem[]>(() => {
-  const q = searchQuery.value.trim().toLowerCase();
-  if (!q) return props.allItems;
-  return props.allItems
-    .map((item): SidebarItem | null => {
-      if (item.kind === "tool") {
-        const t = item.tool;
-        if (t.name.toLowerCase().includes(q) || t.desc.toLowerCase().includes(q)) {
-          return item;
-        }
-        return null;
-      }
-      const group = item.group;
-      if (group.name.toLowerCase().includes(q)) {
-        return item;
-      }
-      const matched = group.tools.filter(
-        (tool) =>
-          tool.name.toLowerCase().includes(q) ||
-          tool.desc.toLowerCase().includes(q)
-      );
-      if (matched.length === 0) return null;
-      return { kind: "group", group: { ...group, tools: matched } };
-    })
-    .filter((item): item is SidebarItem => item !== null);
+const matchedTools = computed<ToolResult[]>(() => {
+  const q = searchQuery.value.trim();
+  if (!q) return [];
+
+  const matches = indexedTools.value
+    .map((item) => ({
+      item,
+      score: matchScore(q, item.fields),
+    }))
+    .filter((row) => row.score > 0)
+    .sort((a, b) => b.score - a.score || a.item.tool.name.localeCompare(b.item.tool.name, "zh-CN"))
+    .slice(0, 40)
+    .map((row) => ({
+      kind: "tool" as const,
+      key: `tool-${row.item.tool.id}`,
+      id: row.item.tool.id,
+      name: row.item.tool.name,
+      group: row.item.groupName,
+      score: row.score,
+    }));
+
+  return matches;
 });
 
-// Flatten results for dropdown display with group headers
-interface FlattenedResult {
-  key: string;
-  id: string;
-  name: string;
-  groupName: string;
-  isGroupHeader: boolean;
+const matchedLauncher = computed<LauncherResult[]>(() => {
+  const q = searchQuery.value.trim();
+  if (!q) return [];
+
+  return launcherEntries.value
+    .map((entry) => {
+      const score = matchScore(q, [
+        { text: entry.name, initials: "", weight: 1.15 },
+        { text: entry.exe_path, initials: "", weight: 0.75 },
+        { text: entry.group_name, initials: "", weight: 0.7 },
+      ]);
+      return { entry, score };
+    })
+    .filter((row) => row.score > 0)
+    .sort((a, b) => b.score - a.score || b.entry.launch_count - a.entry.launch_count)
+    .slice(0, 20)
+    .map((row) => ({
+      kind: "launcher" as const,
+      key: `launcher-${row.entry.id}`,
+      id: `launcher-${row.entry.id}`,
+      name: row.entry.name,
+      group: "快捷启动",
+      score: row.score,
+      entry: row.entry,
+    }));
+});
+
+const flattenedResults = computed<SearchRow[]>(() => {
+  const q = searchQuery.value.trim();
+  if (!q) return [];
+
+  const rows: SearchRow[] = [];
+  if (matchedTools.value.length > 0) {
+    rows.push({ kind: "header", key: "header-tools", label: "功能" });
+    rows.push(...matchedTools.value);
+  }
+  if (matchedLauncher.value.length > 0) {
+    rows.push({ kind: "header", key: "header-launcher", label: "快捷启动" });
+    rows.push(...matchedLauncher.value);
+  }
+  return rows;
+});
+
+async function ensureLauncherEntries() {
+  if (launcherLoaded.value || launcherLoading.value) return;
+  launcherLoading.value = true;
+  try {
+    const res = (await invokeToolByChannel("tool:launcher:list", {})) as { items: LauncherEntry[] };
+    launcherEntries.value = res.items ?? [];
+    launcherLoaded.value = true;
+  } catch {
+    launcherEntries.value = [];
+  } finally {
+    launcherLoading.value = false;
+  }
 }
 
-const flattenedResults = computed<FlattenedResult[]>(() => {
-  const results: FlattenedResult[] = [];
-  for (const item of filteredItems.value) {
-    if (item.kind === "tool") {
-      results.push({
-        key: item.tool.id,
-        id: item.tool.id,
-        name: item.tool.name,
-        groupName: "工具",
-        isGroupHeader: false,
-      });
-    } else {
-      // Add group header
-      results.push({
-        key: `header-${item.group.id}`,
-        id: item.group.id,
-        name: item.group.name,
-        groupName: item.group.name,
-        isGroupHeader: true,
-      });
-      // Add tools in group
-      for (const tool of item.group.tools) {
-        results.push({
-          key: tool.id,
-          id: tool.id,
-          name: tool.name,
-          groupName: item.group.name,
-          isGroupHeader: false,
-        });
-      }
+function firstActionableIndex(): number {
+  return flattenedResults.value.findIndex((row) => row.kind !== "header");
+}
+
+function moveHighlight(direction: 1 | -1) {
+  const rows = flattenedResults.value;
+  if (rows.length === 0) return;
+
+  let index = highlightedIndex.value;
+  for (let i = 0; i < rows.length; i += 1) {
+    index = (index + direction + rows.length) % rows.length;
+    if (rows[index].kind !== "header") {
+      highlightedIndex.value = index;
+      return;
     }
   }
-  return results;
-});
+}
 
-function selectTool(id: string) {
-  if (!id || id.startsWith("header-")) return;
-  emit("select", id);
-  clearSearch();
-  isDropdownOpen.value = false;
-  highlightedIndex.value = -1;
+async function selectRow(row: SearchRow | undefined) {
+  if (!row || row.kind === "header") return;
+
+  if (row.kind === "tool") {
+    emit("select", row.id);
+    clearSearch();
+    isDropdownOpen.value = false;
+    highlightedIndex.value = -1;
+    return;
+  }
+
+  try {
+    await invokeToolByChannel("tool:launcher:launch", {
+      exe_path: row.entry.exe_path,
+      arguments: row.entry.arguments,
+      admin: false,
+    });
+    clearSearch();
+    isDropdownOpen.value = false;
+    highlightedIndex.value = -1;
+  } catch (e) {
+    ElMessage.error(`启动失败：${(e as Error).message}`);
+  }
+}
+
+function onRowClick(row: SearchRow) {
+  void selectRow(row);
 }
 
 function clearSearch() {
@@ -195,41 +287,33 @@ function clearSearch() {
   });
 }
 
-function onSearchKeydown(e: KeyboardEvent) {
-  const results = flattenedResults.value;
+function onSearchFocus() {
+  isDropdownOpen.value = true;
+  if (searchQuery.value.trim()) {
+    void ensureLauncherEntries();
+  }
+}
 
+function onSearchKeydown(e: KeyboardEvent) {
+  const rows = flattenedResults.value;
   switch (e.key) {
     case "ArrowDown":
       e.preventDefault();
-      if (!isDropdownOpen.value) {
-        isDropdownOpen.value = true;
-      }
-      highlightedIndex.value = (highlightedIndex.value + 1) % results.length;
+      if (!isDropdownOpen.value) isDropdownOpen.value = true;
+      moveHighlight(1);
       break;
     case "ArrowUp":
       e.preventDefault();
-      if (!isDropdownOpen.value) {
-        isDropdownOpen.value = true;
-      }
-      highlightedIndex.value =
-        highlightedIndex.value <= 0
-          ? results.length - 1
-          : highlightedIndex.value - 1;
+      if (!isDropdownOpen.value) isDropdownOpen.value = true;
+      moveHighlight(-1);
       break;
     case "Enter":
       e.preventDefault();
-      if (highlightedIndex.value >= 0 && highlightedIndex.value < results.length) {
-        const item = results[highlightedIndex.value];
-        if (!item.isGroupHeader) {
-          selectTool(item.id);
-        }
-      } else if (searchQuery.value.trim() && results.length > 0) {
-        // Select first non-header result if none highlighted
-        const firstTool = results.find((r) => !r.isGroupHeader);
-        if (firstTool) {
-          selectTool(firstTool.id);
-        }
+      if (rows.length === 0) return;
+      if (highlightedIndex.value < 0 || rows[highlightedIndex.value]?.kind === "header") {
+        highlightedIndex.value = firstActionableIndex();
       }
+      void selectRow(rows[highlightedIndex.value]);
       break;
     case "Escape":
       e.preventDefault();
@@ -240,9 +324,7 @@ function onSearchKeydown(e: KeyboardEvent) {
   }
 }
 
-// Global / key handler
 function onGlobalKeydown(e: KeyboardEvent) {
-  // Ignore if in input/textarea or modifier keys pressed
   if (
     e.key === "/" &&
     !e.ctrlKey &&
@@ -256,18 +338,12 @@ function onGlobalKeydown(e: KeyboardEvent) {
   }
 }
 
-// Click outside to close dropdown
 function onDocumentClick(e: MouseEvent) {
   const target = e.target as HTMLElement;
   const dropdown = dropdownRef.value;
   const searchBox = searchInputRef.value?.closest(".search-box");
 
-  if (
-    dropdown &&
-    !dropdown.contains(target) &&
-    searchBox &&
-    !searchBox.contains(target)
-  ) {
+  if (dropdown && !dropdown.contains(target) && searchBox && !searchBox.contains(target)) {
     isDropdownOpen.value = false;
     highlightedIndex.value = -1;
   }
@@ -281,7 +357,17 @@ function goSettings() {
   emit("goto-settings");
 }
 
-// Focus search input on mount
+watch(
+  () => searchQuery.value,
+  (value) => {
+    highlightedIndex.value = -1;
+    if (value.trim()) {
+      isDropdownOpen.value = true;
+      void ensureLauncherEntries();
+    }
+  },
+);
+
 onMounted(() => {
   window.addEventListener("keydown", onGlobalKeydown);
   document.addEventListener("click", onDocumentClick);
@@ -292,7 +378,6 @@ onBeforeUnmount(() => {
   document.removeEventListener("click", onDocumentClick);
 });
 
-// Expose method to focus search
 function focusSearch() {
   searchInputRef.value?.focus();
   isDropdownOpen.value = true;

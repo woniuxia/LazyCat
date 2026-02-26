@@ -31,19 +31,27 @@
   </div>
 </template>
 
-<script setup lang="ts">
-import { ref } from "vue";
-import { ElMessage } from "element-plus";
-import { invokeToolByChannel } from "../bridge/tauri";
-
-const beanInput = ref(`public class UserDTO {
+<script lang="ts">
+const javaBeanState = {
+  beanInput: `public class UserDTO {
   private Long id;
   @JsonProperty("user_name")
   private String userName;
   private Boolean enabled;
-}`);
-const jsonOutput = ref("");
-const jsObjectOutput = ref("");
+}`,
+  jsonOutput: "",
+  jsObjectOutput: "",
+};
+</script>
+
+<script setup lang="ts">
+import { onBeforeUnmount, ref } from "vue";
+import { ElMessage } from "element-plus";
+import { invokeToolByChannel } from "../bridge/tauri";
+
+const beanInput = ref(javaBeanState.beanInput);
+const jsonOutput = ref(javaBeanState.jsonOutput);
+const jsObjectOutput = ref(javaBeanState.jsObjectOutput);
 
 async function beanToJson() {
   try {
@@ -86,4 +94,10 @@ async function beanToJsObject() {
     ElMessage.error((error as Error).message);
   }
 }
+
+onBeforeUnmount(() => {
+  javaBeanState.beanInput = beanInput.value;
+  javaBeanState.jsonOutput = jsonOutput.value;
+  javaBeanState.jsObjectOutput = jsObjectOutput.value;
+});
 </script>

@@ -290,6 +290,21 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
         set_schema_version(conn, 11)?;
     }
 
+    // Migration 12: vault_entry_tags table (password manager tags)
+    if current < 12 {
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS vault_entry_tags (
+                entry_id INTEGER NOT NULL,
+                tag TEXT NOT NULL,
+                PRIMARY KEY (entry_id, tag),
+                FOREIGN KEY (entry_id) REFERENCES vault_entries(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_vault_entry_tags_tag ON vault_entry_tags(tag);"
+        )
+        .map_err(|e| format!("migration 12 failed: {e}"))?;
+        set_schema_version(conn, 12)?;
+    }
+
     Ok(())
 }
 

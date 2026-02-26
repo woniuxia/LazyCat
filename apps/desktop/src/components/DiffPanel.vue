@@ -11,6 +11,11 @@
   </div>
 </template>
 
+<script lang="ts">
+// 独立于组件实例的模块级状态，组件销毁重建时内容得以保留
+const diffState = { original: "", modified: "" };
+</script>
+
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 import monaco from "../utils/monaco-setup";
@@ -34,8 +39,8 @@ onMounted(() => {
     originalEditable: true,
   });
 
-  const originalModel = monaco.editor.createModel("", "plaintext");
-  const modifiedModel = monaco.editor.createModel("", "plaintext");
+  const originalModel = monaco.editor.createModel(diffState.original, "plaintext");
+  const modifiedModel = monaco.editor.createModel(diffState.modified, "plaintext");
   diffEditor.setModel({ original: originalModel, modified: modifiedModel });
 
   themeObserver = new MutationObserver(() => {
@@ -65,6 +70,8 @@ onBeforeUnmount(() => {
   }
   if (diffEditor) {
     const model = diffEditor.getModel();
+    diffState.original = model?.original.getValue() ?? "";
+    diffState.modified = model?.modified.getValue() ?? "";
     model?.original.dispose();
     model?.modified.dispose();
     diffEditor.dispose();

@@ -126,31 +126,41 @@
   </div>
 </template>
 
+<script lang="ts">
+const encodeState = {
+  base64Input: "", base64Output: "", base64UrlSafe: false,
+  urlInput: "", urlOutput: "",
+  md5Input: "", md5Output: "",
+  qrInput: "", qrDataUrl: "",
+  hashAlgo: "sha256" as string, hashInput: "", hashOutput: "", hmacKey: "",
+};
+</script>
+
 <script setup lang="ts">
-import { ref } from "vue";
+import { onBeforeUnmount, ref } from "vue";
 import { ElMessage } from "element-plus";
 import { invokeToolByChannel } from "../bridge/tauri";
 import { useClipboardSuggestion } from "../composables/useClipboardSuggestion";
 
 const props = defineProps<{ activeTool: string }>();
 
-const base64Input = ref("");
-const base64Output = ref("");
-const base64UrlSafe = ref(false);
+const base64Input = ref(encodeState.base64Input);
+const base64Output = ref(encodeState.base64Output);
+const base64UrlSafe = ref(encodeState.base64UrlSafe);
 
-const urlInput = ref("");
-const urlOutput = ref("");
+const urlInput = ref(encodeState.urlInput);
+const urlOutput = ref(encodeState.urlOutput);
 
-const md5Input = ref("");
-const md5Output = ref("");
+const md5Input = ref(encodeState.md5Input);
+const md5Output = ref(encodeState.md5Output);
 
-const qrInput = ref("");
-const qrDataUrl = ref("");
+const qrInput = ref(encodeState.qrInput);
+const qrDataUrl = ref(encodeState.qrDataUrl);
 
-const hashAlgo = ref<"sha1" | "sha256" | "sha512" | "hmac-sha256">("sha256");
-const hashInput = ref("");
-const hashOutput = ref("");
-const hmacKey = ref("");
+const hashAlgo = ref<"sha1" | "sha256" | "sha512" | "hmac-sha256">(encodeState.hashAlgo as "sha1" | "sha256" | "sha512" | "hmac-sha256");
+const hashInput = ref(encodeState.hashInput);
+const hashOutput = ref(encodeState.hashOutput);
+const hmacKey = ref(encodeState.hmacKey);
 
 async function call(channel: string, payload: Record<string, unknown>): Promise<string> {
   const data = await invokeToolByChannel(channel, payload);
@@ -261,6 +271,22 @@ const { watchPendingInput } = useClipboardSuggestion();
 watchPendingInput(() => props.activeTool, (text) => {
   if (props.activeTool === "base64") base64Input.value = text;
   else if (props.activeTool === "url") urlInput.value = text;
+});
+
+onBeforeUnmount(() => {
+  encodeState.base64Input = base64Input.value;
+  encodeState.base64Output = base64Output.value;
+  encodeState.base64UrlSafe = base64UrlSafe.value;
+  encodeState.urlInput = urlInput.value;
+  encodeState.urlOutput = urlOutput.value;
+  encodeState.md5Input = md5Input.value;
+  encodeState.md5Output = md5Output.value;
+  encodeState.qrInput = qrInput.value;
+  encodeState.qrDataUrl = qrDataUrl.value;
+  encodeState.hashAlgo = hashAlgo.value;
+  encodeState.hashInput = hashInput.value;
+  encodeState.hashOutput = hashOutput.value;
+  encodeState.hmacKey = hmacKey.value;
 });
 </script>
 

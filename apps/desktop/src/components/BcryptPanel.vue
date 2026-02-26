@@ -31,18 +31,21 @@
   </div>
 </template>
 
+<script lang="ts">
+const bcryptState = { hashPassword: "", hashCost: 10, hashResult: "", verifyPassword: "", verifyHash: "", verifyResult: null as boolean | null };
+</script>
+
 <script setup lang="ts">
-import { ref } from "vue";
+import { onBeforeUnmount, ref } from "vue";
 import { invokeToolByChannel } from "../bridge/tauri";
 import { useClipboardSuggestion } from "../composables/useClipboardSuggestion";
 
-const hashPassword = ref("");
-const hashCost = ref(10);
-const hashResult = ref("");
-
-const verifyPassword = ref("");
-const verifyHash = ref("");
-const verifyResult = ref<boolean | null>(null);
+const hashPassword = ref(bcryptState.hashPassword);
+const hashCost = ref(bcryptState.hashCost);
+const hashResult = ref(bcryptState.hashResult);
+const verifyPassword = ref(bcryptState.verifyPassword);
+const verifyHash = ref(bcryptState.verifyHash);
+const verifyResult = ref<boolean | null>(bcryptState.verifyResult);
 
 async function doHash() {
   if (!hashPassword.value) return;
@@ -76,6 +79,15 @@ function copyText(text: string) {
 
 const { watchPendingInput } = useClipboardSuggestion();
 watchPendingInput("bcrypt", (text) => { verifyHash.value = text; });
+
+onBeforeUnmount(() => {
+  bcryptState.hashPassword = hashPassword.value;
+  bcryptState.hashCost = hashCost.value;
+  bcryptState.hashResult = hashResult.value;
+  bcryptState.verifyPassword = verifyPassword.value;
+  bcryptState.verifyHash = verifyHash.value;
+  bcryptState.verifyResult = verifyResult.value;
+});
 </script>
 
 <style scoped>

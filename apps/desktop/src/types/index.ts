@@ -1,4 +1,11 @@
-export type { ToolDef, GroupDef, SidebarItem, ToolClickHistory } from "./tools";
+export type {
+  ToolDef,
+  GroupDef,
+  SidebarItem,
+  ToolClickHistory,
+  ToolSearchMeta,
+  ToolSearchMetaMap,
+} from "./tools";
 export type { HostsProfile, HostsBackupEntry } from "./hosts";
 export type {
   PortUsageResponse,

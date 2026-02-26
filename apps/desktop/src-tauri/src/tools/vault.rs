@@ -3,13 +3,54 @@ use openssl::hash::MessageDigest;
 use openssl::pkcs5::pbkdf2_hmac;
 use openssl::rand::rand_bytes;
 use openssl::symm::{decrypt, encrypt, Cipher};
-use rusqlite::params;
+use rusqlite::{Connection, params};
 use serde_json::{json, Value};
 use std::sync::Mutex;
 use std::time::Instant;
 use zeroize::Zeroize;
 
 use super::helpers::db_conn;
+
+// --- Tag helper functions ---
+
+fn get_entry_tags(conn: &Connection, entry_id: i64) -> Result<Vec<String>, String> {
+    let mut stmt = conn
+        .prepare("SELECT tag FROM vault_entry_tags WHERE entry_id = ?1 ORDER BY tag")
+        .map_err(|e| format!("prepare tags: {e}"))?;
+    let rows = stmt
+        .query_map(params![entry_id], |row| row.get::<_, String>(0))
+        .map_err(|e| format!("query tags: {e}"))?;
+    let mut tags = Vec::new();
+    for row in rows {
+        tags.push(row.map_err(|e| format!("tag row: {e}"))?);
+    }
+    Ok(tags)
+}
+
+fn set_entry_tags(conn: &Connection, entry_id: i64, tags: &[String]) -> Result<(), String> {
+    // Delete existing tags
+    conn.execute("DELETE FROM vault_entry_tags WHERE entry_id = ?1", params![entry_id])
+        .map_err(|e| format!("delete old tags: {e}"))?;
+    // Insert new tags
+    for tag in tags {
+        let trimmed = tag.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        conn.execute(
+            "INSERT INTO vault_entry_tags (entry_id, tag) VALUES (?1, ?2)",
+            params![entry_id, trimmed],
+        )
+        .map_err(|e| format!("insert tag: {e}"))?;
+    }
+    Ok(())
+}
+
+fn clear_entry_tags(conn: &Connection, entry_id: i64) -> Result<(), String> {
+    conn.execute("DELETE FROM vault_entry_tags WHERE entry_id = ?1", params![entry_id])
+        .map_err(|e| format!("clear tags: {e}"))?;
+    Ok(())
+}
 
 const CANARY_PLAINTEXT: &[u8] = b"LAZYCAT_VAULT_OK";
 const PBKDF2_ITERATIONS: usize = 600_000;
@@ -314,6 +355,7 @@ fn cmd_list(payload: &Value) -> Result<Value, String> {
     let conn = db_conn()?;
     let category = payload["category"].as_str().unwrap_or("");
     let keyword = payload["keyword"].as_str().unwrap_or("");
+    let tag_filter = payload["tag"].as_str().unwrap_or("");
 
     let mut sql = String::from(
         "SELECT id, category, title, environment, iv, encrypted_blob, created_at, updated_at FROM vault_entries WHERE 1=1",
@@ -327,6 +369,16 @@ fn cmd_list(payload: &Value) -> Result<Value, String> {
     if !keyword.is_empty() {
         sql.push_str(" AND title LIKE ?");
         param_values.push(Box::new(format!("%{keyword}%")));
+    }
+    // Tag filter via join
+    let tag_sql: String;
+    if !tag_filter.is_empty() {
+        tag_sql = format!(
+            "{} AND id IN (SELECT entry_id FROM vault_entry_tags WHERE tag = ?)",
+            sql
+        );
+        sql = tag_sql;
+        param_values.push(Box::new(tag_filter.to_string()));
     }
     sql.push_str(" ORDER BY updated_at DESC");
 
@@ -366,6 +418,9 @@ fn cmd_list(payload: &Value) -> Result<Value, String> {
             _ => (String::new(), String::new()),
         };
 
+        // Get tags for this entry
+        let tags = get_entry_tags(&conn, id).unwrap_or_default();
+
         entries.push(json!({
             "id": id,
             "category": cat,
@@ -373,6 +428,7 @@ fn cmd_list(payload: &Value) -> Result<Value, String> {
             "environment": environment,
             "account": account,
             "summary": summary,
+            "tags": tags,
             "createdAt": created_at,
             "updatedAt": updated_at,
         }));
@@ -404,12 +460,16 @@ fn cmd_get(payload: &Value) -> Result<Value, String> {
     let fields: Value =
         serde_json::from_slice(&plain).map_err(|e| format!("parse fields: {e}"))?;
 
+    // Get tags
+    let tags = get_entry_tags(&conn, id).unwrap_or_default();
+
     Ok(json!({
         "id": id,
         "category": category,
         "title": title,
         "environment": environment,
         "fields": fields,
+        "tags": tags,
         "createdAt": created_at,
         "updatedAt": updated_at,
     }))
@@ -425,6 +485,17 @@ fn cmd_create(payload: &Value) -> Result<Value, String> {
     }
     let title = payload["title"].as_str().unwrap_or("");
     let environment = payload["environment"].as_str().unwrap_or("");
+
+    // Parse tags from payload
+    let tags: Vec<String> = payload["tags"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(|s| s.trim().to_string()))
+                .filter(|s| !s.is_empty())
+                .collect()
+        })
+        .unwrap_or_default();
 
     // Build the encrypted fields JSON
     let fields = build_fields(category, payload);
@@ -447,6 +518,12 @@ fn cmd_create(payload: &Value) -> Result<Value, String> {
     .map_err(|e| format!("insert: {e}"))?;
 
     let id = conn.last_insert_rowid();
+
+    // Save tags
+    if !tags.is_empty() {
+        set_entry_tags(&conn, id, &tags)?;
+    }
+
     Ok(json!({ "id": id }))
 }
 
@@ -471,6 +548,17 @@ fn cmd_update(payload: &Value) -> Result<Value, String> {
     let title = payload["title"].as_str().unwrap_or("");
     let environment = payload["environment"].as_str().unwrap_or("");
 
+    // Parse tags from payload
+    let tags: Vec<String> = payload["tags"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(|s| s.trim().to_string()))
+                .filter(|s| !s.is_empty())
+                .collect()
+        })
+        .unwrap_or_default();
+
     let fields = build_fields(actual_category, payload);
     let plain = serde_json::to_vec(&fields).map_err(|e| format!("serialize: {e}"))?;
 
@@ -490,6 +578,9 @@ fn cmd_update(payload: &Value) -> Result<Value, String> {
     )
     .map_err(|e| format!("update: {e}"))?;
 
+    // Update tags
+    set_entry_tags(&conn, id, &tags)?;
+
     Ok(json!({ "ok": true }))
 }
 
@@ -498,10 +589,102 @@ fn cmd_delete(payload: &Value) -> Result<Value, String> {
     let id = payload["id"].as_i64().ok_or("id required")?;
 
     let conn = db_conn()?;
+    // Tags will be auto-deleted by CASCADE, but we can explicitly clear first
+    clear_entry_tags(&conn, id)?;
     conn.execute("DELETE FROM vault_entries WHERE id = ?1", params![id])
         .map_err(|e| format!("delete: {e}"))?;
 
     Ok(json!({ "ok": true }))
+}
+
+fn cmd_tag_stats(_payload: &Value) -> Result<Value, String> {
+    let _key = get_session_key()?;
+    let conn = db_conn()?;
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT tag, COUNT(entry_id) as count FROM vault_entry_tags GROUP BY tag ORDER BY count DESC, tag ASC"
+        )
+        .map_err(|e| format!("prepare tag stats: {e}"))?;
+
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(json!({
+                "tag": row.get::<_, String>(0)?,
+                "count": row.get::<_, i64>(1)?,
+            }))
+        })
+        .map_err(|e| format!("query tag stats: {e}"))?;
+
+    let mut stats: Vec<Value> = Vec::new();
+    for row in rows {
+        stats.push(row.map_err(|e| format!("tag stat row: {e}"))?);
+    }
+
+    Ok(json!(stats))
+}
+
+fn cmd_rename_tag(payload: &Value) -> Result<Value, String> {
+    let _key = get_session_key()?;
+    let old_tag = payload["oldTag"]
+        .as_str()
+        .ok_or("oldTag required")?
+        .trim();
+    let new_tag = payload["newTag"]
+        .as_str()
+        .ok_or("newTag required")?
+        .trim();
+
+    if old_tag.is_empty() || new_tag.is_empty() {
+        return Err("tag cannot be empty".to_string());
+    }
+    if old_tag == new_tag {
+        return Ok(json!({ "updated": 0 }));
+    }
+
+    let conn = db_conn()?;
+
+    // Check if new_tag already exists for some entries
+    let conflict_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(DISTINCT entry_id) FROM vault_entry_tags WHERE tag = ?1 AND entry_id IN (SELECT entry_id FROM vault_entry_tags WHERE tag = ?2)",
+            params![new_tag, old_tag],
+            |row| row.get(0),
+        )
+        .unwrap_or(0);
+
+    if conflict_count > 0 {
+        return Err("部分凭据已存在该标签，无法重命名".to_string());
+    }
+
+    // Update all entries with old_tag to new_tag
+    let updated = conn
+        .execute(
+            "UPDATE vault_entry_tags SET tag = ?1 WHERE tag = ?2",
+            params![new_tag, old_tag],
+        )
+        .map_err(|e| format!("rename tag: {e}"))?;
+
+    Ok(json!({ "updated": updated }))
+}
+
+fn cmd_delete_tag(payload: &Value) -> Result<Value, String> {
+    let _key = get_session_key()?;
+    let tag = payload["tag"]
+        .as_str()
+        .ok_or("tag required")?
+        .trim();
+
+    if tag.is_empty() {
+        return Err("tag cannot be empty".to_string());
+    }
+
+    let conn = db_conn()?;
+    let deleted = conn
+        .execute("DELETE FROM vault_entry_tags WHERE tag = ?1", params![tag])
+        .map_err(|e| format!("delete tag: {e}"))?;
+
+    Ok(json!({ "deleted": deleted }))
 }
 
 fn cmd_open_url(payload: &Value) -> Result<Value, String> {
@@ -562,6 +745,9 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         "update" => cmd_update(payload),
         "delete" => cmd_delete(payload),
         "open_url" => cmd_open_url(payload),
+        "tag_stats" => cmd_tag_stats(payload),
+        "rename_tag" => cmd_rename_tag(payload),
+        "delete_tag" => cmd_delete_tag(payload),
         _ => Err(format!("vault: unsupported action '{action}'")),
     }
 }

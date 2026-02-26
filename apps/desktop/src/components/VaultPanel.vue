@@ -21,7 +21,7 @@
           <div class="vault-nav-section">
             <div
               class="vault-nav-item"
-              :class="{ 'is-active': !activeEnv && !activeCategory }"
+              :class="{ 'is-active': !activeEnv && !activeCategory && !activeTag }"
               @click="clearFilter"
             >
               <span class="vault-nav-icon">
@@ -78,6 +78,27 @@
               </span>
               <span class="vault-nav-label">{{ cat.label }}</span>
               <span class="vault-nav-badge">{{ catCount(cat.value) }}</span>
+            </div>
+          </div>
+
+          <div v-if="tagStats.length > 0" class="vault-nav-section">
+            <div class="vault-nav-section-title">标签</div>
+            <div
+              v-for="stat in tagStats"
+              :key="stat.tag"
+              class="vault-nav-item"
+              :class="{ 'is-active': activeTag === stat.tag }"
+              @click="onClickTag(stat.tag)"
+              @contextmenu.prevent="onTagContextMenu($event, stat.tag)"
+            >
+              <span class="vault-nav-tag-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" />
+                  <line x1="7" y1="7" x2="7.01" y2="7" />
+                </svg>
+              </span>
+              <span class="vault-nav-label vault-nav-tag-label">{{ stat.tag }}</span>
+              <span class="vault-nav-badge">{{ tagCount(stat.tag) }}</span>
             </div>
           </div>
 
@@ -267,7 +288,7 @@
       </div>
     </Transition>
 
-    <VaultEntryDialog ref="entryDialog" @saved="onEntrySaved" />
+    <VaultEntryDialog ref="entryDialog" :existing-tags="allTags" @saved="onEntrySaved" />
 
     <!-- Change password dialog -->
     <el-dialog v-model="showChangePassword" title="修改主密码" width="400px" :close-on-click-modal="false" class="vault-dialog">
@@ -288,6 +309,43 @@
         <el-button type="primary" :loading="changePwLoading" @click="onChangePassword">确认修改</el-button>
       </template>
     </el-dialog>
+
+    <!-- Tag context menu -->
+    <Teleport to="body">
+      <div
+        v-if="tagContextMenu.show"
+        class="vault-tag-context-menu"
+        :style="{ left: tagContextMenu.x + 'px', top: tagContextMenu.y + 'px' }"
+      >
+        <div class="vault-tag-menu-item" @click="onRenameTag">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+          </svg>
+          <span>重命名</span>
+        </div>
+        <div class="vault-tag-menu-item danger" @click="onDeleteTag">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M3 6h18" />
+            <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+            <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+          </svg>
+          <span>删除标签</span>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- Rename tag dialog -->
+    <el-dialog v-model="showRenameTagDialog" title="重命名标签" width="360px" class="vault-dialog">
+      <el-form label-position="top">
+        <el-form-item label="新标签名">
+          <el-input v-model="renameTagNewName" placeholder="输入新的标签名" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showRenameTagDialog = false">取消</el-button>
+        <el-button type="primary" :loading="renameTagLoading" @click="confirmRenameTag">确认</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -305,6 +363,7 @@ interface VaultListEntry {
   environment: string;
   account: string;
   summary: string;
+  tags: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -315,8 +374,14 @@ interface VaultDetail {
   title: string;
   environment: string;
   fields: Record<string, unknown>;
+  tags: string[];
   createdAt: string;
   updatedAt: string;
+}
+
+interface TagStat {
+  tag: string;
+  count: number;
 }
 
 const vaultSetup = ref(false);
@@ -326,6 +391,8 @@ const entries = ref<VaultListEntry[]>([]);
 const keyword = ref("");
 const activeEnv = ref("");
 const activeCategory = ref("");
+const activeTag = ref("");
+const tagStats = ref<TagStat[]>([]);
 const entryDialog = ref<InstanceType<typeof VaultEntryDialog> | null>(null);
 
 const ENV_LIST = [
@@ -363,6 +430,9 @@ const filteredEntries = computed(() => {
   if (activeCategory.value) {
     list = list.filter((e) => e.category === activeCategory.value);
   }
+  if (activeTag.value) {
+    list = list.filter((e) => e.tags && e.tags.includes(activeTag.value));
+  }
   if (keyword.value) {
     const kw = keyword.value.toLowerCase();
     list = list.filter((e) =>
@@ -370,31 +440,52 @@ const filteredEntries = computed(() => {
       e.account.toLowerCase().includes(kw) ||
       e.summary.toLowerCase().includes(kw) ||
       e.environment.toLowerCase().includes(kw) ||
-      categoryLabel(e.category).toLowerCase().includes(kw)
+      categoryLabel(e.category).toLowerCase().includes(kw) ||
+      (e.tags && e.tags.some(t => t.toLowerCase().includes(kw)))
     );
   }
   return list;
 });
 
+const allTags = computed(() => tagStats.value.map(s => s.tag));
+
 function envCount(env: string) {
-  // 如果选择了分类，显示该分类下该环境的数量
+  let list = entries.value.filter((e) => e.environment === env);
   if (activeCategory.value) {
-    return entries.value.filter((e) => e.environment === env && e.category === activeCategory.value).length;
+    list = list.filter((e) => e.category === activeCategory.value);
   }
-  return entries.value.filter((e) => e.environment === env).length;
+  if (activeTag.value) {
+    list = list.filter((e) => e.tags && e.tags.includes(activeTag.value));
+  }
+  return list.length;
 }
 
 function catCount(cat: string) {
-  // 如果选择了环境，显示该环境下该分类的数量
+  let list = entries.value.filter((e) => e.category === cat);
   if (activeEnv.value) {
-    return entries.value.filter((e) => e.category === cat && e.environment === activeEnv.value).length;
+    list = list.filter((e) => e.environment === activeEnv.value);
   }
-  return entries.value.filter((e) => e.category === cat).length;
+  if (activeTag.value) {
+    list = list.filter((e) => e.tags && e.tags.includes(activeTag.value));
+  }
+  return list.length;
+}
+
+function tagCount(tag: string) {
+  let list = entries.value.filter((e) => e.tags && e.tags.includes(tag));
+  if (activeEnv.value) {
+    list = list.filter((e) => e.environment === activeEnv.value);
+  }
+  if (activeCategory.value) {
+    list = list.filter((e) => e.category === activeCategory.value);
+  }
+  return list.length;
 }
 
 function clearFilter() {
   activeEnv.value = "";
   activeCategory.value = "";
+  activeTag.value = "";
 }
 
 function onClickEnv(env: string) {
@@ -411,6 +502,14 @@ function onClickCat(cat: string) {
     return;
   }
   activeCategory.value = cat;
+}
+
+function onClickTag(tag: string) {
+  if (activeTag.value === tag) {
+    activeTag.value = "";
+    return;
+  }
+  activeTag.value = tag;
 }
 
 function categoryLabel(cat: string) {
@@ -453,8 +552,96 @@ async function loadEntries() {
   try {
     const res = (await invokeToolByChannel("tool:vault:list", {})) as VaultListEntry[];
     entries.value = res;
+    await loadTagStats();
   } catch (err) {
     handleVaultError(err);
+  }
+}
+
+async function loadTagStats() {
+  try {
+    const res = (await invokeToolByChannel("tool:vault:tag-stats", {})) as TagStat[];
+    tagStats.value = res;
+  } catch (err) {
+    handleVaultError(err);
+  }
+}
+
+// Tag context menu
+const tagContextMenu = reactive({
+  show: false,
+  x: 0,
+  y: 0,
+  tag: "",
+});
+
+const showRenameTagDialog = ref(false);
+const renameTagNewName = ref("");
+const renameTagLoading = ref(false);
+
+function onTagContextMenu(event: MouseEvent, tag: string) {
+  tagContextMenu.show = true;
+  tagContextMenu.x = event.clientX;
+  tagContextMenu.y = event.clientY;
+  tagContextMenu.tag = tag;
+}
+
+function closeTagContextMenu() {
+  tagContextMenu.show = false;
+}
+
+function onRenameTag() {
+  closeTagContextMenu();
+  renameTagNewName.value = tagContextMenu.tag;
+  showRenameTagDialog.value = true;
+}
+
+async function confirmRenameTag() {
+  if (!renameTagNewName.value.trim()) {
+    return;
+  }
+  renameTagLoading.value = true;
+  try {
+    await invokeToolByChannel("tool:vault:rename-tag", {
+      oldTag: tagContextMenu.tag,
+      newTag: renameTagNewName.value.trim(),
+    });
+    showRenameTagDialog.value = false;
+    await loadEntries();
+    ElMessage.success("标签已重命名");
+  } catch (err) {
+    const msg = (err as Error).message || "重命名失败";
+    ElMessage.error(msg);
+  } finally {
+    renameTagLoading.value = false;
+  }
+}
+
+async function onDeleteTag() {
+  closeTagContextMenu();
+  try {
+    await ElMessageBox.confirm(
+      `确定要删除标签"${tagContextMenu.tag}"吗？关联的凭据不会被删除。`,
+      "删除标签",
+      {
+        confirmButtonText: "删除",
+        cancelButtonText: "取消",
+        type: "warning",
+      }
+    );
+  } catch {
+    return;
+  }
+  try {
+    await invokeToolByChannel("tool:vault:delete-tag", { tag: tagContextMenu.tag });
+    if (activeTag.value === tagContextMenu.tag) {
+      activeTag.value = "";
+    }
+    await loadEntries();
+    ElMessage.success("标签已删除");
+  } catch (err) {
+    const msg = (err as Error).message || "删除失败";
+    ElMessage.error(msg);
   }
 }
 
@@ -536,6 +723,7 @@ async function onEditEntry(entry: VaultListEntry) {
       title: res.title,
       environment: res.environment,
       fields: res.fields,
+      tags: res.tags,
     });
   } catch (err) {
     handleVaultError(err);
@@ -568,6 +756,7 @@ async function onDuplicateEntry(entry: VaultListEntry) {
       category: res.category,
       title: `${res.title} (副本)`,
       environment: res.environment,
+      tags: res.tags,
     };
     await invokeToolByChannel("tool:vault:create", payload);
     await loadEntries();
@@ -688,12 +877,14 @@ onMounted(() => {
   checkStatus();
   startAutoLockCheck();
   document.addEventListener("click", hideRevealedPasswords);
+  document.addEventListener("click", closeTagContextMenu);
 });
 
 onBeforeUnmount(() => {
   if (activityTimer) clearInterval(activityTimer);
   if (pwClipboardTimer) clearTimeout(pwClipboardTimer);
   document.removeEventListener("click", hideRevealedPasswords);
+  document.removeEventListener("click", closeTagContextMenu);
 });
 </script>
 
@@ -807,6 +998,25 @@ onBeforeUnmount(() => {
 
 .vault-nav-dot.is-local {
   background: #60a5fa;
+}
+
+.vault-nav-tag-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+
+.vault-nav-tag-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.vault-nav-tag-label {
+  max-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .vault-nav-label {
@@ -1063,23 +1273,21 @@ onBeforeUnmount(() => {
 }
 
 .vault-list-col.name {
-  flex: 1;
-  min-width: 150px;
+  flex: 2;
+  min-width: 120px;
   flex-direction: column;
   gap: 2px;
-  min-width: 0;
   position: relative;
 }
 
 .vault-list-col.account {
-  width: 150px;
-  flex-shrink: 0;
-  min-width: 0;
+  flex: 1;
+  min-width: 100px;
 }
 
 .vault-list-col.password {
-  width: 200px;
-  flex-shrink: 0;
+  flex: 1;
+  min-width: 120px;
 }
 
 .vault-list-col.actions {
@@ -1244,7 +1452,7 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   gap: 4px;
-  width: 160px;
+  width: 100%;
   height: 32px;
   padding: 0 6px 0 12px;
   border: 1px solid var(--lc-border);
@@ -1456,4 +1664,57 @@ onBeforeUnmount(() => {
   opacity: 0;
 }
 
+</style>
+
+<style>
+/* --- Tag Context Menu (global, teleported to body) --- */
+.vault-tag-context-menu {
+  position: fixed;
+  z-index: 9999;
+  min-width: 140px;
+  padding: 6px 0;
+  background: var(--lc-surface-0);
+  border: 1px solid var(--lc-border);
+  border-radius: var(--lc-radius-md);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+  animation: contextMenuEnter 150ms var(--lc-ease-out);
+}
+
+@keyframes contextMenuEnter {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.vault-tag-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  font-size: 13px;
+  color: var(--lc-text-secondary);
+  cursor: pointer;
+  transition: all 100ms var(--lc-ease);
+}
+
+.vault-tag-menu-item:hover {
+  background: var(--lc-surface-1);
+  color: var(--lc-text);
+}
+
+.vault-tag-menu-item.danger:hover {
+  background: rgba(248, 113, 113, 0.1);
+  color: #f87171;
+}
+
+.vault-tag-menu-item svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
 </style>

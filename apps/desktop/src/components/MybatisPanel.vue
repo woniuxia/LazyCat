@@ -108,11 +108,7 @@
   </div>
 </template>
 
-<script setup lang="ts">
-import { ref, watch, onUnmounted } from "vue";
-import { ElMessage } from "element-plus";
-import { invokeToolByChannel } from "../bridge/tauri";
-
+<script lang="ts">
 interface ParamRow {
   id: number;
   name: string;
@@ -120,9 +116,9 @@ interface ParamRow {
   value: string;
 }
 
-let nextId = 3;
-
-const sqlTemplate = ref(`<select>
+const mybatisState = {
+  nextId: 3,
+  sqlTemplate: `<select>
   SELECT id, name
   FROM user
   <where>
@@ -136,12 +132,25 @@ const sqlTemplate = ref(`<select>
       </foreach>
     </if>
   </where>
-</select>`);
+</select>`,
+  paramRows: [
+    { id: 1, name: "name", type: "string" as const, value: "lazycat" },
+    { id: 2, name: "ids", type: "array" as const, value: "[1, 2, 3]" },
+  ] as ParamRow[],
+};
+</script>
 
-const paramRows = ref<ParamRow[]>([
-  { id: 1, name: "name", type: "string", value: "lazycat" },
-  { id: 2, name: "ids", type: "array", value: "[1, 2, 3]" },
-]);
+<script setup lang="ts">
+import { ref, watch, onUnmounted } from "vue";
+import { ElMessage } from "element-plus";
+import { invokeToolByChannel } from "../bridge/tauri";
+
+// ParamRow 已在普通 <script> 块中定义
+
+let nextId = mybatisState.nextId;
+
+const sqlTemplate = ref(mybatisState.sqlTemplate);
+const paramRows = ref<ParamRow[]>(mybatisState.paramRows.map(r => ({ ...r })));
 
 const renderedSql = ref("");
 const bindings = ref<Array<{ name: string; mode: string; value: unknown }>>([]);
@@ -252,6 +261,9 @@ watch(sqlTemplate, () => {
 
 onUnmounted(() => {
   if (extractTimer) clearTimeout(extractTimer);
+  mybatisState.sqlTemplate = sqlTemplate.value;
+  mybatisState.paramRows = paramRows.value.map(r => ({ ...r }));
+  mybatisState.nextId = nextId;
 });
 
 async function renderSql() {

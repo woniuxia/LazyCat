@@ -52,17 +52,21 @@
   </div>
 </template>
 
+<script lang="ts">
+const csvJsonState = { csvInput: "", jsonOutput: "", delimiter: ",", hasHeader: true, filePath: "" };
+</script>
+
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invokeToolByChannel } from "../bridge/tauri";
 
-const csvInput = ref("");
-const jsonOutput = ref("");
-const delimiter = ref(",");
-const hasHeader = ref(true);
-const filePath = ref("");
+const csvInput = ref(csvJsonState.csvInput);
+const jsonOutput = ref(csvJsonState.jsonOutput);
+const delimiter = ref(csvJsonState.delimiter);
+const hasHeader = ref(csvJsonState.hasHeader);
+const filePath = ref(csvJsonState.filePath);
 const customHeaders = ref<string[]>([]);
 const selectedColumnIndices = ref<number[]>([]);
 const detectedHeaders = ref<string[]>([]);
@@ -171,4 +175,12 @@ function clearAll() {
   selectedColumnIndices.value = [];
   detectedHeaders.value = [];
 }
+
+onBeforeUnmount(() => {
+  csvJsonState.csvInput = csvInput.value;
+  csvJsonState.jsonOutput = jsonOutput.value;
+  csvJsonState.delimiter = delimiter.value;
+  csvJsonState.hasHeader = hasHeader.value;
+  csvJsonState.filePath = filePath.value;
+});
 </script>

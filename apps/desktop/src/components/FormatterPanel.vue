@@ -11,6 +11,11 @@
   </div>
 </template>
 
+<script lang="ts">
+type FormatKind = "json" | "xml" | "html" | "java" | "sql" | "plaintext";
+const formatterState = { input: "", output: "", detected: "plaintext" as FormatKind };
+</script>
+
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
@@ -18,11 +23,9 @@ import MonacoPane from "./MonacoPane.vue";
 import { formatHtml, formatJava, formatJson, formatSqlCode, formatXml } from "@lazycat/formatters";
 import { useClipboardSuggestion } from "../composables/useClipboardSuggestion";
 
-type FormatKind = "json" | "xml" | "html" | "java" | "sql" | "plaintext";
-
-const formatInput = ref("");
-const formatOutput = ref("");
-const formatDetected = ref<FormatKind>("plaintext");
+const formatInput = ref(formatterState.input);
+const formatOutput = ref(formatterState.output);
+const formatDetected = ref<FormatKind>(formatterState.detected);
 
 const monacoLanguage = computed(() => {
   const map: Record<string, string> = { json: "json", xml: "xml", html: "html", java: "java", sql: "sql" };
@@ -107,6 +110,9 @@ watch(formatInput, () => {
 
 onBeforeUnmount(() => {
   if (timer) clearTimeout(timer);
+  formatterState.input = formatInput.value;
+  formatterState.output = formatOutput.value;
+  formatterState.detected = formatDetected.value;
 });
 
 const { watchPendingInput } = useClipboardSuggestion();
