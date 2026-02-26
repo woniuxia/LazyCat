@@ -1,65 +1,79 @@
 # Lazycat / 懒猫
 
-纯离线桌面开发者工具箱，面向日常高频研发操作场景。
+![License](https://img.shields.io/badge/license-MIT-blue.svg)
+![Platform](https://img.shields.io/badge/platform-Windows%2010%2B-0078D4.svg)
+![Stack](https://img.shields.io/badge/stack-Tauri%202%20%2B%20Vue%203-42b883.svg)
 
-## 特性亮点
+> 面向开发者的离线效率工作台：把常用在线小工具收拢到一个本地应用里，开箱即用、数据不出机。
 
-- **纯离线运行** -- 所有功能完全本地执行，无需联网，无外部 API 依赖
-- **数据本地化** -- 用户数据存储在本地 SQLite，不上传任何数据，隐私安全
-- **All-in-One** -- 30+ 常用开发工具集成于一体，替代零散在线工具
-- **轻量快速** -- Tauri 2 + Rust 后端，安装包小、启动快、资源占用低
-- **可定制** -- 支持自定义快捷键、菜单显隐、数据目录、外观主题
+一个面向开发者日常场景的纯离线桌面工具箱，聚焦「高频、小而杂、需要本地可信执行」的任务。
 
-## 功能一览
+**你可以用它做什么？**
 
-| 分类 | 工具 | 说明 |
-|------|------|------|
-| 常用工具 | 代码格式化 | JSON/XML/HTML/Java/SQL 自动识别格式化 |
-| | 计算草稿 | 草稿式计算，回车复制结果并保留历史 |
-| | 正则工具 | 正则表达式生成、测试、模板库 |
-| | 文本对比 | 双栏文本差异对比 |
-| | Markdown | Markdown 编辑与实时预览 |
-| 编解码 | Base64 | Base64 编码与解码 |
-| | URL 编解码 | URL Encode / Decode |
-| | MD5 | 计算 MD5 摘要 |
-| | SHA/HMAC | SHA-1/256/512 与 HMAC-SHA256 散列 |
-| | 二维码生成 | 根据文本生成二维码 |
-| 加密与安全 | RSA 加解密 | RSA 公私钥加解密 |
-| | AES/DES | AES 与 DES/3DES 加解密 |
-| | JWT 解析 | 离线解析 JWT Token |
-| | UUID/GUID/密码 | 标识与随机密码生成 |
-| 数据转换 | JSON/XML | JSON 与 XML 双向转换 |
-| | JSON/YAML | JSON 与 YAML 双向转换 |
-| | CSV/JSON | CSV 与 JSON 转换 |
-| | 进制转换 | 二/八/十/十六进制互转 |
-| | 颜色转换 | 多格式互转、配色推荐、对比度检查 |
-| | 文本处理 | 按行去重与排序 |
-| 网络与系统 | IP/端口连通 | TCP 连通性测试 |
-| | DNS 查询 | 域名解析与记录查询 |
-| | Hosts 管理 | 多配置保存与切换（需管理员权限） |
-| | 端口占用 | 端口与进程查询 |
-| | 环境检测 | Node 与 Java 版本检测 |
-| | 快捷键检测 | 全局快捷键冲突检测 |
-| 文件与媒体 | 切割与合并 | 大文件切片与合并 |
-| | 图片转换 | 格式转换、缩放、裁剪、压缩 |
-| 时间工具 | 时间戳转换 | 时间戳与日期互转 |
-| | Cron 工具 | Cron 表达式生成与预览 |
-| 离线手册 | Vue 3 手册 | Vue 3 中文开发手册 |
-| | Element Plus | Element Plus 组件库文档 |
+- 在一个窗口里完成编码、转换、加密、网络排障、文件处理、时间计算
+- 管理常用应用启动项、代码片段、Hosts 配置、离线手册
+- 在无网或受限网络环境下，仍然稳定使用完整工具链
+
+## 为什么是 Lazycat
+
+- **纯离线执行**：所有工具本地运行，不依赖外部 API、无 CDN 运行时依赖
+- **数据本地优先**：用户数据写入本地 SQLite，不上传云端
+- **一站式集成**：覆盖编码、加密、转换、网络、文件、时间、离线手册等常见研发流程
+- **轻量桌面架构**：Tauri 2 + Rust 后端，启动快、占用低
+- **可定制工作台**：支持收藏、搜索、快捷启动、菜单显隐、快捷键等个性化配置
+
+## Why Open Source
+
+- **可审计**：核心能力与数据流透明，离线工具更值得信任
+- **可扩展**：欢迎按自己的工作流新增工具、面板或离线手册
+- **共建共享**：把团队内部常用能力沉淀成可复用的开源资产
+
+## 界面预览
+
+### 首图
+
+首页工作台：按分组浏览高频工具，支持搜索、收藏与快速进入。
+
+![首页总览](img/home.png)
+
+### 四宫格
+
+| 快捷启动 | 代码片段 |
+|------|------|
+| ![快捷启动](img/launcher.png) | ![代码片段](img/code.png) |
+| 管理常用应用，一键拉起本地工具链 | 片段收藏、标签过滤、快速复用 |
+
+| 密码库 | Hosts 管理 |
+|------|------|
+| ![密码库](img/valut.png) | ![Hosts 管理](img/hosts.png) |
+| 按环境/分类管理敏感信息，本地存储 | 多配置切换 + 备份历史，适合联调场景 |
+
+## 核心能力
+
+| 模块 | 你将获得 |
+|------|----------|
+| 常用工具 | 代码格式化、计算草稿、正则、文本对比、Markdown，一站完成 |
+| 编解码 | Base64、URL、MD5、SHA/HMAC、二维码等高频能力随开随用 |
+| 加密与安全 | RSA、AES/DES、JWT、UUID/GUID、密码生成等本地安全处理 |
+| 数据转换 | JSON/XML/YAML、CSV/JSON、进制/颜色/文本转换，减少手工操作 |
+| 网络与系统 | IP/端口连通、DNS、Hosts、端口占用、环境检测、快捷键检测 |
+| 文件与媒体 | 文件切割合并、图片转换/压缩/裁剪，常见处理无需额外安装软件 |
+| 时间工具 | 时间戳转换、Cron 预览、日期计算，覆盖开发排期与调试场景 |
+| 离线手册 | Vue 3、Element Plus、MDN JavaScript，本地可查可跳转 |
 
 ## 技术栈
 
-- Tauri 2 (Rust backend + WebView frontend)
+- Tauri 2（Rust backend + WebView frontend）
 - Vue 3 + Vite + Element Plus
 - TypeScript
-- pnpm workspace (monorepo)
-- SQLite (Rust `rusqlite`)
+- pnpm workspace（monorepo）
+- SQLite（Rust `rusqlite`）
 
 ## 平台支持
 
-当前仅支持 **Windows**（需 Windows 10 及以上）。
+当前仅支持 **Windows 10+**。
 
-## 快速开始
+## 快速开始（开发）
 
 环境要求：
 
@@ -96,7 +110,7 @@ pnpm dev
 
 ## 目录结构
 
-```
+```text
 apps/desktop/              Tauri 桌面端（Vue 前端 + Rust 命令）
   src/                     Vue 渲染层源码
   src-tauri/               Rust 后端源码
@@ -108,7 +122,7 @@ packages/file-tools/       文件切割与合并
 packages/image-tools/      图片转换、缩放、裁剪、压缩
 packages/db/               SQLite 初始化与存储
 packages/ipc-contracts/    请求/响应契约定义
-resources/manuals/         离线手册资源（Vue 3、Element Plus）
+resources/manuals/         离线手册资源（Vue 3、Element Plus、MDN JavaScript）
 resources/regex-library/   内置正则模板
 scripts/                   构建脚本（build-tauri-win.ps1）
 ```
@@ -125,6 +139,17 @@ pnpm build:portable
 # 带环境预检（推荐，自动检查 Rust / VS / Windows SDK）
 pnpm build:win:precheck
 ```
+
+## 参与贡献
+
+欢迎通过 Issue / PR 参与改进：
+
+1. Fork 仓库并创建分支
+2. 完成功能或修复并补充必要测试
+3. 提交 PR，说明改动动机与验证方式
+
+也欢迎提交工具建议、离线手册补充、体验优化建议。
+如果这个项目对你有帮助，欢迎点一个 Star。
 
 ## License
 
