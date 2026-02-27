@@ -68,7 +68,6 @@ declare module 'vue' {
     ElTabs: typeof import('element-plus/es')['ElTabs']
     ElTag: typeof import('element-plus/es')['ElTag']
     ElTooltip: typeof import('element-plus/es')['ElTooltip']
-    ElTree: typeof import('element-plus/es')['ElTree']
     EncodePanel: typeof import('./src/components/EncodePanel.vue')['default']
     EnvPanel: typeof import('./src/components/EnvPanel.vue')['default']
     EscapeUnescapePanel: typeof import('./src/components/EscapeUnescapePanel.vue')['default']

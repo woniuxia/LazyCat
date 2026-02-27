@@ -228,6 +228,17 @@ function onKeydown(e: KeyboardEvent) {
     e.preventDefault();
     shortcutHelp.value?.show();
   }
+  if (e.ctrlKey && !e.shiftKey && !e.altKey && e.key >= "1" && e.key <= "9") {
+    e.preventDefault();
+    const idx = parseInt(e.key, 10) - 1;
+    const visibleTabs = [
+      HOME_ID,
+      ...openTabs.value.filter(t => t.id !== HOME_ID).map(t => t.id),
+    ];
+    if (idx < visibleTabs.length) {
+      onTabSelect(visibleTabs[idx]);
+    }
+  }
 }
 
 const {
