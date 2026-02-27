@@ -50,6 +50,10 @@ function Invoke-InVsDevEnv {
     throw "VsDevCmd.bat not found. Install Visual Studio 2022 (Community/BuildTools) with Desktop C++ workload."
   }
 
+  # Strip Git's usr/bin from PATH to prevent its link.exe shadowing MSVC's
+  $savedPath = $env:Path
+  $env:Path = ($env:Path -split ';' | Where-Object { $_ -notmatch 'Git\\usr\\bin' }) -join ';'
+
   $strawberryPerl = "C:\Strawberry\perl\bin"
   $pathPrefix = ""
   if (Test-Path $strawberryPerl) {
@@ -57,9 +61,14 @@ function Invoke-InVsDevEnv {
   }
 
   $cmd = "`"$vsDevCmd`" -arch=x64 && $pathPrefix$Command"
-  cmd /c $cmd
-  if ($LASTEXITCODE -ne 0) {
-    throw "Command failed in VS developer environment (exit code $LASTEXITCODE): $Command"
+  try {
+    cmd /c $cmd
+    if ($LASTEXITCODE -ne 0) {
+      throw "Command failed in VS developer environment (exit code $LASTEXITCODE): $Command"
+    }
+  }
+  finally {
+    $env:Path = $savedPath
   }
 }
 
