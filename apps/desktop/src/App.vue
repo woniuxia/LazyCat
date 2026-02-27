@@ -5,6 +5,7 @@
       :all-items="sidebarItems"
       :active-tool="activeTool"
       :search-meta-map="toolSearchMetaMap"
+      :click-count-fn="recentClickCount"
       @select="onSelect"
       @goto-home="onSelect(HOME_ID)"
       @goto-settings="onSelect('settings')"

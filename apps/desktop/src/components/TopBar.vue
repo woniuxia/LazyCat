@@ -31,31 +31,33 @@
       </div>
 
       <div v-if="isDropdownOpen" ref="dropdownRef" class="search-dropdown">
-        <template v-if="flattenedResults.length > 0">
-          <div
-            v-for="(item, index) in flattenedResults"
-            :key="item.key"
-            class="search-result-item"
-            :class="{
-              'is-highlighted': highlightedIndex === index,
-              'is-group-header': item.kind === 'header',
-            }"
-            @click="onRowClick(item)"
-            @mouseenter="highlightedIndex = index"
-          >
-            <template v-if="item.kind === 'header'">
-              <span class="result-group-name">{{ item.label }}</span>
-            </template>
-            <template v-else>
-              <span class="result-name">{{ item.name }}</span>
-              <span class="result-group">{{ item.group }}</span>
-            </template>
+        <div class="search-dropdown-body">
+          <template v-if="flattenedResults.length > 0">
+            <div
+              v-for="(item, index) in flattenedResults"
+              :key="item.key"
+              class="search-result-item"
+              :class="{
+                'is-highlighted': highlightedIndex === index,
+                'is-group-header': item.kind === 'header',
+              }"
+              @click="onRowClick(item)"
+              @mouseenter="highlightedIndex = index"
+            >
+              <template v-if="item.kind === 'header'">
+                <span class="result-group-name">{{ item.label }}</span>
+              </template>
+              <template v-else>
+                <span class="result-name">{{ item.name }}</span>
+                <span class="result-group">{{ item.group }}</span>
+              </template>
+            </div>
+          </template>
+          <div v-else-if="searchQuery.trim()" class="search-empty">
+            无匹配结果
           </div>
-        </template>
-        <div v-else-if="searchQuery.trim()" class="search-empty">
-          无匹配结果
         </div>
-        <div v-else class="search-hint">
+        <div class="search-hint">
           <div class="search-hint-item">
             <kbd>↑</kbd> <kbd>↓</kbd> 导航
           </div>
@@ -131,6 +133,7 @@ const props = defineProps<{
   allItems: SidebarItem[];
   activeTool: string;
   searchMetaMap: ToolSearchMetaMap;
+  clickCountFn: (toolId: string) => number;
 }>();
 
 const emit = defineEmits<{
@@ -202,9 +205,34 @@ const matchedLauncher = computed<LauncherResult[]>(() => {
     }));
 });
 
+const recommendations = computed<SearchRow[]>(() => {
+  const tools = indexedTools.value
+    .map((item) => ({
+      item,
+      count: props.clickCountFn(item.tool.id),
+    }))
+    .filter((row) => row.count > 0)
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 8)
+    .map((row) => ({
+      kind: "tool" as const,
+      key: `rec-${row.item.tool.id}`,
+      id: row.item.tool.id,
+      name: row.item.tool.name,
+      group: row.item.groupName,
+      score: row.count,
+    }));
+
+  if (tools.length === 0) return [];
+  return [
+    { kind: "header" as const, key: "header-recent", label: "最近常用" },
+    ...tools,
+  ];
+});
+
 const flattenedResults = computed<SearchRow[]>(() => {
   const q = searchQuery.value.trim();
-  if (!q) return [];
+  if (!q) return recommendations.value;
 
   const rows: SearchRow[] = [];
   if (matchedTools.value.length > 0) {
