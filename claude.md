@@ -1,296 +1,101 @@
-﻿# CLAUDE.md
+# CLAUDE.md
 
 本文件为 Claude 或其他编码代理提供项目上下文和协作规范。
 
 > **双文件同步约束**：本文件（`CLAUDE.md`）与 `AGENTS.md` 共同维护项目规范。
 > 更新本文件的任何章节时，必须同步检查并更新 `AGENTS.md` 中的对应内容，保持两者一致。
 
-## Core Rules
+## 核心规则
 
 - 当用户要求实现功能时，立即开始写代码。不要花整个会话探索代码库和写计划，除非用户明确要求制定计划。如果需要上下文，快速收集后立即进入实现。
 - 当用户提出问题（如"怎么安装 X？"、"Y 可行吗？"），直接回答问题。不要为信息类问题启动代码库探索或进入计划模式。
-
-## Project Context
-
-- 这是一个 Tauri 桌面应用（Rust 后端 + Vue/TypeScript 前端）。构建便携包时，始终使用 portable/zip 目标，除非用户明确要求，否则不要生成 NSIS 安装包。
 - 所有 CDN 依赖和外部资源（字体、Monaco Editor 等）必须本地打包。这是桌面应用，运行时绝不能依赖 CDN 加载。
+- 构建便携包时，始终使用 portable/zip 目标，除非用户明确要求，否则不要生成 NSIS 安装包。
+- UI 设计默认使用干净的浅色/白色主题，与现有页面风格保持一致。除非用户明确要求，否则不要使用深色、赛博朋克或花哨的设计风格。
 
-## UI/Design Conventions
-
-- UI/视觉工作：默认使用干净的浅色/白色主题，与现有页面风格保持一致。除非用户明确要求，否则不要使用深色、赛博朋克或花哨的设计风格。
-
-## Platform Notes
-
-- 本项目运行在 Windows 上。注意：控制台输出使用 GBK 编码（非 UTF-8），系统 DNS 解析 API 可能返回公共 DNS（如 Google）而非实际系统 DNS，运行中的 .exe 进程持有的文件锁必须先终止进程才能重新构建。
-
-## 项目信息
+## 项目概览
 
 - 名称: Lazycat (懒猫)
 - 类型: 离线桌面开发者工具箱
 - 主要平台: Windows
-- 开发环境: Windows（命令行使用 PowerShell，不支持 `&&` 链接命令，使用 `;` 分隔）
-- 运行时: Tauri 2 + Vue 3 + TypeScript
-- 本机脚本能力: 已安装 `Python` 与 `Node.js`，可用于处理小型脚本、数据修复与临时排障
+- 技术栈: Tauri 2 + Vue 3 + TypeScript + Rust
+- 终端: PowerShell（不支持 `&&`，使用 `;` 分隔命令）
+- 本机脚本: 已安装 Python 与 Node.js，可用于小型脚本和临时排障
+- Windows 特性: 控制台输出 GBK 编码（非 UTF-8）；运行中的 .exe 持有文件锁须先终止才能重新构建
 
 ## 仓库结构
 
-- `apps/desktop`: Tauri 桌面应用（Rust 命令 + Vue 渲染层）
-- `packages/core`: 编解码、文本工具、转换、正则、Cron、生成器
-- `packages/crypto`: RSA/AES/DES 加密封装
-- `packages/formatters`: JSON/XML/HTML/Java/SQL 格式化
-- `packages/network`: 网络连通性/运行时/端口检查
-- `packages/file-tools`: 文件拆分/合并工具
-- `packages/image-tools`: 图片转换/缩放/裁剪/压缩
-- `packages/db`: SQLite 持久化
-- `packages/ipc-contracts`: 请求/响应契约定义
-- `resources/manuals`: 离线手册（Vue 3、Element Plus）
-- `resources/regex-library`: 内置正则模板
-- `scripts`: 构建脚本（`build-tauri-win.ps1`）
+```
+apps/desktop/                    Tauri 桌面应用
+  src-tauri/                     Rust 工具执行与 IPC 入口
+    src/tools/                   30 个 Rust 工具域模块 + mod.rs 分发器 + helpers.rs
+  src/components/                57 个 Vue 面板组件
+  src/composables/               状态管理 composables
+  src/bridge/tauri.ts            前后端 IPC 通道映射（157 条通道，27 个域）
+  src/tool-registry.ts           工具 ID -> 异步组件注册
+packages/formatters/             JSON/XML/HTML/Java/SQL 格式化（Prettier standalone，唯一实际使用的 package）
+resources/manuals/               离线手册（Vue 3、Element Plus、MDN JavaScript）
+resources/regex-library/         内置正则模板
+resources/hotkey-library/        快捷键库资源
+scripts/                         构建与工具脚本
+  build-tauri-win.ps1            Windows NSIS 打包脚本
+  release-all-win.ps1            四类包一键构建与 GitHub 发布脚本
+  scrape-mdn-js.mjs             MDN JavaScript 抓取脚本
+```
 
 ## 本地命令
 
-- 安装依赖: `pnpm install`
-- 开发模式: `pnpm dev`
-- 类型检查: `pnpm typecheck`
-- 构建: `pnpm build`
-- 构建（Windows 预检）: `pnpm build:win:precheck`
-- 单元测试: `pnpm test`
-- E2E 测试: `pnpm test:e2e`
-- Windows 打包（NSIS 安装包）: `pnpm build:win`
-- Windows 打包（NSIS 安装包，slim）: `pnpm build:portable`（实际也是 NSIS，见下方说明）
-
-### Windows 打包方式总览
-
-LazyCat 依赖 WebView2 运行时。Windows 11 自带，Windows 10 不一定有。根据是否内嵌 WebView2，共有四种打包方式：
-
-| 方式 | 含 WebView2 | 产物格式 | 体积 | 离线可用 | 适用场景 |
-|------|:-----------:|----------|------|:--------:|----------|
-| NSIS 安装包（轻量） | 否 | `.exe` 安装包 | ~19 MB | 否 | 目标机已有 WebView2 或可联网 |
-| NSIS 安装包（离线） | 是 | `.exe` 安装包 | ~218 MB | 是 | 离线环境 Win10 部署（需 fixedRuntime 配置） |
-| 绿色免安装包（轻量） | 否 | `.zip` | ~30 MB | 否 | 目标机已有 WebView2 |
-| 绿色免安装包（离线） | 是 | `.zip` | ~290 MB | 是 | 离线环境解压即用 |
-
-### WebView2 离线支持原理
-
-`tauri.conf.json` 中**不需要**配置 `webviewInstallMode`，保持默认即可。
-
-离线 WebView2 支持通过 Rust 代码实现（`main.rs` 的 `main()` 函数开头）：
-- 启动时扫描 exe 同级目录，查找 `Microsoft.WebView2.FixedVersionRuntime.*` 目录
-- 找到后设置 `WEBVIEW2_BROWSER_EXECUTABLE_FOLDER` 环境变量
-- `WebView2Loader.dll` 读取该环境变量，使用本地运行时而非系统安装版本
-- 必须在 `tauri::Builder::default()` 之前执行
-
-这意味着同一个二进制文件同时支持两种场景：
-- exe 同级有 WebView2 运行时目录 -> 使用本地运行时（离线绿色包）
-- exe 同级没有 -> 使用系统安装的 WebView2（NSIS 安装包、Win11）
-
-### 准备 WebView2 Fixed Runtime（仅离线模式需要，一次性操作）
-
-1. 获取 CAB 文件：从微软官方下载 `Microsoft.WebView2.FixedVersionRuntime.<版本>.x64.cab`
-2. 用 7z 提取到 `src-tauri/WebView2/` 目录：
-   ```bash
-   mkdir -p apps/desktop/src-tauri/WebView2
-   7z x "路径/Microsoft.WebView2.FixedVersionRuntime.145.0.3800.70.x64.cab" \
-     -o"apps/desktop/src-tauri/WebView2" -y
-   ```
-3. 提取后目录结构为 `src-tauri/WebView2/Microsoft.WebView2.FixedVersionRuntime.145.0.3800.70.x64/msedgewebview2.exe`
-4. `WebView2/` 目录已在 `.gitignore` 中排除，不会提交到仓库（~604MB）
-
-### 构建命令
-
-所有打包方式共用同一个构建命令，`tauri.conf.json` 无需修改：
-
-```bash
-pnpm build:portable   # 等价于 pnpm build:web && tauri build --bundles nsis
-```
-
-产物：
-- NSIS 安装包：`target/release/bundle/nsis/Lazycat_0.1.0_x64-setup.exe`
-- Release 二进制：`target/release/lazycat-desktop.exe` + `lazycat_lib.dll`
-
-### 绿色免安装包打包（手动 7z）
-
-`pnpm build:portable` 产物仍为 NSIS 安装包。绿色包需在构建后手动用 7z 打包。
-
-**轻量版**（不含 WebView2）：
-```bash
-cd apps/desktop/src-tauri/target/release
-7z a -tzip Lazycat_0.1.0_x64_portable.zip \
-  lazycat-desktop.exe \
-  lazycat_lib.dll \
-  manuals/ \
-  regex-library/ \
-  hotkey-library/
-```
-
-**离线版**（含 WebView2）：
-```bash
-cd apps/desktop/src-tauri/target/release
-7z a -tzip Lazycat_0.1.0_x64_portable.zip \
-  lazycat-desktop.exe \
-  lazycat_lib.dll \
-  manuals/ \
-  regex-library/ \
-  hotkey-library/ \
-  ../../WebView2/Microsoft.WebView2.FixedVersionRuntime.145.0.3800.70.x64/
-```
-
-### 绿色包文件清单
-
-| 文件/目录 | 说明 | 是否必需 |
-|-----------|------|:--------:|
-| `lazycat-desktop.exe` | 主程序 | 是 |
-| `lazycat_lib.dll` | Rust 动态库 | 是 |
-| `manuals/` | 离线手册资源 | 是 |
-| `regex-library/` | 内置正则模板 | 是 |
-| `hotkey-library/` | 快捷键库 | 是 |
-| `Microsoft.WebView2.FixedVersionRuntime.*/` | WebView2 运行时 | 仅离线模式 |
-
-### 打包注意事项
-
-- **必须用 `tauri build` 构建**，不能用 `cargo build --release`。后者不会将 `dist-renderer` 前端资源嵌入二进制，运行时会回退到 `devUrl`（localhost）导致白屏
-- `Cargo.toml` 中 tauri 已启用 `devtools` feature，release 模式下右键页面可选择"检查"打开开发者工具
-- WebView2 Fixed Runtime **不会自动更新**，后续需手动更新 CAB 文件以获取安全补丁
-- `offlineInstaller` 模式（`tauri.conf.json` 中 `type: "offlineInstaller"`）在某些环境下安装会失败（错误码 `-2147219700`），不推荐使用
-- `fixedRuntime` 配置仅影响 NSIS 打包器，不影响编译后的二进制行为；绿色包的离线 WebView2 支持完全由 `main.rs` 中的环境变量注入实现
-- 构建机器需要 Rust 工具链（`cargo`、`rustc`）、Perl（OpenSSL 编译）、7z（绿色包打包）
-- 构建时若 `lazycat-desktop.exe` 被占用（os error 5），需先关闭运行中的程序
-
-### Monaco Editor 本地化
-
-Monaco Editor 已从 CDN 加载改为 Vite ESM 本地打包，确保离线环境可用：
-- 配置文件：`apps/desktop/src/utils/monaco-setup.ts`，统一初始化 Monaco 及 5 个 worker（editor/json/css/html/ts）
-- `MonacoPane.vue` 和 `DiffPanel.vue` 直接导入本地模块，不再依赖 `@monaco-editor/loader` 的 CDN
-- 构建产物中包含 `monaco-setup-*.js`（~3.3MB）和 5 个 `*.worker-*.js` 文件
-- CSP 中 `worker-src 'self' blob:` 已满足 worker 加载需求，无需额外配置
-
-## 代理协作规则
-
-- 不要自动启动应用/开发服务器。
-- 仅在用户明确要求时才运行 `pnpm dev`（或任何启动桌面 UI 的命令）。
-- 完成复杂任务（3+ 文件、非简单调试、架构变更）后，将流程总结写入 `process.md`。
-- 开始复杂任务前，先检查 `process.md` 是否有相关经验。
-- 当 `process.md` 中某条经验使用次数 >= 3 时，固化到 `CLAUDE.md`。
-- 较大变动（跨多文件、新增功能、架构调整等）在确认更改有效后，应及时提交一次代码，避免大量改动堆积导致回滚困难或提交信息模糊。
-- 网页抓取策略：`WebFetch` 失败时（网络限制、域名验证不通过等），应主动 fallback 到 Playwright（`browser_navigate` + `browser_snapshot`）。Playwright 作为真实浏览器，对国内网站和 SPA 页面的兼容性更好。
-
-## 编码与乱码问题（重要）
-
-- 已知问题：中文乱码曾导致 `apps/desktop/src/App.vue` 模板/脚本损坏：
-  - 引号属性缺失闭合 `"`
-  - 按钮闭合标签损坏（如 `?/el-button>`）
-  - `<script>` 中字符串字面量未终止
-- 典型报错症状：
-  - Vite/Vue 解析错误：
-    - `Attribute name cannot contain ...`
-    - `Unquoted attribute value cannot contain ...`
-    - `Unterminated string constant`
-    - `Error parsing JavaScript expression`
-- 修改 UI 文本时的必要措施：
-  - 保持有效 UTF-8，避免批量替换导致标点/引号变异
-  - 优先小范围、精确编辑
-  - 发现乱码时，先修复结构正确性（引号/标签），再修复显示文本
-- 修改 Vue 文件中文本后的必要验证：
-  1. `pnpm --filter @lazycat/desktop typecheck`
-  2. `pnpm --filter @lazycat/desktop build:web`
-- 格式化功能补充说明：
-  - 渲染层中 Prettier 必须使用 standalone + 显式插件（`prettier/standalone` + 解析器插件），否则运行时解析器解析会失败
-
-### 编码硬性要求（2026-02-20 固化）
-
-- 前端源码文件（`*.vue`、`*.ts`、`*.css`、`*.md`）统一使用 **UTF-8（带/不带 BOM 均可）**，禁止使用 ANSI/GBK/UTF-16。
-- 使用 PowerShell 写文件时，必须显式指定 UTF-8：
-  - `Set-Content -Encoding UTF8 ...`
-  - `Out-File -Encoding utf8 ...`
-- 对包含中文的文件，禁止做整文件的大范围正则替换；优先使用小范围、可定位的精确修改（按块或按行）。
-- 如遇 `apply_patch` 报错 `stream did not contain valid UTF-8`，先将目标文件转为 UTF-8 再继续修改，避免在非 UTF-8 文件上直接打补丁。
-- 若出现乱码，按以下顺序处理：
-  1. 先修复语法结构（引号闭合、标签闭合、字符串闭合）。
-  2. 再修复显示文本。
-  3. 最后执行构建验证（`typecheck` + `build:web`）。
-- 菜单/导航/按钮等用户可见文案默认使用中文，避免中英混杂（除通用技术词如 `JSON`、`SQL`、`JWT`）。
+| 命令 | 说明 |
+|------|------|
+| `pnpm install` | 安装依赖 |
+| `pnpm dev` | 开发模式 |
+| `pnpm typecheck` | 类型检查 |
+| `pnpm build` | 全量构建 |
+| `pnpm build:win:precheck` | Windows 构建预检 |
+| `pnpm test` | 单元测试 |
+| `pnpm test:e2e` | E2E 测试 |
+| `pnpm build:win` | Windows 打包（NSIS 安装包） |
+| `pnpm build:portable` | Windows 打包（NSIS，同上） |
 
 ## 架构说明
 
-- 前后端调用链路：
-  - Vue 调用 `apps/desktop/src/bridge/tauri.ts` 中的 `invokeToolByChannel`
-  - 通道字符串（如 `tool:encode:base64-encode`）通过 `CHANNEL_MAP` 映射为 `{domain, action}`
-  - Tauri 命令 `tool_execute` 在 Rust 端通过 `main.rs` 中的 `match (domain, action)` 分发
-- 前端路由：未使用 vue-router；`App.vue` 通过 `v-else-if` 链式判断 `activeTool` ref 来切换面板
-- 已提取的子组件位于 `apps/desktop/src/components/`：`HomePanel`、`CalcDraftPanel`、`FormatterPanel`、`RegexPanel`、`HostsPanel`、`PortsPanel`、`NetworkPanel`、`MonacoPane`、`ManualPanel`、`EncodePanel`、`CsvJsonPanel`、`SidebarNav`、`SqlEntityPanel`、`PdfPanel`、`NamingCasePanel`、`ConfigConvertPanel`、`HttpStatusPanel`、`ChmodCalcPanel`、`DateCalcPanel`、`BcryptPanel`、`EscapeUnescapePanel`、`NginxPanel`、`HotkeyPanel`、`ImagePanel` 等
-- 格式化架构：XML/HTML/Java/SQL 格式化在 Rust 端为**直通模式**；实际格式化由渲染层的 `@lazycat/formatters`（Prettier standalone）完成
-- Cron 预览（`cron.preview`）当前为**桩实现** -- 返回占位字符串，非真实的下次触发时间
-- Hosts 激活需要**管理员权限**写入 `C:\Windows\System32\drivers\etc\hosts`；覆写前自动备份原文件
-- 运行时数据：
-  - 默认数据目录：`%USERPROFILE%\\.lazycat`（可通过设置面板自定义）
-  - 指针文件 `%USERPROFILE%\\.lazycat\\config.json` 记录自定义数据目录路径，该文件位置固定不变
-  - Hosts 配置、用户设置均存储在 SQLite
-  - Hosts 备份目录由 Rust 端管理
-- 菜单显隐：`useMenuVisibility` composable 管理侧边栏工具的显示/隐藏
-  - 数据模型：deny-list（被隐藏的工具 ID 数组），SQLite key `menu_visibility`，新增工具默认可见
-  - 数据流管线：`sidebarItems`（静态定义）→ `sortedSidebarItems`（热度排序）→ `visibleSidebarItems`（过滤隐藏+自动提升）→ `SidebarNav :items`
-  - 分组只剩 1 个可见子项时自动提升为一级菜单，0 个则整组消失
-  - `allTools`/`allToolMap` 始终基于未过滤的 `sidebarItems`，隐藏工具仍可通过标签页、收藏、首页访问
-  - 设置入口：`SettingsPanel` → `MenuVisibilityDialog`（el-tree 树形复选框）
-- 状态持久化：收藏夹、工具点击历史、计算草稿历史、外观主题、快捷键、菜单显隐等全部存储在 SQLite（`user_settings` 表）；旧版 localStorage 数据在首次启动时自动迁移
-- PDF 工具：
-  - Rust 后端模块 `tools/pdf.rs`，使用 `lopdf` crate 操作 PDF
-  - 三个 action：`info`（元数据提取）、`split`（按页码范围拆分为多个文件）、`merge`（合并多个 PDF）
-  - 拆分输出到目录，每个页码范围生成独立文件（如 `文件名_p1.pdf`、`文件名_p2-5.pdf`）
-  - 页码范围留空时逐页拆分
-  - IPC 通道：`tool:pdf:info` / `tool:pdf:split` / `tool:pdf:merge`
-- SQL 转实体类：
-  - Rust 后端在 `tools/convert.rs` 中实现 `sql_to_entity` action
-  - 支持 6 种目标语言：Java（Lombok @Data）、TypeScript、Go、Python、Kotlin、C#
-  - IPC 通道：`tool:convert:sql-to-entity`
-- 正则可视化：
-  - 纯前端实现，无需后端参与
-  - 使用 `regexp-tree` 解析正则 AST + `railroad-diagrams` 渲染铁路图 SVG
-  - 转换逻辑位于 `apps/desktop/src/utils/regex-to-railroad.ts`
-  - 集成在 `RegexPanel.vue` 中，500ms 防抖自动渲染，支持缩放控制
+### 前后端调用链路
 
-## 重要运行时路径
+- Vue 调用 `bridge/tauri.ts` 的 `invokeToolByChannel`
+- 通道字符串（如 `tool:encode:base64-encode`）通过 `CHANNEL_MAP`（157 条通道，27 个域）映射为 `{domain, action}`
+- Tauri 命令 `tool_execute` 在 Rust 端通过 `tools/mod.rs` 的 `execute_tool` 分发到各域模块
 
-- 指针配置: `%USERPROFILE%\\.lazycat\\config.json`（固定位置，记录自定义数据目录）
-- 数据库文件: `<数据目录>\\lazycat.sqlite`（默认 `%USERPROFILE%\\.lazycat\\lazycat.sqlite`）
-- Hosts 备份: `<数据目录>\\hosts-backups`
+### 前端动态组件
 
-## 数据管理
+- 未使用 vue-router；`App.vue` 通过 `activeTool` 决定当前面板
+- 工具面板通过 `tool-registry.ts` 的 `defineAsyncComponent` 动态加载，`<component :is="currentComponent">` 渲染
 
-### 可配置数据目录
+### 前端 Composables
 
-- `helpers.rs` 提供三层路径函数：
-  - `get_base_dir()` -- 固定返回 `~/.lazycat`，创建目录
-  - `get_config_path()` -- 固定返回 `~/.lazycat/config.json`
-  - `get_data_dir()` -- 读 `config.json` 中的 `data_dir` 字段，若存在且路径可达则使用，否则回退 `get_base_dir()`
-- `config.json` 格式：`{"data_dir": "D:\\MyData\\lazycat"}`，该文件永远在 `~/.lazycat/` 下，不随数据目录迁移
-- 容错：自定义路径不可达（外置硬盘拔出等）时静默回退默认目录，不崩溃
-- 迁移策略：复制 `lazycat.sqlite` + `hosts-backups/` 到新目录，旧目录数据保留不删除
-- 安全检查：目标目录已存在 `lazycat.sqlite` 时拒绝迁移，避免覆盖
+| Composable | 说明 |
+|------------|------|
+| `useToolInvoke` | IPC 调用包装（loading/error 状态管理） |
+| `useTabs` | 标签页管理（打开/切换/关闭/左右批量关闭，Ctrl+数字切换） |
+| `useSettings` | 设置读写持久化 |
+| `useFavorites` | 收藏夹与点击历史（近 30 天高频工具推荐） |
+| `useMenuVisibility` | 侧边栏工具显隐（deny-list 模型，分组剩 1 项自动提升为一级，0 项整组隐藏） |
+| `useClipboardSuggestion` | 剪贴板内容智能检测与工具推荐 |
 
-### 导出/导入
+### 格式化与持久化
 
-- 导出/导入使用 Tauri 原生文件对话框（`@tauri-apps/plugin-dialog` 的 `save()`/`open()`），不使用浏览器 blob 下载或 `<input type="file">`
-- Rust 端 `export_to_file` 直接调用 `settings_export()` 获取数据后写入指定路径
-- Rust 端 `import_from_file` 读取文件后复用 `settings_import()` 逻辑
-- 导出格式 JSON，包含 `version`、`exportedAt`、`settings`（全部用户设置）、`hosts_profiles`
-- 导入支持 `merge`（合并）和 `overwrite`（覆盖）两种模式
-- 所需权限：`capabilities/default.json` 中需要 `dialog:allow-save` 和 `dialog:allow-open`
+- XML/HTML/Java/SQL 格式化在 Rust 端为**直通模式**；实际格式化由 `@lazycat/formatters`（Prettier standalone）完成
+- Prettier 必须使用 `prettier/standalone` + 显式解析器插件，否则运行时会失败
+- 所有状态（收藏、历史、草稿、主题、快捷键、菜单显隐）存储在 SQLite `user_settings` 表
 
-### settings 域 IPC 通道一览
+### Rust 后端
 
-| 通道 | Rust action | 说明 |
-|------|-------------|------|
-| `tool:settings:get` | `get` | 读取单个设置项 |
-| `tool:settings:set` | `set` | 写入单个设置项 |
-| `tool:settings:get-all` | `get_all` | 读取全部设置 |
-| `tool:settings:export` | `export` | 导出数据（返回 JSON 值） |
-| `tool:settings:import` | `import` | 导入数据（传入 JSON 字符串） |
-| `tool:settings:export-to-file` | `export_to_file` | 导出数据到指定文件路径 |
-| `tool:settings:import-from-file` | `import_from_file` | 从指定文件路径导入数据 |
-| `tool:settings:get-data-dir` | `get_data_dir` | 获取当前数据目录信息 |
-| `tool:settings:set-data-dir` | `set_data_dir` | 设置自定义数据目录（含迁移） |
-| `tool:settings:reset-data-dir` | `reset_data_dir` | 恢复默认数据目录 |
+30 个工具域模块位于 `apps/desktop/src-tauri/src/tools/`，由 `mod.rs` 统一分发。辅助模块 `helpers.rs` 提供路径/DB/schema migration。
+
+关键 gotcha:
+- **Cron**: 默认 Spring 6 字段（`秒 分 时 日 月 周`），5 字段自动补前导秒 `0`，7 字段拒绝。优先使用 `normalize`/`describe`/`preview-v2` 通道
+- **Hosts**: 激活需要管理员权限写入 `C:\Windows\System32\drivers\etc\hosts`，覆写前自动备份
+- **capture**: 条件编译，需 `capture` feature（依赖 `pcap`/`etherparse`/`libc`），默认不启用
+- **Monaco Editor**: 已从 CDN 改为 Vite ESM 本地打包（`src/utils/monaco-setup.ts`），离线环境可用
 
 ## 添加新工具的标准流程
 
@@ -304,188 +109,158 @@ Monaco Editor 已从 CDN 加载改为 Vite ESM 本地打包，确保离线环境
 
 纯前端工具（如正则可视化）仅需步骤 1-3。
 
-## 当前已知限制
+工具分组见 `App.vue` 的 `sidebarItems`。新增/调整工具时，必须同步以上三个前端来源（App.vue、tool-registry.ts、tauri.ts）。
 
-- `pnpm build` 需要 Rust 工具链（`cargo`、`rustc`）及平台依赖。
-- Windows 上 vendored OpenSSL 需要 `perl`（如 Strawberry Perl）。
-- 所有 Rust 工具逻辑已拆分为独立模块，位于 `apps/desktop/src-tauri/src/tools/` 目录下，由 `mod.rs` 统一分发。
-- `packages/core`、`packages/crypto`、`packages/db`、`packages/file-tools`、`packages/image-tools`、`packages/network`、`packages/ipc-contracts` 当前为桩或薄封装 -- 实际逻辑在 Rust 端。仅 `packages/formatters` 被渲染层实际使用（Prettier standalone）。
-- Cron 预览为桩实现（返回占位字符串），真实的下次触发时间计算尚未实现。
-- Rust 端的 XML/HTML/Java/SQL 格式化为直通模式；格式化质量取决于 `@lazycat/formatters`（Prettier）。
-- 离线手册已集成 Vue 3 和 Element Plus，可替换或新增更多完整静态文档。
-- Hosts 激活需要以管理员身份运行应用。
+## 编码与中文安全
+
+### 硬性要求
+
+- 前端源码文件（`*.vue`、`*.ts`、`*.css`、`*.md`）统一使用 **UTF-8**，禁止 ANSI/GBK/UTF-16
+- PowerShell 写文件必须显式指定 UTF-8：`Set-Content -Encoding UTF8` / `Out-File -Encoding utf8`
+- 含中文文件禁止整文件级大替换；优先小范围、可定位的精确修改
+- 如遇 `apply_patch` 报错 `stream did not contain valid UTF-8`，先将目标文件转为 UTF-8 再继续修改
+- 菜单/导航/按钮等用户可见文案默认使用中文（通用技术词如 JSON/SQL/JWT 除外）
+
+### 乱码修复优先级
+
+1. 先修复语法结构（引号闭合、标签闭合、字符串闭合）
+2. 再修复显示文本
+3. 最后执行构建验证：`pnpm --filter @lazycat/desktop typecheck` + `build:web`
+
+## 数据管理
+
+### 运行时路径
+
+- 指针配置: `%USERPROFILE%\.lazycat\config.json`（固定位置，记录自定义数据目录）
+- 数据库文件: `<数据目录>\lazycat.sqlite`（默认 `%USERPROFILE%\.lazycat\lazycat.sqlite`）
+- Hosts 备份: `<数据目录>\hosts-backups`
+
+### 数据目录
+
+`helpers.rs` 提供 `get_base_dir()`（固定 `~/.lazycat`）、`get_config_path()`、`get_data_dir()`（读 `config.json` 中 `data_dir` 字段，不可达时回退默认）三层路径函数。
+
+- 容错：自定义路径不可达时静默回退默认目录，不崩溃
+- 迁移：复制 `lazycat.sqlite` + `hosts-backups/` 到新目录，旧目录保留不删除
+- 安全：目标目录已存在 `lazycat.sqlite` 时拒绝迁移，避免覆盖
+- 导出/导入：使用 Tauri 原生文件对话框（`@tauri-apps/plugin-dialog`），JSON 格式，支持 merge/overwrite 两种模式
+- settings 域提供 10 个 IPC 通道（get/set/get-all/export/import/export-to-file/import-from-file/get-data-dir/set-data-dir/reset-data-dir）
 
 ## 离线手册架构
 
 ### 工作原理
 
-- Rust 在 `setup` 阶段扫描 `resources/manuals/` 下的子目录，为每个手册启动独立的本地 HTTP 文件服务器（`TcpListener::bind("127.0.0.1:0")` 自动分配端口）
-- 端口存储在全局 `MANUAL_SERVERS: OnceLock<HashMap<String, u16>>`
-- `manuals:list` IPC 从全局 map 读取端口，返回 `http://127.0.0.1:{port}/guide/introduction.html` 格式的 URL
-- 前端 `ManualPanel.vue` 用 `<iframe :src="url">` 内嵌展示，文档自带的搜索和导航在 iframe 内直接可用
+- Rust 在 `setup` 阶段为每个手册启动独立本地 HTTP 文件服务器（`TcpListener::bind("127.0.0.1:0")` 自动分配端口）
+- 每个手册独立端口的原因：VitePress 构建产物使用绝对路径资源引用（`/assets/...`），共享端口会导致 404
+- 前端 `ManualPanel.vue` 用 `<iframe>` 内嵌展示
 
-### 为什么用本地 HTTP 服务器（而非自定义 URI Scheme）
+### 已集成的手册
 
-- Tauri 2 的 `register_uri_scheme_protocol` 在 iframe 中加载 HTML 有已知 bug（[tauri#12767](https://github.com/tauri-apps/tauri/issues/12767)），CSS/JS 资源无法正确加载
-- 本地 HTTP 服务器方案最稳定，完全兼容 VitePress 文档的绝对路径资源引用（`/assets/...`）
+| 手册 ID | 名称 | 来源 |
+|---------|------|------|
+| `vue3` | Vue 3 开发手册 | 源码构建（`vuejs-translations/docs-zh-cn`） |
+| `element-plus` | Element Plus 组件库 | Puppeteer 抓取 |
+| `mdn-js` | MDN JavaScript 手册 | Puppeteer 抓取（872 文件，~72MB） |
 
-### 为什么每个手册独立端口
+### 路径解析
 
-- VitePress 构建产物中所有资源路径是绝对路径（`/assets/style.xxx.css`），从 server 根目录解析
-- 如果多个手册共享一个端口（如 `http://127.0.0.1:{port}/vue3/index.html`），`/assets/...` 会跳过 `vue3/` 前缀导致 404
-- 每个手册独立端口，其目录即为 HTTP 根路径，绝对路径天然正确
+- 打包后：`resource_dir()` + `manuals/`（由 `tauri.conf.json` 的 `bundle.resources` 配置，路径相对于 `src-tauri/`）
+- 开发模式：fallback 到 `CARGO_MANIFEST_DIR/../../../resources/manuals`（项目根目录）
 
-### 开发模式 vs 生产模式路径解析
+### 添加新手册
 
-- 打包后：`app.path().resource_dir()` + `manuals/` （由 `tauri.conf.json` 的 `bundle.resources` 配置打包）
-- 开发模式：`resource_dir()` 指向 `target/debug/`，文件不存在，fallback 到 `CARGO_MANIFEST_DIR/../../../resources/manuals`（项目根目录）
-- `tauri.conf.json` 中 `bundle.resources` 路径相对于 `src-tauri/`，当前值 `"../../../resources/manuals/**/*"`
+1. 获取中文文档静态产物（优先源码构建，无法构建时用 Puppeteer 抓取，参考 `scripts/scrape-mdn-js.mjs`）
+2. 复制到 `resources/manuals/<id>/`
+3. **两处必改**：
+   - `manuals.rs` 的 `known` 数组注册 `(id, name, entry_path)`
+   - `App.vue` 的 `sidebarItems` 离线手册分组增加 `{ id: "manual-<id>", name, desc }`
+   - 前端 id 格式为 `manual-<id>`，`ManualPanel.vue` 自动去掉前缀与后端匹配
+4. 验证 `pnpm dev` 能正确加载
 
-### 添加新手册（步骤）
+### HTML 注入机制
 
-1. **获取中文文档源码**（以 VitePress 文档为例）：
-   ```bash
-   git clone --depth=1 https://github.com/<org>/<docs-repo> /tmp/docs
-   cd /tmp/docs && pnpm install && pnpm build
-   ```
-   - Vue 3 中文：`vuejs-translations/docs-zh-cn`，产物在 `.vitepress/dist/`
-   - 注意：务必使用中文翻译仓库，而非英文原版
-   - **Element Plus 例外**：中文翻译由 Crowdin 管理，源码构建需要 Crowdin API token 才能生成中文版。替代方案是用 Puppeteer 抓取线上 SPA 渲染后的 HTML（见下方）
+HTTP 服务器在返回 HTML 时，于 `</head>` 前注入 CSS + JS 隐藏离线噪音元素（位置：`main.rs` 的 `INJECT` 常量）。新增手册需隐藏元素时，直接在 CSS 选择器列表中追加即可。
 
-2. **复制构建产物**到 `resources/manuals/<id>/`：
-   ```bash
-   cp -r .vitepress/dist resources/manuals/<id>
-   ```
+### 关键注意事项
 
-3. **注册手册**——两处都要改：
+- 不要用 `website-scraper`/`wget --mirror` 抓取 VitePress 站点（SPA 空壳）；优先源码构建
+- SPA 路由无扩展名路径必须保存为 `<path>/index.html`，否则子路径 `ENOTDIR`
+- 注册新手册必须同时改 `manuals.rs` + `App.vue`，缺一不可
 
-   `apps/desktop/src-tauri/src/tools/manuals.rs` 的 `known` 数组：
-   ```rust
-   let known = [
-       ("vue3",         "Vue 3 开发手册",       "/guide/introduction.html"),
-       ("element-plus", "Element Plus 组件库",  "/zh-CN/component/overview"),
-       ("mdn-js",       "MDN JavaScript 手册",  "/zh-CN/docs/Web/JavaScript/Guide/"),
-       ("<id>",         "<名称>",               "/<首页路径>"),  // 新增
-   ];
-   ```
+## Windows 构建与打包
 
-   `apps/desktop/src/App.vue` 的 `sidebarItems` 离线手册分组：
-   ```ts
-   { id: "manual-<id>", name: "<名称>", desc: "<描述>" }
-   ```
+### 四类打包方式
 
-   **注意**：前端 id 格式为 `manual-<id>`，`ManualPanel.vue` 会自动去掉 `manual-` 前缀与后端 id 匹配。
+LazyCat 依赖 WebView2 运行时（Win11 自带，Win10 不一定有）：
 
-4. **清理临时目录**，验证 `pnpm dev` 能正确加载
+| 方式 | 含 WebView2 | 产物 | 体积 | 离线可用 | 适用场景 |
+|------|:-----------:|------|------|:--------:|----------|
+| NSIS 安装包（轻量） | 否 | `.exe` 安装包 | ~19 MB | 否 | 目标机已有 WebView2 或可联网 |
+| NSIS 安装包（离线） | 是 | `.exe` 安装包 | ~218 MB | 是 | 离线 Win10 部署 |
+| 绿色免安装包（轻量） | 否 | `.zip` | ~30 MB | 否 | 目标机已有 WebView2 |
+| 绿色免安装包（离线） | 是 | `.zip` | ~290 MB | 是 | 离线环境解压即用 |
 
-### Puppeteer SPA 抓取方案（Element Plus / MDN 适用）
+### WebView2 离线原理
 
-当文档无法从源码构建中文版时，用 Puppeteer 抓取线上 SPA：
+`tauri.conf.json` 无需修改。`main.rs` 启动时扫描 exe 同级 `Microsoft.WebView2.FixedVersionRuntime.*` 目录，设置 `WEBVIEW2_BROWSER_EXECUTABLE_FOLDER` 环境变量，必须在 `tauri::Builder::default()` 之前执行。同一二进制文件有运行时目录则用本地版本，没有则用系统安装版本。
 
-1. 从首页出发递归收集同前缀链接，并发抓取（建议 CONCURRENCY=3，DELAY=600ms 避免限速）
-2. 用 Puppeteer（headless Edge）逐页打开，等待 `networkidle0` + 主内容区渲染
-3. `page.content()` 获取完整 DOM HTML 后保存
-4. 收集页面中引用的静态资源 URL，用 `fetch` 批量下载
+离线模式需预先在 `src-tauri/WebView2/` 下放置解压后的 WebView2 Fixed Runtime（微软 CAB 文件用 7z 提取，~604MB，已 gitignore）。
 
-注意事项：
-- **SPA 路由无扩展名**（如 `/zh-CN/docs/Web/JavaScript/Reference/Array`）必须保存为 `<path>/index.html`，否则子路径写入时报 `ENOTDIR`
-- HTTP 服务器已处理无扩展名路径（先尝试加 `.html`，再找 `index.html`），MDN 内链接直接可用
-- Puppeteer 可用系统已装的 Edge：`executablePath: "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"`
-- ESM 脚本中用 `createRequire(import.meta.url)` 导入 CJS 的 puppeteer
-- Windows 文件系统不支持路径含 `*` 的页面名（如 `async_function*`），约 5 个页面无法保存，可忽略
-- 抓取脚本模板：`scripts/scrape-mdn-js.mjs`（可参考复用）
+### 构建命令与产物
 
-### HTML 注入机制（离线噪音清除）
-
-HTTP 服务器在返回 HTML 响应时，在 `</head>` 前注入一段 CSS + JS，隐藏各手册中离线无用的导航弹窗、广告、页脚等元素。
-
-**注入位置**：`apps/desktop/src-tauri/src/main.rs` → `handle_manual_request` 函数，`Ok(body)` 分支
-
-**当前隐藏的元素**：
-- MDN：`.navigation__popup`、`.menu__panel` 系列、`.page-layout__footer`、`.page-layout__banner`、`mdn-placement-*`、`.bb-banner`、`#bb-banner`、`.spsr-container`、`.content-section.article-footer`
-- Vue 3：`.preference-tooltip`（API 风格切换提示弹窗）
-- 通用：`.notification-bar`、`.mdn-cta`、`.top-banner`、`.pong-box`
-
-**新增手册需隐藏元素时**：直接在 `INJECT` 常量的 CSS 选择器列表中追加，无需其他改动。
-
-**JS 兜底**：`DOMContentLoaded` + 1s + 3s 三次扫描，强制隐藏所有 `fixed`/`sticky` 定位且宽度 > 100px 的弹窗元素。
-
-### 常见坑点
-
-- **不要用 `website-scraper` / `wget --mirror` 抓取 VitePress 站点** — VitePress 是 SPA，抓取到的是空壳 HTML，JS 渲染的内容不会被保存
-- **优先从源码构建** — `git clone` + `pnpm build` 得到的才是完整的 SSR 静态产物；Puppeteer 抓取是 fallback 方案
-- **注意 `bundle.resources` 路径** — 相对于 `apps/desktop/src-tauri/`，不是项目根目录
-- **Element Plus 源码构建中文版需要 Crowdin API token** — 没有 token 只能构建英文版
-- **MDN 类型手册无扩展名路径必须保存为目录下 index.html** — 直接保存为同名文件会导致子路径 `ENOTDIR` 错误
-- **注册新手册必须同时改两处** — `manuals.rs` 的 `known` 数组 + `App.vue` 的 `sidebarItems`，缺一不可
-- **新手册有离线噪音时** — 在 `main.rs` 的 `INJECT` CSS 选择器中追加对应 class/id 即可，无需改其他文件
-
-## 流程记录 (process.md)
-
-### 用途
-
-`process.md` 是项目级的流程记录文件，用于记录每次重要/复杂操作的处理流程、踩坑经验和决策依据。
-
-### 何时写入 process.md
-
-- 跨多文件的复杂修改（涉及 3+ 文件）
-- 调试过程中发现的非显而易见的问题及解决方案
-- 架构决策及其理由
-- 新功能集成的完整步骤（如添加新手册、新工具面板）
-- 构建/打包/部署过程中遇到的环境问题
-
-### 记录格式
-
-```markdown
-## YYYY-MM-DD: [简短标题]
-
-**场景**: 做了什么
-**问题**: 遇到了什么
-**解决**: 怎么解决的
-**关键点**: 需要记住的核心经验（1-3 条）
-**涉及文件**: 改动的关键文件列表
-**使用次数**: 0
+```bash
+pnpm build:portable   # 等价于 pnpm build:web && tauri build --bundles nsis
 ```
 
-### 使用次数规则
+- NSIS 安装包：`target/release/bundle/nsis/Lazycat_0.1.0_x64-setup.exe`
+- Release 二进制：`target/release/lazycat-desktop.exe` + `lazycat_lib.dll`
 
-- 每次新建记录时 `使用次数` 初始为 `0`
-- 后续会话中遇到相同/相似问题并参考了该条记录时，`使用次数 + 1`
-- 更新使用次数时同时追加引用日期：`**使用次数**: 3 (2026-01-15, 2026-02-01, 2026-02-19)`
+### 绿色免安装包
 
-### 固化规则
+构建后手动 7z 打包 `target/release/` 下的文件：
 
-当 process.md 中某条经验的 **使用次数 >= 3** 时：
-1. 将该经验提炼为通用规则
-2. 写入 CLAUDE.md 对应章节（如"架构说明"、"编码与乱码问题"等）
-3. 在 process.md 原条目中标注 `[已固化到 CLAUDE.md - YYYY-MM-DD]`，保留记录但不再计数
+```bash
+cd apps/desktop/src-tauri/target/release
+7z a -tzip Lazycat_0.1.0_x64_portable.zip \
+  lazycat-desktop.exe lazycat_lib.dll manuals/ regex-library/ hotkey-library/
+# 离线版额外加入：../../WebView2/Microsoft.WebView2.FixedVersionRuntime.*.x64/
+```
 
-### 维护原则
+### 关键警告
 
-- 每条记录保持简洁，重点是"坑"和"解法"，不记流水账
-- 不记录简单操作（单文件、< 20 行的修改）
-- 定期清理已固化条目（保留最近 3 个月）
+- **必须用 `tauri build`**，不能用 `cargo build --release`（后者不嵌入前端资源，运行白屏）
+- 构建时若 exe 被占用（os error 5），需先关闭运行中的程序
+- Git 的 `usr/bin/link.exe` 可能遮蔽 MSVC 链接器，`release-all-win.ps1` 已处理（构建前过滤 PATH）
+- 构建机器需要 Rust 工具链 + Perl（OpenSSL 编译）+ 7z（绿色包打包）
+- `offlineInstaller` 模式在某些环境下安装失败（错误码 `-2147219700`），不推荐
+- `Cargo.toml` 中 tauri 已启用 `devtools` feature，release 模式右键可打开开发者工具
 
-## 提交规范
+## 代理协作规则
 
-- 使用约定式提交格式：
-  - `feat: ...`
-  - `fix: ...`
-  - `docs: ...`
-  - `chore: ...`
-  - `test: ...`
-- 每次提交按领域聚焦（ui/core/build/test）
+- 不要自动启动应用/开发服务器。仅在用户明确要求时才运行 `pnpm dev`
+- 完成复杂任务（3+ 文件、非简单调试、架构变更）后，将流程总结写入 `process.md`
+- 开始复杂任务前，先检查 `process.md` 是否有相关经验
+- 当 `process.md` 中某条经验使用次数 >= 3 时，固化到 `CLAUDE.md`
+- 较大变动在确认有效后应及时提交，避免改动堆积
+- 网页抓取策略：`WebFetch` 失败时应 fallback 到 Playwright（`browser_navigate` + `browser_snapshot`）
+- process.md 记录格式见该文件头部说明
+- 涉及 `resources/manuals/**` 大量变更（>100 文件）时，提交前与用户确认范围
+
+## 提交规范与构建检查
+
+### 提交格式
+
+- 约定式提交：`feat:`、`fix:`、`docs:`、`chore:`、`test:`
 - 提交信息使用中文描述，例如：`feat(launcher): 添加分组管理和使用次数排序`
 
-## 提交前检查
-
-推送前执行以下检查：
+### 推送前检查
 
 1. `pnpm typecheck`
-2. `pnpm --filter @lazycat/desktop build:web`（渲染层）
+2. `pnpm --filter @lazycat/desktop build:web`
 3. `pnpm test`
 4. `pnpm test:e2e`
+5. 如需打包：`pnpm build:win`
 
-如需打包：
+### 构建异常处理
 
-5. `pnpm build:win`
+- `build:web` 出现 `spawn EPERM`：先重试，仍失败则提升权限重试，不得跳过构建验证
+- Rust 链接 `link.exe` 报错：检查 PATH 中 `Git\usr\bin`（含 GNU link.exe），过滤后重试

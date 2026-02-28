@@ -253,4 +253,15 @@ Cron 工具原先仅提供基础 6 字段输入与简单预览，缺少规范化
 - apps/desktop/src-tauri/src/tools/gen.rs
 - apps/desktop/src-tauri/src/tools/time.rs
 - apps/desktop/src-tauri/src/tools/mod.rs
+
+## 2026-02-27: release 脚本 Git link.exe 遮蔽 MSVC 链接器
+
+**场景**: 执行 `release-all-win.ps1` 打包脚本，Rust 编译链接阶段失败
+**问题**: `C:\Program Files\Git\usr\bin\link.exe`（GNU coreutils link）在 PATH 中优先于 MSVC 的 `link.exe`，导致 `linking with link.exe failed: exit code: 1`。即使 VsDevCmd.bat 已执行，Git 的 usr/bin 仍在 PATH 前面
+**解决**: 在 `Invoke-InVsDevEnv` 函数中，调用 cmd /c 前在 PowerShell 层面过滤 PATH：`$env:Path = ($env:Path -split ';' | Where-Object { $_ -notmatch 'Git\\usr\\bin' }) -join ';'`，并在 finally 块中恢复原始 PATH
+**关键点**:
+1. cmd.exe 内的 `set "PATH=%PATH:old=new%"` 字符串替换对含空格路径不可靠，应在 PowerShell 层面处理
+2. VsDevCmd.bat 虽然设置了 MSVC 工具路径，但不会移除已有的 Git 路径
+**涉及文件**: scripts/release-all-win.ps1
+**使用次数**: 0
 **使用次数**: 0
