@@ -86,9 +86,18 @@
               v-model="hostsName"
               placeholder="输入配置名称，如：local-dev"
               class="hosts-name-input"
+              :class="{ 'is-readonly': isEditorReadonly }"
+              :readonly="isEditorReadonly"
             />
           </div>
           <div class="hosts-editor-actions">
+            <el-button
+              :type="isEditorReadonly ? 'primary' : 'default'"
+              :icon="isEditorReadonly ? EditPen : Lock"
+              @click="toggleEditorMode"
+            >
+              {{ isEditorReadonly ? "可编辑" : "只读" }}
+            </el-button>
             <el-dropdown @command="handleMoreAction">
               <el-button :icon="MoreFilled" circle />
               <template #dropdown>
@@ -106,7 +115,7 @@
         </div>
 
         <div class="hosts-editor-body">
-          <div class="hosts-textarea-wrapper">
+          <div class="hosts-textarea-wrapper" :class="{ 'is-readonly': isEditorReadonly }">
             <div class="hosts-line-numbers">
               <div
                 v-for="line in lineCount"
@@ -118,9 +127,11 @@
               </div>
             </div>
             <textarea
+              ref="textareaRef"
               v-model="hostsContent"
               class="hosts-textarea"
-              :class="{ 'has-errors': validationErrors.length > 0 }"
+              :class="{ 'has-errors': validationErrors.length > 0, 'is-readonly': isEditorReadonly }"
+              :readonly="isEditorReadonly"
               placeholder="# 示例 hosts 配置&#10;127.0.0.1  localhost&#10;192.168.1.100  myserver.local&#10;::1  localhost"
               @scroll="syncScroll"
             />
@@ -155,6 +166,7 @@
             <el-button
               type="primary"
               :loading="saving"
+              :disabled="isEditorReadonly"
               :icon="Check"
               @click="saveHosts"
             >
@@ -260,6 +272,8 @@ import {
   CircleCheck,
   FolderOpened,
   DocumentCopy,
+  EditPen,
+  Lock,
 } from "@element-plus/icons-vue";
 import Sortable from "sortablejs";
 import { invokeToolByChannel } from "../bridge/tauri";
@@ -284,6 +298,7 @@ const contextMenuPosition = ref<{ left: string; top: string; position: string }>
   top: "0px",
   position: "fixed",
 });
+const isEditorReadonly = ref(true);
 
 // --- loading flags ---
 const saving = ref(false);
@@ -452,6 +467,16 @@ async function loadBackupList() {
 function pickHosts(profile: HostsProfile) {
   hostsName.value = profile.name;
   hostsContent.value = profile.content;
+  isEditorReadonly.value = true;
+}
+
+async function toggleEditorMode() {
+  const nextReadonly = !isEditorReadonly.value;
+  isEditorReadonly.value = nextReadonly;
+  if (!nextReadonly) {
+    await nextTick();
+    textareaRef.value?.focus();
+  }
 }
 
 // --- context menu ---
@@ -541,6 +566,7 @@ async function deleteContextProfile() {
     if (hostsName.value === contextMenuProfile.value.name) {
       hostsName.value = "";
       hostsContent.value = "";
+      isEditorReadonly.value = true;
     }
     ElMessage.success("hosts 配置已删除");
   } catch (error) {
@@ -560,6 +586,7 @@ function loadActiveProfileToEditor() {
 function createNewConfig() {
   hostsName.value = "";
   hostsContent.value = "# 新建 hosts 配置\n";
+  isEditorReadonly.value = false;
 }
 
 async function handleMoreAction(command: string) {
@@ -675,6 +702,7 @@ async function deleteHosts() {
     await loadHostsProfiles();
     hostsName.value = "";
     hostsContent.value = "";
+    isEditorReadonly.value = true;
     ElMessage.success("hosts 配置已删除");
   } catch (error) {
     ElMessage.error((error as Error).message);
@@ -690,6 +718,7 @@ async function readSystemHosts() {
     const activeProfile = hostsProfiles.value.find((p) => p.enabled);
     hostsName.value = activeProfile?.name ?? "";
     hostsContent.value = data?.content ?? "";
+    isEditorReadonly.value = true;
     ElMessage.success("已加载系统 hosts 文件内容");
   } catch (error) {
     ElMessage.error((error as Error).message);
@@ -1073,6 +1102,16 @@ onBeforeUnmount(() => {
   background: var(--lc-surface-0);
 }
 
+.hosts-name-input.is-readonly :deep(.el-input__wrapper) {
+  background: var(--lc-surface-1);
+}
+
+.hosts-editor-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 /* Editor Body */
 .hosts-editor-body {
   flex: 1;
@@ -1092,6 +1131,10 @@ onBeforeUnmount(() => {
   border-radius: var(--lc-radius-md);
   overflow: hidden;
   min-height: 0;
+}
+
+.hosts-textarea-wrapper.is-readonly {
+  background: var(--lc-surface-1);
 }
 
 .hosts-line-numbers {
@@ -1140,6 +1183,10 @@ onBeforeUnmount(() => {
 
 .hosts-textarea.has-errors {
   background: linear-gradient(to right, rgba(248, 113, 113, 0.05), transparent 20px);
+}
+
+.hosts-textarea.is-readonly {
+  color: var(--lc-text-secondary);
 }
 
 /* Validation Panel */
