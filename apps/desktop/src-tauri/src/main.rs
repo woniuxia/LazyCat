@@ -263,6 +263,68 @@ fn tool_execute(app: tauri::AppHandle, request: ToolRequest) -> ToolResponse {
     }
 }
 
+/// Bring the main window to foreground/focus.
+/// Keep tray/hotkey/single-instance behavior consistent.
+fn reveal_main_window(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.set_focus();
+        #[cfg(windows)]
+        force_foreground(&window);
+    }
+}
+
+fn same_monitor(lhs: &tauri::Monitor, rhs: &tauri::Monitor) -> bool {
+    let lp = lhs.position();
+    let ls = lhs.size();
+    let rp = rhs.position();
+    let rs = rhs.size();
+    lp.x == rp.x && lp.y == rp.y && ls.width == rs.width && ls.height == rs.height
+}
+
+fn clamp_i64_to_i32(value: i64) -> i32 {
+    value.clamp(i32::MIN as i64, i32::MAX as i64) as i32
+}
+
+/// Move the main window to the monitor under current cursor.
+/// Returns true when a cross-monitor move happened.
+fn move_window_to_cursor_monitor(window: &tauri::WebviewWindow) -> bool {
+    let Ok(cursor) = window.cursor_position() else {
+        return false;
+    };
+
+    let Ok(Some(target_monitor)) = window.monitor_from_point(cursor.x, cursor.y) else {
+        return false;
+    };
+
+    if let Ok(Some(current_monitor)) = window.current_monitor() {
+        if same_monitor(&current_monitor, &target_monitor) {
+            return false;
+        }
+    }
+
+    let work_area = target_monitor.work_area();
+    let mut x = work_area.position.x;
+    let mut y = work_area.position.y;
+
+    if let Ok(window_size) = window.outer_size() {
+        let target_w = work_area.size.width as i64;
+        let target_h = work_area.size.height as i64;
+        let win_w = window_size.width as i64;
+        let win_h = window_size.height as i64;
+        x = clamp_i64_to_i32(
+            work_area.position.x as i64 + ((target_w - win_w).max(0) / 2),
+        );
+        y = clamp_i64_to_i32(
+            work_area.position.y as i64 + ((target_h - win_h).max(0) / 2),
+        );
+    }
+
+    window
+        .set_position(tauri::PhysicalPosition::new(x, y))
+        .is_ok()
+}
+
 /// Re-register all shortcuts from the global map.
 /// Called after any add/remove to keep the shortcut manager in sync.
 fn sync_all_shortcuts(app: &tauri::AppHandle) -> Result<(), String> {
@@ -287,22 +349,23 @@ fn sync_all_shortcuts(app: &tauri::AppHandle) -> Result<(), String> {
                             let visible = window.is_visible().unwrap_or(false);
                             let focused = window.is_focused().unwrap_or(false);
                             if visible && focused {
-                                let _ = window.hide();
+                                // Same screen: keep toggle semantics (hide).
+                                // Different screen: move to cursor screen and keep shown.
+                                if move_window_to_cursor_monitor(&window) {
+                                    reveal_main_window(app_handle);
+                                } else {
+                                    let _ = window.hide();
+                                }
                             } else {
-                                let _ = window.show();
-                                let _ = window.set_focus();
-                                #[cfg(windows)]
-                                force_foreground(&window);
+                                let _ = move_window_to_cursor_monitor(&window);
+                                reveal_main_window(app_handle);
                             }
                         }
                     }
                     other => {
                         // For "snippets", "vault", etc. – show window + emit event
+                        reveal_main_window(app_handle);
                         if let Some(window) = app_handle.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                            #[cfg(windows)]
-                            force_foreground(&window);
                             let _ = window.emit("hotkey-navigate", other);
                         }
                     }
@@ -512,7 +575,17 @@ fn main() {
         }
     }
 
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default();
+    #[cfg(windows)]
+    {
+        builder = builder.plugin(tauri_plugin_single_instance::init(
+            |app, _args, _cwd| {
+                reveal_main_window(app);
+            },
+        ));
+    }
+
+    builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(
@@ -605,12 +678,7 @@ fn main() {
                 .menu(&menu)
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => {
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                            #[cfg(windows)]
-                            force_foreground(&window);
-                        }
+                        reveal_main_window(app);
                     }
                     "quit" => {
                         app.exit(0);
@@ -629,12 +697,15 @@ fn main() {
                             let visible = window.is_visible().unwrap_or(false);
                             let focused = window.is_focused().unwrap_or(false);
                             if visible && focused {
-                                let _ = window.hide();
+                                // 与快捷键 toggle 保持一致：异屏优先切屏显示，同屏才隐藏
+                                if move_window_to_cursor_monitor(&window) {
+                                    reveal_main_window(app);
+                                } else {
+                                    let _ = window.hide();
+                                }
                             } else {
-                                let _ = window.show();
-                                let _ = window.set_focus();
-                                #[cfg(windows)]
-                                force_foreground(&window);
+                                let _ = move_window_to_cursor_monitor(&window);
+                                reveal_main_window(app);
                             }
                         }
                     }

@@ -58,6 +58,7 @@ libc = { version = "0.2", optional = true }
 capture = ["pcap", "etherparse", "libc"]
 
 [target.'cfg(windows)'.dependencies]
+tauri-plugin-single-instance = "2"
 windows-sys = { version = "0.59", features = [
   "Win32_UI_Input_KeyboardAndMouse",
   "Win32_Foundation",
