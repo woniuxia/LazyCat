@@ -1,5 +1,18 @@
 import { reactive, ref } from "vue";
 import { invokeToolByChannel } from "../bridge/tauri";
+import {
+  getVaultLockPolicy,
+  normalizeVaultLockProfile,
+  type VaultLockPolicy,
+  type VaultLockProfile,
+} from "../utils/vaultLock";
+
+export interface VaultLockProfilePolicy {
+  hideSensitiveAfterSecs: number;
+  hardLockAfterSecs: number;
+}
+
+export const DEFAULT_VAULT_LOCK_PROFILE: VaultLockProfile = "balanced";
 
 /** All known localStorage keys used by old versions */
 const LEGACY_KEYS = [
@@ -83,6 +96,7 @@ export function initSettings(): Promise<void> {
     if (Object.keys(settings).length === 0) {
       await migrateFromLocalStorage();
     }
+    settings.vault_lock_profile = normalizeVaultLockProfile(settings.vault_lock_profile);
     // 加载开机自启动相关设置
     autostartMinimized.value = settings.autostart_minimized === "true";
     closeToTray.value = settings.close_to_tray !== "false"; // 默认 true
@@ -97,6 +111,20 @@ export function initSettings(): Promise<void> {
  */
 export function getSetting(key: string): string | undefined {
   return settings[key];
+}
+
+export function getVaultLockProfile(): VaultLockProfile {
+  return normalizeVaultLockProfile(settings.vault_lock_profile);
+}
+
+export function getVaultLockProfilePolicy(
+  profile: VaultLockProfile = getVaultLockProfile()
+): VaultLockProfilePolicy {
+  const policy: VaultLockPolicy = getVaultLockPolicy(profile);
+  return {
+    hideSensitiveAfterSecs: Math.round(policy.hideSensitiveMs / 1000),
+    hardLockAfterSecs: Math.round(policy.hardLockMs / 1000),
+  };
 }
 
 /**
@@ -122,6 +150,11 @@ export function setSetting(key: string, value: string): void {
   invokeToolByChannel("tool:settings:set", { key, value }).catch(() => {
     // IPC failed, data remains in memory for current session
   });
+}
+
+export function setVaultLockProfile(profile: VaultLockProfile): void {
+  const normalizedProfile = normalizeVaultLockProfile(profile);
+  setSetting("vault_lock_profile", normalizedProfile);
 }
 
 /**

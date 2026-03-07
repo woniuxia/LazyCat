@@ -73,6 +73,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onBeforeUnmount, ref, watch } from "vue";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Close, Plus } from "@element-plus/icons-vue";
 import type { ToolDef, SidebarItem } from "./types";
 import { useFavorites } from "./composables/useFavorites";
@@ -86,8 +87,13 @@ import TopBar from "./components/TopBar.vue";
 import ShortcutHelpOverlay from "./components/ShortcutHelpOverlay.vue";
 import ClipboardSuggestionBar from "./components/ClipboardSuggestionBar.vue";
 import { useClipboardSuggestion } from "./composables/useClipboardSuggestion";
+import {
+  shouldHideNamedHotkeyWindow,
+  type HotkeyNavigatePayload,
+} from "./utils/hotkeyNavigate";
 
 const { detectClipboard } = useClipboardSuggestion();
+const appWindow = getCurrentWindow();
 
 const sidebarItems: SidebarItem[] = [
   { kind: "tool", tool: { id: "formatter", name: "代码格式化", desc: "JSON/XML/HTML/Java/SQL 自动格式化" } },
@@ -416,10 +422,17 @@ onMounted(async () => {
     try { await registerNamedHotkey("launcher", savedLauncherHotkey); } catch { /* ignore */ }
   }
   try {
-    await listen<string>("hotkey-navigate", (event) => {
-      if (event.payload === "snippets") onSelect("snippets");
-      else if (event.payload === "vault") onSelect("vault");
-      else if (event.payload === "launcher") onSelect("launcher");
+    await listen<HotkeyNavigatePayload>("hotkey-navigate", async (event) => {
+      const { target } = event.payload;
+      if (shouldHideNamedHotkeyWindow(event.payload, {
+        activeTool: activeTool.value,
+      })) {
+        try {
+          await appWindow.hide();
+          return;
+        } catch { /* ignore in non-Tauri env */ }
+      }
+      onSelect(target);
     });
   } catch { /* ignore in non-Tauri env */ }
   window.addEventListener("keydown", onKeydown);
@@ -438,3 +451,4 @@ onBeforeUnmount(() => {
   systemMediaQuery.removeEventListener("change", onSystemThemeChange);
 });
 </script>
+

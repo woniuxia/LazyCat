@@ -8,6 +8,81 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-03-07: 密码库移除软锁并改为失焦仅隐藏敏感信息
+
+**场景**: 将密码库从“敏感信息隐藏 → 软锁 → 硬锁”收敛为“敏感信息隐藏 → 硬锁”，同时保留失焦时的安全保护体验。
+
+**问题**:
+1. 软锁引入了额外状态、IPC 和元数据列表链路，前后端实现复杂度偏高。
+2. 失焦锁定会打断当前上下文，用户更需要的是立即恢复掩码显示，而不是直接改变会话状态。
+3. `show-password` 输入框的显隐状态由组件内部维护，仅清理外层状态无法在失焦时自动恢复掩码。
+
+**解决**:
+1. 后端移除 `soft_lock`、`list_metadata`、`vault_soft_locked` 和 `SoftLocked` 状态，统一只保留 unlocked / locked 两态。
+2. 前端空闲计时器改为“到期隐藏敏感信息 + 到期直接硬锁”，失焦事件只执行敏感信息隐藏，不再触发锁定。
+3. 为 `VaultPanel`、`VaultEntryDialog`、`VaultLockScreen` 的密码输入引入 `maskVersion` 重挂载机制，失焦时可恢复掩码显示且不清空已输入内容。
+
+**关键点**:
+1. “隐藏敏感信息”与“锁定会话”需要明确分层：前者只影响 UI 展示，后者才影响后端解锁态。
+2. 失焦隐藏要覆盖列表明文、复制反馈和 `show-password` 组件内部显隐状态，否则体验会出现保护不一致。
+3. 锁定预设继续复用 `vault_lock_profile`，仅保留隐藏时长和硬锁时长，避免再引入新的配置分支。
+
+**涉及文件**:
+- `apps/desktop/src/components/VaultPanel.vue`
+- `apps/desktop/src/components/VaultEntryDialog.vue`
+- `apps/desktop/src/components/VaultLockScreen.vue`
+- `apps/desktop/src/components/SettingsPanel.vue`
+- `apps/desktop/src/composables/useSettings.ts`
+- `apps/desktop/src/utils/vaultLock.ts`
+- `apps/desktop/src-tauri/src/tools/vault.rs`
+- `apps/desktop/src/bridge/tauri.ts`
+
+**使用次数**: 0
+
+## 2026-03-07: 密码库分级锁定优先复用现有会话与设置通道
+**场景**: 为密码管理增加“敏感信息隐藏 → 软锁 → 硬锁”的平衡方案，同时保留主密码为唯一解锁凭据。
+**问题**:
+1. 原实现只有固定 5 分钟硬锁，前端只有布尔锁定态，缺少软锁与预设配置。
+2. `vault` 已经具备通用设置持久化、状态查询和会话内存密钥，不适合再造一套存储模型。
+3. 软锁需要保留列表上下文，但现有 `list` 接口会解密并返回账号/摘要，不能直接复用到软锁态。
+**解决**:
+1. 设置层继续走 `user_settings`，新增 `vault_lock_profile`，前端通过 `useSettings` 提供统一读取与策略换算。
+2. 后端会话保持“内存密钥 + 状态枚举”，新增 `soft_lock` / `touch` / `list_metadata`，并让 `status` 返回 `lockState`。
+3. 前端在 `VaultPanel` 本地做空闲计时与失焦软锁，后端负责硬锁兜底；软锁时改走 `list_metadata` 仅返回非敏感字段。
+4. 关闭到托盘时在 `main.rs` 直接调用 `tools::vault::force_lock()`，避免窗口隐藏后仍保留解锁态。
+**关键点**:
+1. 分级锁定里，“软锁保留上下文”与“硬锁清空会话密钥”要明确分工：前端保留视图，后端控制密钥生命周期。
+2. 锁定预设尽量收敛为 `strict / balanced / convenient`，不要把秒数配置直接暴露给用户。
+3. 若前端测试在沙箱内出现 `spawn EPERM`，按规范提权重跑即可，不要因为单次 EPERM 放弃验证。
+**涉及文件**:
+- `apps/desktop/src/components/VaultPanel.vue`
+- `apps/desktop/src/components/SettingsPanel.vue`
+- `apps/desktop/src/composables/useSettings.ts`
+- `apps/desktop/src/utils/vaultLock.ts`
+- `apps/desktop/src/bridge/tauri.ts`
+- `apps/desktop/src-tauri/src/tools/vault.rs`
+- `apps/desktop/src-tauri/src/main.rs`
+
+**使用次数**: 0
+
+## 2026-03-07: 命名快捷键二次触发隐藏失败根因为缺少 `core:window:allow-hide`
+**场景**: `snippets`、`launcher`、`vault` 通过命名快捷键呼出后，再次按下同一快捷键没有隐藏主窗口。
+**问题**:
+1. 前端热键监听已经命中隐藏分支，但 `appWindow.hide()` 在 Tauri 权限层被拒绝。
+2. 日志报错明确提示缺少 `core:window:allow-hide`，导致看起来像“逻辑无效”，实际是权限不足。
+**解决**:
+1. 在 `apps/desktop/src-tauri/capabilities/default.json` 为主窗口补充 `core:window:allow-hide`。
+2. 保留命名快捷键使用结构化 payload 的隐藏判定逻辑，清理仅用于排查的调试日志和设置项。
+**关键点**:
+1. Tauri 2 的窗口 API 即使前端调用命中分支，也可能因 capability 缺失而在运行时失败。
+2. 这类问题应先看权限报错，再决定是否继续扩大逻辑排查范围。
+**涉及文件**:
+- `apps/desktop/src-tauri/capabilities/default.json`
+- `apps/desktop/src/App.vue`
+- `apps/desktop/src-tauri/src/main.rs`
+
+**使用次数**: 0
+
 ## 2026-02-21: 添加 MDN JavaScript 中文手册（Puppeteer 抓取方案）
 
 **场景**: 将 MDN JS 中文手册（https://developer.mozilla.org/zh-CN/docs/Web/JavaScript）添加为离线手册

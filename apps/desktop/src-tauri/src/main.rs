@@ -286,20 +286,27 @@ fn clamp_i64_to_i32(value: i64) -> i32 {
     value.clamp(i32::MIN as i64, i32::MAX as i64) as i32
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CursorMonitorRelation {
+    MovedToCursorMonitor,
+    AlreadyOnCursorMonitor,
+    Unknown,
+}
+
 /// Move the main window to the monitor under current cursor.
-/// Returns true when a cross-monitor move happened.
-fn move_window_to_cursor_monitor(window: &tauri::WebviewWindow) -> bool {
+/// Returns the relationship between the window and the cursor monitor.
+fn move_window_to_cursor_monitor(window: &tauri::WebviewWindow) -> CursorMonitorRelation {
     let Ok(cursor) = window.cursor_position() else {
-        return false;
+        return CursorMonitorRelation::Unknown;
     };
 
     let Ok(Some(target_monitor)) = window.monitor_from_point(cursor.x, cursor.y) else {
-        return false;
+        return CursorMonitorRelation::Unknown;
     };
 
     if let Ok(Some(current_monitor)) = window.current_monitor() {
         if same_monitor(&current_monitor, &target_monitor) {
-            return false;
+            return CursorMonitorRelation::AlreadyOnCursorMonitor;
         }
     }
 
@@ -320,9 +327,100 @@ fn move_window_to_cursor_monitor(window: &tauri::WebviewWindow) -> bool {
         );
     }
 
-    window
+    if window
         .set_position(tauri::PhysicalPosition::new(x, y))
         .is_ok()
+    {
+        CursorMonitorRelation::MovedToCursorMonitor
+    } else {
+        CursorMonitorRelation::Unknown
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct HotkeyNavigatePayload {
+    target: String,
+    did_move_to_cursor_monitor: bool,
+    was_window_visible: bool,
+    was_window_focused: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MainWindowShortcutMode {
+    Toggle,
+    Navigate,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MainWindowShortcutDecision {
+    Hide,
+    Reveal,
+    RevealAndNavigate { did_move_to_cursor_monitor: bool },
+}
+
+/// 统一主窗口快捷键的动作决策，便于复用与测试。
+fn decide_main_window_shortcut(
+    mode: MainWindowShortcutMode,
+    visible: bool,
+    focused: bool,
+    cursor_monitor_relation: CursorMonitorRelation,
+) -> MainWindowShortcutDecision {
+    match mode {
+        MainWindowShortcutMode::Toggle => {
+            if visible
+                && focused
+                && cursor_monitor_relation != CursorMonitorRelation::MovedToCursorMonitor
+            {
+                MainWindowShortcutDecision::Hide
+            } else {
+                MainWindowShortcutDecision::Reveal
+            }
+        }
+        MainWindowShortcutMode::Navigate => MainWindowShortcutDecision::RevealAndNavigate {
+            did_move_to_cursor_monitor: cursor_monitor_relation
+                == CursorMonitorRelation::MovedToCursorMonitor,
+        },
+    }
+}
+
+/// 统一处理主窗口类快捷键：共享异屏迁移、显示恢复与导航行为。
+fn handle_main_window_shortcut(app: &tauri::AppHandle, shortcut_name: &str) {
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+
+    let mode = if shortcut_name == "toggle" {
+        MainWindowShortcutMode::Toggle
+    } else {
+        MainWindowShortcutMode::Navigate
+    };
+
+    let visible = window.is_visible().unwrap_or(false);
+    let focused = window.is_focused().unwrap_or(false);
+    let cursor_monitor_relation = move_window_to_cursor_monitor(&window);
+    let decision = decide_main_window_shortcut(mode, visible, focused, cursor_monitor_relation);
+
+    match decision {
+        MainWindowShortcutDecision::Hide => {
+            let _ = window.hide();
+        }
+        MainWindowShortcutDecision::Reveal => {
+            reveal_main_window(app);
+        }
+        MainWindowShortcutDecision::RevealAndNavigate { did_move_to_cursor_monitor } => {
+            reveal_main_window(app);
+            let _ = window.emit(
+                "hotkey-navigate",
+                HotkeyNavigatePayload {
+                    target: shortcut_name.to_string(),
+                    did_move_to_cursor_monitor,
+                    was_window_visible: visible,
+                    was_window_focused: focused,
+                },
+            );
+        }
+    }
 }
 
 /// Re-register all shortcuts from the global map.
@@ -343,33 +441,7 @@ fn sync_all_shortcuts(app: &tauri::AppHandle) -> Result<(), String> {
                 if event.state != ShortcutState::Pressed {
                     return;
                 }
-                match name_owned.as_str() {
-                    "toggle" => {
-                        if let Some(window) = app_handle.get_webview_window("main") {
-                            let visible = window.is_visible().unwrap_or(false);
-                            let focused = window.is_focused().unwrap_or(false);
-                            if visible && focused {
-                                // Same screen: keep toggle semantics (hide).
-                                // Different screen: move to cursor screen and keep shown.
-                                if move_window_to_cursor_monitor(&window) {
-                                    reveal_main_window(app_handle);
-                                } else {
-                                    let _ = window.hide();
-                                }
-                            } else {
-                                let _ = move_window_to_cursor_monitor(&window);
-                                reveal_main_window(app_handle);
-                            }
-                        }
-                    }
-                    other => {
-                        // For "snippets", "vault", etc. – show window + emit event
-                        reveal_main_window(app_handle);
-                        if let Some(window) = app_handle.get_webview_window("main") {
-                            let _ = window.emit("hotkey-navigate", other);
-                        }
-                    }
-                }
+                handle_main_window_shortcut(app_handle, name_owned.as_str());
             })
             .map_err(|e| e.to_string())?;
     }
@@ -693,21 +765,7 @@ fn main() {
                     } = event
                     {
                         let app = tray.app_handle();
-                        if let Some(window) = app.get_webview_window("main") {
-                            let visible = window.is_visible().unwrap_or(false);
-                            let focused = window.is_focused().unwrap_or(false);
-                            if visible && focused {
-                                // 与快捷键 toggle 保持一致：异屏优先切屏显示，同屏才隐藏
-                                if move_window_to_cursor_monitor(&window) {
-                                    reveal_main_window(app);
-                                } else {
-                                    let _ = window.hide();
-                                }
-                            } else {
-                                let _ = move_window_to_cursor_monitor(&window);
-                                reveal_main_window(app);
-                            }
-                        }
+                        handle_main_window_shortcut(app, "toggle");
                     }
                 })
                 .build(app)?;
@@ -731,6 +789,7 @@ fn main() {
 
                 if close_to_tray {
                     api.prevent_close();
+                    tools::vault::force_lock();
                     let _ = window.hide();
                 }
                 // 否则允许窗口关闭（应用退出）
@@ -753,4 +812,157 @@ fn main() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        CursorMonitorRelation, HotkeyNavigatePayload, MainWindowShortcutDecision,
+        MainWindowShortcutMode, decide_main_window_shortcut,
+    };
+    use serde_json::json;
+
+    #[test]
+    fn toggle_same_screen_and_focused_hides() {
+        assert_eq!(
+            decide_main_window_shortcut(
+                MainWindowShortcutMode::Toggle,
+                true,
+                true,
+                CursorMonitorRelation::AlreadyOnCursorMonitor,
+            ),
+            MainWindowShortcutDecision::Hide
+        );
+        assert_eq!(
+            decide_main_window_shortcut(
+                MainWindowShortcutMode::Toggle,
+                true,
+                true,
+                CursorMonitorRelation::Unknown,
+            ),
+            MainWindowShortcutDecision::Hide
+        );
+    }
+
+    #[test]
+    fn toggle_cross_screen_or_inactive_reveals() {
+        assert_eq!(
+            decide_main_window_shortcut(
+                MainWindowShortcutMode::Toggle,
+                true,
+                true,
+                CursorMonitorRelation::MovedToCursorMonitor,
+            ),
+            MainWindowShortcutDecision::Reveal
+        );
+        assert_eq!(
+            decide_main_window_shortcut(
+                MainWindowShortcutMode::Toggle,
+                false,
+                false,
+                CursorMonitorRelation::AlreadyOnCursorMonitor,
+            ),
+            MainWindowShortcutDecision::Reveal
+        );
+        assert_eq!(
+            decide_main_window_shortcut(
+                MainWindowShortcutMode::Toggle,
+                true,
+                false,
+                CursorMonitorRelation::AlreadyOnCursorMonitor,
+            ),
+            MainWindowShortcutDecision::Reveal
+        );
+    }
+
+    #[test]
+    fn navigate_same_screen_does_not_mark_cross_screen_move() {
+        assert_eq!(
+            decide_main_window_shortcut(
+                MainWindowShortcutMode::Navigate,
+                true,
+                true,
+                CursorMonitorRelation::AlreadyOnCursorMonitor,
+            ),
+            MainWindowShortcutDecision::RevealAndNavigate {
+                did_move_to_cursor_monitor: false,
+            }
+        );
+    }
+
+    #[test]
+    fn navigate_cross_screen_marks_cursor_monitor_move() {
+        assert_eq!(
+            decide_main_window_shortcut(
+                MainWindowShortcutMode::Navigate,
+                true,
+                true,
+                CursorMonitorRelation::MovedToCursorMonitor,
+            ),
+            MainWindowShortcutDecision::RevealAndNavigate {
+                did_move_to_cursor_monitor: true,
+            }
+        );
+    }
+
+    #[test]
+    fn navigate_same_screen_ignores_focus_and_visibility() {
+        assert_eq!(
+            decide_main_window_shortcut(
+                MainWindowShortcutMode::Navigate,
+                false,
+                false,
+                CursorMonitorRelation::AlreadyOnCursorMonitor,
+            ),
+            MainWindowShortcutDecision::RevealAndNavigate {
+                did_move_to_cursor_monitor: false,
+            }
+        );
+        assert_eq!(
+            decide_main_window_shortcut(
+                MainWindowShortcutMode::Navigate,
+                true,
+                false,
+                CursorMonitorRelation::AlreadyOnCursorMonitor,
+            ),
+            MainWindowShortcutDecision::RevealAndNavigate {
+                did_move_to_cursor_monitor: false,
+            }
+        );
+    }
+
+    #[test]
+    fn navigate_unknown_monitor_relation_does_not_report_cross_screen_move() {
+        assert_eq!(
+            decide_main_window_shortcut(
+                MainWindowShortcutMode::Navigate,
+                true,
+                true,
+                CursorMonitorRelation::Unknown,
+            ),
+            MainWindowShortcutDecision::RevealAndNavigate {
+                did_move_to_cursor_monitor: false,
+            }
+        );
+    }
+
+    #[test]
+    fn hotkey_navigate_payload_serializes_with_camel_case_keys() {
+        assert_eq!(
+            serde_json::to_value(HotkeyNavigatePayload {
+                target: "launcher".to_string(),
+                did_move_to_cursor_monitor: true,
+                was_window_visible: true,
+                was_window_focused: false,
+            })
+            .unwrap(),
+            json!({
+                "target": "launcher",
+                "didMoveToCursorMonitor": true,
+                "wasWindowVisible": true,
+                "wasWindowFocused": false,
+            })
+        );
+    }
 }

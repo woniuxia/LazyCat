@@ -127,6 +127,47 @@
         </div>
       </section>
 
+      <!-- 加密与安全 -->
+      <section class="settings-section">
+        <div class="section-header">
+          <div class="section-icon">🔐</div>
+          <div class="section-title">
+            <h3>加密与安全</h3>
+            <p>配置密码管理的自动锁定策略</p>
+          </div>
+        </div>
+        <div class="section-content">
+          <div class="setting-item">
+            <div class="setting-label">
+              <span class="label-text">密码库锁定预设</span>
+              <span class="label-desc">推荐使用“平衡”，兼顾临时离开时的保护与连续使用体验</span>
+            </div>
+            <div class="setting-control setting-control-column vault-lock-profile-control">
+              <el-radio-group v-model="vaultLockProfile" @change="handleVaultLockProfileChange">
+                <el-radio-button value="strict">严格</el-radio-button>
+                <el-radio-button value="balanced">平衡</el-radio-button>
+                <el-radio-button value="convenient">便捷</el-radio-button>
+              </el-radio-group>
+              <span class="setting-inline-hint">{{ vaultLockProfileHint }}</span>
+              <div class="vault-lock-explainer">
+                <div class="vault-lock-explainer-item">
+                  <span class="vault-lock-explainer-title">敏感信息隐藏</span>
+                  <span class="vault-lock-explainer-desc">隐藏当前已展示的密码等敏感内容，减少明文在屏幕上停留的时间。</span>
+                </div>
+                <div class="vault-lock-explainer-item">
+                  <span class="vault-lock-explainer-title">自动硬锁</span>
+                  <span class="vault-lock-explainer-desc">空闲达到阈值后彻底锁定密码库并清空当前解锁会话，需要重新解锁后才能继续访问。</span>
+                </div>
+                <div class="vault-lock-explainer-item">
+                  <span class="vault-lock-explainer-title">失焦隐藏</span>
+                  <span class="vault-lock-explainer-desc">窗口失去焦点时立即恢复密码等敏感内容的掩码显示，但不会触发锁定。</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <!-- 系统集成 -->
       <section class="settings-section">
         <div class="section-header">
@@ -267,11 +308,20 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from "vue";
+import { computed, ref, onMounted } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { save, open } from "@tauri-apps/plugin-dialog";
 import { registerHotkey, unregisterHotkey, registerNamedHotkey, unregisterNamedHotkey, invokeToolByChannel } from "../bridge/tauri";
-import { setSetting, getSetting, useAutostartSettings } from "../composables/useSettings";
+import {
+  DEFAULT_VAULT_LOCK_PROFILE,
+  getSetting,
+  getVaultLockProfile,
+  getVaultLockProfilePolicy,
+  setSetting,
+  setVaultLockProfile,
+  useAutostartSettings,
+  type VaultLockProfile,
+} from "../composables/useSettings";
 import type { SidebarItem, ToolSearchMetaMap } from "../types";
 import MenuVisibilityDialog from "./MenuVisibilityDialog.vue";
 import ShortcutRecorder from "./ShortcutRecorder.vue";
@@ -313,7 +363,13 @@ const importMode = ref<"merge" | "overwrite">("merge");
 const dataDirPath = ref("");
 const dataDirIsCustom = ref(false);
 const clipboardDetection = ref(true);
+const vaultLockProfile = ref<VaultLockProfile>(DEFAULT_VAULT_LOCK_PROFILE);
 const menuVisibilityDialog = ref<InstanceType<typeof MenuVisibilityDialog>>();
+
+const vaultLockProfileHint = computed(() => {
+  const policy = getVaultLockProfilePolicy(vaultLockProfile.value);
+  return `敏感信息 ${policy.hideSensitiveAfterSecs}s 隐藏，${Math.round(policy.hardLockAfterSecs / 60)} 分钟自动硬锁，失焦立即隐藏敏感信息`;
+});
 
 const HOTKEY_FIELDS = [
   { key: "hotkeyInput" as const, label: "显示/隐藏" },
@@ -334,6 +390,7 @@ function makeConflictChecker(selfKey: typeof HOTKEY_FIELDS[number]["key"]) {
 onMounted(async () => {
   await loadDataDir();
   clipboardDetection.value = getSetting("clipboard_detection") !== "false";
+  vaultLockProfile.value = getVaultLockProfile();
 });
 
 async function loadDataDir() {
@@ -513,6 +570,13 @@ function handleClipboardDetectionChange(value: boolean) {
   setSetting("clipboard_detection", value ? "true" : "false");
   ElMessage.success(value ? "已启用剪贴板智能检测" : "已关闭剪贴板智能检测");
 }
+
+function handleVaultLockProfileChange(value: string | number | boolean) {
+  const nextProfile = (value || DEFAULT_VAULT_LOCK_PROFILE) as VaultLockProfile;
+  vaultLockProfile.value = nextProfile;
+  setVaultLockProfile(nextProfile);
+  ElMessage.success("密码库锁定预设已更新");
+}
 </script>
 
 <style scoped>
@@ -629,6 +693,44 @@ function handleClipboardDetectionChange(value: boolean) {
   min-width: 0;
   flex-direction: column;
   align-items: stretch;
+}
+
+.vault-lock-profile-control {
+  gap: 10px;
+}
+
+.vault-lock-explainer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 10px;
+  background: var(--el-fill-color-extra-light);
+}
+
+.vault-lock-explainer-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.vault-lock-explainer-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+
+.vault-lock-explainer-desc {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--el-text-color-secondary);
+}
+
+.setting-inline-hint {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--el-text-color-secondary);
 }
 
 .setting-actions {

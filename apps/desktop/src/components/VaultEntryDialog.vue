@@ -83,7 +83,7 @@
               </el-input>
             </el-form-item>
             <el-form-item label="密码" class="vault-form-item-flex">
-              <el-input v-model="form.password" type="password" show-password placeholder="密码">
+              <el-input :key="`app-password-${props.maskVersion ?? 0}`" v-model="form.password" type="password" show-password placeholder="密码">
                 <template #prefix>
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="vault-input-icon">
                     <rect x="3" y="11" width="18" height="11" rx="2" />
@@ -131,7 +131,7 @@
               </el-input>
             </el-form-item>
             <el-form-item label="密码" class="vault-form-item-flex">
-              <el-input v-model="form.password" type="password" show-password placeholder="密码">
+              <el-input :key="`server-password-${props.maskVersion ?? 0}`" v-model="form.password" type="password" show-password placeholder="密码">
                 <template #prefix>
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="vault-input-icon">
                     <rect x="3" y="11" width="18" height="11" rx="2" />
@@ -187,7 +187,7 @@
               </el-input>
             </el-form-item>
             <el-form-item label="密码" class="vault-form-item-flex">
-              <el-input v-model="form.password" type="password" show-password placeholder="密码">
+              <el-input :key="`database-password-${props.maskVersion ?? 0}`" v-model="form.password" type="password" show-password placeholder="密码">
                 <template #prefix>
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="vault-input-icon">
                     <rect x="3" y="11" width="18" height="11" rx="2" />
@@ -296,6 +296,7 @@ interface FormState {
 
 const props = defineProps<{
   existingTags?: string[];
+  maskVersion?: number;
 }>();
 
 const visible = ref(false);

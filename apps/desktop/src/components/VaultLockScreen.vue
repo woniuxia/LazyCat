@@ -17,6 +17,7 @@
         <el-form @submit.prevent="onSetup" class="vault-lock__form">
           <el-form-item>
             <el-input
+              :key="`setup-password-${maskVersion}`"
               ref="setupPasswordRef"
               v-model="setupPassword"
               type="password"
@@ -28,6 +29,7 @@
           </el-form-item>
           <el-form-item>
             <el-input
+              :key="`setup-confirm-${maskVersion}`"
               ref="setupConfirmRef"
               v-model="setupConfirm"
               type="password"
@@ -55,6 +57,7 @@
         <el-form @submit.prevent="onUnlock" class="vault-lock__form">
           <el-form-item>
             <el-input
+              :key="`unlock-password-${maskVersion}`"
               ref="unlockPasswordRef"
               v-model="unlockPassword"
               type="password"
@@ -81,13 +84,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, nextTick } from "vue";
+import { computed, ref, onMounted, nextTick } from "vue";
 import type { InputInstance } from "element-plus";
 import { invokeToolByChannel } from "../bridge/tauri";
 
 const props = defineProps<{
   mode: "setup" | "unlock";
+  maskVersion?: number;
 }>();
+
+const maskVersion = computed(() => props.maskVersion ?? 0);
 
 const emit = defineEmits<{
   (e: "unlocked"): void;

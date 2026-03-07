@@ -173,6 +173,7 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:vault:status":          { domain: "vault", action: "status" },
   "tool:vault:setup":           { domain: "vault", action: "setup" },
   "tool:vault:unlock":          { domain: "vault", action: "unlock" },
+  "tool:vault:touch":           { domain: "vault", action: "touch" },
   "tool:vault:lock":            { domain: "vault", action: "lock" },
   "tool:vault:change-password": { domain: "vault", action: "change_password" },
   "tool:vault:list":            { domain: "vault", action: "list" },

@@ -6,7 +6,7 @@ use openssl::symm::{decrypt, encrypt, Cipher};
 use rusqlite::{Connection, params};
 use serde_json::{json, Value};
 use std::sync::Mutex;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use zeroize::Zeroize;
 
 use super::helpers::db_conn;
@@ -57,15 +57,100 @@ const PBKDF2_ITERATIONS: usize = 600_000;
 const SALT_LEN: usize = 32;
 const KEY_LEN: usize = 32;
 const IV_LEN: usize = 16;
-const DEFAULT_TIMEOUT_SECS: u64 = 300;
+const VAULT_LOCK_PROFILE_KEY: &str = "vault_lock_profile";
+const DEFAULT_LOCK_PROFILE: &str = "balanced";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum VaultLockState {
+    Unlocked,
+    Locked,
+}
+
+impl VaultLockState {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Unlocked => "unlocked",
+            Self::Locked => "locked",
+        }
+    }
+}
 
 struct VaultSession {
-    key: [u8; 32],
+    key: Option<[u8; 32]>,
     last_activity: Instant,
-    timeout_secs: u64,
+    hard_lock_after_secs: u64,
 }
 
 static VAULT_SESSION: Mutex<Option<VaultSession>> = Mutex::new(None);
+
+fn normalize_lock_profile(value: &str) -> &'static str {
+    match value {
+        "strict" => "strict",
+        "convenient" => "convenient",
+        _ => DEFAULT_LOCK_PROFILE,
+    }
+}
+
+fn resolve_hard_lock_after_secs(lock_profile: &str) -> u64 {
+    match normalize_lock_profile(lock_profile) {
+        "strict" => 600,
+        "convenient" => 3600,
+        _ => 1800,
+    }
+}
+
+fn load_lock_profile(conn: &Connection) -> String {
+    conn.query_row(
+        "SELECT value FROM user_settings WHERE key = ?1",
+        params![VAULT_LOCK_PROFILE_KEY],
+        |row| row.get::<_, String>(0),
+    )
+    .map(|value| normalize_lock_profile(value.trim()).to_string())
+    .unwrap_or_else(|_| DEFAULT_LOCK_PROFILE.to_string())
+}
+
+fn load_hard_lock_after_secs(conn: &Connection) -> u64 {
+    resolve_hard_lock_after_secs(&load_lock_profile(conn))
+}
+
+fn clear_session_key(session: &mut VaultSession) {
+    if let Some(key) = session.key.as_mut() {
+        key.zeroize();
+    }
+    session.key = None;
+}
+
+fn hard_lock_session(guard: &mut Option<VaultSession>) {
+    if let Some(session) = guard.as_mut() {
+        clear_session_key(session);
+    }
+    *guard = None;
+}
+
+fn session_expired(session: &VaultSession) -> bool {
+    session.last_activity.elapsed().as_secs() > session.hard_lock_after_secs
+}
+
+fn ensure_session_alive(guard: &mut Option<VaultSession>) -> Result<(), String> {
+    match guard.as_ref() {
+        None => Err("vault_locked".to_string()),
+        Some(session) if session_expired(session) => {
+            hard_lock_session(guard);
+            Err("vault_locked_timeout".to_string())
+        }
+        Some(_) => Ok(()),
+    }
+}
+
+fn current_lock_state() -> VaultLockState {
+    VAULT_SESSION
+        .lock()
+        .map(|mut guard| match ensure_session_alive(&mut guard) {
+            Ok(()) => VaultLockState::Unlocked,
+            Err(_) => VaultLockState::Locked,
+        })
+        .unwrap_or(VaultLockState::Locked)
+}
 
 fn derive_key(password: &str, salt: &[u8]) -> Result<[u8; KEY_LEN], String> {
     let mut key = [0u8; KEY_LEN];
@@ -98,17 +183,13 @@ fn aes256_decrypt(key: &[u8; KEY_LEN], iv: &[u8], ciphertext: &[u8]) -> Result<V
 
 fn get_session_key() -> Result<[u8; KEY_LEN], String> {
     let mut guard = VAULT_SESSION.lock().map_err(|e| format!("session lock: {e}"))?;
+    ensure_session_alive(&mut guard)?;
+
     match guard.as_mut() {
         None => Err("vault_locked".to_string()),
         Some(session) => {
-            if session.last_activity.elapsed().as_secs() > session.timeout_secs {
-                session.key.zeroize();
-                *guard = None;
-                Err("vault_locked_timeout".to_string())
-            } else {
-                session.last_activity = Instant::now();
-                Ok(session.key)
-            }
+            session.last_activity = Instant::now();
+            session.key.ok_or_else(|| "vault_locked".to_string())
         }
     }
 }
@@ -123,16 +204,13 @@ fn cmd_status(_payload: &Value) -> Result<Value, String> {
         )
         .unwrap_or(false);
 
-    let unlocked = VAULT_SESSION
-        .lock()
-        .map(|g| {
-            g.as_ref()
-                .map(|s| s.last_activity.elapsed().as_secs() <= s.timeout_secs)
-                .unwrap_or(false)
-        })
-        .unwrap_or(false);
+    let lock_state = current_lock_state();
 
-    Ok(json!({ "setup": setup, "unlocked": unlocked }))
+    Ok(json!({
+        "setup": setup,
+        "unlocked": lock_state == VaultLockState::Unlocked,
+        "lockState": lock_state.as_str(),
+    }))
 }
 
 fn cmd_setup(payload: &Value) -> Result<Value, String> {
@@ -171,12 +249,14 @@ fn cmd_setup(payload: &Value) -> Result<Value, String> {
     )
     .map_err(|e| format!("save canary failed: {e}"))?;
 
-    // Auto-unlock after setup
+    let hard_lock_after_secs = load_hard_lock_after_secs(&conn);
+
+    // 初始化后自动解锁
     let mut guard = VAULT_SESSION.lock().map_err(|e| format!("session lock: {e}"))?;
     *guard = Some(VaultSession {
-        key,
+        key: Some(key),
         last_activity: Instant::now(),
-        timeout_secs: DEFAULT_TIMEOUT_SECS,
+        hard_lock_after_secs,
     });
 
     Ok(json!({ "ok": true }))
@@ -213,23 +293,41 @@ fn cmd_unlock(payload: &Value) -> Result<Value, String> {
         return Err("wrong_password".to_string());
     }
 
+    let hard_lock_after_secs = load_hard_lock_after_secs(&conn);
+
     let mut guard = VAULT_SESSION.lock().map_err(|e| format!("session lock: {e}"))?;
     *guard = Some(VaultSession {
-        key,
+        key: Some(key),
         last_activity: Instant::now(),
-        timeout_secs: DEFAULT_TIMEOUT_SECS,
+        hard_lock_after_secs,
     });
 
-    Ok(json!({ "unlocked": true }))
+    Ok(json!({ "unlocked": true, "lockState": VaultLockState::Unlocked.as_str() }))
 }
 
 fn cmd_lock(_payload: &Value) -> Result<Value, String> {
     let mut guard = VAULT_SESSION.lock().map_err(|e| format!("session lock: {e}"))?;
-    if let Some(session) = guard.as_mut() {
-        session.key.zeroize();
+    hard_lock_session(&mut guard);
+    Ok(json!({ "ok": true, "lockState": VaultLockState::Locked.as_str() }))
+}
+
+fn cmd_touch(_payload: &Value) -> Result<Value, String> {
+    let hard_lock_after_secs = db_conn()
+        .ok()
+        .map(|conn| load_hard_lock_after_secs(&conn));
+    let mut guard = VAULT_SESSION.lock().map_err(|e| format!("session lock: {e}"))?;
+    ensure_session_alive(&mut guard)?;
+
+    match guard.as_mut() {
+        Some(session) => {
+            if let Some(hard_lock_after_secs) = hard_lock_after_secs {
+                session.hard_lock_after_secs = hard_lock_after_secs;
+            }
+            session.last_activity = Instant::now();
+            Ok(json!({ "ok": true, "lockState": VaultLockState::Unlocked.as_str() }))
+        }
+        None => Err("vault_locked".to_string()),
     }
-    *guard = None;
-    Ok(json!({ "ok": true }))
 }
 
 fn cmd_change_password(payload: &Value) -> Result<Value, String> {
@@ -317,12 +415,14 @@ fn cmd_change_password(payload: &Value) -> Result<Value, String> {
 
     tx.commit().map_err(|e| format!("commit: {e}"))?;
 
-    // Update session with new key
+    let hard_lock_after_secs = load_hard_lock_after_secs(&conn);
+
+    // 改密后刷新当前会话，继续保持已解锁状态
     let mut guard = VAULT_SESSION.lock().map_err(|e| format!("session lock: {e}"))?;
     *guard = Some(VaultSession {
-        key: new_key,
+        key: Some(new_key),
         last_activity: Instant::now(),
-        timeout_secs: DEFAULT_TIMEOUT_SECS,
+        hard_lock_after_secs,
     });
 
     Ok(json!({ "ok": true, "reEncrypted": re_encrypted_count }))
@@ -598,7 +698,7 @@ fn cmd_delete(payload: &Value) -> Result<Value, String> {
 }
 
 fn cmd_tag_stats(_payload: &Value) -> Result<Value, String> {
-    let _key = get_session_key()?;
+    let _ = get_session_key()?;
     let conn = db_conn()?;
 
     let mut stmt = conn
@@ -737,6 +837,7 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         "status" => cmd_status(payload),
         "setup" => cmd_setup(payload),
         "unlock" => cmd_unlock(payload),
+        "touch" => cmd_touch(payload),
         "lock" => cmd_lock(payload),
         "change_password" => cmd_change_password(payload),
         "list" => cmd_list(payload),
@@ -749,6 +850,12 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         "rename_tag" => cmd_rename_tag(payload),
         "delete_tag" => cmd_delete_tag(payload),
         _ => Err(format!("vault: unsupported action '{action}'")),
+    }
+}
+
+pub fn force_lock() {
+    if let Ok(mut guard) = VAULT_SESSION.lock() {
+        hard_lock_session(&mut guard);
     }
 }
 
@@ -813,5 +920,48 @@ mod tests {
         let f = build_fields("database", &p);
         assert_eq!(f["port"], 5432);
         assert_eq!(f["dbType"], "PostgreSQL");
+    }
+
+    #[test]
+    fn test_normalize_lock_profile_defaults_to_balanced() {
+        assert_eq!(normalize_lock_profile("strict"), "strict");
+        assert_eq!(normalize_lock_profile("convenient"), "convenient");
+        assert_eq!(normalize_lock_profile("unexpected"), DEFAULT_LOCK_PROFILE);
+    }
+
+    #[test]
+    fn test_resolve_hard_lock_after_secs_matches_profiles() {
+        assert_eq!(resolve_hard_lock_after_secs("strict"), 600);
+        assert_eq!(resolve_hard_lock_after_secs("balanced"), 1800);
+        assert_eq!(resolve_hard_lock_after_secs("convenient"), 3600);
+    }
+
+    #[test]
+    fn test_hard_lock_session_clears_key_and_guard() {
+        let mut guard = Some(VaultSession {
+            key: Some([7u8; KEY_LEN]),
+            last_activity: Instant::now(),
+            hard_lock_after_secs: 1800,
+        });
+
+        hard_lock_session(&mut guard);
+
+        assert!(guard.is_none());
+    }
+
+    #[test]
+    fn test_expired_session_hard_locks_guard() {
+        let mut guard = Some(VaultSession {
+            key: Some([1u8; KEY_LEN]),
+            last_activity: Instant::now()
+                .checked_sub(Duration::from_secs(16))
+                .expect("checked_sub"),
+            hard_lock_after_secs: 15,
+        });
+
+        let err = ensure_session_alive(&mut guard).expect_err("session should expire");
+
+        assert_eq!(err, "vault_locked_timeout");
+        assert!(guard.is_none());
     }
 }

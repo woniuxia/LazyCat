@@ -3,9 +3,10 @@
     <!-- Lock screen -->
     <Transition name="fade" mode="out-in">
       <VaultLockScreen
-        v-if="initialized && !unlocked"
+        v-if="initialized && lockState === 'locked'"
         key="lock"
         :mode="vaultSetup ? 'unlock' : 'setup'"
+        :mask-version="inputMaskVersion"
         @unlocked="onUnlocked"
       />
 
@@ -288,19 +289,19 @@
       </div>
     </Transition>
 
-    <VaultEntryDialog ref="entryDialog" :existing-tags="allTags" @saved="onEntrySaved" />
+    <VaultEntryDialog ref="entryDialog" :existing-tags="allTags" :mask-version="inputMaskVersion" @saved="onEntrySaved" />
 
     <!-- Change password dialog -->
     <el-dialog v-model="showChangePassword" title="修改主密码" width="400px" :close-on-click-modal="false" class="vault-dialog">
       <el-form label-position="top">
         <el-form-item label="当前密码">
-          <el-input v-model="changePw.current" type="password" show-password />
+          <el-input :key="`change-current-${inputMaskVersion}`" v-model="changePw.current" type="password" show-password />
         </el-form-item>
         <el-form-item label="新密码">
-          <el-input v-model="changePw.newPw" type="password" show-password />
+          <el-input :key="`change-next-${inputMaskVersion}`" v-model="changePw.newPw" type="password" show-password />
         </el-form-item>
         <el-form-item label="确认新密码">
-          <el-input v-model="changePw.confirm" type="password" show-password />
+          <el-input :key="`change-confirm-${inputMaskVersion}`" v-model="changePw.confirm" type="password" show-password />
         </el-form-item>
         <p v-if="changePwError" class="vault-error-text">{{ changePwError }}</p>
       </el-form>
@@ -352,7 +353,9 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, onBeforeUnmount } from "vue";
 import { ElMessageBox, ElMessage } from "element-plus";
+import { listen } from "@tauri-apps/api/event";
 import { invokeToolByChannel } from "../bridge/tauri";
+import { getVaultLockProfile, getVaultLockProfilePolicy } from "../composables/useSettings";
 import VaultLockScreen from "./VaultLockScreen.vue";
 import VaultEntryDialog from "./VaultEntryDialog.vue";
 
@@ -384,8 +387,21 @@ interface TagStat {
   count: number;
 }
 
+type VaultLockState = "unlocked" | "locked";
+
+interface VaultStatus {
+  setup: boolean;
+  unlocked: boolean;
+  lockState?: VaultLockState;
+}
+
+interface VaultLockPolicy {
+  hideSensitiveAfterSecs: number;
+  hardLockAfterSecs: number;
+}
+
 const vaultSetup = ref(false);
-const unlocked = ref(false);
+const lockState = ref<VaultLockState>("locked");
 const initialized = ref(false);
 const entries = ref<VaultListEntry[]>([]);
 const keyword = ref("");
@@ -394,6 +410,7 @@ const activeCategory = ref("");
 const activeTag = ref("");
 const tagStats = ref<TagStat[]>([]);
 const entryDialog = ref<InstanceType<typeof VaultEntryDialog> | null>(null);
+const inputMaskVersion = ref(0);
 
 const ENV_LIST = [
   { value: "生产", cls: "is-prod" },
@@ -415,12 +432,18 @@ const changePw = reactive({ current: "", newPw: "", confirm: "" });
 
 // Auto-lock timer
 let activityTimer: ReturnType<typeof setInterval> | null = null;
+let hideSensitiveTimer: ReturnType<typeof setTimeout> | null = null;
+let hardLockTimer: ReturnType<typeof setTimeout> | null = null;
+let lastSessionTouchAt = 0;
+let unlistenFocus: (() => void) | null = null;
+let unlistenBlur: (() => void) | null = null;
 
 // Password reveal/copy state
 const revealedPasswords = reactive(new Map<number, string>());
 let pwClipboardTimer: ReturnType<typeof setTimeout> | null = null;
 const copyFeedbackRow = ref<number | null>(null);
 const copyFeedbackAccount = ref<number | null>(null);
+const unlocked = computed(() => lockState.value === "unlocked");
 
 const filteredEntries = computed(() => {
   let list = entries.value;
@@ -448,6 +471,85 @@ const filteredEntries = computed(() => {
 });
 
 const allTags = computed(() => tagStats.value.map(s => s.tag));
+
+function getLockPolicy(): VaultLockPolicy {
+  return getVaultLockProfilePolicy(getVaultLockProfile());
+}
+
+function clearSensitiveUiState() {
+  revealedPasswords.clear();
+  copyFeedbackRow.value = null;
+  copyFeedbackAccount.value = null;
+  if (pwClipboardTimer) {
+    clearTimeout(pwClipboardTimer);
+    pwClipboardTimer = null;
+  }
+}
+
+function remaskSensitiveInputs() {
+  inputMaskVersion.value += 1;
+}
+
+function hideSensitiveContent() {
+  clearSensitiveUiState();
+  remaskSensitiveInputs();
+}
+
+function clearInactivityTimers() {
+  if (hideSensitiveTimer) {
+    clearTimeout(hideSensitiveTimer);
+    hideSensitiveTimer = null;
+  }
+  if (hardLockTimer) {
+    clearTimeout(hardLockTimer);
+    hardLockTimer = null;
+  }
+}
+
+function setLockState(nextState: VaultLockState) {
+  lockState.value = nextState;
+
+  if (nextState === "unlocked") {
+    return;
+  }
+
+  hideSensitiveContent();
+  clearInactivityTimers();
+
+  entries.value = [];
+  tagStats.value = [];
+}
+
+function startInactivityTimers() {
+  clearInactivityTimers();
+  if (!unlocked.value) return;
+
+  const policy = getLockPolicy();
+  hideSensitiveTimer = setTimeout(() => {
+    hideSensitiveContent();
+  }, policy.hideSensitiveAfterSecs * 1000);
+  hardLockTimer = setTimeout(() => {
+    void onLock();
+  }, policy.hardLockAfterSecs * 1000);
+}
+
+async function touchSession() {
+  if (!unlocked.value) return;
+  const now = Date.now();
+  if (now - lastSessionTouchAt < 15_000) return;
+  lastSessionTouchAt = now;
+  try {
+    await invokeToolByChannel("tool:vault:touch", {});
+  } catch (err) {
+    handleVaultError(err);
+  }
+}
+
+function recordVaultActivity() {
+  if (!unlocked.value) return;
+  startInactivityTimers();
+  void touchSession();
+}
 
 function envCount(env: string) {
   let list = entries.value.filter((e) => e.environment === env);
@@ -526,13 +628,11 @@ function envClass(env: string) {
 
 async function checkStatus() {
   try {
-    const res = (await invokeToolByChannel("tool:vault:status", {})) as {
-      setup: boolean;
-      unlocked: boolean;
-    };
+    const res = (await invokeToolByChannel("tool:vault:status", {})) as VaultStatus;
     vaultSetup.value = res.setup;
-    unlocked.value = res.unlocked;
-    if (res.unlocked) {
+    const nextLockState = res.lockState ?? (res.unlocked ? "unlocked" : "locked");
+    setLockState(nextLockState);
+    if (nextLockState === "unlocked") {
       await loadEntries();
     }
   } catch {
@@ -543,7 +643,7 @@ async function checkStatus() {
 }
 
 async function onUnlocked() {
-  unlocked.value = true;
+  setLockState("unlocked");
   vaultSetup.value = true;
   await loadEntries();
 }
@@ -553,6 +653,7 @@ async function loadEntries() {
     const res = (await invokeToolByChannel("tool:vault:list", {})) as VaultListEntry[];
     entries.value = res;
     await loadTagStats();
+    startInactivityTimers();
   } catch (err) {
     handleVaultError(err);
   }
@@ -652,12 +753,14 @@ function onCreateEntry() {
 async function onTogglePassword(entry: VaultListEntry) {
   if (revealedPasswords.has(entry.id)) {
     revealedPasswords.delete(entry.id);
+    recordVaultActivity();
     return;
   }
   try {
     const res = (await invokeToolByChannel("tool:vault:get", { id: entry.id })) as VaultDetail;
     const pw = String(res.fields?.password ?? "");
     revealedPasswords.set(entry.id, pw);
+    recordVaultActivity();
   } catch (err) {
     handleVaultError(err);
   }
@@ -692,6 +795,7 @@ async function onDirectCopyPassword(entry: VaultListEntry) {
         try { await navigator.clipboard.writeText(""); } catch { /* ignore */ }
       }
     }, 30_000);
+    recordVaultActivity();
   } catch (err) {
     handleVaultError(err);
     ElMessage.error("复制失败");
@@ -709,6 +813,7 @@ async function onCopyAccount(entry: VaultListEntry) {
       }
     }, 1500);
     ElMessage.success("账号已复制");
+    recordVaultActivity();
   } catch {
     ElMessage.error("无法写入剪贴板");
   }
@@ -795,9 +900,7 @@ async function onLock() {
   } catch {
     // ignore
   }
-  unlocked.value = false;
-  entries.value = [];
-  revealedPasswords.clear();
+  setLockState("locked");
 }
 
 async function onChangePassword() {
@@ -839,9 +942,7 @@ async function onChangePassword() {
 function handleVaultError(err: unknown) {
   const msg = (err as Error).message || "";
   if (msg.includes("vault_locked") || msg.includes("vault_locked_timeout")) {
-    unlocked.value = false;
-    entries.value = [];
-    revealedPasswords.clear();
+    setLockState("locked");
   } else if (msg) {
     ElMessage.error(msg);
   }
@@ -849,16 +950,15 @@ function handleVaultError(err: unknown) {
 
 function startAutoLockCheck() {
   activityTimer = setInterval(async () => {
-    if (!unlocked.value) return;
+    if (lockState.value === "locked") return;
     try {
-      const res = (await invokeToolByChannel("tool:vault:status", {})) as {
-        setup: boolean;
-        unlocked: boolean;
-      };
-      if (!res.unlocked) {
-        unlocked.value = false;
-        entries.value = [];
-        revealedPasswords.clear();
+      const res = (await invokeToolByChannel("tool:vault:status", {})) as VaultStatus;
+      const nextLockState = res.lockState ?? (res.unlocked ? "unlocked" : "locked");
+      if (nextLockState !== lockState.value) {
+        setLockState(nextLockState);
+        if (nextLockState === "unlocked") {
+          await loadEntries();
+        }
       }
     } catch {
       // ignore
@@ -874,17 +974,41 @@ function hideRevealedPasswords(event: MouseEvent) {
 }
 
 onMounted(() => {
-  checkStatus();
+  void checkStatus();
   startAutoLockCheck();
   document.addEventListener("click", hideRevealedPasswords);
   document.addEventListener("click", closeTagContextMenu);
+  document.addEventListener("mousedown", recordVaultActivity, true);
+  document.addEventListener("keydown", recordVaultActivity, true);
+  document.addEventListener("wheel", recordVaultActivity, { passive: true });
+  void listen("tauri://focus", () => {
+    if (!unlocked.value) return;
+    recordVaultActivity();
+  }).then((unlisten) => {
+    unlistenFocus = unlisten;
+  }).catch(() => {
+    unlistenFocus = null;
+  });
+  void listen("tauri://blur", () => {
+    hideSensitiveContent();
+  }).then((unlisten) => {
+    unlistenBlur = unlisten;
+  }).catch(() => {
+    unlistenBlur = null;
+  });
 });
 
 onBeforeUnmount(() => {
   if (activityTimer) clearInterval(activityTimer);
   if (pwClipboardTimer) clearTimeout(pwClipboardTimer);
+  clearInactivityTimers();
   document.removeEventListener("click", hideRevealedPasswords);
   document.removeEventListener("click", closeTagContextMenu);
+  document.removeEventListener("mousedown", recordVaultActivity, true);
+  document.removeEventListener("keydown", recordVaultActivity, true);
+  document.removeEventListener("wheel", recordVaultActivity);
+  unlistenFocus?.();
+  unlistenBlur?.();
 });
 </script>
 
@@ -896,6 +1020,7 @@ onBeforeUnmount(() => {
 }
 
 .vault-main {
+  position: relative;
   display: grid;
   grid-template-columns: 178px 1fr;
   width: 100%;
