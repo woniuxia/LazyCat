@@ -1,3 +1,4 @@
+use chrono::{DateTime, NaiveDateTime, Utc};
 use rusqlite::{Connection, params};
 use serde_json::Value;
 use std::fs;
@@ -63,6 +64,59 @@ fn set_schema_version(conn: &Connection, version: i64) -> Result<(), String> {
     conn.execute("INSERT INTO schema_version (version) VALUES (?1)", params![version])
         .map_err(|e| format!("set schema_version failed: {e}"))?;
     Ok(())
+}
+
+fn has_column(conn: &Connection, table: &str, column: &str) -> Result<bool, String> {
+    let sql = format!("PRAGMA table_info({table})");
+    let mut stmt = conn
+        .prepare(&sql)
+        .map_err(|e| format!("prepare table info failed: {e}"))?;
+    let rows = stmt
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(|e| format!("query table info failed: {e}"))?;
+    for row in rows {
+        if row.map_err(|e| e.to_string())? == column {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn parse_utc_datetime(raw: &str) -> Option<DateTime<Utc>> {
+    DateTime::parse_from_rfc3339(raw)
+        .ok()
+        .map(|dt| dt.with_timezone(&Utc))
+        .or_else(|| {
+            NaiveDateTime::parse_from_str(raw, "%Y-%m-%d %H:%M:%S")
+                .ok()
+                .map(|dt| DateTime::<Utc>::from_naive_utc_and_offset(dt, Utc))
+        })
+}
+
+fn detect_reminder_offset_minutes(event_at: &str, remind_at: &str) -> Option<i64> {
+    const ALLOWED_OFFSETS_MINUTES: [i64; 7] = [0, 5, 10, 30, 60, 24 * 60, 48 * 60];
+
+    let event_dt = parse_utc_datetime(event_at)?;
+    let remind_dt = parse_utc_datetime(remind_at)?;
+    let diff_seconds = event_dt.signed_duration_since(remind_dt).num_seconds();
+
+    ALLOWED_OFFSETS_MINUTES
+        .iter()
+        .copied()
+        .find(|offset| diff_seconds == offset * 60)
+}
+
+fn reminder_preset_from_offset(offset_minutes: i64) -> Option<&'static str> {
+    match offset_minutes {
+        0 => Some("0m"),
+        5 => Some("5m"),
+        10 => Some("10m"),
+        30 => Some("30m"),
+        60 => Some("1h"),
+        1440 => Some("1d"),
+        2880 => Some("2d"),
+        _ => None,
+    }
 }
 
 fn run_migrations(conn: &Connection) -> Result<(), String> {
@@ -303,6 +357,497 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
         )
         .map_err(|e| format!("migration 12 failed: {e}"))?;
         set_schema_version(conn, 12)?;
+    }
+
+    // Migration 13: todo & reminder tables
+    if current < 13 {
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS todo_types (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                color TEXT NOT NULL DEFAULT '#409eff',
+                builtin INTEGER NOT NULL DEFAULT 0,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_todo_types_builtin_sort ON todo_types(builtin DESC, sort_order ASC, id ASC);
+
+            CREATE TABLE IF NOT EXISTS todo_assignees (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS todo_templates (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                type_id INTEGER DEFAULT NULL,
+                priority TEXT NOT NULL DEFAULT 'P2' CHECK (priority IN ('P0', 'P1', 'P2', 'P3')),
+                description TEXT NOT NULL DEFAULT '',
+                rule_mode TEXT NOT NULL DEFAULT 'simple' CHECK (rule_mode IN ('simple', 'cron')),
+                rule_json TEXT NOT NULL DEFAULT '{}',
+                cron_expression TEXT NOT NULL,
+                timezone TEXT NOT NULL DEFAULT 'local',
+                end_mode TEXT NOT NULL DEFAULT 'never' CHECK (end_mode IN ('never', 'until_date', 'after_count')),
+                end_value TEXT DEFAULT NULL,
+                next_occurrence_at TEXT DEFAULT NULL,
+                generated_count INTEGER NOT NULL DEFAULT 0,
+                active INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (type_id) REFERENCES todo_types(id) ON DELETE SET NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_todo_templates_active_next ON todo_templates(active, next_occurrence_at);
+
+            CREATE TABLE IF NOT EXISTS todo_template_assignees (
+                template_id INTEGER NOT NULL,
+                assignee_id INTEGER NOT NULL,
+                PRIMARY KEY (template_id, assignee_id),
+                FOREIGN KEY (template_id) REFERENCES todo_templates(id) ON DELETE CASCADE,
+                FOREIGN KEY (assignee_id) REFERENCES todo_assignees(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS todo_tasks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                type_id INTEGER DEFAULT NULL,
+                priority TEXT NOT NULL DEFAULT 'P2' CHECK (priority IN ('P0', 'P1', 'P2', 'P3')),
+                description TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'in_progress', 'completed', 'canceled')),
+                due_at TEXT DEFAULT NULL,
+                remind_at TEXT DEFAULT NULL,
+                snooze_until TEXT DEFAULT NULL,
+                last_notified_at TEXT DEFAULT NULL,
+                source_template_id INTEGER DEFAULT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (type_id) REFERENCES todo_types(id) ON DELETE SET NULL,
+                FOREIGN KEY (source_template_id) REFERENCES todo_templates(id) ON DELETE SET NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_todo_tasks_status_priority ON todo_tasks(status, priority);
+            CREATE INDEX IF NOT EXISTS idx_todo_tasks_due ON todo_tasks(due_at);
+            CREATE INDEX IF NOT EXISTS idx_todo_tasks_remind ON todo_tasks(remind_at, snooze_until, last_notified_at);
+
+            CREATE TABLE IF NOT EXISTS todo_task_assignees (
+                task_id INTEGER NOT NULL,
+                assignee_id INTEGER NOT NULL,
+                PRIMARY KEY (task_id, assignee_id),
+                FOREIGN KEY (task_id) REFERENCES todo_tasks(id) ON DELETE CASCADE,
+                FOREIGN KEY (assignee_id) REFERENCES todo_assignees(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_todo_task_assignees_assignee ON todo_task_assignees(assignee_id);
+
+            CREATE TABLE IF NOT EXISTS todo_reminder_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                body TEXT NOT NULL DEFAULT '',
+                fire_at TEXT NOT NULL,
+                is_read INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (task_id) REFERENCES todo_tasks(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_todo_reminder_events_unread ON todo_reminder_events(is_read, fire_at DESC, id DESC);"
+        )
+        .map_err(|e| format!("migration 13 failed: {e}"))?;
+
+        conn.execute(
+            "INSERT OR IGNORE INTO todo_types (name, color, builtin, sort_order) VALUES (?1, ?2, 1, ?3)",
+            params!["待报事项", "#409eff", 10],
+        )
+        .map_err(|e| format!("migration 13 seed type failed: {e}"))?;
+        conn.execute(
+            "INSERT OR IGNORE INTO todo_types (name, color, builtin, sort_order) VALUES (?1, ?2, 1, ?3)",
+            params!["工作任务", "#67c23a", 20],
+        )
+        .map_err(|e| format!("migration 13 seed type failed: {e}"))?;
+        conn.execute(
+            "INSERT OR IGNORE INTO todo_types (name, color, builtin, sort_order) VALUES (?1, ?2, 1, ?3)",
+            params!["会议安排", "#e6a23c", 30],
+        )
+        .map_err(|e| format!("migration 13 seed type failed: {e}"))?;
+        conn.execute(
+            "INSERT OR IGNORE INTO todo_types (name, color, builtin, sort_order) VALUES (?1, ?2, 1, ?3)",
+            params!["个人事项", "#f56c6c", 40],
+        )
+        .map_err(|e| format!("migration 13 seed type failed: {e}"))?;
+
+        set_schema_version(conn, 13)?;
+    }
+
+    // Migration 14: unify todo template into logical series model
+    if current < 14 {
+        if !has_column(conn, "todo_templates", "series_kind")? {
+            conn.execute_batch(
+                "ALTER TABLE todo_templates ADD COLUMN series_kind TEXT NOT NULL DEFAULT 'recurring';
+                CREATE INDEX IF NOT EXISTS idx_todo_templates_kind_active_next ON todo_templates(series_kind, active, next_occurrence_at);",
+            )
+            .map_err(|e| format!("migration 14 alter todo_templates failed: {e}"))?;
+        } else {
+            conn.execute_batch(
+                "CREATE INDEX IF NOT EXISTS idx_todo_templates_kind_active_next ON todo_templates(series_kind, active, next_occurrence_at);",
+            )
+            .map_err(|e| format!("migration 14 create index failed: {e}"))?;
+        }
+
+        conn.execute(
+            "UPDATE todo_templates
+             SET series_kind='recurring'
+             WHERE series_kind IS NULL OR TRIM(series_kind) = ''",
+            [],
+        )
+        .map_err(|e| format!("migration 14 normalize recurring series failed: {e}"))?;
+
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, title, type_id, priority, description, created_at, updated_at
+                 FROM todo_tasks
+                 WHERE source_template_id IS NULL
+                 ORDER BY id ASC",
+            )
+            .map_err(|e| format!("migration 14 load orphan tasks failed: {e}"))?;
+        let task_rows = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<i64>>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, String>(6)?,
+                ))
+            })
+            .map_err(|e| format!("migration 14 map orphan tasks failed: {e}"))?;
+
+        let mut orphan_tasks = Vec::new();
+        for row in task_rows {
+            orphan_tasks.push(row.map_err(|e| e.to_string())?);
+        }
+
+        for (task_id, title, type_id, priority, description, created_at, updated_at) in orphan_tasks {
+            conn.execute(
+                "INSERT INTO todo_templates
+                 (title, type_id, priority, description, rule_mode, rule_json, cron_expression,
+                  timezone, end_mode, end_value, next_occurrence_at, generated_count, active,
+                  created_at, updated_at, series_kind)
+                 VALUES(?1, ?2, ?3, ?4, 'simple', '{}', '0 0 0 1 1 *', 'local', 'never', NULL, NULL, 0, 0, ?5, ?6, 'one_off')",
+                params![title, type_id, priority, description, created_at, updated_at],
+            )
+            .map_err(|e| format!("migration 14 create one-off series failed: {e}"))?;
+            let series_id = conn.last_insert_rowid();
+
+            conn.execute(
+                "INSERT OR IGNORE INTO todo_template_assignees(template_id, assignee_id)
+                 SELECT ?1, assignee_id FROM todo_task_assignees WHERE task_id = ?2",
+                params![series_id, task_id],
+            )
+            .map_err(|e| format!("migration 14 copy assignees failed: {e}"))?;
+
+            conn.execute(
+                "UPDATE todo_tasks SET source_template_id=?1 WHERE id=?2",
+                params![series_id, task_id],
+            )
+            .map_err(|e| format!("migration 14 bind task series failed: {e}"))?;
+        }
+
+        set_schema_version(conn, 14)?;
+    }
+
+    // Migration 15: event time + reminder preset model
+    if current < 15 {
+        if !has_column(conn, "todo_tasks", "event_at")? {
+            conn.execute_batch(
+                "ALTER TABLE todo_tasks ADD COLUMN event_at TEXT DEFAULT NULL;
+                CREATE INDEX IF NOT EXISTS idx_todo_tasks_event ON todo_tasks(event_at);",
+            )
+            .map_err(|e| format!("migration 15 alter todo_tasks failed: {e}"))?;
+        } else {
+            conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_todo_tasks_event ON todo_tasks(event_at);")
+                .map_err(|e| format!("migration 15 create todo_tasks event index failed: {e}"))?;
+        }
+
+        if !has_column(conn, "todo_templates", "reminder_offset_minutes")? {
+            conn.execute_batch(
+                "ALTER TABLE todo_templates ADD COLUMN reminder_offset_minutes INTEGER DEFAULT NULL;",
+            )
+            .map_err(|e| format!("migration 15 alter todo_templates failed: {e}"))?;
+        }
+
+        conn.execute(
+            "UPDATE todo_tasks
+             SET event_at = COALESCE(event_at, due_at, remind_at)
+             WHERE event_at IS NULL OR TRIM(event_at) = ''",
+            [],
+        )
+        .map_err(|e| format!("migration 15 backfill event_at failed: {e}"))?;
+
+        let mut stmt = conn
+            .prepare("SELECT id, event_at, remind_at FROM todo_tasks ORDER BY id ASC")
+            .map_err(|e| format!("migration 15 load todo_tasks failed: {e}"))?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                ))
+            })
+            .map_err(|e| format!("migration 15 map todo_tasks failed: {e}"))?;
+
+        let mut task_rows = Vec::new();
+        for row in rows {
+            task_rows.push(row.map_err(|e| e.to_string())?);
+        }
+
+        for (task_id, event_at, remind_at) in task_rows {
+            let normalized_event_at = event_at
+                .as_deref()
+                .and_then(parse_utc_datetime)
+                .map(|dt| dt.to_rfc3339())
+                .or(event_at);
+
+            let normalized_remind_at = match (
+                normalized_event_at.as_deref(),
+                remind_at.as_deref().and_then(parse_utc_datetime).map(|dt| dt.to_rfc3339()),
+            ) {
+                (Some(event_at), Some(remind_at))
+                    if detect_reminder_offset_minutes(event_at, &remind_at).is_some() =>
+                {
+                    Some(remind_at)
+                }
+                _ => None,
+            };
+
+            conn.execute(
+                "UPDATE todo_tasks
+                 SET event_at=?1, remind_at=?2
+                 WHERE id=?3",
+                params![normalized_event_at, normalized_remind_at, task_id],
+            )
+            .map_err(|e| format!("migration 15 normalize todo_task failed: {e}"))?;
+        }
+
+        conn.execute(
+            "UPDATE todo_templates SET reminder_offset_minutes=NULL",
+            [],
+        )
+        .map_err(|e| format!("migration 15 reset template reminder offsets failed: {e}"))?;
+
+        set_schema_version(conn, 15)?;
+    }
+
+    // Migration 16: collapse one-off todo templates back into standalone tasks
+    if current < 16 {
+        if has_column(conn, "todo_templates", "series_kind")? {
+            conn.execute(
+                "UPDATE todo_tasks
+                 SET source_template_id=NULL
+                 WHERE source_template_id IN (
+                     SELECT id FROM todo_templates WHERE COALESCE(series_kind, 'recurring')='one_off'
+                 )",
+                [],
+            )
+            .map_err(|e| format!("migration 16 detach one-off tasks failed: {e}"))?;
+
+            conn.execute(
+                "DELETE FROM todo_template_assignees
+                 WHERE template_id IN (
+                     SELECT id FROM todo_templates WHERE COALESCE(series_kind, 'recurring')='one_off'
+                 )",
+                [],
+            )
+            .map_err(|e| format!("migration 16 delete one-off assignees failed: {e}"))?;
+
+            conn.execute(
+                "DELETE FROM todo_templates WHERE COALESCE(series_kind, 'recurring')='one_off'",
+                [],
+            )
+            .map_err(|e| format!("migration 16 delete one-off templates failed: {e}"))?;
+        }
+
+        set_schema_version(conn, 16)?;
+    }
+
+    // Migration 17: recurring template start time
+    if current < 17 {
+        if !has_column(conn, "todo_templates", "start_at")? {
+            conn.execute_batch("ALTER TABLE todo_templates ADD COLUMN start_at TEXT DEFAULT NULL;")
+                .map_err(|e| format!("migration 17 alter todo_templates failed: {e}"))?;
+        }
+
+        let mut stmt = conn
+            .prepare("SELECT id, start_at, next_occurrence_at, created_at FROM todo_templates ORDER BY id ASC")
+            .map_err(|e| format!("migration 17 load todo_templates failed: {e}"))?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, String>(3)?,
+                ))
+            })
+            .map_err(|e| format!("migration 17 map todo_templates failed: {e}"))?;
+
+        let mut template_rows = Vec::new();
+        for row in rows {
+            template_rows.push(row.map_err(|e| e.to_string())?);
+        }
+
+        for (template_id, start_at, next_occurrence_at, created_at) in template_rows {
+            let normalized_start_at = start_at
+                .as_deref()
+                .and_then(parse_utc_datetime)
+                .map(|dt| dt.to_rfc3339())
+                .or_else(|| {
+                    next_occurrence_at
+                        .as_deref()
+                        .and_then(parse_utc_datetime)
+                        .map(|dt| dt.to_rfc3339())
+                })
+                .or_else(|| parse_utc_datetime(&created_at).map(|dt| dt.to_rfc3339()));
+
+            conn.execute(
+                "UPDATE todo_templates SET start_at=?1 WHERE id=?2",
+                params![normalized_start_at, template_id],
+            )
+            .map_err(|e| format!("migration 17 normalize template start time failed: {e}"))?;
+        }
+
+        set_schema_version(conn, 17)?;
+    }
+
+    // Migration 18: multi reminder tables
+    if current < 18 {
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS todo_template_reminders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                template_id INTEGER NOT NULL,
+                reminder_preset TEXT NOT NULL,
+                offset_minutes INTEGER NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (template_id) REFERENCES todo_templates(id) ON DELETE CASCADE,
+                UNIQUE(template_id, reminder_preset)
+            );
+            CREATE INDEX IF NOT EXISTS idx_todo_template_reminders_template ON todo_template_reminders(template_id, offset_minutes, id);
+
+            CREATE TABLE IF NOT EXISTS todo_task_reminders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id INTEGER NOT NULL,
+                reminder_preset TEXT NOT NULL,
+                offset_minutes INTEGER NOT NULL,
+                remind_at TEXT NOT NULL,
+                snooze_until TEXT DEFAULT NULL,
+                last_notified_at TEXT DEFAULT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (task_id) REFERENCES todo_tasks(id) ON DELETE CASCADE,
+                UNIQUE(task_id, reminder_preset)
+            );
+            CREATE INDEX IF NOT EXISTS idx_todo_task_reminders_task ON todo_task_reminders(task_id, offset_minutes, id);
+            CREATE INDEX IF NOT EXISTS idx_todo_task_reminders_fire ON todo_task_reminders(remind_at, snooze_until, last_notified_at, id);",
+        )
+        .map_err(|e| format!("migration 18 create reminder tables failed: {e}"))?;
+
+        if !has_column(conn, "todo_reminder_events", "task_reminder_id")? {
+            conn.execute_batch(
+                "ALTER TABLE todo_reminder_events ADD COLUMN task_reminder_id INTEGER DEFAULT NULL;",
+            )
+            .map_err(|e| format!("migration 18 alter todo_reminder_events task_reminder_id failed: {e}"))?;
+        }
+
+        if !has_column(conn, "todo_reminder_events", "reminder_preset")? {
+            conn.execute_batch(
+                "ALTER TABLE todo_reminder_events ADD COLUMN reminder_preset TEXT DEFAULT NULL;",
+            )
+            .map_err(|e| format!("migration 18 alter todo_reminder_events reminder_preset failed: {e}"))?;
+        }
+
+        let mut task_stmt = conn
+            .prepare(
+                "SELECT id, event_at, remind_at, snooze_until, last_notified_at
+                 FROM todo_tasks ORDER BY id ASC",
+            )
+            .map_err(|e| format!("migration 18 load todo_tasks failed: {e}"))?;
+        let task_rows = task_stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                ))
+            })
+            .map_err(|e| format!("migration 18 map todo_tasks failed: {e}"))?;
+
+        let mut normalized_task_rows = Vec::new();
+        for row in task_rows {
+            normalized_task_rows.push(row.map_err(|e| e.to_string())?);
+        }
+
+        for (task_id, event_at, remind_at, snooze_until, last_notified_at) in normalized_task_rows {
+            let Some(offset_minutes) = event_at
+                .as_deref()
+                .zip(remind_at.as_deref())
+                .and_then(|(event_at, remind_at)| detect_reminder_offset_minutes(event_at, remind_at))
+            else {
+                continue;
+            };
+
+            let Some(reminder_preset) = reminder_preset_from_offset(offset_minutes) else {
+                continue;
+            };
+
+            conn.execute(
+                "INSERT OR IGNORE INTO todo_task_reminders(
+                    task_id, reminder_preset, offset_minutes, remind_at, snooze_until, last_notified_at
+                 )
+                 VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
+                params![task_id, reminder_preset, offset_minutes, remind_at, snooze_until, last_notified_at],
+            )
+            .map_err(|e| format!("migration 18 backfill todo_task_reminders failed: {e}"))?;
+        }
+
+        let mut template_stmt = conn
+            .prepare("SELECT id, reminder_offset_minutes FROM todo_templates ORDER BY id ASC")
+            .map_err(|e| format!("migration 18 load todo_templates failed: {e}"))?;
+        let template_rows = template_stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, Option<i64>>(1)?,
+                ))
+            })
+            .map_err(|e| format!("migration 18 map todo_templates failed: {e}"))?;
+
+        let mut normalized_template_rows = Vec::new();
+        for row in template_rows {
+            normalized_template_rows.push(row.map_err(|e| e.to_string())?);
+        }
+
+        for (template_id, offset_minutes) in normalized_template_rows {
+            let Some(offset_minutes) = offset_minutes else {
+                continue;
+            };
+            let Some(reminder_preset) = reminder_preset_from_offset(offset_minutes) else {
+                continue;
+            };
+
+            conn.execute(
+                "INSERT OR IGNORE INTO todo_template_reminders(template_id, reminder_preset, offset_minutes)
+                 VALUES(?1, ?2, ?3)",
+                params![template_id, reminder_preset, offset_minutes],
+            )
+            .map_err(|e| format!("migration 18 backfill todo_template_reminders failed: {e}"))?;
+        }
+
+        set_schema_version(conn, 18)?;
     }
 
     Ok(())

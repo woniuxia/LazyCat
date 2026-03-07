@@ -44,4 +44,10 @@ describe("shouldHideNamedHotkeyWindow", () => {
       activeTool: "snippets",
     })).toBe(false);
   });
+
+  it("supports the todo named hotkey with the same hide behavior", () => {
+    expect(shouldHideNamedHotkeyWindow(createPayload({ target: "todo" }), {
+      activeTool: "todo",
+    })).toBe(true);
+  });
 });

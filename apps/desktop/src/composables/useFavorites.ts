@@ -12,6 +12,58 @@ export interface MergedHomeTool {
 const CLICK_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 const MAX_CLICK_HISTORY_PER_TOOL = 500;
 
+export const TODO_TOOL_ID = "todo";
+export const TODO_FAVORITE_SEEDED_KEY = "favorites_todo_seeded";
+
+export interface FavoriteBootstrapResult {
+  favoriteToolIds: string[];
+  shouldMarkTodoSeeded: boolean;
+}
+
+export function normalizeFavoriteToolIds(
+  rawFavorites: unknown,
+  isRealToolId: (id: string) => boolean,
+): string[] {
+  if (!Array.isArray(rawFavorites)) return [];
+
+  const favoriteToolIds: string[] = [];
+  const seen = new Set<string>();
+  for (const item of rawFavorites) {
+    if (typeof item !== "string" || !isRealToolId(item) || seen.has(item)) continue;
+    seen.add(item);
+    favoriteToolIds.push(item);
+  }
+
+  return favoriteToolIds;
+}
+
+export function bootstrapFavoriteToolIds(
+  rawFavorites: unknown,
+  hasSeededTodoFavorite: boolean,
+  isRealToolId: (id: string) => boolean,
+): FavoriteBootstrapResult {
+  const favoriteToolIds = normalizeFavoriteToolIds(rawFavorites, isRealToolId);
+
+  if (!isRealToolId(TODO_TOOL_ID) || hasSeededTodoFavorite) {
+    return {
+      favoriteToolIds,
+      shouldMarkTodoSeeded: false,
+    };
+  }
+
+  if (favoriteToolIds.includes(TODO_TOOL_ID)) {
+    return {
+      favoriteToolIds,
+      shouldMarkTodoSeeded: true,
+    };
+  }
+
+  return {
+    favoriteToolIds: [TODO_TOOL_ID, ...favoriteToolIds],
+    shouldMarkTodoSeeded: true,
+  };
+}
+
 export function useFavorites(allTools: ToolDef[], isRealToolId: (id: string) => boolean) {
   const favoriteToolIds = ref<string[]>([]);
   const toolClickHistory = ref<ToolClickHistory>({});
@@ -108,9 +160,16 @@ export function useFavorites(allTools: ToolDef[], isRealToolId: (id: string) => 
   function loadFromStorage() {
     // Favorites
     const rawFav = getSettingJson<string[]>("favorites", []);
-    favoriteToolIds.value = Array.isArray(rawFav)
-      ? rawFav.filter((id): id is string => typeof id === "string" && isRealToolId(id))
-      : [];
+    const hasSeededTodoFavorite = getSettingJson<boolean>(TODO_FAVORITE_SEEDED_KEY, false);
+    const favoriteBootstrap = bootstrapFavoriteToolIds(
+      rawFav,
+      hasSeededTodoFavorite,
+      isRealToolId,
+    );
+    favoriteToolIds.value = favoriteBootstrap.favoriteToolIds;
+    if (favoriteBootstrap.shouldMarkTodoSeeded) {
+      setSettingJson(TODO_FAVORITE_SEEDED_KEY, true);
+    }
 
     // Click history
     const rawClicks = getSettingJson<ToolClickHistory>("tool_clicks", {});

@@ -9,6 +9,7 @@ use tauri::{
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 use tauri_plugin_autostart::MacosLauncher;
+use tauri_plugin_notification::NotificationExt;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -27,7 +28,7 @@ static RECORDING_MODE: AtomicBool = AtomicBool::new(false);
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use tools::hotkey::HOTKEY_MAPPINGS_DIR;
 use tools::manuals::MANUAL_SERVERS;
@@ -617,6 +618,32 @@ fn export_pcap(session_id: String, path: String) -> Result<(), String> {
     tools::capture::export_pcap(&session_id, &path)
 }
 
+fn start_todo_scheduler(app: tauri::AppHandle) {
+    std::thread::spawn(move || loop {
+        match tools::todo::scheduler_tick() {
+            Ok(reminders) => {
+                for reminder in reminders {
+                    let _ = app
+                        .notification()
+                        .builder()
+                        .title(&reminder.title)
+                        .body(&reminder.body)
+                        .show();
+
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.emit("todo-reminder-fired", &reminder);
+                    }
+                }
+            }
+            Err(_) => {
+                // 调度失败不影响主流程，等待下一轮重试
+            }
+        }
+
+        std::thread::sleep(Duration::from_secs(30));
+    });
+}
+
 fn main() {
     // 绿色免安装包支持：检测 exe 同级目录下的 WebView2 Fixed Runtime，
     // 设置环境变量让 WebView2Loader.dll 使用本地运行时而非系统安装版本。
@@ -659,6 +686,7 @@ fn main() {
 
     builder
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(
             MacosLauncher::LaunchAgent,
@@ -769,6 +797,9 @@ fn main() {
                     }
                 })
                 .build(app)?;
+
+            // 启动待办调度线程（周期实例生成 + 到期提醒派发）
+            start_todo_scheduler(app.handle().clone());
 
             Ok(())
         })

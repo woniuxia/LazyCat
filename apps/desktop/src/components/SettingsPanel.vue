@@ -120,6 +120,19 @@
             </div>
           </div>
 
+          <div class="setting-item">
+            <div class="setting-label">
+              <span class="label-text">本地待办</span>
+            </div>
+            <div class="setting-control">
+              <ShortcutRecorder
+                :model-value="todoHotkeyInput"
+                :check-conflict="makeConflictChecker('todoHotkeyInput')"
+                @update:model-value="emit('update:todoHotkeyInput', $event)"
+              />
+            </div>
+          </div>
+
           <div class="setting-actions">
             <el-button type="primary" @click="saveHotkeySettings">保存快捷键</el-button>
             <el-button @click="clearHotkeySettings">清除全部</el-button>
@@ -342,6 +355,7 @@ const props = defineProps<{
   snippetsHotkeyInput: string;
   vaultHotkeyInput: string;
   launcherHotkeyInput: string;
+  todoHotkeyInput: string;
   homeTopLimit: number;
   sidebarItems: SidebarItem[];
   getHiddenIds: () => string[];
@@ -356,6 +370,7 @@ const emit = defineEmits<{
   (event: "update:snippetsHotkeyInput", value: string): void;
   (event: "update:vaultHotkeyInput", value: string): void;
   (event: "update:launcherHotkeyInput", value: string): void;
+  (event: "update:todoHotkeyInput", value: string): void;
   (event: "update:homeTopLimit", value: number): void;
 }>();
 
@@ -376,6 +391,7 @@ const HOTKEY_FIELDS = [
   { key: "snippetsHotkeyInput" as const, label: "代码片段" },
   { key: "vaultHotkeyInput" as const, label: "密码管理" },
   { key: "launcherHotkeyInput" as const, label: "快捷启动" },
+  { key: "todoHotkeyInput" as const, label: "本地待办" },
 ] as const;
 
 function makeConflictChecker(selfKey: typeof HOTKEY_FIELDS[number]["key"]) {
@@ -424,6 +440,10 @@ async function saveHotkeySettings() {
     await registerNamedHotkey("launcher", launcher);
     setSetting("hotkey_launcher", launcher);
 
+    const todo = props.todoHotkeyInput.trim();
+    await registerNamedHotkey("todo", todo);
+    setSetting("hotkey_todo", todo);
+
     ElMessage.success("快捷键已保存");
   } catch (e) {
     ElMessage.error(`保存失败：${(e as Error).message}`);
@@ -435,15 +455,18 @@ async function clearHotkeySettings() {
   emit("update:snippetsHotkeyInput", "");
   emit("update:vaultHotkeyInput", "");
   emit("update:launcherHotkeyInput", "");
+  emit("update:todoHotkeyInput", "");
   try {
     await unregisterHotkey();
     await unregisterNamedHotkey("snippets");
     await unregisterNamedHotkey("vault");
     await unregisterNamedHotkey("launcher");
+    await unregisterNamedHotkey("todo");
     setSetting("hotkey", "");
     setSetting("hotkey_snippets", "");
     setSetting("hotkey_vault", "");
     setSetting("hotkey_launcher", "");
+    setSetting("hotkey_todo", "");
     ElMessage.success("快捷键已清除");
   } catch (e) {
     ElMessage.error(`清除失败：${(e as Error).message}`);
@@ -757,3 +780,4 @@ function handleVaultLockProfileChange(value: string | number | boolean) {
   flex-wrap: wrap;
 }
 </style>
+

@@ -75,6 +75,7 @@ import { computed, onMounted, onBeforeUnmount, ref, watch } from "vue";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Close, Plus } from "@element-plus/icons-vue";
+import { ElNotification } from "element-plus";
 import type { ToolDef, SidebarItem } from "./types";
 import { useFavorites } from "./composables/useFavorites";
 import { useTabs } from "./composables/useTabs";
@@ -103,6 +104,7 @@ const sidebarItems: SidebarItem[] = [
   { kind: "tool", tool: { id: "diff", name: "文本对比", desc: "双栏文本差异对比" } },
   { kind: "tool", tool: { id: "markdown", name: "Markdown", desc: "Markdown 编辑与实时预览" } },
   { kind: "tool", tool: { id: "launcher", name: "快捷启动", desc: "常用程序快速启动与管理" } },
+  { kind: "tool", tool: { id: "todo", name: "本地待办", desc: "待办事项、提醒与周期事件管理" } },
   {
     kind: "group",
     group: {
@@ -226,6 +228,7 @@ const hotkeyInput = ref("");
 const snippetsHotkeyInput = ref("");
 const vaultHotkeyInput = ref("");
 const launcherHotkeyInput = ref("");
+const todoHotkeyInput = ref("");
 const shortcutHelp = ref<InstanceType<typeof ShortcutHelpOverlay> | null>(null);
 const topBarRef = ref<InstanceType<typeof TopBar> | null>(null);
 
@@ -322,6 +325,7 @@ const currentComponentProps = computed(() => {
     snippetsHotkeyInput: snippetsHotkeyInput.value,
     vaultHotkeyInput: vaultHotkeyInput.value,
     launcherHotkeyInput: launcherHotkeyInput.value,
+    todoHotkeyInput: todoHotkeyInput.value,
     homeTopLimit: homeTopLimit.value,
     sidebarItems,
     getHiddenIds,
@@ -333,6 +337,7 @@ const currentComponentProps = computed(() => {
     "onUpdate:snippetsHotkeyInput": (v: string) => { snippetsHotkeyInput.value = v; },
     "onUpdate:vaultHotkeyInput": (v: string) => { vaultHotkeyInput.value = v; },
     "onUpdate:launcherHotkeyInput": (v: string) => { launcherHotkeyInput.value = v; },
+    "onUpdate:todoHotkeyInput": (v: string) => { todoHotkeyInput.value = v; },
     "onUpdate:homeTopLimit": (v: number) => { homeTopLimit.value = v; },
   };
   return {};
@@ -421,6 +426,11 @@ onMounted(async () => {
   if (savedLauncherHotkey) {
     try { await registerNamedHotkey("launcher", savedLauncherHotkey); } catch { /* ignore */ }
   }
+  const savedTodoHotkey = getSetting("hotkey_todo") ?? "";
+  todoHotkeyInput.value = savedTodoHotkey;
+  if (savedTodoHotkey) {
+    try { await registerNamedHotkey("todo", savedTodoHotkey); } catch { /* ignore */ }
+  }
   try {
     await listen<HotkeyNavigatePayload>("hotkey-navigate", async (event) => {
       const { target } = event.payload;
@@ -433,6 +443,17 @@ onMounted(async () => {
         } catch { /* ignore in non-Tauri env */ }
       }
       onSelect(target);
+    });
+  } catch { /* ignore in non-Tauri env */ }
+  try {
+    await listen<{ title: string; body: string; taskId: number; taskReminderId: number; reminderPreset: string }>("todo-reminder-fired", (event) => {
+      ElNotification({
+        title: event.payload.title,
+        message: event.payload.body || "有一条待办到达提醒时间",
+        type: "warning",
+        duration: 6000,
+        onClick: () => onSelect("todo"),
+      });
     });
   } catch { /* ignore in non-Tauri env */ }
   window.addEventListener("keydown", onKeydown);

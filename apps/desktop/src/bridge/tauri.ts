@@ -197,7 +197,22 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:launcher:list-groups":   { domain: "launcher", action: "list_groups" },
   "tool:launcher:create-group":  { domain: "launcher", action: "create_group" },
   "tool:launcher:rename-group":  { domain: "launcher", action: "rename_group" },
-  "tool:launcher:delete-group":  { domain: "launcher", action: "delete_group" }
+  "tool:launcher:delete-group":  { domain: "launcher", action: "delete_group" },
+  "tool:todo:type-list": { domain: "todo", action: "type_list" },
+  "tool:todo:type-upsert": { domain: "todo", action: "type_upsert" },
+  "tool:todo:type-delete": { domain: "todo", action: "type_delete" },
+  "tool:todo:assignee-list": { domain: "todo", action: "assignee_list" },
+  "tool:todo:assignee-upsert": { domain: "todo", action: "assignee_upsert" },
+  "tool:todo:assignee-delete": { domain: "todo", action: "assignee_delete" },
+  "tool:todo:item-list": { domain: "todo", action: "item_list" },
+  "tool:todo:item-create": { domain: "todo", action: "item_create" },
+  "tool:todo:item-update": { domain: "todo", action: "item_update" },
+  "tool:todo:item-change-status": { domain: "todo", action: "item_change_status" },
+  "tool:todo:item-snooze": { domain: "todo", action: "item_snooze" },
+  "tool:todo:item-toggle-active": { domain: "todo", action: "item_toggle_active" },
+  "tool:todo:item-delete": { domain: "todo", action: "item_delete" },
+  "tool:todo:reminder-list-unread": { domain: "todo", action: "reminder_list_unread" },
+  "tool:todo:reminder-mark-read": { domain: "todo", action: "reminder_mark_read" }
 };
 
 export async function invokeToolByChannel(
