@@ -187,18 +187,30 @@
                     <span class="vault-entry-title" :title="entry.title">{{ entry.title || '(未命名)' }}</span>
                   </div>
                   <span v-if="entry.summary" class="vault-entry-summary" :title="entry.summary">{{ entry.summary }}</span>
-                  <button
-                    v-if="entryUrl(entry)"
-                    class="vault-open-url-btn"
-                    title="在浏览器中打开"
-                    @click.stop="onOpenUrl(entry)"
-                  >
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-                      <polyline points="15 3 21 3 21 9" />
-                      <line x1="10" y1="14" x2="21" y2="3" />
-                    </svg>
-                  </button>
+                  <div v-if="entryCopyValue(entry)" class="vault-name-actions">
+                    <button
+                      v-if="entryUrl(entry)"
+                      class="vault-name-action-btn"
+                      title="在浏览器中打开"
+                      @click.stop="onOpenUrl(entry)"
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                        <polyline points="15 3 21 3 21 9" />
+                        <line x1="10" y1="14" x2="21" y2="3" />
+                      </svg>
+                    </button>
+                    <button
+                      class="vault-name-action-btn"
+                      :title="entryUrl(entry) ? '复制链接' : '复制 IP'"
+                      @click.stop="onCopyNameValue(entry)"
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect width="14" height="14" x="8" y="8" rx="2" />
+                        <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
+                      </svg>
+                    </button>
+                  </div>
                 </div>
 
                 <div class="vault-list-col account">
@@ -876,8 +888,41 @@ function extractUrl(text: string): string {
   return m ? m[0] : "";
 }
 
+function isValidIpv4(ip: string): boolean {
+  const parts = ip.split(".");
+  if (parts.length !== 4) return false;
+  return parts.every((part) => {
+    if (!/^\d{1,3}$/.test(part)) return false;
+    const value = Number(part);
+    return value >= 0 && value <= 255;
+  });
+}
+
+function extractIpv4(text: string): string {
+  const matches = text.match(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g) || [];
+  for (const candidate of matches) {
+    if (isValidIpv4(candidate)) {
+      return candidate;
+    }
+  }
+  return "";
+}
+
+function entryNameText(entry: VaultListEntry): string {
+  return `${entry.title || ""}\n${entry.summary || ""}`;
+}
+
 function entryUrl(entry: VaultListEntry): string {
-  return extractUrl(entry.title) || extractUrl(entry.summary);
+  return extractUrl(entryNameText(entry));
+}
+
+function entryIp(entry: VaultListEntry): string {
+  if (entryUrl(entry)) return "";
+  return extractIpv4(entryNameText(entry));
+}
+
+function entryCopyValue(entry: VaultListEntry): string {
+  return entryUrl(entry) || entryIp(entry);
 }
 
 async function onOpenUrl(entry: VaultListEntry) {
@@ -887,6 +932,18 @@ async function onOpenUrl(entry: VaultListEntry) {
     await invokeToolByChannel("tool:vault:open-url", { url });
   } catch (err) {
     handleVaultError(err);
+  }
+}
+
+async function onCopyNameValue(entry: VaultListEntry) {
+  const value = entryCopyValue(entry);
+  if (!value) return;
+  try {
+    await navigator.clipboard.writeText(value);
+    ElMessage.success(entryUrl(entry) ? "链接已复制" : "IP 已复制");
+    recordVaultActivity();
+  } catch {
+    ElMessage.error("无法写入剪贴板");
   }
 }
 
@@ -1403,6 +1460,7 @@ onBeforeUnmount(() => {
   flex-direction: column;
   gap: 2px;
   position: relative;
+  padding-right: 56px;
 }
 
 .vault-list-col.account {
@@ -1496,11 +1554,26 @@ onBeforeUnmount(() => {
   min-width: 0;
 }
 
-.vault-open-url-btn {
+.vault-name-actions {
   position: absolute;
-  right: 4px;
+  right: 8px;
   top: 50%;
   transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 150ms var(--lc-ease);
+}
+
+.vault-list-col.name:hover .vault-name-actions,
+.vault-list-col.name:focus-within .vault-name-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.vault-name-action-btn {
   width: 20px;
   height: 20px;
   padding: 0;
@@ -1512,20 +1585,15 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  opacity: 0;
   transition: all 150ms var(--lc-ease);
 }
 
-.vault-list-item:hover .vault-open-url-btn {
-  opacity: 1;
-}
-
-.vault-open-url-btn:hover {
+.vault-name-action-btn:hover {
   background: var(--lc-accent-dim);
   color: var(--lc-accent);
 }
 
-.vault-open-url-btn svg {
+.vault-name-action-btn svg {
   width: 12px;
   height: 12px;
 }
