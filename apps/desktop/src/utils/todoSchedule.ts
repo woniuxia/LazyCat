@@ -59,6 +59,18 @@ export function getTodayDateString() {
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 }
 
+export function getCreateDraftDefaultDateTime(now = new Date()): TodoDateTimeParts {
+  const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+  const minutesSinceMidnight = now.getHours() * 60 + now.getMinutes();
+  const roundedMinutes = Math.floor(minutesSinceMidnight / 5) * 5 + 5;
+  const normalizedMinutes = roundedMinutes % (24 * 60);
+
+  return {
+    date: `${tomorrow.getFullYear()}-${pad(tomorrow.getMonth() + 1)}-${pad(tomorrow.getDate())}`,
+    time: `${pad(Math.floor(normalizedMinutes / 60))}:${pad(normalizedMinutes % 60)}`,
+  };
+}
+
 export function isFiveMinuteTime(value: string) {
   const [hourText, minuteText, ...rest] = value.split(":");
   if (rest.length > 0) return false;
@@ -325,7 +337,7 @@ export function formatRecurrenceEndLabel(recurrence: TodoRecurrence | null, form
   return "持续生成";
 }
 
-function summarizeSimpleRule(rule: Partial<TodoSimpleRule>) {
+export function summarizeSimpleRule(rule: Partial<TodoSimpleRule>) {
   const time = rule.time || DEFAULT_TIME;
   if (rule.frequency === "weekly") return `每周 ${formatWeekdayList(rule.weekdays) || "周一"} ${time}`;
   if (rule.frequency === "monthly") return `每月 ${rule.dayOfMonth || 1} 号 ${time}`;

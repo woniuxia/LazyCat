@@ -47,6 +47,7 @@ pub struct ReminderDispatch {
     pub title: String,
     pub body: String,
     pub fire_at: String,
+    pub priority: String,
     pub reminder_preset: String,
 }
 
@@ -112,6 +113,7 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         "item_update" => item_update(payload),
         "item_change_status" => item_change_status(payload),
         "item_snooze" => item_snooze(payload),
+        "item_toggle_pin" => item_toggle_pin(payload),
         "item_toggle_active" => item_toggle_active(payload),
         "item_delete" => item_delete(payload),
         "reminder_list_unread" => reminder_list_unread(payload),
@@ -329,15 +331,23 @@ fn item_sort_time(item: &Value) -> String {
                 .and_then(|recurrence| recurrence.get("nextOccurrenceAt"))
                 .and_then(Value::as_str)
         })
-        .or_else(|| item.get("updatedAt").and_then(Value::as_str))
         .unwrap_or("")
         .to_string()
 }
 
+fn item_pinned_rank(item: &Value) -> i32 {
+    if item.get("pinned").and_then(Value::as_bool).unwrap_or(false) {
+        0
+    } else {
+        1
+    }
+}
+
 fn sort_item_rows(items: &mut [Value]) {
     items.sort_by(|left, right| {
-        item_priority_rank(left)
-            .cmp(&item_priority_rank(right))
+        item_pinned_rank(left)
+            .cmp(&item_pinned_rank(right))
+            .then_with(|| item_priority_rank(left).cmp(&item_priority_rank(right)))
             .then_with(|| item_sort_time(left).cmp(&item_sort_time(right)))
             .then_with(|| {
                 right
@@ -1093,12 +1103,8 @@ fn type_upsert(payload: &Value) -> Result<Value, String> {
 fn type_delete(payload: &Value) -> Result<Value, String> {
     let id = parse_i64(payload, "id").ok_or("缂哄皯绫诲瀷 id")?;
     let conn = db_conn()?;
-    let builtin: i64 = conn
-        .query_row("SELECT builtin FROM todo_types WHERE id=?1", params![id], |row| row.get(0))
+    conn.query_row("SELECT 1 FROM todo_types WHERE id=?1", params![id], |_row| Ok(()))
         .map_err(|_| "待办类型不存在".to_string())?;
-    if builtin == 1 {
-        return Err("内置类型不允许删除".to_string());
-    }
     conn.execute("UPDATE todo_tasks SET type_id=NULL WHERE type_id=?1", params![id])
         .map_err(|e| format!("瑙ｇ粦浠诲姟绫诲瀷澶辫触: {e}"))?;
     conn.execute(
@@ -1234,6 +1240,7 @@ fn template_to_root_item(template: Value) -> Result<Value, String> {
         "kind": SERIES_KIND_RECURRING,
         "recordRole": RECORD_ROLE_ROOT,
         "rootId": id,
+        "pinned": false,
         "status": Value::Null,
         "eventAt": Value::Null,
         "reminderPresets": reminder_presets,
@@ -1332,6 +1339,24 @@ fn item_snooze(payload: &Value) -> Result<Value, String> {
     task_snooze(payload)
 }
 
+fn item_toggle_pin(payload: &Value) -> Result<Value, String> {
+    let id = parse_i64(payload, "id").ok_or("缺少事项 id")?;
+    let conn = db_conn()?;
+    let changed = conn
+        .execute(
+            "UPDATE todo_tasks
+             SET pinned=CASE WHEN pinned = 0 THEN 1 ELSE 0 END,
+                 updated_at=CURRENT_TIMESTAMP
+             WHERE id=?1",
+            params![id],
+        )
+        .map_err(|e| format!("切换事项置顶失败: {e}"))?;
+    if changed == 0 {
+        return Err("事项不存在".to_string());
+    }
+    Ok(json!({ "ok": true }))
+}
+
 fn item_toggle_active(payload: &Value) -> Result<Value, String> {
     let conn = db_conn()?;
     let template_id = resolve_recurring_template_id(&conn, payload)?
@@ -1369,12 +1394,13 @@ fn task_list(payload: &Value) -> Result<Value, String> {
             "SELECT t.id, t.title, t.type_id, t.priority, t.description, t.status,
                     t.event_at, t.remind_at, t.snooze_until, t.last_notified_at,
                     t.source_template_id, t.created_at, t.updated_at,
-                    ty.name, ty.color, COALESCE(tp.series_kind, 'one_off')
+                    ty.name, ty.color, COALESCE(tp.series_kind, 'one_off'), t.pinned
              FROM todo_tasks t
              LEFT JOIN todo_types ty ON ty.id = t.type_id
              LEFT JOIN todo_templates tp ON tp.id = t.source_template_id
              WHERE t.status = ?1
-             ORDER BY CASE t.priority WHEN 'P0' THEN 0 WHEN 'P1' THEN 1 WHEN 'P2' THEN 2 ELSE 3 END,
+             ORDER BY t.pinned DESC,
+                      CASE t.priority WHEN 'P0' THEN 0 WHEN 'P1' THEN 1 WHEN 'P2' THEN 2 ELSE 3 END,
                       COALESCE(t.event_at, t.updated_at),
                       t.id DESC",
         )
@@ -1383,11 +1409,12 @@ fn task_list(payload: &Value) -> Result<Value, String> {
             "SELECT t.id, t.title, t.type_id, t.priority, t.description, t.status,
                     t.event_at, t.remind_at, t.snooze_until, t.last_notified_at,
                     t.source_template_id, t.created_at, t.updated_at,
-                    ty.name, ty.color, COALESCE(tp.series_kind, 'one_off')
+                    ty.name, ty.color, COALESCE(tp.series_kind, 'one_off'), t.pinned
              FROM todo_tasks t
              LEFT JOIN todo_types ty ON ty.id = t.type_id
              LEFT JOIN todo_templates tp ON tp.id = t.source_template_id
-             ORDER BY CASE t.priority WHEN 'P0' THEN 0 WHEN 'P1' THEN 1 WHEN 'P2' THEN 2 ELSE 3 END,
+             ORDER BY t.pinned DESC,
+                      CASE t.priority WHEN 'P0' THEN 0 WHEN 'P1' THEN 1 WHEN 'P2' THEN 2 ELSE 3 END,
                       COALESCE(t.event_at, t.updated_at),
                       t.id DESC",
         )
@@ -1462,6 +1489,7 @@ fn row_to_task_json(row: &rusqlite::Row<'_>) -> rusqlite::Result<Value> {
     let item_id = row.get::<_, i64>(0)?;
     let series_id = row.get::<_, Option<i64>>(10)?;
     let series_kind = row.get::<_, String>(15)?;
+    let pinned = row.get::<_, i64>(16)? != 0;
     let is_recurring = series_kind == SERIES_KIND_RECURRING;
     let record_role = if is_recurring && series_id.is_some() {
         RECORD_ROLE_OCCURRENCE
@@ -1469,7 +1497,7 @@ fn row_to_task_json(row: &rusqlite::Row<'_>) -> rusqlite::Result<Value> {
         RECORD_ROLE_ROOT
     };
     let event_at = row.get::<_, Option<String>>(6)?;
-    let display_at = event_at.clone().or(Some(row.get::<_, String>(12)?));
+    let display_at = event_at.clone();
     Ok(json!({
         "id": item_id,
         "title": row.get::<_, String>(1)?,
@@ -1479,6 +1507,7 @@ fn row_to_task_json(row: &rusqlite::Row<'_>) -> rusqlite::Result<Value> {
         "kind": series_kind,
         "recordRole": record_role,
         "rootId": series_id.unwrap_or(item_id),
+        "pinned": pinned,
         "status": row.get::<_, String>(5)?,
         "eventAt": event_at,
         "reminderPresets": json!([]),
@@ -3064,7 +3093,7 @@ fn dispatch_due_reminders(conn: &Connection, now: DateTime<Utc>) -> Result<Vec<R
         let (task_reminder_id, task_id, reminder_preset, title, description, priority, fire_at) =
             row.map_err(|e| e.to_string())?;
         let body = if description.is_empty() {
-            format!("优先级 {priority} · 到达提醒时间")
+            String::new()
         } else {
             description
         };
@@ -3092,6 +3121,7 @@ fn dispatch_due_reminders(conn: &Connection, now: DateTime<Utc>) -> Result<Vec<R
             title,
             body,
             fire_at,
+            priority,
             reminder_preset,
         });
     }
@@ -3118,6 +3148,7 @@ mod tests {
                 remind_at TEXT DEFAULT NULL,
                 snooze_until TEXT DEFAULT NULL,
                 last_notified_at TEXT DEFAULT NULL,
+                pinned INTEGER NOT NULL DEFAULT 0,
                 source_template_id INTEGER DEFAULT NULL,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -3316,10 +3347,124 @@ mod tests {
     }
 
     #[test]
+    fn dispatch_due_reminders_should_include_priority_in_payload() {
+        let conn = create_test_conn();
+        conn.execute(
+            "INSERT INTO todo_tasks(id, title, priority, description, status, event_at)
+             VALUES(1, ?1, ?2, ?3, ?4, ?5)",
+            params![
+                "提醒事项",
+                "P0",
+                "",
+                STATUS_PENDING,
+                "2026-03-08T09:00:00+00:00"
+            ],
+        )
+        .expect("seed task");
+        conn.execute(
+            "INSERT INTO todo_task_reminders(id, task_id, reminder_preset, offset_minutes, remind_at)
+             VALUES(11, 1, ?1, 0, ?2)",
+            params![REMINDER_PRESET_ON_TIME, "2026-03-08T09:00:00+00:00"],
+        )
+        .expect("seed reminder");
+
+        let reminders = dispatch_due_reminders(
+            &conn,
+            DateTime::parse_from_rfc3339("2026-03-08T09:00:00+00:00")
+                .expect("parse now")
+                .with_timezone(&Utc),
+        )
+        .expect("dispatch reminders");
+
+        assert_eq!(reminders.len(), 1);
+        assert_eq!(reminders[0].priority, "P0");
+        assert_eq!(reminders[0].body, "");
+    }
+
+    #[test]
     fn status_transition_should_validate() {
         assert!(can_transit(STATUS_PENDING, STATUS_IN_PROGRESS));
         assert!(can_transit(STATUS_IN_PROGRESS, STATUS_COMPLETED));
         assert!(!can_transit(STATUS_COMPLETED, STATUS_PENDING));
+    }
+
+    #[test]
+    fn sort_item_rows_should_prioritize_pinned_items() {
+        let mut items = vec![
+            json!({
+                "id": 1,
+                "pinned": false,
+                "priority": "P0",
+                "displayAt": "2026-03-08T08:00:00.000Z"
+            }),
+            json!({
+                "id": 2,
+                "pinned": true,
+                "priority": "P3",
+                "displayAt": "2026-03-08T12:00:00.000Z"
+            }),
+        ];
+
+        sort_item_rows(&mut items);
+
+        assert_eq!(items[0].get("id").and_then(Value::as_i64), Some(2));
+    }
+
+    #[test]
+    fn item_sort_time_should_ignore_updated_at_fallback() {
+        let item = json!({
+            "id": 1,
+            "displayAt": Value::Null,
+            "updatedAt": "2026-03-08T10:00:00.000Z"
+        });
+
+        assert_eq!(item_sort_time(&item), "");
+    }
+
+    #[test]
+    fn task_row_without_event_at_should_not_emit_display_at() {
+        let conn = create_test_conn();
+        conn.execute(
+            "INSERT INTO todo_tasks(
+                id, title, priority, description, status,
+                created_at, updated_at, event_at, pinned
+             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                1_i64,
+                "无时间事项",
+                "P2",
+                "",
+                STATUS_PENDING,
+                "2026-03-08T08:00:00.000Z",
+                "2026-03-08T10:00:00.000Z",
+                Option::<String>::None,
+                0_i64,
+            ],
+        )
+        .expect("insert task");
+
+        let mut stmt = conn
+            .prepare(
+                "SELECT t.id, t.title, t.type_id, t.priority, t.description, t.status,
+                        t.event_at, t.remind_at, t.snooze_until, t.last_notified_at,
+                        t.source_template_id, t.created_at, t.updated_at,
+                        NULL AS type_name, NULL AS type_color,
+                        'one_off' AS series_kind, t.pinned
+                 FROM todo_tasks t
+                 WHERE t.id = ?1",
+            )
+            .expect("prepare task row");
+
+        let item = stmt
+            .query_row(params![1_i64], |row| row_to_task_json(row))
+            .expect("map task row");
+
+        assert!(item.get("eventAt").is_some_and(Value::is_null));
+        assert!(item.get("displayAt").is_some_and(Value::is_null));
+        assert_eq!(
+            item.get("updatedAt").and_then(Value::as_str),
+            Some("2026-03-08T10:00:00.000Z")
+        );
     }
 
     #[test]
@@ -3472,6 +3617,7 @@ mod tests {
         assert_eq!(item.get("kind").and_then(Value::as_str), Some(SERIES_KIND_RECURRING));
         assert_eq!(item.get("recordRole").and_then(Value::as_str), Some(RECORD_ROLE_ROOT));
         assert_eq!(item.get("rootId").and_then(Value::as_i64), Some(7));
+        assert_eq!(item.get("pinned").and_then(Value::as_bool), Some(false));
         assert_eq!(
             item.get("recurrence")
                 .and_then(Value::as_object)
@@ -3865,4 +4011,3 @@ mod tests {
         assert_eq!(template_state.1, "2026-03-09T09:00:00+00:00");
     }
 }
-

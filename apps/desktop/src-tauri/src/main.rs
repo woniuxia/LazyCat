@@ -5,14 +5,14 @@ mod tools;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Emitter, Manager, WindowEvent,
+    webview::PageLoadEvent, AppHandle, Emitter, Manager, WebviewUrl, WebviewWindow,
+    WebviewWindowBuilder, WindowEvent,
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 use tauri_plugin_autostart::MacosLauncher;
-use tauri_plugin_notification::NotificationExt;
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::fs;
 use std::sync::Mutex;
@@ -285,6 +285,103 @@ fn same_monitor(lhs: &tauri::Monitor, rhs: &tauri::Monitor) -> bool {
 
 fn clamp_i64_to_i32(value: i64) -> i32 {
     value.clamp(i32::MIN as i64, i32::MAX as i64) as i32
+}
+
+const REMINDER_POPUP_LABEL: &str = "reminder-popup";
+const REMINDER_POPUP_WIDTH: i64 = 400;
+const REMINDER_POPUP_HEIGHT: i64 = 320;
+const REMINDER_POPUP_MARGIN: i64 = 16;
+const REMINDER_POPUP_VIEW_SCRIPT: &str = r#"
+window.__LAZYCAT_VIEW__ = 'reminder-popup';
+if (!window.location.search.includes('view=reminder-popup')) {
+  const hash = window.location.hash || '';
+  window.history.replaceState(window.history.state, '', `${window.location.pathname}?view=reminder-popup${hash}`);
+}
+"#;
+
+fn reminder_popup_init_script(reminders: &[tools::todo::ReminderDispatch]) -> String {
+    let serialized = serde_json::to_string(reminders).unwrap_or_else(|_| "[]".to_string());
+    format!(
+        "{REMINDER_POPUP_VIEW_SCRIPT}\nwindow.__LAZYCAT_REMINDER_BOOTSTRAP__ = {serialized};"
+    )
+}
+
+fn reminder_popup_url() -> WebviewUrl {
+    if cfg!(debug_assertions) {
+        WebviewUrl::External(
+            "http://localhost:5173/?view=reminder-popup"
+                .parse()
+                .expect("valid reminder popup dev url"),
+        )
+    } else {
+        WebviewUrl::App("index.html".into())
+    }
+}
+
+fn position_reminder_popup(window: &WebviewWindow) {
+    let Ok(Some(monitor)) = window.primary_monitor() else {
+        return;
+    };
+
+    let work_area = monitor.work_area();
+    let relative_x = (work_area.size.width as i64 - REMINDER_POPUP_WIDTH - REMINDER_POPUP_MARGIN).max(0);
+    let relative_y = (work_area.size.height as i64 - REMINDER_POPUP_HEIGHT - REMINDER_POPUP_MARGIN).max(0);
+    let x = clamp_i64_to_i32(work_area.position.x as i64 + relative_x);
+    let y = clamp_i64_to_i32(work_area.position.y as i64 + relative_y);
+    let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
+}
+
+fn emit_todo_refresh_event(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.emit("todo-reminder-fired", json!({ "refresh": true }));
+    }
+}
+
+fn show_reminder_popup(app: &AppHandle, reminders: Vec<tools::todo::ReminderDispatch>) {
+    if reminders.is_empty() {
+        return;
+    }
+
+    let app_handle = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        if let Some(window) = app_handle.get_webview_window(REMINDER_POPUP_LABEL) {
+            position_reminder_popup(&window);
+            let _ = window.show();
+            let _ = window.set_focus();
+            #[cfg(windows)]
+            force_foreground(&window);
+            let _ = window.emit("reminder-push", &reminders);
+            return;
+        }
+
+        let initial_reminders = reminders.clone();
+        let builder = WebviewWindowBuilder::new(&app_handle, REMINDER_POPUP_LABEL, reminder_popup_url())
+            .title("待办提醒")
+            .inner_size(REMINDER_POPUP_WIDTH as f64, REMINDER_POPUP_HEIGHT as f64)
+            .decorations(false)
+            .always_on_top(true)
+            .resizable(false)
+            .skip_taskbar(true)
+            .focused(true)
+            .transparent(false)
+            .visible(false)
+            .initialization_script(reminder_popup_init_script(&reminders))
+            .on_page_load(move |window, payload| {
+                if let PageLoadEvent::Finished = payload.event() {
+                    let _ = window.emit("reminder-push", &initial_reminders);
+                }
+            });
+
+        let Ok(window) = builder.build() else {
+            return;
+        };
+
+        position_reminder_popup(&window);
+        let _ = window.show();
+        let _ = window.set_focus();
+        #[cfg(windows)]
+        force_foreground(&window);
+    });
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -618,20 +715,58 @@ fn export_pcap(session_id: String, path: String) -> Result<(), String> {
     tools::capture::export_pcap(&session_id, &path)
 }
 
+#[tauri::command]
+fn reminder_popup_complete(app: tauri::AppHandle, task_id: i64) -> Result<Value, String> {
+    let result = tools::todo::execute(
+        "item_change_status",
+        &json!({
+            "id": task_id,
+            "status": "completed",
+            "kind": "one_off",
+            "recordRole": "occurrence"
+        }),
+    )?;
+    emit_todo_refresh_event(&app);
+    Ok(result)
+}
+
+#[tauri::command]
+fn reminder_popup_snooze(
+    app: tauri::AppHandle,
+    task_id: i64,
+    task_reminder_id: i64,
+    minutes: i64,
+) -> Result<Value, String> {
+    let result = tools::todo::execute(
+        "item_snooze",
+        &json!({
+            "id": task_id,
+            "taskReminderId": task_reminder_id,
+            "minutes": minutes
+        }),
+    )?;
+    emit_todo_refresh_event(&app);
+    Ok(result)
+}
+
+#[tauri::command]
+fn reminder_popup_dismiss(app: tauri::AppHandle, event_id: i64) -> Result<Value, String> {
+    let result = tools::todo::execute("reminder_mark_read", &json!({ "id": event_id }))?;
+    emit_todo_refresh_event(&app);
+    Ok(result)
+}
+
 fn start_todo_scheduler(app: tauri::AppHandle) {
     std::thread::spawn(move || loop {
         match tools::todo::scheduler_tick() {
             Ok(reminders) => {
-                for reminder in reminders {
-                    let _ = app
-                        .notification()
-                        .builder()
-                        .title(&reminder.title)
-                        .body(&reminder.body)
-                        .show();
+                if !reminders.is_empty() {
+                    show_reminder_popup(&app, reminders.clone());
 
                     if let Some(window) = app.get_webview_window("main") {
-                        let _ = window.emit("todo-reminder-fired", &reminder);
+                        for reminder in reminders {
+                            let _ = window.emit("todo-reminder-fired", &reminder);
+                        }
                     }
                 }
             }
@@ -834,6 +969,9 @@ fn main() {
             unregister_named_hotkey,
             pause_all_shortcuts,
             resume_all_shortcuts,
+            reminder_popup_complete,
+            reminder_popup_snooze,
+            reminder_popup_dismiss,
             check_npcap_installed,
             list_capture_interfaces,
             start_capture,

@@ -75,7 +75,6 @@ import { computed, onMounted, onBeforeUnmount, ref, watch } from "vue";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Close, Plus } from "@element-plus/icons-vue";
-import { ElNotification } from "element-plus";
 import type { ToolDef, SidebarItem } from "./types";
 import { useFavorites } from "./composables/useFavorites";
 import { useTabs } from "./composables/useTabs";
@@ -443,17 +442,6 @@ onMounted(async () => {
         } catch { /* ignore in non-Tauri env */ }
       }
       onSelect(target);
-    });
-  } catch { /* ignore in non-Tauri env */ }
-  try {
-    await listen<{ title: string; body: string; taskId: number; taskReminderId: number; reminderPreset: string }>("todo-reminder-fired", (event) => {
-      ElNotification({
-        title: event.payload.title,
-        message: event.payload.body || "有一条待办到达提醒时间",
-        type: "warning",
-        duration: 6000,
-        onClick: () => onSelect("todo"),
-      });
     });
   } catch { /* ignore in non-Tauri env */ }
   window.addEventListener("keydown", onKeydown);

@@ -850,6 +850,18 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
         set_schema_version(conn, 18)?;
     }
 
+    // Migration 19: task pin support
+    if current < 19 {
+        if !has_column(conn, "todo_tasks", "pinned")? {
+            conn.execute_batch(
+                "ALTER TABLE todo_tasks ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;",
+            )
+            .map_err(|e| format!("migration 19 alter todo_tasks pinned failed: {e}"))?;
+        }
+
+        set_schema_version(conn, 19)?;
+    }
+
     Ok(())
 }
 

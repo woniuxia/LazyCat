@@ -8,6 +8,187 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-03-08: 本地待办清空日期时间后仍显示时间的修复
+
+**场景**: 用户反馈新建单次事项时已经手动清空日期和时间，但保存后列表中仍然显示时间，且时间相关统计也可能受影响。
+
+**问题**:
+1. Rust `row_to_task_json()` 之前会把任务的 `displayAt` 从 `eventAt` 回退到 `updatedAt`，导致“无日程事项”被伪装成有时间事项。
+2. 前端 `TodoPanel.vue` 的时间列、今日到期和逾期判断都直接使用 `eventAt || displayAt`，一旦 `displayAt` 被污染，就会把更新时间当成日程时间展示。
+3. `todoBuckets.ts` 的活跃项排序也依赖 `eventAt || displayAt`，会让无时间的单次事项因为伪 `displayAt` 提前排序。
+
+**解决**:
+1. Rust 侧收紧 `displayAt` 语义：普通任务/周期实例的 `displayAt` 只等于真实 `eventAt`，不再回退到 `updatedAt`；`item_sort_time()` 也移除 `updatedAt` fallback。
+2. 前端新增统一 helper 区分真实日程时间：普通任务/周期实例只看 `eventAt`，周期根记录才看 `displayAt`，并让时间列、今日到期、逾期判断统一复用这层语义。
+3. `todoBuckets.ts` 同步按同一规则排序：单次事项没有 `eventAt` 就按“无时间”处理排到末尾，周期根仍可按 `displayAt` 排序。
+4. 为避免回归，补充 Rust 定向测试与 `todoBuckets.test.ts`，覆盖“无 `eventAt` 的单次事项不应产生伪 `displayAt`”和“周期根仍可按 `displayAt` 排序”。
+
+**关键点**:
+1. `displayAt` 应该只承担“真实可展示的日程时间”语义，不能混入 `updatedAt` 这类元数据字段。
+2. 周期根记录是例外：它没有 `eventAt`，但需要用 `displayAt` 展示下一次发生时间；修复时要只收紧单次事项/实例语义，不能误伤周期根。
+3. 一旦前后端都存在 `eventAt || displayAt` 这类松散回退，修复必须同时收口映射、展示和排序，否则很容易出现“显示改对了但排序还错”的半修状态。
+
+**涉及文件**:
+- `apps/desktop/src-tauri/src/tools/todo.rs`
+- `apps/desktop/src/components/TodoPanel.vue`
+- `apps/desktop/src/utils/todoBuckets.ts`
+- `apps/desktop/src/utils/todoBuckets.test.ts`
+
+**验证**:
+- `pnpm test src/utils/todoBuckets.test.ts`
+- `pnpm test`
+- `cargo test item_sort_time_should_ignore_updated_at_fallback -- --nocapture`
+- `cargo test task_row_without_event_at_should_not_emit_display_at -- --nocapture`
+- `cargo check`
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+
+**使用次数**: 0
+
+## 2026-03-08: 本地待办新增/编辑体验收口
+
+**场景**: 用户要求按既定方案优化本地待办新增/编辑弹窗，包括默认日期时间、日期/时间清空联动、提醒排序、分类排序，以及放开内置分类删除限制。
+
+**问题**:
+1. `TodoPanel.vue` 里默认日期、默认时间、提醒状态和重复规则时间分别散落在 `resetItemDraft()`、时间拆分 computed 与保存校验中，直接局部改动很容易出现“UI 能清空、保存却报错”的状态撕裂。
+2. 时间输入当前通过 hour/minute 双 `el-select` 拼接，`splitDraftEventTime()` 对空值默认回填 `09:00`，如果不先改这里，任何“清空时间”的交互都会被马上回弹。
+3. 分类下拉排序之前已经有一份 `sortedTypes` 计算属性，新增同名实现会直接让 `build:web` 在 SFC 编译阶段报重复声明。
+4. Rust `type_delete()` 之前把 builtin 限制和“类型是否存在”校验绑在一起，放开删除时要只移除 builtin 拦截，不能把不存在校验一并丢掉。
+
+**解决**:
+1. 在 `todoSchedule.ts` 新增 `getCreateDraftDefaultDateTime()`，统一返回“明天日期 + 下一档 5 分钟时间”；`TodoPanel.vue` 的 `itemDraft` 初始值和 `resetItemDraft()` 都只从这个 helper 取默认值。
+2. `TodoPanel.vue` 中将日期清空和时间清空统一收口到 `clearEventSchedule()`：同时清空 `eventDate/eventTime`，并把提醒重置为 `none`；时间选择器保留双下拉，但改为显式“清空”按钮。
+3. `splitDraftEventTime()` 先识别空字符串，再由 `composeDraftEventTime()` 负责重组 hour/minute，避免清空后被 `09:00` 兜底；保存时新增“日期和时间必须同时填写或同时清空”的校验。
+4. 复用已有 `sortedTypes` 计算属性，只调整模板消费和排序规则；构建报重复声明时先全局搜同名符号，再删除重复块，比盲目重写安全。
+5. `todo.rs` 的 `type_delete()` 改为先用 `SELECT 1` 校验类型存在，再继续执行解绑任务/模板与删除流程，从而放开 builtin 删除但保留原有错误语义。
+
+**关键点**:
+1. “默认时间”要先明确是“向上取整”还是“下一档 5 分钟”；这次按方案示例收口为“下一档”，因此 `14:55 -> 15:00`。
+2. 清空日期/时间时必须同步处理提醒，否则保存校验会因为残留提醒而继续要求填写日程。
+3. 前端 build 报 `Identifier ... has already been declared` 时，优先搜同名 computed / const，通常比模板本身更快定位。
+4. Rust 定向测试失败时要区分“编译是否通过”和“现有红测是否无关本次改动”；本次通过 `cargo check` 单独确认了编译状态。
+
+**涉及文件**:
+- `apps/desktop/src/components/TodoPanel.vue`
+- `apps/desktop/src/utils/todoSchedule.ts`
+- `apps/desktop/src/utils/todoSchedule.test.ts`
+- `apps/desktop/src-tauri/src/tools/todo.rs`
+
+**验证**:
+- `pnpm test src/utils/todoSchedule.test.ts`
+- `pnpm test`
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+- `cargo check`
+- `cargo test todo:: -- --nocapture`（存在 1 个与本次改动无关的既有失败：`convert_one_off_task_to_recurring_should_bind_existing_task_without_duplicate`）
+
+**使用次数**: 0
+
+## 2026-03-08: 本地待办置顶排序与已办倒序收口
+
+**场景**: 用户要求参照现有方案，给本地待办补上事项置顶能力，并同步收敛待办/已办列表的排序和操作列行为。
+
+**问题**:
+1. `TodoPanel.vue` 的待办列表里混有普通事项与周期根记录，若直接给所有行都接“置顶/取消”或“取消”动作，会把周期根记录误走到 `todo_tasks` 更新链路。
+2. `groupTodoItemsByBucket` 之前只负责活跃项按时间升序分桶，已办项没有显式排序，状态切换后展示顺序容易和“最近完成优先”预期不一致。
+3. 前后端都各自有一层排序：Rust `task_list/sort_item_rows` 与前端 `todoBuckets.ts`。如果只改一侧，刷新前后顺序会抖动。
+
+**解决**:
+1. `types/todo.ts` 为 `TodoItem` 新增 `pinned` 字段，`TodoPanel.vue` 的 `normalizeTodoItem` 接入该字段，待办标题补“置顶”标签，待办操作列新增“置顶/取消置顶”。
+2. 前端只对可执行事项显示置顶与取消按钮；周期根记录继续保留编辑/删除路径，避免误调用任务状态或置顶接口。
+3. `todoBuckets.ts` 将待办排序改为“`pinned` 优先，其次 `eventAt || displayAt` 升序”，已办改为按 `updatedAt` 倒序；`todoBuckets.test.ts` 补上置顶优先与已办倒序断言。
+4. `helpers.rs` 增加 migration 19，为 `todo_tasks` 增加 `pinned` 列；`todo.rs` 新增 `item_toggle_pin` action，并让 `task_list` / `row_to_task_json` / `sort_item_rows` 全链路识别置顶状态。
+
+**关键点**:
+1. 周期根记录来自 `todo_templates` 映射，不应复用 `todo_tasks` 的置顶更新语义；前端按钮显隐要按“是否可执行”而不是只看是否在待办区。
+2. 已办倒序直接复用 `updatedAt` 作为完成时间代理，前提是状态变更 SQL 始终同步刷新 `updated_at`。
+3. 列表排序需要前后端同时收口：后端保证初始返回稳定，前端保证筛选/分桶后顺序仍符合产品规则。
+
+**涉及文件**:
+- `apps/desktop/src/components/TodoPanel.vue`
+- `apps/desktop/src/utils/todoBuckets.ts`
+- `apps/desktop/src/utils/todoBuckets.test.ts`
+- `apps/desktop/src/types/todo.ts`
+- `apps/desktop/src/bridge/tauri.ts`
+- `apps/desktop/src-tauri/src/tools/helpers.rs`
+- `apps/desktop/src-tauri/src/tools/todo.rs`
+
+**验证**:
+- `pnpm test src/utils/todoBuckets.test.ts`
+- `cargo test todo:: -- --nocapture`
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+
+**使用次数**: 0
+
+## 2026-03-08: 本地待办提醒改为独立弹窗窗口
+
+**场景**: 用户要求把本地待办的系统通知替换为右下角置顶的自定义提醒弹窗，并支持完成、知道了、稍后提醒等直接操作。
+**问题**:
+1. 旧链路是 Rust 调度后直接发系统通知，再向主窗口发 `todo-reminder-fired`，主窗口里又会弹一次 `ElNotification`，提醒展示分散且无法直接操作。
+2. 独立 Tauri 窗口首次创建时，如果只依赖 `emit("reminder-push")` 推送数据，前端监听尚未挂载时容易丢掉首屏提醒。
+3. 生产态弹窗复用同一个前端入口时，不能只依赖 URL query 判断视图，需要给前端一个稳定的“当前就是 reminder-popup”信号。
+**解决**:
+1. 在 `main.rs` 新增 `show_reminder_popup`、`position_reminder_popup` 与 3 个 popup command，scheduler 改为复用/创建 `reminder-popup` 窗口，并继续向主窗口发 `todo-reminder-fired` 仅用于刷新。
+2. `ReminderDispatch` 增加 `priority` 字段，前端弹窗直接消费完整提醒 payload，展示优先级徽章与稍后提醒菜单。
+3. 前端 `main.ts` 按 `view=reminder-popup` 或 `window.__LAZYCAT_VIEW__` 切换到独立的 `ReminderPopupApp` 入口，主应用 `App.vue` 删除旧的 `ElNotification` 逻辑。
+4. 为避免首屏事件抢跑，Rust 在创建弹窗时通过初始化脚本写入 `window.__LAZYCAT_REMINDER_BOOTSTRAP__`，弹窗组件挂载后先吃这份初始队列，再监听后续 `reminder-push` 事件。
+5. capability 为 `reminder-popup` 开窗并补上 `core:window:allow-close`，最后用定向 Rust 单测加 `pnpm typecheck` / `build:web` 完成联调验证。
+**关键点**:
+1. “替换系统通知”不等于只删掉通知调用；还要把提醒展示、操作命令、首屏补偿和主窗口刷新链路一起收口。
+2. 独立弹窗首次打开时，初始化脚本 + 队列去重比单纯依赖页面加载完成后的事件更稳妥。
+3. 主窗口的 `todo-reminder-fired` 在这次改造后只承担刷新职责，前端如果还保留旧 toast 监听，就会和新弹窗形成重复提醒。
+**涉及文件**:
+- `apps/desktop/src-tauri/src/main.rs`
+- `apps/desktop/src-tauri/src/tools/todo.rs`
+- `apps/desktop/src-tauri/capabilities/default.json`
+- `apps/desktop/src/main.ts`
+- `apps/desktop/src/ReminderPopupApp.ts`
+- `apps/desktop/src/components/ReminderPopup.vue`
+- `apps/desktop/src/App.vue`
+- `apps/desktop/src/types/todo.ts`
+
+**验证**:
+- `cargo test dispatch_due_reminders_should_include_priority_in_payload -- --nocapture`
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+
+**使用次数**: 0
+
+## 2026-03-08: 本地待办改为双区块展示并前端判定逾期
+
+**场景**: 用户要求把本地待办从“超期事项 / 待办事项 / 已办事项”三段简化为“待办事项 / 已办事项”两段，同时把逾期判断前移到前端，并用复选框替代“完成”按钮。
+
+**问题**:
+1. `TodoPanel.vue` 的列表模板最初依赖 `itemSections` 循环渲染三段，若只改文案不改分桶结构，很容易留下旧列、旧按钮和重复规则副文案等残留 UI。
+2. 后端 `isOverdue` 的语义只覆盖 `pending / in_progress + eventAt < now`；如果前端直接按“任意早于当前时间”打标，已办项也会误显示“逾期”。
+3. `todoBuckets.ts` 旧实现依赖 `item.isOverdue` 分桶，但已有单测又要求“周期根事项仍归待办”，改结构时若不顺手修契约，相关回归会继续红。
+
+**解决**:
+1. `TodoPanel.vue` 改为两个固定 section：待办区直接展示 `activeItems`，已办区默认折叠，点击标题切换展开/收起。
+2. 列表统一改成 7 列：复选框、事项、时间、分类、优先级、执行人、操作；删除状态列、时间副文案和“完成”按钮，改用复选框切换 `completed/pending`。
+3. 前端新增 `isItemOverdue()`，仅对 `pending / in_progress` 且 `eventAt || displayAt < now` 的事项显示“逾期”，避免已办项误标红。
+4. `todoBuckets.ts` 改为返回 `{ activeItems, doneItems }`，`activeItems` 统一按 `eventAt || displayAt` 升序排序、无时间项排最后，并保留周期根事项进入 activeItems 的 helper 契约。
+5. `todoBuckets.test.ts` 同步改为断言新返回结构，并补上时间排序、`displayAt` 回退、无时间排尾和周期根事项归 activeItems 的覆盖。
+
+**关键点**:
+1. “前端接管逾期判断”不等于扩大逾期语义；要先锁定状态口径，否则视觉标记会和已有业务含义脱节。
+2. 如果某个 helper 已被单测和历史经验共同约束，哪怕当前 UI 层暂时过滤了相关数据，也更适合保留 helper 契约，再由 UI 自己决定是否展示。
+3. 计划文案里出现“6 列”但实际列举出 7 列时，应以明确列清单为准，避免把笔误实现成产品行为。
+4. 清理展示辅助函数前，先确认它们是否还被弹窗编辑逻辑等其他路径复用；这次 `getItemRecurrence` 仍需保留，不能按列表清理思路直接删除。
+
+**涉及文件**:
+- `apps/desktop/src/components/TodoPanel.vue`
+- `apps/desktop/src/utils/todoBuckets.ts`
+- `apps/desktop/src/utils/todoBuckets.test.ts`
+
+**验证**:
+- `pnpm test src/utils/todoBuckets.test.ts`
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+
+**使用次数**: 0
+
 ## 2026-03-08: 本地待办移除提醒中心并改为超期/待办/已办三段
 
 **场景**: 用户要求移除本地待办中的“提醒中心”功能，并将事项页面固定拆成“超期事项、待办事项、已办事项”三段展示。
@@ -606,6 +787,34 @@ Cron 工具原先仅提供基础 6 字段输入与简单预览，缺少规范化
 
 **验证**:
 - `cargo test todo:: -- --nocapture`
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+
+**使用次数**: 0
+
+## 2026-03-08: 本地待办合并待办列表并改为前端逾期判断
+
+**场景**: 用户要求把“超期事项 + 待办事项”合并为一个待办列表，已办默认折叠，并用复选框替代“完成”按钮。
+**问题**:
+1. 前端 `TodoPanel.vue` 已经切到固定双区块展示，但底层 `groupTodoItemsByBucket` 仍返回 `overdueItems / pendingItems / doneItems`，与面板消费口径不一致。
+2. 旧分桶逻辑依赖后端下发的 `isOverdue` 字段，无法满足“前端自行判断逾期”的新要求，也会让展示规则和排序规则分散在不同层。
+3. `todoBuckets.test.ts` 里“周期根事项进入待办桶”的历史断言此前就是红的，如果不在这次一并修正，后续待办列表改造很难确认真实回归状态。
+**解决**:
+1. `todoBuckets.ts` 改为只返回 `activeItems + doneItems`，其中 `activeItems` 收口为“可执行项 + 周期根事项”，并按 `eventAt || displayAt` 升序排序、无时间排最后。
+2. `TodoPanel.vue` 改为消费 `activeItems / doneItems`，事项列中的“逾期”标记统一由前端按 `pending/in_progress + (eventAt || displayAt) < now` 判断。
+3. 待办与已办表格统一增加复选框列：待办勾选即切 `completed`，已办取消勾选回 `pending`；同时移除状态列、时间列副文本和操作列里的“完成”按钮。
+4. `todoBuckets.test.ts` 同步改成新返回结构断言，并补充排序、`displayAt` 回退、无时间排最后与周期根事项归活跃桶场景，恢复该模块测试基线。
+**关键点**:
+1. 逾期展示应只面向待处理项；如果直接按“时间早于当前”判断，已办项也会被错误标成逾期。
+2. 固定分段页面适合“先过滤，再统一分桶”，分桶 helper 只负责分组和排序，不承担 UI 折叠或标记文案逻辑。
+3. 历史红测如果正好落在本次改造路径上，应顺手修复；否则即使构建通过，也很难判断新改动是否真的稳定。
+**涉及文件**:
+- `apps/desktop/src/components/TodoPanel.vue`
+- `apps/desktop/src/utils/todoBuckets.ts`
+- `apps/desktop/src/utils/todoBuckets.test.ts`
+
+**验证**:
+- `pnpm test src/utils/todoBuckets.test.ts`
 - `pnpm typecheck`
 - `pnpm --filter @lazycat/desktop build:web`
 

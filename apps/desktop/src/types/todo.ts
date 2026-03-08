@@ -67,6 +67,7 @@ export interface TodoItem {
   rootId: number;
   kind: TodoKind;
   recordRole: TodoRecordRole;
+  pinned: boolean;
   title: string;
   typeId: number | null;
   typeName?: string | null;
@@ -99,6 +100,17 @@ export interface TodoReminderEvent {
   isRead: boolean;
   reminderPreset: TodoReminderPreset | "";
   createdAt: string;
+}
+
+export interface TodoReminderDispatch {
+  eventId: number;
+  taskId: number;
+  taskReminderId: number;
+  title: string;
+  body: string;
+  fireAt: string;
+  reminderPreset: TodoReminderPreset | "";
+  priority: TodoPriority;
 }
 
 export interface TodoRecurrenceInput {

@@ -4,6 +4,7 @@ import {
   buildSimpleRuleFromPreset,
   combineLocalDateTime,
   deriveRepeatPreset,
+  getCreateDraftDefaultDateTime,
   isFiveMinuteDateTime,
   isFiveMinuteTime,
   splitDateTime,
@@ -39,6 +40,28 @@ describe("todoSchedule", () => {
     expect(isFiveMinuteTime("09:33")).toBe(false);
     expect(isFiveMinuteDateTime("2026-03-07T09:30:00.000Z")).toBe(true);
     expect(isFiveMinuteDateTime("2026-03-07T09:33:00.000Z")).toBe(false);
+  });
+
+  it("builds create-dialog defaults for common times", () => {
+    expect(getCreateDraftDefaultDateTime(new Date(2026, 2, 7, 14, 23, 0, 0))).toEqual({
+      date: "2026-03-08",
+      time: "14:25",
+    });
+    expect(getCreateDraftDefaultDateTime(new Date(2026, 2, 7, 14, 55, 0, 0))).toEqual({
+      date: "2026-03-08",
+      time: "15:00",
+    });
+  });
+
+  it("builds create-dialog defaults across midnight", () => {
+    expect(getCreateDraftDefaultDateTime(new Date(2026, 2, 7, 23, 57, 0, 0))).toEqual({
+      date: "2026-03-08",
+      time: "00:00",
+    });
+    expect(getCreateDraftDefaultDateTime(new Date(2026, 2, 7, 14, 25, 1, 0))).toEqual({
+      date: "2026-03-08",
+      time: "14:30",
+    });
   });
 
   it("derives common repeat presets from recurrence", () => {
