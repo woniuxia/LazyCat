@@ -104,7 +104,7 @@ const sidebarItems: SidebarItem[] = [
   { kind: "tool", tool: { id: "diff", name: "文本对比", desc: "双栏文本差异对比" } },
   { kind: "tool", tool: { id: "markdown", name: "Markdown", desc: "Markdown 编辑与实时预览" } },
   { kind: "tool", tool: { id: "launcher", name: "快捷启动", desc: "常用程序快速启动与管理" } },
-  { kind: "tool", tool: { id: "todo", name: "本地待办", desc: "待办事项、提醒与周期事件管理" } },
+  { kind: "tool", tool: { id: "todo", name: "本地待办", desc: "待办事项与周期事件管理" } },
   {
     kind: "group",
     group: {

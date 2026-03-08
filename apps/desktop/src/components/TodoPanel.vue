@@ -9,98 +9,72 @@
             <el-option label="周期事项" value="recurring_root" />
             <el-option label="周期实例" value="recurring_occurrence" />
           </el-select>
-          <el-select v-model="itemStatusFilter" clearable placeholder="状态筛选" style="width: 140px">
-            <el-option label="待办" value="pending" />
-            <el-option label="进行中" value="in_progress" />
-            <el-option label="已完成" value="completed" />
-            <el-option label="已取消" value="canceled" />
-          </el-select>
           <el-input v-model.trim="itemKeyword" clearable placeholder="搜索标题或描述" style="width: 220px" />
           <el-button @click="loadItems">刷新</el-button>
           <el-button type="primary" @click="openCreateItemDialog()">新增事项</el-button>
         </div>
 
-        <el-table :data="filteredItems" border stripe>
-          <el-table-column prop="title" label="事项" min-width="220">
-            <template #default="{ row }">
-              <div class="title-cell">
-                <span>{{ row.title }}</span>
-                <el-tag v-if="isRootItem(row)" size="small" type="warning">周期事项</el-tag>
-                <el-tag v-else-if="row.isOverdue" size="small" type="danger">已逾期</el-tag>
-              </div>
-            </template>
-          </el-table-column>
-          <el-table-column label="类型" width="110">
-            <template #default="{ row }">
-              <el-tag :type="itemTagType(row)" effect="plain">
-                {{ itemKindLabel(row) }}
-              </el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column label="分类" width="120">
-            <template #default="{ row }">{{ row.typeName || "-" }}</template>
-          </el-table-column>
-          <el-table-column label="优先级" width="90">
-            <template #default="{ row }">
-              <el-tag :type="priorityTagType(row.priority)">{{ row.priority }}</el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column label="执行人" min-width="150">
-            <template #default="{ row }">{{ row.assignees.map((assignee) => assignee.name).join("、") || "-" }}</template>
-          </el-table-column>
-          <el-table-column label="规则" min-width="220">
-            <template #default="{ row }">{{ isRootItem(row) ? recurrenceSummary(row) : "-" }}</template>
-          </el-table-column>
-          <el-table-column label="状态" width="100">
-            <template #default="{ row }">{{ itemStateLabel(row) }}</template>
-          </el-table-column>
-          <el-table-column label="时间" min-width="170">
-            <template #default="{ row }">{{ itemTimeLabel(row) }}</template>
-          </el-table-column>
-          <el-table-column label="提醒" width="220">
-            <template #default="{ row }">{{ itemReminderLabel(row) }}</template>
-          </el-table-column>
-          <el-table-column label="操作" min-width="330" fixed="right">
-            <template #default="{ row }">
-              <template v-if="isRootItem(row)">
-                <el-button size="small" text type="primary" class="edit-action-btn" @click="editItem(row)">编辑</el-button>
-                <el-button size="small" text @click="toggleRootActive(row)">{{ recurrenceActive(row) ? "停用" : "启用" }}</el-button>
-                <el-button size="small" text type="danger" @click="deleteItem(row)">删除</el-button>
-              </template>
-              <template v-else>
-                <el-button v-if="row.status === 'pending'" size="small" text @click="changeItemStatus(row.id, 'in_progress')">开始</el-button>
-                <el-button size="small" text type="primary" class="edit-action-btn" @click="editItem(row)">编辑</el-button>
-                <el-button v-if="row.status !== 'completed' && row.status !== 'canceled'" size="small" text type="success" @click="changeItemStatus(row.id, 'completed')">完成</el-button>
-                <el-button v-if="row.status !== 'completed' && row.status !== 'canceled'" size="small" text type="warning" @click="snoozeItem(row.id, row.nextTaskReminderId)">稍后10分钟</el-button>
-                <el-button v-if="row.canEditFuture" size="small" text @click="stopFutureItems(row)">停后续</el-button>
-                <el-button size="small" text type="danger" @click="deleteItem(row)">删除</el-button>
-              </template>
-            </template>
-          </el-table-column>
-        </el-table>
-      </el-tab-pane>
+        <div v-for="section in itemSections" :key="section.key" class="item-section">
+          <div class="item-section-header">
+            <div class="item-section-title-wrap">
+              <h3 class="item-section-title">{{ section.title }}</h3>
+              <el-tag size="small" effect="plain">{{ section.items.length }}</el-tag>
+            </div>
+          </div>
 
-      <el-tab-pane label="提醒中心" name="reminders">
-        <div class="toolbar">
-          <el-button @click="loadReminders">刷新</el-button>
-          <el-button :disabled="reminders.length === 0" @click="markAllRead">全部已读</el-button>
+          <el-empty v-if="section.items.length === 0" :description="section.emptyDescription" />
+          <el-table v-else :data="section.items" border stripe class="item-table">
+            <el-table-column prop="title" label="事项" min-width="220">
+              <template #default="{ row }">
+                <div class="title-cell">
+                  <span>{{ row.title }}</span>
+                  <el-tag v-if="isRootItem(row)" size="small" type="warning">周期事项</el-tag>
+                  <el-tag v-else-if="row.isOverdue" size="small" type="danger">已逾期</el-tag>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column label="时间" min-width="170">
+              <template #default="{ row }">{{ itemTimeLabel(row) }}</template>
+            </el-table-column>
+            <el-table-column label="分类" width="120">
+              <template #default="{ row }">{{ row.typeName || "-" }}</template>
+            </el-table-column>
+            <el-table-column label="优先级" width="90">
+              <template #default="{ row }">
+                <el-tag :type="priorityTagType(row.priority)">{{ row.priority }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="执行人" min-width="150">
+              <template #default="{ row }">{{ row.assignees.map((assignee) => assignee.name).join("、") || "-" }}</template>
+            </el-table-column>
+            <el-table-column label="规则" min-width="220">
+              <template #default="{ row }">{{ isRootItem(row) ? recurrenceSummary(row) : "-" }}</template>
+            </el-table-column>
+            <el-table-column label="状态" width="100">
+              <template #default="{ row }">{{ itemStateLabel(row) }}</template>
+            </el-table-column>
+            <el-table-column label="提醒" width="220">
+              <template #default="{ row }">{{ itemReminderLabel(row) }}</template>
+            </el-table-column>
+            <el-table-column label="操作" min-width="330" fixed="right" class-name="item-actions-column" label-class-name="item-actions-column">
+              <template #default="{ row }">
+                <template v-if="isRootItem(row)">
+                  <el-button size="small" text type="primary" class="edit-action-btn" @click="editItem(row)">编辑</el-button>
+                  <el-button size="small" text @click="toggleRootActive(row)">{{ recurrenceActive(row) ? "停用" : "启用" }}</el-button>
+                  <el-button size="small" text type="danger" @click="deleteItem(row)">删除</el-button>
+                </template>
+                <template v-else>
+                  <el-button v-if="row.status === 'pending'" size="small" text @click="changeItemStatus(row.id, 'in_progress')">开始</el-button>
+                  <el-button size="small" text type="primary" class="edit-action-btn" @click="editItem(row)">编辑</el-button>
+                  <el-button v-if="row.status !== 'completed' && row.status !== 'canceled'" size="small" text type="success" @click="changeItemStatus(row.id, 'completed')">完成</el-button>
+                  <el-button v-if="row.status !== 'completed' && row.status !== 'canceled'" size="small" text type="warning" @click="snoozeItem(row.id, row.nextTaskReminderId)">稍后10分钟</el-button>
+                  <el-button v-if="row.canEditFuture" size="small" text @click="stopFutureItems(row)">停后续</el-button>
+                  <el-button size="small" text type="danger" @click="deleteItem(row)">删除</el-button>
+                </template>
+              </template>
+            </el-table-column>
+          </el-table>
         </div>
-
-        <el-empty v-if="reminders.length === 0" description="暂无未读提醒" />
-        <el-table v-else :data="reminders" border stripe>
-          <el-table-column prop="title" label="提醒标题" min-width="180" />
-          <el-table-column prop="body" label="提醒内容" min-width="220" />
-          <el-table-column label="触发时间" min-width="170">
-            <template #default="{ row }">{{ formatDate(row.fireAt) }}</template>
-          </el-table-column>
-          <el-table-column label="操作" width="240" fixed="right">
-            <template #default="{ row }">
-              <el-button size="small" text type="success" @click="completeFromReminder(row)">完成</el-button>
-              <el-button size="small" text type="warning" @click="snoozeFromReminder(row)">稍后10分钟</el-button>
-              <el-button size="small" text @click="markRead(row.id)">标记已读</el-button>
-            </template>
-          </el-table-column>
-        </el-table>
       </el-tab-pane>
       <el-tab-pane label="基础数据" name="basics">
         <div class="basic-grid">
@@ -191,12 +165,11 @@
               />
             </el-form-item>
             <el-form-item label="时间">
-              <el-time-picker
+              <el-time-select
                 v-model="itemDraft.singleTime"
-                value-format="HH:mm"
-                format="HH:mm"
-                :disabled-minutes="disabledFiveMinuteMinutes"
-                :disabled-seconds="disabledAllSeconds"
+                start="00:00"
+                end="23:55"
+                step="00:05"
                 style="width: 100%"
               />
             </el-form-item>
@@ -213,12 +186,11 @@
               />
             </el-form-item>
             <el-form-item label="时间">
-              <el-time-picker
+              <el-time-select
                 v-model="itemDraft.recurrenceTime"
-                value-format="HH:mm"
-                format="HH:mm"
-                :disabled-minutes="disabledFiveMinuteMinutes"
-                :disabled-seconds="disabledAllSeconds"
+                start="00:00"
+                end="23:55"
+                step="00:05"
                 style="width: 100%"
                 @change="onRecurrenceTimeChange"
               />
@@ -232,7 +204,7 @@
           </el-form-item>
 
           <el-form-item label="事项类型" class="dialog-form-span-2">
-            <el-radio-group v-model="itemDraft.isRecurring" :disabled="itemDialogMode !== 'create'" @change="onItemKindChange">
+            <el-radio-group v-model="itemDraft.isRecurring" @change="onItemKindChange">
               <el-radio :value="false">单次事项</el-radio>
               <el-radio :value="true">周期事项</el-radio>
             </el-radio-group>
@@ -346,7 +318,8 @@ import { listen } from "@tauri-apps/api/event";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { invokeToolByChannel } from "../bridge/tauri";
-import type { TodoAssignee, TodoEditScope, TodoEndMode, TodoItem, TodoItemUpsertPayload, TodoKind, TodoPriority, TodoRecordRole, TodoRecurrence, TodoReminderEvent, TodoReminderPreset, TodoRepeatPreset, TodoRule, TodoRuleMode, TodoSimpleRule, TodoStatus, TodoType } from "../types";
+import type { TodoAssignee, TodoEditScope, TodoEndMode, TodoItem, TodoItemUpsertPayload, TodoKind, TodoPriority, TodoRecordRole, TodoRecurrence, TodoReminderPreset, TodoRepeatPreset, TodoRule, TodoRuleMode, TodoSimpleRule, TodoStatus, TodoType } from "../types";
+import { groupTodoItemsByBucket } from "../utils/todoBuckets";
 import {
   TODO_REPEAT_PRESET_OPTIONS,
   TODO_WEEKDAY_OPTIONS,
@@ -377,15 +350,20 @@ interface TodoAssigneeDraft {
   name: string;
 }
 
+interface TodoItemSection {
+  key: "overdue" | "pending" | "done";
+  title: string;
+  emptyDescription: string;
+  items: TodoItem[];
+}
+
 
 
 const activeTab = ref("items");
 const items = ref<TodoItem[]>([]);
-const reminders = ref<TodoReminderEvent[]>([]);
 const types = ref<TodoType[]>([]);
 const assignees = ref<TodoAssignee[]>([]);
 const itemKindFilter = ref("all");
-const itemStatusFilter = ref("");
 const itemKeyword = ref("");
 const itemDialogVisible = ref(false);
 const itemDialogMode = ref<ItemDialogMode>("create");
@@ -462,20 +440,30 @@ const filteredItems = computed(() => {
     if (itemKindFilter.value === "actionable" && isRootItem(item)) return false;
     if (itemKindFilter.value === "recurring_root" && !isRootItem(item)) return false;
     if (itemKindFilter.value === "recurring_occurrence" && !isOccurrenceItem(item)) return false;
-    if (itemStatusFilter.value && item.status !== itemStatusFilter.value) return false;
     if (!keyword) return true;
     return item.title.toLowerCase().includes(keyword) || item.description.toLowerCase().includes(keyword);
   });
 });
 
-const showScopeSelector = computed(() => itemDialogMode.value === "edit_item" && itemDraft.isRecurring);
+const itemSections = computed<TodoItemSection[]>(() => {
+  const { overdueItems, pendingItems, doneItems } = groupTodoItemsByBucket(filteredItems.value);
+  return [
+    { key: "overdue", title: "超期事项", emptyDescription: "暂无超期事项", items: overdueItems },
+    { key: "pending", title: "待办事项", emptyDescription: "暂无待办事项", items: pendingItems },
+    { key: "done", title: "已办事项", emptyDescription: "暂无已办事项", items: doneItems },
+  ];
+});
+
+const editingItemIsRecurring = computed(() => !!editingItemSnapshot.value && itemKindOf(editingItemSnapshot.value) === "recurring");
+const editingItemIsOneOff = computed(() => !!editingItemSnapshot.value && itemKindOf(editingItemSnapshot.value) === "one_off");
+const showScopeSelector = computed(() => itemDialogMode.value === "edit_item" && editingItemIsRecurring.value && itemDraft.isRecurring);
 const showEventTimeField = computed(() => {
-  if (itemDialogMode.value === "edit_root") return false;
+  if (itemDialogMode.value === "edit_root") return !itemDraft.isRecurring;
   if (itemDialogMode.value === "create") return !itemDraft.isRecurring;
   return !itemDraft.isRecurring || itemDraft.scope === "this_instance";
 });
 const showRecurrenceFields = computed(() => {
-  if (itemDialogMode.value === "edit_root") return true;
+  if (itemDialogMode.value === "edit_root") return itemDraft.isRecurring;
   if (itemDialogMode.value === "create") return itemDraft.isRecurring;
   return itemDraft.isRecurring && itemDraft.scope === "future_instances";
 });
@@ -501,7 +489,16 @@ const assigneeDialogTitle = computed(() => (assigneeDraft.id ? "编辑执行人"
 function formatDate(value?: string | null) {
   if (!value) return "-";
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+  return Number.isNaN(date.getTime())
+    ? value
+    : date.toLocaleString("zh-CN", {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      });
 }
 
 function statusLabel(status: TodoStatus | null) {
@@ -925,6 +922,17 @@ function buildRecurrenceStartAt() {
   return combineLocalDateTime(itemDraft.recurrenceStartDate, itemDraft.recurrenceTime);
 }
 
+function applyRecurringToOneOffAnchor(item?: TodoItem | null) {
+  if (!item) return;
+  const recurrence = item.recurrence;
+  const anchor = itemDialogMode.value === "edit_item"
+    ? item.eventAt || item.displayAt
+    : recurrence?.nextOccurrenceAt || recurrence?.startAt || item.displayAt;
+  const { date, time } = splitDateTime(anchor);
+  itemDraft.singleDate = date;
+  itemDraft.singleTime = time || itemDraft.singleTime || "09:00";
+}
+
 function syncSimpleDraftFromRule(rule: TodoRule) {
   if (!("frequency" in rule)) return;
   itemDraft.simple.frequency = rule.frequency;
@@ -961,13 +969,23 @@ function applyRepeatPresetRule(preset: TodoRepeatPreset) {
 function onItemKindChange(nextRecurring: boolean) {
   itemDraft.isRecurring = nextRecurring;
   if (!nextRecurring) {
-    if (!itemDraft.singleDate) itemDraft.singleDate = itemDraft.recurrenceStartDate;
-    itemDraft.singleTime = itemDraft.recurrenceTime || itemDraft.singleTime || "09:00";
+    if (itemDialogMode.value === "edit_root") {
+      applyRecurringToOneOffAnchor(editingRootSnapshot.value);
+    } else if (editingItemIsRecurring.value && editingItemSnapshot.value) {
+      itemDraft.scope = "future_instances";
+      applyRecurringToOneOffAnchor(editingItemSnapshot.value);
+    } else {
+      if (!itemDraft.singleDate) itemDraft.singleDate = itemDraft.recurrenceStartDate;
+      itemDraft.singleTime = itemDraft.recurrenceTime || itemDraft.singleTime || "09:00";
+    }
     itemDraft.repeatPreset = "none";
     return;
   }
+  if (itemDialogMode.value === "edit_item" && editingItemIsOneOff.value) {
+    itemDraft.scope = "future_instances";
+  }
   if (!itemDraft.recurrenceStartDate) itemDraft.recurrenceStartDate = itemDraft.singleDate || getTodayDateString();
-  itemDraft.recurrenceTime = itemDraft.recurrenceTime || itemDraft.singleTime || "09:00";
+  itemDraft.recurrenceTime = itemDraft.singleTime || itemDraft.recurrenceTime || "09:00";
   if (itemDraft.repeatPreset === "none") {
     applyRepeatPresetRule("daily");
     return;
@@ -1068,6 +1086,7 @@ function applyItemToDraft(item: TodoItem) {
   itemDraft.reminderPresets = toDraftReminderPresets(item.reminderPresets);
   lastReminderPresetSelection.value = [...itemDraft.reminderPresets];
   itemDraft.isRecurring = itemKindOf(item) === "recurring";
+  itemDraft.scope = "this_instance";
 }
 
 function applyRootItemToDraft(item: TodoItem) {
@@ -1083,6 +1102,8 @@ function applyRootItemToDraft(item: TodoItem) {
   itemDraft.reminderPresets = toDraftReminderPresets(item.reminderPresets);
   lastReminderPresetSelection.value = [...itemDraft.reminderPresets];
   itemDraft.isRecurring = true;
+  itemDraft.singleDate = "";
+  itemDraft.singleTime = "09:00";
   itemDraft.recurrenceStartDate = date || getTodayDateString();
   itemDraft.recurrenceTime = time;
   itemDraft.ruleMode = recurrence?.ruleMode || "simple";
@@ -1103,9 +1124,6 @@ async function loadAssignees() {
 }
 async function loadItems() {
   items.value = getResponseItems(await invokeToolByChannel("tool:todo:item-list", {})).map(normalizeTodoItem);
-}
-async function loadReminders() {
-  reminders.value = ((await invokeToolByChannel("tool:todo:reminder-list-unread", { limit: 200 })) as { items: TodoReminderEvent[] }).items || [];
 }
 
 function openCreateItemDialog(recurring = false) {
@@ -1278,7 +1296,7 @@ async function saveItem() {
 
     itemDialogVisible.value = false;
     resetItemDraft();
-    await Promise.all([loadItems(), loadReminders()]);
+    await loadItems();
     ElMessage.success("保存成功");
   } catch (error) {
     ElMessage.error((error as Error).message);
@@ -1288,7 +1306,7 @@ async function saveItem() {
 async function changeItemStatus(id: number, status: TodoStatus) {
   try {
     await invokeToolByChannel("tool:todo:item-change-status", { id, status });
-    await Promise.all([loadItems(), loadReminders()]);
+    await loadItems();
   } catch (error) {
     ElMessage.error((error as Error).message);
   }
@@ -1297,7 +1315,7 @@ async function changeItemStatus(id: number, status: TodoStatus) {
 async function snoozeItem(id: number, taskReminderId?: number | null) {
   try {
     await invokeToolByChannel("tool:todo:item-snooze", { id, taskReminderId, minutes: 10 });
-    await Promise.all([loadItems(), loadReminders()]);
+    await loadItems();
   } catch (error) {
     ElMessage.error((error as Error).message);
   }
@@ -1324,7 +1342,7 @@ async function deleteItem(item: TodoItem) {
     await invokeToolByChannel("tool:todo:item-delete", isRootItem(item)
       ? { id: item.id, rootId: item.rootId || item.id, recordRole: "root" }
       : { id: item.id });
-    await Promise.all([loadItems(), loadReminders()]);
+    await loadItems();
   } catch (error) {
     if ((error as Error).message !== "cancel") ElMessage.error((error as Error).message);
   }
@@ -1337,34 +1355,6 @@ async function toggleRootActive(item: TodoItem) {
   } catch (error) {
     ElMessage.error((error as Error).message);
   }
-}
-
-async function markRead(id: number) {
-  try {
-    await invokeToolByChannel("tool:todo:reminder-mark-read", { id });
-    await loadReminders();
-  } catch (error) {
-    ElMessage.error((error as Error).message);
-  }
-}
-
-async function markAllRead() {
-  try {
-    await invokeToolByChannel("tool:todo:reminder-mark-read", { all: true });
-    await loadReminders();
-  } catch (error) {
-    ElMessage.error((error as Error).message);
-  }
-}
-
-async function completeFromReminder(item: TodoReminderEvent) {
-  await changeItemStatus(item.taskId, "completed");
-  await markRead(item.id);
-}
-
-async function snoozeFromReminder(item: TodoReminderEvent) {
-  await snoozeItem(item.taskId, item.taskReminderId);
-  await markRead(item.id);
 }
 
 function resetTypeDraft() {
@@ -1448,10 +1438,10 @@ async function removeAssignee(item: TodoAssignee) {
 }
 
 onMounted(async () => {
-  await Promise.all([loadTypes(), loadAssignees(), loadItems(), loadReminders()]);
+  await Promise.all([loadTypes(), loadAssignees(), loadItems()]);
   try {
     reminderUnlisten = await listen("todo-reminder-fired", async () => {
-      await Promise.all([loadItems(), loadReminders()]);
+      await loadItems();
     });
   } catch {
     reminderUnlisten = null;
@@ -1468,7 +1458,33 @@ onBeforeUnmount(() => {
 .todo-panel { display: flex; flex-direction: column; gap: 12px; }
 .toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
 .toolbar-inline-end { margin-top: 12px; justify-content: flex-end; }
+.item-section { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
+.item-section:last-child { margin-bottom: 0; }
+.item-section-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.item-section-title-wrap { display: flex; align-items: center; gap: 8px; }
+.item-section-title { margin: 0; font-size: 16px; font-weight: 600; color: var(--el-text-color-primary); }
 .title-cell { display: flex; align-items: center; gap: 8px; }
+.item-table :deep(.el-table__fixed-right),
+.item-table :deep(.el-table__fixed-right-patch) {
+  background: var(--el-bg-color);
+}
+.item-table :deep(.el-table__fixed-right) {
+  box-shadow: -10px 0 18px -18px rgba(15, 23, 42, 0.5);
+}
+.item-table :deep(.el-table__fixed-right::before) {
+  content: "";
+  position: absolute;
+  left: -12px;
+  top: 0;
+  bottom: 0;
+  width: 12px;
+  background: linear-gradient(90deg, rgba(15, 23, 42, 0.08), rgba(15, 23, 42, 0));
+  pointer-events: none;
+}
+.item-table :deep(.el-table__fixed-right .el-table__cell),
+.item-table :deep(.item-actions-column) {
+  background: var(--el-bg-color);
+}
 .basic-grid { display: grid; grid-template-columns: repeat(2, minmax(280px, 1fr)); gap: 12px; }
 .card-header { display: flex; justify-content: space-between; align-items: center; }
 .dialog-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 12px; }

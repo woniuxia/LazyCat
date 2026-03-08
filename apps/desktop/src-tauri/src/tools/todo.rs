@@ -84,6 +84,21 @@ struct TaskReminderSummary {
     next_reminder_preset: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+struct TaskSnapshot {
+    event_at: Option<String>,
+    source_template_id: Option<i64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ItemUpdateStrategy {
+    UpdateTask,
+    UpdateTemplate,
+    ConvertTaskToRecurring,
+    DetachOccurrenceToOneOff,
+    ConvertSeriesToOneOff,
+}
+
 pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
     match action {
         "type_list" => type_list(),
@@ -173,6 +188,119 @@ fn resolve_recurring_template_id(conn: &Connection, payload: &Value) -> Result<O
         }
     }
     Ok(None)
+}
+
+fn resolve_item_update_strategy(
+    current_kind: &str,
+    next_kind: &str,
+    scope: &str,
+    root_record: bool,
+) -> ItemUpdateStrategy {
+    match (current_kind, next_kind) {
+        (SERIES_KIND_ONE_OFF, SERIES_KIND_RECURRING) => ItemUpdateStrategy::ConvertTaskToRecurring,
+        (SERIES_KIND_RECURRING, SERIES_KIND_ONE_OFF) => {
+            if root_record || scope == SCOPE_FUTURE_INSTANCES {
+                ItemUpdateStrategy::ConvertSeriesToOneOff
+            } else {
+                ItemUpdateStrategy::DetachOccurrenceToOneOff
+            }
+        }
+        (SERIES_KIND_RECURRING, SERIES_KIND_RECURRING) => {
+            if root_record || scope == SCOPE_FUTURE_INSTANCES {
+                ItemUpdateStrategy::UpdateTemplate
+            } else {
+                ItemUpdateStrategy::UpdateTask
+            }
+        }
+        _ => ItemUpdateStrategy::UpdateTask,
+    }
+}
+
+fn load_task_snapshot(conn: &Connection, task_id: i64) -> Result<TaskSnapshot, String> {
+    conn.query_row(
+        "SELECT event_at, source_template_id FROM todo_tasks WHERE id=?1",
+        params![task_id],
+        |row| {
+            Ok(TaskSnapshot {
+                event_at: row.get(0)?,
+                source_template_id: row.get(1)?,
+            })
+        },
+    )
+    .map_err(|_| "事项不存在".to_string())
+}
+
+fn load_template_anchor_event_at(conn: &Connection, template_id: i64) -> Result<Option<String>, String> {
+    let anchor = conn
+        .query_row(
+            "SELECT COALESCE(next_occurrence_at, start_at) FROM todo_templates WHERE id=?1",
+            params![template_id],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .optional()
+        .map_err(|e| format!("查询周期事项时间失败: {e}"))?
+        .flatten();
+
+    Ok(anchor.map(|value| parse_rfc3339(&value).unwrap_or(value)))
+}
+
+fn ensure_event_at_when_missing(
+    payload: &Value,
+    fallback_event_at: Option<&str>,
+) -> Result<Value, String> {
+    if payload.get("eventAt").is_some() {
+        return Ok(payload.clone());
+    }
+
+    let resolved_event_at = parse_start_datetime(payload)?.or_else(|| {
+        fallback_event_at
+            .and_then(parse_rfc3339)
+            .or_else(|| fallback_event_at.map(ToString::to_string))
+    });
+
+    let mut next_payload = payload.clone();
+    if let (Some(event_at), Some(obj)) = (resolved_event_at, next_payload.as_object_mut()) {
+        obj.insert("eventAt".to_string(), json!(event_at));
+    }
+    Ok(next_payload)
+}
+
+fn resolve_existing_update_target(
+    conn: &Connection,
+    payload: &Value,
+) -> Result<(String, Option<i64>, Option<i64>), String> {
+    if is_root_record(payload) {
+        let template_id = parse_root_id(payload)
+            .or(parse_i64(payload, "id"))
+            .ok_or("缺少事项 id")?;
+        return Ok((load_series_kind(conn, template_id)?, None, Some(template_id)));
+    }
+
+    if let Some(task_id) = parse_i64(payload, "id") {
+        let source_template_id = conn
+            .query_row(
+                "SELECT source_template_id FROM todo_tasks WHERE id=?1",
+                params![task_id],
+                |row| row.get::<_, Option<i64>>(0),
+            )
+            .optional()
+            .map_err(|e| format!("查询事项失败: {e}"))?
+            .ok_or("事项不存在")?;
+        if let Some(template_id) = source_template_id {
+            return Ok((
+                load_series_kind(conn, template_id)?,
+                Some(task_id),
+                Some(template_id),
+            ));
+        }
+        return Ok((SERIES_KIND_ONE_OFF.to_string(), Some(task_id), None));
+    }
+
+    if let Some(template_id) = parse_root_id(payload) {
+        return Ok((load_series_kind(conn, template_id)?, None, Some(template_id)));
+    }
+
+    Err("缺少事项 id".to_string())
 }
 
 fn extract_items(response: Value) -> Result<Vec<Value>, String> {
@@ -1162,7 +1290,16 @@ fn item_create(payload: &Value) -> Result<Value, String> {
 }
 
 fn item_update(payload: &Value) -> Result<Value, String> {
-    if parse_item_kind(payload) == SERIES_KIND_RECURRING {
+    let next_kind = parse_item_kind(payload);
+    let mut conn = db_conn()?;
+    let (current_kind, task_id, template_id) = resolve_existing_update_target(&conn, payload)?;
+
+    if current_kind != next_kind {
+        return convert_item_kind(&mut conn, payload, &current_kind, task_id, template_id);
+    }
+
+    drop(conn);
+    if next_kind == SERIES_KIND_RECURRING {
         let scope = parse_scope(payload);
         let conn = db_conn()?;
         let template_id = resolve_recurring_template_id(&conn, payload)?;
@@ -1360,6 +1497,318 @@ fn row_to_task_json(row: &rusqlite::Row<'_>) -> rusqlite::Result<Value> {
     }))
 }
 
+fn update_task_base_fields(
+    conn: &Connection,
+    task_id: i64,
+    title: &str,
+    type_id: Option<i64>,
+    priority: &str,
+    description: &str,
+) -> Result<(), String> {
+    conn.execute(
+        "UPDATE todo_tasks
+         SET title=?1, type_id=?2, priority=?3, description=?4, updated_at=CURRENT_TIMESTAMP
+         WHERE id=?5",
+        params![title, type_id, priority, description, task_id],
+    )
+    .map_err(|e| format!("更新事项基础信息失败: {e}"))?;
+    Ok(())
+}
+
+fn create_task_record(
+    conn: &Connection,
+    title: &str,
+    type_id: Option<i64>,
+    priority: &str,
+    description: &str,
+    status: &str,
+    event_at: Option<&str>,
+    assignee_ids: &[i64],
+    reminder_presets: &[String],
+    source_template_id: Option<i64>,
+) -> Result<i64, String> {
+    if event_at.is_none() && !reminder_presets.is_empty() {
+        return Err("设置提醒前需要先提供事件时间或周期规则".to_string());
+    }
+
+    conn.execute(
+        "INSERT INTO todo_tasks(title, type_id, priority, description, status, event_at, remind_at, source_template_id)
+         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        params![
+            title,
+            type_id,
+            priority,
+            description,
+            status,
+            event_at,
+            Option::<String>::None,
+            source_template_id,
+        ],
+    )
+    .map_err(|e| format!("创建任务失败: {e}"))?;
+    let task_id = conn.last_insert_rowid();
+    sync_task_assignees(conn, task_id, assignee_ids)?;
+    sync_task_reminders(conn, task_id, event_at, reminder_presets)?;
+    Ok(task_id)
+}
+
+fn create_recurring_template_record(
+    conn: &Connection,
+    title: &str,
+    type_id: Option<i64>,
+    priority: &str,
+    description: &str,
+    rule_mode: &str,
+    rule: &Value,
+    cron_expression: &str,
+    timezone: &str,
+    start_at: &str,
+    end_mode: &str,
+    end_value: Option<&str>,
+    next_occurrence_at: Option<&str>,
+    generated_count: i64,
+    active: bool,
+    assignee_ids: &[i64],
+    reminder_presets: &[String],
+) -> Result<i64, String> {
+    conn.execute(
+        "INSERT INTO todo_templates
+         (title, type_id, priority, description, rule_mode, rule_json, cron_expression,
+          timezone, start_at, end_mode, end_value, next_occurrence_at, generated_count, active, series_kind,
+          reminder_offset_minutes)
+         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+        params![
+            title,
+            type_id,
+            priority,
+            description,
+            rule_mode,
+            serde_json::to_string(rule).map_err(|e| format!("周期规则序列化失败: {e}"))?,
+            cron_expression,
+            timezone,
+            start_at,
+            end_mode,
+            end_value,
+            next_occurrence_at,
+            generated_count,
+            if active { 1 } else { 0 },
+            SERIES_KIND_RECURRING,
+            Option::<i64>::None,
+        ],
+    )
+    .map_err(|e| format!("创建周期模板失败: {e}"))?;
+
+    let template_id = conn.last_insert_rowid();
+    sync_template_assignees(conn, template_id, assignee_ids)?;
+    sync_template_reminders(conn, template_id, reminder_presets)?;
+    Ok(template_id)
+}
+
+fn delete_template_by_id(conn: &Connection, template_id: i64) -> Result<(), String> {
+    conn.execute(
+        "UPDATE todo_tasks SET source_template_id=NULL WHERE source_template_id=?1",
+        params![template_id],
+    )
+    .map_err(|e| format!("解绑周期实例失败: {e}"))?;
+    conn.execute(
+        "DELETE FROM todo_template_assignees WHERE template_id=?1",
+        params![template_id],
+    )
+    .map_err(|e| format!("删除周期执行人失败: {e}"))?;
+    conn.execute(
+        "DELETE FROM todo_template_reminders WHERE template_id=?1",
+        params![template_id],
+    )
+    .map_err(|e| format!("删除周期提醒失败: {e}"))?;
+    conn.execute(
+        "DELETE FROM todo_templates WHERE id=?1",
+        params![template_id],
+    )
+    .map_err(|e| format!("删除周期模板失败: {e}"))?;
+    Ok(())
+}
+
+fn convert_one_off_task_to_recurring(
+    conn: &mut Connection,
+    payload: &Value,
+    task_id: i64,
+) -> Result<Value, String> {
+    let title = parse_string(payload, "title").ok_or("任务标题不能为空")?;
+    let type_id = parse_i64(payload, "typeId");
+    let priority = normalize_priority(payload.get("priority").and_then(Value::as_str))?;
+    let description = payload
+        .get("description")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let recurrence = recurrence_payload(payload);
+    let rule_mode = normalize_rule_mode(payload, "simple");
+    let rule = recurrence.get("rule").cloned().unwrap_or_else(|| json!({}));
+    let cron_expression = resolve_cron_expression(&rule_mode, &rule)?;
+    let start_at = parse_start_datetime(payload)?.ok_or("周期事项开始时间不能为空")?;
+    let start_at_dt = parse_utc_datetime(&start_at).ok_or("开始时间格式不正确")?;
+    let timezone = recurrence
+        .get("timezone")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+        .unwrap_or_else(|| "local".to_string());
+    let (end_mode, end_value) = parse_end_rule(payload)?;
+    let reminder_presets = parse_reminder_presets(payload)?.unwrap_or_default();
+    let assignee_ids = parse_assignee_ids(payload);
+    let next_occurrence = compute_next_occurrence_with_start(
+        &cron_expression,
+        &timezone,
+        Some(&start_at),
+        start_at_dt + Duration::seconds(1),
+    )?
+    .map(|dt| dt.to_rfc3339());
+
+    let tx = conn
+        .transaction()
+        .map_err(|e| format!("开启事项类型转换事务失败: {e}"))?;
+    let template_id = create_recurring_template_record(
+        &tx,
+        &title,
+        type_id,
+        &priority,
+        &description,
+        &rule_mode,
+        &rule,
+        &cron_expression,
+        &timezone,
+        &start_at,
+        &end_mode,
+        end_value.as_deref(),
+        next_occurrence.as_deref(),
+        1,
+        true,
+        &assignee_ids,
+        &reminder_presets,
+    )?;
+
+    update_task_base_fields(&tx, task_id, &title, type_id, &priority, &description)?;
+    tx.execute(
+        "UPDATE todo_tasks
+         SET event_at=?1, source_template_id=?2, remind_at=NULL, snooze_until=NULL, last_notified_at=NULL, updated_at=CURRENT_TIMESTAMP
+         WHERE id=?3",
+        params![start_at, template_id, task_id],
+    )
+    .map_err(|e| format!("更新首个周期事项实例失败: {e}"))?;
+    sync_task_assignees(&tx, task_id, &assignee_ids)?;
+    sync_task_reminders(&tx, task_id, Some(&start_at), &reminder_presets)?;
+    tx.commit()
+        .map_err(|e| format!("提交事项类型转换失败: {e}"))?;
+
+    generate_recurring_instances(conn, Utc::now())?;
+
+    Ok(json!({ "ok": true, "rootId": template_id, "id": task_id }))
+}
+
+fn convert_recurring_item_to_one_off(
+    conn: &mut Connection,
+    payload: &Value,
+    task_id: Option<i64>,
+    template_id: i64,
+) -> Result<Value, String> {
+    let title = parse_string(payload, "title").ok_or("任务标题不能为空")?;
+    let type_id = parse_i64(payload, "typeId");
+    let priority = normalize_priority(payload.get("priority").and_then(Value::as_str))?;
+    let description = payload
+        .get("description")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let scope = parse_scope(payload);
+    let fallback_event_at = if scope == SCOPE_FUTURE_INSTANCES || task_id.is_none() {
+        load_template_anchor_event_at(conn, template_id)?
+    } else {
+        let task_id = task_id.ok_or("缺少周期事项实例 id")?;
+        let snapshot = load_task_snapshot(conn, task_id)?;
+        if snapshot.source_template_id.is_none() {
+            return Err("当前事项已不是周期实例，无法再改为单次事项".to_string());
+        }
+        snapshot.event_at
+    };
+    let next_payload = ensure_event_at_when_missing(payload, fallback_event_at.as_deref())?;
+    let event_at = parse_event_datetime(&next_payload, "eventAt")?;
+    let reminder_presets = parse_reminder_presets(payload)?.unwrap_or_default();
+    let assignee_ids = parse_assignee_ids(payload);
+    if event_at.is_none() && !reminder_presets.is_empty() {
+        return Err("设置提醒前需要先提供事件时间或周期规则".to_string());
+    }
+
+    let tx = conn
+        .transaction()
+        .map_err(|e| format!("开启事项类型转换事务失败: {e}"))?;
+    let detach_current_instance = task_id.is_some() && scope != SCOPE_FUTURE_INSTANCES;
+    let resulting_task_id = if let Some(task_id) = task_id.filter(|_| detach_current_instance) {
+        update_task_base_fields(&tx, task_id, &title, type_id, &priority, &description)?;
+        tx.execute(
+            "UPDATE todo_tasks
+             SET event_at=?1,
+                 source_template_id=NULL,
+                 remind_at=NULL,
+                 snooze_until=NULL,
+                 last_notified_at=NULL,
+                 updated_at=CURRENT_TIMESTAMP
+             WHERE id=?2",
+            params![event_at.as_deref(), task_id],
+        )
+        .map_err(|e| format!("更新单次事项时间失败: {e}"))?;
+        sync_task_assignees(&tx, task_id, &assignee_ids)?;
+        sync_task_reminders(&tx, task_id, event_at.as_deref(), &reminder_presets)?;
+        task_id
+    } else {
+        create_task_record(
+            &tx,
+            &title,
+            type_id,
+            &priority,
+            &description,
+            STATUS_PENDING,
+            event_at.as_deref(),
+            &assignee_ids,
+            &reminder_presets,
+            None,
+        )?
+    };
+
+    if !detach_current_instance {
+        delete_template_by_id(&tx, template_id)?;
+    }
+    tx.commit()
+        .map_err(|e| format!("提交事项类型转换失败: {e}"))?;
+
+    Ok(json!({ "ok": true, "id": resulting_task_id, "rootId": resulting_task_id }))
+}
+
+fn convert_item_kind(
+    conn: &mut Connection,
+    payload: &Value,
+    current_kind: &str,
+    task_id: Option<i64>,
+    template_id: Option<i64>,
+) -> Result<Value, String> {
+    let next_kind = parse_item_kind(payload);
+    let scope = parse_scope(payload);
+    match resolve_item_update_strategy(current_kind, next_kind.as_str(), &scope, is_root_record(payload)) {
+        ItemUpdateStrategy::ConvertTaskToRecurring => {
+            let task_id = task_id.ok_or("缺少待转换的单次事项 id")?;
+            convert_one_off_task_to_recurring(conn, payload, task_id)
+        }
+        ItemUpdateStrategy::DetachOccurrenceToOneOff
+        | ItemUpdateStrategy::ConvertSeriesToOneOff => {
+            let template_id = template_id.ok_or("缺少周期事项根记录 id")?;
+            convert_recurring_item_to_one_off(conn, payload, task_id, template_id)
+        }
+        _ => Err("不支持的事项类型转换".to_string()),
+    }
+}
+
 fn task_create(payload: &Value) -> Result<Value, String> {
     let title = parse_string(payload, "title").ok_or("任务标题不能为空")?;
     let type_id = parse_i64(payload, "typeId");
@@ -1380,15 +1829,18 @@ fn task_create(payload: &Value) -> Result<Value, String> {
     let assignee_ids = parse_assignee_ids(payload);
 
     let conn = db_conn()?;
-    conn.execute(
-        "INSERT INTO todo_tasks(title, type_id, priority, description, status, event_at, remind_at, source_template_id)
-         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-        params![title, type_id, priority, description, STATUS_PENDING, event_at, Option::<String>::None, source_template_id],
-    )
-    .map_err(|e| format!("创建任务失败: {e}"))?;
-    let id = conn.last_insert_rowid();
-    sync_task_assignees(&conn, id, &assignee_ids)?;
-    sync_task_reminders(&conn, id, event_at.as_deref(), &reminder_presets)?;
+    let id = create_task_record(
+        &conn,
+        &title,
+        type_id,
+        &priority,
+        &description,
+        STATUS_PENDING,
+        event_at.as_deref(),
+        &assignee_ids,
+        &reminder_presets,
+        source_template_id,
+    )?;
     Ok(json!({
         "ok": true,
         "id": id,
@@ -1502,13 +1954,22 @@ fn task_change_status(payload: &Value) -> Result<Value, String> {
             .and_then(Value::as_str)
             .unwrap_or(STATUS_PENDING),
     )?;
-    let conn = db_conn()?;
+    let mut conn = db_conn()?;
+    let tx = conn
+        .transaction()
+        .map_err(|e| format!("开启状态更新事务失败: {e}"))?;
+    task_change_status_with_conn(&tx, id, &next)?;
+    tx.commit().map_err(|e| format!("提交状态更新事务失败: {e}"))?;
+    Ok(json!({ "ok": true }))
+}
+
+fn task_change_status_with_conn(conn: &Connection, id: i64, next: &str) -> Result<(), String> {
     let current: String = conn
         .query_row("SELECT status FROM todo_tasks WHERE id=?1", params![id], |row| {
             row.get(0)
         })
         .map_err(|_| "任务不存在".to_string())?;
-    if !can_transit(&current, &next) {
+    if !can_transit(&current, next) {
         return Err("鐘舵€佹祦杞笉鍚堟硶".to_string());
     }
     conn.execute(
@@ -1521,9 +1982,12 @@ fn task_change_status(payload: &Value) -> Result<Value, String> {
     )
     .map_err(|e| format!("鏇存柊浠诲姟鐘舵€佸け璐? {e}"))?;
     if next == STATUS_COMPLETED || next == STATUS_CANCELED {
-        clear_task_reminder_snooze(&conn, id)?;
+        clear_task_reminder_snooze(conn, id)?;
     }
-    Ok(json!({ "ok": true }))
+    if next == STATUS_COMPLETED {
+        maybe_generate_next_recurring_task_after_completion(conn, id, &current)?;
+    }
+    Ok(())
 }
 
 fn task_snooze(payload: &Value) -> Result<Value, String> {
@@ -2134,23 +2598,7 @@ fn template_toggle_active(payload: &Value) -> Result<Value, String> {
 fn template_delete(payload: &Value) -> Result<Value, String> {
     let id = parse_i64(payload, "id").ok_or("缂哄皯鍛ㄦ湡妯℃澘 id")?;
     let conn = db_conn()?;
-    conn.execute(
-        "UPDATE todo_tasks SET source_template_id=NULL WHERE source_template_id=?1",
-        params![id],
-    )
-    .map_err(|e| format!("解绑周期实例失败: {e}"))?;
-    conn.execute(
-        "DELETE FROM todo_template_assignees WHERE template_id=?1",
-        params![id],
-    )
-    .map_err(|e| format!("鍒犻櫎鍛ㄦ湡鎵ц浜哄叧鑱斿け璐? {e}"))?;
-    conn.execute(
-        "DELETE FROM todo_template_reminders WHERE template_id=?1",
-        params![id],
-    )
-    .map_err(|e| format!("删除周期提醒失败: {e}"))?;
-    conn.execute("DELETE FROM todo_templates WHERE id=?1", params![id])
-        .map_err(|e| format!("鍒犻櫎鍛ㄦ湡妯℃澘澶辫触: {e}"))?;
+    delete_template_by_id(&conn, id)?;
     Ok(json!({ "ok": true }))
 }
 
@@ -2279,6 +2727,197 @@ fn load_active_templates(conn: &Connection) -> Result<Vec<TemplateRow>, String> 
     Ok(out)
 }
 
+fn load_template_row(conn: &Connection, template_id: i64) -> Result<Option<TemplateRow>, String> {
+    let template = conn
+        .query_row(
+            "SELECT
+                id, title, type_id, priority, description, COALESCE(series_kind, 'recurring'),
+                cron_expression, timezone, start_at, end_mode, end_value,
+                next_occurrence_at, generated_count, active
+             FROM todo_templates
+             WHERE id=?1",
+            params![template_id],
+            |row| {
+                Ok(TemplateRow {
+                    id: row.get(0)?,
+                    title: row.get(1)?,
+                    type_id: row.get(2)?,
+                    priority: row.get(3)?,
+                    description: row.get(4)?,
+                    _series_kind: row.get(5)?,
+                    cron_expression: row.get(6)?,
+                    timezone: row.get(7)?,
+                    start_at: row.get(8)?,
+                    end_mode: row.get(9)?,
+                    end_value: row.get(10)?,
+                    next_occurrence_at: row.get(11)?,
+                    generated_count: row.get(12)?,
+                    active: row.get::<_, i64>(13)? == 1,
+                    reminder_configs: Vec::new(),
+                })
+            },
+        )
+        .optional()
+        .map_err(|e| format!("查询周期模板失败: {e}"))?;
+
+    let Some(mut template) = template else {
+        return Ok(None);
+    };
+
+    template.reminder_configs = load_template_reminder_configs(conn, template.id)?;
+    Ok(Some(template))
+}
+
+fn has_other_actionable_template_task(
+    conn: &Connection,
+    template_id: i64,
+    excluded_task_id: i64,
+) -> Result<bool, String> {
+    let count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*)
+             FROM todo_tasks
+             WHERE source_template_id=?1
+               AND id<>?2
+               AND status IN ('pending','in_progress')",
+            params![template_id, excluded_task_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| format!("查询周期实例失败: {e}"))?;
+    Ok(count > 0)
+}
+
+fn has_existing_template_occurrence(
+    conn: &Connection,
+    template_id: i64,
+    excluded_task_id: i64,
+    event_at: &str,
+) -> Result<bool, String> {
+    let count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*)
+             FROM todo_tasks
+             WHERE source_template_id=?1
+               AND id<>?2
+               AND event_at=?3",
+            params![template_id, excluded_task_id, event_at],
+            |row| row.get(0),
+        )
+        .map_err(|e| format!("查询重复周期实例失败: {e}"))?;
+    Ok(count > 0)
+}
+
+fn persist_template_progress(
+    conn: &Connection,
+    template_id: i64,
+    generated_count: i64,
+    next_occurrence: Option<DateTime<Utc>>,
+    active: bool,
+) -> Result<(), String> {
+    conn.execute(
+        "UPDATE todo_templates
+         SET generated_count=?1,
+             next_occurrence_at=?2,
+             active=?3,
+             updated_at=CURRENT_TIMESTAMP
+         WHERE id=?4",
+        params![
+            generated_count,
+            next_occurrence.map(|dt| dt.to_rfc3339()),
+            if active { 1 } else { 0 },
+            template_id
+        ],
+    )
+    .map_err(|e| format!("更新周期模板进度失败: {e}"))?;
+    Ok(())
+}
+
+fn maybe_generate_next_recurring_task_after_completion(
+    conn: &Connection,
+    task_id: i64,
+    current_status: &str,
+) -> Result<(), String> {
+    if current_status == STATUS_COMPLETED || current_status == STATUS_CANCELED {
+        return Ok(());
+    }
+
+    let snapshot = load_task_snapshot(conn, task_id)?;
+    let Some(template_id) = snapshot.source_template_id else {
+        return Ok(());
+    };
+
+    if has_other_actionable_template_task(conn, template_id, task_id)? {
+        return Ok(());
+    }
+
+    let Some(template) = load_template_row(conn, template_id)? else {
+        return Ok(());
+    };
+    if !template.active {
+        return Ok(());
+    }
+
+    let mut next_occurrence = template
+        .next_occurrence_at
+        .as_deref()
+        .and_then(parse_utc_datetime);
+    if next_occurrence.is_none() {
+        let fallback_after = snapshot
+            .event_at
+            .as_deref()
+            .and_then(parse_utc_datetime)
+            .map(|dt| dt + Duration::seconds(1))
+            .unwrap_or_else(Utc::now);
+        next_occurrence = compute_next_occurrence_with_start(
+            &template.cron_expression,
+            &template.timezone,
+            template.start_at.as_deref(),
+            fallback_after,
+        )?;
+    }
+
+    let Some(next_occurrence) = next_occurrence else {
+        persist_template_progress(conn, template.id, template.generated_count, None, false)?;
+        return Ok(());
+    };
+
+    if should_stop_template(&template, next_occurrence, template.generated_count) {
+        persist_template_progress(conn, template.id, template.generated_count, None, false)?;
+        return Ok(());
+    }
+
+    let next_occurrence_at = next_occurrence.to_rfc3339();
+    if has_existing_template_occurrence(conn, template.id, task_id, &next_occurrence_at)? {
+        return Ok(());
+    }
+
+    create_task_from_template(conn, &template, next_occurrence)?;
+    let generated_count = template.generated_count + 1;
+    let mut next_after_generated = compute_next_occurrence_with_start(
+        &template.cron_expression,
+        &template.timezone,
+        template.start_at.as_deref(),
+        next_occurrence + Duration::seconds(1),
+    )?;
+    let mut active = template.active;
+    if let Some(upcoming_occurrence) = next_after_generated {
+        if should_stop_template(&template, upcoming_occurrence, generated_count) {
+            next_after_generated = None;
+            active = false;
+        }
+    } else {
+        active = false;
+    }
+    persist_template_progress(
+        conn,
+        template.id,
+        generated_count,
+        next_after_generated,
+        active,
+    )?;
+    Ok(())
+}
+
 fn should_stop_template(tpl: &TemplateRow, occurrence: DateTime<Utc>, generated_count: i64) -> bool {
     match tpl.end_mode.as_str() {
         "never" => false,
@@ -2380,21 +3019,7 @@ fn generate_recurring_instances(conn: &Connection, now: DateTime<Utc>) -> Result
             }
         }
 
-        conn.execute(
-            "UPDATE todo_templates
-             SET generated_count=?1,
-                 next_occurrence_at=?2,
-                 active=?3,
-                 updated_at=CURRENT_TIMESTAMP
-             WHERE id=?4",
-            params![
-                generated_count,
-                next_occurrence.map(|dt| dt.to_rfc3339()),
-                if active { 1 } else { 0 },
-                tpl.id
-            ],
-        )
-        .map_err(|e| format!("更新周期模板进度失败: {e}"))?;
+        persist_template_progress(conn, tpl.id, generated_count, next_occurrence, active)?;
     }
     Ok(())
 }
@@ -2476,6 +3101,144 @@ fn dispatch_due_reminders(conn: &Connection, now: DateTime<Utc>) -> Result<Vec<R
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rusqlite::Connection;
+
+    fn create_test_conn() -> Connection {
+        let conn = Connection::open_in_memory().expect("open in-memory db");
+        conn.execute_batch(
+            "
+            CREATE TABLE todo_tasks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                type_id INTEGER DEFAULT NULL,
+                priority TEXT NOT NULL DEFAULT 'P2',
+                description TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'pending',
+                due_at TEXT DEFAULT NULL,
+                remind_at TEXT DEFAULT NULL,
+                snooze_until TEXT DEFAULT NULL,
+                last_notified_at TEXT DEFAULT NULL,
+                source_template_id INTEGER DEFAULT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                event_at TEXT DEFAULT NULL
+            );
+            CREATE TABLE todo_templates (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                type_id INTEGER DEFAULT NULL,
+                priority TEXT NOT NULL DEFAULT 'P2',
+                description TEXT NOT NULL DEFAULT '',
+                rule_mode TEXT NOT NULL DEFAULT 'simple',
+                rule_json TEXT NOT NULL DEFAULT '{}',
+                cron_expression TEXT NOT NULL DEFAULT '',
+                timezone TEXT NOT NULL DEFAULT 'local',
+                end_mode TEXT NOT NULL DEFAULT 'never',
+                end_value TEXT DEFAULT NULL,
+                next_occurrence_at TEXT DEFAULT NULL,
+                generated_count INTEGER NOT NULL DEFAULT 0,
+                active INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                series_kind TEXT NOT NULL DEFAULT 'recurring',
+                start_at TEXT DEFAULT NULL,
+                reminder_offset_minutes INTEGER DEFAULT NULL
+            );
+            CREATE TABLE todo_task_assignees (
+                task_id INTEGER NOT NULL,
+                assignee_id INTEGER NOT NULL,
+                UNIQUE(task_id, assignee_id)
+            );
+            CREATE TABLE todo_template_assignees (
+                template_id INTEGER NOT NULL,
+                assignee_id INTEGER NOT NULL,
+                UNIQUE(template_id, assignee_id)
+            );
+            CREATE TABLE todo_task_reminders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id INTEGER NOT NULL,
+                reminder_preset TEXT NOT NULL,
+                offset_minutes INTEGER NOT NULL,
+                remind_at TEXT NOT NULL,
+                snooze_until TEXT DEFAULT NULL,
+                last_notified_at TEXT DEFAULT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE todo_template_reminders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                template_id INTEGER NOT NULL,
+                reminder_preset TEXT NOT NULL,
+                offset_minutes INTEGER NOT NULL
+            );
+            CREATE TABLE todo_reminder_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id INTEGER NOT NULL,
+                task_reminder_id INTEGER DEFAULT NULL,
+                title TEXT NOT NULL,
+                body TEXT NOT NULL,
+                fire_at TEXT NOT NULL,
+                is_read INTEGER NOT NULL DEFAULT 0,
+                reminder_preset TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            ",
+        )
+        .expect("create todo schema");
+        conn
+    }
+
+    fn seed_recurring_template(
+        conn: &Connection,
+        template_id: i64,
+        generated_count: i64,
+        next_occurrence_at: Option<&str>,
+        end_mode: &str,
+        end_value: Option<&str>,
+    ) {
+        conn.execute(
+            "INSERT INTO todo_templates
+             (id, title, priority, description, rule_mode, rule_json, cron_expression, timezone, start_at, end_mode, end_value, next_occurrence_at, generated_count, active, series_kind)
+             VALUES(?1, ?2, ?3, ?4, 'simple', '{}', ?5, ?6, ?7, ?8, ?9, ?10, ?11, 1, 'recurring')",
+            params![
+                template_id,
+                "每日晨会",
+                "P1",
+                "周期事项",
+                "0 0 9 * * *",
+                "UTC",
+                "2026-03-07T09:00:00+00:00",
+                end_mode,
+                end_value,
+                next_occurrence_at,
+                generated_count
+            ],
+        )
+        .expect("seed recurring template");
+    }
+
+    fn seed_recurring_task(
+        conn: &Connection,
+        task_id: i64,
+        status: &str,
+        event_at: &str,
+        template_id: i64,
+    ) {
+        conn.execute(
+            "INSERT INTO todo_tasks(id, title, priority, description, status, event_at, source_template_id)
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                task_id,
+                format!("实例 {task_id}"),
+                "P1",
+                "已生成实例",
+                status,
+                event_at,
+                template_id
+            ],
+        )
+        .expect("seed recurring task");
+    }
 
     #[test]
     fn simple_daily_cron_should_build() {
@@ -2591,6 +3354,78 @@ mod tests {
     }
 
     #[test]
+    fn resolve_item_update_strategy_should_detach_current_occurrence() {
+        assert_eq!(
+            resolve_item_update_strategy(
+                SERIES_KIND_RECURRING,
+                SERIES_KIND_ONE_OFF,
+                SCOPE_THIS_INSTANCE,
+                false,
+            ),
+            ItemUpdateStrategy::DetachOccurrenceToOneOff
+        );
+    }
+
+    #[test]
+    fn resolve_item_update_strategy_should_convert_future_series_to_one_off() {
+        assert_eq!(
+            resolve_item_update_strategy(
+                SERIES_KIND_RECURRING,
+                SERIES_KIND_ONE_OFF,
+                SCOPE_FUTURE_INSTANCES,
+                false,
+            ),
+            ItemUpdateStrategy::ConvertSeriesToOneOff
+        );
+        assert_eq!(
+            resolve_item_update_strategy(
+                SERIES_KIND_RECURRING,
+                SERIES_KIND_ONE_OFF,
+                SCOPE_THIS_INSTANCE,
+                true,
+            ),
+            ItemUpdateStrategy::ConvertSeriesToOneOff
+        );
+    }
+
+    #[test]
+    fn ensure_event_at_when_missing_should_use_start_at_or_fallback() {
+        let payload = json!({
+            "kind": "one_off",
+            "recurrence": {
+                "startAt": "2026-03-10T09:30:00+00:00"
+            }
+        });
+        let next = ensure_event_at_when_missing(&payload, None).expect("inject eventAt");
+        assert_eq!(
+            next.get("eventAt").and_then(Value::as_str),
+            Some("2026-03-10T09:30:00+00:00")
+        );
+
+        let payload = json!({ "kind": "one_off" });
+        let next = ensure_event_at_when_missing(&payload, Some("2026-03-11T10:00:00+00:00"))
+            .expect("inject fallback eventAt");
+        assert_eq!(
+            next.get("eventAt").and_then(Value::as_str),
+            Some("2026-03-11T10:00:00+00:00")
+        );
+    }
+
+    #[test]
+    fn ensure_event_at_when_missing_should_respect_explicit_null() {
+        let payload = json!({
+            "kind": "one_off",
+            "eventAt": Value::Null,
+            "recurrence": {
+                "startAt": "2026-03-10T09:30:00+00:00"
+            }
+        });
+        let next = ensure_event_at_when_missing(&payload, Some("2026-03-11T10:00:00+00:00"))
+            .expect("keep explicit null");
+        assert!(next.get("eventAt").is_some_and(Value::is_null));
+    }
+
+    #[test]
     fn next_occurrence_should_respect_start_time_boundary() {
         let start_at = "2026-03-10T09:30:00+00:00";
         let next = compute_next_occurrence_with_start(
@@ -2657,6 +3492,377 @@ mod tests {
                 .map(|items| items.iter().filter_map(Value::as_str).collect::<Vec<_>>()),
             Some(vec!["30m"])
         );
+    }
+
+    #[test]
+    fn convert_one_off_task_to_recurring_should_bind_existing_task_without_duplicate() {
+        let mut conn = create_test_conn();
+        conn.execute(
+            "INSERT INTO todo_tasks(title, type_id, priority, description, status, event_at)
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                "单次晨会",
+                1,
+                "P2",
+                "原始单次事项",
+                STATUS_PENDING,
+                "2026-03-07T09:00:00+00:00"
+            ],
+        )
+        .expect("seed one-off task");
+
+        let payload = json!({
+            "id": 1,
+            "kind": "recurring",
+            "title": "每日晨会",
+            "typeId": 2,
+            "priority": "P1",
+            "description": "转换为周期事项",
+            "assigneeIds": [11, 12],
+            "reminderPresets": ["0m", "10m"],
+            "recurrence": {
+                "startAt": "2026-03-07T09:00:00+00:00",
+                "ruleMode": "simple",
+                "rule": { "frequency": "daily", "interval": 1, "time": "09:00" },
+                "timezone": "UTC",
+                "endMode": "never",
+                "endValue": null
+            }
+        });
+
+        let result = convert_one_off_task_to_recurring(&mut conn, &payload, 1).expect("convert");
+        let template_id = result.get("rootId").and_then(Value::as_i64).expect("template id");
+
+        let total_tasks: i64 = conn
+            .query_row("SELECT COUNT(*) FROM todo_tasks", [], |row| row.get(0))
+            .expect("count tasks");
+        assert_eq!(total_tasks, 1);
+
+        let bound_template_id: i64 = conn
+            .query_row(
+                "SELECT source_template_id FROM todo_tasks WHERE id=1",
+                [],
+                |row| row.get(0),
+            )
+            .expect("load bound template id");
+        assert_eq!(bound_template_id, template_id);
+
+        let generated_count: i64 = conn
+            .query_row(
+                "SELECT generated_count FROM todo_templates WHERE id=?1",
+                params![template_id],
+                |row| row.get(0),
+            )
+            .expect("load generated count");
+        let next_occurrence_at: String = conn
+            .query_row(
+                "SELECT next_occurrence_at FROM todo_templates WHERE id=?1",
+                params![template_id],
+                |row| row.get(0),
+            )
+            .expect("load next occurrence");
+        assert_eq!(generated_count, 1);
+        assert_eq!(next_occurrence_at, "2026-03-08T09:00:00+00:00");
+
+        let task_reminders: i64 = conn
+            .query_row("SELECT COUNT(*) FROM todo_task_reminders WHERE task_id=1", [], |row| row.get(0))
+            .expect("count task reminders");
+        let template_reminders: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM todo_template_reminders WHERE template_id=?1",
+                params![template_id],
+                |row| row.get(0),
+            )
+            .expect("count template reminders");
+        assert_eq!(task_reminders, 2);
+        assert_eq!(template_reminders, 2);
+    }
+
+    #[test]
+    fn convert_recurring_occurrence_to_one_off_should_detach_current_instance() {
+        let mut conn = create_test_conn();
+        conn.execute(
+            "INSERT INTO todo_templates
+             (id, title, priority, description, rule_mode, rule_json, cron_expression, timezone, start_at, end_mode, next_occurrence_at, generated_count, active, series_kind)
+             VALUES(?1, ?2, ?3, ?4, 'simple', '{}', ?5, ?6, ?7, 'never', ?8, 1, 1, 'recurring')",
+            params![
+                7,
+                "每日晨会",
+                "P1",
+                "周期事项",
+                "0 0 9 * * *",
+                "UTC",
+                "2026-03-07T09:00:00+00:00",
+                "2026-03-08T09:00:00+00:00"
+            ],
+        )
+        .expect("seed template");
+        conn.execute(
+            "INSERT INTO todo_tasks(title, priority, description, status, event_at, source_template_id)
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                "2026-03-07 晨会",
+                "P1",
+                "已生成实例",
+                STATUS_PENDING,
+                "2026-03-07T09:00:00+00:00",
+                7
+            ],
+        )
+        .expect("seed occurrence task");
+
+        let payload = json!({
+            "id": 1,
+            "rootId": 7,
+            "kind": "one_off",
+            "scope": "this_instance",
+            "title": "独立晨会",
+            "priority": "P1",
+            "description": "脱离原周期",
+            "eventAt": "2026-03-07T09:00:00+00:00",
+            "assigneeIds": [],
+            "reminderPresets": ["0m"]
+        });
+
+        let result = convert_recurring_item_to_one_off(&mut conn, &payload, Some(1), 7)
+            .expect("should detach current-instance conversion");
+        assert_eq!(result.get("id").and_then(Value::as_i64), Some(1));
+        assert_eq!(result.get("rootId").and_then(Value::as_i64), Some(1));
+
+        let task_row: (Option<i64>, String, String) = conn
+            .query_row(
+                "SELECT source_template_id, title, description FROM todo_tasks WHERE id=1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("load detached task");
+        assert_eq!(task_row.0, None);
+        assert_eq!(task_row.1, "独立晨会");
+        assert_eq!(task_row.2, "脱离原周期");
+
+        let template_exists: i64 = conn
+            .query_row("SELECT COUNT(*) FROM todo_templates WHERE id=7", [], |row| row.get(0))
+            .expect("count template");
+        assert_eq!(template_exists, 1);
+
+        let reminder_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM todo_task_reminders WHERE task_id=1", [], |row| row.get(0))
+            .expect("count task reminders");
+        assert_eq!(reminder_count, 1);
+    }
+
+    #[test]
+    fn completing_recurring_task_should_generate_next_instance_when_no_other_open_instance() {
+        let conn = create_test_conn();
+        seed_recurring_template(
+            &conn,
+            7,
+            1,
+            Some("2026-03-08T09:00:00+00:00"),
+            "never",
+            None,
+        );
+        seed_recurring_task(&conn, 1, STATUS_PENDING, "2026-03-07T09:00:00+00:00", 7);
+        conn.execute(
+            "UPDATE todo_tasks SET status=?1 WHERE id=1",
+            params![STATUS_COMPLETED],
+        )
+        .expect("mark current task completed");
+
+        maybe_generate_next_recurring_task_after_completion(&conn, 1, STATUS_PENDING)
+            .expect("generate next recurring task");
+
+        let total_tasks: i64 = conn
+            .query_row("SELECT COUNT(*) FROM todo_tasks", [], |row| row.get(0))
+            .expect("count tasks");
+        assert_eq!(total_tasks, 2);
+
+        let next_task: (String, String, i64) = conn
+            .query_row(
+                "SELECT status, event_at, source_template_id FROM todo_tasks WHERE id<>1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("load generated task");
+        assert_eq!(next_task.0, STATUS_PENDING);
+        assert_eq!(next_task.1, "2026-03-08T09:00:00+00:00");
+        assert_eq!(next_task.2, 7);
+
+        let template_state: (i64, String, i64) = conn
+            .query_row(
+                "SELECT generated_count, next_occurrence_at, active FROM todo_templates WHERE id=7",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("load template state");
+        assert_eq!(template_state.0, 2);
+        assert_eq!(template_state.1, "2026-03-09T09:00:00+00:00");
+        assert_eq!(template_state.2, 1);
+    }
+
+    #[test]
+    fn completing_recurring_task_should_not_generate_when_other_open_instance_exists() {
+        let conn = create_test_conn();
+        seed_recurring_template(
+            &conn,
+            7,
+            2,
+            Some("2026-03-09T09:00:00+00:00"),
+            "never",
+            None,
+        );
+        seed_recurring_task(&conn, 1, STATUS_PENDING, "2026-03-07T09:00:00+00:00", 7);
+        seed_recurring_task(&conn, 2, STATUS_PENDING, "2026-03-08T09:00:00+00:00", 7);
+        conn.execute(
+            "UPDATE todo_tasks SET status=?1 WHERE id=1",
+            params![STATUS_COMPLETED],
+        )
+        .expect("mark current task completed");
+
+        maybe_generate_next_recurring_task_after_completion(&conn, 1, STATUS_PENDING)
+            .expect("skip when open future exists");
+
+        let total_tasks: i64 = conn
+            .query_row("SELECT COUNT(*) FROM todo_tasks", [], |row| row.get(0))
+            .expect("count tasks");
+        assert_eq!(total_tasks, 2);
+
+        let template_state: (i64, String) = conn
+            .query_row(
+                "SELECT generated_count, next_occurrence_at FROM todo_templates WHERE id=7",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("load template state");
+        assert_eq!(template_state.0, 2);
+        assert_eq!(template_state.1, "2026-03-09T09:00:00+00:00");
+    }
+
+    #[test]
+    fn completing_one_off_task_should_not_generate_next_instance() {
+        let conn = create_test_conn();
+        conn.execute(
+            "INSERT INTO todo_tasks(id, title, priority, description, status, event_at)
+             VALUES(1, ?1, ?2, ?3, ?4, ?5)",
+            params![
+                "普通事项",
+                "P2",
+                "单次事项",
+                STATUS_COMPLETED,
+                "2026-03-07T09:00:00+00:00"
+            ],
+        )
+        .expect("seed one-off task");
+
+        maybe_generate_next_recurring_task_after_completion(&conn, 1, STATUS_PENDING)
+            .expect("one-off task should be ignored");
+
+        let total_tasks: i64 = conn
+            .query_row("SELECT COUNT(*) FROM todo_tasks", [], |row| row.get(0))
+            .expect("count tasks");
+        assert_eq!(total_tasks, 1);
+    }
+
+    #[test]
+    fn completing_recurring_task_should_stop_template_when_end_limit_reached() {
+        let conn = create_test_conn();
+        seed_recurring_template(
+            &conn,
+            7,
+            1,
+            Some("2026-03-08T09:00:00+00:00"),
+            "after_count",
+            Some("1"),
+        );
+        seed_recurring_task(&conn, 1, STATUS_PENDING, "2026-03-07T09:00:00+00:00", 7);
+        conn.execute(
+            "UPDATE todo_tasks SET status=?1 WHERE id=1",
+            params![STATUS_COMPLETED],
+        )
+        .expect("mark current task completed");
+
+        maybe_generate_next_recurring_task_after_completion(&conn, 1, STATUS_PENDING)
+            .expect("respect end limit");
+
+        let total_tasks: i64 = conn
+            .query_row("SELECT COUNT(*) FROM todo_tasks", [], |row| row.get(0))
+            .expect("count tasks");
+        assert_eq!(total_tasks, 1);
+
+        let template_state: (i64, Option<String>, i64) = conn
+            .query_row(
+                "SELECT generated_count, next_occurrence_at, active FROM todo_templates WHERE id=7",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("load template state");
+        assert_eq!(template_state.0, 1);
+        assert_eq!(template_state.1, None);
+        assert_eq!(template_state.2, 0);
+    }
+
+    #[test]
+    fn canceling_recurring_task_should_not_generate_next_instance() {
+        let conn = create_test_conn();
+        seed_recurring_template(
+            &conn,
+            7,
+            1,
+            Some("2026-03-08T09:00:00+00:00"),
+            "never",
+            None,
+        );
+        seed_recurring_task(&conn, 1, STATUS_PENDING, "2026-03-07T09:00:00+00:00", 7);
+
+        task_change_status_with_conn(&conn, 1, STATUS_CANCELED).expect("cancel recurring task");
+
+        let total_tasks: i64 = conn
+            .query_row("SELECT COUNT(*) FROM todo_tasks", [], |row| row.get(0))
+            .expect("count tasks");
+        assert_eq!(total_tasks, 1);
+
+        let template_state: (i64, String, i64) = conn
+            .query_row(
+                "SELECT generated_count, next_occurrence_at, active FROM todo_templates WHERE id=7",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("load template state");
+        assert_eq!(template_state.0, 1);
+        assert_eq!(template_state.1, "2026-03-08T09:00:00+00:00");
+        assert_eq!(template_state.2, 1);
+    }
+
+    #[test]
+    fn repeating_completed_status_should_not_generate_duplicate_instance() {
+        let conn = create_test_conn();
+        seed_recurring_template(
+            &conn,
+            7,
+            1,
+            Some("2026-03-08T09:00:00+00:00"),
+            "never",
+            None,
+        );
+        seed_recurring_task(&conn, 1, STATUS_PENDING, "2026-03-07T09:00:00+00:00", 7);
+
+        task_change_status_with_conn(&conn, 1, STATUS_COMPLETED).expect("complete recurring task");
+        task_change_status_with_conn(&conn, 1, STATUS_COMPLETED).expect("repeat completed status");
+
+        let total_tasks: i64 = conn
+            .query_row("SELECT COUNT(*) FROM todo_tasks", [], |row| row.get(0))
+            .expect("count tasks");
+        assert_eq!(total_tasks, 2);
+
+        let template_state: (i64, String) = conn
+            .query_row(
+                "SELECT generated_count, next_occurrence_at FROM todo_templates WHERE id=7",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("load template state");
+        assert_eq!(template_state.0, 2);
+        assert_eq!(template_state.1, "2026-03-09T09:00:00+00:00");
     }
 }
 
