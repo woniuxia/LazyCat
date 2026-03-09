@@ -1,29 +1,7 @@
 <template>
   <div class="todo-panel">
-    <div class="toolbar">
-      <div class="toolbar-right">
-        <el-input
-          v-model.trim="itemKeyword"
-          clearable
-          placeholder="搜索标题或描述"
-          style="width: 220px"
-        />
-        <el-button @click="loadItems">刷新</el-button>
-        <el-button type="primary" @click="openCreateItemDialog()">新增事项</el-button>
-        <el-button
-          text
-          class="toolbar-settings-btn"
-          title="基础数据设置"
-          aria-label="基础数据设置"
-          @click="basicsDialogVisible = true"
-        >
-          <el-icon><Setting /></el-icon>
-        </el-button>
-      </div>
-    </div>
-
     <div class="todo-layout">
-      <aside class="todo-stats">
+      <aside class="todo-stats todo-sidebar">
         <div class="stats-section">
           <div class="stats-section-title">概览</div>
           <div class="stats-grid">
@@ -48,7 +26,13 @@
         <div v-if="typeDistribution.length > 0" class="stats-section">
           <div class="stats-section-header">
             <div class="stats-section-title">分类分布</div>
-            <el-button size="small" link type="primary" :disabled="filterType === null" @click="clearTypeFilter">
+            <el-button
+              size="small"
+              link
+              type="primary"
+              :disabled="filterType === null"
+              @click="clearTypeFilter"
+            >
               清空
             </el-button>
           </div>
@@ -68,7 +52,10 @@
               <div class="stats-bar-track">
                 <div
                   class="stats-bar-fill"
-                  :style="{ width: statsBarWidth(entry.count, typeDistribution), backgroundColor: entry.color }"
+                  :style="{
+                    width: statsBarWidth(entry.count, typeDistribution),
+                    backgroundColor: entry.color,
+                  }"
                 />
               </div>
             </div>
@@ -111,205 +98,742 @@
           </div>
         </div>
       </aside>
-      <div class="todo-main">
-        <div v-if="hasActiveFilter" class="filter-indicator">
-          <span class="filter-indicator-text">
-            已筛选
-            <template v-if="filterType !== null">分类「{{ filterType }}」</template>
-            <template v-if="filterType !== null && filterPriority !== null">、</template>
-            <template v-if="filterPriority !== null">优先级 {{ filterPriority }}</template>
-          </span>
-          <el-button size="small" link type="primary" @click="clearAllFilters">清除筛选</el-button>
-        </div>
-
-    <div class="item-section">
-      <div class="item-section-header">
-        <div class="item-section-title-wrap">
-          <h3 class="item-section-title">待办事项</h3>
-          <el-tag size="small" effect="light" class="count-tag">{{ displayActiveItems.length }}</el-tag>
-        </div>
-      </div>
-
-      <el-empty
-        v-if="displayActiveItems.length === 0"
-        :description="hasActiveFilter ? '当前筛选条件下暂无待办事项' : '暂无待办事项'"
-      />
-      <el-table
-        v-else
-        :data="displayActiveItems"
-        :row-class-name="todoRowClassName"
-        size="small"
-        class="todo-table"
-      >
-        <el-table-column width="40" align="center">
-          <template #default="{ row }">
-            <el-checkbox
-              :model-value="isDoneItem(row)"
-              :disabled="!row.status"
-              @change="onCheckItem(row)"
+      <section class="todo-list-pane">
+        <div class="toolbar">
+          <div class="toolbar-right">
+            <el-input
+              v-model.trim="itemKeyword"
+              clearable
+              placeholder="搜索标题或描述"
+              style="width: 220px"
             />
-          </template>
-        </el-table-column>
-        <el-table-column label="标题" min-width="200">
-          <template #default="{ row }">
-            <div class="title-cell">
-              <span class="title-left">
-                <span class="item-title">{{ row.title }}</span>
-                <span v-if="hasRepeatRule(row)" class="item-badge badge-repeat" title="重复">
-                  <el-icon :size="12"><Refresh /></el-icon>
-                  <span class="badge-text">重复</span>
-                </span>
-              </span>
-              <span class="title-right">
-                <span v-if="row.pinned" class="item-badge badge-pinned" title="置顶">
-                  <el-icon :size="12"><Top /></el-icon>
-                  <span class="badge-text">置顶</span>
-                </span>
-                <span v-if="isItemOverdue(row)" class="item-badge badge-overdue" title="逾期">
-                  <el-icon :size="12"><AlarmClock /></el-icon>
-                  <span class="badge-text">逾期</span>
-                </span>
+            <el-button @click="loadItems">刷新</el-button>
+            <el-button type="primary" @click="startCreate">新增事项</el-button>
+            <el-button
+              text
+              class="toolbar-settings-btn"
+              title="基础数据设置"
+              aria-label="基础数据设置"
+              @click="basicsDialogVisible = true"
+            >
+              <el-icon><Setting /></el-icon>
+            </el-button>
+          </div>
+        </div>
+        <div class="todo-list-scroll">
+          <div v-if="hasActiveFilter" class="filter-indicator">
+            <span class="filter-indicator-text">
+              已筛选
+              <template v-if="filterType !== null">分类「{{ filterType }}」</template>
+              <template v-if="filterType !== null && filterPriority !== null">、</template>
+              <template v-if="filterPriority !== null">优先级 {{ filterPriority }}</template>
+            </span>
+            <el-button size="small" link type="primary" @click="clearAllFilters"
+              >清除筛选</el-button
+            >
+          </div>
+
+          <div class="item-section">
+            <div class="item-section-header">
+              <div class="item-section-title-wrap">
+                <h3 class="item-section-title">待办事项</h3>
+                <span class="count-badge">{{ displayActiveItems.length }}</span>
+              </div>
+            </div>
+
+            <div v-if="displayActiveItems.length === 0" class="todo-empty">
+              <div class="todo-empty-icon">
+                <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+                  <rect
+                    x="8"
+                    y="12"
+                    width="32"
+                    height="28"
+                    rx="4"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    opacity="0.25"
+                  />
+                  <path
+                    d="M16 8v8M32 8v8"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    stroke-linecap="round"
+                    opacity="0.25"
+                  />
+                  <path
+                    d="M19 26l3 3 7-7"
+                    stroke="var(--lc-accent)"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </div>
+              <span class="todo-empty-text">{{
+                hasActiveFilter ? "当前筛选条件下暂无待办事项" : "一切安好，暂无待办"
+              }}</span>
+            </div>
+            <div v-else class="todo-card-list">
+              <div
+                v-for="(row, index) in displayActiveItems"
+                :key="row.id"
+                class="todo-card"
+                :class="[
+                  'priority-stripe-' + row.priority.toLowerCase(),
+                  {
+                    'is-pinned': row.pinned,
+                    'is-overdue-card': isItemOverdue(row),
+                    'is-selected': selectedItemId === row.id,
+                  },
+                ]"
+                :style="{ '--item-index': index }"
+                @click="selectItem(row)"
+              >
+                <div class="todo-card-check" @click.stop>
+                  <el-checkbox
+                    :model-value="isDoneItem(row)"
+                    :disabled="!row.status"
+                    @change="onCheckItem(row)"
+                  />
+                </div>
+                <div class="todo-card-body">
+                  <div class="todo-card-top">
+                    <span class="todo-card-title">{{ row.title }}</span>
+                    <span class="todo-card-badges">
+                      <span v-if="row.pinned" class="item-badge badge-pinned" title="置顶">
+                        <el-icon :size="11"><Top /></el-icon>
+                        置顶
+                      </span>
+                      <span v-if="hasRepeatRule(row)" class="item-badge badge-repeat" title="重复">
+                        <el-icon :size="11"><Refresh /></el-icon>
+                        重复
+                      </span>
+                      <span v-if="isItemOverdue(row)" class="item-badge badge-overdue" title="逾期">
+                        <el-icon :size="11"><AlarmClock /></el-icon>
+                        逾期
+                      </span>
+                    </span>
+                  </div>
+                  <div class="todo-card-meta">
+                    <span
+                      v-if="relativeTimeLabel(row)"
+                      class="meta-chip meta-time"
+                      :class="{ 'is-overdue': isItemOverdue(row) }"
+                    >
+                      <el-icon :size="12"><Calendar /></el-icon>
+                      {{ relativeTimeLabel(row) }}
+                    </span>
+                    <span v-if="row.typeName" class="meta-chip meta-type">
+                      <span
+                        class="color-dot-sm"
+                        :style="{ backgroundColor: row.typeColor || '#909399' }"
+                      />
+                      {{ row.typeName }}
+                    </span>
+                    <span class="meta-chip meta-priority">
+                      <span
+                        class="priority-dot-sm"
+                        :class="'priority-' + row.priority.toLowerCase()"
+                      />
+                      {{ row.priority }}
+                    </span>
+                    <span v-if="row.assignees.length > 0" class="meta-chip meta-assignee">
+                      <el-icon :size="12"><User /></el-icon>
+                      {{ row.assignees.map((a: TodoAssignee) => a.name).join("、") }}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="item-section">
+            <div class="item-section-header done-section-header" @click="toggleDoneCollapsed">
+              <div class="item-section-title-wrap">
+                <h3 class="item-section-title done-title">已办事项</h3>
+                <span class="count-badge is-muted">{{ displayDoneItems.length }}</span>
+              </div>
+              <span class="done-toggle-icon" :class="{ 'is-collapsed': doneCollapsed }">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                  <path
+                    d="M4 6l4 4 4-4"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
               </span>
             </div>
-          </template>
-        </el-table-column>
-        <el-table-column label="时间" width="160">
-          <template #default="{ row }">
-            {{ itemTimeLabel(row) }}
-          </template>
-        </el-table-column>
-        <el-table-column label="分类" width="120">
-          <template #default="{ row }">
-            <template v-if="row.typeName">
-              <span v-if="row.typeColor" class="color-dot" :style="{ backgroundColor: row.typeColor }" />
-              {{ row.typeName }}
-            </template>
-          </template>
-        </el-table-column>
-        <el-table-column label="优先级" width="100">
-          <template #default="{ row }">
-            <span class="priority-dot" :class="'priority-' + row.priority.toLowerCase()" />
-            {{ row.priority }}
-          </template>
-        </el-table-column>
-        <el-table-column label="执行人" width="120">
-          <template #default="{ row }">
-            {{ row.assignees.map((a: TodoAssignee) => a.name).join("、") }}
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="120" align="center">
-          <template #default="{ row }">
-            <div class="table-actions">
-              <el-button size="small" link type="primary" @click="editItem(row)">编辑</el-button>
-              <el-dropdown trigger="click" @command="(cmd: string) => handleRowAction(cmd, row)">
-                <el-button size="small" link class="item-more-btn">
-                  <el-icon><MoreFilled /></el-icon>
+
+            <div v-if="displayDoneItems.length === 0" class="todo-empty is-muted">
+              <span class="todo-empty-text">{{
+                hasActiveFilter ? "当前筛选条件下暂无已办事项" : "暂无已办事项"
+              }}</span>
+            </div>
+            <div v-else v-show="!doneCollapsed" class="todo-card-list is-done-list">
+              <div
+                v-for="(row, index) in displayDoneItems"
+                :key="row.id"
+                class="todo-card is-done-card"
+                :class="[
+                  'priority-stripe-' + row.priority.toLowerCase(),
+                  { 'is-selected': selectedItemId === row.id },
+                ]"
+                :style="{ '--item-index': index }"
+                @click="selectItem(row)"
+              >
+                <div class="todo-card-check" @click.stop>
+                  <el-checkbox
+                    :model-value="isDoneItem(row)"
+                    :disabled="!row.status"
+                    @change="onCheckItem(row)"
+                  />
+                </div>
+                <div class="todo-card-body">
+                  <div class="todo-card-top">
+                    <span class="todo-card-title is-done">{{ row.title }}</span>
+                    <span class="todo-card-badges">
+                      <span v-if="hasRepeatRule(row)" class="item-badge badge-repeat" title="重复">
+                        <el-icon :size="11"><Refresh /></el-icon>
+                        重复
+                      </span>
+                    </span>
+                  </div>
+                  <div class="todo-card-meta">
+                    <span v-if="relativeTimeLabel(row)" class="meta-chip meta-time">
+                      <el-icon :size="12"><Calendar /></el-icon>
+                      {{ relativeTimeLabel(row) }}
+                    </span>
+                    <span v-if="row.typeName" class="meta-chip meta-type">
+                      <span
+                        class="color-dot-sm"
+                        :style="{ backgroundColor: row.typeColor || '#909399' }"
+                      />
+                      {{ row.typeName }}
+                    </span>
+                    <span class="meta-chip meta-priority">
+                      <span
+                        class="priority-dot-sm"
+                        :class="'priority-' + row.priority.toLowerCase()"
+                      />
+                      {{ row.priority }}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <aside class="todo-detail-pane">
+        <template v-if="detailMode === 'create' || detailMode === 'edit'">
+          <div class="detail-edit">
+            <div class="detail-pane-header">
+              <div class="detail-title-group">
+                <div class="detail-eyebrow">事项编辑</div>
+                <h3 class="detail-title">{{ itemDialogTitle }}</h3>
+                <div class="detail-subtitle">
+                  {{ detailMode === "create" ? "在右栏直接填写并保存" : "修改后会保留当前选中项" }}
+                </div>
+              </div>
+            </div>
+            <div class="detail-scroll detail-scroll--form">
+              <el-form label-position="top" class="todo-item-form">
+                <div class="todo-form-section">
+                  <el-form-item v-if="showScopeSelector" label="编辑范围">
+                    <el-radio-group v-model="itemDraft.scope" @change="onEditScopeChange">
+                      <el-radio value="this_instance">仅当前一次</el-radio>
+                      <el-radio value="future_instances">此后未发生项</el-radio>
+                    </el-radio-group>
+                  </el-form-item>
+                  <el-form-item label="标题">
+                    <el-input v-model.trim="itemDraft.title" placeholder="请输入事项标题" />
+                  </el-form-item>
+                </div>
+
+                <div class="todo-form-more-toggle" @click="showMoreFields = !showMoreFields">
+                  <span class="more-toggle-text">
+                    {{ showMoreFields ? "收起设置" : "更多设置" }}
+                  </span>
+                  <span v-if="!showMoreFields && moreFieldsSummary" class="more-toggle-summary">
+                    {{ moreFieldsSummary }}
+                  </span>
+                  <span class="more-toggle-icon" :class="{ 'is-expanded': showMoreFields }">
+                    <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                      <path
+                        d="M4 6l4 4 4-4"
+                        stroke="currentColor"
+                        stroke-width="1.5"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      />
+                    </svg>
+                  </span>
+                </div>
+
+                <div v-show="showMoreFields" class="todo-form-collapsible">
+                  <div class="todo-form-section">
+                    <div class="todo-form-row">
+                      <el-form-item label="分类" class="todo-form-item-flex">
+                        <el-select
+                          v-model="itemDraft.typeId"
+                          clearable
+                          filterable
+                          allow-create
+                          default-first-option
+                          placeholder="可输入新分类"
+                          style="width: 100%"
+                        >
+                          <el-option
+                            v-for="item in sortedTypes"
+                            :key="item.id"
+                            :label="item.name"
+                            :value="item.id"
+                          />
+                        </el-select>
+                      </el-form-item>
+                      <el-form-item label="优先级" class="todo-form-item-flex">
+                        <el-select v-model="itemDraft.priority" style="width: 100%">
+                          <template #prefix>
+                            <span
+                              class="priority-dot"
+                              :class="'priority-' + itemDraft.priority.toLowerCase()"
+                            />
+                          </template>
+                          <el-option
+                            v-for="opt in priorityOptions"
+                            :key="opt.value"
+                            :label="opt.label"
+                            :value="opt.value"
+                          >
+                            <span
+                              class="priority-dot"
+                              :class="'priority-' + opt.value.toLowerCase()"
+                            />
+                            {{ opt.label }}
+                          </el-option>
+                        </el-select>
+                      </el-form-item>
+                    </div>
+                    <el-form-item label="执行人">
+                      <el-select
+                        v-model="itemDraft.assigneeIds"
+                        multiple
+                        clearable
+                        filterable
+                        allow-create
+                        default-first-option
+                        :reserve-keyword="false"
+                        placeholder="可输入新执行人"
+                        style="width: 100%"
+                      >
+                        <el-option
+                          v-for="item in assignees"
+                          :key="item.id"
+                          :label="item.name"
+                          :value="item.id"
+                        />
+                      </el-select>
+                    </el-form-item>
+                  </div>
+
+                  <div class="todo-form-section">
+                    <div class="todo-form-row">
+                      <el-form-item label="日期" class="todo-form-item-date">
+                        <el-date-picker
+                          v-model="eventDateModel"
+                          type="date"
+                          value-format="YYYY-MM-DD"
+                          clearable
+                          style="width: 100%"
+                        />
+                      </el-form-item>
+                      <el-form-item label="时间" class="todo-form-item-time">
+                        <div class="time-picker-inline">
+                          <div class="time-picker-fused">
+                            <el-select v-model="eventHour" class="time-fused-select" placeholder="时">
+                              <el-option
+                                v-for="option in hourOptions"
+                                :key="option.value"
+                                :label="option.label"
+                                :value="option.value"
+                              />
+                            </el-select>
+                            <span class="time-fused-separator">:</span>
+                            <el-select
+                              v-model="eventMinute"
+                              class="time-fused-select"
+                              placeholder="分"
+                            >
+                              <el-option
+                                v-for="option in minuteOptions"
+                                :key="option.value"
+                                :label="option.label"
+                                :value="option.value"
+                              />
+                            </el-select>
+                          </div>
+                          <el-button
+                            v-if="!itemDraft.eventDate || !itemDraft.eventTime"
+                            text
+                            class="time-fused-clear"
+                            @click="fillDefaultDateTime"
+                            >填充</el-button
+                          >
+                          <el-button v-else text class="time-fused-clear" @click="clearEventSchedule"
+                            >清空</el-button
+                          >
+                        </div>
+                      </el-form-item>
+                    </div>
+                    <el-form-item label="提醒">
+                      <el-select
+                        v-model="itemDraft.reminderPresets"
+                        multiple
+                        clearable
+                        style="width: 100%"
+                        @change="onReminderPresetsChange"
+                      >
+                        <el-option
+                          v-for="option in reminderPresetOptions"
+                          :key="option.value"
+                          :label="option.label"
+                          :value="option.value"
+                        />
+                      </el-select>
+                    </el-form-item>
+                  </div>
+
+                  <div class="todo-form-section">
+                    <el-form-item label="重复方式">
+                      <el-radio-group
+                        v-model="itemDraft.repeatPreset"
+                        class="repeat-radio-group"
+                        @change="onRepeatPresetChange"
+                      >
+                        <el-radio-button
+                          v-for="option in repeatPresetOptions"
+                          :key="option.value"
+                          :value="option.value"
+                        >
+                          {{ option.label }}
+                        </el-radio-button>
+                      </el-radio-group>
+                    </el-form-item>
+                    <template v-if="isRepeating">
+                      <div class="repeat-detail-card">
+                        <template v-if="showCustomRepeatFields">
+                          <div class="todo-form-row">
+                            <el-form-item label="频率" class="todo-form-item-flex">
+                              <el-select
+                                v-model="itemDraft.simple.frequency"
+                                style="width: 100%"
+                                @change="onCustomFrequencyChange"
+                              >
+                                <el-option label="每天" value="daily" />
+                                <el-option label="每周" value="weekly" />
+                                <el-option label="每月" value="monthly" />
+                              </el-select>
+                            </el-form-item>
+                            <el-form-item label="间隔" class="todo-form-item-flex">
+                              <el-input-number
+                                v-model="itemDraft.simple.interval"
+                                :min="1"
+                                :max="365"
+                                style="width: 100%"
+                              />
+                            </el-form-item>
+                          </div>
+                        </template>
+                        <el-form-item v-if="showWeeklyWeekdays" label="周几">
+                          <el-checkbox-group v-model="itemDraft.simple.weekdays">
+                            <el-checkbox
+                              v-for="option in weekdayOptions"
+                              :key="option.value"
+                              :value="option.value"
+                            >
+                              {{ option.label }}
+                            </el-checkbox>
+                          </el-checkbox-group>
+                        </el-form-item>
+                        <el-form-item v-if="showMonthlyDayOfMonth" label="每月几号">
+                          <el-input-number
+                            v-model="itemDraft.simple.dayOfMonth"
+                            :min="1"
+                            :max="31"
+                            style="width: 100%"
+                          />
+                        </el-form-item>
+                        <template v-if="showCronRepeatFields">
+                          <el-form-item label="Cron 表达式">
+                            <el-input
+                              v-model.trim="itemDraft.cronExpression"
+                              placeholder="例如：0 0 9 * * 1-5"
+                            />
+                          </el-form-item>
+                          <el-form-item label="时区">
+                            <el-select
+                              v-model="itemDraft.timezone"
+                              filterable
+                              allow-create
+                              default-first-option
+                              style="width: 100%"
+                            >
+                              <el-option label="本地时区" value="local" />
+                              <el-option label="UTC" value="UTC" />
+                              <el-option label="Asia/Shanghai" value="Asia/Shanghai" />
+                            </el-select>
+                          </el-form-item>
+                        </template>
+                        <div class="todo-form-row">
+                          <el-form-item label="结束条件" class="todo-form-item-flex">
+                            <el-select v-model="itemDraft.endMode" style="width: 100%">
+                              <el-option label="持续生成" value="never" />
+                              <el-option label="结束时间" value="until_date" />
+                              <el-option label="生成次数" value="after_count" />
+                            </el-select>
+                          </el-form-item>
+                          <el-form-item
+                            v-if="itemDraft.endMode === 'until_date'"
+                            label="结束时间"
+                            class="todo-form-item-flex"
+                          >
+                            <el-date-picker
+                              v-model="itemDraft.endValueDate"
+                              type="datetime"
+                              value-format="YYYY-MM-DDTHH:mm:ssZ"
+                              :disabled-minutes="disabledFiveMinuteMinutes"
+                              :disabled-seconds="disabledAllSeconds"
+                              style="width: 100%"
+                            />
+                          </el-form-item>
+                          <el-form-item
+                            v-else-if="itemDraft.endMode === 'after_count'"
+                            label="生成次数"
+                            class="todo-form-item-flex"
+                          >
+                            <el-input-number
+                              v-model="itemDraft.endValueCount"
+                              :min="1"
+                              :max="9999"
+                              style="width: 100%"
+                            />
+                          </el-form-item>
+                        </div>
+                      </div>
+                      <div class="repeat-tip">{{ repeatFormTip }}</div>
+                    </template>
+                  </div>
+                </div>
+
+                <div class="todo-form-section">
+                  <el-form-item label="描述">
+                    <el-input
+                      v-model="itemDraft.description"
+                      type="textarea"
+                      :rows="4"
+                      placeholder="可补充事项说明"
+                    />
+                  </el-form-item>
+                </div>
+              </el-form>
+            </div>
+            <div class="detail-pane-footer">
+              <div v-if="detailMode === 'edit' && selectedItem" class="detail-footer-actions">
+                <el-button
+                  v-if="canPinItem(selectedItem)"
+                  size="small"
+                  link
+                  @click="toggleItemPin(selectedItem.id)"
+                >
+                  {{ selectedItem.pinned ? "取消置顶" : "置顶" }}
                 </el-button>
-                <template #dropdown>
-                  <el-dropdown-menu>
-                    <el-dropdown-item v-if="canPinItem(row)" command="pin">
-                      {{ row.pinned ? "取消置顶" : "置顶" }}
-                    </el-dropdown-item>
-                    <el-dropdown-item v-if="canCancelItem(row)" command="cancel">
-                      取消事项
-                    </el-dropdown-item>
-                    <el-dropdown-item command="delete" divided>
-                      <span style="color: var(--el-color-danger)">删除</span>
-                    </el-dropdown-item>
-                  </el-dropdown-menu>
-                </template>
-              </el-dropdown>
+                <el-button
+                  size="small"
+                  link
+                  type="success"
+                  @click="
+                    changeItemStatus(
+                      selectedItem.id,
+                      isDoneItem(selectedItem) ? 'pending' : 'completed',
+                    )
+                  "
+                >
+                  {{ isDoneItem(selectedItem) ? "恢复" : "完成" }}
+                </el-button>
+                <el-button
+                  v-if="canCancelItem(selectedItem)"
+                  size="small"
+                  link
+                  type="warning"
+                  @click="changeItemStatus(selectedItem.id, 'canceled')"
+                >
+                  取消事项
+                </el-button>
+                <el-button
+                  size="small"
+                  link
+                  type="danger"
+                  @click="deleteItem(selectedItem)"
+                >
+                  删除
+                </el-button>
+              </div>
+              <div class="detail-footer-submit">
+                <el-button @click="cancelDetailEdit">取消</el-button>
+                <el-button type="primary" @click="saveItem">{{ itemDialogSubmitText }}</el-button>
+              </div>
             </div>
-          </template>
-        </el-table-column>
-      </el-table>
-    </div>
-
-    <div class="item-section">
-      <div class="item-section-header done-section-header" @click="toggleDoneCollapsed">
-        <div class="item-section-title-wrap">
-          <h3 class="item-section-title">已办事项</h3>
-          <el-tag size="small" effect="light" class="count-tag">{{ displayDoneItems.length }}</el-tag>
+          </div>
+        </template>
+        <template v-else-if="detailMode === 'view' && selectedItem !== null">
+          <div class="detail-view">
+            <div class="detail-pane-header detail-pane-header--view">
+              <div class="detail-title-group">
+                <div class="detail-eyebrow">事项详情</div>
+                <h3 class="detail-title">{{ selectedItem.title }}</h3>
+                <div class="detail-title-meta">
+                  <el-tag size="small" effect="plain">{{
+                    formatStatusLabel(selectedItem.status)
+                  }}</el-tag>
+                  <el-tag size="small" :type="priorityTagType(selectedItem.priority)">{{
+                    selectedItem.priority
+                  }}</el-tag>
+                  <el-tag v-if="selectedItem.pinned" size="small" type="success">置顶</el-tag>
+                </div>
+              </div>
+              <div class="detail-header-actions">
+                <el-button size="small" link type="primary" @click="enterEditMode(selectedItem)"
+                  >编辑</el-button
+                >
+                <el-button
+                  v-if="canPinItem(selectedItem)"
+                  size="small"
+                  link
+                  @click="toggleItemPin(selectedItem.id)"
+                >
+                  {{ selectedItem.pinned ? "取消置顶" : "置顶" }}
+                </el-button>
+                <el-button
+                  size="small"
+                  link
+                  type="success"
+                  @click="
+                    changeItemStatus(
+                      selectedItem.id,
+                      isDoneItem(selectedItem) ? 'pending' : 'completed',
+                    )
+                  "
+                >
+                  {{ isDoneItem(selectedItem) ? "恢复" : "完成" }}
+                </el-button>
+                <el-button
+                  v-if="canCancelItem(selectedItem)"
+                  size="small"
+                  link
+                  type="warning"
+                  @click="changeItemStatus(selectedItem.id, 'canceled')"
+                >
+                  取消
+                </el-button>
+                <el-button size="small" link type="danger" @click="deleteItem(selectedItem)"
+                  >删除</el-button
+                >
+              </div>
+            </div>
+            <div class="detail-scroll">
+              <div class="detail-content">
+                <div class="detail-section">
+                  <div class="detail-section-title">基本信息</div>
+                  <div class="detail-grid">
+                    <div class="detail-field">
+                      <div class="detail-label">时间</div>
+                      <div class="detail-value">{{ itemTimeLabel(selectedItem) }}</div>
+                      <div v-if="relativeTimeLabel(selectedItem)" class="detail-hint">
+                        {{ relativeTimeLabel(selectedItem) }}
+                      </div>
+                    </div>
+                    <div class="detail-field">
+                      <div class="detail-label">分类</div>
+                      <div class="detail-value">{{ selectedItem.typeName || "未分类" }}</div>
+                    </div>
+                    <div class="detail-field">
+                      <div class="detail-label">执行人</div>
+                      <div class="detail-value">
+                        {{
+                          selectedItem.assignees.length > 0
+                            ? selectedItem.assignees.map((a: TodoAssignee) => a.name).join("、")
+                            : "未指定"
+                        }}
+                      </div>
+                    </div>
+                    <div class="detail-field">
+                      <div class="detail-label">提醒</div>
+                      <div class="detail-value">{{ formatReminderDescription(selectedItem) }}</div>
+                    </div>
+                    <div class="detail-field detail-field--full">
+                      <div class="detail-label">重复规则</div>
+                      <div class="detail-value">
+                        {{ formatRecurrenceDescription(selectedItem) }}
+                      </div>
+                      <div v-if="selectedItemRecurrence?.nextOccurrenceAt" class="detail-hint">
+                        下次发生：{{ formatDate(selectedItemRecurrence.nextOccurrenceAt) }}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div class="detail-section">
+                  <div class="detail-section-title">描述</div>
+                  <div class="detail-description">{{ selectedItem.description || "暂无说明" }}</div>
+                </div>
+              </div>
+            </div>
+            <div class="detail-pane-footer detail-pane-footer--meta">
+              <span>创建：{{ formatDate(selectedItem.createdAt) }}</span>
+              <span>更新：{{ formatDate(selectedItem.updatedAt) }}</span>
+            </div>
+          </div>
+        </template>
+        <div v-else class="detail-empty-pane">
+          <div class="detail-empty-icon">
+            <svg width="56" height="56" viewBox="0 0 48 48" fill="none">
+              <rect
+                x="9"
+                y="8"
+                width="30"
+                height="32"
+                rx="6"
+                stroke="currentColor"
+                stroke-width="1.5"
+                opacity="0.22"
+              />
+              <path
+                d="M16 18h16M16 24h11M16 30h8"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                opacity="0.3"
+              />
+            </svg>
+          </div>
+          <div class="detail-empty-title">选择事项查看详情</div>
+          <div class="detail-empty-text">右侧会显示完整信息，也可直接在这里新增或编辑事项。</div>
+          <div class="detail-empty-stats">
+            <div class="detail-empty-stat">
+              <span>今日到期</span>
+              <strong>{{ todayDueCount }}</strong>
+            </div>
+            <div class="detail-empty-stat" :class="{ 'is-alert': overdueCount > 0 }">
+              <span>逾期</span>
+              <strong>{{ overdueCount }}</strong>
+            </div>
+          </div>
+          <el-button type="primary" @click="startCreate">新增事项</el-button>
         </div>
-        <span class="done-toggle-icon" :class="{ 'is-collapsed': doneCollapsed }">▾</span>
-      </div>
-
-      <el-empty
-        v-if="displayDoneItems.length === 0"
-        :description="hasActiveFilter ? '当前筛选条件下暂无已办事项' : '暂无已办事项'"
-      />
-      <el-table
-        v-else
-        v-show="!doneCollapsed"
-        :data="displayDoneItems"
-        :row-class-name="doneRowClassName"
-        size="small"
-        class="todo-table done-table"
-      >
-        <el-table-column width="40" align="center">
-          <template #default="{ row }">
-            <el-checkbox
-              :model-value="isDoneItem(row)"
-              :disabled="!row.status"
-              @change="onCheckItem(row)"
-            />
-          </template>
-        </el-table-column>
-        <el-table-column label="标题" min-width="200">
-          <template #default="{ row }">
-            <div class="title-cell">
-              <span class="title-left">
-                <span class="item-title is-done">{{ row.title }}</span>
-                <span v-if="hasRepeatRule(row)" class="item-badge badge-repeat" title="重复">
-                  <el-icon :size="12"><Refresh /></el-icon>
-                  <span class="badge-text">重复</span>
-                </span>
-              </span>
-              <span class="title-right">
-                <span v-if="isItemOverdue(row)" class="item-badge badge-overdue" title="逾期">
-                  <el-icon :size="12"><AlarmClock /></el-icon>
-                  <span class="badge-text">逾期</span>
-                </span>
-              </span>
-            </div>
-          </template>
-        </el-table-column>
-        <el-table-column label="时间" width="160">
-          <template #default="{ row }">
-            {{ itemTimeLabel(row) }}
-          </template>
-        </el-table-column>
-        <el-table-column label="分类" width="120">
-          <template #default="{ row }">
-            <template v-if="row.typeName">
-              <span v-if="row.typeColor" class="color-dot" :style="{ backgroundColor: row.typeColor }" />
-              {{ row.typeName }}
-            </template>
-          </template>
-        </el-table-column>
-        <el-table-column label="优先级" width="100">
-          <template #default="{ row }">
-            <span class="priority-dot" :class="'priority-' + row.priority.toLowerCase()" />
-            {{ row.priority }}
-          </template>
-        </el-table-column>
-        <el-table-column label="执行人" width="120">
-          <template #default="{ row }">
-            {{ row.assignees.map((a: TodoAssignee) => a.name).join("、") }}
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="120" align="center">
-          <template #default="{ row }">
-            <div class="table-actions">
-              <el-button size="small" link type="primary" @click="editItem(row)">编辑</el-button>
-              <el-button size="small" link type="danger" @click="deleteItem(row)">删除</el-button>
-            </div>
-          </template>
-        </el-table-column>
-      </el-table>
-    </div>
-
-      </div>
+      </aside>
     </div>
 
     <el-dialog
@@ -337,13 +861,7 @@
             <el-table-column label="操作" width="160">
               <template #default="{ row }">
                 <el-button size="small" text @click="renameType(row)">编辑</el-button>
-                <el-button
-                  size="small"
-                  text
-                  type="danger"
-                  @click="removeType(row)"
-                  >删除</el-button
-                >
+                <el-button size="small" text type="danger" @click="removeType(row)">删除</el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -369,275 +887,6 @@
           </el-table>
         </el-card>
       </div>
-    </el-dialog>
-
-    <el-dialog
-      v-model="itemDialogVisible"
-      :title="itemDialogTitle"
-      width="720px"
-      custom-class="todo-item-dialog"
-      :close-on-click-modal="false"
-      @closed="resetItemDraft"
-    >
-      <el-form label-position="top" class="todo-item-form">
-        <div class="todo-form-section">
-          <el-form-item v-if="showScopeSelector" label="编辑范围">
-            <el-radio-group v-model="itemDraft.scope" @change="onEditScopeChange">
-              <el-radio value="this_instance">仅当前一次</el-radio>
-              <el-radio value="future_instances">此后未发生项</el-radio>
-            </el-radio-group>
-          </el-form-item>
-          <el-form-item label="标题">
-            <el-input v-model.trim="itemDraft.title" placeholder="请输入事项标题" />
-          </el-form-item>
-          <div class="todo-form-row">
-            <el-form-item label="分类" class="todo-form-item-flex">
-              <el-select
-                v-model="itemDraft.typeId"
-                clearable
-                filterable
-                allow-create
-                default-first-option
-                placeholder="可输入新分类"
-                style="width: 100%"
-              >
-                <el-option
-                  v-for="item in sortedTypes"
-                  :key="item.id"
-                  :label="item.name"
-                  :value="item.id"
-                />
-              </el-select>
-            </el-form-item>
-            <el-form-item label="优先级" class="todo-form-item-flex">
-              <el-select v-model="itemDraft.priority" style="width: 100%">
-                <template #prefix>
-                  <span class="priority-dot" :class="'priority-' + itemDraft.priority.toLowerCase()" />
-                </template>
-                <el-option
-                  v-for="opt in priorityOptions"
-                  :key="opt.value"
-                  :label="opt.label"
-                  :value="opt.value"
-                >
-                  <span class="priority-dot" :class="'priority-' + opt.value.toLowerCase()" />
-                  {{ opt.label }}
-                </el-option>
-              </el-select>
-            </el-form-item>
-          </div>
-          <el-form-item label="执行人">
-            <el-select
-              v-model="itemDraft.assigneeIds"
-              multiple
-              clearable
-              filterable
-              allow-create
-              default-first-option
-              :reserve-keyword="false"
-              placeholder="可输入新执行人"
-              style="width: 100%"
-            >
-              <el-option
-                v-for="item in assignees"
-                :key="item.id"
-                :label="item.name"
-                :value="item.id"
-              />
-            </el-select>
-          </el-form-item>
-        </div>
-
-        <div class="todo-form-section">
-          <div class="todo-form-row">
-            <el-form-item label="日期" class="todo-form-item-date">
-              <el-date-picker
-                v-model="eventDateModel"
-                type="date"
-                value-format="YYYY-MM-DD"
-                clearable
-                style="width: 100%"
-              />
-            </el-form-item>
-            <el-form-item label="时间" class="todo-form-item-time">
-              <div class="time-picker-inline">
-                <div class="time-picker-fused">
-                  <el-select v-model="eventHour" class="time-fused-select" placeholder="时">
-                    <el-option
-                      v-for="option in hourOptions"
-                      :key="option.value"
-                      :label="option.label"
-                      :value="option.value"
-                    />
-                  </el-select>
-                  <span class="time-fused-separator">:</span>
-                  <el-select v-model="eventMinute" class="time-fused-select" placeholder="分">
-                    <el-option
-                      v-for="option in minuteOptions"
-                      :key="option.value"
-                      :label="option.label"
-                      :value="option.value"
-                    />
-                  </el-select>
-                </div>
-                <el-button text class="time-fused-clear" @click="clearEventSchedule">清空</el-button>
-              </div>
-            </el-form-item>
-          </div>
-          <el-form-item label="提醒">
-            <el-select
-              v-model="itemDraft.reminderPresets"
-              multiple
-              clearable
-              style="width: 100%"
-              @change="onReminderPresetsChange"
-            >
-              <el-option
-                v-for="option in reminderPresetOptions"
-                :key="option.value"
-                :label="option.label"
-                :value="option.value"
-              />
-            </el-select>
-          </el-form-item>
-        </div>
-
-        <div class="todo-form-section">
-          <el-form-item label="重复方式">
-            <el-radio-group
-              v-model="itemDraft.repeatPreset"
-              class="repeat-radio-group"
-              @change="onRepeatPresetChange"
-            >
-              <el-radio-button
-                v-for="option in repeatPresetOptions"
-                :key="option.value"
-                :value="option.value"
-              >
-                {{ option.label }}
-              </el-radio-button>
-            </el-radio-group>
-          </el-form-item>
-          <template v-if="isRepeating">
-            <div class="repeat-detail-card">
-              <template v-if="showCustomRepeatFields">
-                <div class="todo-form-row">
-                  <el-form-item label="频率" class="todo-form-item-flex">
-                    <el-select
-                      v-model="itemDraft.simple.frequency"
-                      style="width: 100%"
-                      @change="onCustomFrequencyChange"
-                    >
-                      <el-option label="每天" value="daily" />
-                      <el-option label="每周" value="weekly" />
-                      <el-option label="每月" value="monthly" />
-                    </el-select>
-                  </el-form-item>
-                  <el-form-item label="间隔" class="todo-form-item-flex">
-                    <el-input-number
-                      v-model="itemDraft.simple.interval"
-                      :min="1"
-                      :max="365"
-                      style="width: 100%"
-                    />
-                  </el-form-item>
-                </div>
-              </template>
-              <el-form-item v-if="showWeeklyWeekdays" label="周几">
-                <el-checkbox-group v-model="itemDraft.simple.weekdays">
-                  <el-checkbox
-                    v-for="option in weekdayOptions"
-                    :key="option.value"
-                    :value="option.value"
-                  >
-                    {{ option.label }}
-                  </el-checkbox>
-                </el-checkbox-group>
-              </el-form-item>
-              <el-form-item v-if="showMonthlyDayOfMonth" label="每月几号">
-                <el-input-number
-                  v-model="itemDraft.simple.dayOfMonth"
-                  :min="1"
-                  :max="31"
-                  style="width: 100%"
-                />
-              </el-form-item>
-              <template v-if="showCronRepeatFields">
-                <el-form-item label="Cron 表达式">
-                  <el-input
-                    v-model.trim="itemDraft.cronExpression"
-                    placeholder="例如：0 0 9 * * 1-5"
-                  />
-                </el-form-item>
-                <el-form-item label="时区">
-                  <el-select
-                    v-model="itemDraft.timezone"
-                    filterable
-                    allow-create
-                    default-first-option
-                    style="width: 100%"
-                  >
-                    <el-option label="本地时区" value="local" />
-                    <el-option label="UTC" value="UTC" />
-                    <el-option label="Asia/Shanghai" value="Asia/Shanghai" />
-                  </el-select>
-                </el-form-item>
-              </template>
-              <div class="todo-form-row">
-                <el-form-item label="结束条件" class="todo-form-item-flex">
-                  <el-select v-model="itemDraft.endMode" style="width: 100%">
-                    <el-option label="持续生成" value="never" />
-                    <el-option label="结束时间" value="until_date" />
-                    <el-option label="生成次数" value="after_count" />
-                  </el-select>
-                </el-form-item>
-                <el-form-item
-                  v-if="itemDraft.endMode === 'until_date'"
-                  label="结束时间"
-                  class="todo-form-item-flex"
-                >
-                  <el-date-picker
-                    v-model="itemDraft.endValueDate"
-                    type="datetime"
-                    value-format="YYYY-MM-DDTHH:mm:ssZ"
-                    :disabled-minutes="disabledFiveMinuteMinutes"
-                    :disabled-seconds="disabledAllSeconds"
-                    style="width: 100%"
-                  />
-                </el-form-item>
-                <el-form-item
-                  v-else-if="itemDraft.endMode === 'after_count'"
-                  label="生成次数"
-                  class="todo-form-item-flex"
-                >
-                  <el-input-number
-                    v-model="itemDraft.endValueCount"
-                    :min="1"
-                    :max="9999"
-                    style="width: 100%"
-                  />
-                </el-form-item>
-              </div>
-            </div>
-            <div class="repeat-tip">{{ repeatFormTip }}</div>
-          </template>
-        </div>
-
-        <div class="todo-form-section">
-          <el-form-item label="描述">
-            <el-input
-              v-model="itemDraft.description"
-              type="textarea"
-              :rows="4"
-              placeholder="可补充事项说明"
-            />
-          </el-form-item>
-        </div>
-      </el-form>
-      <template #footer>
-        <el-button @click="itemDialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="saveItem">{{ itemDialogSubmitText }}</el-button>
-      </template>
     </el-dialog>
 
     <el-dialog
@@ -680,10 +929,17 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { listen } from "@tauri-apps/api/event";
 import type { UnlistenFn } from "@tauri-apps/api/event";
-import { AlarmClock, MoreFilled, Refresh, Setting, Top } from "@element-plus/icons-vue";
+import {
+  AlarmClock,
+  Calendar,
+  Refresh,
+  Setting,
+  Top,
+  User,
+} from "@element-plus/icons-vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { invokeToolByChannel } from "../bridge/tauri";
 import type {
@@ -722,6 +978,7 @@ import {
 type SelectTypeValue = number | string | undefined;
 type SelectAssigneeValue = number | string;
 type ItemDialogMode = "create" | "edit_item";
+type DetailMode = "empty" | "view" | "edit" | "create";
 
 interface TodoTypeDraft {
   id: number;
@@ -738,18 +995,21 @@ interface TodoAssigneeDraft {
 const items = ref<TodoItem[]>([]);
 const types = ref<TodoType[]>([]);
 const assignees = ref<TodoAssignee[]>([]);
+const showMoreFields = ref(false);
 const itemKeyword = ref("");
 const filterType = ref<string | null>(null);
 const filterPriority = ref<TodoPriority | null>(null);
 const doneCollapsed = ref(true);
 const basicsDialogVisible = ref(false);
-const itemDialogVisible = ref(false);
 const itemDialogMode = ref<ItemDialogMode>("create");
+const detailMode = ref<DetailMode>("empty");
+const selectedItemId = ref<number | null>(null);
+const draftBaseline = ref("");
 const typeDialogVisible = ref(false);
 const assigneeDialogVisible = ref(false);
 const editingItemSnapshot = ref<TodoItem | null>(null);
 const editingRootSnapshot = ref<TodoItem | null>(null);
-const defaultReminderPresets: TodoReminderPreset[] = ["0m"];
+const defaultReminderPresets: TodoReminderPreset[] = ["none"];
 const lastReminderPresetSelection = ref<TodoReminderPreset[]>([...defaultReminderPresets]);
 let reminderUnlisten: UnlistenFn | null = null;
 
@@ -811,10 +1071,10 @@ const minuteOptions = Array.from({ length: 12 }, (_item, index) => {
 const repeatPresetOptions = TODO_REPEAT_PRESET_OPTIONS;
 const weekdayOptions = TODO_WEEKDAY_OPTIONS;
 const priorityOptions = [
-  { value: 'P0', label: 'P0 - 紧急' },
-  { value: 'P1', label: 'P1 - 高' },
-  { value: 'P2', label: 'P2 - 中' },
-  { value: 'P3', label: 'P3 - 低' },
+  { value: "P0", label: "P0 - 紧急" },
+  { value: "P1", label: "P1 - 高" },
+  { value: "P2", label: "P2 - 中" },
+  { value: "P3", label: "P3 - 低" },
 ];
 
 const initialCreateSchedule = getCreateDraftDefaultDateTime();
@@ -827,8 +1087,8 @@ const itemDraft = reactive({
   priority: "P2" as TodoPriority,
   description: "",
   assigneeIds: [] as SelectAssigneeValue[],
-  eventDate: initialCreateSchedule.date,
-  eventTime: initialCreateSchedule.time,
+  eventDate: "",
+  eventTime: "",
   reminderPresets: [...defaultReminderPresets] as TodoReminderPreset[],
   scope: "this_instance" as TodoEditScope,
   repeatPreset: "none" as TodoRepeatPreset,
@@ -841,7 +1101,7 @@ const itemDraft = reactive({
   simple: {
     frequency: "daily" as TodoSimpleRule["frequency"],
     interval: 1,
-    time: initialCreateSchedule.time,
+    time: "",
     weekdays: [1, 2, 3, 4, 5] as number[],
     dayOfMonth: 1,
   },
@@ -904,6 +1164,20 @@ function applyDisplayFilter(list: TodoItem[]): TodoItem[] {
 
 const displayActiveItems = computed(() => applyDisplayFilter(activeItems.value));
 const displayDoneItems = computed(() => applyDisplayFilter(doneItems.value));
+const selectedItem = computed(() =>
+  selectedItemId.value == null
+    ? null
+    : items.value.find((item) => item.id === selectedItemId.value) || null,
+);
+const selectedItemRecurrence = computed(() =>
+  selectedItem.value ? getItemRecurrence(selectedItem.value) : null,
+);
+const isDetailEditing = computed(
+  () => detailMode.value === "edit" || detailMode.value === "create",
+);
+const isDraftDirty = computed(
+  () => isDetailEditing.value && draftBaseline.value !== snapshotItemDraft(),
+);
 
 const todayDueCount = computed(() => {
   const today = getTodayDateString();
@@ -965,6 +1239,175 @@ function clearPriorityFilter() {
 function clearAllFilters() {
   clearTypeFilter();
   clearPriorityFilter();
+}
+
+function normalizeDraftTypeValue(value: SelectTypeValue) {
+  if (typeof value === "number") return value;
+  const name = typeof value === "string" ? value.trim() : "";
+  return name || null;
+}
+
+function normalizeDraftAssigneeValues(values: SelectAssigneeValue[]) {
+  return values
+    .map((value) => (typeof value === "number" ? `id:${value}` : `name:${value.trim()}`))
+    .filter((value) => !value.endsWith(":"))
+    .sort();
+}
+
+function snapshotItemDraft() {
+  return JSON.stringify({
+    mode: itemDialogMode.value,
+    title: itemDraft.title.trim(),
+    typeId: normalizeDraftTypeValue(itemDraft.typeId),
+    priority: itemDraft.priority,
+    description: itemDraft.description,
+    assigneeIds: normalizeDraftAssigneeValues(itemDraft.assigneeIds),
+    eventDate: itemDraft.eventDate,
+    eventTime: itemDraft.eventTime,
+    reminderPresets: normalizeReminderPresets(itemDraft.reminderPresets),
+    scope: itemDraft.scope,
+    repeatPreset: itemDraft.repeatPreset,
+    ruleMode: itemDraft.ruleMode,
+    timezone: itemDraft.timezone,
+    cronExpression: itemDraft.cronExpression.trim(),
+    endMode: itemDraft.endMode,
+    endValueDate: itemDraft.endValueDate,
+    endValueCount: Number(itemDraft.endValueCount || 1),
+    simple: {
+      frequency: itemDraft.simple.frequency,
+      interval: Number(itemDraft.simple.interval || 1),
+      time: itemDraft.simple.time,
+      weekdays: [...itemDraft.simple.weekdays].sort((left, right) => left - right),
+      dayOfMonth: Number(itemDraft.simple.dayOfMonth || 1),
+    },
+  });
+}
+
+function markDraftBaseline() {
+  draftBaseline.value = snapshotItemDraft();
+}
+
+function formatStatusLabel(status: TodoStatus | null) {
+  switch (status) {
+    case "pending":
+      return "待办";
+    case "in_progress":
+      return "进行中";
+    case "completed":
+      return "已完成";
+    case "canceled":
+      return "已取消";
+    default:
+      return "未设置";
+  }
+}
+
+function getReminderPresetLabel(preset: TodoReminderPreset) {
+  return reminderPresetOptions.find((option) => option.value === preset)?.label || preset;
+}
+
+function formatReminderDescription(item: TodoItem) {
+  const presets = effectiveReminderPresets(item.reminderPresets);
+  const baseText = presets.length > 0 ? presets.map(getReminderPresetLabel).join("、") : "不提醒";
+  if (item.snoozeUntil) {
+    return `${baseText} · 已稍后至 ${formatDate(item.snoozeUntil)}`;
+  }
+  return baseText;
+}
+
+function formatWeekdayList(days: number[] = []) {
+  const labelMap = new Map([
+    [1, "周一"],
+    [2, "周二"],
+    [3, "周三"],
+    [4, "周四"],
+    [5, "周五"],
+    [6, "周六"],
+    [7, "周日"],
+  ]);
+  return days
+    .map((day) => labelMap.get(day))
+    .filter((label): label is string => !!label)
+    .join("、");
+}
+
+function formatRecurrenceDescription(item: TodoItem) {
+  const recurrence = getItemRecurrence(item);
+  if (!recurrence) return "单次事项";
+
+  const endText =
+    recurrence.endMode === "until_date"
+      ? `截止至 ${formatDate(String(recurrence.endValue || ""))}`
+      : recurrence.endMode === "after_count"
+        ? `共 ${Number(recurrence.endValue || 1)} 次`
+        : "持续生成";
+
+  if (recurrence.ruleMode === "cron") {
+    const expression =
+      recurrence.cronExpression || (recurrence.rule as { expression?: string }).expression || "-";
+    return `Cron：${expression} · ${endText}`;
+  }
+
+  const rule = recurrence.rule as TodoSimpleRule;
+  if (rule.frequency === "weekly") {
+    const prefix = rule.interval > 1 ? `每 ${rule.interval} 周` : "每周";
+    const weekdays = formatWeekdayList(rule.weekdays || []);
+    return `${prefix}${weekdays ? ` · ${weekdays}` : ""} · ${rule.time} · ${endText}`;
+  }
+  if (rule.frequency === "monthly") {
+    const prefix = rule.interval > 1 ? `每 ${rule.interval} 个月` : "每月";
+    return `${prefix} · ${rule.dayOfMonth || 1} 号 ${rule.time} · ${endText}`;
+  }
+  const prefix = rule.interval > 1 ? `每 ${rule.interval} 天` : "每天";
+  return `${prefix} · ${rule.time} · ${endText}`;
+}
+
+function finalizeDetailAfterSave(savedId?: number | null) {
+  const fallbackId = itemDialogMode.value === "edit_item" ? itemDraft.id : null;
+  const nextId = savedId ?? selectedItemId.value ?? fallbackId;
+  resetItemDraft();
+  draftBaseline.value = "";
+  if (typeof nextId === "number" && nextId > 0) {
+    selectedItemId.value = nextId;
+    detailMode.value = "view";
+    return;
+  }
+  selectedItemId.value = null;
+  detailMode.value = "empty";
+}
+
+async function ensureDetailCanLeave() {
+  if (!isDetailEditing.value || !isDraftDirty.value) return true;
+  const result = await submitItemChanges(false);
+  if (!result.ok) return false;
+  finalizeDetailAfterSave(result.id);
+  return true;
+}
+
+async function selectItem(item: TodoItem) {
+  if (selectedItemId.value === item.id && detailMode.value === "edit") return;
+  if (!(await ensureDetailCanLeave())) return;
+  void enterEditMode(item);
+}
+
+async function startCreate() {
+  if (!(await ensureDetailCanLeave())) return;
+  resetItemDraft();
+  itemDialogMode.value = "create";
+  detailMode.value = "create";
+  selectedItemId.value = null;
+  showMoreFields.value = false;
+  markDraftBaseline();
+}
+
+function cancelDetailEdit() {
+  resetItemDraft();
+  draftBaseline.value = "";
+  if (selectedItemId.value !== null && selectedItem.value) {
+    detailMode.value = "view";
+    return;
+  }
+  detailMode.value = "empty";
 }
 
 const editingItemIsRecurring = computed(
@@ -1030,6 +1473,16 @@ const itemDialogTitle = computed(() => {
 const itemDialogSubmitText = computed(() =>
   itemDialogMode.value === "create" ? "创建事项" : "保存",
 );
+const moreFieldsSummary = computed(() => {
+  const parts: string[] = [];
+  if (itemDraft.typeId) parts.push("分类");
+  if (itemDraft.priority !== "P2") parts.push("优先级");
+  if (itemDraft.assigneeIds.length > 0) parts.push("执行人");
+  if (itemDraft.eventDate || itemDraft.eventTime) parts.push("日期");
+  if (effectiveReminderPresets(itemDraft.reminderPresets).length > 0) parts.push("提醒");
+  if (itemDraft.repeatPreset !== "none") parts.push("重复");
+  return parts.length > 0 ? `已设${parts.join("、")}` : "";
+});
 const typeDialogTitle = computed(() => (typeDraft.id ? "编辑分类" : "新增分类"));
 const assigneeDialogTitle = computed(() => (assigneeDraft.id ? "编辑执行人" : "新增执行人"));
 
@@ -1117,15 +1570,47 @@ function isItemOverdue(item: TodoItem): boolean {
 }
 
 function todoRowClassName({ row }: { row: TodoItem }) {
-  return 'todo-row-' + row.priority.toLowerCase();
+  return "todo-row-" + row.priority.toLowerCase();
 }
 
 function doneRowClassName({ row }: { row: TodoItem }) {
-  return 'todo-row-' + row.priority.toLowerCase() + ' is-done-row';
+  return "todo-row-" + row.priority.toLowerCase() + " is-done-row";
 }
 
 function itemTimeLabel(item: TodoItem) {
   return formatDate(itemScheduleAt(item));
+}
+
+function relativeTimeLabel(item: TodoItem): string {
+  const time = itemScheduleAt(item);
+  if (!time) return "";
+  const date = new Date(time);
+  if (Number.isNaN(date.getTime())) return "";
+
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const tomorrow = new Date(today.getTime() + 86400000);
+  const yesterday = new Date(today.getTime() - 86400000);
+  const itemDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+
+  const timeStr = `${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
+
+  if (itemDay.getTime() === today.getTime()) return `今天 ${timeStr}`;
+  if (itemDay.getTime() === tomorrow.getTime()) return `明天 ${timeStr}`;
+  if (itemDay.getTime() === yesterday.getTime()) return `昨天 ${timeStr}`;
+
+  const diffDays = Math.round((itemDay.getTime() - today.getTime()) / 86400000);
+  if (diffDays > 1 && diffDays <= 6) {
+    const weekdays = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
+    return `${weekdays[date.getDay()]} ${timeStr}`;
+  }
+
+  const month = date.getMonth() + 1;
+  const day = date.getDate();
+  if (date.getFullYear() === now.getFullYear()) {
+    return `${month}月${day}日 ${timeStr}`;
+  }
+  return `${date.getFullYear()}/${pad2(month)}/${pad2(day)} ${timeStr}`;
 }
 
 function toggleDoneCollapsed() {
@@ -1651,8 +2136,21 @@ function clearEventSchedule() {
   resetReminderPresetsToNone();
 }
 
+function fillDefaultDateTime() {
+  const defaults = getCreateDraftDefaultDateTime();
+  itemDraft.eventDate = defaults.date;
+  itemDraft.eventTime = defaults.time;
+  itemDraft.simple.time = defaults.time;
+  if (
+    itemDraft.reminderPresets.length === 1 &&
+    itemDraft.reminderPresets[0] === "none"
+  ) {
+    itemDraft.reminderPresets = ["0m"];
+    lastReminderPresetSelection.value = ["0m"];
+  }
+}
+
 function resetItemDraft() {
-  const defaultSchedule = getCreateDraftDefaultDateTime();
   itemDraft.id = 0;
   itemDraft.rootId = 0;
   itemDraft.title = "";
@@ -1660,8 +2158,8 @@ function resetItemDraft() {
   itemDraft.priority = "P2";
   itemDraft.description = "";
   itemDraft.assigneeIds = [];
-  itemDraft.eventDate = defaultSchedule.date;
-  itemDraft.eventTime = defaultSchedule.time;
+  itemDraft.eventDate = "";
+  itemDraft.eventTime = "";
   itemDraft.reminderPresets = [...defaultReminderPresets];
   itemDraft.scope = "this_instance";
   itemDraft.repeatPreset = "none";
@@ -1673,7 +2171,7 @@ function resetItemDraft() {
   itemDraft.endValueCount = 1;
   itemDraft.simple.frequency = "daily";
   itemDraft.simple.interval = 1;
-  itemDraft.simple.time = defaultSchedule.time;
+  itemDraft.simple.time = "";
   itemDraft.simple.weekdays = [1, 2, 3, 4, 5];
   itemDraft.simple.dayOfMonth = 1;
   lastReminderPresetSelection.value = [...itemDraft.reminderPresets];
@@ -1747,12 +2245,6 @@ async function loadItems() {
   );
 }
 
-function openCreateItemDialog() {
-  resetItemDraft();
-  itemDialogMode.value = "create";
-  itemDialogVisible.value = true;
-}
-
 async function resolveTypeId(value: SelectTypeValue) {
   if (typeof value === "number") return value;
   const name = typeof value === "string" ? value.trim() : "";
@@ -1800,14 +2292,29 @@ function getRootItemById(rootId?: number | null) {
   return items.value.find((item) => isRootItem(item) && getRootItemId(item) === rootId) || null;
 }
 
-function editItem(item: TodoItem) {
+async function enterEditMode(item?: TodoItem | null) {
+  const target = item || selectedItem.value;
+  if (!target) return;
+  if (detailMode.value === "edit" && selectedItemId.value === target.id) return;
+  if (!(await ensureDetailCanLeave())) return;
+  selectedItemId.value = target.id;
   resetItemDraft();
   itemDialogMode.value = "edit_item";
-  editingItemSnapshot.value = item;
-  editingRootSnapshot.value = getRootItemById(getRootItemId(item));
-  applyItemToDraft(item);
+  editingItemSnapshot.value = target;
+  editingRootSnapshot.value = getRootItemById(getRootItemId(target));
+  applyItemToDraft(target);
   itemDraft.scope = "this_instance";
-  itemDialogVisible.value = true;
+  detailMode.value = "edit";
+  showMoreFields.value =
+    target.assignees.length > 0 ||
+    !!target.eventAt ||
+    effectiveReminderPresets(target.reminderPresets).length > 0 ||
+    hasRepeatRule(target);
+  markDraftBaseline();
+}
+
+function editItem(item: TodoItem) {
+  void enterEditMode(item);
 }
 
 function onEditScopeChange(scope: TodoEditScope) {
@@ -1830,7 +2337,7 @@ function onEditScopeChange(scope: TodoEditScope) {
   itemDraft.rootId = getRootItemId(targetRoot);
 }
 
-async function saveItem() {
+async function submitItemChanges(showSuccess = true) {
   const title = itemDraft.title.trim();
   const eventAt = buildEventAt();
   const selectedReminderPresets = effectiveReminderPresets(itemDraft.reminderPresets);
@@ -1838,36 +2345,36 @@ async function saveItem() {
   const hasEventTime = !!itemDraft.eventTime.trim();
   if (!title) {
     ElMessage.warning("请输入事项标题");
-    return;
+    return { ok: false, id: null as number | null };
   }
   if (hasEventDate !== hasEventTime) {
     ElMessage.warning("日期和时间需要同时填写或同时清空");
-    return;
+    return { ok: false, id: null as number | null };
   }
   if (hasEventTime && !isFiveMinuteTime(itemDraft.eventTime)) {
     ElMessage.warning("事件时间仅支持5分钟刻度");
-    return;
+    return { ok: false, id: null as number | null };
   }
   if (selectedReminderPresets.length > 0 && !eventAt) {
     ElMessage.warning("请先填写日期和时间，再设置提醒方式");
-    return;
+    return { ok: false, id: null as number | null };
   }
   if (isRepeating.value && showRecurrenceFields.value) {
     if (!hasEventDate || !hasEventTime) {
       ElMessage.warning("重复事项需要同时填写日期和时间");
-      return;
+      return { ok: false, id: null as number | null };
     }
     if (!isFiveMinuteTime(itemDraft.eventTime)) {
       ElMessage.warning("时间仅支持5分钟刻度");
-      return;
+      return { ok: false, id: null as number | null };
     }
     if (!eventAt) {
       ElMessage.warning("日期或时间格式不正确");
-      return;
+      return { ok: false, id: null as number | null };
     }
     if (showCronRepeatFields.value && !itemDraft.cronExpression.trim()) {
       ElMessage.warning("请输入 Cron 表达式");
-      return;
+      return { ok: false, id: null as number | null };
     }
     if (
       showCustomRepeatFields.value &&
@@ -1875,7 +2382,7 @@ async function saveItem() {
       Number(itemDraft.simple.interval || 1) > 1
     ) {
       ElMessage.warning("按周自定义暂不支持大于 1 的间隔，请改用高级 Cron");
-      return;
+      return { ok: false, id: null as number | null };
     }
     if (
       itemDraft.endMode === "until_date" &&
@@ -1883,7 +2390,7 @@ async function saveItem() {
       !isFiveMinuteDateTime(itemDraft.endValueDate)
     ) {
       ElMessage.warning("结束时间仅支持5分钟刻度");
-      return;
+      return { ok: false, id: null as number | null };
     }
   }
   try {
@@ -1922,23 +2429,33 @@ async function saveItem() {
       };
     }
 
+    let response: unknown;
     if (itemDialogMode.value === "create") {
-      await invokeToolByChannel("tool:todo:item-create", payload);
+      response = await invokeToolByChannel("tool:todo:item-create", payload);
     } else {
       payload.id = itemDraft.id;
       payload.scope = itemDraft.scope;
       if (itemDraft.rootId) payload.rootId = itemDraft.rootId;
       if (itemDraft.scope === "future_instances") payload.recordRole = "root";
-      await invokeToolByChannel("tool:todo:item-update", payload);
+      response = await invokeToolByChannel("tool:todo:item-update", payload);
     }
 
-    itemDialogVisible.value = false;
-    resetItemDraft();
+    const savedId =
+      readNullableNumber(asRecord(response), ["id"]) ??
+      (itemDialogMode.value === "edit_item" ? itemDraft.id : null);
     await loadItems();
-    ElMessage.success("保存成功");
+    if (showSuccess) ElMessage.success("保存成功");
+    return { ok: true, id: savedId };
   } catch (error) {
     ElMessage.error((error as Error).message);
+    return { ok: false, id: null as number | null };
   }
+}
+
+async function saveItem() {
+  const result = await submitItemChanges(true);
+  if (!result.ok) return;
+  finalizeDetailAfterSave(result.id);
 }
 
 async function changeItemStatus(id: number, status: TodoStatus) {
@@ -2082,6 +2599,16 @@ async function removeAssignee(item: TodoAssignee) {
   }
 }
 
+watch(selectedItem, (item) => {
+  if (detailMode.value === "create") return;
+  if (selectedItemId.value !== null && !item) {
+    selectedItemId.value = null;
+    draftBaseline.value = "";
+    resetItemDraft();
+    detailMode.value = "empty";
+  }
+});
+
 onMounted(async () => {
   await Promise.all([loadTypes(), loadAssignees(), loadItems()]);
   try {
@@ -2101,9 +2628,8 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .todo-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+  height: 100%;
+  min-height: 0;
 }
 .toolbar {
   display: flex;
@@ -2129,11 +2655,13 @@ onBeforeUnmount(() => {
   color: var(--el-color-primary);
   background: var(--el-fill-color-light);
 }
+
+/* --- Section headers --- */
 .item-section {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  margin-bottom: 12px;
+  gap: 8px;
+  margin-bottom: 16px;
 }
 .item-section:last-child {
   margin-bottom: 0;
@@ -2143,8 +2671,7 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--el-border-color-lighter);
+  padding-bottom: 6px;
 }
 .item-section-title-wrap {
   display: flex;
@@ -2153,122 +2680,691 @@ onBeforeUnmount(() => {
 }
 .item-section-title {
   margin: 0;
-  font-size: 14px;
+  font-family: var(--lc-font-display);
+  font-size: 15px;
   font-weight: 600;
-  color: var(--el-text-color-primary);
+  color: var(--lc-text);
+  letter-spacing: 0.3px;
 }
-.count-tag {
-  border-radius: 999px;
-  padding-inline: 8px;
+.done-title {
+  color: var(--lc-text-secondary);
 }
-.item-title {
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--el-text-color-primary);
+.count-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 10px;
+  font-family: var(--lc-font-body);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--lc-accent);
+  background: var(--lc-accent-dim);
 }
-.item-title.is-done {
-  text-decoration: line-through;
-  color: var(--el-text-color-secondary);
+.count-badge.is-muted {
+  color: var(--lc-text-muted);
+  background: rgba(255, 255, 255, 0.04);
 }
-.title-cell {
+
+/* --- Empty state --- */
+.todo-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 48px 16px;
+  color: var(--lc-text-muted);
+}
+.todo-empty.is-muted {
+  padding: 24px 16px;
+}
+.todo-empty-icon {
+  color: var(--lc-text-muted);
+}
+.todo-empty-text {
+  font-family: var(--lc-font-body);
+  font-size: 13px;
+  color: var(--lc-text-muted);
+}
+
+/* --- Card list --- */
+.todo-card-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* --- Card --- */
+.todo-card {
   display: flex;
   align-items: center;
-  width: 100%;
+  gap: 10px;
+  padding: 10px 14px 10px 12px;
+  border-radius: var(--lc-radius-sm);
+  background: var(--lc-surface-1);
+  border: 1px solid var(--lc-border);
+  border-left: 3.5px solid var(--lc-text-muted);
+  cursor: pointer;
+  transition:
+    background var(--lc-duration) var(--lc-ease),
+    border-color var(--lc-duration) var(--lc-ease),
+    box-shadow var(--lc-duration) var(--lc-ease),
+    opacity var(--lc-duration) var(--lc-ease);
+  animation: todoCardSlideIn 0.3s var(--lc-ease-out) calc(var(--item-index, 0) * 25ms) both;
 }
-.title-left {
-  display: inline-flex;
-  align-items: center;
-  min-width: 0;
-  flex: 1;
-  gap: 6px;
+.todo-card:hover {
+  background: var(--lc-surface-2);
+  border-color: var(--lc-border-hover);
+  box-shadow: var(--lc-shadow-sm);
 }
-.title-right {
-  display: inline-flex;
-  align-items: center;
+
+/* Priority strips */
+.todo-card.priority-stripe-p0 {
+  border-left-color: var(--lc-danger);
+}
+.todo-card.priority-stripe-p1 {
+  border-left-color: var(--lc-warning);
+}
+.todo-card.priority-stripe-p2 {
+  border-left-color: var(--lc-accent);
+}
+.todo-card.priority-stripe-p3 {
+  border-left-color: var(--lc-text-muted);
+}
+
+/* Pinned highlight */
+.todo-card.is-pinned {
+  background: linear-gradient(135deg, rgba(52, 211, 153, 0.04), var(--lc-surface-1) 70%);
+}
+.todo-card.is-pinned:hover {
+  background: linear-gradient(135deg, rgba(52, 211, 153, 0.06), var(--lc-surface-2) 70%);
+}
+
+/* Overdue glow */
+.todo-card.is-overdue-card {
+  background: linear-gradient(135deg, rgba(248, 113, 113, 0.04), var(--lc-surface-1) 70%);
+}
+.todo-card.is-overdue-card:hover {
+  background: linear-gradient(135deg, rgba(248, 113, 113, 0.06), var(--lc-surface-2) 70%);
+}
+
+/* Done cards */
+.todo-card.is-done-card {
+  opacity: 0.5;
+  border-left-width: 2.5px;
+}
+.todo-card.is-done-card:hover {
+  opacity: 0.75;
+}
+
+.todo-card-check {
   flex-shrink: 0;
-  margin-left: 8px;
-  gap: 6px;
+  display: flex;
+  align-items: center;
 }
+.todo-card-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.todo-card-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.todo-card-title {
+  font-family: var(--lc-font-body);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--lc-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+}
+.todo-card-title.is-done {
+  text-decoration: line-through;
+  color: var(--lc-text-muted);
+  font-weight: 400;
+}
+.todo-card-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+/* --- Badges --- */
 .item-badge {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  height: 20px;
-  padding: 0 7px;
-  border-radius: 999px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-family: var(--lc-font-body);
   font-size: 11px;
   font-weight: 500;
   line-height: 1;
-  vertical-align: middle;
   white-space: nowrap;
 }
 .badge-pinned {
   color: var(--lc-success);
-  background: rgba(52, 211, 153, 0.10);
+  background: rgba(52, 211, 153, 0.12);
 }
 .badge-overdue {
   color: var(--lc-danger);
-  background: rgba(248, 113, 113, 0.10);
+  background: rgba(248, 113, 113, 0.12);
 }
 .badge-repeat {
   color: var(--lc-warning);
-  background: rgba(251, 191, 36, 0.10);
+  background: rgba(251, 191, 36, 0.12);
 }
-.todo-table {
-  width: 100%;
-}
-.todo-table :deep(.el-table__row) {
-  position: relative;
-}
-.todo-table :deep(.el-table__row td:first-child .cell) {
-  padding-left: 12px;
-}
-.todo-table :deep(.todo-row-p0 td:first-child) {
-  border-left: 3px solid var(--lc-danger);
-}
-.todo-table :deep(.todo-row-p1 td:first-child) {
-  border-left: 3px solid var(--lc-warning);
-}
-.todo-table :deep(.todo-row-p2 td:first-child) {
-  border-left: 3px solid var(--lc-accent);
-}
-.todo-table :deep(.todo-row-p3 td:first-child) {
-  border-left: 3px solid var(--lc-text-muted);
-}
-.done-table {
-  opacity: 0.7;
-}
-.table-actions {
+
+/* --- Meta chips --- */
+.todo-card-meta {
   display: flex;
   align-items: center;
-  justify-content: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.meta-chip {
+  display: inline-flex;
+  align-items: center;
   gap: 4px;
+  font-family: var(--lc-font-body);
+  font-size: 12px;
+  color: var(--lc-text-secondary);
+  white-space: nowrap;
 }
-.table-actions :deep(.el-button--primary) {
-  color: var(--el-color-primary);
+.meta-chip.is-overdue {
+  color: var(--lc-danger);
+  font-weight: 600;
 }
-.table-actions :deep(.el-button--danger) {
-  color: var(--el-color-danger);
+.color-dot-sm {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.priority-dot-sm {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* --- Card actions (hover reveal) --- */
+.todo-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity var(--lc-duration) var(--lc-ease);
+}
+.todo-card:hover .todo-card-actions {
+  opacity: 1;
 }
 .item-more-btn {
   padding: 4px;
   color: var(--el-text-color-secondary);
 }
+
+/* --- Done section --- */
 .done-section-header {
   cursor: pointer;
   user-select: none;
+  border-radius: 6px;
+  padding: 4px 8px;
+  margin: -4px -8px;
+  transition: background var(--lc-duration) var(--lc-ease);
+}
+.done-section-header:hover {
+  background: rgba(255, 255, 255, 0.02);
 }
 .done-toggle-icon {
-  color: var(--el-text-color-secondary);
+  color: var(--lc-text-muted);
   display: inline-flex;
   align-items: center;
-  font-size: 14px;
-  line-height: 1;
-  transition: transform 0.2s ease;
+  transition: transform 0.25s var(--lc-ease);
 }
 .done-toggle-icon.is-collapsed {
   transform: rotate(-90deg);
 }
+
+/* --- Layout --- */
+.todo-layout {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr) 360px;
+  gap: 16px;
+  height: 100%;
+  min-height: 0;
+}
+.todo-sidebar,
+.todo-list-pane,
+.todo-detail-pane {
+  min-height: 0;
+}
+.todo-list-pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.todo-list-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.todo-detail-pane {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--lc-surface-0);
+  border: 1px solid var(--lc-border);
+  border-radius: var(--lc-radius-md);
+}
+
+/* --- Sidebar stats --- */
+.todo-stats {
+  width: auto;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.stats-section {
+  background: var(--lc-surface-1);
+  border: 1px solid var(--lc-border);
+  border-radius: var(--lc-radius-sm);
+  padding: 16px;
+}
+.stats-section-title {
+  font-family: var(--lc-font-display);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--lc-text-muted);
+  margin-bottom: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+}
+.stats-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.stats-section-header .stats-section-title {
+  margin-bottom: 0;
+}
+.stats-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.stat-card {
+  text-align: center;
+  padding: 12px 8px 10px;
+  background: var(--lc-surface-2);
+  border-radius: 6px;
+  border: 1px solid var(--lc-border-subtle);
+}
+.stat-number {
+  font-family: var(--lc-font-display);
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--lc-text);
+  line-height: 1.1;
+}
+.stat-label {
+  font-family: var(--lc-font-body);
+  font-size: 11px;
+  color: var(--lc-text-muted);
+  margin-top: 4px;
+  letter-spacing: 0.3px;
+}
+.stat-card.is-alert .stat-number {
+  color: var(--lc-danger);
+}
+.stats-bar-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.stats-bar-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.stats-bar-item.is-clickable {
+  cursor: pointer;
+  border-radius: 6px;
+  padding: 4px 8px;
+  margin: -4px -8px;
+  transition: background-color 0.15s ease;
+}
+.stats-bar-item.is-clickable:hover {
+  background-color: var(--el-fill-color-light);
+}
+.stats-bar-item.is-active {
+  background-color: var(--lc-accent-dim);
+  border-left: 3px solid var(--lc-accent);
+  padding-left: 5px;
+}
+.stats-bar-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--lc-text);
+}
+.stats-bar-count {
+  margin-left: auto;
+  font-family: var(--lc-font-display);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--lc-text-secondary);
+}
+.stats-bar-track {
+  height: 5px;
+  background: var(--lc-surface-3);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.stats-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.35s var(--lc-ease);
+}
+.priority-bar-p0 {
+  background-color: var(--lc-danger);
+}
+.priority-bar-p1 {
+  background-color: var(--lc-warning);
+}
+.priority-bar-p2 {
+  background-color: var(--lc-accent);
+}
+.priority-bar-p3 {
+  background-color: var(--lc-text-muted);
+}
+
+/* --- Filter indicator --- */
+.filter-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  font-size: 13px;
+  background: var(--lc-accent-dim);
+  border: 1px solid rgba(56, 189, 248, 0.15);
+  border-radius: 6px;
+}
+.filter-indicator-text {
+  color: var(--lc-text);
+}
+
+/* --- Shared dot styles --- */
+.color-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 6px;
+  border-radius: 50%;
+  vertical-align: middle;
+}
+.priority-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 6px;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+.priority-p0 {
+  background-color: var(--lc-danger);
+}
+.priority-p1 {
+  background-color: var(--lc-warning);
+}
+.priority-p2 {
+  background-color: var(--lc-accent);
+}
+.priority-p3 {
+  background-color: var(--lc-text-muted);
+}
+
+.todo-card.is-selected {
+  border-color: var(--lc-accent);
+  box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.16);
+  background: linear-gradient(135deg, rgba(56, 189, 248, 0.08), var(--lc-surface-1) 72%);
+}
+.todo-card.is-selected .todo-card-actions {
+  opacity: 1;
+}
+.detail-pane-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 18px 14px;
+  border-bottom: 1px solid var(--lc-border);
+}
+.detail-title-group {
+  min-width: 0;
+}
+.detail-eyebrow {
+  font-size: 12px;
+  color: var(--lc-text-muted);
+  margin-bottom: 6px;
+}
+.detail-title {
+  margin: 0;
+  font-size: 20px;
+  line-height: 1.3;
+  color: var(--lc-text);
+  word-break: break-word;
+}
+.detail-subtitle {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--lc-text-muted);
+}
+.detail-title-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.detail-header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.detail-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 18px;
+}
+.detail-scroll--form {
+  padding-bottom: 8px;
+}
+.detail-content {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.detail-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.detail-section-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--lc-text);
+}
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.detail-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px;
+  border-radius: 10px;
+  background: var(--lc-surface-1);
+  border: 1px solid var(--lc-border);
+}
+.detail-field--full {
+  grid-column: 1 / -1;
+}
+.detail-label {
+  font-size: 12px;
+  color: var(--lc-text-muted);
+}
+.detail-value {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--lc-text);
+  word-break: break-word;
+}
+.detail-hint {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--lc-text-muted);
+}
+.detail-description {
+  min-height: 96px;
+  padding: 14px;
+  border-radius: 10px;
+  background: var(--lc-surface-1);
+  border: 1px solid var(--lc-border);
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--lc-text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.detail-pane-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 18px;
+  border-top: 1px solid var(--lc-border);
+  background: var(--lc-surface-0);
+}
+.detail-footer-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.detail-footer-submit {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+.detail-pane-footer--meta {
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--lc-text-muted);
+}
+.detail-empty-pane {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 24px;
+  text-align: center;
+}
+.detail-empty-icon {
+  color: var(--lc-text-muted);
+}
+.detail-empty-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--lc-text);
+}
+.detail-empty-text {
+  max-width: 240px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--lc-text-muted);
+}
+.detail-empty-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  width: 100%;
+}
+.detail-empty-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--lc-surface-1);
+  border: 1px solid var(--lc-border);
+  color: var(--lc-text-muted);
+}
+.detail-empty-stat strong {
+  font-size: 20px;
+  color: var(--lc-text);
+}
+.detail-empty-stat.is-alert strong {
+  color: var(--lc-danger);
+}
+.detail-edit,
+.detail-view {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+.todo-detail-pane .todo-form-row {
+  flex-direction: column;
+  gap: 0;
+}
+.todo-detail-pane .todo-form-item-date,
+.todo-detail-pane .todo-form-item-time,
+.todo-detail-pane .todo-form-item-flex {
+  width: 100%;
+}
+.todo-detail-pane .time-picker-inline {
+  width: 100%;
+  align-items: stretch;
+}
+.todo-detail-pane .time-picker-fused {
+  flex: 1;
+  min-width: 0;
+}
+
+/* --- Dialog forms --- */
 .basic-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(280px, 1fr));
@@ -2284,6 +3380,39 @@ onBeforeUnmount(() => {
 }
 .todo-form-section:last-child {
   margin-bottom: 0;
+}
+.todo-form-more-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  margin-bottom: 12px;
+  cursor: pointer;
+  user-select: none;
+  color: var(--el-color-primary);
+  font-size: 13px;
+  border-top: 1px dashed var(--lc-border);
+  border-bottom: 1px dashed var(--lc-border);
+}
+.todo-form-more-toggle:hover {
+  opacity: 0.85;
+}
+.more-toggle-text {
+  font-weight: 500;
+}
+.more-toggle-summary {
+  color: var(--lc-text-muted);
+  font-size: 12px;
+}
+.more-toggle-icon {
+  display: inline-flex;
+  transition: transform 0.2s;
+}
+.more-toggle-icon.is-expanded {
+  transform: rotate(180deg);
+}
+.todo-form-collapsible {
+  /* container for v-show toggled fields */
 }
 .todo-item-form :deep(.el-form-item__label) {
   font-size: 13px;
@@ -2323,10 +3452,10 @@ onBeforeUnmount(() => {
   min-width: 160px;
 }
 .time-picker-fused:hover {
-  border-color: var(--el-color-primary-light-3);
+  border-color: var(--lc-border-hover);
 }
 .time-picker-fused:focus-within {
-  border-color: var(--el-color-primary);
+  border-color: var(--lc-accent);
 }
 .time-picker-fused .time-fused-select :deep(.el-input__wrapper) {
   box-shadow: none !important;
@@ -2340,27 +3469,6 @@ onBeforeUnmount(() => {
 }
 .time-fused-clear {
   flex-shrink: 0;
-}
-.priority-dot {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  margin-right: 6px;
-  vertical-align: middle;
-  flex-shrink: 0;
-}
-.priority-p0 {
-  background-color: var(--lc-danger);
-}
-.priority-p1 {
-  background-color: var(--lc-warning);
-}
-.priority-p2 {
-  background-color: var(--lc-accent);
-}
-.priority-p3 {
-  background-color: var(--lc-text-muted);
 }
 .repeat-detail-card {
   background: var(--lc-surface-0);
@@ -2383,162 +3491,47 @@ onBeforeUnmount(() => {
 .repeat-radio-group :deep(.el-radio-button__inner) {
   min-width: 88px;
 }
-.color-dot {
-  display: inline-block;
-  width: 10px;
-  height: 10px;
-  margin-right: 6px;
-  border-radius: 50%;
-  vertical-align: middle;
+
+/* --- Animation --- */
+@keyframes todoCardSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
-.todo-layout {
-  display: flex;
-  gap: 24px;
-  flex: 1;
-  min-height: 0;
-}
-.todo-main {
-  flex: 1;
-  min-width: 0;
-}
-.todo-stats {
-  width: 280px;
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-.stats-section {
-  background: var(--el-bg-color);
-  border: 1px solid var(--el-border-color-lighter);
-  border-radius: 8px;
-  padding: 16px;
-}
-.stats-section-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--el-text-color-secondary);
-  margin-bottom: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-.stats-section-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-.stats-section-header .stats-section-title {
-  margin-bottom: 0;
-}
-.stats-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-}
-.stat-card {
-  text-align: center;
-  padding: 10px 8px;
-  background: var(--el-fill-color-lighter);
-  border-radius: 6px;
-}
-.stat-number {
-  font-size: 22px;
-  font-weight: 700;
-  color: var(--el-text-color-primary);
-  line-height: 1.2;
-}
-.stat-label {
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
-  margin-top: 2px;
-}
-.stat-card.is-alert .stat-number {
-  color: var(--el-color-danger);
-}
-.stats-bar-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.stats-bar-item {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.stats-bar-item.is-clickable {
-  cursor: pointer;
-  border-radius: 6px;
-  padding: 4px 8px;
-  margin: -4px -8px;
-  transition: background-color 0.15s ease;
-}
-.stats-bar-item.is-clickable:hover {
-  background-color: var(--el-fill-color-light);
-}
-.stats-bar-item.is-active {
-  background-color: var(--el-color-primary-light-9);
-  border-left: 3px solid var(--el-color-primary);
-  padding-left: 5px;
-}
-.stats-bar-label {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 13px;
-  color: var(--el-text-color-primary);
-}
-.filter-indicator {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 8px 12px;
-  margin-bottom: 12px;
-  font-size: 13px;
-  background: var(--el-color-primary-light-9);
-  border: 1px solid var(--el-color-primary-light-7);
-  border-radius: 6px;
-}
-.filter-indicator-text {
-  color: var(--el-text-color-regular);
-}
-.stats-bar-count {
-  margin-left: auto;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--el-text-color-secondary);
-}
-.stats-bar-track {
-  height: 6px;
-  background: var(--el-fill-color-lighter);
-  border-radius: 3px;
-  overflow: hidden;
-}
-.stats-bar-fill {
-  height: 100%;
-  border-radius: 3px;
-  transition: width 0.3s ease;
-}
-.priority-bar-p0 {
-  background-color: var(--lc-danger);
-}
-.priority-bar-p1 {
-  background-color: var(--lc-warning);
-}
-.priority-bar-p2 {
-  background-color: var(--lc-accent);
-}
-.priority-bar-p3 {
-  background-color: var(--lc-text-muted);
-}
-@media (max-width: 900px) {
+
+/* --- Responsive --- */
+@media (max-width: 1200px) {
   .todo-layout {
-    flex-direction: column;
+    grid-template-columns: 280px minmax(0, 1fr) 320px;
+  }
+}
+@media (max-width: 960px) {
+  .todo-layout {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "list"
+      "detail"
+      "stats";
+  }
+  .todo-list-pane {
+    grid-area: list;
+  }
+  .todo-detail-pane {
+    grid-area: detail;
+    min-height: 560px;
+  }
+  .todo-sidebar {
+    grid-area: stats;
+    width: 100%;
+    overflow: visible;
+    padding-right: 0;
   }
   .todo-stats {
-    width: 100%;
     flex-direction: row;
     flex-wrap: wrap;
   }
@@ -2551,34 +3544,17 @@ onBeforeUnmount(() => {
   .basic-grid {
     grid-template-columns: 1fr;
   }
-  .todo-form-row {
-    flex-direction: column;
-    gap: 0;
+  .detail-grid,
+  .detail-empty-stats {
+    grid-template-columns: 1fr;
   }
-}
-</style>
-
-<style>
-.todo-item-dialog .el-dialog {
-  border-radius: var(--lc-radius-lg);
-  background: var(--lc-surface-0);
-}
-.todo-item-dialog .el-dialog__header {
-  margin-right: 0;
-  padding: 20px 24px 16px;
-  border-bottom: 1px solid var(--lc-border);
-}
-.todo-item-dialog .el-dialog__title {
-  font-family: var(--lc-font-display);
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--lc-text);
-}
-.todo-item-dialog .el-dialog__body {
-  padding: 20px 24px;
-}
-.todo-item-dialog .el-dialog__footer {
-  padding: 16px 24px 20px;
-  border-top: 1px solid var(--lc-border);
+  .detail-pane-header,
+  .detail-pane-footer {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+  .detail-scroll {
+    padding: 14px;
+  }
 }
 </style>
