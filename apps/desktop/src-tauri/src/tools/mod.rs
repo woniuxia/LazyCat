@@ -28,6 +28,7 @@ pub mod vault;
 pub mod launcher;
 pub mod todo;
 pub mod capture;
+pub mod maven;
 
 use serde_json::Value;
 
@@ -61,6 +62,7 @@ pub fn execute_tool(domain: &str, action: &str, payload: &Value) -> Result<Value
         "vault"    => vault::execute(action, payload),
         "launcher" => launcher::execute(action, payload),
         "todo"     => todo::execute(action, payload),
+        "maven"    => maven::execute(action, payload),
         _ => Err(format!("unsupported command: {domain}.{action}")),
     }
 }

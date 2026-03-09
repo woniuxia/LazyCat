@@ -145,6 +145,7 @@ const sidebarItems: SidebarItem[] = [
         { id: "csv-json", name: "CSV/JSON", desc: "CSV 转 JSON" },
         { id: "java-bean-js", name: "JavaBean 转 JS", desc: "Java Bean 转 JSON 与 JS Object" },
         { id: "mybatis-helper", name: "MyBatis 助手", desc: "动态 SQL 渲染与占位符展开" },
+        { id: "maven", name: "Maven 定位", desc: "本地 Maven 仓库 Jar 包定位与版本查询" },
         { id: "base-converter", name: "进制转换", desc: "二/八/十/十六进制转换" },
         { id: "color", name: "颜色转换", desc: "颜色格式互转与对比度检查" },
         { id: "escape-unescape", name: "转义/反转义", desc: "JSON/HTML/SQL/JS 字符串转义与反转义" },

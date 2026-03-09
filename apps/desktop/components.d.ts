@@ -85,6 +85,7 @@ declare module 'vue' {
     LauncherPanel: typeof import('./src/components/LauncherPanel.vue')['default']
     ManualPanel: typeof import('./src/components/ManualPanel.vue')['default']
     MarkdownPanel: typeof import('./src/components/MarkdownPanel.vue')['default']
+    MavenPanel: typeof import('./src/components/MavenPanel.vue')['default']
     MenuVisibilityDialog: typeof import('./src/components/MenuVisibilityDialog.vue')['default']
     MonacoPane: typeof import('./src/components/MonacoPane.vue')['default']
     MybatisPanel: typeof import('./src/components/MybatisPanel.vue')['default']

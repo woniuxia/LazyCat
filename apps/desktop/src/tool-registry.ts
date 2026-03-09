@@ -51,6 +51,7 @@ const toolRegistry: Record<string, Component> = {
   vault: defineAsyncComponent(() => import("./components/VaultPanel.vue")),
   launcher: defineAsyncComponent(() => import("./components/LauncherPanel.vue")),
   todo: defineAsyncComponent(() => import("./components/TodoPanel.vue")),
+  maven: defineAsyncComponent(() => import("./components/MavenPanel.vue")),
   hotkey: defineAsyncComponent(() => import("./components/HotkeyPanel.vue")),
   capture: defineAsyncComponent(() => import("./components/CapturePanel.vue")),
   settings: defineAsyncComponent(() => import("./components/SettingsPanel.vue")),
