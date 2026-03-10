@@ -203,15 +203,12 @@
                     <span class="todo-card-badges">
                       <span v-if="row.pinned" class="item-badge badge-pinned" title="置顶">
                         <el-icon :size="11"><Top /></el-icon>
-                        置顶
                       </span>
                       <span v-if="hasRepeatRule(row)" class="item-badge badge-repeat" title="重复">
                         <el-icon :size="11"><Refresh /></el-icon>
-                        重复
                       </span>
                       <span v-if="isItemOverdue(row)" class="item-badge badge-overdue" title="逾期">
                         <el-icon :size="11"><AlarmClock /></el-icon>
-                        逾期
                       </span>
                     </span>
                   </div>
@@ -230,13 +227,6 @@
                         :style="{ backgroundColor: row.typeColor || '#909399' }"
                       />
                       {{ row.typeName }}
-                    </span>
-                    <span class="meta-chip meta-priority">
-                      <span
-                        class="priority-dot-sm"
-                        :class="'priority-' + row.priority.toLowerCase()"
-                      />
-                      {{ row.priority }}
                     </span>
                     <span v-if="row.assignees.length > 0" class="meta-chip meta-assignee">
                       <el-icon :size="12"><User /></el-icon>
@@ -297,7 +287,6 @@
                     <span class="todo-card-badges">
                       <span v-if="hasRepeatRule(row)" class="item-badge badge-repeat" title="重复">
                         <el-icon :size="11"><Refresh /></el-icon>
-                        重复
                       </span>
                     </span>
                   </div>
@@ -312,13 +301,6 @@
                         :style="{ backgroundColor: row.typeColor || '#909399' }"
                       />
                       {{ row.typeName }}
-                    </span>
-                    <span class="meta-chip meta-priority">
-                      <span
-                        class="priority-dot-sm"
-                        :class="'priority-' + row.priority.toLowerCase()"
-                      />
-                      {{ row.priority }}
                     </span>
                   </div>
                 </div>
@@ -450,6 +432,11 @@
                           clearable
                           style="width: 100%"
                         />
+                        <div class="date-quick-presets">
+                          <el-button text size="small" class="date-preset-btn" @click="fillQuickDate(0)">今天</el-button>
+                          <el-button text size="small" class="date-preset-btn" @click="fillQuickDate(1)">明天</el-button>
+                          <el-button text size="small" class="date-preset-btn" @click="fillQuickDate(2)">后天</el-button>
+                        </div>
                       </el-form-item>
                       <el-form-item label="时间" class="todo-form-item-time">
                         <div class="time-picker-inline">
@@ -2150,6 +2137,22 @@ function fillDefaultDateTime() {
   }
 }
 
+function fillQuickDate(daysOffset: number) {
+  const target = new Date();
+  target.setDate(target.getDate() + daysOffset);
+  const year = target.getFullYear();
+  const month = pad2(target.getMonth() + 1);
+  const day = pad2(target.getDate());
+  itemDraft.eventDate = `${year}-${month}-${day}`;
+  if (
+    itemDraft.reminderPresets.length === 1 &&
+    itemDraft.reminderPresets[0] === "none"
+  ) {
+    itemDraft.reminderPresets = ["0m"];
+    lastReminderPresetSelection.value = ["0m"];
+  }
+}
+
 function resetItemDraft() {
   itemDraft.id = 0;
   itemDraft.rootId = 0;
@@ -2734,7 +2737,7 @@ onBeforeUnmount(() => {
 .todo-card-list {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
 }
 
 /* --- Card --- */
@@ -2752,13 +2755,15 @@ onBeforeUnmount(() => {
     background var(--lc-duration) var(--lc-ease),
     border-color var(--lc-duration) var(--lc-ease),
     box-shadow var(--lc-duration) var(--lc-ease),
-    opacity var(--lc-duration) var(--lc-ease);
+    opacity var(--lc-duration) var(--lc-ease),
+    transform var(--lc-duration) var(--lc-ease);
   animation: todoCardSlideIn 0.3s var(--lc-ease-out) calc(var(--item-index, 0) * 25ms) both;
 }
 .todo-card:hover {
   background: var(--lc-surface-2);
   border-color: var(--lc-border-hover);
   box-shadow: var(--lc-shadow-sm);
+  transform: translateY(-1px);
 }
 
 /* Priority strips */
@@ -2810,7 +2815,7 @@ onBeforeUnmount(() => {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 4px;
 }
 .todo-card-top {
   display: flex;
@@ -2846,8 +2851,8 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  height: 18px;
-  padding: 0 6px;
+  height: 16px;
+  padding: 0 4px;
   border-radius: 4px;
   font-family: var(--lc-font-body);
   font-size: 11px;
@@ -2872,7 +2877,7 @@ onBeforeUnmount(() => {
 .todo-card-meta {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 10px;
   flex-wrap: wrap;
 }
 .meta-chip {
@@ -2989,14 +2994,14 @@ onBeforeUnmount(() => {
   background: var(--lc-surface-1);
   border: 1px solid var(--lc-border);
   border-radius: var(--lc-radius-sm);
-  padding: 16px;
+  padding: 14px;
 }
 .stats-section-title {
   font-family: var(--lc-font-display);
   font-size: 11px;
   font-weight: 700;
   color: var(--lc-text-muted);
-  margin-bottom: 12px;
+  margin-bottom: 10px;
   text-transform: uppercase;
   letter-spacing: 0.8px;
 }
@@ -3005,7 +3010,7 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
 }
 .stats-section-header .stats-section-title {
   margin-bottom: 0;
@@ -3017,14 +3022,14 @@ onBeforeUnmount(() => {
 }
 .stat-card {
   text-align: center;
-  padding: 12px 8px 10px;
+  padding: 10px 8px 8px;
   background: var(--lc-surface-2);
   border-radius: 6px;
   border: 1px solid var(--lc-border-subtle);
 }
 .stat-number {
   font-family: var(--lc-font-display);
-  font-size: 24px;
+  font-size: 20px;
   font-weight: 700;
   color: var(--lc-text);
   line-height: 1.1;
@@ -3033,7 +3038,7 @@ onBeforeUnmount(() => {
   font-family: var(--lc-font-body);
   font-size: 11px;
   color: var(--lc-text-muted);
-  margin-top: 4px;
+  margin-top: 2px;
   letter-spacing: 0.3px;
 }
 .stat-card.is-alert .stat-number {
@@ -3163,7 +3168,7 @@ onBeforeUnmount(() => {
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  padding: 18px 18px 14px;
+  padding: 16px 18px 12px;
   border-bottom: 1px solid var(--lc-border);
 }
 .detail-title-group {
@@ -3211,12 +3216,12 @@ onBeforeUnmount(() => {
 .detail-content {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 14px;
 }
 .detail-section {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 }
 .detail-section-title {
   font-size: 13px;
@@ -3235,7 +3240,7 @@ onBeforeUnmount(() => {
   padding: 12px;
   border-radius: 10px;
   background: var(--lc-surface-1);
-  border: 1px solid var(--lc-border);
+  border: 1px solid var(--lc-border-subtle);
 }
 .detail-field--full {
   grid-column: 1 / -1;
@@ -3256,7 +3261,7 @@ onBeforeUnmount(() => {
   color: var(--lc-text-muted);
 }
 .detail-description {
-  min-height: 96px;
+  min-height: 72px;
   padding: 14px;
   border-radius: 10px;
   background: var(--lc-surface-1);
@@ -3376,7 +3381,7 @@ onBeforeUnmount(() => {
   align-items: center;
 }
 .todo-form-section {
-  margin-bottom: 20px;
+  margin-bottom: 16px;
 }
 .todo-form-section:last-child {
   margin-bottom: 0;
@@ -3385,17 +3390,22 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 0;
-  margin-bottom: 12px;
+  padding: 10px 0;
+  margin-bottom: 8px;
   cursor: pointer;
   user-select: none;
   color: var(--el-color-primary);
   font-size: 13px;
-  border-top: 1px dashed var(--lc-border);
-  border-bottom: 1px dashed var(--lc-border);
+  border-top: 1px solid var(--lc-border-subtle);
+  border-bottom: 1px solid var(--lc-border-subtle);
+  border-radius: 0;
+  transition:
+    background 0.15s ease,
+    border-radius 0.15s ease;
 }
 .todo-form-more-toggle:hover {
-  opacity: 0.85;
+  background: var(--lc-surface-1);
+  border-radius: 6px;
 }
 .more-toggle-text {
   font-weight: 500;
@@ -3424,7 +3434,7 @@ onBeforeUnmount(() => {
   gap: 16px;
 }
 .todo-form-row .el-form-item {
-  margin-bottom: 18px;
+  margin-bottom: 14px;
 }
 .todo-form-item-flex {
   flex: 1;
@@ -3474,7 +3484,7 @@ onBeforeUnmount(() => {
   background: var(--lc-surface-0);
   border: 1px solid var(--lc-border);
   border-radius: var(--el-border-radius-base);
-  padding: 16px;
+  padding: 12px;
   margin-bottom: 12px;
 }
 .repeat-tip {
@@ -3489,7 +3499,7 @@ onBeforeUnmount(() => {
   gap: 8px;
 }
 .repeat-radio-group :deep(.el-radio-button__inner) {
-  min-width: 88px;
+  min-width: 76px;
 }
 
 /* --- Animation --- */
@@ -3556,5 +3566,44 @@ onBeforeUnmount(() => {
   .detail-scroll {
     padding: 14px;
   }
+}
+
+/* --- Quick date presets --- */
+.date-quick-presets {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+}
+.date-preset-btn {
+  font-size: 12px;
+  padding: 2px 8px;
+  height: auto;
+  color: var(--lc-text-muted);
+}
+.date-preset-btn:hover {
+  color: var(--lc-accent);
+}
+
+/* --- Custom scrollbar --- */
+.todo-list-scroll::-webkit-scrollbar,
+.detail-scroll::-webkit-scrollbar,
+.todo-sidebar::-webkit-scrollbar {
+  width: 4px;
+}
+.todo-list-scroll::-webkit-scrollbar-thumb,
+.detail-scroll::-webkit-scrollbar-thumb,
+.todo-sidebar::-webkit-scrollbar-thumb {
+  background: var(--lc-border);
+  border-radius: 2px;
+}
+.todo-list-scroll::-webkit-scrollbar-thumb:hover,
+.detail-scroll::-webkit-scrollbar-thumb:hover,
+.todo-sidebar::-webkit-scrollbar-thumb:hover {
+  background: var(--lc-border-hover);
+}
+.todo-list-scroll::-webkit-scrollbar-track,
+.detail-scroll::-webkit-scrollbar-track,
+.todo-sidebar::-webkit-scrollbar-track {
+  background: transparent;
 }
 </style>

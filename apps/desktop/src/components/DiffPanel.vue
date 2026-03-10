@@ -5,6 +5,7 @@
         <el-radio-button :value="true">并排对比</el-radio-button>
         <el-radio-button :value="false">内联对比</el-radio-button>
       </el-radio-group>
+      <el-button size="small" @click="swapContent">交换</el-button>
       <el-button size="small" @click="clearAll">清空</el-button>
     </div>
     <div ref="diffContainer" class="diff-editor-container"></div>
@@ -55,6 +56,16 @@ onMounted(() => {
 watch(renderSideBySide, (val) => {
   diffEditor?.updateOptions({ renderSideBySide: val });
 });
+
+function swapContent() {
+  if (!diffEditor) return;
+  const model = diffEditor.getModel();
+  if (!model) return;
+  const origVal = model.original.getValue();
+  const modVal = model.modified.getValue();
+  model.original.setValue(modVal);
+  model.modified.setValue(origVal);
+}
 
 function clearAll() {
   if (!diffEditor) return;
