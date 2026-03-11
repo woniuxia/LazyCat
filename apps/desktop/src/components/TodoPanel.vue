@@ -10,7 +10,7 @@
               <div class="stat-label">待办</div>
             </div>
             <div class="stat-card">
-              <div class="stat-number">{{ doneItems.length }}</div>
+              <div class="stat-number">{{ doneItems.length + recentWeekItems.length }}</div>
               <div class="stat-label">已完成</div>
             </div>
             <div class="stat-card">
@@ -240,6 +240,79 @@
           </div>
 
           <div class="item-section">
+            <div class="item-section-header done-section-header" @click="toggleRecentWeekCollapsed">
+              <div class="item-section-title-wrap">
+                <h3 class="item-section-title done-title">最近一周已办</h3>
+                <span class="count-badge is-muted">{{ displayRecentWeekItems.length }}</span>
+              </div>
+              <span class="done-toggle-icon" :class="{ 'is-collapsed': recentWeekCollapsed }">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                  <path
+                    d="M4 6l4 4 4-4"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </span>
+            </div>
+
+            <div v-if="displayRecentWeekItems.length === 0" class="todo-empty is-muted">
+              <span class="todo-empty-text">{{
+                hasActiveFilter
+                  ? "当前筛选条件下最近一周暂无已办事项"
+                  : "最近一周暂无已办事项"
+              }}</span>
+            </div>
+            <div v-else v-show="!recentWeekCollapsed" class="todo-card-list is-done-list">
+              <div
+                v-for="(row, index) in displayRecentWeekItems"
+                :key="row.id"
+                class="todo-card is-done-card"
+                :class="[
+                  'priority-stripe-' + row.priority.toLowerCase(),
+                  { 'is-selected': selectedItemId === row.id },
+                ]"
+                :style="{ '--item-index': index }"
+                @click="selectItem(row)"
+                @dblclick="enterEditMode(row)"
+              >
+                <div class="todo-card-check" @click.stop>
+                  <el-checkbox
+                    :model-value="isDoneItem(row)"
+                    :disabled="!row.status"
+                    @change="onCheckItem(row)"
+                  />
+                </div>
+                <div class="todo-card-body">
+                  <div class="todo-card-top">
+                    <span class="todo-card-title is-done">{{ row.title }}</span>
+                    <span class="todo-card-badges">
+                      <span v-if="hasRepeatRule(row)" class="item-badge badge-repeat" title="重复">
+                        <el-icon :size="11"><Refresh /></el-icon>
+                      </span>
+                    </span>
+                  </div>
+                  <div class="todo-card-meta">
+                    <span v-if="relativeDoneTimeLabel(row)" class="meta-chip meta-time">
+                      <el-icon :size="12"><Calendar /></el-icon>
+                      {{ relativeDoneTimeLabel(row) }}
+                    </span>
+                    <span v-if="row.typeName" class="meta-chip meta-type">
+                      <span
+                        class="color-dot-sm"
+                        :style="{ backgroundColor: row.typeColor || '#909399' }"
+                      />
+                      {{ row.typeName }}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="item-section">
             <div class="item-section-header done-section-header" @click="toggleDoneCollapsed">
               <div class="item-section-title-wrap">
                 <h3 class="item-section-title done-title">已办事项</h3>
@@ -334,7 +407,12 @@
                     </el-radio-group>
                   </el-form-item>
                   <el-form-item label="标题">
-                    <el-input v-model.trim="itemDraft.title" placeholder="请输入事项标题" />
+                    <el-input
+                      ref="titleInputRef"
+                      v-model.trim="itemDraft.title"
+                      placeholder="请输入事项标题"
+                      @keydown.enter.exact.prevent="onCreateTitleEnter"
+                    />
                   </el-form-item>
                 </div>
 
@@ -742,6 +820,33 @@
             <!-- Content -->
             <div class="detail-scroll">
               <div class="detail-content">
+                <div v-if="!hasDetailCards" class="detail-card detail-card--empty">
+                  <div class="detail-card-header">
+                    <div class="detail-card-icon primary">
+                      <el-icon><Document /></el-icon>
+                    </div>
+                    <span class="detail-card-title">暂无可展示详情</span>
+                  </div>
+                  <div class="detail-card-body">
+                    <div class="detail-empty-info">
+                      <div class="detail-empty-info-text">
+                        当前事项还没有补充任何可展示信息。
+                      </div>
+                      <div class="detail-empty-info-hint">
+                        你可以在编辑中添加：到期时间、提醒、分类、执行人或详细描述。
+                      </div>
+                      <div class="detail-empty-info-actions">
+                        <el-button size="small" type="primary" @click="enterEditMode(selectedItem)">
+                          去完善
+                        </el-button>
+                        <el-button size="small" link @click="enterEditMode(selectedItem)">
+                          编辑
+                        </el-button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
                 <!-- Status Card (only if has non-default status or priority) -->
                 <div v-if="selectedItem.status !== 'pending' || selectedItem.priority !== 'P2'" class="detail-card">
                   <div class="detail-card-header">
@@ -1052,7 +1157,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { listen } from "@tauri-apps/api/event";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import {
@@ -1069,6 +1174,7 @@ import {
   User,
 } from "@element-plus/icons-vue";
 import { ElMessage, ElMessageBox } from "element-plus";
+import type { InputInstance } from "element-plus";
 import { invokeToolByChannel } from "../bridge/tauri";
 import type {
   TodoAssignee,
@@ -1125,9 +1231,11 @@ const types = ref<TodoType[]>([]);
 const assignees = ref<TodoAssignee[]>([]);
 const showMoreFields = ref(false);
 const itemKeyword = ref("");
+const titleInputRef = ref<InputInstance | null>(null);
 const filterType = ref<string | null>(null);
 const filterPriority = ref<TodoPriority | null>(null);
 const doneCollapsed = ref(true);
+const recentWeekCollapsed = ref(true);
 const basicsDialogVisible = ref(false);
 const itemDialogMode = ref<ItemDialogMode>("create");
 const detailMode = ref<DetailMode>("empty");
@@ -1140,6 +1248,7 @@ const editingRootSnapshot = ref<TodoItem | null>(null);
 const defaultReminderPresets: TodoReminderPreset[] = ["none"];
 const lastReminderPresetSelection = ref<TodoReminderPreset[]>([...defaultReminderPresets]);
 let reminderUnlisten: UnlistenFn | null = null;
+let titleFocusTimer: ReturnType<typeof setTimeout> | null = null;
 
 // Drawer 相关状态
 
@@ -1275,6 +1384,7 @@ const sortedTypes = computed(() => {
 
 const bucketedItems = computed(() => groupTodoItemsByBucket(filteredItems.value));
 const activeItems = computed(() => bucketedItems.value.activeItems);
+const recentWeekItems = computed(() => bucketedItems.value.recentWeekItems);
 const doneItems = computed(() => bucketedItems.value.doneItems);
 
 const hasActiveFilter = computed(() => filterType.value !== null || filterPriority.value !== null);
@@ -1293,6 +1403,7 @@ function applyDisplayFilter(list: TodoItem[]): TodoItem[] {
 }
 
 const displayActiveItems = computed(() => applyDisplayFilter(activeItems.value));
+const displayRecentWeekItems = computed(() => applyDisplayFilter(recentWeekItems.value));
 const displayDoneItems = computed(() => applyDisplayFilter(doneItems.value));
 const selectedItem = computed(() =>
   selectedItemId.value == null
@@ -1302,6 +1413,18 @@ const selectedItem = computed(() =>
 const selectedItemRecurrence = computed(() =>
   selectedItem.value ? getItemRecurrence(selectedItem.value) : null,
 );
+const hasDetailCards = computed(() => {
+  const item = selectedItem.value;
+  if (!item) return false;
+
+  const hasStatusOrPriority = item.status !== "pending" || item.priority !== "P2";
+  const hasSchedule = !!item.eventAt || effectiveReminderPresets(item.reminderPresets).length > 0;
+  const hasInfo = !!item.typeName || item.assignees.length > 0;
+  const hasRepeat = hasRepeatRule(item);
+  const hasDescription = item.description.trim().length > 0;
+
+  return hasStatusOrPriority || hasSchedule || hasInfo || hasRepeat || hasDescription;
+});
 const isDetailEditing = computed(
   () => detailMode.value === "edit" || detailMode.value === "create",
 );
@@ -1521,6 +1644,25 @@ async function selectItem(item: TodoItem) {
   detailMode.value = "view";
 }
 
+async function focusCreateTitleInput() {
+  if (titleFocusTimer) {
+    clearTimeout(titleFocusTimer);
+    titleFocusTimer = null;
+  }
+  await nextTick();
+  titleFocusTimer = setTimeout(() => {
+    titleFocusTimer = null;
+    if (detailMode.value !== "create" || itemDialogMode.value !== "create") return;
+    titleInputRef.value?.focus();
+  }, 0);
+}
+
+function onCreateTitleEnter(event: KeyboardEvent) {
+  if (event.isComposing) return;
+  if (detailMode.value !== "create" || itemDialogMode.value !== "create") return;
+  void saveItem();
+}
+
 async function startCreate() {
   if (!(await ensureDetailCanLeave())) return;
   resetItemDraft();
@@ -1529,6 +1671,7 @@ async function startCreate() {
   selectedItemId.value = null;
   showMoreFields.value = false;
   markDraftBaseline();
+  await focusCreateTitleInput();
 }
 
 function cancelDetailEdit() {
@@ -1725,7 +1868,16 @@ function itemTimeLabel(item: TodoItem) {
 }
 
 function relativeTimeLabel(item: TodoItem): string {
-  const time = itemScheduleAt(item);
+  return relativeDateTimeLabel(itemScheduleAt(item));
+}
+
+// 最近一周/已办列表以 updatedAt（为空则回退 createdAt）作为“完成时间”展示
+function relativeDoneTimeLabel(item: TodoItem): string {
+  const doneAt = (item.updatedAt || item.createdAt || "").trim();
+  return relativeDateTimeLabel(doneAt) || (doneAt ? formatDate(doneAt) : "");
+}
+
+function relativeDateTimeLabel(time?: string | null): string {
   if (!time) return "";
   const date = new Date(time);
   if (Number.isNaN(date.getTime())) return "";
@@ -1758,6 +1910,10 @@ function relativeTimeLabel(item: TodoItem): string {
 
 function toggleDoneCollapsed() {
   doneCollapsed.value = !doneCollapsed.value;
+}
+
+function toggleRecentWeekCollapsed() {
+  recentWeekCollapsed.value = !recentWeekCollapsed.value;
 }
 
 function handleRowAction(command: string, row: TodoItem) {
@@ -2779,6 +2935,10 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   reminderUnlisten?.();
   reminderUnlisten = null;
+  if (titleFocusTimer) {
+    clearTimeout(titleFocusTimer);
+    titleFocusTimer = null;
+  }
 });
 </script>
 
@@ -3652,6 +3812,31 @@ onBeforeUnmount(() => {
 
 .detail-card-body {
   padding: 16px;
+}
+
+/* Detail empty hint */
+.detail-empty-info {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.detail-empty-info-text {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--lc-text);
+}
+
+.detail-empty-info-hint {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--lc-text-muted);
+}
+
+.detail-empty-info-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 /* Detail Grid & Fields */

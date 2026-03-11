@@ -1,6 +1,17 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TodoItem } from "../types";
-import { groupTodoItemsByBucket } from "./todoBuckets";
+import { getRecentWeekStart, groupTodoItemsByBucket } from "./todoBuckets";
+
+beforeEach(() => {
+  vi.useFakeTimers();
+  // 固定“今天”为周四：2026-03-12
+  // 注意：使用本地时间构造，避免不同时区导致的日期漂移。
+  vi.setSystemTime(new Date(2026, 2, 12, 12, 0, 0));
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 function createItem(overrides: Partial<TodoItem> = {}): TodoItem {
   return {
@@ -34,6 +45,10 @@ function createItem(overrides: Partial<TodoItem> = {}): TodoItem {
 }
 
 describe("todoBuckets", () => {
+  it("computes recent week start as last Friday when today is Thursday", () => {
+    expect(getRecentWeekStart()).toBe("2026-03-06");
+  });
+
   it("keeps actionable items in the active bucket and sorts by time ascending", () => {
     const laterItem = createItem({ id: 11, status: "pending", eventAt: "2026-03-08T10:00:00.000Z", displayAt: "2026-03-08T10:00:00.000Z" });
     const earlierItem = createItem({ id: 12, status: "in_progress", eventAt: "2026-03-08T08:00:00.000Z", displayAt: "2026-03-08T08:00:00.000Z" });
@@ -41,6 +56,7 @@ describe("todoBuckets", () => {
     const result = groupTodoItemsByBucket([laterItem, earlierItem]);
 
     expect(result.activeItems.map((item) => item.id)).toEqual([12, 11]);
+    expect(result.recentWeekItems).toHaveLength(0);
     expect(result.doneItems).toHaveLength(0);
   });
 
@@ -80,31 +96,76 @@ describe("todoBuckets", () => {
   });
 
   it("places completed and canceled items into the done bucket", () => {
-    const completedItem = createItem({ id: 16, status: "completed" });
-    const canceledItem = createItem({ id: 17, status: "canceled" });
+    const completedItem = createItem({
+      id: 16,
+      status: "completed",
+      updatedAt: "2026-03-10T08:00:00.000Z",
+    });
+    const canceledItem = createItem({
+      id: 17,
+      status: "canceled",
+      updatedAt: "2026-03-01T10:00:00.000Z",
+    });
 
     const result = groupTodoItemsByBucket([completedItem, canceledItem]);
+    const doneSeries = [...result.recentWeekItems, ...result.doneItems];
 
     expect(result.activeItems).toHaveLength(0);
-    expect(result.doneItems).toHaveLength(2);
-    expect(result.doneItems.every((item) => item.status === "completed" || item.status === "canceled")).toBe(true);
+    expect(doneSeries).toHaveLength(2);
+    expect(
+      doneSeries.every((item) => item.status === "completed" || item.status === "canceled"),
+    ).toBe(true);
   });
 
-  it("sorts done items by updatedAt descending", () => {
-    const olderDoneItem = createItem({
+  it("routes done items into recent week and done buckets by updatedAt", () => {
+    const inRecentWeek = createItem({
+      id: 31,
+      status: "completed",
+      updatedAt: "2026-03-06T09:00:00.000Z",
+    });
+    const olderThanRecentWeek = createItem({
+      id: 32,
+      status: "canceled",
+      updatedAt: "2026-03-05T23:59:59.000Z",
+    });
+
+    const result = groupTodoItemsByBucket([olderThanRecentWeek, inRecentWeek]);
+
+    expect(result.recentWeekItems.map((item) => item.id)).toEqual([31]);
+    expect(result.doneItems.map((item) => item.id)).toEqual([32]);
+  });
+
+  it("sorts done items by updatedAt descending within each bucket", () => {
+    const recentWeekOlderItem = createItem({
       id: 21,
       status: "completed",
-      updatedAt: "2026-03-08T08:00:00.000Z",
+      updatedAt: "2026-03-06T08:00:00.000Z",
     });
-    const newerDoneItem = createItem({
+    const recentWeekNewerItem = createItem({
       id: 22,
       status: "canceled",
-      updatedAt: "2026-03-08T10:00:00.000Z",
+      updatedAt: "2026-03-10T10:00:00.000Z",
+    });
+    const doneOlderItem = createItem({
+      id: 23,
+      status: "completed",
+      updatedAt: "2026-03-01T10:00:00.000Z",
+    });
+    const doneNewerItem = createItem({
+      id: 24,
+      status: "canceled",
+      updatedAt: "2026-03-05T10:00:00.000Z",
     });
 
-    const result = groupTodoItemsByBucket([olderDoneItem, newerDoneItem]);
+    const result = groupTodoItemsByBucket([
+      doneOlderItem,
+      recentWeekNewerItem,
+      recentWeekOlderItem,
+      doneNewerItem,
+    ]);
 
-    expect(result.doneItems.map((item) => item.id)).toEqual([22, 21]);
+    expect(result.recentWeekItems.map((item) => item.id)).toEqual([22, 21]);
+    expect(result.doneItems.map((item) => item.id)).toEqual([24, 23]);
   });
 
   it("keeps recurring root items in the active bucket", () => {

@@ -51,13 +51,44 @@ function compareDoneItemsByTime(left: TodoItem, right: TodoItem) {
   return rightTime.localeCompare(leftTime) || right.id - left.id;
 }
 
+/**
+ * 计算「最近一周」的起始日期：从今天往前找到最近的周五（含今天）。
+ * 若今天是周四(4)，则起始 = 今天 - 6 天（上周五）。
+ * 返回 ISO 日期字符串 "YYYY-MM-DD"。
+ */
+export function getRecentWeekStart(): string {
+  const today = new Date();
+  // 0=周日,1=周一,...,5=周五,6=周六
+  const dow = today.getDay();
+  // 从今天往前，到上一个周五（或今天就是周五）
+  // 今天是周六(6) -> 1天前(周五)
+  // 今天是周五(5) -> 0天前
+  // 今天是周四(4) -> 6天前
+  // 今天是周三(3) -> 5天前 ... 依此类推
+  const daysBack = dow >= 5 ? dow - 5 : dow + 2;
+  const start = new Date(today);
+  start.setDate(today.getDate() - daysBack);
+  const y = start.getFullYear();
+  const m = String(start.getMonth() + 1).padStart(2, "0");
+  const d = String(start.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
 export function groupTodoItemsByBucket(items: TodoItem[]) {
   const activeItems: TodoItem[] = [];
   const doneItems: TodoItem[] = [];
+  const recentWeekItems: TodoItem[] = [];
+  const recentWeekStart = getRecentWeekStart();
 
   for (const item of items) {
     if (isDoneStatus(item.status)) {
-      doneItems.push(item);
+      // 用 updatedAt 判断是否在最近一周内
+      const doneTime = (item.updatedAt || item.createdAt || "").slice(0, 10);
+      if (doneTime >= recentWeekStart) {
+        recentWeekItems.push(item);
+      } else {
+        doneItems.push(item);
+      }
       continue;
     }
 
@@ -67,10 +98,12 @@ export function groupTodoItemsByBucket(items: TodoItem[]) {
   }
 
   activeItems.sort(compareActiveItems);
+  recentWeekItems.sort(compareDoneItemsByTime);
   doneItems.sort(compareDoneItemsByTime);
 
   return {
     activeItems,
+    recentWeekItems,
     doneItems,
   };
 }
