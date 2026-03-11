@@ -20,9 +20,20 @@ function itemSortTime(item: TodoItem) {
 }
 
 function compareActiveItems(left: TodoItem, right: TodoItem) {
+  // 1. 置顶优先
   if (left.pinned !== right.pinned) {
     return left.pinned ? -1 : 1;
   }
+
+  // 2. 优先级排序（P0 > P1 > P2 > P3）
+  const priorityOrder = { P0: 0, P1: 1, P2: 2, P3: 3 };
+  const leftPriority = priorityOrder[left.priority];
+  const rightPriority = priorityOrder[right.priority];
+  if (leftPriority !== rightPriority) {
+    return leftPriority - rightPriority;
+  }
+
+  // 3. 到期时间排序（早到期的排前面）
   const leftTime = itemSortTime(left);
   const rightTime = itemSortTime(right);
   if (!leftTime && !rightTime) return right.id - left.id;
