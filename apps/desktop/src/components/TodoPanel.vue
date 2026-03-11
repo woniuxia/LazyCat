@@ -3146,14 +3146,18 @@ onBeforeUnmount(() => {
   flex: 1;
   min-width: 0;
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
 }
 .todo-card-top {
   display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
+  flex: 1 1 auto;
+  max-width: 100%;
 }
 .todo-card-title {
   font-family: var(--lc-font-body);
@@ -3165,6 +3169,7 @@ onBeforeUnmount(() => {
   text-overflow: ellipsis;
   flex: 1;
   min-width: 0;
+  max-width: 100%;
 }
 .todo-card-title.is-done {
   text-decoration: line-through;
@@ -3210,7 +3215,8 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 10px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  flex-shrink: 0;
 }
 .meta-chip {
   display: inline-flex;
@@ -3488,7 +3494,6 @@ onBeforeUnmount(() => {
 }
 
 .todo-card.is-selected {
-  border-color: var(--lc-accent);
   box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.15), var(--lc-shadow-sm);
   background: linear-gradient(135deg, rgba(56, 189, 248, 0.06), var(--lc-surface-1) 70%);
   transform: translateX(2px);
