@@ -189,6 +189,7 @@
                 ]"
                 :style="{ '--item-index': index }"
                 @click="selectItem(row)"
+                @dblclick="enterEditMode(row)"
               >
                 <div class="todo-card-check" @click.stop>
                   <el-checkbox
@@ -273,6 +274,7 @@
                 ]"
                 :style="{ '--item-index': index }"
                 @click="selectItem(row)"
+                @dblclick="enterEditMode(row)"
               >
                 <div class="todo-card-check" @click.stop>
                   <el-checkbox
@@ -677,23 +679,28 @@
           </div>
         </template>
         <template v-else-if="detailMode === 'view' && selectedItem !== null">
-          <div class="detail-view">
+          <div class="detail-view" :key="selectedItem.id">
+            <!-- Header -->
             <div class="detail-pane-header detail-pane-header--view">
               <div class="detail-title-group">
                 <div class="detail-eyebrow">事项详情</div>
-                <h3 class="detail-title">{{ selectedItem.title }}</h3>
-                <div class="detail-title-meta">
-                  <el-tag size="small" effect="plain">{{
-                    formatStatusLabel(selectedItem.status)
-                  }}</el-tag>
-                  <el-tag size="small" :type="priorityTagType(selectedItem.priority)">{{
-                    selectedItem.priority
-                  }}</el-tag>
-                  <el-tag v-if="selectedItem.pinned" size="small" type="success">置顶</el-tag>
+                <div class="detail-title-row">
+                  <h3 class="detail-title">{{ selectedItem.title }}</h3>
+                  <div class="detail-badges">
+                    <span class="detail-badge pinned" v-if="selectedItem.pinned">
+                      <el-icon :size="12"><Top /></el-icon> 置顶
+                    </span>
+                    <span class="detail-badge repeat" v-if="hasRepeatRule(selectedItem)">
+                      <el-icon :size="12"><Refresh /></el-icon> 重复
+                    </span>
+                    <span class="detail-badge overdue" v-if="isItemOverdue(selectedItem)">
+                      <el-icon :size="12"><AlarmClock /></el-icon> 逾期
+                    </span>
+                  </div>
                 </div>
               </div>
               <div class="detail-header-actions">
-                <el-button size="small" link type="primary" @click="enterEditMode(selectedItem)"
+                <el-button size="small" link class="detail-edit-btn" @click="enterEditMode(selectedItem)"
                   >编辑</el-button
                 >
                 <el-button
@@ -707,7 +714,7 @@
                 <el-button
                   size="small"
                   link
-                  type="success"
+                  :type="isDoneItem(selectedItem) ? '' : 'success'"
                   @click="
                     changeItemStatus(
                       selectedItem.id,
@@ -731,94 +738,222 @@
                 >
               </div>
             </div>
+
+            <!-- Content -->
             <div class="detail-scroll">
               <div class="detail-content">
-                <div class="detail-section">
-                  <div class="detail-section-title">基本信息</div>
-                  <div class="detail-grid">
-                    <div class="detail-field">
-                      <div class="detail-label">时间</div>
-                      <div class="detail-value">{{ itemTimeLabel(selectedItem) }}</div>
-                      <div v-if="relativeTimeLabel(selectedItem)" class="detail-hint">
-                        {{ relativeTimeLabel(selectedItem) }}
+                <!-- Status Card (only if has non-default status or priority) -->
+                <div v-if="selectedItem.status !== 'pending' || selectedItem.priority !== 'P2'" class="detail-card">
+                  <div class="detail-card-header">
+                    <div class="detail-card-icon" :class="priorityCardClass(selectedItem.priority)">
+                      <el-icon><Flag /></el-icon>
+                    </div>
+                    <span class="detail-card-title">状态与优先级</span>
+                  </div>
+                  <div class="detail-card-body">
+                    <div class="detail-grid">
+                      <div v-if="selectedItem.status !== 'pending'" class="detail-field">
+                        <div class="detail-label">当前状态</div>
+                        <div class="detail-value">
+                          <el-tag size="small" effect="plain" round>
+                            {{ formatStatusLabel(selectedItem.status) }}
+                          </el-tag>
+                        </div>
                       </div>
-                    </div>
-                    <div class="detail-field">
-                      <div class="detail-label">分类</div>
-                      <div class="detail-value">{{ selectedItem.typeName || "未分类" }}</div>
-                    </div>
-                    <div class="detail-field">
-                      <div class="detail-label">执行人</div>
-                      <div class="detail-value">
-                        {{
-                          selectedItem.assignees.length > 0
-                            ? selectedItem.assignees.map((a: TodoAssignee) => a.name).join("、")
-                            : "未指定"
-                        }}
-                      </div>
-                    </div>
-                    <div class="detail-field">
-                      <div class="detail-label">提醒</div>
-                      <div class="detail-value">{{ formatReminderDescription(selectedItem) }}</div>
-                    </div>
-                    <div class="detail-field detail-field--full">
-                      <div class="detail-label">重复规则</div>
-                      <div class="detail-value">
-                        {{ formatRecurrenceDescription(selectedItem) }}
-                      </div>
-                      <div v-if="selectedItemRecurrence?.nextOccurrenceAt" class="detail-hint">
-                        下次发生：{{ formatDate(selectedItemRecurrence.nextOccurrenceAt) }}
+                      <div v-if="selectedItem.priority !== 'P2'" class="detail-field">
+                        <div class="detail-label">优先级</div>
+                        <div class="detail-value">
+                          <span class="priority-with-dot">
+                            <span class="priority-dot" :class="'priority-' + selectedItem.priority.toLowerCase()" />
+                            {{ selectedItem.priority }} - {{ priorityLabel(selectedItem.priority) }}
+                          </span>
+                        </div>
                       </div>
                     </div>
                   </div>
                 </div>
-                <div class="detail-section">
-                  <div class="detail-section-title">描述</div>
-                  <div class="detail-description">{{ selectedItem.description || "暂无说明" }}</div>
+
+                <!-- Schedule Card (only if has schedule info) -->
+                <div v-if="selectedItem.eventAt || effectiveReminderPresets(selectedItem.reminderPresets).length > 0" class="detail-card">
+                  <div class="detail-card-header">
+                    <div class="detail-card-icon primary">
+                      <el-icon><Calendar /></el-icon>
+                    </div>
+                    <span class="detail-card-title">时间安排</span>
+                  </div>
+                  <div class="detail-card-body">
+                    <div class="detail-grid" :class="{ 'is-stacked': !selectedItem.eventAt }">
+                      <div v-if="selectedItem.eventAt" class="detail-field">
+                        <div class="detail-label">
+                          <el-icon :size="12"><Clock /></el-icon> 到期时间
+                        </div>
+                        <div class="detail-value">
+                          {{ formatDate(selectedItem.eventAt) }}
+                        </div>
+                        <div v-if="relativeTimeLabel(selectedItem)" class="detail-hint">
+                          {{ relativeTimeLabel(selectedItem) }}
+                        </div>
+                      </div>
+                      <div v-if="effectiveReminderPresets(selectedItem.reminderPresets).length > 0" class="detail-field">
+                        <div class="detail-label">
+                          <el-icon :size="12"><Bell /></el-icon> 提醒设置
+                        </div>
+                        <div class="detail-value">{{ formatReminderDescription(selectedItem) }}</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Info Card (only if has type or assignees) -->
+                <div v-if="selectedItem.typeName || selectedItem.assignees.length > 0" class="detail-card">
+                  <div class="detail-card-header">
+                    <div class="detail-card-icon success">
+                      <el-icon><User /></el-icon>
+                    </div>
+                    <span class="detail-card-title">分类与执行人</span>
+                  </div>
+                  <div class="detail-card-body">
+                    <div class="detail-grid">
+                      <div v-if="selectedItem.typeName" class="detail-field">
+                        <div class="detail-label">分类</div>
+                        <div class="detail-value">
+                          <span class="type-with-color">
+                            <span class="color-dot-sm" :style="{ backgroundColor: selectedItem.typeColor || '#909399' }" />
+                            {{ selectedItem.typeName }}
+                          </span>
+                        </div>
+                      </div>
+                      <div v-if="selectedItem.assignees.length > 0" class="detail-field">
+                        <div class="detail-label">执行人</div>
+                        <div class="detail-value">
+                          <div class="assignee-list">
+                            <span
+                              v-for="assignee in selectedItem.assignees"
+                              :key="assignee.id"
+                              class="assignee-tag"
+                            >
+                              {{ assignee.name }}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Recurrence Card (only if has repeat rule) -->
+                <div v-if="hasRepeatRule(selectedItem)" class="detail-card">
+                  <div class="detail-card-header">
+                    <div class="detail-card-icon warning">
+                      <el-icon><Refresh /></el-icon>
+                    </div>
+                    <span class="detail-card-title">重复规则</span>
+                  </div>
+                  <div class="detail-card-body">
+                    <div class="detail-grid is-stacked">
+                      <div class="detail-field detail-field--full">
+                        <div class="detail-label">规则描述</div>
+                        <div class="detail-value">{{ formatRecurrenceDescription(selectedItem) }}</div>
+                      </div>
+                      <div class="detail-field" v-if="selectedItemRecurrence?.nextOccurrenceAt">
+                        <div class="detail-label">下次发生</div>
+                        <div class="detail-value">{{ formatDate(selectedItemRecurrence.nextOccurrenceAt) }}</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Description Card (only if has description) -->
+                <div v-if="selectedItem.description" class="detail-card">
+                  <div class="detail-card-header">
+                    <div class="detail-card-icon primary">
+                      <el-icon><Document /></el-icon>
+                    </div>
+                    <span class="detail-card-title">详细描述</span>
+                  </div>
+                  <div class="detail-card-body">
+                    <div class="detail-description-card">
+                      <div class="detail-description">
+                        {{ selectedItem.description }}
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
+
+            <!-- Footer -->
             <div class="detail-pane-footer detail-pane-footer--meta">
-              <span>创建：{{ formatDate(selectedItem.createdAt) }}</span>
-              <span>更新：{{ formatDate(selectedItem.updatedAt) }}</span>
+              <div class="meta-timestamps">
+                <span><span class="meta-label">创建：</span>{{ formatDate(selectedItem.createdAt) }}</span>
+                <span class="meta-divider">·</span>
+                <span><span class="meta-label">更新：</span>{{ formatDate(selectedItem.updatedAt) }}</span>
+              </div>
             </div>
           </div>
         </template>
         <div v-else class="detail-empty-pane">
-          <div class="detail-empty-icon">
-            <svg width="56" height="56" viewBox="0 0 48 48" fill="none">
-              <rect
-                x="9"
-                y="8"
-                width="30"
-                height="32"
-                rx="6"
-                stroke="currentColor"
-                stroke-width="1.5"
-                opacity="0.22"
-              />
-              <path
-                d="M16 18h16M16 24h11M16 30h8"
-                stroke="currentColor"
-                stroke-width="1.5"
-                stroke-linecap="round"
-                opacity="0.3"
-              />
-            </svg>
+          <div class="detail-empty-visual">
+            <div class="empty-illustration">
+              <svg class="empty-svg" viewBox="0 0 200 160" fill="none">
+                <!-- 背景装饰圆 -->
+                <circle cx="160" cy="40" r="20" fill="var(--lc-accent)" opacity="0.08" />
+                <circle cx="30" cy="120" r="15" fill="var(--lc-success)" opacity="0.06" />
+                <circle cx="170" cy="130" r="10" fill="var(--lc-warning)" opacity="0.08" />
+                <!-- 主文档图形 -->
+                <rect x="50" y="20" width="100" height="120" rx="12" fill="var(--lc-surface-1)" stroke="var(--lc-border)" stroke-width="2" />
+                <rect x="65" y="45" width="70" height="6" rx="3" fill="var(--lc-border)" opacity="0.6" />
+                <rect x="65" y="60" width="50" height="6" rx="3" fill="var(--lc-border)" opacity="0.4" />
+                <rect x="65" y="75" width="60" height="6" rx="3" fill="var(--lc-border)" opacity="0.4" />
+                <rect x="65" y="90" width="40" height="6" rx="3" fill="var(--lc-border)" opacity="0.4" />
+                <!-- 勾选标记 -->
+                <circle cx="140" cy="115" r="22" fill="var(--lc-surface-0)" stroke="var(--lc-accent)" stroke-width="2.5" />
+                <path d="M130 115L137 122L152 107" stroke="var(--lc-accent)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+                <!-- 小装饰点 -->
+                <circle cx="60" cy="30" r="4" fill="var(--lc-danger)" opacity="0.6" />
+                <circle cx="75" cy="30" r="4" fill="var(--lc-warning)" opacity="0.6" />
+                <circle cx="90" cy="30" r="4" fill="var(--lc-success)" opacity="0.6" />
+              </svg>
+              <div class="empty-glow"></div>
+            </div>
           </div>
-          <div class="detail-empty-title">选择事项查看详情</div>
-          <div class="detail-empty-text">右侧会显示完整信息，也可直接在这里新增或编辑事项。</div>
+          <div class="detail-empty-content">
+            <div class="detail-empty-title">选择事项查看详情</div>
+            <div class="detail-empty-text">在列表中点击任意待办事项，或快速创建新任务开始管理您的工作。</div>
+          </div>
+          <div class="detail-empty-actions">
+            <el-button type="primary" size="large" @click="startCreate">
+              <el-icon class="empty-btn-icon"><Plus /></el-icon>
+              新建待办
+            </el-button>
+            <el-button size="large" @click="loadItems">
+              <el-icon class="empty-btn-icon"><Refresh /></el-icon>
+              刷新列表
+            </el-button>
+          </div>
+          <div class="detail-empty-divider">
+            <span>今日概览</span>
+          </div>
           <div class="detail-empty-stats">
-            <div class="detail-empty-stat">
-              <span>今日到期</span>
-              <strong>{{ todayDueCount }}</strong>
+            <div class="detail-empty-stat" :class="{ 'is-active': todayDueCount > 0 }">
+              <div class="stat-icon today">
+                <el-icon><Calendar /></el-icon>
+              </div>
+              <div class="stat-info">
+                <span class="stat-label">今日到期</span>
+                <strong class="stat-value">{{ todayDueCount }}</strong>
+              </div>
             </div>
             <div class="detail-empty-stat" :class="{ 'is-alert': overdueCount > 0 }">
-              <span>逾期</span>
-              <strong>{{ overdueCount }}</strong>
+              <div class="stat-icon overdue">
+                <el-icon><AlarmClock /></el-icon>
+              </div>
+              <div class="stat-info">
+                <span class="stat-label">逾期事项</span>
+                <strong class="stat-value">{{ overdueCount }}</strong>
+              </div>
             </div>
           </div>
-          <el-button type="primary" @click="startCreate">新增事项</el-button>
         </div>
       </aside>
     </div>
@@ -912,6 +1047,7 @@
         <el-button type="primary" @click="saveAssignee">保存</el-button>
       </template>
     </el-dialog>
+
   </div>
 </template>
 
@@ -921,7 +1057,12 @@ import { listen } from "@tauri-apps/api/event";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import {
   AlarmClock,
+  Bell,
   Calendar,
+  Clock,
+  Document,
+  Flag,
+  Plus,
   Refresh,
   Setting,
   Top,
@@ -999,6 +1140,8 @@ const editingRootSnapshot = ref<TodoItem | null>(null);
 const defaultReminderPresets: TodoReminderPreset[] = ["none"];
 const lastReminderPresetSelection = ref<TodoReminderPreset[]>([...defaultReminderPresets]);
 let reminderUnlisten: UnlistenFn | null = null;
+
+// Drawer 相关状态
 
 const reminderPresetOptions: Array<{ label: string; value: TodoReminderPreset }> = [
   { label: "不提醒", value: "none" },
@@ -1372,9 +1515,10 @@ async function ensureDetailCanLeave() {
 }
 
 async function selectItem(item: TodoItem) {
-  if (selectedItemId.value === item.id && detailMode.value === "edit") return;
+  if (selectedItemId.value === item.id && detailMode.value === "view") return;
   if (!(await ensureDetailCanLeave())) return;
-  void enterEditMode(item);
+  selectedItemId.value = item.id;
+  detailMode.value = "view";
 }
 
 async function startCreate() {
@@ -1498,6 +1642,18 @@ function priorityTagType(priority: TodoPriority) {
     | "warning"
     | "primary"
     | "info";
+}
+
+function priorityCardClass(priority: TodoPriority): "danger" | "warning" | "primary" | "" {
+  return ({ P0: "danger", P1: "warning", P2: "primary", P3: "" }[priority] || "") as
+    | "danger"
+    | "warning"
+    | "primary"
+    | "";
+}
+
+function priorityLabel(priority: TodoPriority): string {
+  return ({ P0: "紧急", P1: "高", P2: "中", P3: "低" }[priority] || "中");
 }
 
 function itemKindOf(item: TodoItem): TodoKind {
@@ -1940,6 +2096,7 @@ function normalizeTodoItem(raw: unknown): TodoItem {
     readNullableNumber(record, ["rootId", "seriesId", "templateId", "sourceTemplateId"]) ??
     readNumber(record, ["id", "taskId"]);
   const rawStatus = readUnknown(record, ["status"]);
+  const normalizedStatus = typeof rawStatus === "string" ? normalizeStatus(rawStatus) : null;
   return {
     id: readNumber(record, ["id", "taskId"]),
     rootId,
@@ -1952,7 +2109,7 @@ function normalizeTodoItem(raw: unknown): TodoItem {
     typeColor: readNullableString(record, ["typeColor", "categoryColor", "color"]),
     priority: normalizePriority(readString(record, ["priority"], "P2")),
     description: readString(record, ["description", "detail"]),
-    status: typeof rawStatus === "string" ? normalizeStatus(rawStatus) : null,
+    status: normalizedStatus,
     eventAt,
     reminderPresets: deriveReminderPresets(record, eventAt),
     snoozeUntil: readNullableString(record, ["snoozeUntil"]),
@@ -1971,7 +2128,7 @@ function normalizeTodoItem(raw: unknown): TodoItem {
     canEditFuture: readBoolean(
       record,
       ["canEditFuture"],
-      kind === "recurring" && recordRole === "occurrence",
+      kind === "recurring" && recordRole === "occurrence" && (normalizedStatus === "pending" || normalizedStatus === "in_progress"),
     ),
     nextTaskReminderId: readNullableNumber(record, ["nextTaskReminderId"]),
     nextReminderPreset: normalizeReminderPreset(readUnknown(record, ["nextReminderPreset"])),
@@ -2316,10 +2473,6 @@ async function enterEditMode(item?: TodoItem | null) {
   markDraftBaseline();
 }
 
-function editItem(item: TodoItem) {
-  void enterEditMode(item);
-}
-
 function onEditScopeChange(scope: TodoEditScope) {
   itemDraft.scope = scope;
   if (itemDialogMode.value !== "edit_item" || !editingItemSnapshot.value) return;
@@ -2504,7 +2657,7 @@ async function deleteItem(item: TodoItem) {
     });
     await loadItems();
   } catch (error) {
-    if ((error as Error).message !== "cancel") ElMessage.error((error as Error).message);
+    if ((error as Error).message) ElMessage.error((error as Error).message);
   }
 }
 
@@ -2733,6 +2886,185 @@ onBeforeUnmount(() => {
   color: var(--lc-text-muted);
 }
 
+/* --- Detail Empty State (Enhanced) --- */
+.detail-empty-pane {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  padding: 32px 24px;
+  text-align: center;
+  animation: fadeIn 0.4s var(--lc-ease);
+}
+
+.detail-empty-visual {
+  position: relative;
+}
+
+.empty-illustration {
+  position: relative;
+  width: 180px;
+  height: 144px;
+}
+
+.empty-svg {
+  width: 100%;
+  height: 100%;
+  animation: float 6s ease-in-out infinite;
+}
+
+.empty-glow {
+  position: absolute;
+  inset: 20%;
+  background: radial-gradient(circle, var(--lc-accent) 0%, transparent 70%);
+  opacity: 0.1;
+  filter: blur(20px);
+  animation: pulse 4s ease-in-out infinite;
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-8px); }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.08; transform: scale(1); }
+  50% { opacity: 0.15; transform: scale(1.1); }
+}
+
+.detail-empty-content {
+  max-width: 280px;
+}
+
+.detail-empty-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--lc-text);
+  margin-bottom: 8px;
+}
+
+.detail-empty-text {
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--lc-text-muted);
+}
+
+.detail-empty-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.empty-btn-icon {
+  margin-right: 4px;
+}
+
+.detail-empty-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  max-width: 320px;
+  color: var(--lc-text-muted);
+  font-size: 12px;
+  margin-top: 8px;
+}
+
+.detail-empty-divider::before,
+.detail-empty-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--lc-border);
+}
+
+.detail-empty-stats {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  width: 100%;
+  max-width: 320px;
+}
+
+.detail-empty-stat {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 12px;
+  background: var(--lc-surface-1);
+  border: 1px solid var(--lc-border);
+  transition: all 0.25s var(--lc-ease);
+}
+
+.detail-empty-stat:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--lc-shadow-sm);
+}
+
+.detail-empty-stat.is-active {
+  background: linear-gradient(135deg, rgba(56, 189, 248, 0.08), var(--lc-surface-1));
+  border-color: rgba(56, 189, 248, 0.3);
+}
+
+.detail-empty-stat.is-alert {
+  background: linear-gradient(135deg, rgba(248, 113, 113, 0.08), var(--lc-surface-1));
+  border-color: rgba(248, 113, 113, 0.3);
+}
+
+.detail-empty-stat .stat-icon {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.stat-icon.today {
+  color: var(--lc-accent);
+  background: rgba(56, 189, 248, 0.12);
+}
+
+.stat-icon.overdue {
+  color: var(--lc-danger);
+  background: rgba(248, 113, 113, 0.12);
+}
+
+.detail-empty-stat .stat-info {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.detail-empty-stat .stat-label {
+  font-size: 12px;
+  color: var(--lc-text-muted);
+  white-space: nowrap;
+}
+
+.detail-empty-stat .stat-value {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--lc-text);
+  white-space: nowrap;
+}
+
+.detail-empty-stat.is-alert .stat-value {
+  color: var(--lc-danger);
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 /* --- Card list --- */
 .todo-card-list {
   display: flex;
@@ -2950,7 +3282,7 @@ onBeforeUnmount(() => {
 /* --- Layout --- */
 .todo-layout {
   display: grid;
-  grid-template-columns: 320px minmax(0, 1fr) 360px;
+  grid-template-columns: 260px minmax(360px, 1.2fr) minmax(340px, 1fr);
   gap: 16px;
   height: 100%;
   min-height: 0;
@@ -3157,37 +3489,63 @@ onBeforeUnmount(() => {
 
 .todo-card.is-selected {
   border-color: var(--lc-accent);
-  box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.16);
-  background: linear-gradient(135deg, rgba(56, 189, 248, 0.08), var(--lc-surface-1) 72%);
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.15), var(--lc-shadow-sm);
+  background: linear-gradient(135deg, rgba(56, 189, 248, 0.06), var(--lc-surface-1) 70%);
+  transform: translateX(2px);
 }
 .todo-card.is-selected .todo-card-actions {
   opacity: 1;
 }
+
+/* --- Detail Pane Header (Enhanced) --- */
 .detail-pane-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  padding: 16px 18px 12px;
+  padding: 16px 20px;
   border-bottom: 1px solid var(--lc-border);
+  background: linear-gradient(180deg, var(--lc-surface-0), var(--lc-surface-1));
+}
+.detail-pane-header--view {
+  flex-direction: column;
+  gap: 16px;
 }
 .detail-title-group {
   min-width: 0;
+  width: 100%;
+}
+.detail-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 .detail-eyebrow {
-  font-size: 12px;
-  color: var(--lc-text-muted);
-  margin-bottom: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--lc-accent);
+  margin-bottom: 8px;
 }
 .detail-title {
   margin: 0;
   font-size: 20px;
+  font-weight: 600;
   line-height: 1.3;
   color: var(--lc-text);
   word-break: break-word;
+  flex: 1;
+  min-width: 0;
+}
+.detail-badges {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
 }
 .detail-subtitle {
-  margin-top: 6px;
+  margin-top: 4px;
   font-size: 12px;
   color: var(--lc-text-muted);
 }
@@ -3200,149 +3558,293 @@ onBeforeUnmount(() => {
 .detail-header-actions {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: flex-start;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px;
+  width: 100%;
 }
+.detail-edit-btn {
+  color: var(--lc-accent) !important;
+}
+.detail-edit-btn:hover {
+  color: var(--el-color-primary-light-3) !important;
+}
+
+/* --- Detail Cards (New Card-based Layout) --- */
 .detail-scroll {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 18px;
+  padding: 16px 20px;
 }
 .detail-scroll--form {
-  padding-bottom: 8px;
+  padding-bottom: 12px;
 }
 .detail-content {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 16px;
 }
-.detail-section {
+
+/* Detail Card Component */
+.detail-card {
+  background: var(--lc-surface-1);
+  border: 1px solid var(--lc-border);
+  border-radius: var(--lc-radius-md);
+  overflow: hidden;
+  transition: box-shadow 0.25s var(--lc-ease);
+}
+
+.detail-card:hover {
+  box-shadow: var(--lc-shadow-sm);
+}
+
+.detail-card-header {
   display: flex;
-  flex-direction: column;
-  gap: 10px;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background: var(--lc-surface-2);
+  border-bottom: 1px solid var(--lc-border-subtle);
 }
-.detail-section-title {
+
+.detail-card-icon {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.detail-card-icon.primary {
+  color: var(--lc-accent);
+  background: rgba(56, 189, 248, 0.12);
+}
+
+.detail-card-icon.success {
+  color: var(--lc-success);
+  background: rgba(52, 211, 153, 0.12);
+}
+
+.detail-card-icon.warning {
+  color: var(--lc-warning);
+  background: rgba(251, 191, 36, 0.12);
+}
+
+.detail-card-icon.danger {
+  color: var(--lc-danger);
+  background: rgba(248, 113, 113, 0.12);
+}
+
+.detail-card-title {
   font-size: 13px;
   font-weight: 600;
   color: var(--lc-text);
 }
+
+.detail-card-body {
+  padding: 16px;
+}
+
+/* Detail Grid & Fields */
 .detail-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
+
+.detail-grid.is-stacked {
+  grid-template-columns: 1fr;
+}
+
 .detail-field {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 12px;
+  gap: 6px;
+  padding: 12px 14px;
   border-radius: 10px;
-  background: var(--lc-surface-1);
+  background: var(--lc-surface-0);
   border: 1px solid var(--lc-border-subtle);
+  transition: all 0.2s var(--lc-ease);
 }
+
+.detail-field:hover {
+  background: var(--lc-surface-2);
+  border-color: var(--lc-border);
+}
+
 .detail-field--full {
   grid-column: 1 / -1;
 }
+
 .detail-label {
-  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
   color: var(--lc-text-muted);
 }
+
 .detail-value {
   font-size: 13px;
-  line-height: 1.6;
+  line-height: 1.5;
   color: var(--lc-text);
   word-break: break-word;
 }
+
 .detail-hint {
   font-size: 12px;
   line-height: 1.5;
   color: var(--lc-text-muted);
 }
-.detail-description {
-  min-height: 72px;
-  padding: 14px;
+
+/* Detail Description Card */
+.detail-description-card {
+  background: var(--lc-surface-0);
+  border: 1px solid var(--lc-border-subtle);
   border-radius: 10px;
-  background: var(--lc-surface-1);
-  border: 1px solid var(--lc-border);
+  padding: 16px;
+  min-height: 100px;
+}
+
+.detail-description-card.is-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--lc-text-muted);
+  font-size: 13px;
+}
+
+.detail-description {
   font-size: 13px;
   line-height: 1.7;
   color: var(--lc-text);
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+/* Priority & Status Badges in Detail */
+.detail-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.detail-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.detail-badge.pinned {
+  color: var(--lc-success);
+  background: rgba(52, 211, 153, 0.12);
+}
+
+.detail-badge.repeat {
+  color: var(--lc-warning);
+  background: rgba(251, 191, 36, 0.12);
+}
+
+.detail-badge.overdue {
+  color: var(--lc-danger);
+  background: rgba(248, 113, 113, 0.12);
+}
+
+/* Priority with Dot */
+.priority-with-dot {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Type with Color */
+.type-with-color {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Assignee List */
+.assignee-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.assignee-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+  background: var(--lc-surface-2);
+  border: 1px solid var(--lc-border);
+  color: var(--lc-text);
+}
+
+/* Text Muted */
+.text-muted {
+  color: var(--lc-text-muted);
+}
+
+/* Meta Timestamps */
+.meta-timestamps {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.meta-label {
+  color: var(--lc-text-muted);
+}
+
+.meta-divider {
+  color: var(--lc-border);
+}
+
+/* Detail Footer */
 .detail-pane-footer {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 14px 18px;
+  gap: 12px;
+  padding: 16px 20px;
   border-top: 1px solid var(--lc-border);
   background: var(--lc-surface-0);
 }
+
 .detail-footer-actions {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
+  flex-wrap: wrap;
 }
+
 .detail-footer-submit {
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 10px;
+  margin-left: auto;
 }
+
 .detail-pane-footer--meta {
   justify-content: space-between;
   font-size: 12px;
   color: var(--lc-text-muted);
-}
-.detail-empty-pane {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 14px;
-  padding: 24px;
-  text-align: center;
-}
-.detail-empty-icon {
-  color: var(--lc-text-muted);
-}
-.detail-empty-title {
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--lc-text);
-}
-.detail-empty-text {
-  max-width: 240px;
-  font-size: 13px;
-  line-height: 1.7;
-  color: var(--lc-text-muted);
-}
-.detail-empty-stats {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-  width: 100%;
-}
-.detail-empty-stat {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 10px 12px;
-  border-radius: 10px;
-  background: var(--lc-surface-1);
-  border: 1px solid var(--lc-border);
-  color: var(--lc-text-muted);
-}
-.detail-empty-stat strong {
-  font-size: 20px;
-  color: var(--lc-text);
-}
-.detail-empty-stat.is-alert strong {
-  color: var(--lc-danger);
+  padding-top: 12px;
+  border-top: 1px dashed var(--lc-border-subtle);
 }
 .detail-edit,
 .detail-view {
@@ -3514,13 +4016,70 @@ onBeforeUnmount(() => {
   }
 }
 
-/* --- Responsive --- */
-@media (max-width: 1200px) {
-  .todo-layout {
-    grid-template-columns: 280px minmax(0, 1fr) 320px;
+/* Detail View Slide Animation */
+.detail-view {
+  animation: slideInFromRight 0.3s var(--lc-ease-out);
+}
+
+@keyframes slideInFromRight {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
   }
 }
-@media (max-width: 960px) {
+
+/* Detail Card Hover Effects */
+.detail-card {
+  animation: cardFadeIn 0.35s var(--lc-ease-out) backwards;
+}
+
+.detail-card:nth-child(1) { animation-delay: 0ms; }
+.detail-card:nth-child(2) { animation-delay: 40ms; }
+.detail-card:nth-child(3) { animation-delay: 80ms; }
+.detail-card:nth-child(4) { animation-delay: 120ms; }
+.detail-card:nth-child(5) { animation-delay: 160ms; }
+
+@keyframes cardFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Smooth transitions for detail pane */
+.todo-detail-pane {
+  transition: box-shadow 0.3s var(--lc-ease);
+}
+
+.todo-detail-pane:hover {
+  box-shadow: var(--lc-shadow-md);
+}
+
+/* --- Responsive --- */
+@media (max-width: 1280px) {
+  .todo-layout {
+    grid-template-columns: 240px minmax(320px, 1.2fr) minmax(320px, 1fr);
+    gap: 14px;
+  }
+}
+@media (max-width: 1024px) {
+  .todo-layout {
+    grid-template-columns: 220px minmax(300px, 1fr) 300px;
+    gap: 12px;
+  }
+  .detail-empty-stats {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 900px) {
   .todo-layout {
     grid-template-columns: 1fr;
     grid-template-areas:
@@ -3533,7 +4092,8 @@ onBeforeUnmount(() => {
   }
   .todo-detail-pane {
     grid-area: detail;
-    min-height: 560px;
+    min-height: 480px;
+    border-radius: var(--lc-radius-lg);
   }
   .todo-sidebar {
     grid-area: stats;

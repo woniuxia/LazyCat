@@ -207,6 +207,7 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:todo:item-list": { domain: "todo", action: "item_list" },
   "tool:todo:item-create": { domain: "todo", action: "item_create" },
   "tool:todo:item-update": { domain: "todo", action: "item_update" },
+  "tool:todo:item-upsert": { domain: "todo", action: "item_upsert" },
   "tool:todo:item-change-status": { domain: "todo", action: "item_change_status" },
   "tool:todo:item-snooze": { domain: "todo", action: "item_snooze" },
   "tool:todo:item-toggle-pin": { domain: "todo", action: "item_toggle_pin" },

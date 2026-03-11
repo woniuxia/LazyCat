@@ -111,6 +111,7 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         "item_list" => item_list(payload),
         "item_create" => item_create(payload),
         "item_update" => item_update(payload),
+        "item_upsert" => item_upsert(payload),
         "item_change_status" => item_change_status(payload),
         "item_snooze" => item_snooze(payload),
         "item_toggle_pin" => item_toggle_pin(payload),
@@ -1296,6 +1297,14 @@ fn item_create(payload: &Value) -> Result<Value, String> {
     task_create(payload)
 }
 
+fn item_upsert(payload: &Value) -> Result<Value, String> {
+    if parse_i64(payload, "id").is_some() {
+        item_update(payload)
+    } else {
+        item_create(payload)
+    }
+}
+
 fn item_update(payload: &Value) -> Result<Value, String> {
     let next_kind = parse_item_kind(payload);
     let mut conn = db_conn()?;
@@ -1305,8 +1314,26 @@ fn item_update(payload: &Value) -> Result<Value, String> {
         return convert_item_kind(&mut conn, payload, &current_kind, task_id, template_id);
     }
 
+    // 检查是否编辑已完成的周期事项实例（已完成实例只编辑自身，不影响未来）
+    let is_completed_instance = if next_kind == SERIES_KIND_RECURRING {
+        if let Some(tid) = task_id {
+            conn.query_row(
+                "SELECT status FROM todo_tasks WHERE id = ?1",
+                params![tid],
+                |row| {
+                    let status: String = row.get(0)?;
+                    Ok(status == STATUS_COMPLETED || status == STATUS_CANCELED)
+                },
+            ).optional().map_err(|e| format!("查询事项状态失败: {e}"))?.unwrap_or(false)
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+
     drop(conn);
-    if next_kind == SERIES_KIND_RECURRING {
+    if next_kind == SERIES_KIND_RECURRING && !is_completed_instance {
         let scope = parse_scope(payload);
         let conn = db_conn()?;
         let template_id = resolve_recurring_template_id(&conn, payload)?;
@@ -1498,6 +1525,7 @@ fn row_to_task_json(row: &rusqlite::Row<'_>) -> rusqlite::Result<Value> {
     };
     let event_at = row.get::<_, Option<String>>(6)?;
     let display_at = event_at.clone();
+    let status = row.get::<_, String>(5)?;
     Ok(json!({
         "id": item_id,
         "title": row.get::<_, String>(1)?,
@@ -1508,14 +1536,16 @@ fn row_to_task_json(row: &rusqlite::Row<'_>) -> rusqlite::Result<Value> {
         "recordRole": record_role,
         "rootId": series_id.unwrap_or(item_id),
         "pinned": pinned,
-        "status": row.get::<_, String>(5)?,
+        "status": status,
         "eventAt": event_at,
         "reminderPresets": json!([]),
         "snoozeUntil": Value::Null,
         "lastNotifiedAt": Value::Null,
         "recurrence": Value::Null,
 
-        "canEditFuture": series_id.is_some() && is_recurring,
+        "canEditFuture": series_id.is_some()
+            && is_recurring
+            && (status == STATUS_PENDING || status == STATUS_IN_PROGRESS),
         "displayAt": display_at,
         "createdAt": row.get::<_, String>(11)?,
         "updatedAt": row.get::<_, String>(12)?,
