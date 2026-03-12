@@ -393,6 +393,10 @@ fn parse_utc_datetime(raw: &str) -> Option<DateTime<Utc>> {
         .map(|dt| dt.with_timezone(&Utc))
 }
 
+fn format_db_datetime(raw: &str) -> String {
+    parse_rfc3339(raw).unwrap_or_else(|| raw.to_string())
+}
+
 fn is_five_minute_datetime(dt: &DateTime<chrono::FixedOffset>) -> bool {
     dt.minute() % EVENT_TIME_MINUTE_STEP == 0 && dt.second() == 0 && dt.nanosecond() == 0
 }
@@ -428,25 +432,38 @@ fn parse_event_datetime(payload: &Value, key: &str) -> Result<Option<String>, St
 
 fn parse_start_datetime(payload: &Value) -> Result<Option<String>, String> {
     let recurrence = recurrence_payload(payload);
-    if recurrence.get("startAt").is_some() {
-        return parse_datetime_with_validation(
-            &json!({ "startAt": recurrence.get("startAt").cloned().unwrap_or(Value::Null) }),
-            "startAt",
-            "开始时间",
-            true,
-        );
+    if let Some(start_at) = recurrence.get("startAt") {
+        if !start_at.is_null() {
+            return parse_datetime_with_validation(
+                &json!({ "startAt": start_at.clone() }),
+                "startAt",
+                "开始时间",
+                true,
+            );
+        }
     }
-    if payload.get("startAt").is_some() {
-        return parse_datetime_with_validation(payload, "startAt", "开始时间", true);
+    if let Some(start_at) = payload.get("startAt") {
+        if !start_at.is_null() {
+            return parse_datetime_with_validation(payload, "startAt", "开始时间", true);
+        }
     }
-    if payload.get("eventAt").is_some() {
-        return parse_datetime_with_validation(payload, "eventAt", "开始时间", true);
+    if let Some(event_at) = payload.get("eventAt") {
+        if !event_at.is_null() {
+            return parse_datetime_with_validation(payload, "eventAt", "开始时间", true);
+        }
     }
     Ok(None)
 }
 
 fn has_start_datetime(payload: &Value) -> bool {
-    payload.get("startAt").is_some() || recurrence_payload(payload).get("startAt").is_some()
+    payload
+        .get("startAt")
+        .map(|v| !v.is_null())
+        .unwrap_or(false)
+        || recurrence_payload(payload)
+            .get("startAt")
+            .map(|v| !v.is_null())
+            .unwrap_or(false)
 }
 
 fn compute_next_occurrence_with_start(
@@ -1061,14 +1078,16 @@ fn type_list() -> Result<Value, String> {
         .map_err(|e| format!("鏌ヨ寰呭姙绫诲瀷澶辫触: {e}"))?;
     let rows = stmt
         .query_map([], |row| {
+            let created_at = row.get::<_, String>(5).map(|s| format_db_datetime(&s))?;
+            let updated_at = row.get::<_, String>(6).map(|s| format_db_datetime(&s))?;
             Ok(json!({
                 "id": row.get::<_, i64>(0)?,
                 "name": row.get::<_, String>(1)?,
                 "color": row.get::<_, String>(2)?,
                 "builtin": row.get::<_, i64>(3)? == 1,
                 "sortOrder": row.get::<_, i64>(4)?,
-                "createdAt": row.get::<_, String>(5)?,
-                "updatedAt": row.get::<_, String>(6)?
+                "createdAt": created_at,
+                "updatedAt": updated_at
             }))
         })
         .map_err(|e| format!("鏄犲皠寰呭姙绫诲瀷澶辫触: {e}"))?;
@@ -1125,11 +1144,13 @@ fn assignee_list() -> Result<Value, String> {
         .map_err(|e| format!("鏌ヨ鎵ц浜哄け璐? {e}"))?;
     let rows = stmt
         .query_map([], |row| {
+            let created_at = row.get::<_, String>(2).map(|s| format_db_datetime(&s))?;
+            let updated_at = row.get::<_, String>(3).map(|s| format_db_datetime(&s))?;
             Ok(json!({
                 "id": row.get::<_, i64>(0)?,
                 "name": row.get::<_, String>(1)?,
-                "createdAt": row.get::<_, String>(2)?,
-                "updatedAt": row.get::<_, String>(3)?
+                "createdAt": created_at,
+                "updatedAt": updated_at
             }))
         })
         .map_err(|e| format!("鏄犲皠鎵ц浜哄け璐? {e}"))?;
@@ -1222,8 +1243,16 @@ fn template_to_root_item(template: Value) -> Result<Value, String> {
         .unwrap_or_else(|| json!(0));
     let active = record.get("active").cloned().unwrap_or_else(|| json!(true));
     let assignees = record.get("assignees").cloned().unwrap_or_else(|| json!([]));
-    let created_at = record.get("createdAt").cloned().unwrap_or_else(|| json!(""));
-    let updated_at = record.get("updatedAt").cloned().unwrap_or_else(|| json!(""));
+    let created_at = record
+        .get("createdAt")
+        .and_then(Value::as_str)
+        .map(|s| json!(format_db_datetime(s)))
+        .unwrap_or_else(|| json!(""));
+    let updated_at = record
+        .get("updatedAt")
+        .and_then(Value::as_str)
+        .map(|s| json!(format_db_datetime(s)))
+        .unwrap_or_else(|| json!(""));
     let display_at = next_occurrence_at
         .as_str()
         .map(|value| json!(value))
@@ -1399,7 +1428,10 @@ fn item_delete(payload: &Value) -> Result<Value, String> {
         let conn = db_conn()?;
         let template_id = resolve_recurring_template_id(&conn, payload)?
             .ok_or("缺少周期事项根记录 id")?;
-        return template_toggle_active(&json!({ "id": template_id, "active": false }));
+        // 1. 停用模板，停止后续生成
+        template_toggle_active(&json!({ "id": template_id, "active": false }))?;
+        // 2. 删除当前实例
+        return task_delete(payload);
     }
 
     if parse_item_kind(payload) == SERIES_KIND_RECURRING && is_root_record(payload) {
@@ -1408,6 +1440,29 @@ fn item_delete(payload: &Value) -> Result<Value, String> {
             .ok_or("缺少周期事项根记录 id")?;
         return template_delete(&json!({ "id": template_id }));
     }
+
+    // 处理删除重复事项实例的情况：删除后可能需要生成下一个实例
+    let task_id = parse_i64(payload, "id");
+    let is_recurring_instance = parse_item_kind(payload) == SERIES_KIND_RECURRING
+        && !is_root_record(payload);
+
+    if is_recurring_instance {
+        if let Some(id) = task_id {
+            let mut conn = db_conn()?;
+            let snapshot = load_task_snapshot(&conn, id)?;
+            let template_id = snapshot.source_template_id;
+
+            // 先删除任务
+            task_delete(payload)?;
+
+            // 然后尝试生成下一个实例（如果模板没有其他待办实例了）
+            if let Some(tpl_id) = template_id {
+                let _ = maybe_generate_next_after_delete(&mut conn, tpl_id, id);
+            }
+            return Ok(json!({ "ok": true }));
+        }
+    }
+
     task_delete(payload)
 }
 
@@ -1526,6 +1581,8 @@ fn row_to_task_json(row: &rusqlite::Row<'_>) -> rusqlite::Result<Value> {
     let event_at = row.get::<_, Option<String>>(6)?;
     let display_at = event_at.clone();
     let status = row.get::<_, String>(5)?;
+    let created_at = row.get::<_, String>(11).map(|s| format_db_datetime(&s))?;
+    let updated_at = row.get::<_, String>(12).map(|s| format_db_datetime(&s))?;
     Ok(json!({
         "id": item_id,
         "title": row.get::<_, String>(1)?,
@@ -1547,8 +1604,8 @@ fn row_to_task_json(row: &rusqlite::Row<'_>) -> rusqlite::Result<Value> {
             && is_recurring
             && (status == STATUS_PENDING || status == STATUS_IN_PROGRESS),
         "displayAt": display_at,
-        "createdAt": row.get::<_, String>(11)?,
-        "updatedAt": row.get::<_, String>(12)?,
+        "createdAt": created_at,
+        "updatedAt": updated_at,
         "typeName": row.get::<_, Option<String>>(13)?,
         "nextTaskReminderId": Value::Null,
         "nextReminderPreset": Value::Null,
@@ -1705,7 +1762,20 @@ fn convert_one_off_task_to_recurring(
     let rule_mode = normalize_rule_mode(payload, "simple");
     let rule = recurrence.get("rule").cloned().unwrap_or_else(|| json!({}));
     let cron_expression = resolve_cron_expression(&rule_mode, &rule)?;
-    let start_at = parse_start_datetime(payload)?.ok_or("周期事项开始时间不能为空")?;
+    let start_at = match parse_start_datetime(payload)? {
+        Some(start) => start,
+        None => {
+            // 当没有提供 startAt 时，使用现有任务的 event_at 作为后备
+            let fallback: Option<String> = conn
+                .query_row(
+                    "SELECT event_at FROM todo_tasks WHERE id = ?1",
+                    params![task_id],
+                    |row| row.get(0),
+                )
+                .map_err(|e| format!("查询任务时间失败: {e}"))?;
+            fallback.ok_or("周期事项开始时间不能为空")?
+        }
+    };
     let start_at_dt = parse_utc_datetime(&start_at).ok_or("开始时间格式不正确")?;
     let timezone = recurrence
         .get("timezone")
@@ -2346,6 +2416,8 @@ fn template_list() -> Result<Value, String> {
 
     let rows = stmt
         .query_map([], |row| {
+            let created_at = row.get::<_, String>(16).map(|s| format_db_datetime(&s))?;
+            let updated_at = row.get::<_, String>(17).map(|s| format_db_datetime(&s))?;
             Ok((
                 row.get::<_, i64>(0)?,
                 json!({
@@ -2366,8 +2438,8 @@ fn template_list() -> Result<Value, String> {
                     "active": row.get::<_, i64>(14)? == 1,
                     "reminderPresets": json!([]),
                     "seriesKind": SERIES_KIND_RECURRING,
-                    "createdAt": row.get::<_, String>(16)?,
-                    "updatedAt": row.get::<_, String>(17)?,
+                    "createdAt": created_at,
+                    "updatedAt": updated_at,
                     "typeName": row.get::<_, Option<String>>(18)?,
                     "typeColor": row.get::<_, Option<String>>(19)?
                 }),
@@ -2707,7 +2779,7 @@ fn reminder_list_unread(payload: &Value) -> Result<Value, String> {
                 "body": row.get::<_, String>(4)?,
                 "fireAt": row.get::<_, String>(5)?,
                 "isRead": row.get::<_, i64>(6)? == 1,
-                "createdAt": row.get::<_, String>(7)?,
+                "createdAt": row.get::<_, String>(7).map(|s| format_db_datetime(&s))?,
                 "reminderPreset": row.get::<_, Option<String>>(8)?.unwrap_or_else(|| REMINDER_PRESET_NONE.to_string())
             }))
         })
@@ -2888,6 +2960,80 @@ fn has_existing_template_occurrence(
         )
         .map_err(|e| format!("查询重复周期实例失败: {e}"))?;
     Ok(count > 0)
+}
+
+/// 删除重复事项实例后，如果模板没有其他待办实例，则生成下一个实例
+fn maybe_generate_next_after_delete(
+    conn: &mut Connection,
+    template_id: i64,
+    deleted_task_id: i64,
+) -> Result<(), String> {
+    // 检查是否还有其他待办的实例
+    if has_other_actionable_template_task(conn, template_id, deleted_task_id)? {
+        return Ok(());
+    }
+
+    let Some(template) = load_template_row(conn, template_id)? else {
+        return Ok(());
+    };
+
+    if !template.active {
+        return Ok(());
+    }
+
+    // 计算下一个发生时间
+    let now = Utc::now();
+    let mut next_occurrence = template
+        .next_occurrence_at
+        .as_deref()
+        .and_then(parse_utc_datetime);
+
+    if next_occurrence.is_none() {
+        next_occurrence = compute_next_occurrence_with_start(
+            &template.cron_expression,
+            &template.timezone,
+            template.start_at.as_deref(),
+            now,
+        )?;
+    }
+
+    let Some(next_occurrence) = next_occurrence else {
+        persist_template_progress(conn, template.id, template.generated_count, None, false)?;
+        return Ok(());
+    };
+
+    if should_stop_template(&template, next_occurrence, template.generated_count) {
+        persist_template_progress(conn, template.id, template.generated_count, None, false)?;
+        return Ok(());
+    }
+
+    let next_occurrence_at = next_occurrence.to_rfc3339();
+    if has_existing_template_occurrence(conn, template.id, deleted_task_id, &next_occurrence_at)? {
+        return Ok(());
+    }
+
+    // 生成下一个实例
+    create_task_from_template(conn, &template, next_occurrence)?;
+    let generated_count = template.generated_count + 1;
+    let mut next_after_generated = compute_next_occurrence_with_start(
+        &template.cron_expression,
+        &template.timezone,
+        template.start_at.as_deref(),
+        next_occurrence + Duration::seconds(1),
+    )?;
+
+    let mut active = template.active;
+    if let Some(upcoming) = next_after_generated {
+        if should_stop_template(&template, upcoming, generated_count) {
+            next_after_generated = None;
+            active = false;
+        }
+    } else {
+        active = false;
+    }
+
+    persist_template_progress(conn, template.id, generated_count, next_after_generated, active)?;
+    Ok(())
 }
 
 fn persist_template_progress(

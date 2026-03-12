@@ -113,7 +113,8 @@ export function combineDateTimeParts(date: string, time: string) {
   const normalizedTime = time.trim();
   if (!normalizedDate || !normalizedTime) return null;
   const match = normalizedDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  const timeMatch = normalizedTime.match(/^(\d{2}):(\d{2})$/);
+  // 支持 H:MM 或 HH:MM 格式
+  const timeMatch = normalizedTime.match(/^(\d{1,2}):(\d{2})$/);
   if (!match || !timeMatch) return null;
   const year = Number(match[1]);
   const month = Number(match[2]);

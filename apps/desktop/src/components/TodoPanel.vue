@@ -1157,7 +1157,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+import { computed, h, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { listen } from "@tauri-apps/api/event";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import {
@@ -2509,8 +2509,19 @@ function applyItemToDraft(item: TodoItem) {
   itemDraft.eventTime = time;
   itemDraft.reminderPresets = toDraftReminderPresets(item.reminderPresets);
   lastReminderPresetSelection.value = [...itemDraft.reminderPresets];
+  const recurrence = getItemRecurrence(item);
   itemDraft.repeatPreset =
-    itemKindOf(item) === "recurring" ? deriveRepeatPreset(getItemRecurrence(item)) : "none";
+    itemKindOf(item) === "recurring" ? deriveRepeatPreset(recurrence) : "none";
+
+  // 新增：加载详细规则到 simple 对象
+  if (itemKindOf(item) === "recurring" && recurrence?.rule) {
+    itemDraft.ruleMode = recurrence.ruleMode || "simple";
+    itemDraft.timezone = recurrence.timezone || "local";
+    if (itemDraft.ruleMode === "simple") {
+      syncSimpleDraftFromRule(recurrence.rule as TodoRule);
+    }
+  }
+
   itemDraft.scope = "this_instance";
 }
 
@@ -2619,7 +2630,7 @@ async function enterEditMode(item?: TodoItem | null) {
   editingItemSnapshot.value = target;
   editingRootSnapshot.value = getRootItemById(getRootItemId(target));
   applyItemToDraft(target);
-  itemDraft.scope = "this_instance";
+  itemDraft.scope = "future_instances";
   detailMode.value = "edit";
   showMoreFields.value =
     target.assignees.length > 0 ||
@@ -2730,7 +2741,7 @@ async function submitItemChanges(showSuccess = true) {
       payload.remindAt = computeLegacyRemindAt(eventAt, selectedReminderPresets);
     }
 
-    if (isRepeating.value && showRecurrenceFields.value) {
+    if (isRepeating.value) {
       payload.recurrence = {
         startAt: eventAt,
         ruleMode: itemDraft.ruleMode,
@@ -2799,22 +2810,95 @@ async function snoozeItem(id: number, taskReminderId?: number | null) {
 
 async function deleteItem(item: TodoItem) {
   try {
-    const message = isRootItem(item)
-      ? "确认删除该重复事项吗？删除后将停止后续生成。"
-      : item.kind === "recurring"
-        ? "确认删除当前事项吗？不会停止后续重复。"
-        : "确认删除该事项吗？";
-    await ElMessageBox.confirm(message, "删除确认", { type: "warning" });
+    // 根记录：直接删除整个系列
+    if (isRootItem(item)) {
+      await ElMessageBox.confirm(
+        "确认删除该重复事项吗？删除后将停止后续生成。",
+        "删除确认",
+        { type: "warning" }
+      );
+      await invokeToolByChannel("tool:todo:item-delete", {
+        id: item.id,
+        kind: item.kind,
+        recordRole: item.recordRole,
+        rootId: getRootItemId(item),
+      });
+      await loadItems();
+      return;
+    }
+
+    // 普通事项：直接删除
+    if (item.kind !== "recurring") {
+      await ElMessageBox.confirm("确认删除该事项吗？", "删除确认", {
+        type: "warning",
+      });
+      await invokeToolByChannel("tool:todo:item-delete", {
+        id: item.id,
+        kind: item.kind,
+        recordRole: item.recordRole,
+        rootId: getRootItemId(item),
+      });
+      await loadItems();
+      return;
+    }
+
+    // 重复事项的实例：显示选择对话框
+    const scope = await showDeleteScopeDialog(item.title);
+    if (scope === null) return; // 用户取消
+
     await invokeToolByChannel("tool:todo:item-delete", {
       id: item.id,
       kind: item.kind,
       recordRole: item.recordRole,
       rootId: getRootItemId(item),
+      scope: scope, // "this_instance" | "future_instances"
     });
     await loadItems();
   } catch (error) {
     if ((error as Error).message) ElMessage.error((error as Error).message);
   }
+}
+
+async function showDeleteScopeDialog(itemTitle: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    ElMessageBox({
+      title: "删除重复事项",
+      message: h("div", { style: "padding: 10px 0;" }, [
+        h("p", { style: "margin-bottom: 15px;" }, `"${itemTitle}" 是一个重复事项，请选择删除范围：`),
+        h("div", { class: "delete-scope-options" }, [
+          h("button", {
+            class: "scope-option this-instance",
+            onClick: () => {
+              ElMessageBox.close();
+              resolve("this_instance");
+            }
+          }, [
+            h("div", { class: "option-title" }, "仅删除本事项"),
+            h("div", { class: "option-desc" }, "后续重复事项将继续生成")
+          ]),
+          h("button", {
+            class: "scope-option future-instances",
+            onClick: () => {
+              ElMessageBox.close();
+              resolve("future_instances");
+            }
+          }, [
+            h("div", { class: "option-title" }, "删除后续所有事项"),
+            h("div", { class: "option-desc" }, "停止后续重复生成")
+          ])
+        ])
+      ]),
+      showCancelButton: true,
+      showConfirmButton: false,
+      cancelButtonText: "取消",
+      closeOnClickModal: false,
+      closeOnPressEscape: false,
+      beforeClose: () => {
+        resolve(null);
+        return true;
+      }
+    });
+  });
 }
 
 function resetTypeDraft() {
@@ -4332,6 +4416,41 @@ onBeforeUnmount(() => {
 }
 .date-preset-btn:hover {
   color: var(--lc-accent);
+}
+
+/* --- Delete scope dialog --- */
+.delete-scope-options {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.scope-option {
+  padding: 16px;
+  border: 1px solid var(--lc-border);
+  border-radius: 8px;
+  background: var(--lc-surface-1);
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.2s;
+  width: 100%;
+}
+
+.scope-option:hover {
+  border-color: var(--lc-accent);
+  background: var(--lc-surface-2);
+}
+
+.scope-option .option-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--lc-text);
+  margin-bottom: 4px;
+}
+
+.scope-option .option-desc {
+  font-size: 12px;
+  color: var(--lc-text-muted);
 }
 
 /* --- Custom scrollbar --- */
