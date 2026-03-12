@@ -266,7 +266,20 @@ fn summarize_expression(normalized: &NormalizedCron) -> String {
         && is_single_number(&normalized.hour)
         && normalized.day_of_month == "*"
         && normalized.month == "*"
-        && normalized.day_of_week == "1-5"
+        && is_sun_to_thu_day_of_week(&normalized.day_of_week)
+    {
+        return format!(
+            "周日-周四 {:0>2}:{:0>2} 执行",
+            normalized.hour, normalized.minute
+        );
+    }
+
+    if normalized.second == "0"
+        && is_single_number(&normalized.minute)
+        && is_single_number(&normalized.hour)
+        && normalized.day_of_month == "*"
+        && normalized.month == "*"
+        && is_workday_day_of_week(&normalized.day_of_week)
     {
         return format!(
             "工作日 {:0>2}:{:0>2} 执行",
@@ -288,6 +301,24 @@ fn summarize_expression(normalized: &NormalizedCron) -> String {
     }
 
     "按 Cron 表达式执行".to_string()
+}
+
+fn is_workday_day_of_week(value: &str) -> bool {
+    let normalized = value.trim().replace(' ', "").to_lowercase();
+    matches!(
+        normalized.as_str(),
+        // 数字语义下的工作日：2=周一 ... 6=周五
+        "2-6" | "2,3,4,5,6"
+            // 推荐写法（无歧义）
+            | "mon-fri"
+            | "mon,tue,wed,thu,fri"
+            | "mon,tues,wed,thu,fri"
+    )
+}
+
+fn is_sun_to_thu_day_of_week(value: &str) -> bool {
+    let normalized = value.trim().replace(' ', "").to_lowercase();
+    matches!(normalized.as_str(), "1-5" | "1,2,3,4,5")
 }
 
 fn describe_field(value: &str, unit: &str) -> String {

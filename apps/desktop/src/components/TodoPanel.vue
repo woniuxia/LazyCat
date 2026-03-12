@@ -638,7 +638,7 @@
                           <el-form-item label="Cron 表达式">
                             <el-input
                               v-model.trim="itemDraft.cronExpression"
-                              placeholder="例如：0 0 9 * * 1-5"
+                              placeholder="例如：0 0 9 * * Mon-Fri"
                             />
                           </el-form-item>
                           <el-form-item label="时区">
@@ -1333,7 +1333,7 @@ const itemDraft = reactive({
   repeatPreset: "none" as TodoRepeatPreset,
   ruleMode: "simple" as TodoRuleMode,
   timezone: "local",
-  cronExpression: "0 0 9 * * 1-5",
+  cronExpression: "0 0 9 * * Mon-Fri",
   endMode: "never" as TodoEndMode,
   endValueDate: "",
   endValueCount: 1,
@@ -2481,7 +2481,7 @@ function resetItemDraft() {
   itemDraft.repeatPreset = "none";
   itemDraft.ruleMode = "simple";
   itemDraft.timezone = "local";
-  itemDraft.cronExpression = "0 0 9 * * 1-5";
+  itemDraft.cronExpression = "0 0 9 * * Mon-Fri";
   itemDraft.endMode = "never";
   itemDraft.endValueDate = "";
   itemDraft.endValueCount = 1;
@@ -2535,7 +2535,7 @@ function applyRootItemToDraft(item: TodoItem) {
   itemDraft.cronExpression =
     (recurrence?.rule as { expression?: string } | undefined)?.expression ||
     recurrence?.cronExpression ||
-    "0 0 9 * * 1-5";
+    "0 0 9 * * Mon-Fri";
   itemDraft.endMode = recurrence?.endMode || "never";
   itemDraft.endValueDate =
     itemDraft.endMode === "until_date" ? String(recurrence?.endValue || "") : "";

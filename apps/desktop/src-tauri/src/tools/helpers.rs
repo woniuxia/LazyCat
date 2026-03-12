@@ -1,8 +1,11 @@
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::{DateTime, Duration, Local, NaiveDateTime, Utc};
+use chrono_tz::Tz;
+use cron::Schedule;
 use rusqlite::{Connection, params};
 use serde_json::Value;
 use std::fs;
 use std::path::PathBuf;
+use std::str::FromStr;
 
 /// Fixed base directory: ~/.lazycat (always exists, never changes)
 pub fn get_base_dir() -> Result<PathBuf, String> {
@@ -91,6 +94,112 @@ fn parse_utc_datetime(raw: &str) -> Option<DateTime<Utc>> {
                 .ok()
                 .map(|dt| DateTime::<Utc>::from_naive_utc_and_offset(dt, Utc))
         })
+}
+
+fn compute_next_occurrence(
+    cron_expression: &str,
+    timezone: &str,
+    after_utc: DateTime<Utc>,
+) -> Option<DateTime<Utc>> {
+    let schedule = Schedule::from_str(cron_expression).ok()?;
+
+    if timezone.eq_ignore_ascii_case("utc") {
+        return schedule.after(&after_utc).next();
+    }
+    if timezone.eq_ignore_ascii_case("local") {
+        let local_after = after_utc.with_timezone(&Local);
+        let next = schedule.after(&local_after).next();
+        return next.map(|dt| dt.with_timezone(&Utc));
+    }
+    match timezone.parse::<Tz>() {
+        Ok(tz) => {
+            let tz_after = after_utc.with_timezone(&tz);
+            schedule
+                .after(&tz_after)
+                .next()
+                .map(|dt| dt.with_timezone(&Utc))
+        }
+        Err(_) => {
+            let local_after = after_utc.with_timezone(&Local);
+            let next = schedule.after(&local_after).next();
+            next.map(|dt| dt.with_timezone(&Utc))
+        }
+    }
+}
+
+fn compute_next_occurrence_with_start(
+    cron_expression: &str,
+    timezone: &str,
+    start_at: Option<&str>,
+    after_utc: DateTime<Utc>,
+) -> Option<DateTime<Utc>> {
+    let Some(start_at_dt) = start_at.and_then(parse_utc_datetime) else {
+        return compute_next_occurrence(cron_expression, timezone, after_utc);
+    };
+    let search_after = if after_utc <= start_at_dt {
+        start_at_dt - Duration::seconds(1)
+    } else {
+        after_utc
+    };
+    let next = compute_next_occurrence(cron_expression, timezone, search_after)?;
+    (next >= start_at_dt).then_some(next)
+}
+
+fn build_simple_weekly_cron_expression(rule: &Value) -> Option<String> {
+    let time = rule.get("time").and_then(Value::as_str)?.trim();
+    let parts = time.split(':').collect::<Vec<&str>>();
+    if parts.len() != 2 {
+        return None;
+    }
+    let hour = parts[0].parse::<i64>().ok()?;
+    let minute = parts[1].parse::<i64>().ok()?;
+    if !(0..=23).contains(&hour) || !(0..=59).contains(&minute) || minute % 5 != 0 {
+        return None;
+    }
+
+    // 前端 weekday 语义为 1=周一 ... 7=周日；这里输出 Mon..Sun，避免 cron 数值周字段歧义。
+    let mut weekdays = rule
+        .get("weekdays")
+        .and_then(Value::as_array)
+        .map(|arr| {
+            let mut out = arr
+                .iter()
+                .filter_map(Value::as_i64)
+                .filter(|v| (1..=7).contains(v))
+                .collect::<Vec<i64>>();
+            out.sort_unstable();
+            out.dedup();
+            out
+        })
+        .unwrap_or_else(|| vec![1]);
+    if weekdays.is_empty() {
+        weekdays = vec![1];
+    }
+
+    let dow = if weekdays == vec![1, 2, 3, 4, 5] {
+        "Mon-Fri".to_string()
+    } else {
+        let items = weekdays
+            .iter()
+            .filter_map(|weekday| match weekday {
+                1 => Some("Mon"),
+                2 => Some("Tue"),
+                3 => Some("Wed"),
+                4 => Some("Thu"),
+                5 => Some("Fri"),
+                6 => Some("Sat"),
+                7 => Some("Sun"),
+                _ => None,
+            })
+            .collect::<Vec<&str>>();
+        if items.is_empty() {
+            "Mon".to_string()
+        } else {
+            items.join(",")
+        }
+    };
+
+    Some(format!("0 {minute} {hour} * * {dow}"))
 }
 
 fn detect_reminder_offset_minutes(event_at: &str, remind_at: &str) -> Option<i64> {
@@ -860,6 +969,91 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
         }
 
         set_schema_version(conn, 19)?;
+    }
+
+    // Migration 20: fix todo simple weekly weekday semantics (Mon..Sun)
+    if current < 20 {
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, rule_mode, rule_json, cron_expression, timezone, start_at
+                 FROM todo_templates
+                 WHERE COALESCE(series_kind, 'recurring')='recurring'
+                 ORDER BY id ASC",
+            )
+            .map_err(|e| format!("migration 20 load todo_templates failed: {e}"))?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, Option<String>>(5)?,
+                ))
+            })
+            .map_err(|e| format!("migration 20 map todo_templates failed: {e}"))?;
+
+        let mut template_rows = Vec::new();
+        for row in rows {
+            template_rows.push(row.map_err(|e| e.to_string())?);
+        }
+
+        for (template_id, rule_mode, rule_json, cron_expression, timezone, start_at) in template_rows
+        {
+            if rule_mode.trim().to_lowercase() != "simple" {
+                continue;
+            }
+
+            let rule = serde_json::from_str::<Value>(&rule_json).unwrap_or(Value::Null);
+            let frequency = rule
+                .get("frequency")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .trim()
+                .to_lowercase();
+            if frequency != "weekly" {
+                continue;
+            }
+
+            let Some(next_expression) = build_simple_weekly_cron_expression(&rule) else {
+                continue;
+            };
+            if next_expression == cron_expression {
+                continue;
+            }
+
+            let last_event_at: Option<String> = conn
+                .query_row(
+                    "SELECT MAX(event_at) FROM todo_tasks WHERE source_template_id=?1",
+                    params![template_id],
+                    |row| row.get(0),
+                )
+                .unwrap_or(None);
+            let after_utc = last_event_at
+                .as_deref()
+                .and_then(parse_utc_datetime)
+                .map(|dt| dt + Duration::seconds(1))
+                .unwrap_or_else(Utc::now);
+
+            let next_occurrence_at = compute_next_occurrence_with_start(
+                &next_expression,
+                &timezone,
+                start_at.as_deref(),
+                after_utc,
+            )
+            .map(|dt| dt.to_rfc3339());
+
+            conn.execute(
+                "UPDATE todo_templates
+                 SET cron_expression=?1, next_occurrence_at=?2, updated_at=CURRENT_TIMESTAMP
+                 WHERE id=?3",
+                params![next_expression, next_occurrence_at, template_id],
+            )
+            .map_err(|e| format!("migration 20 update todo_templates failed: {e}"))?;
+        }
+
+        set_schema_version(conn, 20)?;
     }
 
     Ok(())

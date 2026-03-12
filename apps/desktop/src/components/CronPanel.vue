@@ -143,7 +143,7 @@ const fieldDefs: Array<{
   { key: "hour", label: "时", placeholder: "*", shortcuts: ["*", "*/2", "9-18", "0"] },
   { key: "dayOfMonth", label: "日", placeholder: "*", shortcuts: ["*", "1", "1-5", "*/2"] },
   { key: "month", label: "月", placeholder: "*", shortcuts: ["*", "1", "1-6", "7-12"] },
-  { key: "dayOfWeek", label: "周", placeholder: "*", shortcuts: ["*", "1-5", "1", "6,0"] },
+  { key: "dayOfWeek", label: "周", placeholder: "*", shortcuts: ["*", "Mon-Fri", "Mon", "Sat,Sun"] },
 ];
 
 const templates = [
@@ -158,10 +158,10 @@ const templates = [
   { label: "每天 00:00", expression: "0 0 0 * * *" },
   { label: "每天 09:00", expression: "0 0 9 * * *" },
   { label: "每天 18:00", expression: "0 0 18 * * *" },
-  { label: "工作日 09:00", expression: "0 0 9 * * 1-5" },
-  { label: "工作日 18:00", expression: "0 0 18 * * 1-5" },
-  { label: "每周一 09:00", expression: "0 0 9 * * 1" },
-  { label: "每周五 18:00", expression: "0 0 18 * * 5" },
+  { label: "工作日 09:00", expression: "0 0 9 * * Mon-Fri" },
+  { label: "工作日 18:00", expression: "0 0 18 * * Mon-Fri" },
+  { label: "每周一 09:00", expression: "0 0 9 * * Mon" },
+  { label: "每周五 18:00", expression: "0 0 18 * * Fri" },
   { label: "每月 1 日 00:00", expression: "0 0 0 1 * *" },
   { label: "每月 1 日 09:00", expression: "0 0 9 1 * *" },
   { label: "每月最后一天 23:00", expression: "0 0 23 L * *" },

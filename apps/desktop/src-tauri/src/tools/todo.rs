@@ -2139,25 +2139,49 @@ fn build_simple_cron_expression(rule: &Value) -> Result<String, String> {
             }
         }
         "weekly" => {
-            let weekdays = rule
+            // 注意：本项目前端 weekday 语义为 1=周一 ... 7=周日（中文常用习惯）
+            // Rust 端使用的 cron crate 对 day-of-week 的数字语义并不一致（1=周日 ... 7=周六），
+            // 为避免歧义，这里统一输出英文星期缩写（Mon..Sun）。
+            let mut weekdays = rule
                 .get("weekdays")
                 .and_then(Value::as_array)
                 .map(|arr| {
                     let mut out = arr
                         .iter()
                         .filter_map(Value::as_i64)
-                        .map(|v| if v == 7 { 0 } else { v.clamp(0, 6) })
+                        .filter(|v| (1..=7).contains(v))
                         .collect::<Vec<i64>>();
                     out.sort_unstable();
                     out.dedup();
                     out
                 })
                 .unwrap_or_else(|| vec![1]);
-            let dow = weekdays
-                .iter()
-                .map(ToString::to_string)
-                .collect::<Vec<String>>()
-                .join(",");
+            if weekdays.is_empty() {
+                weekdays = vec![1];
+            }
+
+            let dow = if weekdays == vec![1, 2, 3, 4, 5] {
+                "Mon-Fri".to_string()
+            } else {
+                let items = weekdays
+                    .iter()
+                    .filter_map(|weekday| match weekday {
+                        1 => Some("Mon"),
+                        2 => Some("Tue"),
+                        3 => Some("Wed"),
+                        4 => Some("Thu"),
+                        5 => Some("Fri"),
+                        6 => Some("Sat"),
+                        7 => Some("Sun"),
+                        _ => None,
+                    })
+                    .collect::<Vec<&str>>();
+                if items.is_empty() {
+                    "Mon".to_string()
+                } else {
+                    items.join(",")
+                }
+            };
             format!("0 {minute} {hour} * * {dow}")
         }
         "monthly" => {
@@ -3313,6 +3337,52 @@ mod tests {
     }
 
     #[test]
+    fn simple_weekly_cron_should_build_using_named_weekdays() {
+        let expr = build_simple_cron_expression(&json!({
+            "frequency": "weekly",
+            "interval": 1,
+            "time": "09:30",
+            "weekdays": [1, 2, 3, 4, 5]
+        }))
+        .expect("weekly");
+        assert_eq!(expr, "0 30 9 * * Mon-Fri");
+
+        let expr = build_simple_cron_expression(&json!({
+            "frequency": "weekly",
+            "interval": 1,
+            "time": "09:30",
+            "weekdays": [7]
+        }))
+        .expect("weekly");
+        assert_eq!(expr, "0 30 9 * * Sun");
+    }
+
+    #[test]
+    fn workday_next_occurrence_should_be_friday_after_thursday() {
+        let expr = build_simple_cron_expression(&json!({
+            "frequency": "weekly",
+            "interval": 1,
+            "time": "09:00",
+            "weekdays": [1, 2, 3, 4, 5]
+        }))
+        .expect("weekly");
+
+        let after = DateTime::parse_from_rfc3339("2026-03-12T10:00:00+00:00")
+            .expect("after")
+            .with_timezone(&Utc);
+        let next = compute_next_occurrence_with_start(
+            &expr,
+            "UTC",
+            Some("2026-03-10T09:00:00+00:00"),
+            after,
+        )
+        .expect("next occurrence")
+        .expect("occurrence exists");
+
+        assert_eq!(next.to_rfc3339(), "2026-03-13T09:00:00+00:00");
+    }
+
+    #[test]
     fn simple_time_should_reject_non_five_minute_step() {
         let error = build_simple_cron_expression(&json!({
             "frequency": "daily",
@@ -3673,6 +3743,9 @@ mod tests {
     #[test]
     fn convert_one_off_task_to_recurring_should_bind_existing_task_without_duplicate() {
         let mut conn = create_test_conn();
+        // 使用未来日期，避免测试随当前日期推进而变得不稳定（函数内部会使用 Utc::now() 触发一次调度生成）。
+        let start_at = "2099-03-07T09:00:00+00:00";
+        let expected_next = "2099-03-08T09:00:00+00:00";
         conn.execute(
             "INSERT INTO todo_tasks(title, type_id, priority, description, status, event_at)
              VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
@@ -3682,7 +3755,7 @@ mod tests {
                 "P2",
                 "原始单次事项",
                 STATUS_PENDING,
-                "2026-03-07T09:00:00+00:00"
+                start_at
             ],
         )
         .expect("seed one-off task");
@@ -3697,7 +3770,7 @@ mod tests {
             "assigneeIds": [11, 12],
             "reminderPresets": ["0m", "10m"],
             "recurrence": {
-                "startAt": "2026-03-07T09:00:00+00:00",
+                "startAt": start_at,
                 "ruleMode": "simple",
                 "rule": { "frequency": "daily", "interval": 1, "time": "09:00" },
                 "timezone": "UTC",
@@ -3735,10 +3808,10 @@ mod tests {
                 "SELECT next_occurrence_at FROM todo_templates WHERE id=?1",
                 params![template_id],
                 |row| row.get(0),
-            )
+        )
             .expect("load next occurrence");
         assert_eq!(generated_count, 1);
-        assert_eq!(next_occurrence_at, "2026-03-08T09:00:00+00:00");
+        assert_eq!(next_occurrence_at, expected_next);
 
         let task_reminders: i64 = conn
             .query_row("SELECT COUNT(*) FROM todo_task_reminders WHERE task_id=1", [], |row| row.get(0))

@@ -185,7 +185,7 @@ export function createRepeatDraft(recurrence: TodoRecurrence | null, startAt?: s
   return {
     preset: inferRepeatPreset(recurrence),
     ruleMode: recurrence?.ruleMode || "simple",
-    cronExpression: (recurrence?.rule as { expression?: string } | undefined)?.expression || recurrence?.cronExpression || "0 0 9 * * 1-5",
+    cronExpression: (recurrence?.rule as { expression?: string } | undefined)?.expression || recurrence?.cronExpression || "0 0 9 * * Mon-Fri",
     timezone: recurrence?.timezone || "local",
     frequency: (simpleRule.frequency || "daily") as TodoSimpleFrequency,
     interval: Math.max(1, Number(simpleRule.interval || 1)),
