@@ -15,7 +15,7 @@
       <el-input
         v-model="xmlInput"
         type="textarea"
-        :rows="4"
+        :rows="8"
         placeholder="粘贴 Maven 依赖 XML，例如：
 <dependency>
   <groupId>org.bouncycastle</groupId>
@@ -34,7 +34,7 @@
     <div v-if="parsed" class="panel-grid-full maven-parsed">
       <el-tag>groupId: {{ parsed.groupId }}</el-tag>
       <el-tag type="success">artifactId: {{ parsed.artifactId }}</el-tag>
-      <el-tag type="warning">version: {{ parsed.version }}</el-tag>
+      <el-tag v-if="parsed.version" type="warning">version: {{ parsed.version }}</el-tag>
     </div>
 
     <!-- 错误提示 -->
@@ -51,7 +51,7 @@
         show-icon
       />
 
-      <div class="maven-jar-path">
+      <div v-if="result.version" class="maven-jar-path">
         <label class="maven-label">Jar 路径</label>
         <div class="maven-path-row">
           <code class="maven-code">{{ result.targetJarPath }}</code>
@@ -66,36 +66,36 @@
         <span>{{ formatSize(result.jarSize) }}</span>
       </div>
 
-      <!-- 版本列表 -->
+      <!-- 版本列表 - 卡片样式 -->
       <div v-if="result.versions.length > 0" class="maven-versions">
         <label class="maven-label">本地版本 ({{ result.totalVersions }})</label>
-        <el-table
-          :data="result.versions"
-          size="small"
-          :row-class-name="versionRowClass"
-          max-height="320"
-        >
-          <el-table-column prop="version" label="版本号" min-width="140" />
-          <el-table-column label="Jar 状态" width="100" align="center">
-            <template #default="{ row }">
+        <div class="maven-version-cards">
+          <div
+            v-for="row in result.versions"
+            :key="row.version"
+            :class="['maven-version-card', { 'maven-current-version': row.version === parsed?.version }]"
+          >
+            <div class="maven-version-header">
+              <span class="maven-version-name">{{ row.version }}</span>
               <el-tag :type="row.hasJar ? 'success' : 'info'" size="small">
                 {{ row.hasJar ? "存在" : "缺失" }}
               </el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column label="文件大小" width="120" align="right">
-            <template #default="{ row }">
-              {{ row.hasJar ? formatSize(row.jarSize) : "-" }}
-            </template>
-          </el-table-column>
-          <el-table-column label="操作" width="90" align="center">
-            <template #default="{ row }">
-              <el-button v-if="row.hasJar" link size="small" @click="openVersionDir(row.version)">
+            </div>
+            <div class="maven-version-meta">
+              <span class="maven-version-size">
+                {{ row.hasJar ? formatSize(row.jarSize) : "-" }}
+              </span>
+              <el-button
+                v-if="row.hasJar"
+                link
+                size="small"
+                @click="openVersionDir(row.version)"
+              >
                 打开
               </el-button>
-            </template>
-          </el-table-column>
-        </el-table>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -130,7 +130,7 @@ const repoPath = ref("");
 const xmlInput = ref("");
 const loading = ref(false);
 const error = ref("");
-const parsed = ref<{ groupId: string; artifactId: string; version: string } | null>(null);
+const parsed = ref<{ groupId: string; artifactId: string; version?: string } | null>(null);
 const result = ref<LocateResult | null>(null);
 
 onMounted(() => {
@@ -158,7 +158,7 @@ async function pickRepoDir() {
   }
 }
 
-function parseXml(xml: string): { groupId: string; artifactId: string; version: string } | null {
+function parseXml(xml: string): { groupId: string; artifactId: string; version?: string } | null {
   const extract = (tag: string): string => {
     const re = new RegExp(`<${tag}>\\s*([^<]+?)\\s*</${tag}>`);
     const m = xml.match(re);
@@ -167,8 +167,8 @@ function parseXml(xml: string): { groupId: string; artifactId: string; version: 
   const groupId = extract("groupId");
   const artifactId = extract("artifactId");
   const version = extract("version");
-  if (!groupId || !artifactId || !version) return null;
-  return { groupId, artifactId, version };
+  if (!groupId || !artifactId) return null;
+  return { groupId, artifactId, version: version || undefined };
 }
 
 async function doLocate() {
@@ -183,7 +183,7 @@ async function doLocate() {
 
   const p = parseXml(xmlInput.value);
   if (!p) {
-    error.value = "无法解析 XML，请确保包含 groupId、artifactId、version 标签";
+    error.value = "无法解析 XML，请确保包含 groupId、artifactId 标签";
     return;
   }
   parsed.value = p;
@@ -230,10 +230,6 @@ function formatSize(bytes: number): string {
 
 function copyText(text: string) {
   navigator.clipboard.writeText(text).catch(() => {});
-}
-
-function versionRowClass({ row }: { row: VersionInfo }): string {
-  return row.version === parsed.value?.version ? "maven-current-version" : "";
 }
 </script>
 
@@ -308,10 +304,64 @@ function versionRowClass({ row }: { row: VersionInfo }): string {
 .maven-versions {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 8px;
 }
 
-:deep(.maven-current-version) {
-  background-color: var(--el-color-primary-light-9) !important;
+.maven-version-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+  max-height: 400px;
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.maven-version-card {
+  padding: 12px;
+  background: var(--lc-surface-1);
+  border: 1px solid var(--lc-border);
+  border-radius: var(--lc-radius-md);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: all 0.2s;
+}
+
+.maven-version-card:hover {
+  border-color: var(--el-color-primary-light-5);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.maven-version-card.maven-current-version {
+  border-color: var(--el-color-primary);
+  background-color: var(--el-color-primary-light-9);
+}
+
+.maven-version-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.maven-version-name {
+  font-family: var(--lc-font-mono);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--lc-text-primary);
+  word-break: break-all;
+}
+
+.maven-version-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--lc-text-secondary);
+}
+
+.maven-version-size {
+  font-family: var(--lc-font-mono);
 }
 </style>

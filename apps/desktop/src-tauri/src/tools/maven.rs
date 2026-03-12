@@ -35,9 +35,7 @@ fn locate(payload: &Value) -> Result<Value, String> {
     if artifact_id.is_empty() {
         return Err("artifactId 不能为空".into());
     }
-    if version.is_empty() {
-        return Err("version 不能为空".into());
-    }
+    // version 为空时，不定位具体版本，而是查询 artifact 的所有版本信息
     if repo_path.is_empty() {
         return Err("repoPath 不能为空".into());
     }
@@ -51,15 +49,20 @@ fn locate(payload: &Value) -> Result<Value, String> {
     let group_path = group_id.replace('.', std::path::MAIN_SEPARATOR_STR);
     let artifact_dir = repo_dir.join(&group_path).join(artifact_id);
 
-    // Build target jar path
-    let jar_name = format!("{artifact_id}-{version}.jar");
-    let target_jar_path = artifact_dir.join(version).join(&jar_name);
-
-    let found = target_jar_path.is_file();
-    let jar_size = if found {
-        fs::metadata(&target_jar_path).map(|m| m.len()).unwrap_or(0)
+    // Build target jar path (only when version is provided)
+    let (target_jar_path, found, jar_size) = if version.is_empty() {
+        let empty_path = PathBuf::new();
+        (empty_path, false, 0)
     } else {
-        0
+        let jar_name = format!("{artifact_id}-{version}.jar");
+        let jar_path = artifact_dir.join(version).join(&jar_name);
+        let jar_exists = jar_path.is_file();
+        let size = if jar_exists {
+            fs::metadata(&jar_path).map(|m| m.len()).unwrap_or(0)
+        } else {
+            0
+        };
+        (jar_path, jar_exists, size)
     };
 
     // Scan all version subdirectories
@@ -91,11 +94,11 @@ fn locate(payload: &Value) -> Result<Value, String> {
         }
     }
 
-    // Sort versions semantically
+    // Sort versions semantically (descending - newest first)
     versions.sort_by(|a, b| {
         let va = a["version"].as_str().unwrap_or_default();
         let vb = b["version"].as_str().unwrap_or_default();
-        compare_versions(va, vb)
+        compare_versions(vb, va) // reverse order for descending
     });
 
     let total_versions = versions.len();

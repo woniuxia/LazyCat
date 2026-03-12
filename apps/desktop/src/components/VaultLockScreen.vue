@@ -64,6 +64,7 @@
               placeholder="输入主密码"
               show-password
               size="large"
+              @input="onPasswordInput"
               @keyup.enter="onUnlock"
             />
           </el-form-item>
@@ -84,7 +85,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, onMounted, nextTick } from "vue";
+import { computed, ref, onMounted, onUnmounted, nextTick } from "vue";
 import type { InputInstance } from "element-plus";
 import { invokeToolByChannel } from "../bridge/tauri";
 
@@ -108,7 +109,15 @@ const errorMsg = ref("");
 const setupPasswordRef = ref<InputInstance | null>(null);
 const unlockPasswordRef = ref<InputInstance | null>(null);
 
+// Auto-unlock state
+const attemptedLengths = ref<Set<number>>(new Set());
+const isAutoUnlocking = ref(false);
+const debounceTimer = ref<number | null>(null);
+
 onMounted(async () => {
+  // Reset attempted lengths when entering unlock screen
+  attemptedLengths.value.clear();
+
   await nextTick();
   setTimeout(() => {
     if (props.mode === "setup") {
@@ -118,6 +127,61 @@ onMounted(async () => {
     }
   }, 150);
 });
+
+onUnmounted(() => {
+  // Clean up debounce timer to avoid memory leaks
+  if (debounceTimer.value) {
+    clearTimeout(debounceTimer.value);
+    debounceTimer.value = null;
+  }
+});
+
+function onPasswordInput() {
+  // Only apply auto-unlock in unlock mode
+  if (props.mode !== "unlock") return;
+
+  // Skip if currently auto-unlocking (prevent concurrent attempts)
+  if (isAutoUnlocking.value) return;
+
+  // Clear previous debounce timer
+  if (debounceTimer.value) {
+    clearTimeout(debounceTimer.value);
+    debounceTimer.value = null;
+  }
+
+  const currentLength = unlockPassword.value.length;
+
+  // Skip if password is empty
+  if (currentLength === 0) return;
+
+  // Skip if this length has already been attempted
+  if (attemptedLengths.value.has(currentLength)) return;
+
+  // Set up debounce timer (500ms)
+  debounceTimer.value = window.setTimeout(() => {
+    // Mark this length as attempted
+    attemptedLengths.value.add(currentLength);
+    // Attempt auto-unlock
+    attemptAutoUnlock();
+  }, 500);
+}
+
+async function attemptAutoUnlock() {
+  if (!unlockPassword.value) return;
+
+  isAutoUnlocking.value = true;
+
+  try {
+    await invokeToolByChannel("tool:vault:unlock", { masterPassword: unlockPassword.value });
+    // Success: emit unlocked event
+    emit("unlocked");
+  } catch (err) {
+    // Failure: silently ignore (no error message, no clearing input)
+    // This is intentional - we don't want to alert the user when auto-unlock fails
+  } finally {
+    isAutoUnlocking.value = false;
+  }
+}
 
 async function onSetup() {
   errorMsg.value = "";
