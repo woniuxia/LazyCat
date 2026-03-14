@@ -1,10 +1,8 @@
 export type TodoPriority = "P0" | "P1" | "P2" | "P3";
 
-export type TodoStatus = "pending" | "in_progress" | "completed" | "canceled";
+export type TodoStatus = "pending" | "in_progress" | "completed";
 
 export type TodoKind = "one_off" | "recurring";
-
-export type TodoRecordRole = "root" | "occurrence";
 
 export type TodoRuleMode = "simple" | "cron";
 
@@ -57,8 +55,7 @@ export interface TodoRecurrence {
   timezone: string;
   endMode: TodoEndMode;
   endValue: string | number | null;
-  nextOccurrenceAt: string | null;
-  generatedCount: number;
+  occurrenceIndex: number;
   active: boolean;
 }
 
@@ -72,7 +69,6 @@ export interface TodoItem {
   id: number;
   rootId: number;
   kind: TodoKind;
-  recordRole: TodoRecordRole;
   pinned: boolean;
   title: string;
   typeId: number | null;
@@ -80,7 +76,7 @@ export interface TodoItem {
   typeColor?: string | null;
   priority: TodoPriority;
   description: string;
-  status: TodoStatus | null;
+  status: TodoStatus;
   eventAt: string | null;
   reminderPresets: TodoReminderPreset[];
   snoozeUntil: string | null;
@@ -89,7 +85,6 @@ export interface TodoItem {
   assignees: TodoAssignee[];
   links: TodoLink[];
   isOverdue: boolean;
-  canEditFuture: boolean;
   nextTaskReminderId?: number | null;
   nextReminderPreset?: TodoReminderPreset | null;
   recurrence: TodoRecurrence | null;
@@ -134,7 +129,6 @@ export interface TodoItemUpsertPayload {
   id?: number;
   rootId?: number;
   kind: TodoKind;
-  recordRole?: TodoRecordRole;
   title: string;
   typeId: number | null;
   priority: TodoPriority;
@@ -143,7 +137,6 @@ export interface TodoItemUpsertPayload {
   eventAt?: string | null;
   reminderPresets?: TodoReminderPreset[];
   status?: TodoStatus;
-  scope?: TodoEditScope;
   links?: { url: string; title: string }[];
   recurrence?: TodoRecurrenceInput | null;
 }

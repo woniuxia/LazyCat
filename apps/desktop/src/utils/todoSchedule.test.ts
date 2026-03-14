@@ -19,8 +19,7 @@ function createRecurrence(overrides: Partial<TodoRecurrence> = {}): TodoRecurren
     timezone: "local",
     endMode: "never",
     endValue: null,
-    nextOccurrenceAt: null,
-    generatedCount: 0,
+    occurrenceIndex: 0,
     active: true,
     ...overrides,
   };

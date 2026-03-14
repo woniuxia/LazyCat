@@ -4,7 +4,7 @@
       <div class="header-main" data-tauri-drag-region>
         <div class="header-icon">⏰</div>
         <div class="header-copy" data-tauri-drag-region>
-          <div class="header-title">待办提醒</div>
+          <div class="header-title">任务提醒</div>
           <div class="header-subtitle">
             <span v-if="queue.length > 1">{{ currentIndexLabel }}</span>
             <span v-if="currentReminder">{{ formatFireTime(currentReminder.fireAt) }}</span>

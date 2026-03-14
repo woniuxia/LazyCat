@@ -5,17 +5,10 @@ function isActionableStatus(status: TodoItem["status"]) {
 }
 
 function isDoneStatus(status: TodoItem["status"]) {
-  return status === "completed" || status === "canceled";
-}
-
-function isRecurringRootItem(item: TodoItem) {
-  return item.kind === "recurring" && item.recordRole === "root";
+  return status === "completed";
 }
 
 function itemSortTime(item: TodoItem) {
-  if (isRecurringRootItem(item)) {
-    return item.displayAt || "";
-  }
   return item.eventAt || "";
 }
 
@@ -92,7 +85,7 @@ export function groupTodoItemsByBucket(items: TodoItem[]) {
       continue;
     }
 
-    if (isActionableStatus(item.status) || isRecurringRootItem(item)) {
+    if (isActionableStatus(item.status)) {
       activeItems.push(item);
     }
   }

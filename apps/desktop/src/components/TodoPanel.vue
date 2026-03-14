@@ -7,7 +7,7 @@
           <div class="stats-grid">
             <div class="stat-card">
               <div class="stat-number">{{ activeItems.length }}</div>
-              <div class="stat-label">待办</div>
+              <div class="stat-label">任务</div>
             </div>
             <div class="stat-card">
               <div class="stat-number">{{ doneItems.length + recentWeekItems.length }}</div>
@@ -146,7 +146,7 @@
           <div class="item-section">
             <div class="item-section-header">
               <div class="item-section-title-wrap">
-                <h3 class="item-section-title">待办事项</h3>
+                <h3 class="item-section-title">任务列表</h3>
                 <span class="count-badge">{{ displayActiveItems.length }}</span>
               </div>
             </div>
@@ -181,7 +181,7 @@
                 </svg>
               </div>
               <span class="todo-empty-text">{{
-                hasActiveFilter ? "当前筛选条件下暂无待办事项" : "一切安好，暂无待办"
+                hasActiveFilter ? "当前筛选条件下暂无任务" : "一切安好，暂无任务"
               }}</span>
             </div>
             <div v-else class="todo-card-list">
@@ -422,12 +422,6 @@
             <div class="detail-scroll detail-scroll--form">
               <el-form label-position="top" class="todo-item-form">
                 <div class="todo-form-section">
-                  <el-form-item v-if="showScopeSelector" label="编辑范围">
-                    <el-radio-group v-model="itemDraft.scope" @change="onEditScopeChange">
-                      <el-radio value="this_instance">仅当前一次</el-radio>
-                      <el-radio value="future_instances">此后未发生项</el-radio>
-                    </el-radio-group>
-                  </el-form-item>
                   <el-form-item label="标题">
                     <el-input
                       ref="titleInputRef"
@@ -460,8 +454,8 @@
 
                 <div v-show="showMoreFields" class="todo-form-collapsible">
                   <div class="todo-form-section">
-                    <div class="todo-form-row">
-                      <el-form-item label="分类" class="todo-form-item-flex">
+                    <el-form-item label="分类与优先级" class="todo-form-item-category-priority">
+                      <div class="category-priority-row">
                         <el-select
                           v-model="itemDraft.typeId"
                           clearable
@@ -469,7 +463,7 @@
                           allow-create
                           default-first-option
                           placeholder="可输入新分类"
-                          style="width: 100%"
+                          style="flex: 1"
                         >
                           <el-option
                             v-for="item in sortedTypes"
@@ -478,9 +472,7 @@
                             :value="item.id"
                           />
                         </el-select>
-                      </el-form-item>
-                      <el-form-item label="优先级" class="todo-form-item-flex">
-                        <el-select v-model="itemDraft.priority" style="width: 100%">
+                        <el-select v-model="itemDraft.priority" style="width: 150px">
                           <template #prefix>
                             <span
                               class="priority-dot"
@@ -500,8 +492,8 @@
                             {{ opt.label }}
                           </el-option>
                         </el-select>
-                      </el-form-item>
-                    </div>
+                      </div>
+                    </el-form-item>
                     <el-form-item label="执行人">
                       <el-select
                         v-model="itemDraft.assigneeIds"
@@ -525,59 +517,61 @@
                   </div>
 
                   <div class="todo-form-section">
-                    <div class="todo-form-row">
-                      <el-form-item label="日期" class="todo-form-item-date">
+                    <el-form-item label="日期与时间" class="todo-form-item-datetime">
+                      <div class="datetime-row">
                         <el-date-picker
                           v-model="eventDateModel"
                           type="date"
                           value-format="YYYY-MM-DD"
                           clearable
-                          style="width: 100%"
+                          style="width: 160px"
                         />
+                        <div class="time-picker-fused">
+                          <el-select v-model="eventHour" class="time-fused-select" placeholder="时">
+                            <el-option
+                              v-for="option in hourOptions"
+                              :key="option.value"
+                              :label="option.label"
+                              :value="option.value"
+                            />
+                          </el-select>
+                          <span class="time-fused-separator">:</span>
+                          <el-select
+                            v-model="eventMinute"
+                            class="time-fused-select"
+                            placeholder="分"
+                          >
+                            <el-option
+                              v-for="option in minuteOptions"
+                              :key="option.value"
+                              :label="option.label"
+                              :value="option.value"
+                            />
+                          </el-select>
+                        </div>
+                      </div>
+                      <div class="datetime-actions">
                         <div class="date-quick-presets">
                           <el-button text size="small" class="date-preset-btn" @click="fillQuickDate(0)">今天</el-button>
                           <el-button text size="small" class="date-preset-btn" @click="fillQuickDate(1)">明天</el-button>
                           <el-button text size="small" class="date-preset-btn" @click="fillQuickDate(2)">后天</el-button>
                         </div>
-                      </el-form-item>
-                      <el-form-item label="时间" class="todo-form-item-time">
-                        <div class="time-picker-inline">
-                          <div class="time-picker-fused">
-                            <el-select v-model="eventHour" class="time-fused-select" placeholder="时">
-                              <el-option
-                                v-for="option in hourOptions"
-                                :key="option.value"
-                                :label="option.label"
-                                :value="option.value"
-                              />
-                            </el-select>
-                            <span class="time-fused-separator">:</span>
-                            <el-select
-                              v-model="eventMinute"
-                              class="time-fused-select"
-                              placeholder="分"
-                            >
-                              <el-option
-                                v-for="option in minuteOptions"
-                                :key="option.value"
-                                :label="option.label"
-                                :value="option.value"
-                              />
-                            </el-select>
-                          </div>
-                          <el-button
-                            v-if="!itemDraft.eventDate || !itemDraft.eventTime"
-                            text
-                            class="time-fused-clear"
-                            @click="fillDefaultDateTime"
-                            >填充</el-button
-                          >
-                          <el-button v-else text class="time-fused-clear" @click="clearEventSchedule"
-                            >清空</el-button
-                          >
-                        </div>
-                      </el-form-item>
-                    </div>
+                        <el-button
+                          v-if="!itemDraft.eventDate || !itemDraft.eventTime"
+                          text
+                          size="small"
+                          class="time-fused-clear"
+                          @click="fillDefaultDateTime"
+                        >填充</el-button>
+                        <el-button
+                          v-else
+                          text
+                          size="small"
+                          class="time-fused-clear"
+                          @click="clearEventSchedule"
+                        >清空</el-button>
+                      </div>
+                    </el-form-item>
                     <el-form-item label="提醒">
                       <el-select
                         v-model="itemDraft.reminderPresets"
@@ -776,15 +770,6 @@
                   {{ isDoneItem(selectedItem) ? "恢复" : "完成" }}
                 </el-button>
                 <el-button
-                  v-if="canCancelItem(selectedItem)"
-                  size="small"
-                  link
-                  type="warning"
-                  @click="changeItemStatus(selectedItem.id, 'canceled')"
-                >
-                  取消事项
-                </el-button>
-                <el-button
                   size="small"
                   link
                   type="danger"
@@ -845,15 +830,6 @@
                   "
                 >
                   {{ isDoneItem(selectedItem) ? "恢复" : "完成" }}
-                </el-button>
-                <el-button
-                  v-if="canCancelItem(selectedItem)"
-                  size="small"
-                  link
-                  type="warning"
-                  @click="changeItemStatus(selectedItem.id, 'canceled')"
-                >
-                  取消
                 </el-button>
                 <el-button size="small" link type="danger" @click="deleteItem(selectedItem)"
                   >删除</el-button
@@ -934,7 +910,7 @@
                     <div class="detail-grid" :class="{ 'is-stacked': !selectedItem.eventAt }">
                       <div v-if="selectedItem.eventAt" class="detail-field">
                         <div class="detail-label">
-                          <el-icon :size="12"><Clock /></el-icon> 到期时间
+                          <el-icon :size="12"><Clock /></el-icon> 任务时间
                         </div>
                         <div class="detail-value">
                           {{ formatDate(selectedItem.eventAt) }}
@@ -1003,10 +979,6 @@
                       <div class="detail-field detail-field--full">
                         <div class="detail-label">规则描述</div>
                         <div class="detail-value">{{ formatRecurrenceDescription(selectedItem) }}</div>
-                      </div>
-                      <div class="detail-field" v-if="selectedItemRecurrence?.nextOccurrenceAt">
-                        <div class="detail-label">下次发生</div>
-                        <div class="detail-value">{{ formatDate(selectedItemRecurrence.nextOccurrenceAt) }}</div>
                       </div>
                     </div>
                   </div>
@@ -1089,12 +1061,12 @@
           </div>
           <div class="detail-empty-content">
             <div class="detail-empty-title">选择事项查看详情</div>
-            <div class="detail-empty-text">在列表中点击任意待办事项，或快速创建新任务开始管理您的工作。</div>
+            <div class="detail-empty-text">在列表中点击任意任务，或快速创建新任务开始管理您的工作。</div>
           </div>
           <div class="detail-empty-actions">
             <el-button type="primary" size="large" @click="startCreate">
               <el-icon class="empty-btn-icon"><Plus /></el-icon>
-              新建待办
+              新建任务
             </el-button>
             <el-button size="large" @click="loadItems">
               <el-icon class="empty-btn-icon"><Refresh /></el-icon>
@@ -1245,14 +1217,12 @@ import type { InputInstance } from "element-plus";
 import { invokeToolByChannel } from "../bridge/tauri";
 import type {
   TodoAssignee,
-  TodoEditScope,
   TodoEndMode,
   TodoItem,
   TodoItemUpsertPayload,
   TodoKind,
   TodoLink,
   TodoPriority,
-  TodoRecordRole,
   TodoRecurrence,
   TodoReminderPreset,
   TodoRepeatPreset,
@@ -1319,7 +1289,6 @@ const draftBaseline = ref("");
 const typeDialogVisible = ref(false);
 const assigneeDialogVisible = ref(false);
 const editingItemSnapshot = ref<TodoItem | null>(null);
-const editingRootSnapshot = ref<TodoItem | null>(null);
 const defaultReminderPresets: TodoReminderPreset[] = ["none"];
 const lastReminderPresetSelection = ref<TodoReminderPreset[]>([...defaultReminderPresets]);
 let reminderUnlisten: UnlistenFn | null = null;
@@ -1405,7 +1374,6 @@ const itemDraft = reactive({
   eventDate: "",
   eventTime: "",
   reminderPresets: [...defaultReminderPresets] as TodoReminderPreset[],
-  scope: "this_instance" as TodoEditScope,
   repeatPreset: "none" as TodoRepeatPreset,
   ruleMode: "simple" as TodoRuleMode,
   timezone: "local",
@@ -1427,18 +1395,9 @@ const assigneeDraft = reactive<TodoAssigneeDraft>({ id: 0, name: "" });
 
 const isRepeating = computed(() => itemDraft.repeatPreset !== "none");
 
-const rootMap = computed(() => {
-  const map = new Map<number, TodoItem>();
-  for (const item of items.value) {
-    if (isRootItem(item)) map.set(item.id, item);
-  }
-  return map;
-});
-
 const filteredItems = computed(() => {
   const keyword = itemKeyword.value.trim().toLowerCase();
   return items.value.filter((item) => {
-    if (isRootItem(item)) return false;
     if (!keyword) return true;
     return (
       item.title.toLowerCase().includes(keyword) || item.description.toLowerCase().includes(keyword)
@@ -1618,7 +1577,6 @@ function snapshotItemDraft() {
     eventDate: itemDraft.eventDate,
     eventTime: itemDraft.eventTime,
     reminderPresets: normalizeReminderPresets(itemDraft.reminderPresets),
-    scope: itemDraft.scope,
     repeatPreset: itemDraft.repeatPreset,
     ruleMode: itemDraft.ruleMode,
     timezone: itemDraft.timezone,
@@ -1643,13 +1601,11 @@ function markDraftBaseline() {
 function formatStatusLabel(status: TodoStatus | null) {
   switch (status) {
     case "pending":
-      return "待办";
+      return "任务";
     case "in_progress":
       return "进行中";
     case "completed":
       return "已完成";
-    case "canceled":
-      return "已取消";
     default:
       return "未设置";
   }
@@ -1809,13 +1765,8 @@ function cancelDetailEdit() {
 const editingItemIsRecurring = computed(
   () => !!editingItemSnapshot.value && itemKindOf(editingItemSnapshot.value) === "recurring",
 );
-const showScopeSelector = computed(
-  () => itemDialogMode.value === "edit_item" && editingItemIsRecurring.value,
-);
 const showRecurrenceFields = computed(() => {
-  if (!isRepeating.value) return false;
-  if (itemDialogMode.value === "create") return true;
-  return itemDraft.scope === "future_instances";
+  return isRepeating.value;
 });
 const showWeeklyWeekdays = computed(
   () =>
@@ -1897,7 +1848,7 @@ function formatDate(value?: string | null) {
       });
 }
 
-function isActionableStatus(status: TodoStatus | null) {
+function isActionableStatus(status: TodoStatus) {
   return status === "pending" || status === "in_progress";
 }
 
@@ -1925,40 +1876,19 @@ function itemKindOf(item: TodoItem): TodoKind {
   return item.kind;
 }
 
-function itemRoleOf(item: TodoItem): TodoRecordRole {
-  return item.recordRole;
-}
-
-function isRootItem(item: TodoItem) {
-  return itemKindOf(item) === "recurring" && itemRoleOf(item) === "root";
-}
-
-function isOccurrenceItem(item: TodoItem) {
-  return itemKindOf(item) === "recurring" && itemRoleOf(item) === "occurrence";
-}
-
 function hasRepeatRule(item: TodoItem): boolean {
-  if (item.kind !== "recurring") return false;
-  if (item.recurrence) return true;
-  const root = rootMap.value.get(item.rootId);
-  return !!root?.recurrence;
+  return item.kind === "recurring" && !!item.recurrence;
 }
 
 function getItemRecurrence(item: TodoItem): TodoRecurrence | null {
-  if (item.recurrence) return item.recurrence;
-  const root = rootMap.value.get(item.rootId);
-  return root?.recurrence ?? null;
+  return item.recurrence;
 }
 
 function isDoneItem(item: TodoItem) {
-  return item.status === "completed" || item.status === "canceled";
+  return item.status === "completed";
 }
 
 function canPinItem(item: TodoItem) {
-  return isActionableStatus(item.status);
-}
-
-function canCancelItem(item: TodoItem) {
   return isActionableStatus(item.status);
 }
 
@@ -1968,7 +1898,7 @@ function truncateDescription(desc: string, maxLen = 40): string {
 }
 
 function itemScheduleAt(item: TodoItem) {
-  return isRootItem(item) ? item.displayAt : item.eventAt;
+  return item.eventAt;
 }
 
 function isItemOverdue(item: TodoItem): boolean {
@@ -2042,9 +1972,6 @@ function handleRowAction(command: string, row: TodoItem) {
   switch (command) {
     case "pin":
       toggleItemPin(row.id);
-      break;
-    case "cancel":
-      changeItemStatus(row.id, "canceled");
       break;
     case "delete":
       deleteItem(row);
@@ -2168,7 +2095,7 @@ function normalizePriority(value: string): TodoPriority {
 }
 
 function normalizeStatus(value: string): TodoStatus {
-  return ["pending", "in_progress", "completed", "canceled"].includes(value)
+  return ["pending", "in_progress", "completed"].includes(value)
     ? (value as TodoStatus)
     : "pending";
 }
@@ -2176,11 +2103,6 @@ function normalizeStatus(value: string): TodoStatus {
 function normalizeKind(value: unknown): TodoKind {
   if (value === "recurring") return "recurring";
   return "one_off";
-}
-
-function normalizeRecordRole(value: unknown): TodoRecordRole {
-  if (value === "occurrence") return "occurrence";
-  return "root";
 }
 
 function normalizeRuleMode(value: string): TodoRuleMode {
@@ -2272,6 +2194,22 @@ function normalizeAssignees(value: unknown): TodoAssignee[] {
     .filter((item): item is TodoAssignee => Boolean(item));
 }
 
+function normalizeLinks(value: unknown): TodoLink[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => {
+      const record = asRecord(item);
+      const url = readString(record, ["url"]);
+      if (!url) return null;
+      return {
+        id: readNumber(record, ["id"], 0),
+        url,
+        title: readString(record, ["title"], ""),
+      } satisfies TodoLink;
+    })
+    .filter((item): item is TodoLink => Boolean(item));
+}
+
 function normalizeRule(
   rawRule: unknown,
   ruleMode: TodoRuleMode,
@@ -2325,18 +2263,15 @@ function getRootItemId(item: TodoItem) {
 
 function normalizeTodoItem(raw: unknown): TodoItem {
   const record = asRecord(raw);
-  const eventAt = readNullableString(record, ["eventAt", "eventTime", "dueAt"]);
+  const eventAt = readNullableString(record, ["eventAt", "eventTime"]);
   const kind = normalizeKind(readUnknown(record, ["kind", "seriesKind"]));
-  const recordRole = normalizeRecordRole(readUnknown(record, ["recordRole"]));
   const recurrenceSource = asRecord(readUnknown(record, ["recurrence"]));
   const recurrenceRecord = Object.keys(recurrenceSource).length > 0 ? recurrenceSource : record;
   const hasRecurrence =
     kind === "recurring" &&
     ("ruleMode" in recurrenceSource ||
       "rule" in recurrenceSource ||
-      "cronExpression" in recurrenceSource ||
-      "nextOccurrenceAt" in recurrenceSource ||
-      recordRole === "root");
+      "cronExpression" in recurrenceSource);
   const recurrenceRuleMode = normalizeRuleMode(
     readString(recurrenceRecord, ["ruleMode"], "simple"),
   );
@@ -2361,12 +2296,7 @@ function normalizeTodoItem(raw: unknown): TodoItem {
           | string
           | number
           | null,
-        nextOccurrenceAt: readNullableString(recurrenceRecord, [
-          "nextOccurrenceAt",
-          "nextEventAt",
-          "nextRunAt",
-        ]),
-        generatedCount: readNumber(recurrenceRecord, ["generatedCount", "generated"], 0),
+        occurrenceIndex: readNumber(recurrenceRecord, ["occurrenceIndex", "generatedCount", "generated"], 0),
         active: readBoolean(recurrenceRecord, ["active", "enabled"], true),
       } satisfies TodoRecurrence)
     : null;
@@ -2374,12 +2304,11 @@ function normalizeTodoItem(raw: unknown): TodoItem {
     readNullableNumber(record, ["rootId", "seriesId", "templateId", "sourceTemplateId"]) ??
     readNumber(record, ["id", "taskId"]);
   const rawStatus = readUnknown(record, ["status"]);
-  const normalizedStatus = typeof rawStatus === "string" ? normalizeStatus(rawStatus) : null;
+  const normalizedStatus: TodoStatus = typeof rawStatus === "string" ? normalizeStatus(rawStatus) : "pending";
   return {
     id: readNumber(record, ["id", "taskId"]),
     rootId,
     kind,
-    recordRole,
     pinned: readBoolean(record, ["pinned"]),
     title: readString(record, ["title", "name"]),
     typeId: readNullableNumber(record, ["typeId", "categoryId"]),
@@ -2396,18 +2325,11 @@ function normalizeTodoItem(raw: unknown): TodoItem {
       "displayAt",
       "eventAt",
       "eventTime",
-      "dueAt",
-      "remindAt",
-      "nextOccurrenceAt",
     ]),
     assignees: normalizeAssignees(readUnknown(record, ["assignees", "owners", "members"])),
+    links: normalizeLinks(readUnknown(record, ["links"])),
     isOverdue: readBoolean(record, ["isOverdue"]),
     recurrence,
-    canEditFuture: readBoolean(
-      record,
-      ["canEditFuture"],
-      kind === "recurring" && recordRole === "occurrence" && (normalizedStatus === "pending" || normalizedStatus === "in_progress"),
-    ),
     nextTaskReminderId: readNullableNumber(record, ["nextTaskReminderId"]),
     nextReminderPreset: normalizeReminderPreset(readUnknown(record, ["nextReminderPreset"])),
     createdAt: readString(record, ["createdAt"], ""),
@@ -2515,7 +2437,7 @@ async function onRepeatPresetChange(nextPreset: TodoRepeatPreset) {
           { type: "warning" },
         );
       } catch {
-        itemDraft.repeatPreset = deriveRepeatPreset(editingRootSnapshot.value?.recurrence || null);
+        itemDraft.repeatPreset = deriveRepeatPreset(editingItemSnapshot.value?.recurrence || null);
         return;
       }
     }
@@ -2600,7 +2522,6 @@ function resetItemDraft() {
   itemDraft.eventDate = "";
   itemDraft.eventTime = "";
   itemDraft.reminderPresets = [...defaultReminderPresets];
-  itemDraft.scope = "this_instance";
   itemDraft.repeatPreset = "none";
   itemDraft.ruleMode = "simple";
   itemDraft.timezone = "local";
@@ -2615,7 +2536,6 @@ function resetItemDraft() {
   itemDraft.simple.dayOfMonth = 1;
   lastReminderPresetSelection.value = [...itemDraft.reminderPresets];
   editingItemSnapshot.value = null;
-  editingRootSnapshot.value = null;
   itemDialogMode.value = "create";
 }
 
@@ -2645,41 +2565,6 @@ function applyItemToDraft(item: TodoItem) {
       syncSimpleDraftFromRule(recurrence.rule as TodoRule);
     }
   }
-
-  itemDraft.scope = "this_instance";
-}
-
-function applyRootItemToDraft(item: TodoItem) {
-  const recurrence = item.recurrence;
-  const { date, time } = splitDateTime(
-    recurrence?.startAt || recurrence?.nextOccurrenceAt || item.displayAt,
-    "",
-  );
-  itemDraft.rootId = getRootItemId(item);
-  itemDraft.title = item.title;
-  itemDraft.typeId = item.typeId ?? undefined;
-  itemDraft.priority = item.priority;
-  itemDraft.description = item.description;
-  itemDraft.assigneeIds = toDraftAssigneeValues(item.assignees);
-  itemDraft.links = (item.links || []).map((l) => ({ url: l.url, title: l.title }));
-  itemDraft.reminderPresets = toDraftReminderPresets(item.reminderPresets);
-  lastReminderPresetSelection.value = [...itemDraft.reminderPresets];
-  itemDraft.eventDate = date || getTodayDateString();
-  itemDraft.eventTime = time;
-  itemDraft.ruleMode = recurrence?.ruleMode || "simple";
-  itemDraft.timezone = recurrence?.timezone || "local";
-  itemDraft.cronExpression =
-    (recurrence?.rule as { expression?: string } | undefined)?.expression ||
-    recurrence?.cronExpression ||
-    "0 0 9 * * Mon-Fri";
-  itemDraft.endMode = recurrence?.endMode || "never";
-  itemDraft.endValueDate =
-    itemDraft.endMode === "until_date" ? String(recurrence?.endValue || "") : "";
-  itemDraft.endValueCount =
-    itemDraft.endMode === "after_count" ? Number(recurrence?.endValue || 1) : 1;
-  itemDraft.repeatPreset = deriveRepeatPreset(recurrence);
-  if (itemDraft.ruleMode === "simple")
-    syncSimpleDraftFromRule((recurrence?.rule || {}) as TodoRule);
 }
 
 async function loadTypes() {
@@ -2739,10 +2624,6 @@ async function resolveAssigneeIds(values: SelectAssigneeValue[]) {
   if (created) await loadAssignees();
   return [...ids];
 }
-function getRootItemById(rootId?: number | null) {
-  if (!rootId) return null;
-  return items.value.find((item) => isRootItem(item) && getRootItemId(item) === rootId) || null;
-}
 
 async function enterEditMode(item?: TodoItem | null) {
   const target = item || selectedItem.value;
@@ -2753,9 +2634,7 @@ async function enterEditMode(item?: TodoItem | null) {
   resetItemDraft();
   itemDialogMode.value = "edit_item";
   editingItemSnapshot.value = target;
-  editingRootSnapshot.value = getRootItemById(getRootItemId(target));
   applyItemToDraft(target);
-  itemDraft.scope = hasRepeatRule(target) ? "future_instances" : "this_instance";
   detailMode.value = "edit";
   showMoreFields.value =
     target.assignees.length > 0 ||
@@ -2765,25 +2644,6 @@ async function enterEditMode(item?: TodoItem | null) {
   markDraftBaseline();
 }
 
-function onEditScopeChange(scope: TodoEditScope) {
-  itemDraft.scope = scope;
-  if (itemDialogMode.value !== "edit_item" || !editingItemSnapshot.value) return;
-  if (scope === "this_instance") {
-    applyItemToDraft(editingItemSnapshot.value);
-    return;
-  }
-  const targetRoot =
-    editingRootSnapshot.value || getRootItemById(getRootItemId(editingItemSnapshot.value));
-  if (!targetRoot) {
-    ElMessage.warning("当前事项没有可编辑的重复事项根记录");
-    itemDraft.scope = "this_instance";
-    applyItemToDraft(editingItemSnapshot.value);
-    return;
-  }
-  applyRootItemToDraft(targetRoot);
-  itemDraft.id = editingItemSnapshot.value.id;
-  itemDraft.rootId = getRootItemId(targetRoot);
-}
 
 async function submitItemChanges(showSuccess = true) {
   const title = itemDraft.title.trim();
@@ -2862,8 +2722,6 @@ async function submitItemChanges(showSuccess = true) {
 
     if (!isRepeating.value) {
       payload.eventAt = eventAt;
-      payload.eventTime = payload.eventAt;
-      payload.dueAt = payload.eventAt;
       payload.remindAt = computeLegacyRemindAt(eventAt, selectedReminderPresets);
     }
 
@@ -2883,9 +2741,7 @@ async function submitItemChanges(showSuccess = true) {
       response = await invokeToolByChannel("tool:todo:item-create", payload);
     } else {
       payload.id = itemDraft.id;
-      payload.scope = itemDraft.scope;
       if (itemDraft.rootId) payload.rootId = itemDraft.rootId;
-      if (itemDraft.scope === "future_instances" && kind === "recurring") payload.recordRole = "root";
       response = await invokeToolByChannel("tool:todo:item-update", payload);
     }
 
@@ -2944,23 +2800,6 @@ async function snoozeItem(id: number, taskReminderId?: number | null) {
 
 async function deleteItem(item: TodoItem) {
   try {
-    // 根记录：直接删除整个系列
-    if (isRootItem(item)) {
-      await ElMessageBox.confirm(
-        "确认删除该重复事项吗？删除后将停止后续生成。",
-        "删除确认",
-        { type: "warning" }
-      );
-      await invokeToolByChannel("tool:todo:item-delete", {
-        id: item.id,
-        kind: item.kind,
-        recordRole: item.recordRole,
-        rootId: getRootItemId(item),
-      });
-      await loadItems();
-      return;
-    }
-
     // 普通事项：直接删除
     if (item.kind !== "recurring") {
       await ElMessageBox.confirm("确认删除该事项吗？", "删除确认", {
@@ -2968,23 +2807,18 @@ async function deleteItem(item: TodoItem) {
       });
       await invokeToolByChannel("tool:todo:item-delete", {
         id: item.id,
-        kind: item.kind,
-        recordRole: item.recordRole,
-        rootId: getRootItemId(item),
+        scope: "this_instance",
       });
       await loadItems();
       return;
     }
 
-    // 重复事项的实例：显示选择对话框
+    // 重复事项：显示选择对话框
     const scope = await showDeleteScopeDialog(item.title);
     if (scope === null) return; // 用户取消
 
     await invokeToolByChannel("tool:todo:item-delete", {
       id: item.id,
-      kind: item.kind,
-      recordRole: item.recordRole,
-      rootId: getRootItemId(item),
       scope: scope, // "this_instance" | "future_instances"
     });
     await loadItems();
@@ -3666,7 +3500,7 @@ onBeforeUnmount(() => {
 /* --- Layout --- */
 .todo-layout {
   display: grid;
-  grid-template-columns: 260px minmax(360px, 1.2fr) minmax(340px, 1fr);
+  grid-template-columns: 260px minmax(360px, 1.2fr) minmax(300px, 1fr);
   gap: 16px;
   height: 100%;
   min-height: 0;
@@ -4350,14 +4184,13 @@ onBeforeUnmount(() => {
   flex-direction: column;
   gap: 0;
 }
-.todo-detail-pane .todo-form-item-date,
-.todo-detail-pane .todo-form-item-time,
+.todo-detail-pane .todo-form-item-datetime,
+.todo-detail-pane .todo-form-item-category-priority,
 .todo-detail-pane .todo-form-item-flex {
   width: 100%;
 }
-.todo-detail-pane .time-picker-inline {
-  width: 100%;
-  align-items: stretch;
+.todo-detail-pane .datetime-row {
+  flex-wrap: wrap;
 }
 .todo-detail-pane .time-picker-fused {
   flex: 1;
@@ -4434,18 +4267,30 @@ onBeforeUnmount(() => {
 .todo-form-item-flex {
   flex: 1;
 }
-.todo-form-item-date {
-  width: 220px;
-  flex-shrink: 0;
+.todo-form-item-datetime {
+  width: 100%;
 }
-.todo-form-item-time {
-  width: 240px;
-  flex-shrink: 0;
+.todo-form-item-category-priority {
+  width: 100%;
 }
-.time-picker-inline {
+.category-priority-row {
   display: flex;
   align-items: center;
   gap: 8px;
+  width: 100%;
+}
+.datetime-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+.datetime-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  margin-top: 4px;
 }
 .time-picker-fused {
   display: flex;
@@ -4454,7 +4299,6 @@ onBeforeUnmount(() => {
   border-radius: var(--el-border-radius-base);
   overflow: hidden;
   transition: border-color 0.2s;
-  min-width: 160px;
 }
 .time-picker-fused:hover {
   border-color: var(--lc-border-hover);
@@ -4625,7 +4469,6 @@ onBeforeUnmount(() => {
 .date-quick-presets {
   display: flex;
   gap: 4px;
-  margin-top: 4px;
 }
 .date-preset-btn {
   font-size: 12px;

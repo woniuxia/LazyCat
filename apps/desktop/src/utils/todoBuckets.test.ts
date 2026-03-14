@@ -18,7 +18,6 @@ function createItem(overrides: Partial<TodoItem> = {}): TodoItem {
     id: 1,
     rootId: 1,
     kind: "one_off",
-    recordRole: "root",
     pinned: false,
     title: "事项",
     typeId: null,
@@ -35,7 +34,6 @@ function createItem(overrides: Partial<TodoItem> = {}): TodoItem {
     assignees: [],
     links: [],
     isOverdue: false,
-    canEditFuture: false,
     nextTaskReminderId: null,
     nextReminderPreset: null,
     recurrence: null,
@@ -65,7 +63,6 @@ describe("todoBuckets", () => {
     const displayOnlyOneOffItem = createItem({
       id: 13,
       kind: "one_off",
-      recordRole: "root",
       eventAt: null,
       displayAt: "2026-03-08T07:00:00.000Z",
     });
@@ -96,25 +93,25 @@ describe("todoBuckets", () => {
     expect(result.activeItems.map((item) => item.id)).toEqual([19, 20]);
   });
 
-  it("places completed and canceled items into the done bucket", () => {
+  it("places completed items into the done bucket", () => {
     const completedItem = createItem({
       id: 16,
       status: "completed",
       updatedAt: "2026-03-10T08:00:00.000Z",
     });
-    const canceledItem = createItem({
+    const completedItem2 = createItem({
       id: 17,
-      status: "canceled",
+      status: "completed",
       updatedAt: "2026-03-01T10:00:00.000Z",
     });
 
-    const result = groupTodoItemsByBucket([completedItem, canceledItem]);
+    const result = groupTodoItemsByBucket([completedItem, completedItem2]);
     const doneSeries = [...result.recentWeekItems, ...result.doneItems];
 
     expect(result.activeItems).toHaveLength(0);
     expect(doneSeries).toHaveLength(2);
     expect(
-      doneSeries.every((item) => item.status === "completed" || item.status === "canceled"),
+      doneSeries.every((item) => item.status === "completed"),
     ).toBe(true);
   });
 
@@ -126,7 +123,7 @@ describe("todoBuckets", () => {
     });
     const olderThanRecentWeek = createItem({
       id: 32,
-      status: "canceled",
+      status: "completed",
       updatedAt: "2026-03-05T23:59:59.000Z",
     });
 
@@ -144,7 +141,7 @@ describe("todoBuckets", () => {
     });
     const recentWeekNewerItem = createItem({
       id: 22,
-      status: "canceled",
+      status: "completed",
       updatedAt: "2026-03-10T10:00:00.000Z",
     });
     const doneOlderItem = createItem({
@@ -154,7 +151,7 @@ describe("todoBuckets", () => {
     });
     const doneNewerItem = createItem({
       id: 24,
-      status: "canceled",
+      status: "completed",
       updatedAt: "2026-03-05T10:00:00.000Z",
     });
 
@@ -169,41 +166,38 @@ describe("todoBuckets", () => {
     expect(result.doneItems.map((item) => item.id)).toEqual([24, 23]);
   });
 
-  it("keeps recurring root items in the active bucket", () => {
-    const recurringRootItem = createItem({
+  it("keeps recurring pending items in the active bucket", () => {
+    const recurringPendingItem = createItem({
       id: 18,
       kind: "recurring",
-      recordRole: "root",
-      status: null,
-      eventAt: null,
+      status: "pending",
+      eventAt: "2026-03-08T11:00:00.000Z",
       displayAt: "2026-03-08T11:00:00.000Z",
     });
 
-    const result = groupTodoItemsByBucket([recurringRootItem]);
+    const result = groupTodoItemsByBucket([recurringPendingItem]);
 
     expect(result.activeItems.map((item) => item.id)).toEqual([18]);
     expect(result.doneItems).toHaveLength(0);
   });
 
-  it("sorts recurring root items by displayAt", () => {
-    const laterRecurringRootItem = createItem({
+  it("sorts recurring pending items by eventAt", () => {
+    const laterRecurringItem = createItem({
       id: 23,
       kind: "recurring",
-      recordRole: "root",
-      status: null,
-      eventAt: null,
+      status: "pending",
+      eventAt: "2026-03-08T11:00:00.000Z",
       displayAt: "2026-03-08T11:00:00.000Z",
     });
-    const earlierRecurringRootItem = createItem({
+    const earlierRecurringItem = createItem({
       id: 24,
       kind: "recurring",
-      recordRole: "root",
-      status: null,
-      eventAt: null,
+      status: "pending",
+      eventAt: "2026-03-08T08:00:00.000Z",
       displayAt: "2026-03-08T08:00:00.000Z",
     });
 
-    const result = groupTodoItemsByBucket([laterRecurringRootItem, earlierRecurringRootItem]);
+    const result = groupTodoItemsByBucket([laterRecurringItem, earlierRecurringItem]);
 
     expect(result.activeItems.map((item) => item.id)).toEqual([24, 23]);
   });

@@ -122,7 +122,7 @@
 
           <div class="setting-item">
             <div class="setting-label">
-              <span class="label-text">本地待办</span>
+              <span class="label-text">任务清单</span>
             </div>
             <div class="setting-control">
               <ShortcutRecorder
@@ -391,7 +391,7 @@ const HOTKEY_FIELDS = [
   { key: "snippetsHotkeyInput" as const, label: "代码片段" },
   { key: "vaultHotkeyInput" as const, label: "密码管理" },
   { key: "launcherHotkeyInput" as const, label: "快捷启动" },
-  { key: "todoHotkeyInput" as const, label: "本地待办" },
+  { key: "todoHotkeyInput" as const, label: "任务清单" },
 ] as const;
 
 function makeConflictChecker(selfKey: typeof HOTKEY_FIELDS[number]["key"]) {

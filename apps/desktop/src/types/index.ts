@@ -51,7 +51,6 @@ export type {
   TodoPriority,
   TodoStatus,
   TodoKind,
-  TodoRecordRole,
   TodoRuleMode,
   TodoEndMode,
   TodoEditScope,

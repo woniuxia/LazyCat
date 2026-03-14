@@ -1,7 +1,7 @@
 use chrono::{DateTime, Duration, Local, NaiveDateTime, Utc};
 use chrono_tz::Tz;
 use cron::Schedule;
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::Value;
 use std::fs;
 use std::path::PathBuf;
@@ -1496,6 +1496,182 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
         .map_err(|e| format!("migration 22 drop old tables failed: {e}"))?;
 
         set_schema_version(conn, 22)?;
+    }
+
+    // Migration 23: extract recurrence rules from todo_items into todo_series_rules
+    if current < 23 {
+        // Step 1: Create todo_series_rules table
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS todo_series_rules (
+                series_id INTEGER PRIMARY KEY,
+                rule_mode TEXT NOT NULL,
+                rule_json TEXT,
+                cron_expression TEXT,
+                timezone TEXT,
+                start_at TEXT,
+                end_mode TEXT NOT NULL DEFAULT 'never',
+                end_value TEXT,
+                occurrence_index INTEGER NOT NULL DEFAULT 1,
+                active INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );",
+        )
+        .map_err(|e| format!("migration 23 create todo_series_rules failed: {e}"))?;
+
+        // Step 2: Extract rule data from todo_items (only rows with rule_mode populated)
+        conn.execute_batch(
+            "INSERT OR IGNORE INTO todo_series_rules
+                (series_id, rule_mode, rule_json, cron_expression, timezone, start_at,
+                 end_mode, end_value, occurrence_index, active, created_at, updated_at)
+            SELECT series_id, rule_mode, rule_json, cron_expression, timezone, start_at,
+                   COALESCE(end_mode, 'never'), end_value,
+                   COALESCE(occurrence_index, 1), COALESCE(active, 1),
+                   created_at, updated_at
+            FROM todo_items
+            WHERE kind='recurring' AND rule_mode IS NOT NULL AND series_id IS NOT NULL;",
+        )
+        .map_err(|e| format!("migration 23 extract rules failed: {e}"))?;
+
+        // Step 3: Rebuild todo_items without rule columns, active, and due_at
+        conn.execute_batch(
+            "CREATE TABLE todo_items_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                type_id INTEGER DEFAULT NULL,
+                priority TEXT NOT NULL DEFAULT 'P2' CHECK (priority IN ('P0', 'P1', 'P2', 'P3')),
+                description TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'in_progress', 'completed', 'canceled')),
+                event_at TEXT DEFAULT NULL,
+                pinned INTEGER NOT NULL DEFAULT 0,
+                kind TEXT NOT NULL DEFAULT 'one_off',
+                parent_id INTEGER DEFAULT NULL,
+                series_id INTEGER DEFAULT NULL,
+                remind_at TEXT DEFAULT NULL,
+                snooze_until TEXT DEFAULT NULL,
+                last_notified_at TEXT DEFAULT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (type_id) REFERENCES todo_types(id) ON DELETE SET NULL,
+                FOREIGN KEY (parent_id) REFERENCES todo_items_new(id) ON DELETE SET NULL
+            );
+
+            INSERT INTO todo_items_new
+                (id, title, type_id, priority, description, status, event_at, pinned,
+                 kind, parent_id, series_id, remind_at, snooze_until, last_notified_at,
+                 created_at, updated_at)
+            SELECT id, title, type_id, priority, description, status, event_at, pinned,
+                   kind, parent_id, series_id, remind_at, snooze_until, last_notified_at,
+                   created_at, updated_at
+            FROM todo_items;
+
+            DROP TABLE todo_items;
+            ALTER TABLE todo_items_new RENAME TO todo_items;",
+        )
+        .map_err(|e| format!("migration 23 rebuild todo_items failed: {e}"))?;
+
+        // Step 4: Recreate indexes
+        conn.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_todo_items_status ON todo_items(status);
+             CREATE INDEX IF NOT EXISTS idx_todo_items_event_at ON todo_items(event_at);
+             CREATE INDEX IF NOT EXISTS idx_todo_items_kind ON todo_items(kind);
+             CREATE INDEX IF NOT EXISTS idx_todo_items_series_id ON todo_items(series_id);
+             CREATE INDEX IF NOT EXISTS idx_todo_items_parent_id ON todo_items(parent_id);",
+        )
+        .map_err(|e| format!("migration 23 create indexes failed: {e}"))?;
+
+        set_schema_version(conn, 23)?;
+    }
+
+    // Migration 24: Remove 'canceled' status from todo_items
+    if current < 24 {
+        // Step 1: Migrate existing canceled items to completed
+        conn.execute_batch(
+            "UPDATE todo_items SET status='completed' WHERE status='canceled';",
+        )
+        .map_err(|e| format!("migration 24 update canceled to completed failed: {e}"))?;
+
+        // Step 2: Rebuild todo_items with updated CHECK constraint (no 'canceled')
+        conn.execute_batch(
+            "CREATE TABLE todo_items_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                type_id INTEGER DEFAULT NULL,
+                priority TEXT NOT NULL DEFAULT 'P2' CHECK (priority IN ('P0', 'P1', 'P2', 'P3')),
+                description TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'in_progress', 'completed')),
+                event_at TEXT DEFAULT NULL,
+                pinned INTEGER NOT NULL DEFAULT 0,
+                kind TEXT NOT NULL DEFAULT 'one_off',
+                parent_id INTEGER DEFAULT NULL,
+                series_id INTEGER DEFAULT NULL,
+                remind_at TEXT DEFAULT NULL,
+                snooze_until TEXT DEFAULT NULL,
+                last_notified_at TEXT DEFAULT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (type_id) REFERENCES todo_types(id) ON DELETE SET NULL,
+                FOREIGN KEY (parent_id) REFERENCES todo_items_new(id) ON DELETE SET NULL
+            );
+
+            INSERT INTO todo_items_new
+                (id, title, type_id, priority, description, status, event_at, pinned,
+                 kind, parent_id, series_id, remind_at, snooze_until, last_notified_at,
+                 created_at, updated_at)
+            SELECT id, title, type_id, priority, description, status, event_at, pinned,
+                   kind, parent_id, series_id, remind_at, snooze_until, last_notified_at,
+                   created_at, updated_at
+            FROM todo_items;
+
+            DROP TABLE todo_items;
+            ALTER TABLE todo_items_new RENAME TO todo_items;",
+        )
+        .map_err(|e| format!("migration 24 rebuild todo_items failed: {e}"))?;
+
+        // Step 3: Recreate indexes
+        conn.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_todo_items_status ON todo_items(status);
+             CREATE INDEX IF NOT EXISTS idx_todo_items_event_at ON todo_items(event_at);
+             CREATE INDEX IF NOT EXISTS idx_todo_items_kind ON todo_items(kind);
+             CREATE INDEX IF NOT EXISTS idx_todo_items_series_id ON todo_items(series_id);
+             CREATE INDEX IF NOT EXISTS idx_todo_items_parent_id ON todo_items(parent_id);",
+        )
+        .map_err(|e| format!("migration 24 create indexes failed: {e}"))?;
+
+        set_schema_version(conn, 24)?;
+    }
+
+    // Migration 25: Rebuild todo_reminder_events to fix dangling FK (was referencing dropped todo_tasks)
+    if current < 25 {
+        conn.execute_batch(
+            "CREATE TABLE todo_reminder_events_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id INTEGER NOT NULL,
+                task_reminder_id INTEGER DEFAULT NULL,
+                title TEXT NOT NULL,
+                body TEXT NOT NULL DEFAULT '',
+                fire_at TEXT NOT NULL,
+                is_read INTEGER NOT NULL DEFAULT 0,
+                reminder_preset TEXT DEFAULT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (task_id) REFERENCES todo_items(id) ON DELETE CASCADE
+            );
+
+            INSERT INTO todo_reminder_events_new
+                (id, task_id, task_reminder_id, title, body, fire_at, is_read, reminder_preset, created_at, updated_at)
+            SELECT id, task_id, task_reminder_id, title, body, fire_at, is_read, reminder_preset, created_at, updated_at
+            FROM todo_reminder_events;
+
+            DROP TABLE todo_reminder_events;
+            ALTER TABLE todo_reminder_events_new RENAME TO todo_reminder_events;
+
+            CREATE INDEX IF NOT EXISTS idx_todo_reminder_events_unread
+                ON todo_reminder_events(is_read, fire_at DESC, id DESC);",
+        )
+        .map_err(|e| format!("migration 25 rebuild todo_reminder_events failed: {e}"))?;
+
+        set_schema_version(conn, 25)?;
     }
 
     Ok(())
