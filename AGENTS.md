@@ -29,8 +29,8 @@
 ```text
 apps/desktop/                    Tauri 桌面应用
   src-tauri/                     Rust 后端
-    src/tools/                   28 个工具域模块（含 capture）+ mod.rs + helpers.rs
-  src/components/                57 个 Vue 面板组件
+    src/tools/                   30 个工具域模块（含 capture、todo、maven）+ mod.rs + helpers.rs
+  src/components/                62 个 Vue 面板组件
   src/composables/               状态管理 composables
   src/bridge/tauri.ts            IPC 通道映射（157 条通道，27 个域）
   src/tool-registry.ts           工具 ID -> 异步组件注册
@@ -61,8 +61,8 @@ scripts/                         构建脚本（build-tauri-win.ps1、release-al
 ### 前后端调用链路（常规工具）
 
 - 前端入口：`bridge/tauri.ts` 的 `invokeToolByChannel`
-- 通道映射：`tool:<domain>:<action>` -> `{ domain, action }`（157 条通道，27 个域）
-- Rust 分发：`tool_execute` -> `tools/mod.rs` 的 `execute_tool`（27 域）
+- 通道映射：`tool:<domain>:<action>` -> `{ domain, action }`（178 条通道，29 个域）
+- Rust 分发：`tool_execute` -> `tools/mod.rs` 的 `execute_tool`（29 域）
 
 ### 特殊链路（capture）
 
@@ -89,7 +89,7 @@ scripts/                         构建脚本（build-tauri-win.ps1、release-al
 
 - XML/HTML/Java/SQL 格式化在 Rust 端为直通模式，核心依赖 `@lazycat/formatters`（Prettier standalone + 显式解析器插件）。
 - `user_settings` 主要存储用户偏好与配置项。
-- 业务数据按域存储在独立表中（如 `hosts_profiles`、`snippet_*`、`vault_*`、`launcher_entries`）。
+- 业务数据按域存储在独立表中（如 `hosts_profiles`、`snippet_*`、`vault_*`、`launcher_entries`、`todo_items`）。
 
 ## 添加新工具的标准流程
 

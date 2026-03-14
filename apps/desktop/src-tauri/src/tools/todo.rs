@@ -38,6 +38,7 @@ const REMINDER_PRESET_OFFSETS: [(&str, i64); 7] = [
 // ── Structs ───────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ReminderDispatch {
     pub event_id: i64,
     pub task_id: i64,

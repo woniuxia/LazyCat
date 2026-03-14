@@ -29,8 +29,8 @@
 ```text
 apps/desktop/                    Tauri 桌面应用
   src-tauri/                     Rust 后端
-    src/tools/                   28 个工具域模块（含 capture）+ mod.rs + helpers.rs
-  src/components/                57 个 Vue 面板组件
+    src/tools/                   30 个工具域模块（含 capture、todo、maven）+ mod.rs + helpers.rs
+  src/components/                62 个 Vue 面板组件
   src/composables/               状态管理 composables
   src/bridge/tauri.ts            IPC 通道映射（157 条通道，27 个域）
   src/tool-registry.ts           工具 ID -> 异步组件注册
@@ -61,8 +61,8 @@ scripts/                         构建脚本（build-tauri-win.ps1、release-al
 ### 前后端调用链路（常规工具）
 
 - 前端入口：`bridge/tauri.ts` 的 `invokeToolByChannel`
-- 通道映射：`tool:<domain>:<action>` -> `{ domain, action }`（157 条通道，27 个域）
-- Rust 分发：`tool_execute` -> `tools/mod.rs` 的 `execute_tool`（27 域）
+- 通道映射：`tool:<domain>:<action>` -> `{ domain, action }`（178 条通道，29 个域）
+- Rust 分发：`tool_execute` -> `tools/mod.rs` 的 `execute_tool`（29 域）
 
 ### 特殊链路（capture）
 
@@ -89,7 +89,7 @@ scripts/                         构建脚本（build-tauri-win.ps1、release-al
 
 - XML/HTML/Java/SQL 格式化在 Rust 端为直通模式，核心依赖 `@lazycat/formatters`（Prettier standalone + 显式解析器插件）。
 - `user_settings` 主要存储用户偏好与配置项。
-- 业务数据按域存储在独立表中（如 `hosts_profiles`、`snippet_*`、`vault_*`、`launcher_entries`）。
+- 业务数据按域存储在独立表中（如 `hosts_profiles`、`snippet_*`、`vault_*`、`launcher_entries`、`todo_items`）。
 
 ## 添加新工具的标准流程
 
@@ -105,6 +105,17 @@ scripts/                         构建脚本（build-tauri-win.ps1、release-al
 
 - 除上述前端注册外，需要在 `src-tauri/src/main.rs` 增加/注册 Tauri command。
 - 前端通过 `@tauri-apps/api/core` 的 `invoke` 直接调用 command。
+
+## Element Plus 样式覆盖注意事项
+
+项目对 Element Plus 的样式覆盖分布在多个文件中，存在层叠优先级陷阱：
+
+- **加载顺序**：`element-overrides.css`（第 9 行）先于 `theme-light.css`（第 11 行），见 `src/styles/index.css`。
+- **`theme-light.css` 使用 `html[data-theme="light"]` 前缀**，比 `element-overrides.css` 中同类选择器特异度更高。
+- 因此，修改 Element Plus 组件样式变量时，**必须同时检查并更新两个文件**：
+  1. `element-overrides.css` — 暗色主题 / 基础覆盖
+  2. `theme-light.css` — 浅色主题覆盖（带 `html[data-theme="light"]` 前缀，特异度更高）
+- 典型案例：为 `.el-button--primary` 添加 `.is-text` 变体时，仅在 `element-overrides.css` 添加会被 `theme-light.css` 的高特异度规则覆盖，导致浅色主题下样式不生效。
 
 ## 编码与中文规范
 
