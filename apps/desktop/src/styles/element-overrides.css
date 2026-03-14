@@ -74,6 +74,13 @@
   font-weight: 600;
 }
 
+.el-button.el-button--primary.is-text {
+  --el-button-text-color: var(--lc-accent);
+  --el-button-hover-text-color: var(--lc-accent-light);
+  --el-button-bg-color: transparent;
+  --el-button-border-color: transparent;
+}
+
 .el-button--default {
   --el-button-bg-color: var(--lc-surface-2);
   --el-button-border-color: var(--lc-border-hover);

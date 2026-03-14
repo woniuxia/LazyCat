@@ -188,6 +188,13 @@ html[data-theme="light"] .el-button.el-button--primary {
   --el-button-active-border-color: #0284c7;
 }
 
+html[data-theme="light"] .el-button.el-button--primary.is-text {
+  --el-button-text-color: var(--lc-accent);
+  --el-button-hover-text-color: var(--lc-accent-light);
+  --el-button-bg-color: transparent;
+  --el-button-border-color: transparent;
+}
+
 /* Button Default */
 html[data-theme="light"] .el-button--default {
   --el-button-bg-color: #ffffff;

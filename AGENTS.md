@@ -106,6 +106,17 @@ scripts/                         构建脚本（build-tauri-win.ps1、release-al
 - 除上述前端注册外，需要在 `src-tauri/src/main.rs` 增加/注册 Tauri command。
 - 前端通过 `@tauri-apps/api/core` 的 `invoke` 直接调用 command。
 
+## Element Plus 样式覆盖注意事项
+
+项目对 Element Plus 的样式覆盖分布在多个文件中，存在层叠优先级陷阱：
+
+- **加载顺序**：`element-overrides.css`（第 9 行）先于 `theme-light.css`（第 11 行），见 `src/styles/index.css`。
+- **`theme-light.css` 使用 `html[data-theme="light"]` 前缀**，比 `element-overrides.css` 中同类选择器特异度更高。
+- 因此，修改 Element Plus 组件样式变量时，**必须同时检查并更新两个文件**：
+  1. `element-overrides.css` — 暗色主题 / 基础覆盖
+  2. `theme-light.css` — 浅色主题覆盖（带 `html[data-theme="light"]` 前缀，特异度更高）
+- 典型案例：为 `.el-button--primary` 添加 `.is-text` 变体时，仅在 `element-overrides.css` 添加会被 `theme-light.css` 的高特异度规则覆盖，导致浅色主题下样式不生效。
+
 ## 编码与中文规范
 
 - 源码统一 UTF-8，禁止 ANSI/GBK/UTF-16。
