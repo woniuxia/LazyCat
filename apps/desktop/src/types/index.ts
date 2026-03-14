@@ -64,6 +64,7 @@ export type {
   TodoCronRule,
   TodoRule,
   TodoRecurrence,
+  TodoLink,
   TodoItem,
   TodoReminderEvent,
   TodoRecurrenceInput,

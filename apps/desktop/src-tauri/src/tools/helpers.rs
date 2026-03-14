@@ -1056,6 +1056,448 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
         set_schema_version(conn, 20)?;
     }
 
+    // Migration 21: todo links (task + template)
+    if current < 21 {
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS todo_task_links (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id INTEGER NOT NULL,
+                url TEXT NOT NULL,
+                title TEXT NOT NULL DEFAULT '',
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (task_id) REFERENCES todo_tasks(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_todo_task_links_task ON todo_task_links(task_id, sort_order);
+
+            CREATE TABLE IF NOT EXISTS todo_template_links (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                template_id INTEGER NOT NULL,
+                url TEXT NOT NULL,
+                title TEXT NOT NULL DEFAULT '',
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (template_id) REFERENCES todo_templates(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_todo_template_links_template ON todo_template_links(template_id, sort_order);",
+        )
+        .map_err(|e| format!("migration 21 create todo link tables failed: {e}"))?;
+
+        set_schema_version(conn, 21)?;
+    }
+
+    // Migration 22: merge todo_tasks + todo_templates → unified todo_items
+    if current < 22 {
+        // Step 1: Create the new unified table
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS todo_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                type_id INTEGER DEFAULT NULL,
+                priority TEXT NOT NULL DEFAULT 'P2' CHECK (priority IN ('P0', 'P1', 'P2', 'P3')),
+                description TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'in_progress', 'completed', 'canceled')),
+                event_at TEXT DEFAULT NULL,
+                pinned INTEGER NOT NULL DEFAULT 0,
+                kind TEXT NOT NULL DEFAULT 'one_off',
+                parent_id INTEGER DEFAULT NULL,
+                series_id INTEGER DEFAULT NULL,
+                active INTEGER NOT NULL DEFAULT 1,
+                rule_mode TEXT DEFAULT NULL,
+                rule_json TEXT DEFAULT NULL,
+                cron_expression TEXT DEFAULT NULL,
+                timezone TEXT DEFAULT NULL,
+                start_at TEXT DEFAULT NULL,
+                end_mode TEXT DEFAULT NULL,
+                end_value TEXT DEFAULT NULL,
+                occurrence_index INTEGER DEFAULT NULL,
+                due_at TEXT DEFAULT NULL,
+                remind_at TEXT DEFAULT NULL,
+                snooze_until TEXT DEFAULT NULL,
+                last_notified_at TEXT DEFAULT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (type_id) REFERENCES todo_types(id) ON DELETE SET NULL,
+                FOREIGN KEY (parent_id) REFERENCES todo_items(id) ON DELETE SET NULL
+            );",
+        )
+        .map_err(|e| format!("migration 22 create todo_items failed: {e}"))?;
+
+        // Step 2: Copy one-off tasks (source_template_id IS NULL)
+        conn.execute_batch(
+            "INSERT INTO todo_items
+                (id, title, type_id, priority, description, status, event_at, pinned,
+                 kind, parent_id, series_id, active,
+                 due_at, remind_at, snooze_until, last_notified_at,
+                 created_at, updated_at)
+            SELECT
+                id, title, type_id, priority, description, status, event_at,
+                COALESCE(pinned, 0),
+                'one_off', NULL, NULL, 1,
+                due_at, remind_at, snooze_until, last_notified_at,
+                created_at, updated_at
+            FROM todo_tasks
+            WHERE source_template_id IS NULL;",
+        )
+        .map_err(|e| format!("migration 22 copy one-off tasks failed: {e}"))?;
+
+        // Step 3: Compute ID offset for template rows
+        let id_offset: i64 = conn
+            .query_row(
+                "SELECT COALESCE(MAX(id), 0) FROM todo_items",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(|e| format!("migration 22 get max id failed: {e}"))?;
+
+        // Step 4: For each template, find the pending instance with earliest event_at.
+        // That instance becomes the "current" recurring item carrying the template's rules.
+        // All other instances become plain recurring history rows.
+
+        // First, gather template data
+        let mut tpl_stmt = conn
+            .prepare(
+                "SELECT id, title, type_id, priority, description,
+                        rule_mode, rule_json, cron_expression, timezone, start_at,
+                        end_mode, end_value, next_occurrence_at, generated_count, active,
+                        created_at, updated_at
+                 FROM todo_templates
+                 WHERE COALESCE(series_kind, 'recurring') = 'recurring'
+                 ORDER BY id ASC",
+            )
+            .map_err(|e| format!("migration 22 load templates failed: {e}"))?;
+        let tpl_rows = tpl_stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,       // id
+                    row.get::<_, String>(1)?,     // title
+                    row.get::<_, Option<i64>>(2)?, // type_id
+                    row.get::<_, String>(3)?,     // priority
+                    row.get::<_, String>(4)?,     // description
+                    row.get::<_, String>(5)?,     // rule_mode
+                    row.get::<_, String>(6)?,     // rule_json
+                    row.get::<_, String>(7)?,     // cron_expression
+                    row.get::<_, String>(8)?,     // timezone
+                    row.get::<_, Option<String>>(9)?, // start_at
+                    row.get::<_, String>(10)?,    // end_mode
+                    row.get::<_, Option<String>>(11)?, // end_value
+                    row.get::<_, Option<String>>(12)?, // next_occurrence_at
+                    row.get::<_, i64>(13)?,       // generated_count
+                    row.get::<_, i64>(14)?,       // active
+                    row.get::<_, String>(15)?,    // created_at
+                    row.get::<_, String>(16)?,    // updated_at
+                ))
+            })
+            .map_err(|e| format!("migration 22 map templates failed: {e}"))?;
+        let mut templates = Vec::new();
+        for row in tpl_rows {
+            templates.push(row.map_err(|e| e.to_string())?);
+        }
+
+        for (tpl_id, title, type_id, priority, description,
+             rule_mode, rule_json, cron_expression, timezone, start_at,
+             end_mode, end_value, _next_occurrence_at, generated_count, active,
+             created_at, updated_at) in &templates
+        {
+            let new_series_id = tpl_id + id_offset;
+
+            // Find the earliest pending/in_progress instance for this template
+            let current_instance: Option<i64> = conn
+                .query_row(
+                    "SELECT id FROM todo_tasks
+                     WHERE source_template_id = ?1 AND status IN ('pending', 'in_progress')
+                     ORDER BY event_at ASC, id ASC LIMIT 1",
+                    params![tpl_id],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(|e| format!("migration 22 find current instance failed: {e}"))?;
+
+            if let Some(instance_id) = current_instance {
+                // Copy this instance as the "active" recurring item with rules attached
+                conn.execute(
+                    "INSERT INTO todo_items
+                        (id, title, type_id, priority, description, status, event_at, pinned,
+                         kind, parent_id, series_id, active,
+                         rule_mode, rule_json, cron_expression, timezone, start_at,
+                         end_mode, end_value, occurrence_index,
+                         due_at, remind_at, snooze_until, last_notified_at,
+                         created_at, updated_at)
+                    SELECT
+                        t.id, t.title, t.type_id, t.priority, t.description, t.status, t.event_at,
+                        COALESCE(t.pinned, 0),
+                        'recurring', NULL, ?2, ?3,
+                        ?4, ?5, ?6, ?7, ?8,
+                        ?9, ?10, ?11,
+                        t.due_at, t.remind_at, t.snooze_until, t.last_notified_at,
+                        t.created_at, t.updated_at
+                    FROM todo_tasks t WHERE t.id = ?1",
+                    params![
+                        instance_id,
+                        new_series_id,
+                        active,
+                        rule_mode, rule_json, cron_expression, timezone, start_at,
+                        end_mode, end_value, generated_count,
+                    ],
+                )
+                .map_err(|e| format!("migration 22 copy current instance failed: {e}"))?;
+
+                // Copy other instances (completed, canceled, or other pending) as history
+                conn.execute(
+                    "INSERT INTO todo_items
+                        (id, title, type_id, priority, description, status, event_at, pinned,
+                         kind, parent_id, series_id, active,
+                         due_at, remind_at, snooze_until, last_notified_at,
+                         created_at, updated_at)
+                    SELECT
+                        t.id, t.title, t.type_id, t.priority, t.description, t.status, t.event_at,
+                        COALESCE(t.pinned, 0),
+                        'recurring', NULL, ?2, 1,
+                        t.due_at, t.remind_at, t.snooze_until, t.last_notified_at,
+                        t.created_at, t.updated_at
+                    FROM todo_tasks t
+                    WHERE t.source_template_id = ?1 AND t.id != ?3",
+                    params![tpl_id, new_series_id, instance_id],
+                )
+                .map_err(|e| format!("migration 22 copy other instances failed: {e}"))?;
+            } else {
+                // No pending instance exists. Copy all completed/canceled instances as history.
+                conn.execute(
+                    "INSERT INTO todo_items
+                        (id, title, type_id, priority, description, status, event_at, pinned,
+                         kind, parent_id, series_id, active,
+                         due_at, remind_at, snooze_until, last_notified_at,
+                         created_at, updated_at)
+                    SELECT
+                        t.id, t.title, t.type_id, t.priority, t.description, t.status, t.event_at,
+                        COALESCE(t.pinned, 0),
+                        'recurring', NULL, ?2, 1,
+                        t.due_at, t.remind_at, t.snooze_until, t.last_notified_at,
+                        t.created_at, t.updated_at
+                    FROM todo_tasks t
+                    WHERE t.source_template_id = ?1",
+                    params![tpl_id, new_series_id],
+                )
+                .map_err(|e| format!("migration 22 copy history instances failed: {e}"))?;
+
+                // If template is still active, create a new pending item from template data
+                if *active == 1 {
+                    // Use next_occurrence_at or start_at as event_at
+                    let event_at = _next_occurrence_at.as_deref().or(start_at.as_deref());
+                    conn.execute(
+                        "INSERT INTO todo_items
+                            (title, type_id, priority, description, status, event_at, pinned,
+                             kind, parent_id, series_id, active,
+                             rule_mode, rule_json, cron_expression, timezone, start_at,
+                             end_mode, end_value, occurrence_index,
+                             created_at, updated_at)
+                        VALUES(?1, ?2, ?3, ?4, 'pending', ?5, 0,
+                               'recurring', NULL, NULL, 1,
+                               ?6, ?7, ?8, ?9, ?10,
+                               ?11, ?12, ?13,
+                               ?14, ?15)",
+                        params![
+                            title, type_id, priority, description, event_at,
+                            rule_mode, rule_json, cron_expression, timezone, start_at,
+                            end_mode, end_value, generated_count,
+                            created_at, updated_at,
+                        ],
+                    )
+                    .map_err(|e| format!("migration 22 create pending from template failed: {e}"))?;
+                    // Set series_id to self
+                    let new_id = conn.last_insert_rowid();
+                    conn.execute(
+                        "UPDATE todo_items SET series_id = ?1 WHERE id = ?1",
+                        params![new_id],
+                    )
+                    .map_err(|e| format!("migration 22 set series_id failed: {e}"))?;
+                }
+            }
+        }
+
+        // Step 5: Build parent_id chain within each series (by event_at order)
+        let mut series_stmt = conn
+            .prepare(
+                "SELECT DISTINCT series_id FROM todo_items WHERE series_id IS NOT NULL",
+            )
+            .map_err(|e| format!("migration 22 load series ids failed: {e}"))?;
+        let series_ids: Vec<i64> = series_stmt
+            .query_map([], |row| row.get(0))
+            .map_err(|e| format!("migration 22 map series ids failed: {e}"))?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        for sid in &series_ids {
+            let mut chain_stmt = conn
+                .prepare(
+                    "SELECT id FROM todo_items
+                     WHERE series_id = ?1
+                     ORDER BY COALESCE(event_at, created_at) ASC, id ASC",
+                )
+                .map_err(|e| format!("migration 22 load chain failed: {e}"))?;
+            let chain: Vec<i64> = chain_stmt
+                .query_map(params![sid], |row| row.get(0))
+                .map_err(|e| format!("migration 22 map chain failed: {e}"))?
+                .filter_map(|r| r.ok())
+                .collect();
+
+            for i in 1..chain.len() {
+                conn.execute(
+                    "UPDATE todo_items SET parent_id = ?1 WHERE id = ?2",
+                    params![chain[i - 1], chain[i]],
+                )
+                .map_err(|e| format!("migration 22 set parent_id failed: {e}"))?;
+            }
+        }
+
+        // Step 6: Create unified supporting tables
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS todo_item_assignees (
+                item_id INTEGER NOT NULL,
+                assignee_id INTEGER NOT NULL,
+                PRIMARY KEY (item_id, assignee_id),
+                FOREIGN KEY (item_id) REFERENCES todo_items(id) ON DELETE CASCADE,
+                FOREIGN KEY (assignee_id) REFERENCES todo_assignees(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS todo_item_reminders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                item_id INTEGER NOT NULL,
+                reminder_preset TEXT NOT NULL,
+                offset_minutes INTEGER NOT NULL,
+                remind_at TEXT DEFAULT NULL,
+                snooze_until TEXT DEFAULT NULL,
+                last_notified_at TEXT DEFAULT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (item_id) REFERENCES todo_items(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS todo_item_links (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                item_id INTEGER NOT NULL,
+                url TEXT NOT NULL,
+                title TEXT NOT NULL DEFAULT '',
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (item_id) REFERENCES todo_items(id) ON DELETE CASCADE
+            );",
+        )
+        .map_err(|e| format!("migration 22 create supporting tables failed: {e}"))?;
+
+        // Step 7: Migrate assignees
+        conn.execute_batch(
+            "INSERT OR IGNORE INTO todo_item_assignees (item_id, assignee_id)
+             SELECT task_id, assignee_id FROM todo_task_assignees
+             WHERE task_id IN (SELECT id FROM todo_items);",
+        )
+        .map_err(|e| format!("migration 22 migrate task assignees failed: {e}"))?;
+
+        // For template assignees, apply to all items in that series
+        for (tpl_id, ..) in &templates {
+            let new_series_id = tpl_id + id_offset;
+            conn.execute(
+                "INSERT OR IGNORE INTO todo_item_assignees (item_id, assignee_id)
+                 SELECT i.id, ta.assignee_id
+                 FROM todo_template_assignees ta
+                 CROSS JOIN todo_items i
+                 WHERE ta.template_id = ?1
+                   AND i.series_id = ?2
+                   AND i.kind = 'recurring'
+                   AND i.status IN ('pending', 'in_progress')",
+                params![tpl_id, new_series_id],
+            )
+            .map_err(|e| format!("migration 22 migrate template assignees failed: {e}"))?;
+        }
+
+        // Step 8: Migrate reminders
+        conn.execute_batch(
+            "INSERT INTO todo_item_reminders
+                (id, item_id, reminder_preset, offset_minutes, remind_at, snooze_until, last_notified_at, created_at, updated_at)
+             SELECT id, task_id, reminder_preset, offset_minutes, remind_at, snooze_until, last_notified_at, created_at, updated_at
+             FROM todo_task_reminders
+             WHERE task_id IN (SELECT id FROM todo_items);",
+        )
+        .map_err(|e| format!("migration 22 migrate task reminders failed: {e}"))?;
+
+        // For template reminders, apply to pending items in each series
+        for (tpl_id, ..) in &templates {
+            let new_series_id = tpl_id + id_offset;
+            // Find items that need template reminders (pending recurring without existing reminders)
+            conn.execute(
+                "INSERT INTO todo_item_reminders (item_id, reminder_preset, offset_minutes)
+                 SELECT i.id, tr.reminder_preset, tr.offset_minutes
+                 FROM todo_template_reminders tr
+                 CROSS JOIN todo_items i
+                 WHERE tr.template_id = ?1
+                   AND i.series_id = ?2
+                   AND i.kind = 'recurring'
+                   AND i.status IN ('pending', 'in_progress')
+                   AND i.id NOT IN (SELECT item_id FROM todo_item_reminders)",
+                params![tpl_id, new_series_id],
+            )
+            .map_err(|e| format!("migration 22 migrate template reminders failed: {e}"))?;
+        }
+
+        // Step 9: Migrate links
+        conn.execute_batch(
+            "INSERT INTO todo_item_links (id, item_id, url, title, sort_order, created_at)
+             SELECT id, task_id, url, title, sort_order, created_at
+             FROM todo_task_links
+             WHERE task_id IN (SELECT id FROM todo_items);",
+        )
+        .map_err(|e| format!("migration 22 migrate task links failed: {e}"))?;
+
+        for (tpl_id, ..) in &templates {
+            let new_series_id = tpl_id + id_offset;
+            conn.execute(
+                "INSERT INTO todo_item_links (item_id, url, title, sort_order)
+                 SELECT i.id, tl.url, tl.title, tl.sort_order
+                 FROM todo_template_links tl
+                 CROSS JOIN todo_items i
+                 WHERE tl.template_id = ?1
+                   AND i.series_id = ?2
+                   AND i.kind = 'recurring'
+                   AND i.status IN ('pending', 'in_progress')
+                   AND i.id NOT IN (SELECT item_id FROM todo_item_links)",
+                params![tpl_id, new_series_id],
+            )
+            .map_err(|e| format!("migration 22 migrate template links failed: {e}"))?;
+        }
+
+        // Step 10: Update todo_reminder_events to reference new table
+        // task_id references still valid since we kept original task IDs
+
+        // Step 11: Create indexes
+        conn.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_todo_items_status ON todo_items(status, priority);
+             CREATE INDEX IF NOT EXISTS idx_todo_items_event ON todo_items(event_at);
+             CREATE INDEX IF NOT EXISTS idx_todo_items_kind ON todo_items(kind);
+             CREATE INDEX IF NOT EXISTS idx_todo_items_series ON todo_items(series_id);
+             CREATE INDEX IF NOT EXISTS idx_todo_items_parent ON todo_items(parent_id);
+             CREATE INDEX IF NOT EXISTS idx_todo_items_active ON todo_items(kind, active);
+             CREATE INDEX IF NOT EXISTS idx_todo_item_assignees_assignee ON todo_item_assignees(assignee_id);
+             CREATE INDEX IF NOT EXISTS idx_todo_item_reminders_item ON todo_item_reminders(item_id);
+             CREATE INDEX IF NOT EXISTS idx_todo_item_links_item ON todo_item_links(item_id, sort_order);",
+        )
+        .map_err(|e| format!("migration 22 create indexes failed: {e}"))?;
+
+        // Step 12: Drop old tables
+        conn.execute_batch(
+            "DROP TABLE IF EXISTS todo_task_links;
+             DROP TABLE IF EXISTS todo_template_links;
+             DROP TABLE IF EXISTS todo_task_reminders;
+             DROP TABLE IF EXISTS todo_template_reminders;
+             DROP TABLE IF EXISTS todo_task_assignees;
+             DROP TABLE IF EXISTS todo_template_assignees;
+             DROP TABLE IF EXISTS todo_tasks;
+             DROP TABLE IF EXISTS todo_templates;",
+        )
+        .map_err(|e| format!("migration 22 drop old tables failed: {e}"))?;
+
+        set_schema_version(conn, 22)?;
+    }
+
     Ok(())
 }
 

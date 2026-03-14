@@ -62,6 +62,12 @@ export interface TodoRecurrence {
   active: boolean;
 }
 
+export interface TodoLink {
+  id: number;
+  url: string;
+  title: string;
+}
+
 export interface TodoItem {
   id: number;
   rootId: number;
@@ -81,6 +87,7 @@ export interface TodoItem {
   lastNotifiedAt: string | null;
   displayAt: string | null;
   assignees: TodoAssignee[];
+  links: TodoLink[];
   isOverdue: boolean;
   canEditFuture: boolean;
   nextTaskReminderId?: number | null;
@@ -137,5 +144,6 @@ export interface TodoItemUpsertPayload {
   reminderPresets?: TodoReminderPreset[];
   status?: TodoStatus;
   scope?: TodoEditScope;
+  links?: { url: string; title: string }[];
   recurrence?: TodoRecurrenceInput | null;
 }

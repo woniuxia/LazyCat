@@ -215,6 +215,7 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:todo:item-delete": { domain: "todo", action: "item_delete" },
   "tool:todo:reminder-list-unread": { domain: "todo", action: "reminder_list_unread" },
   "tool:todo:reminder-mark-read": { domain: "todo", action: "reminder_mark_read" },
+  "tool:todo:open-link":          { domain: "todo", action: "open_link" },
   "tool:maven:locate": { domain: "maven", action: "locate" },
   "tool:maven:open-path": { domain: "maven", action: "open_path" }
 };

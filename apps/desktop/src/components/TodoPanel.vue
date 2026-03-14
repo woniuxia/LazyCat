@@ -100,6 +100,16 @@
       </aside>
       <section class="todo-list-pane">
         <div class="toolbar">
+          <div class="toolbar-left">
+            <el-radio-group v-model="viewMode" size="small">
+              <el-radio-button value="list">
+                <el-icon><Document /></el-icon>
+              </el-radio-button>
+              <el-radio-button value="calendar">
+                <el-icon><Grid /></el-icon>
+              </el-radio-button>
+            </el-radio-group>
+          </div>
           <div class="toolbar-right">
             <el-input
               v-model.trim="itemKeyword"
@@ -120,7 +130,7 @@
             </el-button>
           </div>
         </div>
-        <div class="todo-list-scroll">
+        <div v-if="viewMode === 'list'" class="todo-list-scroll">
           <div v-if="hasActiveFilter" class="filter-indicator">
             <span class="filter-indicator-text">
               已筛选
@@ -383,9 +393,21 @@
             </div>
           </div>
         </div>
+        <div v-if="viewMode === 'calendar'" class="todo-calendar-view">
+          <TodoCalendarGrid
+            :items="allItemsForCalendar"
+            :month="calendarMonth"
+            :selected-item-id="selectedItemId"
+            @select-item="selectItem"
+            @create-on-date="createOnDate"
+            @prev-month="calendarMonth = calPrevMonth(calendarMonth)"
+            @next-month="calendarMonth = calNextMonth(calendarMonth)"
+            @go-today="calendarMonth = new Date()"
+          />
+        </div>
       </section>
 
-      <aside class="todo-detail-pane">
+      <aside class="todo-detail-pane" :key="detailMode">
         <template v-if="detailMode === 'create' || detailMode === 'edit'">
           <div class="detail-edit">
             <div class="detail-pane-header">
@@ -698,12 +720,34 @@
 
                 <div class="todo-form-section">
                   <el-form-item label="描述">
+                    <div class="md-toolbar">
+                      <el-button text size="small" class="md-toolbar-btn" @click="insertMdSyntax('**', '**')"><strong>B</strong></el-button>
+                      <el-button text size="small" class="md-toolbar-btn" @click="insertMdSyntax('*', '*')"><em>I</em></el-button>
+                      <el-button text size="small" class="md-toolbar-btn" @click="insertMdSyntax('`', '`')">Code</el-button>
+                      <el-button text size="small" class="md-toolbar-btn" @click="insertMdSyntax('\n- ', '')">List</el-button>
+                      <el-button text size="small" class="md-toolbar-btn" @click="insertMdSyntax('[', '](url)')">Link</el-button>
+                    </div>
                     <el-input
+                      ref="descTextareaRef"
                       v-model="itemDraft.description"
                       type="textarea"
                       :rows="4"
-                      placeholder="可补充事项说明"
+                      placeholder="支持 Markdown 语法"
                     />
+                  </el-form-item>
+                </div>
+                <div class="todo-form-section">
+                  <el-form-item label="关联链接">
+                    <div class="link-edit-list">
+                      <div v-for="(link, i) in itemDraft.links" :key="i" class="link-edit-row">
+                        <el-input v-model="link.url" placeholder="URL 或文件路径" size="small" />
+                        <el-input v-model="link.title" placeholder="标题（可选）" size="small" style="width: 150px; flex-shrink: 0" />
+                        <el-button text size="small" type="danger" @click="itemDraft.links.splice(i, 1)">删除</el-button>
+                      </div>
+                    </div>
+                    <el-button text type="primary" size="small" @click="itemDraft.links.push({ url: '', title: '' })">
+                      + 添加链接
+                    </el-button>
                   </el-form-item>
                 </div>
               </el-form>
@@ -977,9 +1021,30 @@
                     <span class="detail-card-title">详细描述</span>
                   </div>
                   <div class="detail-card-body">
-                    <div class="detail-description-card">
-                      <div class="detail-description">
-                        {{ selectedItem.description }}
+                    <div class="detail-description-card" :key="'desc-' + selectedItem.id">
+                      <div class="detail-description md-rendered" v-html="renderedDescription"></div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Links Card (only if has links) -->
+                <div v-if="selectedItem.links?.length" class="detail-card">
+                  <div class="detail-card-header">
+                    <div class="detail-card-icon primary">
+                      <el-icon><Link /></el-icon>
+                    </div>
+                    <span class="detail-card-title">关联链接</span>
+                  </div>
+                  <div class="detail-card-body">
+                    <div class="detail-links-list">
+                      <div
+                        v-for="link in selectedItem.links"
+                        :key="link.id"
+                        class="detail-link-item"
+                        @click="openLink(link.url)"
+                      >
+                        <el-icon class="detail-link-icon"><Link /></el-icon>
+                        <span class="detail-link-text">{{ link.title || link.url }}</span>
                       </div>
                     </div>
                   </div>
@@ -1167,6 +1232,8 @@ import {
   Clock,
   Document,
   Flag,
+  Grid,
+  Link,
   Plus,
   Refresh,
   Setting,
@@ -1183,6 +1250,7 @@ import type {
   TodoItem,
   TodoItemUpsertPayload,
   TodoKind,
+  TodoLink,
   TodoPriority,
   TodoRecordRole,
   TodoRecurrence,
@@ -1195,6 +1263,10 @@ import type {
   TodoType,
 } from "../types";
 import { groupTodoItemsByBucket } from "../utils/todoBuckets";
+import { renderMarkdown } from "../utils/renderMarkdown";
+import { prevMonth as calPrevMonth, nextMonth as calNextMonth, formatDateKey } from "../utils/calendarGrid";
+import TodoCalendarGrid from "./TodoCalendarGrid.vue";
+import MdContent from "./MdContent.vue";
 import {
   TODO_REPEAT_PRESET_OPTIONS,
   TODO_WEEKDAY_OPTIONS,
@@ -1232,11 +1304,14 @@ const assignees = ref<TodoAssignee[]>([]);
 const showMoreFields = ref(false);
 const itemKeyword = ref("");
 const titleInputRef = ref<InputInstance | null>(null);
+const descTextareaRef = ref<InstanceType<typeof import("element-plus")["ElInput"]> | null>(null);
 const filterType = ref<string | null>(null);
 const filterPriority = ref<TodoPriority | null>(null);
 const doneCollapsed = ref(true);
 const recentWeekCollapsed = ref(true);
 const basicsDialogVisible = ref(false);
+const viewMode = ref<"list" | "calendar">("list");
+const calendarMonth = ref(new Date());
 const itemDialogMode = ref<ItemDialogMode>("create");
 const detailMode = ref<DetailMode>("empty");
 const selectedItemId = ref<number | null>(null);
@@ -1326,6 +1401,7 @@ const itemDraft = reactive({
   priority: "P2" as TodoPriority,
   description: "",
   assigneeIds: [] as SelectAssigneeValue[],
+  links: [] as { url: string; title: string }[],
   eventDate: "",
   eventTime: "",
   reminderPresets: [...defaultReminderPresets] as TodoReminderPreset[],
@@ -1422,9 +1498,14 @@ const hasDetailCards = computed(() => {
   const hasInfo = !!item.typeName || item.assignees.length > 0;
   const hasRepeat = hasRepeatRule(item);
   const hasDescription = item.description.trim().length > 0;
+  const hasLinks = (item.links || []).length > 0;
 
-  return hasStatusOrPriority || hasSchedule || hasInfo || hasRepeat || hasDescription;
+  return hasStatusOrPriority || hasSchedule || hasInfo || hasRepeat || hasDescription || hasLinks;
 });
+const renderedDescription = computed(() =>
+  selectedItem.value?.description ? renderMarkdown(selectedItem.value.description) : "",
+);
+const allItemsForCalendar = computed(() => items.value);
 const isDetailEditing = computed(
   () => detailMode.value === "edit" || detailMode.value === "create",
 );
@@ -1505,6 +1586,25 @@ function normalizeDraftAssigneeValues(values: SelectAssigneeValue[]) {
     .map((value) => (typeof value === "number" ? `id:${value}` : `name:${value.trim()}`))
     .filter((value) => !value.endsWith(":"))
     .sort();
+}
+
+function insertMdSyntax(prefix: string, suffix: string) {
+  const el = descTextareaRef.value?.$el?.querySelector("textarea") as HTMLTextAreaElement | null;
+  if (!el) return;
+  const start = el.selectionStart;
+  const end = el.selectionEnd;
+  const text = itemDraft.description;
+  const selected = text.slice(start, end);
+  const replacement = prefix + (selected || "文本") + suffix;
+  itemDraft.description = text.slice(0, start) + replacement + text.slice(end);
+  nextTick(() => {
+    const cursorPos = start + prefix.length + (selected || "文本").length;
+    el.focus();
+    el.setSelectionRange(
+      selected ? start + prefix.length : start + prefix.length,
+      selected ? start + prefix.length + selected.length : cursorPos,
+    );
+  });
 }
 
 function snapshotItemDraft() {
@@ -1637,8 +1737,17 @@ async function ensureDetailCanLeave() {
   return true;
 }
 
-async function selectItem(item: TodoItem) {
+function selectItem(item: TodoItem) {
   if (selectedItemId.value === item.id && detailMode.value === "view") return;
+  if (isDetailEditing.value && isDraftDirty.value) {
+    selectItemAsync(item);
+    return;
+  }
+  selectedItemId.value = item.id;
+  detailMode.value = "view";
+}
+
+async function selectItemAsync(item: TodoItem) {
   if (!(await ensureDetailCanLeave())) return;
   selectedItemId.value = item.id;
   detailMode.value = "view";
@@ -1670,6 +1779,19 @@ async function startCreate() {
   detailMode.value = "create";
   selectedItemId.value = null;
   showMoreFields.value = false;
+  markDraftBaseline();
+  await focusCreateTitleInput();
+}
+
+async function createOnDate(dateKey: string) {
+  if (!(await ensureDetailCanLeave())) return;
+  resetItemDraft();
+  itemDialogMode.value = "create";
+  detailMode.value = "create";
+  selectedItemId.value = null;
+  itemDraft.eventDate = dateKey;
+  itemDraft.eventTime = "09:00";
+  showMoreFields.value = true;
   markDraftBaseline();
   await focusCreateTitleInput();
 }
@@ -2474,6 +2596,7 @@ function resetItemDraft() {
   itemDraft.priority = "P2";
   itemDraft.description = "";
   itemDraft.assigneeIds = [];
+  itemDraft.links = [];
   itemDraft.eventDate = "";
   itemDraft.eventTime = "";
   itemDraft.reminderPresets = [...defaultReminderPresets];
@@ -2505,6 +2628,7 @@ function applyItemToDraft(item: TodoItem) {
   itemDraft.priority = item.priority;
   itemDraft.description = item.description;
   itemDraft.assigneeIds = toDraftAssigneeValues(item.assignees);
+  itemDraft.links = (item.links || []).map((l) => ({ url: l.url, title: l.title }));
   itemDraft.eventDate = date;
   itemDraft.eventTime = time;
   itemDraft.reminderPresets = toDraftReminderPresets(item.reminderPresets);
@@ -2537,6 +2661,7 @@ function applyRootItemToDraft(item: TodoItem) {
   itemDraft.priority = item.priority;
   itemDraft.description = item.description;
   itemDraft.assigneeIds = toDraftAssigneeValues(item.assignees);
+  itemDraft.links = (item.links || []).map((l) => ({ url: l.url, title: l.title }));
   itemDraft.reminderPresets = toDraftReminderPresets(item.reminderPresets);
   lastReminderPresetSelection.value = [...itemDraft.reminderPresets];
   itemDraft.eventDate = date || getTodayDateString();
@@ -2630,7 +2755,7 @@ async function enterEditMode(item?: TodoItem | null) {
   editingItemSnapshot.value = target;
   editingRootSnapshot.value = getRootItemById(getRootItemId(target));
   applyItemToDraft(target);
-  itemDraft.scope = "future_instances";
+  itemDraft.scope = hasRepeatRule(target) ? "future_instances" : "this_instance";
   detailMode.value = "edit";
   showMoreFields.value =
     target.assignees.length > 0 ||
@@ -2725,6 +2850,7 @@ async function submitItemChanges(showSuccess = true) {
       priority: itemDraft.priority,
       description: itemDraft.description,
       assigneeIds,
+      links: itemDraft.links.filter((l) => l.url.trim()),
       reminderPresets: selectedReminderPresets,
     };
 
@@ -2759,7 +2885,7 @@ async function submitItemChanges(showSuccess = true) {
       payload.id = itemDraft.id;
       payload.scope = itemDraft.scope;
       if (itemDraft.rootId) payload.rootId = itemDraft.rootId;
-      if (itemDraft.scope === "future_instances") payload.recordRole = "root";
+      if (itemDraft.scope === "future_instances" && kind === "recurring") payload.recordRole = "root";
       response = await invokeToolByChannel("tool:todo:item-update", payload);
     }
 
@@ -2794,6 +2920,14 @@ async function toggleItemPin(id: number) {
   try {
     await invokeToolByChannel("tool:todo:item-toggle-pin", { id });
     await loadItems();
+  } catch (error) {
+    ElMessage.error((error as Error).message);
+  }
+}
+
+async function openLink(url: string) {
+  try {
+    await invokeToolByChannel("tool:todo:open-link", { url });
   } catch (error) {
     ElMessage.error((error as Error).message);
   }
@@ -3035,7 +3169,7 @@ onBeforeUnmount(() => {
   display: flex;
   gap: 12px;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
   margin-bottom: 12px;
   flex-wrap: wrap;
 }
@@ -3999,8 +4133,93 @@ onBeforeUnmount(() => {
   font-size: 13px;
   line-height: 1.7;
   color: var(--lc-text);
-  white-space: pre-wrap;
   word-break: break-word;
+}
+
+.detail-description:not(.md-rendered) {
+  white-space: pre-wrap;
+}
+
+/* Markdown rendered styles */
+.md-rendered :deep(h1) {
+  font-size: 1.4em;
+  margin: 0.4em 0;
+  border-bottom: 1px solid var(--el-border-color);
+  padding-bottom: 0.2em;
+}
+
+.md-rendered :deep(h2) {
+  font-size: 1.2em;
+  margin: 0.4em 0;
+}
+
+.md-rendered :deep(h3) {
+  font-size: 1.05em;
+  margin: 0.3em 0;
+}
+
+.md-rendered :deep(p) {
+  margin: 0.3em 0;
+}
+
+.md-rendered :deep(pre) {
+  background: var(--el-fill-color);
+  padding: 8px 12px;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin: 0.4em 0;
+}
+
+.md-rendered :deep(code) {
+  font-family: monospace;
+  font-size: 0.9em;
+}
+
+.md-rendered :deep(p code) {
+  background: var(--el-fill-color);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+.md-rendered :deep(ul) {
+  padding-left: 1.5em;
+  margin: 0.3em 0;
+}
+
+.md-rendered :deep(a) {
+  color: var(--el-color-primary);
+  text-decoration: none;
+}
+
+.md-rendered :deep(a:hover) {
+  text-decoration: underline;
+}
+
+.md-rendered :deep(strong) {
+  font-weight: 600;
+}
+
+/* Markdown toolbar */
+.md-toolbar {
+  display: flex;
+  gap: 2px;
+  margin-bottom: 4px;
+  padding: 2px 4px;
+  background: var(--lc-surface-0);
+  border: 1px solid var(--lc-border-subtle);
+  border-radius: 6px;
+}
+
+.md-toolbar-btn {
+  padding: 2px 8px !important;
+  font-size: 12px !important;
+  min-height: 24px !important;
+  color: var(--lc-text-muted) !important;
+}
+
+.md-toolbar-btn:hover {
+  color: var(--lc-text) !important;
+  background: var(--el-fill-color) !important;
 }
 
 /* Priority & Status Badges in Detail */
@@ -4474,5 +4693,72 @@ onBeforeUnmount(() => {
 .detail-scroll::-webkit-scrollbar-track,
 .todo-sidebar::-webkit-scrollbar-track {
   background: transparent;
+}
+
+/* Link styles */
+.detail-links-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.detail-link-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.detail-link-item:hover {
+  background: var(--el-fill-color);
+}
+
+.detail-link-icon {
+  color: var(--el-color-primary);
+  flex-shrink: 0;
+}
+
+.detail-link-text {
+  font-size: 13px;
+  color: var(--el-color-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.link-edit-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  margin-bottom: 6px;
+}
+
+.link-edit-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+/* Calendar view */
+.todo-calendar-view {
+  flex: 1;
+  overflow: hidden;
+}
+
+/* Toolbar left */
+.toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.toolbar-left .el-radio-group {
+  --el-radio-button-checked-bg-color: var(--el-color-primary-light-9);
+  --el-radio-button-checked-text-color: var(--el-color-primary);
+  --el-radio-button-checked-border-color: var(--el-color-primary-light-5);
 }
 </style>

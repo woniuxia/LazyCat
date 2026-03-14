@@ -33,6 +33,7 @@ function createItem(overrides: Partial<TodoItem> = {}): TodoItem {
     lastNotifiedAt: null,
     displayAt: "2026-03-08T09:00:00.000Z",
     assignees: [],
+    links: [],
     isOverdue: false,
     canEditFuture: false,
     nextTaskReminderId: null,

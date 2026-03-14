@@ -119,6 +119,7 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         "item_delete" => item_delete(payload),
         "reminder_list_unread" => reminder_list_unread(payload),
         "reminder_mark_read" => reminder_mark_read(payload),
+        "open_link" => open_link(payload),
         _ => Err(format!("unsupported todo action: {action}")),
     }
 }
@@ -276,7 +277,10 @@ fn resolve_existing_update_target(
         let template_id = parse_root_id(payload)
             .or(parse_i64(payload, "id"))
             .ok_or("缺少事项 id")?;
-        return Ok((load_series_kind(conn, template_id)?, None, Some(template_id)));
+        // 模板存在则按系列处理；否则回退到按 task 查找
+        if let Ok(kind) = load_series_kind(conn, template_id) {
+            return Ok((kind, None, Some(template_id)));
+        }
     }
 
     if let Some(task_id) = parse_i64(payload, "id") {
@@ -774,6 +778,90 @@ fn load_task_assignees(conn: &Connection, task_id: i64) -> Result<Vec<Value>, St
     Ok(out)
 }
 
+fn load_task_links(conn: &Connection, task_id: i64) -> Result<Vec<Value>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, url, title FROM todo_task_links WHERE task_id=?1 ORDER BY sort_order ASC, id ASC",
+        )
+        .map_err(|e| format!("查询事项链接失败: {e}"))?;
+    let rows = stmt
+        .query_map(params![task_id], |row| {
+            Ok(json!({
+                "id": row.get::<_, i64>(0)?,
+                "url": row.get::<_, String>(1)?,
+                "title": row.get::<_, String>(2)?
+            }))
+        })
+        .map_err(|e| format!("映射事项链接失败: {e}"))?;
+    let mut out = Vec::new();
+    for row in rows {
+        out.push(row.map_err(|e| e.to_string())?);
+    }
+    Ok(out)
+}
+
+fn load_template_links(conn: &Connection, template_id: i64) -> Result<Vec<Value>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, url, title FROM todo_template_links WHERE template_id=?1 ORDER BY sort_order ASC, id ASC",
+        )
+        .map_err(|e| format!("查询模板链接失败: {e}"))?;
+    let rows = stmt
+        .query_map(params![template_id], |row| {
+            Ok(json!({
+                "id": row.get::<_, i64>(0)?,
+                "url": row.get::<_, String>(1)?,
+                "title": row.get::<_, String>(2)?
+            }))
+        })
+        .map_err(|e| format!("映射模板链接失败: {e}"))?;
+    let mut out = Vec::new();
+    for row in rows {
+        out.push(row.map_err(|e| e.to_string())?);
+    }
+    Ok(out)
+}
+
+fn sync_task_links(conn: &Connection, task_id: i64, links: &[Value]) -> Result<(), String> {
+    conn.execute("DELETE FROM todo_task_links WHERE task_id=?1", params![task_id])
+        .map_err(|e| format!("清空事项链接失败: {e}"))?;
+    for (i, link) in links.iter().enumerate() {
+        let url = link.get("url").and_then(Value::as_str).unwrap_or("").trim();
+        if url.is_empty() {
+            continue;
+        }
+        let title = link.get("title").and_then(Value::as_str).unwrap_or("").trim();
+        conn.execute(
+            "INSERT INTO todo_task_links(task_id, url, title, sort_order) VALUES(?1, ?2, ?3, ?4)",
+            params![task_id, url, title, i as i64],
+        )
+        .map_err(|e| format!("插入事项链接失败: {e}"))?;
+    }
+    Ok(())
+}
+
+fn sync_template_links(conn: &Connection, template_id: i64, links: &[Value]) -> Result<(), String> {
+    conn.execute("DELETE FROM todo_template_links WHERE template_id=?1", params![template_id])
+        .map_err(|e| format!("清空模板链接失败: {e}"))?;
+    for (i, link) in links.iter().enumerate() {
+        let url = link.get("url").and_then(Value::as_str).unwrap_or("").trim();
+        if url.is_empty() {
+            continue;
+        }
+        let title = link.get("title").and_then(Value::as_str).unwrap_or("").trim();
+        conn.execute(
+            "INSERT INTO todo_template_links(template_id, url, title, sort_order) VALUES(?1, ?2, ?3, ?4)",
+            params![template_id, url, title, i as i64],
+        )
+        .map_err(|e| format!("插入模板链接失败: {e}"))?;
+    }
+    Ok(())
+}
+
+fn parse_links(payload: &Value) -> Option<Vec<Value>> {
+    payload.get("links").and_then(Value::as_array).map(|arr| arr.clone())
+}
+
 fn load_task_reminder_configs(conn: &Connection, task_id: i64) -> Result<Vec<ReminderConfig>, String> {
     let mut stmt = conn
         .prepare(
@@ -1243,6 +1331,7 @@ fn template_to_root_item(template: Value) -> Result<Value, String> {
         .unwrap_or_else(|| json!(0));
     let active = record.get("active").cloned().unwrap_or_else(|| json!(true));
     let assignees = record.get("assignees").cloned().unwrap_or_else(|| json!([]));
+    let links = record.get("links").cloned().unwrap_or_else(|| json!([]));
     let created_at = record
         .get("createdAt")
         .and_then(Value::as_str)
@@ -1278,6 +1367,7 @@ fn template_to_root_item(template: Value) -> Result<Value, String> {
         "lastNotifiedAt": Value::Null,
         "displayAt": display_at,
         "assignees": assignees,
+        "links": links,
         "isOverdue": false,
         "nextTaskReminderId": Value::Null,
         "nextReminderPreset": Value::Null,
@@ -1525,8 +1615,10 @@ fn task_list(payload: &Value) -> Result<Value, String> {
     for (task_id, mut task) in rows_data {
         let assignees = load_task_assignees(&conn, task_id)?;
         let reminder_summary = load_task_reminder_summary(&conn, task_id)?;
+        let links = load_task_links(&conn, task_id)?;
         if let Some(obj) = task.as_object_mut() {
             obj.insert("assignees".to_string(), json!(assignees));
+            obj.insert("links".to_string(), json!(links));
             obj.insert(
                 "reminderPresets".to_string(),
                 json!(reminder_summary.reminder_presets),
@@ -1596,6 +1688,7 @@ fn row_to_task_json(row: &rusqlite::Row<'_>) -> rusqlite::Result<Value> {
         "status": status,
         "eventAt": event_at,
         "reminderPresets": json!([]),
+        "links": json!([]),
         "snoozeUntil": Value::Null,
         "lastNotifiedAt": Value::Null,
         "recurrence": Value::Null,
@@ -1737,6 +1830,11 @@ fn delete_template_by_id(conn: &Connection, template_id: i64) -> Result<(), Stri
     )
     .map_err(|e| format!("删除周期提醒失败: {e}"))?;
     conn.execute(
+        "DELETE FROM todo_template_links WHERE template_id=?1",
+        params![template_id],
+    )
+    .map_err(|e| format!("删除周期链接失败: {e}"))?;
+    conn.execute(
         "DELETE FROM todo_templates WHERE id=?1",
         params![template_id],
     )
@@ -1828,6 +1926,10 @@ fn convert_one_off_task_to_recurring(
     .map_err(|e| format!("更新首个周期事项实例失败: {e}"))?;
     sync_task_assignees(&tx, task_id, &assignee_ids)?;
     sync_task_reminders(&tx, task_id, Some(&start_at), &reminder_presets)?;
+    if let Some(links) = parse_links(payload) {
+        sync_template_links(&tx, template_id, &links)?;
+        sync_task_links(&tx, task_id, &links)?;
+    }
     tx.commit()
         .map_err(|e| format!("提交事项类型转换失败: {e}"))?;
 
@@ -1970,6 +2072,9 @@ fn task_create(payload: &Value) -> Result<Value, String> {
         &reminder_presets,
         source_template_id,
     )?;
+    if let Some(links) = parse_links(payload) {
+        sync_task_links(&conn, id, &links)?;
+    }
     Ok(json!({
         "ok": true,
         "id": id,
@@ -2014,6 +2119,9 @@ fn task_update(payload: &Value) -> Result<Value, String> {
             params![description, id],
         )
         .map_err(|e| format!("更新任务描述失败: {e}"))?;
+    }
+    if let Some(links) = parse_links(payload) {
+        sync_task_links(&conn, id, &links)?;
     }
     let reminder_presets_update = parse_reminder_presets(payload)?;
     if payload.get("eventAt").is_some() || reminder_presets_update.is_some() {
@@ -2451,12 +2559,14 @@ fn template_list() -> Result<Value, String> {
     for row in rows {
         let (template_id, mut item) = row.map_err(|e| e.to_string())?;
         let assignees = load_template_assignees(&conn, template_id)?;
+        let links = load_template_links(&conn, template_id)?;
         let reminder_presets = load_template_reminder_configs(&conn, template_id)?
             .into_iter()
             .map(|config| config.preset)
             .collect::<Vec<_>>();
         if let Some(obj) = item.as_object_mut() {
             obj.insert("assignees".to_string(), json!(assignees));
+            obj.insert("links".to_string(), json!(links));
             obj.insert("reminderPresets".to_string(), json!(reminder_presets));
         }
         items.push(item);
@@ -2530,6 +2640,9 @@ fn template_create(payload: &Value) -> Result<Value, String> {
     let id = conn.last_insert_rowid();
     sync_template_assignees(&conn, id, &assignee_ids)?;
     sync_template_reminders(&conn, id, &reminder_presets)?;
+    if let Some(links) = parse_links(payload) {
+        sync_template_links(&conn, id, &links)?;
+    }
     Ok(json!({ "ok": true, "id": id, "rootId": id }))
 }
 
@@ -2572,6 +2685,9 @@ fn template_update(payload: &Value) -> Result<Value, String> {
             params![description, id],
         )
         .map_err(|e| format!("更新周期描述失败: {e}"))?;
+    }
+    if let Some(links) = parse_links(payload) {
+        sync_template_links(&conn, id, &links)?;
     }
     if let Some(reminder_presets) = parse_reminder_presets(payload)? {
         sync_template_reminders(&conn, id, &reminder_presets)?;
@@ -2837,6 +2953,18 @@ fn reminder_mark_read(payload: &Value) -> Result<Value, String> {
         .collect();
     conn.execute(&sql, bind_refs.as_slice())
         .map_err(|e| format!("鎵归噺鏍囪宸茶澶辫触: {e}"))?;
+    Ok(json!({ "ok": true }))
+}
+
+fn open_link(payload: &Value) -> Result<Value, String> {
+    let url = payload["url"]
+        .as_str()
+        .ok_or("url 不能为空")?
+        .trim();
+    if url.is_empty() {
+        return Err("url 不能为空".to_string());
+    }
+    open::that(url).map_err(|e| format!("打开链接失败: {e}"))?;
     Ok(json!({ "ok": true }))
 }
 
@@ -3197,6 +3325,13 @@ fn create_task_from_template(conn: &Connection, tpl: &TemplateRow, due: DateTime
         .map(|config| config.preset.clone())
         .collect::<Vec<_>>();
     sync_task_reminders(conn, task_id, Some(&event_at), &reminder_presets)?;
+    // Copy links from template to task
+    conn.execute(
+        "INSERT INTO todo_task_links(task_id, url, title, sort_order)
+         SELECT ?1, url, title, sort_order FROM todo_template_links WHERE template_id = ?2 ORDER BY sort_order ASC",
+        params![task_id, tpl.id],
+    )
+    .map_err(|e| format!("复制周期链接失败: {e}"))?;
     Ok(task_id)
 }
 
