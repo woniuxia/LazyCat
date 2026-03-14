@@ -184,7 +184,7 @@
 
                 <div class="vault-list-col name">
                   <div class="vault-entry-title-row">
-                    <span class="vault-entry-title" :title="entry.title">{{ entry.title || '(未命名)' }}</span>
+                    <span class="vault-entry-title" v-html="highlightKeyword(entry.title || '(未命名)', keyword)" :title="entry.title" />
                   </div>
                   <span v-if="entry.summary" class="vault-entry-summary" :title="entry.summary">{{ entry.summary }}</span>
                   <div v-if="entryCopyValue(entry)" class="vault-name-actions">
@@ -220,7 +220,15 @@
                     :disabled="!entry.account"
                     @click.stop="onCopyAccount(entry)"
                   >
-                    <span class="vault-account-text">{{ entry.account || '—' }}</span>
+                    <Transition name="vault-check" mode="out-in">
+                      <svg v-if="copyFeedbackAccount === entry.id" key="check"
+                        class="vault-copy-check" viewBox="0 0 16 16" fill="none"
+                        stroke="currentColor" stroke-width="2.5">
+                        <polyline points="2,8 6,12 14,4" />
+                      </svg>
+                      <span v-else key="text" class="vault-account-text"
+                        v-html="highlightKeyword(entry.account || '—', keyword)" />
+                    </Transition>
                   </button>
                 </div>
 
@@ -247,10 +255,17 @@
                       title="复制密码"
                       @click.stop="onDirectCopyPassword(entry)"
                     >
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <rect width="14" height="14" x="8" y="8" rx="2" />
-                        <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
-                      </svg>
+                      <Transition name="vault-check" mode="out-in">
+                        <svg v-if="copyFeedbackRow === entry.id" key="check"
+                          viewBox="0 0 16 16" fill="none"
+                          stroke="currentColor" stroke-width="2.5">
+                          <polyline points="2,8 6,12 14,4" />
+                        </svg>
+                        <svg v-else key="copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <rect width="14" height="14" x="8" y="8" rx="2" />
+                          <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
+                        </svg>
+                      </Transition>
                     </button>
                   </div>
                 </div>
@@ -481,6 +496,15 @@ const filteredEntries = computed(() => {
   }
   return list;
 });
+
+function highlightKeyword(text: string, kw: string): string {
+  if (!kw || !text) return text;
+  const kwEscaped = kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return text.replace(
+    new RegExp(`(${kwEscaped})`, 'gi'),
+    '<mark class="vault-highlight">$1</mark>'
+  );
+}
 
 const allTags = computed(() => tagStats.value.map(s => s.tag));
 
@@ -1428,12 +1452,21 @@ onBeforeUnmount(() => {
 
 .vault-list-item:hover {
   background: var(--lc-surface-1);
-  border-color: var(--lc-border);
+  border-color: var(--lc-border-hover);
+  box-shadow: var(--lc-shadow-sm);
+  transform: translateY(-1px);
+}
+
+@keyframes copyPulse {
+  0%   { box-shadow: 0 0 0 0 rgba(56,189,248, 0.4); }
+  60%  { box-shadow: 0 0 0 6px rgba(56,189,248, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(56,189,248, 0); }
 }
 
 .vault-list-item.is-copying {
   background: var(--lc-accent-dim);
   border-color: var(--lc-accent);
+  animation: copyPulse 600ms var(--lc-ease) forwards;
 }
 
 .vault-list-col {
@@ -1623,6 +1656,8 @@ onBeforeUnmount(() => {
 .vault-account-btn.is-copying {
   background: var(--lc-accent-dim);
   border-color: var(--lc-accent);
+  color: var(--lc-accent);
+  animation: copyPulse 600ms var(--lc-ease) forwards;
 }
 
 .vault-account-btn:disabled {
@@ -1739,6 +1774,31 @@ onBeforeUnmount(() => {
 .pw-text-enter-from,
 .pw-text-leave-to {
   opacity: 0;
+}
+
+/* --- Vault Check Transition --- */
+.vault-check-enter-active,
+.vault-check-leave-active {
+  transition: opacity 120ms var(--lc-ease), transform 120ms var(--lc-ease);
+}
+.vault-check-enter-from { opacity: 0; transform: scale(0.7); }
+.vault-check-leave-to   { opacity: 0; transform: scale(1.2); }
+
+.vault-copy-check {
+  width: 14px;
+  height: 14px;
+  color: var(--lc-accent);
+  flex-shrink: 0;
+}
+
+/* --- Search Highlight --- */
+.vault-highlight {
+  background: rgba(56,189,248, 0.25);
+  color: var(--lc-accent);
+  border-radius: 2px;
+  padding: 0 1px;
+  font-style: normal;
+  font-weight: 600;
 }
 
 /* --- Actions --- */

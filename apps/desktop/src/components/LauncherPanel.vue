@@ -18,7 +18,7 @@
           v-model="searchQuery"
           placeholder="搜索应用..."
           clearable
-          style="width: 240px;"
+          style="flex: 1; min-width: 160px; max-width: 320px;"
         />
         <div style="display: flex; gap: 8px; align-items: center;">
           <el-button-group>
@@ -31,7 +31,16 @@
 
       <div class="launcher-content">
         <div v-if="filteredEntries.length === 0" class="launcher-empty">
-          暂无应用，请在设置中扫描或手动添加
+          <div class="empty-inner">
+            <p v-if="debouncedQuery">无匹配结果</p>
+            <template v-else>
+              <p>暂无应用</p>
+              <div class="empty-actions">
+                <el-button type="primary" @click="openScanDialog">扫描添加</el-button>
+                <el-button @click="handleManualAddFile">添加程序</el-button>
+              </div>
+            </template>
+          </div>
         </div>
 
         <!-- Grid View -->
@@ -40,6 +49,7 @@
             v-for="(entry, idx) in filteredEntries"
             :key="entry.id"
             class="grid-card"
+            :class="{ 'drag-over': dragOverIdx === idx }"
             draggable="true"
             @click="launchApp(entry)"
             @dragstart="onDragStart(idx, $event)"
@@ -64,6 +74,7 @@
             v-for="(entry, idx) in filteredEntries"
             :key="entry.id"
             class="list-row"
+            :class="{ 'drag-over': dragOverIdx === idx }"
             draggable="true"
             @click="launchApp(entry)"
             @dragstart="onDragStart(idx, $event)"
@@ -107,6 +118,7 @@
       <el-table
         :data="filteredScanItems"
         height="400"
+        v-loading="scanLoading"
         @selection-change="onScanSelectionChange"
         ref="scanTableRef"
       >
@@ -193,7 +205,7 @@
   </div>
 </template>
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount } from "vue";
+import { ref, computed, watch, onMounted, onBeforeUnmount } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invokeToolByChannel } from "../bridge/tauri";
@@ -220,6 +232,12 @@ interface ScanItem {
 const entries = ref<LauncherEntry[]>([]);
 const customGroups = ref<string[]>([]);
 const searchQuery = ref("");
+const debouncedQuery = ref("");
+let debounceTimer: ReturnType<typeof setTimeout>;
+watch(searchQuery, (v) => {
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(() => { debouncedQuery.value = v; }, 300);
+});
 const viewType = ref<"grid" | "list">("grid");
 const activeGroup = ref("全部");
 
@@ -231,6 +249,7 @@ const ctxEntry = ref<LauncherEntry | null>(null);
 
 // Scan dialog
 const scanDialogVisible = ref(false);
+const scanLoading = ref(false);
 const scanItems = ref<ScanItem[]>([]);
 const scanSelection = ref<ScanItem[]>([]);
 const scanSearch = ref("");
@@ -246,6 +265,7 @@ const settingsTab = ref("add");
 
 // Drag state
 const dragIdx = ref(-1);
+const dragOverIdx = ref(-1);
 const justDragged = ref(false);
 
 // Computed
@@ -275,7 +295,7 @@ const filteredEntries = computed(() => {
   if (activeGroup.value !== "全部") {
     list = list.filter((e) => (e.group_name || "未分组") === activeGroup.value);
   }
-  const q = searchQuery.value.trim().toLowerCase();
+  const q = debouncedQuery.value.trim().toLowerCase();
   if (q) {
     list = list.filter((e) => e.name.toLowerCase().includes(q) || e.exe_path.toLowerCase().includes(q));
   }
@@ -319,6 +339,7 @@ async function launchApp(entry: LauncherEntry, admin = false) {
       arguments: entry.arguments,
       admin,
     });
+    ElMessage.success({ message: '已启动', duration: 1500 });
   } catch (e) {
     ElMessage.error(`启动失败：${(e as Error).message}`);
   }
@@ -329,6 +350,7 @@ async function openScanDialog() {
   scanDialogVisible.value = true;
   scanSearch.value = "";
   scanSelection.value = [];
+  scanLoading.value = true;
   try {
     const res = (await invokeToolByChannel("tool:launcher:scan", {})) as { items: ScanItem[] };
     const existingPaths = new Set(entries.value.map((e) => e.exe_path.toLowerCase()));
@@ -338,6 +360,8 @@ async function openScanDialog() {
     }));
   } catch (e) {
     ElMessage.error(`扫描失败：${(e as Error).message}`);
+  } finally {
+    scanLoading.value = false;
   }
 }
 
@@ -469,15 +493,16 @@ function onDragStart(idx: number, e: DragEvent) {
 }
 
 function onDragOver(idx: number) {
-  // visual feedback could be added here
-  void idx;
+  dragOverIdx.value = idx;
 }
 
 function onDragEnd() {
   dragIdx.value = -1;
+  dragOverIdx.value = -1;
 }
 
 async function onDrop(targetIdx: number) {
+  dragOverIdx.value = -1;
   if (dragIdx.value < 0 || dragIdx.value === targetIdx) return;
   const list = [...filteredEntries.value];
   const [moved] = list.splice(dragIdx.value, 1);
@@ -590,6 +615,8 @@ async function deleteGroup(groupName: string) {
   background: var(--lc-accent-dim);
   color: var(--lc-accent);
   font-weight: 600;
+  border-left: 3px solid var(--lc-accent);
+  padding-left: 13px;
 }
 .launcher-main {
   flex: 1;
@@ -618,6 +645,19 @@ async function deleteGroup(groupName: string) {
   height: 200px;
   color: var(--lc-text-secondary);
   font-size: 14px;
+}
+.empty-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+.empty-inner p {
+  margin: 0;
+}
+.empty-actions {
+  display: flex;
+  gap: 8px;
 }
 
 /* Grid */
@@ -675,6 +715,10 @@ async function deleteGroup(groupName: string) {
 .list-row:hover {
   background: var(--lc-accent-dim);
 }
+.list-row:active {
+  background: var(--lc-accent-dim);
+  transform: scale(0.995);
+}
 .list-icon {
   width: 32px;
   height: 32px;
@@ -720,6 +764,14 @@ async function deleteGroup(groupName: string) {
 }
 .ctx-danger:hover {
   background: color-mix(in srgb, var(--lc-danger) 10%, transparent);
+}
+.grid-card.drag-over {
+  background: var(--lc-accent-dim);
+  box-shadow: inset 3px 0 0 var(--lc-accent);
+}
+.list-row.drag-over {
+  background: var(--lc-accent-dim);
+  box-shadow: inset 3px 0 0 var(--lc-accent);
 }
 </style>
 

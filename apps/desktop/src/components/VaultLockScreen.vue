@@ -157,7 +157,7 @@ function onPasswordInput() {
   // Skip if this length has already been attempted
   if (attemptedLengths.value.has(currentLength)) return;
 
-  // Set up debounce timer (500ms)
+  // Set up debounce timer (100ms)
   debounceTimer.value = window.setTimeout(() => {
     // Mark this length as attempted
     attemptedLengths.value.add(currentLength);
@@ -246,7 +246,7 @@ async function onUnlock() {
   border: 1px solid var(--lc-border);
   border-radius: var(--lc-radius-lg);
   background: var(--lc-surface-0);
-  box-shadow: var(--lc-shadow-md);
+  box-shadow: var(--lc-shadow-md), var(--lc-shadow-glow);
 }
 
 .vault-lock__icon {
@@ -256,6 +256,10 @@ async function onUnlock() {
   margin-bottom: 20px;
   opacity: 0.85;
   animation: iconPulse 3s ease-in-out infinite;
+  background: radial-gradient(circle, var(--lc-accent-dim) 0%, transparent 70%);
+  border-radius: 50%;
+  padding: 8px;
+  box-sizing: content-box;
 }
 
 @keyframes iconPulse {

@@ -36,8 +36,8 @@
 .home-section-header h2::before {
   content: "";
   display: inline-block;
-  width: 3px;
-  height: 16px;
+  width: 4px;
+  height: 18px;
   background: var(--lc-accent);
   border-radius: 2px;
   margin-right: 10px;
@@ -52,7 +52,7 @@
 
 .home-card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   gap: 12px;
 }
 
@@ -62,7 +62,7 @@
   border-radius: var(--lc-radius-md);
   background: var(--lc-surface-2);
   text-align: left;
-  padding: 20px;
+  padding: 16px 16px 18px;
   cursor: pointer;
   transition:
     border-color 300ms var(--lc-ease),

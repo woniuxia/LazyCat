@@ -265,3 +265,14 @@ html[data-theme="light"] .monaco-editor-background,
 html[data-theme="light"] .monaco-editor .inputarea.ime-input {
   background-color: #ffffff !important;
 }
+
+/* Vault — Environment tags */
+html[data-theme="light"] .vault-tag.is-prod  { color: #dc2626; background: rgba(220,38,38,0.10); }
+html[data-theme="light"] .vault-tag.is-dev   { color: #059669; background: rgba(5,150,105,0.10); }
+html[data-theme="light"] .vault-tag.is-local { color: #2563eb; background: rgba(37,99,235,0.10); }
+
+/* Vault — Search highlight */
+html[data-theme="light"] .vault-highlight {
+  background: rgba(14,165,233, 0.18);
+  color: #0369a1;
+}
