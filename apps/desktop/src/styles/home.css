@@ -71,7 +71,7 @@
   position: relative;
   overflow: hidden;
   animation: cardReveal 0.4s var(--lc-ease-out) both;
-  animation-delay: calc(var(--card-index, 0) * 50ms);
+  animation-delay: min(calc(var(--card-index, 0) * 20ms), 800ms);
 }
 
 /* Top accent bar */

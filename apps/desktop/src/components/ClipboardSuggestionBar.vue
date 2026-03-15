@@ -38,8 +38,8 @@
       </button>
 
       <!-- Auto-close progress bar -->
-      <div class="cb-progress" :class="{ paused: isPaused }">
-        <div class="cb-progress-bar" :style="{ animationDuration: autoCloseDuration + 'ms' }" />
+      <div class="cb-progress">
+        <div class="cb-progress-bar" :style="{ transform: 'scaleX(' + progressPercent / 100 + ')' }" />
       </div>
     </div>
   </Transition>
@@ -58,14 +58,32 @@ const { suggestion, visible, applyAction, dismiss } = useClipboardSuggestion();
 
 const autoCloseDuration = 6000;
 const isPaused = ref(false);
+const progressPercent = ref(100);
 let autoCloseTimer: ReturnType<typeof setTimeout> | null = null;
 let remainingTime = autoCloseDuration;
 let timerStart = 0;
+let rafId: number | null = null;
 
 function clearAutoClose() {
   if (autoCloseTimer) {
     clearTimeout(autoCloseTimer);
     autoCloseTimer = null;
+  }
+  if (rafId !== null) {
+    cancelAnimationFrame(rafId);
+    rafId = null;
+  }
+}
+
+function updateProgress() {
+  if (isPaused.value) return;
+
+  const elapsed = Date.now() - timerStart;
+  const remaining = Math.max(0, remainingTime - elapsed);
+  progressPercent.value = (remaining / autoCloseDuration) * 100;
+
+  if (remaining > 0) {
+    rafId = requestAnimationFrame(updateProgress);
   }
 }
 
@@ -73,7 +91,9 @@ function startAutoClose(duration: number) {
   clearAutoClose();
   remainingTime = duration;
   timerStart = Date.now();
+  progressPercent.value = (duration / autoCloseDuration) * 100;
   autoCloseTimer = setTimeout(() => dismiss(), duration);
+  rafId = requestAnimationFrame(updateProgress);
 }
 
 function pauseAutoClose() {
@@ -97,7 +117,10 @@ watch(visible, (v) => {
   isPaused.value = false;
   if (v) {
     remainingTime = autoCloseDuration;
+    progressPercent.value = 100;
     startAutoClose(autoCloseDuration);
+  } else {
+    progressPercent.value = 100;
   }
 });
 
@@ -281,17 +304,8 @@ onBeforeUnmount(() => {
   background: var(--lc-accent);
   opacity: 0.4;
   border-radius: 0 2px 2px 0;
-  animation: progressShrink linear forwards;
   transform-origin: left;
-}
-
-.cb-progress.paused .cb-progress-bar {
-  animation-play-state: paused;
-}
-
-@keyframes progressShrink {
-  from { transform: scaleX(1); }
-  to { transform: scaleX(0); }
+  transition: transform 50ms linear;
 }
 
 /* ---- Transition ---- */
