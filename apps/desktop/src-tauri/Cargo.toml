@@ -11,6 +11,7 @@ crate-type = ["cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+embed-resource = "2.4"
 
 [dependencies]
 tauri = { version = "2", features = ["tray-icon", "devtools"] }
