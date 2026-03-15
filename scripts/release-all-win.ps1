@@ -139,9 +139,17 @@ function Copy-PortableFiles {
   )
 
   foreach ($item in $required) {
-    $src = Join-Path $ReleaseDir $item
-    if (!(Test-Path $src)) {
-      throw "Required portable artifact missing: $src"
+    $candidates = @(
+      (Join-Path $ReleaseDir $item)
+    )
+
+    if ($item -eq "lazycat_lib.dll") {
+      $candidates += (Join-Path $ReleaseDir "deps/$item")
+    }
+
+    $src = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+    if (-not $src) {
+      throw "Required portable artifact missing: $($candidates -join ', ')"
     }
 
     $dst = Join-Path $StageDir $item
