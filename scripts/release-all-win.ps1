@@ -122,6 +122,32 @@ function New-Zip {
   Compress-Archive -Path (Join-Path $SourceDir "*") -DestinationPath $ZipPath -CompressionLevel Optimal
 }
 
+function Get-Sha256Hex {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$Path
+  )
+
+  if (Get-Command Get-FileHash -ErrorAction SilentlyContinue) {
+    return (Get-FileHash -Path $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+  }
+
+  $stream = [System.IO.File]::OpenRead($Path)
+  try {
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+    try {
+      $hashBytes = $sha256.ComputeHash($stream)
+      return ([System.BitConverter]::ToString($hashBytes).Replace("-", "").ToLowerInvariant())
+    }
+    finally {
+      $sha256.Dispose()
+    }
+  }
+  finally {
+    $stream.Dispose()
+  }
+}
+
 function Copy-PortableFiles {
   param(
     [Parameter(Mandatory = $true)]
@@ -298,8 +324,7 @@ try {
   }
 
   $hashLines = foreach ($f in $artifacts) {
-    $h = Get-FileHash -Path $f -Algorithm SHA256
-    "{0}  {1}" -f $h.Hash.ToLowerInvariant(), (Split-Path $f -Leaf)
+    "{0}  {1}" -f (Get-Sha256Hex -Path $f), (Split-Path $f -Leaf)
   }
   $hashLines | Set-Content -Encoding UTF8 $shaFile
 
