@@ -189,6 +189,32 @@
 
 **使用次数**: 0
 
+## 2026-03-16: Tauri 自定义 manifest 不要与 embed-resource 并用
+
+**场景**: 用户执行 `pnpm dev`，Rust/Tauri 在 Windows 链接阶段报 `link.exe failed: exit code: 1123`。
+**问题**:
+1. 表面错误是 `LNK1123`，但真正的首个致命错误是 `CVTRES : fatal error CVT1100: duplicate resource. type:MANIFEST, name:1`。
+2. `build.rs` 手工用 `embed-resource` 生成了 `embed_manifest.lib`，同时 `tauri_build::build()` 在 Windows 下也会生成包含 manifest 的 `resource.lib`。
+3. 两份 `MANIFEST` 资源同时链接进 exe，会导致资源转换阶段失败，最终表现成 `LNK1123`，容易被误判为 `link.exe` 或 OpenSSL 警告问题。
+**解决**:
+1. 删除 `build.rs` 中手工生成 `.rc` / `embed_manifest.lib` 的逻辑，不再直接调用 `embed-resource`。
+2. 保留自定义 `lazycat.manifest` 内容，但改为通过 `tauri_build::WindowsAttributes::app_manifest(...)` 注入，让 Tauri 成为唯一的 Windows 资源编译入口。
+3. 同步移除 `Cargo.toml` 里的 `embed-resource` build dependency，避免后续再次走回旁路方案。
+**关键点**:
+1. 遇到 `LNK1123` 时，先往前找 `CVTRES` 的第一条 fatal error，不要只盯着最后一行。
+2. Tauri 2 在 Windows 下默认就会通过 `tauri-build` 生成资源文件；要自定义 manifest，应扩展它，而不是额外再编一份资源库。
+3. `LNK4099` 这类 OpenSSL PDB 警告通常不是主因，先区分 warning 和真正 fatal error。
+**涉及文件**:
+- `apps/desktop/src-tauri/build.rs`
+- `apps/desktop/src-tauri/Cargo.toml`
+- `apps/desktop/src-tauri/lazycat.manifest`
+
+**验证**:
+- `cargo build --manifest-path apps/desktop/src-tauri/Cargo.toml --no-default-features -vv`
+- `pnpm dev`
+
+**使用次数**: 0
+
 ## 2026-03-08: 本地待办移除提醒中心并改为超期/待办/已办三段
 
 **场景**: 用户要求移除本地待办中的“提醒中心”功能，并将事项页面固定拆成“超期事项、待办事项、已办事项”三段展示。

@@ -1,39 +1,19 @@
 fn main() {
-    // 在 Windows 上嵌入自定义 manifest
     #[cfg(windows)]
     {
         let manifest_path = std::path::Path::new("lazycat.manifest");
-        if manifest_path.exists() {
-            println!("cargo:rerun-if-changed=lazycat.manifest");
+        println!("cargo:rerun-if-changed={}", manifest_path.display());
 
-            // 获取当前目录的绝对路径
-            let current_dir = std::env::current_dir().unwrap();
-            let manifest_abs = current_dir.join(manifest_path);
+        // 通过 tauri_build 注入自定义 manifest，避免与其默认 resource.lib 重复嵌入。
+        let manifest = std::fs::read_to_string(manifest_path)
+            .expect("Failed to read lazycat.manifest");
+        let attributes = tauri_build::Attributes::new().windows_attributes(
+            tauri_build::WindowsAttributes::new().app_manifest(manifest),
+        );
 
-            // 创建临时 .rc 文件引用我们的 manifest
-            let out_dir = std::env::var("OUT_DIR").unwrap();
-            let rc_path = std::path::Path::new(&out_dir).join("embed_manifest.rc");
-
-            // 写入 RC 文件内容，使用双反斜杠转义（RC 文件要求）
-            let manifest_str = manifest_abs
-                .to_str()
-                .unwrap()
-                .replace("\\\\?\\", "")  // 移除 Windows 长路径前缀
-                .replace("\\", "\\\\");   // 转义反斜杠
-            std::fs::write(
-                &rc_path,
-                format!(
-                    "#pragma code_page(65001)\n\
-                     1 24 \"{}\"",
-                    manifest_str
-                )
-            ).expect("Failed to write RC file");
-
-            // 使用 embed-resource crate 编译 RC 文件
-            embed_resource::compile(&rc_path, embed_resource::NONE);
-        }
+        tauri_build::try_build(attributes).expect("failed to run tauri build script");
     }
 
-    // 运行标准 Tauri 构建
-    tauri_build::build()
+    #[cfg(not(windows))]
+    tauri_build::build();
 }
