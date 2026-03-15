@@ -14,8 +14,12 @@ fn main() {
             let out_dir = std::env::var("OUT_DIR").unwrap();
             let rc_path = std::path::Path::new(&out_dir).join("embed_manifest.rc");
 
-            // 写入 RC 文件内容，使用普通路径格式（不带 \\?\ 前缀）
-            let manifest_str = manifest_abs.to_str().unwrap().replace("\\\\?\\", "");
+            // 写入 RC 文件内容，使用双反斜杠转义（RC 文件要求）
+            let manifest_str = manifest_abs
+                .to_str()
+                .unwrap()
+                .replace("\\\\?\\", "")  // 移除 Windows 长路径前缀
+                .replace("\\", "\\\\");   // 转义反斜杠
             std::fs::write(
                 &rc_path,
                 format!(
