@@ -8,6 +8,40 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-03-16: Windows 发版前先统一多处版本号，再走 release 脚本
+
+**场景**: 需要发布 `v0.2.5` 到 GitHub Release，并产出 Windows 安装包与绿色包。
+
+**问题**:
+1. 本仓库版本号分散在根 `package.json`、`apps/desktop/package.json`、`apps/desktop/src-tauri/Cargo.toml`、`apps/desktop/src-tauri/tauri.conf.json`，历史上可能出现不一致。
+2. `scripts/release-all-win.ps1` 会读取 `tauri.conf.json` 的 `version` 作为产物命名基础，如果只改 tag 不改配置，最终 Release 包名和 Git tag 会错位。
+3. release 脚本只负责推送 tag 和上传 Release 资产，不会替代版本提交本身；版本变更必须先进入 Git 提交，再发版。
+
+**解决**:
+1. 发版前先统一桌面应用相关版本号到目标版本，至少同步根 `package.json`、桌面端 `package.json`、`Cargo.toml`、`tauri.conf.json`。
+2. 先执行 `pnpm typecheck`、`pnpm --filter @lazycat/desktop build:web`、`pnpm test` 做基础校验，再执行 `pnpm release:all:win -- -Tag vX.Y.Z` 产出安装包、绿色包和 `SHA256SUMS.txt`。
+3. 先提交版本变更并推送分支，再运行 release 脚本，让 tag、Release 和源码提交保持一致。
+
+**关键点**:
+1. 产物文件名跟随 `tauri.conf.json` 的版本，而不是 Git tag。
+2. 如果要让远端 `main` 与 Release 对齐，不能只推 tag，还要推送当前分支提交。
+3. `release-all-win.ps1` 已内置 slim/full 安装包、portable zip、SHA256 和 `gh release create/upload` 流程，优先复用，不要手工拼装发布步骤。
+
+**涉及文件**:
+- `package.json`
+- `apps/desktop/package.json`
+- `apps/desktop/src-tauri/Cargo.toml`
+- `apps/desktop/src-tauri/tauri.conf.json`
+- `scripts/release-all-win.ps1`
+
+**验证**:
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+- `pnpm test`
+- `pnpm release:all:win -- -Tag v0.2.5`
+
+**使用次数**: 0
+
 ## 2026-03-08: 本地待办清空日期时间后仍显示时间的修复
 
 **场景**: 用户反馈新建单次事项时已经手动清空日期和时间，但保存后列表中仍然显示时间，且时间相关统计也可能受影响。
