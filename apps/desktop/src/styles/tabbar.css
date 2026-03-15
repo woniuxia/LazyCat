@@ -3,7 +3,7 @@
 .tabbar {
   display: flex;
   align-items: stretch;
-  margin: -28px -32px 20px -32px;
+  margin: 0;
   padding: 0 8px;
   border-bottom: 1px solid var(--lc-border);
   background: rgba(15, 19, 25, 0.5);

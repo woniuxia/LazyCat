@@ -59,6 +59,35 @@
   flex-direction: column;
 }
 
+/* ---------- Tab Bar New Button ---------- */
+.tab-bar-new-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  height: 32px;
+  font-size: 13px;
+  color: var(--lc-text-secondary);
+  background: transparent;
+  border: none;
+  border-radius: var(--lc-radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    color var(--lc-duration) var(--lc-ease),
+    background var(--lc-duration) var(--lc-ease);
+  margin-left: 4px;
+}
+
+.tab-bar-new-btn:hover {
+  color: var(--lc-accent);
+  background: var(--lc-surface-2);
+}
+
+.tab-bar-new-btn .el-icon {
+  font-size: 14px;
+}
+
 @keyframes contentFadeIn {
   from {
     opacity: 0;

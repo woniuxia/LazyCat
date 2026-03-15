@@ -12,35 +12,23 @@
     />
 
     <!-- Tab Bar -->
-    <div v-if="showTabBar" class="tab-bar-wrap">
-      <button
-        class="tab-item"
-        :class="{ 'is-active': activeTool === HOME_ID, 'is-pinned': true }"
-        @click="onTabSelect(HOME_ID)"
-      >
-        <span class="tab-name">首页</span>
-      </button>
-      <button
-        v-for="tab in openTabs.filter(t => t.id !== HOME_ID)"
-        :key="tab.id"
-        class="tab-item"
-        :class="{ 'is-active': activeTool === tab.id }"
-        @click="onTabSelect(tab.id)"
-      >
-        <span class="tab-name">{{ tab.name }}</span>
-        <span
-          v-if="!tab.pinned"
-          class="tab-close"
-          @click.stop="closeTab(tab.id)"
-        >
-          <el-icon><Close /></el-icon>
-        </span>
-      </button>
-      <button class="tab-bar-new-btn" @click="focusSearch">
-        <el-icon><Plus /></el-icon>
-        <span>新工具</span>
-      </button>
-    </div>
+    <TabBar
+      v-if="showTabBar"
+      :tabs="allTabs"
+      :active-id="activeTool"
+      @select="onTabSelect"
+      @close="closeTab"
+      @close-others="closeOthers"
+      @close-left="closeToLeft"
+      @close-right="closeToRight"
+    >
+      <template #actions>
+        <button class="tab-bar-new-btn" @click="focusSearch">
+          <el-icon><Plus /></el-icon>
+          <span>新工具</span>
+        </button>
+      </template>
+    </TabBar>
 
     <main class="content">
       <ClipboardSuggestionBar @open-tool="onClipboardToolOpen" />
@@ -84,6 +72,7 @@ import { registerHotkey, registerNamedHotkey } from "./bridge/tauri";
 import { getToolComponent, ENCODE_PANEL_IDS } from "./tool-registry";
 import HomePanel from "./components/HomePanel.vue";
 import TopBar from "./components/TopBar.vue";
+import TabBar from "./components/TabBar.vue";
 import ShortcutHelpOverlay from "./components/ShortcutHelpOverlay.vue";
 import ClipboardSuggestionBar from "./components/ClipboardSuggestionBar.vue";
 import { useClipboardSuggestion } from "./composables/useClipboardSuggestion";
@@ -356,6 +345,9 @@ const currentComponentProps = computed(() => {
 const showTabBar = computed(() => {
   return openTabs.value.length > 1 || (openTabs.value.length === 1 && openTabs.value[0].id !== HOME_ID);
 });
+
+// All tabs for TabBar component (openTabs already includes home)
+const allTabs = computed(() => openTabs.value);
 
 function onSelect(id: string) {
   const name = getToolName(id);

@@ -18,6 +18,7 @@
         >&times;</span>
         <span v-else class="tabbar-item-close-placeholder" />
       </div>
+      <slot name="actions" />
     </div>
   </div>
 
