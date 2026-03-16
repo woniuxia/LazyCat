@@ -8,6 +8,39 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-03-16: release-all-win 正式发版校验、恢复路径与兼容性补强
+
+**场景**: 在发布 `v0.2.5` 时，需要把“版本统一、正式发版、失败补跑”三类动作整理成稳定流程，并修复脚本里暴露出的兼容问题。
+
+**问题**:
+1. 旧脚本会在完整构建之后才暴露版本号不一致、tag 不匹配、工作区未提交等问题，失败成本高。
+2. 便携包阶段默认从 `target/release/lazycat_lib.dll` 取 DLL，但当前 Tauri/Rust 产物实际可能输出到 `target/release/deps/lazycat_lib.dll`。
+3. 某些 PowerShell 环境没有 `Get-FileHash`，会导致四个产物已经构建完成，却在 `SHA256SUMS.txt` 阶段失败。
+4. 文档里只有零散打包说明，缺少“正式 GitHub Release 只能从 main 干净工作区发布”以及“失败后用 `-SkipBuild` 恢复”的明确规则。
+
+**解决**:
+1. `release-all-win.ps1` 增加正式发版前置校验：统一读取根 `package.json`、桌面端 `package.json`、`Cargo.toml`、`tauri.conf.json` 的版本，要求完全一致，且 `Tag` 必须等于 `v<version>`。
+2. 正式上传路径增加 Git 约束：仅允许从 `main` 的干净工作区发布，发 tag 前先执行 `git push origin main`，并校验已存在 tag 必须指向当前 `HEAD`。
+3. 便携包复制逻辑改为同时兼容 `target/release/lazycat_lib.dll` 和 `target/release/deps/lazycat_lib.dll`；哈希生成优先用 `Get-FileHash`，缺失时回退到 .NET `SHA256`。
+4. 在 `finally` 中统一清理临时 stage 目录和临时离线配置；文档同步补充正式发版命令、本地出包命令和 `-SkipBuild` 恢复命令。
+
+**关键点**:
+1. “正式发版”与“本地出包”是两条不同路径：`-SkipUpload` 可以放宽 GitHub 上传约束，但不能绕过版本一致性校验。
+2. 发布 tag 本质上是版本号的一部分，必须和 `tauri.conf.json` 对应版本一致，否则 Release 名称、产物名和源码版本会错位。
+3. 构建已成功时不要重跑 10 多分钟的完整流程，优先使用 `pnpm release:all:win -- -Tag vX.Y.Z -SkipBuild` 补哈希或补上传。
+4. 对仓库规范做增量补强时，要同步更新 `AGENTS.md` 与 `CLAUDE.md`，避免两份规则再次分叉。
+
+**涉及文件**:
+- `scripts/release-all-win.ps1`
+- `AGENTS.md`
+- `CLAUDE.md`
+
+**验证**:
+- `pnpm release:all:win -- -Tag v0.2.5 -SkipBuild -SkipUpload`
+- `pnpm release:all:win -- -Tag v0.2.5 -SkipBuild`
+
+**使用次数**: 0
+
 ## 2026-03-16: Windows 发版前先统一多处版本号，再走 release 脚本
 
 **场景**: 需要发布 `v0.2.5` 到 GitHub Release，并产出 Windows 安装包与绿色包。

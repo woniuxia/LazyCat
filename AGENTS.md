@@ -55,6 +55,7 @@ scripts/                         构建脚本（build-tauri-win.ps1、release-al
 | `pnpm build:win:precheck` | Windows 构建预检 |
 | `pnpm build:win` | Windows NSIS 打包 |
 | `pnpm build:portable` | 当前与 `build:win` 同底层（NSIS）；便携 zip 需额外封装 |
+| `pnpm release:all:win -- -Tag vX.Y.Z` | 构建安装包/绿色包、生成 SHA256、推送 tag 并上传 GitHub Release |
 
 ## 架构说明
 
@@ -169,8 +170,17 @@ scripts/                         构建脚本（build-tauri-win.ps1、release-al
 - 必须使用 `tauri build`，不要用 `cargo build --release`（后者不嵌入前端资源，会白屏）。
 - `pnpm build:portable` 当前等价于 NSIS 构建流程；绿色 zip 需通过 `release-all-win.ps1` 或手动 `7z` 封装。
 - `main.rs` 启动时会扫描 exe 同级 `Microsoft.WebView2.FixedVersionRuntime.*`，存在则自动切换到本地 WebView2。
-- `release-all-win.ps1` 已处理 Git `usr/bin/link.exe` 遮蔽 MSVC 链接器问题。
+- `release-all-win.ps1` 已处理 Git `usr/bin/link.exe` 遮蔽 MSVC 链接器、便携包 DLL 输出路径变化、旧 PowerShell 缺少 `Get-FileHash` 的兼容问题。
 - `build:web` 出现 `spawn EPERM` 时先重试，仍失败再提升权限重试。
+
+### GitHub Release 正式流程
+
+1. 先统一版本号，至少同步根 `package.json`、`apps/desktop/package.json`、`apps/desktop/src-tauri/Cargo.toml`、`apps/desktop/src-tauri/tauri.conf.json`；发布 tag 固定为 `v<version>`。
+2. 正式发版只从 `main` 的干净工作区执行；版本变更、脚本修复和 Release 说明都要先提交到 Git，并先推送 `origin/main`。
+3. 发版前至少执行 `pnpm typecheck`、`pnpm --filter @lazycat/desktop build:web`、`pnpm test`；需要完整发布检查时再补 `pnpm test:e2e`。
+4. 正式发 GitHub Release 使用 `pnpm release:all:win -- -Tag vX.Y.Z`。脚本会校验版本一致性、tag 与版本匹配、当前分支是否为 `main`、工作区是否干净，并在发 tag 前先推送当前 `main`。
+5. 若构建已完成，但哈希生成或 GitHub 上传阶段中断，使用 `pnpm release:all:win -- -Tag vX.Y.Z -SkipBuild` 继续，不要重复完整构建。
+6. 若只需要本地出包、不上传 GitHub Release，使用 `pnpm release:all:win -- -Tag vX.Y.Z -SkipUpload`；该模式只生成产物与 `SHA256SUMS.txt`。
 
 ## 代理协作规则
 

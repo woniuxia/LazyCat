@@ -82,6 +82,30 @@ function Get-AppVersion {
   return [string]$cfg.version
 }
 
+function Get-JsonVersion {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$Path
+  )
+
+  $json = Get-Content $Path -Raw | ConvertFrom-Json
+  return [string]$json.version
+}
+
+function Get-CargoPackageVersion {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$Path
+  )
+
+  $content = Get-Content $Path -Raw
+  $match = [regex]::Match($content, '(?ms)^\[package\].*?^version\s*=\s*"([^"]+)"')
+  if (-not $match.Success) {
+    throw "Failed to read Cargo package version from: $Path"
+  }
+  return $match.Groups[1].Value
+}
+
 function Write-JsonFile {
   param(
     [Parameter(Mandatory = $true)]
@@ -145,6 +169,17 @@ function Get-Sha256Hex {
   }
   finally {
     $stream.Dispose()
+  }
+}
+
+function Remove-PathIfExists {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$Path
+  )
+
+  if (Test-Path $Path) {
+    Remove-Item -Recurse -Force $Path
   }
 }
 
@@ -219,9 +254,51 @@ function Ensure-ObjectProperty {
   }
 }
 
+function Assert-ReleaseVersions {
+  param(
+    [Parameter(Mandatory = $true)]
+    [hashtable]$Versions
+  )
+
+  $uniqueVersions = @($Versions.Values | Sort-Object -Unique)
+  if ($uniqueVersions.Count -eq 1) {
+    return [string]$uniqueVersions[0]
+  }
+
+  $details = $Versions.GetEnumerator() |
+    Sort-Object Name |
+    ForEach-Object { "{0}={1}" -f $_.Name, $_.Value }
+  throw "Release version mismatch detected: $($details -join '; ')"
+}
+
+function Get-CurrentBranch {
+  $branch = ((git branch --show-current) | Out-String).Trim()
+  if ($LASTEXITCODE -ne 0) {
+    throw "git branch --show-current failed with exit code $LASTEXITCODE"
+  }
+  if (-not $branch) {
+    throw "Current git branch is empty. Release script requires a named branch."
+  }
+  return $branch
+}
+
+function Ensure-CleanWorktree {
+  $status = git status --short
+  if ($LASTEXITCODE -ne 0) {
+    throw "git status --short failed with exit code $LASTEXITCODE"
+  }
+  $dirty = (($status | Out-String).Trim())
+  if ($dirty) {
+    throw "Working tree is not clean. Commit or stash changes before publishing a GitHub Release.`n$dirty"
+  }
+}
+
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $desktopRoot = Join-Path $repoRoot "apps/desktop"
 $tauriRoot = Join-Path $desktopRoot "src-tauri"
+$rootPackageJsonPath = Join-Path $repoRoot "package.json"
+$desktopPackageJsonPath = Join-Path $desktopRoot "package.json"
+$cargoTomlPath = Join-Path $tauriRoot "Cargo.toml"
 $releaseDir = Join-Path $tauriRoot "target/release"
 $nsisBundleDir = Join-Path $releaseDir "bundle/nsis"
 $tauriConfigPath = Join-Path $tauriRoot "tauri.conf.json"
@@ -242,7 +319,31 @@ try {
   }
   Ensure-Command -Name "gh" -Hint "Install GitHub CLI and run: gh auth login"
 
-  $appVersion = Get-AppVersion -TauriConfigPath $tauriConfigPath
+  $appVersion = Assert-ReleaseVersions -Versions @{
+    "package.json" = (Get-JsonVersion -Path $rootPackageJsonPath)
+    "apps/desktop/package.json" = (Get-JsonVersion -Path $desktopPackageJsonPath)
+    "apps/desktop/src-tauri/Cargo.toml" = (Get-CargoPackageVersion -Path $cargoTomlPath)
+    "apps/desktop/src-tauri/tauri.conf.json" = (Get-AppVersion -TauriConfigPath $tauriConfigPath)
+  }
+  $expectedTag = "v$appVersion"
+  if ($Tag -ne $expectedTag) {
+    throw "Tag/version mismatch. Expected tag $expectedTag for app version $appVersion, but got $Tag."
+  }
+
+  $currentBranch = $null
+  if (-not $SkipUpload) {
+    & gh auth status 1> $null
+    if ($LASTEXITCODE -ne 0) {
+      throw "gh auth status failed. Run 'gh auth login' first."
+    }
+
+    $currentBranch = Get-CurrentBranch
+    if ($currentBranch -ne "main") {
+      throw "GitHub Release publishing must run from main. Current branch: $currentBranch"
+    }
+    Ensure-CleanWorktree
+  }
+
   $baseName = "Lazycat_${appVersion}_x64"
   $portableLiteZip = Join-Path $outDir "${baseName}_portable-lite.zip"
   $portableFullZip = Join-Path $outDir "${baseName}_portable-full.zip"
@@ -334,15 +435,33 @@ try {
   }
 
   Write-Host "[6/6] Push tag and upload GitHub release assets..."
+  git push origin $currentBranch
+  if ($LASTEXITCODE -ne 0) {
+    throw "git push origin $currentBranch failed with exit code $LASTEXITCODE"
+  }
+
   $tagQuery = git tag --list $Tag
   if ($LASTEXITCODE -ne 0) {
     throw "git tag --list failed with exit code $LASTEXITCODE"
   }
   $tagExists = (($tagQuery | Out-String).Trim())
+  $headCommit = ((git rev-parse HEAD) | Out-String).Trim()
+  if ($LASTEXITCODE -ne 0) {
+    throw "git rev-parse HEAD failed with exit code $LASTEXITCODE"
+  }
   if (-not $tagExists) {
     git tag $Tag
     if ($LASTEXITCODE -ne 0) {
       throw "git tag failed with exit code $LASTEXITCODE"
+    }
+  }
+  else {
+    $tagCommit = ((git rev-list -n 1 $Tag) | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0) {
+      throw "git rev-list -n 1 $Tag failed with exit code $LASTEXITCODE"
+    }
+    if ($tagCommit -ne $headCommit) {
+      throw "Tag $Tag already exists at $tagCommit, but current HEAD is $headCommit."
     }
   }
 
@@ -388,5 +507,10 @@ try {
   Get-ChildItem -Path $outDir -File | Select-Object Name, Length, LastWriteTime
 }
 finally {
+  Remove-PathIfExists -Path $stageLiteDir
+  Remove-PathIfExists -Path $stageFullDir
+  if (Test-Path $offlineConfigPath) {
+    Remove-Item -Force $offlineConfigPath
+  }
   Pop-Location
 }
