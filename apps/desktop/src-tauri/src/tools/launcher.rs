@@ -46,7 +46,9 @@ fn collect_scan_dirs() -> Vec<PathBuf> {
             .join("Windows")
             .join("Start Menu")
             .join("Programs");
-        if p.is_dir() { dirs.push(p); }
+        if p.is_dir() {
+            dirs.push(p);
+        }
     }
     if let Some(pd) = std::env::var_os("ProgramData") {
         let p = PathBuf::from(pd)
@@ -54,15 +56,21 @@ fn collect_scan_dirs() -> Vec<PathBuf> {
             .join("Windows")
             .join("Start Menu")
             .join("Programs");
-        if p.is_dir() { dirs.push(p); }
+        if p.is_dir() {
+            dirs.push(p);
+        }
     }
     if let Some(profile) = std::env::var_os("USERPROFILE") {
         let desktop = PathBuf::from(&profile).join("Desktop");
-        if desktop.is_dir() { dirs.push(desktop); }
+        if desktop.is_dir() {
+            dirs.push(desktop);
+        }
     }
     if let Some(public) = std::env::var_os("PUBLIC") {
         let desktop = PathBuf::from(public).join("Desktop");
-        if desktop.is_dir() { dirs.push(desktop); }
+        if desktop.is_dir() {
+            dirs.push(desktop);
+        }
     }
     dirs
 }
@@ -94,11 +102,12 @@ fn scan_dir_recursive(
 fn parse_lnk(lnk_path: &Path, seen: &mut std::collections::HashSet<String>) -> Option<Value> {
     // lnk crate can panic on malformed .lnk files (header.rs unwrap), catch it
     let lnk_path_buf = lnk_path.to_path_buf();
-    let shell_link = std::panic::catch_unwind(|| {
-        lnk::ShellLink::open(&lnk_path_buf)
-    }).ok()?.ok()?;
+    let shell_link = std::panic::catch_unwind(|| lnk::ShellLink::open(&lnk_path_buf))
+        .ok()?
+        .ok()?;
 
-    let target = shell_link.link_info()
+    let target = shell_link
+        .link_info()
         .as_ref()
         .and_then(|li| li.local_base_path().as_ref().map(|s| s.to_string()))
         .or_else(|| {
@@ -111,19 +120,32 @@ fn parse_lnk(lnk_path: &Path, seen: &mut std::collections::HashSet<String>) -> O
     let target_lower = target.to_lowercase();
 
     // Filter: skip URLs, non-exe, uninstall entries, non-existent targets
-    if !target_lower.ends_with(".exe") { return None; }
-    if target_lower.contains("uninstall") || target_lower.contains("卸载") { return None; }
-    if !Path::new(&target).exists() { return None; }
+    if !target_lower.ends_with(".exe") {
+        return None;
+    }
+    if target_lower.contains("uninstall") || target_lower.contains("卸载") {
+        return None;
+    }
+    if !Path::new(&target).exists() {
+        return None;
+    }
 
     // Deduplicate by lowercase exe path
-    if !seen.insert(target_lower.clone()) { return None; }
+    if !seen.insert(target_lower.clone()) {
+        return None;
+    }
 
-    let name = lnk_path.file_stem()
+    let name = lnk_path
+        .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("Unknown")
         .to_string();
 
-    let arguments = shell_link.arguments().as_deref().unwrap_or_default().to_string();
+    let arguments = shell_link
+        .arguments()
+        .as_deref()
+        .unwrap_or_default()
+        .to_string();
 
     Some(json!({
         "name": name,
@@ -192,8 +214,13 @@ fn add_entries(payload: &Value) -> Result<Value, String> {
         let name = item.get("name").and_then(|v| v.as_str()).unwrap_or("");
         let exe_path = item.get("exe_path").and_then(|v| v.as_str()).unwrap_or("");
         let arguments = item.get("arguments").and_then(|v| v.as_str()).unwrap_or("");
-        let group_name = item.get("group_name").and_then(|v| v.as_str()).unwrap_or("");
-        if exe_path.is_empty() { continue; }
+        let group_name = item
+            .get("group_name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        if exe_path.is_empty() {
+            continue;
+        }
 
         let icon = extract_icon_base64(exe_path);
         let result = conn.execute(
@@ -201,28 +228,50 @@ fn add_entries(payload: &Value) -> Result<Value, String> {
              VALUES (?1, ?2, ?3, ?4, ?5)",
             params![name, exe_path, arguments, icon, group_name],
         );
-        if let Ok(n) = result { count += n as i64; }
+        if let Ok(n) = result {
+            count += n as i64;
+        }
     }
     Ok(json!({ "added": count }))
 }
 
 fn add_manual(payload: &Value) -> Result<Value, String> {
-    let exe_path = payload.get("exe_path").and_then(|v| v.as_str()).unwrap_or("");
-    if exe_path.is_empty() { return Err("missing exe_path".into()); }
+    let exe_path = payload
+        .get("exe_path")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if exe_path.is_empty() {
+        return Err("missing exe_path".into());
+    }
     let p = Path::new(exe_path);
-    if !p.exists() { return Err("file does not exist".into()); }
+    if !p.exists() {
+        return Err("file does not exist".into());
+    }
 
     let is_dir = p.is_dir();
-    let name = payload.get("name").and_then(|v| v.as_str()).unwrap_or_else(|| {
-        if is_dir {
-            p.file_name().and_then(|s| s.to_str()).unwrap_or("Unknown")
-        } else {
-            p.file_stem().and_then(|s| s.to_str()).unwrap_or("Unknown")
-        }
-    });
-    let arguments = payload.get("arguments").and_then(|v| v.as_str()).unwrap_or("");
-    let group_name = payload.get("group_name").and_then(|v| v.as_str()).unwrap_or("");
-    let icon = if is_dir { String::new() } else { extract_icon_base64(exe_path) };
+    let name = payload
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or_else(|| {
+            if is_dir {
+                p.file_name().and_then(|s| s.to_str()).unwrap_or("Unknown")
+            } else {
+                p.file_stem().and_then(|s| s.to_str()).unwrap_or("Unknown")
+            }
+        });
+    let arguments = payload
+        .get("arguments")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let group_name = payload
+        .get("group_name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let icon = if is_dir {
+        String::new()
+    } else {
+        extract_icon_base64(exe_path)
+    };
 
     let conn = db_conn()?;
     conn.execute(
@@ -236,14 +285,18 @@ fn add_manual(payload: &Value) -> Result<Value, String> {
 }
 
 fn update_entry(payload: &Value) -> Result<Value, String> {
-    let id = payload.get("id").and_then(|v| v.as_i64()).ok_or("missing id")?;
+    let id = payload
+        .get("id")
+        .and_then(|v| v.as_i64())
+        .ok_or("missing id")?;
     let conn = db_conn()?;
 
     if let Some(name) = payload.get("name").and_then(|v| v.as_str()) {
         conn.execute(
             "UPDATE launcher_entries SET name = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2",
             params![name, id],
-        ).map_err(|e| format!("update name failed: {e}"))?;
+        )
+        .map_err(|e| format!("update name failed: {e}"))?;
     }
     if let Some(group) = payload.get("group_name").and_then(|v| v.as_str()) {
         conn.execute(
@@ -255,7 +308,10 @@ fn update_entry(payload: &Value) -> Result<Value, String> {
 }
 
 fn remove_entry(payload: &Value) -> Result<Value, String> {
-    let id = payload.get("id").and_then(|v| v.as_i64()).ok_or("missing id")?;
+    let id = payload
+        .get("id")
+        .and_then(|v| v.as_i64())
+        .ok_or("missing id")?;
     let conn = db_conn()?;
     conn.execute("DELETE FROM launcher_entries WHERE id = ?1", params![id])
         .map_err(|e| format!("remove failed: {e}"))?;
@@ -282,9 +338,18 @@ fn reorder_entries(payload: &Value) -> Result<Value, String> {
 }
 
 fn launch_app(payload: &Value) -> Result<Value, String> {
-    let exe_path = payload.get("exe_path").and_then(|v| v.as_str()).ok_or("missing exe_path")?;
-    let arguments = payload.get("arguments").and_then(|v| v.as_str()).unwrap_or("");
-    let admin = payload.get("admin").and_then(|v| v.as_bool()).unwrap_or(false);
+    let exe_path = payload
+        .get("exe_path")
+        .and_then(|v| v.as_str())
+        .ok_or("missing exe_path")?;
+    let arguments = payload
+        .get("arguments")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let admin = payload
+        .get("admin")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
 
     let p = Path::new(exe_path);
     if !p.exists() {
@@ -319,8 +384,8 @@ fn launch_app(payload: &Value) -> Result<Value, String> {
 
 #[cfg(windows)]
 fn launch_as_admin(exe_path: &str, arguments: &str) -> Result<(), String> {
-    use std::os::windows::ffi::OsStrExt;
     use std::ffi::OsStr;
+    use std::os::windows::ffi::OsStrExt;
 
     let verb: Vec<u16> = OsStr::new("runas").encode_wide().chain(Some(0)).collect();
     let file: Vec<u16> = OsStr::new(exe_path).encode_wide().chain(Some(0)).collect();
@@ -348,7 +413,10 @@ fn launch_as_admin(_exe_path: &str, _arguments: &str) -> Result<(), String> {
 }
 
 fn open_folder(payload: &Value) -> Result<Value, String> {
-    let exe_path = payload.get("exe_path").and_then(|v| v.as_str()).ok_or("missing exe_path")?;
+    let exe_path = payload
+        .get("exe_path")
+        .and_then(|v| v.as_str())
+        .ok_or("missing exe_path")?;
     let parent = Path::new(exe_path)
         .parent()
         .ok_or("cannot determine parent directory")?;
@@ -431,7 +499,10 @@ fn rename_group(payload: &Value) -> Result<Value, String> {
         .iter()
         .position(|g| g == old_name)
         .ok_or("分组不存在")?;
-    if groups.iter().any(|g| g.eq_ignore_ascii_case(new_name) && g != old_name) {
+    if groups
+        .iter()
+        .any(|g| g.eq_ignore_ascii_case(new_name) && g != old_name)
+    {
         return Err("分组名称已存在".into());
     }
     groups[idx] = new_name.to_string();

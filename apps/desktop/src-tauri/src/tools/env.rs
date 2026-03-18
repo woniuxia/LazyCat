@@ -92,7 +92,11 @@ pub fn execute(action: &str, _payload: &Value) -> Result<Value, String> {
             let total = tools.len();
             let installed = tools
                 .iter()
-                .filter(|item| item.get("installed").and_then(Value::as_bool).unwrap_or(false))
+                .filter(|item| {
+                    item.get("installed")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false)
+                })
                 .count();
             let missing = total.saturating_sub(installed);
 

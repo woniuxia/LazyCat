@@ -56,7 +56,10 @@ fn image_convert(payload: &Value) -> Result<Value, String> {
     let mut img = image::open(&input_path).map_err(|e| format!("open image failed: {e}"))?;
 
     // Apply cropping if cropWidth and cropHeight provided
-    if let (Some(cw), Some(ch)) = (payload["cropWidth"].as_u64(), payload["cropHeight"].as_u64()) {
+    if let (Some(cw), Some(ch)) = (
+        payload["cropWidth"].as_u64(),
+        payload["cropHeight"].as_u64(),
+    ) {
         if cw > 0 && ch > 0 {
             let x = payload["cropX"].as_u64().unwrap_or(0);
             let y = payload["cropY"].as_u64().unwrap_or(0);
@@ -136,7 +139,8 @@ mod tests {
         let output = dir.join("out.jpg");
 
         let img = image::DynamicImage::new_rgba8(16, 8);
-        img.save_with_format(&input, ImageFormat::Png).expect("save input");
+        img.save_with_format(&input, ImageFormat::Png)
+            .expect("save input");
 
         let info = execute(
             "info",

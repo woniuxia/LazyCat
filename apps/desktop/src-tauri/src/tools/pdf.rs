@@ -74,7 +74,11 @@ fn parse_pdf_date(raw: &str) -> String {
         if cleaned.len() >= 3 {
             let sign = &cleaned[0..1];
             let tz_h = &cleaned[1..3];
-            let tz_m = if cleaned.len() >= 5 { &cleaned[3..5] } else { "00" };
+            let tz_m = if cleaned.len() >= 5 {
+                &cleaned[3..5]
+            } else {
+                "00"
+            };
             format!(" {}{}:{}", sign, tz_h, tz_m)
         } else {
             String::new()
@@ -85,9 +89,7 @@ fn parse_pdf_date(raw: &str) -> String {
 }
 
 fn pdf_info(payload: &Value) -> Result<Value, String> {
-    let path_str = payload["path"]
-        .as_str()
-        .ok_or("缺少参数: path")?;
+    let path_str = payload["path"].as_str().ok_or("缺少参数: path")?;
     let path = Path::new(path_str);
 
     if !path.exists() {
@@ -98,8 +100,7 @@ fn pdf_info(payload: &Value) -> Result<Value, String> {
         .map_err(|e| format!("无法读取文件信息: {e}"))?
         .len();
 
-    let doc = Document::load(path)
-        .map_err(|e| format!("无法加载 PDF 文件: {e}"))?;
+    let doc = Document::load(path).map_err(|e| format!("无法加载 PDF 文件: {e}"))?;
 
     let pages = doc.get_pages();
     let page_count = pages.len() as u32;
@@ -115,13 +116,14 @@ fn pdf_info(payload: &Value) -> Result<Value, String> {
         let page_id = pages.get(&page_num)?;
         let page_dict = doc.get_dictionary(*page_id).ok()?;
         // Try MediaBox on the page, then walk up to parent
-        let media_box = page_dict.get(b"MediaBox").ok()
-            .or_else(|| {
-                let parent_ref = page_dict.get(b"Parent").ok()
-                    .and_then(|o| o.as_reference().ok())?;
-                let parent_dict = doc.get_dictionary(parent_ref).ok()?;
-                parent_dict.get(b"MediaBox").ok()
-            });
+        let media_box = page_dict.get(b"MediaBox").ok().or_else(|| {
+            let parent_ref = page_dict
+                .get(b"Parent")
+                .ok()
+                .and_then(|o| o.as_reference().ok())?;
+            let parent_dict = doc.get_dictionary(parent_ref).ok()?;
+            parent_dict.get(b"MediaBox").ok()
+        });
         if let Some(Object::Array(arr)) = media_box {
             if arr.len() == 4 {
                 let x1 = obj_to_f64(&arr[0]).unwrap_or(0.0);
@@ -139,22 +141,22 @@ fn pdf_info(payload: &Value) -> Result<Value, String> {
         None
     });
 
-    let (page_width_pt, page_height_pt, page_width_mm, page_height_mm) = page_size
-        .unwrap_or((0.0, 0.0, 0.0, 0.0));
+    let (page_width_pt, page_height_pt, page_width_mm, page_height_mm) =
+        page_size.unwrap_or((0.0, 0.0, 0.0, 0.0));
 
     // Guess paper size from dimensions
     let paper_size = guess_paper_size(page_width_pt, page_height_pt);
 
     // Extract metadata from trailer -> Info dictionary
-    let info_dict = doc.trailer.get(b"Info").ok().and_then(|info_ref| {
-        match info_ref {
-            Object::Reference(id) => doc.get_object(*id)
-                .and_then(Object::as_dict)
-                .ok(),
+    let info_dict = doc
+        .trailer
+        .get(b"Info")
+        .ok()
+        .and_then(|info_ref| match info_ref {
+            Object::Reference(id) => doc.get_object(*id).and_then(Object::as_dict).ok(),
             Object::Dictionary(dict) => Some(dict),
             _ => None,
-        }
-    });
+        });
 
     let (title, author, subject, keywords, creator, producer, creation_date, mod_date) =
         match info_dict {
@@ -208,13 +210,13 @@ fn guess_paper_size(w: f64, h: f64) -> String {
     let tolerance = 3.0; // points
 
     let sizes: &[(&str, f64, f64)] = &[
-        ("A3",     841.89, 1190.55),
-        ("A4",     595.28, 841.89),
-        ("A5",     419.53, 595.28),
-        ("B5",     498.90, 708.66),
-        ("Letter", 612.0,  792.0),
-        ("Legal",  612.0,  1008.0),
-        ("Tabloid",792.0,  1224.0),
+        ("A3", 841.89, 1190.55),
+        ("A4", 595.28, 841.89),
+        ("A5", 419.53, 595.28),
+        ("B5", 498.90, 708.66),
+        ("Letter", 612.0, 792.0),
+        ("Legal", 612.0, 1008.0),
+        ("Tabloid", 792.0, 1224.0),
     ];
 
     for (name, sw, sh) in sizes {
@@ -238,9 +240,13 @@ fn parse_ranges(ranges: &str, max_page: u32) -> Result<BTreeSet<u32>, String> {
         }
 
         if let Some((start_s, end_s)) = part.split_once('-') {
-            let start: u32 = start_s.trim().parse()
+            let start: u32 = start_s
+                .trim()
+                .parse()
                 .map_err(|_| format!("无效的页码: '{}'", start_s.trim()))?;
-            let end: u32 = end_s.trim().parse()
+            let end: u32 = end_s
+                .trim()
+                .parse()
                 .map_err(|_| format!("无效的页码: '{}'", end_s.trim()))?;
 
             if start == 0 || end == 0 {
@@ -257,8 +263,7 @@ fn parse_ranges(ranges: &str, max_page: u32) -> Result<BTreeSet<u32>, String> {
                 result.insert(p);
             }
         } else {
-            let page: u32 = part.parse()
-                .map_err(|_| format!("无效的页码: '{part}'"))?;
+            let page: u32 = part.parse().map_err(|_| format!("无效的页码: '{part}'"))?;
             if page == 0 {
                 return Err("页码从 1 开始，不能为 0".into());
             }
@@ -293,9 +298,13 @@ fn parse_range_groups(ranges: &str, max_page: u32) -> Result<Vec<Vec<u32>>, Stri
         }
 
         if let Some((start_s, end_s)) = part.split_once('-') {
-            let start: u32 = start_s.trim().parse()
+            let start: u32 = start_s
+                .trim()
+                .parse()
                 .map_err(|_| format!("无效的页码: '{}'", start_s.trim()))?;
-            let end: u32 = end_s.trim().parse()
+            let end: u32 = end_s
+                .trim()
+                .parse()
                 .map_err(|_| format!("无效的页码: '{}'", end_s.trim()))?;
 
             if start == 0 || end == 0 {
@@ -309,8 +318,7 @@ fn parse_range_groups(ranges: &str, max_page: u32) -> Result<Vec<Vec<u32>>, Stri
             }
             groups.push((start..=end).collect());
         } else {
-            let page: u32 = part.parse()
-                .map_err(|_| format!("无效的页码: '{part}'"))?;
+            let page: u32 = part.parse().map_err(|_| format!("无效的页码: '{part}'"))?;
             if page == 0 {
                 return Err("页码从 1 开始，不能为 0".into());
             }
@@ -329,15 +337,9 @@ fn parse_range_groups(ranges: &str, max_page: u32) -> Result<Vec<Vec<u32>>, Stri
 }
 
 fn pdf_split(payload: &Value) -> Result<Value, String> {
-    let path_str = payload["path"]
-        .as_str()
-        .ok_or("缺少参数: path")?;
-    let output_dir_str = payload["outputDir"]
-        .as_str()
-        .ok_or("缺少参数: outputDir")?;
-    let ranges_str = payload["ranges"]
-        .as_str()
-        .unwrap_or("");
+    let path_str = payload["path"].as_str().ok_or("缺少参数: path")?;
+    let output_dir_str = payload["outputDir"].as_str().ok_or("缺少参数: outputDir")?;
+    let ranges_str = payload["ranges"].as_str().unwrap_or("");
 
     let path = Path::new(path_str);
     if !path.exists() {
@@ -346,12 +348,10 @@ fn pdf_split(payload: &Value) -> Result<Value, String> {
 
     let output_dir = Path::new(output_dir_str);
     if !output_dir.exists() {
-        fs::create_dir_all(output_dir)
-            .map_err(|e| format!("无法创建输出目录: {e}"))?;
+        fs::create_dir_all(output_dir).map_err(|e| format!("无法创建输出目录: {e}"))?;
     }
 
-    let doc = Document::load(path)
-        .map_err(|e| format!("无法加载 PDF 文件: {e}"))?;
+    let doc = Document::load(path).map_err(|e| format!("无法加载 PDF 文件: {e}"))?;
 
     let pages = doc.get_pages();
     let total_pages = pages.len() as u32;
@@ -359,7 +359,8 @@ fn pdf_split(payload: &Value) -> Result<Value, String> {
     let groups = parse_range_groups(ranges_str, total_pages)?;
 
     // Derive base name from source file
-    let stem = path.file_stem()
+    let stem = path
+        .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("output");
 
@@ -376,9 +377,7 @@ fn pdf_split(payload: &Value) -> Result<Value, String> {
         let out_path = output_dir.join(&filename);
 
         let wanted: BTreeSet<u32> = group.iter().cloned().collect();
-        let pages_to_delete: Vec<u32> = (1..=total_pages)
-            .filter(|p| !wanted.contains(p))
-            .collect();
+        let pages_to_delete: Vec<u32> = (1..=total_pages).filter(|p| !wanted.contains(p)).collect();
 
         let mut new_doc = doc.clone();
         new_doc.delete_pages(&pages_to_delete);
@@ -386,7 +385,8 @@ fn pdf_split(payload: &Value) -> Result<Value, String> {
         new_doc.renumber_objects();
 
         let out_path_str = out_path.to_string_lossy().to_string();
-        new_doc.save(&out_path_str)
+        new_doc
+            .save(&out_path_str)
             .map_err(|e| format!("保存 {} 失败: {e}", filename))?;
 
         output_files.push(json!({
@@ -417,14 +417,12 @@ fn pdf_merge(payload: &Value) -> Result<Value, String> {
 
     let mut documents: Vec<Document> = Vec::new();
     for (i, p) in paths.iter().enumerate() {
-        let ps = p.as_str()
-            .ok_or(format!("paths[{i}] 不是字符串"))?;
+        let ps = p.as_str().ok_or(format!("paths[{i}] 不是字符串"))?;
         let path = Path::new(ps);
         if !path.exists() {
             return Err(format!("文件不存在: {}", ps));
         }
-        let doc = Document::load(path)
-            .map_err(|e| format!("无法加载 PDF 文件 '{}': {e}", ps))?;
+        let doc = Document::load(path).map_err(|e| format!("无法加载 PDF 文件 '{}': {e}", ps))?;
         documents.push(doc);
     }
 
@@ -444,7 +442,8 @@ fn pdf_merge(payload: &Value) -> Result<Value, String> {
         merged.max_id = merged.max_id.max(other.max_id);
 
         // Get the page tree root of both documents and append pages
-        let other_pages_id = other.trailer
+        let other_pages_id = other
+            .trailer
             .get(b"Root")
             .and_then(Object::as_reference)
             .and_then(|id| merged.get_dictionary(id))
@@ -452,7 +451,8 @@ fn pdf_merge(payload: &Value) -> Result<Value, String> {
             .and_then(Object::as_reference)
             .ok();
 
-        let merged_catalog_id = merged.trailer
+        let merged_catalog_id = merged
+            .trailer
             .get(b"Root")
             .and_then(Object::as_reference)
             .ok();
@@ -465,21 +465,31 @@ fn pdf_merge(payload: &Value) -> Result<Value, String> {
 
                     // Get the merged document's Pages dict
                     if let Ok(merged_catalog) = merged.get_dictionary(catalog_id) {
-                        if let Ok(merged_pages_ref) = merged_catalog.get(b"Pages").and_then(Object::as_reference) {
+                        if let Ok(merged_pages_ref) =
+                            merged_catalog.get(b"Pages").and_then(Object::as_reference)
+                        {
                             // Update the parent reference of other pages' kids to point to merged pages root
                             if let Object::Array(ref kids_arr) = other_kids_clone {
                                 for kid_ref in kids_arr {
                                     if let Ok(kid_id) = kid_ref.as_reference() {
-                                        if let Ok(kid_dict) = merged.get_object_mut(kid_id).and_then(Object::as_dict_mut) {
-                                            kid_dict.set("Parent", Object::Reference(merged_pages_ref));
+                                        if let Ok(kid_dict) = merged
+                                            .get_object_mut(kid_id)
+                                            .and_then(Object::as_dict_mut)
+                                        {
+                                            kid_dict
+                                                .set("Parent", Object::Reference(merged_pages_ref));
                                         }
                                     }
                                 }
                             }
 
                             // Append kids to the merged document's Pages Kids array
-                            if let Ok(merged_pages_dict) = merged.get_dictionary_mut(merged_pages_ref) {
-                                if let Ok(Object::Array(ref mut merged_kids)) = merged_pages_dict.get_mut(b"Kids") {
+                            if let Ok(merged_pages_dict) =
+                                merged.get_dictionary_mut(merged_pages_ref)
+                            {
+                                if let Ok(Object::Array(ref mut merged_kids)) =
+                                    merged_pages_dict.get_mut(b"Kids")
+                                {
                                     if let Object::Array(ref other_kids_vec) = other_kids_clone {
                                         merged_kids.extend(other_kids_vec.iter().cloned());
                                     }
@@ -488,7 +498,9 @@ fn pdf_merge(payload: &Value) -> Result<Value, String> {
 
                             // Update Count separately to avoid borrow conflict
                             let new_count = merged.get_pages().len() as i64;
-                            if let Ok(merged_pages_dict) = merged.get_dictionary_mut(merged_pages_ref) {
+                            if let Ok(merged_pages_dict) =
+                                merged.get_dictionary_mut(merged_pages_ref)
+                            {
                                 merged_pages_dict.set("Count", Object::Integer(new_count));
                             }
                         }
@@ -500,7 +512,8 @@ fn pdf_merge(payload: &Value) -> Result<Value, String> {
 
     let total_pages = merged.get_pages().len();
 
-    merged.save(output_path_str)
+    merged
+        .save(output_path_str)
         .map_err(|e| format!("保存合并后的 PDF 失败: {e}"))?;
 
     Ok(json!({
@@ -594,12 +607,18 @@ mod tests {
 
     #[test]
     fn pdf_date_full() {
-        assert_eq!(parse_pdf_date("D:20200713163754+08'00'"), "2020-07-13 16:37:54 +08:00");
+        assert_eq!(
+            parse_pdf_date("D:20200713163754+08'00'"),
+            "2020-07-13 16:37:54 +08:00"
+        );
     }
 
     #[test]
     fn pdf_date_utc() {
-        assert_eq!(parse_pdf_date("D:20250606121846Z"), "2025-06-06 12:18:46 UTC");
+        assert_eq!(
+            parse_pdf_date("D:20250606121846Z"),
+            "2025-06-06 12:18:46 UTC"
+        );
     }
 
     #[test]

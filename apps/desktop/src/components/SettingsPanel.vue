@@ -258,6 +258,73 @@
         </div>
       </section>
 
+      <section class="settings-section">
+        <div class="section-header">
+          <div class="section-icon">📥</div>
+          <div class="section-title">
+            <h3>收纳箱</h3>
+            <p>后台采集剪贴板历史，并整理到历史流 / 收件箱</p>
+          </div>
+        </div>
+        <div class="section-content">
+          <div class="setting-item">
+            <div class="setting-label">
+              <span class="label-text">后台采集</span>
+              <span class="label-desc">应用运行期间记录最近复制内容，可随时关闭</span>
+            </div>
+            <div class="setting-control">
+              <el-switch
+                v-model="inboxCaptureEnabled"
+                @change="handleInboxCaptureEnabledChange"
+              />
+            </div>
+          </div>
+
+          <div class="setting-item">
+            <div class="setting-label">
+              <span class="label-text">隐藏时继续采集</span>
+              <span class="label-desc">主窗口隐藏到托盘或最小化后是否继续记录</span>
+            </div>
+            <div class="setting-control">
+              <el-switch
+                v-model="inboxCaptureWhenHidden"
+                @change="handleInboxCaptureWhenHiddenChange"
+              />
+            </div>
+          </div>
+
+          <div class="setting-item">
+            <div class="setting-label">
+              <span class="label-text">历史保留天数</span>
+              <span class="label-desc">仅对历史流生效，收件箱和已归档默认长期保留</span>
+            </div>
+            <div class="setting-control">
+              <el-input-number
+                v-model="inboxHistoryRetentionDays"
+                :min="1"
+                :max="365"
+                @change="handleInboxHistoryRetentionChange"
+              />
+            </div>
+          </div>
+
+          <div class="setting-item">
+            <div class="setting-label">
+              <span class="label-text">临时暂停采集</span>
+              <span class="label-desc">
+                {{ inboxPausedLabel || "暂停 5 分钟，恢复后继续按当前设置采集" }}
+              </span>
+            </div>
+            <div class="setting-control setting-control-column">
+              <div class="import-export-actions">
+                <el-button @click="handlePauseInboxCapture">暂停 5 分钟</el-button>
+                <el-button v-if="inboxPaused" @click="handleResumeInboxCapture">立即恢复</el-button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <!-- 数据管理 -->
       <section class="settings-section">
         <div class="section-header">
@@ -378,12 +445,24 @@ const importMode = ref<"merge" | "overwrite">("merge");
 const dataDirPath = ref("");
 const dataDirIsCustom = ref(false);
 const clipboardDetection = ref(true);
+const inboxCaptureEnabled = ref(false);
+const inboxCaptureWhenHidden = ref(true);
+const inboxHistoryRetentionDays = ref(14);
+const inboxPaused = ref(false);
+const inboxPausedUntil = ref("");
 const vaultLockProfile = ref<VaultLockProfile>(DEFAULT_VAULT_LOCK_PROFILE);
 const menuVisibilityDialog = ref<InstanceType<typeof MenuVisibilityDialog>>();
 
 const vaultLockProfileHint = computed(() => {
   const policy = getVaultLockProfilePolicy(vaultLockProfile.value);
   return `敏感信息 ${policy.hideSensitiveAfterSecs}s 隐藏，${Math.round(policy.hardLockAfterSecs / 60)} 分钟自动硬锁，失焦立即隐藏敏感信息`;
+});
+
+const inboxPausedLabel = computed(() => {
+  if (!inboxPaused.value || !inboxPausedUntil.value) return "";
+  const until = new Date(inboxPausedUntil.value);
+  if (Number.isNaN(until.getTime())) return "当前处于暂停状态";
+  return `当前暂停至 ${until.toLocaleString("zh-CN", { hour12: false })}`;
 });
 
 const HOTKEY_FIELDS = [
@@ -406,8 +485,32 @@ function makeConflictChecker(selfKey: typeof HOTKEY_FIELDS[number]["key"]) {
 onMounted(async () => {
   await loadDataDir();
   clipboardDetection.value = getSetting("clipboard_detection") !== "false";
+  await loadInboxCaptureStatus();
   vaultLockProfile.value = getVaultLockProfile();
 });
+
+async function loadInboxCaptureStatus() {
+  inboxCaptureEnabled.value = getSetting("inbox_capture_enabled") === "true";
+  inboxCaptureWhenHidden.value = getSetting("inbox_capture_when_hidden") !== "false";
+  inboxHistoryRetentionDays.value = Number(getSetting("inbox_history_retention_days") || "14");
+  try {
+    const status = (await invokeToolByChannel("tool:inbox:capture-status", {})) as {
+      captureEnabled: boolean;
+      captureWhenHidden: boolean;
+      historyRetentionDays: number;
+      paused: boolean;
+      pausedUntil: string | null;
+    };
+    inboxCaptureEnabled.value = status.captureEnabled;
+    inboxCaptureWhenHidden.value = status.captureWhenHidden;
+    inboxHistoryRetentionDays.value = status.historyRetentionDays;
+    inboxPaused.value = status.paused;
+    inboxPausedUntil.value = status.pausedUntil || "";
+  } catch {
+    inboxPaused.value = false;
+    inboxPausedUntil.value = "";
+  }
+}
 
 async function loadDataDir() {
   try {
@@ -592,6 +695,45 @@ async function handleCloseToTrayChange(value: boolean) {
 function handleClipboardDetectionChange(value: boolean) {
   setSetting("clipboard_detection", value ? "true" : "false");
   ElMessage.success(value ? "已启用剪贴板智能检测" : "已关闭剪贴板智能检测");
+}
+
+function handleInboxCaptureEnabledChange(value: boolean) {
+  setSetting("inbox_capture_enabled", value ? "true" : "false");
+  inboxCaptureEnabled.value = value;
+  ElMessage.success(value ? "已启用收纳箱后台采集" : "已关闭收纳箱后台采集");
+}
+
+function handleInboxCaptureWhenHiddenChange(value: boolean) {
+  setSetting("inbox_capture_when_hidden", value ? "true" : "false");
+  inboxCaptureWhenHidden.value = value;
+  ElMessage.success(value ? "隐藏后会继续采集" : "隐藏后将暂停采集");
+}
+
+function handleInboxHistoryRetentionChange(value: string | number | null | undefined) {
+  const normalized = Math.max(1, Math.min(365, Number(value || 14) || 14));
+  inboxHistoryRetentionDays.value = normalized;
+  setSetting("inbox_history_retention_days", String(normalized));
+  ElMessage.success(`历史保留已更新为 ${normalized} 天`);
+}
+
+async function handlePauseInboxCapture() {
+  try {
+    await invokeToolByChannel("tool:inbox:capture-pause", { minutes: 5 });
+    await loadInboxCaptureStatus();
+    ElMessage.success("收纳箱采集已暂停 5 分钟");
+  } catch (error) {
+    ElMessage.error(`设置失败：${(error as Error).message}`);
+  }
+}
+
+async function handleResumeInboxCapture() {
+  try {
+    await invokeToolByChannel("tool:inbox:capture-pause", { minutes: 0 });
+    await loadInboxCaptureStatus();
+    ElMessage.success("收纳箱采集已恢复");
+  } catch (error) {
+    ElMessage.error(`设置失败：${(error as Error).message}`);
+  }
 }
 
 function handleVaultLockProfileChange(value: string | number | boolean) {
@@ -780,4 +922,3 @@ function handleVaultLockProfileChange(value: string | number | boolean) {
   flex-wrap: wrap;
 }
 </style>
-

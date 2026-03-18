@@ -130,7 +130,11 @@
             </el-button>
           </div>
         </div>
-        <div v-if="viewMode === 'list'" class="todo-list-scroll">
+        <div
+          v-if="viewMode === 'list'"
+          class="todo-list-scroll"
+          @scroll.passive="closeTodoContextMenu"
+        >
           <div v-if="hasActiveFilter" class="filter-indicator">
             <span class="filter-indicator-text">
               已筛选
@@ -200,6 +204,7 @@
                 :style="{ '--item-index': index }"
                 @click="selectItem(row)"
                 @dblclick="enterEditMode(row)"
+                @contextmenu.prevent="openTodoContextMenu($event, row)"
               >
                 <div class="todo-card-check" @click.stop>
                   <el-checkbox
@@ -419,7 +424,7 @@
                 </div>
               </div>
             </div>
-            <div class="detail-scroll detail-scroll--form">
+            <div ref="detailFormScrollRef" class="detail-scroll detail-scroll--form">
               <el-form label-position="top" class="todo-item-form">
                 <div class="todo-form-section">
                   <el-form-item label="标题">
@@ -516,7 +521,7 @@
                     </el-form-item>
                   </div>
 
-                  <div class="todo-form-section">
+                  <div ref="scheduleSectionRef" class="todo-form-section">
                     <el-form-item label="日期与时间" class="todo-form-item-datetime">
                       <div class="datetime-row">
                         <el-date-picker
@@ -1190,6 +1195,53 @@
       </template>
     </el-dialog>
 
+    <teleport to="body">
+      <div
+        v-if="todoContextMenu.visible && todoContextMenuItem"
+        ref="todoContextMenuRef"
+        class="todo-context-menu"
+        :style="{ left: `${todoContextMenu.x}px`, top: `${todoContextMenu.y}px` }"
+        role="menu"
+        aria-label="任务操作菜单"
+        @click.stop
+        @contextmenu.prevent.stop
+      >
+        <button
+          type="button"
+          class="todo-context-menu-item"
+          role="menuitem"
+          @click="handleTodoContextMenuCommand('pin')"
+        >
+          {{ todoContextMenuItem.pinned ? "取消置顶" : "置顶" }}
+        </button>
+        <button
+          type="button"
+          class="todo-context-menu-item"
+          role="menuitem"
+          @click="handleTodoContextMenuCommand('complete')"
+        >
+          完成
+        </button>
+        <button
+          type="button"
+          class="todo-context-menu-item"
+          role="menuitem"
+          @click="handleTodoContextMenuCommand('edit-time')"
+        >
+          编辑任务时间
+        </button>
+        <div class="todo-context-menu-divider" />
+        <button
+          type="button"
+          class="todo-context-menu-item is-danger"
+          role="menuitem"
+          @click="handleTodoContextMenuCommand('delete')"
+        >
+          删除
+        </button>
+      </div>
+    </teleport>
+
   </div>
 </template>
 
@@ -1215,6 +1267,10 @@ import {
 import { ElMessage, ElMessageBox } from "element-plus";
 import type { InputInstance } from "element-plus";
 import { invokeToolByChannel } from "../bridge/tauri";
+import {
+  useClipboardSuggestion,
+  type PendingToolInput,
+} from "../composables/useClipboardSuggestion";
 import type {
   TodoAssignee,
   TodoEndMode,
@@ -1233,6 +1289,8 @@ import type {
   TodoType,
 } from "../types";
 import { groupTodoItemsByBucket } from "../utils/todoBuckets";
+import { clampContextMenuPosition } from "../utils/todoContextMenu";
+import { formatTodoRelativeDateTimeLabel } from "../utils/todoRelativeDate";
 import { renderMarkdown } from "../utils/renderMarkdown";
 import { prevMonth as calPrevMonth, nextMonth as calNextMonth, formatDateKey } from "../utils/calendarGrid";
 import TodoCalendarGrid from "./TodoCalendarGrid.vue";
@@ -1273,6 +1331,9 @@ const types = ref<TodoType[]>([]);
 const assignees = ref<TodoAssignee[]>([]);
 const showMoreFields = ref(false);
 const itemKeyword = ref("");
+const detailFormScrollRef = ref<HTMLElement | null>(null);
+const scheduleSectionRef = ref<HTMLElement | null>(null);
+const todoContextMenuRef = ref<HTMLElement | null>(null);
 const titleInputRef = ref<InputInstance | null>(null);
 const descTextareaRef = ref<InstanceType<typeof import("element-plus")["ElInput"]> | null>(null);
 const filterType = ref<string | null>(null);
@@ -1291,8 +1352,15 @@ const assigneeDialogVisible = ref(false);
 const editingItemSnapshot = ref<TodoItem | null>(null);
 const defaultReminderPresets: TodoReminderPreset[] = ["none"];
 const lastReminderPresetSelection = ref<TodoReminderPreset[]>([...defaultReminderPresets]);
+const todoContextMenu = reactive({
+  visible: false,
+  x: 0,
+  y: 0,
+  itemId: null as number | null,
+});
 let reminderUnlisten: UnlistenFn | null = null;
 let titleFocusTimer: ReturnType<typeof setTimeout> | null = null;
+const { watchPendingToolInput } = useClipboardSuggestion();
 
 // Drawer 相关状态
 
@@ -1339,6 +1407,85 @@ function splitDraftEventTime(value: string) {
 function composeDraftEventTime(hour: string, minute: string) {
   if (!hour && !minute) return "";
   return `${hour || "00"}:${minute || "00"}`;
+}
+
+function normalizePendingText(text: string): string {
+  return text.replace(/\r\n?/g, "\n").trim();
+}
+
+function deriveTodoTitleFromText(text: string): string {
+  const lines = text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (lines.length === 0) return "来自收纳箱";
+  const firstLine = lines[0];
+  return firstLine.length > 80 ? `${firstLine.slice(0, 80)}...` : firstLine;
+}
+
+function buildTodoDraftFromPendingInput(
+  input: PendingToolInput,
+): { title: string; description: string } {
+  const text = normalizePendingText(input.text || "");
+  const explicitTitle = input.todoDraft?.title?.trim() || "";
+  const explicitDescription = input.todoDraft?.description?.trim() || "";
+  const itemType = typeof input.meta?.itemType === "string" ? input.meta.itemType : "";
+  const isPlainLikeContent =
+    !itemType || itemType === "text" || itemType === "html" || itemType === "rtf";
+
+  if (explicitTitle || explicitDescription) {
+    return {
+      title: explicitTitle || deriveTodoTitleFromText(text),
+      description: explicitDescription,
+    };
+  }
+
+  if (!text) {
+    const fallbackTitle = (input.label || "").trim() || "来自收纳箱";
+    return { title: fallbackTitle, description: "" };
+  }
+
+  if (isPlainLikeContent) {
+    const lines = text
+      .split("\n")
+      .map((line) => line.trimEnd())
+      .filter((line, index, list) => line.length > 0 || index < list.length - 1);
+    const [firstLine = "", ...rest] = lines;
+    return {
+      title: firstLine.trim() || deriveTodoTitleFromText(text),
+      description: rest.join("\n").trim(),
+    };
+  }
+
+  const descriptionParts: string[] = [];
+  const fallbackTitle =
+    (input.label || "").trim() ||
+    (typeof input.meta?.title === "string" ? input.meta.title.trim() : "") ||
+    deriveTodoTitleFromText(text);
+  if (text && text !== fallbackTitle) {
+    descriptionParts.push(text);
+  }
+  if (typeof input.meta?.openPath === "string" && input.meta.openPath.trim()) {
+    descriptionParts.push(`路径：${input.meta.openPath.trim()}`);
+  }
+  return {
+    title: fallbackTitle,
+    description: descriptionParts.join("\n\n").trim(),
+  };
+}
+
+async function applyPendingTodoInput(input: PendingToolInput) {
+  if (!(await ensureDetailCanLeave())) return;
+  const draft = buildTodoDraftFromPendingInput(input);
+  resetItemDraft();
+  itemDraft.title = draft.title;
+  itemDraft.description = draft.description;
+  itemDialogMode.value = "create";
+  detailMode.value = "create";
+  selectedItemId.value = null;
+  showMoreFields.value = false;
+  markDraftBaseline();
+  await focusCreateTitleInput();
 }
 
 const hourOptions = Array.from({ length: 24 }, (_item, index) => {
@@ -1440,6 +1587,11 @@ function applyDisplayFilter(list: TodoItem[]): TodoItem[] {
 const displayActiveItems = computed(() => applyDisplayFilter(activeItems.value));
 const displayRecentWeekItems = computed(() => applyDisplayFilter(recentWeekItems.value));
 const displayDoneItems = computed(() => applyDisplayFilter(doneItems.value));
+const todoContextMenuItem = computed(() =>
+  todoContextMenu.itemId == null
+    ? null
+    : items.value.find((item) => item.id === todoContextMenu.itemId) || null,
+);
 const selectedItem = computed(() =>
   selectedItemId.value == null
     ? null
@@ -1709,6 +1861,114 @@ async function selectItemAsync(item: TodoItem) {
   detailMode.value = "view";
 }
 
+type TodoContextMenuCommand = "pin" | "complete" | "edit-time" | "delete";
+
+const TODO_CONTEXT_MENU_PADDING = 12;
+
+function closeTodoContextMenu() {
+  todoContextMenu.visible = false;
+  todoContextMenu.itemId = null;
+}
+
+async function prepareItemForInlineAction(item: TodoItem) {
+  if (!(await ensureDetailCanLeave())) return false;
+  selectedItemId.value = item.id;
+  detailMode.value = "view";
+  return true;
+}
+
+function positionTodoContextMenu(anchorX: number, anchorY: number) {
+  const menu = todoContextMenuRef.value;
+  if (!menu) return;
+  const position = clampContextMenuPosition({
+    anchorX,
+    anchorY,
+    menuWidth: menu.offsetWidth,
+    menuHeight: menu.offsetHeight,
+    viewportWidth: window.innerWidth,
+    viewportHeight: window.innerHeight,
+    padding: TODO_CONTEXT_MENU_PADDING,
+  });
+  todoContextMenu.x = position.x;
+  todoContextMenu.y = position.y;
+}
+
+async function openTodoContextMenu(event: MouseEvent, item: TodoItem) {
+  event.preventDefault();
+  event.stopPropagation();
+  closeTodoContextMenu();
+  if (!(await prepareItemForInlineAction(item))) return;
+  todoContextMenu.itemId = item.id;
+  todoContextMenu.visible = true;
+  todoContextMenu.x = event.clientX;
+  todoContextMenu.y = event.clientY;
+  await nextTick();
+  positionTodoContextMenu(event.clientX, event.clientY);
+}
+
+async function enterEditTimeMode(item?: TodoItem | null) {
+  const target = item || selectedItem.value;
+  if (!target) return;
+  await enterEditMode(target);
+  if (selectedItemId.value !== target.id) return;
+  showMoreFields.value = true;
+  await nextTick();
+  const scheduleSection = scheduleSectionRef.value;
+  if (!scheduleSection) return;
+  const formScroll = detailFormScrollRef.value;
+  if (formScroll) {
+    const scrollHostRect = formScroll.getBoundingClientRect();
+    const sectionRect = scheduleSection.getBoundingClientRect();
+    const nextScrollTop = formScroll.scrollTop + sectionRect.top - scrollHostRect.top - 16;
+    formScroll.scrollTo({ top: Math.max(0, nextScrollTop), behavior: "smooth" });
+  } else {
+    scheduleSection.scrollIntoView({ block: "start", behavior: "smooth" });
+  }
+  const firstInput = scheduleSection.querySelector("input:not([disabled])") as
+    | HTMLInputElement
+    | null;
+  firstInput?.focus();
+}
+
+async function handleTodoContextMenuCommand(command: TodoContextMenuCommand) {
+  const item = todoContextMenuItem.value;
+  if (!item) return;
+  closeTodoContextMenu();
+  switch (command) {
+    case "pin":
+      await toggleItemPin(item.id);
+      break;
+    case "complete":
+      await changeItemStatus(item.id, "completed");
+      break;
+    case "edit-time":
+      await enterEditTimeMode(item);
+      break;
+    case "delete":
+      await deleteItem(item);
+      break;
+  }
+}
+
+function onTodoContextMenuGlobalClick(event: MouseEvent) {
+  if (!todoContextMenu.visible) return;
+  const target = event.target;
+  if (target instanceof Node && todoContextMenuRef.value?.contains(target)) return;
+  closeTodoContextMenu();
+}
+
+function onTodoContextMenuGlobalContextMenu(event: MouseEvent) {
+  if (!todoContextMenu.visible) return;
+  const target = event.target;
+  if (target instanceof Node && todoContextMenuRef.value?.contains(target)) return;
+  closeTodoContextMenu();
+}
+
+function onTodoContextMenuGlobalKeydown(event: KeyboardEvent) {
+  if (event.key !== "Escape") return;
+  closeTodoContextMenu();
+}
+
 async function focusCreateTitleInput() {
   if (titleFocusTimer) {
     clearTimeout(titleFocusTimer);
@@ -1915,49 +2175,14 @@ function doneRowClassName({ row }: { row: TodoItem }) {
   return "todo-row-" + row.priority.toLowerCase() + " is-done-row";
 }
 
-function itemTimeLabel(item: TodoItem) {
-  return formatDate(itemScheduleAt(item));
-}
-
 function relativeTimeLabel(item: TodoItem): string {
-  return relativeDateTimeLabel(itemScheduleAt(item));
+  return formatTodoRelativeDateTimeLabel(itemScheduleAt(item));
 }
 
 // 最近一周/已办列表以 updatedAt（为空则回退 createdAt）作为“完成时间”展示
 function relativeDoneTimeLabel(item: TodoItem): string {
   const doneAt = (item.updatedAt || item.createdAt || "").trim();
-  return relativeDateTimeLabel(doneAt) || (doneAt ? formatDate(doneAt) : "");
-}
-
-function relativeDateTimeLabel(time?: string | null): string {
-  if (!time) return "";
-  const date = new Date(time);
-  if (Number.isNaN(date.getTime())) return "";
-
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const tomorrow = new Date(today.getTime() + 86400000);
-  const yesterday = new Date(today.getTime() - 86400000);
-  const itemDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-
-  const timeStr = `${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
-
-  if (itemDay.getTime() === today.getTime()) return `今天 ${timeStr}`;
-  if (itemDay.getTime() === tomorrow.getTime()) return `明天 ${timeStr}`;
-  if (itemDay.getTime() === yesterday.getTime()) return `昨天 ${timeStr}`;
-
-  const diffDays = Math.round((itemDay.getTime() - today.getTime()) / 86400000);
-  if (diffDays > 1 && diffDays <= 6) {
-    const weekdays = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
-    return `${weekdays[date.getDay()]} ${timeStr}`;
-  }
-
-  const month = date.getMonth() + 1;
-  const day = date.getDate();
-  if (date.getFullYear() === now.getFullYear()) {
-    return `${month}月${day}日 ${timeStr}`;
-  }
-  return `${date.getFullYear()}/${pad2(month)}/${pad2(day)} ${timeStr}`;
+  return formatTodoRelativeDateTimeLabel(doneAt) || (doneAt ? formatDate(doneAt) : "");
 }
 
 function toggleDoneCollapsed() {
@@ -1966,17 +2191,6 @@ function toggleDoneCollapsed() {
 
 function toggleRecentWeekCollapsed() {
   recentWeekCollapsed.value = !recentWeekCollapsed.value;
-}
-
-function handleRowAction(command: string, row: TodoItem) {
-  switch (command) {
-    case "pin":
-      toggleItemPin(row.id);
-      break;
-    case "delete":
-      deleteItem(row);
-      break;
-  }
 }
 
 function onCheckItem(item: TodoItem) {
@@ -2577,6 +2791,7 @@ async function loadAssignees() {
       .items || [];
 }
 async function loadItems() {
+  closeTodoContextMenu();
   items.value = getResponseItems(await invokeToolByChannel("tool:todo:item-list", {})).map(
     normalizeTodoItem,
   );
@@ -2973,7 +3188,21 @@ watch(selectedItem, (item) => {
   }
 });
 
+watch(viewMode, () => {
+  closeTodoContextMenu();
+});
+
+watch(todoContextMenuItem, (item) => {
+  if (!todoContextMenu.visible || item) return;
+  closeTodoContextMenu();
+});
+
+watchPendingToolInput("todo", (input) => applyPendingTodoInput(input));
+
 onMounted(async () => {
+  document.addEventListener("click", onTodoContextMenuGlobalClick);
+  document.addEventListener("contextmenu", onTodoContextMenuGlobalContextMenu);
+  window.addEventListener("keydown", onTodoContextMenuGlobalKeydown);
   await Promise.all([loadTypes(), loadAssignees(), loadItems()]);
   try {
     reminderUnlisten = await listen("todo-reminder-fired", async () => {
@@ -2985,6 +3214,10 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
+  document.removeEventListener("click", onTodoContextMenuGlobalClick);
+  document.removeEventListener("contextmenu", onTodoContextMenuGlobalContextMenu);
+  window.removeEventListener("keydown", onTodoContextMenuGlobalKeydown);
+  closeTodoContextMenu();
   reminderUnlisten?.();
   reminderUnlisten = null;
   if (titleFocusTimer) {
@@ -3308,6 +3541,67 @@ onBeforeUnmount(() => {
   border-color: var(--lc-border-hover);
   box-shadow: var(--lc-shadow-sm);
   transform: translateY(-1px);
+}
+
+.todo-context-menu {
+  position: fixed;
+  z-index: 3000;
+  min-width: 164px;
+  padding: 6px;
+  border-radius: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.16);
+  backdrop-filter: blur(16px);
+  animation: todoContextMenuEnter 0.16s var(--lc-ease-out);
+}
+
+.todo-context-menu-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--lc-text);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background var(--lc-duration) var(--lc-ease),
+    color var(--lc-duration) var(--lc-ease);
+}
+
+.todo-context-menu-item:hover {
+  background: rgba(14, 165, 233, 0.08);
+  color: var(--lc-accent-strong);
+}
+
+.todo-context-menu-item.is-danger {
+  color: var(--lc-danger);
+}
+
+.todo-context-menu-item.is-danger:hover {
+  background: rgba(248, 113, 113, 0.12);
+  color: var(--lc-danger);
+}
+
+.todo-context-menu-divider {
+  height: 1px;
+  margin: 6px 4px;
+  background: rgba(148, 163, 184, 0.18);
+}
+
+@keyframes todoContextMenuEnter {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 /* Priority strips */

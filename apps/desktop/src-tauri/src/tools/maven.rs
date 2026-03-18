@@ -12,22 +12,10 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
 }
 
 fn locate(payload: &Value) -> Result<Value, String> {
-    let group_id = payload["groupId"]
-        .as_str()
-        .unwrap_or_default()
-        .trim();
-    let artifact_id = payload["artifactId"]
-        .as_str()
-        .unwrap_or_default()
-        .trim();
-    let version = payload["version"]
-        .as_str()
-        .unwrap_or_default()
-        .trim();
-    let repo_path = payload["repoPath"]
-        .as_str()
-        .unwrap_or_default()
-        .trim();
+    let group_id = payload["groupId"].as_str().unwrap_or_default().trim();
+    let artifact_id = payload["artifactId"].as_str().unwrap_or_default().trim();
+    let version = payload["version"].as_str().unwrap_or_default().trim();
+    let repo_path = payload["repoPath"].as_str().unwrap_or_default().trim();
 
     if group_id.is_empty() {
         return Err("groupId 不能为空".into());
@@ -117,10 +105,7 @@ fn locate(payload: &Value) -> Result<Value, String> {
 }
 
 fn open_path(payload: &Value) -> Result<Value, String> {
-    let path = payload["path"]
-        .as_str()
-        .unwrap_or_default()
-        .trim();
+    let path = payload["path"].as_str().unwrap_or_default().trim();
     if path.is_empty() {
         return Err("path 不能为空".into());
     }

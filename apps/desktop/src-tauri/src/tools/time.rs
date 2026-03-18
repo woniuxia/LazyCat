@@ -17,9 +17,16 @@ fn date_diff(payload: &Value) -> Result<Value, String> {
     let (mut y, mut m, d);
     y = 0u32;
     m = 0u32;
-    let (earlier, later) = if start <= end { (start, end) } else { (end, start) };
+    let (earlier, later) = if start <= end {
+        (start, end)
+    } else {
+        (end, start)
+    };
     let mut cursor = earlier;
-    while cursor.with_year(cursor.year() + 1).map_or(false, |next| next <= later) {
+    while cursor
+        .with_year(cursor.year() + 1)
+        .map_or(false, |next| next <= later)
+    {
         y += 1;
         cursor = cursor.with_year(cursor.year() + 1).ok_or("日期计算溢出")?;
     }
@@ -38,14 +45,16 @@ fn date_diff(payload: &Value) -> Result<Value, String> {
     } {
         m += 1;
         cursor = if cursor.month() == 12 {
-            NaiveDate::from_ymd_opt(cursor.year() + 1, 1, cursor.day().min(28)).ok_or("日期计算溢出")?
+            NaiveDate::from_ymd_opt(cursor.year() + 1, 1, cursor.day().min(28))
+                .ok_or("日期计算溢出")?
         } else {
             let next_m = cursor.month() + 1;
             let max_day = NaiveDate::from_ymd_opt(cursor.year(), next_m, 1)
                 .and_then(|d| d.pred_opt())
                 .map(|d| d.day())
                 .unwrap_or(28);
-            NaiveDate::from_ymd_opt(cursor.year(), next_m, cursor.day().min(max_day)).ok_or("日期计算溢出")?
+            NaiveDate::from_ymd_opt(cursor.year(), next_m, cursor.day().min(max_day))
+                .ok_or("日期计算溢出")?
         };
     }
     d = (later - cursor).num_days() as u32;
@@ -88,7 +97,11 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
     match action {
         "timestamp_to_date" => {
             let input = payload["input"].as_i64().unwrap_or_default();
-            let ts_ms = if input < 1_000_000_000_000 { input * 1000 } else { input };
+            let ts_ms = if input < 1_000_000_000_000 {
+                input * 1000
+            } else {
+                input
+            };
             let dt_local = Local
                 .timestamp_millis_opt(ts_ms)
                 .single()
@@ -101,7 +114,12 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
                 .map(|d| d.with_timezone(&Utc))
                 .or_else(|_| {
                     NaiveDateTime::parse_from_str(input, "%Y-%m-%d %H:%M:%S")
-                        .map(|naive| Local.from_local_datetime(&naive).single().unwrap_or_else(|| Local.from_utc_datetime(&naive)))
+                        .map(|naive| {
+                            Local
+                                .from_local_datetime(&naive)
+                                .single()
+                                .unwrap_or_else(|| Local.from_utc_datetime(&naive))
+                        })
                         .map(|d| d.with_timezone(&Utc))
                 })
                 .map_err(|e| format!("invalid datetime: {e}"))?;
@@ -123,31 +141,49 @@ mod tests {
 
     #[test]
     fn timestamp_to_date_should_support_seconds_and_milliseconds() {
-        let out_sec = execute("timestamp_to_date", &json!({ "input": 1_700_000_000_i64 })).expect("sec");
-        let out_ms = execute("timestamp_to_date", &json!({ "input": 1_700_000_000_000_i64 })).expect("ms");
+        let out_sec =
+            execute("timestamp_to_date", &json!({ "input": 1_700_000_000_i64 })).expect("sec");
+        let out_ms = execute(
+            "timestamp_to_date",
+            &json!({ "input": 1_700_000_000_000_i64 }),
+        )
+        .expect("ms");
         assert!(out_sec.as_str().unwrap_or_default().len() >= 19);
         assert!(out_ms.as_str().unwrap_or_default().len() >= 19);
     }
 
     #[test]
     fn date_to_timestamp_should_support_rfc3339_and_common_format() {
-        let out = execute("date_to_timestamp", &json!({ "input": "2024-01-01T00:00:00Z" })).expect("rfc3339");
+        let out = execute(
+            "date_to_timestamp",
+            &json!({ "input": "2024-01-01T00:00:00Z" }),
+        )
+        .expect("rfc3339");
         assert!(out["seconds"].as_i64().unwrap_or_default() > 0);
         assert!(out["milliseconds"].as_i64().unwrap_or_default() > 0);
 
-        let out = execute("date_to_timestamp", &json!({ "input": "2024-01-01 00:00:00" })).expect("common format");
+        let out = execute(
+            "date_to_timestamp",
+            &json!({ "input": "2024-01-01 00:00:00" }),
+        )
+        .expect("common format");
         assert!(out["seconds"].as_i64().unwrap_or_default() > 0);
     }
 
     #[test]
     fn invalid_datetime_should_fail() {
-        let err = execute("date_to_timestamp", &json!({ "input": "bad-time" })).expect_err("must fail");
+        let err =
+            execute("date_to_timestamp", &json!({ "input": "bad-time" })).expect_err("must fail");
         assert!(err.contains("invalid datetime"));
     }
 
     #[test]
     fn date_diff_basic() {
-        let r = execute("date_diff", &json!({"start": "2026-01-01", "end": "2026-02-21"})).unwrap();
+        let r = execute(
+            "date_diff",
+            &json!({"start": "2026-01-01", "end": "2026-02-21"}),
+        )
+        .unwrap();
         assert_eq!(r["days"], 51);
         assert!(r["hours"].as_i64().unwrap() > 0);
         assert!(r["natural"].as_str().unwrap().contains("1"));
@@ -155,19 +191,31 @@ mod tests {
 
     #[test]
     fn date_diff_same_day() {
-        let r = execute("date_diff", &json!({"start": "2026-01-01", "end": "2026-01-01"})).unwrap();
+        let r = execute(
+            "date_diff",
+            &json!({"start": "2026-01-01", "end": "2026-01-01"}),
+        )
+        .unwrap();
         assert_eq!(r["days"], 0);
     }
 
     #[test]
     fn date_add_days() {
-        let r = execute("date_add", &json!({"date": "2026-02-21", "add": {"days": 30, "hours": 0, "minutes": 0}})).unwrap();
+        let r = execute(
+            "date_add",
+            &json!({"date": "2026-02-21", "add": {"days": 30, "hours": 0, "minutes": 0}}),
+        )
+        .unwrap();
         assert_eq!(r["result"], "2026-03-23");
     }
 
     #[test]
     fn date_add_negative() {
-        let r = execute("date_add", &json!({"date": "2026-02-21", "add": {"days": -10, "hours": 0, "minutes": 0}})).unwrap();
+        let r = execute(
+            "date_add",
+            &json!({"date": "2026-02-21", "add": {"days": -10, "hours": 0, "minutes": 0}}),
+        )
+        .unwrap();
         assert_eq!(r["result"], "2026-02-11");
     }
 }

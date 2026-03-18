@@ -89,7 +89,10 @@ fn split_identifier(s: &str) -> Vec<String> {
                 words.push(current.to_lowercase());
                 current.clear();
             }
-        } else if ch.is_uppercase() && !current.is_empty() && current.chars().last().map_or(false, |c| c.is_lowercase()) {
+        } else if ch.is_uppercase()
+            && !current.is_empty()
+            && current.chars().last().map_or(false, |c| c.is_lowercase())
+        {
             words.push(current.to_lowercase());
             current.clear();
             current.push(ch);
@@ -136,9 +139,17 @@ fn naming_convert(payload: &Value) -> Result<Value, String> {
         }
 
         // camelCase
-        let camel: String = words.iter().enumerate().map(|(i, w)| {
-            if i == 0 { w.to_lowercase() } else { capitalize(w) }
-        }).collect();
+        let camel: String = words
+            .iter()
+            .enumerate()
+            .map(|(i, w)| {
+                if i == 0 {
+                    w.to_lowercase()
+                } else {
+                    capitalize(w)
+                }
+            })
+            .collect();
         camel_lines.push(camel);
 
         // PascalCase
@@ -235,7 +246,10 @@ fn apply_operation(
     warnings: &mut Vec<String>,
 ) -> Result<Vec<String>, String> {
     match op.op_type {
-        TextOperationType::Trim => Ok(lines.into_iter().map(|line| line.trim().to_string()).collect()),
+        TextOperationType::Trim => Ok(lines
+            .into_iter()
+            .map(|line| line.trim().to_string())
+            .collect()),
         TextOperationType::RemoveEmpty => Ok(lines
             .into_iter()
             .filter(|line| !line.trim().is_empty())
@@ -291,7 +305,11 @@ fn apply_operation(
     }
 }
 
-fn filter_lines(lines: Vec<String>, op: &TextOperation, include_mode: bool) -> Result<Vec<String>, String> {
+fn filter_lines(
+    lines: Vec<String>,
+    op: &TextOperation,
+    include_mode: bool,
+) -> Result<Vec<String>, String> {
     let pattern = op.pattern.clone().unwrap_or_default();
     if pattern.is_empty() {
         return Err("过滤规则缺少 pattern 参数".to_string());
@@ -393,7 +411,11 @@ fn replace_lines(lines: Vec<String>, op: &TextOperation) -> Result<Vec<String>, 
     }
 }
 
-fn extract_column(lines: Vec<String>, op: &TextOperation, warnings: &mut Vec<String>) -> Result<Vec<String>, String> {
+fn extract_column(
+    lines: Vec<String>,
+    op: &TextOperation,
+    warnings: &mut Vec<String>,
+) -> Result<Vec<String>, String> {
     let delimiter = op.delimiter.clone().unwrap_or_default();
     if delimiter.is_empty() {
         return Err("提取列规则缺少 delimiter 参数".to_string());
@@ -667,22 +689,33 @@ mod tests {
 
     #[test]
     fn naming_convert_multiline() {
-        let r = execute("naming_convert", &json!({"input": "hello_world
-foo_bar"})).unwrap();
-        assert_eq!(r["camelCase"], "helloWorld
-fooBar");
+        let r = execute(
+            "naming_convert",
+            &json!({"input": "hello_world
+foo_bar"}),
+        )
+        .unwrap();
+        assert_eq!(
+            r["camelCase"],
+            "helloWorld
+fooBar"
+        );
     }
 
     #[test]
     fn process_returns_extended_stats() {
-        let r = execute("process", &json!({
-            "input": "Hello 你好
-World",
-            "ops": { "trim": false, "removeEmpty": false, "dedupe": false, "sort": false,
-                     "includeFilter": false, "excludeFilter": false, "replace": false,
-                     "addPrefix": false, "addSuffix": false, "extractColumn": false },
-            "lineEnding": "keep"
-        })).unwrap();
+        let r = execute(
+            "process",
+            &json!({
+                "input": "Hello 你好
+            World",
+                "ops": { "trim": false, "removeEmpty": false, "dedupe": false, "sort": false,
+                         "includeFilter": false, "excludeFilter": false, "replace": false,
+                         "addPrefix": false, "addSuffix": false, "extractColumn": false },
+                "lineEnding": "keep"
+            }),
+        )
+        .unwrap();
         let stats = &r["stats"];
         assert!(stats["charsWithSpaces"].as_u64().unwrap() > 0);
         assert!(stats["charsNoSpaces"].as_u64().unwrap() > 0);

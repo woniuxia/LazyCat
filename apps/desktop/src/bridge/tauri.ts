@@ -39,6 +39,10 @@ export async function resumeAllShortcuts(): Promise<void> {
   await invoke("resume_all_shortcuts");
 }
 
+export async function suppressClipboardCapture(content: string): Promise<void> {
+  await invoke("suppress_clipboard_capture", { content });
+}
+
 const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:encode:base64-encode": { domain: "encode", action: "base64_encode" },
   "tool:encode:base64-decode": { domain: "encode", action: "base64_decode" },
@@ -217,7 +221,19 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:todo:reminder-mark-read": { domain: "todo", action: "reminder_mark_read" },
   "tool:todo:open-link":          { domain: "todo", action: "open_link" },
   "tool:maven:locate": { domain: "maven", action: "locate" },
-  "tool:maven:open-path": { domain: "maven", action: "open_path" }
+  "tool:maven:open-path": { domain: "maven", action: "open_path" },
+  "tool:inbox:list": { domain: "inbox", action: "list" },
+  "tool:inbox:get": { domain: "inbox", action: "get" },
+  "tool:inbox:search": { domain: "inbox", action: "search" },
+  "tool:inbox:promote": { domain: "inbox", action: "promote" },
+  "tool:inbox:update-meta": { domain: "inbox", action: "update_meta" },
+  "tool:inbox:archive": { domain: "inbox", action: "archive" },
+  "tool:inbox:delete": { domain: "inbox", action: "delete" },
+  "tool:inbox:cleanup": { domain: "inbox", action: "cleanup" },
+  "tool:inbox:capture-status": { domain: "inbox", action: "capture_status" },
+  "tool:inbox:capture-pause": { domain: "inbox", action: "capture_pause" },
+  "tool:inbox:open-path": { domain: "inbox", action: "open_path" },
+  "tool:inbox:copy-image": { domain: "inbox", action: "copy_image" }
 };
 
 export async function invokeToolByChannel(

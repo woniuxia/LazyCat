@@ -1,4 +1,4 @@
-﻿use rusqlite::{params, Connection};
+use rusqlite::{params, Connection};
 use serde_json::{json, Value};
 
 use super::helpers::db_conn;
@@ -77,11 +77,7 @@ fn parse_fragments(payload: &Value) -> Vec<(String, String, String)> {
         .unwrap_or_default();
 
     if frags.is_empty() {
-        frags.push((
-            "main".to_string(),
-            "plaintext".to_string(),
-            String::new(),
-        ));
+        frags.push(("main".to_string(), "plaintext".to_string(), String::new()));
     }
 
     frags
@@ -200,8 +196,11 @@ fn rebuild_fts_for_entry(conn: &Connection, entry_id: i64) -> Result<(), String>
         return Ok(());
     }
 
-    conn.execute("DELETE FROM snippet_fts WHERE entry_id = ?1", params![entry_id])
-        .map_err(|e| format!("delete fts row failed: {e}"))?;
+    conn.execute(
+        "DELETE FROM snippet_fts WHERE entry_id = ?1",
+        params![entry_id],
+    )
+    .map_err(|e| format!("delete fts row failed: {e}"))?;
 
     let row = conn
         .query_row(
@@ -361,7 +360,10 @@ fn build_v2_filters(payload: &Value) -> (Vec<String>, Vec<Box<dyn rusqlite::type
         conditions.push("se.is_favorite = 1".to_string());
     }
     if untagged_only {
-        conditions.push("NOT EXISTS (SELECT 1 FROM snippet_entry_tags et3 WHERE et3.entry_id = se.id)".to_string());
+        conditions.push(
+            "NOT EXISTS (SELECT 1 FROM snippet_entry_tags et3 WHERE et3.entry_id = se.id)"
+                .to_string(),
+        );
     }
     if recent_days > 0 {
         conditions.push("se.last_used_at >= datetime('now', ?)".to_string());
@@ -371,7 +373,12 @@ fn build_v2_filters(payload: &Value) -> (Vec<String>, Vec<Box<dyn rusqlite::type
     (conditions, params_boxed)
 }
 
-fn execute_v2_query(conn: &rusqlite::Connection, where_clause: &str, order_clause: &str, params_boxed: Vec<Box<dyn rusqlite::types::ToSql>>) -> Result<Value, String> {
+fn execute_v2_query(
+    conn: &rusqlite::Connection,
+    where_clause: &str,
+    order_clause: &str,
+    params_boxed: Vec<Box<dyn rusqlite::types::ToSql>>,
+) -> Result<Value, String> {
     let sql = format!(
         "SELECT
             se.id,
@@ -399,8 +406,11 @@ fn execute_v2_query(conn: &rusqlite::Connection, where_clause: &str, order_claus
         where_clause, order_clause
     );
 
-    let mut stmt = conn.prepare(&sql).map_err(|e| format!("prepare query failed: {e}"))?;
-    let params_ref: Vec<&dyn rusqlite::types::ToSql> = params_boxed.iter().map(|p| p.as_ref()).collect();
+    let mut stmt = conn
+        .prepare(&sql)
+        .map_err(|e| format!("prepare query failed: {e}"))?;
+    let params_ref: Vec<&dyn rusqlite::types::ToSql> =
+        params_boxed.iter().map(|p| p.as_ref()).collect();
     let rows = stmt
         .query_map(params_ref.as_slice(), entry_summary_row_to_json)
         .map_err(|e| format!("query failed: {e}"))?;
@@ -598,10 +608,16 @@ fn v2_update(payload: &Value) -> Result<Value, String> {
 fn v2_delete(payload: &Value) -> Result<Value, String> {
     let entry_id = payload["id"].as_i64().ok_or("id is required")?;
     let conn = db_conn()?;
-    conn.execute("DELETE FROM snippet_entries WHERE id = ?1", params![entry_id])
-        .map_err(|e| format!("v2_delete failed: {e}"))?;
-    conn.execute("DELETE FROM snippet_fts WHERE entry_id = ?1", params![entry_id])
-        .ok();
+    conn.execute(
+        "DELETE FROM snippet_entries WHERE id = ?1",
+        params![entry_id],
+    )
+    .map_err(|e| format!("v2_delete failed: {e}"))?;
+    conn.execute(
+        "DELETE FROM snippet_fts WHERE entry_id = ?1",
+        params![entry_id],
+    )
+    .ok();
     Ok(json!({ "ok": true }))
 }
 
@@ -632,7 +648,10 @@ fn v2_search(payload: &Value) -> Result<Value, String> {
     let (mut conditions, mut params_boxed) = build_v2_filters(payload);
 
     if has_fts(&conn) {
-        conditions.insert(0, "se.id IN (SELECT entry_id FROM snippet_fts WHERE snippet_fts MATCH ?)".to_string());
+        conditions.insert(
+            0,
+            "se.id IN (SELECT entry_id FROM snippet_fts WHERE snippet_fts MATCH ?)".to_string(),
+        );
         params_boxed.insert(0, Box::new(keyword.to_string()));
     } else {
         let like = format!("%{keyword}%");
@@ -741,7 +760,15 @@ fn v2_folder_create(payload: &Value) -> Result<Value, String> {
 
     conn.execute(
         "INSERT INTO snippet_folders_v2 (name, parent_id, sort_order) VALUES (?1, ?2, ?3)",
-        params![if name.is_empty() { "新建文件夹" } else { name }, parent_id, next_order],
+        params![
+            if name.is_empty() {
+                "新建文件夹"
+            } else {
+                name
+            },
+            parent_id,
+            next_order
+        ],
     )
     .map_err(|e| format!("v2_folder_create failed: {e}"))?;
 
@@ -755,7 +782,14 @@ fn v2_folder_update(payload: &Value) -> Result<Value, String> {
     if let Some(name) = payload["name"].as_str() {
         conn.execute(
             "UPDATE snippet_folders_v2 SET name = ?1 WHERE id = ?2",
-            params![if name.trim().is_empty() { "未命名文件夹" } else { name.trim() }, folder_id],
+            params![
+                if name.trim().is_empty() {
+                    "未命名文件夹"
+                } else {
+                    name.trim()
+                },
+                folder_id
+            ],
         )
         .map_err(|e| format!("v2_folder_update name failed: {e}"))?;
     }

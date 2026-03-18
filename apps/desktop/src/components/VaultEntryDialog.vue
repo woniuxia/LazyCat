@@ -294,6 +294,14 @@ interface FormState {
   tags: string[];
 }
 
+interface VaultEntrySeed {
+  category?: "app" | "server" | "database";
+  title?: string;
+  environment?: string;
+  fields?: Record<string, unknown>;
+  tags?: string[];
+}
+
 const props = defineProps<{
   existingTags?: string[];
   maskVersion?: number;
@@ -363,7 +371,7 @@ function show(entry?: {
   environment: string;
   fields: Record<string, unknown>;
   tags?: string[];
-}) {
+}, seed?: VaultEntrySeed) {
   Object.assign(form, defaultForm());
   if (entry) {
     isEdit.value = true;
@@ -385,6 +393,26 @@ function show(entry?: {
     form.tags = entry.tags || [];
   } else {
     isEdit.value = false;
+    if (seed) {
+      form.category = seed.category || form.category;
+      form.title = seed.title || "";
+      form.environment = seed.environment || "";
+      const fields = seed.fields || {};
+      form.url = (fields.url as string) || "";
+      form.account = (fields.account as string) || "";
+      form.password = (fields.password as string) || "";
+      form.notes = (fields.notes as string) || "";
+      form.address = (fields.address as string) || "";
+      form.serverType = (fields.serverType as string) || "Linux";
+      form.dbType = (fields.dbType as string) || form.dbType;
+      form.port =
+        typeof fields.port === "number"
+          ? fields.port
+          : Number(fields.port || form.port);
+      form.dbName = (fields.dbName as string) || "";
+      form.schema = (fields.schema as string) || "";
+      form.tags = seed.tags || [];
+    }
   }
   snapshot = formSnapshot();
   visible.value = true;

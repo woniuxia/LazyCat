@@ -1,7 +1,7 @@
 use chrono::{DateTime, Duration, Local, NaiveDateTime, Utc};
 use chrono_tz::Tz;
 use cron::Schedule;
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::Value;
 use std::fs;
 use std::path::PathBuf;
@@ -53,9 +53,11 @@ fn get_schema_version(conn: &Connection) -> i64 {
     if !exists {
         return 0;
     }
-    conn.query_row("SELECT COALESCE(MAX(version), 0) FROM schema_version", [], |row| {
-        row.get(0)
-    })
+    conn.query_row(
+        "SELECT COALESCE(MAX(version), 0) FROM schema_version",
+        [],
+        |row| row.get(0),
+    )
     .unwrap_or(0)
 }
 
@@ -64,8 +66,11 @@ fn set_schema_version(conn: &Connection, version: i64) -> Result<(), String> {
         .map_err(|e| format!("create schema_version table failed: {e}"))?;
     conn.execute("DELETE FROM schema_version", [])
         .map_err(|e| format!("clear schema_version failed: {e}"))?;
-    conn.execute("INSERT INTO schema_version (version) VALUES (?1)", params![version])
-        .map_err(|e| format!("set schema_version failed: {e}"))?;
+    conn.execute(
+        "INSERT INTO schema_version (version) VALUES (?1)",
+        params![version],
+    )
+    .map_err(|e| format!("set schema_version failed: {e}"))?;
     Ok(())
 }
 
@@ -240,7 +245,7 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
                 content TEXT NOT NULL,
                 enabled INTEGER NOT NULL DEFAULT 0,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-            );"
+            );",
         )
         .map_err(|e| format!("migration 1 failed: {e}"))?;
         set_schema_version(conn, 1)?;
@@ -253,7 +258,7 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-            );"
+            );",
         )
         .map_err(|e| format!("migration 2 failed: {e}"))?;
         set_schema_version(conn, 2)?;
@@ -262,14 +267,12 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
     // Migration 3: hosts_profiles add sort_order column
     if current < 3 {
         conn.execute_batch(
-            "ALTER TABLE hosts_profiles ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0;"
+            "ALTER TABLE hosts_profiles ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0;",
         )
         .map_err(|e| format!("migration 3 failed: {e}"))?;
         // Initialize sort_order based on existing id order
-        conn.execute_batch(
-            "UPDATE hosts_profiles SET sort_order = id;"
-        )
-        .map_err(|e| format!("migration 3 init sort_order failed: {e}"))?;
+        conn.execute_batch("UPDATE hosts_profiles SET sort_order = id;")
+            .map_err(|e| format!("migration 3 init sort_order failed: {e}"))?;
         set_schema_version(conn, 3)?;
     }
 
@@ -283,7 +286,7 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
                 sort_order INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (parent_id) REFERENCES snippet_folders(id) ON DELETE CASCADE
-            );"
+            );",
         )
         .map_err(|e| format!("migration 4 failed: {e}"))?;
         set_schema_version(conn, 4)?;
@@ -302,7 +305,7 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (folder_id) REFERENCES snippet_folders(id) ON DELETE SET NULL
-            );"
+            );",
         )
         .map_err(|e| format!("migration 5 failed: {e}"))?;
         set_schema_version(conn, 5)?;
@@ -319,7 +322,7 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
                 code TEXT NOT NULL DEFAULT '',
                 sort_order INTEGER NOT NULL DEFAULT 0,
                 FOREIGN KEY (snippet_id) REFERENCES snippets(id) ON DELETE CASCADE
-            );"
+            );",
         )
         .map_err(|e| format!("migration 6 failed: {e}"))?;
         set_schema_version(conn, 6)?;
@@ -334,7 +337,7 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
                 PRIMARY KEY (snippet_id, tag),
                 FOREIGN KEY (snippet_id) REFERENCES snippets(id) ON DELETE CASCADE
             );
-            CREATE INDEX IF NOT EXISTS idx_snippet_tags_tag ON snippet_tags(tag);"
+            CREATE INDEX IF NOT EXISTS idx_snippet_tags_tag ON snippet_tags(tag);",
         )
         .map_err(|e| format!("migration 7 failed: {e}"))?;
         set_schema_version(conn, 7)?;
@@ -392,7 +395,7 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
                 description,
                 tags_text,
                 code_text
-            );"
+            );",
         );
         set_schema_version(conn, 8)?;
     }
@@ -418,7 +421,7 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
-            CREATE INDEX IF NOT EXISTS idx_vault_category ON vault_entries(category);"
+            CREATE INDEX IF NOT EXISTS idx_vault_category ON vault_entries(category);",
         )
         .map_err(|e| format!("migration 9 failed: {e}"))?;
         set_schema_version(conn, 9)?;
@@ -438,7 +441,7 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_launcher_exe_path ON launcher_entries(exe_path);"
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_launcher_exe_path ON launcher_entries(exe_path);",
         )
         .map_err(|e| format!("migration 10 failed: {e}"))?;
         set_schema_version(conn, 10)?;
@@ -447,7 +450,7 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
     // Migration 11: add launch_count column to launcher_entries
     if current < 11 {
         conn.execute_batch(
-            "ALTER TABLE launcher_entries ADD COLUMN launch_count INTEGER NOT NULL DEFAULT 0;"
+            "ALTER TABLE launcher_entries ADD COLUMN launch_count INTEGER NOT NULL DEFAULT 0;",
         )
         .map_err(|e| format!("migration 11 failed: {e}"))?;
         set_schema_version(conn, 11)?;
@@ -462,7 +465,7 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
                 PRIMARY KEY (entry_id, tag),
                 FOREIGN KEY (entry_id) REFERENCES vault_entries(id) ON DELETE CASCADE
             );
-            CREATE INDEX IF NOT EXISTS idx_vault_entry_tags_tag ON vault_entry_tags(tag);"
+            CREATE INDEX IF NOT EXISTS idx_vault_entry_tags_tag ON vault_entry_tags(tag);",
         )
         .map_err(|e| format!("migration 12 failed: {e}"))?;
         set_schema_version(conn, 12)?;
@@ -637,7 +640,8 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
             orphan_tasks.push(row.map_err(|e| e.to_string())?);
         }
 
-        for (task_id, title, type_id, priority, description, created_at, updated_at) in orphan_tasks {
+        for (task_id, title, type_id, priority, description, created_at, updated_at) in orphan_tasks
+        {
             conn.execute(
                 "INSERT INTO todo_templates
                  (title, type_id, priority, description, rule_mode, rule_json, cron_expression,
@@ -675,8 +679,10 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
             )
             .map_err(|e| format!("migration 15 alter todo_tasks failed: {e}"))?;
         } else {
-            conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_todo_tasks_event ON todo_tasks(event_at);")
-                .map_err(|e| format!("migration 15 create todo_tasks event index failed: {e}"))?;
+            conn.execute_batch(
+                "CREATE INDEX IF NOT EXISTS idx_todo_tasks_event ON todo_tasks(event_at);",
+            )
+            .map_err(|e| format!("migration 15 create todo_tasks event index failed: {e}"))?;
         }
 
         if !has_column(conn, "todo_templates", "reminder_offset_minutes")? {
@@ -721,7 +727,10 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
 
             let normalized_remind_at = match (
                 normalized_event_at.as_deref(),
-                remind_at.as_deref().and_then(parse_utc_datetime).map(|dt| dt.to_rfc3339()),
+                remind_at
+                    .as_deref()
+                    .and_then(parse_utc_datetime)
+                    .map(|dt| dt.to_rfc3339()),
             ) {
                 (Some(event_at), Some(remind_at))
                     if detect_reminder_offset_minutes(event_at, &remind_at).is_some() =>
@@ -740,11 +749,8 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
             .map_err(|e| format!("migration 15 normalize todo_task failed: {e}"))?;
         }
 
-        conn.execute(
-            "UPDATE todo_templates SET reminder_offset_minutes=NULL",
-            [],
-        )
-        .map_err(|e| format!("migration 15 reset template reminder offsets failed: {e}"))?;
+        conn.execute("UPDATE todo_templates SET reminder_offset_minutes=NULL", [])
+            .map_err(|e| format!("migration 15 reset template reminder offsets failed: {e}"))?;
 
         set_schema_version(conn, 15)?;
     }
@@ -874,7 +880,9 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
             conn.execute_batch(
                 "ALTER TABLE todo_reminder_events ADD COLUMN reminder_preset TEXT DEFAULT NULL;",
             )
-            .map_err(|e| format!("migration 18 alter todo_reminder_events reminder_preset failed: {e}"))?;
+            .map_err(|e| {
+                format!("migration 18 alter todo_reminder_events reminder_preset failed: {e}")
+            })?;
         }
 
         let mut task_stmt = conn
@@ -901,10 +909,13 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
         }
 
         for (task_id, event_at, remind_at, snooze_until, last_notified_at) in normalized_task_rows {
-            let Some(offset_minutes) = event_at
-                .as_deref()
-                .zip(remind_at.as_deref())
-                .and_then(|(event_at, remind_at)| detect_reminder_offset_minutes(event_at, remind_at))
+            let Some(offset_minutes) =
+                event_at
+                    .as_deref()
+                    .zip(remind_at.as_deref())
+                    .and_then(|(event_at, remind_at)| {
+                        detect_reminder_offset_minutes(event_at, remind_at)
+                    })
             else {
                 continue;
             };
@@ -928,10 +939,7 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
             .map_err(|e| format!("migration 18 load todo_templates failed: {e}"))?;
         let template_rows = template_stmt
             .query_map([], |row| {
-                Ok((
-                    row.get::<_, i64>(0)?,
-                    row.get::<_, Option<i64>>(1)?,
-                ))
+                Ok((row.get::<_, i64>(0)?, row.get::<_, Option<i64>>(1)?))
             })
             .map_err(|e| format!("migration 18 map todo_templates failed: {e}"))?;
 
@@ -999,7 +1007,8 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
             template_rows.push(row.map_err(|e| e.to_string())?);
         }
 
-        for (template_id, rule_mode, rule_json, cron_expression, timezone, start_at) in template_rows
+        for (template_id, rule_mode, rule_json, cron_expression, timezone, start_at) in
+            template_rows
         {
             if rule_mode.trim().to_lowercase() != "simple" {
                 continue;
@@ -1143,11 +1152,9 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
 
         // Step 3: Compute ID offset for template rows
         let id_offset: i64 = conn
-            .query_row(
-                "SELECT COALESCE(MAX(id), 0) FROM todo_items",
-                [],
-                |row| row.get(0),
-            )
+            .query_row("SELECT COALESCE(MAX(id), 0) FROM todo_items", [], |row| {
+                row.get(0)
+            })
             .map_err(|e| format!("migration 22 get max id failed: {e}"))?;
 
         // Step 4: For each template, find the pending instance with earliest event_at.
@@ -1169,23 +1176,23 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
         let tpl_rows = tpl_stmt
             .query_map([], |row| {
                 Ok((
-                    row.get::<_, i64>(0)?,       // id
-                    row.get::<_, String>(1)?,     // title
-                    row.get::<_, Option<i64>>(2)?, // type_id
-                    row.get::<_, String>(3)?,     // priority
-                    row.get::<_, String>(4)?,     // description
-                    row.get::<_, String>(5)?,     // rule_mode
-                    row.get::<_, String>(6)?,     // rule_json
-                    row.get::<_, String>(7)?,     // cron_expression
-                    row.get::<_, String>(8)?,     // timezone
-                    row.get::<_, Option<String>>(9)?, // start_at
-                    row.get::<_, String>(10)?,    // end_mode
+                    row.get::<_, i64>(0)?,             // id
+                    row.get::<_, String>(1)?,          // title
+                    row.get::<_, Option<i64>>(2)?,     // type_id
+                    row.get::<_, String>(3)?,          // priority
+                    row.get::<_, String>(4)?,          // description
+                    row.get::<_, String>(5)?,          // rule_mode
+                    row.get::<_, String>(6)?,          // rule_json
+                    row.get::<_, String>(7)?,          // cron_expression
+                    row.get::<_, String>(8)?,          // timezone
+                    row.get::<_, Option<String>>(9)?,  // start_at
+                    row.get::<_, String>(10)?,         // end_mode
                     row.get::<_, Option<String>>(11)?, // end_value
                     row.get::<_, Option<String>>(12)?, // next_occurrence_at
-                    row.get::<_, i64>(13)?,       // generated_count
-                    row.get::<_, i64>(14)?,       // active
-                    row.get::<_, String>(15)?,    // created_at
-                    row.get::<_, String>(16)?,    // updated_at
+                    row.get::<_, i64>(13)?,            // generated_count
+                    row.get::<_, i64>(14)?,            // active
+                    row.get::<_, String>(15)?,         // created_at
+                    row.get::<_, String>(16)?,         // updated_at
                 ))
             })
             .map_err(|e| format!("migration 22 map templates failed: {e}"))?;
@@ -1194,10 +1201,25 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
             templates.push(row.map_err(|e| e.to_string())?);
         }
 
-        for (tpl_id, title, type_id, priority, description,
-             rule_mode, rule_json, cron_expression, timezone, start_at,
-             end_mode, end_value, _next_occurrence_at, generated_count, active,
-             created_at, updated_at) in &templates
+        for (
+            tpl_id,
+            title,
+            type_id,
+            priority,
+            description,
+            rule_mode,
+            rule_json,
+            cron_expression,
+            timezone,
+            start_at,
+            end_mode,
+            end_value,
+            _next_occurrence_at,
+            generated_count,
+            active,
+            created_at,
+            updated_at,
+        ) in &templates
         {
             let new_series_id = tpl_id + id_offset;
 
@@ -1236,8 +1258,14 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
                         instance_id,
                         new_series_id,
                         active,
-                        rule_mode, rule_json, cron_expression, timezone, start_at,
-                        end_mode, end_value, generated_count,
+                        rule_mode,
+                        rule_json,
+                        cron_expression,
+                        timezone,
+                        start_at,
+                        end_mode,
+                        end_value,
+                        generated_count,
                     ],
                 )
                 .map_err(|e| format!("migration 22 copy current instance failed: {e}"))?;
@@ -1297,13 +1325,26 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
                                ?11, ?12, ?13,
                                ?14, ?15)",
                         params![
-                            title, type_id, priority, description, event_at,
-                            rule_mode, rule_json, cron_expression, timezone, start_at,
-                            end_mode, end_value, generated_count,
-                            created_at, updated_at,
+                            title,
+                            type_id,
+                            priority,
+                            description,
+                            event_at,
+                            rule_mode,
+                            rule_json,
+                            cron_expression,
+                            timezone,
+                            start_at,
+                            end_mode,
+                            end_value,
+                            generated_count,
+                            created_at,
+                            updated_at,
                         ],
                     )
-                    .map_err(|e| format!("migration 22 create pending from template failed: {e}"))?;
+                    .map_err(|e| {
+                        format!("migration 22 create pending from template failed: {e}")
+                    })?;
                     // Set series_id to self
                     let new_id = conn.last_insert_rowid();
                     conn.execute(
@@ -1317,9 +1358,7 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
 
         // Step 5: Build parent_id chain within each series (by event_at order)
         let mut series_stmt = conn
-            .prepare(
-                "SELECT DISTINCT series_id FROM todo_items WHERE series_id IS NOT NULL",
-            )
+            .prepare("SELECT DISTINCT series_id FROM todo_items WHERE series_id IS NOT NULL")
             .map_err(|e| format!("migration 22 load series ids failed: {e}"))?;
         let series_ids: Vec<i64> = series_stmt
             .query_map([], |row| row.get(0))
@@ -1586,10 +1625,8 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
     // Migration 24: Remove 'canceled' status from todo_items
     if current < 24 {
         // Step 1: Migrate existing canceled items to completed
-        conn.execute_batch(
-            "UPDATE todo_items SET status='completed' WHERE status='canceled';",
-        )
-        .map_err(|e| format!("migration 24 update canceled to completed failed: {e}"))?;
+        conn.execute_batch("UPDATE todo_items SET status='completed' WHERE status='canceled';")
+            .map_err(|e| format!("migration 24 update canceled to completed failed: {e}"))?;
 
         // Step 2: Rebuild todo_items with updated CHECK constraint (no 'canceled')
         conn.execute_batch(
@@ -1672,6 +1709,97 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
         .map_err(|e| format!("migration 25 rebuild todo_reminder_events failed: {e}"))?;
 
         set_schema_version(conn, 25)?;
+    }
+
+    if current < 26 {
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS inbox_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                bucket TEXT NOT NULL CHECK(bucket IN ('history', 'inbox', 'archived')),
+                item_type TEXT NOT NULL,
+                storage_kind TEXT NOT NULL CHECK(storage_kind IN ('inline', 'external', 'metadata_only')),
+                title TEXT NOT NULL DEFAULT '',
+                preview TEXT NOT NULL DEFAULT '',
+                search_text TEXT NOT NULL DEFAULT '',
+                payload_ref TEXT,
+                byte_size INTEGER NOT NULL DEFAULT 0,
+                content_hash TEXT NOT NULL,
+                captured_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                last_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                seen_count INTEGER NOT NULL DEFAULT 1,
+                note TEXT NOT NULL DEFAULT '',
+                starred INTEGER NOT NULL DEFAULT 0,
+                meta_json TEXT
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_inbox_items_bucket_last_seen
+                ON inbox_items(bucket, last_seen_at DESC, id DESC);
+            CREATE INDEX IF NOT EXISTS idx_inbox_items_hash_type
+                ON inbox_items(content_hash, item_type);
+            CREATE INDEX IF NOT EXISTS idx_inbox_items_type
+                ON inbox_items(item_type);
+
+            CREATE TABLE IF NOT EXISTS inbox_file_refs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                inbox_item_id INTEGER NOT NULL,
+                file_path TEXT NOT NULL,
+                file_name TEXT NOT NULL,
+                file_size INTEGER,
+                modified_at TEXT,
+                FOREIGN KEY (inbox_item_id) REFERENCES inbox_items(id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_inbox_file_refs_item
+                ON inbox_file_refs(inbox_item_id);
+
+            CREATE TABLE IF NOT EXISTS inbox_asset_refs (
+                content_hash TEXT PRIMARY KEY,
+                file_path TEXT NOT NULL,
+                ref_count INTEGER NOT NULL DEFAULT 1,
+                byte_size INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );",
+        )
+        .map_err(|e| format!("migration 26 create inbox tables failed: {e}"))?;
+
+        let fts_result = conn.execute_batch(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS inbox_fts USING fts5(
+                title,
+                preview,
+                note,
+                search_text,
+                content='inbox_items',
+                content_rowid='id',
+                tokenize='unicode61 remove_diacritics 2'
+            );
+
+            CREATE TRIGGER IF NOT EXISTS inbox_fts_insert AFTER INSERT ON inbox_items BEGIN
+                INSERT INTO inbox_fts(rowid, title, preview, note, search_text)
+                VALUES (new.id, new.title, new.preview, new.note, new.search_text);
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS inbox_fts_update AFTER UPDATE ON inbox_items BEGIN
+                INSERT INTO inbox_fts(inbox_fts, rowid, title, preview, note, search_text)
+                VALUES('delete', old.id, old.title, old.preview, old.note, old.search_text);
+                INSERT INTO inbox_fts(rowid, title, preview, note, search_text)
+                VALUES(new.id, new.title, new.preview, new.note, new.search_text);
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS inbox_fts_delete AFTER DELETE ON inbox_items BEGIN
+                INSERT INTO inbox_fts(inbox_fts, rowid, title, preview, note, search_text)
+                VALUES('delete', old.id, old.title, old.preview, old.note, old.search_text);
+            END;",
+        );
+        if fts_result.is_err() {
+            let _ = conn.execute_batch(
+                "DROP TRIGGER IF EXISTS inbox_fts_insert;
+                 DROP TRIGGER IF EXISTS inbox_fts_update;
+                 DROP TRIGGER IF EXISTS inbox_fts_delete;
+                 DROP TABLE IF EXISTS inbox_fts;",
+            );
+        }
+
+        set_schema_version(conn, 26)?;
     }
 
     Ok(())

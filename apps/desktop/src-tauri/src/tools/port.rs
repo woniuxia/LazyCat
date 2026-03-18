@@ -76,7 +76,10 @@ fn parse_netstat_entries(raw: &str) -> Vec<PortUsageEntry> {
 
 fn list_process_names() -> HashMap<u32, String> {
     let mut out = HashMap::new();
-    let output = match Command::new("tasklist").args(["/FO", "CSV", "/NH"]).output() {
+    let output = match Command::new("tasklist")
+        .args(["/FO", "CSV", "/NH"])
+        .output()
+    {
         Ok(v) => v,
         Err(_) => return out,
     };
@@ -135,12 +138,14 @@ fn build_process_summaries(entries: &[PortUsageEntry]) -> Vec<PortProcessSummary
     }
     let mut out = grouped
         .into_iter()
-        .map(|(pid, (process_name, listening_ports, connection_count))| PortProcessSummary {
-            pid,
-            process_name,
-            listening_ports: listening_ports.into_iter().collect(),
-            connection_count,
-        })
+        .map(
+            |(pid, (process_name, listening_ports, connection_count))| PortProcessSummary {
+                pid,
+                process_name,
+                listening_ports: listening_ports.into_iter().collect(),
+                connection_count,
+            },
+        )
         .collect::<Vec<_>>();
     out.sort_by(|a, b| {
         b.connection_count
@@ -251,7 +256,11 @@ fn kill_process(payload: &Value) -> Result<Value, String> {
     let out = String::from_utf8_lossy(&output.stdout).to_string();
     Err(format!(
         "taskkill failed: {}",
-        if !err.trim().is_empty() { err.trim() } else { out.trim() }
+        if !err.trim().is_empty() {
+            err.trim()
+        } else {
+            out.trim()
+        }
     ))
 }
 

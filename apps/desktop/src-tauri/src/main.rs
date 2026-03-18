@@ -5,18 +5,18 @@ mod tools;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    webview::PageLoadEvent, AppHandle, Emitter, Manager, WebviewUrl, WebviewWindow,
-    WebviewWindowBuilder, WindowEvent,
+    webview::PageLoadEvent,
+    AppHandle, Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent,
 };
-use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 use tauri_plugin_autostart::MacosLauncher;
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::fs;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
 
 /// Stores currently registered shortcut strings keyed by name (e.g. "toggle", "snippets", "vault").
 static REGISTERED_SHORTCUTS: std::sync::LazyLock<Mutex<HashMap<String, String>>> =
@@ -25,6 +25,7 @@ static REGISTERED_SHORTCUTS: std::sync::LazyLock<Mutex<HashMap<String, String>>>
 /// Flag: when true, the window subclass suppresses WM_SYSCOMMAND (SC_KEYMENU)
 /// so Alt+Space does not open the system menu during shortcut recording.
 static RECORDING_MODE: AtomicBool = AtomicBool::new(false);
+static CLIPBOARD_MONITOR_RUNNING: AtomicBool = AtomicBool::new(false);
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
@@ -36,7 +37,10 @@ use tools::regex::REGEX_TEMPLATES_DIR;
 
 fn start_manual_server(root_dir: PathBuf) -> u16 {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind manual server");
-    let port = listener.local_addr().expect("get manual server port").port();
+    let port = listener
+        .local_addr()
+        .expect("get manual server port")
+        .port();
     std::thread::spawn(move || {
         for stream in listener.incoming().flatten() {
             let dir = root_dir.clone();
@@ -97,39 +101,56 @@ fn handle_manual_request(mut stream: TcpStream, root_dir: &Path) {
         if let Some(ext) = file_path.extension().and_then(|e| e.to_str()) {
             if ext == "js" {
                 let lean = file_path.with_extension("lean.js");
-                if lean.exists() { lean } else { file_path }
-            } else { file_path }
-        } else { file_path }
-    } else { file_path };
+                if lean.exists() {
+                    lean
+                } else {
+                    file_path
+                }
+            } else {
+                file_path
+            }
+        } else {
+            file_path
+        }
+    } else {
+        file_path
+    };
 
     match fs::read(&file_path) {
         Ok(body) => {
             let mime = match file_path.extension().and_then(|e| e.to_str()) {
                 Some("html") | Some("htm") => "text/html; charset=utf-8",
-                Some("css")  => "text/css",
+                Some("css") => "text/css",
                 Some("js") | Some("mjs") => "application/javascript",
                 Some("json") => "application/json",
-                Some("png")  => "image/png",
+                Some("png") => "image/png",
                 Some("jpg") | Some("jpeg") => "image/jpeg",
-                Some("gif")  => "image/gif",
-                Some("svg")  => "image/svg+xml",
+                Some("gif") => "image/gif",
+                Some("svg") => "image/svg+xml",
                 Some("woff") => "font/woff",
-                Some("woff2")=> "font/woff2",
-                Some("ttf")  => "font/ttf",
-                Some("ico")  => "image/x-icon",
-                Some("xml")  => "application/xml",
-                Some("txt")  => "text/plain; charset=utf-8",
+                Some("woff2") => "font/woff2",
+                Some("ttf") => "font/ttf",
+                Some("ico") => "image/x-icon",
+                Some("xml") => "application/xml",
+                Some("txt") => "text/plain; charset=utf-8",
                 Some("wasm") => "application/wasm",
-                None             => {
+                None => {
                     // 无扩展名：检测 body 是否以 HTML doctype 开头（跳过可能的 UTF-8 BOM）
-                    let content = if body.starts_with(&[0xEF, 0xBB, 0xBF]) { &body[3..] } else { &body[..] };
-                    if content.starts_with(b"<!DOCTYPE") || content.starts_with(b"<!doctype") || content.starts_with(b"<html") {
+                    let content = if body.starts_with(&[0xEF, 0xBB, 0xBF]) {
+                        &body[3..]
+                    } else {
+                        &body[..]
+                    };
+                    if content.starts_with(b"<!DOCTYPE")
+                        || content.starts_with(b"<!doctype")
+                        || content.starts_with(b"<html")
+                    {
                         "text/html; charset=utf-8"
                     } else {
                         "application/octet-stream"
                     }
                 }
-                Some(_)          => "application/octet-stream",
+                Some(_) => "application/octet-stream",
             };
             // 对 HTML 响应注入 CSS+JS，隐藏离线无用的 MDN 导航弹窗和 UI 元素
             let body = if mime.starts_with("text/html") {
@@ -287,7 +308,10 @@ fn clamp_i64_to_i32(value: i64) -> i32 {
     value.clamp(i32::MIN as i64, i32::MAX as i64) as i32
 }
 
+const MAIN_WINDOW_LABEL: &str = "main";
+const MAIN_WINDOW_TITLE: &str = "Lazycat 懒猫";
 const REMINDER_POPUP_LABEL: &str = "reminder-popup";
+const REMINDER_POPUP_TITLE: &str = "待办提醒";
 const REMINDER_POPUP_WIDTH: i64 = 400;
 const REMINDER_POPUP_HEIGHT: i64 = 320;
 const REMINDER_POPUP_MARGIN: i64 = 16;
@@ -299,11 +323,17 @@ if (!window.location.search.includes('view=reminder-popup')) {
 }
 "#;
 
+fn expected_window_title(window_label: &str) -> Option<&'static str> {
+    match window_label {
+        MAIN_WINDOW_LABEL => Some(MAIN_WINDOW_TITLE),
+        REMINDER_POPUP_LABEL => Some(REMINDER_POPUP_TITLE),
+        _ => None,
+    }
+}
+
 fn reminder_popup_init_script(reminders: &[tools::todo::ReminderDispatch]) -> String {
     let serialized = serde_json::to_string(reminders).unwrap_or_else(|_| "[]".to_string());
-    format!(
-        "{REMINDER_POPUP_VIEW_SCRIPT}\nwindow.__LAZYCAT_REMINDER_BOOTSTRAP__ = {serialized};"
-    )
+    format!("{REMINDER_POPUP_VIEW_SCRIPT}\nwindow.__LAZYCAT_REMINDER_BOOTSTRAP__ = {serialized};")
 }
 
 fn reminder_popup_url() -> WebviewUrl {
@@ -324,8 +354,10 @@ fn position_reminder_popup(window: &WebviewWindow) {
     };
 
     let work_area = monitor.work_area();
-    let relative_x = (work_area.size.width as i64 - REMINDER_POPUP_WIDTH - REMINDER_POPUP_MARGIN).max(0);
-    let relative_y = (work_area.size.height as i64 - REMINDER_POPUP_HEIGHT - REMINDER_POPUP_MARGIN).max(0);
+    let relative_x =
+        (work_area.size.width as i64 - REMINDER_POPUP_WIDTH - REMINDER_POPUP_MARGIN).max(0);
+    let relative_y =
+        (work_area.size.height as i64 - REMINDER_POPUP_HEIGHT - REMINDER_POPUP_MARGIN).max(0);
     let x = clamp_i64_to_i32(work_area.position.x as i64 + relative_x);
     let y = clamp_i64_to_i32(work_area.position.y as i64 + relative_y);
     let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
@@ -355,22 +387,23 @@ fn show_reminder_popup(app: &AppHandle, reminders: Vec<tools::todo::ReminderDisp
         }
 
         let initial_reminders = reminders.clone();
-        let builder = WebviewWindowBuilder::new(&app_handle, REMINDER_POPUP_LABEL, reminder_popup_url())
-            .title("待办提醒")
-            .inner_size(REMINDER_POPUP_WIDTH as f64, REMINDER_POPUP_HEIGHT as f64)
-            .decorations(false)
-            .always_on_top(true)
-            .resizable(false)
-            .skip_taskbar(true)
-            .focused(true)
-            .transparent(false)
-            .visible(false)
-            .initialization_script(reminder_popup_init_script(&reminders))
-            .on_page_load(move |window, payload| {
-                if let PageLoadEvent::Finished = payload.event() {
-                    let _ = window.emit("reminder-push", &initial_reminders);
-                }
-            });
+        let builder =
+            WebviewWindowBuilder::new(&app_handle, REMINDER_POPUP_LABEL, reminder_popup_url())
+                .title(REMINDER_POPUP_TITLE)
+                .inner_size(REMINDER_POPUP_WIDTH as f64, REMINDER_POPUP_HEIGHT as f64)
+                .decorations(false)
+                .always_on_top(true)
+                .resizable(false)
+                .skip_taskbar(true)
+                .focused(true)
+                .transparent(false)
+                .visible(false)
+                .initialization_script(reminder_popup_init_script(&reminders))
+                .on_page_load(move |window, payload| {
+                    if let PageLoadEvent::Finished = payload.event() {
+                        let _ = window.emit("reminder-push", &initial_reminders);
+                    }
+                });
 
         let Ok(window) = builder.build() else {
             return;
@@ -417,12 +450,8 @@ fn move_window_to_cursor_monitor(window: &tauri::WebviewWindow) -> CursorMonitor
         let target_h = work_area.size.height as i64;
         let win_w = window_size.width as i64;
         let win_h = window_size.height as i64;
-        x = clamp_i64_to_i32(
-            work_area.position.x as i64 + ((target_w - win_w).max(0) / 2),
-        );
-        y = clamp_i64_to_i32(
-            work_area.position.y as i64 + ((target_h - win_h).max(0) / 2),
-        );
+        x = clamp_i64_to_i32(work_area.position.x as i64 + ((target_w - win_w).max(0) / 2));
+        y = clamp_i64_to_i32(work_area.position.y as i64 + ((target_h - win_h).max(0) / 2));
     }
 
     if window
@@ -506,7 +535,9 @@ fn handle_main_window_shortcut(app: &tauri::AppHandle, shortcut_name: &str) {
         MainWindowShortcutDecision::Reveal => {
             reveal_main_window(app);
         }
-        MainWindowShortcutDecision::RevealAndNavigate { did_move_to_cursor_monitor } => {
+        MainWindowShortcutDecision::RevealAndNavigate {
+            did_move_to_cursor_monitor,
+        } => {
             reveal_main_window(app);
             let _ = window.emit(
                 "hotkey-navigate",
@@ -527,7 +558,9 @@ fn sync_all_shortcuts(app: &tauri::AppHandle) -> Result<(), String> {
     let manager = app.global_shortcut();
     manager.unregister_all().map_err(|e| e.to_string())?;
 
-    let map = REGISTERED_SHORTCUTS.lock().map_err(|e| format!("快捷键锁定失败: {e}"))?;
+    let map = REGISTERED_SHORTCUTS
+        .lock()
+        .map_err(|e| format!("快捷键锁定失败: {e}"))?;
     for (name, shortcut_str) in map.iter() {
         if shortcut_str.is_empty() {
             continue;
@@ -558,9 +591,15 @@ fn unregister_hotkey(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn register_named_hotkey(app: tauri::AppHandle, name: String, shortcut: String) -> Result<(), String> {
+fn register_named_hotkey(
+    app: tauri::AppHandle,
+    name: String,
+    shortcut: String,
+) -> Result<(), String> {
     {
-        let mut map = REGISTERED_SHORTCUTS.lock().map_err(|e| format!("快捷键锁定失败: {e}"))?;
+        let mut map = REGISTERED_SHORTCUTS
+            .lock()
+            .map_err(|e| format!("快捷键锁定失败: {e}"))?;
         if shortcut.is_empty() {
             map.remove(&name);
         } else {
@@ -575,7 +614,9 @@ fn register_named_hotkey(app: tauri::AppHandle, name: String, shortcut: String) 
 #[tauri::command]
 fn unregister_named_hotkey(app: tauri::AppHandle, name: String) -> Result<(), String> {
     {
-        let mut map = REGISTERED_SHORTCUTS.lock().map_err(|e| format!("快捷键锁定失败: {e}"))?;
+        let mut map = REGISTERED_SHORTCUTS
+            .lock()
+            .map_err(|e| format!("快捷键锁定失败: {e}"))?;
         map.remove(&name);
     }
     sync_all_shortcuts(&app)
@@ -590,8 +631,8 @@ fn unregister_named_hotkey(app: tauri::AppHandle, name: String) -> Result<(), St
 fn force_foreground(window: &tauri::WebviewWindow) {
     use windows_sys::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        GetForegroundWindow, GetWindowThreadProcessId, SetForegroundWindow,
-        ShowWindow, SW_RESTORE, IsIconic,
+        GetForegroundWindow, GetWindowThreadProcessId, IsIconic, SetForegroundWindow, ShowWindow,
+        SW_RESTORE,
     };
 
     let Ok(hwnd_raw) = window.hwnd() else { return };
@@ -637,7 +678,7 @@ unsafe extern "system" fn recording_subclass_proc(
     _uid_subclass: usize,
     _ref_data: usize,
 ) -> windows_sys::Win32::Foundation::LRESULT {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{WM_SYSCOMMAND, SC_KEYMENU};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{SC_KEYMENU, WM_SYSCOMMAND};
     // SC_KEYMENU is triggered by Alt+Space (and Alt+key for menu mnemonics).
     // Block it when recording mode is active so the system menu won't appear.
     if msg == WM_SYSCOMMAND && (wparam & 0xFFF0) == SC_KEYMENU as usize {
@@ -756,6 +797,12 @@ fn reminder_popup_dismiss(app: tauri::AppHandle, event_id: i64) -> Result<Value,
     Ok(result)
 }
 
+#[tauri::command]
+fn suppress_clipboard_capture(content: String) -> Result<Value, String> {
+    tools::inbox::suppress_clipboard_capture(&content)?;
+    Ok(json!({ "ok": true }))
+}
+
 fn start_todo_scheduler(app: tauri::AppHandle) {
     std::thread::spawn(move || loop {
         match tools::todo::scheduler_tick() {
@@ -777,6 +824,43 @@ fn start_todo_scheduler(app: tauri::AppHandle) {
 
         std::thread::sleep(Duration::from_secs(30));
     });
+}
+
+fn start_clipboard_monitor(app: tauri::AppHandle) {
+    if CLIPBOARD_MONITOR_RUNNING.swap(true, Ordering::SeqCst) {
+        return;
+    }
+
+    #[cfg(windows)]
+    std::thread::spawn(move || {
+        use windows_sys::Win32::System::DataExchange::GetClipboardSequenceNumber;
+
+        let mut last_seq = unsafe { GetClipboardSequenceNumber() };
+
+        loop {
+            std::thread::sleep(Duration::from_millis(700));
+
+            let current_seq = unsafe { GetClipboardSequenceNumber() };
+            if current_seq == last_seq {
+                continue;
+            }
+            last_seq = current_seq;
+
+            let window_visible = app
+                .get_webview_window("main")
+                .and_then(|window| window.is_visible().ok())
+                .unwrap_or(true);
+
+            let _ = tools::inbox::process_clipboard_change(window_visible);
+
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.emit("clipboard-changed", json!({ "sequence": current_seq }));
+            }
+        }
+    });
+
+    #[cfg(not(windows))]
+    let _ = app;
 }
 
 fn main() {
@@ -812,11 +896,9 @@ fn main() {
     let mut builder = tauri::Builder::default();
     #[cfg(windows)]
     {
-        builder = builder.plugin(tauri_plugin_single_instance::init(
-            |app, _args, _cwd| {
-                reveal_main_window(app);
-            },
-        ));
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            reveal_main_window(app);
+        }));
     }
 
     builder
@@ -827,6 +909,15 @@ fn main() {
             MacosLauncher::LaunchAgent,
             Some(vec!["--minimized"]),
         ))
+        .on_page_load(|webview, payload| {
+            if let PageLoadEvent::Finished = payload.event() {
+                if let Some(title) = expected_window_title(webview.window().label()) {
+                    // 绿色包在 Win10 + WebView2 下可能把 HTML 标题里的中文解错，
+                    // 这里在页面加载完成后强制回写原生标题，绕开错误同步链路。
+                    let _ = webview.window().set_title(title);
+                }
+            }
+        })
         .setup(|app| {
             // 启动离线文档 HTTP 服务器
             // 打包后从 resource_dir/manuals 读取；开发模式下 fallback 到源码目录
@@ -859,8 +950,15 @@ fn main() {
 
             // 初始化正则模板目录
             let regex_dir = {
-                let rd = app.path().resource_dir().ok().map(|d| d.join("regex-library"));
-                if rd.as_ref().is_some_and(|d| d.join("templates.json").exists()) {
+                let rd = app
+                    .path()
+                    .resource_dir()
+                    .ok()
+                    .map(|d| d.join("regex-library"));
+                if rd
+                    .as_ref()
+                    .is_some_and(|d| d.join("templates.json").exists())
+                {
                     rd.unwrap()
                 } else {
                     let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -872,8 +970,15 @@ fn main() {
 
             // 初始化热键映射目录
             let hotkey_dir = {
-                let rd = app.path().resource_dir().ok().map(|d| d.join("hotkey-library"));
-                if rd.as_ref().is_some_and(|d| d.join("app-hotkey-mappings.json").exists()) {
+                let rd = app
+                    .path()
+                    .resource_dir()
+                    .ok()
+                    .map(|d| d.join("hotkey-library"));
+                if rd
+                    .as_ref()
+                    .is_some_and(|d| d.join("app-hotkey-mappings.json").exists())
+                {
                     rd.unwrap()
                 } else {
                     let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -935,6 +1040,7 @@ fn main() {
 
             // 启动待办调度线程（周期实例生成 + 到期提醒派发）
             start_todo_scheduler(app.handle().clone());
+            start_clipboard_monitor(app.handle().clone());
 
             Ok(())
         })
@@ -972,6 +1078,7 @@ fn main() {
             reminder_popup_complete,
             reminder_popup_snooze,
             reminder_popup_dismiss,
+            suppress_clipboard_capture,
             check_npcap_installed,
             list_capture_interfaces,
             start_capture,
@@ -983,12 +1090,11 @@ fn main() {
         .expect("error while running tauri application");
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::{
-        CursorMonitorRelation, HotkeyNavigatePayload, MainWindowShortcutDecision,
-        MainWindowShortcutMode, decide_main_window_shortcut,
+        decide_main_window_shortcut, CursorMonitorRelation, HotkeyNavigatePayload,
+        MainWindowShortcutDecision, MainWindowShortcutMode,
     };
     use serde_json::json;
 

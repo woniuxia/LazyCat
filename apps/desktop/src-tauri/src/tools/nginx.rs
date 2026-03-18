@@ -18,7 +18,10 @@ fn generate(payload: &Value) -> Result<Value, String> {
         .trim();
     let listen = payload["listen"].as_i64().unwrap_or(80);
     let index = payload["index"].as_str().unwrap_or("index.html").trim();
-    let client_max_body_size = payload["clientMaxBodySize"].as_str().unwrap_or("20m").trim();
+    let client_max_body_size = payload["clientMaxBodySize"]
+        .as_str()
+        .unwrap_or("20m")
+        .trim();
     let enable_spa_fallback = payload["enableSpaFallback"].as_bool().unwrap_or(true);
     let enable_gzip = payload["enableGzip"].as_bool().unwrap_or(true);
     let enable_https = payload["enableHttps"].as_bool().unwrap_or(false);
@@ -126,7 +129,9 @@ fn generate(payload: &Value) -> Result<Value, String> {
             error_log_level
         };
         if generate_access_log {
-            lines.push(format!("  access_log {access_log_target} {access_log_fmt};"));
+            lines.push(format!(
+                "  access_log {access_log_target} {access_log_fmt};"
+            ));
         } else {
             lines.push("  access_log off;".to_string());
         }
@@ -149,7 +154,9 @@ fn generate(payload: &Value) -> Result<Value, String> {
     if enable_access_log {
         hints.push("如需 JSON 日志，请在 http 块中定义对应 log_format 后再使用。".to_string());
         if !generate_error_log {
-            hints.push("你已关闭 error_log 生成，建议在全局 nginx.conf 统一配置错误日志。".to_string());
+            hints.push(
+                "你已关闭 error_log 生成，建议在全局 nginx.conf 统一配置错误日志。".to_string(),
+            );
         }
     }
 

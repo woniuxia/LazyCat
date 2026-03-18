@@ -77,6 +77,7 @@ declare module 'vue' {
     HotkeyPanel: typeof import('./src/components/HotkeyPanel.vue')['default']
     HttpStatusPanel: typeof import('./src/components/HttpStatusPanel.vue')['default']
     ImagePanel: typeof import('./src/components/ImagePanel.vue')['default']
+    InboxPanel: typeof import('./src/components/InboxPanel.vue')['default']
     JavaBeanJsPanel: typeof import('./src/components/JavaBeanJsPanel.vue')['default']
     JsonProcessPanel: typeof import('./src/components/JsonProcessPanel.vue')['default']
     JsonSchemaPanel: typeof import('./src/components/JsonSchemaPanel.vue')['default']

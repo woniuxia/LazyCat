@@ -187,8 +187,7 @@ fn parse_datetime_with_validation(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .ok_or_else(|| format!("{label}格式不正确"))?;
-    let parsed = DateTime::parse_from_rfc3339(text)
-        .map_err(|_| format!("{label}格式不正确"))?;
+    let parsed = DateTime::parse_from_rfc3339(text).map_err(|_| format!("{label}格式不正确"))?;
     if require_five_minute_step && !is_five_minute_datetime(&parsed) {
         return Err(format!("{label}必须使用 5 分钟刻度"));
     }
@@ -280,9 +279,7 @@ fn normalize_priority(value: Option<&str>) -> Result<String, String> {
 
 fn normalize_status(value: &str) -> Result<String, String> {
     match value {
-        STATUS_PENDING | STATUS_IN_PROGRESS | STATUS_COMPLETED => {
-            Ok(value.to_string())
-        }
+        STATUS_PENDING | STATUS_IN_PROGRESS | STATUS_COMPLETED => Ok(value.to_string()),
         _ => Err("状态不合法".to_string()),
     }
 }
@@ -399,7 +396,11 @@ fn build_simple_cron_expression(rule: &Value) -> Result<String, String> {
         .and_then(Value::as_i64)
         .unwrap_or(1)
         .max(1);
-    let time = rule.get("time").and_then(Value::as_str).unwrap_or("09:00").trim();
+    let time = rule
+        .get("time")
+        .and_then(Value::as_str)
+        .unwrap_or("09:00")
+        .trim();
     let parts: Vec<&str> = time.split(':').collect();
     if parts.len() != 2 {
         return Err("简单规则时间格式不正确".to_string());
@@ -515,7 +516,8 @@ fn resolve_cron_expression(rule_mode: &str, rule: &Value) -> Result<String, Stri
 }
 
 fn ensure_schedule_granularity(cron_expression: &str) -> Result<(), String> {
-    let schedule = Schedule::from_str(cron_expression).map_err(|e| format!("Cron 表达式无效: {e}"))?;
+    let schedule =
+        Schedule::from_str(cron_expression).map_err(|e| format!("Cron 表达式无效: {e}"))?;
     let mut upcoming = schedule.after(&Utc::now());
     for _ in 0..32 {
         let Some(next) = upcoming.next() else {
@@ -533,7 +535,8 @@ fn compute_next_occurrence(
     timezone: &str,
     after_utc: DateTime<Utc>,
 ) -> Result<Option<DateTime<Utc>>, String> {
-    let schedule = Schedule::from_str(cron_expression).map_err(|e| format!("周期表达式无效: {e}"))?;
+    let schedule =
+        Schedule::from_str(cron_expression).map_err(|e| format!("周期表达式无效: {e}"))?;
 
     if timezone.eq_ignore_ascii_case("utc") {
         return Ok(schedule.after(&after_utc).next());
@@ -546,7 +549,10 @@ fn compute_next_occurrence(
     match timezone.parse::<Tz>() {
         Ok(tz) => {
             let tz_after = after_utc.with_timezone(&tz);
-            Ok(schedule.after(&tz_after).next().map(|dt| dt.with_timezone(&Utc)))
+            Ok(schedule
+                .after(&tz_after)
+                .next()
+                .map(|dt| dt.with_timezone(&Utc)))
         }
         Err(_) => {
             let local_after = after_utc.with_timezone(&Local);
@@ -585,7 +591,8 @@ fn parse_end_rule(payload: &Value) -> Result<(String, Option<String>), String> {
     match mode.as_str() {
         "never" => Ok((mode, None)),
         "until_date" => {
-            let end_payload = json!({ "endValue": recurrence.get("endValue").cloned().unwrap_or(Value::Null) });
+            let end_payload =
+                json!({ "endValue": recurrence.get("endValue").cloned().unwrap_or(Value::Null) });
             let value = parse_datetime_with_validation(&end_payload, "endValue", "结束时间", true)?
                 .ok_or("endValue 必填")?;
             Ok((mode, Some(value)))
@@ -655,8 +662,8 @@ fn normalize_reminder_presets(values: &[String]) -> Result<Vec<String>, String> 
     let mut has_none = false;
 
     for value in values {
-        let normalized = normalize_reminder_preset(value)
-            .ok_or_else(|| "提醒方式不支持该预设值".to_string())?;
+        let normalized =
+            normalize_reminder_preset(value).ok_or_else(|| "提醒方式不支持该预设值".to_string())?;
         if normalized == REMINDER_PRESET_NONE {
             has_none = true;
             continue;
@@ -723,7 +730,10 @@ fn derive_reminder_presets(event_at: Option<&str>, remind_at: Option<&str>) -> V
     vec![preset]
 }
 
-fn compute_remind_at(event_at: Option<&str>, offset_minutes: Option<i64>) -> Result<Option<String>, String> {
+fn compute_remind_at(
+    event_at: Option<&str>,
+    offset_minutes: Option<i64>,
+) -> Result<Option<String>, String> {
     match (event_at, offset_minutes) {
         (_, None) => Ok(None),
         (None, Some(_)) => Err("设置提醒前需要先提供事件时间或周期规则".to_string()),
@@ -731,7 +741,9 @@ fn compute_remind_at(event_at: Option<&str>, offset_minutes: Option<i64>) -> Res
             let event_at = DateTime::parse_from_rfc3339(event_at)
                 .map_err(|_| "事件时间格式不正确".to_string())?
                 .with_timezone(&Utc);
-            Ok(Some((event_at - Duration::minutes(offset_minutes)).to_rfc3339()))
+            Ok(Some(
+                (event_at - Duration::minutes(offset_minutes)).to_rfc3339(),
+            ))
         }
     }
 }
@@ -752,8 +764,11 @@ fn derive_reminder_offset_minutes(event_at: Option<&str>, remind_at: Option<&str
 // ── DB helpers for items ──────────────────────────────────
 
 fn sync_item_assignees(conn: &Connection, item_id: i64, ids: &[i64]) -> Result<(), String> {
-    conn.execute("DELETE FROM todo_item_assignees WHERE item_id=?1", params![item_id])
-        .map_err(|e| format!("清理事项执行人失败: {e}"))?;
+    conn.execute(
+        "DELETE FROM todo_item_assignees WHERE item_id=?1",
+        params![item_id],
+    )
+    .map_err(|e| format!("清理事项执行人失败: {e}"))?;
     for id in ids {
         conn.execute(
             "INSERT OR IGNORE INTO todo_item_assignees(item_id, assignee_id) VALUES(?1, ?2)",
@@ -812,14 +827,21 @@ fn load_item_links(conn: &Connection, item_id: i64) -> Result<Vec<Value>, String
 }
 
 fn sync_item_links(conn: &Connection, item_id: i64, links: &[Value]) -> Result<(), String> {
-    conn.execute("DELETE FROM todo_item_links WHERE item_id=?1", params![item_id])
-        .map_err(|e| format!("清空事项链接失败: {e}"))?;
+    conn.execute(
+        "DELETE FROM todo_item_links WHERE item_id=?1",
+        params![item_id],
+    )
+    .map_err(|e| format!("清空事项链接失败: {e}"))?;
     for (i, link) in links.iter().enumerate() {
         let url = link.get("url").and_then(Value::as_str).unwrap_or("").trim();
         if url.is_empty() {
             continue;
         }
-        let title = link.get("title").and_then(Value::as_str).unwrap_or("").trim();
+        let title = link
+            .get("title")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim();
         conn.execute(
             "INSERT INTO todo_item_links(item_id, url, title, sort_order) VALUES(?1, ?2, ?3, ?4)",
             params![item_id, url, title, i as i64],
@@ -829,7 +851,10 @@ fn sync_item_links(conn: &Connection, item_id: i64, links: &[Value]) -> Result<(
     Ok(())
 }
 
-fn load_item_reminder_configs(conn: &Connection, item_id: i64) -> Result<Vec<ReminderConfig>, String> {
+fn load_item_reminder_configs(
+    conn: &Connection,
+    item_id: i64,
+) -> Result<Vec<ReminderConfig>, String> {
     let mut stmt = conn
         .prepare(
             "SELECT reminder_preset, offset_minutes
@@ -860,7 +885,12 @@ fn load_item_reminder_configs(conn: &Connection, item_id: i64) -> Result<Vec<Rem
         .query_row(
             "SELECT event_at, remind_at FROM todo_items WHERE id=?1",
             params![item_id],
-            |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, Option<String>>(1)?)),
+            |row| {
+                Ok((
+                    row.get::<_, Option<String>>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                ))
+            },
         )
         .optional()
         .map_err(|e| format!("查询事项旧提醒失败: {e}"))?;
@@ -875,7 +905,10 @@ fn load_item_reminder_configs(conn: &Connection, item_id: i64) -> Result<Vec<Rem
         .unwrap_or_default())
 }
 
-fn load_item_reminder_summary(conn: &Connection, item_id: i64) -> Result<TaskReminderSummary, String> {
+fn load_item_reminder_summary(
+    conn: &Connection,
+    item_id: i64,
+) -> Result<TaskReminderSummary, String> {
     let mut stmt = conn
         .prepare(
             "SELECT id, reminder_preset, remind_at, snooze_until, last_notified_at
@@ -912,7 +945,11 @@ fn load_item_reminder_summary(conn: &Connection, item_id: i64) -> Result<TaskRem
                 .snooze_until
                 .as_deref()
                 .and_then(parse_utc_datetime)
-                .map(|current| parse_utc_datetime(&value).map(|candidate| candidate < current).unwrap_or(false))
+                .map(|current| {
+                    parse_utc_datetime(&value)
+                        .map(|candidate| candidate < current)
+                        .unwrap_or(false)
+                })
                 .unwrap_or(true);
             if should_replace {
                 summary.snooze_until = Some(value);
@@ -924,7 +961,11 @@ fn load_item_reminder_summary(conn: &Connection, item_id: i64) -> Result<TaskRem
                 .last_notified_at
                 .as_deref()
                 .and_then(parse_utc_datetime)
-                .map(|current| parse_utc_datetime(&value).map(|candidate| candidate > current).unwrap_or(false))
+                .map(|current| {
+                    parse_utc_datetime(&value)
+                        .map(|candidate| candidate > current)
+                        .unwrap_or(false)
+                })
                 .unwrap_or(true);
             if should_replace {
                 summary.last_notified_at = Some(value);
@@ -946,7 +987,11 @@ fn load_item_reminder_summary(conn: &Connection, item_id: i64) -> Result<TaskRem
             let should_replace = next_fire_at
                 .as_deref()
                 .and_then(parse_utc_datetime)
-                .map(|current| parse_utc_datetime(&effective_fire_at).map(|candidate| candidate < current).unwrap_or(false))
+                .map(|current| {
+                    parse_utc_datetime(&effective_fire_at)
+                        .map(|candidate| candidate < current)
+                        .unwrap_or(false)
+                })
                 .unwrap_or(true);
             if should_replace {
                 next_fire_at = Some(effective_fire_at);
@@ -972,8 +1017,11 @@ fn sync_item_reminders(
     event_at: Option<&str>,
     reminder_presets: &[String],
 ) -> Result<(), String> {
-    conn.execute("DELETE FROM todo_item_reminders WHERE item_id=?1", params![item_id])
-        .map_err(|e| format!("清理事项提醒失败: {e}"))?;
+    conn.execute(
+        "DELETE FROM todo_item_reminders WHERE item_id=?1",
+        params![item_id],
+    )
+    .map_err(|e| format!("清理事项提醒失败: {e}"))?;
 
     let reminder_configs = reminder_configs_from_presets(reminder_presets);
     if reminder_configs.is_empty() {
@@ -1359,8 +1407,11 @@ fn assignee_upsert(payload: &Value) -> Result<Value, String> {
 fn assignee_delete(payload: &Value) -> Result<Value, String> {
     let id = parse_i64(payload, "id").ok_or("缺少执行人 id")?;
     let conn = db_conn()?;
-    conn.execute("DELETE FROM todo_item_assignees WHERE assignee_id=?1", params![id])
-        .map_err(|e| format!("删除事项执行人关联失败: {e}"))?;
+    conn.execute(
+        "DELETE FROM todo_item_assignees WHERE assignee_id=?1",
+        params![id],
+    )
+    .map_err(|e| format!("删除事项执行人关联失败: {e}"))?;
     conn.execute("DELETE FROM todo_assignees WHERE id=?1", params![id])
         .map_err(|e| format!("删除执行人失败: {e}"))?;
     Ok(json!({ "ok": true }))
@@ -1394,19 +1445,19 @@ fn item_list(payload: &Value) -> Result<Value, String> {
     let rows = stmt
         .query_map([], |row| {
             Ok((
-                row.get::<_, i64>(0)?,         // id
-                row.get::<_, String>(1)?,       // title
-                row.get::<_, Option<i64>>(2)?,  // type_id
-                row.get::<_, String>(3)?,       // priority
-                row.get::<_, String>(4)?,       // description
-                row.get::<_, String>(5)?,       // status
-                row.get::<_, Option<String>>(6)?, // event_at
-                row.get::<_, i64>(7)? != 0,     // pinned
-                row.get::<_, String>(8)?,       // kind
-                row.get::<_, Option<i64>>(9)?,  // series_id
-                row.get::<_, Option<i64>>(10)?, // parent_id
-                row.get::<_, String>(11)?,      // created_at
-                row.get::<_, String>(12)?,      // updated_at
+                row.get::<_, i64>(0)?,             // id
+                row.get::<_, String>(1)?,          // title
+                row.get::<_, Option<i64>>(2)?,     // type_id
+                row.get::<_, String>(3)?,          // priority
+                row.get::<_, String>(4)?,          // description
+                row.get::<_, String>(5)?,          // status
+                row.get::<_, Option<String>>(6)?,  // event_at
+                row.get::<_, i64>(7)? != 0,        // pinned
+                row.get::<_, String>(8)?,          // kind
+                row.get::<_, Option<i64>>(9)?,     // series_id
+                row.get::<_, Option<i64>>(10)?,    // parent_id
+                row.get::<_, String>(11)?,         // created_at
+                row.get::<_, String>(12)?,         // updated_at
                 row.get::<_, Option<String>>(13)?, // type_name
                 row.get::<_, Option<String>>(14)?, // type_color
                 // series rules (nullable)
@@ -1426,11 +1477,30 @@ fn item_list(payload: &Value) -> Result<Value, String> {
     let mut items = Vec::new();
     for row in rows {
         let (
-            id, title, type_id, priority, description, status_raw,
-            event_at, pinned, kind, series_id, _parent_id,
-            created_at, updated_at, type_name, type_color,
-            rule_mode, rule_json, cron_expression, timezone,
-            start_at, end_mode, end_value, occurrence_index, rule_active,
+            id,
+            title,
+            type_id,
+            priority,
+            description,
+            status_raw,
+            event_at,
+            pinned,
+            kind,
+            series_id,
+            _parent_id,
+            created_at,
+            updated_at,
+            type_name,
+            type_color,
+            rule_mode,
+            rule_json,
+            cron_expression,
+            timezone,
+            start_at,
+            end_mode,
+            end_value,
+            occurrence_index,
+            rule_active,
         ) = row.map_err(|e| e.to_string())?;
 
         // A1 归一化
@@ -1516,11 +1586,26 @@ fn item_list(payload: &Value) -> Result<Value, String> {
         if let Some(obj) = item.as_object_mut() {
             obj.insert("assignees".to_string(), json!(assignees));
             obj.insert("links".to_string(), json!(links));
-            obj.insert("reminderPresets".to_string(), json!(reminder_summary.reminder_presets));
-            obj.insert("snoozeUntil".to_string(), json!(reminder_summary.snooze_until));
-            obj.insert("lastNotifiedAt".to_string(), json!(reminder_summary.last_notified_at));
-            obj.insert("nextTaskReminderId".to_string(), json!(reminder_summary.next_task_reminder_id));
-            obj.insert("nextReminderPreset".to_string(), json!(reminder_summary.next_reminder_preset));
+            obj.insert(
+                "reminderPresets".to_string(),
+                json!(reminder_summary.reminder_presets),
+            );
+            obj.insert(
+                "snoozeUntil".to_string(),
+                json!(reminder_summary.snooze_until),
+            );
+            obj.insert(
+                "lastNotifiedAt".to_string(),
+                json!(reminder_summary.last_notified_at),
+            );
+            obj.insert(
+                "nextTaskReminderId".to_string(),
+                json!(reminder_summary.next_task_reminder_id),
+            );
+            obj.insert(
+                "nextReminderPreset".to_string(),
+                json!(reminder_summary.next_reminder_preset),
+            );
         }
 
         items.push(item);
@@ -1731,7 +1816,8 @@ fn item_update(payload: &Value) -> Result<Value, String> {
     // Update event_at and reminders
     let reminder_presets_update = parse_reminder_presets(payload)?;
     let has_recurrence_start = new_kind == SERIES_KIND_RECURRING && has_start_datetime(payload);
-    if payload.get("eventAt").is_some() || reminder_presets_update.is_some() || has_recurrence_start {
+    if payload.get("eventAt").is_some() || reminder_presets_update.is_some() || has_recurrence_start
+    {
         let current_event_at = load_item_event_at(&conn, id)?;
         let next_event_at = if payload.get("eventAt").is_some() {
             parse_event_datetime(payload, "eventAt")?
@@ -1749,7 +1835,9 @@ fn item_update(payload: &Value) -> Result<Value, String> {
                 .collect()
         };
         if next_event_at.is_none() && !next_reminder_presets.is_empty() {
-            let has_real = next_reminder_presets.iter().any(|p| p != REMINDER_PRESET_NONE);
+            let has_real = next_reminder_presets
+                .iter()
+                .any(|p| p != REMINDER_PRESET_NONE);
             if has_real {
                 return Err("设置提醒前需要先提供事件时间或周期规则".to_string());
             }
@@ -1773,7 +1861,11 @@ fn item_update(payload: &Value) -> Result<Value, String> {
         if let Some(sid) = series_id {
             // Check item is open
             let status: String = conn
-                .query_row("SELECT status FROM todo_items WHERE id=?1", params![id], |row| row.get(0))
+                .query_row(
+                    "SELECT status FROM todo_items WHERE id=?1",
+                    params![id],
+                    |row| row.get(0),
+                )
                 .map_err(|_| "事项不存在".to_string())?;
             if !is_open_status(&status) {
                 return Err("已结束的事项不可修改重复规则".to_string());
@@ -1781,8 +1873,14 @@ fn item_update(payload: &Value) -> Result<Value, String> {
 
             let recurrence = recurrence_payload(payload);
             let current_rule = load_series_rule(&conn, sid)?;
-            let current_rule_mode = current_rule.as_ref().map(|r| r.rule_mode.as_str()).unwrap_or("simple");
-            let current_rule_json_str = current_rule.as_ref().map(|r| r.rule_json.as_str()).unwrap_or("{}");
+            let current_rule_mode = current_rule
+                .as_ref()
+                .map(|r| r.rule_mode.as_str())
+                .unwrap_or("simple");
+            let current_rule_json_str = current_rule
+                .as_ref()
+                .map(|r| r.rule_json.as_str())
+                .unwrap_or("{}");
 
             let rule_mode = normalize_rule_mode(payload, current_rule_mode);
             let rule = recurrence.get("rule").cloned().unwrap_or_else(|| {
@@ -1796,7 +1894,10 @@ fn item_update(payload: &Value) -> Result<Value, String> {
                 .filter(|v| !v.is_empty())
                 .map(ToString::to_string)
                 .unwrap_or_else(|| {
-                    current_rule.as_ref().map(|r| r.timezone.clone()).unwrap_or_else(|| "local".to_string())
+                    current_rule
+                        .as_ref()
+                        .map(|r| r.timezone.clone())
+                        .unwrap_or_else(|| "local".to_string())
                 });
             let start_at = if has_start_datetime(payload) {
                 parse_start_datetime(payload)?
@@ -1808,7 +1909,8 @@ fn item_update(payload: &Value) -> Result<Value, String> {
             } else {
                 let cr = current_rule.as_ref();
                 (
-                    cr.map(|r| r.end_mode.clone()).unwrap_or_else(|| "never".to_string()),
+                    cr.map(|r| r.end_mode.clone())
+                        .unwrap_or_else(|| "never".to_string()),
                     cr.and_then(|r| r.end_value.clone()),
                 )
             };
@@ -1912,7 +2014,13 @@ fn item_delete(payload: &Value) -> Result<Value, String> {
         .query_row(
             "SELECT kind, series_id, status FROM todo_items WHERE id=?1",
             params![id],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<i64>>(1)?, row.get::<_, String>(2)?)),
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, Option<i64>>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            },
         )
         .optional()
         .map_err(|e| format!("查询事项失败: {e}"))?
@@ -2006,7 +2114,12 @@ fn item_delete(payload: &Value) -> Result<Value, String> {
 
                                     // 使用缓存的支撑表数据
                                     sync_item_assignees(&conn, new_id, &cached_assignee_ids)?;
-                                    sync_item_reminders(&conn, new_id, Some(&next_event_at), &cached_reminder_presets)?;
+                                    sync_item_reminders(
+                                        &conn,
+                                        new_id,
+                                        Some(&next_event_at),
+                                        &cached_reminder_presets,
+                                    )?;
                                     sync_item_links(&conn, new_id, &cached_links)?;
                                     // occurrence_index 不递增（删除不算完成）
                                 }
@@ -2026,14 +2139,26 @@ fn item_delete(payload: &Value) -> Result<Value, String> {
 }
 
 fn delete_item_by_id(conn: &Connection, item_id: i64) -> Result<(), String> {
-    conn.execute("DELETE FROM todo_item_assignees WHERE item_id=?1", params![item_id])
-        .map_err(|e| format!("删除事项执行人失败: {e}"))?;
-    conn.execute("DELETE FROM todo_item_reminders WHERE item_id=?1", params![item_id])
-        .map_err(|e| format!("删除事项提醒失败: {e}"))?;
-    conn.execute("DELETE FROM todo_item_links WHERE item_id=?1", params![item_id])
-        .map_err(|e| format!("删除事项链接失败: {e}"))?;
-    conn.execute("DELETE FROM todo_reminder_events WHERE task_id=?1", params![item_id])
-        .map_err(|e| format!("删除提醒事件失败: {e}"))?;
+    conn.execute(
+        "DELETE FROM todo_item_assignees WHERE item_id=?1",
+        params![item_id],
+    )
+    .map_err(|e| format!("删除事项执行人失败: {e}"))?;
+    conn.execute(
+        "DELETE FROM todo_item_reminders WHERE item_id=?1",
+        params![item_id],
+    )
+    .map_err(|e| format!("删除事项提醒失败: {e}"))?;
+    conn.execute(
+        "DELETE FROM todo_item_links WHERE item_id=?1",
+        params![item_id],
+    )
+    .map_err(|e| format!("删除事项链接失败: {e}"))?;
+    conn.execute(
+        "DELETE FROM todo_reminder_events WHERE task_id=?1",
+        params![item_id],
+    )
+    .map_err(|e| format!("删除提醒事件失败: {e}"))?;
     conn.execute("DELETE FROM todo_items WHERE id=?1", params![item_id])
         .map_err(|e| format!("删除事项失败: {e}"))?;
     Ok(())
@@ -2061,21 +2186,22 @@ fn item_toggle_pin(payload: &Value) -> Result<Value, String> {
 
 fn item_snooze(payload: &Value) -> Result<Value, String> {
     let id = parse_i64(payload, "id").ok_or("缺少事项 id")?;
-    let minutes = parse_i64(payload, "minutes").unwrap_or(10).clamp(1, 24 * 60);
+    let minutes = parse_i64(payload, "minutes")
+        .unwrap_or(10)
+        .clamp(1, 24 * 60);
     let conn = db_conn()?;
     let status: String = conn
-        .query_row("SELECT status FROM todo_items WHERE id=?1", params![id], |row| {
-            row.get(0)
-        })
+        .query_row(
+            "SELECT status FROM todo_items WHERE id=?1",
+            params![id],
+            |row| row.get(0),
+        )
         .map_err(|_| "事项不存在".to_string())?;
     if status == STATUS_COMPLETED {
         return Err("已完成事项不能稍后提醒".to_string());
     }
-    let item_reminder_id = resolve_item_reminder_id_for_snooze(
-        &conn,
-        id,
-        parse_i64(payload, "taskReminderId"),
-    )?;
+    let item_reminder_id =
+        resolve_item_reminder_id_for_snooze(&conn, id, parse_i64(payload, "taskReminderId"))?;
     let snooze_until = (Utc::now() + Duration::minutes(minutes)).to_rfc3339();
     conn.execute(
         "UPDATE todo_item_reminders
@@ -2185,7 +2311,11 @@ fn reminder_mark_read(payload: &Value) -> Result<Value, String> {
         .get("ids")
         .and_then(Value::as_array)
         .ok_or("缺少提醒事件 id")?;
-    let values: Vec<i64> = ids.iter().filter_map(Value::as_i64).filter(|id| *id > 0).collect();
+    let values: Vec<i64> = ids
+        .iter()
+        .filter_map(Value::as_i64)
+        .filter(|id| *id > 0)
+        .collect();
     if values.is_empty() {
         return Err("缺少有效提醒事件 id".to_string());
     }
@@ -2213,10 +2343,7 @@ fn reminder_mark_read(payload: &Value) -> Result<Value, String> {
 }
 
 fn open_link(payload: &Value) -> Result<Value, String> {
-    let url = payload["url"]
-        .as_str()
-        .ok_or("url 不能为空")?
-        .trim();
+    let url = payload["url"].as_str().ok_or("url 不能为空")?.trim();
     if url.is_empty() {
         return Err("url 不能为空".to_string());
     }
@@ -2226,7 +2353,10 @@ fn open_link(payload: &Value) -> Result<Value, String> {
 
 // ── dispatch_due_reminders ────────────────────────────────
 
-fn dispatch_due_reminders(conn: &Connection, now: DateTime<Utc>) -> Result<Vec<ReminderDispatch>, String> {
+fn dispatch_due_reminders(
+    conn: &Connection,
+    now: DateTime<Utc>,
+) -> Result<Vec<ReminderDispatch>, String> {
     let now_str = now.to_rfc3339();
     let mut stmt = conn
         .prepare(
@@ -2515,9 +2645,12 @@ mod tests {
 
     #[test]
     fn cron_expression_should_reject_non_five_minute_schedule() {
-        let error = resolve_cron_expression("cron", &json!({
-            "expression": "3 9 * * *"
-        }))
+        let error = resolve_cron_expression(
+            "cron",
+            &json!({
+                "expression": "3 9 * * *"
+            }),
+        )
         .expect_err("should reject");
         assert!(error.contains("5 分钟"));
     }
@@ -2599,8 +2732,16 @@ mod tests {
 
     #[test]
     fn status_transition_for_kind_should_block_recurring_done_to_pending() {
-        assert!(!can_transit_for_kind(STATUS_COMPLETED, STATUS_PENDING, SERIES_KIND_RECURRING));
-        assert!(can_transit_for_kind(STATUS_COMPLETED, STATUS_PENDING, SERIES_KIND_ONE_OFF));
+        assert!(!can_transit_for_kind(
+            STATUS_COMPLETED,
+            STATUS_PENDING,
+            SERIES_KIND_RECURRING
+        ));
+        assert!(can_transit_for_kind(
+            STATUS_COMPLETED,
+            STATUS_PENDING,
+            SERIES_KIND_ONE_OFF
+        ));
     }
 
     #[test]
@@ -2638,7 +2779,10 @@ mod tests {
 
     #[test]
     fn parse_item_kind_should_support_payload_shapes() {
-        assert_eq!(parse_item_kind(&json!({ "kind": "recurring" })), SERIES_KIND_RECURRING);
+        assert_eq!(
+            parse_item_kind(&json!({ "kind": "recurring" })),
+            SERIES_KIND_RECURRING
+        );
         assert_eq!(
             parse_item_kind(&json!({
                 "recurrence": {
@@ -2651,7 +2795,10 @@ mod tests {
             })),
             SERIES_KIND_RECURRING
         );
-        assert_eq!(parse_item_kind(&json!({ "kind": "one_off" })), SERIES_KIND_ONE_OFF);
+        assert_eq!(
+            parse_item_kind(&json!({ "kind": "one_off" })),
+            SERIES_KIND_ONE_OFF
+        );
     }
 
     #[test]

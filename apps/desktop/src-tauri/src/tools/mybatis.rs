@@ -126,7 +126,8 @@ fn extract_params(payload: &Value) -> Result<Value, String> {
     let mut params: Vec<String> = Vec::new();
 
     // 占位符根段 #{name} / ${name}
-    let ph_re = Regex::new(r"[#$]\{\s*([a-zA-Z_][a-zA-Z0-9_.]*)\s*\}").map_err(|e| e.to_string())?;
+    let ph_re =
+        Regex::new(r"[#$]\{\s*([a-zA-Z_][a-zA-Z0-9_.]*)\s*\}").map_err(|e| e.to_string())?;
     for cap in ph_re.captures_iter(sql_template) {
         if let Some(m) = cap.get(1) {
             let root = m.as_str().split('.').next().unwrap_or_default().to_string();
@@ -137,8 +138,8 @@ fn extract_params(payload: &Value) -> Result<Value, String> {
     }
 
     // foreach collection 属性
-    let coll_re =
-        Regex::new(r#"<foreach\b[^>]*\bcollection\s*=\s*["']([^"']+)["']"#).map_err(|e| e.to_string())?;
+    let coll_re = Regex::new(r#"<foreach\b[^>]*\bcollection\s*=\s*["']([^"']+)["']"#)
+        .map_err(|e| e.to_string())?;
     for cap in coll_re.captures_iter(sql_template) {
         if let Some(m) = cap.get(1) {
             let name = m.as_str().to_string();
@@ -149,10 +150,18 @@ fn extract_params(payload: &Value) -> Result<Value, String> {
     }
 
     // test 表达式中的标识符
-    let test_re =
-        Regex::new(r#"<(?:if|when)\b[^>]*\btest\s*=\s*["']([^"']+)["']"#).map_err(|e| e.to_string())?;
+    let test_re = Regex::new(r#"<(?:if|when)\b[^>]*\btest\s*=\s*["']([^"']+)["']"#)
+        .map_err(|e| e.to_string())?;
     let keywords: std::collections::HashSet<&str> = [
-        "null", "true", "false", "and", "or", "not", "instanceof", "_parameter", "_databaseId",
+        "null",
+        "true",
+        "false",
+        "and",
+        "or",
+        "not",
+        "instanceof",
+        "_parameter",
+        "_databaseId",
     ]
     .iter()
     .cloned()
@@ -322,7 +331,9 @@ fn substitute_placeholders(
     let mut out = hash_re
         .replace_all(input, |caps: &regex::Captures<'_>| {
             let path = caps.get(1).map(|m| m.as_str()).unwrap_or_default();
-            let v = resolve_path(path, params, local_scope).cloned().unwrap_or(Value::Null);
+            let v = resolve_path(path, params, local_scope)
+                .cloned()
+                .unwrap_or(Value::Null);
             ctx.bindings.push(json!({
                 "name": path,
                 "value": v,
@@ -336,7 +347,9 @@ fn substitute_placeholders(
     out = dollar_re
         .replace_all(&out, |caps: &regex::Captures<'_>| {
             let path = caps.get(1).map(|m| m.as_str()).unwrap_or_default();
-            let v = resolve_path(path, params, local_scope).cloned().unwrap_or(Value::Null);
+            let v = resolve_path(path, params, local_scope)
+                .cloned()
+                .unwrap_or(Value::Null);
             let raw = value_to_raw_string(&v);
             if ctx.safe_substitution && looks_unsafe(&raw) {
                 ctx.warnings
@@ -408,7 +421,10 @@ fn apply_overrides(mut body: String, prefix_overrides: &str, suffix_overrides: &
             if t.is_empty() {
                 continue;
             }
-            if body.to_ascii_uppercase().starts_with(&t.to_ascii_uppercase()) {
+            if body
+                .to_ascii_uppercase()
+                .starts_with(&t.to_ascii_uppercase())
+            {
                 body = body[t.len()..].trim_start().to_string();
                 break;
             }
@@ -495,7 +511,11 @@ fn resolve_expr_value(expr: &str, params: &Value, local_scope: Option<&Value>) -
         .unwrap_or(Value::Null)
 }
 
-fn resolve_path<'a>(path: &str, params: &'a Value, local_scope: Option<&'a Value>) -> Option<&'a Value> {
+fn resolve_path<'a>(
+    path: &str,
+    params: &'a Value,
+    local_scope: Option<&'a Value>,
+) -> Option<&'a Value> {
     let p = path.trim();
     if p.is_empty() {
         return None;

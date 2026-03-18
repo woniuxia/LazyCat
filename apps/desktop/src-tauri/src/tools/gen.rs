@@ -49,7 +49,9 @@ fn password_strength(payload: &Value) -> Result<Value, String> {
                         break;
                     }
                 }
-                if found { break; }
+                if found {
+                    break;
+                }
             }
         }
         // Also check common sequential like abc, 123
@@ -58,9 +60,7 @@ fn password_strength(payload: &Value) -> Result<Value, String> {
                 let c0 = chars[i] as i32;
                 let c1 = chars[i + 1] as i32;
                 let c2 = chars[i + 2] as i32;
-                if (c1 - c0 == 1 && c2 - c1 == 1)
-                    || (c0 - c1 == 1 && c1 - c2 == 1)
-                {
+                if (c1 - c0 == 1 && c2 - c1 == 1) || (c0 - c1 == 1 && c1 - c2 == 1) {
                     found = true;
                     break;
                 }
@@ -85,7 +85,13 @@ fn password_strength(payload: &Value) -> Result<Value, String> {
     let case_score: u64 = if has_upper && has_lower { 20 } else { 0 };
     let digit_score: u64 = if has_digit { 20 } else { 0 };
     let special_score: u64 = if has_special { 20 } else { 0 };
-    let repeat_score: u64 = if len >= 10 && !has_consecutive_repeat { 20 } else if len >= 10 { 0 } else { 0 };
+    let repeat_score: u64 = if len >= 10 && !has_consecutive_repeat {
+        20
+    } else if len >= 10 {
+        0
+    } else {
+        0
+    };
 
     let mut score = length_score + case_score + digit_score + special_score + repeat_score;
     // Penalize keyboard sequences
@@ -147,7 +153,10 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
     match action {
         "uuid" => Ok(json!(Uuid::new_v4().to_string())),
         "uuid_simple" => Ok(json!(Uuid::new_v4().to_string().replace('-', ""))),
-        "guid" => Ok(json!(format!("{{{}}}", Uuid::new_v4().to_string().to_uppercase()))),
+        "guid" => Ok(json!(format!(
+            "{{{}}}",
+            Uuid::new_v4().to_string().to_uppercase()
+        ))),
         "snowflake" => {
             // Simplified snowflake: 41-bit timestamp (ms since custom epoch) + 10-bit machine + 12-bit sequence
             use std::time::{SystemTime, UNIX_EPOCH};
@@ -229,7 +238,9 @@ mod tests {
         .expect("password");
         let s = out.as_str().unwrap_or_default();
         assert_eq!(s.len(), 24);
-        assert!(s.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()));
+        assert!(s
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()));
     }
 
     #[test]

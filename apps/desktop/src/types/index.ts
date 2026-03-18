@@ -69,3 +69,15 @@ export type {
   TodoRecurrenceInput,
   TodoItemUpsertPayload,
 } from "./todo";
+export type {
+  InboxItemType,
+  InboxStorageKind,
+  InboxBucket,
+  InboxFileRef,
+  InboxItemSummary,
+  InboxItemDetail,
+  InboxListQuery,
+  InboxFacetCounts,
+  InboxListResult,
+  InboxCaptureStatus,
+} from "./inbox";

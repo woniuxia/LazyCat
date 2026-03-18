@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::fs;
 use tauri_plugin_autostart::ManagerExt;
 
-use super::helpers::{db_conn, get_data_dir, get_base_dir, get_config_path};
+use super::helpers::{db_conn, get_base_dir, get_config_path, get_data_dir};
 
 pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
     match action {
@@ -22,7 +22,11 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
     }
 }
 
-pub fn execute_with_app(action: &str, payload: &Value, app: &tauri::AppHandle) -> Result<Value, String> {
+pub fn execute_with_app(
+    action: &str,
+    payload: &Value,
+    app: &tauri::AppHandle,
+) -> Result<Value, String> {
     match action {
         "enable_autostart" => enable_autostart(app),
         "disable_autostart" => disable_autostart(app),
@@ -138,8 +142,8 @@ fn settings_import(payload: &Value) -> Result<Value, String> {
     if data_str.is_empty() {
         return Err("import data is empty".into());
     }
-    let data: Value = serde_json::from_str(data_str)
-        .map_err(|e| format!("parse import data failed: {e}"))?;
+    let data: Value =
+        serde_json::from_str(data_str).map_err(|e| format!("parse import data failed: {e}"))?;
 
     let conn = db_conn()?;
 
@@ -189,27 +193,20 @@ fn settings_import(payload: &Value) -> Result<Value, String> {
 }
 
 fn export_to_file(payload: &Value) -> Result<Value, String> {
-    let path = payload["path"]
-        .as_str()
-        .ok_or("path is required")?;
+    let path = payload["path"].as_str().ok_or("path is required")?;
     let data = settings_export()?;
     let json_str = serde_json::to_string_pretty(&data)
         .map_err(|e| format!("serialize export data failed: {e}"))?;
-    fs::write(path, json_str)
-        .map_err(|e| format!("write file failed: {e}"))?;
+    fs::write(path, json_str).map_err(|e| format!("write file failed: {e}"))?;
     Ok(json!({ "ok": true }))
 }
 
 fn import_from_file(payload: &Value) -> Result<Value, String> {
-    let path = payload["path"]
-        .as_str()
-        .ok_or("path is required")?;
+    let path = payload["path"].as_str().ok_or("path is required")?;
     let mode = payload["mode"].as_str().unwrap_or("merge");
-    let content = fs::read_to_string(path)
-        .map_err(|e| format!("read file failed: {e}"))?;
+    let content = fs::read_to_string(path).map_err(|e| format!("read file failed: {e}"))?;
     // Validate JSON
-    serde_json::from_str::<Value>(&content)
-        .map_err(|e| format!("invalid JSON: {e}"))?;
+    serde_json::from_str::<Value>(&content).map_err(|e| format!("invalid JSON: {e}"))?;
     settings_import(&json!({ "data": content, "mode": mode }))
 }
 
@@ -227,31 +224,28 @@ fn action_get_data_dir() -> Result<Value, String> {
 }
 
 fn action_set_data_dir(payload: &Value) -> Result<Value, String> {
-    let target = payload["path"]
-        .as_str()
-        .ok_or("path is required")?;
+    let target = payload["path"].as_str().ok_or("path is required")?;
     let target_path = std::path::PathBuf::from(target);
 
     // 1. Create target dir, test write permission
-    fs::create_dir_all(&target_path)
-        .map_err(|e| format!("create target dir failed: {e}"))?;
+    fs::create_dir_all(&target_path).map_err(|e| format!("create target dir failed: {e}"))?;
     let test_file = target_path.join(".lazycat_write_test");
-    fs::write(&test_file, "test")
-        .map_err(|e| format!("target dir not writable: {e}"))?;
+    fs::write(&test_file, "test").map_err(|e| format!("target dir not writable: {e}"))?;
     let _ = fs::remove_file(&test_file);
 
     // 2. Check target doesn't already have lazycat.sqlite (avoid overwriting someone else's data)
     let target_db = target_path.join("lazycat.sqlite");
     if target_db.exists() {
-        return Err("target directory already contains lazycat.sqlite, choose an empty directory".into());
+        return Err(
+            "target directory already contains lazycat.sqlite, choose an empty directory".into(),
+        );
     }
 
     // 3. Copy current data to new directory
     let current_dir = get_data_dir()?;
     let current_db = current_dir.join("lazycat.sqlite");
     if current_db.exists() {
-        fs::copy(&current_db, &target_db)
-            .map_err(|e| format!("copy database failed: {e}"))?;
+        fs::copy(&current_db, &target_db).map_err(|e| format!("copy database failed: {e}"))?;
     }
 
     // Copy hosts-backups directory
@@ -266,8 +260,7 @@ fn action_set_data_dir(payload: &Value) -> Result<Value, String> {
     let config = json!({ "data_dir": target });
     let config_str = serde_json::to_string_pretty(&config)
         .map_err(|e| format!("serialize config failed: {e}"))?;
-    fs::write(&config_path, config_str)
-        .map_err(|e| format!("write config.json failed: {e}"))?;
+    fs::write(&config_path, config_str).map_err(|e| format!("write config.json failed: {e}"))?;
 
     Ok(json!({ "ok": true, "restartRequired": true }))
 }
@@ -283,21 +276,20 @@ fn action_reset_data_dir() -> Result<Value, String> {
             fs::write(&config_path, new_content)
                 .map_err(|e| format!("write config.json failed: {e}"))?;
         } else {
-            fs::write(&config_path, "{}")
-                .map_err(|e| format!("write config.json failed: {e}"))?;
+            fs::write(&config_path, "{}").map_err(|e| format!("write config.json failed: {e}"))?;
         }
     }
     Ok(json!({ "ok": true, "restartRequired": true }))
 }
 
 fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> Result<(), String> {
-    fs::create_dir_all(dst)
-        .map_err(|e| format!("create dir {:?} failed: {e}", dst))?;
-    let entries = fs::read_dir(src)
-        .map_err(|e| format!("read dir {:?} failed: {e}", src))?;
+    fs::create_dir_all(dst).map_err(|e| format!("create dir {:?} failed: {e}", dst))?;
+    let entries = fs::read_dir(src).map_err(|e| format!("read dir {:?} failed: {e}", src))?;
     for entry in entries {
         let entry = entry.map_err(|e| format!("read entry failed: {e}"))?;
-        let file_type = entry.file_type().map_err(|e| format!("get file type failed: {e}"))?;
+        let file_type = entry
+            .file_type()
+            .map_err(|e| format!("get file type failed: {e}"))?;
         let dst_path = dst.join(entry.file_name());
         if file_type.is_dir() {
             copy_dir_recursive(&entry.path(), &dst_path)?;
@@ -310,7 +302,8 @@ fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> Result<()
 }
 
 fn enable_autostart(app: &tauri::AppHandle) -> Result<Value, String> {
-    app.autolaunch().enable()
+    app.autolaunch()
+        .enable()
         .map_err(|e| format!("enable autostart failed: {e}"))?;
 
     // 同时保存到数据库
@@ -326,7 +319,8 @@ fn enable_autostart(app: &tauri::AppHandle) -> Result<Value, String> {
 }
 
 fn disable_autostart(app: &tauri::AppHandle) -> Result<Value, String> {
-    app.autolaunch().disable()
+    app.autolaunch()
+        .disable()
         .map_err(|e| format!("disable autostart failed: {e}"))?;
 
     // 同时保存到数据库
@@ -342,7 +336,9 @@ fn disable_autostart(app: &tauri::AppHandle) -> Result<Value, String> {
 }
 
 fn is_autostart_enabled(app: &tauri::AppHandle) -> Result<Value, String> {
-    let enabled = app.autolaunch().is_enabled()
+    let enabled = app
+        .autolaunch()
+        .is_enabled()
         .map_err(|e| format!("check autostart status failed: {e}"))?;
     Ok(json!({ "enabled": enabled }))
 }

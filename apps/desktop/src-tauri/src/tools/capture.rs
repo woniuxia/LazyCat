@@ -97,7 +97,11 @@ fn sessions() -> &'static Mutex<HashMap<String, CaptureSession>> {
 pub fn check_npcap() -> bool {
     // Npcap installs wpcap.dll in System32 or its own directory
     let sys32 = std::env::var("SYSTEMROOT")
-        .map(|r| std::path::PathBuf::from(r).join("System32").join("wpcap.dll"))
+        .map(|r| {
+            std::path::PathBuf::from(r)
+                .join("System32")
+                .join("wpcap.dll")
+        })
         .ok();
     let npcap_dir = std::env::var("SYSTEMROOT")
         .map(|r| {
@@ -126,11 +130,7 @@ pub fn list_interfaces() -> Result<Vec<InterfaceInfo>, String> {
         .map(|d| InterfaceInfo {
             name: d.name.clone(),
             description: d.desc.unwrap_or_default(),
-            addresses: d
-                .addresses
-                .iter()
-                .map(|a| a.addr.to_string())
-                .collect(),
+            addresses: d.addresses.iter().map(|a| a.addr.to_string()).collect(),
         })
         .collect();
     Ok(result)
@@ -298,7 +298,9 @@ pub fn start_capture(
 ) -> Result<(), String> {
     // Check if session already exists
     {
-        let sessions = sessions().lock().map_err(|e| format!("锁定会话失败: {e}"))?;
+        let sessions = sessions()
+            .lock()
+            .map_err(|e| format!("锁定会话失败: {e}"))?;
         if sessions.contains_key(&session_id) {
             return Err("会话已存在，请先停止当前捕获".into());
         }
@@ -336,7 +338,9 @@ pub fn start_capture(
     };
 
     {
-        let mut sessions = sessions().lock().map_err(|e| format!("锁定会话失败: {e}"))?;
+        let mut sessions = sessions()
+            .lock()
+            .map_err(|e| format!("锁定会话失败: {e}"))?;
         sessions.insert(session_id.clone(), session);
     }
 
@@ -517,7 +521,9 @@ pub fn export_pcap(session_id: &str, path: &str) -> Result<(), String> {
         });
     }
 
-    savefile.flush().map_err(|e| format!("写入 pcap 文件失败: {e}"))?;
+    savefile
+        .flush()
+        .map_err(|e| format!("写入 pcap 文件失败: {e}"))?;
 
     Ok(())
 }

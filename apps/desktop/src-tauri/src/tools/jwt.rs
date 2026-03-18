@@ -4,10 +4,7 @@ use serde_json::{json, Value};
 pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
     match action {
         "decode" => {
-            let token = payload["token"]
-                .as_str()
-                .unwrap_or_default()
-                .trim();
+            let token = payload["token"].as_str().unwrap_or_default().trim();
 
             let parts: Vec<&str> = token.split('.').collect();
             if parts.len() != 3 {
@@ -81,7 +78,10 @@ mod tests {
         assert_eq!(out["payload"]["sub"], "u1");
         assert_eq!(out["signature"], "736967");
         assert_eq!(out["expired"], false);
-        assert!(out["exp_readable"].as_str().unwrap_or_default().contains("UTC"));
+        assert!(out["exp_readable"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("UTC"));
     }
 
     #[test]
@@ -90,6 +90,8 @@ mod tests {
         assert!(err.contains("expected 3 parts"));
 
         let err = execute("decode", &json!({ "token": "bad.abc.def" })).expect_err("bad header");
-        assert!(err.contains("Failed to decode header") || err.contains("Failed to parse header JSON"));
+        assert!(
+            err.contains("Failed to decode header") || err.contains("Failed to parse header JSON")
+        );
     }
 }

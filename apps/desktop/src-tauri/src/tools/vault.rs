@@ -3,10 +3,10 @@ use openssl::hash::MessageDigest;
 use openssl::pkcs5::pbkdf2_hmac;
 use openssl::rand::rand_bytes;
 use openssl::symm::{decrypt, encrypt, Cipher};
-use rusqlite::{Connection, params};
+use rusqlite::{params, Connection};
 use serde_json::{json, Value};
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use zeroize::Zeroize;
 
 use super::helpers::db_conn;
@@ -29,8 +29,11 @@ fn get_entry_tags(conn: &Connection, entry_id: i64) -> Result<Vec<String>, Strin
 
 fn set_entry_tags(conn: &Connection, entry_id: i64, tags: &[String]) -> Result<(), String> {
     // Delete existing tags
-    conn.execute("DELETE FROM vault_entry_tags WHERE entry_id = ?1", params![entry_id])
-        .map_err(|e| format!("delete old tags: {e}"))?;
+    conn.execute(
+        "DELETE FROM vault_entry_tags WHERE entry_id = ?1",
+        params![entry_id],
+    )
+    .map_err(|e| format!("delete old tags: {e}"))?;
     // Insert new tags
     for tag in tags {
         let trimmed = tag.trim();
@@ -47,8 +50,11 @@ fn set_entry_tags(conn: &Connection, entry_id: i64, tags: &[String]) -> Result<(
 }
 
 fn clear_entry_tags(conn: &Connection, entry_id: i64) -> Result<(), String> {
-    conn.execute("DELETE FROM vault_entry_tags WHERE entry_id = ?1", params![entry_id])
-        .map_err(|e| format!("clear tags: {e}"))?;
+    conn.execute(
+        "DELETE FROM vault_entry_tags WHERE entry_id = ?1",
+        params![entry_id],
+    )
+    .map_err(|e| format!("clear tags: {e}"))?;
     Ok(())
 }
 
@@ -182,7 +188,9 @@ fn aes256_decrypt(key: &[u8; KEY_LEN], iv: &[u8], ciphertext: &[u8]) -> Result<V
 }
 
 fn get_session_key() -> Result<[u8; KEY_LEN], String> {
-    let mut guard = VAULT_SESSION.lock().map_err(|e| format!("session lock: {e}"))?;
+    let mut guard = VAULT_SESSION
+        .lock()
+        .map_err(|e| format!("session lock: {e}"))?;
     ensure_session_alive(&mut guard)?;
 
     match guard.as_mut() {
@@ -252,7 +260,9 @@ fn cmd_setup(payload: &Value) -> Result<Value, String> {
     let hard_lock_after_secs = load_hard_lock_after_secs(&conn);
 
     // 初始化后自动解锁
-    let mut guard = VAULT_SESSION.lock().map_err(|e| format!("session lock: {e}"))?;
+    let mut guard = VAULT_SESSION
+        .lock()
+        .map_err(|e| format!("session lock: {e}"))?;
     *guard = Some(VaultSession {
         key: Some(key),
         last_activity: Instant::now(),
@@ -287,7 +297,8 @@ fn cmd_unlock(payload: &Value) -> Result<Value, String> {
         .map_err(|e| format!("invalid encrypted data: {e}"))?;
 
     let key = derive_key(password, &salt)?;
-    let decrypted = aes256_decrypt(&key, &iv, &encrypted).map_err(|_| "wrong_password".to_string())?;
+    let decrypted =
+        aes256_decrypt(&key, &iv, &encrypted).map_err(|_| "wrong_password".to_string())?;
 
     if decrypted != CANARY_PLAINTEXT {
         return Err("wrong_password".to_string());
@@ -295,7 +306,9 @@ fn cmd_unlock(payload: &Value) -> Result<Value, String> {
 
     let hard_lock_after_secs = load_hard_lock_after_secs(&conn);
 
-    let mut guard = VAULT_SESSION.lock().map_err(|e| format!("session lock: {e}"))?;
+    let mut guard = VAULT_SESSION
+        .lock()
+        .map_err(|e| format!("session lock: {e}"))?;
     *guard = Some(VaultSession {
         key: Some(key),
         last_activity: Instant::now(),
@@ -306,16 +319,18 @@ fn cmd_unlock(payload: &Value) -> Result<Value, String> {
 }
 
 fn cmd_lock(_payload: &Value) -> Result<Value, String> {
-    let mut guard = VAULT_SESSION.lock().map_err(|e| format!("session lock: {e}"))?;
+    let mut guard = VAULT_SESSION
+        .lock()
+        .map_err(|e| format!("session lock: {e}"))?;
     hard_lock_session(&mut guard);
     Ok(json!({ "ok": true, "lockState": VaultLockState::Locked.as_str() }))
 }
 
 fn cmd_touch(_payload: &Value) -> Result<Value, String> {
-    let hard_lock_after_secs = db_conn()
-        .ok()
-        .map(|conn| load_hard_lock_after_secs(&conn));
-    let mut guard = VAULT_SESSION.lock().map_err(|e| format!("session lock: {e}"))?;
+    let hard_lock_after_secs = db_conn().ok().map(|conn| load_hard_lock_after_secs(&conn));
+    let mut guard = VAULT_SESSION
+        .lock()
+        .map_err(|e| format!("session lock: {e}"))?;
     ensure_session_alive(&mut guard)?;
 
     match guard.as_mut() {
@@ -351,9 +366,15 @@ fn cmd_change_password(payload: &Value) -> Result<Value, String> {
         )
         .map_err(|_| "vault not initialized".to_string())?;
 
-    let old_salt = BASE64.decode(&salt_b64).map_err(|e| format!("invalid salt: {e}"))?;
-    let old_iv = BASE64.decode(&iv_b64).map_err(|e| format!("invalid iv: {e}"))?;
-    let old_encrypted = BASE64.decode(&encrypted_b64).map_err(|e| format!("invalid data: {e}"))?;
+    let old_salt = BASE64
+        .decode(&salt_b64)
+        .map_err(|e| format!("invalid salt: {e}"))?;
+    let old_iv = BASE64
+        .decode(&iv_b64)
+        .map_err(|e| format!("invalid iv: {e}"))?;
+    let old_encrypted = BASE64
+        .decode(&encrypted_b64)
+        .map_err(|e| format!("invalid data: {e}"))?;
     let old_key = derive_key(current_password, &old_salt)?;
 
     let decrypted = aes256_decrypt(&old_key, &old_iv, &old_encrypted)
@@ -380,12 +401,18 @@ fn cmd_change_password(payload: &Value) -> Result<Value, String> {
             .map_err(|e| format!("collect entries: {e}"))?
     };
 
-    let tx = conn.unchecked_transaction().map_err(|e| format!("begin tx: {e}"))?;
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| format!("begin tx: {e}"))?;
 
     let re_encrypted_count = entries.len();
     for (id, entry_iv_b64, entry_blob_b64) in &entries {
-        let entry_iv = BASE64.decode(entry_iv_b64).map_err(|e| format!("entry iv: {e}"))?;
-        let entry_blob = BASE64.decode(entry_blob_b64).map_err(|e| format!("entry blob: {e}"))?;
+        let entry_iv = BASE64
+            .decode(entry_iv_b64)
+            .map_err(|e| format!("entry iv: {e}"))?;
+        let entry_blob = BASE64
+            .decode(entry_blob_b64)
+            .map_err(|e| format!("entry blob: {e}"))?;
 
         // Decrypt with old key
         let plain = aes256_decrypt(&old_key, &entry_iv, &entry_blob)
@@ -418,7 +445,9 @@ fn cmd_change_password(payload: &Value) -> Result<Value, String> {
     let hard_lock_after_secs = load_hard_lock_after_secs(&conn);
 
     // 改密后刷新当前会话，继续保持已解锁状态
-    let mut guard = VAULT_SESSION.lock().map_err(|e| format!("session lock: {e}"))?;
+    let mut guard = VAULT_SESSION
+        .lock()
+        .map_err(|e| format!("session lock: {e}"))?;
     *guard = Some(VaultSession {
         key: Some(new_key),
         last_activity: Instant::now(),
@@ -482,7 +511,8 @@ fn cmd_list(payload: &Value) -> Result<Value, String> {
     }
     sql.push_str(" ORDER BY updated_at DESC");
 
-    let params_refs: Vec<&dyn rusqlite::types::ToSql> = param_values.iter().map(|p| p.as_ref()).collect();
+    let params_refs: Vec<&dyn rusqlite::types::ToSql> =
+        param_values.iter().map(|p| p.as_ref()).collect();
 
     let mut stmt = conn.prepare(&sql).map_err(|e| format!("prepare: {e}"))?;
     let rows = stmt
@@ -557,8 +587,7 @@ fn cmd_get(payload: &Value) -> Result<Value, String> {
     let iv = BASE64.decode(&iv_b64).map_err(|e| format!("iv: {e}"))?;
     let blob = BASE64.decode(&blob_b64).map_err(|e| format!("blob: {e}"))?;
     let plain = aes256_decrypt(&key, &iv, &blob)?;
-    let fields: Value =
-        serde_json::from_slice(&plain).map_err(|e| format!("parse fields: {e}"))?;
+    let fields: Value = serde_json::from_slice(&plain).map_err(|e| format!("parse fields: {e}"))?;
 
     // Get tags
     let tags = get_entry_tags(&conn, id).unwrap_or_default();
@@ -577,9 +606,7 @@ fn cmd_get(payload: &Value) -> Result<Value, String> {
 
 fn cmd_create(payload: &Value) -> Result<Value, String> {
     let key = get_session_key()?;
-    let category = payload["category"]
-        .as_str()
-        .ok_or("category required")?;
+    let category = payload["category"].as_str().ok_or("category required")?;
     if !["app", "server", "database"].contains(&category) {
         return Err("invalid category".to_string());
     }
@@ -726,14 +753,8 @@ fn cmd_tag_stats(_payload: &Value) -> Result<Value, String> {
 
 fn cmd_rename_tag(payload: &Value) -> Result<Value, String> {
     let _key = get_session_key()?;
-    let old_tag = payload["oldTag"]
-        .as_str()
-        .ok_or("oldTag required")?
-        .trim();
-    let new_tag = payload["newTag"]
-        .as_str()
-        .ok_or("newTag required")?
-        .trim();
+    let old_tag = payload["oldTag"].as_str().ok_or("oldTag required")?.trim();
+    let new_tag = payload["newTag"].as_str().ok_or("newTag required")?.trim();
 
     if old_tag.is_empty() || new_tag.is_empty() {
         return Err("tag cannot be empty".to_string());
@@ -770,10 +791,7 @@ fn cmd_rename_tag(payload: &Value) -> Result<Value, String> {
 
 fn cmd_delete_tag(payload: &Value) -> Result<Value, String> {
     let _key = get_session_key()?;
-    let tag = payload["tag"]
-        .as_str()
-        .ok_or("tag required")?
-        .trim();
+    let tag = payload["tag"].as_str().ok_or("tag required")?.trim();
 
     if tag.is_empty() {
         return Err("tag cannot be empty".to_string());
@@ -901,7 +919,8 @@ mod tests {
 
     #[test]
     fn test_build_fields_app() {
-        let p = json!({ "url": "https://x.com", "account": "admin", "password": "123", "notes": "n" });
+        let p =
+            json!({ "url": "https://x.com", "account": "admin", "password": "123", "notes": "n" });
         let f = build_fields("app", &p);
         assert_eq!(f["url"], "https://x.com");
         assert_eq!(f["account"], "admin");

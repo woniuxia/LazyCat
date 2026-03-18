@@ -1,4 +1,4 @@
-﻿use chrono::{DateTime, Local, TimeZone, Utc};
+use chrono::{DateTime, Local, TimeZone, Utc};
 use chrono_tz::Tz;
 use cron::Schedule;
 use serde_json::{json, Value};
@@ -37,7 +37,10 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
             )))
         }
         "preview" => {
-            let expression = payload["expression"].as_str().unwrap_or("0 * * * * *").trim();
+            let expression = payload["expression"]
+                .as_str()
+                .unwrap_or("0 * * * * *")
+                .trim();
             let count = payload["count"].as_u64().unwrap_or(5) as usize;
 
             let normalized = normalize_expression(expression)?;
@@ -148,7 +151,9 @@ fn normalize_expression(expression: &str) -> Result<NormalizedCron, String> {
     let mut warnings = Vec::new();
 
     if parts.len() == 7 {
-        return Err("当前仅支持 Spring 6 字段（秒 分 时 日 月 周），不支持 year（第 7 字段）。".to_string());
+        return Err(
+            "当前仅支持 Spring 6 字段（秒 分 时 日 月 周），不支持 year（第 7 字段）。".to_string(),
+        );
     }
 
     if parts.len() != 5 && parts.len() != 6 {
@@ -206,7 +211,11 @@ fn parse_timezone(input: &str) -> (PreviewTimezone, String, Option<String>) {
     }
 }
 
-fn collect_preview_items<TzType>(schedule: &Schedule, now: DateTime<TzType>, count: usize) -> Vec<Value>
+fn collect_preview_items<TzType>(
+    schedule: &Schedule,
+    now: DateTime<TzType>,
+    count: usize,
+) -> Vec<Value>
 where
     TzType: TimeZone,
     TzType::Offset: std::fmt::Display,

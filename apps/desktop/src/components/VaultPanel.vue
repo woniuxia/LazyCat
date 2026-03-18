@@ -381,7 +381,12 @@
 import { ref, reactive, computed, onMounted, onBeforeUnmount } from "vue";
 import { ElMessageBox, ElMessage } from "element-plus";
 import { listen } from "@tauri-apps/api/event";
-import { invokeToolByChannel } from "../bridge/tauri";
+import { invokeToolByChannel, suppressClipboardCapture } from "../bridge/tauri";
+import {
+  useClipboardSuggestion,
+  type PendingToolInput,
+  type VaultPendingDraft,
+} from "../composables/useClipboardSuggestion";
 import { getVaultLockProfile, getVaultLockProfilePolicy } from "../composables/useSettings";
 import VaultLockScreen from "./VaultLockScreen.vue";
 import VaultEntryDialog from "./VaultEntryDialog.vue";
@@ -425,6 +430,10 @@ interface VaultStatus {
 interface VaultLockPolicy {
   hideSensitiveAfterSecs: number;
   hardLockAfterSecs: number;
+}
+
+interface VaultEntrySeed extends VaultPendingDraft {
+  fields?: Record<string, unknown>;
 }
 
 const vaultSetup = ref(false);
@@ -471,6 +480,8 @@ let pwClipboardTimer: ReturnType<typeof setTimeout> | null = null;
 const copyFeedbackRow = ref<number | null>(null);
 const copyFeedbackAccount = ref<number | null>(null);
 const unlocked = computed(() => lockState.value === "unlocked");
+const pendingEntrySeed = ref<VaultEntrySeed | null>(null);
+const { watchPendingToolInput } = useClipboardSuggestion();
 
 const filteredEntries = computed(() => {
   let list = entries.value;
@@ -507,6 +518,160 @@ function highlightKeyword(text: string, kw: string): string {
 }
 
 const allTags = computed(() => tagStats.value.map(s => s.tag));
+
+function normalizePendingText(text: string): string {
+  return text.replace(/\r\n?/g, "\n").trim();
+}
+
+function firstNonEmptyLine(text: string): string {
+  return (
+    text
+      .split("\n")
+      .map((line) => line.trim())
+      .find(Boolean) || ""
+  );
+}
+
+function findLabeledValue(text: string, labels: string[]): string {
+  for (const rawLine of text.split("\n")) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    for (const label of labels) {
+      const matcher = new RegExp(`^${label}\\s*[:：]\\s*(.+)$`, "i");
+      const matched = line.match(matcher);
+      if (matched?.[1]?.trim()) return matched[1].trim();
+    }
+  }
+  return "";
+}
+
+function inferDatabaseType(text: string): string {
+  const source = text.toLowerCase();
+  if (source.includes("postgresql") || source.includes("postgres")) return "PostgreSQL";
+  if (source.includes("sql server")) return "SQL Server";
+  if (source.includes("mongodb")) return "MongoDB";
+  if (source.includes("sqlite")) return "SQLite";
+  if (source.includes("oracle")) return "Oracle";
+  if (source.includes("redis")) return "Redis";
+  if (source.includes("kingbase")) return "Kingbase";
+  if (source.includes("dameng") || source.includes("达梦")) return "DaMeng";
+  if (source.includes("tidb")) return "TiDB";
+  if (source.includes("mysql")) return "MySQL";
+  return "";
+}
+
+function buildVaultSeedFromPendingInput(input: PendingToolInput): VaultEntrySeed {
+  const text = normalizePendingText(input.text || "");
+  const explicitDraft = input.vaultDraft;
+  const explicitFields = explicitDraft?.fields || {};
+  const explicitNotes =
+    typeof explicitFields.notes === "string" && explicitFields.notes.trim()
+      ? explicitFields.notes.trim()
+      : "";
+
+  const labeledUrl =
+    findLabeledValue(text, ["url", "uri", "网址", "链接", "地址"]) ||
+    "";
+  const inlineUrl = text.match(/https?:\/\/[^\s]+/i)?.[0] || "";
+  const url = labeledUrl || inlineUrl;
+
+  const labeledAccount =
+    findLabeledValue(text, ["账号", "用户名", "user", "username", "邮箱", "email"]) || "";
+  const password =
+    findLabeledValue(text, ["密码", "password", "passwd", "secret"]) || "";
+  const address =
+    findLabeledValue(text, ["host", "hostname", "主机", "ip", "地址", "server"]) ||
+    (url ? (() => {
+      try {
+        return new URL(url).hostname;
+      } catch {
+        return "";
+      }
+    })() : "") ||
+    text.match(/\b(?:\d{1,3}\.){3}\d{1,3}\b/)?.[0] ||
+    "";
+  const portText =
+    findLabeledValue(text, ["port", "端口"]) ||
+    text.match(/:(\d{2,5})(?:\/|$|\s)/)?.[1] ||
+    "";
+  const dbType =
+    (typeof explicitFields.dbType === "string" ? explicitFields.dbType : "") ||
+    inferDatabaseType(text);
+  const dbName =
+    findLabeledValue(text, ["database", "database name", "db", "库名", "数据库"]) || "";
+  const schema =
+    findLabeledValue(text, ["schema", "模式"]) || "";
+
+  let category: "app" | "server" | "database" = explicitDraft?.category || "app";
+  if (!explicitDraft?.category) {
+    if (dbType || dbName || /\b(mysql|postgres|oracle|redis|mongodb|sqlite|kingbase|dameng|tidb)\b/i.test(text)) {
+      category = "database";
+    } else if (address || /\b(ssh|rdp|server|服务器|主机)\b/i.test(text)) {
+      category = "server";
+    }
+  }
+
+  const title =
+    explicitDraft?.title?.trim() ||
+    (input.label || "").trim() ||
+    firstNonEmptyLine(text) ||
+    "来自收纳箱";
+  const notes =
+    explicitNotes && explicitNotes === text
+      ? explicitNotes
+      : [explicitNotes, text].filter(Boolean).join("\n\n");
+
+  return {
+    category,
+    title,
+    environment: explicitDraft?.environment || "",
+    tags: explicitDraft?.tags || [],
+    fields: {
+      ...explicitFields,
+      url: typeof explicitFields.url === "string" ? explicitFields.url : url,
+      account:
+        typeof explicitFields.account === "string" ? explicitFields.account : labeledAccount,
+      password:
+        typeof explicitFields.password === "string" ? explicitFields.password : password,
+      address:
+        typeof explicitFields.address === "string" ? explicitFields.address : address,
+      port:
+        typeof explicitFields.port === "number"
+          ? explicitFields.port
+          : portText
+            ? Number(portText)
+            : undefined,
+      dbType,
+      dbName:
+        typeof explicitFields.dbName === "string" ? explicitFields.dbName : dbName,
+      schema:
+        typeof explicitFields.schema === "string" ? explicitFields.schema : schema,
+      notes,
+    },
+  };
+}
+
+function openCreateEntry(seed?: VaultEntrySeed | null) {
+  entryDialog.value?.show(undefined, seed || undefined);
+  recordVaultActivity();
+}
+
+function maybeOpenPendingEntrySeed() {
+  if (!pendingEntrySeed.value || !unlocked.value) return;
+  const seed = pendingEntrySeed.value;
+  pendingEntrySeed.value = null;
+  openCreateEntry(seed);
+}
+
+async function applyPendingVaultInput(input: PendingToolInput) {
+  const seed = buildVaultSeedFromPendingInput(input);
+  if (!initialized.value || !unlocked.value) {
+    pendingEntrySeed.value = seed;
+    ElMessage.info("已准备密码库草稿，解锁后自动打开");
+    return;
+  }
+  openCreateEntry(seed);
+}
 
 function getLockPolicy(): VaultLockPolicy {
   return getVaultLockProfilePolicy(getVaultLockProfile());
@@ -670,6 +835,7 @@ async function checkStatus() {
     setLockState(nextLockState);
     if (nextLockState === "unlocked") {
       await loadEntries();
+      maybeOpenPendingEntrySeed();
     }
   } catch {
     // IPC not available
@@ -682,6 +848,7 @@ async function onUnlocked() {
   setLockState("unlocked");
   vaultSetup.value = true;
   await loadEntries();
+  maybeOpenPendingEntrySeed();
 }
 
 async function loadEntries() {
@@ -782,8 +949,13 @@ async function onDeleteTag() {
   }
 }
 
-function onCreateEntry() {
-  entryDialog.value?.show();
+function onCreateEntry(seed?: VaultEntrySeed | null) {
+  openCreateEntry(seed);
+}
+
+async function writeVaultClipboard(value: string) {
+  await suppressClipboardCapture(value);
+  await navigator.clipboard.writeText(value);
 }
 
 async function onTogglePassword(entry: VaultListEntry) {
@@ -814,7 +986,7 @@ async function onDirectCopyPassword(entry: VaultListEntry) {
       ElMessage.warning("密码为空");
       return;
     }
-    await navigator.clipboard.writeText(pw);
+    await writeVaultClipboard(pw);
     copyFeedbackRow.value = entry.id;
     setTimeout(() => {
       if (copyFeedbackRow.value === entry.id) {
@@ -841,7 +1013,7 @@ async function onDirectCopyPassword(entry: VaultListEntry) {
 async function onCopyAccount(entry: VaultListEntry) {
   if (!entry.account) return;
   try {
-    await navigator.clipboard.writeText(entry.account);
+    await writeVaultClipboard(entry.account);
     copyFeedbackAccount.value = entry.id;
     setTimeout(() => {
       if (copyFeedbackAccount.value === entry.id) {
@@ -963,7 +1135,7 @@ async function onCopyNameValue(entry: VaultListEntry) {
   const value = entryCopyValue(entry);
   if (!value) return;
   try {
-    await navigator.clipboard.writeText(value);
+    await writeVaultClipboard(value);
     ElMessage.success(entryUrl(entry) ? "链接已复制" : "IP 已复制");
     recordVaultActivity();
   } catch {
@@ -1053,6 +1225,8 @@ function hideRevealedPasswords(event: MouseEvent) {
   if (target.closest('.vault-password-cell, .vault-password-copy-btn')) return;
   revealedPasswords.clear();
 }
+
+watchPendingToolInput("vault", (input) => applyPendingVaultInput(input));
 
 onMounted(() => {
   void checkStatus();

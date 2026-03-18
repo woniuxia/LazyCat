@@ -8,6 +8,141 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-03-18: 本地待办卡片右键菜单落地
+
+**场景**: 用户要求给本地待办的待办卡片补上右键菜单，支持 `置顶/完成/删除/编辑任务时间`，并保持与现有右侧详情区行为一致。
+
+**问题**:
+1. `TodoPanel.vue` 原本只有点击选中、双击编辑，置顶/完成/删除都集中在右侧详情区，列表卡片没有任何上下文菜单状态。
+2. 待办右键菜单如果直接写死坐标，靠近窗口右下角时会出屏；仓库里虽然有多处自绘菜单，但 Todo 没有复用层。
+3. “编辑任务时间”不能新开一条临时保存链路，否则会和现有 `ensureDetailCanLeave()`、右栏编辑态、重复事项删除范围确认产生交叉行为。
+
+**解决**:
+1. 在 `TodoPanel.vue` 的待办卡片补 `@contextmenu.prevent`，右键时先走 `ensureDetailCanLeave()`，再切到目标事项的详情查看态并打开菜单。
+2. 新增 `apps/desktop/src/utils/todoContextMenu.ts`，抽出纯函数 `clampContextMenuPosition()` 统一处理菜单坐标钳制；`todoContextMenu.test.ts` 覆盖正常位置、右下出屏、左上边距和菜单大于视口四个核心场景。
+3. 菜单浮层通过 `Teleport to="body"` 渲染，统一支持点击外部关闭、再次右键关闭、`Esc` 关闭、列表滚动关闭和组件卸载清理监听。
+4. 菜单动作全部复用现有链路：`toggleItemPin()`、`changeItemStatus()`、`deleteItem()`，`编辑任务时间` 新增 `enterEditTimeMode()`，内部继续复用 `enterEditMode()`，并强制展开“日期与时间”区域后滚动定位和聚焦首个输入框。
+
+**关键点**:
+1. 右键目标切换前必须先处理脏编辑态；否则从创建态/编辑态直接右键其它事项，会把旧草稿和新菜单操作混在一起。
+2. “编辑任务时间”最好只是**进入现有编辑态并定位字段**，不要额外做轻量弹窗或独立保存逻辑，这样可以继续复用现有校验、5 分钟刻度和保存语义。
+3. Todo 的右键菜单不值得先抽公共组件；先在面板内局部落地，真正抽象的只有坐标钳制纯函数，避免把 UI 生命周期和业务动作耦到一起。
+
+**涉及文件**:
+- `apps/desktop/src/components/TodoPanel.vue`
+- `apps/desktop/src/utils/todoContextMenu.ts`
+- `apps/desktop/src/utils/todoContextMenu.test.ts`
+
+**验证**:
+- `pnpm --filter @lazycat/desktop test src/utils/todoContextMenu.test.ts`
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+
+**使用次数**: 0
+
+## 2026-03-18: 本地待办 meta-time 跨自然周文案修复
+
+**场景**: 用户反馈任务清单中 `meta-chip / meta-time` 的相对日期文案有误。对于跨到下一自然周的事项，当前仍显示为 `周X`，例如本周设置下周的事项时应显示 `下周X`。
+
+**问题**:
+1. `TodoPanel.vue` 的 `relativeDateTimeLabel()` 写在组件内部，只按 `diffDays` 判断，没有按“周一开始”的自然周边界判断。
+2. 当前逻辑会把“下周但不足 7 天”的日期误显示为 `周X`，而“刚好 +7 天”的日期又会直接退回绝对日期，表现不稳定。
+3. 相对日期逻辑没有独立测试，涉及 `今天 / 明天 / 昨天 / 周X` 的文案调整时容易回归。
+
+**解决**:
+1. 新增 `apps/desktop/src/utils/todoRelativeDate.ts`，把相对日期文案提炼为纯函数 `formatTodoRelativeDateTimeLabel()`，统一处理 `今天 / 明天 / 昨天 / 周X / 上周X / 下周X / 绝对日期`。
+2. 周边界改为按周一开始的自然周判断；相邻日计算使用 `setDate()`，避免继续依赖固定 `86400000` 毫秒偏移。
+3. 对纯日期字符串 `YYYY-MM-DD` 做本地日期解析，避免被 `new Date()` 当作 UTC 导致跨天、跨周误判。
+4. `TodoPanel.vue` 改为复用新 util，并删除未使用的 `itemTimeLabel()` 死代码。
+5. 新增 `apps/desktop/src/utils/todoRelativeDate.test.ts`，覆盖同周、上周、下周、跨年回退和纯日期字符串等边界。
+
+**关键点**:
+1. 这类文案问题本质不是“差几天”，而是“是否跨自然周”；只看 `diffDays` 很容易把周三到下周一这种场景判错。
+2. `今天 / 明天 / 昨天` 要高于 `上周 / 下周`，否则周日看次日周一会被展示成 `下周一`，不符合直觉。
+3. 相对日期逻辑适合抽成 Todo 专用 util，不要塞进 `todoSchedule.ts` 或 `todoBuckets.ts`，否则职责会混在一起。
+
+**涉及文件**:
+- `apps/desktop/src/utils/todoRelativeDate.ts`
+- `apps/desktop/src/utils/todoRelativeDate.test.ts`
+- `apps/desktop/src/components/TodoPanel.vue`
+
+**验证**:
+- `pnpm --filter @lazycat/desktop test src/utils/todoRelativeDate.test.ts`
+- `pnpm --filter @lazycat/desktop typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+
+**使用次数**: 0
+
+## 2026-03-17: 收纳箱图片预览、右键菜单与图片回采抑制
+
+**场景**: 用户要求在收纳箱图片详情里支持点击放大预览，并在右键菜单中提供复制图像、打开图像、打开图像位置、复制图像路径等常用操作。
+
+**问题**:
+1. 收纳箱详情里的图片已有 `payloadDataUrl` 和 `openPath`，但正文区只有静态展示，没有预览层和局部菜单交互。
+2. 复制图像如果直接写回系统剪贴板，后台采集线程会把这张图再次录回历史流，形成“自复制回采”。
+3. 前端右键菜单需要挂在图片正文和预览图上，同时还不能破坏现有三栏布局、滚动和详情切换体验。
+
+**解决**:
+1. 在 `InboxPanel.vue` 内直接加 `Teleport to="body"` 的预览层与自定义右键菜单，正文图和预览图共用一套菜单状态；关闭规则统一为遮罩点击、`Esc`、点击空白、滚动和窗口 resize。
+2. 菜单动作固定收敛为 4 项：`复制图像 / 打开图像 / 打开图像位置 / 复制图像路径`；文件类动作统一走现有 `tool:inbox:open-path`，路径复制先走 `suppressClipboardCapture` 再写文本剪贴板。
+3. Rust 侧在 `inbox.rs` 新增 `copy_image` action，Windows 下把图片文件解码后按 `CF_DIB` 写入系统剪贴板；抑制逻辑从“只压文本”升级为“按内容哈希压制”，文本和图片都共用同一份一次性抑制队列。
+
+**关键点**:
+1. 收纳箱图片详情不需要额外改表或改详情接口，现有 `payloadDataUrl + openPath + canOpenPath + metaJson.width/height` 已经够支撑预览和右键操作。
+2. 图片回采抑制不能直接拿原文件字节做哈希；要按写入剪贴板后的像素内容重新编码 PNG 再算哈希，才能和后台 `read_image()` 重新采样出的 `content_hash` 对上。
+3. 自定义右键菜单最稳妥的复用方式是沿用 `TabBar/VaultPanel` 那套 `reactive({ visible, x, y }) + Teleport + document click` 模式，不要额外引入新菜单依赖。
+
+**涉及文件**:
+- `apps/desktop/src/components/InboxPanel.vue`
+- `apps/desktop/src/bridge/tauri.ts`
+- `apps/desktop/src-tauri/src/tools/inbox.rs`
+
+**验证**:
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+- `pnpm test`
+- `cargo check`
+
+**使用次数**: 0
+
+## 2026-03-17: 收纳箱（Inbox Hub）首版打通与跨工具草稿联动
+
+**场景**: 需要按设计稿一次性落地收纳箱首版，包括 Rust 端剪贴板采集、SQLite 落库/搜索、前端三栏面板，以及转 Todo / Vault 的跨工具草稿联动。
+
+**问题**:
+1. Windows 剪贴板读取链路涉及 `windows-sys` 的 `HANDLE/HGLOBAL`、GDI 位图和注册格式，常量和句柄类型一旦用错，`cargo check` 会直接卡死在编译层。
+2. 收纳箱面板需要同时承载筛选、分页、详情、元数据编辑和跨工具转入，如果直接把全部列表节点渲染到 DOM，历史量一大就会拖垮前端滚动体验。
+3. Todo / Vault 不能只接字符串草稿；Todo 需要“首行标题、剩余正文进描述”，Vault 需要保守启发式预填并在复制敏感内容前抑制剪贴板回流。
+
+**解决**:
+1. Rust 端新增 `inbox` 工具域、migration 26 和主线程剪贴板轮询；Windows 剪贴板层统一改用正确的 `HANDLE`/`HGLOBAL` 调用签名，并用固定 `CF_*` 值避开 `windows-sys` feature 差异。
+2. 前端新增 `InboxPanel.vue`，采用左栏筛选 + 中栏虚拟滚动摘要列表 + 右栏详情/动作的三栏布局，列表分页 50 条并通过固定行高虚拟化控制渲染节点数。
+3. `useClipboardSuggestion` 的结构化 `PendingToolInput` 被接到 Todo / Vault：Todo 复用显式 `todoDraft` 并兜底文本拆分；Vault 在面板层做 URL/地址/端口/数据库关键词/显式标签行的保守解析，原文完整保留到备注；Vault 所有复制动作在写入系统剪贴板前先调用 `suppressClipboardCapture`。
+4. 为避免验证噪音，顺手清理了 `vault.rs` 里既有的未使用 `Duration` warning。
+
+**关键点**:
+1. Windows 剪贴板 API 的 `GetClipboardData` 返回 `HANDLE`，后续 `GlobalLock/GlobalSize/GlobalUnlock` 必须按 `HGLOBAL` 指针语义使用，不能再把它当 `isize`。
+2. 虚拟列表不必一开始就引完整库；对固定高度摘要卡片，用 `scrollTop + slice + spacer` 就能把 DOM 节点稳定压在可控范围内。
+3. Vault 预填要宁缺毋滥：账号/密码优先取显式标签行，URL/主机/IP/端口/数据库类型可以推断，但原始全文必须完整进 `notes`，避免信息损失。
+4. 新增异步组件后，`components.d.ts` 会在构建时自动补全，属于预期变更，不要误删。
+
+**涉及文件**:
+- `apps/desktop/src-tauri/src/tools/inbox.rs`
+- `apps/desktop/src-tauri/src/tools/helpers.rs`
+- `apps/desktop/src-tauri/src/main.rs`
+- `apps/desktop/src/components/InboxPanel.vue`
+- `apps/desktop/src/components/TodoPanel.vue`
+- `apps/desktop/src/components/VaultPanel.vue`
+- `apps/desktop/src/components/VaultEntryDialog.vue`
+- `apps/desktop/src/composables/useClipboardSuggestion.ts`
+
+**验证**:
+- `cargo check`
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+
+**使用次数**: 0
+
 ## 2026-03-16: release-all-win 正式发版校验、恢复路径与兼容性补强
 
 **场景**: 在发布 `v0.2.5` 时，需要把“版本统一、正式发版、失败补跑”三类动作整理成稳定流程，并修复脚本里暴露出的兼容问题。

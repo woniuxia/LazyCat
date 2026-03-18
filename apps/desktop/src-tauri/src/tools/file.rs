@@ -31,7 +31,9 @@ fn file_split(payload: &Value) -> Result<Value, String> {
         .ok_or("invalid source filename".to_string())?;
     loop {
         let mut buf = vec![0u8; chunk_size];
-        let n = reader.read(&mut buf).map_err(|e| format!("read source failed: {e}"))?;
+        let n = reader
+            .read(&mut buf)
+            .map_err(|e| format!("read source failed: {e}"))?;
         if n == 0 {
             break;
         }
@@ -54,7 +56,8 @@ fn file_merge(payload: &Value) -> Result<Value, String> {
     if let Some(parent) = output_path.parent() {
         fs::create_dir_all(parent).map_err(|e| format!("create output parent failed: {e}"))?;
     }
-    let mut writer = File::create(&output_path).map_err(|e| format!("create output failed: {e}"))?;
+    let mut writer =
+        File::create(&output_path).map_err(|e| format!("create output failed: {e}"))?;
     let mut total_bytes = 0usize;
     for part_path in &parts {
         let bytes = fs::read(&part_path).map_err(|e| format!("read part failed: {e}"))?;
@@ -85,7 +88,11 @@ fn collect_merge_parts(payload: &Value) -> Result<Vec<PathBuf>, String> {
         return Ok(parts);
     }
 
-    let parts_dir_str = payload["partsDir"].as_str().unwrap_or_default().trim().to_string();
+    let parts_dir_str = payload["partsDir"]
+        .as_str()
+        .unwrap_or_default()
+        .trim()
+        .to_string();
     if parts_dir_str.is_empty() {
         return Err("parts is empty and partsDir is missing".into());
     }
@@ -113,14 +120,9 @@ fn collect_merge_parts(payload: &Value) -> Result<Vec<PathBuf>, String> {
 }
 
 fn write_text(payload: &Value) -> Result<Value, String> {
-    let path = payload["path"]
-        .as_str()
-        .ok_or("缺少 path 参数")?;
-    let content = payload["content"]
-        .as_str()
-        .ok_or("缺少 content 参数")?;
-    fs::write(path, content.as_bytes())
-        .map_err(|e| format!("写入文件失败: {e}"))?;
+    let path = payload["path"].as_str().ok_or("缺少 path 参数")?;
+    let content = payload["content"].as_str().ok_or("缺少 content 参数")?;
+    fs::write(path, content.as_bytes()).map_err(|e| format!("写入文件失败: {e}"))?;
     Ok(json!({ "path": path }))
 }
 

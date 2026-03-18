@@ -1,12 +1,38 @@
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { ref, watch, onMounted } from "vue";
 import type { ClipboardDetectResult } from "../utils/clipboard-detect";
 import { detectClipboardContent } from "../utils/clipboard-detect";
+import { getSetting } from "./useSettings";
+
+export interface TodoPendingDraft {
+  title?: string;
+  description?: string;
+}
+
+export interface VaultPendingDraft {
+  category?: "app" | "server" | "database";
+  title?: string;
+  environment?: string;
+  fields?: Record<string, unknown>;
+  tags?: string[];
+}
+
+export interface PendingToolInput {
+  toolId: string;
+  text: string;
+  source?: "clipboard-suggestion" | "inbox";
+  label?: string;
+  todoDraft?: TodoPendingDraft;
+  vaultDraft?: VaultPendingDraft;
+  meta?: Record<string, unknown>;
+}
 
 // 模块级单例状态
 const suggestion = ref<ClipboardDetectResult | null>(null);
 const visible = ref(false);
 const lastClipboardText = ref("");
-const pendingInput = ref<{ toolId: string; text: string } | null>(null);
+const pendingInput = ref<PendingToolInput | null>(null);
+let clipboardListenerPromise: Promise<UnlistenFn | null> | null = null;
 
 export function useClipboardSuggestion() {
   /**
@@ -29,13 +55,37 @@ export function useClipboardSuggestion() {
     }
   }
 
+  async function ensureClipboardListener(): Promise<void> {
+    if (!clipboardListenerPromise) {
+      clipboardListenerPromise = (async () => {
+        try {
+          return await listen("clipboard-changed", async () => {
+            if (getSetting("clipboard_detection") === "false") return;
+            await detectClipboard();
+          });
+        } catch {
+          return null;
+        }
+      })();
+    }
+    await clipboardListenerPromise;
+  }
+
+  function setPendingToolInput(input: PendingToolInput): void {
+    pendingInput.value = input;
+    visible.value = false;
+    suggestion.value = null;
+  }
+
   /**
    * 用户点击操作按钮后调用：设置 pendingInput，供目标面板消费。
    */
   function applyAction(toolId: string): void {
-    pendingInput.value = { toolId, text: lastClipboardText.value };
-    visible.value = false;
-    suggestion.value = null;
+    setPendingToolInput({
+      toolId,
+      text: lastClipboardText.value,
+      source: "clipboard-suggestion",
+    });
   }
 
   /**
@@ -43,10 +93,15 @@ export function useClipboardSuggestion() {
    * 仅当 toolId 匹配时返回文本，否则返回 null。
    */
   function consumePendingInput(toolId: string): string | null {
+    const input = consumePendingToolInput(toolId);
+    return input?.text ?? null;
+  }
+
+  function consumePendingToolInput(toolId: string): PendingToolInput | null {
     if (pendingInput.value && pendingInput.value.toolId === toolId) {
-      const text = pendingInput.value.text;
+      const input = pendingInput.value;
       pendingInput.value = null;
-      return text;
+      return input;
     }
     return null;
   }
@@ -59,17 +114,26 @@ export function useClipboardSuggestion() {
     toolId: string | (() => string),
     apply: (text: string) => void,
   ): void {
+    watchPendingToolInput(toolId, (input) => {
+      if (input.text) apply(input.text);
+    });
+  }
+
+  function watchPendingToolInput(
+    toolId: string | (() => string),
+    apply: (input: PendingToolInput) => void | Promise<void>,
+  ): void {
     const resolveId = typeof toolId === "function" ? toolId : () => toolId;
 
     onMounted(() => {
-      const pending = consumePendingInput(resolveId());
-      if (pending) apply(pending);
+      const pending = consumePendingToolInput(resolveId());
+      if (pending) void apply(pending);
     });
 
     watch(pendingInput, (val) => {
       if (val && val.toolId === resolveId()) {
-        const text = consumePendingInput(resolveId());
-        if (text) apply(text);
+        const input = consumePendingToolInput(resolveId());
+        if (input) void apply(input);
       }
     });
   }
@@ -87,9 +151,13 @@ export function useClipboardSuggestion() {
     visible,
     pendingInput,
     detectClipboard,
+    ensureClipboardListener,
     applyAction,
+    setPendingToolInput,
     consumePendingInput,
+    consumePendingToolInput,
     watchPendingInput,
+    watchPendingToolInput,
     dismiss,
   };
 }

@@ -1,4 +1,7 @@
-use base64::{engine::general_purpose::{STANDARD as BASE64, URL_SAFE_NO_PAD as BASE64URL}, Engine};
+use base64::{
+    engine::general_purpose::{STANDARD as BASE64, URL_SAFE_NO_PAD as BASE64URL},
+    Engine,
+};
 use image::ImageFormat;
 use qrcode::QrCode;
 use serde_json::{json, Value};
@@ -33,11 +36,9 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         }
         "url_decode" => {
             let input = payload["input"].as_str().unwrap_or_default();
-            Ok(json!(
-                urlencoding::decode(input)
-                    .map_err(|e| format!("url decode failed: {e}"))?
-                    .to_string()
-            ))
+            Ok(json!(urlencoding::decode(input)
+                .map_err(|e| format!("url decode failed: {e}"))?
+                .to_string()))
         }
         "md5" => {
             let input = payload["input"].as_str().unwrap_or_default();
@@ -45,7 +46,8 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         }
         "qr_generate" => {
             let input = payload["input"].as_str().unwrap_or_default();
-            let code = QrCode::new(input.as_bytes()).map_err(|e| format!("qr generation failed: {e}"))?;
+            let code =
+                QrCode::new(input.as_bytes()).map_err(|e| format!("qr generation failed: {e}"))?;
             let image = code.render::<image::Luma<u8>>().build();
             let mut cursor = std::io::Cursor::new(Vec::new());
             image
@@ -58,20 +60,23 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         }
         "sha1" => {
             let input = payload["input"].as_str().unwrap_or_default();
-            let digest = openssl::hash::hash(openssl::hash::MessageDigest::sha1(), input.as_bytes())
-                .map_err(|e| format!("sha1 failed: {e}"))?;
+            let digest =
+                openssl::hash::hash(openssl::hash::MessageDigest::sha1(), input.as_bytes())
+                    .map_err(|e| format!("sha1 failed: {e}"))?;
             Ok(json!(hex::encode(digest)))
         }
         "sha256" => {
             let input = payload["input"].as_str().unwrap_or_default();
-            let digest = openssl::hash::hash(openssl::hash::MessageDigest::sha256(), input.as_bytes())
-                .map_err(|e| format!("sha256 failed: {e}"))?;
+            let digest =
+                openssl::hash::hash(openssl::hash::MessageDigest::sha256(), input.as_bytes())
+                    .map_err(|e| format!("sha256 failed: {e}"))?;
             Ok(json!(hex::encode(digest)))
         }
         "sha512" => {
             let input = payload["input"].as_str().unwrap_or_default();
-            let digest = openssl::hash::hash(openssl::hash::MessageDigest::sha512(), input.as_bytes())
-                .map_err(|e| format!("sha512 failed: {e}"))?;
+            let digest =
+                openssl::hash::hash(openssl::hash::MessageDigest::sha512(), input.as_bytes())
+                    .map_err(|e| format!("sha512 failed: {e}"))?;
             Ok(json!(hex::encode(digest)))
         }
         "hmac_sha256" => {
@@ -79,11 +84,14 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
             let key = payload["key"].as_str().unwrap_or_default();
             let pkey = openssl::pkey::PKey::hmac(key.as_bytes())
                 .map_err(|e| format!("hmac key failed: {e}"))?;
-            let mut signer = openssl::sign::Signer::new(openssl::hash::MessageDigest::sha256(), &pkey)
-                .map_err(|e| format!("hmac init failed: {e}"))?;
-            signer.update(input.as_bytes())
+            let mut signer =
+                openssl::sign::Signer::new(openssl::hash::MessageDigest::sha256(), &pkey)
+                    .map_err(|e| format!("hmac init failed: {e}"))?;
+            signer
+                .update(input.as_bytes())
                 .map_err(|e| format!("hmac update failed: {e}"))?;
-            let result = signer.sign_to_vec()
+            let result = signer
+                .sign_to_vec()
                 .map_err(|e| format!("hmac sign failed: {e}"))?;
             Ok(json!(hex::encode(result)))
         }
@@ -169,7 +177,8 @@ mod tests {
 
     #[test]
     fn invalid_decode_inputs_should_fail() {
-        let err = execute("base64_decode", &json!({ "input": "%%%not-base64%%%" })).expect_err("must fail");
+        let err = execute("base64_decode", &json!({ "input": "%%%not-base64%%%" }))
+            .expect_err("must fail");
         assert!(err.contains("base64 decode failed"));
 
         // urlencoding crate keeps invalid escape fragments as-is instead of erroring.

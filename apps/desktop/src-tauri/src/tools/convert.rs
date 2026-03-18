@@ -1,6 +1,6 @@
 use serde_json::{json, Value};
-use std::fs;
 use std::collections::BTreeMap;
+use std::fs;
 
 fn json_to_xml(root_tag: &str, value: &Value) -> String {
     let root = sanitize_xml_tag(root_tag, "root");
@@ -207,7 +207,12 @@ fn json_to_js_object_literal(value: &Value, indent: usize, quote: char) -> Strin
             }
             let items = arr
                 .iter()
-                .map(|v| format!("{next_indent}{}", json_to_js_object_literal(v, indent + 1, quote)))
+                .map(|v| {
+                    format!(
+                        "{next_indent}{}",
+                        json_to_js_object_literal(v, indent + 1, quote)
+                    )
+                })
                 .collect::<Vec<_>>()
                 .join(",\n");
             format!("[\n{items}\n{indent_str}]")
@@ -218,7 +223,10 @@ fn json_to_js_object_literal(value: &Value, indent: usize, quote: char) -> Strin
             }
             let mut lines = Vec::new();
             for (k, v) in map {
-                let key = if k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$') {
+                let key = if k
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
+                {
                     k.clone()
                 } else {
                     format!("{quote}{k}{quote}")
@@ -249,8 +257,7 @@ fn parse_java_fields(bean: &str) -> (serde_json::Map<String, Value>, Vec<Value>,
         r#"(?m)^\s*(?:@\w+(?:\([^)]*\))?\s*)*(?:public|private|protected)?\s*(?:static\s+)?(?:final\s+)?(?:transient\s+)?(?:volatile\s+)?([A-Za-z_][\w<>, ?\[\].]*)\s+([A-Za-z_][\w]*)\s*(?:=[^;]+)?;"#,
     )
     .expect("valid regex");
-    let ann_re =
-        regex::Regex::new(r#"@JsonProperty\(\s*"([^"]+)"\s*\)"#).expect("valid regex");
+    let ann_re = regex::Regex::new(r#"@JsonProperty\(\s*"([^"]+)"\s*\)"#).expect("valid regex");
 
     let mut pending_ann = String::new();
     for line in clean.lines() {
@@ -331,7 +338,10 @@ fn parse_env(input: &str) -> Result<Value, String> {
         }
         if let Some(pos) = trimmed.find('=') {
             let key = trimmed[..pos].trim();
-            let val = trimmed[pos + 1..].trim().trim_matches('"').trim_matches('\'');
+            let val = trimmed[pos + 1..]
+                .trim()
+                .trim_matches('"')
+                .trim_matches('\'');
             map.insert(key.to_string(), Value::String(val.to_string()));
         }
     }
@@ -406,8 +416,9 @@ struct SqlTable {
 
 fn parse_create_tables(sql: &str) -> Vec<SqlTable> {
     let re_table = regex::Regex::new(
-        r#"(?is)CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[`"\[]?(\w+)[`"\]]?\s*\("#
-    ).unwrap();
+        r#"(?is)CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[`"\[]?(\w+)[`"\]]?\s*\("#,
+    )
+    .unwrap();
 
     let mut tables = Vec::new();
     for cap in re_table.captures_iter(sql) {
@@ -416,7 +427,10 @@ fn parse_create_tables(sql: &str) -> Vec<SqlTable> {
         // Find the matching closing paren, respecting nesting
         if let Some(body) = find_paren_body(sql, start) {
             let columns = parse_columns(&body);
-            tables.push(SqlTable { name: table_name, columns });
+            tables.push(SqlTable {
+                name: table_name,
+                columns,
+            });
         }
     }
     tables
@@ -465,13 +479,22 @@ fn parse_columns(body: &str) -> Vec<SqlColumn> {
         r#"(?i)^\s*[`"\[]?(\w+)[`"\]]?\s+([\w]+(?:\s*\([^)]*\))?(?:\s+(?:UNSIGNED|SIGNED|ZEROFILL))*)"#
     ).unwrap();
     let re_not_null = regex::Regex::new(r"(?i)\bNOT\s+NULL\b").unwrap();
-    let re_default = regex::Regex::new(r"(?i)\bDEFAULT\s+('(?:[^']*(?:''[^']*)*)'|[^\s,]+)").unwrap();
+    let re_default =
+        regex::Regex::new(r"(?i)\bDEFAULT\s+('(?:[^']*(?:''[^']*)*)'|[^\s,]+)").unwrap();
     let re_comment = regex::Regex::new(r"(?i)\bCOMMENT\s+'((?:[^']*(?:''[^']*)*)*)'").unwrap();
 
     // Keywords that indicate a constraint, not a column definition
     let constraint_keywords = [
-        "PRIMARY", "KEY", "UNIQUE", "INDEX", "CONSTRAINT", "CHECK", "FOREIGN",
-        "FULLTEXT", "SPATIAL", "PARTITION",
+        "PRIMARY",
+        "KEY",
+        "UNIQUE",
+        "INDEX",
+        "CONSTRAINT",
+        "CHECK",
+        "FOREIGN",
+        "FULLTEXT",
+        "SPATIAL",
+        "PARTITION",
     ];
 
     for part in &parts {
@@ -480,8 +503,15 @@ fn parse_columns(body: &str) -> Vec<SqlColumn> {
             continue;
         }
         // Skip constraint lines
-        let first_word = trimmed.split_whitespace().next().unwrap_or("").to_uppercase();
-        let first_word_clean = first_word.trim_start_matches('`').trim_start_matches('"').trim_start_matches('[');
+        let first_word = trimmed
+            .split_whitespace()
+            .next()
+            .unwrap_or("")
+            .to_uppercase();
+        let first_word_clean = first_word
+            .trim_start_matches('`')
+            .trim_start_matches('"')
+            .trim_start_matches('[');
         if constraint_keywords.iter().any(|k| first_word_clean == *k) {
             continue;
         }
@@ -489,10 +519,12 @@ fn parse_columns(body: &str) -> Vec<SqlColumn> {
             let col_name = cap.get(1).unwrap().as_str().to_string();
             let col_type = cap.get(2).unwrap().as_str().trim().to_string();
             let nullable = !re_not_null.is_match(trimmed);
-            let default_val = re_default.captures(trimmed)
+            let default_val = re_default
+                .captures(trimmed)
                 .and_then(|c| c.get(1))
                 .map(|m| m.as_str().trim_matches('\'').to_string());
-            let comment = re_comment.captures(trimmed)
+            let comment = re_comment
+                .captures(trimmed)
                 .and_then(|c| c.get(1))
                 .map(|m| m.as_str().replace("''", "'"));
             columns.push(SqlColumn {
@@ -520,9 +552,18 @@ fn split_top_level_commas(s: &str) -> Vec<String> {
             }
         } else {
             match ch {
-                '\'' => { in_quote = true; current.push(ch); }
-                '(' => { depth += 1; current.push(ch); }
-                ')' => { depth -= 1; current.push(ch); }
+                '\'' => {
+                    in_quote = true;
+                    current.push(ch);
+                }
+                '(' => {
+                    depth += 1;
+                    current.push(ch);
+                }
+                ')' => {
+                    depth -= 1;
+                    current.push(ch);
+                }
                 ',' if depth == 0 => {
                     parts.push(current.clone());
                     current.clear();
@@ -597,64 +638,123 @@ fn map_sql_type(sql_type: &str) -> TypeMapping {
         let re = regex::Regex::new(r"\(\s*1\s*\)").unwrap();
         if re.is_match(&upper) {
             return TypeMapping {
-                java: "Boolean", typescript: "boolean", go: "bool",
-                python: "bool", kotlin: "Boolean", csharp: "bool",
+                java: "Boolean",
+                typescript: "boolean",
+                go: "bool",
+                python: "bool",
+                kotlin: "Boolean",
+                csharp: "bool",
             };
         }
     }
 
     match base {
-        "VARCHAR" | "CHAR" | "TEXT" | "TINYTEXT" | "MEDIUMTEXT" | "LONGTEXT" | "NVARCHAR" | "NCHAR" | "CLOB" => TypeMapping {
-            java: "String", typescript: "string", go: "string",
-            python: "str", kotlin: "String", csharp: "string",
+        "VARCHAR" | "CHAR" | "TEXT" | "TINYTEXT" | "MEDIUMTEXT" | "LONGTEXT" | "NVARCHAR"
+        | "NCHAR" | "CLOB" => TypeMapping {
+            java: "String",
+            typescript: "string",
+            go: "string",
+            python: "str",
+            kotlin: "String",
+            csharp: "string",
         },
         "INT" | "INTEGER" | "SMALLINT" | "TINYINT" | "MEDIUMINT" => TypeMapping {
-            java: "Integer", typescript: "number", go: "int32",
-            python: "int", kotlin: "Int", csharp: "int",
+            java: "Integer",
+            typescript: "number",
+            go: "int32",
+            python: "int",
+            kotlin: "Int",
+            csharp: "int",
         },
         "BIGINT" => TypeMapping {
-            java: "Long", typescript: "number", go: "int64",
-            python: "int", kotlin: "Long", csharp: "long",
+            java: "Long",
+            typescript: "number",
+            go: "int64",
+            python: "int",
+            kotlin: "Long",
+            csharp: "long",
         },
         "DATETIME" | "TIMESTAMP" => TypeMapping {
-            java: "LocalDateTime", typescript: "Date", go: "time.Time",
-            python: "datetime", kotlin: "LocalDateTime", csharp: "DateTime",
+            java: "LocalDateTime",
+            typescript: "Date",
+            go: "time.Time",
+            python: "datetime",
+            kotlin: "LocalDateTime",
+            csharp: "DateTime",
         },
         "DATE" => TypeMapping {
-            java: "LocalDate", typescript: "string", go: "time.Time",
-            python: "date", kotlin: "LocalDate", csharp: "DateTime",
+            java: "LocalDate",
+            typescript: "string",
+            go: "time.Time",
+            python: "date",
+            kotlin: "LocalDate",
+            csharp: "DateTime",
         },
         "TIME" => TypeMapping {
-            java: "LocalTime", typescript: "string", go: "string",
-            python: "time", kotlin: "LocalTime", csharp: "TimeSpan",
+            java: "LocalTime",
+            typescript: "string",
+            go: "string",
+            python: "time",
+            kotlin: "LocalTime",
+            csharp: "TimeSpan",
         },
         "DECIMAL" | "NUMERIC" => TypeMapping {
-            java: "BigDecimal", typescript: "number", go: "float64",
-            python: "Decimal", kotlin: "BigDecimal", csharp: "decimal",
+            java: "BigDecimal",
+            typescript: "number",
+            go: "float64",
+            python: "Decimal",
+            kotlin: "BigDecimal",
+            csharp: "decimal",
         },
         "BOOLEAN" | "BOOL" => TypeMapping {
-            java: "Boolean", typescript: "boolean", go: "bool",
-            python: "bool", kotlin: "Boolean", csharp: "bool",
+            java: "Boolean",
+            typescript: "boolean",
+            go: "bool",
+            python: "bool",
+            kotlin: "Boolean",
+            csharp: "bool",
         },
         "FLOAT" | "REAL" => TypeMapping {
-            java: "Float", typescript: "number", go: "float32",
-            python: "float", kotlin: "Float", csharp: "float",
+            java: "Float",
+            typescript: "number",
+            go: "float32",
+            python: "float",
+            kotlin: "Float",
+            csharp: "float",
         },
         "DOUBLE" | "DOUBLE PRECISION" => TypeMapping {
-            java: "Double", typescript: "number", go: "float64",
-            python: "float", kotlin: "Double", csharp: "double",
+            java: "Double",
+            typescript: "number",
+            go: "float64",
+            python: "float",
+            kotlin: "Double",
+            csharp: "double",
         },
-        "BLOB" | "BINARY" | "VARBINARY" | "TINYBLOB" | "MEDIUMBLOB" | "LONGBLOB" | "BYTEA" => TypeMapping {
-            java: "byte[]", typescript: "Buffer", go: "[]byte",
-            python: "bytes", kotlin: "ByteArray", csharp: "byte[]",
-        },
+        "BLOB" | "BINARY" | "VARBINARY" | "TINYBLOB" | "MEDIUMBLOB" | "LONGBLOB" | "BYTEA" => {
+            TypeMapping {
+                java: "byte[]",
+                typescript: "Buffer",
+                go: "[]byte",
+                python: "bytes",
+                kotlin: "ByteArray",
+                csharp: "byte[]",
+            }
+        }
         "BIT" => TypeMapping {
-            java: "Boolean", typescript: "boolean", go: "bool",
-            python: "bool", kotlin: "Boolean", csharp: "bool",
+            java: "Boolean",
+            typescript: "boolean",
+            go: "bool",
+            python: "bool",
+            kotlin: "Boolean",
+            csharp: "bool",
         },
         _ => TypeMapping {
-            java: "String", typescript: "string", go: "string",
-            python: "str", kotlin: "String", csharp: "string",
+            java: "String",
+            typescript: "string",
+            go: "string",
+            python: "str",
+            kotlin: "String",
+            csharp: "string",
         },
     }
 }
@@ -681,10 +781,18 @@ fn generate_java(table: &SqlTable, naming: &str, comments: bool) -> String {
     for col in &table.columns {
         let type_name = get_type_for_lang(&col.sql_type, "java");
         match type_name.as_str() {
-            "LocalDateTime" => { imports.push("java.time.LocalDateTime".into()); }
-            "LocalDate" => { imports.push("java.time.LocalDate".into()); }
-            "LocalTime" => { imports.push("java.time.LocalTime".into()); }
-            "BigDecimal" => { imports.push("java.math.BigDecimal".into()); }
+            "LocalDateTime" => {
+                imports.push("java.time.LocalDateTime".into());
+            }
+            "LocalDate" => {
+                imports.push("java.time.LocalDate".into());
+            }
+            "LocalTime" => {
+                imports.push("java.time.LocalTime".into());
+            }
+            "BigDecimal" => {
+                imports.push("java.math.BigDecimal".into());
+            }
             _ => {}
         }
     }
@@ -727,7 +835,10 @@ fn generate_typescript(table: &SqlTable, naming: &str, comments: bool) -> String
         let field_name = convert_field_name(&col.name, naming);
         let type_name = get_type_for_lang(&col.sql_type, "typescript");
         let nullable_mark = if col.nullable { "?" } else { "" };
-        out.push_str(&format!("  {}{}: {};\n", field_name, nullable_mark, type_name));
+        out.push_str(&format!(
+            "  {}{}: {};\n",
+            field_name, nullable_mark, type_name
+        ));
     }
     out.push_str("}\n");
     out
@@ -748,13 +859,20 @@ fn generate_go(table: &SqlTable, naming: &str, comments: bool) -> String {
         };
         let db_name = convert_field_name(&col.name, naming);
         let comment_str = if comments {
-            col.comment.as_ref().map(|c| format!(" // {}", c)).unwrap_or_default()
+            col.comment
+                .as_ref()
+                .map(|c| format!(" // {}", c))
+                .unwrap_or_default()
         } else {
             String::new()
         };
         out.push_str(&format!(
             "\t{} {} `json:\"{}\" db:\"{}\"`{}\n",
-            field_name, go_type, db_name, col.name.to_ascii_lowercase(), comment_str
+            field_name,
+            go_type,
+            db_name,
+            col.name.to_ascii_lowercase(),
+            comment_str
         ));
     }
     out.push_str("}\n");
@@ -805,7 +923,10 @@ fn generate_python(table: &SqlTable, naming: &str, comments: bool) -> String {
                 out.push_str(&format!("    # {}\n", c));
             }
         }
-        out.push_str(&format!("    {}: {}{}\n", field_name, full_type, default_str));
+        out.push_str(&format!(
+            "    {}: {}{}\n",
+            field_name, full_type, default_str
+        ));
     }
     out
 }
@@ -825,7 +946,10 @@ fn generate_kotlin(table: &SqlTable, naming: &str, comments: bool) -> String {
         let type_name = get_type_for_lang(&col.sql_type, "kotlin");
         let nullable_mark = if col.nullable { "?" } else { "" };
         let comma = if i < len - 1 { "," } else { "" };
-        out.push_str(&format!("    val {}: {}{}{}\n", field_name, type_name, nullable_mark, comma));
+        out.push_str(&format!(
+            "    val {}: {}{}{}\n",
+            field_name, type_name, nullable_mark, comma
+        ));
     }
     out.push_str(")\n");
     out
@@ -856,7 +980,10 @@ fn generate_csharp(table: &SqlTable, naming: &str, comments: bool) -> String {
         };
         let type_name = get_type_for_lang(&col.sql_type, "csharp");
         let nullable_mark = if col.nullable { "?" } else { "" };
-        out.push_str(&format!("    public {}{} {} {{ get; set; }}\n\n", type_name, nullable_mark, field_name));
+        out.push_str(&format!(
+            "    public {}{} {} {{ get; set; }}\n\n",
+            type_name, nullable_mark, field_name
+        ));
     }
     out.push_str("}\n");
     out
@@ -867,7 +994,10 @@ fn sql_to_entity(payload: &Value) -> Result<Value, String> {
     if sql.trim().is_empty() {
         return Err("SQL is empty".into());
     }
-    let language = payload["language"].as_str().unwrap_or("java").to_lowercase();
+    let language = payload["language"]
+        .as_str()
+        .unwrap_or("java")
+        .to_lowercase();
     let options = &payload["options"];
     let comments = options["comments"].as_bool().unwrap_or(true);
     let naming = options["naming"].as_str().unwrap_or("camelCase");
@@ -892,15 +1022,19 @@ fn sql_to_entity(payload: &Value) -> Result<Value, String> {
         };
         code_parts.push(code);
 
-        let col_infos: Vec<Value> = table.columns.iter().map(|c| {
-            json!({
-                "name": c.name,
-                "type": c.sql_type,
-                "nullable": c.nullable,
-                "default": c.default_val,
-                "comment": c.comment,
+        let col_infos: Vec<Value> = table
+            .columns
+            .iter()
+            .map(|c| {
+                json!({
+                    "name": c.name,
+                    "type": c.sql_type,
+                    "nullable": c.nullable,
+                    "default": c.default_val,
+                    "comment": c.comment,
+                })
             })
-        }).collect();
+            .collect();
 
         table_infos.push(json!({
             "name": table.name,
@@ -930,8 +1064,12 @@ fn config_convert(payload: &Value) -> Result<Value, String> {
 
     let output = match to {
         "properties" => serialize_properties(&intermediate),
-        "yaml" => serde_yml::to_string(&intermediate).map_err(|e| format!("YAML 序列化失败: {e}"))?,
-        "toml" => toml::to_string_pretty(&intermediate).map_err(|e| format!("TOML 序列化失败: {e}"))?,
+        "yaml" => {
+            serde_yml::to_string(&intermediate).map_err(|e| format!("YAML 序列化失败: {e}"))?
+        }
+        "toml" => {
+            toml::to_string_pretty(&intermediate).map_err(|e| format!("TOML 序列化失败: {e}"))?
+        }
         "env" => serialize_env(&intermediate),
         _ => return Err(format!("不支持的目标格式: {to}")),
     };
@@ -977,8 +1115,11 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         }
         "xml_to_json" => {
             let input = payload["input"].as_str().unwrap_or_default();
-            let v: Value = quick_xml::de::from_str(input).map_err(|e| format!("invalid xml: {e}"))?;
-            Ok(json!(serde_json::to_string_pretty(&v).unwrap_or_else(|_| "{}".into())))
+            let v: Value =
+                quick_xml::de::from_str(input).map_err(|e| format!("invalid xml: {e}"))?;
+            Ok(json!(
+                serde_json::to_string_pretty(&v).unwrap_or_else(|_| "{}".into())
+            ))
         }
         "json_to_yaml" => {
             let input = payload["input"].as_str().unwrap_or_default();
@@ -990,12 +1131,18 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
             let input = payload["input"].as_str().unwrap_or_default();
             let delimiter = payload["delimiter"].as_str().unwrap_or(",").as_bytes()[0];
             let has_header = payload["hasHeader"].as_bool().unwrap_or(true);
-            let custom_headers: Option<Vec<String>> = payload["customHeaders"]
-                .as_array()
-                .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect());
-            let selected_columns: Option<Vec<usize>> = payload["selectedColumns"]
-                .as_array()
-                .map(|arr| arr.iter().filter_map(|v| v.as_u64().map(|n| n as usize)).collect());
+            let custom_headers: Option<Vec<String>> =
+                payload["customHeaders"].as_array().map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
+                });
+            let selected_columns: Option<Vec<usize>> =
+                payload["selectedColumns"].as_array().map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_u64().map(|n| n as usize))
+                        .collect()
+                });
 
             let mut rdr = csv::ReaderBuilder::new()
                 .delimiter(delimiter)
@@ -1016,7 +1163,9 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
                     .delimiter(delimiter)
                     .has_headers(false)
                     .from_reader(input.as_bytes());
-                let count = peek_rdr.records().next()
+                let count = peek_rdr
+                    .records()
+                    .next()
                     .and_then(|r| r.ok())
                     .map(|r| r.len())
                     .unwrap_or(0);
@@ -1037,15 +1186,16 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
                 }
                 rows.push(Value::Object(obj));
             }
-            Ok(json!(serde_json::to_string_pretty(&rows).unwrap_or_else(|_| "[]".into())))
+            Ok(json!(
+                serde_json::to_string_pretty(&rows).unwrap_or_else(|_| "[]".into())
+            ))
         }
         "csv_read_file" => {
             let path = payload["path"].as_str().unwrap_or_default();
             if path.is_empty() {
                 return Err("file path is empty".into());
             }
-            let bytes = fs::read(path)
-                .map_err(|e| format!("read csv file failed: {e}"))?;
+            let bytes = fs::read(path).map_err(|e| format!("read csv file failed: {e}"))?;
             // Try UTF-8 first; fall back to GBK (common on Windows for Chinese text)
             let content = match String::from_utf8(bytes.clone()) {
                 Ok(s) => s,
@@ -1077,7 +1227,11 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
                 return Err("json is empty".into());
             }
             let quote_style = payload["quoteStyle"].as_str().unwrap_or("single");
-            let quote = if quote_style.eq_ignore_ascii_case("double") { '"' } else { '\'' };
+            let quote = if quote_style.eq_ignore_ascii_case("double") {
+                '"'
+            } else {
+                '\''
+            };
             let value: Value =
                 serde_json::from_str(json_input).map_err(|e| format!("invalid json: {e}"))?;
             let body = json_to_js_object_literal(&value, 0, quote);
@@ -1091,7 +1245,11 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
                 return Err("bean is empty".into());
             }
             let quote_style = payload["quoteStyle"].as_str().unwrap_or("single");
-            let quote = if quote_style.eq_ignore_ascii_case("double") { '"' } else { '\'' };
+            let quote = if quote_style.eq_ignore_ascii_case("double") {
+                '"'
+            } else {
+                '\''
+            };
             let (map, fields, warnings) = parse_java_fields(bean);
             let value = Value::Object(map.clone());
             let body = json_to_js_object_literal(&value, 0, quote);
@@ -1198,7 +1356,8 @@ mod tests {
               private List<String> tags;
             }
         "#;
-        let out = execute("java_bean_to_json", &json!({ "bean": bean })).expect("java_bean_to_json");
+        let out =
+            execute("java_bean_to_json", &json!({ "bean": bean })).expect("java_bean_to_json");
         let obj = out.as_object().expect("object");
         let json_text = obj
             .get("json")
@@ -1228,12 +1387,16 @@ mod tests {
             }),
         )
         .expect("java_bean_to_js_object");
-        assert!(bean_js["jsObject"].as_str().unwrap_or_default().contains("const payload ="));
+        assert!(bean_js["jsObject"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("const payload ="));
     }
 
     #[test]
     fn convert_invalid_inputs_should_fail() {
-        let err = execute("json_to_xml", &json!({ "input": "{bad json}" })).expect_err("invalid json");
+        let err =
+            execute("json_to_xml", &json!({ "input": "{bad json}" })).expect_err("invalid json");
         assert!(err.contains("invalid json"));
 
         let err = execute("xml_to_json", &json!({ "input": "<root>" })).expect_err("invalid xml");
@@ -1248,11 +1411,15 @@ mod tests {
 
     #[test]
     fn config_convert_properties_to_yaml() {
-        let r = execute("config_convert", &json!({
-            "input": "server.port=8080\nserver.host=localhost",
-            "from": "properties",
-            "to": "yaml"
-        })).unwrap();
+        let r = execute(
+            "config_convert",
+            &json!({
+                "input": "server.port=8080\nserver.host=localhost",
+                "from": "properties",
+                "to": "yaml"
+            }),
+        )
+        .unwrap();
         let output = r["output"].as_str().unwrap();
         assert!(output.contains("server"));
         assert!(output.contains("8080"));
@@ -1260,11 +1427,15 @@ mod tests {
 
     #[test]
     fn config_convert_yaml_to_toml() {
-        let r = execute("config_convert", &json!({
-            "input": "server:\n  port: 8080",
-            "from": "yaml",
-            "to": "toml"
-        })).unwrap();
+        let r = execute(
+            "config_convert",
+            &json!({
+                "input": "server:\n  port: 8080",
+                "from": "yaml",
+                "to": "toml"
+            }),
+        )
+        .unwrap();
         let output = r["output"].as_str().unwrap();
         assert!(output.contains("[server]"));
         assert!(output.contains("8080"));
@@ -1272,18 +1443,26 @@ mod tests {
 
     #[test]
     fn config_convert_env_to_properties() {
-        let r = execute("config_convert", &json!({
-            "input": "DB_HOST=localhost\nDB_PORT=5432",
-            "from": "env",
-            "to": "properties"
-        })).unwrap();
+        let r = execute(
+            "config_convert",
+            &json!({
+                "input": "DB_HOST=localhost\nDB_PORT=5432",
+                "from": "env",
+                "to": "properties"
+            }),
+        )
+        .unwrap();
         let output = r["output"].as_str().unwrap();
         assert!(output.contains("DB_HOST=localhost"));
     }
 
     #[test]
     fn yaml_validate_valid() {
-        let r = execute("yaml_validate", &json!({"input": "key: value\nlist:\n  - a\n  - b"})).unwrap();
+        let r = execute(
+            "yaml_validate",
+            &json!({"input": "key: value\nlist:\n  - a\n  - b"}),
+        )
+        .unwrap();
         assert_eq!(r["valid"], true);
         assert!(r["error"].is_null());
     }
@@ -1297,7 +1476,11 @@ mod tests {
 
     #[test]
     fn yaml_format_indent() {
-        let r = execute("yaml_format", &json!({"input": "key:   value\nlist:\n    - a", "indent": 2})).unwrap();
+        let r = execute(
+            "yaml_format",
+            &json!({"input": "key:   value\nlist:\n    - a", "indent": 2}),
+        )
+        .unwrap();
         let output = r["output"].as_str().unwrap();
         assert!(output.contains("key:"));
     }
@@ -1313,11 +1496,15 @@ mod tests {
                 PRIMARY KEY (id)
             );
         "#;
-        let r = execute("sql_to_entity", &json!({
-            "sql": sql,
-            "language": "java",
-            "options": { "comments": true, "naming": "camelCase" }
-        })).unwrap();
+        let r = execute(
+            "sql_to_entity",
+            &json!({
+                "sql": sql,
+                "language": "java",
+                "options": { "comments": true, "naming": "camelCase" }
+            }),
+        )
+        .unwrap();
         let code = r["code"].as_str().unwrap();
         assert!(code.contains("public class User"));
         assert!(code.contains("private Long id;"));
@@ -1342,11 +1529,15 @@ mod tests {
     #[test]
     fn sql_to_entity_typescript() {
         let sql = "CREATE TABLE orders (id INT NOT NULL, total DECIMAL(10,2), status VARCHAR(20));";
-        let r = execute("sql_to_entity", &json!({
-            "sql": sql,
-            "language": "typescript",
-            "options": { "comments": false, "naming": "camelCase" }
-        })).unwrap();
+        let r = execute(
+            "sql_to_entity",
+            &json!({
+                "sql": sql,
+                "language": "typescript",
+                "options": { "comments": false, "naming": "camelCase" }
+            }),
+        )
+        .unwrap();
         let code = r["code"].as_str().unwrap();
         assert!(code.contains("export interface Orders"));
         assert!(code.contains("id: number;"));
@@ -1357,11 +1548,15 @@ mod tests {
     #[test]
     fn sql_to_entity_go() {
         let sql = "CREATE TABLE `product` (id BIGINT NOT NULL, name VARCHAR(255), price FLOAT);";
-        let r = execute("sql_to_entity", &json!({
-            "sql": sql,
-            "language": "go",
-            "options": { "comments": false, "naming": "camelCase" }
-        })).unwrap();
+        let r = execute(
+            "sql_to_entity",
+            &json!({
+                "sql": sql,
+                "language": "go",
+                "options": { "comments": false, "naming": "camelCase" }
+            }),
+        )
+        .unwrap();
         let code = r["code"].as_str().unwrap();
         assert!(code.contains("type Product struct"));
         assert!(code.contains("Id int64"));
@@ -1371,12 +1566,17 @@ mod tests {
 
     #[test]
     fn sql_to_entity_python() {
-        let sql = "CREATE TABLE user_profile (user_id INT NOT NULL, bio TEXT, created DATE NOT NULL);";
-        let r = execute("sql_to_entity", &json!({
-            "sql": sql,
-            "language": "python",
-            "options": { "comments": true, "naming": "snake_case" }
-        })).unwrap();
+        let sql =
+            "CREATE TABLE user_profile (user_id INT NOT NULL, bio TEXT, created DATE NOT NULL);";
+        let r = execute(
+            "sql_to_entity",
+            &json!({
+                "sql": sql,
+                "language": "python",
+                "options": { "comments": true, "naming": "snake_case" }
+            }),
+        )
+        .unwrap();
         let code = r["code"].as_str().unwrap();
         assert!(code.contains("@dataclass"));
         assert!(code.contains("class UserProfile:"));
@@ -1387,12 +1587,17 @@ mod tests {
 
     #[test]
     fn sql_to_entity_kotlin() {
-        let sql = "CREATE TABLE IF NOT EXISTS config (id INT NOT NULL, value TEXT, active BOOLEAN);";
-        let r = execute("sql_to_entity", &json!({
-            "sql": sql,
-            "language": "kotlin",
-            "options": { "comments": false, "naming": "camelCase" }
-        })).unwrap();
+        let sql =
+            "CREATE TABLE IF NOT EXISTS config (id INT NOT NULL, value TEXT, active BOOLEAN);";
+        let r = execute(
+            "sql_to_entity",
+            &json!({
+                "sql": sql,
+                "language": "kotlin",
+                "options": { "comments": false, "naming": "camelCase" }
+            }),
+        )
+        .unwrap();
         let code = r["code"].as_str().unwrap();
         assert!(code.contains("data class Config("));
         assert!(code.contains("val id: Int"));
@@ -1403,11 +1608,15 @@ mod tests {
     #[test]
     fn sql_to_entity_csharp() {
         let sql = "CREATE TABLE [order_items] (id INT NOT NULL, order_id BIGINT NOT NULL, quantity INT DEFAULT 1);";
-        let r = execute("sql_to_entity", &json!({
-            "sql": sql,
-            "language": "csharp",
-            "options": { "comments": false, "naming": "camelCase" }
-        })).unwrap();
+        let r = execute(
+            "sql_to_entity",
+            &json!({
+                "sql": sql,
+                "language": "csharp",
+                "options": { "comments": false, "naming": "camelCase" }
+            }),
+        )
+        .unwrap();
         let code = r["code"].as_str().unwrap();
         assert!(code.contains("public class OrderItems"));
         assert!(code.contains("public int Id { get; set; }"));
@@ -1421,11 +1630,15 @@ mod tests {
             CREATE TABLE users (id INT NOT NULL, name VARCHAR(100));
             CREATE TABLE roles (id INT NOT NULL, role_name VARCHAR(50) NOT NULL);
         "#;
-        let r = execute("sql_to_entity", &json!({
-            "sql": sql,
-            "language": "java",
-            "options": { "comments": false, "naming": "camelCase" }
-        })).unwrap();
+        let r = execute(
+            "sql_to_entity",
+            &json!({
+                "sql": sql,
+                "language": "java",
+                "options": { "comments": false, "naming": "camelCase" }
+            }),
+        )
+        .unwrap();
         let tables = r["tables"].as_array().unwrap();
         assert_eq!(tables.len(), 2);
         let code = r["code"].as_str().unwrap();
@@ -1435,32 +1648,45 @@ mod tests {
 
     #[test]
     fn sql_to_entity_empty_input() {
-        let err = execute("sql_to_entity", &json!({
-            "sql": "",
-            "language": "java",
-            "options": {}
-        })).expect_err("empty sql");
+        let err = execute(
+            "sql_to_entity",
+            &json!({
+                "sql": "",
+                "language": "java",
+                "options": {}
+            }),
+        )
+        .expect_err("empty sql");
         assert!(err.contains("SQL is empty"));
     }
 
     #[test]
     fn sql_to_entity_no_create_table() {
-        let err = execute("sql_to_entity", &json!({
-            "sql": "SELECT * FROM users;",
-            "language": "java",
-            "options": {}
-        })).expect_err("no create table");
+        let err = execute(
+            "sql_to_entity",
+            &json!({
+                "sql": "SELECT * FROM users;",
+                "language": "java",
+                "options": {}
+            }),
+        )
+        .expect_err("no create table");
         assert!(err.contains("No CREATE TABLE"));
     }
 
     #[test]
     fn sql_to_entity_tinyint1_is_boolean() {
-        let sql = "CREATE TABLE flags (id INT NOT NULL, active TINYINT(1) NOT NULL, count TINYINT(4));";
-        let r = execute("sql_to_entity", &json!({
-            "sql": sql,
-            "language": "java",
-            "options": { "comments": false, "naming": "camelCase" }
-        })).unwrap();
+        let sql =
+            "CREATE TABLE flags (id INT NOT NULL, active TINYINT(1) NOT NULL, count TINYINT(4));";
+        let r = execute(
+            "sql_to_entity",
+            &json!({
+                "sql": sql,
+                "language": "java",
+                "options": { "comments": false, "naming": "camelCase" }
+            }),
+        )
+        .unwrap();
         let code = r["code"].as_str().unwrap();
         assert!(code.contains("private Boolean active;"));
         assert!(code.contains("private Integer count;"));
@@ -1469,11 +1695,15 @@ mod tests {
     #[test]
     fn sql_to_entity_snake_case_naming() {
         let sql = "CREATE TABLE user_settings (user_id INT NOT NULL, config_value TEXT);";
-        let r = execute("sql_to_entity", &json!({
-            "sql": sql,
-            "language": "java",
-            "options": { "comments": false, "naming": "snake_case" }
-        })).unwrap();
+        let r = execute(
+            "sql_to_entity",
+            &json!({
+                "sql": sql,
+                "language": "java",
+                "options": { "comments": false, "naming": "snake_case" }
+            }),
+        )
+        .unwrap();
         let code = r["code"].as_str().unwrap();
         assert!(code.contains("private Integer user_id;"));
         assert!(code.contains("private String config_value;"));

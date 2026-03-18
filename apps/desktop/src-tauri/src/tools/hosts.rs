@@ -31,7 +31,11 @@ fn hosts_save(payload: &Value) -> Result<Value, String> {
     }
     let conn = db_conn()?;
     let next_order: i64 = conn
-        .query_row("SELECT COALESCE(MAX(sort_order), 0) + 1 FROM hosts_profiles", [], |r| r.get(0))
+        .query_row(
+            "SELECT COALESCE(MAX(sort_order), 0) + 1 FROM hosts_profiles",
+            [],
+            |r| r.get(0),
+        )
         .unwrap_or(0);
     conn.execute(
         "INSERT INTO hosts_profiles(name, content, enabled, sort_order, updated_at) VALUES(?1, ?2, 0, ?3, CURRENT_TIMESTAMP)
@@ -95,7 +99,8 @@ fn hosts_activate(payload: &Value) -> Result<Value, String> {
     }
     let backup_dir = get_data_dir()?.join("hosts-backups");
     fs::create_dir_all(&backup_dir).map_err(|e| format!("create backup dir failed: {e}"))?;
-    let original = fs::read_to_string(hosts_path()).map_err(|e| format!("read hosts failed: {e}"))?;
+    let original =
+        fs::read_to_string(hosts_path()).map_err(|e| format!("read hosts failed: {e}"))?;
     let stamp = Local::now().format("%Y-%m-%dT%H-%M-%S").to_string();
     let backup_path = backup_dir.join(format!("{stamp}-{profile_name}.hosts.bak"));
     fs::write(&backup_path, original).map_err(|e| format!("write backup failed: {e}"))?;
@@ -115,9 +120,7 @@ fn hosts_activate(payload: &Value) -> Result<Value, String> {
 
 /// Accepts { "ids": [3, 1, 2] } — new display order of profile IDs.
 fn hosts_reorder(payload: &Value) -> Result<Value, String> {
-    let ids = payload["ids"]
-        .as_array()
-        .ok_or("ids must be an array")?;
+    let ids = payload["ids"].as_array().ok_or("ids must be an array")?;
     let conn = db_conn()?;
     for (idx, id_val) in ids.iter().enumerate() {
         let id = id_val.as_i64().ok_or("each id must be an integer")?;
@@ -132,7 +135,11 @@ fn hosts_reorder(payload: &Value) -> Result<Value, String> {
 
 fn hosts_path() -> PathBuf {
     let system_root = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_string());
-    PathBuf::from(system_root).join("System32").join("drivers").join("etc").join("hosts")
+    PathBuf::from(system_root)
+        .join("System32")
+        .join("drivers")
+        .join("etc")
+        .join("hosts")
 }
 
 /// Try direct write first; on PermissionDenied, trigger UAC elevation via PowerShell.
@@ -144,8 +151,8 @@ fn write_hosts_file(content: &str) -> Result<(), String> {
         Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
             elevated_write_hosts(content)?;
             // Verify the elevated write actually succeeded
-            let actual = fs::read_to_string(&path)
-                .map_err(|e| format!("verify hosts write failed: {e}"))?;
+            let actual =
+                fs::read_to_string(&path).map_err(|e| format!("verify hosts write failed: {e}"))?;
             let content_normalized = content.replace('\r', "");
             let actual_normalized = actual.replace('\r', "");
             if actual_normalized != content_normalized {
@@ -270,8 +277,8 @@ Set UAC = Nothing"#,
 }
 
 fn hosts_read_system() -> Result<Value, String> {
-    let content = fs::read_to_string(hosts_path())
-        .map_err(|e| format!("read system hosts failed: {e}"))?;
+    let content =
+        fs::read_to_string(hosts_path()).map_err(|e| format!("read system hosts failed: {e}"))?;
     Ok(json!({ "content": content }))
 }
 
@@ -287,19 +294,22 @@ fn hosts_backup_list() -> Result<Value, String> {
         return Ok(json!([]));
     }
     let mut entries: Vec<Value> = Vec::new();
-    let read = fs::read_dir(&backup_dir)
-        .map_err(|e| format!("read backup dir failed: {e}"))?;
+    let read = fs::read_dir(&backup_dir).map_err(|e| format!("read backup dir failed: {e}"))?;
     for entry in read {
         let entry = entry.map_err(|e| format!("read dir entry failed: {e}"))?;
         let path = entry.path();
-        let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+        let name = path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
         if !name.ends_with(".bak") {
             continue;
         }
-        let meta = fs::metadata(&path)
-            .map_err(|e| format!("read file metadata failed: {e}"))?;
+        let meta = fs::metadata(&path).map_err(|e| format!("read file metadata failed: {e}"))?;
         let size = meta.len();
-        let modified = meta.modified()
+        let modified = meta
+            .modified()
             .map(|t| {
                 let dt: chrono::DateTime<Local> = t.into();
                 dt.format("%Y-%m-%d %H:%M:%S").to_string()
@@ -332,11 +342,11 @@ fn hosts_backup_restore(payload: &Value) -> Result<Value, String> {
     if !backup_path.starts_with(&backup_dir) || !backup_path.exists() {
         return Err("backup file not found".into());
     }
-    let backup_content = fs::read_to_string(&backup_path)
-        .map_err(|e| format!("read backup file failed: {e}"))?;
+    let backup_content =
+        fs::read_to_string(&backup_path).map_err(|e| format!("read backup file failed: {e}"))?;
 
-    let current = fs::read_to_string(hosts_path())
-        .map_err(|e| format!("read current hosts failed: {e}"))?;
+    let current =
+        fs::read_to_string(hosts_path()).map_err(|e| format!("read current hosts failed: {e}"))?;
     fs::create_dir_all(&backup_dir).map_err(|e| format!("create backup dir failed: {e}"))?;
     let stamp = Local::now().format("%Y-%m-%dT%H-%M-%S").to_string();
     let pre_restore_name = format!("{stamp}-pre-restore.hosts.bak");

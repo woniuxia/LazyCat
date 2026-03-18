@@ -86,10 +86,16 @@ fn example_from_schema(schema: &Value, warnings: &mut Vec<String>) -> Value {
         return default.clone();
     }
 
-    let type_name = schema.get("type").and_then(Value::as_str).unwrap_or("object");
+    let type_name = schema
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or("object");
     match type_name {
         "string" => {
-            let format = schema.get("format").and_then(Value::as_str).unwrap_or_default();
+            let format = schema
+                .get("format")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
             match format {
                 "date-time" => json!("1970-01-01T00:00:00Z"),
                 "date" => json!("1970-01-01"),
@@ -144,18 +150,22 @@ mod tests {
 
     #[test]
     fn validate_should_return_true_for_valid_document() {
-        let schema = r#"{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}"#;
+        let schema =
+            r#"{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}"#;
         let doc = r#"{"name":"lazycat"}"#;
-        let out = execute("validate", &json!({ "schema": schema, "document": doc })).expect("validate");
+        let out =
+            execute("validate", &json!({ "schema": schema, "document": doc })).expect("validate");
         assert_eq!(out["valid"], true);
         assert_eq!(out["errors"], json!([]));
     }
 
     #[test]
     fn validate_should_return_errors_for_invalid_document() {
-        let schema = r#"{"type":"object","properties":{"age":{"type":"integer"}},"required":["age"]}"#;
+        let schema =
+            r#"{"type":"object","properties":{"age":{"type":"integer"}},"required":["age"]}"#;
         let doc = r#"{"age":"x"}"#;
-        let out = execute("validate", &json!({ "schema": schema, "document": doc })).expect("validate");
+        let out =
+            execute("validate", &json!({ "schema": schema, "document": doc })).expect("validate");
         assert_eq!(out["valid"], false);
         assert!(out["errors"].as_array().map_or(0, |a| a.len()) >= 1);
     }
@@ -174,7 +184,8 @@ mod tests {
 
     #[test]
     fn schema_empty_input_should_fail() {
-        let err = execute("validate", &json!({ "schema": "", "document": "{}" })).expect_err("empty schema");
+        let err = execute("validate", &json!({ "schema": "", "document": "{}" }))
+            .expect_err("empty schema");
         assert!(err.contains("schema is empty"));
     }
 }

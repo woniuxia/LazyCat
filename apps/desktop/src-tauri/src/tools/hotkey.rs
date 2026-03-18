@@ -96,10 +96,18 @@ mod win {
         }
 
         let mut out = Vec::new();
-        if has_ctrl { out.push("Ctrl"); }
-        if has_alt { out.push("Alt"); }
-        if has_shift { out.push("Shift"); }
-        if has_win { out.push("Win"); }
+        if has_ctrl {
+            out.push("Ctrl");
+        }
+        if has_alt {
+            out.push("Alt");
+        }
+        if has_shift {
+            out.push("Shift");
+        }
+        if has_win {
+            out.push("Win");
+        }
         if let Some(k) = &key {
             out.push(k);
         }
@@ -139,7 +147,9 @@ mod win {
 
         // Must have at least one modifier besides MOD_NOREPEAT
         if modifiers == MOD_NOREPEAT {
-            return Err(format!("快捷键至少需要一个修饰键 (Ctrl/Alt/Shift/Win): {s}"));
+            return Err(format!(
+                "快捷键至少需要一个修饰键 (Ctrl/Alt/Shift/Win): {s}"
+            ));
         }
 
         Ok((modifiers, vk))
@@ -149,9 +159,7 @@ mod win {
         let upper = name.to_uppercase();
         match upper.as_str() {
             // Letters A-Z
-            s if s.len() == 1 && s.as_bytes()[0].is_ascii_uppercase() => {
-                Ok(s.as_bytes()[0] as u32)
-            }
+            s if s.len() == 1 && s.as_bytes()[0].is_ascii_uppercase() => Ok(s.as_bytes()[0] as u32),
             // Digits 0-9
             s if s.len() == 1 && s.as_bytes()[0].is_ascii_digit() => Ok(s.as_bytes()[0] as u32),
             // Function keys F1-F24
@@ -575,11 +583,7 @@ mod win {
             let title = get_window_title(hwnd);
             // Only collect windows with a title (real app windows)
             if !title.is_empty() {
-                ctx.windows.push(WindowInfo {
-                    hwnd,
-                    pid,
-                    title,
-                });
+                ctx.windows.push(WindowInfo { hwnd, pid, title });
             }
         }
         1 // TRUE = continue enumeration
@@ -703,7 +707,11 @@ mod win {
         let clip_changed = after.clipboard_seq != before.clipboard_seq;
 
         // Check for new windows
-        let before_hwnds: HashSet<usize> = before.visible_windows.iter().map(|w| w.hwnd as usize).collect();
+        let before_hwnds: HashSet<usize> = before
+            .visible_windows
+            .iter()
+            .map(|w| w.hwnd as usize)
+            .collect();
         let new_windows: Vec<&WindowInfo> = after
             .visible_windows
             .iter()
@@ -783,8 +791,7 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
                             .collect::<Vec<_>>()
                     });
                 // If empty array provided, treat as None (use defaults)
-                let shortcuts =
-                    shortcuts.and_then(|v| if v.is_empty() { None } else { Some(v) });
+                let shortcuts = shortcuts.and_then(|v| if v.is_empty() { None } else { Some(v) });
                 win::scan_hotkeys(shortcuts)
             }
             "mappings" => win::get_mappings(),

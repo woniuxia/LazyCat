@@ -62,6 +62,7 @@
 import { computed, onMounted, onBeforeUnmount, ref, watch } from "vue";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { ElMessageBox } from "element-plus";
 import { Close, Plus } from "@element-plus/icons-vue";
 import type { ToolDef, SidebarItem } from "./types";
 import { useFavorites } from "./composables/useFavorites";
@@ -81,7 +82,7 @@ import {
   type HotkeyNavigatePayload,
 } from "./utils/hotkeyNavigate";
 
-const { detectClipboard } = useClipboardSuggestion();
+const { ensureClipboardListener } = useClipboardSuggestion();
 const appWindow = getCurrentWindow();
 
 const sidebarItems: SidebarItem[] = [
@@ -99,6 +100,7 @@ const sidebarItems: SidebarItem[] = [
         { id: "snippets", name: "代码片段", desc: "代码片段收藏与管理" },
         { id: "launcher", name: "快捷启动", desc: "常用程序快速启动与管理" },
         { id: "todo", name: "任务清单", desc: "任务与周期事件管理" },
+        { id: "inbox", name: "收纳箱", desc: "后台剪贴板收件箱与历史整理" },
       ]
     }
   },
@@ -383,6 +385,40 @@ function applyTheme(dark: boolean) {
   document.documentElement.dataset.theme = dark ? "dark" : "light";
 }
 
+async function ensureInboxCaptureConsent() {
+  if (getSetting("inbox_capture_consent_ack") === "true") return;
+  try {
+    await ElMessageBox.confirm(
+      "收纳箱会在应用运行期间记录最近复制的内容，用于历史流和后续整理。你可以随时在设置中关闭、暂停或限制隐藏时采集。是否启用？",
+      "启用收纳箱后台采集",
+      {
+        confirmButtonText: "启用",
+        cancelButtonText: "暂不启用",
+        type: "warning",
+        closeOnClickModal: false,
+        closeOnPressEscape: false,
+      },
+    );
+    setSetting("inbox_capture_consent_ack", "true");
+    setSetting("inbox_capture_enabled", "true");
+    if (getSetting("inbox_capture_when_hidden") === undefined) {
+      setSetting("inbox_capture_when_hidden", "true");
+    }
+    if (getSetting("inbox_history_retention_days") === undefined) {
+      setSetting("inbox_history_retention_days", "14");
+    }
+  } catch {
+    setSetting("inbox_capture_consent_ack", "true");
+    setSetting("inbox_capture_enabled", "false");
+    if (getSetting("inbox_capture_when_hidden") === undefined) {
+      setSetting("inbox_capture_when_hidden", "true");
+    }
+    if (getSetting("inbox_history_retention_days") === undefined) {
+      setSetting("inbox_history_retention_days", "14");
+    }
+  }
+}
+
 const systemMediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
 function onSystemThemeChange() {
   if (themeMode.value === "system") applyTheme(resolveTheme("system"));
@@ -395,6 +431,7 @@ watch(themeMode, (mode) => {
 
 onMounted(async () => {
   await initSettings();
+  await ensureInboxCaptureConsent();
   const savedTheme = getSetting("theme") as "system" | "dark" | "light" | null;
   if (savedTheme === "system" || savedTheme === "dark" || savedTheme === "light") {
     themeMode.value = savedTheme;
@@ -447,14 +484,7 @@ onMounted(async () => {
     });
   } catch { /* ignore in non-Tauri env */ }
   window.addEventListener("keydown", onKeydown);
-
-  // 剪贴板智能检测：窗口获焦时自动检测
-  try {
-    await listen("tauri://focus", async () => {
-      if (getSetting("clipboard_detection") === "false") return;
-      await detectClipboard();
-    });
-  } catch { /* ignore in non-Tauri env */ }
+  await ensureClipboardListener();
 });
 
 onBeforeUnmount(() => {
@@ -462,4 +492,3 @@ onBeforeUnmount(() => {
   systemMediaQuery.removeEventListener("change", onSystemThemeChange);
 });
 </script>
-
