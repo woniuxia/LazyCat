@@ -534,6 +534,9 @@ fn handle_main_window_shortcut(app: &tauri::AppHandle, shortcut_name: &str) {
         }
         MainWindowShortcutDecision::Reveal => {
             reveal_main_window(app);
+            if shortcut_name == "toggle" {
+                let _ = window.emit("main-window-toggle", json!({}));
+            }
         }
         MainWindowShortcutDecision::RevealAndNavigate {
             did_move_to_cursor_monitor,

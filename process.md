@@ -8,6 +8,118 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-03-20: 密码库解锁顺滑度优化首轮落地
+
+**场景**: 用户希望密码库在输入正确主密码后更快出现可用主界面，同时首轮只做前端体感优化与后端低风险性能优化，不调整 PBKDF2 参数、不改现有 vault IPC 协议。
+
+**问题**:
+1. `VaultLockScreen.vue` 之前使用 500ms debounce + 按密码长度去重，自动解锁会产生固定空等，且自动/手动请求状态彼此割裂。
+2. `VaultPanel.vue` 之前要等 `loadEntries()` 和 `loadTagStats()` 串行完成才真正显示主界面，首屏还叠加 `out-in` 过渡和列表逐项延迟动画，放大了“解锁后还在等”的体感。
+3. `helpers.rs` 每次开库都会重新解析 `config.json` 且执行完整 schema 初始化；`vault.rs` 的 `cmd_list()` 对 tags 存在 N+1 查询，`cmd_touch()` 在高频续活路径里重复开库读取配置。
+
+**解决**:
+1. 在 `VaultLockScreen.vue` 中保留 `onUnlock()` / `attemptAutoUnlock()` 入口，内部统一走 `runUnlockAttempt()`；自动解锁改为 150ms debounce + 按密码值去重，并允许真并发请求，只有最近一次手动失败才回写错误。
+2. 在 `VaultPanel.vue` 中把“已解锁”和“数据已加载”拆成两个阶段：先切 unlocked 主界面，再后台 `loadEntries({ phase })`，列表成功后 fire-and-forget 触发 `loadTagStats({ phase })`；首屏补了轻量 loading / 最小重试 UI，并用 generation + request token 丢弃旧结果。
+3. 去掉锁屏到主界面的 `mode="out-in"` 和列表逐项 `animationDelay`，保留必要但不阻塞首屏可用性的轻量动效。
+4. 在 `helpers.rs` 中把 `get_data_dir()` 做进程级缓存，并把数据库初始化拆成“每连接执行 `PRAGMA foreign_keys = ON`”与“进程首次连接执行 schema/FTS/seed 初始化”。
+5. 在 `vault.rs` 中为 `cmd_list()` 增加批量 tags 查询映射，避免逐条查 tags；`cmd_touch()` 只更新 session 的 `last_activity`，不再走热路径数据库 I/O。
+
+**关键点**:
+1. 真并发 unlock 的收敛规则要清晰：任意一次成功即可进入 unlocked，旧失败不能覆盖新状态，自动失败继续静默。
+2. `VaultPanel.vue` 的首次加载和普通刷新必须分开：首次加载允许显示占位与最小错误 UI，普通刷新保留旧列表和旧标签，不回退首屏态。
+3. 旧异步结果一定要做代际保护，否则锁定后晚到的 `list/tag-stats` 或连续刷新里的旧结果会回写新页面。
+4. `PRAGMA foreign_keys = ON` 属于连接级设置，不能跟 schema 一次化一起粗暴搬走；schema 初始化失败也不能缓存失败结果。
+5. 已解锁会话内的锁定策略要和后端 session 保持同一口径：当前会话冻结既有策略，下一次 setup/unlock/change_password 再刷新。
+
+**涉及文件**:
+- `apps/desktop/src/components/VaultLockScreen.vue`
+- `apps/desktop/src/components/VaultPanel.vue`
+- `apps/desktop/src-tauri/src/tools/helpers.rs`
+- `apps/desktop/src-tauri/src/tools/vault.rs`
+- `docs/superpowers/specs/2026-03-20-vault-unlock-smoothness-design.md`
+
+**验证**:
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+- `cargo check --manifest-path "E:/Projects/LazyCat/apps/desktop/src-tauri/Cargo.toml"`
+
+
+## 2026-03-20: 主呼出快捷键优先按剪贴板路径打开资源管理器
+
+**场景**: 用户希望按主呼出快捷键后，如果当前剪贴板内容本身是本地文件/目录路径，则优先直接打开系统文件浏览器；文件要定位选中，目录要直接打开，且不能影响 snippets / vault / todo 等命名快捷键导航。
+
+**问题**:
+1. 现有主快捷键 `toggle` 只负责呼出窗口，没有给前端一个仅属于主呼出场景的处理入口。
+2. 前端现有 `clipboard-detect.ts` 只做 JSON/JWT 等内容识别，没有独立的保守路径归一化能力。
+3. `inbox.rs` 的 `action_open_path()` 在 `reveal=true` 时仅打开父目录，Windows 下不会在资源管理器中选中文件。
+
+**解决**:
+1. 在 `main.rs` 的主快捷键 Reveal 分支中，仅对 `toggle` 额外发出 `main-window-toggle` 事件；命名快捷键仍继续走 `hotkey-navigate`，避免语义串线。
+2. 在 `clipboard-detect.ts` 新增 `detectClipboardPath()`，只接受单行绝对路径 / UNC / file URI，支持一层外层引号，拒绝环境变量、多行和明显命令片段。
+3. 在 `App.vue` 监听 `main-window-toggle`，读取 `navigator.clipboard.readText()` 后优先调用 `invokeToolByChannel("tool:inbox:open-path", { path, reveal })`；命中成功即短路，失败则静默回退原行为。
+4. 在 `inbox.rs` 中保留现有存在性校验与目录打开逻辑，仅对 Windows + `reveal=true` + 文件路径改为 `explorer.exe /select,...`，实现真正的文件定位。
+5. 增加 `clipboard-detect.test.ts`，覆盖文件路径、目录路径、引号、file URI、UNC 与拒绝样例。
+
+**关键点**:
+1. 主呼出与命名快捷键必须分事件处理，不能把 `toggle` 混进现有导航语义，否则容易误触发工具切换。
+2. 前端路径检测应保持保守，只做格式归一化；路径是否真实存在仍交给 Rust 侧统一校验，避免误判普通文本。
+3. 判断 `reveal` 不应依赖“是否含扩展名”，否则像 `C:\Windows\System32\drivers` 这类无扩展名文件会被误当目录；更稳妥的做法是“非根路径且不以斜杠结尾则 reveal=true”，再由后端基于真实文件系统类型分流。
+4. Windows 文件定位优先走资源管理器原生 `/select,` 语义，目录和非 Windows 平台继续复用 `open::that(...)`，改动最小且兼容性最好。
+
+**涉及文件**:
+- `apps/desktop/src/App.vue`
+- `apps/desktop/src/utils/clipboard-detect.ts`
+- `apps/desktop/src/utils/clipboard-detect.test.ts`
+- `apps/desktop/src-tauri/src/main.rs`
+- `apps/desktop/src-tauri/src/tools/inbox.rs`
+
+**验证**:
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+- `cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml`
+
+**使用次数**: 0
+
+---
+
+## 2026-03-20: 本地待办最近一周已办改为真实完成时间 + 过去 7 天口径
+
+**场景**: 用户反馈“任务清单”里的“最近一周已办”不符合预期，要求按过去 7 天滚动窗口计算，且已办归类必须基于真实完成时间，不能被完成后的再次编辑影响。
+
+**问题**:
+1. `TodoPanel.vue` 当前走 `item_list -> groupTodoItemsByBucket` 的前端分桶链路，但 `todoBuckets.ts` 之前用 `updatedAt || createdAt` 近似完成时间，完成后再编辑会把事项错误挪进/挪出“最近一周已办”。
+2. 旧“最近一周”口径是“从最近周五开始”，不是严格过去 7 天窗口，导致边界日期与用户直觉不一致。
+3. `todo_items` 表没有独立 `completed_at` 字段，后端列表接口也就无法给前端提供稳定的真实完成时间。
+
+**解决**:
+1. 在 `helpers.rs` 增加 migration 27：为 `todo_items` 新增 `completed_at`，给历史 `status='completed'` 数据用当前 `updated_at` 回填一次，并创建索引。
+2. `todo.rs` 的 `item_change_status()` 改为：状态切到 `completed` 时仅在 `completed_at` 为空时写入 `CURRENT_TIMESTAMP`；切回非完成态时清空 `completed_at`，同时保持原有 `updated_at` 刷新语义。
+3. `todo.rs` 的 `item_list()` 新增返回 `completedAt`，前端 `TodoItem`、`normalizeTodoItem()`、`relativeDoneTimeLabel()` 全链路改为消费真实完成时间。
+4. `todoBuckets.ts` 改为以 `completedAt` 做已办分桶与倒序排序，“最近一周”起点收口为“今天向前 6 天的零点”；缺少 `completedAt` 的旧数据统一落到较早已办，避免继续被 `updatedAt` 污染。
+5. `todoBuckets.test.ts` 补充“编辑已完成事项不会改变分桶”“缺少 completedAt 的已办不进入最近一周”等回归用例。
+
+**关键点**:
+1. `updated_at` 仍然应该保留“最后编辑时间”语义，不要再把它混用成完成时间，否则后续任何已完成事项编辑都会再次破坏分桶稳定性。
+2. 对历史数据无法恢复真实完成时刻时，宁可保守回填一次并让后续新数据准确，也不要继续在前端做 `updatedAt` fallback。
+3. 这类时间口径修正优先沿用现有列表接口和前端分桶入口，只替换真源字段与边界规则，能显著降低无关回归。
+
+**涉及文件**:
+- `apps/desktop/src-tauri/src/tools/helpers.rs`
+- `apps/desktop/src-tauri/src/tools/todo.rs`
+- `apps/desktop/src/types/todo.ts`
+- `apps/desktop/src/components/TodoPanel.vue`
+- `apps/desktop/src/utils/todoBuckets.ts`
+- `apps/desktop/src/utils/todoBuckets.test.ts`
+
+**验证**:
+- `pnpm --filter @lazycat/desktop test src/utils/todoBuckets.test.ts`
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+- `cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml`
+- `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml todo:: -- --nocapture`（本次被与改动无关的既有 `vault.rs` 测试编译错误阻塞）
+
+**使用次数**: 0
+
 ## 2026-03-18: 本地待办卡片右键菜单落地
 
 **场景**: 用户要求给本地待办的待办卡片补上右键菜单，支持 `置顶/完成/删除/编辑任务时间`，并保持与现有右侧详情区行为一致。

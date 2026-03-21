@@ -77,12 +77,13 @@ import TabBar from "./components/TabBar.vue";
 import ShortcutHelpOverlay from "./components/ShortcutHelpOverlay.vue";
 import ClipboardSuggestionBar from "./components/ClipboardSuggestionBar.vue";
 import { useClipboardSuggestion } from "./composables/useClipboardSuggestion";
+import { buildClipboardPathSuggestion, detectClipboardPath } from "./utils/clipboard-detect";
 import {
   shouldHideNamedHotkeyWindow,
   type HotkeyNavigatePayload,
 } from "./utils/hotkeyNavigate";
 
-const { ensureClipboardListener } = useClipboardSuggestion();
+const { ensureClipboardListener, showSuggestion } = useClipboardSuggestion();
 const appWindow = getCurrentWindow();
 
 const sidebarItems: SidebarItem[] = [
@@ -385,6 +386,18 @@ function applyTheme(dark: boolean) {
   document.documentElement.dataset.theme = dark ? "dark" : "light";
 }
 
+async function tryOpenClipboardPathFromToggle(): Promise<boolean> {
+  try {
+    const text = await navigator.clipboard.readText();
+    const match = detectClipboardPath(text);
+    if (!match) return false;
+    showSuggestion(buildClipboardPathSuggestion(match), text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function ensureInboxCaptureConsent() {
   if (getSetting("inbox_capture_consent_ack") === "true") return;
   try {
@@ -469,6 +482,11 @@ onMounted(async () => {
   if (savedTodoHotkey) {
     try { await registerNamedHotkey("todo", savedTodoHotkey); } catch { /* ignore */ }
   }
+  try {
+    await listen("main-window-toggle", async () => {
+      await tryOpenClipboardPathFromToggle();
+    });
+  } catch { /* ignore in non-Tauri env */ }
   try {
     await listen<HotkeyNavigatePayload>("hotkey-navigate", async (event) => {
       const { target } = event.payload;

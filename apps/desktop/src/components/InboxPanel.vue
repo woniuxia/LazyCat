@@ -1,6 +1,26 @@
 <template>
   <div class="inbox-panel">
     <aside class="inbox-sidebar panel-card">
+      <section class="sidebar-hero">
+        <div class="sidebar-hero-eyebrow">Clipboard Inbox</div>
+        <h2 class="sidebar-hero-title">收纳箱</h2>
+      </section>
+
+      <section class="sidebar-section">
+        <div class="section-title">总览</div>
+        <div class="sidebar-overview-grid">
+          <div
+            v-for="metric in overviewMetrics"
+            :key="metric.label"
+            class="sidebar-overview-card"
+            :class="`is-${metric.tone}`"
+          >
+            <span>{{ metric.label }}</span>
+            <strong>{{ metric.value }}</strong>
+          </div>
+        </div>
+      </section>
+
       <section class="sidebar-section">
         <div class="section-title">分区</div>
         <button
@@ -10,8 +30,10 @@
           :class="{ 'is-active': filters.bucket === option.value }"
           @click="selectBucket(option.value)"
         >
-          <span>{{ option.label }}</span>
-          <span>{{ bucketCount(option.value) }}</span>
+          <div class="sidebar-filter-copy">
+            <strong>{{ option.label }}</strong>
+          </div>
+          <span class="sidebar-filter-count">{{ bucketCount(option.value) }}</span>
         </button>
       </section>
 
@@ -22,8 +44,10 @@
           :class="{ 'is-active': filters.itemType === '' }"
           @click="selectType('')"
         >
-          <span>全部类型</span>
-          <span>{{ totalTypeCount }}</span>
+          <div class="sidebar-filter-copy">
+            <strong>全部类型</strong>
+          </div>
+          <span class="sidebar-filter-count">{{ totalTypeCount }}</span>
         </button>
         <button
           v-for="option in typeOptions"
@@ -32,8 +56,10 @@
           :class="{ 'is-active': filters.itemType === option.value }"
           @click="selectType(option.value)"
         >
-          <span>{{ option.label }}</span>
-          <span>{{ typeCount(option.value) }}</span>
+          <div class="sidebar-filter-copy">
+            <strong>{{ option.label }}</strong>
+          </div>
+          <span class="sidebar-filter-count">{{ typeCount(option.value) }}</span>
         </button>
       </section>
 
@@ -44,25 +70,51 @@
           :class="{ 'is-active': filters.starredOnly }"
           @click="toggleFlag('starredOnly')"
         >
-          <span>仅星标</span>
-          <span>{{ facets.starred }}</span>
+          <div class="sidebar-filter-copy">
+            <strong>仅星标</strong>
+          </div>
+          <span class="sidebar-filter-count">{{ facets.starred }}</span>
         </button>
         <button
           class="sidebar-filter"
           :class="{ 'is-active': filters.externalOnly }"
           @click="toggleFlag('externalOnly')"
         >
-          <span>外部内容</span>
-          <span>{{ facets.external }}</span>
+          <div class="sidebar-filter-copy">
+            <strong>外部内容</strong>
+          </div>
+          <span class="sidebar-filter-count">{{ facets.external }}</span>
         </button>
         <button
           class="sidebar-filter"
           :class="{ 'is-active': filters.summaryOnly }"
           @click="toggleFlag('summaryOnly')"
         >
-          <span>仅摘要</span>
-          <span>{{ facets.summaryOnly }}</span>
+          <div class="sidebar-filter-copy">
+            <strong>仅摘要</strong>
+          </div>
+          <span class="sidebar-filter-count">{{ facets.summaryOnly }}</span>
         </button>
+      </section>
+
+      <section class="sidebar-section">
+        <div class="section-title section-title-row">
+          <span>当前筛选</span>
+          <button
+            v-if="hasActiveFilters"
+            class="section-link-btn"
+            type="button"
+            @click="resetFilters"
+          >
+            重置
+          </button>
+        </div>
+        <div v-if="activeFilterChips.length > 0" class="filter-chip-list">
+          <span v-for="chip in activeFilterChips" :key="chip.label" class="filter-chip">
+            {{ chip.label }}
+          </span>
+        </div>
+        <div v-else class="sidebar-empty-note">当前使用默认视图：历史流 + 全部类型</div>
       </section>
 
       <div class="sidebar-spacer" />
@@ -99,9 +151,17 @@
         />
         <el-button @click="reloadList">搜索</el-button>
       </div>
+      <div class="list-active-filters">
+        <template v-if="activeFilterChips.length > 0">
+          <span v-for="chip in activeFilterChips" :key="chip.label" class="filter-chip">
+            {{ chip.label }}
+          </span>
+        </template>
+        <span v-else class="filter-chip is-neutral">默认视图</span>
+      </div>
       <div class="list-summary">
-        <span>{{ currentBucketLabel }} · {{ total }} 条</span>
-        <span v-if="loadingList">加载中...</span>
+        <span>{{ listSummaryLabel }}</span>
+        <span>{{ loadingList ? "正在刷新…" : selectedPositionLabel }}</span>
       </div>
       <div
         ref="listViewportRef"
@@ -113,10 +173,26 @@
         <button
           v-for="item in virtualItems"
           :key="item.id"
+          v-memo="[
+            item.id,
+            item.id === selectedId,
+            item.title,
+            item.preview,
+            item.bucket,
+            item.storageKind,
+            item.starred,
+            item.hasNote,
+            item.lastSeenAt,
+            item.seenCount,
+          ]"
           class="list-row"
           :class="{ 'is-active': item.id === selectedId }"
           @click="selectItem(item.id)"
         >
+          <div class="row-topline">
+            <span class="row-topline-type">{{ itemTypeLabel(item.itemType) }}</span>
+            <span class="row-topline-time">{{ formatDateTime(item.lastSeenAt) }}</span>
+          </div>
           <div class="row-header">
             <strong>{{ item.title || "(未命名)" }}</strong>
             <div class="row-badges">
@@ -124,6 +200,7 @@
                 {{ item.bucket === "archived" ? "已归档" : "已升格" }}
               </span>
               <span v-if="item.starred" class="badge star">星标</span>
+              <span v-if="item.hasNote" class="badge note">有备注</span>
               <span class="badge">{{ itemTypeLabel(item.itemType) }}</span>
               <span class="badge" :class="storageBadgeClass(item)">
                 {{ storageBadgeLabel(item) }}
@@ -131,10 +208,15 @@
             </div>
           </div>
           <div class="row-preview">{{ item.preview || "暂无摘要" }}</div>
-          <div class="row-meta">
-            <span>{{ formatDateTime(item.lastSeenAt) }}</span>
-            <span>{{ formatByteSize(item.byteSize) }}</span>
-            <span>{{ item.seenCount }} 次</span>
+          <div class="row-footer">
+            <div class="row-meta">
+              <span>{{ bucketLabel(item.bucket) }}</span>
+              <span>{{ formatByteSize(item.byteSize) }}</span>
+              <span>{{ item.seenCount }} 次</span>
+            </div>
+            <div class="row-meta row-meta-secondary">
+              <span>{{ storageKindLabel(item.storageKind) }}</span>
+            </div>
           </div>
         </button>
         <div :style="{ height: `${bottomSpacer}px` }" />
@@ -148,53 +230,96 @@
 
     <section class="inbox-detail panel-card" @scroll="hideImageContextMenu">
       <template v-if="detail">
-        <div class="detail-header">
-          <div>
-            <h3>{{ detail.title || "(未命名)" }}</h3>
-            <div class="detail-subline">
-              {{ itemTypeLabel(detail.itemType) }} · {{ bucketLabel(detail.bucket) }} ·
-              {{ formatDateTime(detail.lastSeenAt) }}
+        <div class="detail-overview-card">
+          <div class="detail-overview-topline">
+            <div class="detail-overview-eyebrow">
+              {{ bucketLabel(detail.bucket) }} · {{ itemTypeLabel(detail.itemType) }}
+            </div>
+            <button
+              type="button"
+              class="detail-overview-action"
+              @click="detailEditExpanded = !detailEditExpanded"
+            >
+              {{ detailEditExpanded ? "收起编辑" : "编辑标题/备注" }}
+            </button>
+          </div>
+          <h3>{{ detail.title || "(未命名)" }}</h3>
+          <p class="detail-overview-preview">{{ detailPreviewText }}</p>
+          <div class="detail-badge-row">
+            <span v-if="metaDraft.starred" class="badge star">星标</span>
+            <span class="badge">{{ itemTypeLabel(detail.itemType) }}</span>
+            <span class="badge" :class="storageBadgeClass(detail)">
+              {{ storageBadgeLabel(detail) }}
+            </span>
+            <span v-if="detail.note" class="badge note">已写备注</span>
+            <span v-if="detail.bucket !== 'history'" class="badge promoted">
+              {{ detail.bucket === "archived" ? "已归档" : "已收纳" }}
+            </span>
+          </div>
+          <div class="detail-overview-metrics">
+            <div class="detail-metric">
+              <span>最近出现</span>
+              <strong>{{ formatDateTime(detail.lastSeenAt) }}</strong>
+            </div>
+            <div class="detail-metric">
+              <span>体积</span>
+              <strong>{{ formatByteSize(detail.byteSize) }}</strong>
+            </div>
+            <div class="detail-metric">
+              <span>出现次数</span>
+              <strong>{{ detail.seenCount }} 次</strong>
             </div>
           </div>
-          <div class="detail-header-actions">
-            <el-button size="small" @click="toggleStar">
-              {{ metaDraft.starred ? "取消星标" : "设为星标" }}
-            </el-button>
-            <el-button size="small" @click="promoteItem">转入收纳箱</el-button>
+          <div v-if="detail.canOpenPath && detail.openPath" class="detail-origin">
+            <span>来源位置</span>
+            <button
+              type="button"
+              class="detail-origin-link"
+              @click="openPath(detail.openPath, true)"
+            >
+              {{ detail.openPath }}
+            </button>
           </div>
         </div>
 
-        <div class="detail-actions">
-          <el-button type="primary" @click="transferToTodo">转任务清单</el-button>
-          <el-button :disabled="!canTransferToVault" @click="transferToVault">存入密码库</el-button>
-          <el-button :disabled="!copyableText" @click="copyDetailContent">复制内容</el-button>
-          <el-button disabled>转便签（后续支持）</el-button>
-          <el-button @click="toggleArchive">
-            {{ detail.bucket === "archived" ? "恢复" : "归档" }}
-          </el-button>
-          <el-button
-            v-if="detail.canOpenPath && detail.openPath"
-            @click="openPath(detail.openPath, true)"
+        <div class="detail-toolbar">
+          <div class="detail-toolbar-main">
+            <el-button type="primary" @click="transferToTodo">转任务清单</el-button>
+            <el-button v-if="canTransferToVault" @click="transferToVault">存入密码库</el-button>
+            <el-button :disabled="!copyableText" @click="copyDetailContent">复制内容</el-button>
+            <el-button
+              v-if="detail.canOpenPath && detail.openPath"
+              @click="openPath(detail.openPath, true)"
+            >
+              打开位置
+            </el-button>
+          </div>
+          <el-dropdown
+            trigger="click"
+            placement="bottom-end"
+            class="detail-toolbar-more"
+            @command="handleDetailActionCommand"
           >
-            打开位置
-          </el-button>
-          <el-button type="danger" @click="deleteItem">删除</el-button>
+            <el-button plain>更多操作</el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="toggle-star">
+                  {{ metaDraft.starred ? "取消星标" : "设为星标" }}
+                </el-dropdown-item>
+                <el-dropdown-item command="promote" :disabled="!canPromoteCurrentItem">
+                  {{ promoteButtonLabel }}
+                </el-dropdown-item>
+                <el-dropdown-item command="archive">
+                  {{ archiveButtonLabel }}
+                </el-dropdown-item>
+                <el-dropdown-item command="note" disabled>转便签（后续支持）</el-dropdown-item>
+                <el-dropdown-item command="delete" divided>删除</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
         </div>
 
-        <div class="detail-section">
-          <div class="section-title">编辑</div>
-          <el-form label-position="top">
-            <el-form-item label="标题">
-              <el-input v-model.trim="metaDraft.title" />
-            </el-form-item>
-            <el-form-item label="备注">
-              <el-input v-model="metaDraft.note" type="textarea" :rows="4" />
-            </el-form-item>
-            <el-button type="primary" :loading="savingMeta" @click="saveMeta">保存</el-button>
-          </el-form>
-        </div>
-
-        <div class="detail-section">
+        <div v-if="shouldShowDetailBody" class="detail-section detail-body-section">
           <div class="section-title">正文</div>
           <div v-if="detail.itemType === 'image' && detail.payloadDataUrl" class="image-box">
             <img
@@ -206,63 +331,84 @@
             />
             <div class="image-box-hint">点击查看大图，右键打开快捷操作</div>
           </div>
-          <div v-else-if="detail.itemType === 'unknown'" class="detail-empty">
-            该格式未持久化原始内容，仅保留格式标识和基础元数据。
-          </div>
           <pre v-else-if="detailText" class="detail-text">{{ detailText }}</pre>
-          <div v-else class="detail-empty">该条目没有可直接展示的正文。</div>
         </div>
 
-        <div v-if="detailMetaEntries.length > 0" class="detail-section">
-          <div class="section-title">元数据</div>
-          <div class="detail-meta-list">
-            <div v-for="entry in detailMetaEntries" :key="entry.label" class="detail-meta-item">
-              <span>{{ entry.label }}</span>
-              <strong>{{ entry.value }}</strong>
-            </div>
+        <div v-if="detailEditExpanded" class="detail-section">
+          <div class="section-title-row">
+            <div class="section-title">编辑</div>
+            <button
+              type="button"
+              class="section-link-btn"
+              @click="detailEditExpanded = false"
+            >
+              收起
+            </button>
+          </div>
+          <div class="detail-edit-card">
+            <el-form label-position="top">
+              <el-form-item label="标题">
+                <el-input v-model.trim="metaDraft.title" />
+              </el-form-item>
+              <el-form-item label="备注">
+                <el-input v-model="metaDraft.note" type="textarea" :rows="4" />
+              </el-form-item>
+              <el-button type="primary" :loading="savingMeta" @click="saveMeta">保存</el-button>
+            </el-form>
           </div>
         </div>
 
-        <div v-if="detail.fileRefs.length > 0" class="detail-section">
-          <div class="section-title">文件引用</div>
-          <div v-for="fileRef in detail.fileRefs" :key="fileRef.filePath" class="file-ref">
-            <div class="file-ref-main">
-              <strong>{{ fileRef.fileName }}</strong>
-              <div class="file-ref-path">{{ fileRef.filePath }}</div>
-              <div class="file-ref-submeta">
-                <span>{{ fileRef.fileSize ? formatByteSize(fileRef.fileSize) : "未知大小" }}</span>
-                <span v-if="fileRef.modifiedAt"
-                  >修改于 {{ formatDateTime(fileRef.modifiedAt) }}</span
-                >
+        <el-collapse
+          v-if="detailMetaEntries.length > 0 || detail.fileRefs.length > 0"
+          v-model="detailExpandedSections"
+          class="detail-collapse"
+        >
+          <el-collapse-item v-if="detailMetaEntries.length > 0" name="meta">
+            <template #title>
+              <div class="detail-collapse-title">
+                <span class="section-title">元数据</span>
+                <span class="detail-collapse-count">{{ detailMetaEntries.length }} 项</span>
+              </div>
+            </template>
+            <div class="detail-meta-list">
+              <div v-for="entry in detailMetaEntries" :key="entry.label" class="detail-meta-item">
+                <span>{{ entry.label }}</span>
+                <strong>{{ entry.value }}</strong>
               </div>
             </div>
-            <el-button size="small" @click="openPath(fileRef.filePath, true)">打开位置</el-button>
-          </div>
-        </div>
+          </el-collapse-item>
 
-        <div class="detail-grid">
-          <div class="detail-metric">
-            <span>首次记录</span>
-            <strong>{{ formatDateTime(detail.capturedAt) }}</strong>
-          </div>
-          <div class="detail-metric">
-            <span>最近出现</span>
-            <strong>{{ formatDateTime(detail.lastSeenAt) }}</strong>
-          </div>
-          <div class="detail-metric">
-            <span>存储方式</span>
-            <strong>{{ storageKindLabel(detail.storageKind) }}</strong>
-          </div>
-          <div class="detail-metric">
-            <span>体积</span>
-            <strong>{{ formatByteSize(detail.byteSize) }}</strong>
-          </div>
-        </div>
+          <el-collapse-item v-if="detail.fileRefs.length > 0" name="files">
+            <template #title>
+              <div class="detail-collapse-title">
+                <span class="section-title">文件引用</span>
+                <span class="detail-collapse-count">{{ detail.fileRefs.length }} 个</span>
+              </div>
+            </template>
+            <div v-for="fileRef in detail.fileRefs" :key="fileRef.filePath" class="file-ref">
+              <div class="file-ref-main">
+                <strong>{{ fileRef.fileName }}</strong>
+                <div class="file-ref-path">{{ fileRef.filePath }}</div>
+                <div class="file-ref-submeta">
+                  <span>{{ fileRef.fileSize ? formatByteSize(fileRef.fileSize) : "未知大小" }}</span>
+                  <span v-if="fileRef.modifiedAt"
+                    >修改于 {{ formatDateTime(fileRef.modifiedAt) }}</span
+                  >
+                </div>
+              </div>
+              <el-button size="small" @click="openPath(fileRef.filePath, true)">打开位置</el-button>
+            </div>
+          </el-collapse-item>
+        </el-collapse>
+
       </template>
 
       <div v-else class="detail-placeholder">
-        <h3>选择一条收纳记录</h3>
-        <p>左侧筛选，中间浏览，右侧查看详情并转入待办或密码库。</p>
+        <div class="detail-placeholder-card">
+          <div class="detail-placeholder-eyebrow">Ready to Sort</div>
+          <h3>选择一条收纳记录</h3>
+          <p>左侧切视图，中间扫摘要，右侧立即整理、补备注或转入其他工具。</p>
+        </div>
       </div>
     </section>
 
@@ -392,10 +538,11 @@ import type {
 } from "../types";
 
 const PAGE_SIZE = 50;
-const ROW_HEIGHT = 106;
+const ROW_HEIGHT = 154;
 const OVERSCAN = 8;
 
-type BucketFilter = InboxListQuery["bucket"] | "all";
+type BucketFilter = NonNullable<InboxListQuery["bucket"]> | "all";
+type DetailCollapseSection = "meta" | "files";
 
 const bucketOptions: Array<{ value: BucketFilter; label: string }> = [
   { value: "history", label: "历史流" },
@@ -455,6 +602,8 @@ const scrollTop = ref(0);
 const settingsDialogVisible = ref(false);
 const imagePreviewVisible = ref(false);
 const imageContextMenuRef = ref<HTMLElement | null>(null);
+const detailEditExpanded = ref(false);
+const detailExpandedSections = ref<DetailCollapseSection[]>([]);
 let clipboardUnlisten: UnlistenFn | null = null;
 let clipboardRefreshRunning = false;
 let clipboardRefreshQueued = false;
@@ -471,12 +620,38 @@ const metaDraft = reactive({
   starred: false,
 });
 
-const currentBucketLabel = computed(
-  () => bucketOptions.find((item) => item.value === filters.bucket)?.label || "全部",
-);
 const totalTypeCount = computed(() =>
   typeOptions.reduce((sum, item) => sum + typeCount(item.value), 0),
 );
+const overviewMetrics = computed(() => [
+  { label: "当前结果", value: String(total.value), tone: "primary" },
+  { label: "星标", value: String(facets.value.starred), tone: "accent" },
+  { label: "外部引用", value: String(facets.value.external), tone: "warm" },
+  { label: "仅摘要", value: String(facets.value.summaryOnly), tone: "muted" },
+]);
+const activeFilterChips = computed(() => {
+  const chips: Array<{ label: string }> = [];
+  if (filters.bucket !== "history") chips.push({ label: `分区：${bucketLabel(filters.bucket)}` });
+  if (filters.itemType) chips.push({ label: `类型：${itemTypeLabel(filters.itemType)}` });
+  if (filters.starredOnly) chips.push({ label: "仅星标" });
+  if (filters.externalOnly) chips.push({ label: "外部内容" });
+  if (filters.summaryOnly) chips.push({ label: "仅摘要" });
+  if (filters.keyword) chips.push({ label: `搜索：${filters.keyword}` });
+  return chips;
+});
+const hasActiveFilters = computed(() => activeFilterChips.value.length > 0);
+const listSummaryLabel = computed(() => {
+  if (total.value === 0) {
+    return filters.keyword ? "当前搜索没有匹配结果" : "当前视图还没有记录";
+  }
+  return `已加载 ${items.value.length} / ${total.value} 条`;
+});
+const selectedPositionLabel = computed(() => {
+  if (!items.value.length) return "等待新的记录进入";
+  if (selectedId.value == null) return "已加载候选，待选择";
+  const index = items.value.findIndex((item) => item.id === selectedId.value);
+  return index >= 0 ? `已定位第 ${index + 1} 条` : "当前选择已不在列表中";
+});
 const visibleCount = computed(() =>
   Math.max(1, Math.ceil(viewportHeight.value / ROW_HEIGHT) + OVERSCAN * 2),
 );
@@ -491,9 +666,18 @@ const bottomSpacer = computed(() =>
 );
 const detailText = computed(() => {
   if (!detail.value) return "";
-  return buildReadableText(detail.value) || detail.value.preview || "";
+  return buildDisplayText(detail.value);
 });
 const copyableText = computed(() => (detail.value ? buildTransferText(detail.value) : ""));
+const shouldShowDetailBody = computed(() => (detail.value ? hasVisibleDetailBody(detail.value) : false));
+const detailPreviewText = computed(() => {
+  if (!detail.value) return "";
+  if (detail.value.preview) return detail.value.preview;
+  if (detail.value.itemType === "unknown") {
+    return "该条目仅保留格式标识和元数据，可作为后续整理线索。";
+  }
+  return detailText.value || "暂无摘要";
+});
 const currentImageDataUrl = computed(() =>
   detail.value?.itemType === "image" ? detail.value.payloadDataUrl || "" : "",
 );
@@ -518,28 +702,8 @@ const imagePreviewSubtitle = computed(() => {
   return segments.join(" · ");
 });
 const detailMetaEntries = computed(() => {
-  if (!detail.value || !detail.value.metaJson) return [];
-  const meta = detail.value.metaJson as Record<string, unknown>;
-  const entries: Array<{ label: string; value: string }> = [];
-  if (typeof meta.width === "number" && typeof meta.height === "number") {
-    entries.push({ label: "尺寸", value: `${meta.width} × ${meta.height}` });
-  }
-  if (typeof meta.keptOriginal === "boolean") {
-    entries.push({ label: "原图保留", value: meta.keptOriginal ? "是" : "否" });
-  }
-  if (typeof meta.count === "number") {
-    entries.push({ label: "引用数量", value: String(meta.count) });
-  }
-  if (Array.isArray(meta.formats)) {
-    entries.push({
-      label: "格式标识",
-      value: meta.formats.filter((item): item is string => typeof item === "string").join("、"),
-    });
-  }
-  if (typeof meta.excerpt === "boolean" && meta.excerpt) {
-    entries.push({ label: "正文状态", value: "仅保留摘要" });
-  }
-  return entries;
+  if (!detail.value) return [];
+  return buildDetailMetaEntries(detail.value);
 });
 const canTransferToVault = computed(() => {
   if (!detail.value) return false;
@@ -548,6 +712,19 @@ const canTransferToVault = computed(() => {
     !!buildTransferText(detail.value)
   );
 });
+const canPromoteCurrentItem = computed(() => {
+  if (!detail.value) return false;
+  return detail.value.bucket !== "inbox";
+});
+const promoteButtonLabel = computed(() => {
+  if (!detail.value) return "转入收纳箱";
+  if (detail.value.bucket === "history") return "转入收纳箱";
+  if (detail.value.bucket === "archived") return "放回收纳箱";
+  return "已在收纳箱";
+});
+const archiveButtonLabel = computed(() =>
+  detail.value?.bucket === "archived" ? "恢复归档" : "归档",
+);
 
 function buildQuery(offset = 0): InboxListQuery {
   return {
@@ -654,9 +831,9 @@ async function loadList(
     if (!exists) {
       selectedId.value = items.value[0]?.id ?? null;
       if (selectedId.value != null) await loadDetail(selectedId.value);
-      else detail.value = null;
+      else clearDetailState();
     } else if (options.refreshSelectedDetail && selectedId.value != null) {
-      await loadDetail(selectedId.value);
+      await loadDetail(selectedId.value, { preserveUiState: true });
     }
   } catch (error) {
     ElMessage.error((error as Error).message || "收纳箱列表加载失败");
@@ -674,15 +851,12 @@ async function loadMore(): Promise<void> {
   await loadList(false);
 }
 
-async function loadDetail(id: number): Promise<void> {
+async function loadDetail(id: number, options: { preserveUiState?: boolean } = {}): Promise<void> {
   closeImagePreview();
   hideImageContextMenu();
   try {
     const result = (await invokeToolByChannel("tool:inbox:get", { id })) as InboxItemDetail;
-    detail.value = result;
-    metaDraft.title = result.title || "";
-    metaDraft.note = result.note || "";
-    metaDraft.starred = result.starred;
+    applyLoadedDetail(result, options);
   } catch (error) {
     ElMessage.error((error as Error).message || "详情加载失败");
   }
@@ -703,7 +877,7 @@ async function saveMeta(): Promise<void> {
       note: metaDraft.note,
       starred: metaDraft.starred,
     });
-    await Promise.all([loadDetail(detail.value.id), loadList(true)]);
+    await Promise.all([loadDetail(detail.value.id, { preserveUiState: true }), loadList(true)]);
     ElMessage.success("已保存");
   } catch (error) {
     ElMessage.error((error as Error).message || "保存失败");
@@ -718,10 +892,10 @@ async function toggleStar(): Promise<void> {
 }
 
 async function promoteItem(): Promise<void> {
-  if (!detail.value) return;
+  if (!detail.value || !canPromoteCurrentItem.value) return;
   try {
     await invokeToolByChannel("tool:inbox:promote", { id: detail.value.id });
-    await Promise.all([loadDetail(detail.value.id), loadList(true)]);
+    await Promise.all([loadDetail(detail.value.id, { preserveUiState: true }), loadList(true)]);
     ElMessage.success("已转入收纳箱");
   } catch (error) {
     ElMessage.error((error as Error).message || "转入失败");
@@ -735,7 +909,7 @@ async function toggleArchive(): Promise<void> {
       id: detail.value.id,
       archived: detail.value.bucket !== "archived",
     });
-    await Promise.all([loadDetail(detail.value.id), loadList(true)]);
+    await Promise.all([loadDetail(detail.value.id, { preserveUiState: true }), loadList(true)]);
     ElMessage.success("状态已更新");
   } catch (error) {
     ElMessage.error((error as Error).message || "归档失败");
@@ -756,7 +930,7 @@ async function deleteItem(): Promise<void> {
   try {
     await invokeToolByChannel("tool:inbox:delete", { id: detail.value.id });
     selectedId.value = null;
-    detail.value = null;
+    clearDetailState();
     closeImagePreview();
     hideImageContextMenu();
     await loadList(true);
@@ -782,12 +956,95 @@ function buildTransferText(input: InboxItemDetail): string {
   return input.preview || input.title || "";
 }
 
+function buildDisplayText(input: InboxItemDetail): string {
+  const readableText = buildReadableText(input);
+  if (readableText) return readableText;
+  if (["text", "html", "rtf"].includes(input.itemType)) {
+    return input.preview || "";
+  }
+  return "";
+}
+
 function buildReadableText(input: InboxItemDetail): string {
   if (!["text", "html", "rtf", "unknown"].includes(input.itemType)) return "";
   const preferSearchText = input.itemType === "html" || input.itemType === "rtf";
   const primary = preferSearchText ? input.searchText : input.payloadText;
   const fallback = preferSearchText ? input.payloadText : input.searchText;
   return primary?.trim() || fallback?.trim() || "";
+}
+
+function buildDetailMetaEntries(input: InboxItemDetail): Array<{ label: string; value: string }> {
+  if (!input.metaJson) return [];
+  const meta = input.metaJson as Record<string, unknown>;
+  const entries: Array<{ label: string; value: string }> = [];
+  if (typeof meta.width === "number" && typeof meta.height === "number") {
+    entries.push({ label: "尺寸", value: `${meta.width} × ${meta.height}` });
+  }
+  if (typeof meta.keptOriginal === "boolean") {
+    entries.push({ label: "原图保留", value: meta.keptOriginal ? "是" : "否" });
+  }
+  if (typeof meta.count === "number") {
+    entries.push({ label: "引用数量", value: String(meta.count) });
+  }
+  if (Array.isArray(meta.formats)) {
+    entries.push({
+      label: "格式标识",
+      value: meta.formats.filter((item): item is string => typeof item === "string").join("、"),
+    });
+  }
+  if (typeof meta.excerpt === "boolean" && meta.excerpt) {
+    entries.push({ label: "正文状态", value: "仅保留摘要" });
+  }
+  return entries;
+}
+
+function hasVisibleDetailBody(input: InboxItemDetail): boolean {
+  if (input.itemType === "image") return !!input.payloadDataUrl;
+  return !!buildDisplayText(input);
+}
+
+function getDefaultDetailExpandedSections(input: InboxItemDetail): DetailCollapseSection[] {
+  const sections: DetailCollapseSection[] = [];
+  const hasBody = hasVisibleDetailBody(input);
+  if (!hasBody && input.fileRefs.length > 0) {
+    sections.push("files");
+  } else if (
+    !hasBody &&
+    buildDetailMetaEntries(input).length > 0 &&
+    (input.itemType === "unknown" ||
+      input.storageKind === "metadata_only" ||
+      input.metaJson?.excerpt === true)
+  ) {
+    sections.push("meta");
+  }
+  return sections;
+}
+
+function applyLoadedDetail(
+  result: InboxItemDetail,
+  options: { preserveUiState?: boolean } = {},
+): void {
+  detail.value = result;
+  metaDraft.title = result.title || "";
+  metaDraft.note = result.note || "";
+  metaDraft.starred = result.starred;
+  if (options.preserveUiState) {
+    if (detailExpandedSections.value.length === 0) {
+      detailExpandedSections.value = getDefaultDetailExpandedSections(result);
+    }
+    return;
+  }
+  detailEditExpanded.value = false;
+  detailExpandedSections.value = getDefaultDetailExpandedSections(result);
+}
+
+function clearDetailState(): void {
+  detail.value = null;
+  metaDraft.title = "";
+  metaDraft.note = "";
+  metaDraft.starred = false;
+  detailEditExpanded.value = false;
+  detailExpandedSections.value = [];
 }
 
 function buildTodoDraft(input: InboxItemDetail): { title: string; description: string } {
@@ -842,9 +1099,29 @@ function transferToVault(): void {
   openTab("vault", "密码库");
 }
 
+async function handleDetailActionCommand(command: string): Promise<void> {
+  if (!detail.value) return;
+  if (command === "toggle-star") {
+    await toggleStar();
+    return;
+  }
+  if (command === "promote") {
+    await promoteItem();
+    return;
+  }
+  if (command === "archive") {
+    await toggleArchive();
+    return;
+  }
+  if (command === "delete") {
+    await deleteItem();
+  }
+}
+
 async function copyDetailContent(): Promise<void> {
   if (!copyableText.value) return;
   try {
+    await suppressClipboardCapture(copyableText.value);
     await navigator.clipboard.writeText(copyableText.value);
     ElMessage.success("内容已复制");
   } catch {
@@ -977,6 +1254,16 @@ function toggleFlag(key: "starredOnly" | "externalOnly" | "summaryOnly"): void {
   void reloadList();
 }
 
+function resetFilters(): void {
+  filters.bucket = "history";
+  filters.itemType = "";
+  filters.starredOnly = false;
+  filters.externalOnly = false;
+  filters.summaryOnly = false;
+  filters.keyword = "";
+  void reloadList();
+}
+
 function onListScroll(event: Event): void {
   hideImageContextMenu();
   const target = event.target as HTMLElement;
@@ -1048,7 +1335,7 @@ onBeforeUnmount(() => {
 <style scoped>
 .inbox-panel {
   display: grid;
-  grid-template-columns: 248px minmax(320px, 0.9fr) minmax(360px, 1fr);
+  grid-template-columns: 264px minmax(340px, 0.95fr) minmax(380px, 1.1fr);
   gap: 16px;
   height: 100%;
   min-height: 0;
@@ -1057,9 +1344,10 @@ onBeforeUnmount(() => {
 .panel-card {
   min-height: 0;
   border: 1px solid var(--lc-border);
-  border-radius: var(--lc-radius-lg);
-  background: var(--lc-surface-0);
-  box-shadow: var(--lc-shadow-sm);
+  border-radius: 20px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(246, 248, 251, 0.96));
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.06);
 }
 
 .inbox-sidebar,
@@ -1073,8 +1361,159 @@ onBeforeUnmount(() => {
 .inbox-sidebar {
   position: relative;
   gap: 16px;
-  padding: 16px;
+  padding: 18px;
   overflow-y: auto;
+}
+
+.inbox-list,
+.inbox-detail {
+  padding: 18px;
+}
+
+.inbox-detail {
+  gap: 16px;
+  overflow-y: auto;
+}
+
+.sidebar-hero,
+.sidebar-section,
+.detail-section,
+.setting-card,
+.detail-edit-card,
+.detail-text,
+.detail-empty,
+.image-box,
+.detail-meta-item,
+.file-ref,
+.detail-placeholder-card {
+  border: 1px solid var(--lc-border);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.84);
+}
+
+.sidebar-hero,
+.setting-card,
+.detail-edit-card,
+.detail-text,
+.detail-empty,
+.image-box,
+.detail-placeholder-card {
+  padding: 14px;
+}
+
+.sidebar-section,
+.detail-section {
+  padding: 12px;
+}
+
+.sidebar-hero {
+  background:
+    linear-gradient(160deg, rgba(14, 165, 233, 0.12), rgba(255, 255, 255, 0.96) 56%),
+    rgba(255, 255, 255, 0.92);
+}
+
+.sidebar-hero-eyebrow,
+.detail-overview-eyebrow,
+.detail-placeholder-eyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #0369a1;
+}
+
+.sidebar-hero-title,
+.detail-overview-card h3,
+.detail-placeholder-card h3 {
+  margin: 8px 0 0;
+  font-family: var(--lc-font-display);
+  color: var(--lc-text);
+}
+
+.sidebar-hero-title {
+  font-size: 28px;
+}
+
+.sidebar-empty-note,
+.list-summary,
+.row-preview,
+.row-meta,
+.detail-overview-preview,
+.detail-origin span,
+.detail-metric span,
+.detail-meta-item span,
+.file-ref-path,
+.file-ref-submeta,
+.image-box-hint,
+.detail-placeholder-card p,
+.setting-copy span,
+.setting-meta,
+.image-preview-header span {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--lc-text-secondary);
+}
+
+.detail-placeholder-card p {
+  margin: 10px 0 0;
+}
+
+.setting-row,
+.setting-meta,
+.capture-actions,
+.list-toolbar,
+.list-summary,
+.row-topline,
+.row-header,
+.row-badges,
+.row-footer,
+.row-meta,
+.section-title-row,
+.detail-badge-row,
+.detail-overview-topline,
+.detail-toolbar,
+.detail-toolbar-main,
+.detail-collapse-title,
+.file-ref,
+.image-preview-header {
+  display: flex;
+  align-items: center;
+}
+
+.setting-row,
+.setting-meta,
+.list-summary,
+.row-topline,
+.row-header,
+.row-footer,
+.row-meta,
+.detail-overview-topline,
+.detail-toolbar,
+.file-ref,
+.image-preview-header {
+  justify-content: space-between;
+}
+
+.setting-row {
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.capture-actions {
+  gap: 10px;
+}
+
+.sidebar-overview-card strong,
+.detail-metric strong {
+  display: block;
+  color: var(--lc-text);
+}
+
+.setting-card,
+.setting-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 .sidebar-section,
@@ -1092,91 +1531,154 @@ onBeforeUnmount(() => {
   text-transform: uppercase;
 }
 
-.setting-card,
-.detail-metric,
-.detail-text,
-.detail-empty,
-.image-box {
-  border: 1px solid var(--lc-border);
-  border-radius: 14px;
-  background: var(--lc-surface-1);
-}
-
-.setting-card,
-.detail-metric {
-  padding: 12px;
-}
-
-.setting-row,
-.setting-meta,
-.capture-actions,
-.list-toolbar,
-.list-summary,
-.row-header,
-.row-meta,
-.detail-header,
-.detail-header-actions,
-.detail-actions {
-  display: flex;
-  align-items: center;
-}
-
-.setting-row,
-.setting-meta,
-.list-summary,
-.detail-header {
+.section-title-row {
   justify-content: space-between;
 }
 
-.capture-actions,
-.detail-header-actions,
-.detail-actions,
-.row-badges {
-  gap: 8px;
+.section-link-btn,
+.detail-origin-link,
+.detail-overview-action {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--lc-accent);
+  cursor: pointer;
 }
 
-.setting-copy span,
-.setting-meta,
-.detail-subline,
-.row-preview,
-.row-meta,
-.detail-placeholder p {
+.section-link-btn,
+.detail-overview-action {
   font-size: 12px;
-  color: var(--lc-text-secondary);
 }
 
-.setting-card,
-.setting-copy {
-  display: flex;
-  flex-direction: column;
+.section-link-btn:hover,
+.detail-origin-link:hover,
+.detail-overview-action:hover {
+  color: var(--lc-accent-light);
 }
 
-.setting-card,
-.setting-copy,
-.capture-actions {
+.sidebar-overview-grid,
+.detail-overview-metrics,
+.detail-meta-list {
+  display: grid;
   gap: 10px;
 }
 
-.setting-row {
-  gap: 12px;
-  align-items: flex-start;
+.sidebar-overview-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.setting-copy {
+.sidebar-overview-card {
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid var(--lc-border);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(241, 245, 249, 0.9));
+}
+
+.sidebar-overview-card span {
+  display: block;
+  font-size: 11px;
+  color: var(--lc-text-secondary);
+}
+
+.sidebar-overview-card strong {
+  margin-top: 8px;
+  font-size: 22px;
+  font-family: var(--lc-font-display);
+}
+
+.sidebar-overview-card.is-accent strong {
+  color: #b45309;
+}
+
+.sidebar-overview-card.is-warm strong {
+  color: #c2410c;
+}
+
+.sidebar-overview-card.is-muted strong {
+  color: #475569;
+}
+
+.sidebar-filter,
+.list-row,
+.file-ref {
+  width: 100%;
+  border: 1px solid var(--lc-border);
+  background: rgba(255, 255, 255, 0.84);
+  color: var(--lc-text);
+  transition:
+    border-color 160ms var(--lc-ease),
+    transform 160ms var(--lc-ease),
+    box-shadow 160ms var(--lc-ease),
+    background-color 160ms var(--lc-ease);
+}
+
+.sidebar-filter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 12px;
+  border-radius: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sidebar-filter:hover,
+.list-row:hover,
+.file-ref:hover {
+  border-color: rgba(14, 165, 233, 0.28);
+  box-shadow: 0 10px 28px rgba(14, 165, 233, 0.08);
+  transform: translateY(-1px);
+}
+
+.sidebar-filter.is-active {
+  border-color: rgba(14, 165, 233, 0.34);
+  background: linear-gradient(180deg, rgba(14, 165, 233, 0.11), rgba(255, 255, 255, 0.95));
+}
+
+.sidebar-filter-copy {
+  display: flex;
   flex: 1;
   min-width: 0;
+  flex-direction: column;
+  gap: 2px;
 }
 
-.setting-copy strong {
+.sidebar-filter-copy strong {
   font-size: 13px;
+  color: var(--lc-text);
 }
 
-.setting-copy span {
-  line-height: 1.5;
-}
-
-.setting-meta {
+.sidebar-filter-count {
+  display: inline-flex;
+  min-width: 28px;
+  justify-content: center;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(14, 165, 233, 0.08);
   font-size: 12px;
+  color: #0369a1;
+}
+
+.filter-chip-list,
+.list-active-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.filter-chip {
+  display: inline-flex;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(14, 165, 233, 0.1);
+  font-size: 11px;
+  color: #0369a1;
+}
+
+.filter-chip.is-neutral {
+  background: rgba(148, 163, 184, 0.12);
+  color: #475569;
 }
 
 .sidebar-spacer {
@@ -1185,39 +1687,29 @@ onBeforeUnmount(() => {
 
 .sidebar-actions {
   position: sticky;
-  bottom: -16px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin: 0 -16px -16px;
-  padding: 12px 16px 16px;
+  bottom: -18px;
+  margin: 0 -18px -18px;
+  padding: 12px 18px 18px;
   border-top: 1px solid var(--lc-border-subtle);
-  background: linear-gradient(
-    180deg,
-    rgba(255, 255, 255, 0) 0%,
-    rgba(255, 255, 255, 0.92) 18%,
-    var(--lc-surface-0) 42%
-  );
-  z-index: 2;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.96) 26%);
 }
 
 .sidebar-action-btn {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 10px;
+  width: 100%;
+  padding: 10px 12px;
   border: none;
-  border-radius: var(--lc-radius-sm);
-  background: transparent;
-  color: var(--lc-text-secondary);
+  border-radius: 14px;
+  background: rgba(14, 165, 233, 0.08);
+  color: #075985;
   font-size: 13px;
   cursor: pointer;
-  transition: all 150ms var(--lc-ease);
 }
 
 .sidebar-action-btn:hover {
-  background: var(--lc-surface-1);
-  color: var(--lc-text);
+  background: rgba(14, 165, 233, 0.14);
 }
 
 .sidebar-action-btn svg {
@@ -1225,65 +1717,85 @@ onBeforeUnmount(() => {
   height: 14px;
 }
 
-.sidebar-filter,
-.list-row,
-.file-ref {
-  width: 100%;
-  border: 1px solid var(--lc-border);
-  border-radius: 12px;
-  background: var(--lc-surface-0);
-  color: var(--lc-text-primary);
-  cursor: pointer;
-}
-
-.sidebar-filter,
-.file-ref {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 12px;
-}
-
-.sidebar-filter.is-active {
-  border-color: rgba(14, 116, 144, 0.32);
-  background: rgba(14, 165, 233, 0.08);
-}
-
-.inbox-list,
-.inbox-detail {
-  padding: 16px;
-}
-
 .list-toolbar {
   gap: 10px;
-  margin-bottom: 10px;
+}
+
+.list-active-filters,
+.list-summary {
+  margin-top: 12px;
+}
+
+.list-summary {
+  justify-content: space-between;
 }
 
 .list-viewport {
   flex: 1;
   min-height: 0;
+  margin-top: 12px;
   overflow-y: auto;
   padding-right: 4px;
 }
 
 .list-row {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-height: 96px;
-  padding: 12px;
-  margin-bottom: 10px;
+  display: grid;
+  grid-template-rows: auto auto 1fr auto;
+  gap: 10px;
+  min-height: 142px;
+  padding: 13px;
+  margin-bottom: 12px;
+  border-radius: 18px;
   text-align: left;
+  cursor: pointer;
+  box-sizing: border-box;
 }
 
 .list-row.is-active {
-  border-color: rgba(14, 116, 144, 0.32);
-  box-shadow: 0 10px 24px rgba(14, 116, 144, 0.1);
+  border-color: rgba(14, 165, 233, 0.34);
+  background: linear-gradient(180deg, rgba(14, 165, 233, 0.1), rgba(255, 255, 255, 0.98));
+  box-shadow: 0 18px 36px rgba(14, 165, 233, 0.12);
+}
+
+.row-topline,
+.row-header,
+.row-footer,
+.row-meta {
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.row-topline {
+  font-size: 11px;
+}
+
+.row-topline-type,
+.row-topline-time {
+  color: var(--lc-text-secondary);
+}
+
+.row-header {
+  align-items: flex-start;
+}
+
+.row-header strong {
+  display: block;
+  flex: 1;
+  min-width: 0;
+  font-size: 16px;
+  line-height: 1.35;
+  color: var(--lc-text);
+}
+
+.row-badges,
+.detail-badge-row {
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .badge {
   display: inline-flex;
-  padding: 2px 8px;
+  padding: 3px 8px;
   border-radius: 999px;
   background: rgba(148, 163, 184, 0.12);
   font-size: 11px;
@@ -1293,6 +1805,11 @@ onBeforeUnmount(() => {
 .badge.star {
   background: rgba(245, 158, 11, 0.14);
   color: #b45309;
+}
+
+.badge.note {
+  background: rgba(16, 185, 129, 0.12);
+  color: #047857;
 }
 
 .badge.promoted {
@@ -1320,41 +1837,148 @@ onBeforeUnmount(() => {
   color: #475569;
 }
 
+.row-preview {
+  display: -webkit-box;
+  margin: 0;
+  font-size: 13px;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.row-meta {
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+
+.row-meta-secondary {
+  color: #0369a1;
+}
+
 .list-footer {
-  padding-top: 10px;
+  padding-top: 12px;
   text-align: center;
 }
 
-.inbox-detail {
-  overflow-y: auto;
-}
-
-.detail-header {
+.detail-overview-card {
+  display: flex;
+  flex-direction: column;
   gap: 12px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--lc-border);
+  padding: 15px 16px;
+  border: 1px solid rgba(14, 165, 233, 0.16);
+  border-radius: 20px;
+  background:
+    linear-gradient(150deg, rgba(14, 165, 233, 0.11), rgba(255, 255, 255, 0.98) 58%),
+    rgba(255, 255, 255, 0.92);
 }
 
-.detail-header h3 {
+.detail-overview-preview,
+.detail-text {
+  margin: 10px 0 0;
+}
+
+.detail-overview-card h3 {
   margin: 0;
-  font-size: 20px;
+  font-size: 24px;
 }
 
-.detail-actions {
+.detail-overview-topline {
+  gap: 10px;
+}
+
+.detail-origin {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.detail-origin-link {
+  display: block;
+  width: 100%;
+  font-size: 12px;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detail-overview-metrics {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.detail-metric {
+  padding: 10px 12px;
+  border: 1px solid rgba(14, 165, 233, 0.12);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.detail-metric strong {
+  margin-top: 6px;
+  font-size: 14px;
+}
+
+.detail-overview-preview {
+  display: -webkit-box;
+  margin: 0;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.detail-toolbar {
+  position: sticky;
+  top: -6px;
+  z-index: 4;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid rgba(14, 165, 233, 0.16);
+  border-radius: 18px;
+  background: rgba(248, 250, 252, 0.96);
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
+  backdrop-filter: blur(10px);
+}
+
+.detail-toolbar-main {
+  flex: 1;
   flex-wrap: wrap;
-  margin-top: 16px;
+  gap: 10px;
+}
+
+.detail-toolbar-main :deep(.el-button),
+.detail-toolbar-more :deep(.el-button) {
+  min-height: 40px;
+  margin: 0;
+}
+
+.detail-toolbar-main :deep(.el-button) {
+  min-width: 116px;
+}
+
+.detail-toolbar-more {
+  flex-shrink: 0;
+}
+
+.detail-edit-card :deep(.el-form-item:last-child) {
+  margin-bottom: 0;
 }
 
 .detail-text {
-  padding: 12px;
   white-space: pre-wrap;
   word-break: break-word;
   font-family: var(--lc-font-mono);
-  line-height: 1.6;
+}
+
+.detail-empty,
+.detail-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .image-box {
-  padding: 12px;
+  padding: 14px;
 }
 
 .detail-image {
@@ -1362,7 +1986,7 @@ onBeforeUnmount(() => {
   max-width: 100%;
   max-height: 360px;
   margin: 0 auto;
-  border-radius: 10px;
+  border-radius: 12px;
   cursor: zoom-in;
   transition:
     transform 180ms var(--lc-ease),
@@ -1377,12 +2001,76 @@ onBeforeUnmount(() => {
 .image-box-hint {
   margin-top: 10px;
   text-align: center;
-  font-size: 12px;
+}
+
+.detail-meta-list {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.detail-collapse {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border: none;
+}
+
+.detail-collapse-count {
+  display: inline-flex;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(14, 165, 233, 0.08);
+  font-size: 11px;
+  color: #0369a1;
+}
+
+.detail-collapse-title {
+  gap: 8px;
+}
+
+.detail-collapse :deep(.el-collapse) {
+  border: none;
+}
+
+.detail-collapse :deep(.el-collapse-item) {
+  overflow: hidden;
+  border: 1px solid var(--lc-border);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.84);
+}
+
+.detail-collapse :deep(.el-collapse-item__header) {
+  min-height: 52px;
+  padding: 0 14px;
+  border: none;
+  background: transparent;
+  line-height: 1.2;
+}
+
+.detail-collapse :deep(.el-collapse-item__wrap) {
+  border: none;
+  background: transparent;
+}
+
+.detail-collapse :deep(.el-collapse-item__content) {
+  padding: 0 12px 12px;
+}
+
+.detail-collapse :deep(.el-collapse-item__arrow) {
   color: var(--lc-text-secondary);
 }
 
+.detail-meta-item,
 .file-ref {
+  padding: 12px;
+}
+
+.file-ref {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   margin-bottom: 8px;
+  border-radius: 16px;
 }
 
 .file-ref-main {
@@ -1394,54 +2082,18 @@ onBeforeUnmount(() => {
   text-align: left;
 }
 
-.file-ref-path,
-.file-ref-submeta {
-  font-size: 12px;
-  color: var(--lc-text-secondary);
-}
-
 .file-ref-submeta {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
 }
 
-.detail-meta-list {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.detail-meta-item {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 12px;
-  border: 1px solid var(--lc-border);
-  border-radius: 14px;
-  background: var(--lc-surface-1);
-}
-
-.detail-meta-item span {
-  font-size: 12px;
-  color: var(--lc-text-secondary);
-}
-
-.detail-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-  margin-top: 18px;
-}
-
-.detail-metric {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
 .detail-placeholder {
-  margin: auto;
+  min-height: 260px;
+}
+
+.detail-placeholder-card {
+  max-width: 360px;
   text-align: center;
 }
 
@@ -1471,8 +2123,6 @@ onBeforeUnmount(() => {
 }
 
 .image-preview-header {
-  display: flex;
-  align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
 }
@@ -1482,18 +2132,12 @@ onBeforeUnmount(() => {
   display: block;
 }
 
-.image-preview-header span {
-  margin-top: 4px;
-  font-size: 12px;
-  color: var(--lc-text-secondary);
-}
-
 .image-preview-close {
   padding: 8px 12px;
   border: 1px solid var(--lc-border);
   border-radius: 999px;
   background: var(--lc-surface-0);
-  color: var(--lc-text-primary);
+  color: var(--lc-text);
   cursor: pointer;
 }
 
@@ -1524,7 +2168,7 @@ onBeforeUnmount(() => {
   border: none;
   border-radius: 8px;
   background: transparent;
-  color: var(--lc-text-primary);
+  color: var(--lc-text);
   text-align: left;
   cursor: pointer;
 }
@@ -1542,14 +2186,57 @@ onBeforeUnmount(() => {
   background: transparent;
 }
 
-@media (max-width: 1200px) {
+@media (max-width: 1240px) {
   .inbox-panel {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto minmax(320px, 1fr) minmax(320px, 1fr);
+    grid-template-columns: 264px minmax(0, 1fr);
   }
 
-  .inbox-sidebar {
-    max-height: 320px;
+  .inbox-detail {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 960px) {
+  .inbox-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .inbox-sidebar,
+  .inbox-detail {
+    grid-column: auto;
+  }
+
+  .detail-overview-metrics,
+  .detail-meta-list,
+  .sidebar-overview-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .inbox-sidebar,
+  .inbox-list,
+  .inbox-detail {
+    padding: 14px;
+  }
+
+  .detail-overview-metrics,
+  .detail-meta-list,
+  .sidebar-overview-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .detail-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .detail-toolbar-more {
+    align-self: stretch;
+  }
+
+  .detail-toolbar-more :deep(.el-button) {
+    width: 100%;
   }
 
   .image-preview-overlay {
@@ -1559,6 +2246,15 @@ onBeforeUnmount(() => {
   .image-preview-panel {
     width: 100%;
     padding: 14px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-filter,
+  .list-row,
+  .file-ref,
+  .detail-image {
+    transition: none;
   }
 }
 </style>

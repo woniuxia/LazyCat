@@ -14,7 +14,14 @@ export type TodoReminderPreset = "0m" | "none" | "5m" | "10m" | "30m" | "1h" | "
 
 export type TodoSimpleFrequency = "daily" | "weekly" | "monthly";
 
-export type TodoRepeatPreset = "none" | "daily" | "workday" | "weekly" | "monthly" | "custom" | "cron";
+export type TodoRepeatPreset =
+  | "none"
+  | "daily"
+  | "workday"
+  | "weekly"
+  | "monthly"
+  | "custom"
+  | "cron";
 
 export interface TodoType {
   id: number;
@@ -88,6 +95,7 @@ export interface TodoItem {
   nextTaskReminderId?: number | null;
   nextReminderPreset?: TodoReminderPreset | null;
   recurrence: TodoRecurrence | null;
+  completedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }

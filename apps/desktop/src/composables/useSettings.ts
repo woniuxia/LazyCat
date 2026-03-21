@@ -14,26 +14,6 @@ export interface VaultLockProfilePolicy {
 
 export const DEFAULT_VAULT_LOCK_PROFILE: VaultLockProfile = "balanced";
 
-/** All known localStorage keys used by old versions */
-const LEGACY_KEYS = [
-  "lazycat:theme:v1",
-  "lazycat:hotkey:v1",
-  "lazycat:favorites:v1",
-  "lazycat:tool-clicks:v1",
-  "lazycat:home-top-limit:v1",
-  "lazycat:calc-draft-history:v1",
-] as const;
-
-/** Maps old localStorage keys to new SQLite setting keys */
-const LEGACY_KEY_MAP: Record<string, string> = {
-  "lazycat:theme:v1": "theme",
-  "lazycat:hotkey:v1": "hotkey",
-  "lazycat:favorites:v1": "favorites",
-  "lazycat:tool-clicks:v1": "tool_clicks",
-  "lazycat:home-top-limit:v1": "home_top_limit",
-  "lazycat:calc-draft-history:v1": "calc_draft_history",
-};
-
 const settings = reactive<Record<string, string>>({});
 const loaded = ref(false);
 const loadPromise = ref<Promise<void> | null>(null);
@@ -52,35 +32,7 @@ async function loadAll(): Promise<void> {
       Object.assign(settings, data);
     }
   } catch {
-    // IPC unavailable (non-Tauri env): fall through, localStorage will be used
-  }
-}
-
-async function migrateFromLocalStorage(): Promise<void> {
-  let migrated = false;
-  for (const legacyKey of LEGACY_KEYS) {
-    const raw = localStorage.getItem(legacyKey);
-    if (raw === null) continue;
-    const settingKey = LEGACY_KEY_MAP[legacyKey];
-    if (!settingKey) continue;
-    // Only migrate if SQLite doesn't already have this key
-    if (settings[settingKey] !== undefined) continue;
-    settings[settingKey] = raw;
-    try {
-      await invokeToolByChannel("tool:settings:set", {
-        key: settingKey,
-        value: raw,
-      });
-      migrated = true;
-    } catch {
-      // IPC unavailable, keep in-memory only
-    }
-  }
-  // Clean up old localStorage keys after successful migration
-  if (migrated) {
-    for (const legacyKey of LEGACY_KEYS) {
-      localStorage.removeItem(legacyKey);
-    }
+    // IPC unavailable (non-Tauri env): keep in-memory defaults
   }
 }
 
@@ -92,10 +44,6 @@ export function initSettings(): Promise<void> {
   if (loadPromise.value) return loadPromise.value;
   loadPromise.value = (async () => {
     await loadAll();
-    // If SQLite is empty, check for legacy localStorage data
-    if (Object.keys(settings).length === 0) {
-      await migrateFromLocalStorage();
-    }
     settings.vault_lock_profile = normalizeVaultLockProfile(settings.vault_lock_profile);
     // 加载开机自启动相关设置
     autostartMinimized.value = settings.autostart_minimized === "true";

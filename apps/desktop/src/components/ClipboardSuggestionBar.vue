@@ -19,7 +19,7 @@
       <div class="cb-actions">
         <button
           v-for="action in suggestion.actions"
-          :key="action.toolId"
+          :key="getActionKey(action)"
           class="cb-action-chip"
           @click="onAction(action)"
         >
@@ -47,6 +47,8 @@
 
 <script setup lang="ts">
 import { ref, watch, onMounted, onBeforeUnmount } from "vue";
+import { ElMessage } from "element-plus";
+import { invokeToolByChannel } from "../bridge/tauri";
 import { useClipboardSuggestion } from "../composables/useClipboardSuggestion";
 import type { ClipboardAction } from "../utils/clipboard-detect";
 
@@ -112,10 +114,10 @@ function resumeAutoClose() {
   }
 }
 
-watch(visible, (v) => {
+watch([visible, suggestion], ([v, currentSuggestion]) => {
   clearAutoClose();
   isPaused.value = false;
-  if (v) {
+  if (v && currentSuggestion) {
     remainingTime = autoCloseDuration;
     progressPercent.value = 100;
     startAutoClose(autoCloseDuration);
@@ -124,10 +126,29 @@ watch(visible, (v) => {
   }
 });
 
-function onAction(action: ClipboardAction) {
+function getActionKey(action: ClipboardAction): string {
+  if (action.kind === "tool") return `tool:${action.toolId}`;
+  return `open-path:${action.path}:${action.reveal ? "reveal" : "open"}`;
+}
+
+async function onAction(action: ClipboardAction) {
   clearAutoClose();
-  applyAction(action.toolId);
-  emit("open-tool", action.toolId, action.toolName);
+  if (action.kind === "tool") {
+    applyAction(action.toolId);
+    emit("open-tool", action.toolId, action.toolName);
+    return;
+  }
+
+  try {
+    await invokeToolByChannel("tool:inbox:open-path", {
+      path: action.path,
+      reveal: action.reveal,
+    });
+    dismiss();
+  } catch (error) {
+    startAutoClose(autoCloseDuration);
+    ElMessage.error((error as Error).message || "打开路径失败");
+  }
 }
 
 function onKeydown(e: KeyboardEvent) {
@@ -253,14 +274,14 @@ onBeforeUnmount(() => {
 .cb-chip-arrow {
   width: 12px;
   height: 12px;
-  opacity: 0;
-  transform: translateX(-4px);
+  opacity: 0.42;
+  transform: translateX(0);
   transition: opacity 180ms var(--lc-ease), transform 180ms var(--lc-ease);
 }
 
 .cb-action-chip:hover .cb-chip-arrow {
   opacity: 1;
-  transform: translateX(0);
+  transform: translateX(1px);
 }
 
 /* ---- Dismiss button ---- */

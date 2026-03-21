@@ -8,6 +8,8 @@ use serde_json::{json, Map, Value};
 use std::collections::HashSet;
 use std::fs;
 use std::io::Cursor;
+#[cfg(windows)]
+use std::process::Command;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{Duration, Instant};
@@ -319,14 +321,25 @@ fn action_open_path(payload: &Value) -> Result<Value, String> {
     let path = payload["path"].as_str().ok_or("path is required")?;
     let reveal = payload["reveal"].as_bool().unwrap_or(false);
     let raw_path = PathBuf::from(path);
+    if !raw_path.exists() {
+        return Err("目标路径不存在".to_string());
+    }
+
+    #[cfg(windows)]
+    if reveal && raw_path.is_file() {
+        let explorer_arg = format!("/select,{}", raw_path.to_string_lossy());
+        Command::new("explorer.exe")
+            .arg(explorer_arg)
+            .spawn()
+            .map_err(|e| format!("open path failed: {e}"))?;
+        return Ok(json!({ "ok": true }));
+    }
+
     let target = if reveal && raw_path.is_file() {
         raw_path.parent().map(Path::to_path_buf).unwrap_or(raw_path)
     } else {
         raw_path
     };
-    if !target.exists() {
-        return Err("目标路径不存在".to_string());
-    }
     open::that(&target).map_err(|e| format!("open path failed: {e}"))?;
     Ok(json!({ "ok": true }))
 }
@@ -1242,7 +1255,9 @@ fn copy_image_file_to_clipboard(path: &Path) -> Result<(), String> {
     use windows_sys::Win32::System::DataExchange::{
         CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData,
     };
-    use windows_sys::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
+    use windows_sys::Win32::System::Memory::{
+        GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE,
+    };
 
     const CF_DIB: u32 = 8;
 
@@ -1324,7 +1339,11 @@ fn copy_image_file_to_clipboard(path: &Path) -> Result<(), String> {
             buffer,
             header_size,
         );
-        ptr::copy_nonoverlapping(dib_pixels.as_ptr(), buffer.add(header_size), dib_pixels.len());
+        ptr::copy_nonoverlapping(
+            dib_pixels.as_ptr(),
+            buffer.add(header_size),
+            dib_pixels.len(),
+        );
         GlobalUnlock(handle);
 
         let _guard = ClipboardGuard::open()?;
@@ -2016,7 +2035,9 @@ mod tests {
 
     #[test]
     fn suppress_clipboard_capture_matches_normalized_text_once() {
-        let mut list = SUPPRESSED_CLIPBOARD.lock().expect("suppressed clipboard lock");
+        let mut list = SUPPRESSED_CLIPBOARD
+            .lock()
+            .expect("suppressed clipboard lock");
         list.clear();
         drop(list);
 

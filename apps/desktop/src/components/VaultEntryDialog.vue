@@ -311,6 +311,7 @@ const visible = ref(false);
 const isEdit = ref(false);
 const saving = ref(false);
 let snapshot = "";
+let forceClosing = false;
 
 const defaultForm = (): FormState => ({
   category: "app",
@@ -372,6 +373,7 @@ function show(entry?: {
   fields: Record<string, unknown>;
   tags?: string[];
 }, seed?: VaultEntrySeed) {
+  forceClosing = false;
   Object.assign(form, defaultForm());
   if (entry) {
     isEdit.value = true;
@@ -419,6 +421,10 @@ function show(entry?: {
 }
 
 async function onBeforeClose(done: () => void) {
+  if (forceClosing) {
+    done();
+    return;
+  }
   if (!isDirty()) {
     done();
     return;
@@ -481,12 +487,18 @@ async function onSave() {
 }
 
 function onClosed() {
+  forceClosing = false;
   Object.assign(form, defaultForm());
   isEdit.value = false;
   snapshot = "";
 }
 
-defineExpose({ show });
+function forceClose() {
+  forceClosing = true;
+  visible.value = false;
+}
+
+defineExpose({ show, forceClose });
 </script>
 
 <style scoped>

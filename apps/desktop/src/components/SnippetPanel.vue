@@ -194,7 +194,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onBeforeUnmount, ref } from "vue";
-import { ElMessage, ElMessageBox } from "element-plus";
+import { ElMessage } from "element-plus";
 import MonacoPane from "./MonacoPane.vue";
 import { invokeToolByChannel } from "../bridge/tauri";
 
@@ -308,30 +308,6 @@ const languageOptions = computed(() => {
 
 async function ipc<T>(channel: string, payload: Record<string, unknown> = {}): Promise<T> {
   return (await invokeToolByChannel(channel, payload)) as T;
-}
-
-async function ensureInitialized() {
-  const check = await ipc<{ initialized: boolean; requiresConfirm: boolean }>("tool:snippets:v2:init", { confirm: false });
-  if (check.initialized) return true;
-
-  const { value } = await ElMessageBox.prompt(
-    "首次进入代码片段工作区将清空旧片段数据。请输入 DELETE 继续。",
-    "危险操作确认",
-    {
-      inputPlaceholder: "DELETE",
-      confirmButtonText: "确认清空",
-      cancelButtonText: "取消",
-    }
-  );
-
-  if ((value ?? "").trim().toUpperCase() !== "DELETE") {
-    ElMessage.warning("未输入 DELETE，已取消初始化");
-    return false;
-  }
-
-  await ipc("tool:snippets:v2:init", { confirm: true });
-  ElMessage.success("代码片段工作区已重建");
-  return true;
 }
 
 function buildQuery() {
@@ -539,12 +515,10 @@ async function toggleFavorite() {
 
 onMounted(async () => {
   try {
-    const ready = await ensureInitialized();
-    if (!ready) return;
     await loadMeta();
     await loadSnippets();
   } catch (error) {
-    ElMessage.error((error as Error).message || "代码片段工作区初始化失败");
+    ElMessage.error((error as Error).message || "代码片段加载失败");
   }
 });
 

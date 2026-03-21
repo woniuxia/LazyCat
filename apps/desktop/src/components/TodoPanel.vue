@@ -275,9 +275,7 @@
 
             <div v-if="displayRecentWeekItems.length === 0" class="todo-empty is-muted">
               <span class="todo-empty-text">{{
-                hasActiveFilter
-                  ? "当前筛选条件下最近一周暂无已办事项"
-                  : "最近一周暂无已办事项"
+                hasActiveFilter ? "当前筛选条件下最近一周暂无已办事项" : "最近一周暂无已办事项"
               }}</span>
             </div>
             <div v-else v-show="!recentWeekCollapsed" class="todo-card-list is-done-list">
@@ -557,9 +555,27 @@
                       </div>
                       <div class="datetime-actions">
                         <div class="date-quick-presets">
-                          <el-button text size="small" class="date-preset-btn" @click="fillQuickDate(0)">今天</el-button>
-                          <el-button text size="small" class="date-preset-btn" @click="fillQuickDate(1)">明天</el-button>
-                          <el-button text size="small" class="date-preset-btn" @click="fillQuickDate(2)">后天</el-button>
+                          <el-button
+                            text
+                            size="small"
+                            class="date-preset-btn"
+                            @click="fillQuickDate(0)"
+                            >今天</el-button
+                          >
+                          <el-button
+                            text
+                            size="small"
+                            class="date-preset-btn"
+                            @click="fillQuickDate(1)"
+                            >明天</el-button
+                          >
+                          <el-button
+                            text
+                            size="small"
+                            class="date-preset-btn"
+                            @click="fillQuickDate(2)"
+                            >后天</el-button
+                          >
                         </div>
                         <el-button
                           v-if="!itemDraft.eventDate || !itemDraft.eventTime"
@@ -567,14 +583,16 @@
                           size="small"
                           class="time-fused-clear"
                           @click="fillDefaultDateTime"
-                        >填充</el-button>
+                          >填充</el-button
+                        >
                         <el-button
                           v-else
                           text
                           size="small"
                           class="time-fused-clear"
                           @click="clearEventSchedule"
-                        >清空</el-button>
+                          >清空</el-button
+                        >
                       </div>
                     </el-form-item>
                     <el-form-item label="提醒">
@@ -720,11 +738,41 @@
                 <div class="todo-form-section">
                   <el-form-item label="描述">
                     <div class="md-toolbar">
-                      <el-button text size="small" class="md-toolbar-btn" @click="insertMdSyntax('**', '**')"><strong>B</strong></el-button>
-                      <el-button text size="small" class="md-toolbar-btn" @click="insertMdSyntax('*', '*')"><em>I</em></el-button>
-                      <el-button text size="small" class="md-toolbar-btn" @click="insertMdSyntax('`', '`')">Code</el-button>
-                      <el-button text size="small" class="md-toolbar-btn" @click="insertMdSyntax('\n- ', '')">List</el-button>
-                      <el-button text size="small" class="md-toolbar-btn" @click="insertMdSyntax('[', '](url)')">Link</el-button>
+                      <el-button
+                        text
+                        size="small"
+                        class="md-toolbar-btn"
+                        @click="insertMdSyntax('**', '**')"
+                        ><strong>B</strong></el-button
+                      >
+                      <el-button
+                        text
+                        size="small"
+                        class="md-toolbar-btn"
+                        @click="insertMdSyntax('*', '*')"
+                        ><em>I</em></el-button
+                      >
+                      <el-button
+                        text
+                        size="small"
+                        class="md-toolbar-btn"
+                        @click="insertMdSyntax('`', '`')"
+                        >Code</el-button
+                      >
+                      <el-button
+                        text
+                        size="small"
+                        class="md-toolbar-btn"
+                        @click="insertMdSyntax('\n- ', '')"
+                        >List</el-button
+                      >
+                      <el-button
+                        text
+                        size="small"
+                        class="md-toolbar-btn"
+                        @click="insertMdSyntax('[', '](url)')"
+                        >Link</el-button
+                      >
                     </div>
                     <el-input
                       ref="descTextareaRef"
@@ -740,11 +788,27 @@
                     <div class="link-edit-list">
                       <div v-for="(link, i) in itemDraft.links" :key="i" class="link-edit-row">
                         <el-input v-model="link.url" placeholder="URL 或文件路径" size="small" />
-                        <el-input v-model="link.title" placeholder="标题（可选）" size="small" style="width: 150px; flex-shrink: 0" />
-                        <el-button text size="small" type="danger" @click="itemDraft.links.splice(i, 1)">删除</el-button>
+                        <el-input
+                          v-model="link.title"
+                          placeholder="标题（可选）"
+                          size="small"
+                          style="width: 150px; flex-shrink: 0"
+                        />
+                        <el-button
+                          text
+                          size="small"
+                          type="danger"
+                          @click="itemDraft.links.splice(i, 1)"
+                          >删除</el-button
+                        >
                       </div>
                     </div>
-                    <el-button text type="primary" size="small" @click="itemDraft.links.push({ url: '', title: '' })">
+                    <el-button
+                      text
+                      type="primary"
+                      size="small"
+                      @click="itemDraft.links.push({ url: '', title: '' })"
+                    >
                       + 添加链接
                     </el-button>
                   </el-form-item>
@@ -774,12 +838,7 @@
                 >
                   {{ isDoneItem(selectedItem) ? "恢复" : "完成" }}
                 </el-button>
-                <el-button
-                  size="small"
-                  link
-                  type="danger"
-                  @click="deleteItem(selectedItem)"
-                >
+                <el-button size="small" link type="danger" @click="deleteItem(selectedItem)">
                   删除
                 </el-button>
               </div>
@@ -812,7 +871,11 @@
                 </div>
               </div>
               <div class="detail-header-actions">
-                <el-button size="small" link class="detail-edit-btn" @click="enterEditMode(selectedItem)"
+                <el-button
+                  size="small"
+                  link
+                  class="detail-edit-btn"
+                  @click="enterEditMode(selectedItem)"
                   >编辑</el-button
                 >
                 <el-button
@@ -854,9 +917,7 @@
                   </div>
                   <div class="detail-card-body">
                     <div class="detail-empty-info">
-                      <div class="detail-empty-info-text">
-                        当前事项还没有补充任何可展示信息。
-                      </div>
+                      <div class="detail-empty-info-text">当前事项还没有补充任何可展示信息。</div>
                       <div class="detail-empty-info-hint">
                         你可以在编辑中添加：到期时间、提醒、分类、执行人或详细描述。
                       </div>
@@ -873,7 +934,10 @@
                 </div>
 
                 <!-- Status Card (only if has non-default status or priority) -->
-                <div v-if="selectedItem.status !== 'pending' || selectedItem.priority !== 'P2'" class="detail-card">
+                <div
+                  v-if="selectedItem.status !== 'pending' || selectedItem.priority !== 'P2'"
+                  class="detail-card"
+                >
                   <div class="detail-card-header">
                     <div class="detail-card-icon" :class="priorityCardClass(selectedItem.priority)">
                       <el-icon><Flag /></el-icon>
@@ -894,7 +958,10 @@
                         <div class="detail-label">优先级</div>
                         <div class="detail-value">
                           <span class="priority-with-dot">
-                            <span class="priority-dot" :class="'priority-' + selectedItem.priority.toLowerCase()" />
+                            <span
+                              class="priority-dot"
+                              :class="'priority-' + selectedItem.priority.toLowerCase()"
+                            />
                             {{ selectedItem.priority }} - {{ priorityLabel(selectedItem.priority) }}
                           </span>
                         </div>
@@ -904,7 +971,13 @@
                 </div>
 
                 <!-- Schedule Card (only if has schedule info) -->
-                <div v-if="selectedItem.eventAt || effectiveReminderPresets(selectedItem.reminderPresets).length > 0" class="detail-card">
+                <div
+                  v-if="
+                    selectedItem.eventAt ||
+                    effectiveReminderPresets(selectedItem.reminderPresets).length > 0
+                  "
+                  class="detail-card"
+                >
                   <div class="detail-card-header">
                     <div class="detail-card-icon primary">
                       <el-icon><Calendar /></el-icon>
@@ -924,18 +997,26 @@
                           {{ relativeTimeLabel(selectedItem) }}
                         </div>
                       </div>
-                      <div v-if="effectiveReminderPresets(selectedItem.reminderPresets).length > 0" class="detail-field">
+                      <div
+                        v-if="effectiveReminderPresets(selectedItem.reminderPresets).length > 0"
+                        class="detail-field"
+                      >
                         <div class="detail-label">
                           <el-icon :size="12"><Bell /></el-icon> 提醒设置
                         </div>
-                        <div class="detail-value">{{ formatReminderDescription(selectedItem) }}</div>
+                        <div class="detail-value">
+                          {{ formatReminderDescription(selectedItem) }}
+                        </div>
                       </div>
                     </div>
                   </div>
                 </div>
 
                 <!-- Info Card (only if has type or assignees) -->
-                <div v-if="selectedItem.typeName || selectedItem.assignees.length > 0" class="detail-card">
+                <div
+                  v-if="selectedItem.typeName || selectedItem.assignees.length > 0"
+                  class="detail-card"
+                >
                   <div class="detail-card-header">
                     <div class="detail-card-icon success">
                       <el-icon><User /></el-icon>
@@ -948,7 +1029,10 @@
                         <div class="detail-label">分类</div>
                         <div class="detail-value">
                           <span class="type-with-color">
-                            <span class="color-dot-sm" :style="{ backgroundColor: selectedItem.typeColor || '#909399' }" />
+                            <span
+                              class="color-dot-sm"
+                              :style="{ backgroundColor: selectedItem.typeColor || '#909399' }"
+                            />
                             {{ selectedItem.typeName }}
                           </span>
                         </div>
@@ -983,7 +1067,9 @@
                     <div class="detail-grid is-stacked">
                       <div class="detail-field detail-field--full">
                         <div class="detail-label">规则描述</div>
-                        <div class="detail-value">{{ formatRecurrenceDescription(selectedItem) }}</div>
+                        <div class="detail-value">
+                          {{ formatRecurrenceDescription(selectedItem) }}
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -999,7 +1085,10 @@
                   </div>
                   <div class="detail-card-body">
                     <div class="detail-description-card" :key="'desc-' + selectedItem.id">
-                      <div class="detail-description md-rendered" v-html="renderedDescription"></div>
+                      <div
+                        class="detail-description md-rendered"
+                        v-html="renderedDescription"
+                      ></div>
                     </div>
                   </div>
                 </div>
@@ -1032,9 +1121,15 @@
             <!-- Footer -->
             <div class="detail-pane-footer detail-pane-footer--meta">
               <div class="meta-timestamps">
-                <span><span class="meta-label">创建：</span>{{ formatDate(selectedItem.createdAt) }}</span>
+                <span
+                  ><span class="meta-label">创建：</span
+                  >{{ formatDate(selectedItem.createdAt) }}</span
+                >
                 <span class="meta-divider">·</span>
-                <span><span class="meta-label">更新：</span>{{ formatDate(selectedItem.updatedAt) }}</span>
+                <span
+                  ><span class="meta-label">更新：</span
+                  >{{ formatDate(selectedItem.updatedAt) }}</span
+                >
               </div>
             </div>
           </div>
@@ -1048,14 +1143,68 @@
                 <circle cx="30" cy="120" r="15" fill="var(--lc-success)" opacity="0.06" />
                 <circle cx="170" cy="130" r="10" fill="var(--lc-warning)" opacity="0.08" />
                 <!-- 主文档图形 -->
-                <rect x="50" y="20" width="100" height="120" rx="12" fill="var(--lc-surface-1)" stroke="var(--lc-border)" stroke-width="2" />
-                <rect x="65" y="45" width="70" height="6" rx="3" fill="var(--lc-border)" opacity="0.6" />
-                <rect x="65" y="60" width="50" height="6" rx="3" fill="var(--lc-border)" opacity="0.4" />
-                <rect x="65" y="75" width="60" height="6" rx="3" fill="var(--lc-border)" opacity="0.4" />
-                <rect x="65" y="90" width="40" height="6" rx="3" fill="var(--lc-border)" opacity="0.4" />
+                <rect
+                  x="50"
+                  y="20"
+                  width="100"
+                  height="120"
+                  rx="12"
+                  fill="var(--lc-surface-1)"
+                  stroke="var(--lc-border)"
+                  stroke-width="2"
+                />
+                <rect
+                  x="65"
+                  y="45"
+                  width="70"
+                  height="6"
+                  rx="3"
+                  fill="var(--lc-border)"
+                  opacity="0.6"
+                />
+                <rect
+                  x="65"
+                  y="60"
+                  width="50"
+                  height="6"
+                  rx="3"
+                  fill="var(--lc-border)"
+                  opacity="0.4"
+                />
+                <rect
+                  x="65"
+                  y="75"
+                  width="60"
+                  height="6"
+                  rx="3"
+                  fill="var(--lc-border)"
+                  opacity="0.4"
+                />
+                <rect
+                  x="65"
+                  y="90"
+                  width="40"
+                  height="6"
+                  rx="3"
+                  fill="var(--lc-border)"
+                  opacity="0.4"
+                />
                 <!-- 勾选标记 -->
-                <circle cx="140" cy="115" r="22" fill="var(--lc-surface-0)" stroke="var(--lc-accent)" stroke-width="2.5" />
-                <path d="M130 115L137 122L152 107" stroke="var(--lc-accent)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+                <circle
+                  cx="140"
+                  cy="115"
+                  r="22"
+                  fill="var(--lc-surface-0)"
+                  stroke="var(--lc-accent)"
+                  stroke-width="2.5"
+                />
+                <path
+                  d="M130 115L137 122L152 107"
+                  stroke="var(--lc-accent)"
+                  stroke-width="3"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
                 <!-- 小装饰点 -->
                 <circle cx="60" cy="30" r="4" fill="var(--lc-danger)" opacity="0.6" />
                 <circle cx="75" cy="30" r="4" fill="var(--lc-warning)" opacity="0.6" />
@@ -1066,7 +1215,9 @@
           </div>
           <div class="detail-empty-content">
             <div class="detail-empty-title">选择事项查看详情</div>
-            <div class="detail-empty-text">在列表中点击任意任务，或快速创建新任务开始管理您的工作。</div>
+            <div class="detail-empty-text">
+              在列表中点击任意任务，或快速创建新任务开始管理您的工作。
+            </div>
           </div>
           <div class="detail-empty-actions">
             <el-button type="primary" size="large" @click="startCreate">
@@ -1241,7 +1392,6 @@
         </button>
       </div>
     </teleport>
-
   </div>
 </template>
 
@@ -1292,7 +1442,11 @@ import { groupTodoItemsByBucket } from "../utils/todoBuckets";
 import { clampContextMenuPosition } from "../utils/todoContextMenu";
 import { formatTodoRelativeDateTimeLabel } from "../utils/todoRelativeDate";
 import { renderMarkdown } from "../utils/renderMarkdown";
-import { prevMonth as calPrevMonth, nextMonth as calNextMonth, formatDateKey } from "../utils/calendarGrid";
+import {
+  prevMonth as calPrevMonth,
+  nextMonth as calNextMonth,
+  formatDateKey,
+} from "../utils/calendarGrid";
 import TodoCalendarGrid from "./TodoCalendarGrid.vue";
 import MdContent from "./MdContent.vue";
 import {
@@ -1335,7 +1489,7 @@ const detailFormScrollRef = ref<HTMLElement | null>(null);
 const scheduleSectionRef = ref<HTMLElement | null>(null);
 const todoContextMenuRef = ref<HTMLElement | null>(null);
 const titleInputRef = ref<InputInstance | null>(null);
-const descTextareaRef = ref<InstanceType<typeof import("element-plus")["ElInput"]> | null>(null);
+const descTextareaRef = ref<InstanceType<(typeof import("element-plus"))["ElInput"]> | null>(null);
 const filterType = ref<string | null>(null);
 const filterPriority = ref<TodoPriority | null>(null);
 const doneCollapsed = ref(true);
@@ -1423,9 +1577,10 @@ function deriveTodoTitleFromText(text: string): string {
   return firstLine.length > 80 ? `${firstLine.slice(0, 80)}...` : firstLine;
 }
 
-function buildTodoDraftFromPendingInput(
-  input: PendingToolInput,
-): { title: string; description: string } {
+function buildTodoDraftFromPendingInput(input: PendingToolInput): {
+  title: string;
+  description: string;
+} {
   const text = normalizePendingText(input.text || "");
   const explicitTitle = input.todoDraft?.title?.trim() || "";
   const explicitDescription = input.todoDraft?.description?.trim() || "";
@@ -1924,9 +2079,9 @@ async function enterEditTimeMode(item?: TodoItem | null) {
   } else {
     scheduleSection.scrollIntoView({ block: "start", behavior: "smooth" });
   }
-  const firstInput = scheduleSection.querySelector("input:not([disabled])") as
-    | HTMLInputElement
-    | null;
+  const firstInput = scheduleSection.querySelector(
+    "input:not([disabled])",
+  ) as HTMLInputElement | null;
   firstInput?.focus();
 }
 
@@ -2129,7 +2284,7 @@ function priorityCardClass(priority: TodoPriority): "danger" | "warning" | "prim
 }
 
 function priorityLabel(priority: TodoPriority): string {
-  return ({ P0: "紧急", P1: "高", P2: "中", P3: "低" }[priority] || "中");
+  return { P0: "紧急", P1: "高", P2: "中", P3: "低" }[priority] || "中";
 }
 
 function itemKindOf(item: TodoItem): TodoKind {
@@ -2179,9 +2334,9 @@ function relativeTimeLabel(item: TodoItem): string {
   return formatTodoRelativeDateTimeLabel(itemScheduleAt(item));
 }
 
-// 最近一周/已办列表以 updatedAt（为空则回退 createdAt）作为“完成时间”展示
+// 最近一周/已办列表以 completedAt 作为真实完成时间展示
 function relativeDoneTimeLabel(item: TodoItem): string {
-  const doneAt = (item.updatedAt || item.createdAt || "").trim();
+  const doneAt = (item.completedAt || "").trim();
   return formatTodoRelativeDateTimeLabel(doneAt) || (doneAt ? formatDate(doneAt) : "");
 }
 
@@ -2300,7 +2455,7 @@ function readArray(record: Record<string, unknown>, keys: string[]) {
 
 function getResponseItems(payload: unknown) {
   const record = asRecord(payload);
-  const items = readUnknown(record, ["items", "list", "data"]);
+  const items = record.items;
   return Array.isArray(items) ? items : [];
 }
 
@@ -2335,57 +2490,9 @@ function reminderPresetToMinutes(preset: TodoReminderPreset) {
   return reminderPresetToMinutesMap[preset] ?? null;
 }
 
-function computeLegacyRemindAt(eventAt?: string | null, presets: TodoReminderPreset[] = []) {
-  const effectivePresets = effectiveReminderPresets(presets);
-  const offsetMinutes = effectivePresets
-    .map((preset) => reminderPresetToMinutes(preset))
-    .filter((value): value is number => value != null);
-  if (!eventAt || offsetMinutes.length === 0) return null;
-  const eventDate = new Date(eventAt);
-  if (Number.isNaN(eventDate.getTime())) return null;
-  return new Date(eventDate.getTime() - Math.max(...offsetMinutes) * 60 * 1000).toISOString();
-}
-
-function deriveReminderPresets(
-  record: Record<string, unknown>,
-  eventAt?: string | null,
-): TodoReminderPreset[] {
-  const presetValues = readUnknown(record, ["reminderPresets"]);
-  if (Array.isArray(presetValues)) {
-    return effectiveReminderPresets(presetValues as TodoReminderPreset[]);
-  }
-  const presetValue = readUnknown(record, ["reminderPreset", "reminderType", "reminder"]);
-  if (typeof presetValue === "string") {
-    if ((reminderPresetToMinutesMap as Record<string, number | null>)[presetValue] !== undefined) {
-      return presetValue === "none" ? [] : [presetValue as TodoReminderPreset];
-    }
-    const parsed = Number(presetValue);
-    if (Number.isFinite(parsed)) {
-      const preset = reminderPresetFromMinutes(parsed);
-      return preset === "none" ? [] : [preset];
-    }
-  }
-  const offsetMinutes = readNullableNumber(record, [
-    "reminderOffsetMinutes",
-    "reminderMinutes",
-    "offsetMinutes",
-  ]);
-  if (offsetMinutes != null) {
-    const preset = reminderPresetFromMinutes(offsetMinutes);
-    return preset === "none" ? [] : [preset];
-  }
-  const remindAt = readNullableString(record, ["remindAt", "reminderAt"]);
-  if (eventAt && remindAt) {
-    const eventDate = new Date(eventAt);
-    const remindDate = new Date(remindAt);
-    if (!Number.isNaN(eventDate.getTime()) && !Number.isNaN(remindDate.getTime())) {
-      const preset = reminderPresetFromMinutes(
-        Math.round((eventDate.getTime() - remindDate.getTime()) / 60000),
-      );
-      return preset === "none" ? [] : [preset];
-    }
-  }
-  return [];
+function deriveReminderPresets(record: Record<string, unknown>): TodoReminderPreset[] {
+  const presetValues = record.reminderPresets;
+  return Array.isArray(presetValues) ? effectiveReminderPresets(presetValues as TodoReminderPreset[]) : [];
 }
 
 function normalizeAssignees(value: unknown): TodoAssignee[] {
@@ -2477,77 +2584,68 @@ function getRootItemId(item: TodoItem) {
 
 function normalizeTodoItem(raw: unknown): TodoItem {
   const record = asRecord(raw);
-  const eventAt = readNullableString(record, ["eventAt", "eventTime"]);
-  const kind = normalizeKind(readUnknown(record, ["kind", "seriesKind"]));
-  const recurrenceSource = asRecord(readUnknown(record, ["recurrence"]));
-  const recurrenceRecord = Object.keys(recurrenceSource).length > 0 ? recurrenceSource : record;
+  const eventAt = typeof record.eventAt === "string" ? record.eventAt : null;
+  const kind = normalizeKind(record.kind);
+  const recurrenceRecord = asRecord(record.recurrence);
   const hasRecurrence =
     kind === "recurring" &&
-    ("ruleMode" in recurrenceSource ||
-      "rule" in recurrenceSource ||
-      "cronExpression" in recurrenceSource);
+    ("ruleMode" in recurrenceRecord || "rule" in recurrenceRecord || "cronExpression" in recurrenceRecord);
   const recurrenceRuleMode = normalizeRuleMode(
-    readString(recurrenceRecord, ["ruleMode"], "simple"),
+    typeof recurrenceRecord.ruleMode === "string" ? recurrenceRecord.ruleMode : "simple",
   );
-  const recurrenceCronExpression = readString(recurrenceRecord, [
-    "cronExpression",
-    "cron",
-    "expression",
-  ]);
+  const recurrenceCronExpression =
+    typeof recurrenceRecord.cronExpression === "string" ? recurrenceRecord.cronExpression : "";
   const recurrence = hasRecurrence
     ? ({
-        startAt: readNullableString(recurrenceRecord, ["startAt", "start_at", "firstOccurrenceAt"]),
+        startAt: typeof recurrenceRecord.startAt === "string" ? recurrenceRecord.startAt : null,
         ruleMode: recurrenceRuleMode,
-        rule: normalizeRule(
-          readUnknown(recurrenceRecord, ["rule", "ruleJson", "schedule"]),
-          recurrenceRuleMode,
-          recurrenceCronExpression,
-        ),
+        rule: normalizeRule(recurrenceRecord.rule, recurrenceRuleMode, recurrenceCronExpression),
         cronExpression: recurrenceCronExpression,
-        timezone: readString(recurrenceRecord, ["timezone", "tz"], "local"),
-        endMode: normalizeEndMode(readString(recurrenceRecord, ["endMode"], "never")),
-        endValue: readUnknown(recurrenceRecord, ["endValue", "until", "count"]) as
-          | string
-          | number
-          | null,
-        occurrenceIndex: readNumber(recurrenceRecord, ["occurrenceIndex", "generatedCount", "generated"], 0),
-        active: readBoolean(recurrenceRecord, ["active", "enabled"], true),
+        timezone: typeof recurrenceRecord.timezone === "string" ? recurrenceRecord.timezone : "local",
+        endMode: normalizeEndMode(
+          typeof recurrenceRecord.endMode === "string" ? recurrenceRecord.endMode : "never",
+        ),
+        endValue:
+          recurrenceRecord.endValue == null ||
+          typeof recurrenceRecord.endValue === "string" ||
+          typeof recurrenceRecord.endValue === "number"
+            ? (recurrenceRecord.endValue as string | number | null)
+            : null,
+        occurrenceIndex:
+          typeof recurrenceRecord.occurrenceIndex === "number" ? recurrenceRecord.occurrenceIndex : 0,
+        active: typeof recurrenceRecord.active === "boolean" ? recurrenceRecord.active : true,
       } satisfies TodoRecurrence)
     : null;
-  const rootId =
-    readNullableNumber(record, ["rootId", "seriesId", "templateId", "sourceTemplateId"]) ??
-    readNumber(record, ["id", "taskId"]);
-  const rawStatus = readUnknown(record, ["status"]);
-  const normalizedStatus: TodoStatus = typeof rawStatus === "string" ? normalizeStatus(rawStatus) : "pending";
+  const id = typeof record.id === "number" ? record.id : 0;
+  const rootId = typeof record.rootId === "number" ? record.rootId : id;
+  const normalizedStatus =
+    typeof record.status === "string" ? normalizeStatus(record.status) : ("pending" satisfies TodoStatus);
   return {
-    id: readNumber(record, ["id", "taskId"]),
+    id,
     rootId,
     kind,
-    pinned: readBoolean(record, ["pinned"]),
-    title: readString(record, ["title", "name"]),
-    typeId: readNullableNumber(record, ["typeId", "categoryId"]),
-    typeName: readNullableString(record, ["typeName", "categoryName"]),
-    typeColor: readNullableString(record, ["typeColor", "categoryColor", "color"]),
-    priority: normalizePriority(readString(record, ["priority"], "P2")),
-    description: readString(record, ["description", "detail"]),
+    pinned: record.pinned === true,
+    title: typeof record.title === "string" ? record.title : "",
+    typeId: typeof record.typeId === "number" ? record.typeId : null,
+    typeName: typeof record.typeName === "string" ? record.typeName : null,
+    typeColor: typeof record.typeColor === "string" ? record.typeColor : null,
+    priority: normalizePriority(typeof record.priority === "string" ? record.priority : "P2"),
+    description: typeof record.description === "string" ? record.description : "",
     status: normalizedStatus,
     eventAt,
-    reminderPresets: deriveReminderPresets(record, eventAt),
-    snoozeUntil: readNullableString(record, ["snoozeUntil"]),
-    lastNotifiedAt: readNullableString(record, ["lastNotifiedAt"]),
-    displayAt: readNullableString(record, [
-      "displayAt",
-      "eventAt",
-      "eventTime",
-    ]),
-    assignees: normalizeAssignees(readUnknown(record, ["assignees", "owners", "members"])),
-    links: normalizeLinks(readUnknown(record, ["links"])),
-    isOverdue: readBoolean(record, ["isOverdue"]),
+    reminderPresets: deriveReminderPresets(record),
+    snoozeUntil: typeof record.snoozeUntil === "string" ? record.snoozeUntil : null,
+    lastNotifiedAt: typeof record.lastNotifiedAt === "string" ? record.lastNotifiedAt : null,
+    displayAt: typeof record.displayAt === "string" ? record.displayAt : eventAt,
+    assignees: normalizeAssignees(record.assignees),
+    links: normalizeLinks(record.links),
+    isOverdue: record.isOverdue === true,
     recurrence,
-    nextTaskReminderId: readNullableNumber(record, ["nextTaskReminderId"]),
-    nextReminderPreset: normalizeReminderPreset(readUnknown(record, ["nextReminderPreset"])),
-    createdAt: readString(record, ["createdAt"], ""),
-    updatedAt: readString(record, ["updatedAt"], ""),
+    nextTaskReminderId: typeof record.nextTaskReminderId === "number" ? record.nextTaskReminderId : null,
+    nextReminderPreset: normalizeReminderPreset(record.nextReminderPreset),
+    completedAt: typeof record.completedAt === "string" ? record.completedAt : null,
+    createdAt: typeof record.createdAt === "string" ? record.createdAt : "",
+    updatedAt: typeof record.updatedAt === "string" ? record.updatedAt : "",
   };
 }
 
@@ -2699,10 +2797,7 @@ function fillDefaultDateTime() {
   itemDraft.eventDate = defaults.date;
   itemDraft.eventTime = defaults.time;
   itemDraft.simple.time = defaults.time;
-  if (
-    itemDraft.reminderPresets.length === 1 &&
-    itemDraft.reminderPresets[0] === "none"
-  ) {
+  if (itemDraft.reminderPresets.length === 1 && itemDraft.reminderPresets[0] === "none") {
     itemDraft.reminderPresets = ["0m"];
     lastReminderPresetSelection.value = ["0m"];
   }
@@ -2715,10 +2810,7 @@ function fillQuickDate(daysOffset: number) {
   const month = pad2(target.getMonth() + 1);
   const day = pad2(target.getDate());
   itemDraft.eventDate = `${year}-${month}-${day}`;
-  if (
-    itemDraft.reminderPresets.length === 1 &&
-    itemDraft.reminderPresets[0] === "none"
-  ) {
+  if (itemDraft.reminderPresets.length === 1 && itemDraft.reminderPresets[0] === "none") {
     itemDraft.reminderPresets = ["0m"];
     lastReminderPresetSelection.value = ["0m"];
   }
@@ -2859,7 +2951,6 @@ async function enterEditMode(item?: TodoItem | null) {
   markDraftBaseline();
 }
 
-
 async function submitItemChanges(showSuccess = true) {
   const title = itemDraft.title.trim();
   const eventAt = buildEventAt();
@@ -2937,7 +3028,6 @@ async function submitItemChanges(showSuccess = true) {
 
     if (!isRepeating.value) {
       payload.eventAt = eventAt;
-      payload.remindAt = computeLegacyRemindAt(eventAt, selectedReminderPresets);
     }
 
     if (isRepeating.value) {
@@ -3047,29 +3137,41 @@ async function showDeleteScopeDialog(itemTitle: string): Promise<string | null> 
     ElMessageBox({
       title: "删除重复事项",
       message: h("div", { style: "padding: 10px 0;" }, [
-        h("p", { style: "margin-bottom: 15px;" }, `"${itemTitle}" 是一个重复事项，请选择删除范围：`),
+        h(
+          "p",
+          { style: "margin-bottom: 15px;" },
+          `"${itemTitle}" 是一个重复事项，请选择删除范围：`,
+        ),
         h("div", { class: "delete-scope-options" }, [
-          h("button", {
-            class: "scope-option this-instance",
-            onClick: () => {
-              ElMessageBox.close();
-              resolve("this_instance");
-            }
-          }, [
-            h("div", { class: "option-title" }, "仅删除本事项"),
-            h("div", { class: "option-desc" }, "后续重复事项将继续生成")
-          ]),
-          h("button", {
-            class: "scope-option future-instances",
-            onClick: () => {
-              ElMessageBox.close();
-              resolve("future_instances");
-            }
-          }, [
-            h("div", { class: "option-title" }, "删除后续所有事项"),
-            h("div", { class: "option-desc" }, "停止后续重复生成")
-          ])
-        ])
+          h(
+            "button",
+            {
+              class: "scope-option this-instance",
+              onClick: () => {
+                ElMessageBox.close();
+                resolve("this_instance");
+              },
+            },
+            [
+              h("div", { class: "option-title" }, "仅删除本事项"),
+              h("div", { class: "option-desc" }, "后续重复事项将继续生成"),
+            ],
+          ),
+          h(
+            "button",
+            {
+              class: "scope-option future-instances",
+              onClick: () => {
+                ElMessageBox.close();
+                resolve("future_instances");
+              },
+            },
+            [
+              h("div", { class: "option-title" }, "删除后续所有事项"),
+              h("div", { class: "option-desc" }, "停止后续重复生成"),
+            ],
+          ),
+        ]),
       ]),
       showCancelButton: true,
       showConfirmButton: false,
@@ -3079,7 +3181,7 @@ async function showDeleteScopeDialog(itemTitle: string): Promise<string | null> 
       beforeClose: () => {
         resolve(null);
         return true;
-      }
+      },
     });
   });
 }
@@ -3371,13 +3473,25 @@ onBeforeUnmount(() => {
 }
 
 @keyframes float {
-  0%, 100% { transform: translateY(0px); }
-  50% { transform: translateY(-8px); }
+  0%,
+  100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
 }
 
 @keyframes pulse {
-  0%, 100% { opacity: 0.08; transform: scale(1); }
-  50% { opacity: 0.15; transform: scale(1.1); }
+  0%,
+  100% {
+    opacity: 0.08;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.15;
+    transform: scale(1.1);
+  }
 }
 
 .detail-empty-content {
@@ -3420,7 +3534,7 @@ onBeforeUnmount(() => {
 
 .detail-empty-divider::before,
 .detail-empty-divider::after {
-  content: '';
+  content: "";
   flex: 1;
   height: 1px;
   background: var(--lc-border);
@@ -3506,8 +3620,14 @@ onBeforeUnmount(() => {
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 /* --- Card list --- */
@@ -4000,7 +4120,9 @@ onBeforeUnmount(() => {
 }
 
 .todo-card.is-selected {
-  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.15), var(--lc-shadow-sm);
+  box-shadow:
+    0 0 0 2px rgba(56, 189, 248, 0.15),
+    var(--lc-shadow-sm);
   background: linear-gradient(135deg, rgba(56, 189, 248, 0.06), var(--lc-surface-1) 70%);
   transform: translateX(2px);
 }
@@ -4668,11 +4790,21 @@ onBeforeUnmount(() => {
   animation: cardFadeIn 0.35s var(--lc-ease-out) backwards;
 }
 
-.detail-card:nth-child(1) { animation-delay: 0ms; }
-.detail-card:nth-child(2) { animation-delay: 40ms; }
-.detail-card:nth-child(3) { animation-delay: 80ms; }
-.detail-card:nth-child(4) { animation-delay: 120ms; }
-.detail-card:nth-child(5) { animation-delay: 160ms; }
+.detail-card:nth-child(1) {
+  animation-delay: 0ms;
+}
+.detail-card:nth-child(2) {
+  animation-delay: 40ms;
+}
+.detail-card:nth-child(3) {
+  animation-delay: 80ms;
+}
+.detail-card:nth-child(4) {
+  animation-delay: 120ms;
+}
+.detail-card:nth-child(5) {
+  animation-delay: 160ms;
+}
 
 @keyframes cardFadeIn {
   from {

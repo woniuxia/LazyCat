@@ -35,6 +35,14 @@ const pendingInput = ref<PendingToolInput | null>(null);
 let clipboardListenerPromise: Promise<UnlistenFn | null> | null = null;
 
 export function useClipboardSuggestion() {
+  function showSuggestion(next: ClipboardDetectResult, rawText?: string): void {
+    suggestion.value = next;
+    visible.value = true;
+    if (rawText !== undefined) {
+      lastClipboardText.value = rawText;
+    }
+  }
+
   /**
    * 读取剪贴板并检测内容类型。
    * 与上次检测的文本比较，相同则跳过（去重）。
@@ -47,8 +55,7 @@ export function useClipboardSuggestion() {
 
       const result = detectClipboardContent(text);
       if (result) {
-        suggestion.value = result;
-        visible.value = true;
+        showSuggestion(result, text);
       }
     } catch {
       // 剪贴板读取失败（权限不足等），静默忽略
@@ -152,6 +159,7 @@ export function useClipboardSuggestion() {
     pendingInput,
     detectClipboard,
     ensureClipboardListener,
+    showSuggestion,
     applyAction,
     setPendingToolInput,
     consumePendingInput,

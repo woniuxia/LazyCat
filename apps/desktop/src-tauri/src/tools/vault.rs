@@ -5,6 +5,7 @@ use openssl::rand::rand_bytes;
 use openssl::symm::{decrypt, encrypt, Cipher};
 use rusqlite::{params, Connection};
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::Instant;
 use zeroize::Zeroize;
@@ -25,6 +26,35 @@ fn get_entry_tags(conn: &Connection, entry_id: i64) -> Result<Vec<String>, Strin
         tags.push(row.map_err(|e| format!("tag row: {e}"))?);
     }
     Ok(tags)
+}
+
+fn get_entry_tags_map(conn: &Connection, entry_ids: &[i64]) -> Result<HashMap<i64, Vec<String>>, String> {
+    let mut tags_by_entry = HashMap::with_capacity(entry_ids.len());
+    if entry_ids.is_empty() {
+        return Ok(tags_by_entry);
+    }
+
+    let placeholders = vec!["?"; entry_ids.len()].join(", ");
+    let sql = format!(
+        "SELECT entry_id, tag FROM vault_entry_tags WHERE entry_id IN ({placeholders}) ORDER BY entry_id, tag"
+    );
+    let params_refs: Vec<&dyn rusqlite::types::ToSql> =
+        entry_ids.iter().map(|entry_id| entry_id as &dyn rusqlite::types::ToSql).collect();
+    let mut stmt = conn
+        .prepare(&sql)
+        .map_err(|e| format!("prepare batch tags: {e}"))?;
+    let rows = stmt
+        .query_map(params_refs.as_slice(), |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(|e| format!("query batch tags: {e}"))?;
+
+    for row in rows {
+        let (entry_id, tag) = row.map_err(|e| format!("batch tag row: {e}"))?;
+        tags_by_entry.entry(entry_id).or_default().push(tag);
+    }
+
+    Ok(tags_by_entry)
 }
 
 fn set_entry_tags(conn: &Connection, entry_id: i64, tags: &[String]) -> Result<(), String> {
@@ -327,7 +357,6 @@ fn cmd_lock(_payload: &Value) -> Result<Value, String> {
 }
 
 fn cmd_touch(_payload: &Value) -> Result<Value, String> {
-    let hard_lock_after_secs = db_conn().ok().map(|conn| load_hard_lock_after_secs(&conn));
     let mut guard = VAULT_SESSION
         .lock()
         .map_err(|e| format!("session lock: {e}"))?;
@@ -335,9 +364,6 @@ fn cmd_touch(_payload: &Value) -> Result<Value, String> {
 
     match guard.as_mut() {
         Some(session) => {
-            if let Some(hard_lock_after_secs) = hard_lock_after_secs {
-                session.hard_lock_after_secs = hard_lock_after_secs;
-            }
             session.last_activity = Instant::now();
             Ok(json!({ "ok": true, "lockState": VaultLockState::Unlocked.as_str() }))
         }
@@ -531,6 +557,7 @@ fn cmd_list(payload: &Value) -> Result<Value, String> {
         .map_err(|e| format!("query: {e}"))?;
 
     let mut entries: Vec<Value> = Vec::new();
+    let mut entry_ids: Vec<i64> = Vec::new();
     for row in rows {
         let (id, cat, title, environment, iv_b64, blob_b64, created_at, updated_at) =
             row.map_err(|e| format!("row: {e}"))?;
@@ -548,9 +575,7 @@ fn cmd_list(payload: &Value) -> Result<Value, String> {
             _ => (String::new(), String::new()),
         };
 
-        // Get tags for this entry
-        let tags = get_entry_tags(&conn, id).unwrap_or_default();
-
+        entry_ids.push(id);
         entries.push(json!({
             "id": id,
             "category": cat,
@@ -558,10 +583,21 @@ fn cmd_list(payload: &Value) -> Result<Value, String> {
             "environment": environment,
             "account": account,
             "summary": summary,
-            "tags": tags,
+            "tags": [],
             "createdAt": created_at,
             "updatedAt": updated_at,
         }));
+    }
+
+    let tags_by_entry = get_entry_tags_map(&conn, &entry_ids)?;
+    for entry in &mut entries {
+        let Some(id) = entry["id"].as_i64() else {
+            continue;
+        };
+        let tags = tags_by_entry.get(&id).cloned().unwrap_or_default();
+        if let Some(obj) = entry.as_object_mut() {
+            obj.insert("tags".to_string(), json!(tags));
+        }
     }
     Ok(json!(entries))
 }

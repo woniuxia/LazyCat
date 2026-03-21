@@ -158,7 +158,6 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:mybatis:extract-params": { domain: "mybatis", action: "extract_params" },
   "tool:nginx:generate": { domain: "nginx", action: "generate" },
   "tool:nginx:lint": { domain: "nginx", action: "lint" },
-  "tool:snippets:v2:init": { domain: "snippets", action: "v2_init" },
   "tool:snippets:v2:list": { domain: "snippets", action: "v2_list" },
   "tool:snippets:v2:get": { domain: "snippets", action: "v2_get" },
   "tool:snippets:v2:create": { domain: "snippets", action: "v2_create" },

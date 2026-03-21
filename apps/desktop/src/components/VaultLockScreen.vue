@@ -10,7 +10,6 @@
         </svg>
       </div>
 
-      <!-- Setup mode -->
       <template v-if="mode === 'setup'">
         <h2 class="vault-lock__title">创建密码库</h2>
         <p class="vault-lock__hint">设置主密码以保护你的凭据数据。请务必牢记此密码，密码丢失将无法恢复数据。</p>
@@ -50,7 +49,6 @@
         </el-form>
       </template>
 
-      <!-- Unlock mode -->
       <template v-else>
         <h2 class="vault-lock__title">解锁密码库</h2>
         <p class="vault-lock__hint">输入主密码以访问凭据数据</p>
@@ -71,7 +69,6 @@
           <el-button
             type="primary"
             size="large"
-            :loading="loading"
             :disabled="!unlockPassword"
             class="vault-lock__btn"
             @click="onUnlock"
@@ -85,9 +82,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, onMounted, onUnmounted, nextTick } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref } from "vue";
 import type { InputInstance } from "element-plus";
 import { invokeToolByChannel } from "../bridge/tauri";
+
+const AUTO_UNLOCK_DEBOUNCE_MS = 150;
+
+type UnlockAttemptSource = "auto" | "manual";
 
 const props = defineProps<{
   mode: "setup" | "unlock";
@@ -109,17 +110,38 @@ const errorMsg = ref("");
 const setupPasswordRef = ref<InputInstance | null>(null);
 const unlockPasswordRef = ref<InputInstance | null>(null);
 
-// Auto-unlock state
-const attemptedLengths = ref<Set<number>>(new Set());
-const isAutoUnlocking = ref(false);
+const attemptedPasswords = ref<Set<string>>(new Set());
 const debounceTimer = ref<number | null>(null);
+const inFlightCount = ref(0);
+const latestAttemptId = ref(0);
+const latestManualAttemptId = ref(0);
+const hasUnlocked = ref(false);
+let isUnmounted = false;
+
+function clearDebounceTimer() {
+  if (debounceTimer.value !== null) {
+    clearTimeout(debounceTimer.value);
+    debounceTimer.value = null;
+  }
+}
+
+function resetUnlockState() {
+  clearDebounceTimer();
+  attemptedPasswords.value.clear();
+  inFlightCount.value = 0;
+  latestAttemptId.value = 0;
+  latestManualAttemptId.value = 0;
+  hasUnlocked.value = false;
+  loading.value = false;
+  errorMsg.value = "";
+}
 
 onMounted(async () => {
-  // Reset attempted lengths when entering unlock screen
-  attemptedLengths.value.clear();
+  isUnmounted = false;
+  resetUnlockState();
 
   await nextTick();
-  setTimeout(() => {
+  window.setTimeout(() => {
     if (props.mode === "setup") {
       setupPasswordRef.value?.focus();
     } else {
@@ -129,58 +151,89 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
-  // Clean up debounce timer to avoid memory leaks
-  if (debounceTimer.value) {
-    clearTimeout(debounceTimer.value);
-    debounceTimer.value = null;
-  }
+  isUnmounted = true;
+  resetUnlockState();
 });
 
 function onPasswordInput() {
-  // Only apply auto-unlock in unlock mode
   if (props.mode !== "unlock") return;
+  if (hasUnlocked.value) return;
 
-  // Skip if currently auto-unlocking (prevent concurrent attempts)
-  if (isAutoUnlocking.value) return;
+  errorMsg.value = "";
+  clearDebounceTimer();
 
-  // Clear previous debounce timer
-  if (debounceTimer.value) {
-    clearTimeout(debounceTimer.value);
-    debounceTimer.value = null;
-  }
+  const passwordSnapshot = unlockPassword.value;
+  if (!passwordSnapshot) return;
+  if (attemptedPasswords.value.has(passwordSnapshot)) return;
 
-  const currentLength = unlockPassword.value.length;
-
-  // Skip if password is empty
-  if (currentLength === 0) return;
-
-  // Skip if this length has already been attempted
-  if (attemptedLengths.value.has(currentLength)) return;
-
-  // Set up debounce timer (100ms)
   debounceTimer.value = window.setTimeout(() => {
-    // Mark this length as attempted
-    attemptedLengths.value.add(currentLength);
-    // Attempt auto-unlock
-    attemptAutoUnlock();
-  }, 500);
+    debounceTimer.value = null;
+    if (hasUnlocked.value || isUnmounted) {
+      return;
+    }
+    attemptedPasswords.value.add(passwordSnapshot);
+    void attemptAutoUnlock(passwordSnapshot);
+  }, AUTO_UNLOCK_DEBOUNCE_MS);
 }
 
-async function attemptAutoUnlock() {
-  if (!unlockPassword.value) return;
+async function runUnlockAttempt(source: UnlockAttemptSource, passwordSnapshot: string) {
+  if (props.mode !== "unlock") return;
+  if (!passwordSnapshot || hasUnlocked.value || isUnmounted) return;
 
-  isAutoUnlocking.value = true;
+  const attemptId = latestAttemptId.value + 1;
+  latestAttemptId.value = attemptId;
+  if (source === "manual") {
+    latestManualAttemptId.value = attemptId;
+    errorMsg.value = "";
+  }
+
+  inFlightCount.value += 1;
+  loading.value = true;
 
   try {
-    await invokeToolByChannel("tool:vault:unlock", { masterPassword: unlockPassword.value });
-    // Success: emit unlocked event
+    await invokeToolByChannel("tool:vault:unlock", { masterPassword: passwordSnapshot });
+
+    if (isUnmounted || hasUnlocked.value) {
+      return;
+    }
+
+    hasUnlocked.value = true;
+    errorMsg.value = "";
+    clearDebounceTimer();
+    inFlightCount.value = 0;
+    loading.value = false;
     emit("unlocked");
   } catch (err) {
-    // Failure: silently ignore (no error message, no clearing input)
-    // This is intentional - we don't want to alert the user when auto-unlock fails
+    if (isUnmounted || hasUnlocked.value) {
+      return;
+    }
+
+    if (
+      source === "manual" &&
+      latestManualAttemptId.value === attemptId &&
+      latestAttemptId.value === attemptId &&
+      unlockPassword.value === passwordSnapshot
+    ) {
+      const msg = (err as Error).message || "";
+      if (msg.includes("wrong_password")) {
+        errorMsg.value = "密码错误，请重试";
+      } else {
+        errorMsg.value = msg || "解锁失败";
+      }
+    }
   } finally {
-    isAutoUnlocking.value = false;
+    if (isUnmounted || hasUnlocked.value) {
+      loading.value = false;
+      return;
+    }
+    inFlightCount.value = Math.max(0, inFlightCount.value - 1);
+    loading.value = inFlightCount.value > 0;
   }
+}
+
+async function attemptAutoUnlock(passwordSnapshot = unlockPassword.value) {
+  if (!passwordSnapshot) return;
+  await runUnlockAttempt("auto", passwordSnapshot);
 }
 
 async function onSetup() {
@@ -206,22 +259,13 @@ async function onSetup() {
 }
 
 async function onUnlock() {
-  errorMsg.value = "";
-  if (!unlockPassword.value) return;
-  loading.value = true;
-  try {
-    await invokeToolByChannel("tool:vault:unlock", { masterPassword: unlockPassword.value });
-    emit("unlocked");
-  } catch (err) {
-    const msg = (err as Error).message || "";
-    if (msg.includes("wrong_password")) {
-      errorMsg.value = "密码错误，请重试";
-    } else {
-      errorMsg.value = msg || "解锁失败";
-    }
-  } finally {
-    loading.value = false;
-  }
+  if (props.mode !== "unlock") return;
+
+  const passwordSnapshot = unlockPassword.value;
+  if (!passwordSnapshot || hasUnlocked.value) return;
+
+  clearDebounceTimer();
+  await runUnlockAttempt("manual", passwordSnapshot);
 }
 </script>
 

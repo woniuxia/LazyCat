@@ -3,11 +3,8 @@ use serde_json::{json, Value};
 
 use super::helpers::db_conn;
 
-const INIT_KEY: &str = "snippet_workspace_v2_initialized";
-
 pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
     match action {
-        "v2_init" => v2_init(payload),
         "v2_list" | "list" => v2_list(payload),
         "v2_get" | "get" => v2_get(payload),
         "v2_create" | "create" => v2_create(payload),
@@ -99,96 +96,6 @@ fn has_fts(conn: &Connection) -> bool {
         |r| r.get::<_, bool>(0),
     )
     .unwrap_or(false)
-}
-
-fn set_initialized(conn: &Connection) -> Result<(), String> {
-    conn.execute(
-        "INSERT INTO user_settings (key, value, updated_at) VALUES (?1, '1', CURRENT_TIMESTAMP)
-         ON CONFLICT(key) DO UPDATE SET value='1', updated_at=CURRENT_TIMESTAMP",
-        params![INIT_KEY],
-    )
-    .map_err(|e| format!("set init flag failed: {e}"))?;
-    Ok(())
-}
-
-fn is_initialized(conn: &Connection) -> Result<bool, String> {
-    let value: Option<String> = conn
-        .query_row(
-            "SELECT value FROM user_settings WHERE key = ?1",
-            params![INIT_KEY],
-            |r| r.get(0),
-        )
-        .ok();
-    Ok(value.as_deref() == Some("1"))
-}
-
-fn reset_v2_schema(conn: &Connection) -> Result<(), String> {
-    conn.execute_batch(
-        "DROP TABLE IF EXISTS snippet_entry_tags;
-         DROP TABLE IF EXISTS snippet_fragments_v2;
-         DROP TABLE IF EXISTS snippet_entries;
-         DROP TABLE IF EXISTS snippet_folders_v2;
-         DROP TABLE IF EXISTS snippet_fts;
-
-         CREATE TABLE IF NOT EXISTS snippet_folders_v2 (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            parent_id INTEGER DEFAULT NULL,
-            sort_order INTEGER NOT NULL DEFAULT 0,
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (parent_id) REFERENCES snippet_folders_v2(id) ON DELETE CASCADE
-         );
-
-         CREATE TABLE IF NOT EXISTS snippet_entries (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            title TEXT NOT NULL,
-            description TEXT NOT NULL DEFAULT '',
-            folder_id INTEGER DEFAULT NULL,
-            is_favorite INTEGER NOT NULL DEFAULT 0,
-            primary_language TEXT NOT NULL DEFAULT 'plaintext',
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            last_used_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            use_count INTEGER NOT NULL DEFAULT 0,
-            FOREIGN KEY (folder_id) REFERENCES snippet_folders_v2(id) ON DELETE SET NULL
-         );
-
-         CREATE INDEX IF NOT EXISTS idx_entries_last_used_at ON snippet_entries(last_used_at DESC);
-         CREATE INDEX IF NOT EXISTS idx_entries_updated_at ON snippet_entries(updated_at DESC);
-
-         CREATE TABLE IF NOT EXISTS snippet_fragments_v2 (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            entry_id INTEGER NOT NULL,
-            label TEXT NOT NULL DEFAULT 'main',
-            language TEXT NOT NULL DEFAULT 'plaintext',
-            code TEXT NOT NULL DEFAULT '',
-            sort_order INTEGER NOT NULL DEFAULT 0,
-            FOREIGN KEY (entry_id) REFERENCES snippet_entries(id) ON DELETE CASCADE
-         );
-
-         CREATE INDEX IF NOT EXISTS idx_fragments_v2_entry_sort ON snippet_fragments_v2(entry_id, sort_order);
-
-         CREATE TABLE IF NOT EXISTS snippet_entry_tags (
-            entry_id INTEGER NOT NULL,
-            tag TEXT NOT NULL,
-            PRIMARY KEY (entry_id, tag),
-            FOREIGN KEY (entry_id) REFERENCES snippet_entries(id) ON DELETE CASCADE
-         );
-
-         CREATE INDEX IF NOT EXISTS idx_entry_tags_tag ON snippet_entry_tags(tag);",
-    )
-    .map_err(|e| format!("reset v2 schema failed: {e}"))?;
-    let _ = conn.execute_batch(
-        "CREATE VIRTUAL TABLE IF NOT EXISTS snippet_fts USING fts5(
-            entry_id UNINDEXED,
-            title,
-            description,
-            tags_text,
-            code_text
-         );",
-    );
-
-    Ok(())
 }
 
 fn rebuild_fts_for_entry(conn: &Connection, entry_id: i64) -> Result<(), String> {
@@ -314,27 +221,6 @@ fn row_with_tags(mut row: Value) -> Value {
     row["tags"] = Value::Array(tags);
     row.as_object_mut().map(|obj| obj.remove("tagCsv"));
     row
-}
-
-fn v2_init(payload: &Value) -> Result<Value, String> {
-    let confirm = payload["confirm"].as_bool().unwrap_or(false);
-    let conn = db_conn()?;
-
-    if is_initialized(&conn)? {
-        return Ok(json!({ "initialized": true, "requiresConfirm": false }));
-    }
-
-    if !confirm {
-        return Ok(json!({
-            "initialized": false,
-            "requiresConfirm": true,
-            "message": "首次进入将清空旧代码片段数据并重建工作区。"
-        }));
-    }
-
-    reset_v2_schema(&conn)?;
-    set_initialized(&conn)?;
-    Ok(json!({ "initialized": true, "requiresConfirm": false }))
 }
 
 /// Shared filter-building for v2_list and v2_search.

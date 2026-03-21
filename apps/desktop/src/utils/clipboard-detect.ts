@@ -1,13 +1,23 @@
 export type ClipboardContentType =
   | "json" | "xml" | "html" | "sql" | "java"
   | "jwt" | "timestamp" | "base64" | "url-encoded" | "bcrypt"
-  | "unknown";
+  | "path" | "unknown";
 
-export interface ClipboardAction {
+export interface ClipboardToolAction {
+  kind: "tool";
   label: string;
   toolId: string;
   toolName: string;
 }
+
+export interface ClipboardOpenPathAction {
+  kind: "open-path";
+  label: string;
+  path: string;
+  reveal: boolean;
+}
+
+export type ClipboardAction = ClipboardToolAction | ClipboardOpenPathAction;
 
 export interface ClipboardDetectResult {
   type: ClipboardContentType;
@@ -16,10 +26,110 @@ export interface ClipboardDetectResult {
   actions: ClipboardAction[];
 }
 
+export interface ClipboardPathDetectResult {
+  path: string;
+  reveal: boolean;
+}
+
 function truncatePreview(text: string, maxLen = 80): string {
   const oneLine = text.replace(/\n/g, " ").trim();
   if (oneLine.length <= maxLen) return oneLine;
   return oneLine.slice(0, maxLen) + "...";
+}
+
+function createToolAction(label: string, toolId: string, toolName: string): ClipboardToolAction {
+  return {
+    kind: "tool",
+    label,
+    toolId,
+    toolName,
+  };
+}
+
+function inferPathLabel(path: string, reveal: boolean): string {
+  if (!reveal) return "目录路径";
+  const segments = path.split(/[\\/]/).filter(Boolean);
+  const lastSegment = segments.length > 0 ? segments[segments.length - 1] : "";
+  return /\.[^\\/.]+$/.test(lastSegment) ? "文件路径" : "目录路径";
+}
+
+function stripOuterQuotes(text: string): string {
+  if (text.length >= 2) {
+    const first = text[0];
+    const last = text[text.length - 1];
+    if ((first === '"' && last === '"') || (first === "'" && last === "'")) {
+      return text.slice(1, -1).trim();
+    }
+  }
+  return text;
+}
+
+function normalizeFileUri(text: string): string | null {
+  try {
+    const url = new URL(text);
+    if (url.protocol !== "file:") return null;
+    if (url.hostname && url.hostname !== "localhost") {
+      return `\\\\${url.hostname}${decodeURIComponent(url.pathname).replace(/\//g, "\\")}`;
+    }
+    const decodedPath = decodeURIComponent(url.pathname);
+    if (/^\/[A-Za-z]:\//.test(decodedPath)) {
+      return decodedPath.slice(1).replace(/\//g, "\\");
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function isWindowsAbsolutePath(text: string): boolean {
+  return /^[A-Za-z]:\\/.test(text);
+}
+
+function isUncPath(text: string): boolean {
+  return /^\\\\[^\\\/]+\\[^\\\/]+/.test(text);
+}
+
+function inferRevealFromPath(text: string): boolean {
+  return !/[\\/]$/.test(text) && !/^[A-Za-z]:\\?$/.test(text);
+}
+
+export function detectClipboardPath(text: string): ClipboardPathDetectResult | null {
+  if (!text) return null;
+
+  const trimmed = text.trim();
+  if (!trimmed || trimmed.includes("\n") || trimmed.includes("\r")) return null;
+
+  const hadOuterQuotes = trimmed.length >= 2
+    && ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'")));
+  const unquoted = stripOuterQuotes(trimmed);
+  if (!unquoted || /[%][A-Za-z_][A-Za-z0-9_]*%/.test(unquoted)) return null;
+  if (/[<>|]/.test(unquoted) || /\s(?:[-/][A-Za-z][\w-]*)(?:\s|$)/.test(unquoted)) return null;
+  if (!hadOuterQuotes && /\s{2,}|\t/.test(unquoted)) return null;
+
+  const normalized = unquoted.toLowerCase().startsWith("file://")
+    ? normalizeFileUri(unquoted)
+    : unquoted;
+  if (!normalized) return null;
+  if (!isWindowsAbsolutePath(normalized) && !isUncPath(normalized)) return null;
+
+  return {
+    path: normalized,
+    reveal: inferRevealFromPath(normalized),
+  };
+}
+
+export function buildClipboardPathSuggestion(match: ClipboardPathDetectResult): ClipboardDetectResult {
+  return {
+    type: "path",
+    label: inferPathLabel(match.path, match.reveal),
+    preview: truncatePreview(match.path),
+    actions: [{
+      kind: "open-path",
+      label: "直接打开",
+      path: match.path,
+      reveal: match.reveal,
+    }],
+  };
 }
 
 /**
@@ -39,7 +149,7 @@ export function detectClipboardContent(text: string): ClipboardDetectResult | nu
       type: "jwt",
       label: "JWT Token",
       preview,
-      actions: [{ label: "JWT 解析", toolId: "jwt", toolName: "JWT 解析" }],
+      actions: [createToolAction("JWT 解析", "jwt", "JWT 解析")],
     };
   }
 
@@ -49,7 +159,7 @@ export function detectClipboardContent(text: string): ClipboardDetectResult | nu
       type: "bcrypt",
       label: "Bcrypt",
       preview,
-      actions: [{ label: "Bcrypt 验证", toolId: "bcrypt", toolName: "Bcrypt" }],
+      actions: [createToolAction("Bcrypt 验证", "bcrypt", "Bcrypt")],
     };
   }
 
@@ -62,8 +172,8 @@ export function detectClipboardContent(text: string): ClipboardDetectResult | nu
         label: "JSON",
         preview,
         actions: [
-          { label: "格式化", toolId: "formatter", toolName: "代码格式化" },
-          { label: "JSON 处理", toolId: "json-process", toolName: "JSON 处理" },
+          createToolAction("格式化", "formatter", "代码格式化"),
+          createToolAction("JSON 处理", "json-process", "JSON 处理"),
         ],
       };
     }
@@ -81,7 +191,7 @@ export function detectClipboardContent(text: string): ClipboardDetectResult | nu
         type: "html",
         label: "HTML",
         preview,
-        actions: [{ label: "格式化", toolId: "formatter", toolName: "代码格式化" }],
+        actions: [createToolAction("格式化", "formatter", "代码格式化")],
       };
     }
 
@@ -91,7 +201,7 @@ export function detectClipboardContent(text: string): ClipboardDetectResult | nu
         type: "xml",
         label: "XML",
         preview,
-        actions: [{ label: "格式化", toolId: "formatter", toolName: "代码格式化" }],
+        actions: [createToolAction("格式化", "formatter", "代码格式化")],
       };
     }
   }
@@ -105,7 +215,7 @@ export function detectClipboardContent(text: string): ClipboardDetectResult | nu
       type: "sql",
       label: "SQL",
       preview,
-      actions: [{ label: "格式化", toolId: "formatter", toolName: "代码格式化" }],
+      actions: [createToolAction("格式化", "formatter", "代码格式化")],
     };
   }
 
@@ -118,7 +228,7 @@ export function detectClipboardContent(text: string): ClipboardDetectResult | nu
       type: "java",
       label: "Java",
       preview,
-      actions: [{ label: "格式化", toolId: "formatter", toolName: "代码格式化" }],
+      actions: [createToolAction("格式化", "formatter", "代码格式化")],
     };
   }
 
@@ -128,7 +238,7 @@ export function detectClipboardContent(text: string): ClipboardDetectResult | nu
       type: "timestamp",
       label: "时间戳",
       preview,
-      actions: [{ label: "时间戳转换", toolId: "timestamp", toolName: "时间戳转换" }],
+      actions: [createToolAction("时间戳转换", "timestamp", "时间戳转换")],
     };
   }
 
@@ -138,7 +248,7 @@ export function detectClipboardContent(text: string): ClipboardDetectResult | nu
       type: "url-encoded",
       label: "URL 编码",
       preview,
-      actions: [{ label: "URL 解码", toolId: "url", toolName: "URL 编解码" }],
+      actions: [createToolAction("URL 解码", "url", "URL 编解码")],
     };
   }
 
@@ -153,7 +263,7 @@ export function detectClipboardContent(text: string): ClipboardDetectResult | nu
       type: "base64",
       label: "Base64",
       preview,
-      actions: [{ label: "Base64 解码", toolId: "base64", toolName: "Base64" }],
+      actions: [createToolAction("Base64 解码", "base64", "Base64")],
     };
   }
 

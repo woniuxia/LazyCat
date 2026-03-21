@@ -1,18 +1,7 @@
 <template>
   <div class="vault-panel">
-    <!-- Lock screen -->
-    <Transition name="fade" mode="out-in">
-      <VaultLockScreen
-        v-if="initialized && lockState === 'locked'"
-        key="lock"
-        :mode="vaultSetup ? 'unlock' : 'setup'"
-        :mask-version="inputMaskVersion"
-        @unlocked="onUnlocked"
-      />
-
-      <!-- Main 2-column layout: nav + list -->
-      <div v-else-if="initialized" key="main" class="vault-main">
-        <!-- Left: Navigation tree -->
+    <div v-show="shellVisible" class="vault-shell" :class="{ 'is-blocked': !shellInteractive }">
+      <div class="vault-main">
         <aside class="vault-nav">
           <div class="vault-nav-header">
             <h3 class="vault-nav-title">密码库</h3>
@@ -82,25 +71,37 @@
             </div>
           </div>
 
-          <div v-if="tagStats.length > 0" class="vault-nav-section">
+          <div class="vault-nav-section vault-nav-section--tags">
             <div class="vault-nav-section-title">标签</div>
-            <div
-              v-for="stat in tagStats"
-              :key="stat.tag"
-              class="vault-nav-item"
-              :class="{ 'is-active': activeTag === stat.tag }"
-              @click="onClickTag(stat.tag)"
-              @contextmenu.prevent="onTagContextMenu($event, stat.tag)"
-            >
-              <span class="vault-nav-tag-icon">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" />
-                  <line x1="7" y1="7" x2="7.01" y2="7" />
-                </svg>
-              </span>
-              <span class="vault-nav-label vault-nav-tag-label">{{ stat.tag }}</span>
-              <span class="vault-nav-badge">{{ tagCount(stat.tag) }}</span>
-            </div>
+            <template v-if="tagStatsLoading && tagStats.length === 0">
+              <div class="vault-nav-skeleton">
+                <div v-for="index in 3" :key="`tag-skeleton-${index}`" class="vault-nav-skeleton-item">
+                  <span class="vault-nav-skeleton-icon" />
+                  <span class="vault-nav-skeleton-label" />
+                  <span class="vault-nav-skeleton-badge" />
+                </div>
+              </div>
+            </template>
+            <template v-else-if="tagStats.length > 0">
+              <div
+                v-for="stat in tagStats"
+                :key="stat.tag"
+                class="vault-nav-item"
+                :class="{ 'is-active': activeTag === stat.tag }"
+                @click="onClickTag(stat.tag)"
+                @contextmenu.prevent="onTagContextMenu($event, stat.tag)"
+              >
+                <span class="vault-nav-tag-icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" />
+                    <line x1="7" y1="7" x2="7.01" y2="7" />
+                  </svg>
+                </span>
+                <span class="vault-nav-label vault-nav-tag-label">{{ stat.tag }}</span>
+                <span class="vault-nav-badge">{{ tagCount(stat.tag) }}</span>
+              </div>
+            </template>
+            <div v-else class="vault-nav-placeholder">暂无标签</div>
           </div>
 
           <div class="vault-nav-spacer" />
@@ -123,7 +124,6 @@
           </div>
         </aside>
 
-        <!-- Right: List area -->
         <div class="vault-content">
           <div class="vault-toolbar">
             <div class="vault-search">
@@ -153,7 +153,26 @@
             </button>
           </div>
 
-          <div v-if="filteredEntries.length" class="vault-list-container">
+          <div v-if="listLoading && !entriesLoaded" class="vault-loading-state">
+            <div class="vault-loading-spinner" />
+            <p class="vault-loading-title">正在加载凭据列表</p>
+            <p class="vault-loading-desc">主界面已解锁，列表内容正在后台准备。</p>
+          </div>
+
+          <div v-else-if="initialLoadError" class="vault-empty vault-empty--error">
+            <div class="vault-empty-icon vault-empty-icon--error">
+              <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.5">
+                <circle cx="24" cy="24" r="18" />
+                <path d="M24 15v11" />
+                <circle cx="24" cy="33" r="1.6" fill="currentColor" stroke="none" />
+              </svg>
+            </div>
+            <p class="vault-empty-title">凭据列表加载失败</p>
+            <p class="vault-empty-desc">{{ initialLoadError }}</p>
+            <button class="vault-btn-primary" @click="retryInitialLoad">重试</button>
+          </div>
+
+          <div v-else-if="filteredEntries.length" class="vault-list-container">
             <div class="vault-list-header">
               <div class="vault-list-col env">环境</div>
               <div class="vault-list-col type">类型</div>
@@ -165,10 +184,9 @@
 
             <div class="vault-list-body">
               <div
-                v-for="(entry, index) in filteredEntries"
+                v-for="entry in filteredEntries"
                 :key="entry.id"
                 class="vault-list-item"
-                :style="{ animationDelay: `${index * 30}ms` }"
               >
                 <div class="vault-list-col env">
                   <span v-if="entry.environment" class="vault-tag" :class="envClass(entry.environment)">
@@ -314,11 +332,34 @@
           </div>
         </div>
       </div>
+    </div>
+
+    <Transition name="fade">
+      <div v-if="displayPhase === 'booting'" class="vault-overlay vault-overlay--booting">
+        <div class="vault-overlay-card">
+          <div class="vault-loading-spinner" />
+          <p class="vault-overlay-title">正在检查密码库状态</p>
+          <p class="vault-overlay-desc">请稍候，马上进入密码库。</p>
+        </div>
+      </div>
+      <div v-else-if="displayPhase === 'relocking'" class="vault-overlay vault-overlay--relocking">
+        <div class="vault-overlay-card">
+          <div class="vault-loading-spinner" />
+          <p class="vault-overlay-title">正在锁定密码库</p>
+          <p class="vault-overlay-desc">已收起敏感信息，正在安全返回锁屏。</p>
+        </div>
+      </div>
+      <div v-else-if="displayPhase === 'locked'" class="vault-overlay vault-overlay--lockscreen">
+        <VaultLockScreen
+          :mode="vaultSetup ? 'unlock' : 'setup'"
+          :mask-version="inputMaskVersion"
+          @unlocked="onUnlocked"
+        />
+      </div>
     </Transition>
 
     <VaultEntryDialog ref="entryDialog" :existing-tags="allTags" :mask-version="inputMaskVersion" @saved="onEntrySaved" />
 
-    <!-- Change password dialog -->
     <el-dialog v-model="showChangePassword" title="修改主密码" width="400px" :close-on-click-modal="false" class="vault-dialog">
       <el-form label-position="top">
         <el-form-item label="当前密码">
@@ -338,7 +379,6 @@
       </template>
     </el-dialog>
 
-    <!-- Tag context menu -->
     <Teleport to="body">
       <div
         v-if="tagContextMenu.show"
@@ -362,7 +402,6 @@
       </div>
     </Teleport>
 
-    <!-- Rename tag dialog -->
     <el-dialog v-model="showRenameTagDialog" title="重命名标签" width="360px" class="vault-dialog">
       <el-form label-position="top">
         <el-form-item label="新标签名">
@@ -419,7 +458,9 @@ interface TagStat {
   count: number;
 }
 
+type LoadPhase = "initial" | "refresh";
 type VaultLockState = "unlocked" | "locked";
+type VaultDisplayPhase = "booting" | "locked" | "unlocked-loading" | "unlocked-ready" | "relocking";
 
 interface VaultStatus {
   setup: boolean;
@@ -438,6 +479,7 @@ interface VaultEntrySeed extends VaultPendingDraft {
 
 const vaultSetup = ref(false);
 const lockState = ref<VaultLockState>("locked");
+const displayPhase = ref<VaultDisplayPhase>("booting");
 const initialized = ref(false);
 const entries = ref<VaultListEntry[]>([]);
 const keyword = ref("");
@@ -445,6 +487,10 @@ const activeEnv = ref("");
 const activeCategory = ref("");
 const activeTag = ref("");
 const tagStats = ref<TagStat[]>([]);
+const tagStatsLoading = ref(false);
+const listLoading = ref(false);
+const entriesLoaded = ref(false);
+const initialLoadError = ref("");
 const entryDialog = ref<InstanceType<typeof VaultEntryDialog> | null>(null);
 const inputMaskVersion = ref(0);
 
@@ -471,8 +517,13 @@ let activityTimer: ReturnType<typeof setInterval> | null = null;
 let hideSensitiveTimer: ReturnType<typeof setTimeout> | null = null;
 let hardLockTimer: ReturnType<typeof setTimeout> | null = null;
 let lastSessionTouchAt = 0;
+let currentLockPolicy: VaultLockPolicy = getLockPolicy();
+let loadGeneration = 0;
+let latestListRequestToken = 0;
+let latestTagStatsRequestToken = 0;
 let unlistenFocus: (() => void) | null = null;
 let unlistenBlur: (() => void) | null = null;
+let relockFinalizeTimer: ReturnType<typeof setTimeout> | null = null;
 
 // Password reveal/copy state
 const revealedPasswords = reactive(new Map<number, string>());
@@ -480,6 +531,8 @@ let pwClipboardTimer: ReturnType<typeof setTimeout> | null = null;
 const copyFeedbackRow = ref<number | null>(null);
 const copyFeedbackAccount = ref<number | null>(null);
 const unlocked = computed(() => lockState.value === "unlocked");
+const shellVisible = computed(() => displayPhase.value !== "booting" && initialized.value);
+const shellInteractive = computed(() => displayPhase.value === "unlocked-loading" || displayPhase.value === "unlocked-ready");
 const pendingEntrySeed = ref<VaultEntrySeed | null>(null);
 const { watchPendingToolInput } = useClipboardSuggestion();
 
@@ -657,7 +710,7 @@ function openCreateEntry(seed?: VaultEntrySeed | null) {
 }
 
 function maybeOpenPendingEntrySeed() {
-  if (!pendingEntrySeed.value || !unlocked.value) return;
+  if (!pendingEntrySeed.value || !unlocked.value || !entriesLoaded.value) return;
   const seed = pendingEntrySeed.value;
   pendingEntrySeed.value = null;
   openCreateEntry(seed);
@@ -687,6 +740,20 @@ function clearSensitiveUiState() {
   }
 }
 
+function closeTransientUi() {
+  entryDialog.value?.forceClose();
+  showChangePassword.value = false;
+  changePwLoading.value = false;
+  changePwError.value = "";
+  changePw.current = "";
+  changePw.newPw = "";
+  changePw.confirm = "";
+  closeTagContextMenu();
+  showRenameTagDialog.value = false;
+  renameTagLoading.value = false;
+  renameTagNewName.value = "";
+}
+
 function remaskSensitiveInputs() {
   inputMaskVersion.value += 1;
 }
@@ -707,31 +774,89 @@ function clearInactivityTimers() {
   }
 }
 
-function setLockState(nextState: VaultLockState) {
-  lockState.value = nextState;
+function clearRelockFinalizeTimer() {
+  if (relockFinalizeTimer) {
+    clearTimeout(relockFinalizeTimer);
+    relockFinalizeTimer = null;
+  }
+}
 
+function finalizeLockedUiState() {
+  entries.value = [];
+  tagStats.value = [];
+  tagStatsLoading.value = false;
+  initialLoadError.value = "";
+  listLoading.value = false;
+  entriesLoaded.value = false;
+  displayPhase.value = "locked";
+}
+
+function scheduleLockCleanup() {
+  clearRelockFinalizeTimer();
+  relockFinalizeTimer = setTimeout(() => {
+    finalizeLockedUiState();
+    relockFinalizeTimer = null;
+  }, 180);
+}
+
+function isLoadResultCurrent(generation: number, token: number, kind: "list" | "tag") {
+  if (lockState.value !== "unlocked" || generation !== loadGeneration) {
+    return false;
+  }
+  return kind === "list"
+    ? latestListRequestToken === token
+    : latestTagStatsRequestToken === token;
+}
+
+function beginUnlockedCycle() {
+  clearRelockFinalizeTimer();
+  loadGeneration += 1;
+  latestListRequestToken = 0;
+  latestTagStatsRequestToken = 0;
+  currentLockPolicy = getLockPolicy();
+  initialLoadError.value = "";
+  listLoading.value = false;
+  entriesLoaded.value = false;
+  tagStatsLoading.value = false;
+}
+
+function setUnlockedState() {
+  if (lockState.value !== "unlocked") {
+    beginUnlockedCycle();
+  }
+  lockState.value = "unlocked";
+  displayPhase.value = entriesLoaded.value ? "unlocked-ready" : "unlocked-loading";
+  startInactivityTimers();
+}
+
+function setLockState(nextState: VaultLockState) {
   if (nextState === "unlocked") {
+    setUnlockedState();
     return;
   }
 
+  clearRelockFinalizeTimer();
+  lockState.value = nextState;
+  loadGeneration += 1;
+  latestListRequestToken = 0;
+  latestTagStatsRequestToken = 0;
   hideSensitiveContent();
+  closeTransientUi();
   clearInactivityTimers();
-
-  entries.value = [];
-  tagStats.value = [];
+  displayPhase.value = initialized.value ? "relocking" : "locked";
+  scheduleLockCleanup();
 }
 
 function startInactivityTimers() {
   clearInactivityTimers();
   if (!unlocked.value) return;
 
-  const policy = getLockPolicy();
   hideSensitiveTimer = setTimeout(() => {
     hideSensitiveContent();
-  }, policy.hideSensitiveAfterSecs * 1000);
+  }, currentLockPolicy.hideSensitiveAfterSecs * 1000);
   hardLockTimer = setTimeout(() => {
     void onLock();
-  }, policy.hardLockAfterSecs * 1000);
+  }, currentLockPolicy.hardLockAfterSecs * 1000);
 }
 
 async function touchSession() {
@@ -832,43 +957,119 @@ async function checkStatus() {
     const res = (await invokeToolByChannel("tool:vault:status", {})) as VaultStatus;
     vaultSetup.value = res.setup;
     const nextLockState = res.lockState ?? (res.unlocked ? "unlocked" : "locked");
-    setLockState(nextLockState);
     if (nextLockState === "unlocked") {
-      await loadEntries();
-      maybeOpenPendingEntrySeed();
+      setUnlockedState();
+      void loadEntries({ phase: "initial" });
+    } else {
+      lockState.value = "locked";
+      finalizeLockedUiState();
     }
   } catch {
-    // IPC not available
+    lockState.value = "locked";
+    finalizeLockedUiState();
   } finally {
     initialized.value = true;
+    if (displayPhase.value === "booting") {
+      finalizeLockedUiState();
+    }
   }
 }
 
 async function onUnlocked() {
-  setLockState("unlocked");
+  setUnlockedState();
   vaultSetup.value = true;
-  await loadEntries();
-  maybeOpenPendingEntrySeed();
+  void loadEntries({ phase: "initial" });
 }
 
-async function loadEntries() {
+async function loadEntries({ phase }: { phase: LoadPhase }) {
+  const generation = loadGeneration;
+  const requestToken = latestListRequestToken + 1;
+  latestListRequestToken = requestToken;
+
+  if (phase === "initial") {
+    listLoading.value = true;
+    entriesLoaded.value = false;
+    initialLoadError.value = "";
+    tagStatsLoading.value = true;
+    displayPhase.value = "unlocked-loading";
+  }
+
   try {
     const res = (await invokeToolByChannel("tool:vault:list", {})) as VaultListEntry[];
+    if (!isLoadResultCurrent(generation, requestToken, "list")) {
+      return;
+    }
     entries.value = res;
-    await loadTagStats();
-    startInactivityTimers();
+    entriesLoaded.value = true;
+    listLoading.value = false;
+    initialLoadError.value = "";
+    displayPhase.value = "unlocked-ready";
+    if (phase === "initial") {
+      maybeOpenPendingEntrySeed();
+    }
+    void loadTagStats({ phase });
   } catch (err) {
+    if (!isLoadResultCurrent(generation, requestToken, "list")) {
+      return;
+    }
+    const msg = (err as Error).message || "";
+    if (msg.includes("vault_locked") || msg.includes("vault_locked_timeout")) {
+      handleVaultError(err);
+      return;
+    }
+
+    if (phase === "initial") {
+      listLoading.value = false;
+      entriesLoaded.value = true;
+      initialLoadError.value = msg || "列表加载失败，请重试";
+      displayPhase.value = "unlocked-ready";
+      tagStatsLoading.value = false;
+      return;
+    }
+
     handleVaultError(err);
   }
 }
 
-async function loadTagStats() {
+async function loadTagStats({ phase }: { phase: LoadPhase }) {
+  const generation = loadGeneration;
+  const requestToken = latestTagStatsRequestToken + 1;
+  latestTagStatsRequestToken = requestToken;
+  const previousTagStats = tagStats.value;
+  tagStatsLoading.value = true;
+
+  if (phase === "initial") {
+    tagStats.value = [];
+  }
+
   try {
     const res = (await invokeToolByChannel("tool:vault:tag-stats", {})) as TagStat[];
+    if (!isLoadResultCurrent(generation, requestToken, "tag")) {
+      return;
+    }
     tagStats.value = res;
+    tagStatsLoading.value = false;
   } catch (err) {
-    handleVaultError(err);
+    if (!isLoadResultCurrent(generation, requestToken, "tag")) {
+      return;
+    }
+    const msg = (err as Error).message || "";
+    if (msg.includes("vault_locked") || msg.includes("vault_locked_timeout")) {
+      handleVaultError(err);
+      return;
+    }
+
+    if (phase === "refresh") {
+      tagStats.value = previousTagStats;
+    } else {
+      tagStats.value = [];
+    }
+    tagStatsLoading.value = false;
   }
+}
+
+function retryInitialLoad() {
+  void loadEntries({ phase: "initial" });
 }
 
 // Tag context menu
@@ -911,7 +1112,7 @@ async function confirmRenameTag() {
       newTag: renameTagNewName.value.trim(),
     });
     showRenameTagDialog.value = false;
-    await loadEntries();
+    await loadEntries({ phase: "refresh" });
     ElMessage.success("标签已重命名");
   } catch (err) {
     const msg = (err as Error).message || "重命名失败";
@@ -941,7 +1142,7 @@ async function onDeleteTag() {
     if (activeTag.value === tagContextMenu.tag) {
       activeTag.value = "";
     }
-    await loadEntries();
+    await loadEntries({ phase: "refresh" });
     ElMessage.success("标签已删除");
   } catch (err) {
     const msg = (err as Error).message || "删除失败";
@@ -1055,7 +1256,7 @@ async function onDeleteEntry(entry: VaultListEntry) {
   }
   try {
     await invokeToolByChannel("tool:vault:delete", { id: entry.id });
-    await loadEntries();
+    await loadEntries({ phase: "refresh" });
   } catch (err) {
     handleVaultError(err);
   }
@@ -1072,7 +1273,7 @@ async function onDuplicateEntry(entry: VaultListEntry) {
       tags: res.tags,
     };
     await invokeToolByChannel("tool:vault:create", payload);
-    await loadEntries();
+    await loadEntries({ phase: "refresh" });
     ElMessage.success("已创建副本");
   } catch (err) {
     handleVaultError(err);
@@ -1144,7 +1345,7 @@ async function onCopyNameValue(entry: VaultListEntry) {
 }
 
 async function onEntrySaved() {
-  await loadEntries();
+  await loadEntries({ phase: "refresh" });
 }
 
 async function onLock() {
@@ -1176,6 +1377,8 @@ async function onChangePassword() {
       currentPassword: changePw.current,
       newPassword: changePw.newPw,
     });
+    currentLockPolicy = getLockPolicy();
+    startInactivityTimers();
     showChangePassword.value = false;
     changePw.current = "";
     changePw.newPw = "";
@@ -1201,6 +1404,31 @@ function handleVaultError(err: unknown) {
   }
 }
 
+async function reconcileVaultSessionOnFocus() {
+  try {
+    const res = (await invokeToolByChannel("tool:vault:status", {})) as VaultStatus;
+    vaultSetup.value = res.setup;
+    const nextLockState = res.lockState ?? (res.unlocked ? "unlocked" : "locked");
+    if (nextLockState === "locked") {
+      if (lockState.value === "locked") {
+        clearRelockFinalizeTimer();
+        finalizeLockedUiState();
+      } else {
+        setLockState("locked");
+      }
+      return;
+    }
+    if (!unlocked.value) {
+      setUnlockedState();
+      void loadEntries({ phase: "initial" });
+      return;
+    }
+    recordVaultActivity();
+  } catch (err) {
+    handleVaultError(err);
+  }
+}
+
 function startAutoLockCheck() {
   activityTimer = setInterval(async () => {
     if (lockState.value === "locked") return;
@@ -1208,9 +1436,11 @@ function startAutoLockCheck() {
       const res = (await invokeToolByChannel("tool:vault:status", {})) as VaultStatus;
       const nextLockState = res.lockState ?? (res.unlocked ? "unlocked" : "locked");
       if (nextLockState !== lockState.value) {
-        setLockState(nextLockState);
         if (nextLockState === "unlocked") {
-          await loadEntries();
+          setUnlockedState();
+          void loadEntries({ phase: "initial" });
+        } else {
+          setLockState(nextLockState);
         }
       }
     } catch {
@@ -1237,8 +1467,7 @@ onMounted(() => {
   document.addEventListener("keydown", recordVaultActivity, true);
   document.addEventListener("wheel", recordVaultActivity, { passive: true });
   void listen("tauri://focus", () => {
-    if (!unlocked.value) return;
-    recordVaultActivity();
+    void reconcileVaultSessionOnFocus();
   }).then((unlisten) => {
     unlistenFocus = unlisten;
   }).catch(() => {
@@ -1257,6 +1486,7 @@ onBeforeUnmount(() => {
   if (activityTimer) clearInterval(activityTimer);
   if (pwClipboardTimer) clearTimeout(pwClipboardTimer);
   clearInactivityTimers();
+  clearRelockFinalizeTimer();
   document.removeEventListener("click", hideRevealedPasswords);
   document.removeEventListener("click", closeTagContextMenu);
   document.removeEventListener("mousedown", recordVaultActivity, true);
@@ -1269,9 +1499,20 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .vault-panel {
+  position: relative;
   width: 100%;
   height: 100%;
   display: flex;
+}
+
+.vault-shell {
+  width: 100%;
+  height: 100%;
+}
+
+.vault-shell.is-blocked {
+  pointer-events: none;
+  user-select: none;
 }
 
 .vault-main {
@@ -1314,6 +1555,10 @@ onBeforeUnmount(() => {
 
 .vault-nav-section {
   margin-bottom: 4px;
+}
+
+.vault-nav-section--tags {
+  min-height: 132px;
 }
 
 .vault-nav-section-title {
@@ -1416,6 +1661,62 @@ onBeforeUnmount(() => {
 .vault-nav-item.is-active .vault-nav-badge {
   background: var(--lc-accent);
   color: var(--lc-bg);
+}
+
+.vault-nav-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 4px 0 8px;
+}
+
+.vault-nav-skeleton-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+}
+
+.vault-nav-skeleton-icon,
+.vault-nav-skeleton-label,
+.vault-nav-skeleton-badge {
+  background: var(--lc-surface-2);
+  animation: vaultSkeletonPulse 1.4s ease-in-out infinite;
+}
+
+.vault-nav-skeleton-icon {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.vault-nav-skeleton-label {
+  height: 12px;
+  flex: 1;
+  border-radius: 999px;
+}
+
+.vault-nav-skeleton-badge {
+  width: 26px;
+  height: 16px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.vault-nav-placeholder {
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--lc-text-muted);
+}
+
+@keyframes vaultSkeletonPulse {
+  0%, 100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 
 .vault-nav-spacer {
@@ -1578,6 +1879,90 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+.vault-loading-state {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 40px;
+  color: var(--lc-text-secondary);
+}
+
+.vault-loading-spinner {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid var(--lc-border);
+  border-top-color: var(--lc-accent);
+  animation: vaultSpin 700ms linear infinite;
+}
+
+.vault-loading-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--lc-text);
+}
+
+.vault-loading-desc {
+  margin: 0;
+  font-size: 13px;
+  color: var(--lc-text-muted);
+}
+
+.vault-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.vault-overlay--booting,
+.vault-overlay--relocking {
+  background: rgba(248, 250, 252, 0.88);
+  backdrop-filter: blur(8px);
+}
+
+.vault-overlay--lockscreen {
+  background: var(--lc-bg);
+}
+
+.vault-overlay-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  min-width: 280px;
+  padding: 28px 24px;
+  border: 1px solid var(--lc-border);
+  border-radius: var(--lc-radius-lg);
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: var(--lc-shadow-md);
+}
+
+.vault-overlay-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--lc-text);
+}
+
+.vault-overlay-desc {
+  margin: 0;
+  font-size: 13px;
+  color: var(--lc-text-muted);
+}
+
+@keyframes vaultSpin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .vault-list-header {
@@ -2029,11 +2414,19 @@ onBeforeUnmount(() => {
   color: var(--lc-text-secondary);
 }
 
+.vault-empty--error {
+  gap: 8px;
+}
+
 .vault-empty-icon {
   width: 64px;
   height: 64px;
   margin-bottom: 16px;
   color: var(--lc-text-muted);
+}
+
+.vault-empty-icon--error {
+  color: var(--el-color-danger);
 }
 
 .vault-empty-icon svg {

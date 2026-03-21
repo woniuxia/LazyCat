@@ -142,7 +142,7 @@ fn parse_item_kind(payload: &Value) -> String {
     {
         return SERIES_KIND_RECURRING.to_string();
     }
-    normalize_series_kind(payload.get("seriesKind").and_then(Value::as_str))
+    SERIES_KIND_ONE_OFF.to_string()
 }
 
 fn parse_rfc3339(raw: &str) -> Option<String> {
@@ -208,16 +208,6 @@ fn parse_start_datetime(payload: &Value) -> Result<Option<String>, String> {
                 "开始时间",
                 true,
             );
-        }
-    }
-    if let Some(start_at) = payload.get("startAt") {
-        if !start_at.is_null() {
-            return parse_datetime_with_validation(payload, "startAt", "开始时间", true);
-        }
-    }
-    if let Some(event_at) = payload.get("eventAt") {
-        if !event_at.is_null() {
-            return parse_datetime_with_validation(payload, "eventAt", "开始时间", true);
         }
     }
     Ok(None)
@@ -642,17 +632,6 @@ fn normalize_reminder_preset(value: &str) -> Option<String> {
     reminder_offset_minutes_from_preset(&normalized).map(|_| normalized)
 }
 
-fn reminder_preset_from_offset(offset_minutes: Option<i64>) -> String {
-    offset_minutes
-        .and_then(|minutes| {
-            REMINDER_PRESET_OFFSETS
-                .iter()
-                .find_map(|(preset, candidate)| (*candidate == minutes).then_some(*preset))
-        })
-        .unwrap_or(REMINDER_PRESET_NONE)
-        .to_string()
-}
-
 fn sort_reminder_presets(presets: &mut Vec<String>) {
     presets.sort_by_key(|preset| reminder_preset_sort_key(preset));
 }
@@ -722,14 +701,6 @@ fn reminder_configs_from_presets(presets: &[String]) -> Vec<ReminderConfig> {
     configs
 }
 
-fn derive_reminder_presets(event_at: Option<&str>, remind_at: Option<&str>) -> Vec<String> {
-    let preset = reminder_preset_from_offset(derive_reminder_offset_minutes(event_at, remind_at));
-    if preset == REMINDER_PRESET_NONE {
-        return Vec::new();
-    }
-    vec![preset]
-}
-
 fn compute_remind_at(
     event_at: Option<&str>,
     offset_minutes: Option<i64>,
@@ -746,19 +717,6 @@ fn compute_remind_at(
             ))
         }
     }
-}
-
-fn derive_reminder_offset_minutes(event_at: Option<&str>, remind_at: Option<&str>) -> Option<i64> {
-    let event_at = event_at
-        .and_then(parse_rfc3339)
-        .and_then(|value| DateTime::parse_from_rfc3339(&value).ok())?
-        .with_timezone(&Utc);
-    let remind_at = remind_at
-        .and_then(parse_rfc3339)
-        .and_then(|value| DateTime::parse_from_rfc3339(&value).ok())?
-        .with_timezone(&Utc);
-    let offset_minutes = event_at.signed_duration_since(remind_at).num_minutes();
-    reminder_offset_minutes_from_preset(&reminder_preset_from_offset(Some(offset_minutes)))
 }
 
 // ── DB helpers for items ──────────────────────────────────
@@ -875,34 +833,7 @@ fn load_item_reminder_configs(
     for row in rows {
         out.push(row.map_err(|e| e.to_string())?);
     }
-
-    if !out.is_empty() {
-        return Ok(out);
-    }
-
-    // Legacy fallback: derive from row-level remind_at
-    let legacy = conn
-        .query_row(
-            "SELECT event_at, remind_at FROM todo_items WHERE id=?1",
-            params![item_id],
-            |row| {
-                Ok((
-                    row.get::<_, Option<String>>(0)?,
-                    row.get::<_, Option<String>>(1)?,
-                ))
-            },
-        )
-        .optional()
-        .map_err(|e| format!("查询事项旧提醒失败: {e}"))?;
-
-    Ok(legacy
-        .map(|(event_at, remind_at)| {
-            reminder_configs_from_presets(&derive_reminder_presets(
-                event_at.as_deref(),
-                remind_at.as_deref(),
-            ))
-        })
-        .unwrap_or_default())
+    Ok(out)
 }
 
 fn load_item_reminder_summary(
@@ -1431,7 +1362,7 @@ fn item_list(payload: &Value) -> Result<Value, String> {
         .prepare(
             "SELECT i.id, i.title, i.type_id, i.priority, i.description, i.status,
                     i.event_at, i.pinned, i.kind, i.series_id, i.parent_id,
-                    i.created_at, i.updated_at,
+                    i.created_at, i.updated_at, i.completed_at,
                     ty.name AS type_name, ty.color AS type_color,
                     sr.rule_mode, sr.rule_json, sr.cron_expression, sr.timezone,
                     sr.start_at, sr.end_mode, sr.end_value, sr.occurrence_index, sr.active
@@ -1458,18 +1389,19 @@ fn item_list(payload: &Value) -> Result<Value, String> {
                 row.get::<_, Option<i64>>(10)?,    // parent_id
                 row.get::<_, String>(11)?,         // created_at
                 row.get::<_, String>(12)?,         // updated_at
-                row.get::<_, Option<String>>(13)?, // type_name
-                row.get::<_, Option<String>>(14)?, // type_color
+                row.get::<_, Option<String>>(13)?, // completed_at
+                row.get::<_, Option<String>>(14)?, // type_name
+                row.get::<_, Option<String>>(15)?, // type_color
                 // series rules (nullable)
-                row.get::<_, Option<String>>(15)?, // rule_mode
-                row.get::<_, Option<String>>(16)?, // rule_json
-                row.get::<_, Option<String>>(17)?, // cron_expression
-                row.get::<_, Option<String>>(18)?, // timezone
-                row.get::<_, Option<String>>(19)?, // start_at
-                row.get::<_, Option<String>>(20)?, // end_mode
-                row.get::<_, Option<String>>(21)?, // end_value
-                row.get::<_, Option<i64>>(22)?,    // occurrence_index
-                row.get::<_, Option<i64>>(23)?,    // active (0/1/null)
+                row.get::<_, Option<String>>(16)?, // rule_mode
+                row.get::<_, Option<String>>(17)?, // rule_json
+                row.get::<_, Option<String>>(18)?, // cron_expression
+                row.get::<_, Option<String>>(19)?, // timezone
+                row.get::<_, Option<String>>(20)?, // start_at
+                row.get::<_, Option<String>>(21)?, // end_mode
+                row.get::<_, Option<String>>(22)?, // end_value
+                row.get::<_, Option<i64>>(23)?,    // occurrence_index
+                row.get::<_, Option<i64>>(24)?,    // active (0/1/null)
             ))
         })
         .map_err(|e| format!("映射事项失败: {e}"))?;
@@ -1490,6 +1422,7 @@ fn item_list(payload: &Value) -> Result<Value, String> {
             _parent_id,
             created_at,
             updated_at,
+            completed_at,
             type_name,
             type_color,
             rule_mode,
@@ -1526,6 +1459,7 @@ fn item_list(payload: &Value) -> Result<Value, String> {
 
         let created_at_fmt = format_db_datetime(&created_at);
         let updated_at_fmt = format_db_datetime(&updated_at);
+        let completed_at_fmt = completed_at.as_deref().map(format_db_datetime);
         let display_at = event_at.clone().unwrap_or_else(|| created_at_fmt.clone());
 
         // isOverdue
@@ -1576,6 +1510,7 @@ fn item_list(payload: &Value) -> Result<Value, String> {
             "isOverdue": is_overdue,
             "createdAt": created_at_fmt,
             "updatedAt": updated_at_fmt,
+            "completedAt": completed_at_fmt,
         });
 
         // Load support data
@@ -1977,6 +1912,10 @@ fn item_change_status(payload: &Value) -> Result<Value, String> {
     conn.execute(
         "UPDATE todo_items
          SET status=?1,
+             completed_at=CASE
+                 WHEN ?1 = 'completed' THEN COALESCE(completed_at, CURRENT_TIMESTAMP)
+                 ELSE NULL
+             END,
              snooze_until=CASE WHEN ?1 IN ('completed') THEN NULL ELSE snooze_until END,
              updated_at=CURRENT_TIMESTAMP
          WHERE id=?2",
@@ -2459,6 +2398,7 @@ mod tests {
                 remind_at TEXT DEFAULT NULL,
                 snooze_until TEXT DEFAULT NULL,
                 last_notified_at TEXT DEFAULT NULL,
+                completed_at TEXT DEFAULT NULL,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
@@ -2547,8 +2487,8 @@ mod tests {
         series_id: i64,
     ) {
         conn.execute(
-            "INSERT INTO todo_items(id, title, priority, description, status, event_at, kind, series_id)
-             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            "INSERT INTO todo_items(id, title, priority, description, status, event_at, kind, series_id, completed_at)
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULL)",
             params![
                 item_id,
                 format!("实例 {item_id}"),
@@ -2656,16 +2596,6 @@ mod tests {
     }
 
     #[test]
-    fn reminder_preset_should_roundtrip() {
-        let event_at = Some("2026-03-07T09:30:00+00:00");
-        let remind_at = compute_remind_at(event_at, Some(30)).expect("remind");
-        assert_eq!(
-            derive_reminder_presets(event_at, remind_at.as_deref()),
-            vec![REMINDER_PRESET_30M.to_string()]
-        );
-    }
-
-    #[test]
     fn reminder_requires_event_time() {
         assert!(compute_remind_at(None, Some(5)).is_err());
     }
@@ -2691,8 +2621,8 @@ mod tests {
     fn dispatch_due_reminders_should_include_priority_in_payload() {
         let conn = create_test_conn();
         conn.execute(
-            "INSERT INTO todo_items(id, title, priority, description, status, event_at, kind)
-             VALUES(1, ?1, ?2, ?3, ?4, ?5, ?6)",
+            "INSERT INTO todo_items(id, title, priority, description, status, event_at, kind, completed_at)
+             VALUES(1, ?1, ?2, ?3, ?4, ?5, ?6, NULL)",
             params![
                 "提醒事项",
                 "P0",

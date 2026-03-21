@@ -37,6 +37,7 @@ function createItem(overrides: Partial<TodoItem> = {}): TodoItem {
     nextTaskReminderId: null,
     nextReminderPreset: null,
     recurrence: null,
+    completedAt: null,
     createdAt: "2026-03-08T00:00:00.000Z",
     updatedAt: "2026-03-08T00:00:00.000Z",
     ...overrides,
@@ -44,13 +45,23 @@ function createItem(overrides: Partial<TodoItem> = {}): TodoItem {
 }
 
 describe("todoBuckets", () => {
-  it("computes recent week start as last Friday when today is Thursday", () => {
+  it("computes recent week start as the date 6 days before today", () => {
     expect(getRecentWeekStart()).toBe("2026-03-06");
   });
 
   it("keeps actionable items in the active bucket and sorts by time ascending", () => {
-    const laterItem = createItem({ id: 11, status: "pending", eventAt: "2026-03-08T10:00:00.000Z", displayAt: "2026-03-08T10:00:00.000Z" });
-    const earlierItem = createItem({ id: 12, status: "in_progress", eventAt: "2026-03-08T08:00:00.000Z", displayAt: "2026-03-08T08:00:00.000Z" });
+    const laterItem = createItem({
+      id: 11,
+      status: "pending",
+      eventAt: "2026-03-08T10:00:00.000Z",
+      displayAt: "2026-03-08T10:00:00.000Z",
+    });
+    const earlierItem = createItem({
+      id: 12,
+      status: "in_progress",
+      eventAt: "2026-03-08T08:00:00.000Z",
+      displayAt: "2026-03-08T08:00:00.000Z",
+    });
 
     const result = groupTodoItemsByBucket([laterItem, earlierItem]);
 
@@ -93,16 +104,16 @@ describe("todoBuckets", () => {
     expect(result.activeItems.map((item) => item.id)).toEqual([19, 20]);
   });
 
-  it("places completed items into the done bucket", () => {
+  it("places completed items into the done buckets", () => {
     const completedItem = createItem({
       id: 16,
       status: "completed",
-      updatedAt: "2026-03-10T08:00:00.000Z",
+      completedAt: "2026-03-10T08:00:00.000Z",
     });
     const completedItem2 = createItem({
       id: 17,
       status: "completed",
-      updatedAt: "2026-03-01T10:00:00.000Z",
+      completedAt: "2026-03-01T10:00:00.000Z",
     });
 
     const result = groupTodoItemsByBucket([completedItem, completedItem2]);
@@ -110,21 +121,21 @@ describe("todoBuckets", () => {
 
     expect(result.activeItems).toHaveLength(0);
     expect(doneSeries).toHaveLength(2);
-    expect(
-      doneSeries.every((item) => item.status === "completed"),
-    ).toBe(true);
+    expect(doneSeries.every((item) => item.status === "completed")).toBe(true);
   });
 
-  it("routes done items into recent week and done buckets by updatedAt", () => {
+  it("routes done items into recent week and done buckets by completedAt", () => {
     const inRecentWeek = createItem({
       id: 31,
       status: "completed",
-      updatedAt: "2026-03-06T09:00:00.000Z",
+      completedAt: "2026-03-06T09:00:00.000Z",
+      updatedAt: "2026-03-20T09:00:00.000Z",
     });
     const olderThanRecentWeek = createItem({
       id: 32,
       status: "completed",
-      updatedAt: "2026-03-05T23:59:59.000Z",
+      completedAt: "2026-03-05T23:59:59.000Z",
+      updatedAt: "2026-03-20T09:00:00.000Z",
     });
 
     const result = groupTodoItemsByBucket([olderThanRecentWeek, inRecentWeek]);
@@ -133,26 +144,26 @@ describe("todoBuckets", () => {
     expect(result.doneItems.map((item) => item.id)).toEqual([32]);
   });
 
-  it("sorts done items by updatedAt descending within each bucket", () => {
+  it("sorts done items by completedAt descending within each bucket", () => {
     const recentWeekOlderItem = createItem({
       id: 21,
       status: "completed",
-      updatedAt: "2026-03-06T08:00:00.000Z",
+      completedAt: "2026-03-06T08:00:00.000Z",
     });
     const recentWeekNewerItem = createItem({
       id: 22,
       status: "completed",
-      updatedAt: "2026-03-10T10:00:00.000Z",
+      completedAt: "2026-03-10T10:00:00.000Z",
     });
     const doneOlderItem = createItem({
       id: 23,
       status: "completed",
-      updatedAt: "2026-03-01T10:00:00.000Z",
+      completedAt: "2026-03-01T10:00:00.000Z",
     });
     const doneNewerItem = createItem({
       id: 24,
       status: "completed",
-      updatedAt: "2026-03-05T10:00:00.000Z",
+      completedAt: "2026-03-05T10:00:00.000Z",
     });
 
     const result = groupTodoItemsByBucket([
@@ -166,19 +177,32 @@ describe("todoBuckets", () => {
     expect(result.doneItems.map((item) => item.id)).toEqual([24, 23]);
   });
 
-  it("keeps recurring pending items in the active bucket", () => {
-    const recurringPendingItem = createItem({
-      id: 18,
-      kind: "recurring",
-      status: "pending",
-      eventAt: "2026-03-08T11:00:00.000Z",
-      displayAt: "2026-03-08T11:00:00.000Z",
+  it("keeps completed item ordering and bucketing based on completedAt even if updatedAt changes later", () => {
+    const editedCompletedItem = createItem({
+      id: 41,
+      status: "completed",
+      completedAt: "2026-03-05T10:00:00.000Z",
+      updatedAt: "2026-03-12T10:00:00.000Z",
     });
 
-    const result = groupTodoItemsByBucket([recurringPendingItem]);
+    const result = groupTodoItemsByBucket([editedCompletedItem]);
 
-    expect(result.activeItems.map((item) => item.id)).toEqual([18]);
-    expect(result.doneItems).toHaveLength(0);
+    expect(result.recentWeekItems).toHaveLength(0);
+    expect(result.doneItems.map((item) => item.id)).toEqual([41]);
+  });
+
+  it("puts completed items without completedAt into the older done bucket", () => {
+    const legacyCompletedItem = createItem({
+      id: 42,
+      status: "completed",
+      completedAt: null,
+      updatedAt: "2026-03-12T10:00:00.000Z",
+    });
+
+    const result = groupTodoItemsByBucket([legacyCompletedItem]);
+
+    expect(result.recentWeekItems).toHaveLength(0);
+    expect(result.doneItems.map((item) => item.id)).toEqual([42]);
   });
 
   it("sorts recurring pending items by eventAt", () => {
