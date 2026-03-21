@@ -485,6 +485,7 @@ onMounted(async () => {
   try {
     await listen("main-window-toggle", async () => {
       await tryOpenClipboardPathFromToggle();
+      focusSearch();
     });
   } catch { /* ignore in non-Tauri env */ }
   try {

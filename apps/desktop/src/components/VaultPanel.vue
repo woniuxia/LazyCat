@@ -531,7 +531,7 @@ let pwClipboardTimer: ReturnType<typeof setTimeout> | null = null;
 const copyFeedbackRow = ref<number | null>(null);
 const copyFeedbackAccount = ref<number | null>(null);
 const unlocked = computed(() => lockState.value === "unlocked");
-const shellVisible = computed(() => displayPhase.value !== "booting" && initialized.value);
+const shellVisible = computed(() => displayPhase.value !== "booting" && displayPhase.value !== "locked" && initialized.value);
 const shellInteractive = computed(() => displayPhase.value === "unlocked-loading" || displayPhase.value === "unlocked-ready");
 const pendingEntrySeed = ref<VaultEntrySeed | null>(null);
 const { watchPendingToolInput } = useClipboardSuggestion();

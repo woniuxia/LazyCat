@@ -901,6 +901,9 @@ fn main() {
     {
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             reveal_main_window(app);
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.emit("main-window-toggle", json!({}));
+            }
         }));
     }
 
@@ -1022,6 +1025,9 @@ fn main() {
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => {
                         reveal_main_window(app);
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.emit("main-window-toggle", json!({}));
+                        }
                     }
                     "quit" => {
                         app.exit(0);
