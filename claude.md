@@ -117,6 +117,7 @@ scripts/                         构建脚本（build-tauri-win.ps1、release-al
   1. `element-overrides.css` — 暗色主题 / 基础覆盖
   2. `theme-light.css` — 浅色主题覆盖（带 `html[data-theme="light"]` 前缀，特异度更高）
 - 典型案例：为 `.el-button--primary` 添加 `.is-text` 变体时，仅在 `element-overrides.css` 添加会被 `theme-light.css` 的高特异度规则覆盖，导致浅色主题下样式不生效。
+- **ElMessageBox 宽度控制**：`ElMessageBox` 的 `.el-message-box` 使用 `max-width: var(--el-messagebox-width)`（默认 420px）约束宽度，直接设置 `width` 会被 `max-width` 截断。正确做法是通过 `customClass` 覆盖 CSS 变量：`--el-messagebox-width: 580px`。
 
 ## 编码与中文规范
 

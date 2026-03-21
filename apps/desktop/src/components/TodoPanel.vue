@@ -2869,6 +2869,11 @@ function applyItemToDraft(item: TodoItem) {
     itemDraft.timezone = recurrence.timezone || "local";
     if (itemDraft.ruleMode === "simple") {
       syncSimpleDraftFromRule(recurrence.rule as TodoRule);
+    } else if (itemDraft.ruleMode === "cron") {
+      itemDraft.cronExpression =
+        recurrence.cronExpression ||
+        (recurrence.rule as { expression?: string }).expression ||
+        itemDraft.cronExpression;
     }
   }
 }
@@ -3133,54 +3138,134 @@ async function deleteItem(item: TodoItem) {
 }
 
 async function showDeleteScopeDialog(itemTitle: string): Promise<string | null> {
+  const baseStyle =
+    "display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px; border: 1.5px solid var(--lc-border); border-radius: 10px; background: var(--lc-surface-1); cursor: pointer; text-align: left; transition: border-color 0.2s, background 0.2s, box-shadow 0.2s, transform 0.15s; width: 100%; outline: none;";
+  const iconBoxBase =
+    "flex-shrink: 0; width: 34px; height: 34px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 16px; transition: background 0.2s;";
+  const labelStyle =
+    "font-size: 14px; font-weight: 600; line-height: 1.4; transition: color 0.2s;";
+  const descStyle = "font-size: 12px; color: var(--lc-text-muted); line-height: 1.4; margin-top: 2px;";
+
+  // SVG trash icon (single instance / mild)
+  const svgTrashOne =
+    '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>';
+  // SVG trash-x icon (all instances / destructive)
+  const svgTrashAll =
+    '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/><line x1="10" y1="11" x2="14" y2="16"/><line x1="14" y1="11" x2="10" y2="16"/></svg>';
+
+  interface OptionCfg {
+    label: string;
+    desc: string;
+    scope: string;
+    iconSvg: string;
+    accentColor: string;
+    accentBg: string;
+  }
+
+  const makeOption = (cfg: OptionCfg, resolveFn: (v: string) => void) =>
+    h(
+      "button",
+      {
+        style: baseStyle,
+        onMouseenter: (e: MouseEvent) => {
+          const el = e.currentTarget as HTMLElement;
+          el.style.borderColor = cfg.accentColor;
+          el.style.background = "var(--lc-surface-2)";
+          el.style.boxShadow = `0 2px 8px ${cfg.accentColor}18`;
+          el.style.transform = "translateY(-1px)";
+        },
+        onMouseleave: (e: MouseEvent) => {
+          const el = e.currentTarget as HTMLElement;
+          el.style.borderColor = "var(--lc-border)";
+          el.style.background = "var(--lc-surface-1)";
+          el.style.boxShadow = "none";
+          el.style.transform = "none";
+        },
+        onFocus: (e: FocusEvent) => {
+          const el = e.currentTarget as HTMLElement;
+          el.style.borderColor = cfg.accentColor;
+          el.style.boxShadow = `0 0 0 2px ${cfg.accentColor}30`;
+        },
+        onBlur: (e: FocusEvent) => {
+          const el = e.currentTarget as HTMLElement;
+          el.style.borderColor = "var(--lc-border)";
+          el.style.boxShadow = "none";
+        },
+        onClick: () => {
+          ElMessageBox.close();
+          resolveFn(cfg.scope);
+        },
+      },
+      [
+        h("span", {
+          style: `${iconBoxBase} background: ${cfg.accentBg}; color: ${cfg.accentColor};`,
+          innerHTML: cfg.iconSvg,
+        }),
+        h("div", { style: "flex: 1; min-width: 0;" }, [
+          h("div", { style: `${labelStyle} color: var(--lc-text);` }, cfg.label),
+          h("div", { style: descStyle }, cfg.desc),
+        ]),
+      ],
+    );
+
   return new Promise((resolve) => {
     ElMessageBox({
       title: "删除重复事项",
-      message: h("div", { style: "padding: 10px 0;" }, [
+      message: h("div", { style: "padding: 8px 0 4px;" }, [
         h(
           "p",
-          { style: "margin-bottom: 15px;" },
-          `"${itemTitle}" 是一个重复事项，请选择删除范围：`,
+          {
+            style:
+              "margin-bottom: 16px; font-size: 13px; color: var(--lc-text-muted); line-height: 1.5;",
+          },
+          [
+            h("span", null, "「"),
+            h(
+              "span",
+              { style: "font-weight: 600; color: var(--lc-text);" },
+              itemTitle,
+            ),
+            h("span", null, "」是重复事项，请选择删除范围："),
+          ],
         ),
-        h("div", { class: "delete-scope-options" }, [
-          h(
-            "button",
-            {
-              class: "scope-option this-instance",
-              onClick: () => {
-                ElMessageBox.close();
-                resolve("this_instance");
+        h(
+          "div",
+          { style: "display: flex; flex-direction: row; gap: 10px;" },
+          [
+            makeOption(
+              {
+                label: "仅删除本次",
+                desc: "后续重复事项将继续按规则生成",
+                scope: "this_instance",
+                iconSvg: svgTrashOne,
+                accentColor: "var(--lc-accent)",
+                accentBg: "var(--lc-accent-bg, rgba(64,150,255,0.08))",
               },
-            },
-            [
-              h("div", { class: "option-title" }, "仅删除本事项"),
-              h("div", { class: "option-desc" }, "后续重复事项将继续生成"),
-            ],
-          ),
-          h(
-            "button",
-            {
-              class: "scope-option future-instances",
-              onClick: () => {
-                ElMessageBox.close();
-                resolve("future_instances");
+              resolve,
+            ),
+            makeOption(
+              {
+                label: "删除本次及后续所有",
+                desc: "停止后续自动生成，已完成的实例不受影响",
+                scope: "future_instances",
+                iconSvg: svgTrashAll,
+                accentColor: "var(--lc-danger, #e25050)",
+                accentBg: "rgba(226,80,80,0.08)",
               },
-            },
-            [
-              h("div", { class: "option-title" }, "删除后续所有事项"),
-              h("div", { class: "option-desc" }, "停止后续重复生成"),
-            ],
-          ),
-        ]),
+              resolve,
+            ),
+          ],
+        ),
       ]),
       showCancelButton: true,
       showConfirmButton: false,
       cancelButtonText: "取消",
-      closeOnClickModal: false,
-      closeOnPressEscape: false,
-      beforeClose: () => {
+      customClass: "todo-delete-scope-dialog",
+      closeOnClickModal: true,
+      closeOnPressEscape: true,
+      beforeClose: (_action: string, _instance: unknown, done: () => void) => {
         resolve(null);
-        return true;
+        done();
       },
     });
   });
@@ -4906,40 +4991,6 @@ onBeforeUnmount(() => {
   color: var(--lc-accent);
 }
 
-/* --- Delete scope dialog --- */
-.delete-scope-options {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.scope-option {
-  padding: 16px;
-  border: 1px solid var(--lc-border);
-  border-radius: 8px;
-  background: var(--lc-surface-1);
-  cursor: pointer;
-  text-align: left;
-  transition: all 0.2s;
-  width: 100%;
-}
-
-.scope-option:hover {
-  border-color: var(--lc-accent);
-  background: var(--lc-surface-2);
-}
-
-.scope-option .option-title {
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--lc-text);
-  margin-bottom: 4px;
-}
-
-.scope-option .option-desc {
-  font-size: 12px;
-  color: var(--lc-text-muted);
-}
 
 /* --- Custom scrollbar --- */
 .todo-list-scroll::-webkit-scrollbar,
@@ -5029,5 +5080,11 @@ onBeforeUnmount(() => {
   --el-radio-button-checked-bg-color: var(--el-color-primary-light-9);
   --el-radio-button-checked-text-color: var(--el-color-primary);
   --el-radio-button-checked-border-color: var(--el-color-primary-light-5);
+}
+</style>
+
+<style>
+.todo-delete-scope-dialog {
+  --el-messagebox-width: 580px;
 }
 </style>

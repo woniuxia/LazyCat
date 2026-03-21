@@ -917,6 +917,7 @@ pub fn force_lock() {
 mod tests {
     use super::*;
     use serde_json::json;
+    use std::time::Duration;
 
     #[test]
     fn test_derive_key_consistency() {

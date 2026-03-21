@@ -545,9 +545,7 @@ fn compute_next_occurrence(
                 .map(|dt| dt.with_timezone(&Utc)))
         }
         Err(_) => {
-            let local_after = after_utc.with_timezone(&Local);
-            let next = schedule.after(&local_after).next();
-            Ok(next.map(|dt| dt.with_timezone(&Utc)))
+            Err(format!("不支持的时区: {timezone}"))
         }
     }
 }
@@ -1440,11 +1438,11 @@ fn item_list(payload: &Value) -> Result<Value, String> {
         let status = normalize_status_a1(&status_raw).to_string();
         let rule_active_bool = rule_active.map(|v| v == 1).unwrap_or(true);
 
-        // includeInactive 过滤
+        // includeInactive 过滤：非活跃系列的已完成项隐藏，open 项始终显示
         if !include_inactive
             && kind == SERIES_KIND_RECURRING
             && !rule_active_bool
-            && is_open_status(&status_raw)
+            && status_raw == STATUS_COMPLETED
         {
             continue;
         }
@@ -1994,6 +1992,7 @@ fn item_delete(payload: &Value) -> Result<Value, String> {
                 .filter_map(|r| r.ok())
                 .collect();
             let cached_links: Vec<Value> = load_item_links(&conn, id)?;
+            let cached_event_at = load_item_event_at(&conn, id).ok().flatten();
 
             let has_other_open = has_other_open_in_series(&conn, sid, id)?;
 
@@ -2006,10 +2005,9 @@ fn item_delete(payload: &Value) -> Result<Value, String> {
                     if rule.active {
                         // 计算 base_time
                         let now = Utc::now();
-                        let event_at_dt = load_item_event_at(&conn, id)
-                            .ok()
-                            .flatten()
-                            .and_then(|s| parse_utc_datetime(&s));
+                        let event_at_dt = cached_event_at
+                            .as_deref()
+                            .and_then(parse_utc_datetime);
                         let base_time = event_at_dt
                             .map(|dt| if dt > now { dt } else { now })
                             .unwrap_or(now);
@@ -2046,7 +2044,7 @@ fn item_delete(payload: &Value) -> Result<Value, String> {
                                     conn.execute(
                                         "INSERT INTO todo_items(title, type_id, priority, description, kind, series_id, parent_id, status, event_at, pinned)
                                          VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 0)",
-                                        params![title, type_id, priority, description, SERIES_KIND_RECURRING, sid, id, STATUS_PENDING, next_event_at],
+                                        params![title, type_id, priority, description, SERIES_KIND_RECURRING, sid, tmpl_id, STATUS_PENDING, next_event_at],
                                     )
                                     .map_err(|e| format!("补生成事项失败: {e}"))?;
                                     let new_id = conn.last_insert_rowid();
