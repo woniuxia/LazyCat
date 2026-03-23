@@ -1,18 +1,11 @@
 # Lazycat / 懒猫
 
+![Version](https://img.shields.io/badge/version-0.2.6-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%2B-0078D4.svg)
 ![Stack](https://img.shields.io/badge/stack-Tauri%202%20%2B%20Vue%203-42b883.svg)
 
-> 面向开发者的离线效率工作台：把常用在线小工具收拢到一个本地应用里，开箱即用、数据不出机。
-
-一个面向开发者日常场景的纯离线桌面工具箱，聚焦「高频、小而杂、需要本地可信执行」的任务。
-
-**你可以用它做什么？**
-
-- 在一个窗口里完成编码、转换、加密、网络排障、文件处理、时间计算
-- 管理常用应用启动项、代码片段、Hosts 配置、离线手册
-- 在无网或受限网络环境下，仍然稳定使用完整工具链
+> 面向开发者的离线效率工作台 -- 53 个常用工具 + 3 套离线手册，开箱即用、数据不出机。
 
 ## 为什么是 Lazycat
 
@@ -22,21 +15,26 @@
 - **轻量桌面架构**：Tauri 2 + Rust 后端，启动快、占用低
 - **可定制工作台**：支持收藏、搜索、快捷启动、菜单显隐、快捷键等个性化配置
 
-## Why Open Source
+项目完全开源，核心能力与数据流透明可审计，欢迎按自己的工作流扩展工具、面板或离线手册。
 
-- **可审计**：核心能力与数据流透明，离线工具更值得信任
-- **可扩展**：欢迎按自己的工作流新增工具、面板或离线手册
-- **共建共享**：把团队内部常用能力沉淀成可复用的开源资产
+## 下载与安装
+
+前往 [GitHub Releases](https://github.com/woniuxia/LazyCat/releases/latest) 下载最新版本。
+
+| 产物 | 文件名格式 | 说明 |
+|------|-----------|------|
+| 轻量安装包 | `Lazycat_x.y.z_x64_setup-lite.exe` | 需联网安装 WebView2 |
+| 离线安装包 | `Lazycat_x.y.z_x64_setup-full.exe` | 内含 WebView2，离线可用 |
+| 轻量便携版 | `Lazycat_x.y.z_x64_portable-lite.zip` | 解压即用，需系统已有 WebView2 |
+| 离线便携版 | `Lazycat_x.y.z_x64_portable-full.zip` | 解压即用，离线可用 |
+
+系统要求：Windows 10+
 
 ## 界面预览
-
-### 首图
 
 首页工作台：按分组浏览高频工具，支持搜索、收藏与快速进入。
 
 ![首页总览](img/home.png)
-
-### 四宫格
 
 | 快捷启动 | 代码片段 |
 |------|------|
@@ -48,109 +46,157 @@
 | ![密码库](img/valut.png) | ![Hosts 管理](img/hosts.png) |
 | 按环境/分类管理敏感信息，本地存储 | 多配置切换 + 备份历史，适合联调场景 |
 
-## 核心能力
+## 工具一览
 
-| 模块 | 你将获得 |
-|------|----------|
-| 常用工具 | 代码格式化、计算草稿、正则、文本对比、Markdown，一站完成 |
-| 编解码 | Base64、URL、MD5、SHA/HMAC、二维码等高频能力随开随用 |
-| 加密与安全 | RSA、AES/DES、JWT、UUID/GUID、密码生成等本地安全处理 |
-| 数据转换 | JSON/XML/YAML、CSV/JSON、进制/颜色/文本转换，减少手工操作 |
-| 网络与系统 | IP/端口连通、DNS、Hosts、端口占用、环境检测、快捷键检测 |
-| 文件与媒体 | 文件切割合并、图片转换/压缩/裁剪，常见处理无需额外安装软件 |
-| 时间工具 | 时间戳转换、Cron 预览、日期计算，覆盖开发排期与调试场景 |
-| 离线手册 | Vue 3、Element Plus、MDN JavaScript，本地可查可跳转 |
+### 常用工具（5）
+
+| 工具 | 说明 |
+|------|------|
+| 代码格式化 | JSON/XML/HTML/Java/SQL 自动格式化 |
+| 计算草稿 | 草稿式计算，保留历史记录 |
+| 正则工具 | 表达式生成与测试 |
+| 文本对比 | 双栏文本差异对比 |
+| Markdown | Markdown 编辑与实时预览 |
+
+### 效率工具（4）
+
+| 工具 | 说明 |
+|------|------|
+| 代码片段 | 代码片段收藏与管理 |
+| 快捷启动 | 常用程序快速启动与管理 |
+| 任务清单 | 任务与周期事件管理 |
+| 收纳箱 | 后台剪贴板收件箱与历史整理 |
+
+### 编解码（5）
+
+| 工具 | 说明 |
+|------|------|
+| Base64 | Base64 编码与解码 |
+| URL 编解码 | URL Encode / Decode |
+| MD5 | 计算 MD5 摘要 |
+| SHA/HMAC | SHA-1/256/512 与 HMAC-SHA256 |
+| 二维码生成 | 根据文本生成二维码 |
+
+### 加密与安全（7）
+
+| 工具 | 说明 |
+|------|------|
+| RSA 加解密 | RSA 公私钥加解密 |
+| AES/DES | AES / DES / 3DES 加解密 |
+| JWT 解析 | 离线解析 JWT Token |
+| UUID/GUID | UUID 与 GUID 生成 |
+| 密码工具 | 随机密码生成与强度分析 |
+| Bcrypt | Bcrypt 哈希生成与验证 |
+| 密码管理 | 应用/服务器/数据库密码加密存储 |
+
+### 数据转换（13）
+
+| 工具 | 说明 |
+|------|------|
+| JSON 处理 | JSON 格式化/压缩/XML/YAML 互转 |
+| JSON Schema | JSON Schema 校验与样例生成 |
+| CSV/JSON | CSV 转 JSON |
+| JavaBean 转 JS | Java Bean 转 JSON 与 JS Object |
+| MyBatis 助手 | 动态 SQL 渲染与占位符展开 |
+| Maven 定位 | 本地 Maven 仓库 Jar 包定位与版本查询 |
+| 进制转换 | 二/八/十/十六进制转换 |
+| 颜色转换 | 颜色格式互转与对比度检查 |
+| 转义/反转义 | JSON/HTML/SQL/JS 字符串转义与反转义 |
+| 文本处理 | 文本清洗、过滤提取与结果统计 |
+| 命名转换 | camelCase/snake_case/PascalCase 互转 |
+| 配置互转 | Properties/YAML/TOML/.env 格式互转 |
+| SQL 转实体类 | CREATE TABLE 转 Java/TS/Go/Python 实体 |
+
+### 网络与系统（10）
+
+| 工具 | 说明 |
+|------|------|
+| IP/端口连通 | TCP 与 HTTP 连通性测试 |
+| DNS 查询 | 域名解析与记录查询 |
+| 抓包工具 | 数据包捕获与协议分析 |
+| Hosts 管理 | 多配置保存与切换 |
+| 端口占用 | 端口占用与进程分析 |
+| 环境检测 | 检测 Node 与 Java 版本 |
+| Nginx 助手 | 静态站点 + API 反代配置生成与校验 |
+| 快捷键检测 | 全局快捷键冲突检测 |
+| HTTP 状态码 | HTTP 状态码速查与说明 |
+| chmod 计算器 | Linux 文件权限数字/符号互转 |
+
+### 文件与媒体（3）
+
+| 工具 | 说明 |
+|------|------|
+| 切分与合并 | 大文件切片与合并 |
+| PDF 工具 | PDF 合并、拆分与信息查看 |
+| 图片转换 | 格式转换、缩放、裁剪、压缩 |
+
+### 时间工具（3）
+
+| 工具 | 说明 |
+|------|------|
+| 时间戳转换 | 时间戳与日期互转 |
+| Cron 工具 | Cron 表达式生成与预览 |
+| 日期计算器 | 日期间隔与日期加减计算 |
+
+### 离线手册（3）
+
+| 手册 | 说明 |
+|------|------|
+| Vue 3 手册 | Vue 3 中文开发手册 |
+| Element Plus | Element Plus 组件文档 |
+| JavaScript | MDN JavaScript 中文参考手册 |
 
 ## 技术栈
 
-- Tauri 2（Rust backend + WebView frontend）
-- Vue 3 + Vite + Element Plus
-- TypeScript
-- pnpm workspace（monorepo）
-- SQLite（Rust `rusqlite`）
+| 层级 | 技术 |
+|------|------|
+| 框架 | Tauri 2（Rust backend + WebView frontend） |
+| 前端 | Vue 3 + Vite + Element Plus + TypeScript |
+| 后端 | Rust + rusqlite（SQLite） |
+| 工程 | pnpm workspace（monorepo） |
 
-## 平台支持
+## 目录结构
 
-当前仅支持 **Windows 10+**。
+```text
+apps/desktop/              Tauri 桌面端
+  src/                     Vue 渲染层（49 个面板组件）
+  src-tauri/               Rust 后端（31 个工具域模块）
+packages/formatters/       Prettier standalone 格式化
+resources/manuals/         离线手册（Vue 3、Element Plus、MDN JS）
+resources/regex-library/   内置正则模板
+resources/hotkey-library/  快捷键库资源
+scripts/                   构建与发布脚本
+```
 
-## 快速开始（开发）
+## 开发
 
-环境要求：
-
-- Node.js >= 18
-- pnpm >= 9
-- Rust 工具链（`cargo`、`rustc`）
-- MSVC + Windows SDK（含 `kernel32.lib`）
-- Perl（建议 Strawberry Perl，用于 OpenSSL vendored 构建）
+环境要求：Node.js >= 18、pnpm >= 9、Rust 工具链（`cargo`、`rustc`）、MSVC + Windows SDK、Perl（建议 Strawberry Perl，用于 OpenSSL vendored 构建）。
 
 ```bash
 pnpm install
 pnpm dev
 ```
 
-`pnpm dev` 会启动 `@lazycat/desktop` 的 `tauri dev`。
-
-## 常用命令
-
 | 命令 | 说明 |
 |------|------|
-| `pnpm install` | 安装全部依赖 |
 | `pnpm dev` | 启动开发模式（Tauri dev） |
 | `pnpm typecheck` | 全工作区 TypeScript 类型检查 |
 | `pnpm build` | 构建全部 packages + 桌面端 |
 | `pnpm test` | 运行全部单元测试 |
 | `pnpm test:e2e` | 运行端到端测试 |
-| `pnpm lint` | ESLint 代码检查 |
-| `pnpm lint:fix` | ESLint 自动修复 |
-| `pnpm format` | Prettier 格式化 |
-| `pnpm format:check` | Prettier 格式检查 |
 | `pnpm build:win` | 构建 Windows NSIS 安装包 |
 | `pnpm build:portable` | 构建 Windows 便携版 |
-| `pnpm build:win:precheck` | 带环境预检的 Windows 构建（推荐） |
-
-## 目录结构
-
-```text
-apps/desktop/              Tauri 桌面端（Vue 前端 + Rust 命令）
-  src/                     Vue 渲染层源码
-  src-tauri/               Rust 后端源码
-packages/core/             编解码、转换、文本、时间、正则、Cron、生成器
-packages/crypto/           RSA/AES/DES 工具封装
-packages/formatters/       JSON/XML/HTML/Java/SQL 格式化（Prettier standalone）
-packages/network/          连通性、端口、环境检测
-packages/file-tools/       文件切割与合并
-packages/image-tools/      图片转换、缩放、裁剪、压缩
-packages/db/               SQLite 初始化与存储
-packages/ipc-contracts/    请求/响应契约定义
-resources/manuals/         离线手册资源（Vue 3、Element Plus、MDN JavaScript）
-resources/regex-library/   内置正则模板
-scripts/                   构建脚本（build-tauri-win.ps1）
-```
-
-## 构建与打包
-
-```bash
-# NSIS 安装包
-pnpm build:win
-
-# 便携版
-pnpm build:portable
-
-# 带环境预检（推荐，自动检查 Rust / VS / Windows SDK）
-pnpm build:win:precheck
-```
 
 ## 参与贡献
 
-欢迎通过 Issue / PR 参与改进：
+欢迎通过 Issue / PR 参与改进，详见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
-1. Fork 仓库并创建分支
-2. 完成功能或修复并补充必要测试
-3. 提交 PR，说明改动动机与验证方式
-
-也欢迎提交工具建议、离线手册补充、体验优化建议。
 如果这个项目对你有帮助，欢迎点一个 Star。
+
+## 更新日志
+
+详见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## License
 
-MIT
+[MIT](LICENSE)

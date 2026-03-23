@@ -93,6 +93,12 @@ fn ensure_process_schema(conn: &Connection) -> Result<(), String> {
 }
 
 fn ensure_schema(conn: &Connection) -> Result<(), String> {
+    // 前置修补：为 schema 26 旧数据库补齐 completed_at 列。
+    // ALTER TABLE ADD COLUMN 无 IF NOT EXISTS 语法，表不存在或列已存在均会报错，直接忽略。
+    let _ = conn.execute_batch(
+        "ALTER TABLE todo_items ADD COLUMN completed_at TEXT DEFAULT NULL;",
+    );
+
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS hosts_profiles (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

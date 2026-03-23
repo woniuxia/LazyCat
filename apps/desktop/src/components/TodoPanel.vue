@@ -856,7 +856,7 @@
               <div class="detail-title-group">
                 <div class="detail-eyebrow">事项详情</div>
                 <div class="detail-title-row">
-                  <h3 class="detail-title">{{ selectedItem.title }}</h3>
+                  <h3 class="detail-title detail-title--copyable" title="点击复制标题" @click="copyTitle(selectedItem.title)">{{ selectedItem.title }}</h3>
                   <div class="detail-badges">
                     <span class="detail-badge pinned" v-if="selectedItem.pinned">
                       <el-icon :size="12"><Top /></el-icon> 置顶
@@ -2937,6 +2937,11 @@ async function resolveAssigneeIds(values: SelectAssigneeValue[]) {
   return [...ids];
 }
 
+async function copyTitle(title: string) {
+  await navigator.clipboard.writeText(title);
+  ElMessage.success("标题已复制");
+}
+
 async function enterEditMode(item?: TodoItem | null) {
   const target = item || selectedItem.value;
   if (!target) return;
@@ -4256,6 +4261,17 @@ onBeforeUnmount(() => {
   word-break: break-word;
   flex: 1;
   min-width: 0;
+}
+.detail-title--copyable {
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background-color 0.15s;
+}
+.detail-title--copyable:hover {
+  background-color: var(--el-fill-color-light, rgba(0, 0, 0, 0.04));
+}
+.detail-title--copyable:active {
+  background-color: var(--el-fill-color, rgba(0, 0, 0, 0.08));
 }
 .detail-badges {
   display: flex;

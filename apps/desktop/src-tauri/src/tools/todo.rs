@@ -1965,7 +1965,7 @@ fn item_delete(payload: &Value) -> Result<Value, String> {
     let (kind, series_id, status) = item;
 
     if scope == SCOPE_FUTURE_INSTANCES && kind == SERIES_KIND_RECURRING {
-        // 暂停规则，不删除任何项
+        // 暂停规则 + 删除当前项
         if let Some(sid) = series_id {
             conn.execute(
                 "UPDATE todo_series_rules SET active=0, updated_at=CURRENT_TIMESTAMP WHERE series_id=?1",
@@ -1973,6 +1973,7 @@ fn item_delete(payload: &Value) -> Result<Value, String> {
             )
             .map_err(|e| format!("暂停系列规则失败: {e}"))?;
         }
+        delete_item_by_id(&conn, id)?;
         return Ok(json!({ "ok": true }));
     }
 
