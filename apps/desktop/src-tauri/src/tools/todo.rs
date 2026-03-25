@@ -1187,6 +1187,12 @@ fn generate_next_item(
     .map_err(|e| format!("生成下一个事项失败: {e}"))?;
     let new_item_id = conn.last_insert_rowid();
 
+    // Inherit project_id from source item
+    let _ = conn.execute(
+        "UPDATE todo_items SET project_id = (SELECT project_id FROM todo_items WHERE id = ?1) WHERE id = ?2",
+        params![source_item_id, new_item_id],
+    );
+
     // 复制支撑表数据
     conn.execute(
         "INSERT OR IGNORE INTO todo_item_assignees(item_id, assignee_id)
@@ -1355,20 +1361,43 @@ fn item_list(payload: &Value) -> Result<Value, String> {
         .get("includeInactive")
         .and_then(Value::as_bool)
         .unwrap_or(false);
+    let project_filter = parse_i64(payload, "projectId");
+    let project_filter_mode = parse_string(payload, "projectFilter");
+    // projectFilter: "all" | "none" | specific projectId
+
+    // Detect whether project_id column exists
+    let has_project_col = conn
+        .prepare("SELECT project_id FROM todo_items LIMIT 0")
+        .is_ok();
+
+    let select_extra = if has_project_col {
+        ", i.project_id, pm.name AS project_name, pm.color AS project_color"
+    } else {
+        ""
+    };
+    let join_extra = if has_project_col {
+        " LEFT JOIN pm_projects pm ON pm.id = i.project_id"
+    } else {
+        ""
+    };
+
+    let sql = format!(
+        "SELECT i.id, i.title, i.type_id, i.priority, i.description, i.status,
+                i.event_at, i.pinned, i.kind, i.series_id, i.parent_id,
+                i.created_at, i.updated_at, i.completed_at,
+                ty.name AS type_name, ty.color AS type_color,
+                sr.rule_mode, sr.rule_json, sr.cron_expression, sr.timezone,
+                sr.start_at, sr.end_mode, sr.end_value, sr.occurrence_index, sr.active
+                {select_extra}
+         FROM todo_items i
+         LEFT JOIN todo_types ty ON ty.id = i.type_id
+         LEFT JOIN todo_series_rules sr ON sr.series_id = i.series_id
+         {join_extra}
+         ORDER BY i.id DESC"
+    );
 
     let mut stmt = conn
-        .prepare(
-            "SELECT i.id, i.title, i.type_id, i.priority, i.description, i.status,
-                    i.event_at, i.pinned, i.kind, i.series_id, i.parent_id,
-                    i.created_at, i.updated_at, i.completed_at,
-                    ty.name AS type_name, ty.color AS type_color,
-                    sr.rule_mode, sr.rule_json, sr.cron_expression, sr.timezone,
-                    sr.start_at, sr.end_mode, sr.end_value, sr.occurrence_index, sr.active
-             FROM todo_items i
-             LEFT JOIN todo_types ty ON ty.id = i.type_id
-             LEFT JOIN todo_series_rules sr ON sr.series_id = i.series_id
-             ORDER BY i.id DESC",
-        )
+        .prepare(&sql)
         .map_err(|e| format!("查询事项失败: {e}"))?;
 
     let rows = stmt
@@ -1544,6 +1573,61 @@ fn item_list(payload: &Value) -> Result<Value, String> {
         items.push(item);
     }
 
+    // Attach project info if the column exists
+    if has_project_col {
+        // Build a cache of project info
+        let mut proj_cache: std::collections::HashMap<i64, (String, String)> = std::collections::HashMap::new();
+        for item in items.iter_mut() {
+            let item_id = item["id"].as_i64().unwrap_or(0);
+            let project_id: Option<i64> = conn
+                .query_row(
+                    "SELECT project_id FROM todo_items WHERE id = ?1",
+                    params![item_id],
+                    |r| r.get(0),
+                )
+                .unwrap_or(None);
+
+            if let Some(obj) = item.as_object_mut() {
+                obj.insert("projectId".to_string(), json!(project_id));
+                if let Some(pid) = project_id {
+                    let (pname, pcolor) = if let Some(cached) = proj_cache.get(&pid) {
+                        cached.clone()
+                    } else {
+                        let info: (String, String) = conn
+                            .query_row(
+                                "SELECT name, color FROM pm_projects WHERE id = ?1",
+                                params![pid],
+                                |r| Ok((r.get(0)?, r.get(1)?)),
+                            )
+                            .unwrap_or_else(|_| ("".to_string(), "".to_string()));
+                        proj_cache.insert(pid, info.clone());
+                        info
+                    };
+                    obj.insert("projectName".to_string(), json!(pname));
+                    obj.insert("projectColor".to_string(), json!(pcolor));
+                } else {
+                    obj.insert("projectName".to_string(), Value::Null);
+                    obj.insert("projectColor".to_string(), Value::Null);
+                }
+            }
+        }
+    } else {
+        for item in items.iter_mut() {
+            if let Some(obj) = item.as_object_mut() {
+                obj.insert("projectId".to_string(), Value::Null);
+                obj.insert("projectName".to_string(), Value::Null);
+                obj.insert("projectColor".to_string(), Value::Null);
+            }
+        }
+    }
+
+    // Apply project filter
+    if let Some(pid) = project_filter {
+        items.retain(|item| item["projectId"].as_i64() == Some(pid));
+    } else if project_filter_mode.as_deref() == Some("none") {
+        items.retain(|item| item["projectId"].is_null());
+    }
+
     sort_item_rows(&mut items);
     Ok(json!({ "items": items }))
 }
@@ -1630,6 +1714,14 @@ fn item_create(payload: &Value) -> Result<Value, String> {
 
         tx.commit().map_err(|e| format!("提交事务失败: {e}"))?;
 
+        // Set project_id if provided
+        if let Some(project_id) = parse_i64(payload, "projectId") {
+            let _ = conn.execute(
+                "UPDATE todo_items SET project_id = ?1 WHERE id = ?2",
+                params![project_id, item_id],
+            );
+        }
+
         Ok(json!({ "ok": true, "id": item_id, "rootId": item_id }))
     } else {
         // One-off
@@ -1656,6 +1748,14 @@ fn item_create(payload: &Value) -> Result<Value, String> {
         }
         if let Some(links) = parse_links(payload) {
             sync_item_links(&conn, id, &links)?;
+        }
+
+        // Set project_id if provided
+        if let Some(project_id) = parse_i64(payload, "projectId") {
+            let _ = conn.execute(
+                "UPDATE todo_items SET project_id = ?1 WHERE id = ?2",
+                params![project_id, id],
+            );
         }
 
         Ok(json!({ "ok": true, "id": id, "rootId": id }))
@@ -1744,6 +1844,15 @@ fn item_update(payload: &Value) -> Result<Value, String> {
     }
     if payload.get("assigneeIds").is_some() {
         sync_item_assignees(&conn, id, &parse_assignee_ids(payload))?;
+    }
+
+    // Update project_id if provided
+    if payload.get("projectId").is_some() {
+        let project_id = parse_i64(payload, "projectId");
+        let _ = conn.execute(
+            "UPDATE todo_items SET project_id = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2",
+            params![project_id, id],
+        );
     }
 
     // Update event_at and reminders
@@ -2049,6 +2158,12 @@ fn item_delete(payload: &Value) -> Result<Value, String> {
                                     )
                                     .map_err(|e| format!("补生成事项失败: {e}"))?;
                                     let new_id = conn.last_insert_rowid();
+
+                                    // Inherit project_id from template item
+                                    let _ = conn.execute(
+                                        "UPDATE todo_items SET project_id = (SELECT project_id FROM todo_items WHERE id = ?1) WHERE id = ?2",
+                                        params![tmpl_id, new_id],
+                                    );
 
                                     // 使用缓存的支撑表数据
                                     sync_item_assignees(&conn, new_id, &cached_assignee_ids)?;

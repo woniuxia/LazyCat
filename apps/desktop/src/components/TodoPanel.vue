@@ -111,6 +111,21 @@
             </el-radio-group>
           </div>
           <div class="toolbar-right">
+            <el-select
+              v-model="filterProjectId"
+              size="default"
+              placeholder="全部项目"
+              clearable
+              style="width: 140px"
+            >
+              <el-option label="未归项目" value="none" />
+              <el-option
+                v-for="p in projectOptions"
+                :key="p.id"
+                :label="p.name"
+                :value="p.id"
+              />
+            </el-select>
             <el-input
               v-model.trim="itemKeyword"
               clearable
@@ -243,6 +258,13 @@
                         :style="{ backgroundColor: row.typeColor || '#909399' }"
                       />
                       {{ row.typeName }}
+                    </span>
+                    <span v-if="row.projectName" class="meta-chip meta-project">
+                      <span
+                        class="color-dot-sm"
+                        :style="{ backgroundColor: row.projectColor || '#909399' }"
+                      />
+                      {{ row.projectName }}
                     </span>
                     <span v-if="row.assignees.length > 0" class="meta-chip meta-assignee">
                       <el-icon :size="12"><User /></el-icon>
@@ -496,6 +518,21 @@
                           </el-option>
                         </el-select>
                       </div>
+                    </el-form-item>
+                    <el-form-item label="所属项目">
+                      <el-select
+                        v-model="itemDraft.projectId"
+                        clearable
+                        placeholder="无"
+                        style="width: 100%"
+                      >
+                        <el-option
+                          v-for="p in projectOptions"
+                          :key="p.id"
+                          :label="p.name"
+                          :value="p.id"
+                        />
+                      </el-select>
                     </el-form-item>
                     <el-form-item label="执行人">
                       <el-select
@@ -1483,6 +1520,8 @@ interface TodoAssigneeDraft {
 const items = ref<TodoItem[]>([]);
 const types = ref<TodoType[]>([]);
 const assignees = ref<TodoAssignee[]>([]);
+const projectOptions = ref<{ id: number; name: string; color: string }[]>([]);
+const filterProjectId = ref<number | string | null>(null);
 const showMoreFields = ref(false);
 const itemKeyword = ref("");
 const detailFormScrollRef = ref<HTMLElement | null>(null);
@@ -1690,6 +1729,7 @@ const itemDraft = reactive({
     weekdays: [1, 2, 3, 4, 5] as number[],
     dayOfMonth: 1,
   },
+  projectId: null as number | null,
 });
 
 const typeDraft = reactive<TodoTypeDraft>({ id: 0, name: "", color: "", sortOrder: 0 });
@@ -2840,6 +2880,7 @@ function resetItemDraft() {
   itemDraft.simple.time = "";
   itemDraft.simple.weekdays = [1, 2, 3, 4, 5];
   itemDraft.simple.dayOfMonth = 1;
+  itemDraft.projectId = null;
   lastReminderPresetSelection.value = [...itemDraft.reminderPresets];
   editingItemSnapshot.value = null;
   itemDialogMode.value = "create";
@@ -2876,6 +2917,7 @@ function applyItemToDraft(item: TodoItem) {
         itemDraft.cronExpression;
     }
   }
+  itemDraft.projectId = item.projectId ?? null;
 }
 
 async function loadTypes() {
@@ -2889,9 +2931,24 @@ async function loadAssignees() {
 }
 async function loadItems() {
   closeTodoContextMenu();
-  items.value = getResponseItems(await invokeToolByChannel("tool:todo:item-list", {})).map(
+  const params: Record<string, unknown> = {};
+  if (filterProjectId.value === "none") {
+    params.projectFilter = "none";
+  } else if (typeof filterProjectId.value === "number") {
+    params.projectId = filterProjectId.value;
+  }
+  items.value = getResponseItems(await invokeToolByChannel("tool:todo:item-list", params)).map(
     normalizeTodoItem,
   );
+}
+
+async function loadProjects() {
+  try {
+    const list = (await invokeToolByChannel("tool:pm:project-list", {})) as { id: number; name: string; color: string; status: string }[];
+    projectOptions.value = (list || []).filter((p) => p.status === "active");
+  } catch {
+    projectOptions.value = [];
+  }
 }
 
 async function resolveTypeId(value: SelectTypeValue) {
@@ -3034,6 +3091,7 @@ async function submitItemChanges(showSuccess = true) {
     const payload: TodoItemUpsertPayload & Record<string, unknown> = {
       ...commonPayload,
       kind,
+      projectId: itemDraft.projectId,
     };
 
     if (!isRepeating.value) {
@@ -3370,6 +3428,8 @@ async function removeAssignee(item: TodoAssignee) {
   }
 }
 
+watch(filterProjectId, () => loadItems());
+
 watch(selectedItem, (item) => {
   if (detailMode.value === "create") return;
   if (selectedItemId.value !== null && !item) {
@@ -3395,7 +3455,7 @@ onMounted(async () => {
   document.addEventListener("click", onTodoContextMenuGlobalClick);
   document.addEventListener("contextmenu", onTodoContextMenuGlobalContextMenu);
   window.addEventListener("keydown", onTodoContextMenuGlobalKeydown);
-  await Promise.all([loadTypes(), loadAssignees(), loadItems()]);
+  await Promise.all([loadTypes(), loadAssignees(), loadItems(), loadProjects()]);
   try {
     reminderUnlisten = await listen("todo-reminder-fired", async () => {
       await loadItems();

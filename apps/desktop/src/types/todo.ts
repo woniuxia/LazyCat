@@ -98,6 +98,9 @@ export interface TodoItem {
   completedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  projectId?: number | null;
+  projectName?: string | null;
+  projectColor?: string | null;
 }
 
 export interface TodoReminderEvent {
@@ -147,4 +150,5 @@ export interface TodoItemUpsertPayload {
   status?: TodoStatus;
   links?: { url: string; title: string }[];
   recurrence?: TodoRecurrenceInput | null;
+  projectId?: number | null;
 }
