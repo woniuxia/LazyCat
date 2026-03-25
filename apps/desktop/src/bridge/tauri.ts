@@ -232,7 +232,23 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:inbox:capture-status": { domain: "inbox", action: "capture_status" },
   "tool:inbox:capture-pause": { domain: "inbox", action: "capture_pause" },
   "tool:inbox:open-path": { domain: "inbox", action: "open_path" },
-  "tool:inbox:copy-image": { domain: "inbox", action: "copy_image" }
+  "tool:inbox:copy-image": { domain: "inbox", action: "copy_image" },
+  "tool:pm:project-list": { domain: "pm", action: "project_list" },
+  "tool:pm:project-create": { domain: "pm", action: "project_create" },
+  "tool:pm:project-update": { domain: "pm", action: "project_update" },
+  "tool:pm:project-archive": { domain: "pm", action: "project_archive" },
+  "tool:pm:project-restore": { domain: "pm", action: "project_restore" },
+  "tool:pm:project-delete": { domain: "pm", action: "project_delete" },
+  "tool:pm:item-list": { domain: "pm", action: "item_list" },
+  "tool:pm:item-create": { domain: "pm", action: "item_create" },
+  "tool:pm:item-update": { domain: "pm", action: "item_update" },
+  "tool:pm:item-change-status": { domain: "pm", action: "item_change_status" },
+  "tool:pm:item-reorder": { domain: "pm", action: "item_reorder" },
+  "tool:pm:item-toggle-pin": { domain: "pm", action: "item_toggle_pin" },
+  "tool:pm:item-delete": { domain: "pm", action: "item_delete" },
+  "tool:pm:item-move-project": { domain: "pm", action: "item_move_project" },
+  "tool:pm:tag-list": { domain: "pm", action: "tag_list" },
+  "tool:pm:weekly-work": { domain: "pm", action: "weekly_work" }
 };
 
 export async function invokeToolByChannel(

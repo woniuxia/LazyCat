@@ -21,6 +21,7 @@
     "@tauri-apps/api": "^2.0.0",
     "@tauri-apps/plugin-dialog": "^2.0.0",
     "element-plus": "^2.11.1",
+    "frappe-gantt": "^1.2.2",
     "pinyin-pro": "^3.26.0",
     "railroad-diagrams": "^1.0.0",
     "regexp-tree": "^0.1.27",

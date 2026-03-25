@@ -21,6 +21,7 @@ pub mod mybatis;
 pub mod network;
 pub mod nginx;
 pub mod pdf;
+pub mod pm;
 pub mod port;
 pub mod regex;
 pub mod schema;
@@ -63,6 +64,7 @@ pub fn execute_tool(domain: &str, action: &str, payload: &Value) -> Result<Value
         "vault" => vault::execute(action, payload),
         "launcher" => launcher::execute(action, payload),
         "todo" => todo::execute(action, payload),
+        "pm" => pm::execute(action, payload),
         "maven" => maven::execute(action, payload),
         "inbox" => inbox::execute(action, payload),
         _ => Err(format!("unsupported command: {domain}.{action}")),

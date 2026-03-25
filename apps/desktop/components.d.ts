@@ -96,6 +96,8 @@ declare module 'vue' {
     PasswordPanel: typeof import('./src/components/PasswordPanel.vue')['default']
     PasswordStrengthIndicator: typeof import('./src/components/PasswordStrengthIndicator.vue')['default']
     PdfPanel: typeof import('./src/components/PdfPanel.vue')['default']
+    PmGanttView: typeof import('./src/components/PmGanttView.vue')['default']
+    PmPanel: typeof import('./src/components/PmPanel.vue')['default']
     PortsPanel: typeof import('./src/components/PortsPanel.vue')['default']
     RegexPanel: typeof import('./src/components/RegexPanel.vue')['default']
     ReminderPopup: typeof import('./src/components/ReminderPopup.vue')['default']
@@ -117,6 +119,7 @@ declare module 'vue' {
     VaultEntryDialog: typeof import('./src/components/VaultEntryDialog.vue')['default']
     VaultLockScreen: typeof import('./src/components/VaultLockScreen.vue')['default']
     VaultPanel: typeof import('./src/components/VaultPanel.vue')['default']
+    WeeklyWorkPanel: typeof import('./src/components/WeeklyWorkPanel.vue')['default']
   }
   export interface GlobalDirectives {
     vLoading: typeof import('element-plus/es')['ElLoadingDirective']

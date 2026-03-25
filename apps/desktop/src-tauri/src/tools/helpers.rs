@@ -99,6 +99,11 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
         "ALTER TABLE todo_items ADD COLUMN completed_at TEXT DEFAULT NULL;",
     );
 
+    // Phase 2: Add project_id to todo_items
+    let _ = conn.execute_batch(
+        "ALTER TABLE todo_items ADD COLUMN project_id INTEGER DEFAULT NULL;",
+    );
+
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS hosts_profiles (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -367,7 +372,50 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
             ref_count INTEGER NOT NULL DEFAULT 1,
             byte_size INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-        );",
+        );
+
+        CREATE TABLE IF NOT EXISTS pm_projects (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            color TEXT NOT NULL DEFAULT '#409eff',
+            status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'archived')),
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_pm_projects_status_sort
+            ON pm_projects(status, sort_order ASC, id DESC);
+
+        CREATE TABLE IF NOT EXISTS pm_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            item_type TEXT NOT NULL DEFAULT 'task' CHECK (item_type IN ('task', 'bug', 'feature', 'improvement')),
+            priority TEXT NOT NULL DEFAULT 'P2' CHECK (priority IN ('P0', 'P1', 'P2', 'P3')),
+            status TEXT NOT NULL DEFAULT 'todo' CHECK (status IN ('todo', 'in_progress', 'testing', 'done')),
+            start_at TEXT DEFAULT NULL,
+            end_at TEXT DEFAULT NULL,
+            pinned INTEGER NOT NULL DEFAULT 0,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            completed_at TEXT DEFAULT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (project_id) REFERENCES pm_projects(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_pm_items_project_status
+            ON pm_items(project_id, status);
+        CREATE INDEX IF NOT EXISTS idx_pm_items_completed_at
+            ON pm_items(completed_at);
+
+        CREATE TABLE IF NOT EXISTS pm_item_tags (
+            item_id INTEGER NOT NULL,
+            tag TEXT NOT NULL,
+            PRIMARY KEY (item_id, tag),
+            FOREIGN KEY (item_id) REFERENCES pm_items(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_pm_item_tags_tag ON pm_item_tags(tag);",
     )
     .map_err(|e| format!("initialize schema failed: {e}"))?;
 

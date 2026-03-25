@@ -50,6 +50,9 @@ importers:
       element-plus:
         specifier: ^2.11.1
         version: 2.13.2(vue@3.5.28(typescript@5.9.3))
+      frappe-gantt:
+        specifier: ^1.2.2
+        version: 1.2.2
       pinyin-pro:
         specifier: ^3.26.0
         version: 3.28.0
@@ -1142,6 +1145,9 @@ packages:
 
   flatted@3.3.3:
     resolution: {integrity: sha512-GX+ysw4PBCz0PzosHDepZGANEuFCMLrnRTiEy9McGjmkCQYwRq4A/X786G/fjM/+OjsWSU1ZrY5qyARZmO/uwg==}
+
+  frappe-gantt@1.2.2:
+    resolution: {integrity: sha512-1+uPNRa92LBIeKiZCVhJMiGIifJk5ONaoerXI8eBREXWRZGGoTJR5ATpMpsnAQcyBA6Gnq5wIht4eL+e4eHMBA==}
 
   fsevents@2.3.2:
     resolution: {integrity: sha512-xiqMQR4xAeHTuB9uWm+fFRcIOgKBMiOBP+eXiyT7jsgVCq1bkVygt00oASowB7EdtpOHaaPgKt812P9ab+DDKA==}
@@ -2570,6 +2576,8 @@ snapshots:
       keyv: 4.5.4
 
   flatted@3.3.3: {}
+
+  frappe-gantt@1.2.2: {}
 
   fsevents@2.3.2:
     optional: true
