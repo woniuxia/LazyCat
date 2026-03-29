@@ -1476,7 +1476,7 @@ import type {
   TodoType,
 } from "../types";
 import { groupTodoItemsByBucket } from "../utils/todoBuckets";
-import { clampContextMenuPosition } from "../utils/todoContextMenu";
+import { clampContextMenuPosition } from "../utils/contextMenu";
 import { formatTodoRelativeDateTimeLabel } from "../utils/todoRelativeDate";
 import { renderMarkdown } from "../utils/renderMarkdown";
 import {

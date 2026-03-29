@@ -1,4 +1,4 @@
-export interface TodoContextMenuPositionInput {
+export interface ContextMenuPositionInput {
   anchorX: number;
   anchorY: number;
   menuWidth: number;
@@ -8,14 +8,14 @@ export interface TodoContextMenuPositionInput {
   padding?: number;
 }
 
-export interface TodoContextMenuPosition {
+export interface ContextMenuPosition {
   x: number;
   y: number;
 }
 
 export function clampContextMenuPosition(
-  input: TodoContextMenuPositionInput,
-): TodoContextMenuPosition {
+  input: ContextMenuPositionInput,
+): ContextMenuPosition {
   const padding = Math.max(0, input.padding ?? 12);
   const maxX = Math.max(padding, input.viewportWidth - input.menuWidth - padding);
   const maxY = Math.max(padding, input.viewportHeight - input.menuHeight - padding);

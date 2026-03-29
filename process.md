@@ -8,6 +8,74 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-03-29: 项目管理甘特图悬浮卡越界与右键视口重置修复
+
+**场景**: 用户反馈项目管理甘特图在底部任务上悬浮详情时会被容器裁切，且右键任务打开菜单后甘特图视口会跳回默认位置。
+
+**问题**:
+1. `frappe-gantt` 默认 popup 只按 `left = x + 10`、`top = y - 10` 粗放定位，不会根据容器当前滚动视口做边界翻转，底部任务的详情卡容易被 `gantt-container` 裁掉。
+2. `PmGanttView.vue` 里 `ganttTasks` 之前把 `selectedItemId` 也作为依赖，右键选中任务时会触发一次整图 `refresh()`。
+3. `frappe-gantt` 的实际滚动容器是内部 `.gantt-container`，不是外层 `ganttRef`；之前即便尝试保留滚动位置，也读写错了元素。
+
+**解决**:
+1. 在 `utils/pmGantt.ts` 新增 `clampPmGanttPopupPosition()`，统一计算 popup 在当前视口内的左右/上下翻转与边距钳制，并补充单测覆盖底部和右侧越界场景。
+2. `PmGanttView.vue` 改为通过 `MutationObserver` 观察 `.popup-wrapper` 的显隐与内容变化，在每次显示后按内部 `.gantt-container` 的 `scrollLeft/scrollTop/clientWidth/clientHeight` 重算 popup 位置。
+3. 将甘特条“选中态”从 `ganttTasks` 计算链路里剥离，改为单独 watch `selectedItemId` 并只同步 class，避免右键时无谓刷新。
+4. 甘特图数据确实需要 `refresh()` 时，先读取内部 `.gantt-container` 的视口位置，并临时关闭 `frappe-gantt` 的 `scroll_to` 自动定位，再在下一帧恢复滚动条。
+5. 内部滚动事件改为直接绑定 `.gantt-container`，确保滚动时能及时关闭 popup 和右键菜单。
+
+**关键点**:
+1. `frappe-gantt` 的外层宿主元素只是挂载点，真正滚动的是内部自建容器；凡是涉及视口恢复、滚动监听、popup 可见区判断，都必须基于 `.gantt-container`。
+2. “选中态变化”不能混进“任务数据变化”刷新链路，否则右键、点击切换详情都会触发整图重绘，带来滚动抖动和定位回跳。
+3. 第三方库的 popup 若无法直接配置碰撞检测，优先在项目层补一层纯函数定位和 DOM 观察，不要急着 fork 依赖。
+
+**涉及文件**:
+- `apps/desktop/src/components/PmGanttView.vue`
+- `apps/desktop/src/utils/pmGantt.ts`
+- `apps/desktop/src/utils/pmGantt.test.ts`
+
+**验证**:
+- `pnpm --filter @lazycat/desktop test src/utils/pmGantt.test.ts`
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+
+**使用次数**: 0
+
+## 2026-03-29: 项目管理甘特图交互增强与甘特条右键菜单
+
+**场景**: 用户希望优化项目管理甘特图视图，并为甘特图条目补上右键菜单，让甘特图和现有看板卡片的快捷操作能力对齐。
+
+**问题**:
+1. `PmGanttView.vue` 之前只有 `点击选中 + 拖动改日期`，没有悬浮信息、双击编辑，也没有甘特条自己的右键菜单。
+2. `frappe-gantt` 暴露给项目的类型声明很薄，缺少 `popup`、`on_double_click`、`change_view_mode(..., maintain_pos)` 等当前实现会用到的钩子描述。
+3. `PmPanel.vue` 之前只给看板卡片和左侧项目列表做了右键菜单，菜单定位还是硬编码近似值；甘特图如果直接复用旧入口，目标选中态和菜单目标容易不同步。
+
+**解决**:
+1. 在 `PmGanttView.vue` 中增加悬浮详情卡、双击编辑、甘特条 `contextmenu` 事件代理、滚动时关闭浮层，并把总览模式下的项目元信息一并透给 popup。
+2. 新增 `utils/pmGantt.ts` 与 `pmGantt.test.ts`，把甘特任务映射、未排期统计、逾期/置顶/选中 class 组装、悬浮卡 HTML 生成收敛成纯函数。
+3. 将菜单坐标钳制能力抽为通用 `utils/contextMenu.ts`，`PmPanel.vue` 和 `TodoPanel.vue` 共用；`PmPanel.vue` 的项目管理右键菜单统一接入 `Esc / 外部点击 / scroll / resize / 再次右键` 关闭规则。
+4. `PmPanel.vue` 中抽出统一的工作项菜单动作构造逻辑，甘特条和看板卡片共用 `编辑 / 置顶或取消置顶 / 推进状态 / 删除`，并在打开菜单前同步切换当前选中工作项。
+5. 补齐 `frappe-gantt.d.ts` 的 popup / 双击 / 视图切换类型，避免甘特图实现继续依赖隐式 `any`。
+
+**关键点**:
+1. 甘特图库的右键菜单不要强依赖原生 `MouseEvent` 透传；对子组件发 `{ item, anchorX, anchorY }` 这类稳定 payload，更利于父层复用菜单定位逻辑。
+2. 甘特图条目的“选中态”最好作为任务 class 的一部分统一进入 `refresh()` 链路，不要在父层和子层各维护一套视觉状态。
+3. 菜单定位不要继续靠 `actions.length * 34` 这类散落硬编码；抽成纯函数后，Todo/PM 两边能共享同一组边界测试。
+
+**涉及文件**:
+- `apps/desktop/src/components/PmGanttView.vue`
+- `apps/desktop/src/components/PmPanel.vue`
+- `apps/desktop/src/types/frappe-gantt.d.ts`
+- `apps/desktop/src/utils/contextMenu.ts`
+- `apps/desktop/src/utils/contextMenu.test.ts`
+- `apps/desktop/src/utils/pmGantt.ts`
+- `apps/desktop/src/utils/pmGantt.test.ts`
+
+**验证**:
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop test src/utils/contextMenu.test.ts src/utils/pmGantt.test.ts`
+- `pnpm --filter @lazycat/desktop build:web`
+
 ## 2026-03-20: 密码库解锁顺滑度优化首轮落地
 
 **场景**: 用户希望密码库在输入正确主密码后更快出现可用主界面，同时首轮只做前端体感优化与后端低风险性能优化，不调整 PBKDF2 参数、不改现有 vault IPC 协议。

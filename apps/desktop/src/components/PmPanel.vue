@@ -1,11 +1,12 @@
 <template>
+  <el-config-provider :locale="zhCn">
   <div class="pm-panel">
     <div class="pm-layout">
       <!-- Left: Project list -->
       <aside class="pm-sidebar">
         <div class="sidebar-header">
           <span class="sidebar-title">项目</span>
-          <el-button size="small" type="primary" link @click="showCreateProject">
+          <el-button type="primary" link @click="showCreateProject">
             <el-icon><Plus /></el-icon>
           </el-button>
         </div>
@@ -68,24 +69,24 @@
             <el-tag v-if="!isOverview && selectedProject.status === 'archived'" size="small" type="info">已归档</el-tag>
           </div>
           <div class="toolbar-right">
-            <el-radio-group v-model="viewMode" size="small">
+            <el-radio-group v-model="viewMode" size="default">
               <el-radio-button value="kanban">看板</el-radio-button>
               <el-radio-button value="gantt">甘特图</el-radio-button>
             </el-radio-group>
             <el-input
               v-model="searchText"
-              size="small"
+              size="default"
               placeholder="搜索工作项..."
               clearable
               style="width: 180px"
             />
-            <el-select v-model="filterType" size="small" placeholder="类型" clearable style="width: 100px">
+            <el-select v-model="filterType" size="default" placeholder="类型" clearable style="width: 100px">
               <el-option v-for="(meta, key) in PM_ITEM_TYPE_MAP" :key="key" :label="meta.label" :value="key" />
             </el-select>
-            <el-select v-model="filterPriority" size="small" placeholder="优先级" clearable style="width: 100px">
+            <el-select v-model="filterPriority" size="default" placeholder="优先级" clearable style="width: 100px">
               <el-option v-for="(meta, key) in PM_PRIORITY_MAP" :key="key" :label="meta.label" :value="key" />
             </el-select>
-            <el-button size="small" type="primary" @click="showCreateItem">新建工作项</el-button>
+            <el-button type="primary" @click="showCreateItem">新建工作项</el-button>
           </div>
         </div>
 
@@ -111,11 +112,10 @@
                 }"
                 :style="{ borderLeftColor: PM_PRIORITY_MAP[item.priority]?.color }"
                 :data-id="item.id"
-                @click="selectItem(item)"
-                @dblclick="editItem(item)"
+                @click="onCardClick(item)"
+                @dblclick="onCardDblclick(item)"
                 @contextmenu.prevent="onItemContext($event, item)"
               >
-                <el-icon class="kanban-drag-handle" :size="14" title="拖拽排序"><Rank /></el-icon>
                 <div class="card-header">
                   <span class="card-title">{{ item.title }}</span>
                   <div class="card-badges">
@@ -163,8 +163,14 @@
         <PmGanttView
           v-if="selectedProject && viewMode === 'gantt'"
           :items="filteredItems"
+          :selected-item-id="selectedItemId"
+          :show-project-meta="isOverview"
           @select="selectItem"
+          @edit="editItem"
+          @item-context="onGanttItemContext"
           @date-change="onGanttDateChange"
+          @view-change="closeCtxMenu"
+          @viewport-scroll="closeCtxMenu"
         />
 
         <div v-if="!selectedProject" class="pm-empty">
@@ -180,75 +186,57 @@
                 <el-icon><Close /></el-icon>
               </el-button>
             </div>
-            <el-form label-position="top" size="small" class="detail-form">
-              <el-form-item label="所属项目">
-                <el-select
-                  :model-value="selectedItem.projectId"
-                  style="width: 100%"
-                  @change="moveItemToProject($event as number)"
-                >
-                  <el-option
-                    v-for="p in activeProjects"
-                    :key="p.id"
-                    :label="p.name"
-                    :value="p.id"
-                  />
-                </el-select>
-              </el-form-item>
-              <el-form-item label="标题">
-                <el-input v-model="detailForm.title" @change="saveDetail" />
-              </el-form-item>
-              <el-form-item label="类型">
-                <el-select v-model="detailForm.itemType" @change="saveDetail">
-                  <el-option v-for="(meta, key) in PM_ITEM_TYPE_MAP" :key="key" :label="meta.label" :value="key" />
-                </el-select>
-              </el-form-item>
-              <el-form-item label="优先级">
-                <el-select v-model="detailForm.priority" @change="saveDetail">
-                  <el-option v-for="(meta, key) in PM_PRIORITY_MAP" :key="key" :label="meta.label" :value="key" />
-                </el-select>
-              </el-form-item>
-              <el-form-item label="状态">
-                <el-select v-model="detailForm.status" @change="saveDetail">
-                  <el-option v-for="col in PM_STATUS_COLUMNS" :key="col.key" :label="col.label" :value="col.key" />
-                </el-select>
-              </el-form-item>
-              <el-form-item label="开始日期">
-                <el-date-picker v-model="detailForm.startAt" type="date" value-format="YYYY-MM-DD" clearable style="width:100%" @change="saveDetail" />
-              </el-form-item>
-              <el-form-item label="截止日期">
-                <el-date-picker v-model="detailForm.endAt" type="date" value-format="YYYY-MM-DD" clearable style="width:100%" @change="saveDetail" />
-              </el-form-item>
-              <el-form-item label="标签">
-                <div class="tag-editor">
-                  <el-tag
-                    v-for="tag in detailForm.tags"
-                    :key="tag"
-                    closable
-                    size="small"
-                    @close="removeTag(tag)"
-                  >{{ tag }}</el-tag>
-                  <el-input
-                    v-if="tagInputVisible"
-                    ref="tagInputRef"
-                    v-model="tagInputValue"
-                    size="small"
-                    style="width: 80px"
-                    @keyup.enter="confirmTag"
-                    @blur="confirmTag"
-                  />
-                  <el-button v-else size="small" link @click="showTagInput">+ 标签</el-button>
-                </div>
-              </el-form-item>
-              <el-form-item label="描述">
-                <el-input v-model="detailForm.description" type="textarea" :rows="4" @change="saveDetail" />
-              </el-form-item>
-              <el-form-item v-if="selectedItem.completedAt" label="完成时间">
-                <span class="detail-readonly">{{ formatDateTime(selectedItem.completedAt) }}</span>
-              </el-form-item>
-              <el-form-item label="创建时间">
-                <span class="detail-readonly">{{ formatDateTime(selectedItem.createdAt) }}</span>
-              </el-form-item>
+            <div class="detail-form">
+              <div class="detail-field">
+                <span class="detail-label">所属项目</span>
+                <span class="detail-value">{{ activeProjects.find(p => p.id === selectedItem.projectId)?.name ?? '-' }}</span>
+              </div>
+              <div class="detail-field">
+                <span class="detail-label">标题</span>
+                <span class="detail-value">{{ selectedItem.title }}</span>
+              </div>
+              <div class="detail-field">
+                <span class="detail-label">类型</span>
+                <span class="detail-value">{{ PM_ITEM_TYPE_MAP[selectedItem.itemType]?.label ?? selectedItem.itemType }}</span>
+              </div>
+              <div class="detail-field">
+                <span class="detail-label">优先级</span>
+                <span class="detail-value">
+                  <span class="priority-dot" :style="{ backgroundColor: PM_PRIORITY_MAP[selectedItem.priority]?.color }" />
+                  {{ PM_PRIORITY_MAP[selectedItem.priority]?.label ?? selectedItem.priority }}
+                </span>
+              </div>
+              <div class="detail-field">
+                <span class="detail-label">状态</span>
+                <span class="detail-value">{{ PM_STATUS_COLUMNS.find(c => c.key === selectedItem.status)?.label ?? selectedItem.status }}</span>
+              </div>
+              <div class="detail-field">
+                <span class="detail-label">开始日期</span>
+                <span class="detail-value">{{ selectedItem.startAt ?? '-' }}</span>
+              </div>
+              <div class="detail-field">
+                <span class="detail-label">截止日期</span>
+                <span class="detail-value" :class="{ 'is-overdue-date': isOverdue(selectedItem) }">{{ selectedItem.endAt ?? '-' }}</span>
+              </div>
+              <div class="detail-field">
+                <span class="detail-label">标签</span>
+                <span class="detail-value detail-tags">
+                  <el-tag v-for="tag in selectedItem.tags" :key="tag" size="small" type="info">{{ tag }}</el-tag>
+                  <span v-if="selectedItem.tags.length === 0">-</span>
+                </span>
+              </div>
+              <div class="detail-field">
+                <span class="detail-label">描述</span>
+                <pre class="detail-value detail-description">{{ selectedItem.description || '-' }}</pre>
+              </div>
+              <div v-if="selectedItem.completedAt" class="detail-field">
+                <span class="detail-label">完成时间</span>
+                <span class="detail-value">{{ formatDateTime(selectedItem.completedAt) }}</span>
+              </div>
+              <div class="detail-field">
+                <span class="detail-label">创建时间</span>
+                <span class="detail-value">{{ formatDateTime(selectedItem.createdAt) }}</span>
+              </div>
 
               <div class="detail-actions">
                 <el-button size="small" @click="togglePin">{{ selectedItem.pinned ? '取消置顶' : '置顶' }}</el-button>
@@ -257,15 +245,15 @@
                 </el-button>
                 <el-button size="small" type="danger" @click="deleteItem">删除</el-button>
               </div>
-            </el-form>
+            </div>
           </aside>
         </Transition>
       </div>
     </div>
     <el-dialog v-model="projectDialogVisible" :title="editingProject ? '编辑项目' : '新建项目'" width="420px" @close="resetProjectForm">
-      <el-form :model="projectForm" label-width="60px" size="small">
+      <el-form :model="projectForm" label-width="60px" size="default" @submit.prevent="submitProject">
         <el-form-item label="名称">
-          <el-input v-model="projectForm.name" placeholder="项目名称" />
+          <el-input v-model="projectForm.name" placeholder="项目名称" @keyup.enter="submitProject" />
         </el-form-item>
         <el-form-item label="描述">
           <el-input v-model="projectForm.description" type="textarea" :rows="2" placeholder="项目描述（可选）" />
@@ -275,14 +263,14 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button size="small" @click="projectDialogVisible = false">取消</el-button>
-        <el-button size="small" type="primary" @click="submitProject">确定</el-button>
+        <el-button @click="projectDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="submitProject">确定</el-button>
       </template>
     </el-dialog>
 
     <!-- Item dialog -->
     <el-dialog v-model="itemDialogVisible" :title="editingItem ? '编辑工作项' : '新建工作项'" width="480px" @close="resetItemForm">
-      <el-form :model="itemForm" label-width="80px" size="small">
+      <el-form :model="itemForm" label-width="80px" size="default">
         <el-form-item v-if="isOverview && !editingItem" label="所属项目">
           <el-select v-model="itemFormProjectId" placeholder="选择项目" style="width: 100%">
             <el-option v-for="p in activeProjects" :key="p.id" :label="p.name" :value="p.id" />
@@ -298,7 +286,13 @@
         </el-form-item>
         <el-form-item label="优先级">
           <el-select v-model="itemForm.priority">
-            <el-option v-for="(meta, key) in PM_PRIORITY_MAP" :key="key" :label="meta.label" :value="key" />
+            <template #prefix>
+              <span class="priority-dot" :style="{ backgroundColor: PM_PRIORITY_MAP[itemForm.priority]?.color }" />
+            </template>
+            <el-option v-for="(meta, key) in PM_PRIORITY_MAP" :key="key" :label="meta.label" :value="key">
+              <span class="priority-dot" :style="{ backgroundColor: meta.color }" />
+              {{ meta.label }}
+            </el-option>
           </el-select>
         </el-form-item>
         <el-form-item label="状态">
@@ -307,18 +301,18 @@
           </el-select>
         </el-form-item>
         <el-form-item label="开始日期">
-          <el-date-picker v-model="itemForm.startAt" type="date" value-format="YYYY-MM-DD" clearable style="width:100%" />
+          <el-date-picker v-model="itemForm.startAt" type="date" value-format="YYYY-MM-DD" clearable style="width:100%" :disabled-date="(d) => !!itemForm.endAt && d > new Date(itemForm.endAt + 'T23:59:59')" />
         </el-form-item>
         <el-form-item label="截止日期">
-          <el-date-picker v-model="itemForm.endAt" type="date" value-format="YYYY-MM-DD" clearable style="width:100%" />
+          <el-date-picker v-model="itemForm.endAt" type="date" value-format="YYYY-MM-DD" clearable style="width:100%" :disabled-date="(d) => !!itemForm.startAt && d < new Date(itemForm.startAt + 'T00:00:00')" />
         </el-form-item>
         <el-form-item label="描述">
           <el-input v-model="itemForm.description" type="textarea" :rows="3" />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button size="small" @click="itemDialogVisible = false">取消</el-button>
-        <el-button size="small" type="primary" @click="submitItem">确定</el-button>
+        <el-button @click="itemDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="submitItem">确定</el-button>
       </template>
     </el-dialog>
 
@@ -327,6 +321,7 @@
       <Transition name="ctx-fade">
         <div
           v-if="ctxMenuVisible"
+          ref="ctxMenuRef"
           class="pm-ctx-menu"
           :style="{ left: ctxMenuX + 'px', top: ctxMenuY + 'px' }"
           @contextmenu.prevent
@@ -346,17 +341,20 @@
       </Transition>
     </Teleport>
   </div>
+  </el-config-provider>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
-import { Plus, Close, Top, CaretRight, AlarmClock, Rank } from "@element-plus/icons-vue";
+import zhCn from "element-plus/es/locale/lang/zh-cn";
+import { Plus, Close, Top, CaretRight, AlarmClock } from "@element-plus/icons-vue";
 import { useToolInvoke } from "../composables/useToolInvoke";
 import type { PmProject, PmItem, PmItemType, PmPriority, PmItemStatus } from "../types/pm";
 import { PM_STATUS_COLUMNS, PM_ITEM_TYPE_MAP, PM_PRIORITY_MAP } from "../types/pm";
 import Sortable from "sortablejs";
 import PmGanttView from "./PmGanttView.vue";
+import { clampContextMenuPosition } from "../utils/contextMenu";
 
 const { invoke } = useToolInvoke();
 
@@ -364,7 +362,7 @@ const { invoke } = useToolInvoke();
 
 interface CtxMenuAction {
   label: string;
-  action: () => void;
+  action: () => void | Promise<void>;
   danger?: boolean;
   divider?: boolean;
 }
@@ -384,7 +382,7 @@ const viewMode = ref<"kanban" | "gantt">("kanban");
 const projectDialogVisible = ref(false);
 const editingProject = ref<PmProject | null>(null);
 const projectForm = ref({ name: "", description: "", color: "#409eff" });
-const presetColors = ["#409eff", "#67c23a", "#e6a23c", "#f56c6c", "#909399", "#00bcd4", "#9c27b0", "#ff5722"];
+const presetColors = ["#7eb8f7", "#95d4a1", "#f7c97e", "#f7a1a1", "#b0bec5", "#80d8e8", "#ce93d8", "#ffab91", "#a5d6a7", "#fff176", "#80cbc4", "#ef9a9a"];
 
 // Item dialog
 const itemDialogVisible = ref(false);
@@ -400,22 +398,8 @@ const itemForm = ref({
   description: "",
 });
 
-// Detail form
-const detailForm = ref({
-  title: "",
-  itemType: "task" as PmItemType,
-  priority: "P2" as PmPriority,
-  status: "todo" as PmItemStatus,
-  startAt: null as string | null,
-  endAt: null as string | null,
-  description: "",
-  tags: [] as string[],
-});
-
-// Tag input
-const tagInputVisible = ref(false);
-const tagInputValue = ref("");
-const tagInputRef = ref<{ focus: () => void } | null>(null);
+// Click debounce
+const clickTimer = ref<ReturnType<typeof setTimeout> | null>(null);
 
 // Sortable instances
 const sortableInstances = ref<Map<string, Sortable>>(new Map());
@@ -432,6 +416,13 @@ const ctxMenuVisible = ref(false);
 const ctxMenuX = ref(0);
 const ctxMenuY = ref(0);
 const ctxMenuActions = ref<CtxMenuAction[]>([]);
+const ctxMenuRef = ref<HTMLElement | null>(null);
+
+const PM_CTX_MENU_WIDTH = 168;
+const PM_CTX_MENU_ITEM_HEIGHT = 34;
+const PM_CTX_MENU_DIVIDER_HEIGHT = 9;
+const PM_CTX_MENU_VERTICAL_PADDING = 8;
+const PM_ITEM_STATUS_ORDER: PmItemStatus[] = ["todo", "in_progress", "testing", "done"];
 
 // ── Computed ─────────────────────────────────────────────
 
@@ -514,20 +505,22 @@ function selectProject(id: number | "overview") {
 
 function selectItem(item: PmItem) {
   selectedItemId.value = item.id;
-  syncDetailForm(item);
 }
 
-function syncDetailForm(item: PmItem) {
-  detailForm.value = {
-    title: item.title,
-    itemType: item.itemType,
-    priority: item.priority,
-    status: item.status,
-    startAt: item.startAt,
-    endAt: item.endAt,
-    description: item.description,
-    tags: [...item.tags],
-  };
+function onCardClick(item: PmItem) {
+  if (clickTimer.value) return;
+  clickTimer.value = setTimeout(() => {
+    clickTimer.value = null;
+    selectItem(item);
+  }, 220);
+}
+
+function onCardDblclick(item: PmItem) {
+  if (clickTimer.value) {
+    clearTimeout(clickTimer.value);
+    clickTimer.value = null;
+  }
+  editItem(item);
 }
 
 watch(selectedProjectId, () => {
@@ -538,7 +531,8 @@ watch(selectedProjectId, () => {
 
 function showCreateProject() {
   editingProject.value = null;
-  projectForm.value = { name: "", description: "", color: "#409eff" };
+  const randomColor = presetColors[Math.floor(Math.random() * presetColors.length)];
+  projectForm.value = { name: "", description: "", color: randomColor };
   projectDialogVisible.value = true;
 }
 
@@ -696,125 +690,31 @@ async function submitItem() {
   }
 }
 
-async function saveDetail() {
-  if (!selectedItemId.value) return;
-  try {
-    await invoke("tool:pm:item-update", {
-      id: selectedItemId.value,
-      ...detailForm.value,
-    });
-    await loadItems();
-  } catch (e) {
-    ElMessage.error((e as Error).message);
-  }
-}
-
 async function togglePin() {
-  if (!selectedItemId.value) return;
-  try {
-    await invoke("tool:pm:item-toggle-pin", { id: selectedItemId.value });
-    await loadItems();
-  } catch (e) {
-    ElMessage.error((e as Error).message);
-  }
+  if (!selectedItem.value) return;
+  await toggleItemPinFor(selectedItem.value);
 }
 
 async function advanceStatus() {
   if (!selectedItem.value) return;
-  const order: PmItemStatus[] = ["todo", "in_progress", "testing", "done"];
-  const idx = order.indexOf(selectedItem.value.status);
-  if (idx < order.length - 1) {
-    const newStatus = order[idx + 1];
-    try {
-      await invoke("tool:pm:item-change-status", { id: selectedItem.value.id, status: newStatus });
-      detailForm.value.status = newStatus;
-      await loadItems();
-    } catch (e) {
-      ElMessage.error((e as Error).message);
-    }
-  }
+  await advanceItemStatusFor(selectedItem.value);
 }
 
 async function quickAdvance(item: PmItem) {
-  const order: PmItemStatus[] = ["todo", "in_progress", "testing", "done"];
-  const idx = order.indexOf(item.status);
-  if (idx < order.length - 1) {
-    try {
-      await invoke("tool:pm:item-change-status", { id: item.id, status: order[idx + 1] });
-      await loadItems();
-    } catch (e) {
-      ElMessage.error((e as Error).message);
-    }
-  }
+  await advanceItemStatusFor(item);
 }
 
 async function deleteItem() {
-  if (!selectedItemId.value) return;
-  try {
-    await ElMessageBox.confirm("确定删除该工作项？", "删除确认", { type: "warning" });
-    await invoke("tool:pm:item-delete", { id: selectedItemId.value });
-    selectedItemId.value = null;
-    await loadItems();
-  } catch (e) {
-    if ((e as string) !== "cancel") {
-      ElMessage.error((e as Error).message);
-    }
-  }
+  if (!selectedItem.value) return;
+  await deleteItemRecord(selectedItem.value);
 }
 
 function onItemContext(event: MouseEvent, item: PmItem) {
-  const statusOrder: PmItemStatus[] = ["todo", "in_progress", "testing", "done"];
-  const idx = statusOrder.indexOf(item.status);
-  const actions: CtxMenuAction[] = [
-    { label: "编辑", action: () => editItem(item) },
-    { label: item.pinned ? "取消置顶" : "置顶", action: async () => {
-      await invoke("tool:pm:item-toggle-pin", { id: item.id });
-      await loadItems();
-    }},
-  ];
-  if (idx < statusOrder.length - 1) {
-    actions.push({
-      label: `推进到「${PM_STATUS_COLUMNS[idx + 1].label}」`,
-      action: async () => {
-        await invoke("tool:pm:item-change-status", { id: item.id, status: statusOrder[idx + 1] });
-        await loadItems();
-      },
-    });
-  }
-  actions.push(
-    { divider: true, label: "", action: () => {} },
-    {
-      label: "删除",
-      danger: true,
-      action: async () => {
-        try {
-          await ElMessageBox.confirm("确定删除？", "删除", { type: "warning" });
-          await invoke("tool:pm:item-delete", { id: item.id });
-          if (selectedItemId.value === item.id) selectedItemId.value = null;
-          await loadItems();
-        } catch {}
-      },
-    },
-  );
-  openCtxMenu(event, actions);
+  openItemContextMenu(event, item);
 }
 
-// ── Move to project ──────────────────────────────────────
-
-async function moveItemToProject(newProjectId: number) {
-  if (!selectedItemId.value || !selectedItem.value) return;
-  if (selectedItem.value.projectId === newProjectId) return;
-  try {
-    await invoke("tool:pm:item-move-project", {
-      id: selectedItemId.value,
-      projectId: newProjectId,
-    });
-    const proj = projects.value.find((p) => p.id === newProjectId);
-    ElMessage.success(`已移至「${proj?.name}」`);
-    await loadItems();
-  } catch (e) {
-    ElMessage.error((e as Error).message);
-  }
+function onGanttItemContext(payload: { item: PmItem; anchorX: number; anchorY: number }) {
+  openItemContextMenuAt(payload.item, payload.anchorX, payload.anchorY);
 }
 
 // ── Gantt date change ────────────────────────────────────
@@ -838,26 +738,83 @@ async function onGanttDateChange(item: PmItem, start: string, end: string) {
   }
 }
 
-// ── Tag editor ───────────────────────────────────────────
-
-function showTagInput() {
-  tagInputVisible.value = true;
-  nextTick(() => tagInputRef.value?.focus());
+function findNextStatus(item: PmItem): PmItemStatus | null {
+  const index = PM_ITEM_STATUS_ORDER.indexOf(item.status);
+  if (index < 0 || index >= PM_ITEM_STATUS_ORDER.length - 1) return null;
+  return PM_ITEM_STATUS_ORDER[index + 1];
 }
 
-function confirmTag() {
-  const val = tagInputValue.value.trim();
-  if (val && !detailForm.value.tags.includes(val)) {
-    detailForm.value.tags.push(val);
-    saveDetail();
+async function toggleItemPinFor(item: PmItem) {
+  try {
+    await invoke("tool:pm:item-toggle-pin", { id: item.id });
+    await loadItems();
+  } catch (e) {
+    ElMessage.error((e as Error).message);
   }
-  tagInputVisible.value = false;
-  tagInputValue.value = "";
 }
 
-function removeTag(tag: string) {
-  detailForm.value.tags = detailForm.value.tags.filter((t) => t !== tag);
-  saveDetail();
+async function advanceItemStatusFor(item: PmItem) {
+  const nextStatus = findNextStatus(item);
+  if (!nextStatus) return;
+  try {
+    await invoke("tool:pm:item-change-status", { id: item.id, status: nextStatus });
+    await loadItems();
+  } catch (e) {
+    ElMessage.error((e as Error).message);
+  }
+}
+
+async function deleteItemRecord(item: PmItem) {
+  try {
+    await ElMessageBox.confirm("确定删除该工作项？", "删除确认", { type: "warning" });
+    await invoke("tool:pm:item-delete", { id: item.id });
+    if (selectedItemId.value === item.id) {
+      selectedItemId.value = null;
+    }
+    await loadItems();
+  } catch (e) {
+    if ((e as string) !== "cancel") {
+      ElMessage.error((e as Error).message);
+    }
+  }
+}
+
+function buildItemContextActions(item: PmItem): CtxMenuAction[] {
+  const actions: CtxMenuAction[] = [
+    { label: "编辑", action: () => editItem(item) },
+    {
+      label: item.pinned ? "取消置顶" : "置顶",
+      action: () => void toggleItemPinFor(item),
+    },
+  ];
+
+  const nextStatus = findNextStatus(item);
+  if (nextStatus) {
+    const nextLabel = PM_STATUS_COLUMNS.find((entry) => entry.key === nextStatus)?.label ?? nextStatus;
+    actions.push({
+      label: `推进到「${nextLabel}」`,
+      action: () => void advanceItemStatusFor(item),
+    });
+  }
+
+  actions.push(
+    { divider: true, label: "", action: () => {} },
+    {
+      label: "删除",
+      danger: true,
+      action: () => void deleteItemRecord(item),
+    },
+  );
+
+  return actions;
+}
+
+function openItemContextMenu(event: MouseEvent, item: PmItem) {
+  openItemContextMenuAt(item, event.clientX, event.clientY);
+}
+
+function openItemContextMenuAt(item: PmItem, anchorX: number, anchorY: number) {
+  openCtxMenuAt(anchorX, anchorY, buildItemContextActions(item));
 }
 
 // ── Sortable (drag & drop) ───────────────────────────────
@@ -950,6 +907,11 @@ watch(
   { flush: 'post' }
 );
 
+watch(
+  () => [selectedProjectId.value, viewMode.value],
+  () => closeCtxMenu(),
+);
+
 // ── Cross-project drag (sidebar drop) ────────────────────
 
 function onProjectDragOver(p: PmProject) {
@@ -991,30 +953,86 @@ function onProjectDrop(p: PmProject) {
 // ── Context menu (Vue reactive) ──────────────────────────
 
 function openCtxMenu(event: MouseEvent, actions: CtxMenuAction[]) {
+  openCtxMenuAt(event.clientX, event.clientY, actions);
+}
+
+function estimateCtxMenuHeight(actions: CtxMenuAction[]): number {
+  const dividerCount = actions.filter((action) => action.divider).length;
+  const itemCount = actions.length - dividerCount;
+  return (
+    itemCount * PM_CTX_MENU_ITEM_HEIGHT +
+    dividerCount * PM_CTX_MENU_DIVIDER_HEIGHT +
+    PM_CTX_MENU_VERTICAL_PADDING
+  );
+}
+
+function positionCtxMenu(anchorX: number, anchorY: number) {
+  const menuWidth = ctxMenuRef.value?.offsetWidth ?? PM_CTX_MENU_WIDTH;
+  const menuHeight = ctxMenuRef.value?.offsetHeight ?? estimateCtxMenuHeight(ctxMenuActions.value);
+  const position = clampContextMenuPosition({
+    anchorX,
+    anchorY,
+    menuWidth,
+    menuHeight,
+    viewportWidth: window.innerWidth,
+    viewportHeight: window.innerHeight,
+  });
+  ctxMenuX.value = position.x;
+  ctxMenuY.value = position.y;
+}
+
+function openCtxMenuAt(anchorX: number, anchorY: number, actions: CtxMenuAction[]) {
   closeCtxMenu();
-  ctxMenuX.value = Math.min(event.clientX, window.innerWidth - 160);
-  ctxMenuY.value = Math.min(event.clientY, window.innerHeight - actions.length * 34 - 16);
   ctxMenuActions.value = actions;
   ctxMenuVisible.value = true;
+  ctxMenuX.value = anchorX;
+  ctxMenuY.value = anchorY;
+  nextTick(() => positionCtxMenu(anchorX, anchorY));
   setTimeout(() => {
     document.addEventListener("pointerdown", handleCtxClickAway);
+    document.addEventListener("keydown", handleCtxKeydown);
+    document.addEventListener("contextmenu", handleCtxGlobalContextMenu);
+    document.addEventListener("scroll", handleCtxViewportChange, true);
+    window.addEventListener("resize", handleCtxViewportChange);
   }, 0);
 }
 
 function closeCtxMenu() {
   ctxMenuVisible.value = false;
   document.removeEventListener("pointerdown", handleCtxClickAway);
+  document.removeEventListener("keydown", handleCtxKeydown);
+  document.removeEventListener("contextmenu", handleCtxGlobalContextMenu);
+  document.removeEventListener("scroll", handleCtxViewportChange, true);
+  window.removeEventListener("resize", handleCtxViewportChange);
 }
 
 function handleCtxClickAway(e: PointerEvent) {
-  const target = e.target as HTMLElement;
-  if (!target.closest(".pm-ctx-menu")) {
+  const target = e.target;
+  if (!(target instanceof Element) || !target.closest(".pm-ctx-menu")) {
     closeCtxMenu();
   }
 }
 
 function executeCtxAction(act: CtxMenuAction) {
-  act.action();
+  closeCtxMenu();
+  void act.action();
+}
+
+function handleCtxKeydown(event: KeyboardEvent) {
+  if (event.key === "Escape") {
+    closeCtxMenu();
+  }
+}
+
+function handleCtxGlobalContextMenu(event: MouseEvent) {
+  const target = event.target;
+  if (target instanceof Element && target.closest(".pm-ctx-menu")) {
+    return;
+  }
+  closeCtxMenu();
+}
+
+function handleCtxViewportChange() {
   closeCtxMenu();
 }
 
@@ -1034,52 +1052,18 @@ function formatDateTime(dateStr: string): string {
 
 // ── Lifecycle ────────────────────────────────────────────
 
-function isDetailDirty(): boolean {
-  const item = selectedItem.value;
-  if (!item) return false;
-  const f = detailForm.value;
-  return (
-    f.title !== item.title ||
-    f.itemType !== item.itemType ||
-    f.priority !== item.priority ||
-    f.status !== item.status ||
-    (f.startAt ?? "") !== (item.startAt ?? "") ||
-    (f.endAt ?? "") !== (item.endAt ?? "") ||
-    f.description !== item.description ||
-    JSON.stringify(f.tags) !== JSON.stringify(item.tags)
-  );
-}
-
-let closingDetail = false;
-
 async function tryCloseDetail() {
-  if (closingDetail) return;
   if (!selectedItem.value) return;
-  if (!isDetailDirty()) {
-    selectedItemId.value = null;
-    return;
-  }
-  closingDetail = true;
-  try {
-    await ElMessageBox.confirm("详情有未保存的修改，是否保存？", "提示", {
-      confirmButtonText: "保存",
-      cancelButtonText: "放弃",
-      type: "warning",
-    });
-    await saveDetail();
-  } catch {
-    // 用户选择放弃
-  }
   selectedItemId.value = null;
-  closingDetail = false;
 }
 
 function onDetailClickAway(e: PointerEvent) {
   if (!selectedItem.value) return;
-  const target = e.target as HTMLElement;
-  // 忽略详情面板内部、弹窗遮罩、下拉菜单等 Element Plus 弹出层的点击
+  const target = e.target;
+  if (!(target instanceof Element)) return;
   if (
     target.closest(".pm-detail") ||
+    target.closest(".pm-ctx-menu") ||
     target.closest(".el-overlay") ||
     target.closest(".el-popper") ||
     target.closest(".el-picker__popper") ||
@@ -1132,14 +1116,14 @@ onBeforeUnmount(() => {
 }
 .sidebar-title {
   font-weight: 600;
-  font-size: 14px;
+  font-size: 16px;
 }
 .project-group {
   margin-bottom: 8px;
 }
 .project-group-label {
   padding: 4px 12px;
-  font-size: 11px;
+  font-size: 13px;
   color: var(--el-text-color-secondary);
   text-transform: uppercase;
 }
@@ -1149,7 +1133,7 @@ onBeforeUnmount(() => {
   gap: 8px;
   padding: 6px 12px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 15px;
   transition: background 0.15s, box-shadow 0.15s;
 }
 .project-item:hover {
@@ -1168,8 +1152,8 @@ onBeforeUnmount(() => {
   border-radius: 4px;
 }
 .project-color {
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
   border-radius: 2px;
   flex-shrink: 0;
 }
@@ -1181,7 +1165,7 @@ onBeforeUnmount(() => {
 .empty-hint {
   padding: 24px 12px;
   color: var(--el-text-color-secondary);
-  font-size: 13px;
+  font-size: 14px;
   text-align: center;
 }
 .overview-item {
@@ -1217,7 +1201,7 @@ onBeforeUnmount(() => {
 }
 .project-title-display {
   font-weight: 600;
-  font-size: 15px;
+  font-size: 16px;
 }
 .toolbar-right {
   display: flex;
@@ -1235,7 +1219,7 @@ onBeforeUnmount(() => {
 }
 .kanban-column {
   flex: 1;
-  min-width: 220px;
+  min-width: 240px;
   display: flex;
   flex-direction: column;
   background: var(--el-fill-color-lighter);
@@ -1246,9 +1230,9 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 12px;
+  padding: 10px 14px;
   font-weight: 600;
-  font-size: 13px;
+  font-size: 15px;
   border-bottom: 1px solid var(--el-border-color-extra-light);
 }
 .column-count {
@@ -1272,8 +1256,8 @@ onBeforeUnmount(() => {
   border: 1px solid var(--el-border-color-lighter);
   border-left: 3px solid var(--el-color-primary);
   border-radius: 6px;
-  padding: 10px 10px 10px 10px;
-  margin-bottom: 6px;
+  padding: 12px 12px 12px 12px;
+  margin-bottom: 8px;
   cursor: grab;
   transition: box-shadow 0.15s, border-color 0.15s;
 }
@@ -1302,10 +1286,10 @@ onBeforeUnmount(() => {
   align-items: flex-start;
   justify-content: space-between;
   gap: 4px;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
 }
 .card-title {
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 500;
   line-height: 1.4;
   word-break: break-all;
@@ -1331,7 +1315,7 @@ onBeforeUnmount(() => {
   margin-bottom: 4px;
 }
 .card-meta .el-tag {
-  font-size: 10px;
+  font-size: 12px;
   height: 18px;
   line-height: 18px;
   padding: 0 6px;
@@ -1344,16 +1328,25 @@ onBeforeUnmount(() => {
   margin-bottom: 4px;
 }
 .card-tags .el-tag {
-  font-size: 10px;
+  font-size: 12px;
   height: 18px;
 }
 .card-dates {
-  font-size: 11px;
+  font-size: 13px;
   color: var(--el-text-color-secondary);
 }
 .is-overdue-date {
   color: var(--lc-danger, #f56c6c);
   font-weight: 600;
+}
+.priority-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 6px;
+  vertical-align: middle;
+  flex-shrink: 0;
 }
 .card-project {
   display: flex;
@@ -1368,7 +1361,7 @@ onBeforeUnmount(() => {
   flex-shrink: 0;
 }
 .card-project-name {
-  font-size: 11px;
+  font-size: 13px;
   color: var(--el-text-color-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1417,22 +1410,6 @@ onBeforeUnmount(() => {
   z-index: 100;
 }
 
-/* Drag handle */
-.kanban-drag-handle {
-  position: absolute;
-  top: 8px;
-  left: 2px;
-  cursor: grab;
-  color: var(--el-text-color-placeholder);
-  opacity: 0;
-  transition: opacity 0.15s;
-  z-index: 1;
-  padding: 2px;
-}
-.kanban-card:hover .kanban-drag-handle { opacity: 0.6; }
-.kanban-drag-handle:hover { opacity: 1 !important; color: var(--el-text-color-secondary); }
-.kanban-drag-handle:active { cursor: grabbing; }
-
 /* Column drag-over highlight */
 .kanban-column.is-drag-over {
   background: var(--el-color-primary-light-9);
@@ -1448,7 +1425,7 @@ onBeforeUnmount(() => {
   text-align: center;
   padding: 16px 8px;
   color: var(--el-text-color-placeholder);
-  font-size: 12px;
+  font-size: 13px;
   border: 2px dashed var(--el-border-color-light);
   border-radius: 6px;
   pointer-events: none;
@@ -1459,7 +1436,7 @@ onBeforeUnmount(() => {
   position: absolute;
   top: 0;
   right: 0;
-  width: 300px;
+  width: 320px;
   height: 100%;
   border-left: 1px solid var(--el-border-color-lighter);
   padding: 12px;
@@ -1476,17 +1453,45 @@ onBeforeUnmount(() => {
 }
 .detail-title {
   font-weight: 600;
-  font-size: 14px;
+  font-size: 16px;
 }
-.detail-form .el-form-item {
-  margin-bottom: 12px;
+.detail-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
-.detail-form .el-form-item__label {
+.detail-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.detail-label {
   font-size: 12px;
-  padding-bottom: 2px;
+  color: var(--el-text-color-secondary);
+  font-weight: 500;
+}
+.detail-value {
+  font-size: 14px;
+  color: var(--el-text-color-primary);
+  word-break: break-word;
+}
+.detail-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.detail-description {
+  margin: 0;
+  font-family: inherit;
+  white-space: pre-wrap;
+  background: var(--el-fill-color-lighter);
+  border-radius: 4px;
+  padding: 6px 8px;
+  font-size: 13px;
+  color: var(--el-text-color-regular);
 }
 .detail-readonly {
-  font-size: 12px;
+  font-size: 14px;
   color: var(--el-text-color-secondary);
 }
 .detail-actions {
@@ -1495,13 +1500,6 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
   margin-top: 12px;
 }
-.tag-editor {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  align-items: center;
-}
-
 /* Detail panel transition */
 .pm-detail-slide-enter-active {
   transition: opacity 0.2s ease, transform 0.2s ease;
@@ -1538,7 +1536,7 @@ onBeforeUnmount(() => {
 }
 .pm-ctx-item {
   padding: 6px 16px;
-  font-size: 13px;
+  font-size: 15px;
   cursor: pointer;
   transition: background 0.15s;
 }

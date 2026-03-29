@@ -195,6 +195,11 @@ html[data-theme="light"] .el-button.el-button--primary.is-text {
   --el-button-border-color: transparent;
 }
 
+html[data-theme="light"] .el-button.el-button--primary.is-link {
+  --el-button-text-color: var(--lc-accent);
+  --el-button-hover-text-color: var(--lc-accent-light);
+}
+
 /* Button Default */
 html[data-theme="light"] .el-button--default {
   --el-button-bg-color: #ffffff;

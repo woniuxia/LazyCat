@@ -149,11 +149,11 @@ onMounted(loadData);
 }
 .header-left h3 {
   margin: 0;
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 600;
 }
 .window-hint {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--el-text-color-secondary);
 }
 .weekly-body {
@@ -162,7 +162,7 @@ onMounted(loadData);
   padding: 16px;
 }
 .work-group {
-  margin-bottom: 20px;
+  margin-bottom: 24px;
 }
 .group-header {
   display: flex;
@@ -173,17 +173,17 @@ onMounted(loadData);
   margin-bottom: 8px;
 }
 .project-dot {
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
   border-radius: 2px;
   flex-shrink: 0;
 }
 .group-name {
   font-weight: 600;
-  font-size: 14px;
+  font-size: 15px;
 }
 .group-count {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--el-text-color-secondary);
   margin-left: auto;
 }
@@ -191,7 +191,7 @@ onMounted(loadData);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 6px 8px;
+  padding: 8px 10px;
   border-radius: 4px;
   transition: background 0.15s;
 }
@@ -201,11 +201,11 @@ onMounted(loadData);
 .item-main {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   min-width: 0;
 }
 .item-title {
-  font-size: 13px;
+  font-size: 14px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -213,15 +213,15 @@ onMounted(loadData);
 .item-meta {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   flex-shrink: 0;
 }
 .item-priority {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
 }
 .item-time {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--el-text-color-secondary);
   min-width: 80px;
   text-align: right;
