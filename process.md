@@ -8,6 +8,81 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-03-30: 项目管理思源存储位置选择器树节点错乱与轻量目录选择器重构
+
+**场景**: 用户反馈项目管理里“绑定项目专属存储位置”弹窗显示很乱，树节点标题与路径重叠、层级难看清，希望排查原因并把交互一起优化。
+
+**问题**:
+1. `PmPanel.vue` 的位置选择弹窗给 `el-tree` 自定义节点塞了“标题 + 路径”两行内容，但没有同步适配 `el-tree-node__content` 高度和对齐，导致长目录树下出现文本重叠和错位。
+2. 目录树默认 `default-expand-all`，笔记本、文档、路径、数量一次性铺开，信息密度太高，导致即使没有 CSS bug 也很难快速定位目标。
+3. “当前选择”只有一行文案，没有独立选中卡片和搜索辅助，用户点击树节点后仍然很难快速确认自己到底选中了哪里。
+
+**解决**:
+1. 在 `pmSiyuan.ts` 中补充位置选择器辅助纯函数：目录树过滤、搜索态展开 key 计算、位置目标文案和路径文案格式化。
+2. `PmPanel.vue` 的位置选择弹窗重做为“搜索 + 当前选择卡片 + 默认折叠树”的轻量目录选择器：
+   - 顶部增加搜索框和当前选择卡片
+   - 树默认只展开笔记本一级
+   - 搜索时仅保留命中的节点和祖先路径，并自动展开必要分支
+   - 完整路径从树节点主体中移走，集中在当前选择卡片里展示
+3. 树节点改为单行标题优先展示，并通过 `:deep(.el-tree-node__content)` 覆盖最小高度、hover、current 状态和标签区宽度，彻底消除原来的重叠。
+4. 顺手补齐思源配置卡片、页面关联列表和详情区的样式，让 PM 内思源相关 UI 视觉上统一，不再是多块临时样式拼接。
+5. 在 `pmSiyuan.test.ts` 中补充过滤树、展开 keys 与位置展示文案测试，避免后续再改树结构时回归。
+
+**关键点**:
+1. 给 `el-tree` 做自定义多行节点时，不能只改 slot 模板，必须同步检查 `el-tree-node__content` 的高度和对齐方式，否则很容易出现“节点内容高度没长，文本却长了”的重叠 bug。
+2. 目录选择场景不要把路径信息塞到每个树节点里。更稳的做法是“树里看标题，选中区看完整路径”，让信息按任务拆层。
+3. 搜索目录树时，前端直接派生一棵过滤树比依赖组件内部 filter 更容易控制“祖先保留 + 搜索态展开 + 清空后恢复默认折叠”这整套行为。
+
+**涉及文件**:
+- `apps/desktop/src/components/PmPanel.vue`
+- `apps/desktop/src/utils/pmSiyuan.ts`
+- `apps/desktop/src/utils/pmSiyuan.test.ts`
+
+**验证**:
+- `pnpm test src/utils/pmSiyuan.test.ts`
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+
+**使用次数**: 0
+
+## 2026-03-29: 项目管理接入思源配置与目录树预览首版
+
+**场景**: 用户希望在项目管理面板内新增思源设置，先完成第一版：配置本地思源地址和 API Token，验证连接，并读取“笔记本 + 文档树”目录数据。
+
+**问题**:
+1. 项目管理当前只有本地 PM 数据，没有任何外部知识库/文档系统接入入口。
+2. 配置层已有 `user_settings`，但缺少 PM 场景内的局部设置 UI 和对应后端 action。
+3. 思源 API 虽有官方接口可查版本、列笔记本和执行 SQL，但需要在 Rust 侧统一处理地址归一化、鉴权失败、超时、标准响应解析和目录树构建，不能把这些细节丢给前端。
+
+**解决**:
+1. 在 `PmPanel.vue` 顶部工具栏新增“思源设置”按钮，使用 `el-drawer` 承载地址、Token、保存、测试连接、加载目录和树预览；配置通过 `useSettings` 持久化到 `user_settings`。
+2. 在 `bridge/tauri.ts` 增加 `tool:pm:siyuan-test` 与 `tool:pm:siyuan-directory` 两条通道，在 `types/pm.ts` 中补齐目录树类型定义，前端只负责展示和局部状态管理。
+3. 在 `pm.rs` 中新增思源 helper：地址归一化、设置兜底读取、HTTP POST 封装、思源标准响应解析、401/403 与业务错误分类、`lsNotebooks + query/sql` 查询，以及按 `hpath` 构造树。
+4. 目录树第一版使用 `blocks` 表中 `box / path / hpath / content` 查询文档节点，并在 Rust 内存中按路径分段逐层插入，最终返回前端可直接渲染的树结构。
+5. 补充 Rust 单测覆盖 URL 归一化与目录树嵌套构建，减少后续重构时的回归风险。
+
+**关键点**:
+1. 思源配置虽然属于“设置”，但第一版放在 PM 面板内更贴近业务场景；后端 action 仍应归在 `pm` 域，而不是塞进通用 `settings` 域。
+2. `user_settings` 足够承接这类轻量配置；若只是地址和 Token，不需要为了第一版额外建表。
+3. 思源标准响应的错误不能只看 HTTP 状态码，还要看 JSON 中的 `code/msg`；连接失败、鉴权失败和业务错误要分开提示。
+4. 前端刷新目录失败时应保留上一次成功树，避免一次请求失败把整个预览区清空。
+5. 第一版目录树基于 `query/sql` 的字段假设构建，后续若思源版本字段结构变化，优先在 Rust 侧兜底或报出明确兼容性错误。
+
+**涉及文件**:
+- `docs/superpowers/specs/2026-03-29-pm-siyuan-integration-v1-design.md`
+- `apps/desktop/src/components/PmPanel.vue`
+- `apps/desktop/src/types/pm.ts`
+- `apps/desktop/src/bridge/tauri.ts`
+- `apps/desktop/src-tauri/src/tools/pm.rs`
+
+**验证**:
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+- `cargo check --manifest-path "E:/Projects/LazyCat/apps/desktop/src-tauri/Cargo.toml"`
+- `cargo test --manifest-path "E:/Projects/LazyCat/apps/desktop/src-tauri/Cargo.toml" siyuan_`
+
+**使用次数**: 0
+
 ## 2026-03-29: 项目管理甘特图悬浮卡越界与右键视口重置修复
 
 **场景**: 用户反馈项目管理甘特图在底部任务上悬浮详情时会被容器裁切，且右键任务打开菜单后甘特图视口会跳回默认位置。

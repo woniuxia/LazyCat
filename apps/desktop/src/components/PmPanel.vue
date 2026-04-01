@@ -87,6 +87,7 @@
               <el-option v-for="(meta, key) in PM_PRIORITY_MAP" :key="key" :label="meta.label" :value="key" />
             </el-select>
             <el-button type="primary" @click="showCreateItem">新建工作项</el-button>
+            <el-button type="default" @click="openSiyuanDrawer">思源设置</el-button>
           </div>
         </div>
 
@@ -226,6 +227,35 @@
                 </span>
               </div>
               <div class="detail-field">
+                <span class="detail-label">思源主页面</span>
+                <div class="detail-value detail-siyuan-pages">
+                  <template v-if="selectedItem.siyuanPrimaryPage">
+                    <div class="detail-siyuan-page">
+                      <div class="detail-siyuan-page-main">
+                        <span class="detail-siyuan-page-title">{{ selectedItem.siyuanPrimaryPage.docTitle }}</span>
+                        <span class="detail-siyuan-page-meta">
+                          {{ selectedItem.siyuanPrimaryPage.notebookName }} · {{ selectedItem.siyuanPrimaryPage.docHpath }}
+                        </span>
+                      </div>
+                      <el-button size="small" link @click="openSiyuanPage(selectedItem.siyuanPrimaryPage)">打开</el-button>
+                    </div>
+                  </template>
+                  <span v-else>-</span>
+                </div>
+              </div>
+              <div class="detail-field" v-if="selectedItem.siyuanExtraPages.length > 0">
+                <span class="detail-label">附加页面</span>
+                <div class="detail-value detail-siyuan-pages">
+                  <div v-for="page in selectedItem.siyuanExtraPages" :key="page.docId" class="detail-siyuan-page">
+                    <div class="detail-siyuan-page-main">
+                      <span class="detail-siyuan-page-title">{{ page.docTitle }}</span>
+                      <span class="detail-siyuan-page-meta">{{ page.notebookName }} · {{ page.docHpath }}</span>
+                    </div>
+                    <el-button size="small" link @click="openSiyuanPage(page)">打开</el-button>
+                  </div>
+                </div>
+              </div>
+              <div class="detail-field">
                 <span class="detail-label">描述</span>
                 <pre class="detail-value detail-description">{{ selectedItem.description || '-' }}</pre>
               </div>
@@ -250,7 +280,7 @@
         </Transition>
       </div>
     </div>
-    <el-dialog v-model="projectDialogVisible" :title="editingProject ? '编辑项目' : '新建项目'" width="420px" @close="resetProjectForm">
+    <el-dialog v-model="projectDialogVisible" :title="editingProject ? '编辑项目' : '新建项目'" width="520px" @close="resetProjectForm">
       <el-form :model="projectForm" label-width="60px" size="default" @submit.prevent="submitProject">
         <el-form-item label="名称">
           <el-input v-model="projectForm.name" placeholder="项目名称" @keyup.enter="submitProject" />
@@ -261,6 +291,25 @@
         <el-form-item label="颜色">
           <el-color-picker v-model="projectForm.color" :predefine="presetColors" />
         </el-form-item>
+        <el-form-item label="思源位置" class="pm-form-item-top">
+          <div class="pm-siyuan-config-card">
+            <el-radio-group v-model="projectForm.useSiyuanOverride">
+              <el-radio :value="false">继承全局默认</el-radio>
+              <el-radio :value="true">使用项目专属位置</el-radio>
+            </el-radio-group>
+            <div class="pm-siyuan-config-summary">
+              当前：{{
+                projectForm.useSiyuanOverride
+                  ? formatPmSiyuanLocationLabel(projectForm.siyuanLocationOverride)
+                  : formatPmSiyuanLocationLabel(globalSiyuanLocation)
+              }}
+            </div>
+            <div v-if="projectForm.useSiyuanOverride" class="pm-siyuan-inline-actions">
+              <el-button size="small" @click="openSiyuanLocationPicker('project')">选择位置</el-button>
+              <el-button size="small" @click="clearProjectSiyuanOverride">清空</el-button>
+            </div>
+          </div>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="projectDialogVisible = false">取消</el-button>
@@ -269,7 +318,7 @@
     </el-dialog>
 
     <!-- Item dialog -->
-    <el-dialog v-model="itemDialogVisible" :title="editingItem ? '编辑工作项' : '新建工作项'" width="480px" @close="resetItemForm">
+    <el-dialog v-model="itemDialogVisible" :title="editingItem ? '编辑工作项' : '新建工作项'" width="720px" @close="resetItemForm">
       <el-form :model="itemForm" label-width="80px" size="default">
         <el-form-item v-if="isOverview && !editingItem" label="所属项目">
           <el-select v-model="itemFormProjectId" placeholder="选择项目" style="width: 100%">
@@ -309,6 +358,60 @@
         <el-form-item label="描述">
           <el-input v-model="itemForm.description" type="textarea" :rows="3" />
         </el-form-item>
+        <el-form-item label="思源关联" class="pm-form-item-top">
+          <div class="pm-siyuan-link-card">
+            <div class="pm-siyuan-link-header">
+              <div>
+                <div class="pm-siyuan-link-title">页面关联</div>
+                <div class="pm-siyuan-link-subtitle">
+                  当前有效位置：{{ formatPmSiyuanLocationLabel(itemEffectiveLocation) }}
+                  <el-tag size="small" type="info">{{ itemEffectiveLocationSource }}</el-tag>
+                </div>
+              </div>
+              <div class="pm-siyuan-inline-actions">
+                <el-button size="small" @click="openSiyuanPageDialog('primary')">
+                  {{ itemPrimaryPage ? "更换主页面" : "关联主页面" }}
+                </el-button>
+                <el-button size="small" @click="openSiyuanPageDialog('extra')">添加附加页面</el-button>
+              </div>
+            </div>
+
+            <div class="pm-siyuan-linked-section">
+              <div class="pm-siyuan-section-label">主页面</div>
+              <div v-if="itemPrimaryPage" class="pm-siyuan-page-row">
+                <div class="pm-siyuan-page-main">
+                  <div class="pm-siyuan-page-title">{{ itemPrimaryPage.docTitle }}</div>
+                  <div class="pm-siyuan-page-meta">
+                    {{ itemPrimaryPage.notebookName }} · {{ itemPrimaryPage.docHpath }}
+                  </div>
+                </div>
+                <div class="pm-siyuan-inline-actions">
+                  <el-button size="small" link @click="openSiyuanPage(itemPrimaryPage)">打开</el-button>
+                  <el-button size="small" link @click="removeItemLinkedPage(itemPrimaryPage.docId)">移除</el-button>
+                </div>
+              </div>
+              <div v-else class="pm-siyuan-empty-hint">暂未关联主页面</div>
+            </div>
+
+            <div class="pm-siyuan-linked-section">
+              <div class="pm-siyuan-section-label">附加页面</div>
+              <div v-if="itemExtraPages.length > 0" class="pm-siyuan-page-list">
+                <div v-for="page in itemExtraPages" :key="page.docId" class="pm-siyuan-page-row">
+                  <div class="pm-siyuan-page-main">
+                    <div class="pm-siyuan-page-title">{{ page.docTitle }}</div>
+                    <div class="pm-siyuan-page-meta">{{ page.notebookName }} · {{ page.docHpath }}</div>
+                  </div>
+                  <div class="pm-siyuan-inline-actions">
+                    <el-button size="small" link @click="applyItemPrimaryPage(page)">设为主页面</el-button>
+                    <el-button size="small" link @click="openSiyuanPage(page)">打开</el-button>
+                    <el-button size="small" link @click="removeItemLinkedPage(page.docId)">移除</el-button>
+                  </div>
+                </div>
+              </div>
+              <div v-else class="pm-siyuan-empty-hint">暂无附加页面</div>
+            </div>
+          </div>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="itemDialogVisible = false">取消</el-button>
@@ -340,23 +443,320 @@
         </div>
       </Transition>
     </Teleport>
+
+    <el-drawer
+      :model-value="siyuanDrawerVisible"
+      direction="rtl"
+      size="420px"
+      wrapper-class="pm-siyuan-drawer"
+      destroy-on-close
+      :with-header="true"
+      @close="siyuanDrawerVisible = false"
+    >
+      <template #title>
+        思源配置
+      </template>
+      <div class="siyuan-drawer-body">
+        <el-form label-position="top" size="default">
+          <el-form-item label="服务地址">
+            <el-input
+              v-model="siyuanForm.baseUrl"
+              placeholder="http://127.0.0.1:6806"
+              clearable
+            />
+          </el-form-item>
+          <el-form-item label="API Token">
+            <el-input
+              :type="siyuanShowToken ? 'text' : 'password'"
+              v-model="siyuanForm.token"
+              placeholder="填写思源 API Token"
+              clearable
+            >
+              <template #suffix>
+                <el-button type="text" size="small" @click="siyuanShowToken = !siyuanShowToken">
+                  {{ siyuanShowToken ? "隐藏" : "显示" }}
+                </el-button>
+              </template>
+            </el-input>
+          </el-form-item>
+        </el-form>
+        <div class="pm-siyuan-config-card">
+          <div class="pm-siyuan-link-title">任务默认存储位置</div>
+          <div class="pm-siyuan-config-summary">
+            {{ formatPmSiyuanLocationLabel(globalSiyuanLocationDraft) }}
+          </div>
+          <div class="pm-siyuan-inline-actions">
+            <el-button size="small" @click="openSiyuanLocationPicker('global')">选择位置</el-button>
+            <el-button size="small" @click="globalSiyuanLocationDraft = null">清空</el-button>
+          </div>
+        </div>
+        <div class="siyuan-actions">
+          <el-button type="primary" @click="saveSiyuanConfig">保存配置</el-button>
+          <el-button type="info" :loading="siyuanTesting" @click="handleTestConnection">测试连接</el-button>
+          <el-button type="default" :loading="siyuanLoadingDirectory" @click="handleLoadDirectory">加载目录</el-button>
+        </div>
+        <div class="siyuan-status">
+          <el-tag v-if="siyuanTestingVersion" type="success" effect="dark">
+            已连接 · {{ siyuanTestingVersion }}
+          </el-tag>
+          <el-alert
+            v-if="siyuanError"
+            :title="siyuanErrorTitle"
+            :description="siyuanError"
+            type="error"
+            show-icon
+            class="siyuan-error-alert"
+          />
+          <div v-else-if="siyuanDirectoryFetchedAt" class="siyuan-fetch-hint">
+            最后一次加载：{{ siyuanDirectoryFetchedAt }}
+          </div>
+        </div>
+        <div class="siyuan-tree-section">
+          <div v-if="siyuanLoadingDirectory" class="siyuan-loading-hint">
+            正在从思源加载目录...
+          </div>
+          <el-empty
+            v-if="!siyuanDirectory.length && !siyuanLoadingDirectory"
+            description="暂无目录记录，先点击“加载目录”"
+          />
+          <el-tree
+            v-else-if="siyuanDirectory.length"
+            :data="siyuanDirectory"
+            :props="siyuanTreeProps"
+            node-key="id"
+            :expand-on-click-node="false"
+            class="siyuan-tree"
+          >
+            <template #default="{ data }">
+              <div class="siyuan-tree-node siyuan-tree-node--preview">
+                <div class="siyuan-node-main">
+                  <span class="siyuan-node-title">{{ data.name }}</span>
+                  <span
+                    v-if="isPmSiyuanNotebookDirectory(data)"
+                    class="siyuan-node-badge"
+                    :class="{ 'is-disabled': data.closed }"
+                  >
+                    {{ data.closed ? "已关闭" : `${data.docCount} 篇` }}
+                  </span>
+                </div>
+              </div>
+            </template>
+          </el-tree>
+        </div>
+      </div>
+    </el-drawer>
+
+    <el-dialog
+      v-model="siyuanLocationDialogVisible"
+      :title="siyuanLocationPickerTitle"
+      width="720px"
+      destroy-on-close
+    >
+      <div class="pm-siyuan-dialog-body pm-siyuan-dialog-body--picker">
+        <div class="pm-siyuan-picker-intro">
+          选择笔记本根目录或某个父文档后，项目内新建思源页面会默认存放到这里。
+        </div>
+        <el-input
+          v-model="siyuanLocationPickerSearch"
+          class="pm-siyuan-picker-search"
+          placeholder="搜索笔记本、文档标题或路径"
+          clearable
+        />
+        <div v-if="siyuanLoadingDirectory && !siyuanDirectory.length" class="pm-siyuan-empty-hint">
+          正在同步思源目录，请稍候…
+        </div>
+        <div v-else-if="!siyuanDirectory.length" class="pm-siyuan-empty-hint">
+          尚未加载思源目录，请先测试连接并加载目录。
+        </div>
+        <template v-else>
+          <div class="pm-siyuan-picker-tree-head">
+            <span>{{ siyuanLocationPickerStatusText }}</span>
+            <div class="pm-siyuan-inline-actions">
+              <span v-if="siyuanDirectoryFetchedAt">最后同步：{{ siyuanDirectoryFetchedAt }}</span>
+              <span v-if="siyuanLocationPickerSearchKeyword">清空搜索后会恢复默认折叠。</span>
+              <el-button
+                size="small"
+                text
+                :loading="siyuanLoadingDirectory"
+                @click="handleRefreshSiyuanLocationPicker"
+              >
+                刷新目录
+              </el-button>
+            </div>
+          </div>
+          <div class="pm-siyuan-picker-tree-shell">
+            <el-empty
+              v-if="siyuanLocationPickerTreeData.length === 0"
+              description="未找到匹配位置，请换个关键词试试"
+            />
+            <el-tree
+              v-else
+              :key="siyuanLocationPickerTreeKey"
+              :data="siyuanLocationPickerTreeData"
+              :props="siyuanTreeProps"
+              node-key="id"
+              highlight-current
+              :current-node-key="siyuanLocationPickerCurrentNodeKey"
+              :default-expanded-keys="siyuanLocationPickerExpandedKeys"
+              :expand-on-click-node="false"
+              class="siyuan-tree pm-siyuan-picker-tree"
+              @node-click="handleSiyuanLocationTreeNodeClick"
+            >
+              <template #default="{ data, node }">
+                <div
+                  class="siyuan-tree-node siyuan-tree-node--interactive"
+                  :class="{
+                    'is-selected': isSiyuanLocationPickerNodeSelected(data),
+                    'is-disabled': isSiyuanLocationPickerNodeDisabled(data, node),
+                  }"
+                >
+                  <div class="siyuan-node-main">
+                    <span class="siyuan-node-title">{{ data.name }}</span>
+                    <span
+                      v-if="isPmSiyuanNotebookDirectory(data)"
+                      class="siyuan-node-badge"
+                      :class="{ 'is-disabled': data.closed }"
+                    >
+                      {{ data.closed ? "已关闭" : `${data.docCount} 篇` }}
+                    </span>
+                  </div>
+                </div>
+              </template>
+            </el-tree>
+          </div>
+        </template>
+        <div
+          class="pm-siyuan-picker-selection"
+          :class="{ 'is-empty': !siyuanLocationPickerValue }"
+        >
+          <div class="pm-siyuan-picker-selection-label">当前选择</div>
+          <template v-if="siyuanLocationPickerValue">
+            <div class="pm-siyuan-picker-selection-title">
+              {{ siyuanLocationPickerSelectionTarget }}
+            </div>
+            <div class="pm-siyuan-picker-selection-meta">
+              {{ siyuanLocationPickerValue.notebookName }}
+            </div>
+            <div class="pm-siyuan-picker-selection-path">
+              {{ siyuanLocationPickerSelectionPath }}
+            </div>
+          </template>
+          <div v-else class="pm-siyuan-picker-selection-empty">
+            暂未选择位置，点击上方笔记本根目录或父文档即可。
+          </div>
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="siyuanLocationDialogVisible = false">取消</el-button>
+        <el-button @click="clearSiyuanLocationPicker">清空</el-button>
+        <el-button type="primary" @click="applySiyuanLocationPicker">确定</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog
+      v-model="siyuanPageDialogVisible"
+      :title="siyuanPageDialogMode === 'primary' ? '关联思源主页面' : '添加思源附加页面'"
+      width="760px"
+    >
+      <div class="pm-siyuan-dialog-body">
+        <div class="pm-siyuan-search-toolbar">
+          <el-input
+            v-model="siyuanPageSearchKeyword"
+            placeholder="按页面标题或路径搜索"
+            clearable
+            @keyup.enter="searchSiyuanPages()"
+          />
+          <el-button type="primary" :loading="siyuanPageSearching" @click="searchSiyuanPages()">搜索</el-button>
+          <el-button :loading="siyuanPageSearching" @click="searchSiyuanPages(true)">扩展到全库</el-button>
+          <el-button
+            type="success"
+            :loading="siyuanPageCreating"
+            :disabled="!itemEffectiveLocation || !itemForm.title.trim()"
+            @click="createSiyuanPageForItem"
+          >
+            立即新建
+          </el-button>
+        </div>
+
+        <div class="pm-siyuan-dialog-hint">
+          当前搜索范围：
+          {{ siyuanPageSearchResultScope === 'all' ? '全部已打开笔记本' : formatPmSiyuanLocationLabel(itemEffectiveLocation) }}
+        </div>
+        <div class="pm-siyuan-dialog-hint">
+          当前创建位置：{{ formatPmSiyuanLocationLabel(itemEffectiveLocation) }}
+        </div>
+
+        <div v-if="!itemEffectiveLocation" class="pm-siyuan-empty-hint">
+          当前没有可用的默认位置，因此只能搜索已有页面，不能直接新建页面。
+        </div>
+
+        <el-empty
+          v-if="!siyuanPageSearchResults.length && !siyuanPageSearching"
+          description="暂无搜索结果"
+        />
+        <div v-else class="pm-siyuan-page-list">
+          <div v-for="page in siyuanPageSearchResults" :key="page.docId" class="pm-siyuan-page-row">
+            <div class="pm-siyuan-page-main">
+              <div class="pm-siyuan-page-title">{{ page.docTitle }}</div>
+              <div class="pm-siyuan-page-meta">{{ page.notebookName }} · {{ page.docHpath }}</div>
+            </div>
+            <div class="pm-siyuan-inline-actions">
+              <el-button size="small" type="primary" link @click="selectSiyuanPageResult(page)">
+                {{ siyuanPageDialogMode === 'primary' ? '设为主页面' : '添加' }}
+              </el-button>
+              <el-button size="small" link @click="openSiyuanPage(page)">打开</el-button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="siyuanPageDialogVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
   </div>
   </el-config-provider>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from "vue";
+import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount, reactive } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import zhCn from "element-plus/es/locale/lang/zh-cn";
 import { Plus, Close, Top, CaretRight, AlarmClock } from "@element-plus/icons-vue";
 import { useToolInvoke } from "../composables/useToolInvoke";
-import type { PmProject, PmItem, PmItemType, PmPriority, PmItemStatus } from "../types/pm";
+import { getSetting, getSettingJson, setSetting, setSettingJson } from "../composables/useSettings";
+import type {
+  PmProject,
+  PmItem,
+  PmItemType,
+  PmPriority,
+  PmItemStatus,
+  PmSiyuanLocation,
+  PmSiyuanPageRef,
+  PmSiyuanNotebookDirectory,
+  PmSiyuanDirectoryResult,
+  PmSiyuanSearchResult,
+  PmSiyuanTreeNode,
+} from "../types/pm";
 import { PM_STATUS_COLUMNS, PM_ITEM_TYPE_MAP, PM_PRIORITY_MAP } from "../types/pm";
 import Sortable from "sortablejs";
 import PmGanttView from "./PmGanttView.vue";
 import { clampContextMenuPosition } from "../utils/contextMenu";
+import {
+  addPmSiyuanExtraPage,
+  collectPmSiyuanExpandedKeys,
+  filterPmSiyuanDirectory,
+  formatPmSiyuanLocationLabel,
+  formatPmSiyuanLocationPathLabel,
+  formatPmSiyuanLocationTargetLabel,
+  isPmSiyuanNotebookDirectory,
+  removePmSiyuanPage,
+  resolvePmSiyuanEffectiveLocation,
+  setPmSiyuanPrimaryPage,
+} from "../utils/pmSiyuan";
 
 const { invoke } = useToolInvoke();
+const defaultBaseUrl = "http://127.0.0.1:6806";
+const PM_SIYUAN_DEFAULT_LOCATION_KEY = "pm_siyuan_default_location";
 
 // ── Types ────────────────────────────────────────────────
 
@@ -381,7 +781,13 @@ const viewMode = ref<"kanban" | "gantt">("kanban");
 // Project dialog
 const projectDialogVisible = ref(false);
 const editingProject = ref<PmProject | null>(null);
-const projectForm = ref({ name: "", description: "", color: "#409eff" });
+const projectForm = ref({
+  name: "",
+  description: "",
+  color: "#409eff",
+  useSiyuanOverride: false,
+  siyuanLocationOverride: null as PmSiyuanLocation | null,
+});
 const presetColors = ["#7eb8f7", "#95d4a1", "#f7c97e", "#f7a1a1", "#b0bec5", "#80d8e8", "#ce93d8", "#ffab91", "#a5d6a7", "#fff176", "#80cbc4", "#ef9a9a"];
 
 // Item dialog
@@ -396,6 +802,51 @@ const itemForm = ref({
   startAt: null as string | null,
   endAt: null as string | null,
   description: "",
+});
+const itemPrimaryPage = ref<PmSiyuanPageRef | null>(null);
+const itemExtraPages = ref<PmSiyuanPageRef[]>([]);
+
+const siyuanDrawerVisible = ref(false);
+const siyuanForm = reactive({
+  baseUrl: getSetting("pm_siyuan_base_url") ?? defaultBaseUrl,
+  token: getSetting("pm_siyuan_token") ?? "",
+});
+const globalSiyuanLocation = ref<PmSiyuanLocation | null>(
+  getSettingJson<PmSiyuanLocation | null>(PM_SIYUAN_DEFAULT_LOCATION_KEY, null),
+);
+const globalSiyuanLocationDraft = ref<PmSiyuanLocation | null>(
+  globalSiyuanLocation.value ? { ...globalSiyuanLocation.value } : null,
+);
+const siyuanShowToken = ref(false);
+const siyuanTesting = ref(false);
+const siyuanTestingVersion = ref("");
+const siyuanLoadingDirectory = ref(false);
+const siyuanDirectory = ref<PmSiyuanNotebookDirectory[]>([]);
+const siyuanDirectoryFetchedAt = ref("");
+let siyuanDirectoryLoadPromise: Promise<void> | null = null;
+const siyuanError = ref("");
+const siyuanErrorContext = ref<"test" | "directory" | null>(null);
+const siyuanTreeProps = { label: "name", children: "children" };
+const siyuanLocationDialogVisible = ref(false);
+const siyuanLocationPickerTarget = ref<"global" | "project">("global");
+const siyuanLocationPickerValue = ref<PmSiyuanLocation | null>(null);
+const siyuanLocationPickerSearch = ref("");
+const siyuanPageDialogVisible = ref(false);
+const siyuanPageDialogMode = ref<"primary" | "extra">("primary");
+const siyuanPageSearchKeyword = ref("");
+const siyuanPageSearchScope = ref<"location" | "all">("location");
+const siyuanPageSearchResults = ref<PmSiyuanPageRef[]>([]);
+const siyuanPageSearchResultScope = ref<"location" | "all">("location");
+const siyuanPageSearching = ref(false);
+const siyuanPageCreating = ref(false);
+const siyuanErrorTitle = computed(() => {
+  if (siyuanErrorContext.value === "test") {
+    return "连接失败";
+  }
+  if (siyuanErrorContext.value === "directory") {
+    return "目录加载失败";
+  }
+  return "错误";
 });
 
 // Click debounce
@@ -431,11 +882,81 @@ const archivedProjects = computed(() => projects.value.filter((p) => p.status ==
 const isOverview = computed(() => selectedProjectId.value === "overview");
 const selectedProject = computed(() => {
   if (isOverview.value) {
-    return { id: 0, name: "总览", color: "#606266", status: "active", description: "", sortOrder: 0, createdAt: "", updatedAt: "" } as PmProject;
+    return {
+      id: 0,
+      name: "总览",
+      color: "#606266",
+      status: "active",
+      description: "",
+      siyuanLocationOverride: null,
+      sortOrder: 0,
+      createdAt: "",
+      updatedAt: "",
+    } as PmProject;
   }
   return projects.value.find((p) => p.id === selectedProjectId.value) ?? null;
 });
 const selectedItem = computed(() => items.value.find((i) => i.id === selectedItemId.value) ?? null);
+const itemDialogProjectId = computed<number | null>(() => {
+  if (editingItem.value) {
+    return editingItem.value.projectId;
+  }
+  if (isOverview.value) {
+    return itemFormProjectId.value;
+  }
+  return typeof selectedProjectId.value === "number" ? selectedProjectId.value : null;
+});
+const itemDialogProject = computed(() =>
+  projects.value.find((project) => project.id === itemDialogProjectId.value) ?? null,
+);
+const itemEffectiveLocation = computed(() =>
+  resolvePmSiyuanEffectiveLocation(itemDialogProject.value?.siyuanLocationOverride, globalSiyuanLocation.value),
+);
+const itemEffectiveLocationSource = computed(() => {
+  if (itemDialogProject.value?.siyuanLocationOverride) {
+    return "项目专属位置";
+  }
+  if (globalSiyuanLocation.value) {
+    return "全局默认位置";
+  }
+  return "未配置";
+});
+const siyuanLocationPickerTitle = computed(() =>
+  siyuanLocationPickerTarget.value === "global" ? "选择任务默认存储位置" : "选择项目专属存储位置",
+);
+const siyuanLocationPickerSearchKeyword = computed(() => siyuanLocationPickerSearch.value.trim());
+const siyuanLocationPickerTreeData = computed(() => {
+  if (!siyuanLocationPickerSearchKeyword.value) {
+    return siyuanDirectory.value;
+  }
+  return filterPmSiyuanDirectory(siyuanDirectory.value, siyuanLocationPickerSearchKeyword.value);
+});
+const siyuanLocationPickerExpandedKeys = computed(() => {
+  if (!siyuanLocationPickerSearchKeyword.value) {
+    return [];
+  }
+  return collectPmSiyuanExpandedKeys(siyuanLocationPickerTreeData.value);
+});
+const siyuanLocationPickerTreeKey = computed(
+  () =>
+    `${siyuanLocationPickerTarget.value}:${siyuanLocationPickerSearchKeyword.value}:${
+      siyuanLocationPickerExpandedKeys.value.join("|")
+    }:${siyuanLocationPickerValue.value?.parentDocId ?? siyuanLocationPickerValue.value?.notebookId ?? "none"}`,
+);
+const siyuanLocationPickerCurrentNodeKey = computed(
+  () => siyuanLocationPickerValue.value?.parentDocId ?? siyuanLocationPickerValue.value?.notebookId ?? undefined,
+);
+const siyuanLocationPickerSelectionTarget = computed(() =>
+  formatPmSiyuanLocationTargetLabel(siyuanLocationPickerValue.value),
+);
+const siyuanLocationPickerSelectionPath = computed(() =>
+  formatPmSiyuanLocationPathLabel(siyuanLocationPickerValue.value),
+);
+const siyuanLocationPickerStatusText = computed(() =>
+  siyuanLocationPickerSearchKeyword.value
+    ? `已按“${siyuanLocationPickerSearchKeyword.value}”过滤目录，只保留命中的目录路径。`
+    : "默认仅展开笔记本一级，点击文档后会把新页面放到该文档下面。",
+);
 
 const filteredItems = computed(() => {
   let result = items.value;
@@ -475,6 +996,247 @@ function nextStatusLabel(item: PmItem): string {
   return idx >= 0 && idx < PM_STATUS_COLUMNS.length - 1 ? PM_STATUS_COLUMNS[idx + 1].label : "";
 }
 
+function cloneSiyuanLocation(location: PmSiyuanLocation | null | undefined): PmSiyuanLocation | null {
+  return location ? { ...location } : null;
+}
+
+function cloneSiyuanPage(page: PmSiyuanPageRef | null | undefined): PmSiyuanPageRef | null {
+  return page ? { ...page } : null;
+}
+
+function cloneSiyuanPages(pages: PmSiyuanPageRef[] | null | undefined): PmSiyuanPageRef[] {
+  return (pages ?? []).map((page) => ({ ...page }));
+}
+
+async function ensureSiyuanDirectoryLoaded() {
+  if (siyuanDirectory.value.length > 0) {
+    return;
+  }
+  await refreshSiyuanDirectory({ showSuccess: false });
+}
+
+function applyItemPrimaryPage(page: PmSiyuanPageRef | null) {
+  const result = setPmSiyuanPrimaryPage(itemPrimaryPage.value, itemExtraPages.value, page);
+  itemPrimaryPage.value = result.primaryPage ? { ...result.primaryPage } : null;
+  itemExtraPages.value = cloneSiyuanPages(result.extraPages);
+}
+
+function addItemExtraPage(page: PmSiyuanPageRef) {
+  itemExtraPages.value = addPmSiyuanExtraPage(itemPrimaryPage.value, itemExtraPages.value, page).map(
+    (item) => ({ ...item }),
+  );
+}
+
+function removeItemLinkedPage(docId: string) {
+  const result = removePmSiyuanPage(itemPrimaryPage.value, itemExtraPages.value, docId);
+  itemPrimaryPage.value = result.primaryPage ? { ...result.primaryPage } : null;
+  itemExtraPages.value = cloneSiyuanPages(result.extraPages);
+}
+
+function buildSiyuanLocationFromTreeNode(
+  data: PmSiyuanNotebookDirectory | PmSiyuanTreeNode,
+  node: { level: number; parent?: { level: number; data?: unknown; parent?: unknown } | null },
+): PmSiyuanLocation | null {
+  if (isPmSiyuanNotebookDirectory(data)) {
+    if (data.closed) {
+      return null;
+    }
+    return {
+      notebookId: data.id,
+      notebookName: data.name,
+      parentDocId: null,
+      parentDocTitle: null,
+      parentHpath: null,
+      parentPath: null,
+    };
+  }
+
+  let current = node.parent ?? null;
+  while (current && current.level > 1) {
+    current = (current.parent as typeof current | null) ?? null;
+  }
+  const notebook = current?.data as PmSiyuanNotebookDirectory | undefined;
+  if (!notebook || notebook.closed) {
+    return null;
+  }
+
+  return {
+    notebookId: notebook.id,
+    notebookName: notebook.name,
+    parentDocId: data.id,
+    parentDocTitle: data.name,
+    parentHpath: data.hpath,
+    parentPath: data.path,
+  };
+}
+
+function isSiyuanLocationPickerNodeSelected(data: PmSiyuanNotebookDirectory | PmSiyuanTreeNode) {
+  return siyuanLocationPickerCurrentNodeKey.value === data.id;
+}
+
+function isSiyuanLocationPickerNodeDisabled(
+  data: PmSiyuanNotebookDirectory | PmSiyuanTreeNode,
+  node: { level: number; parent?: { level: number; data?: unknown; parent?: unknown } | null },
+) {
+  return buildSiyuanLocationFromTreeNode(data, node) === null;
+}
+
+async function openSiyuanLocationPicker(target: "global" | "project") {
+  siyuanLocationPickerTarget.value = target;
+  siyuanLocationPickerSearch.value = "";
+  siyuanLocationPickerValue.value = cloneSiyuanLocation(
+    target === "global" ? globalSiyuanLocationDraft.value : projectForm.value.siyuanLocationOverride,
+  );
+  siyuanLocationDialogVisible.value = true;
+  if (siyuanDirectory.value.length === 0) {
+    await ensureSiyuanDirectoryLoaded();
+    return;
+  }
+  void refreshSiyuanDirectory({ showSuccess: false });
+}
+
+function handleSiyuanLocationTreeNodeClick(
+  data: PmSiyuanNotebookDirectory | PmSiyuanTreeNode,
+  node: { level: number; parent?: { level: number; data?: unknown; parent?: unknown } | null },
+) {
+  const location = buildSiyuanLocationFromTreeNode(data, node);
+  if (!location) {
+    ElMessage.warning("关闭的笔记本不能作为默认存储位置");
+    return;
+  }
+  siyuanLocationPickerValue.value = location;
+}
+
+function applySiyuanLocationPicker() {
+  const location = cloneSiyuanLocation(siyuanLocationPickerValue.value);
+  if (siyuanLocationPickerTarget.value === "global") {
+    globalSiyuanLocationDraft.value = location;
+  } else {
+    projectForm.value.useSiyuanOverride = Boolean(location);
+    projectForm.value.siyuanLocationOverride = location;
+  }
+  siyuanLocationDialogVisible.value = false;
+}
+
+function clearSiyuanLocationPicker() {
+  siyuanLocationPickerValue.value = null;
+}
+
+function clearProjectSiyuanOverride() {
+  projectForm.value.useSiyuanOverride = false;
+  projectForm.value.siyuanLocationOverride = null;
+}
+
+async function openSiyuanPageDialog(mode: "primary" | "extra") {
+  siyuanPageDialogMode.value = mode;
+  siyuanPageSearchScope.value = itemEffectiveLocation.value ? "location" : "all";
+  siyuanPageSearchResultScope.value = siyuanPageSearchScope.value;
+  siyuanPageSearchKeyword.value = itemForm.value.title.trim();
+  siyuanPageSearchResults.value = [];
+  siyuanPageDialogVisible.value = true;
+  if (siyuanPageSearchKeyword.value.length >= 2) {
+    await searchSiyuanPages();
+  }
+}
+
+async function searchSiyuanPages(forceAll = false) {
+  const keyword = siyuanPageSearchKeyword.value.trim();
+  if (keyword.length < 2) {
+    ElMessage.warning("请输入至少 2 个字符再搜索");
+    return;
+  }
+
+  const searchAll = forceAll || siyuanPageSearchScope.value === "all" || !itemEffectiveLocation.value;
+  try {
+    siyuanPageSearching.value = true;
+    const result = (await invoke<PmSiyuanSearchResult>("tool:pm:siyuan-search-pages", {
+      keyword,
+      searchAll,
+      location: searchAll ? null : itemEffectiveLocation.value,
+    })) ?? { items: [], scope: searchAll ? "all" : "location" };
+    siyuanPageSearchResults.value = result.items ?? [];
+    siyuanPageSearchResultScope.value = result.scope ?? (searchAll ? "all" : "location");
+    siyuanPageSearchScope.value = result.scope ?? (searchAll ? "all" : "location");
+  } catch (error) {
+    ElMessage.error((error as Error).message);
+  } finally {
+    siyuanPageSearching.value = false;
+  }
+}
+
+function selectSiyuanPageResult(page: PmSiyuanPageRef) {
+  if (siyuanPageDialogMode.value === "primary") {
+    applyItemPrimaryPage(page);
+  } else {
+    addItemExtraPage(page);
+  }
+  siyuanPageDialogVisible.value = false;
+}
+
+async function createSiyuanPageForItem() {
+  const title = itemForm.value.title.trim();
+  if (!title) {
+    ElMessage.warning("请先填写工作项标题，再创建思源页面");
+    return;
+  }
+  if (!itemEffectiveLocation.value) {
+    ElMessage.warning("当前没有可用的思源默认位置，请先在配置或项目设置里指定");
+    return;
+  }
+
+  try {
+    siyuanPageCreating.value = true;
+    const result = (await invoke<{ created: boolean; page: PmSiyuanPageRef }>(
+      "tool:pm:siyuan-create-page",
+      {
+        title,
+        description: itemForm.value.description,
+        projectName: itemDialogProject.value?.name ?? "未归项目",
+        status: itemForm.value.status,
+        priority: itemForm.value.priority,
+        startAt: itemForm.value.startAt,
+        endAt: itemForm.value.endAt,
+        location: itemEffectiveLocation.value,
+      },
+    )) as { created: boolean; page: PmSiyuanPageRef };
+
+    if (!result?.page) {
+      throw new Error("思源页面创建结果为空");
+    }
+
+    if (!result.created) {
+      await ElMessageBox.confirm(
+        `同一路径下已存在页面「${result.page.docTitle}」，是否直接关联这个已有页面？`,
+        "页面已存在",
+        {
+          type: "warning",
+          confirmButtonText: "关联现有页面",
+          cancelButtonText: "取消",
+        },
+      );
+    } else {
+      ElMessage.success("思源页面已创建。若稍后取消工作项保存，该页面会保留但不会自动绑定。");
+    }
+
+    selectSiyuanPageResult(result.page);
+  } catch (error) {
+    if ((error as string) !== "cancel") {
+      ElMessage.error((error as Error).message);
+    }
+  } finally {
+    siyuanPageCreating.value = false;
+  }
+}
+
+async function openSiyuanPage(page: PmSiyuanPageRef | null | undefined) {
+  if (!page) return;
+  try {
+    await invoke("tool:pm:siyuan-open-page", { docId: page.docId });
+  } catch (error) {
+    ElMessage.error((error as Error).message);
+  }
+}
+
 // ── Data loading ─────────────────────────────────────────
 
 async function loadProjects() {
@@ -496,6 +1258,111 @@ async function loadItems() {
   } catch (e) {
     ElMessage.error((e as Error).message);
   }
+}
+
+function openSiyuanDrawer() {
+  siyuanDrawerVisible.value = true;
+}
+
+function normalizeBaseUrl(value: string): string {
+  let url = value.trim();
+  if (!url) return "";
+  if (!/^https?:\/\//i.test(url)) {
+    url = `http://${url}`;
+  }
+  while (url.endsWith("/")) {
+    url = url.slice(0, -1);
+  }
+  return url;
+}
+
+function ensureSiyuanConfig(): { baseUrl: string; token: string } {
+  const baseUrl = normalizeBaseUrl(siyuanForm.baseUrl);
+  if (!baseUrl) {
+    throw new Error("请填写思源服务地址");
+  }
+  const token = (siyuanForm.token ?? "").trim();
+  if (!token) {
+    throw new Error("请填写 API Token");
+  }
+  return { baseUrl, token };
+}
+
+function saveSiyuanConfig() {
+  try {
+    const { baseUrl, token } = ensureSiyuanConfig();
+    setSetting("pm_siyuan_base_url", baseUrl);
+    setSetting("pm_siyuan_token", token);
+    setSettingJson(PM_SIYUAN_DEFAULT_LOCATION_KEY, globalSiyuanLocationDraft.value);
+    siyuanForm.baseUrl = baseUrl;
+    siyuanForm.token = token;
+    globalSiyuanLocation.value = cloneSiyuanLocation(globalSiyuanLocationDraft.value);
+    ElMessage.success("配置已保存");
+  } catch (error) {
+    ElMessage.error((error as Error).message);
+  }
+}
+
+async function handleTestConnection() {
+  try {
+    const { baseUrl, token } = ensureSiyuanConfig();
+    siyuanTesting.value = true;
+    siyuanError.value = "";
+    siyuanErrorContext.value = null;
+    const result = (await invoke<{ version?: string }>("tool:pm:siyuan-test", { baseUrl, token })) ?? {};
+    siyuanTestingVersion.value = result.version ?? "未知版本";
+    ElMessage.success("连接成功");
+  } catch (error) {
+    siyuanTestingVersion.value = "";
+    siyuanError.value = (error as Error).message;
+    siyuanErrorContext.value = "test";
+  } finally {
+    siyuanTesting.value = false;
+  }
+}
+
+async function handleLoadDirectory() {
+  await refreshSiyuanDirectory({ showSuccess: true });
+}
+
+async function refreshSiyuanDirectory(options: { showSuccess?: boolean } = {}) {
+  if (siyuanDirectoryLoadPromise) {
+    return siyuanDirectoryLoadPromise;
+  }
+
+  const { showSuccess = true } = options;
+  siyuanDirectoryLoadPromise = (async () => {
+    try {
+      const { baseUrl, token } = ensureSiyuanConfig();
+      siyuanLoadingDirectory.value = true;
+      siyuanError.value = "";
+      siyuanErrorContext.value = null;
+      const directory =
+        (await invoke<PmSiyuanDirectoryResult>("tool:pm:siyuan-directory", { baseUrl, token })) ?? {
+          notebooks: [],
+          fetchedAt: "",
+        };
+      siyuanDirectory.value = directory.notebooks;
+      siyuanDirectoryFetchedAt.value = directory.fetchedAt
+        ? formatDateTime(directory.fetchedAt)
+        : new Date().toLocaleString();
+      if (showSuccess) {
+        ElMessage.success("目录已加载");
+      }
+    } catch (error) {
+      siyuanError.value = (error as Error).message;
+      siyuanErrorContext.value = "directory";
+    } finally {
+      siyuanLoadingDirectory.value = false;
+      siyuanDirectoryLoadPromise = null;
+    }
+  })();
+
+  return siyuanDirectoryLoadPromise;
+}
+
+function handleRefreshSiyuanLocationPicker() {
+  void refreshSiyuanDirectory({ showSuccess: true });
 }
 
 function selectProject(id: number | "overview") {
@@ -527,18 +1394,46 @@ watch(selectedProjectId, () => {
   loadItems();
 });
 
+watch(siyuanDrawerVisible, (visible) => {
+  if (visible) {
+    siyuanForm.baseUrl = getSetting("pm_siyuan_base_url") ?? defaultBaseUrl;
+    siyuanForm.token = getSetting("pm_siyuan_token") ?? "";
+    globalSiyuanLocationDraft.value = cloneSiyuanLocation(
+      getSettingJson<PmSiyuanLocation | null>(PM_SIYUAN_DEFAULT_LOCATION_KEY, null),
+    );
+  }
+});
+
+watch(siyuanLocationDialogVisible, (visible) => {
+  if (!visible) {
+    siyuanLocationPickerSearch.value = "";
+  }
+});
+
 // ── Project CRUD ─────────────────────────────────────────
 
 function showCreateProject() {
   editingProject.value = null;
   const randomColor = presetColors[Math.floor(Math.random() * presetColors.length)];
-  projectForm.value = { name: "", description: "", color: randomColor };
+  projectForm.value = {
+    name: "",
+    description: "",
+    color: randomColor,
+    useSiyuanOverride: false,
+    siyuanLocationOverride: null,
+  };
   projectDialogVisible.value = true;
 }
 
 function showEditProject(p: PmProject) {
   editingProject.value = p;
-  projectForm.value = { name: p.name, description: p.description, color: p.color };
+  projectForm.value = {
+    name: p.name,
+    description: p.description,
+    color: p.color,
+    useSiyuanOverride: Boolean(p.siyuanLocationOverride),
+    siyuanLocationOverride: cloneSiyuanLocation(p.siyuanLocationOverride),
+  };
   projectDialogVisible.value = true;
 }
 
@@ -552,14 +1447,22 @@ async function submitProject() {
     return;
   }
   try {
+    const payload = {
+      name: projectForm.value.name,
+      description: projectForm.value.description,
+      color: projectForm.value.color,
+      siyuanLocationOverride: projectForm.value.useSiyuanOverride
+        ? projectForm.value.siyuanLocationOverride
+        : null,
+    };
     if (editingProject.value) {
       await invoke("tool:pm:project-update", {
         id: editingProject.value.id,
-        ...projectForm.value,
+        ...payload,
         sortOrder: editingProject.value.sortOrder,
       });
     } else {
-      await invoke("tool:pm:project-create", projectForm.value);
+      await invoke("tool:pm:project-create", payload);
     }
     projectDialogVisible.value = false;
     await loadProjects();
@@ -640,6 +1543,8 @@ function showCreateItem() {
     endAt: null,
     description: "",
   };
+  itemPrimaryPage.value = null;
+  itemExtraPages.value = [];
   itemDialogVisible.value = true;
 }
 
@@ -654,11 +1559,15 @@ function editItem(item: PmItem) {
     endAt: item.endAt,
     description: item.description,
   };
+  itemPrimaryPage.value = cloneSiyuanPage(item.siyuanPrimaryPage);
+  itemExtraPages.value = cloneSiyuanPages(item.siyuanExtraPages);
   itemDialogVisible.value = true;
 }
 
 function resetItemForm() {
   editingItem.value = null;
+  itemPrimaryPage.value = null;
+  itemExtraPages.value = [];
 }
 
 async function submitItem() {
@@ -667,10 +1576,15 @@ async function submitItem() {
     return;
   }
   try {
+    const payload = {
+      ...itemForm.value,
+      siyuanPrimaryPage: itemPrimaryPage.value,
+      siyuanExtraPages: itemExtraPages.value,
+    };
     if (editingItem.value) {
       await invoke("tool:pm:item-update", {
         id: editingItem.value.id,
-        ...itemForm.value,
+        ...payload,
       });
     } else {
       const projectId = isOverview.value ? itemFormProjectId.value : selectedProjectId.value;
@@ -680,7 +1594,7 @@ async function submitItem() {
       }
       await invoke("tool:pm:item-create", {
         projectId,
-        ...itemForm.value,
+        ...payload,
       });
     }
     itemDialogVisible.value = false;
@@ -780,13 +1694,19 @@ async function deleteItemRecord(item: PmItem) {
 }
 
 function buildItemContextActions(item: PmItem): CtxMenuAction[] {
-  const actions: CtxMenuAction[] = [
-    { label: "编辑", action: () => editItem(item) },
-    {
-      label: item.pinned ? "取消置顶" : "置顶",
-      action: () => void toggleItemPinFor(item),
-    },
-  ];
+  const actions: CtxMenuAction[] = [{ label: "编辑", action: () => editItem(item) }];
+
+  if (item.siyuanPrimaryPage) {
+    actions.push({
+      label: "打开思源主页面",
+      action: () => void openSiyuanPage(item.siyuanPrimaryPage),
+    });
+  }
+
+  actions.push({
+    label: item.pinned ? "取消置顶" : "置顶",
+    action: () => void toggleItemPinFor(item),
+  });
 
   const nextStatus = findNextStatus(item);
   if (nextStatus) {
@@ -1574,5 +2494,393 @@ onBeforeUnmount(() => {
 body.pm-is-dragging,
 body.pm-is-dragging * {
   cursor: grabbing !important;
+}
+
+.pm-siyuan-drawer .el-drawer__body {
+  padding: 20px;
+}
+
+.pm-form-item-top :deep(.el-form-item__content) {
+  align-items: flex-start;
+}
+
+.pm-siyuan-config-card,
+.pm-siyuan-link-card {
+  width: 100%;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 14px;
+  padding: 14px 16px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), var(--el-fill-color-blank));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pm-siyuan-link-card {
+  gap: 14px;
+}
+
+.pm-siyuan-config-summary,
+.pm-siyuan-link-subtitle,
+.pm-siyuan-dialog-hint,
+.pm-siyuan-picker-intro {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--el-text-color-secondary);
+}
+
+.pm-siyuan-inline-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.pm-siyuan-link-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+
+.pm-siyuan-link-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.pm-siyuan-link-subtitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.pm-siyuan-linked-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pm-siyuan-section-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--el-text-color-secondary);
+  letter-spacing: 0.04em;
+}
+
+.pm-siyuan-page-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pm-siyuan-page-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--el-border-color-extra-light);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--el-bg-color);
+}
+
+.pm-siyuan-page-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.pm-siyuan-page-title,
+.detail-siyuan-page-title {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--el-text-color-primary);
+  word-break: break-word;
+}
+
+.pm-siyuan-page-meta,
+.detail-siyuan-page-meta {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.pm-siyuan-empty-hint {
+  border: 1px dashed var(--el-border-color);
+  border-radius: 12px;
+  padding: 14px 16px;
+  background: var(--el-fill-color-lighter);
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.detail-siyuan-pages {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.detail-siyuan-page {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--el-border-color-extra-light);
+  border-radius: 10px;
+  background: var(--el-fill-color-blank);
+}
+
+.detail-siyuan-page-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.siyuan-drawer-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+}
+
+.siyuan-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.siyuan-status {
+  min-height: 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.siyuan-fetch-hint {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+
+.siyuan-loading-hint {
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+
+.siyuan-tree-section {
+  flex: 1;
+  border-top: 1px solid var(--el-border-color-extra-light);
+  padding-top: 12px;
+  min-height: 0;
+}
+
+.siyuan-tree {
+  max-height: 360px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.siyuan-tree-node {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+}
+
+.siyuan-tree-node--preview {
+  padding: 2px 0;
+}
+
+.siyuan-tree-node--interactive {
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  transition: background 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.siyuan-tree-node--interactive.is-selected {
+  border-color: var(--el-color-primary-light-5);
+  background: linear-gradient(135deg, var(--el-color-primary-light-9), rgba(255, 255, 255, 0.96));
+  box-shadow: 0 6px 16px rgba(64, 158, 255, 0.08);
+}
+
+.siyuan-tree-node--interactive.is-disabled {
+  opacity: 0.68;
+}
+
+.siyuan-node-main {
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.siyuan-node-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+  color: var(--el-text-color-primary);
+}
+
+.siyuan-node-badge {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--el-fill-color);
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.siyuan-node-badge.is-disabled {
+  background: var(--el-color-danger-light-9);
+  color: var(--el-color-danger);
+}
+
+.pm-siyuan-dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.pm-siyuan-search-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.pm-siyuan-search-toolbar .el-input {
+  flex: 1;
+  min-width: 220px;
+}
+
+.pm-siyuan-dialog-body--picker {
+  gap: 14px;
+}
+
+.pm-siyuan-picker-selection {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border: 1px solid var(--el-color-primary-light-5);
+  border-radius: 12px;
+  padding: 12px 16px;
+  background: linear-gradient(135deg, var(--el-color-primary-light-9), rgba(255, 255, 255, 0.96));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.86);
+}
+
+.pm-siyuan-picker-selection.is-empty {
+  border-style: dashed;
+  border-color: var(--el-border-color);
+  background: linear-gradient(180deg, var(--el-fill-color-lighter), rgba(255, 255, 255, 0.98));
+  box-shadow: none;
+}
+
+.pm-siyuan-picker-selection-label {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.pm-siyuan-picker-selection-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+  line-height: 1.3;
+}
+
+.pm-siyuan-picker-selection-meta {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+
+.pm-siyuan-picker-selection-path {
+  font-size: 11px;
+  color: var(--el-text-color-placeholder);
+}
+
+.pm-siyuan-picker-selection-empty {
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+}
+
+.pm-siyuan-picker-tree-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+
+.pm-siyuan-picker-tree-shell {
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 16px;
+  padding: 10px 12px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.97), var(--el-fill-color-blank));
+}
+
+.siyuan-error-alert {
+  padding: 6px 8px;
+}
+
+:deep(.siyuan-tree .el-tree-node__content) {
+  min-height: 42px;
+  height: auto;
+  align-items: center;
+  border-radius: 12px;
+  margin-bottom: 4px;
+  padding-right: 6px;
+}
+
+:deep(.siyuan-tree .el-tree-node__content:hover) {
+  background: rgba(64, 158, 255, 0.08);
+}
+
+:deep(.pm-siyuan-picker-tree .el-tree-node.is-current > .el-tree-node__content) {
+  background: rgba(64, 158, 255, 0.12);
+}
+
+:deep(.siyuan-tree .el-tree-node__expand-icon) {
+  color: var(--el-text-color-secondary);
+}
+
+:deep(.siyuan-tree .el-tree-node__expand-icon.expanded) {
+  color: var(--el-color-primary);
+}
+
+:deep(.siyuan-tree .el-tree-node__label) {
+  width: 100%;
+  min-width: 0;
+}
+
+@media (max-width: 900px) {
+  .pm-siyuan-page-row,
+  .detail-siyuan-page {
+    flex-direction: column;
+  }
+
+  .pm-siyuan-link-header {
+    flex-direction: column;
+  }
 }
 </style>

@@ -104,6 +104,46 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
         "ALTER TABLE todo_items ADD COLUMN project_id INTEGER DEFAULT NULL;",
     );
 
+    // PM-SiYuan integration: project-level default location override
+    let _ = conn.execute_batch(
+        "ALTER TABLE pm_projects ADD COLUMN siyuan_notebook_id TEXT DEFAULT NULL;",
+    );
+    let _ = conn.execute_batch(
+        "ALTER TABLE pm_projects ADD COLUMN siyuan_notebook_name TEXT DEFAULT NULL;",
+    );
+    let _ = conn.execute_batch(
+        "ALTER TABLE pm_projects ADD COLUMN siyuan_parent_doc_id TEXT DEFAULT NULL;",
+    );
+    let _ = conn.execute_batch(
+        "ALTER TABLE pm_projects ADD COLUMN siyuan_parent_doc_title TEXT DEFAULT NULL;",
+    );
+    let _ = conn.execute_batch(
+        "ALTER TABLE pm_projects ADD COLUMN siyuan_parent_hpath TEXT DEFAULT NULL;",
+    );
+    let _ = conn.execute_batch(
+        "ALTER TABLE pm_projects ADD COLUMN siyuan_parent_path TEXT DEFAULT NULL;",
+    );
+
+    // PM-SiYuan integration: item primary page cache
+    let _ = conn.execute_batch(
+        "ALTER TABLE pm_items ADD COLUMN siyuan_doc_id TEXT DEFAULT NULL;",
+    );
+    let _ = conn.execute_batch(
+        "ALTER TABLE pm_items ADD COLUMN siyuan_doc_title TEXT DEFAULT NULL;",
+    );
+    let _ = conn.execute_batch(
+        "ALTER TABLE pm_items ADD COLUMN siyuan_doc_hpath TEXT DEFAULT NULL;",
+    );
+    let _ = conn.execute_batch(
+        "ALTER TABLE pm_items ADD COLUMN siyuan_doc_path TEXT DEFAULT NULL;",
+    );
+    let _ = conn.execute_batch(
+        "ALTER TABLE pm_items ADD COLUMN siyuan_notebook_id TEXT DEFAULT NULL;",
+    );
+    let _ = conn.execute_batch(
+        "ALTER TABLE pm_items ADD COLUMN siyuan_notebook_name TEXT DEFAULT NULL;",
+    );
+
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS hosts_profiles (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -380,6 +420,12 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
             description TEXT NOT NULL DEFAULT '',
             color TEXT NOT NULL DEFAULT '#409eff',
             status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'archived')),
+            siyuan_notebook_id TEXT DEFAULT NULL,
+            siyuan_notebook_name TEXT DEFAULT NULL,
+            siyuan_parent_doc_id TEXT DEFAULT NULL,
+            siyuan_parent_doc_title TEXT DEFAULT NULL,
+            siyuan_parent_hpath TEXT DEFAULT NULL,
+            siyuan_parent_path TEXT DEFAULT NULL,
             sort_order INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -399,6 +445,12 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
             end_at TEXT DEFAULT NULL,
             pinned INTEGER NOT NULL DEFAULT 0,
             sort_order INTEGER NOT NULL DEFAULT 0,
+            siyuan_doc_id TEXT DEFAULT NULL,
+            siyuan_doc_title TEXT DEFAULT NULL,
+            siyuan_doc_hpath TEXT DEFAULT NULL,
+            siyuan_doc_path TEXT DEFAULT NULL,
+            siyuan_notebook_id TEXT DEFAULT NULL,
+            siyuan_notebook_name TEXT DEFAULT NULL,
             completed_at TEXT DEFAULT NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -418,6 +470,27 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
         CREATE INDEX IF NOT EXISTS idx_pm_item_tags_tag ON pm_item_tags(tag);",
     )
     .map_err(|e| format!("initialize schema failed: {e}"))?;
+
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS pm_item_siyuan_links (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            item_id INTEGER NOT NULL,
+            doc_id TEXT NOT NULL,
+            doc_title TEXT NOT NULL,
+            doc_hpath TEXT NOT NULL,
+            doc_path TEXT DEFAULT NULL,
+            notebook_id TEXT NOT NULL,
+            notebook_name TEXT NOT NULL,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (item_id) REFERENCES pm_items(id) ON DELETE CASCADE,
+            UNIQUE(item_id, doc_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_pm_item_siyuan_links_item
+            ON pm_item_siyuan_links(item_id, sort_order ASC, id ASC);",
+    )
+    .map_err(|e| format!("initialize pm_item_siyuan_links failed: {e}"))?;
 
     let fts_result = conn.execute_batch(
         "CREATE VIRTUAL TABLE IF NOT EXISTS snippet_fts USING fts5(

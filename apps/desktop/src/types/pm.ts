@@ -6,12 +6,31 @@ export type PmPriority = "P0" | "P1" | "P2" | "P3";
 
 export type PmItemStatus = "todo" | "in_progress" | "testing" | "done";
 
+export interface PmSiyuanLocation {
+  notebookId: string;
+  notebookName: string;
+  parentDocId: string | null;
+  parentDocTitle: string | null;
+  parentHpath: string | null;
+  parentPath: string | null;
+}
+
+export interface PmSiyuanPageRef {
+  docId: string;
+  docTitle: string;
+  docHpath: string;
+  docPath: string | null;
+  notebookId: string;
+  notebookName: string;
+}
+
 export interface PmProject {
   id: number;
   name: string;
   description: string;
   color: string;
   status: PmProjectStatus;
+  siyuanLocationOverride: PmSiyuanLocation | null;
   sortOrder: number;
   createdAt: string;
   updatedAt: string;
@@ -30,6 +49,8 @@ export interface PmItem {
   pinned: boolean;
   sortOrder: number;
   tags: string[];
+  siyuanPrimaryPage: PmSiyuanPageRef | null;
+  siyuanExtraPages: PmSiyuanPageRef[];
   completedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -62,6 +83,35 @@ export interface WeeklyWorkResult {
   todoItems: WeeklyWorkItem[];
   windowStart: string;
   windowEnd: string;
+}
+
+export interface PmSiyuanTreeNode {
+  id: string;
+  name: string;
+  hpath: string;
+  path: string | null;
+  leaf: boolean;
+  docCount?: number;
+  children: PmSiyuanTreeNode[];
+}
+
+export interface PmSiyuanNotebookDirectory {
+  id: string;
+  name: string;
+  icon: string | null;
+  closed: boolean;
+  docCount: number;
+  children: PmSiyuanTreeNode[];
+}
+
+export interface PmSiyuanDirectoryResult {
+  notebooks: PmSiyuanNotebookDirectory[];
+  fetchedAt: string;
+}
+
+export interface PmSiyuanSearchResult {
+  items: PmSiyuanPageRef[];
+  scope: "location" | "all";
 }
 
 export const PM_STATUS_COLUMNS: { key: PmItemStatus; label: string }[] = [

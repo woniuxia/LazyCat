@@ -248,7 +248,12 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:pm:item-delete": { domain: "pm", action: "item_delete" },
   "tool:pm:item-move-project": { domain: "pm", action: "item_move_project" },
   "tool:pm:tag-list": { domain: "pm", action: "tag_list" },
-  "tool:pm:weekly-work": { domain: "pm", action: "weekly_work" }
+  "tool:pm:weekly-work": { domain: "pm", action: "weekly_work" },
+  "tool:pm:siyuan-test": { domain: "pm", action: "siyuan_test" },
+  "tool:pm:siyuan-directory": { domain: "pm", action: "siyuan_directory" },
+  "tool:pm:siyuan-search-pages": { domain: "pm", action: "siyuan_search_pages" },
+  "tool:pm:siyuan-create-page": { domain: "pm", action: "siyuan_create_page" },
+  "tool:pm:siyuan-open-page": { domain: "pm", action: "siyuan_open_page" }
 };
 
 export async function invokeToolByChannel(
