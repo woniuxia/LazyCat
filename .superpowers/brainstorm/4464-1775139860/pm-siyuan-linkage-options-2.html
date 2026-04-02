@@ -1,0 +1,156 @@
+<h2>思源关联区域方案</h2>
+<p class="subtitle">已固定外层采用 A 方案，这一页只比较“思源关联”区域本身的结构和操作感</p>
+
+<div class="cards">
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">方案 A · 工具条摘要</div>
+        <div class="mockup-body">
+          <div style="border:1px solid #d9e1ec;border-radius:14px;padding:12px 14px;background:#fff">
+            <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start">
+              <div style="display:grid;gap:6px">
+                <div class="label">思源关联</div>
+                <div style="font-weight:600;color:#1f2937">主页面已关联，附加页面 2 个</div>
+                <div style="font-size:13px;color:#667085">当前位置：项目专属位置 · 产品设计 / LazyCat / 项目管理</div>
+              </div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+                <button class="mock-button">主页面</button>
+                <button class="mock-button">附加页</button>
+                <button class="mock-button">管理</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>方案 A</h3>
+      <p>像一条紧凑工具条，信息密度高、占位最省，但文档内容只显示摘要，不够“有把握感”。</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">方案 B · 主页面显性</div>
+        <div class="mockup-body">
+          <div style="border:1px solid #d9e1ec;border-radius:14px;padding:12px 14px;background:#fff;display:grid;gap:10px">
+            <div style="display:flex;justify-content:space-between;gap:12px;align-items:center">
+              <div>
+                <div class="label">思源关联</div>
+                <div style="font-size:13px;color:#667085;margin-top:4px">当前位置：项目专属位置</div>
+              </div>
+              <button class="mock-button">管理关联</button>
+            </div>
+            <div style="border:1px solid #e5eaf3;border-radius:12px;padding:10px 12px;background:#f8fafc">
+              <div style="font-size:12px;color:#667085;margin-bottom:4px">主页面</div>
+              <div style="font-weight:600;color:#1f2937">项目管理界面优化</div>
+              <div style="font-size:12px;color:#667085;line-height:1.5;margin-top:4px">工作台 / 产品设计 / 项目管理 / 新建工作项</div>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:12px">
+              <div style="font-size:13px;color:#667085">附加页面 2 个</div>
+              <div style="display:flex;gap:8px">
+                <button class="mock-button">更换主页面</button>
+                <button class="mock-button">查看附加页</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>方案 B</h3>
+      <p>把“主页面”保留为可见核心，附加页折叠成数量入口。信息够用，也不会像现在这样纵向撑太高。</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">方案 C · 双标签切换</div>
+        <div class="mockup-body">
+          <div style="border:1px solid #d9e1ec;border-radius:14px;padding:12px 14px;background:#fff;display:grid;gap:10px">
+            <div style="display:flex;justify-content:space-between;gap:12px;align-items:center">
+              <div>
+                <div class="label">思源关联</div>
+                <div style="font-size:13px;color:#667085;margin-top:4px">当前位置：项目专属位置</div>
+              </div>
+              <button class="mock-button">新增页面</button>
+            </div>
+            <div style="display:flex;gap:8px">
+              <div style="padding:8px 12px;border-radius:999px;background:#111827;color:#fff;font-size:12px">主页面</div>
+              <div style="padding:8px 12px;border-radius:999px;background:#eef2f7;color:#334155;font-size:12px">附加页面 2</div>
+            </div>
+            <div style="border:1px solid #e5eaf3;border-radius:12px;padding:10px 12px;background:#f8fafc">
+              <div style="font-weight:600;color:#1f2937">项目管理界面优化</div>
+              <div style="font-size:12px;color:#667085;line-height:1.5;margin-top:4px">工作台 / 产品设计 / 项目管理 / 新建工作项</div>
+              <div style="display:flex;gap:10px;margin-top:8px">
+                <a style="font-size:12px;color:#2563eb">打开</a>
+                <a style="font-size:12px;color:#2563eb">移除</a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>方案 C</h3>
+      <p>主页面和附加页共享一个小区域，用标签切换查看。视觉更整齐，但多一步切换操作。</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="d" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">方案 D · 可展开摘要</div>
+        <div class="mockup-body">
+          <div style="border:1px solid #d9e1ec;border-radius:14px;background:#fff;overflow:hidden">
+            <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;padding:12px 14px">
+              <div>
+                <div class="label">思源关联</div>
+                <div style="font-size:13px;color:#667085;margin-top:4px">主页面 1 个 · 附加页面 2 个 · 点击展开管理</div>
+              </div>
+              <div style="font-size:18px;color:#475569">⌄</div>
+            </div>
+            <div style="border-top:1px solid #edf1f6;padding:12px 14px;background:#fbfcfe;display:grid;gap:8px">
+              <div style="font-size:12px;color:#667085">主页面</div>
+              <div style="border:1px solid #e5eaf3;border-radius:10px;padding:10px 12px;background:#fff">项目管理界面优化</div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap">
+                <button class="mock-button">更换</button>
+                <button class="mock-button">添加附加页</button>
+                <button class="mock-button">查看全部</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>方案 D</h3>
+      <p>默认非常克制，需要时再展开。适合想保持弹窗简洁，但仍希望在当前弹窗内完成管理。</p>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>我的建议</h3>
+  <div class="pros-cons">
+    <div class="pros">
+      <h4>推荐优先看 B</h4>
+      <ul>
+        <li>主页面是最常被确认的信息，直接露出会更安心</li>
+        <li>附加页通常是次要信息，收成数量入口刚好</li>
+        <li>整体高度明显低于当前实现，但不至于过度隐藏</li>
+      </ul>
+    </div>
+    <div class="cons">
+      <h4>其他方案适用点</h4>
+      <ul>
+        <li>A 最省空间，但会更像操作栏</li>
+        <li>C 更规整，不过切换标签会多一步</li>
+        <li>D 很适合后续加动画，但交互层次会更重</li>
+      </ul>
+    </div>
+  </div>
+</div>

@@ -1310,6 +1310,9 @@ function clearProjectSiyuanOverride() {
 
 async function openSiyuanPageDialog(mode: "primary" | "extra") {
   resetSiyuanPageDialogState(mode);
+  if (!editingItem.value && mode === "primary") {
+    siyuanPageFilterKeyword.value = itemForm.value.title.trim();
+  }
   const sessionId = siyuanPageDialogSessionId.value;
   siyuanPageDialogVisible.value = true;
 

@@ -1,0 +1,150 @@
+<h2>新建工作项弹窗改版方向</h2>
+<p class="subtitle">重点比较“时间安排”的组织方式，以及“思源关联”如何压缩占位</p>
+
+<div class="cards">
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">方案 A · 平衡紧凑型</div>
+        <div class="mockup-body">
+          <div style="display:grid;gap:10px">
+            <div class="label">基础信息</div>
+            <input class="mock-input" value="优化项目管理新建弹窗" />
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+              <div class="mock-input">类型</div>
+              <div class="mock-input">优先级</div>
+              <div class="mock-input">状态</div>
+            </div>
+            <div style="padding:10px 12px;border:1px solid #d8dee8;border-radius:12px;background:#f8fafc">
+              <div class="label">时间安排</div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">
+                <div class="mock-input">开始日期</div>
+                <div class="mock-input">截止日期</div>
+              </div>
+            </div>
+            <div class="mock-input" style="height:68px">描述</div>
+            <div style="padding:10px 12px;border:1px solid #d8dee8;border-radius:12px">
+              <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start">
+                <div>
+                  <div class="label">思源关联</div>
+                  <div style="font-size:13px;color:#5b6576;margin-top:4px">默认位置：项目专属位置</div>
+                  <div style="font-size:13px;color:#5b6576;margin-top:4px">已关联：1 个主页面 · 2 个附加页面</div>
+                </div>
+                <button class="mock-button">管理关联</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>方案 A</h3>
+      <p>把开始/截止合并成一个“时间安排”组，思源关联默认只展示摘要和入口，整体最稳妥。</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">方案 B · 信息优先型</div>
+        <div class="mockup-body">
+          <div style="display:grid;gap:10px">
+            <div class="label">基础信息</div>
+            <input class="mock-input" value="优化项目管理新建弹窗" />
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+              <div class="mock-input">类型 / 优先级</div>
+              <div class="mock-input">状态</div>
+            </div>
+            <div style="display:grid;grid-template-columns:1.15fr 0.85fr;gap:10px">
+              <div style="padding:10px 12px;border:1px solid #d8dee8;border-radius:12px;background:#f8fafc">
+                <div class="label">时间安排</div>
+                <div style="display:grid;gap:8px;margin-top:8px">
+                  <div class="mock-input">开始日期</div>
+                  <div class="mock-input">截止日期</div>
+                </div>
+              </div>
+              <div style="padding:10px 12px;border:1px solid #d8dee8;border-radius:12px">
+                <div class="label">计划摘要</div>
+                <div style="font-size:13px;color:#5b6576;line-height:1.5;margin-top:6px">共 2 个关键时间点<br>允许留空开始日期</div>
+              </div>
+            </div>
+            <div class="mock-input" style="height:68px">描述</div>
+            <div style="padding:10px 12px;border:1px dashed #c4cedc;border-radius:12px;background:#fbfcfe">
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:12px">
+                <div>
+                  <div class="label">思源关联</div>
+                  <div style="font-size:13px;color:#5b6576;margin-top:4px">折叠显示，点击后进入独立管理层</div>
+                </div>
+                <button class="mock-button">展开管理</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>方案 B</h3>
+      <p>时间模块更强调“计划感”，思源关联进一步后置成可展开区域，适合把主表单做得更轻。</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">方案 C · 极致收纳型</div>
+        <div class="mockup-body">
+          <div style="display:grid;gap:10px">
+            <div class="label">基础信息</div>
+            <input class="mock-input" value="优化项目管理新建弹窗" />
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
+              <div class="mock-input">类型</div>
+              <div class="mock-input">优先级</div>
+              <div class="mock-input">状态</div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+              <div class="mock-input">开始日期</div>
+              <div class="mock-input">截止日期</div>
+            </div>
+            <div class="mock-input" style="height:68px">描述</div>
+            <div style="padding:10px 12px;border:1px solid #d8dee8;border-radius:12px">
+              <div style="display:flex;justify-content:space-between;gap:12px;align-items:center">
+                <div>
+                  <div class="label">思源关联摘要</div>
+                  <div style="font-size:13px;color:#5b6576;margin-top:4px">主页面：未关联 · 附加页面：2</div>
+                </div>
+                <div style="display:flex;gap:8px">
+                  <button class="mock-button">主页面</button>
+                  <button class="mock-button">附加页</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>方案 C</h3>
+      <p>最省高度，时间保持平铺，思源只留摘要和快捷按钮，但信息层次会更扁平一些。</p>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>我建议优先看什么</h3>
+  <div class="pros-cons">
+    <div class="pros">
+      <h4>推荐起点</h4>
+      <ul>
+        <li>如果你想“更清爽但不改交互心智”，优先看 A</li>
+        <li>如果你想“主表单更聚焦，思源放次级”，优先看 B</li>
+      </ul>
+    </div>
+    <div class="cons">
+      <h4>需要注意</h4>
+      <ul>
+        <li>C 虽然最紧凑，但时间和思源都比较像工具栏，管理感会弱一点</li>
+        <li>B 需要一个更清晰的展开层，否则用户可能忽略思源入口</li>
+      </ul>
+    </div>
+  </div>
+</div>
