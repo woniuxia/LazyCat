@@ -8,6 +8,50 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-04-02: Brainstorming 本地预览在 Windows 仓库内补齐桥接脚本
+
+**场景**: brainstorming 过程中需要使用 visual companion 做本地浏览器预览，但仓库根目录没有 `scripts/start-server.sh` 入口，Windows 环境里也没有可直接用的 `bash`，导致技能文档里的默认启动方式无法在当前项目里直接落地。
+
+**问题**:
+1. 真正的预览服务脚本位于 `C:\\Users\\huahua\\.codex\\skills\\brainstorming\\scripts\\`，而不是仓库 `scripts/`；如果只按仓库相对路径调用，会误判成“能力缺失”。
+2. Windows 环境里 `bash --version` 直接失败，不能假设 skill 里的 `.sh` 脚本能在本机无缝执行。
+3. Node 预览服务默认随机高位端口时，Windows 可能命中不可绑定端口段，触发 `listen EACCES: permission denied 127.0.0.1:<port>`。
+4. 仓库当前 `.gitignore` 忽略 `.superpowers/`，但历史上又有被跟踪的 brainstorming 产物；如果提交前不核对暂存区，容易把旧 session 删除误带进 commit。
+
+**解决**:
+1. 在仓库 `scripts/` 下补齐桥接入口：
+   - `start-server.ps1`
+   - `stop-server.ps1`
+   - `start-server.sh`
+   - `stop-server.sh`
+2. `ps1` 桥接脚本负责：
+   - 从 `$CODEX_HOME` 或 `~/.codex` 定位真正的 skill 脚本
+   - 在项目 `.superpowers/brainstorm/` 下创建 session 目录
+   - 先探测一个可实际监听的空闲端口，再把 `BRAINSTORM_PORT` 注入给 `server.js`
+   - 读取 `.server-info` 作为启动成功判据
+3. Windows 下优先使用 `powershell -ExecutionPolicy Bypass -File .\\scripts\\start-server.ps1 -ProjectDir .`；`.sh` 入口只保留给兼容 skill 约定的调用方。
+4. 提交前必须显式执行：
+   - `git status --short`
+   - `git diff --cached --name-status`
+   确认没有把 `.superpowers/` 里的历史跟踪文件删除误带进提交；若误删已进入提交，需要先从上一提交恢复，再用 `git add -f` 明确把这些跟踪文件补回。
+
+**关键点**:
+1. PowerShell 参数不能命名为 `Host`，否则会和只读的 `$Host` 变量冲突；桥接脚本里应使用 `BindHost` 之类的名字。
+2. 预览服务是否真的可用，不能只看进程有没有启动；至少要同时检查 `.server-info` 和 `Invoke-WebRequest http://localhost:<port>` 是否返回 200。
+3. 对依赖关系明确的 Git 操作（`add -> status -> commit`）不要并行执行，容易因为时序问题误判暂存区状态。
+
+**涉及文件**:
+- `scripts/start-server.ps1`
+- `scripts/stop-server.ps1`
+- `scripts/start-server.sh`
+- `scripts/stop-server.sh`
+
+**验证**:
+- `powershell -ExecutionPolicy Bypass -File .\\scripts\\start-server.ps1 -ProjectDir .`
+- `Invoke-WebRequest -UseBasicParsing http://localhost:<port>`
+
+**使用次数**: 0
+
 ## 2026-04-02: 项目管理思源页面关联弹窗切换为默认位置列表优先
 
 **场景**: 用户要求按新 spec 重做项目管理中的“关联思源页面”弹窗，默认打开就展示当前有效位置下的全部文档，输入改为本地过滤，只有手动点击“扩展到全库”时才发起远端搜索。
