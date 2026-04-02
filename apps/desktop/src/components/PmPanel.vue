@@ -661,41 +661,55 @@
       <div class="pm-siyuan-dialog-body">
         <div class="pm-siyuan-search-toolbar">
           <el-input
-            v-model="siyuanPageSearchKeyword"
-            placeholder="按页面标题或路径搜索"
+            v-model="siyuanPageFilterKeyword"
+            :placeholder="siyuanPageDialogInputPlaceholder"
             clearable
-            @keyup.enter="searchSiyuanPages()"
           />
-          <el-button type="primary" :loading="siyuanPageSearching" @click="searchSiyuanPages()">搜索</el-button>
-          <el-button :loading="siyuanPageSearching" @click="searchSiyuanPages(true)">扩展到全库</el-button>
+          <el-button v-if="siyuanPageShowReturnToLocation" @click="restoreSiyuanLocationResults()">
+            返回当前位置列表
+          </el-button>
+          <el-button :loading="siyuanPageSearchingAll" @click="expandSiyuanPagesToAll()">扩展到全库</el-button>
           <el-button
             type="success"
             :loading="siyuanPageCreating"
-            :disabled="!itemEffectiveLocation || !itemForm.title.trim()"
+            :disabled="!siyuanPageCanCreateImmediately"
             @click="createSiyuanPageForItem"
           >
             立即新建
           </el-button>
         </div>
 
-        <div class="pm-siyuan-dialog-hint">
-          当前搜索范围：
-          {{ siyuanPageSearchResultScope === 'all' ? '全部已打开笔记本' : formatPmSiyuanLocationLabel(itemEffectiveLocation) }}
-        </div>
+        <div class="pm-siyuan-dialog-hint">{{ siyuanPageCurrentRangeText }}</div>
+        <div v-if="siyuanPageFilterSummary" class="pm-siyuan-dialog-hint">{{ siyuanPageFilterSummary }}</div>
         <div class="pm-siyuan-dialog-hint">
           当前创建位置：{{ formatPmSiyuanLocationLabel(itemEffectiveLocation) }}
         </div>
-
-        <div v-if="!itemEffectiveLocation" class="pm-siyuan-empty-hint">
-          当前没有可用的默认位置，因此只能搜索已有页面，不能直接新建页面。
+        <div class="pm-siyuan-dialog-hint">
+          当前创建标题：{{ siyuanPageCreateTitle || "请先填写工作项标题或输入想创建的页面标题" }}
         </div>
 
-        <el-empty
-          v-if="!siyuanPageSearchResults.length && !siyuanPageSearching"
-          description="暂无搜索结果"
-        />
+        <div
+          v-if="
+            siyuanPageLocationRefreshError &&
+            siyuanPageResultSource === 'location' &&
+            siyuanPageLocationState !== 'load-error'
+          "
+          class="pm-siyuan-dialog-notice pm-siyuan-dialog-notice--warning"
+        >
+          当前位置列表刷新失败，暂展示上一次结果。{{ siyuanPageLocationRefreshError }}
+        </div>
+
+        <div v-if="siyuanPageShowLocationLoading" class="pm-siyuan-empty-hint">
+          正在加载当前位置文档列表...
+        </div>
+        <div v-else-if="siyuanPageShowAllLoading" class="pm-siyuan-empty-hint">
+          正在搜索全库...
+        </div>
+        <div v-else-if="siyuanPageEmptyMessage" class="pm-siyuan-empty-hint">
+          {{ siyuanPageEmptyMessage }}
+        </div>
         <div v-else class="pm-siyuan-page-list">
-          <div v-for="page in siyuanPageSearchResults" :key="page.docId" class="pm-siyuan-page-row">
+          <div v-for="page in siyuanPageDisplayedResults" :key="page.docId" class="pm-siyuan-page-row">
             <div class="pm-siyuan-page-main">
               <div class="pm-siyuan-page-title">{{ page.docTitle }}</div>
               <div class="pm-siyuan-page-meta">{{ page.notebookName }} · {{ page.docHpath }}</div>
@@ -744,7 +758,9 @@ import { clampContextMenuPosition } from "../utils/contextMenu";
 import {
   addPmSiyuanExtraPage,
   collectPmSiyuanExpandedKeys,
+  collectPmSiyuanPagesForLocation,
   filterPmSiyuanDirectory,
+  filterPmSiyuanPages,
   formatPmSiyuanLocationLabel,
   formatPmSiyuanLocationPathLabel,
   formatPmSiyuanLocationTargetLabel,
@@ -766,6 +782,14 @@ interface CtxMenuAction {
   danger?: boolean;
   divider?: boolean;
 }
+
+type PmSiyuanPageLocationState =
+  | "ready"
+  | "missing-location"
+  | "missing-config"
+  | "load-error"
+  | "invalid-location"
+  | "empty";
 
 // ── State ────────────────────────────────────────────────
 
@@ -823,7 +847,7 @@ const siyuanTestingVersion = ref("");
 const siyuanLoadingDirectory = ref(false);
 const siyuanDirectory = ref<PmSiyuanNotebookDirectory[]>([]);
 const siyuanDirectoryFetchedAt = ref("");
-let siyuanDirectoryLoadPromise: Promise<void> | null = null;
+let siyuanDirectoryLoadPromise: Promise<boolean> | null = null;
 const siyuanError = ref("");
 const siyuanErrorContext = ref<"test" | "directory" | null>(null);
 const siyuanTreeProps = { label: "name", children: "children" };
@@ -833,11 +857,14 @@ const siyuanLocationPickerValue = ref<PmSiyuanLocation | null>(null);
 const siyuanLocationPickerSearch = ref("");
 const siyuanPageDialogVisible = ref(false);
 const siyuanPageDialogMode = ref<"primary" | "extra">("primary");
-const siyuanPageSearchKeyword = ref("");
-const siyuanPageSearchScope = ref<"location" | "all">("location");
-const siyuanPageSearchResults = ref<PmSiyuanPageRef[]>([]);
-const siyuanPageSearchResultScope = ref<"location" | "all">("location");
-const siyuanPageSearching = ref(false);
+const siyuanPageDialogSessionId = ref(0);
+const siyuanPageFilterKeyword = ref("");
+const siyuanPageResultSource = ref<"location" | "all">("location");
+const siyuanPageLocationResults = ref<PmSiyuanPageRef[]>([]);
+const siyuanPageAllResults = ref<PmSiyuanPageRef[]>([]);
+const siyuanPageSearchingAll = ref(false);
+const siyuanPageLocationState = ref<PmSiyuanPageLocationState>("ready");
+const siyuanPageLocationRefreshError = ref("");
 const siyuanPageCreating = ref(false);
 const siyuanErrorTitle = computed(() => {
   if (siyuanErrorContext.value === "test") {
@@ -957,6 +984,95 @@ const siyuanLocationPickerStatusText = computed(() =>
     ? `已按“${siyuanLocationPickerSearchKeyword.value}”过滤目录，只保留命中的目录路径。`
     : "默认仅展开笔记本一级，点击文档后会把新页面放到该文档下面。",
 );
+const siyuanConfigReady = computed(() => Boolean(getSiyuanConfigSnapshot()));
+const siyuanPageFilterKeywordTrimmed = computed(() => siyuanPageFilterKeyword.value.trim());
+const siyuanPageFilteredLocationResults = computed(() =>
+  filterPmSiyuanPages(siyuanPageLocationResults.value, siyuanPageFilterKeyword.value),
+);
+const siyuanPageDisplayedResults = computed(() =>
+  siyuanPageResultSource.value === "all" ? siyuanPageAllResults.value : siyuanPageFilteredLocationResults.value,
+);
+const siyuanPageDialogInputPlaceholder = computed(() =>
+  itemEffectiveLocation.value && siyuanConfigReady.value
+    ? "输入标题或路径过滤当前列表"
+    : "输入关键词后点击扩展到全库",
+);
+const siyuanPageCreateTitle = computed(() => {
+  const itemTitle = itemForm.value.title.trim();
+  if (!itemEffectiveLocation.value) {
+    return "";
+  }
+  if (
+    siyuanPageFilterKeywordTrimmed.value &&
+    !siyuanPageShowLocationLoading.value &&
+    !siyuanPageShowAllLoading.value &&
+    siyuanPageDisplayedResults.value.length === 0
+  ) {
+    return siyuanPageFilterKeywordTrimmed.value;
+  }
+  return itemTitle;
+});
+const siyuanPageCanCreateImmediately = computed(
+  () => Boolean(itemEffectiveLocation.value && siyuanPageCreateTitle.value),
+);
+const siyuanPageCurrentRangeText = computed(() => {
+  if (siyuanPageResultSource.value === "all") {
+    return `当前列表范围：本次全库搜索结果（当前显示 ${siyuanPageAllResults.value.length} 条）`;
+  }
+  if (itemEffectiveLocation.value) {
+    return `当前列表范围：${formatPmSiyuanLocationLabel(itemEffectiveLocation.value)}（共 ${siyuanPageLocationResults.value.length} 篇）`;
+  }
+  return "当前列表范围：未配置当前位置";
+});
+const siyuanPageFilterSummary = computed(() => {
+  if (siyuanPageResultSource.value === "all") {
+    return siyuanPageFilterKeywordTrimmed.value ? `当前关键词：${siyuanPageFilterKeywordTrimmed.value}` : "";
+  }
+  if (siyuanPageLocationState.value !== "ready") {
+    return "";
+  }
+  if (!siyuanPageFilterKeywordTrimmed.value) {
+    return "";
+  }
+  return `当前过滤命中 ${siyuanPageFilteredLocationResults.value.length} 条，完整列表共 ${siyuanPageLocationResults.value.length} 篇。`;
+});
+const siyuanPageShowReturnToLocation = computed(
+  () => siyuanPageResultSource.value === "all" && Boolean(itemEffectiveLocation.value),
+);
+const siyuanPageShowLocationLoading = computed(
+  () =>
+    siyuanPageResultSource.value === "location" &&
+    siyuanLoadingDirectory.value &&
+    siyuanPageLocationResults.value.length === 0 &&
+    siyuanPageLocationState.value === "ready" &&
+    siyuanConfigReady.value &&
+    Boolean(itemEffectiveLocation.value),
+);
+const siyuanPageShowAllLoading = computed(
+  () => siyuanPageResultSource.value === "all" && siyuanPageSearchingAll.value && siyuanPageAllResults.value.length === 0,
+);
+const siyuanPageEmptyMessage = computed(() => {
+  if (siyuanPageResultSource.value === "all") {
+    return siyuanPageSearchingAll.value ? "" : "全库中没有找到匹配文档，请调整关键词后重试。";
+  }
+
+  switch (siyuanPageLocationState.value) {
+    case "missing-location":
+      return "当前未配置项目专属位置或全局默认位置，无法展示当前位置列表；你仍可输入关键词后手动扩展到全库搜索。";
+    case "missing-config":
+      return "当前缺少思源服务地址或 API Token，请先完成思源配置。";
+    case "load-error":
+      return "当前位置列表加载失败，请稍后重试。";
+    case "invalid-location":
+      return "当前默认位置已失效，或所在笔记本已关闭，请重新选择位置。";
+    case "empty":
+      return "当前位置暂无可关联文档，可以直接新建页面。";
+    case "ready":
+      return siyuanPageFilteredLocationResults.value.length === 0 ? "当前过滤条件下没有匹配文档。" : "";
+    default:
+      return "";
+  }
+});
 
 const filteredItems = computed(() => {
   let result = items.value;
@@ -1006,6 +1122,71 @@ function cloneSiyuanPage(page: PmSiyuanPageRef | null | undefined): PmSiyuanPage
 
 function cloneSiyuanPages(pages: PmSiyuanPageRef[] | null | undefined): PmSiyuanPageRef[] {
   return (pages ?? []).map((page) => ({ ...page }));
+}
+
+function resetSiyuanPageDialogState(mode: "primary" | "extra") {
+  siyuanPageDialogSessionId.value += 1;
+  siyuanPageDialogMode.value = mode;
+  siyuanPageFilterKeyword.value = "";
+  siyuanPageResultSource.value = "location";
+  siyuanPageLocationResults.value = [];
+  siyuanPageAllResults.value = [];
+  siyuanPageSearchingAll.value = false;
+  siyuanPageLocationState.value = "ready";
+  siyuanPageLocationRefreshError.value = "";
+}
+
+function applySiyuanPageLocationResultsFromDirectory() {
+  const location = itemEffectiveLocation.value;
+  if (!siyuanConfigReady.value) {
+    siyuanPageLocationResults.value = [];
+    siyuanPageLocationState.value = "missing-config";
+    siyuanPageLocationRefreshError.value = "";
+    return;
+  }
+  if (!location) {
+    siyuanPageLocationResults.value = [];
+    siyuanPageLocationState.value = "missing-location";
+    siyuanPageLocationRefreshError.value = "";
+    return;
+  }
+
+  const result = collectPmSiyuanPagesForLocation(siyuanDirectory.value, location);
+  siyuanPageLocationResults.value = cloneSiyuanPages(result.pages);
+  siyuanPageLocationState.value = result.state;
+  siyuanPageLocationRefreshError.value = "";
+}
+
+async function refreshSiyuanPageLocationResults(options: { keepResultsOnError?: boolean; sessionId?: number } = {}) {
+  const { keepResultsOnError = false, sessionId = siyuanPageDialogSessionId.value } = options;
+
+  if (!siyuanConfigReady.value) {
+    siyuanPageLocationResults.value = [];
+    siyuanPageLocationState.value = "missing-config";
+    siyuanPageLocationRefreshError.value = "";
+    return;
+  }
+  if (!itemEffectiveLocation.value) {
+    siyuanPageLocationResults.value = [];
+    siyuanPageLocationState.value = "missing-location";
+    siyuanPageLocationRefreshError.value = "";
+    return;
+  }
+
+  const success = await refreshSiyuanDirectory({ showSuccess: false });
+  if (sessionId !== siyuanPageDialogSessionId.value) {
+    return;
+  }
+  if (success) {
+    applySiyuanPageLocationResultsFromDirectory();
+    return;
+  }
+
+  if (!keepResultsOnError) {
+    siyuanPageLocationResults.value = [];
+    siyuanPageLocationState.value = "load-error";
+  }
+  siyuanPageLocationRefreshError.value = siyuanError.value || "当前位置列表加载失败，请稍后重试。";
 }
 
 async function ensureSiyuanDirectoryLoaded() {
@@ -1128,39 +1309,69 @@ function clearProjectSiyuanOverride() {
 }
 
 async function openSiyuanPageDialog(mode: "primary" | "extra") {
-  siyuanPageDialogMode.value = mode;
-  siyuanPageSearchScope.value = itemEffectiveLocation.value ? "location" : "all";
-  siyuanPageSearchResultScope.value = siyuanPageSearchScope.value;
-  siyuanPageSearchKeyword.value = itemForm.value.title.trim();
-  siyuanPageSearchResults.value = [];
+  resetSiyuanPageDialogState(mode);
+  const sessionId = siyuanPageDialogSessionId.value;
   siyuanPageDialogVisible.value = true;
-  if (siyuanPageSearchKeyword.value.length >= 2) {
-    await searchSiyuanPages();
-  }
-}
 
-async function searchSiyuanPages(forceAll = false) {
-  const keyword = siyuanPageSearchKeyword.value.trim();
-  if (keyword.length < 2) {
-    ElMessage.warning("请输入至少 2 个字符再搜索");
+  if (!siyuanConfigReady.value) {
+    siyuanPageLocationState.value = "missing-config";
+    return;
+  }
+  if (!itemEffectiveLocation.value) {
+    siyuanPageLocationState.value = "missing-location";
     return;
   }
 
-  const searchAll = forceAll || siyuanPageSearchScope.value === "all" || !itemEffectiveLocation.value;
+  if (siyuanDirectory.value.length > 0) {
+    applySiyuanPageLocationResultsFromDirectory();
+    void refreshSiyuanPageLocationResults({ keepResultsOnError: true, sessionId });
+    return;
+  }
+
+  await refreshSiyuanPageLocationResults({ sessionId });
+}
+
+function restoreSiyuanLocationResults() {
+  siyuanPageResultSource.value = "location";
+  siyuanPageAllResults.value = [];
+}
+
+async function expandSiyuanPagesToAll() {
+  const keyword = siyuanPageFilterKeywordTrimmed.value;
+  const sessionId = siyuanPageDialogSessionId.value;
+  if (keyword.length < 2) {
+    ElMessage.warning("请输入至少 2 个字符后再扩展到全库");
+    return;
+  }
+
   try {
-    siyuanPageSearching.value = true;
+    ensureSiyuanConfig();
+  } catch (error) {
+    ElMessage.warning((error as Error).message);
+    return;
+  }
+
+  try {
+    siyuanPageSearchingAll.value = true;
     const result = (await invoke<PmSiyuanSearchResult>("tool:pm:siyuan-search-pages", {
       keyword,
-      searchAll,
-      location: searchAll ? null : itemEffectiveLocation.value,
-    })) ?? { items: [], scope: searchAll ? "all" : "location" };
-    siyuanPageSearchResults.value = result.items ?? [];
-    siyuanPageSearchResultScope.value = result.scope ?? (searchAll ? "all" : "location");
-    siyuanPageSearchScope.value = result.scope ?? (searchAll ? "all" : "location");
+      searchAll: true,
+      location: null,
+    })) ?? { items: [], scope: "all" };
+    if (sessionId !== siyuanPageDialogSessionId.value) {
+      return;
+    }
+    siyuanPageAllResults.value = cloneSiyuanPages(result.items ?? []);
+    siyuanPageResultSource.value = "all";
   } catch (error) {
+    if (sessionId !== siyuanPageDialogSessionId.value) {
+      return;
+    }
     ElMessage.error((error as Error).message);
   } finally {
-    siyuanPageSearching.value = false;
+    if (sessionId === siyuanPageDialogSessionId.value) {
+      siyuanPageSearchingAll.value = false;
+    }
   }
 }
 
@@ -1174,9 +1385,9 @@ function selectSiyuanPageResult(page: PmSiyuanPageRef) {
 }
 
 async function createSiyuanPageForItem() {
-  const title = itemForm.value.title.trim();
+  const title = siyuanPageCreateTitle.value;
   if (!title) {
-    ElMessage.warning("请先填写工作项标题，再创建思源页面");
+    ElMessage.warning("请先填写工作项标题，或输入想创建的页面标题");
     return;
   }
   if (!itemEffectiveLocation.value) {
@@ -1276,6 +1487,15 @@ function normalizeBaseUrl(value: string): string {
   return url;
 }
 
+function getSiyuanConfigSnapshot(): { baseUrl: string; token: string } | null {
+  const baseUrl = normalizeBaseUrl(siyuanForm.baseUrl);
+  const token = (siyuanForm.token ?? "").trim();
+  if (!baseUrl || !token) {
+    return null;
+  }
+  return { baseUrl, token };
+}
+
 function ensureSiyuanConfig(): { baseUrl: string; token: string } {
   const baseUrl = normalizeBaseUrl(siyuanForm.baseUrl);
   if (!baseUrl) {
@@ -1325,7 +1545,7 @@ async function handleLoadDirectory() {
   await refreshSiyuanDirectory({ showSuccess: true });
 }
 
-async function refreshSiyuanDirectory(options: { showSuccess?: boolean } = {}) {
+async function refreshSiyuanDirectory(options: { showSuccess?: boolean } = {}): Promise<boolean> {
   if (siyuanDirectoryLoadPromise) {
     return siyuanDirectoryLoadPromise;
   }
@@ -1349,9 +1569,11 @@ async function refreshSiyuanDirectory(options: { showSuccess?: boolean } = {}) {
       if (showSuccess) {
         ElMessage.success("目录已加载");
       }
+      return true;
     } catch (error) {
       siyuanError.value = (error as Error).message;
       siyuanErrorContext.value = "directory";
+      return false;
     } finally {
       siyuanLoadingDirectory.value = false;
       siyuanDirectoryLoadPromise = null;
@@ -1409,6 +1631,49 @@ watch(siyuanLocationDialogVisible, (visible) => {
     siyuanLocationPickerSearch.value = "";
   }
 });
+
+watch(siyuanPageDialogVisible, (visible, previousVisible) => {
+  if (!visible && previousVisible) {
+    siyuanPageDialogSessionId.value += 1;
+    siyuanPageSearchingAll.value = false;
+  }
+});
+
+watch(siyuanPageFilterKeyword, (keyword, previousKeyword) => {
+  if (!siyuanPageDialogVisible.value) {
+    return;
+  }
+  if (siyuanPageResultSource.value !== "all" || keyword === previousKeyword) {
+    return;
+  }
+  restoreSiyuanLocationResults();
+});
+
+watch(
+  [siyuanPageDialogVisible, itemEffectiveLocation, siyuanConfigReady, siyuanDirectory, siyuanDirectoryFetchedAt],
+  ([visible]) => {
+    if (!visible) {
+      return;
+    }
+    if (!siyuanConfigReady.value) {
+      siyuanPageLocationResults.value = [];
+      siyuanPageLocationState.value = "missing-config";
+      siyuanPageLocationRefreshError.value = "";
+      return;
+    }
+    if (!itemEffectiveLocation.value) {
+      siyuanPageLocationResults.value = [];
+      siyuanPageLocationState.value = "missing-location";
+      siyuanPageLocationRefreshError.value = "";
+      return;
+    }
+    if (!siyuanDirectoryFetchedAt.value && siyuanDirectory.value.length === 0) {
+      return;
+    }
+    applySiyuanPageLocationResultsFromDirectory();
+  },
+  { flush: "post" },
+);
 
 // ── Project CRUD ─────────────────────────────────────────
 
@@ -2524,10 +2789,23 @@ body.pm-is-dragging * {
 .pm-siyuan-config-summary,
 .pm-siyuan-link-subtitle,
 .pm-siyuan-dialog-hint,
+.pm-siyuan-dialog-notice,
 .pm-siyuan-picker-intro {
   font-size: 13px;
   line-height: 1.6;
   color: var(--el-text-color-secondary);
+}
+
+.pm-siyuan-dialog-notice {
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--el-fill-color-light);
+}
+
+.pm-siyuan-dialog-notice--warning {
+  color: var(--el-color-warning-dark-2);
+  background: var(--el-color-warning-light-9);
+  border: 1px solid var(--el-color-warning-light-7);
 }
 
 .pm-siyuan-inline-actions {

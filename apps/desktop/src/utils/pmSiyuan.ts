@@ -7,6 +7,11 @@ import type {
 
 type PmSiyuanDirectoryNode = PmSiyuanNotebookDirectory | PmSiyuanTreeNode;
 
+export type PmSiyuanLocationPagesResult =
+  | { state: "ready"; pages: PmSiyuanPageRef[] }
+  | { state: "empty"; pages: [] }
+  | { state: "invalid-location"; pages: [] };
+
 export function resolvePmSiyuanEffectiveLocation(
   projectLocation: PmSiyuanLocation | null | undefined,
   globalLocation: PmSiyuanLocation | null | undefined,
@@ -129,6 +134,134 @@ export function collectPmSiyuanExpandedKeys(
   }
 
   return [...keys];
+}
+
+function createPmSiyuanPageRef(
+  notebook: PmSiyuanNotebookDirectory,
+  node: PmSiyuanTreeNode,
+): PmSiyuanPageRef {
+  return {
+    docId: node.id,
+    docTitle: node.name,
+    docHpath: node.hpath,
+    docPath: node.path,
+    notebookId: notebook.id,
+    notebookName: notebook.name,
+  };
+}
+
+function appendPmSiyuanPageRef(
+  result: PmSiyuanPageRef[],
+  seen: Set<string>,
+  notebook: PmSiyuanNotebookDirectory,
+  node: PmSiyuanTreeNode,
+) {
+  if (!node.id || seen.has(node.id)) {
+    return;
+  }
+  seen.add(node.id);
+  result.push(createPmSiyuanPageRef(notebook, node));
+}
+
+function flattenPmSiyuanTreeNodes(
+  result: PmSiyuanPageRef[],
+  seen: Set<string>,
+  notebook: PmSiyuanNotebookDirectory,
+  nodes: PmSiyuanTreeNode[],
+) {
+  for (const node of nodes) {
+    appendPmSiyuanPageRef(result, seen, notebook, node);
+    if (node.children.length > 0) {
+      flattenPmSiyuanTreeNodes(result, seen, notebook, node.children);
+    }
+  }
+}
+
+function collectPmSiyuanPagesFromNode(
+  notebook: PmSiyuanNotebookDirectory,
+  target: PmSiyuanTreeNode,
+): PmSiyuanPageRef[] {
+  const result: PmSiyuanPageRef[] = [];
+  const seen = new Set<string>();
+  appendPmSiyuanPageRef(result, seen, notebook, target);
+  if (target.children.length > 0) {
+    flattenPmSiyuanTreeNodes(result, seen, notebook, target.children);
+  }
+  return result;
+}
+
+function collectPmSiyuanPagesFromNotebook(
+  notebook: PmSiyuanNotebookDirectory,
+): PmSiyuanPageRef[] {
+  const result: PmSiyuanPageRef[] = [];
+  flattenPmSiyuanTreeNodes(result, new Set<string>(), notebook, notebook.children);
+  return result;
+}
+
+function findPmSiyuanTreeNodeById(
+  nodes: PmSiyuanTreeNode[],
+  targetId: string,
+): PmSiyuanTreeNode | null {
+  for (const node of nodes) {
+    if (node.id === targetId) {
+      return node;
+    }
+    const child = findPmSiyuanTreeNodeById(node.children, targetId);
+    if (child) {
+      return child;
+    }
+  }
+  return null;
+}
+
+export function collectPmSiyuanPagesForLocation(
+  notebooks: PmSiyuanNotebookDirectory[],
+  location: PmSiyuanLocation | null | undefined,
+): PmSiyuanLocationPagesResult {
+  if (!location) {
+    return { state: "invalid-location", pages: [] };
+  }
+
+  const notebook = notebooks.find((entry) => entry.id === location.notebookId);
+  if (!notebook || notebook.closed) {
+    return { state: "invalid-location", pages: [] };
+  }
+
+  const pages = location.parentDocId
+    ? (() => {
+        const target = findPmSiyuanTreeNodeById(notebook.children, location.parentDocId);
+        if (!target) {
+          return null;
+        }
+        return collectPmSiyuanPagesFromNode(notebook, target);
+      })()
+    : collectPmSiyuanPagesFromNotebook(notebook);
+
+  if (!pages) {
+    return { state: "invalid-location", pages: [] };
+  }
+
+  if (pages.length === 0) {
+    return { state: "empty", pages: [] };
+  }
+
+  return { state: "ready", pages };
+}
+
+export function filterPmSiyuanPages(
+  pages: PmSiyuanPageRef[],
+  keyword: string,
+): PmSiyuanPageRef[] {
+  const normalizedKeyword = normalizePmSiyuanKeyword(keyword);
+  if (!normalizedKeyword) {
+    return pages;
+  }
+
+  return pages.filter((page) =>
+    [page.docTitle, page.docHpath, page.docPath ?? ""].some((field) =>
+      field.toLowerCase().includes(normalizedKeyword),
+    ),
+  );
 }
 
 export function dedupePmSiyuanExtraPages(
