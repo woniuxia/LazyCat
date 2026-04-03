@@ -2,6 +2,11 @@ import type { Task } from "frappe-gantt";
 
 import type { PmItem, PmItemStatus } from "../types/pm";
 import { PM_PRIORITY_MAP, PM_STATUS_COLUMNS } from "../types/pm";
+import {
+  hasPmDateSchedule,
+  isPmItemOverdue,
+  normalizePmDateString,
+} from "./pmDate";
 
 export interface PmGanttTask extends Task {
   itemId: number;
@@ -41,10 +46,6 @@ const STATUS_PROGRESS_MAP: Record<PmItemStatus, number> = {
   done: 100,
 };
 
-function normalizeDate(value: string | null | undefined): string | null {
-  return value ? value.slice(0, 10) : null;
-}
-
 function normalizeDateRange(start: string, end: string): { start: string; end: string } {
   if (start <= end) {
     return { start, end };
@@ -62,7 +63,7 @@ function escapeHtml(value: string): string {
 }
 
 export function hasPmGanttSchedule(item: PmItem): boolean {
-  return Boolean(item.startAt || item.endAt);
+  return hasPmDateSchedule(item.startAt, item.endAt);
 }
 
 export function countPmGanttUnscheduledItems(items: PmItem[]): number {
@@ -74,10 +75,7 @@ export function getPmGanttProgress(status: PmItemStatus): number {
 }
 
 export function isPmGanttItemOverdue(item: PmItem): boolean {
-  if (!item.endAt || item.status === "done") return false;
-  const end = new Date(item.endAt);
-  end.setHours(23, 59, 59, 999);
-  return end.getTime() < Date.now();
+  return isPmItemOverdue(item);
 }
 
 export function clampPmGanttPopupPosition(
@@ -107,8 +105,14 @@ export function clampPmGanttPopupPosition(
 }
 
 export function buildPmGanttTask(item: PmItem): PmGanttTask {
-  const rawStart = normalizeDate(item.startAt) ?? normalizeDate(item.endAt) ?? item.createdAt.slice(0, 10);
-  const rawEnd = normalizeDate(item.endAt) ?? normalizeDate(item.startAt) ?? item.createdAt.slice(0, 10);
+  const rawStart = normalizePmDateString(item.startAt)
+    ?? normalizePmDateString(item.endAt)
+    ?? normalizePmDateString(item.createdAt)
+    ?? item.createdAt.slice(0, 10);
+  const rawEnd = normalizePmDateString(item.endAt)
+    ?? normalizePmDateString(item.startAt)
+    ?? normalizePmDateString(item.createdAt)
+    ?? item.createdAt.slice(0, 10);
   const { start, end } = normalizeDateRange(rawStart, rawEnd);
   const overdue = isPmGanttItemOverdue(item);
 

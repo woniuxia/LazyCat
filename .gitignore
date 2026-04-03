@@ -20,3 +20,4 @@ apps/desktop/src-tauri/WebView2
 .worktrees
 .playwright-mcp
 .codex
+.superpowers

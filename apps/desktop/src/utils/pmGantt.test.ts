@@ -98,10 +98,23 @@ describe("pmGantt", () => {
       baseItem,
       { ...baseItem, id: 9, startAt: null, endAt: null },
       { ...baseItem, id: 10, startAt: null, endAt: "2026-04-03" },
+      { ...baseItem, id: 12, startAt: "invalid", endAt: null },
     ];
 
-    expect(countPmGanttUnscheduledItems(items)).toBe(1);
+    expect(countPmGanttUnscheduledItems(items)).toBe(2);
     expect(buildPmGanttTasks(items).map((task) => task.itemId)).toEqual([7, 10]);
+  });
+
+  it("忽略带时间部分与非法值的历史日期差异", () => {
+    const task = buildPmGanttTask({
+      ...baseItem,
+      id: 13,
+      startAt: "2026-04-02T08:30:00.000Z",
+      endAt: "invalid",
+    });
+
+    expect(task.start).toBe("2026-04-02");
+    expect(task.end).toBe("2026-04-02");
   });
 
   it("按总览模式生成带项目元信息的悬浮卡", () => {

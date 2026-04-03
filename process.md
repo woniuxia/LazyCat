@@ -8,6 +8,62 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-04-02: 项目管理工作项弹窗切换为时间范围 + 思源紧凑列表
+
+**场景**: 用户要求按 spec 落地项目管理工作项弹窗刷新，只改“新建/编辑工作项”弹窗，不扩散成整页 PM 重构，同时要把历史单边日期、带时间部分字符串和思源关联区的大卡片布局一起收敛。
+
+**问题**:
+1. `PmPanel.vue` 里时间输入还是两个独立 `el-date-picker`，并且直接用 `new Date('YYYY-MM-DD')` 做禁用与逾期判断，带来隐含时区解析和历史脏数据兼容问题。
+2. PM 日期消费散落在看板卡片、详情区和甘特图，部分逻辑只会 `slice(0, 10)`，部分逻辑直接 `new Date(...)`，导致“表单、展示、逾期、甘特”难以保持同一套本地日期语义。
+3. 思源关联区还是“主页面 / 附加页面”双分段卡片结构，纵向占位大；如果只在旧结构上删按钮，很难达到 spec 要求的“摘要头 + 统一紧凑列表”。
+4. “关联页面”入口与“更换主页面 / 设为主页面”其实是两种不同意图：前者遇到已存在页面应提示并保持顺序不变，后者则允许页面提升为主页面；如果仍共用同一分支，很容易把重复选择错误地变成主页面提升。
+
+**解决**:
+1. 新增 `apps/desktop/src/utils/pmDate.ts`，集中提供：
+   - `normalizePmDateString`
+   - `parsePmDateAtLocalStart`
+   - `parsePmDateAtLocalEnd`
+   - `normalizePmDateRangeForDraft`
+   - `formatPmDateRangeForDisplay`
+   - `isPmItemOverdue`
+2. `PmPanel.vue` 的工作项弹窗改成：
+   - 标题单行
+   - 类型 + 优先级同排
+   - 状态单行
+   - 单个 `daterange` 作为“时间安排”
+   - 思源关联改为摘要头 + 统一行列表
+3. 编辑历史数据时先在弹窗初始化层归一：
+   - 单边日期映射为同日范围
+   - 倒序日期自动升序
+   - 非法日期按空处理
+   保存时始终显式提交 `startAt/endAt`，避免继续把脏值带回后端。
+4. 思源关联区引入“对话框意图”状态：
+   - `link`：顶部 `关联页面`
+   - `replace-primary`：主页面行的 `更换主页面`
+   这样重复页面选择时才能正确区分“提示已存在”与“提升为主页面”。
+5. 甘特图切到同一套 `pmDate` helper，确保未排期统计、历史带时间部分日期和逾期判断都走统一本地日期语义。
+6. 新增 `pmDate.test.ts`，并补充 `pmGantt.test.ts` 场景，覆盖非法值、时间部分、单边日期、倒序日期与逾期边界。
+
+**关键点**:
+1. 只要输入语义是“本地日期”，就不要再写 `new Date('YYYY-MM-DD')`；必须先把值归一到 `YYYY-MM-DD`，再用 `new Date(year, monthIndex, day, ...)` 构造本地时间。
+2. “关联页面”与“更换主页面”不能共用同一条选择后处理逻辑，否则重复选择时会把原本应该 no-op 的操作变成状态迁移。
+3. 弹窗里的日期归一应只发生在草稿态；如果用户取消，不写回历史单边日期或脏数据的归一结果。
+4. 统一列表想做到 44~52px 的紧凑高度，标题和路径都必须收敛成单行省略，不能继续沿用旧卡片的多行文本与分段标签。
+
+**涉及文件**:
+- `apps/desktop/src/components/PmPanel.vue`
+- `apps/desktop/src/utils/pmDate.ts`
+- `apps/desktop/src/utils/pmDate.test.ts`
+- `apps/desktop/src/utils/pmGantt.ts`
+- `apps/desktop/src/utils/pmGantt.test.ts`
+
+**验证**:
+- `pnpm --filter @lazycat/desktop test src/utils/pmDate.test.ts src/utils/pmGantt.test.ts src/utils/pmSiyuan.test.ts`
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+
+**使用次数**: 0
+
 ## 2026-04-02: Brainstorming 本地预览在 Windows 仓库内补齐桥接脚本
 
 **场景**: brainstorming 过程中需要使用 visual companion 做本地浏览器预览，但仓库根目录没有 `scripts/start-server.sh` 入口，Windows 环境里也没有可直接用的 `bash`，导致技能文档里的默认启动方式无法在当前项目里直接落地。

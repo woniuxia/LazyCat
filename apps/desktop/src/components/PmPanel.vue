@@ -135,10 +135,10 @@
                 <div v-if="item.tags.length > 0" class="card-tags">
                   <el-tag v-for="tag in item.tags" :key="tag" size="small" type="info">{{ tag }}</el-tag>
                 </div>
-                <div v-if="item.startAt || item.endAt" class="card-dates">
-                  <span v-if="item.startAt">{{ formatShortDate(item.startAt) }}</span>
-                  <span v-if="item.startAt && item.endAt"> ~ </span>
-                  <span v-if="item.endAt" :class="{ 'is-overdue-date': isOverdue(item) }">{{ formatShortDate(item.endAt) }}</span>
+                <div v-if="hasPmDateSchedule(item.startAt, item.endAt)" class="card-dates">
+                  <span :class="{ 'is-overdue-date': isOverdue(item) }">
+                    {{ formatPmDateRangeForDisplay(item.startAt, item.endAt, { mode: 'short', emptyText: '' }) }}
+                  </span>
                 </div>
                 <div v-if="isOverview && item.projectName" class="card-project">
                   <span class="card-project-dot" :style="{ backgroundColor: item.projectColor || '#909399' }" />
@@ -212,12 +212,10 @@
                 <span class="detail-value">{{ PM_STATUS_COLUMNS.find(c => c.key === selectedItem.status)?.label ?? selectedItem.status }}</span>
               </div>
               <div class="detail-field">
-                <span class="detail-label">开始日期</span>
-                <span class="detail-value">{{ selectedItem.startAt ?? '-' }}</span>
-              </div>
-              <div class="detail-field">
-                <span class="detail-label">截止日期</span>
-                <span class="detail-value" :class="{ 'is-overdue-date': isOverdue(selectedItem) }">{{ selectedItem.endAt ?? '-' }}</span>
+                <span class="detail-label">时间安排</span>
+                <span class="detail-value" :class="{ 'is-overdue-date': isOverdue(selectedItem) }">
+                  {{ formatPmDateRangeForDisplay(selectedItem.startAt, selectedItem.endAt) }}
+                </span>
               </div>
               <div class="detail-field">
                 <span class="detail-label">标签</span>
@@ -319,7 +317,7 @@
 
     <!-- Item dialog -->
     <el-dialog v-model="itemDialogVisible" :title="editingItem ? '编辑工作项' : '新建工作项'" width="720px" @close="resetItemForm">
-      <el-form :model="itemForm" label-width="80px" size="default">
+      <el-form :model="itemForm" label-width="80px" size="default" class="pm-item-dialog-form">
         <el-form-item v-if="isOverview && !editingItem" label="所属项目">
           <el-select v-model="itemFormProjectId" placeholder="选择项目" style="width: 100%">
             <el-option v-for="p in activeProjects" :key="p.id" :label="p.name" :value="p.id" />
@@ -328,32 +326,40 @@
         <el-form-item label="标题">
           <el-input v-model="itemForm.title" placeholder="工作项标题" />
         </el-form-item>
-        <el-form-item label="类型">
-          <el-select v-model="itemForm.itemType">
-            <el-option v-for="(meta, key) in PM_ITEM_TYPE_MAP" :key="key" :label="meta.label" :value="key" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="优先级">
-          <el-select v-model="itemForm.priority">
-            <template #prefix>
-              <span class="priority-dot" :style="{ backgroundColor: PM_PRIORITY_MAP[itemForm.priority]?.color }" />
-            </template>
-            <el-option v-for="(meta, key) in PM_PRIORITY_MAP" :key="key" :label="meta.label" :value="key">
-              <span class="priority-dot" :style="{ backgroundColor: meta.color }" />
-              {{ meta.label }}
-            </el-option>
-          </el-select>
-        </el-form-item>
+        <div class="pm-item-dialog-inline-fields">
+          <el-form-item label="类型" class="pm-item-dialog-inline-field">
+            <el-select v-model="itemForm.itemType">
+              <el-option v-for="(meta, key) in PM_ITEM_TYPE_MAP" :key="key" :label="meta.label" :value="key" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="优先级" class="pm-item-dialog-inline-field">
+            <el-select v-model="itemForm.priority">
+              <template #prefix>
+                <span class="priority-dot" :style="{ backgroundColor: PM_PRIORITY_MAP[itemForm.priority]?.color }" />
+              </template>
+              <el-option v-for="(meta, key) in PM_PRIORITY_MAP" :key="key" :label="meta.label" :value="key">
+                <span class="priority-dot" :style="{ backgroundColor: meta.color }" />
+                {{ meta.label }}
+              </el-option>
+            </el-select>
+          </el-form-item>
+        </div>
         <el-form-item label="状态">
           <el-select v-model="itemForm.status">
             <el-option v-for="col in PM_STATUS_COLUMNS" :key="col.key" :label="col.label" :value="col.key" />
           </el-select>
         </el-form-item>
-        <el-form-item label="开始日期">
-          <el-date-picker v-model="itemForm.startAt" type="date" value-format="YYYY-MM-DD" clearable style="width:100%" :disabled-date="(d) => !!itemForm.endAt && d > new Date(itemForm.endAt + 'T23:59:59')" />
-        </el-form-item>
-        <el-form-item label="截止日期">
-          <el-date-picker v-model="itemForm.endAt" type="date" value-format="YYYY-MM-DD" clearable style="width:100%" :disabled-date="(d) => !!itemForm.startAt && d < new Date(itemForm.startAt + 'T00:00:00')" />
+        <el-form-item label="时间安排">
+          <el-date-picker
+            v-model="itemFormDateRange"
+            type="daterange"
+            value-format="YYYY-MM-DD"
+            range-separator="~"
+            start-placeholder="开始日期"
+            end-placeholder="截止日期"
+            clearable
+            style="width: 100%"
+          />
         </el-form-item>
         <el-form-item label="描述">
           <el-input v-model="itemForm.description" type="textarea" :rows="3" />
@@ -362,54 +368,38 @@
           <div class="pm-siyuan-link-card">
             <div class="pm-siyuan-link-header">
               <div>
-                <div class="pm-siyuan-link-title">页面关联</div>
-                <div class="pm-siyuan-link-subtitle">
-                  当前有效位置：{{ formatPmSiyuanLocationLabel(itemEffectiveLocation) }}
-                  <el-tag size="small" type="info">{{ itemEffectiveLocationSource }}</el-tag>
-                </div>
+                <div class="pm-siyuan-link-title">思源关联</div>
+                <div class="pm-siyuan-link-subtitle">{{ itemSiyuanLocationSummary }}</div>
               </div>
               <div class="pm-siyuan-inline-actions">
-                <el-button size="small" @click="openSiyuanPageDialog('primary')">
-                  {{ itemPrimaryPage ? "更换主页面" : "关联主页面" }}
-                </el-button>
-                <el-button size="small" @click="openSiyuanPageDialog('extra')">添加附加页面</el-button>
+                <el-button size="small" type="primary" plain @click="openSiyuanLinkPicker()">关联页面</el-button>
               </div>
             </div>
-
-            <div class="pm-siyuan-linked-section">
-              <div class="pm-siyuan-section-label">主页面</div>
-              <div v-if="itemPrimaryPage" class="pm-siyuan-page-row">
+            <div v-if="itemLinkedPages.length > 0" class="pm-siyuan-page-list">
+              <div v-for="row in itemLinkedPages" :key="row.page.docId" class="pm-siyuan-page-row">
                 <div class="pm-siyuan-page-main">
-                  <div class="pm-siyuan-page-title">{{ itemPrimaryPage.docTitle }}</div>
-                  <div class="pm-siyuan-page-meta">
-                    {{ itemPrimaryPage.notebookName }} · {{ itemPrimaryPage.docHpath }}
+                  <div class="pm-siyuan-page-row-head">
+                    <div class="pm-siyuan-page-title">{{ row.page.docTitle }}</div>
+                    <el-tag v-if="row.kind === 'primary'" size="small" effect="plain" type="primary">主页面</el-tag>
                   </div>
+                  <div class="pm-siyuan-page-meta">{{ row.page.notebookName }} · {{ row.page.docHpath }}</div>
                 </div>
-                <div class="pm-siyuan-inline-actions">
-                  <el-button size="small" link @click="openSiyuanPage(itemPrimaryPage)">打开</el-button>
-                  <el-button size="small" link @click="removeItemLinkedPage(itemPrimaryPage.docId)">移除</el-button>
-                </div>
-              </div>
-              <div v-else class="pm-siyuan-empty-hint">暂未关联主页面</div>
-            </div>
-
-            <div class="pm-siyuan-linked-section">
-              <div class="pm-siyuan-section-label">附加页面</div>
-              <div v-if="itemExtraPages.length > 0" class="pm-siyuan-page-list">
-                <div v-for="page in itemExtraPages" :key="page.docId" class="pm-siyuan-page-row">
-                  <div class="pm-siyuan-page-main">
-                    <div class="pm-siyuan-page-title">{{ page.docTitle }}</div>
-                    <div class="pm-siyuan-page-meta">{{ page.notebookName }} · {{ page.docHpath }}</div>
-                  </div>
-                  <div class="pm-siyuan-inline-actions">
-                    <el-button size="small" link @click="applyItemPrimaryPage(page)">设为主页面</el-button>
-                    <el-button size="small" link @click="openSiyuanPage(page)">打开</el-button>
-                    <el-button size="small" link @click="removeItemLinkedPage(page.docId)">移除</el-button>
-                  </div>
+                <div class="pm-siyuan-page-actions">
+                  <el-button size="small" link @click="openSiyuanPage(row.page)">打开</el-button>
+                  <el-dropdown trigger="click" @command="(command) => handleItemSiyuanPageCommand(row, command)">
+                    <el-button size="small" link class="pm-siyuan-more-trigger">更多</el-button>
+                    <template #dropdown>
+                      <el-dropdown-menu>
+                        <el-dropdown-item v-if="row.kind === 'primary'" command="replace-primary">更换主页面</el-dropdown-item>
+                        <el-dropdown-item v-else command="promote-primary">设为主页面</el-dropdown-item>
+                        <el-dropdown-item command="remove">移除</el-dropdown-item>
+                      </el-dropdown-menu>
+                    </template>
+                  </el-dropdown>
                 </div>
               </div>
-              <div v-else class="pm-siyuan-empty-hint">暂无附加页面</div>
             </div>
+            <div v-else class="pm-siyuan-empty-inline">尚未关联页面，点击右上角开始关联。</div>
           </div>
         </el-form-item>
       </el-form>
@@ -655,7 +645,7 @@
 
     <el-dialog
       v-model="siyuanPageDialogVisible"
-      :title="siyuanPageDialogMode === 'primary' ? '关联思源主页面' : '添加思源附加页面'"
+      :title="siyuanPageDialogTitle"
       width="760px"
     >
       <div class="pm-siyuan-dialog-body">
@@ -769,6 +759,13 @@ import {
   resolvePmSiyuanEffectiveLocation,
   setPmSiyuanPrimaryPage,
 } from "../utils/pmSiyuan";
+import {
+  formatPmDateRangeForDisplay,
+  getPmDateRangeValue,
+  hasPmDateSchedule,
+  isPmItemOverdue,
+  normalizePmDateRangeForDraft,
+} from "../utils/pmDate";
 
 const { invoke } = useToolInvoke();
 const defaultBaseUrl = "http://127.0.0.1:6806";
@@ -781,6 +778,11 @@ interface CtxMenuAction {
   action: () => void | Promise<void>;
   danger?: boolean;
   divider?: boolean;
+}
+
+interface ItemSiyuanLinkedRow {
+  page: PmSiyuanPageRef;
+  kind: "primary" | "extra";
 }
 
 type PmSiyuanPageLocationState =
@@ -857,6 +859,7 @@ const siyuanLocationPickerValue = ref<PmSiyuanLocation | null>(null);
 const siyuanLocationPickerSearch = ref("");
 const siyuanPageDialogVisible = ref(false);
 const siyuanPageDialogMode = ref<"primary" | "extra">("primary");
+const siyuanPageDialogIntent = ref<"link" | "replace-primary">("link");
 const siyuanPageDialogSessionId = ref(0);
 const siyuanPageFilterKeyword = ref("");
 const siyuanPageResultSource = ref<"location" | "all">("location");
@@ -948,6 +951,44 @@ const itemEffectiveLocationSource = computed(() => {
   }
   return "未配置";
 });
+const itemSiyuanLocationSummary = computed(() => {
+  if (!itemEffectiveLocation.value) {
+    return "未配置默认位置";
+  }
+  if (
+    siyuanErrorContext.value === "directory" &&
+    !siyuanDirectoryFetchedAt.value &&
+    siyuanDirectory.value.length === 0
+  ) {
+    return "位置读取失败";
+  }
+  if (siyuanDirectoryFetchedAt.value || siyuanDirectory.value.length > 0) {
+    const result = collectPmSiyuanPagesForLocation(siyuanDirectory.value, itemEffectiveLocation.value);
+    if (result.state === "invalid-location") {
+      return "位置已失效";
+    }
+  }
+  return `${itemEffectiveLocationSource.value} · ${formatPmSiyuanLocationLabel(itemEffectiveLocation.value)}`;
+});
+const itemLinkedPages = computed<ItemSiyuanLinkedRow[]>(() => [
+  ...(itemPrimaryPage.value ? [{ page: itemPrimaryPage.value, kind: "primary" as const }] : []),
+  ...itemExtraPages.value.map((page) => ({ page, kind: "extra" as const })),
+]);
+const itemFormDateRange = computed<[string, string] | null>({
+  get() {
+    return getPmDateRangeValue(itemForm.value.startAt, itemForm.value.endAt);
+  },
+  set(value) {
+    if (!value || value.length < 2) {
+      itemForm.value.startAt = null;
+      itemForm.value.endAt = null;
+      return;
+    }
+    const normalizedRange = normalizePmDateRangeForDraft(value[0], value[1]);
+    itemForm.value.startAt = normalizedRange.startAt;
+    itemForm.value.endAt = normalizedRange.endAt;
+  },
+});
 const siyuanLocationPickerTitle = computed(() =>
   siyuanLocationPickerTarget.value === "global" ? "选择任务默认存储位置" : "选择项目专属存储位置",
 );
@@ -1012,9 +1053,28 @@ const siyuanPageCreateTitle = computed(() => {
   }
   return itemTitle;
 });
-const siyuanPageCanCreateImmediately = computed(
-  () => Boolean(itemEffectiveLocation.value && siyuanPageCreateTitle.value),
-);
+const siyuanPageCanCreateImmediately = computed(() => {
+  if (!itemEffectiveLocation.value || !siyuanPageCreateTitle.value) {
+    return false;
+  }
+  if (
+    siyuanPageLocationState.value === "missing-location" ||
+    siyuanPageLocationState.value === "invalid-location" ||
+    siyuanPageLocationState.value === "missing-config"
+  ) {
+    return false;
+  }
+  if (siyuanPageLocationState.value === "load-error" && siyuanPageLocationResults.value.length === 0) {
+    return false;
+  }
+  return true;
+});
+const siyuanPageDialogTitle = computed(() => {
+  if (siyuanPageDialogIntent.value === "replace-primary") {
+    return "更换思源主页面";
+  }
+  return siyuanPageDialogMode.value === "primary" ? "关联思源主页面" : "添加思源附加页面";
+});
 const siyuanPageCurrentRangeText = computed(() => {
   if (siyuanPageResultSource.value === "all") {
     return `当前列表范围：本次全库搜索结果（当前显示 ${siyuanPageAllResults.value.length} 条）`;
@@ -1101,10 +1161,7 @@ function columnItems(status: PmItemStatus) {
 // ── Helpers ──────────────────────────────────────────────
 
 function isOverdue(item: PmItem): boolean {
-  if (!item.endAt || item.status === "done") return false;
-  const end = new Date(item.endAt);
-  end.setHours(23, 59, 59, 999);
-  return end.getTime() < Date.now();
+  return isPmItemOverdue(item);
 }
 
 function nextStatusLabel(item: PmItem): string {
@@ -1127,6 +1184,7 @@ function cloneSiyuanPages(pages: PmSiyuanPageRef[] | null | undefined): PmSiyuan
 function resetSiyuanPageDialogState(mode: "primary" | "extra") {
   siyuanPageDialogSessionId.value += 1;
   siyuanPageDialogMode.value = mode;
+  siyuanPageDialogIntent.value = "link";
   siyuanPageFilterKeyword.value = "";
   siyuanPageResultSource.value = "location";
   siyuanPageLocationResults.value = [];
@@ -1206,6 +1264,10 @@ function addItemExtraPage(page: PmSiyuanPageRef) {
   itemExtraPages.value = addPmSiyuanExtraPage(itemPrimaryPage.value, itemExtraPages.value, page).map(
     (item) => ({ ...item }),
   );
+}
+
+function hasItemLinkedPage(docId: string): boolean {
+  return itemPrimaryPage.value?.docId === docId || itemExtraPages.value.some((page) => page.docId === docId);
 }
 
 function removeItemLinkedPage(docId: string) {
@@ -1308,8 +1370,12 @@ function clearProjectSiyuanOverride() {
   projectForm.value.siyuanLocationOverride = null;
 }
 
-async function openSiyuanPageDialog(mode: "primary" | "extra") {
+async function openSiyuanPageDialog(
+  mode: "primary" | "extra",
+  intent: "link" | "replace-primary" = "link",
+) {
   resetSiyuanPageDialogState(mode);
+  siyuanPageDialogIntent.value = intent;
   if (!editingItem.value && mode === "primary") {
     siyuanPageFilterKeyword.value = itemForm.value.title.trim();
   }
@@ -1379,10 +1445,26 @@ async function expandSiyuanPagesToAll() {
 }
 
 function selectSiyuanPageResult(page: PmSiyuanPageRef) {
-  if (siyuanPageDialogMode.value === "primary") {
+  if (siyuanPageDialogIntent.value === "replace-primary") {
+    if (itemPrimaryPage.value?.docId === page.docId) {
+      siyuanPageDialogVisible.value = false;
+      return;
+    }
     applyItemPrimaryPage(page);
-  } else {
+    siyuanPageDialogVisible.value = false;
+    return;
+  }
+
+  if (hasItemLinkedPage(page.docId)) {
+    ElMessage.info("该页面已存在，无需重复关联。");
+    siyuanPageDialogVisible.value = false;
+    return;
+  }
+
+  if (itemPrimaryPage.value) {
     addItemExtraPage(page);
+  } else {
+    applyItemPrimaryPage(page);
   }
   siyuanPageDialogVisible.value = false;
 }
@@ -1408,8 +1490,8 @@ async function createSiyuanPageForItem() {
         projectName: itemDialogProject.value?.name ?? "未归项目",
         status: itemForm.value.status,
         priority: itemForm.value.priority,
-        startAt: itemForm.value.startAt,
-        endAt: itemForm.value.endAt,
+        startAt: normalizePmDateRangeForDraft(itemForm.value.startAt, itemForm.value.endAt).startAt,
+        endAt: normalizePmDateRangeForDraft(itemForm.value.startAt, itemForm.value.endAt).endAt,
         location: itemEffectiveLocation.value,
       },
     )) as { created: boolean; page: PmSiyuanPageRef };
@@ -1814,22 +1896,29 @@ function showCreateItem() {
   itemPrimaryPage.value = null;
   itemExtraPages.value = [];
   itemDialogVisible.value = true;
+  if (siyuanConfigReady.value && itemEffectiveLocation.value) {
+    void ensureSiyuanDirectoryLoaded();
+  }
 }
 
 function editItem(item: PmItem) {
+  const normalizedDateRange = normalizePmDateRangeForDraft(item.startAt, item.endAt);
   editingItem.value = item;
   itemForm.value = {
     title: item.title,
     itemType: item.itemType,
     priority: item.priority,
     status: item.status,
-    startAt: item.startAt,
-    endAt: item.endAt,
+    startAt: normalizedDateRange.startAt,
+    endAt: normalizedDateRange.endAt,
     description: item.description,
   };
   itemPrimaryPage.value = cloneSiyuanPage(item.siyuanPrimaryPage);
   itemExtraPages.value = cloneSiyuanPages(item.siyuanExtraPages);
   itemDialogVisible.value = true;
+  if (siyuanConfigReady.value && itemEffectiveLocation.value) {
+    void ensureSiyuanDirectoryLoaded();
+  }
 }
 
 function resetItemForm() {
@@ -1844,8 +1933,11 @@ async function submitItem() {
     return;
   }
   try {
+    const normalizedDateRange = normalizePmDateRangeForDraft(itemForm.value.startAt, itemForm.value.endAt);
     const payload = {
       ...itemForm.value,
+      startAt: normalizedDateRange.startAt,
+      endAt: normalizedDateRange.endAt,
       siyuanPrimaryPage: itemPrimaryPage.value,
       siyuanExtraPages: itemExtraPages.value,
     };
@@ -1902,21 +1994,49 @@ function onGanttItemContext(payload: { item: PmItem; anchorX: number; anchorY: n
 // ── Gantt date change ────────────────────────────────────
 
 async function onGanttDateChange(item: PmItem, start: string, end: string) {
+  const normalizedDateRange = normalizePmDateRangeForDraft(start, end);
   // 乐观更新本地数据，避免全量刷新导致甘特图重建
   const target = items.value.find((i) => i.id === item.id);
   if (target) {
-    target.startAt = start;
-    target.endAt = end;
+    target.startAt = normalizedDateRange.startAt;
+    target.endAt = normalizedDateRange.endAt;
   }
   try {
     await invoke("tool:pm:item-update", {
       id: item.id,
-      startAt: start,
-      endAt: end,
+      startAt: normalizedDateRange.startAt,
+      endAt: normalizedDateRange.endAt,
     });
   } catch (e) {
     await loadItems();
     ElMessage.error((e as Error).message);
+  }
+}
+
+async function openSiyuanLinkPicker() {
+  await openSiyuanPageDialog(itemPrimaryPage.value ? "extra" : "primary", "link");
+}
+
+async function openReplacePrimarySiyuanDialog() {
+  await openSiyuanPageDialog("primary", "replace-primary");
+}
+
+function handleItemSiyuanPageCommand(
+  row: ItemSiyuanLinkedRow,
+  command: string | number | object,
+) {
+  switch (command) {
+    case "replace-primary":
+      void openReplacePrimarySiyuanDialog();
+      return;
+    case "promote-primary":
+      applyItemPrimaryPage(row.page);
+      return;
+    case "remove":
+      removeItemLinkedPage(row.page.docId);
+      return;
+    default:
+      return;
   }
 }
 
@@ -2225,12 +2345,6 @@ function handleCtxViewportChange() {
 }
 
 // ── Formatting ───────────────────────────────────────────
-
-function formatShortDate(dateStr: string): string {
-  if (!dateStr) return "";
-  const d = new Date(dateStr);
-  return `${(d.getMonth() + 1).toString().padStart(2, "0")}-${d.getDate().toString().padStart(2, "0")}`;
-}
 
 function formatDateTime(dateStr: string): string {
   if (!dateStr) return "";
@@ -2772,6 +2886,22 @@ body.pm-is-dragging * {
   align-items: flex-start;
 }
 
+.pm-item-dialog-form {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pm-item-dialog-inline-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.pm-item-dialog-inline-field {
+  min-width: 0;
+}
+
 .pm-siyuan-config-card,
 .pm-siyuan-link-card {
   width: 100%;
@@ -2834,39 +2964,24 @@ body.pm-is-dragging * {
 
 .pm-siyuan-link-subtitle {
   display: flex;
-  align-items: center;
-  gap: 8px;
   flex-wrap: wrap;
   margin-top: 4px;
-}
-
-.pm-siyuan-linked-section {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.pm-siyuan-section-label {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--el-text-color-secondary);
-  letter-spacing: 0.04em;
 }
 
 .pm-siyuan-page-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .pm-siyuan-page-row {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
   border: 1px solid var(--el-border-color-extra-light);
   border-radius: 10px;
-  padding: 10px 12px;
+  padding: 8px 10px;
   background: var(--el-bg-color);
 }
 
@@ -2875,7 +2990,14 @@ body.pm-is-dragging * {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
+}
+
+.pm-siyuan-page-row-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 
 .pm-siyuan-page-title,
@@ -2884,6 +3006,16 @@ body.pm-is-dragging * {
   font-weight: 600;
   line-height: 1.4;
   color: var(--el-text-color-primary);
+}
+
+.pm-siyuan-page-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detail-siyuan-page-title {
   word-break: break-word;
 }
 
@@ -2892,7 +3024,35 @@ body.pm-is-dragging * {
   font-size: 12px;
   color: var(--el-text-color-secondary);
   line-height: 1.5;
+}
+
+.pm-siyuan-page-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detail-siyuan-page-meta {
   word-break: break-word;
+}
+
+.pm-siyuan-page-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.pm-siyuan-more-trigger {
+  padding-left: 4px;
+  padding-right: 4px;
+}
+
+.pm-siyuan-empty-inline {
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+  padding: 2px 0;
 }
 
 .pm-siyuan-empty-hint {
@@ -3155,13 +3315,23 @@ body.pm-is-dragging * {
 }
 
 @media (max-width: 900px) {
+  .pm-item-dialog-inline-fields {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+
   .pm-siyuan-page-row,
   .detail-siyuan-page {
     flex-direction: column;
+    align-items: stretch;
   }
 
   .pm-siyuan-link-header {
     flex-direction: column;
+  }
+
+  .pm-siyuan-page-actions {
+    justify-content: flex-start;
   }
 }
 </style>
