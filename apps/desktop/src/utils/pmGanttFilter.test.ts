@@ -29,6 +29,8 @@ const baseItem: PmItem = {
   siyuanPrimaryPage: null,
   siyuanExtraPages: [],
   completedAt: null,
+  startedAt: null,
+  testingAt: null,
   createdAt: "2026-04-01T00:00:00.000Z",
   updatedAt: "2026-04-01T00:00:00.000Z",
 };
@@ -43,7 +45,7 @@ function createItem(id: number, status: unknown): PmItem {
 
 describe("pmGanttFilter", () => {
   it("默认返回全部状态且顺序稳定", () => {
-    expect(getPmGanttDefaultStatuses()).toEqual(["todo", "in_progress", "testing", "done"]);
+    expect(getPmGanttDefaultStatuses()).toEqual(["todo", "in_progress", "testing"]);
     expect(selectAllPmGanttStatuses()).toEqual(["todo", "in_progress", "testing", "done"]);
   });
 

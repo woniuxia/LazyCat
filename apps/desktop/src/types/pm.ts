@@ -52,6 +52,8 @@ export interface PmItem {
   tags: string[];
   siyuanPrimaryPage: PmSiyuanPageRef | null;
   siyuanExtraPages: PmSiyuanPageRef[];
+  startedAt: string | null;
+  testingAt: string | null;
   completedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -115,11 +117,11 @@ export interface PmSiyuanSearchResult {
   scope: "location" | "all";
 }
 
-export const PM_STATUS_COLUMNS: { key: PmItemStatus; label: string }[] = [
-  { key: "todo", label: "待办" },
-  { key: "in_progress", label: "进行中" },
-  { key: "testing", label: "测试中" },
-  { key: "done", label: "已完成" },
+export const PM_STATUS_COLUMNS: { key: PmItemStatus; label: string; color: string }[] = [
+  { key: "todo", label: "待办", color: "#909399" },
+  { key: "in_progress", label: "进行中", color: "#409eff" },
+  { key: "testing", label: "测试中", color: "#e6a23c" },
+  { key: "done", label: "已完成", color: "#67c23a" },
 ];
 
 export const PM_ITEM_TYPE_MAP: Record<PmItemType, { label: string; color: string }> = {

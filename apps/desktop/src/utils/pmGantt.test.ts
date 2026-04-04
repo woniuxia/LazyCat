@@ -28,6 +28,8 @@ const baseItem: PmItem = {
   siyuanPrimaryPage: null,
   siyuanExtraPages: [],
   completedAt: null,
+  startedAt: null,
+  testingAt: null,
   createdAt: "2026-03-20T08:00:00.000Z",
   updatedAt: "2026-03-20T08:00:00.000Z",
   projectName: "Lazycat",

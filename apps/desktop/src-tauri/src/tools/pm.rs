@@ -1393,7 +1393,7 @@ fn item_list(payload: &Value) -> Result<Value, String> {
                     i.siyuan_doc_id, i.siyuan_doc_title, i.siyuan_doc_hpath,
                     i.siyuan_doc_path, i.siyuan_notebook_id, i.siyuan_notebook_name,
                     i.completed_at, i.created_at, i.updated_at, i.link_url,
-                    p.name, p.color
+                    p.name, p.color, i.started_at, i.testing_at
              FROM pm_items i
              LEFT JOIN pm_projects p ON i.project_id = p.id
              WHERE i.project_id = ?1
@@ -1409,7 +1409,7 @@ fn item_list(payload: &Value) -> Result<Value, String> {
                     i.siyuan_doc_id, i.siyuan_doc_title, i.siyuan_doc_hpath,
                     i.siyuan_doc_path, i.siyuan_notebook_id, i.siyuan_notebook_name,
                     i.completed_at, i.created_at, i.updated_at, i.link_url,
-                    p.name, p.color
+                    p.name, p.color, i.started_at, i.testing_at
              FROM pm_items i
              LEFT JOIN pm_projects p ON i.project_id = p.id
              WHERE p.status = 'active'
@@ -1451,6 +1451,8 @@ fn item_list(payload: &Value) -> Result<Value, String> {
                 "linkUrl": r.get::<_, Option<String>>(20)?,
                 "projectName": r.get::<_, Option<String>>(21)?,
                 "projectColor": r.get::<_, Option<String>>(22)?,
+                "startedAt": r.get::<_, Option<String>>(23)?,
+                "testingAt": r.get::<_, Option<String>>(24)?,
             }))
         })
         .map_err(|e| format!("query item_list: {e}"))?
@@ -1586,7 +1588,15 @@ fn item_create(payload: &Value) -> Result<Value, String> {
         .unwrap_or_default();
     let now = now_rfc3339();
 
-    let completed_at = if status == "done" { Some(now.clone()) } else { None };
+    let started_at: Option<String> = match status.as_str() {
+        "in_progress" | "testing" | "done" => Some(now.clone()),
+        _ => None,
+    };
+    let testing_at: Option<String> = match status.as_str() {
+        "testing" => Some(now.clone()),
+        _ => None,
+    };
+    let completed_at: Option<String> = if status == "done" { Some(now.clone()) } else { None };
 
     let mut conn = db_conn()?;
     let tx = conn.transaction().map_err(|e| format!("item_create begin: {e}"))?;
@@ -1596,8 +1606,8 @@ fn item_create(payload: &Value) -> Result<Value, String> {
             start_at, end_at,
             siyuan_doc_id, siyuan_doc_title, siyuan_doc_hpath, siyuan_doc_path,
             siyuan_notebook_id, siyuan_notebook_name,
-            completed_at, created_at, updated_at
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+            started_at, testing_at, completed_at, created_at, updated_at
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
         params![
             project_id,
             title,
@@ -1614,6 +1624,8 @@ fn item_create(payload: &Value) -> Result<Value, String> {
             primary_page.as_ref().and_then(|item| item.doc_path.as_deref()),
             primary_page.as_ref().map(|item| item.notebook_id.as_str()),
             primary_page.as_ref().map(|item| item.notebook_name.as_str()),
+            started_at,
+            testing_at,
             completed_at,
             now,
             now
@@ -1647,6 +1659,9 @@ fn item_update(payload: &Value) -> Result<Value, String> {
         cur_start,
         cur_end,
         cur_primary_page,
+        cur_started_at,
+        cur_testing_at,
+        cur_completed_at,
     ): (
         String,
         String,
@@ -1657,11 +1672,15 @@ fn item_update(payload: &Value) -> Result<Value, String> {
         Option<String>,
         Option<String>,
         Option<SiyuanPageRef>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
     ) = conn
         .query_row(
             "SELECT title, description, link_url, item_type, priority, status, start_at, end_at,
                     siyuan_doc_id, siyuan_doc_title, siyuan_doc_hpath,
-                    siyuan_doc_path, siyuan_notebook_id, siyuan_notebook_name
+                    siyuan_doc_path, siyuan_notebook_id, siyuan_notebook_name,
+                    started_at, testing_at, completed_at
              FROM pm_items WHERE id = ?1",
             params![id],
             |r| {
@@ -1682,6 +1701,9 @@ fn item_update(payload: &Value) -> Result<Value, String> {
                         r.get::<_, Option<String>>(12)?,
                         r.get::<_, Option<String>>(13)?,
                     ),
+                    r.get(14)?,
+                    r.get(15)?,
+                    r.get(16)?,
                 ))
             },
         )
@@ -1727,14 +1749,42 @@ fn item_update(payload: &Value) -> Result<Value, String> {
         None => cur_extra_pages,
     };
 
-    let completed_at: Option<String> = if new_status == "done" && cur_status != "done" {
-        Some(now.clone())
-    } else if new_status == "done" {
-        // Keep existing completed_at
-        conn.query_row("SELECT completed_at FROM pm_items WHERE id = ?1", params![id], |r| r.get(0))
-            .unwrap_or(Some(now.clone()))
+    // Determine status flow timestamps
+    // If user explicitly passes startedAt/testingAt/completedAt, use those (manual edit).
+    // Otherwise, auto-compute based on status transitions.
+    let status_changed = new_status != cur_status;
+
+    let started_at: Option<String> = if let Some(v) = payload.get("startedAt") {
+        v.as_str().map(|s| s.to_string())
+    } else if status_changed {
+        match new_status.as_str() {
+            "in_progress" | "testing" | "done" => Some(cur_started_at.unwrap_or_else(|| now.clone())),
+            _ => None, // "todo" — reset
+        }
     } else {
+        cur_started_at
+    };
+
+    let testing_at: Option<String> = if let Some(v) = payload.get("testingAt") {
+        v.as_str().map(|s| s.to_string())
+    } else if status_changed {
+        match new_status.as_str() {
+            "testing" => Some(cur_testing_at.unwrap_or_else(|| now.clone())),
+            "todo" => None,
+            _ => cur_testing_at,
+        }
+    } else {
+        cur_testing_at
+    };
+
+    let completed_at: Option<String> = if let Some(v) = payload.get("completedAt") {
+        v.as_str().map(|s| s.to_string())
+    } else if status_changed && new_status == "done" {
+        Some(now.clone())
+    } else if status_changed && new_status != "done" {
         None
+    } else {
+        cur_completed_at
     };
 
     conn.execute(
@@ -1743,8 +1793,8 @@ fn item_update(payload: &Value) -> Result<Value, String> {
              start_at=?7, end_at=?8,
              siyuan_doc_id=?9, siyuan_doc_title=?10, siyuan_doc_hpath=?11,
              siyuan_doc_path=?12, siyuan_notebook_id=?13, siyuan_notebook_name=?14,
-             completed_at=?15, updated_at=?16
-         WHERE id=?17",
+             started_at=?15, testing_at=?16, completed_at=?17, updated_at=?18
+         WHERE id=?19",
         params![
             title,
             desc,
@@ -1760,6 +1810,8 @@ fn item_update(payload: &Value) -> Result<Value, String> {
             primary_page.as_ref().and_then(|item| item.doc_path.as_deref()),
             primary_page.as_ref().map(|item| item.notebook_id.as_str()),
             primary_page.as_ref().map(|item| item.notebook_name.as_str()),
+            started_at,
+            testing_at,
             completed_at,
             now,
             id
@@ -1783,23 +1835,90 @@ fn item_change_status(payload: &Value) -> Result<Value, String> {
         return Err(format!("invalid status: {new_status}"));
     }
     let now = now_rfc3339();
-    let conn = db_conn()?;
+    let mut conn = db_conn()?;
+    let tx = conn.transaction().map_err(|e| format!("item_change_status begin: {e}"))?;
 
-    if new_status == "done" {
-        conn.execute(
-            "UPDATE pm_items SET status = ?1, completed_at = ?2, updated_at = ?2 WHERE id = ?3",
-            params![new_status, now, id],
+    // Read current timestamp values
+    let (cur_started_at, cur_testing_at): (Option<String>, Option<String>) = tx
+        .query_row(
+            "SELECT started_at, testing_at FROM pm_items WHERE id = ?1",
+            params![id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
         )
-        .map_err(|e| format!("item_change_status: {e}"))?;
-    } else {
-        conn.execute(
-            "UPDATE pm_items SET status = ?1, completed_at = NULL, updated_at = ?2 WHERE id = ?3",
-            params![new_status, now, id],
-        )
-        .map_err(|e| format!("item_change_status: {e}"))?;
-    }
+        .map_err(|e| format!("item_change_status read: {e}"))?;
 
+    let (started_at, testing_at, completed_at): (Option<String>, Option<String>, Option<String>) =
+        match new_status.as_str() {
+            "in_progress" => (
+                Some(cur_started_at.unwrap_or_else(|| now.clone())),
+                cur_testing_at,
+                None,
+            ),
+            "testing" => (
+                Some(cur_started_at.unwrap_or_else(|| now.clone())),
+                Some(cur_testing_at.unwrap_or_else(|| now.clone())),
+                None,
+            ),
+            "done" => (
+                Some(cur_started_at.unwrap_or_else(|| now.clone())),
+                cur_testing_at,
+                Some(now.clone()),
+            ),
+            _ => (None, None, None), // "todo" — reset all
+        };
+
+    tx.execute(
+        "UPDATE pm_items SET status = ?1, started_at = ?2, testing_at = ?3, completed_at = ?4, updated_at = ?5 WHERE id = ?6",
+        params![new_status, started_at, testing_at, completed_at, now, id],
+    )
+    .map_err(|e| format!("item_change_status: {e}"))?;
+
+    tx.commit().map_err(|e| format!("item_change_status commit: {e}"))?;
     Ok(json!({ "ok": true }))
+}
+
+/// Shared helper: update sort_order + status with proper timestamp logic during drag reorder.
+fn reorder_with_timestamps(
+    tx: &rusqlite::Transaction,
+    id: i64,
+    sort_order: i64,
+    new_status: &str,
+    now: &str,
+) -> Result<(), String> {
+    let (cur_started_at, cur_testing_at): (Option<String>, Option<String>) = tx
+        .query_row(
+            "SELECT started_at, testing_at FROM pm_items WHERE id = ?1",
+            params![id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .map_err(|e| format!("reorder_with_timestamps read: {e}"))?;
+
+    let (started_at, testing_at, completed_at): (Option<String>, Option<String>, Option<String>) =
+        match new_status {
+            "in_progress" => (
+                Some(cur_started_at.unwrap_or_else(|| now.to_string())),
+                cur_testing_at,
+                None,
+            ),
+            "testing" => (
+                Some(cur_started_at.unwrap_or_else(|| now.to_string())),
+                Some(cur_testing_at.unwrap_or_else(|| now.to_string())),
+                None,
+            ),
+            "done" => (
+                Some(cur_started_at.unwrap_or_else(|| now.to_string())),
+                cur_testing_at,
+                Some(now.to_string()),
+            ),
+            _ => (None, None, None), // "todo" — reset all
+        };
+
+    tx.execute(
+        "UPDATE pm_items SET sort_order = ?1, status = ?2, started_at = ?3, testing_at = ?4, completed_at = ?5, updated_at = ?6 WHERE id = ?7",
+        params![sort_order, new_status, started_at, testing_at, completed_at, now, id],
+    )
+    .map_err(|e| format!("reorder_with_timestamps: {e}"))?;
+    Ok(())
 }
 
 fn item_reorder(payload: &Value) -> Result<Value, String> {
@@ -1818,19 +1937,7 @@ fn item_reorder(payload: &Value) -> Result<Value, String> {
             let status = item.get("status").and_then(Value::as_str);
 
             if let Some(st) = status {
-                if st == "done" {
-                    tx.execute(
-                        "UPDATE pm_items SET sort_order = ?1, status = ?2, completed_at = COALESCE(completed_at, ?4), updated_at = ?4 WHERE id = ?3",
-                        params![sort, st, id, now],
-                    )
-                    .map_err(|e| format!("item_reorder: {e}"))?;
-                } else {
-                    tx.execute(
-                        "UPDATE pm_items SET sort_order = ?1, status = ?2, completed_at = NULL, updated_at = ?4 WHERE id = ?3",
-                        params![sort, st, id, now],
-                    )
-                    .map_err(|e| format!("item_reorder: {e}"))?;
-                }
+                reorder_with_timestamps(&tx, id, sort, st, &now)?;
             } else {
                 tx.execute(
                     "UPDATE pm_items SET sort_order = ?1, updated_at = ?3 WHERE id = ?2",
@@ -1849,19 +1956,7 @@ fn item_reorder(payload: &Value) -> Result<Value, String> {
     let sort_order = parse_i64(payload, "sortOrder").unwrap_or(0);
 
     if let Some(st) = new_status {
-        if st == "done" {
-            tx.execute(
-                "UPDATE pm_items SET sort_order = ?1, status = ?2, completed_at = COALESCE(completed_at, ?4), updated_at = ?4 WHERE id = ?3",
-                params![sort_order, st, id, now],
-            )
-            .map_err(|e| format!("item_reorder: {e}"))?;
-        } else {
-            tx.execute(
-                "UPDATE pm_items SET sort_order = ?1, status = ?2, completed_at = NULL, updated_at = ?4 WHERE id = ?3",
-                params![sort_order, st, id, now],
-            )
-            .map_err(|e| format!("item_reorder: {e}"))?;
-        }
+        reorder_with_timestamps(&tx, id, sort_order, &st, &now)?;
     } else {
         tx.execute(
             "UPDATE pm_items SET sort_order = ?1, updated_at = ?3 WHERE id = ?2",

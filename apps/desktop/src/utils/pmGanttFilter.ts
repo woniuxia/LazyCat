@@ -9,7 +9,7 @@ function isPmGanttStatus(value: unknown): value is PmItemStatus {
 }
 
 export function getPmGanttDefaultStatuses(): PmItemStatus[] {
-  return [...PM_GANTT_STATUS_ORDER];
+  return PM_GANTT_STATUS_ORDER.filter((s) => s !== "done");
 }
 
 export function normalizePmGanttSelectedStatuses(
@@ -42,7 +42,7 @@ export function togglePmGanttStatus(
 }
 
 export function selectAllPmGanttStatuses(): PmItemStatus[] {
-  return getPmGanttDefaultStatuses();
+  return [...PM_GANTT_STATUS_ORDER];
 }
 
 export function clearPmGanttStatuses(): PmItemStatus[] {

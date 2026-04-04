@@ -18,6 +18,7 @@
         >
           <span class="project-color overview-color" />
           <span class="project-name">总览</span>
+          <span v-if="overviewUndoneCount > 0" class="project-count">{{ overviewUndoneCount }}</span>
         </div>
 
         <div v-if="activeProjects.length > 0" class="project-group">
@@ -38,6 +39,12 @@
           >
             <span class="project-color" :style="{ backgroundColor: p.color }" />
             <span class="project-name">{{ p.name }}</span>
+            <span v-if="projectItemCounts[p.id] && (projectItemCounts[p.id].total - projectItemCounts[p.id].done) > 0" class="project-count">
+              {{ projectItemCounts[p.id].total - projectItemCounts[p.id].done }}
+            </span>
+            <div v-if="projectItemCounts[p.id]?.total > 0" class="project-progress">
+              <div class="project-progress-bar" :style="{ width: (projectItemCounts[p.id].done / projectItemCounts[p.id].total * 100) + '%', backgroundColor: p.color }" />
+            </div>
           </div>
         </div>
 
@@ -64,15 +71,20 @@
       <!-- Center: Kanban / Gantt -->
       <div class="pm-main">
         <div v-if="selectedProject" class="pm-toolbar">
-          <div class="toolbar-left">
-            <span class="project-title-display" :style="{ color: isOverview ? '' : selectedProject.color }">{{ selectedProject.name }}</span>
-            <el-tag v-if="!isOverview && selectedProject.status === 'archived'" size="small" type="info">已归档</el-tag>
+          <div class="toolbar-row">
+            <div class="toolbar-left">
+              <span class="project-title-display" :style="{ color: isOverview ? '' : selectedProject.color }">{{ selectedProject.name }}</span>
+              <el-tag v-if="!isOverview && selectedProject.status === 'archived'" size="small" type="info">已归档</el-tag>
+            </div>
+            <div class="toolbar-right">
+              <el-radio-group v-model="viewMode" size="default">
+                <el-radio-button value="kanban">看板</el-radio-button>
+                <el-radio-button value="gantt">甘特图</el-radio-button>
+              </el-radio-group>
+              <el-button type="primary" @click="showCreateItem">新建工作项</el-button>
+            </div>
           </div>
-          <div class="toolbar-right">
-            <el-radio-group v-model="viewMode" size="default">
-              <el-radio-button value="kanban">看板</el-radio-button>
-              <el-radio-button value="gantt">甘特图</el-radio-button>
-            </el-radio-group>
+          <div class="toolbar-row toolbar-filters">
             <el-input
               v-model="searchText"
               size="default"
@@ -86,16 +98,15 @@
             <el-select v-model="filterPriority" size="default" placeholder="优先级" clearable style="width: 100px">
               <el-option v-for="(meta, key) in PM_PRIORITY_MAP" :key="key" :label="meta.label" :value="key" />
             </el-select>
-            <el-button type="primary" @click="showCreateItem">新建工作项</el-button>
             <el-button type="default" @click="openSiyuanDrawer">思源设置</el-button>
           </div>
         </div>
 
         <div v-if="selectedProject && viewMode === 'kanban'" class="kanban-board">
           <div v-for="col in PM_STATUS_COLUMNS" :key="col.key" class="kanban-column" :class="{ 'is-drag-over': draggingOverColumn === col.key }">
-            <div class="column-header">
+            <div class="column-header" :style="{ borderBottomColor: col.color }">
               <span class="column-title">{{ col.label }}</span>
-              <span class="column-count">{{ columnItems(col.key).length }}</span>
+              <span class="column-count" :style="{ background: col.color + '1a', color: col.color }">{{ columnItems(col.key).length }}</span>
             </div>
             <div
               :ref="(el) => setColumnRef(col.key, el)"
@@ -110,6 +121,7 @@
                   'is-selected': selectedItemId === item.id,
                   'is-pinned': item.pinned,
                   'is-overdue': isOverdue(item),
+                  ['is-' + item.priority.toLowerCase()]: true,
                 }"
                 :style="{ borderLeftColor: PM_PRIORITY_MAP[item.priority]?.color }"
                 :data-id="item.id"
@@ -125,10 +137,20 @@
                   </div>
                 </div>
                 <div class="card-meta">
-                  <el-tag size="small" :color="PM_ITEM_TYPE_MAP[item.itemType]?.color" effect="dark" round>
+                  <el-tag
+                    size="small"
+                    effect="plain"
+                    round
+                    :style="{ color: PM_ITEM_TYPE_MAP[item.itemType]?.color, borderColor: PM_ITEM_TYPE_MAP[item.itemType]?.color + '66' }"
+                  >
                     {{ PM_ITEM_TYPE_MAP[item.itemType]?.label }}
                   </el-tag>
-                  <el-tag size="small" :color="PM_PRIORITY_MAP[item.priority]?.color" effect="dark" round>
+                  <el-tag
+                    size="small"
+                    effect="plain"
+                    round
+                    :style="{ color: PM_PRIORITY_MAP[item.priority]?.color, borderColor: PM_PRIORITY_MAP[item.priority]?.color + '66' }"
+                  >
                     {{ item.priority }}
                   </el-tag>
                 </div>
@@ -141,21 +163,26 @@
                   </span>
                 </div>
                 <div v-if="isOverview && item.projectName" class="card-project">
-                  <span class="card-project-dot" :style="{ backgroundColor: item.projectColor || '#909399' }" />
-                  <span class="card-project-name">{{ item.projectName }}</span>
+                  <span class="card-project-badge" :style="{ backgroundColor: (item.projectColor || '#909399') + '1a', color: item.projectColor || '#909399' }">
+                    {{ item.projectName }}
+                  </span>
                 </div>
                 <!-- Quick action: advance status -->
-                <button
-                  v-if="item.status !== 'done'"
-                  class="card-advance-btn"
-                  :title="'推进到「' + nextStatusLabel(item) + '」'"
-                  @click.stop="quickAdvance(item)"
-                >
-                  <el-icon :size="12"><CaretRight /></el-icon>
-                </button>
+                <el-tooltip v-if="item.status !== 'done'" :content="'推进到「' + nextStatusLabel(item) + '」'" placement="top">
+                  <button
+                    class="card-advance-btn"
+                    @click.stop="quickAdvance(item)"
+                  >
+                    <el-icon :size="12"><CaretRight /></el-icon>
+                  </button>
+                </el-tooltip>
               </div>
               <div v-if="columnItems(col.key).length === 0 && draggingItemId" class="column-drop-hint">
                 拖放到此列
+              </div>
+              <div v-if="columnItems(col.key).length === 0 && !draggingItemId" class="column-empty-state">
+                <span class="column-empty-text">{{ col.key === 'todo' ? '暂无待办事项' : col.key === 'done' ? '还没有完成的工作项' : '暂无工作项' }}</span>
+                <el-button v-if="col.key === 'todo'" size="small" type="primary" link @click="showCreateItem">新建工作项</el-button>
               </div>
             </div>
           </div>
@@ -192,91 +219,114 @@
               </el-button>
             </div>
             <div class="detail-form">
-              <div class="detail-field">
-                <span class="detail-label">所属项目</span>
-                <span class="detail-value">{{ activeProjects.find(p => p.id === selectedItem.projectId)?.name ?? '-' }}</span>
-              </div>
-              <div class="detail-field">
-                <span class="detail-label">标题</span>
-                <span class="detail-value">{{ selectedItem.title }}</span>
-              </div>
-              <div class="detail-field">
-                <span class="detail-label">类型</span>
-                <span class="detail-value">{{ PM_ITEM_TYPE_MAP[selectedItem.itemType]?.label ?? selectedItem.itemType }}</span>
-              </div>
-              <div class="detail-field">
-                <span class="detail-label">优先级</span>
-                <span class="detail-value">
-                  <span class="priority-dot" :style="{ backgroundColor: PM_PRIORITY_MAP[selectedItem.priority]?.color }" />
-                  {{ PM_PRIORITY_MAP[selectedItem.priority]?.label ?? selectedItem.priority }}
-                </span>
-              </div>
-              <div class="detail-field">
-                <span class="detail-label">状态</span>
-                <span class="detail-value">{{ PM_STATUS_COLUMNS.find(c => c.key === selectedItem.status)?.label ?? selectedItem.status }}</span>
-              </div>
-              <div class="detail-field">
-                <span class="detail-label">时间安排</span>
-                <span class="detail-value" :class="{ 'is-overdue-date': isOverdue(selectedItem) }">
-                  {{ formatPmDateRangeForDisplay(selectedItem.startAt, selectedItem.endAt) }}
-                </span>
-              </div>
-              <div class="detail-field">
-                <span class="detail-label">标签</span>
-                <span class="detail-value detail-tags">
-                  <el-tag v-for="tag in selectedItem.tags" :key="tag" size="small" type="info">{{ tag }}</el-tag>
-                  <span v-if="selectedItem.tags.length === 0">-</span>
-                </span>
-              </div>
-              <div class="detail-field">
-                <span class="detail-label">链接</span>
-                <div class="detail-value detail-link-row">
-                  <span class="detail-link-text">{{ selectedItem.linkUrl || "-" }}</span>
-                  <el-button v-if="selectedItem.linkUrl" size="small" link @click="openItemLink(selectedItem.linkUrl)">
-                    打开
-                  </el-button>
+              <!-- Basic info section -->
+              <div class="detail-section">
+                <div class="detail-field">
+                  <span class="detail-label">所属项目</span>
+                  <span class="detail-value">{{ activeProjects.find(p => p.id === selectedItem.projectId)?.name ?? '-' }}</span>
+                </div>
+                <div class="detail-field">
+                  <span class="detail-label">标题</span>
+                  <span class="detail-value detail-item-title">{{ selectedItem.title }}</span>
+                </div>
+                <div class="detail-field-inline">
+                  <el-tag size="small" :color="PM_ITEM_TYPE_MAP[selectedItem.itemType]?.color" effect="light" round>
+                    {{ PM_ITEM_TYPE_MAP[selectedItem.itemType]?.label ?? selectedItem.itemType }}
+                  </el-tag>
+                  <el-tag size="small" effect="light" round>
+                    <span class="priority-dot" :style="{ backgroundColor: PM_PRIORITY_MAP[selectedItem.priority]?.color }" />
+                    {{ PM_PRIORITY_MAP[selectedItem.priority]?.label ?? selectedItem.priority }}
+                  </el-tag>
+                  <el-tag size="small" :type="selectedItem.status === 'done' ? 'success' : selectedItem.status === 'in_progress' ? 'primary' : selectedItem.status === 'testing' ? 'warning' : 'info'" effect="light" round>
+                    {{ PM_STATUS_COLUMNS.find(c => c.key === selectedItem.status)?.label ?? selectedItem.status }}
+                  </el-tag>
                 </div>
               </div>
-              <div class="detail-field">
-                <span class="detail-label">思源主页面</span>
-                <div class="detail-value detail-siyuan-pages">
-                  <template v-if="selectedItem.siyuanPrimaryPage">
-                    <div class="detail-siyuan-page">
-                      <div class="detail-siyuan-page-main">
-                        <span class="detail-siyuan-page-title">{{ selectedItem.siyuanPrimaryPage.docTitle }}</span>
-                        <span class="detail-siyuan-page-meta">
-                          {{ selectedItem.siyuanPrimaryPage.notebookName }} · {{ selectedItem.siyuanPrimaryPage.docHpath }}
-                        </span>
+
+              <!-- Time section -->
+              <div class="detail-section">
+                <div class="detail-field">
+                  <span class="detail-label">时间安排</span>
+                  <span class="detail-value" :class="{ 'is-overdue-date': isOverdue(selectedItem) }">
+                    {{ formatPmDateRangeForDisplay(selectedItem.startAt, selectedItem.endAt) }}
+                  </span>
+                </div>
+                <div class="detail-field">
+                  <span class="detail-label">开始执行</span>
+                  <span class="detail-value">{{ selectedItem.startedAt ? formatDateTime(selectedItem.startedAt) : '-' }}</span>
+                </div>
+                <div class="detail-field">
+                  <span class="detail-label">开始测试</span>
+                  <span class="detail-value">{{ selectedItem.testingAt ? formatDateTime(selectedItem.testingAt) : '-' }}</span>
+                </div>
+                <div v-if="selectedItem.completedAt" class="detail-field">
+                  <span class="detail-label">完成时间</span>
+                  <span class="detail-value">{{ formatDateTime(selectedItem.completedAt) }}</span>
+                </div>
+                <div class="detail-field">
+                  <span class="detail-label">创建时间</span>
+                  <span class="detail-value">{{ formatDateTime(selectedItem.createdAt) }}</span>
+                </div>
+              </div>
+
+              <!-- Tags section -->
+              <div v-if="selectedItem.tags.length > 0" class="detail-section">
+                <div class="detail-field">
+                  <span class="detail-label">标签</span>
+                  <span class="detail-value detail-tags">
+                    <el-tag v-for="tag in selectedItem.tags" :key="tag" size="small" type="info">{{ tag }}</el-tag>
+                  </span>
+                </div>
+              </div>
+
+              <!-- Links section -->
+              <div class="detail-section">
+                <div class="detail-field">
+                  <span class="detail-label">链接</span>
+                  <div class="detail-value detail-link-row">
+                    <span class="detail-link-text">{{ selectedItem.linkUrl || "-" }}</span>
+                    <el-button v-if="selectedItem.linkUrl" size="small" link @click="openItemLink(selectedItem.linkUrl)">
+                      打开
+                    </el-button>
+                  </div>
+                </div>
+                <div class="detail-field">
+                  <span class="detail-label">思源主页面</span>
+                  <div class="detail-value detail-siyuan-pages">
+                    <template v-if="selectedItem.siyuanPrimaryPage">
+                      <div class="detail-siyuan-page">
+                        <div class="detail-siyuan-page-main">
+                          <span class="detail-siyuan-page-title">{{ selectedItem.siyuanPrimaryPage.docTitle }}</span>
+                          <span class="detail-siyuan-page-meta">
+                            {{ selectedItem.siyuanPrimaryPage.notebookName }} · {{ selectedItem.siyuanPrimaryPage.docHpath }}
+                          </span>
+                        </div>
+                        <el-button size="small" link @click="openSiyuanPage(selectedItem.siyuanPrimaryPage)">打开</el-button>
                       </div>
-                      <el-button size="small" link @click="openSiyuanPage(selectedItem.siyuanPrimaryPage)">打开</el-button>
-                    </div>
-                  </template>
-                  <span v-else>-</span>
+                    </template>
+                    <span v-else>-</span>
+                  </div>
                 </div>
-              </div>
-              <div class="detail-field" v-if="selectedItem.siyuanExtraPages.length > 0">
-                <span class="detail-label">附加页面</span>
-                <div class="detail-value detail-siyuan-pages">
-                  <div v-for="page in selectedItem.siyuanExtraPages" :key="page.docId" class="detail-siyuan-page">
-                    <div class="detail-siyuan-page-main">
-                      <span class="detail-siyuan-page-title">{{ page.docTitle }}</span>
-                      <span class="detail-siyuan-page-meta">{{ page.notebookName }} · {{ page.docHpath }}</span>
+                <div class="detail-field" v-if="selectedItem.siyuanExtraPages.length > 0">
+                  <span class="detail-label">附加页面</span>
+                  <div class="detail-value detail-siyuan-pages">
+                    <div v-for="page in selectedItem.siyuanExtraPages" :key="page.docId" class="detail-siyuan-page">
+                      <div class="detail-siyuan-page-main">
+                        <span class="detail-siyuan-page-title">{{ page.docTitle }}</span>
+                        <span class="detail-siyuan-page-meta">{{ page.notebookName }} · {{ page.docHpath }}</span>
+                      </div>
+                      <el-button size="small" link @click="openSiyuanPage(page)">打开</el-button>
                     </div>
-                    <el-button size="small" link @click="openSiyuanPage(page)">打开</el-button>
                   </div>
                 </div>
               </div>
-              <div class="detail-field">
-                <span class="detail-label">描述</span>
-                <pre class="detail-value detail-description">{{ selectedItem.description || '-' }}</pre>
-              </div>
-              <div v-if="selectedItem.completedAt" class="detail-field">
-                <span class="detail-label">完成时间</span>
-                <span class="detail-value">{{ formatDateTime(selectedItem.completedAt) }}</span>
-              </div>
-              <div class="detail-field">
-                <span class="detail-label">创建时间</span>
-                <span class="detail-value">{{ formatDateTime(selectedItem.createdAt) }}</span>
+
+              <!-- Description section -->
+              <div v-if="selectedItem.description" class="detail-section">
+                <div class="detail-field">
+                  <span class="detail-label">描述</span>
+                  <pre class="detail-value detail-description">{{ selectedItem.description }}</pre>
+                </div>
               </div>
 
               <div class="detail-actions">
@@ -379,6 +429,17 @@
             style="width: 100%"
           />
         </el-form-item>
+        <template v-if="editingItem">
+          <el-form-item label="开始执行">
+            <el-date-picker v-model="itemForm.startedAt" type="datetime" clearable placeholder="自动记录，可手动修改" style="width: 100%" />
+          </el-form-item>
+          <el-form-item label="开始测试">
+            <el-date-picker v-model="itemForm.testingAt" type="datetime" clearable placeholder="自动记录，可手动修改" style="width: 100%" />
+          </el-form-item>
+          <el-form-item label="完成时间">
+            <el-date-picker v-model="itemForm.completedAt" type="datetime" clearable placeholder="自动记录，可手动修改" style="width: 100%" />
+          </el-form-item>
+        </template>
         <el-form-item label="链接">
           <el-input v-model="itemForm.linkUrl" placeholder="https://example.com 或 localhost:3000">
             <template #append>
@@ -862,6 +923,9 @@ const itemForm = ref({
   endAt: null as string | null,
   linkUrl: "",
   description: "",
+  startedAt: null as string | null,
+  testingAt: null as string | null,
+  completedAt: null as string | null,
 });
 const itemPrimaryPage = ref<PmSiyuanPageRef | null>(null);
 const itemExtraPages = ref<PmSiyuanPageRef[]>([]);
@@ -943,6 +1007,16 @@ const PM_ITEM_STATUS_ORDER: PmItemStatus[] = ["todo", "in_progress", "testing", 
 
 const activeProjects = computed(() => projects.value.filter((p) => p.status === "active"));
 const archivedProjects = computed(() => projects.value.filter((p) => p.status === "archived"));
+const projectItemCounts = computed(() => {
+  const map: Record<number, { total: number; done: number }> = {};
+  for (const item of items.value) {
+    if (!map[item.projectId]) map[item.projectId] = { total: 0, done: 0 };
+    map[item.projectId].total++;
+    if (item.status === "done") map[item.projectId].done++;
+  }
+  return map;
+});
+const overviewUndoneCount = computed(() => items.value.filter((i) => i.status !== "done").length);
 const isOverview = computed(() => selectedProjectId.value === "overview");
 const selectedProject = computed(() => {
   if (isOverview.value) {
@@ -2025,6 +2099,9 @@ function editItem(item: PmItem) {
     endAt: normalizedDateRange.endAt,
     linkUrl: item.linkUrl ?? "",
     description: item.description,
+    startedAt: item.startedAt ?? null,
+    testingAt: item.testingAt ?? null,
+    completedAt: item.completedAt ?? null,
   };
   itemPrimaryPage.value = cloneSiyuanPage(item.siyuanPrimaryPage);
   itemExtraPages.value = cloneSiyuanPages(item.siyuanExtraPages);
@@ -2048,6 +2125,11 @@ async function submitItem() {
   }
   try {
     const normalizedDateRange = normalizePmDateRangeForDraft(itemForm.value.startAt, itemForm.value.endAt);
+    // Format timestamp fields: el-date-picker with type="datetime" may return Date objects
+    const fmtTs = (v: string | Date | null): string | null => {
+      if (!v) return null;
+      return v instanceof Date ? v.toISOString() : v;
+    };
     const payload = {
       ...itemForm.value,
       startAt: normalizedDateRange.startAt,
@@ -2055,6 +2137,9 @@ async function submitItem() {
       linkUrl: normalizeItemLinkUrl(itemForm.value.linkUrl) || null,
       siyuanPrimaryPage: itemPrimaryPage.value,
       siyuanExtraPages: itemExtraPages.value,
+      startedAt: fmtTs(itemForm.value.startedAt),
+      testingAt: fmtTs(itemForm.value.testingAt),
+      completedAt: fmtTs(itemForm.value.completedAt),
     };
     if (editingItem.value) {
       const targetProjectId = itemFormProjectId.value;
@@ -2561,15 +2646,6 @@ onBeforeUnmount(() => {
   color: var(--el-text-color-secondary);
   text-transform: uppercase;
 }
-.project-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
-  cursor: pointer;
-  font-size: 15px;
-  transition: background 0.15s, box-shadow 0.15s;
-}
 .project-item:hover {
   background: var(--el-fill-color-light);
 }
@@ -2584,6 +2660,11 @@ onBeforeUnmount(() => {
   background: var(--el-color-primary-light-8);
   box-shadow: inset 0 0 0 2px var(--el-color-primary-light-5);
   border-radius: 4px;
+  animation: drop-pulse 1s ease infinite;
+}
+@keyframes drop-pulse {
+  0%, 100% { box-shadow: inset 0 0 0 2px var(--el-color-primary-light-5); }
+  50% { box-shadow: inset 0 0 0 2px var(--el-color-primary-light-3); }
 }
 .project-color {
   width: 12px;
@@ -2595,6 +2676,42 @@ onBeforeUnmount(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+.project-count {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--el-text-color-secondary);
+  background: var(--el-fill-color);
+  border-radius: 8px;
+  padding: 0 6px;
+  line-height: 16px;
+}
+.project-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 15px;
+  transition: background 0.15s, box-shadow 0.15s;
+  flex-wrap: wrap;
+  position: relative;
+}
+.project-progress {
+  width: 100%;
+  height: 2px;
+  background: var(--el-fill-color-light);
+  border-radius: 1px;
+  overflow: hidden;
+  margin-top: -2px;
+}
+.project-progress-bar {
+  height: 100%;
+  border-radius: 1px;
+  transition: width 0.3s;
 }
 .empty-hint {
   padding: 24px 12px;
@@ -2622,11 +2739,20 @@ onBeforeUnmount(() => {
 }
 .pm-toolbar {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
   padding: 8px 16px;
   border-bottom: 1px solid var(--el-border-color-lighter);
   flex-shrink: 0;
+  gap: 6px;
+}
+.toolbar-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.toolbar-filters {
+  justify-content: flex-end;
+  gap: 8px;
 }
 .toolbar-left {
   display: flex;
@@ -2667,14 +2793,14 @@ onBeforeUnmount(() => {
   padding: 10px 14px;
   font-weight: 600;
   font-size: 15px;
-  border-bottom: 1px solid var(--el-border-color-extra-light);
+  border-bottom: 2px solid transparent;
+  position: relative;
 }
 .column-count {
-  background: var(--el-fill-color);
   border-radius: 10px;
   padding: 0 8px;
   font-size: 12px;
-  color: var(--el-text-color-secondary);
+  font-weight: 600;
 }
 .column-body {
   flex: 1;
@@ -2693,11 +2819,13 @@ onBeforeUnmount(() => {
   padding: 12px 12px 12px 12px;
   margin-bottom: 8px;
   cursor: grab;
-  transition: box-shadow 0.15s, border-color 0.15s;
+  transition: box-shadow 0.15s, border-color 0.15s, margin 0.15s;
 }
 .kanban-card:hover {
+  margin-top: -1px;
+  margin-bottom: 9px;
   border-color: var(--el-color-primary-light-5);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
 }
 .kanban-card:hover .card-advance-btn {
   opacity: 1;
@@ -2705,12 +2833,26 @@ onBeforeUnmount(() => {
 .kanban-card.is-selected {
   border-color: var(--el-color-primary);
   box-shadow: 0 0 0 1px var(--el-color-primary-light-5);
+  background: var(--el-color-primary-light-9);
 }
 .kanban-card.is-pinned {
   border-top: 2px solid var(--el-color-warning);
 }
+.kanban-card.is-p0 {
+  border-left-color: #f56c6c;
+}
 .kanban-card.is-overdue {
   background: linear-gradient(135deg, rgba(248, 113, 113, 0.06), var(--el-bg-color) 60%);
+}
+.kanban-card.is-overdue::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  border-style: solid;
+  border-width: 0 16px 16px 0;
+  border-color: transparent #f56c6c transparent transparent;
+  border-top-right-radius: 5px;
 }
 .kanban-card.is-overdue:hover {
   background: linear-gradient(135deg, rgba(248, 113, 113, 0.10), var(--el-bg-color) 60%);
@@ -2750,10 +2892,10 @@ onBeforeUnmount(() => {
 }
 .card-meta .el-tag {
   font-size: 12px;
+  font-weight: 500;
   height: 18px;
   line-height: 18px;
   padding: 0 6px;
-  border: none;
 }
 .card-tags {
   display: flex;
@@ -2783,10 +2925,19 @@ onBeforeUnmount(() => {
   flex-shrink: 0;
 }
 .card-project {
-  display: flex;
-  align-items: center;
-  gap: 4px;
   margin-top: 4px;
+}
+.card-project-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 1px 6px;
+  border-radius: 3px;
+  line-height: 16px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
 }
 .card-project-dot {
   width: 8px;
@@ -2807,16 +2958,16 @@ onBeforeUnmount(() => {
   position: absolute;
   right: 6px;
   bottom: 6px;
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
+  width: 26px;
+  height: 26px;
+  border-radius: 13px;
   border: 1px solid var(--el-border-color-light);
   background: var(--el-bg-color);
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  opacity: 0;
+  opacity: 0.35;
   transition: opacity 0.15s, background 0.15s, color 0.15s;
   color: var(--el-text-color-secondary);
 }
@@ -2828,13 +2979,12 @@ onBeforeUnmount(() => {
 
 /* Drag */
 :deep(.kanban-ghost) {
-  opacity: 0.35;
+  opacity: 0.4;
   border: 2px dashed var(--el-color-primary-light-5);
   background: var(--el-color-primary-light-9);
   border-radius: 6px;
   box-shadow: none;
 }
-:deep(.kanban-ghost) > * { visibility: hidden; }
 
 :deep(.kanban-drag),
 :deep(.kanban-fallback) {
@@ -2853,6 +3003,20 @@ onBeforeUnmount(() => {
 .kanban-column.is-drag-over .column-header {
   color: var(--el-color-primary);
 }
+.kanban-column.is-drag-over .column-header::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: var(--el-color-primary);
+  animation: drag-bar-in 0.2s ease;
+}
+@keyframes drag-bar-in {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
 
 /* Empty column drop hint */
 .column-drop-hint {
@@ -2863,6 +3027,19 @@ onBeforeUnmount(() => {
   border: 2px dashed var(--el-border-color-light);
   border-radius: 6px;
   pointer-events: none;
+}
+.column-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 24px 8px;
+  border: 1px dashed var(--el-border-color-lighter);
+  border-radius: 6px;
+}
+.column-empty-text {
+  font-size: 13px;
+  color: var(--el-text-color-placeholder);
 }
 
 /* Detail panel (floating overlay) */
@@ -2893,6 +3070,25 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+.detail-section {
+  background: var(--el-fill-color-lighter);
+  border-radius: 8px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.detail-field-inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.detail-item-title {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.4;
 }
 .detail-field {
   display: flex;

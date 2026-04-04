@@ -124,6 +124,14 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
         "ALTER TABLE pm_projects ADD COLUMN siyuan_parent_path TEXT DEFAULT NULL;",
     );
 
+    // Status flow timestamps
+    let _ = conn.execute_batch(
+        "ALTER TABLE pm_items ADD COLUMN started_at TEXT DEFAULT NULL;",
+    );
+    let _ = conn.execute_batch(
+        "ALTER TABLE pm_items ADD COLUMN testing_at TEXT DEFAULT NULL;",
+    );
+
     // PM-SiYuan integration: item primary page cache
     let _ = conn.execute_batch(
         "ALTER TABLE pm_items ADD COLUMN siyuan_doc_id TEXT DEFAULT NULL;",
@@ -455,6 +463,8 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
             siyuan_doc_path TEXT DEFAULT NULL,
             siyuan_notebook_id TEXT DEFAULT NULL,
             siyuan_notebook_name TEXT DEFAULT NULL,
+            started_at TEXT DEFAULT NULL,
+            testing_at TEXT DEFAULT NULL,
             completed_at TEXT DEFAULT NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
