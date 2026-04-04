@@ -331,9 +331,14 @@
     <!-- Item dialog -->
     <el-dialog v-model="itemDialogVisible" :title="editingItem ? '编辑工作项' : '新建工作项'" width="720px" @close="resetItemForm">
       <el-form :model="itemForm" label-width="80px" size="default" class="pm-item-dialog-form">
-        <el-form-item v-if="isOverview && !editingItem" label="所属项目">
+        <el-form-item v-if="isOverview || editingItem" label="所属项目">
           <el-select v-model="itemFormProjectId" placeholder="选择项目" style="width: 100%">
-            <el-option v-for="p in activeProjects" :key="p.id" :label="p.name" :value="p.id" />
+            <el-option
+              v-for="p in itemProjectOptions"
+              :key="p.id"
+              :label="formatItemProjectOptionLabel(p)"
+              :value="p.id"
+            />
           </el-select>
         </el-form-item>
         <el-form-item label="标题">
@@ -957,13 +962,23 @@ const selectedProject = computed(() => {
 });
 const selectedItem = computed(() => items.value.find((i) => i.id === selectedItemId.value) ?? null);
 const itemDialogProjectId = computed<number | null>(() => {
+  if (itemFormProjectId.value !== null) {
+    return itemFormProjectId.value;
+  }
   if (editingItem.value) {
     return editingItem.value.projectId;
   }
-  if (isOverview.value) {
-    return itemFormProjectId.value;
-  }
   return typeof selectedProjectId.value === "number" ? selectedProjectId.value : null;
+});
+const itemProjectOptions = computed(() => {
+  const active = [...activeProjects.value];
+  const currentProjectId = itemFormProjectId.value ?? editingItem.value?.projectId ?? null;
+  if (currentProjectId === null || active.some((project) => project.id === currentProjectId)) {
+    return active;
+  }
+
+  const currentProject = projects.value.find((project) => project.id === currentProjectId);
+  return currentProject ? [...active, currentProject] : active;
 });
 const itemDialogProject = computed(() =>
   projects.value.find((project) => project.id === itemDialogProjectId.value) ?? null,
@@ -1216,6 +1231,10 @@ function isOverdue(item: PmItem): boolean {
 function nextStatusLabel(item: PmItem): string {
   const idx = PM_STATUS_COLUMNS.findIndex((c) => c.key === item.status);
   return idx >= 0 && idx < PM_STATUS_COLUMNS.length - 1 ? PM_STATUS_COLUMNS[idx + 1].label : "";
+}
+
+function formatItemProjectOptionLabel(project: PmProject): string {
+  return project.status === "archived" ? `${project.name}（已归档）` : project.name;
 }
 
 function cloneSiyuanLocation(location: PmSiyuanLocation | null | undefined): PmSiyuanLocation | null {
@@ -1982,6 +2001,7 @@ function showCreateItem() {
 function editItem(item: PmItem) {
   const normalizedDateRange = normalizePmDateRangeForDraft(item.startAt, item.endAt);
   editingItem.value = item;
+  itemFormProjectId.value = item.projectId;
   itemForm.value = {
     title: item.title,
     itemType: item.itemType,
@@ -2002,6 +2022,7 @@ function editItem(item: PmItem) {
 
 function resetItemForm() {
   editingItem.value = null;
+  itemFormProjectId.value = null;
   itemPrimaryPage.value = null;
   itemExtraPages.value = [];
 }
@@ -2022,6 +2043,17 @@ async function submitItem() {
       siyuanExtraPages: itemExtraPages.value,
     };
     if (editingItem.value) {
+      const targetProjectId = itemFormProjectId.value;
+      if (!targetProjectId) {
+        ElMessage.warning("请选择所属项目");
+        return;
+      }
+      if (targetProjectId !== editingItem.value.projectId) {
+        await invoke("tool:pm:item-move-project", {
+          id: editingItem.value.id,
+          projectId: targetProjectId,
+        });
+      }
       await invoke("tool:pm:item-update", {
         id: editingItem.value.id,
         ...payload,
@@ -2041,6 +2073,9 @@ async function submitItem() {
     await loadItems();
   } catch (e) {
     ElMessage.error((e as Error).message);
+    if (editingItem.value) {
+      await loadItems();
+    }
   }
 }
 
