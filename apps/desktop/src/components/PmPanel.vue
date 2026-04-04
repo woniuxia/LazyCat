@@ -163,13 +163,17 @@
 
         <PmGanttView
           v-if="selectedProject && viewMode === 'gantt'"
-          :items="filteredItems"
+          :items="ganttFilteredItems"
+          :selected-statuses="ganttSelectedStatuses"
           :selected-item-id="selectedItemId"
           :show-project-meta="isOverview"
           @select="selectItem"
           @edit="editItem"
           @item-context="onGanttItemContext"
           @date-change="onGanttDateChange"
+          @toggle-status="onGanttToggleStatus"
+          @select-all-statuses="selectAllGanttStatuses"
+          @clear-statuses="clearGanttStatuses"
           @view-change="closeCtxMenu"
           @viewport-scroll="closeCtxMenu"
         />
@@ -782,6 +786,13 @@ import {
   isPmItemOverdue,
   normalizePmDateRangeForDraft,
 } from "../utils/pmDate";
+import {
+  clearPmGanttStatuses,
+  filterPmItemsByGanttStatuses,
+  getPmGanttDefaultStatuses,
+  selectAllPmGanttStatuses,
+  togglePmGanttStatus,
+} from "../utils/pmGanttFilter";
 
 const { invoke } = useToolInvoke();
 const defaultBaseUrl = "http://127.0.0.1:6806";
@@ -819,6 +830,7 @@ const searchText = ref("");
 const filterType = ref<PmItemType | "">("");
 const filterPriority = ref<PmPriority | "">("");
 const viewMode = ref<"kanban" | "gantt">("kanban");
+const ganttSelectedStatuses = ref<PmItemStatus[]>(getPmGanttDefaultStatuses());
 
 // Project dialog
 const projectDialogVisible = ref(false);
@@ -1152,7 +1164,7 @@ const siyuanPageEmptyMessage = computed(() => {
   }
 });
 
-const filteredItems = computed(() => {
+const baseFilteredItems = computed(() => {
   let result = items.value;
   if (searchText.value) {
     const q = searchText.value.toLowerCase();
@@ -1172,8 +1184,27 @@ const filteredItems = computed(() => {
   return result;
 });
 
+const ganttFilteredItems = computed(() =>
+  filterPmItemsByGanttStatuses(baseFilteredItems.value, ganttSelectedStatuses.value),
+);
+
 function columnItems(status: PmItemStatus) {
-  return filteredItems.value.filter((i) => i.status === status);
+  return baseFilteredItems.value.filter((i) => i.status === status);
+}
+
+function onGanttToggleStatus(payload: { status: PmItemStatus }) {
+  ganttSelectedStatuses.value = togglePmGanttStatus(ganttSelectedStatuses.value, payload.status);
+  closeCtxMenu();
+}
+
+function selectAllGanttStatuses() {
+  ganttSelectedStatuses.value = selectAllPmGanttStatuses();
+  closeCtxMenu();
+}
+
+function clearGanttStatuses() {
+  ganttSelectedStatuses.value = clearPmGanttStatuses();
+  closeCtxMenu();
 }
 
 // ── Helpers ──────────────────────────────────────────────

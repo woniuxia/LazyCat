@@ -8,6 +8,53 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-04-04: 项目管理甘特图新增状态多选筛选
+
+**场景**: 用户要求给项目管理甘特图增加状态筛选，状态可多选；最终确认不新增项目筛选，继续复用左侧项目 / 总览切换。
+
+**问题**:
+1. `PmPanel.vue` 里原本只有一层 `filteredItems`，同时服务看板和甘特；如果直接把状态筛选叠上去，会误伤看板四列数据。
+2. `PmGanttView.vue` 之前把工具栏放在“有甘特条才显示”的分支里；一旦用户点击 `清空`，工具栏会跟空态一起消失，用户也就失去了恢复筛选的入口。
+3. 状态筛选虽然只有 4 个按钮，但仍有三个容易被实现带偏的细节：
+   - 未知状态运行时兼容
+   - `selectedStatuses` 顺序稳定
+   - 清空后保持空选择，而不是自动回填全选
+4. 仓库当前没有现成的 `PmPanel` / `PmGanttView` 组件测试基础，如果把全部行为都压在组件内，回归只能靠手工点。
+
+**解决**:
+1. 新增 `pmGanttFilter.ts`，把甘特状态筛选规则抽成纯函数，集中处理：
+   - 默认全选
+   - 单个切换
+   - 全选 / 清空
+   - 未知状态按 `todo` 兜底
+   - 输出稳定顺序数组
+2. `PmPanel.vue` 将原 `filteredItems` 拆成：
+   - `baseFilteredItems`：搜索 / 类型 / 优先级，继续供看板使用
+   - `ganttFilteredItems`：在 `baseFilteredItems` 之上叠加状态筛选，只供甘特使用
+3. `PmGanttView.vue` 新增 4 个状态按钮和 `全选 / 清空` 事件，并把工具栏从空态分支里拆出来，保证空态下仍可恢复筛选。
+4. 测试策略优先纯函数：
+   - `pmGanttFilter.test.ts` 负责筛选状态行为和未知状态兼容
+   - `pmGantt.test.ts` 继续守住单边日期 / 非法日期的甘特排期语义
+
+**关键点**:
+1. 像“只作用于某个视图”的筛选，不要直接塞进所有视图共用的 `filteredItems`；最好先拆出共享基础筛选，再叠视图专用筛选层。
+2. 允许用户 `清空` 筛选时，**工具栏绝不能挂在“有结果才显示”的分支里**，否则产品行为会自相矛盾。
+3. 状态筛选如果对外用数组，必须稳定顺序、去重输出；否则 Vue diff、按钮选中态和测试断言都容易抖。
+4. 在缺少组件测试基础时，优先把易错规则抽成纯函数单测，比直接堆在 SFC 内更稳。
+
+**涉及文件**:
+- `apps/desktop/src/components/PmPanel.vue`
+- `apps/desktop/src/components/PmGanttView.vue`
+- `apps/desktop/src/utils/pmGanttFilter.ts`
+- `apps/desktop/src/utils/pmGanttFilter.test.ts`
+
+**验证**:
+- `pnpm test src/utils/pmGanttFilter.test.ts src/utils/pmGantt.test.ts`
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+
+**使用次数**: 0
+
 ## 2026-04-04: 项目管理工作项新增外部链接字段与打开动作
 
 **场景**: 用户要求在项目管理工作项中新增一个通用链接字段，可在编辑弹窗里维护，并支持从详情区与右键菜单直接打开。
