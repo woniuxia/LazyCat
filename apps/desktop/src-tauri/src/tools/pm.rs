@@ -30,6 +30,7 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         "project_archive" => project_archive(payload),
         "project_restore" => project_restore(payload),
         "project_delete" => project_delete(payload),
+        "item_counts" => item_counts(),
         "item_list" => item_list(payload),
         "item_create" => item_create(payload),
         "item_update" => item_update(payload),
@@ -1378,6 +1379,45 @@ fn project_delete(payload: &Value) -> Result<Value, String> {
     conn.execute("DELETE FROM pm_projects WHERE id = ?1", params![id])
         .map_err(|e| format!("project_delete: {e}"))?;
     Ok(json!({ "ok": true }))
+}
+
+// ── Item counts (lightweight, for sidebar) ───────────────
+
+fn item_counts() -> Result<Value, String> {
+    let conn = db_conn()?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT i.project_id, i.status, COUNT(*) FROM pm_items i
+             JOIN pm_projects p ON i.project_id = p.id
+             WHERE p.status = 'active'
+             GROUP BY i.project_id, i.status",
+        )
+        .map_err(|e| format!("prepare item_counts: {e}"))?;
+    let rows = stmt
+        .query_map([], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, i64>(2)?,
+            ))
+        })
+        .map_err(|e| format!("query item_counts: {e}"))?;
+
+    let mut map: HashMap<i64, (i64, i64)> = HashMap::new(); // project_id -> (total, done)
+    for row in rows {
+        let (pid, status, count) = row.map_err(|e| format!("read item_counts: {e}"))?;
+        let entry = map.entry(pid).or_insert((0, 0));
+        entry.0 += count;
+        if status == "done" {
+            entry.1 += count;
+        }
+    }
+
+    let result: Vec<Value> = map
+        .into_iter()
+        .map(|(pid, (total, done))| json!({ "projectId": pid, "total": total, "done": done }))
+        .collect();
+    Ok(json!(result))
 }
 
 // ── Item CRUD ────────────────────────────────────────────

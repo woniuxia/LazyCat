@@ -890,6 +890,7 @@ type PmSiyuanPageLocationState =
 
 const projects = ref<PmProject[]>([]);
 const items = ref<PmItem[]>([]);
+const projectItemCounts = ref<Record<number, { total: number; done: number }>>({});
 const selectedProjectId = ref<number | "overview" | null>(null);
 const selectedItemId = ref<number | null>(null);
 const searchText = ref("");
@@ -1007,16 +1008,13 @@ const PM_ITEM_STATUS_ORDER: PmItemStatus[] = ["todo", "in_progress", "testing", 
 
 const activeProjects = computed(() => projects.value.filter((p) => p.status === "active"));
 const archivedProjects = computed(() => projects.value.filter((p) => p.status === "archived"));
-const projectItemCounts = computed(() => {
-  const map: Record<number, { total: number; done: number }> = {};
-  for (const item of items.value) {
-    if (!map[item.projectId]) map[item.projectId] = { total: 0, done: 0 };
-    map[item.projectId].total++;
-    if (item.status === "done") map[item.projectId].done++;
+const overviewUndoneCount = computed(() => {
+  let total = 0;
+  for (const c of Object.values(projectItemCounts.value)) {
+    total += c.total - c.done;
   }
-  return map;
+  return total;
 });
-const overviewUndoneCount = computed(() => items.value.filter((i) => i.status !== "done").length);
 const isOverview = computed(() => selectedProjectId.value === "overview");
 const selectedProject = computed(() => {
   if (isOverview.value) {
@@ -1707,6 +1705,20 @@ async function loadItems() {
     items.value = (await invoke<PmItem[]>("tool:pm:item-list", params)) ?? [];
   } catch (e) {
     ElMessage.error((e as Error).message);
+  }
+  loadItemCounts();
+}
+
+async function loadItemCounts() {
+  try {
+    const rows = (await invoke<{ projectId: number; total: number; done: number }[]>("tool:pm:item-counts", {})) ?? [];
+    const map: Record<number, { total: number; done: number }> = {};
+    for (const r of rows) {
+      map[r.projectId] = { total: r.total, done: r.done };
+    }
+    projectItemCounts.value = map;
+  } catch {
+    // Non-critical, silently ignore
   }
 }
 
@@ -2514,12 +2526,17 @@ function openCtxMenuAt(anchorX: number, anchorY: number, actions: CtxMenuAction[
   ctxMenuY.value = anchorY;
   nextTick(() => {
     positionCtxMenu(anchorX, anchorY);
+  });
+  // 用 setTimeout（宏任务）注册监听器，避免 nextTick（微任务）
+  // 在当前 contextmenu 事件冒泡完成前执行导致菜单被立即关闭
+  setTimeout(() => {
+    if (!ctxMenuVisible.value) return;
     document.addEventListener("pointerdown", handleCtxClickAway);
     document.addEventListener("keydown", handleCtxKeydown);
     document.addEventListener("contextmenu", handleCtxGlobalContextMenu);
     document.addEventListener("scroll", handleCtxViewportChange, true);
     window.addEventListener("resize", handleCtxViewportChange);
-  });
+  }, 0);
 }
 
 function closeCtxMenu() {

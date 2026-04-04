@@ -239,6 +239,7 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:pm:project-archive": { domain: "pm", action: "project_archive" },
   "tool:pm:project-restore": { domain: "pm", action: "project_restore" },
   "tool:pm:project-delete": { domain: "pm", action: "project_delete" },
+  "tool:pm:item-counts": { domain: "pm", action: "item_counts" },
   "tool:pm:item-list": { domain: "pm", action: "item_list" },
   "tool:pm:item-create": { domain: "pm", action: "item_create" },
   "tool:pm:item-update": { domain: "pm", action: "item_update" },
