@@ -1203,8 +1203,20 @@ const ganttFilteredItems = computed(() =>
   filterPmItemsByGanttStatuses(baseFilteredItems.value, ganttSelectedStatuses.value),
 );
 
+const columnItemsMap = computed(() => {
+  const items = baseFilteredItems.value;
+  const map = new Map<PmItemStatus, PmItem[]>();
+  for (const col of PM_STATUS_COLUMNS) {
+    map.set(col.key, []);
+  }
+  for (const item of items) {
+    map.get(item.status)?.push(item);
+  }
+  return map;
+});
+
 function columnItems(status: PmItemStatus) {
-  return baseFilteredItems.value.filter((i) => i.status === status);
+  return columnItemsMap.value.get(status) ?? [];
 }
 
 function onGanttToggleStatus(payload: { status: PmItemStatus }) {
@@ -1643,10 +1655,12 @@ function normalizeBaseUrl(value: string): string {
 function normalizeItemLinkUrl(value: string | null | undefined): string {
   let url = (value ?? "").trim();
   if (!url) return "";
-  if (!/^https?:\/\//i.test(url)) {
-    if (url.includes("://")) {
-      return url;
-    }
+  if (/^https?:\/\//i.test(url)) {
+    // Already has http/https scheme, keep as-is
+  } else if (url.includes("://")) {
+    // Non-http scheme (e.g. ftp://), reject like backend does
+    return "";
+  } else {
     url = `http://${url}`;
   }
   return url;
@@ -1782,7 +1796,7 @@ function onCardClick(item: PmItem) {
   clickTimer.value = setTimeout(() => {
     clickTimer.value = null;
     selectItem(item);
-  }, 220);
+  }, 150);
 }
 
 function onCardDblclick(item: PmItem) {
@@ -2330,12 +2344,8 @@ watch(
   () => { nextTick(() => { if (!draggingItemId.value) initSortable(); }); }
 );
 
-// 过滤条件变化 → 延迟重建，跳过拖拽中
-watch(
-  [searchText, filterType, filterPriority],
-  () => { nextTick(() => { if (!draggingItemId.value) initSortable(); }); },
-  { flush: 'post' }
-);
+// 过滤条件变化不需要重建 Sortable 实例：
+// Sortable 绑定的是 DOM 容器，过滤只改变内部子元素渲染，实例自动跟随
 
 watch(
   () => [selectedProjectId.value, viewMode.value],
@@ -2417,14 +2427,14 @@ function openCtxMenuAt(anchorX: number, anchorY: number, actions: CtxMenuAction[
   ctxMenuVisible.value = true;
   ctxMenuX.value = anchorX;
   ctxMenuY.value = anchorY;
-  nextTick(() => positionCtxMenu(anchorX, anchorY));
-  setTimeout(() => {
+  nextTick(() => {
+    positionCtxMenu(anchorX, anchorY);
     document.addEventListener("pointerdown", handleCtxClickAway);
     document.addEventListener("keydown", handleCtxKeydown);
     document.addEventListener("contextmenu", handleCtxGlobalContextMenu);
     document.addEventListener("scroll", handleCtxViewportChange, true);
     window.addEventListener("resize", handleCtxViewportChange);
-  }, 0);
+  });
 }
 
 function closeCtxMenu() {

@@ -709,7 +709,7 @@ fn build_siyuan_page_ref_from_parts(
 }
 
 fn escape_sql_string(value: &str) -> String {
-    value.replace('\'', "''")
+    value.replace('\'', "''").replace('%', "\\%").replace('_', "\\_")
 }
 
 fn normalize_siyuan_page_title(title: &str) -> Result<String, String> {
@@ -1275,8 +1275,9 @@ fn project_create(payload: &Value) -> Result<Value, String> {
 
 fn project_update(payload: &Value) -> Result<Value, String> {
     let id = parse_i64(payload, "id").ok_or("id is required")?;
-    let conn = db_conn()?;
-    let current_location = conn
+    let mut conn = db_conn()?;
+    let tx = conn.transaction().map_err(|e| format!("project_update begin: {e}"))?;
+    let current_location = tx
         .query_row(
             "SELECT siyuan_notebook_id, siyuan_notebook_name,
                     siyuan_parent_doc_id, siyuan_parent_doc_title,
@@ -1304,7 +1305,7 @@ fn project_update(payload: &Value) -> Result<Value, String> {
         None => current_location,
     };
     let now = now_rfc3339();
-    conn.execute(
+    tx.execute(
         "UPDATE pm_projects
          SET name = ?1, description = ?2, color = ?3,
              siyuan_notebook_id = ?4, siyuan_notebook_name = ?5,
@@ -1329,6 +1330,7 @@ fn project_update(payload: &Value) -> Result<Value, String> {
     )
     .map_err(|e| format!("project_update: {e}"))?;
 
+    tx.commit().map_err(|e| format!("project_update commit: {e}"))?;
     Ok(json!({ "updated": true }))
 }
 
@@ -1384,117 +1386,89 @@ fn item_list(payload: &Value) -> Result<Value, String> {
     let project_id = parse_i64(payload, "projectId");
     let conn = db_conn()?;
 
-    let items: Vec<Value> = if let Some(pid) = project_id {
-        let mut stmt = conn
-            .prepare(
-                "SELECT i.id, i.project_id, i.title, i.description, i.item_type, i.priority,
-                        i.status, i.start_at, i.end_at, i.pinned, i.sort_order,
-                        i.siyuan_doc_id, i.siyuan_doc_title, i.siyuan_doc_hpath,
-                        i.siyuan_doc_path, i.siyuan_notebook_id, i.siyuan_notebook_name,
-                        i.completed_at, i.created_at, i.updated_at, i.link_url,
-                        p.name, p.color
-                 FROM pm_items i
-                 LEFT JOIN pm_projects p ON i.project_id = p.id
-                 WHERE i.project_id = ?1
-                 ORDER BY i.pinned DESC, i.sort_order ASC,
-                          CASE i.priority WHEN 'P0' THEN 0 WHEN 'P1' THEN 1 WHEN 'P2' THEN 2 ELSE 3 END ASC,
-                          i.id DESC",
-            )
-            .map_err(|e| format!("prepare item_list: {e}"))?;
-        let result: Vec<Value> = stmt.query_map(params![pid], |r| {
-            let primary_page = build_siyuan_page_ref_from_parts(
-                r.get::<_, Option<String>>(11)?,
-                r.get::<_, Option<String>>(12)?,
-                r.get::<_, Option<String>>(13)?,
-                r.get::<_, Option<String>>(14)?,
-                r.get::<_, Option<String>>(15)?,
-                r.get::<_, Option<String>>(16)?,
-            );
-            Ok(json!({
-                "id": r.get::<_, i64>(0)?,
-                "projectId": r.get::<_, i64>(1)?,
-                "title": r.get::<_, String>(2)?,
-                "description": r.get::<_, String>(3)?,
-                "itemType": r.get::<_, String>(4)?,
-                "priority": r.get::<_, String>(5)?,
-                "status": r.get::<_, String>(6)?,
-                "startAt": r.get::<_, Option<String>>(7)?,
-                "endAt": r.get::<_, Option<String>>(8)?,
-                "pinned": r.get::<_, bool>(9)?,
-                "sortOrder": r.get::<_, i64>(10)?,
-                "siyuanPrimaryPage": primary_page,
-                "completedAt": r.get::<_, Option<String>>(17)?,
-                "createdAt": r.get::<_, String>(18)?,
-                "updatedAt": r.get::<_, String>(19)?,
-                "linkUrl": r.get::<_, Option<String>>(20)?,
-                "projectName": r.get::<_, Option<String>>(21)?,
-                "projectColor": r.get::<_, Option<String>>(22)?,
-            }))
-        })
-        .map_err(|e| format!("query item_list: {e}"))?
-        .filter_map(|r| r.ok())
-        .collect();
-        result
+    let (sql, qp): (String, Vec<Box<dyn rusqlite::types::ToSql>>) = if let Some(pid) = project_id {
+        (
+            "SELECT i.id, i.project_id, i.title, i.description, i.item_type, i.priority,
+                    i.status, i.start_at, i.end_at, i.pinned, i.sort_order,
+                    i.siyuan_doc_id, i.siyuan_doc_title, i.siyuan_doc_hpath,
+                    i.siyuan_doc_path, i.siyuan_notebook_id, i.siyuan_notebook_name,
+                    i.completed_at, i.created_at, i.updated_at, i.link_url,
+                    p.name, p.color
+             FROM pm_items i
+             LEFT JOIN pm_projects p ON i.project_id = p.id
+             WHERE i.project_id = ?1
+             ORDER BY i.pinned DESC, i.sort_order ASC,
+                      CASE i.priority WHEN 'P0' THEN 0 WHEN 'P1' THEN 1 WHEN 'P2' THEN 2 ELSE 3 END ASC,
+                      i.id DESC".into(),
+            vec![Box::new(pid)],
+        )
     } else {
-        let mut stmt = conn
-            .prepare(
-                "SELECT i.id, i.project_id, i.title, i.description, i.item_type, i.priority,
-                        i.status, i.start_at, i.end_at, i.pinned, i.sort_order,
-                        i.siyuan_doc_id, i.siyuan_doc_title, i.siyuan_doc_hpath,
-                        i.siyuan_doc_path, i.siyuan_notebook_id, i.siyuan_notebook_name,
-                        i.completed_at, i.created_at, i.updated_at, i.link_url,
-                        p.name, p.color
-                 FROM pm_items i
-                 LEFT JOIN pm_projects p ON i.project_id = p.id
-                 WHERE p.status = 'active'
-                 ORDER BY i.pinned DESC, i.sort_order ASC,
-                          CASE i.priority WHEN 'P0' THEN 0 WHEN 'P1' THEN 1 WHEN 'P2' THEN 2 ELSE 3 END ASC,
-                          i.id DESC",
-            )
-            .map_err(|e| format!("prepare item_list: {e}"))?;
-        let result: Vec<Value> = stmt.query_map([], |r| {
-            let primary_page = build_siyuan_page_ref_from_parts(
-                r.get::<_, Option<String>>(11)?,
-                r.get::<_, Option<String>>(12)?,
-                r.get::<_, Option<String>>(13)?,
-                r.get::<_, Option<String>>(14)?,
-                r.get::<_, Option<String>>(15)?,
-                r.get::<_, Option<String>>(16)?,
-            );
-            Ok(json!({
-                "id": r.get::<_, i64>(0)?,
-                "projectId": r.get::<_, i64>(1)?,
-                "title": r.get::<_, String>(2)?,
-                "description": r.get::<_, String>(3)?,
-                "itemType": r.get::<_, String>(4)?,
-                "priority": r.get::<_, String>(5)?,
-                "status": r.get::<_, String>(6)?,
-                "startAt": r.get::<_, Option<String>>(7)?,
-                "endAt": r.get::<_, Option<String>>(8)?,
-                "pinned": r.get::<_, bool>(9)?,
-                "sortOrder": r.get::<_, i64>(10)?,
-                "siyuanPrimaryPage": primary_page,
-                "completedAt": r.get::<_, Option<String>>(17)?,
-                "createdAt": r.get::<_, String>(18)?,
-                "updatedAt": r.get::<_, String>(19)?,
-                "linkUrl": r.get::<_, Option<String>>(20)?,
-                "projectName": r.get::<_, Option<String>>(21)?,
-                "projectColor": r.get::<_, Option<String>>(22)?,
-            }))
-        })
-        .map_err(|e| format!("query item_list: {e}"))?
-        .filter_map(|r| r.ok())
-        .collect();
-        result
+        (
+            "SELECT i.id, i.project_id, i.title, i.description, i.item_type, i.priority,
+                    i.status, i.start_at, i.end_at, i.pinned, i.sort_order,
+                    i.siyuan_doc_id, i.siyuan_doc_title, i.siyuan_doc_hpath,
+                    i.siyuan_doc_path, i.siyuan_notebook_id, i.siyuan_notebook_name,
+                    i.completed_at, i.created_at, i.updated_at, i.link_url,
+                    p.name, p.color
+             FROM pm_items i
+             LEFT JOIN pm_projects p ON i.project_id = p.id
+             WHERE p.status = 'active'
+             ORDER BY i.pinned DESC, i.sort_order ASC,
+                      CASE i.priority WHEN 'P0' THEN 0 WHEN 'P1' THEN 1 WHEN 'P2' THEN 2 ELSE 3 END ASC,
+                      i.id DESC".into(),
+            vec![],
+        )
     };
 
-    // Attach tags
+    let mut stmt = conn.prepare(&sql).map_err(|e| format!("prepare item_list: {e}"))?;
+    let param_refs: Vec<&dyn rusqlite::types::ToSql> = qp.iter().map(|p| p.as_ref()).collect();
+    let items: Vec<Value> = stmt
+        .query_map(param_refs.as_slice(), |r| {
+            let primary_page = build_siyuan_page_ref_from_parts(
+                r.get::<_, Option<String>>(11)?,
+                r.get::<_, Option<String>>(12)?,
+                r.get::<_, Option<String>>(13)?,
+                r.get::<_, Option<String>>(14)?,
+                r.get::<_, Option<String>>(15)?,
+                r.get::<_, Option<String>>(16)?,
+            );
+            Ok(json!({
+                "id": r.get::<_, i64>(0)?,
+                "projectId": r.get::<_, i64>(1)?,
+                "title": r.get::<_, String>(2)?,
+                "description": r.get::<_, String>(3)?,
+                "itemType": r.get::<_, String>(4)?,
+                "priority": r.get::<_, String>(5)?,
+                "status": r.get::<_, String>(6)?,
+                "startAt": r.get::<_, Option<String>>(7)?,
+                "endAt": r.get::<_, Option<String>>(8)?,
+                "pinned": r.get::<_, bool>(9)?,
+                "sortOrder": r.get::<_, i64>(10)?,
+                "siyuanPrimaryPage": primary_page,
+                "completedAt": r.get::<_, Option<String>>(17)?,
+                "createdAt": r.get::<_, String>(18)?,
+                "updatedAt": r.get::<_, String>(19)?,
+                "linkUrl": r.get::<_, Option<String>>(20)?,
+                "projectName": r.get::<_, Option<String>>(21)?,
+                "projectColor": r.get::<_, Option<String>>(22)?,
+            }))
+        })
+        .map_err(|e| format!("query item_list: {e}"))?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    // Attach tags & siyuan links (batch queries to avoid N+1)
+    let item_ids: Vec<i64> = items.iter().filter_map(|v| v["id"].as_i64()).collect();
+
+    let tag_map = batch_load_tags(&conn, &item_ids);
+    let links_map = batch_load_siyuan_links(&conn, &item_ids);
+
     let result: Vec<Value> = items
         .into_iter()
         .map(|mut item| {
             let item_id = item["id"].as_i64().unwrap_or(0);
-            let tags = load_tags(&conn, item_id);
-            let extra_pages = load_item_siyuan_links(&conn, item_id);
+            let tags = tag_map.get(&item_id).cloned().unwrap_or_default();
+            let extra_pages = links_map.get(&item_id).cloned().unwrap_or_default();
             item.as_object_mut().unwrap().insert("tags".to_string(), json!(tags));
             item.as_object_mut()
                 .unwrap()
@@ -1506,13 +1480,65 @@ fn item_list(payload: &Value) -> Result<Value, String> {
     Ok(json!(result))
 }
 
-fn load_tags(conn: &Connection, item_id: i64) -> Vec<String> {
-    conn.prepare("SELECT tag FROM pm_item_tags WHERE item_id = ?1 ORDER BY tag")
-        .and_then(|mut stmt| {
-            stmt.query_map(params![item_id], |r| r.get::<_, String>(0))
-                .map(|rows| rows.filter_map(|r| r.ok()).collect())
-        })
-        .unwrap_or_default()
+fn batch_load_tags(conn: &Connection, item_ids: &[i64]) -> HashMap<i64, Vec<String>> {
+    if item_ids.is_empty() {
+        return HashMap::new();
+    }
+    let placeholders: Vec<String> = item_ids.iter().enumerate().map(|(i, _)| format!("?{}", i + 1)).collect();
+    let sql = format!(
+        "SELECT item_id, tag FROM pm_item_tags WHERE item_id IN ({}) ORDER BY tag",
+        placeholders.join(",")
+    );
+    let params: Vec<&dyn rusqlite::types::ToSql> = item_ids.iter().map(|id| id as &dyn rusqlite::types::ToSql).collect();
+    let mut map: HashMap<i64, Vec<String>> = HashMap::new();
+    if let Ok(mut stmt) = conn.prepare(&sql) {
+        if let Ok(rows) = stmt.query_map(params.as_slice(), |r| {
+            Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?))
+        }) {
+            for row in rows.flatten() {
+                map.entry(row.0).or_default().push(row.1);
+            }
+        }
+    }
+    map
+}
+
+fn batch_load_siyuan_links(conn: &Connection, item_ids: &[i64]) -> HashMap<i64, Vec<SiyuanPageRef>> {
+    if item_ids.is_empty() {
+        return HashMap::new();
+    }
+    let placeholders: Vec<String> = item_ids.iter().enumerate().map(|(i, _)| format!("?{}", i + 1)).collect();
+    let sql = format!(
+        "SELECT item_id, siyuan_doc_id, siyuan_doc_title, siyuan_doc_hpath,
+                siyuan_doc_path, siyuan_notebook_id, siyuan_notebook_name
+         FROM pm_item_siyuan_links WHERE item_id IN ({})
+         ORDER BY item_id, id",
+        placeholders.join(",")
+    );
+    let params: Vec<&dyn rusqlite::types::ToSql> = item_ids.iter().map(|id| id as &dyn rusqlite::types::ToSql).collect();
+    let mut map: HashMap<i64, Vec<SiyuanPageRef>> = HashMap::new();
+    if let Ok(mut stmt) = conn.prepare(&sql) {
+        if let Ok(rows) = stmt.query_map(params.as_slice(), |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                build_siyuan_page_ref_from_parts(
+                    r.get::<_, Option<String>>(1)?,
+                    r.get::<_, Option<String>>(2)?,
+                    r.get::<_, Option<String>>(3)?,
+                    r.get::<_, Option<String>>(4)?,
+                    r.get::<_, Option<String>>(5)?,
+                    r.get::<_, Option<String>>(6)?,
+                ),
+            ))
+        }) {
+            for row in rows.flatten() {
+                if let Some(page_ref) = row.1 {
+                    map.entry(row.0).or_default().push(page_ref);
+                }
+            }
+        }
+    }
+    map
 }
 
 fn save_tags(conn: &Connection, item_id: i64, tags: &[String]) -> Result<(), String> {
@@ -1562,8 +1588,9 @@ fn item_create(payload: &Value) -> Result<Value, String> {
 
     let completed_at = if status == "done" { Some(now.clone()) } else { None };
 
-    let conn = db_conn()?;
-    conn.execute(
+    let mut conn = db_conn()?;
+    let tx = conn.transaction().map_err(|e| format!("item_create begin: {e}"))?;
+    tx.execute(
         "INSERT INTO pm_items (
             project_id, title, description, link_url, item_type, priority, status,
             start_at, end_at,
@@ -1594,12 +1621,13 @@ fn item_create(payload: &Value) -> Result<Value, String> {
     )
     .map_err(|e| format!("item_create: {e}"))?;
 
-    let id = conn.last_insert_rowid();
+    let id = tx.last_insert_rowid();
     if !tags.is_empty() {
-        save_tags(&conn, id, &tags)?;
+        save_tags(&tx, id, &tags)?;
     }
-    save_item_siyuan_links(&conn, id, primary_page.as_ref(), &extra_pages, &now)?;
+    save_item_siyuan_links(&tx, id, primary_page.as_ref(), &extra_pages, &now)?;
 
+    tx.commit().map_err(|e| format!("item_create commit: {e}"))?;
     Ok(json!({ "id": id }))
 }
 
@@ -1775,8 +1803,10 @@ fn item_change_status(payload: &Value) -> Result<Value, String> {
 }
 
 fn item_reorder(payload: &Value) -> Result<Value, String> {
-    let conn = db_conn()?;
+    let mut conn = db_conn()?;
     let now = now_rfc3339();
+
+    let tx = conn.transaction().map_err(|e| format!("item_reorder begin: {e}"))?;
 
     // Supports two modes:
     // 1) Array of { id, sortOrder } for within-column reorder
@@ -1789,26 +1819,27 @@ fn item_reorder(payload: &Value) -> Result<Value, String> {
 
             if let Some(st) = status {
                 if st == "done" {
-                    conn.execute(
+                    tx.execute(
                         "UPDATE pm_items SET sort_order = ?1, status = ?2, completed_at = COALESCE(completed_at, ?4), updated_at = ?4 WHERE id = ?3",
                         params![sort, st, id, now],
                     )
                     .map_err(|e| format!("item_reorder: {e}"))?;
                 } else {
-                    conn.execute(
+                    tx.execute(
                         "UPDATE pm_items SET sort_order = ?1, status = ?2, completed_at = NULL, updated_at = ?4 WHERE id = ?3",
                         params![sort, st, id, now],
                     )
                     .map_err(|e| format!("item_reorder: {e}"))?;
                 }
             } else {
-                conn.execute(
+                tx.execute(
                     "UPDATE pm_items SET sort_order = ?1, updated_at = ?3 WHERE id = ?2",
                     params![sort, id, now],
                 )
                 .map_err(|e| format!("item_reorder: {e}"))?;
             }
         }
+        tx.commit().map_err(|e| format!("item_reorder commit: {e}"))?;
         return Ok(json!({ "ok": true }));
     }
 
@@ -1819,26 +1850,27 @@ fn item_reorder(payload: &Value) -> Result<Value, String> {
 
     if let Some(st) = new_status {
         if st == "done" {
-            conn.execute(
+            tx.execute(
                 "UPDATE pm_items SET sort_order = ?1, status = ?2, completed_at = COALESCE(completed_at, ?4), updated_at = ?4 WHERE id = ?3",
                 params![sort_order, st, id, now],
             )
             .map_err(|e| format!("item_reorder: {e}"))?;
         } else {
-            conn.execute(
+            tx.execute(
                 "UPDATE pm_items SET sort_order = ?1, status = ?2, completed_at = NULL, updated_at = ?4 WHERE id = ?3",
                 params![sort_order, st, id, now],
             )
             .map_err(|e| format!("item_reorder: {e}"))?;
         }
     } else {
-        conn.execute(
+        tx.execute(
             "UPDATE pm_items SET sort_order = ?1, updated_at = ?3 WHERE id = ?2",
             params![sort_order, id, now],
         )
         .map_err(|e| format!("item_reorder: {e}"))?;
     }
 
+    tx.commit().map_err(|e| format!("item_reorder commit: {e}"))?;
     Ok(json!({ "ok": true }))
 }
 
