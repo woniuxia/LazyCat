@@ -8,6 +8,48 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-04-04: 项目管理视觉统一规划的后半程收尾
+
+**场景**: 用户要求继续执行 `2026-04-04-pm-visual-unification-design.md`，仓库里已经存在一半未提交实现：`PmPanel.vue` 模板和 `pmVisual.ts` / `pmVisual.test.ts` 已经开始改，但整体视觉还没有真正统一落地。
+
+**问题**:
+1. 当前断点不是“功能没接上”，而是“模板结构先改了，样式层还停留在旧时代”；`typecheck` 和 `build:web` 都能过，但新类名大量缺少配套 CSS，实际界面会呈现半成品状态。
+2. `PmPanel.vue` 同时包含 scoped 样式和全局样式两段，侧栏/看板/详情在第一段，弹窗和 Teleport 相关样式在第二段；如果只在一处补样式，很容易出现“主页面好了，弹窗还是旧壳”。
+3. 工作项编辑弹窗由 `el-dialog` Teleport 到 `body`，不能依赖只挂在 `.pm-panel` 上的局部 CSS 变量；弹窗样式若直接复用 scoped 区块里的变量，实际渲染时可能拿不到。
+4. 这类 UI 收尾任务最容易被“编译通过”误导，必须额外检查“新模板类名是否真的有样式定义”，不能只看 TS 和构建结果。
+
+**解决**:
+1. 保留已有模板和前端派生逻辑，继续复用 `pmVisual.ts` 中的排序和标签摘要 helper，不回退已有中间成果。
+2. 在 `PmPanel.vue` 的 scoped 样式中追加一整套视觉统一覆盖，集中补齐：
+   - 左侧项目空间卡片化样式
+   - 看板列与卡片的冷白蓝灰视觉
+   - 详情侧栏的主信息卡、时间轨迹网格、资源关联行卡片
+3. 在 `PmPanel.vue` 的全局样式块中补齐 Teleport 弹窗相关样式：
+   - 顶部项目身份卡
+   - 分区表单卡片
+   - 三列核心信息栅格
+   - 链接输入尾部动作区
+   - 移动端收口
+4. 验证时不能只跑新增 `pmVisual.test.ts`，还要把 PM 既有的日期、甘特、思源辅助测试一起跑一遍，避免 UI 收尾顺手打断现有 PM 派生逻辑。
+
+**关键点**:
+1. “规划执行一半”的 UI 任务，先看 `git diff` 和模板类名，再看编译结果；很多时候真正没完成的是样式层，而不是逻辑层。
+2. 同一个组件里如果既有 scoped 样式又有 Teleport 场景，要先分清“谁负责页面内样式，谁负责弹窗/全局样式”，否则补丁会落在错误位置。
+3. Teleport 内容不要依赖父容器上的局部 CSS 变量；更稳的做法是对弹窗区块使用硬编码设计色或全局变量。
+4. 做视觉统一时，优先用“末尾覆盖样式”补齐新骨架，比大面积清洗旧 CSS 更稳，尤其适合已有一半中间改动的工作区。
+
+**涉及文件**:
+- `apps/desktop/src/components/PmPanel.vue`
+- `apps/desktop/src/utils/pmVisual.ts`
+- `apps/desktop/src/utils/pmVisual.test.ts`
+
+**验证**:
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop test src/utils/pmVisual.test.ts src/utils/pmDate.test.ts src/utils/pmGantt.test.ts src/utils/pmSiyuan.test.ts`
+- `pnpm --filter @lazycat/desktop build:web`
+
+**使用次数**: 0
+
 ## 2026-04-04: 项目管理甘特图新增状态多选筛选
 
 **场景**: 用户要求给项目管理甘特图增加状态筛选，状态可多选；最终确认不新增项目筛选，继续复用左侧项目 / 总览切换。
