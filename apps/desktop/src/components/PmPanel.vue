@@ -245,7 +245,12 @@
                 </div>
                 <div class="detail-item-title">{{ selectedItem.title }}</div>
                 <div class="detail-field-inline">
-                  <el-tag size="small" :color="PM_ITEM_TYPE_MAP[selectedItem.itemType]?.color" effect="light" round>
+                  <el-tag
+                    size="small"
+                    effect="light"
+                    round
+                    :style="getPmLightTagStyle(PM_ITEM_TYPE_MAP[selectedItem.itemType]?.color)"
+                  >
                     {{ PM_ITEM_TYPE_MAP[selectedItem.itemType]?.label ?? selectedItem.itemType }}
                   </el-tag>
                   <el-tag size="small" effect="light" round>
@@ -1409,6 +1414,15 @@ function isOverdue(item: PmItem): boolean {
 
 function getItemTagSummary(item: PmItem) {
   return summarizePmItemTags(item.tags);
+}
+
+function getPmLightTagStyle(color?: string | null) {
+  const resolvedColor = color ?? "#409eff";
+  return {
+    "--el-tag-bg-color": `${resolvedColor}14`,
+    "--el-tag-border-color": `${resolvedColor}33`,
+    "--el-tag-text-color": resolvedColor,
+  };
 }
 
 function nextStatusLabel(item: PmItem): string {
