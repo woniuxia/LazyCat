@@ -225,6 +225,15 @@
                 </span>
               </div>
               <div class="detail-field">
+                <span class="detail-label">链接</span>
+                <div class="detail-value detail-link-row">
+                  <span class="detail-link-text">{{ selectedItem.linkUrl || "-" }}</span>
+                  <el-button v-if="selectedItem.linkUrl" size="small" link @click="openItemLink(selectedItem.linkUrl)">
+                    打开
+                  </el-button>
+                </div>
+              </div>
+              <div class="detail-field">
                 <span class="detail-label">思源主页面</span>
                 <div class="detail-value detail-siyuan-pages">
                   <template v-if="selectedItem.siyuanPrimaryPage">
@@ -361,13 +370,20 @@
             style="width: 100%"
           />
         </el-form-item>
+        <el-form-item label="链接">
+          <el-input v-model="itemForm.linkUrl" placeholder="https://example.com 或 localhost:3000">
+            <template #append>
+              <el-button :disabled="!itemFormOpenableLink" @click="openItemFormLink">打开</el-button>
+            </template>
+          </el-input>
+        </el-form-item>
         <el-form-item label="描述">
           <el-input v-model="itemForm.description" type="textarea" :rows="3" />
         </el-form-item>
         <el-form-item label="思源关联" class="pm-form-item-top">
           <div class="pm-siyuan-link-card">
             <div class="pm-siyuan-link-header">
-              <div>
+              <div class="pm-siyuan-link-heading">
                 <div class="pm-siyuan-link-title">思源关联</div>
                 <div class="pm-siyuan-link-subtitle">{{ itemSiyuanLocationSummary }}</div>
               </div>
@@ -827,6 +843,7 @@ const itemForm = ref({
   status: "todo" as PmItemStatus,
   startAt: null as string | null,
   endAt: null as string | null,
+  linkUrl: "",
   description: "",
 });
 const itemPrimaryPage = ref<PmSiyuanPageRef | null>(null);
@@ -989,6 +1006,7 @@ const itemFormDateRange = computed<[string, string] | null>({
     itemForm.value.endAt = normalizedRange.endAt;
   },
 });
+const itemFormOpenableLink = computed(() => Boolean(normalizeItemLinkUrl(itemForm.value.linkUrl)));
 const siyuanLocationPickerTitle = computed(() =>
   siyuanLocationPickerTarget.value === "global" ? "选择任务默认存储位置" : "选择项目专属存储位置",
 );
@@ -1572,6 +1590,34 @@ function normalizeBaseUrl(value: string): string {
   return url;
 }
 
+function normalizeItemLinkUrl(value: string | null | undefined): string {
+  let url = (value ?? "").trim();
+  if (!url) return "";
+  if (!/^https?:\/\//i.test(url)) {
+    if (url.includes("://")) {
+      return url;
+    }
+    url = `http://${url}`;
+  }
+  return url;
+}
+
+async function openItemLink(url: string | null | undefined) {
+  const normalized = normalizeItemLinkUrl(url);
+  if (!normalized) {
+    return;
+  }
+  try {
+    await invoke("tool:pm:open-link", { url: normalized });
+  } catch (e) {
+    ElMessage.error((e as Error).message);
+  }
+}
+
+async function openItemFormLink() {
+  await openItemLink(itemForm.value.linkUrl);
+}
+
 function getSiyuanConfigSnapshot(): { baseUrl: string; token: string } | null {
   const baseUrl = normalizeBaseUrl(siyuanForm.baseUrl);
   const token = (siyuanForm.token ?? "").trim();
@@ -1891,6 +1937,7 @@ function showCreateItem() {
     status: "todo",
     startAt: null,
     endAt: null,
+    linkUrl: "",
     description: "",
   };
   itemPrimaryPage.value = null;
@@ -1911,6 +1958,7 @@ function editItem(item: PmItem) {
     status: item.status,
     startAt: normalizedDateRange.startAt,
     endAt: normalizedDateRange.endAt,
+    linkUrl: item.linkUrl ?? "",
     description: item.description,
   };
   itemPrimaryPage.value = cloneSiyuanPage(item.siyuanPrimaryPage);
@@ -1938,6 +1986,7 @@ async function submitItem() {
       ...itemForm.value,
       startAt: normalizedDateRange.startAt,
       endAt: normalizedDateRange.endAt,
+      linkUrl: normalizeItemLinkUrl(itemForm.value.linkUrl) || null,
       siyuanPrimaryPage: itemPrimaryPage.value,
       siyuanExtraPages: itemExtraPages.value,
     };
@@ -2083,6 +2132,13 @@ async function deleteItemRecord(item: PmItem) {
 
 function buildItemContextActions(item: PmItem): CtxMenuAction[] {
   const actions: CtxMenuAction[] = [{ label: "编辑", action: () => editItem(item) }];
+
+  if (item.linkUrl) {
+    actions.push({
+      label: "打开链接",
+      action: () => void openItemLink(item.linkUrl),
+    });
+  }
 
   if (item.siyuanPrimaryPage) {
     actions.push({
@@ -2782,6 +2838,17 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
   gap: 4px;
 }
+.detail-link-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+.detail-link-text {
+  flex: 1;
+  min-width: 0;
+  word-break: break-all;
+}
 .detail-description {
   margin: 0;
   font-family: inherit;
@@ -2954,6 +3021,13 @@ body.pm-is-dragging * {
   color: var(--el-text-color-primary);
 }
 
+.pm-siyuan-link-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .pm-siyuan-link-header {
   display: flex;
   align-items: flex-start;
@@ -2965,7 +3039,7 @@ body.pm-is-dragging * {
 .pm-siyuan-link-subtitle {
   display: flex;
   flex-wrap: wrap;
-  margin-top: 4px;
+  margin-top: 0;
 }
 
 .pm-siyuan-page-list {

@@ -16,6 +16,7 @@ const baseItem: PmItem = {
   projectId: 3,
   title: "补齐甘特图交互",
   description: "让甘特图和看板能力对齐",
+  linkUrl: null,
   itemType: "improvement",
   priority: "P1",
   status: "in_progress",

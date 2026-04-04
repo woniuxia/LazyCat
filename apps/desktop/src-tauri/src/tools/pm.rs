@@ -45,6 +45,7 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         "siyuan_search_pages" => siyuan_search_pages(payload),
         "siyuan_create_page" => siyuan_create_page(payload),
         "siyuan_open_page" => siyuan_open_page(payload),
+        "open_link" => open_link(payload),
         _ => Err(format!("unsupported pm action: {action}")),
     }
 }
@@ -175,6 +176,41 @@ fn normalize_siyuan_base_url(input: &str) -> Result<String, String> {
         "http" | "https" => Ok(normalized),
         _ => Err("思源服务地址必须以 http:// 或 https:// 开头".into()),
     }
+}
+
+fn normalize_item_link_url(input: &str) -> Result<String, String> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return Err("请输入链接地址".into());
+    }
+
+    let lower = trimmed.to_ascii_lowercase();
+    let normalized = if lower.starts_with("http://") || lower.starts_with("https://") {
+        trimmed.to_string()
+    } else if trimmed.contains("://") {
+        return Err("仅支持 http/https 链接".into());
+    } else {
+        format!("http://{trimmed}")
+    };
+
+    let parsed = Url::parse(&normalized).map_err(|_| "链接格式不正确".to_string())?;
+    match parsed.scheme() {
+        "http" | "https" => Ok(normalized),
+        _ => Err("仅支持 http/https 链接".into()),
+    }
+}
+
+fn parse_item_link_url_value(value: &Value) -> Result<Option<String>, String> {
+    if value.is_null() {
+        return Ok(None);
+    }
+
+    let raw = value.as_str().ok_or("链接格式不正确")?.trim();
+    if raw.is_empty() {
+        return Ok(None);
+    }
+
+    Ok(Some(normalize_item_link_url(raw)?))
 }
 
 fn load_setting_value(key: &str) -> Result<Option<String>, String> {
@@ -1355,7 +1391,7 @@ fn item_list(payload: &Value) -> Result<Value, String> {
                         i.status, i.start_at, i.end_at, i.pinned, i.sort_order,
                         i.siyuan_doc_id, i.siyuan_doc_title, i.siyuan_doc_hpath,
                         i.siyuan_doc_path, i.siyuan_notebook_id, i.siyuan_notebook_name,
-                        i.completed_at, i.created_at, i.updated_at,
+                        i.completed_at, i.created_at, i.updated_at, i.link_url,
                         p.name, p.color
                  FROM pm_items i
                  LEFT JOIN pm_projects p ON i.project_id = p.id
@@ -1390,8 +1426,9 @@ fn item_list(payload: &Value) -> Result<Value, String> {
                 "completedAt": r.get::<_, Option<String>>(17)?,
                 "createdAt": r.get::<_, String>(18)?,
                 "updatedAt": r.get::<_, String>(19)?,
-                "projectName": r.get::<_, Option<String>>(20)?,
-                "projectColor": r.get::<_, Option<String>>(21)?,
+                "linkUrl": r.get::<_, Option<String>>(20)?,
+                "projectName": r.get::<_, Option<String>>(21)?,
+                "projectColor": r.get::<_, Option<String>>(22)?,
             }))
         })
         .map_err(|e| format!("query item_list: {e}"))?
@@ -1405,7 +1442,7 @@ fn item_list(payload: &Value) -> Result<Value, String> {
                         i.status, i.start_at, i.end_at, i.pinned, i.sort_order,
                         i.siyuan_doc_id, i.siyuan_doc_title, i.siyuan_doc_hpath,
                         i.siyuan_doc_path, i.siyuan_notebook_id, i.siyuan_notebook_name,
-                        i.completed_at, i.created_at, i.updated_at,
+                        i.completed_at, i.created_at, i.updated_at, i.link_url,
                         p.name, p.color
                  FROM pm_items i
                  LEFT JOIN pm_projects p ON i.project_id = p.id
@@ -1440,8 +1477,9 @@ fn item_list(payload: &Value) -> Result<Value, String> {
                 "completedAt": r.get::<_, Option<String>>(17)?,
                 "createdAt": r.get::<_, String>(18)?,
                 "updatedAt": r.get::<_, String>(19)?,
-                "projectName": r.get::<_, Option<String>>(20)?,
-                "projectColor": r.get::<_, Option<String>>(21)?,
+                "linkUrl": r.get::<_, Option<String>>(20)?,
+                "projectName": r.get::<_, Option<String>>(21)?,
+                "projectColor": r.get::<_, Option<String>>(22)?,
             }))
         })
         .map_err(|e| format!("query item_list: {e}"))?
@@ -1498,6 +1536,10 @@ fn item_create(payload: &Value) -> Result<Value, String> {
     let project_id = parse_i64(payload, "projectId").ok_or("projectId is required")?;
     let title = parse_string(payload, "title").ok_or("title is required")?;
     let desc = parse_string(payload, "description").unwrap_or_default();
+    let link_url = match payload.get("linkUrl") {
+        Some(value) => parse_item_link_url_value(value)?,
+        None => None,
+    };
     let item_type = parse_string(payload, "itemType")
         .filter(|v| ITEM_TYPES.contains(&v.as_str()))
         .unwrap_or_else(|| "task".to_string());
@@ -1523,16 +1565,17 @@ fn item_create(payload: &Value) -> Result<Value, String> {
     let conn = db_conn()?;
     conn.execute(
         "INSERT INTO pm_items (
-            project_id, title, description, item_type, priority, status,
+            project_id, title, description, link_url, item_type, priority, status,
             start_at, end_at,
             siyuan_doc_id, siyuan_doc_title, siyuan_doc_hpath, siyuan_doc_path,
             siyuan_notebook_id, siyuan_notebook_name,
             completed_at, created_at, updated_at
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
         params![
             project_id,
             title,
             desc,
+            link_url,
             item_type,
             priority,
             status,
@@ -1569,6 +1612,7 @@ fn item_update(payload: &Value) -> Result<Value, String> {
     let (
         cur_title,
         cur_desc,
+        cur_link_url,
         cur_type,
         cur_prio,
         cur_status,
@@ -1578,6 +1622,7 @@ fn item_update(payload: &Value) -> Result<Value, String> {
     ): (
         String,
         String,
+        Option<String>,
         String,
         String,
         String,
@@ -1586,7 +1631,7 @@ fn item_update(payload: &Value) -> Result<Value, String> {
         Option<SiyuanPageRef>,
     ) = conn
         .query_row(
-            "SELECT title, description, item_type, priority, status, start_at, end_at,
+            "SELECT title, description, link_url, item_type, priority, status, start_at, end_at,
                     siyuan_doc_id, siyuan_doc_title, siyuan_doc_hpath,
                     siyuan_doc_path, siyuan_notebook_id, siyuan_notebook_name
              FROM pm_items WHERE id = ?1",
@@ -1600,13 +1645,14 @@ fn item_update(payload: &Value) -> Result<Value, String> {
                     r.get(4)?,
                     r.get(5)?,
                     r.get(6)?,
+                    r.get(7)?,
                     build_siyuan_page_ref_from_parts(
-                        r.get::<_, Option<String>>(7)?,
                         r.get::<_, Option<String>>(8)?,
                         r.get::<_, Option<String>>(9)?,
                         r.get::<_, Option<String>>(10)?,
                         r.get::<_, Option<String>>(11)?,
                         r.get::<_, Option<String>>(12)?,
+                        r.get::<_, Option<String>>(13)?,
                     ),
                 ))
             },
@@ -1619,6 +1665,11 @@ fn item_update(payload: &Value) -> Result<Value, String> {
         parse_string(payload, "description").unwrap_or_default()
     } else {
         cur_desc
+    };
+    let link_url = if let Some(value) = payload.get("linkUrl") {
+        parse_item_link_url_value(value)?
+    } else {
+        cur_link_url
     };
     let item_type = parse_string(payload, "itemType")
         .filter(|v| ITEM_TYPES.contains(&v.as_str()))
@@ -1660,15 +1711,16 @@ fn item_update(payload: &Value) -> Result<Value, String> {
 
     conn.execute(
         "UPDATE pm_items
-         SET title=?1, description=?2, item_type=?3, priority=?4, status=?5,
-             start_at=?6, end_at=?7,
-             siyuan_doc_id=?8, siyuan_doc_title=?9, siyuan_doc_hpath=?10,
-             siyuan_doc_path=?11, siyuan_notebook_id=?12, siyuan_notebook_name=?13,
-             completed_at=?14, updated_at=?15
-         WHERE id=?16",
+         SET title=?1, description=?2, link_url=?3, item_type=?4, priority=?5, status=?6,
+             start_at=?7, end_at=?8,
+             siyuan_doc_id=?9, siyuan_doc_title=?10, siyuan_doc_hpath=?11,
+             siyuan_doc_path=?12, siyuan_notebook_id=?13, siyuan_notebook_name=?14,
+             completed_at=?15, updated_at=?16
+         WHERE id=?17",
         params![
             title,
             desc,
+            link_url,
             item_type,
             priority,
             new_status,
@@ -2013,6 +2065,16 @@ fn siyuan_open_page(payload: &Value) -> Result<Value, String> {
     Ok(json!({ "ok": true, "url": deep_link }))
 }
 
+fn open_link(payload: &Value) -> Result<Value, String> {
+    let raw_url = payload
+        .get("url")
+        .and_then(Value::as_str)
+        .ok_or("url 不能为空")?;
+    let url = normalize_item_link_url(raw_url)?;
+    open::that(&url).map_err(|e| format!("打开链接失败: {e}"))?;
+    Ok(json!({ "ok": true, "url": url }))
+}
+
 // ── Weekly work ──────────────────────────────────────────
 
 fn weekly_work(_payload: &Value) -> Result<Value, String> {
@@ -2158,6 +2220,18 @@ mod tests {
     fn normalize_siyuan_base_url_should_reject_invalid_scheme() {
         let err = normalize_siyuan_base_url("ftp://127.0.0.1:6806").expect_err("invalid scheme");
         assert!(err.contains("http://") || err.contains("https://"));
+    }
+
+    #[test]
+    fn normalize_item_link_url_should_add_http_scheme() {
+        let normalized = normalize_item_link_url("localhost:8080/docs").expect("normalize");
+        assert_eq!(normalized, "http://localhost:8080/docs");
+    }
+
+    #[test]
+    fn normalize_item_link_url_should_reject_unsupported_scheme() {
+        let err = normalize_item_link_url("ftp://example.com").expect_err("invalid scheme");
+        assert_eq!(err, "仅支持 http/https 链接");
     }
 
     #[test]

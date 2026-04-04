@@ -253,7 +253,8 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:pm:siyuan-directory": { domain: "pm", action: "siyuan_directory" },
   "tool:pm:siyuan-search-pages": { domain: "pm", action: "siyuan_search_pages" },
   "tool:pm:siyuan-create-page": { domain: "pm", action: "siyuan_create_page" },
-  "tool:pm:siyuan-open-page": { domain: "pm", action: "siyuan_open_page" }
+  "tool:pm:siyuan-open-page": { domain: "pm", action: "siyuan_open_page" },
+  "tool:pm:open-link": { domain: "pm", action: "open_link" }
 };
 
 export async function invokeToolByChannel(

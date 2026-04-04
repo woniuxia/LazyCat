@@ -41,6 +41,7 @@ export interface PmItem {
   projectId: number;
   title: string;
   description: string;
+  linkUrl: string | null;
   itemType: PmItemType;
   priority: PmPriority;
   status: PmItemStatus;

@@ -8,6 +8,49 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-04-04: 项目管理工作项新增外部链接字段与打开动作
+
+**场景**: 用户要求在项目管理工作项中新增一个通用链接字段，可在编辑弹窗里维护，并支持从详情区与右键菜单直接打开。
+
+**问题**:
+1. `pm_items` 只有标题、描述、时间和思源页面缓存，没有独立的外部链接字段，无法承接 Jira、禅道、本地服务地址这类通用跳转目标。
+2. 仓库里虽然已有 `vault:open-url` / `todo:open_link` 能力，但如果 PM 直接复用其他域的 action，会让领域边界变得模糊，后续维护时难以理解“为什么 PM 要走 Vault/Todo”。
+3. 新增字段后，前端 `PmItem` 类型、弹窗草稿态、详情展示和测试 fixture 必须同步补齐；否则最容易在 `typecheck` 阶段被遗漏的测试桩卡住。
+4. URL 输入允许用户只填 `localhost:3000` 这类地址，但又必须拒绝 `ftp://` 等非 `http/https` 协议，不能简单靠前端字符串拼接放过异常输入。
+
+**解决**:
+1. 在 `helpers.rs` 中为 `pm_items` 新增 `link_url TEXT DEFAULT NULL`，并追加 `ALTER TABLE pm_items ADD COLUMN link_url TEXT DEFAULT NULL` 迁移，兼容现有数据库。
+2. 在 `pm.rs` 内新增 `normalize_item_link_url()`、`parse_item_link_url_value()` 和 `open_link()`：
+   - 空值统一落库为 `NULL`
+   - 未带协议时自动补 `http://`
+   - 已带其他协议（如 `ftp://`）时直接拒绝
+   - 打开动作仍由 PM 域自己暴露 `tool:pm:open-link`
+3. `item_list` / `item_create` / `item_update` 同步接入 `link_url`，前端 `PmItem` 增加 `linkUrl`，`PmPanel.vue` 的工作项弹窗新增“链接”输入和“打开”按钮。
+4. 右侧详情面板补“链接”展示行，右键菜单增加“打开链接”；这样用户既可以在编辑态测试，也可以在浏览态快速打开。
+5. `pmGantt.test.ts` 的 `PmItem` fixture 需要同步补 `linkUrl: null`，否则 `PmItem` 新字段会直接打断全局 `typecheck`。
+
+**关键点**:
+1. 给已有业务表补字段时，前端类型、表单草稿、后端 CRUD、测试 fixture 要一口气补齐；否则 `build` 可能过了，`typecheck` 仍会被测试文件拦住。
+2. “自动补协议”只能对无协议输入生效；如果用户已经输入 `xxx://`，必须先判断协议是否合法，不能盲目前缀成 `http://xxx://...`。
+3. PM 这类业务域新增动作时，优先在本域增加 `open_link`，不要为了省几行代码直接跨域借用别的工具通道。
+
+**涉及文件**:
+- `apps/desktop/src-tauri/src/tools/helpers.rs`
+- `apps/desktop/src-tauri/src/tools/pm.rs`
+- `apps/desktop/src/bridge/tauri.ts`
+- `apps/desktop/src/types/pm.ts`
+- `apps/desktop/src/components/PmPanel.vue`
+- `apps/desktop/src/utils/pmGantt.test.ts`
+
+**验证**:
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+- `cargo check --manifest-path "E:/Projects/LazyCat/apps/desktop/src-tauri/Cargo.toml"`
+- `cargo test --manifest-path "E:/Projects/LazyCat/apps/desktop/src-tauri/Cargo.toml" normalize_item_link_url -- --nocapture`
+- `pnpm test src/utils/pmGantt.test.ts`
+
+**使用次数**: 0
+
 ## 2026-04-02: 项目管理工作项弹窗切换为时间范围 + 思源紧凑列表
 
 **场景**: 用户要求按 spec 落地项目管理工作项弹窗刷新，只改“新建/编辑工作项”弹窗，不扩散成整页 PM 重构，同时要把历史单边日期、带时间部分字符串和思源关联区的大卡片布局一起收敛。

@@ -143,6 +143,9 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
     let _ = conn.execute_batch(
         "ALTER TABLE pm_items ADD COLUMN siyuan_notebook_name TEXT DEFAULT NULL;",
     );
+    let _ = conn.execute_batch(
+        "ALTER TABLE pm_items ADD COLUMN link_url TEXT DEFAULT NULL;",
+    );
 
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS hosts_profiles (
@@ -438,6 +441,7 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
             project_id INTEGER NOT NULL,
             title TEXT NOT NULL,
             description TEXT NOT NULL DEFAULT '',
+            link_url TEXT DEFAULT NULL,
             item_type TEXT NOT NULL DEFAULT 'task' CHECK (item_type IN ('task', 'bug', 'feature', 'improvement')),
             priority TEXT NOT NULL DEFAULT 'P2' CHECK (priority IN ('P0', 'P1', 'P2', 'P3')),
             status TEXT NOT NULL DEFAULT 'todo' CHECK (status IN ('todo', 'in_progress', 'testing', 'done')),
