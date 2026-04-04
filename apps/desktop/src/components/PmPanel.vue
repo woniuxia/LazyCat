@@ -407,32 +407,55 @@
     <!-- Item dialog -->
     <el-dialog v-model="itemDialogVisible" :title="editingItem ? '编辑工作项' : '新建工作项'" width="860px" @close="resetItemForm">
       <el-form :model="itemForm" label-position="top" size="default" class="pm-item-dialog-form">
-        <div class="pm-item-project-card">
+        <div
+          class="pm-item-project-card"
+          :class="{
+            'pm-item-project-card--switchable': itemProjectSwitcherEnabled,
+            'pm-item-project-card--switch-open': itemProjectSwitchMenuVisible,
+          }"
+        >
           <div class="pm-item-project-card-head">
-            <div>
+            <div class="pm-item-project-card-body">
               <div class="pm-item-section-eyebrow">所属项目</div>
               <div class="pm-item-project-card-main">
                 <span class="pm-item-project-card-dot" :style="{ backgroundColor: itemDialogProjectDisplayColor }" />
                 <span class="pm-item-project-card-name">{{ itemDialogProjectDisplayName }}</span>
-                <el-tag v-if="itemDialogProject?.status === 'archived'" size="small" effect="plain" class="project-archived-tag">已归档</el-tag>
               </div>
             </div>
-            <div class="pm-item-project-card-actions">
-              <el-tag v-if="itemDialogProject" size="small" effect="plain" class="pm-item-project-count-tag">待办 {{ itemDialogProjectPendingCount }}</el-tag>
-              <el-select
-                v-if="isOverview || editingItem"
-                v-model="itemFormProjectId"
-                placeholder="切换项目"
-                size="small"
-                class="pm-item-project-select"
+            <div v-if="itemProjectSwitcherEnabled" class="pm-item-project-card-actions">
+              <el-dropdown
+                trigger="click"
+                placement="bottom-end"
+                @command="handleItemProjectSwitchCommand"
+                @visible-change="handleItemProjectSwitchVisibleChange"
               >
-                <el-option
-                  v-for="p in itemProjectOptions"
-                  :key="p.id"
-                  :label="formatItemProjectOptionLabel(p)"
-                  :value="p.id"
-                />
-              </el-select>
+                <button type="button" class="pm-item-project-switch-trigger">
+                  切换项目
+                </button>
+                <template #dropdown>
+                  <el-dropdown-menu class="pm-item-project-switch-menu">
+                    <el-dropdown-item
+                      v-for="p in itemProjectOptions"
+                      :key="p.id"
+                      :command="p.id"
+                      :disabled="p.id === itemDialogProjectId"
+                    >
+                      <div class="pm-item-project-switch-item">
+                        <span class="pm-item-project-switch-item-name">{{ p.name }}</span>
+                        <span v-if="p.id === itemDialogProjectId" class="pm-item-project-switch-item-meta">
+                          当前项目
+                        </span>
+                        <span
+                          v-else-if="p.status === 'archived'"
+                          class="pm-item-project-switch-item-meta"
+                        >
+                          已归档
+                        </span>
+                      </div>
+                    </el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
             </div>
           </div>
         </div>
@@ -467,32 +490,59 @@
           </div>
         </div>
 
-        <div class="pm-item-section">
-          <el-form-item label="时间安排">
-            <el-date-picker
-              v-model="itemFormDateRange"
-              type="daterange"
-              value-format="YYYY-MM-DD"
-              range-separator="~"
-              start-placeholder="开始日期"
-              end-placeholder="截止日期"
-              clearable
-              style="width: 100%"
-            />
-          </el-form-item>
+        <div class="pm-item-section pm-item-section--inline">
+          <div class="pm-item-dialog-inline-row">
+            <div class="pm-item-dialog-inline-label">时间安排</div>
+            <div class="pm-item-dialog-inline-content">
+              <el-form-item class="pm-item-dialog-inline-form-item">
+                <el-date-picker
+                  v-model="itemFormDateRange"
+                  type="daterange"
+                  value-format="YYYY-MM-DD"
+                  range-separator="~"
+                  start-placeholder="开始日期"
+                  end-placeholder="截止日期"
+                  clearable
+                  class="pm-item-dialog-inline-picker"
+                />
+              </el-form-item>
+            </div>
+          </div>
         </div>
 
-        <div class="pm-item-section">
-          <el-form-item label="链接">
-            <el-input v-model="itemForm.linkUrl" placeholder="https://example.com 或 localhost:3000">
-              <template #append>
-                <div class="pm-input-append-actions">
-                  <el-button :disabled="!itemFormOpenableLink" @click="openItemFormLink">打开</el-button>
-                  <el-button :disabled="!itemForm.linkUrl" @click="itemForm.linkUrl = ''">清空</el-button>
+        <div class="pm-item-section pm-item-section--inline">
+          <div class="pm-item-dialog-inline-row pm-item-dialog-inline-row--link">
+            <div class="pm-item-dialog-inline-label">链接</div>
+            <div class="pm-item-dialog-inline-content pm-item-dialog-inline-content--link">
+              <div class="pm-item-dialog-link-main">
+                <el-form-item class="pm-item-dialog-inline-form-item pm-item-dialog-inline-form-item--grow">
+                  <el-input
+                    v-model="itemForm.linkUrl"
+                    placeholder="https://example.com 或 localhost:3000"
+                  />
+                </el-form-item>
+                <div class="pm-item-dialog-link-actions">
+                  <el-button
+                    plain
+                    class="pm-item-dialog-link-clear-btn"
+                    :disabled="!itemForm.linkUrl"
+                    @click="itemForm.linkUrl = ''"
+                  >
+                    清空
+                  </el-button>
+                  <el-button
+                    type="primary"
+                    plain
+                    class="pm-item-dialog-link-open-btn"
+                    :disabled="!itemFormOpenableLink"
+                    @click="openItemFormLink"
+                  >
+                    打开
+                  </el-button>
                 </div>
-              </template>
-            </el-input>
-          </el-form-item>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div class="pm-item-section">
@@ -921,7 +971,6 @@ import {
   normalizePmDateRangeForDraft,
 } from "../utils/pmDate";
 import {
-  getPmPendingCount,
   sortPmProjectsForSidebar,
   summarizePmItemTags,
 } from "../utils/pmVisual";
@@ -1003,6 +1052,7 @@ const itemForm = ref({
 });
 const itemPrimaryPage = ref<PmSiyuanPageRef | null>(null);
 const itemExtraPages = ref<PmSiyuanPageRef[]>([]);
+const itemProjectSwitchMenuVisible = ref(false);
 
 const siyuanDrawerVisible = ref(false);
 const siyuanForm = reactive({
@@ -1131,6 +1181,9 @@ const itemProjectOptions = computed(() => {
   const currentProject = projects.value.find((project) => project.id === currentProjectId);
   return currentProject ? [...active, currentProject] : active;
 });
+const itemProjectSwitcherEnabled = computed(
+  () => (isOverview.value || Boolean(editingItem.value)) && itemProjectOptions.value.length > 1,
+);
 const itemDialogProject = computed(() =>
   projects.value.find((project) => project.id === itemDialogProjectId.value) ?? null,
 );
@@ -1152,9 +1205,6 @@ const itemDialogProjectDisplayColor = computed(() => {
   }
   return "#4d7df2";
 });
-const itemDialogProjectPendingCount = computed(() =>
-  itemDialogProject.value ? getPmPendingCount(projectItemCounts.value[itemDialogProject.value.id]) : 0,
-);
 const itemEffectiveLocation = computed(() =>
   resolvePmSiyuanEffectiveLocation(itemDialogProject.value?.siyuanLocationOverride, globalSiyuanLocation.value),
 );
@@ -1428,10 +1478,6 @@ function getPmLightTagStyle(color?: string | null) {
 function nextStatusLabel(item: PmItem): string {
   const idx = PM_STATUS_COLUMNS.findIndex((c) => c.key === item.status);
   return idx >= 0 && idx < PM_STATUS_COLUMNS.length - 1 ? PM_STATUS_COLUMNS[idx + 1].label : "";
-}
-
-function formatItemProjectOptionLabel(project: PmProject): string {
-  return project.status === "archived" ? `${project.name}（已归档）` : project.name;
 }
 
 function cloneSiyuanLocation(location: PmSiyuanLocation | null | undefined): PmSiyuanLocation | null {
@@ -1986,6 +2032,18 @@ function selectProject(id: number | "overview") {
   selectedItemId.value = null;
 }
 
+function handleItemProjectSwitchVisibleChange(visible: boolean) {
+  itemProjectSwitchMenuVisible.value = visible;
+}
+
+function handleItemProjectSwitchCommand(command: string | number) {
+  const nextProjectId = Number(command);
+  if (Number.isNaN(nextProjectId)) {
+    return;
+  }
+  itemFormProjectId.value = nextProjectId;
+}
+
 function selectItem(item: PmItem) {
   selectedItemId.value = item.id;
 }
@@ -2193,6 +2251,7 @@ function onProjectContext(event: MouseEvent, p: PmProject) {
 function showCreateItem() {
   editingItem.value = null;
   itemFormProjectId.value = isOverview.value ? (activeProjects.value[0]?.id ?? null) : null;
+  itemProjectSwitchMenuVisible.value = false;
   itemForm.value = {
     title: "",
     itemType: "task",
@@ -2215,6 +2274,7 @@ function editItem(item: PmItem) {
   const normalizedDateRange = normalizePmDateRangeForDraft(item.startAt, item.endAt);
   editingItem.value = item;
   itemFormProjectId.value = item.projectId;
+  itemProjectSwitchMenuVisible.value = false;
   itemForm.value = {
     title: item.title,
     itemType: item.itemType,
@@ -2241,6 +2301,7 @@ function resetItemForm() {
   itemFormProjectId.value = null;
   itemPrimaryPage.value = null;
   itemExtraPages.value = [];
+  itemProjectSwitchMenuVisible.value = false;
 }
 
 async function submitItem() {
@@ -4039,73 +4100,171 @@ body.pm-is-dragging * {
 }
 
 .pm-item-project-card {
-  border: 1px solid #dbe5f1;
+  position: relative;
+  overflow: hidden;
+  border: 1px solid #dde7f2;
   border-radius: 16px;
   padding: 14px 16px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 1), rgba(239, 245, 255, 0.94));
-  box-shadow: 0 12px 24px rgba(34, 48, 66, 0.06);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(242, 247, 255, 0.94));
+  box-shadow: 0 10px 22px rgba(34, 48, 66, 0.05);
+}
+
+.pm-item-project-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 4px;
+  background: linear-gradient(180deg, rgba(77, 125, 242, 0.9), rgba(121, 179, 255, 0.86));
 }
 
 .pm-item-project-card-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
+  gap: 14px;
+  position: relative;
+  min-height: 32px;
+}
+
+.pm-item-project-card-body {
+  min-width: 0;
+}
+
+.pm-item-project-card--switchable .pm-item-project-card-body {
+  padding-right: 110px;
 }
 
 .pm-item-section-eyebrow {
-  margin-bottom: 6px;
-  font-size: 12px;
+  margin-bottom: 8px;
+  font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.08em;
-  color: #6f8098;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #76859b;
 }
 
 .pm-item-project-card-main {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
+  min-width: 0;
 }
 
 .pm-item-project-card-dot {
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
   border-radius: 999px;
-  box-shadow: 0 0 0 4px rgba(77, 125, 242, 0.12);
+  box-shadow: 0 0 0 5px rgba(77, 125, 242, 0.12);
   flex-shrink: 0;
 }
 
 .pm-item-project-card-name {
-  font-size: 16px;
-  font-weight: 700;
-  line-height: 1.3;
+  min-width: 0;
+  font-size: 17px;
+  font-weight: 800;
+  line-height: 1.25;
   color: #223042;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .pm-item-project-card-actions {
+  position: absolute;
+  top: 0;
+  right: 0;
+}
+
+.pm-item-project-switch-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  padding: 0 13px;
+  border: 1px solid rgba(77, 125, 242, 0.16);
+  border-radius: 999px;
+  background: rgba(77, 125, 242, 0.1);
+  color: #4464ad;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: 0 8px 16px rgba(36, 66, 114, 0.08);
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s ease,
+    background-color 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.pm-item-project-switch-trigger:hover {
+  background: rgba(77, 125, 242, 0.14);
+  border-color: rgba(77, 125, 242, 0.24);
+  box-shadow: 0 10px 18px rgba(36, 66, 114, 0.12);
+}
+
+.pm-item-project-switch-trigger:focus-visible {
+  outline: 2px solid rgba(77, 125, 242, 0.34);
+  outline-offset: 2px;
+}
+
+.pm-item-project-switch-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  margin-left: auto;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 200px;
 }
 
-.pm-item-project-select {
-  min-width: 176px;
+.pm-item-project-switch-item-name {
+  min-width: 0;
+  color: #2f4158;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.pm-item-project-count-tag,
+.pm-item-project-switch-item-meta {
+  flex-shrink: 0;
+  color: #7a8798;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.pm-item-project-switch-menu {
+  min-width: 228px;
+}
+
+.pm-item-project-switch-menu .el-dropdown-menu__item.is-disabled .pm-item-project-switch-item-name,
+.pm-item-project-switch-menu .el-dropdown-menu__item.is-disabled .pm-item-project-switch-item-meta {
+  color: #98a3b2;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .pm-item-project-card--switchable:not(.pm-item-project-card--switch-open) .pm-item-project-switch-trigger {
+    opacity: 0;
+    transform: translateY(-6px);
+    pointer-events: none;
+    box-shadow: none;
+  }
+
+  .pm-item-project-card--switchable:hover .pm-item-project-switch-trigger,
+  .pm-item-project-card--switchable:focus-within .pm-item-project-switch-trigger,
+  .pm-item-project-card--switch-open .pm-item-project-switch-trigger {
+    opacity: 1;
+    transform: translateY(0);
+    pointer-events: auto;
+  }
+}
+
 .project-archived-tag,
 .detail-project-archived-tag {
   border-color: rgba(111, 128, 152, 0.24) !important;
   background: rgba(111, 128, 152, 0.1) !important;
   color: #6f8098 !important;
-}
-
-.pm-item-project-count-tag {
-  padding-inline: 6px;
-  font-weight: 700;
 }
 
 .pm-item-section {
@@ -4119,6 +4278,11 @@ body.pm-is-dragging * {
 .pm-item-section--muted {
   border-style: dashed;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(243, 247, 252, 0.82));
+}
+
+.pm-item-section--inline {
+  padding: 12px 16px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(248, 251, 255, 0.94));
 }
 
 .pm-item-section-title {
@@ -4138,8 +4302,105 @@ body.pm-is-dragging * {
   min-width: 0;
 }
 
+.pm-item-dialog-inline-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.pm-item-dialog-inline-row--link {
+  align-items: flex-start;
+}
+
+.pm-item-dialog-inline-label {
+  display: flex;
+  align-items: center;
+  flex: 0 0 84px;
+  width: 84px;
+  min-height: 40px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.5;
+  letter-spacing: 0.03em;
+  color: #5a6b82;
+}
+
+.pm-item-dialog-inline-row--link .pm-item-dialog-inline-label {
+  align-items: flex-start;
+  padding-top: 8px;
+}
+
+.pm-item-dialog-inline-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.pm-item-dialog-inline-content--link {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pm-item-dialog-inline-form-item {
+  margin-bottom: 0;
+}
+
+.pm-item-dialog-inline-form-item--grow {
+  flex: 1;
+}
+
+.pm-item-dialog-inline-picker {
+  width: 100%;
+}
+
+.pm-item-dialog-link-main {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.pm-item-dialog-link-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.pm-item-dialog-link-open-btn {
+  flex-shrink: 0;
+  min-width: 78px;
+  height: 40px;
+  padding-inline: 16px;
+  border-radius: 12px;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+
+.pm-item-dialog-link-clear-btn {
+  flex-shrink: 0;
+  min-width: 72px;
+  height: 40px;
+  padding-inline: 14px;
+  border-radius: 12px;
+  color: #66778d;
+  border-color: rgba(133, 150, 177, 0.34);
+  background: rgba(247, 250, 253, 0.95);
+}
+
+.pm-item-dialog-link-open-btn:not(.is-disabled):hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 16px rgba(64, 96, 160, 0.12);
+}
+
+.pm-item-dialog-link-clear-btn:not(.is-disabled):hover {
+  border-color: rgba(109, 129, 160, 0.44);
+  background: rgba(241, 246, 252, 0.98);
+  color: #55677f;
+}
+
 .pm-item-dialog-core-grid .el-select,
-.pm-item-dialog-core-grid .el-date-editor {
+.pm-item-dialog-core-grid .el-date-editor,
+.pm-item-dialog-inline-form-item .el-input,
+.pm-item-dialog-inline-form-item .el-date-editor {
   width: 100%;
 }
 
@@ -4153,19 +4414,10 @@ body.pm-is-dragging * {
   margin-bottom: 0;
 }
 
-.pm-input-append-actions {
-  display: flex;
-  align-items: stretch;
-}
-
-.pm-input-append-actions .el-button {
-  margin: 0 !important;
-  border-radius: 0;
-  padding-inline: 12px;
-}
-
-.pm-item-project-select .el-input__wrapper {
-  min-height: 34px;
+.pm-item-dialog-inline-form-item :deep(.el-input__wrapper),
+.pm-item-dialog-inline-form-item :deep(.el-date-editor.el-input__wrapper) {
+  min-height: 40px;
+  border-radius: 12px;
 }
 
 .pm-siyuan-config-card,
@@ -4598,19 +4850,44 @@ body.pm-is-dragging * {
   }
 
   .pm-item-project-card-actions {
+    position: static;
     width: 100%;
-    margin-left: 0;
-    justify-content: space-between;
   }
 
-  .pm-item-project-select {
-    width: 100%;
-    min-width: 0;
+  .pm-item-project-card--switchable .pm-item-project-card-body {
+    padding-right: 0;
+  }
+
+  .pm-item-project-switch-trigger {
+    align-self: flex-start;
   }
 
   .pm-item-dialog-core-grid {
     grid-template-columns: 1fr;
     gap: 0;
+  }
+
+  .pm-item-dialog-inline-row,
+  .pm-item-dialog-link-main {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .pm-item-dialog-inline-label {
+    width: auto;
+    flex-basis: auto;
+    min-height: 0;
+    padding-top: 0;
+  }
+
+  .pm-item-dialog-link-actions {
+    justify-content: flex-start;
+  }
+
+  .pm-item-dialog-link-clear-btn,
+  .pm-item-dialog-link-open-btn {
+    width: auto;
+    align-self: flex-start;
   }
 
   .detail-timeline-grid {
