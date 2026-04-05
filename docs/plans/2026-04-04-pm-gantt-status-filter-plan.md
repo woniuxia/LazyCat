@@ -1,5 +1,9 @@
 # 项目管理甘特图状态筛选实现计划
 
+> 说明：本计划对应“状态筛选仅作用于甘特图”的早期方案，已被
+> `docs/plans/2026-04-05-pm-shared-status-filter-plan.md` 替代。
+> 当前实现请以共享工具栏方案的新计划为准。
+
 **Goal:** 在 `项目管理 > 甘特图` 中新增状态多选筛选，直接显示 4 个状态按钮以及 `全选 / 清空`，且只影响甘特图，不影响看板。
 
 **Architecture:** `PmPanel.vue` 持有状态筛选和 `baseFilteredItems / ganttFilteredItems` 两层过滤；`PmGanttView.vue` 只负责渲染按钮、统计和事件；状态筛选逻辑优先抽成纯函数，避免把回归风险压到组件内部。
