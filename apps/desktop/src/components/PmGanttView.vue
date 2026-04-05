@@ -7,34 +7,6 @@
           <el-radio-button value="Week">周</el-radio-button>
           <el-radio-button value="Month">月</el-radio-button>
         </el-radio-group>
-        <div class="gantt-toolbar-filters" aria-label="状态筛选">
-          <button
-            v-for="column in PM_STATUS_COLUMNS"
-            :key="column.key"
-            type="button"
-            class="gantt-filter-chip"
-            :class="{ 'is-selected': selectedStatusSet.has(column.key) }"
-            @click="emit('toggle-status', { status: column.key })"
-          >
-            {{ column.label }}
-          </button>
-          <button
-            type="button"
-            class="gantt-filter-chip is-action"
-            :class="{ 'is-muted': allStatusesSelected }"
-            @click="emit('select-all-statuses')"
-          >
-            全选
-          </button>
-          <button
-            type="button"
-            class="gantt-filter-chip is-action"
-            :class="{ 'is-muted': selectedStatusSet.size === 0 }"
-            @click="emit('clear-statuses')"
-          >
-            清空
-          </button>
-        </div>
       </div>
       <div class="gantt-toolbar-meta">
         <span class="gantt-toolbar-summary">已排期 {{ ganttTasks.length }} 项</span>
@@ -59,24 +31,20 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import Gantt from "frappe-gantt";
 import "frappe-gantt/dist/frappe-gantt.css";
 
-import type { PmItem, PmItemStatus } from "../types/pm";
-import { PM_STATUS_COLUMNS } from "../types/pm";
+import type { PmItem } from "../types/pm";
 import {
   buildPmGanttPopupHtml,
   buildPmGanttTasks,
   clampPmGanttPopupPosition,
   countPmGanttUnscheduledItems,
 } from "../utils/pmGantt";
-import { normalizePmGanttSelectedStatuses } from "../utils/pmGanttFilter";
 import type { PmGanttTask } from "../utils/pmGantt";
 
 const props = withDefaults(defineProps<{
   items: PmItem[];
-  selectedStatuses: PmItemStatus[];
   selectedItemId?: number | null;
   showProjectMeta?: boolean;
 }>(), {
-  selectedStatuses: () => [],
   selectedItemId: null,
   showProjectMeta: false,
 });
@@ -88,9 +56,6 @@ const emit = defineEmits<{
   (e: "date-change", item: PmItem, start: string, end: string): void;
   (e: "view-change", mode: string): void;
   (e: "viewport-scroll"): void;
-  (e: "toggle-status", payload: { status: PmItemStatus }): void;
-  (e: "select-all-statuses"): void;
-  (e: "clear-statuses"): void;
 }>();
 
 const ganttRef = ref<HTMLElement | null>(null);
@@ -112,9 +77,6 @@ type GanttWithInternalOptions = Gantt & {
 
 const ganttTasks = computed(() => buildPmGanttTasks(props.items));
 const unscheduledCount = computed(() => countPmGanttUnscheduledItems(props.items));
-const normalizedSelectedStatuses = computed(() => normalizePmGanttSelectedStatuses(props.selectedStatuses));
-const selectedStatusSet = computed(() => new Set(normalizedSelectedStatuses.value));
-const allStatusesSelected = computed(() => normalizedSelectedStatuses.value.length === PM_STATUS_COLUMNS.length);
 const emptyDescription = computed(() => {
   if (props.items.length === 0) {
     return "当前筛选结果没有可显示的工作项";
@@ -414,54 +376,6 @@ onBeforeUnmount(() => {
   gap: 8px;
   min-width: 0;
   flex-wrap: wrap;
-}
-
-.gantt-toolbar-filters {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.gantt-filter-chip {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 30px;
-  padding: 0 12px;
-  border: 1px solid var(--el-border-color);
-  border-radius: 999px;
-  background: var(--el-bg-color);
-  color: var(--el-text-color-regular);
-  font: inherit;
-  font-size: 12px;
-  line-height: 1;
-  white-space: nowrap;
-  cursor: pointer;
-  transition:
-    border-color 0.2s ease,
-    background-color 0.2s ease,
-    color 0.2s ease,
-    opacity 0.2s ease;
-}
-
-.gantt-filter-chip:hover {
-  border-color: var(--el-color-primary-light-5);
-  color: var(--el-color-primary);
-}
-
-.gantt-filter-chip.is-selected {
-  border-color: var(--el-color-primary);
-  background: var(--el-color-primary-light-9);
-  color: var(--el-color-primary-dark-2);
-}
-
-.gantt-filter-chip.is-action {
-  background: var(--el-fill-color-extra-light);
-}
-
-.gantt-filter-chip.is-muted {
-  opacity: 0.7;
 }
 
 .gantt-toolbar-meta {

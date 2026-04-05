@@ -103,12 +103,25 @@
             <el-select v-model="filterPriority" size="default" placeholder="优先级" clearable style="width: 100px">
               <el-option v-for="(meta, key) in PM_PRIORITY_MAP" :key="key" :label="meta.label" :value="key" />
             </el-select>
+            <div class="pm-status-filter-wrap">
+              <span class="pm-status-filter-label">状态筛选</span>
+              <el-select
+                v-model="selectedStatuses"
+                class="pm-status-filter-select"
+                size="default"
+                multiple
+                collapse-tags
+                placeholder="状态筛选"
+              >
+                <el-option v-for="column in PM_STATUS_COLUMNS" :key="column.key" :label="column.label" :value="column.key" />
+              </el-select>
+            </div>
             <el-button type="default" @click="openSiyuanDrawer">思源设置</el-button>
           </div>
         </div>
 
-        <div v-if="selectedProject && viewMode === 'kanban'" class="kanban-board">
-          <div v-for="col in PM_STATUS_COLUMNS" :key="col.key" class="kanban-column" :class="{ 'is-drag-over': draggingOverColumn === col.key }">
+        <div v-if="selectedProject && viewMode === 'kanban' && statusFilteredItems.length > 0" class="kanban-board">
+          <div v-for="col in visibleStatusColumns" :key="col.key" class="kanban-column" :class="{ 'is-drag-over': draggingOverColumn === col.key }">
             <div class="column-header" :style="{ borderBottomColor: col.color }">
               <span class="column-title">{{ col.label }}</span>
               <span class="column-count" :style="{ background: col.color + '1a', color: col.color }">{{ columnItems(col.key).length }}</span>
@@ -197,25 +210,24 @@
             </div>
           </div>
         </div>
+        <div v-else-if="selectedProject && viewMode === 'kanban'" class="pm-empty">
+          <el-empty description="当前筛选结果没有可显示的工作项" />
+        </div>
 
         <PmGanttView
-          v-if="selectedProject && viewMode === 'gantt'"
-          :items="ganttFilteredItems"
-          :selected-statuses="ganttSelectedStatuses"
+          v-else-if="selectedProject && viewMode === 'gantt'"
+          :items="statusFilteredItems"
           :selected-item-id="selectedItemId"
           :show-project-meta="isOverview"
           @select="selectItem"
           @edit="editItem"
           @item-context="onGanttItemContext"
           @date-change="onGanttDateChange"
-          @toggle-status="onGanttToggleStatus"
-          @select-all-statuses="selectAllGanttStatuses"
-          @clear-statuses="clearGanttStatuses"
           @view-change="closeCtxMenu"
           @viewport-scroll="closeCtxMenu"
         />
 
-        <div v-if="!selectedProject" class="pm-empty">
+        <div v-else-if="!selectedProject" class="pm-empty">
           <el-empty description="选择一个项目查看看板" />
         </div>
 
@@ -975,12 +987,11 @@ import {
   summarizePmItemTags,
 } from "../utils/pmVisual";
 import {
-  clearPmGanttStatuses,
-  filterPmItemsByGanttStatuses,
-  getPmGanttDefaultStatuses,
-  selectAllPmGanttStatuses,
-  togglePmGanttStatus,
-} from "../utils/pmGanttFilter";
+  filterPmItemsBySelectedStatuses,
+  getPmDefaultSelectedStatuses,
+  getVisiblePmStatusColumns,
+  groupPmItemsByStatus,
+} from "../utils/pmStatusFilter";
 
 const { invoke } = useToolInvoke();
 const defaultBaseUrl = "http://127.0.0.1:6806";
@@ -1019,7 +1030,7 @@ const searchText = ref("");
 const filterType = ref<PmItemType | "">("");
 const filterPriority = ref<PmPriority | "">("");
 const viewMode = ref<"kanban" | "gantt">("kanban");
-const ganttSelectedStatuses = ref<PmItemStatus[]>(getPmGanttDefaultStatuses());
+const selectedStatuses = ref<PmItemStatus[]>(getPmDefaultSelectedStatuses());
 
 // Project dialog
 const projectDialogVisible = ref(false);
@@ -1421,39 +1432,16 @@ const baseFilteredItems = computed(() => {
   return result;
 });
 
-const ganttFilteredItems = computed(() =>
-  filterPmItemsByGanttStatuses(baseFilteredItems.value, ganttSelectedStatuses.value),
+const statusFilteredItems = computed(() =>
+  filterPmItemsBySelectedStatuses(baseFilteredItems.value, selectedStatuses.value),
 );
 
-const columnItemsMap = computed(() => {
-  const items = baseFilteredItems.value;
-  const map = new Map<PmItemStatus, PmItem[]>();
-  for (const col of PM_STATUS_COLUMNS) {
-    map.set(col.key, []);
-  }
-  for (const item of items) {
-    map.get(item.status)?.push(item);
-  }
-  return map;
-});
+const visibleStatusColumns = computed(() => getVisiblePmStatusColumns(selectedStatuses.value));
+const visibleStatusColumnKey = computed(() => visibleStatusColumns.value.map((column) => column.key).join("|"));
+const columnItemsMap = computed(() => groupPmItemsByStatus(statusFilteredItems.value));
 
 function columnItems(status: PmItemStatus) {
   return columnItemsMap.value.get(status) ?? [];
-}
-
-function onGanttToggleStatus(payload: { status: PmItemStatus }) {
-  ganttSelectedStatuses.value = togglePmGanttStatus(ganttSelectedStatuses.value, payload.status);
-  closeCtxMenu();
-}
-
-function selectAllGanttStatuses() {
-  ganttSelectedStatuses.value = selectAllPmGanttStatuses();
-  closeCtxMenu();
-}
-
-function clearGanttStatuses() {
-  ganttSelectedStatuses.value = clearPmGanttStatuses();
-  closeCtxMenu();
 }
 
 // ── Helpers ──────────────────────────────────────────────
@@ -2537,12 +2525,17 @@ function openItemContextMenuAt(item: PmItem, anchorX: number, anchorY: number) {
 function setColumnRef(status: string, el: unknown) {
   if (el instanceof HTMLElement) {
     columnRefs.value.set(status, el);
+    return;
   }
+  columnRefs.value.delete(status);
 }
 
 function initSortable() {
   destroySortable();
-  for (const col of PM_STATUS_COLUMNS) {
+  if (viewMode.value !== "kanban" || !selectedProject.value) {
+    return;
+  }
+  for (const col of visibleStatusColumns.value) {
     const el = columnRefs.value.get(col.key);
     if (!el) continue;
     const instance = Sortable.create(el, {
@@ -2611,7 +2604,7 @@ function destroySortable() {
 
 // 项目/视图切换 → 立即重建 Sortable
 watch(
-  () => [selectedProjectId.value, viewMode.value],
+  () => [selectedProjectId.value, viewMode.value, visibleStatusColumnKey.value],
   () => { nextTick(() => { if (!draggingItemId.value) initSortable(); }); }
 );
 
@@ -2944,6 +2937,35 @@ onBeforeUnmount(() => {
 .toolbar-filters {
   justify-content: flex-end;
   gap: 8px;
+}
+.pm-status-filter-wrap {
+  position: relative;
+  width: 128px;
+  flex-shrink: 0;
+}
+.pm-status-filter-label {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  z-index: 1;
+  transform: translateY(-50%);
+  color: var(--el-text-color-regular);
+  font-size: 13px;
+  pointer-events: none;
+}
+.pm-status-filter-select {
+  width: 100%;
+}
+.pm-status-filter-select :deep(.el-select__wrapper) {
+  min-height: 32px;
+}
+.pm-status-filter-select :deep(.el-select__selection),
+.pm-status-filter-select :deep(.el-select__selected-item),
+.pm-status-filter-select :deep(.el-select__input-wrapper),
+.pm-status-filter-select :deep(.el-select__placeholder),
+.pm-status-filter-select :deep(.el-tag),
+.pm-status-filter-select :deep(.el-select__tags-text) {
+  opacity: 0;
 }
 .toolbar-left {
   display: flex;
@@ -3606,6 +3628,16 @@ onBeforeUnmount(() => {
   font-size: 18px;
   font-weight: 700;
   color: var(--pm-text-main);
+}
+
+.pm-status-filter-label {
+  color: var(--pm-text-main);
+}
+
+.pm-status-filter-select :deep(.el-select__wrapper) {
+  border-radius: 12px;
+  border-color: rgba(77, 125, 242, 0.14);
+  box-shadow: 0 2px 10px rgba(34, 48, 66, 0.04);
 }
 
 .kanban-board {

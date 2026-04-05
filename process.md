@@ -8,6 +8,56 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-04-05: 项目管理状态筛选从甘特专用迁移为共享工具栏筛选
+
+**场景**: 用户要求把项目管理里“当前甘特图至少筛选状态进行任务显示”的能力拓展到看板视图，同时把入口改成顶部工具栏里的多选下拉，并要求同步把“可视化辅助默认开启”写进 `AGENTS.md` / `CLAUDE.md`。
+
+**问题**:
+1. 仓库里已经存在一套 `pmGanttFilter.ts + PmGanttView.vue` 的甘特专用状态筛选实现，如果直接在看板里复制一套逻辑，会形成两份状态源和两套默认值。
+2. `PmPanel.vue` 的看板列是按 `PM_STATUS_COLUMNS` 全量渲染，再靠列内数据为空显示空态；用户这次明确要求“未选中的状态列直接隐藏”，这会影响列渲染、`Sortable` 初始化和空态判断。
+3. `PmGanttView.vue` 当前既负责甘特图自身交互，也负责状态筛选 UI；如果不把接口收口，后续看板和甘特会持续被“谁才是状态筛选入口”这个边界问题拖累。
+4. `el-select multiple` 默认会在闭合态显示已选标签，但本次产品要求固定只显示“状态筛选”，不能把选中状态名露在工具栏里。
+
+**解决**:
+1. 将旧的 `pmGanttFilter.ts` 迁移为 `pmStatusFilter.ts`，把以下能力集中成 PM 共享 helper：
+   - 默认状态集合
+   - 多选切换 / 全选 / 清空
+   - 稳定顺序数组输出
+   - 未知状态按 `todo` 兜底
+   - 看板可见列与状态分组
+2. `PmPanel.vue` 中把 `ganttSelectedStatuses` 提升并改名为 `selectedStatuses`，然后拆出：
+   - `baseFilteredItems`：搜索 / 类型 / 优先级
+   - `statusFilteredItems`：在 `baseFilteredItems` 上叠加共享状态筛选
+   - `visibleStatusColumns`：只渲染当前选中的状态列
+3. `PmGanttView.vue` 移除内部状态 chip 与 `全选 / 清空`，只保留甘特自己的视图切换和统计信息；甘特图只接收父层已经筛好的 `items`。
+4. 工具栏里的固定文案多选下拉通过“覆盖式标签”实现：
+   - 外层放固定 `状态筛选` 文案
+   - 内层 `el-select multiple` 继续负责真实选择
+   - 用局部 CSS 隐掉默认标签和 placeholder
+5. `Sortable` 初始化改为只遍历当前 `visibleStatusColumns`，并让 `setColumnRef()` 在列被隐藏时同步删除旧 ref，避免隐藏列残留拖拽实例。
+
+**关键点**:
+1. 这类“从单视图筛选升级为共享筛选”的任务，先迁 helper、再迁状态源、最后收口子组件接口，比直接在组件里局部打补丁稳得多。
+2. 看板列一旦允许隐藏，`Sortable` 的初始化集合不能再硬编码为全部状态列，否则很容易绑定到已经卸载的 DOM。
+3. 固定文案的多选下拉不一定要自定义整个浮层；如果只是想隐藏已选标签，给 `el-select` 做一层覆盖式标签和局部 CSS 就够了。
+4. 未知状态兼容不能只做到“筛选命中”，还要做到“看板归列”；否则工作项会通过筛选但在列分组时消失。
+
+**涉及文件**:
+- `AGENTS.md`
+- `CLAUDE.md`
+- `apps/desktop/src/components/PmPanel.vue`
+- `apps/desktop/src/components/PmGanttView.vue`
+- `apps/desktop/src/utils/pmStatusFilter.ts`
+- `apps/desktop/src/utils/pmStatusFilter.test.ts`
+- `process.md`
+
+**验证**:
+- `pnpm test src/utils/pmStatusFilter.test.ts src/utils/pmGantt.test.ts`
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+
+**使用次数**: 0
+
 ## 2026-04-04: 项目管理视觉统一规划的后半程收尾
 
 **场景**: 用户要求继续执行 `2026-04-04-pm-visual-unification-design.md`，仓库里已经存在一半未提交实现：`PmPanel.vue` 模板和 `pmVisual.ts` / `pmVisual.test.ts` 已经开始改，但整体视觉还没有真正统一落地。
