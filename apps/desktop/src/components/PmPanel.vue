@@ -2958,6 +2958,7 @@ onBeforeUnmount(() => {
 }
 .pm-status-filter-select :deep(.el-select__wrapper) {
   min-height: 32px;
+  border-radius: 8px;
 }
 .pm-status-filter-select :deep(.el-select__selection),
 .pm-status-filter-select :deep(.el-select__selected-item),
@@ -3635,9 +3636,10 @@ onBeforeUnmount(() => {
 }
 
 .pm-status-filter-select :deep(.el-select__wrapper) {
-  border-radius: 12px;
+  border-radius: 8px;
   border-color: rgba(77, 125, 242, 0.14);
-  box-shadow: 0 2px 10px rgba(34, 48, 66, 0.04);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: none;
 }
 
 .kanban-board {
