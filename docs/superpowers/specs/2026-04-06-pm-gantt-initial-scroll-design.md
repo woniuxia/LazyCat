@@ -89,6 +89,22 @@
 
 因此每次重新进入甘特图，都会完整走一次第三方库默认的“平滑滚到今天”流程。
 
+### 5.3 依赖验证结论
+
+本设计基于当前仓库锁定的 `frappe-gantt@1.2.2` 本地源码结论：
+
+1. 当前安装版本为 `1.2.2`，包内包含 `src/` 源码。
+2. 在该版本的 `set_scroll_position(date)` 中：
+   - 当 `!date || date === 'start'` 且 `infinite_padding` 为真时，会直接执行 `this.$container.scrollLeft = min_start` 并 `return`
+   - 不会进入后续 `scrollTo({ behavior: 'smooth' })` 分支
+3. 因此，将 `scroll_to` 显式设为 `'start'` 可以确定性地关闭默认“滚到 today 的平滑滚动”，并把基础落点固定在库认可的左侧起点。
+4. 在该版本的 `get_closest_date()` 中，范围判断语义是：
+   - 当 `now < gantt_start || now > gantt_end` 时返回 `null`
+   - 因此 `gantt_start` 与 `gantt_end` 均按包含端点处理
+5. 在该版本的 `highlight_current()` 中，当前日期指示线的 `left` 直接按以下公式写入容器定位样式：
+   - `(diff_in_units / step) * column_width`
+6. 该指示线元素直接追加到 `.gantt-container`，当前版本没有额外的 x 轴平移补偿，因此本次自定义定位也采用同一容器坐标系。
+
 ## 6. 方案对比
 
 ### 6.1 方案 A：项目层接管首次定位
@@ -181,25 +197,30 @@
 
 1. 当前时间使用本地时区 `new Date()`，不归一到当天 `00:00`
 2. `todayX` 的定义与 `frappe-gantt` 当前日期高亮线保持一致，即“当前日期指示线”的横向坐标，而不是日期列左边界，也不是列中心
-3. 范围判断复用 `frappe-gantt` 现有语义：
+3. 范围判断按当前锁定版本 `frappe-gantt@1.2.2` 的 `get_closest_date()` 语义执行：
    - 当 `now < ganttStart || now > ganttEnd` 时，视为不在范围内
+   - 当 `now == ganttStart` 或 `now == ganttEnd` 时，视为仍在范围内
    - 其余情况视为在范围内
 4. 若不在范围内，返回 `null`
 5. PM 甘特图当前只支持 `Day / Week / Month` 三种视图，因此这里允许的 `unit` 与 `step` 组合固定为：
    - `Day`：`unit = 'day'`，`step = 1`
    - `Week`：`unit = 'day'`，`step = 7`
    - `Month`：`unit = 'month'`，`step = 1`
-6. `diff` 的计算必须复用 `frappe-gantt` 内部 `date_utils.diff(now, ganttStart, unit)` 的语义，不允许改为自定义毫秒差或自然日取整算法
-7. 若在范围内，使用以下公式计算 `todayX`：
-   - `todayX = (date_utils.diff(now, ganttStart, unit) / step) * columnWidth`
+6. 由于 `frappe-gantt` 的 package exports 未公开 `date_utils` 子路径，本次**不直接 import** `frappe-gantt/src/date_utils.js`
+7. 改为在 `pmGantt.ts` 中实现本地 helper `diffLikeFrappe122`，其结果必须与 `frappe-gantt@1.2.2` 的 `date_utils.diff()` 在本次 PM 范围内保持一致：
+   - 当 `unit = 'day'` 时，按库当前的“时区偏移修正后再除以 24 小时，并保留两位小数”的规则计算
+   - 当 `unit = 'month'` 时，按库当前的“年差 * 12 + 月差 + 日补偿 / 31，再按日期回退校正，并保留两位小数”的规则计算
+8. 若在范围内，使用以下公式计算 `todayX`：
+   - `todayX = (diffLikeFrappe122(now, ganttStart, unit) / step) * columnWidth`
    - 其中 `columnWidth` 与实例内部 `config.column_width` 保持一致
-8. `viewportWidth` 明确定义为“横向滚动容器 `.gantt-container` 的 `clientWidth`”
-9. 目标滚动值使用：
+9. 当前锁定版本的当前日期指示线直接使用同一公式写入 `.gantt-container` 的 `left`，没有额外 x 轴平移补偿，因此这里不再叠加额外 offset
+10. `viewportWidth` 明确定义为“横向滚动容器 `.gantt-container` 的 `clientWidth`”
+11. 目标滚动值使用：
    - `targetScrollLeft = todayX - viewportWidth / 3`
-10. 最终再对结果做边界钳制：
+12. 最终再对结果做边界钳制：
    - 最小值为 `0`
    - 最大值为 `scrollWidth - viewportWidth`
-11. 当 `scrollWidth <= viewportWidth` 时，视为当前图表无需横向滚动，最终结果等价于 `0`
+13. 当 `scrollWidth <= viewportWidth` 时，视为当前图表无需横向滚动，最终结果等价于 `0`
 
 这里的“三分之一”是产品目标位置，而不是额外再叠加库内部原来的 `column_width / 6` 偏移。
 
@@ -250,15 +271,14 @@
    - `config.unit`
    - `config.step`
    - `config.column_width`
-3. 工具函数：
-   - 允许复用 `frappe-gantt` 内部 `date_utils.diff`
 
 约束如下：
 
 1. 不新增对更多内部私有字段的依赖
 2. 若上述字段任一缺失或值非法，则按“放弃本次初始定位、保留起始位置”处理
 3. 不为此增加 UI 级错误提示
-4. 后续若升级 `frappe-gantt` 造成字段变化，应以单测和手工回归发现并修正
+4. `pmGantt.ts` 内部允许镜像 `frappe-gantt@1.2.2` 的差值算法，但不允许直接 import 未公开导出的包内私有模块
+5. 后续若升级 `frappe-gantt` 造成字段变化或差值语义变化，应以单测和手工回归发现并修正
 
 ## 8. 数据流与接口边界
 
@@ -307,6 +327,10 @@
 3. 当目标值超过最大滚动值时，结果被钳到最大值
 4. 当今天不在甘特范围内时，返回 `null`
 5. 不同视图步长下，计算结果仍使用统一时间轴语义
+6. 边界样例必须覆盖：
+   - `now == ganttStart` 时仍视为在范围内
+   - `now == ganttEnd` 时仍视为在范围内
+   - `scrollWidth <= viewportWidth` 时返回 `0`
 
 ### 9.2 手工回归
 
@@ -317,6 +341,7 @@
 3. 当今天超出甘特范围时，确认展示默认起始位置
 4. 拖拽任务日期后，确认不会再次触发首次进入定位
 5. 切换任务选中、右键菜单、悬浮卡时，确认现有交互不受影响
+6. 确认首次进入时未调用任何 `scrollTo({ behavior: 'smooth' })` 路径，且最终定位依赖的是直接写入 `scrollLeft`
 
 ### 9.3 最低验证命令
 
