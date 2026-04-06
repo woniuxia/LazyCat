@@ -8,6 +8,46 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-04-06: 项目管理甘特图周末日期坐标增加红色圆底
+
+**场景**: 用户要求在项目管理甘特图的时间轴坐标里，为周末日期加一个红色圆底；同时明确不改已有周末整列淡色提示，只增强顶部日期数字本身。
+
+**问题**:
+1. `frappe-gantt` 的日期坐标不是 SVG 文本，而是渲染在 `.gantt-container` 内的绝对定位 `.lower-text` HTML 节点；如果按 SVG 选择器去做，会直接挂错层。
+2. PM 甘特图存在 `render()`、`change_view_mode()`、`refresh()` 三条重建/重绘链路；如果只在首次渲染后补类，切视图或数据刷新后高亮会丢。
+3. `Week` / `Month` 视图下的 `lower_text` 分别是周范围和月份文本，不能简单按类名里带日期就一律标红，否则会把“周起始日期”误当成周末日期。
+4. `.lower-text` 默认宽度是列宽的 80%，直接给节点本身加背景会得到宽胶囊，而不是用户要的圆底。
+
+**解决**:
+1. 在 `pmGantt.ts` 新增 `shouldHighlightPmGanttWeekendLabel()` 纯函数，统一收口：
+   - 仅 `viewMode === 'Day'` 时生效
+   - 从类名中解析 `date_YYYY-MM-DD`
+   - 非法日期或缺失日期类名时直接返回 `false`
+2. `PmGanttView.vue` 新增 `syncGanttWeekendDateClasses()`，统一扫描 `.lower-text` 并切换 `pm-gantt-weekend-date` 类。
+3. 将该同步逻辑接入三条链路：
+   - 新实例 `renderGantt()` 后
+   - `changeViewMode()` 后
+   - `ganttInstance.refresh()` 后
+4. 样式层使用 `::before` 伪元素在日期文本正中绘制固定 `24x24` 红色圆底，并通过 `isolation + z-index` 保证圆底在字后、不会扩成整格背景。
+
+**关键点**:
+1. `frappe-gantt` 头部日期坐标的可定制入口优先看 `.lower-text` / `.upper-text` 这类 HTML 节点，不要先入为主按 SVG 文本处理。
+2. 时间轴头部装饰如果要跨 `render / refresh / change_view_mode` 稳定存在，最好抽成独立同步函数，和条目选中态一样走统一补丁链路。
+3. 做“圆底数字”这类视觉增强时，不要直接给整块 header cell 上背景；更稳的是给文本节点本身加类，再用伪元素绘制固定尺寸圆底。
+4. 周末识别规则最好放在纯函数里做单测，避免日期解析散在组件 DOM 代码中。
+
+**涉及文件**:
+- `apps/desktop/src/components/PmGanttView.vue`
+- `apps/desktop/src/utils/pmGantt.ts`
+- `apps/desktop/src/utils/pmGantt.test.ts`
+
+**验证**:
+- `pnpm --filter @lazycat/desktop test src/utils/pmGantt.test.ts`
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+
+**使用次数**: 0
+
 ## 2026-04-06: 项目管理甘特图首次进入定位改为项目层无动画接管
 
 **场景**: 用户要求按 `2026-04-06-pm-gantt-initial-scroll-design.md` 实现项目管理甘特图首次进入定位：保留“默认看今天附近”，去掉每次进入时从左向右的平滑滑动，并让 today 落在视口左侧约三分之一处。实现后又追加收口：虽然视口不再滚动，但任务条本身仍会从左往右长出来，也需要一起去掉。

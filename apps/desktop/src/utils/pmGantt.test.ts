@@ -10,6 +10,7 @@ import {
   computePmGanttInitialScrollLeft,
   countPmGanttUnscheduledItems,
   getPmGanttProgress,
+  shouldHighlightPmGanttWeekendLabel,
 } from "./pmGantt";
 
 const baseItem: PmItem = {
@@ -202,5 +203,17 @@ describe("pmGantt", () => {
     });
 
     expect(scrollLeft).toBe(0);
+  });
+
+  it("仅在日视图下给周末日期坐标打标", () => {
+    expect(shouldHighlightPmGanttWeekendLabel("Day", "lower-text date_2026-04-04")).toBe(true);
+    expect(shouldHighlightPmGanttWeekendLabel("Day", "lower-text date_2026-04-05")).toBe(true);
+    expect(shouldHighlightPmGanttWeekendLabel("Day", "lower-text date_2026-04-06")).toBe(false);
+    expect(shouldHighlightPmGanttWeekendLabel("Week", "lower-text date_2026-04-05")).toBe(false);
+  });
+
+  it("日期类名缺失或非法时不打周末标记", () => {
+    expect(shouldHighlightPmGanttWeekendLabel("Day", "lower-text")).toBe(false);
+    expect(shouldHighlightPmGanttWeekendLabel("Day", "lower-text date_2026-02-31")).toBe(false);
   });
 });

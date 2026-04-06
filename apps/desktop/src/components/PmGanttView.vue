@@ -38,6 +38,7 @@ import {
   clampPmGanttPopupPosition,
   computePmGanttInitialScrollLeft,
   countPmGanttUnscheduledItems,
+  shouldHighlightPmGanttWeekendLabel,
 } from "../utils/pmGantt";
 import type { PmGanttTask } from "../utils/pmGantt";
 
@@ -67,8 +68,10 @@ let dragTimer: ReturnType<typeof setTimeout> | null = null;
 let skipNextRefresh = false;
 let ganttViewportEl: HTMLElement | null = null;
 let popupObserver: MutationObserver | null = null;
+let ganttContentObserver: MutationObserver | null = null;
 let didApplyInitialScroll = false;
 let initialScrollFrame: number | null = null;
+let ganttDecorationsFrame: number | null = null;
 
 const GANTT_POPUP_GAP = 10;
 
@@ -77,6 +80,7 @@ type GanttWithInternalOptions = Gantt & {
     infinite_padding?: boolean;
     scroll_to?: string | null;
   };
+  scroll_current?: () => void;
 };
 
 const ganttTasks = computed(() => buildPmGanttTasks(props.items));
@@ -114,6 +118,25 @@ function syncGanttBarStateClasses() {
       barWrapper.classList.add("gantt-overdue");
     }
   }
+}
+
+function syncGanttWeekendDateClasses() {
+  if (!ganttRef.value) return;
+
+  const lowerTexts = ganttRef.value.querySelectorAll<HTMLElement>(".lower-text");
+  for (const lowerText of lowerTexts) {
+    lowerText.classList.toggle(
+      "pm-gantt-weekend-date",
+      shouldHighlightPmGanttWeekendLabel(ganttViewMode.value, lowerText.className),
+    );
+  }
+}
+
+function syncGanttDecorations() {
+  stripGanttBarAnimations();
+  syncGanttBarStateClasses();
+  syncGanttWeekendDateClasses();
+  syncTodayButtonBehavior();
 }
 
 function formatDate(d: Date): string {
@@ -167,15 +190,27 @@ function disconnectPopupObserver() {
   popupObserver = null;
 }
 
+function disconnectGanttContentObserver() {
+  ganttContentObserver?.disconnect();
+  ganttContentObserver = null;
+}
+
 function cancelInitialScrollFrame() {
   if (initialScrollFrame === null) return;
   cancelAnimationFrame(initialScrollFrame);
   initialScrollFrame = null;
 }
 
+function cancelGanttDecorationsFrame() {
+  if (ganttDecorationsFrame === null) return;
+  cancelAnimationFrame(ganttDecorationsFrame);
+  ganttDecorationsFrame = null;
+}
+
 function resetInitialScrollState() {
   didApplyInitialScroll = false;
   cancelInitialScrollFrame();
+  cancelGanttDecorationsFrame();
 }
 
 function markInitialScrollHandled() {
@@ -233,6 +268,26 @@ function applyInitialScroll(attempt = 0) {
   markInitialScrollHandled();
 }
 
+function scrollTodayToPreferredOffset(): boolean {
+  const viewport = getGanttViewport();
+  const highlight = getCurrentHighlight();
+  if (!viewport || !highlight || viewport.clientWidth <= 0 || viewport.scrollWidth <= viewport.clientWidth) {
+    return false;
+  }
+
+  const viewportRect = viewport.getBoundingClientRect();
+  const highlightRect = highlight.getBoundingClientRect();
+  const currentX = highlightRect.left - viewportRect.left + viewport.scrollLeft;
+  const targetScrollLeft = computePmGanttInitialScrollLeft({
+    currentX,
+    viewportWidth: viewport.clientWidth,
+    scrollWidth: viewport.scrollWidth,
+  });
+
+  viewport.scrollLeft = targetScrollLeft;
+  return true;
+}
+
 function repositionPopupWithinViewport() {
   const viewport = getGanttViewport();
   const popup = getGanttPopupWrapper();
@@ -282,9 +337,60 @@ function observePopupPosition() {
   });
 }
 
+function syncTodayButtonBehavior() {
+  if (!ganttRef.value) return;
+
+  const todayButton = ganttRef.value.querySelector<HTMLButtonElement>(".today-button");
+  if (!todayButton) return;
+
+  todayButton.onclick = (event) => {
+    event.preventDefault();
+
+    if (scrollTodayToPreferredOffset()) {
+      return;
+    }
+
+    (ganttInstance as GanttWithInternalOptions | null)?.scroll_current?.();
+  };
+}
+
+function scheduleGanttDecorationsSync() {
+  if (ganttDecorationsFrame !== null) {
+    return;
+  }
+  ganttDecorationsFrame = requestAnimationFrame(() => {
+    ganttDecorationsFrame = null;
+    syncGanttDecorations();
+  });
+}
+
+function observeGanttContent() {
+  disconnectGanttContentObserver();
+  const viewport = getGanttViewport();
+  if (!viewport) return;
+
+  ganttContentObserver = new MutationObserver((mutations) => {
+    for (const mutation of mutations) {
+      if (mutation.type !== "childList") continue;
+      if (mutation.addedNodes.length === 0 && mutation.removedNodes.length === 0) continue;
+
+      // frappe-gantt 在 infinite padding 的 mousewheel 链路里会直接 render() 整个 header/grid。
+      // 这里监听 DOM 重建并把 PM 自己补的周末圆底/条目样式重新同步回来。
+      scheduleGanttDecorationsSync();
+      return;
+    }
+  });
+  ganttContentObserver.observe(viewport, {
+    childList: true,
+    subtree: true,
+  });
+}
+
 function cleanupGanttDomBindings() {
   disconnectPopupObserver();
+  disconnectGanttContentObserver();
   unbindGanttViewportScroll();
+  cancelGanttDecorationsFrame();
 }
 
 function clearGantt() {
@@ -337,19 +443,20 @@ function renderGantt() {
       }, 300);
     },
   });
-  stripGanttBarAnimations();
   applyInitialScroll();
   bindGanttViewportScroll();
   observePopupPosition();
-  syncGanttBarStateClasses();
+  observeGanttContent();
+  syncGanttDecorations();
 }
 
 function changeViewMode(mode: string) {
   ganttInstance?.hide_popup();
   emit("view-change", mode);
   ganttInstance?.change_view_mode(mode, true);
-  stripGanttBarAnimations();
-  nextTick(syncGanttBarStateClasses);
+  nextTick(() => {
+    syncGanttDecorations();
+  });
 }
 
 function onViewportScroll() {
@@ -416,8 +523,7 @@ watch(
         if (internalGantt.options) {
           internalGantt.options.scroll_to = previousScrollTo;
         }
-        stripGanttBarAnimations();
-        syncGanttBarStateClasses();
+        syncGanttDecorations();
         requestAnimationFrame(() => {
           const restoredViewport = getGanttViewport();
           if (!restoredViewport) return;
@@ -571,6 +677,47 @@ onBeforeUnmount(() => {
 
 .gantt .grid-header {
   fill: var(--el-fill-color-lighter);
+}
+
+.gantt-wrapper {
+  --pm-gantt-today-accent: #2563eb;
+  --pm-gantt-today-fill: rgba(37, 99, 235, 0.14);
+}
+
+.gantt-container .current-highlight,
+.gantt-container .current-ball-highlight {
+  background: var(--pm-gantt-today-accent);
+}
+
+.gantt-container .lower-text.current-date-highlight {
+  background: var(--pm-gantt-today-fill);
+  color: var(--pm-gantt-today-accent);
+  border-radius: 999px;
+  font-weight: 700;
+}
+
+.gantt-container .lower-text.current-date-highlight.pm-gantt-weekend-date {
+  background: transparent;
+  color: #f43f5e;
+}
+
+.gantt-container .lower-text.pm-gantt-weekend-date {
+  color: #f43f5e;
+  font-weight: 700;
+  isolation: isolate;
+}
+
+.gantt-container .lower-text.pm-gantt-weekend-date::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 24px;
+  height: 24px;
+  transform: translate(-50%, -50%);
+  border-radius: 999px;
+  background: #fff1f2;
+  z-index: -1;
 }
 
 .gantt .popup-wrapper {

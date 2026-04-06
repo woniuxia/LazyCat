@@ -6,6 +6,7 @@ import {
   hasPmDateSchedule,
   isPmItemOverdue,
   normalizePmDateString,
+  parsePmDateAtLocalStart,
 } from "./pmDate";
 
 export interface PmGanttTask extends Task {
@@ -51,6 +52,7 @@ const STATUS_PROGRESS_MAP: Record<PmItemStatus, number> = {
   testing: 75,
   done: 100,
 };
+const PM_GANTT_HEADER_DATE_CLASS_PATTERN = /\bdate_(\d{4}-\d{2}-\d{2})\b/;
 
 function normalizeDateRange(start: string, end: string): { start: string; end: string } {
   if (start <= end) {
@@ -121,6 +123,28 @@ export function computePmGanttInitialScrollLeft(
   const targetScrollLeft = input.currentX - input.viewportWidth / 3;
 
   return Math.min(Math.max(targetScrollLeft, 0), maxScrollLeft);
+}
+
+export function shouldHighlightPmGanttWeekendLabel(
+  viewMode: string,
+  className: string,
+): boolean {
+  if (viewMode !== "Day") {
+    return false;
+  }
+
+  const matched = PM_GANTT_HEADER_DATE_CLASS_PATTERN.exec(className);
+  if (!matched) {
+    return false;
+  }
+
+  const date = parsePmDateAtLocalStart(matched[1]);
+  if (!date) {
+    return false;
+  }
+
+  const day = date.getDay();
+  return day === 0 || day === 6;
 }
 
 export function buildPmGanttTask(item: PmItem): PmGanttTask {
