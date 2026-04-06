@@ -50,6 +50,8 @@
 1. 若今天位于当前甘特时间范围内，则默认定位到今天附近。
 2. `today` 的视觉落点应位于当前可视区左侧约三分之一处，而不是紧贴左边缘。
 3. 该定位必须是无动画、直接到位。
+4. 验收以“当前日期指示线”的横向位置为准；在未触发边界钳制时，该位置应落在 `viewportWidth * (1 / 3)` 附近，允许误差不超过 `1 * columnWidth`。
+5. 若因边界钳制无法满足三分之一落点，则以钳制后结果为准，不视为缺陷。
 
 ### 4.2 越界处理
 
@@ -160,9 +162,11 @@
 
 改为：
 
-1. 显式传入关闭默认自动定位的配置
+1. 显式传入 `scroll_to: 'start'`
 2. 甘特图 DOM 就绪后，由项目层执行一次无动画定位
 3. 定位方式为直接设置内部 viewport 的 `scrollLeft`
+4. 为每个新建实例维护一次性保护标记，例如 `didApplyInitialScroll`
+5. 该标记在首次定位成功或明确放弃后置为已处理，避免后续同实例中的刷新、resize 或视图切换误触发
 
 这样可以彻底避开第三方库内部的 `behavior: 'smooth'`。
 
@@ -172,18 +176,20 @@
 
 目标计算规则如下：
 
-1. 先判断今天是否在当前甘特范围内
-2. 若不在范围内，返回 `null`
-3. 若在范围内，基于以下量计算今天对应横向坐标：
-   - `gantt_start`
-   - `config.unit`
-   - `config.step`
-   - `config.column_width`
-4. 目标滚动值使用：
+1. 当前时间使用本地时区 `new Date()`，不归一到当天 `00:00`
+2. `todayX` 的定义与 `frappe-gantt` 当前日期高亮线保持一致，即“当前日期指示线”的横向坐标，而不是日期列左边界，也不是列中心
+3. 范围判断复用 `frappe-gantt` 现有语义：
+   - 当 `now < ganttStart || now > ganttEnd` 时，视为不在范围内
+   - 其余情况视为在范围内
+4. 若不在范围内，返回 `null`
+5. 若在范围内，使用以下公式计算 `todayX`：
+   - `todayX = (diff(now, ganttStart, unit) / step) * columnWidth`
+6. 目标滚动值使用：
    - `targetScrollLeft = todayX - viewportWidth / 3`
-5. 最终再对结果做边界钳制：
+7. 最终再对结果做边界钳制：
    - 最小值为 `0`
    - 最大值为 `scrollWidth - clientWidth`
+8. 当 `scrollWidth - clientWidth <= 0` 时，视为当前图表无需横向滚动，最终结果等价于 `0`
 
 这里的“三分之一”是产品目标位置，而不是额外再叠加库内部原来的 `column_width / 6` 偏移。
 
@@ -192,8 +198,16 @@
 为了减少“先出现在最左边，再跳到目标位置”的闪动感，定位时机按以下优先级执行：
 
 1. 优先在实例创建完成后的同一轮流程中立即尝试定位
-2. 若此时 viewport 宽度或滚动宽度尚未稳定，再补一次 `requestAnimationFrame`
-3. 超过这一轮补偿后仍拿不到有效尺寸，则放弃本次初始定位，保持默认起点
+2. 若首次尝试满足以下任一条件，则判定为“尺寸未就绪”，补一次 `requestAnimationFrame`
+   - 未找到内部 viewport
+   - `clientWidth <= 0`
+   - `scrollWidth <= 0`
+   - `scrollWidth <= clientWidth`
+   - `ganttStart` / `ganttEnd` 缺失
+   - `step <= 0`
+   - `columnWidth <= 0`
+3. 第二次尝试若仍满足上述条件，则放弃本次初始定位，保留 `scroll_to: 'start'` 已落下的起始位置
+4. 放弃时不弹 toast，不新增界面提示，不触发额外重试
 
 该策略的目标是：
 
@@ -213,21 +227,41 @@
 
 也就是说，现有“保持当前滚动位置”的逻辑继续保留，本次不覆盖。
 
+### 7.6 第三方依赖边界
+
+本次允许读取、但不允许覆写的 `frappe-gantt` 内部依赖边界固定为：
+
+1. DOM：
+   - 继续复用现有 `getGanttViewport()`，读取内部 `.gantt-container`
+2. 实例字段：
+   - `gantt_start`
+   - `gantt_end`
+   - `config.unit`
+   - `config.step`
+   - `config.column_width`
+
+约束如下：
+
+1. 不新增对更多内部私有字段的依赖
+2. 若上述字段任一缺失或值非法，则按“放弃本次初始定位、保留起始位置”处理
+3. 不为此增加 UI 级错误提示
+4. 后续若升级 `frappe-gantt` 造成字段变化，应以单测和手工回归发现并修正
+
 ## 8. 数据流与接口边界
 
 ### 8.1 新增纯函数
 
-建议在 `pmGantt.ts` 中新增一类纯函数，例如：
+必须在 `apps/desktop/src/utils/pmGantt.ts` 中新增单一职责纯函数 `computePmGanttInitialScrollLeft`：
 
 1. 输入：
-   - 甘特开始时间
-   - 甘特结束时间
-   - 当前视图单位
-   - 步长
-   - 列宽
-   - viewport 宽度
-   - scrollWidth
-   - today
+   - `ganttStart`
+   - `ganttEnd`
+   - `unit`
+   - `step`
+   - `columnWidth`
+   - `viewportWidth`
+   - `scrollWidth`
+   - `now`
 2. 输出：
    - `null` 或已钳制好的目标 `scrollLeft`
 
@@ -237,10 +271,11 @@
 
 `PmGanttView.vue` 侧只负责：
 
-1. 从 `ganttInstance` 读取内部 viewport
-2. 从实例内部配置读取时间轴参数
+1. 通过现有 `getGanttViewport()` 读取内部 `.gantt-container`
+2. 从 `ganttInstance` 读取 `gantt_start`、`gantt_end`、`config.unit`、`config.step`、`config.column_width`
 3. 调用纯函数获取目标值
 4. 执行 `viewport.scrollLeft = targetScrollLeft`
+5. 若 viewport 或字段不可用，则直接跳过本次初始定位，保持当前起始位置
 
 这样可以保持：
 
@@ -252,9 +287,9 @@
 
 ### 9.1 单元测试
 
-建议在现有 `pmGantt.test.ts` 中补充纯函数测试，至少覆盖以下场景：
+必须在现有 `apps/desktop/src/utils/pmGantt.test.ts` 中补充纯函数测试，至少覆盖以下场景：
 
-1. 今天在范围内时，返回值能让 `today` 落在视口左侧三分之一处附近
+1. 今天在范围内且未触发边界钳制时，返回值应满足“当前日期指示线”落在 `viewportWidth * (1 / 3)` 附近，允许误差不超过 `1 * columnWidth`
 2. 当目标值小于 `0` 时，结果被钳到 `0`
 3. 当目标值超过最大滚动值时，结果被钳到最大值
 4. 当今天不在甘特范围内时，返回 `null`
@@ -262,13 +297,20 @@
 
 ### 9.2 手工回归
 
-实现后需要至少完成以下回归：
+实现后必须至少完成以下回归：
 
 1. 从看板切到甘特图，多次重复进入，确认不再出现横向平滑滚动
 2. `Day / Week / Month` 三种视图下都确认 `today` 落点大体位于左侧三分之一处
 3. 当今天超出甘特范围时，确认展示默认起始位置
 4. 拖拽任务日期后，确认不会再次触发首次进入定位
 5. 切换任务选中、右键菜单、悬浮卡时，确认现有交互不受影响
+
+### 9.3 最低验证命令
+
+实现完成后，最低必须执行：
+
+1. `pnpm --filter @lazycat/desktop test src/utils/pmGantt.test.ts`
+2. `pnpm typecheck`
 
 ## 10. 风险与缓解
 
