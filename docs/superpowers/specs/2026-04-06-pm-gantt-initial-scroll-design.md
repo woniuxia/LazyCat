@@ -67,7 +67,9 @@
 
 1. 从看板切到甘特图时生效。
 2. 重新进入项目管理后切到甘特图时生效。
-3. 不应在同一实例的普通刷新链路中重复触发。
+3. 同一实例内不应在普通刷新链路中重复触发。
+4. 切换 `Day / Week / Month` 时，不重新执行首次定位。
+5. 切换 `Day / Week / Month` 时，应以当前位置所处日期为锚点，展示该日期对应的日 / 周 / 月上下文，而不是回起点，也不是回 today。
 
 ## 5. 根因与现状
 
@@ -181,13 +183,17 @@
 
 1. 显式传入 `scroll_to: 'start'`
 2. 同时显式传入 `infinite_padding: true`
-3. 甘特图 DOM 就绪后，由项目层执行一次无动画定位
-4. 定位方式为直接设置内部 viewport 的 `scrollLeft`
-5. 为每个新建实例维护一次性保护标记，例如 `didApplyInitialScroll`
-6. 该标记在以下两类路径都必须置为已处理：
+3. 这组配置只用于阻止首次进入时的默认 `smooth scroll`，不是后续滚动策略
+4. 甘特图 DOM 就绪后，由项目层执行一次无动画定位
+5. 定位方式为直接设置内部 viewport 的 `scrollLeft`
+6. 为每个新建实例维护一次性保护标记，例如 `didApplyInitialScroll`
+7. 该标记是 `PmGanttView.vue` 组件实例级本地状态，不提升到 `PmPanel`，不做全局状态，也不持久化
+8. 每次准备创建新的 Gantt 实例前，都必须先将该标记重置为 `false`
+9. 该标记在以下两类路径都必须置为已处理：
    - 已成功设置目标 `scrollLeft`
    - 已判定无需处理或已明确放弃处理
-7. 标记置位后，不再允许同实例中的刷新、resize 或视图切换再次触发首次定位
+10. 标记置位后，不再允许同实例中的刷新、resize 或视图切换再次触发首次定位
+11. 组件卸载或旧 Gantt 实例销毁后，该标记随实例一起失效；下次新实例创建时必须重新判定一次
 
 这样可以彻底避开第三方库内部的 `behavior: 'smooth'`。
 
@@ -198,15 +204,21 @@
 目标计算规则如下：
 
 1. `todayX` 的定义固定为：`.current-highlight` 在 `.gantt-container` 坐标系中的真实横向位置
-2. 当 `.current-highlight` 存在时，读取其实际 `left` / `offsetLeft` 作为 `currentX`
-3. 当 `.current-highlight` 在补偿重试后仍不存在时，视为“今天不在当前甘特范围内”，不执行额外滚动
-4. `viewportWidth` 明确定义为横向滚动容器 `.gantt-container` 的 `clientWidth`
-5. 目标滚动值使用：
+2. `currentX` 必须是**内容坐标**，不是屏幕坐标，也不是元素局部 offset
+3. 当 `.current-highlight` 存在时，按以下公式计算 `currentX`：
+   - `viewportRect = viewport.getBoundingClientRect()`
+   - `highlightRect = highlight.getBoundingClientRect()`
+   - `currentX = (highlightRect.left - viewportRect.left) + viewport.scrollLeft`
+4. 不允许再使用 `offsetLeft`，也不允许保留“left / offsetLeft 二选一”这类模糊实现
+5. 上述公式里的 `currentX`，语义固定为“完整滚动内容坐标系下的 today 指示线 x 值”
+6. 当 `.current-highlight` 在补偿重试后仍不存在时，视为“今天不在当前甘特范围内”，不执行额外滚动
+7. `viewportWidth` 明确定义为横向滚动容器 `.gantt-container` 的 `clientWidth`
+8. 目标滚动值使用：
    - `targetScrollLeft = currentX - viewportWidth / 3`
-6. 最终再对结果做边界钳制：
+9. 最终再对结果做边界钳制：
    - 最小值为 `0`
    - 最大值为 `scrollWidth - viewportWidth`
-7. 当 `scrollWidth <= viewportWidth` 时，视为当前图表无需横向滚动，最终结果等价于 `0`
+10. 当 `scrollWidth <= viewportWidth` 时，视为当前图表无需横向滚动，最终结果等价于 `0`
 
 这里的“三分之一”是产品目标位置，而不是额外再叠加库内部原来的 `column_width / 6` 偏移。
 
@@ -243,6 +255,13 @@
 
 也就是说，现有“保持当前滚动位置”的逻辑继续保留，本次不覆盖。
 
+额外交互约束：
+
+1. `scroll_to: 'start'` 不得成为后续 `refresh()`、`change_view_mode(...)` 或内部重渲染时的滚动重置策略。
+2. `change_view_mode(...)` 后，视口应保持“当前位置所处日期”为锚点，展示该日期对应的日 / 周 / 月上下文。
+3. `refresh()` 或其他同实例重绘链路后，视口不得回到起点，也不得重新触发首次定位。
+4. 用户手动横向滚动后的当前位置优先级高于首次定位规则；首次定位完成后，后续链路不得覆盖用户当前视口。
+
 ### 7.6 第三方依赖边界
 
 本次允许读取、但不允许覆写的 `frappe-gantt` 内部依赖边界固定为：
@@ -273,6 +292,7 @@
    - 已钳制好的目标 `scrollLeft`
 
 该纯函数只负责三分之一偏移与边界钳制，不感知 DOM，不感知 Vue 状态，也不负责判断 today 是否越界。
+其中 `currentX` 的语义固定为“内容坐标系下的位置”，即完整滚动内容中的 x 值。
 
 ### 8.2 组件侧调用
 
@@ -284,6 +304,8 @@
 4. 执行 `viewport.scrollLeft = targetScrollLeft`
 5. 若 viewport 不可用，则直接跳过本次初始定位，保持当前起始位置，并置位 `didApplyInitialScroll`
 6. 若 `.current-highlight` 在补偿后仍不存在，则按 today 越界处理，不滚动并置位 `didApplyInitialScroll`
+7. 若纯函数返回结果并成功写入 `scrollLeft`，则置位 `didApplyInitialScroll`
+8. 同一实例内的 `refresh()` / `change_view_mode(...)` 继续走现有保持当前位置逻辑，不读取也不重置 `didApplyInitialScroll`
 
 这样可以保持：
 
@@ -297,7 +319,7 @@
 
 必须在现有 `apps/desktop/src/utils/pmGantt.test.ts` 中补充纯函数测试，至少覆盖以下场景：
 
-1. 当 `currentX` 位于中间区域且未触发边界钳制时，返回值应满足“当前日期指示线”落在 `viewportWidth * (1 / 3)` 附近，允许误差不超过 `1px`
+1. 当 `currentX` 位于中间区域且未触发边界钳制时，返回值应精确等于预期值
 2. 当目标值小于 `0` 时，结果被钳到 `0`
 3. 当目标值超过最大滚动值时，结果被钳到最大值
 4. 当 `scrollWidth <= viewportWidth` 时返回 `0`
@@ -313,6 +335,9 @@
 5. 切换任务选中、右键菜单、悬浮卡时，确认现有交互不受影响
 6. 确认首次进入时未调用任何 `scrollTo({ behavior: 'smooth' })` 路径，且最终定位依赖的是直接写入 `scrollLeft`
 7. 确认 `today` 越界时，`.current-highlight` 不存在且组件不会重复尝试初始定位
+8. 进入甘特图后手动横向滚动到任意位置，再切换 `Day / Week / Month`，应保持当前位置所处日期为锚点，不回起点，也不回 today
+9. 在 `Day / Week / Month` 之间多次往返切换，不允许再次出现 smooth scroll，也不允许反复触发首次定位
+10. 触发一次会走 `refresh()` 的链路后，视口不得回起点，也不得重新触发首次定位
 
 ### 9.3 最低验证命令
 
