@@ -97,13 +97,14 @@
 2. 在该版本的 `set_scroll_position(date)` 中：
    - 当 `!date || date === 'start'` 且 `infinite_padding` 为真时，会直接执行 `this.$container.scrollLeft = min_start` 并 `return`
    - 不会进入后续 `scrollTo({ behavior: 'smooth' })` 分支
-3. 因此，将 `scroll_to` 显式设为 `'start'` 可以确定性地关闭默认“滚到 today 的平滑滚动”，并把基础落点固定在库认可的左侧起点。
-4. 在该版本的 `get_closest_date()` 中，范围判断语义是：
+3. `frappe-gantt@1.2.2` 默认 `infinite_padding` 为 `true`，但本次不依赖默认值，而是在 PM 甘特图创建时显式传入 `infinite_padding: true`
+4. 因此，将 `scroll_to` 显式设为 `'start'` 且同时显式传入 `infinite_padding: true`，可以确定性地关闭默认“滚到 today 的平滑滚动”，并把基础落点固定在库认可的左侧起点。
+5. 在该版本的 `get_closest_date()` 中，范围判断语义是：
    - 当 `now < gantt_start || now > gantt_end` 时返回 `null`
    - 因此 `gantt_start` 与 `gantt_end` 均按包含端点处理
-5. 在该版本的 `highlight_current()` 中，当前日期指示线的 `left` 直接按以下公式写入容器定位样式：
-   - `(diff_in_units / step) * column_width`
-6. 该指示线元素直接追加到 `.gantt-container`，当前版本没有额外的 x 轴平移补偿，因此本次自定义定位也采用同一容器坐标系。
+6. 在该版本的渲染流程中，会调用 `highlight_current()`；当今天在甘特范围内时，会生成 `.current-highlight` 当前日期指示线并追加到 `.gantt-container`
+7. 若今天不在甘特范围内，则不会生成 `.current-highlight`
+8. 因此，本次自定义初始定位以 `.current-highlight` 的真实 DOM 坐标作为 today 锚点，不再镜像 `date_utils.diff()` 算法。
 
 ## 6. 方案对比
 
@@ -112,7 +113,7 @@
 做法：
 
 1. 创建甘特图时显式关闭默认 `scroll_to: 'today'`
-2. 在 `PmGanttView.vue` 中自行计算今天对应的目标滚动位置
+2. 在 `PmGanttView.vue` 中读取 today 指示线的真实位置作为目标锚点
 3. 直接赋值 `scrollLeft`，无动画到位
 
 优点：
@@ -123,7 +124,7 @@
 
 缺点：
 
-1. 需要读取 `frappe-gantt` 的时间轴内部参数
+1. 需要依赖 `frappe-gantt` 当前生成的 `.current-highlight` DOM 结构
 2. 需要额外补一层计算和测试
 
 结论：**采用此方案**
@@ -170,7 +171,7 @@
 `pmGantt.ts` 负责：
 
 1. 提供“首次进入时的目标 `scrollLeft`”纯函数
-2. 封装今天落点、三分之一视口偏移、边界钳制等规则
+2. 封装基于 `currentX` 的三分之一视口偏移与边界钳制规则
 
 ### 7.2 首次定位策略
 
@@ -179,48 +180,33 @@
 改为：
 
 1. 显式传入 `scroll_to: 'start'`
-2. 甘特图 DOM 就绪后，由项目层执行一次无动画定位
-3. 定位方式为直接设置内部 viewport 的 `scrollLeft`
-4. 为每个新建实例维护一次性保护标记，例如 `didApplyInitialScroll`
-5. 该标记在以下两类路径都必须置为已处理：
+2. 同时显式传入 `infinite_padding: true`
+3. 甘特图 DOM 就绪后，由项目层执行一次无动画定位
+4. 定位方式为直接设置内部 viewport 的 `scrollLeft`
+5. 为每个新建实例维护一次性保护标记，例如 `didApplyInitialScroll`
+6. 该标记在以下两类路径都必须置为已处理：
    - 已成功设置目标 `scrollLeft`
    - 已判定无需处理或已明确放弃处理
-6. 标记置位后，不再允许同实例中的刷新、resize 或视图切换再次触发首次定位
+7. 标记置位后，不再允许同实例中的刷新、resize 或视图切换再次触发首次定位
 
 这样可以彻底避开第三方库内部的 `behavior: 'smooth'`。
 
 ### 7.3 目标位置计算
 
-“今天所在的横向位置”应复用 `frappe-gantt` 现有时间轴语义，而不是另起一套不兼容的坐标定义。
+“今天所在的横向位置”以 `frappe-gantt` 渲染后生成的真实当前日期指示线为准，而不是在 PM 侧镜像一套日期差值算法。
 
 目标计算规则如下：
 
-1. 当前时间使用本地时区 `new Date()`，不归一到当天 `00:00`
-2. `todayX` 的定义与 `frappe-gantt` 当前日期高亮线保持一致，即“当前日期指示线”的横向坐标，而不是日期列左边界，也不是列中心
-3. 范围判断按当前锁定版本 `frappe-gantt@1.2.2` 的 `get_closest_date()` 语义执行：
-   - 当 `now < ganttStart || now > ganttEnd` 时，视为不在范围内
-   - 当 `now == ganttStart` 或 `now == ganttEnd` 时，视为仍在范围内
-   - 其余情况视为在范围内
-4. 若不在范围内，返回 `null`
-5. PM 甘特图当前只支持 `Day / Week / Month` 三种视图，因此这里允许的 `unit` 与 `step` 组合固定为：
-   - `Day`：`unit = 'day'`，`step = 1`
-   - `Week`：`unit = 'day'`，`step = 7`
-   - `Month`：`unit = 'month'`，`step = 1`
-6. 由于 `frappe-gantt` 的 package exports 未公开 `date_utils` 子路径，本次**不直接 import** `frappe-gantt/src/date_utils.js`
-7. 改为在 `pmGantt.ts` 中实现本地 helper `diffLikeFrappe122`，其结果必须与 `frappe-gantt@1.2.2` 的 `date_utils.diff()` 在本次 PM 范围内保持一致：
-   - 当 `unit = 'day'` 时，按库当前的“时区偏移修正后再除以 24 小时，并保留两位小数”的规则计算
-   - 当 `unit = 'month'` 时，按库当前的“年差 * 12 + 月差 + 日补偿 / 31，再按日期回退校正，并保留两位小数”的规则计算
-8. 若在范围内，使用以下公式计算 `todayX`：
-   - `todayX = (diffLikeFrappe122(now, ganttStart, unit) / step) * columnWidth`
-   - 其中 `columnWidth` 与实例内部 `config.column_width` 保持一致
-9. 当前锁定版本的当前日期指示线直接使用同一公式写入 `.gantt-container` 的 `left`，没有额外 x 轴平移补偿，因此这里不再叠加额外 offset
-10. `viewportWidth` 明确定义为“横向滚动容器 `.gantt-container` 的 `clientWidth`”
-11. 目标滚动值使用：
-   - `targetScrollLeft = todayX - viewportWidth / 3`
-12. 最终再对结果做边界钳制：
+1. `todayX` 的定义固定为：`.current-highlight` 在 `.gantt-container` 坐标系中的真实横向位置
+2. 当 `.current-highlight` 存在时，读取其实际 `left` / `offsetLeft` 作为 `currentX`
+3. 当 `.current-highlight` 在补偿重试后仍不存在时，视为“今天不在当前甘特范围内”，不执行额外滚动
+4. `viewportWidth` 明确定义为横向滚动容器 `.gantt-container` 的 `clientWidth`
+5. 目标滚动值使用：
+   - `targetScrollLeft = currentX - viewportWidth / 3`
+6. 最终再对结果做边界钳制：
    - 最小值为 `0`
    - 最大值为 `scrollWidth - viewportWidth`
-13. 当 `scrollWidth <= viewportWidth` 时，视为当前图表无需横向滚动，最终结果等价于 `0`
+7. 当 `scrollWidth <= viewportWidth` 时，视为当前图表无需横向滚动，最终结果等价于 `0`
 
 这里的“三分之一”是产品目标位置，而不是额外再叠加库内部原来的 `column_width / 6` 偏移。
 
@@ -233,12 +219,11 @@
    - 未找到内部 viewport
    - `viewportWidth <= 0`
    - `scrollWidth <= 0`
-   - `ganttStart` / `ganttEnd` 缺失
-   - `step <= 0`
-   - `columnWidth <= 0`
 3. 若首次尝试发现 `scrollWidth <= viewportWidth`，则判定为“无需横向滚动的稳定态”，直接以 `0` 作为结果并置位 `didApplyInitialScroll`
-4. 第二次尝试若仍满足“尺寸未就绪”条件，则放弃本次初始定位，保留 `scroll_to: 'start'` 已落下的起始位置，并置位 `didApplyInitialScroll`
-5. 放弃时不弹 toast，不新增界面提示，不触发额外重试
+4. 若首次尝试仅缺少 `.current-highlight`，则补一次 `requestAnimationFrame`，用于区分“DOM 尚未稳定”与“today 真实越界”
+5. 第二次尝试若 viewport 仍未就绪，则放弃本次初始定位，保留 `scroll_to: 'start'` 已落下的起始位置，并置位 `didApplyInitialScroll`
+6. 第二次尝试若 `.current-highlight` 仍不存在，则按“today 越界”处理，不执行额外滚动，并置位 `didApplyInitialScroll`
+7. 放弃时不弹 toast，不新增界面提示，不触发额外重试
 
 该策略的目标是：
 
@@ -265,20 +250,14 @@
 1. DOM：
    - 继续复用现有 `getGanttViewport()`，读取内部 `.gantt-container`
    - `.gantt-container` 本身就是用户看到的横向滚动容器，也是最终被写入 `scrollLeft` 的 DOM 节点
-2. 实例字段：
-   - `gantt_start`
-   - `gantt_end`
-   - `config.unit`
-   - `config.step`
-   - `config.column_width`
+   - 允许读取 `.current-highlight` 当前日期指示线的真实位置
 
 约束如下：
 
-1. 不新增对更多内部私有字段的依赖
-2. 若上述字段任一缺失或值非法，则按“放弃本次初始定位、保留起始位置”处理
+1. 不新增对更多实例私有字段或未公开模块的依赖
+2. 若 viewport 或 `.current-highlight` 的读取条件不满足，则按既定降级路径处理
 3. 不为此增加 UI 级错误提示
-4. `pmGantt.ts` 内部允许镜像 `frappe-gantt@1.2.2` 的差值算法，但不允许直接 import 未公开导出的包内私有模块
-5. 后续若升级 `frappe-gantt` 造成字段变化或差值语义变化，应以单测和手工回归发现并修正
+4. 后续若升级 `frappe-gantt` 造成 `.current-highlight` 结构变化，应以手工回归与集成验证发现并修正
 
 ## 8. 数据流与接口边界
 
@@ -287,28 +266,24 @@
 必须在 `apps/desktop/src/utils/pmGantt.ts` 中新增单一职责纯函数 `computePmGanttInitialScrollLeft`：
 
 1. 输入：
-   - `ganttStart`
-   - `ganttEnd`
-   - `unit`
-   - `step`
-   - `columnWidth`
+   - `currentX`
    - `viewportWidth`
    - `scrollWidth`
-   - `now`
 2. 输出：
-   - `null` 或已钳制好的目标 `scrollLeft`
+   - 已钳制好的目标 `scrollLeft`
 
-该纯函数只负责数学和边界判断，不感知 DOM，不感知 Vue 状态。
+该纯函数只负责三分之一偏移与边界钳制，不感知 DOM，不感知 Vue 状态，也不负责判断 today 是否越界。
 
 ### 8.2 组件侧调用
 
 `PmGanttView.vue` 侧只负责：
 
 1. 通过现有 `getGanttViewport()` 读取内部 `.gantt-container`
-2. 从 `ganttInstance` 读取 `gantt_start`、`gantt_end`、`config.unit`、`config.step`、`config.column_width`
+2. 读取 `.current-highlight` 的真实横向位置
 3. 调用纯函数获取目标值
 4. 执行 `viewport.scrollLeft = targetScrollLeft`
-5. 若 viewport 或字段不可用，则直接跳过本次初始定位，保持当前起始位置，并置位 `didApplyInitialScroll`
+5. 若 viewport 不可用，则直接跳过本次初始定位，保持当前起始位置，并置位 `didApplyInitialScroll`
+6. 若 `.current-highlight` 在补偿后仍不存在，则按 today 越界处理，不滚动并置位 `didApplyInitialScroll`
 
 这样可以保持：
 
@@ -322,15 +297,10 @@
 
 必须在现有 `apps/desktop/src/utils/pmGantt.test.ts` 中补充纯函数测试，至少覆盖以下场景：
 
-1. 今天在范围内且未触发边界钳制时，返回值应满足“当前日期指示线”落在 `viewportWidth * (1 / 3)` 附近，允许误差不超过 `1 * columnWidth`
+1. 当 `currentX` 位于中间区域且未触发边界钳制时，返回值应满足“当前日期指示线”落在 `viewportWidth * (1 / 3)` 附近，允许误差不超过 `1px`
 2. 当目标值小于 `0` 时，结果被钳到 `0`
 3. 当目标值超过最大滚动值时，结果被钳到最大值
-4. 当今天不在甘特范围内时，返回 `null`
-5. 不同视图步长下，计算结果仍使用统一时间轴语义
-6. 边界样例必须覆盖：
-   - `now == ganttStart` 时仍视为在范围内
-   - `now == ganttEnd` 时仍视为在范围内
-   - `scrollWidth <= viewportWidth` 时返回 `0`
+4. 当 `scrollWidth <= viewportWidth` 时返回 `0`
 
 ### 9.2 手工回归
 
@@ -342,6 +312,7 @@
 4. 拖拽任务日期后，确认不会再次触发首次进入定位
 5. 切换任务选中、右键菜单、悬浮卡时，确认现有交互不受影响
 6. 确认首次进入时未调用任何 `scrollTo({ behavior: 'smooth' })` 路径，且最终定位依赖的是直接写入 `scrollLeft`
+7. 确认 `today` 越界时，`.current-highlight` 不存在且组件不会重复尝试初始定位
 
 ### 9.3 最低验证命令
 
@@ -352,21 +323,18 @@
 
 ## 10. 风险与缓解
 
-### 10.1 风险：内部参数依赖第三方实现细节
+### 10.1 风险：依赖第三方 DOM 结构细节
 
-本次方案需要读取 `frappe-gantt` 的时间轴内部参数，例如：
+本次方案需要依赖 `frappe-gantt` 当前生成的 DOM 结构，例如：
 
-1. `gantt_start`
-2. `gantt_end`
-3. `config.step`
-4. `config.unit`
-5. `config.column_width`
+1. `.gantt-container`
+2. `.current-highlight`
 
 缓解方式：
 
-1. 只读取已有稳定字段，不覆写内部方法
-2. 将依赖点收敛到一个局部 helper 中
-3. 用单测守住计算公式，降低后续升级时的回归成本
+1. 只读取既有 DOM，不覆写第三方内部方法
+2. 将依赖点收敛到 `PmGanttView.vue` 的一次性定位流程中
+3. 用纯函数单测守住滚动钳制逻辑，用手工回归守住 DOM 结构集成点
 
 ### 10.2 风险：首帧尺寸未稳定导致定位失败
 
