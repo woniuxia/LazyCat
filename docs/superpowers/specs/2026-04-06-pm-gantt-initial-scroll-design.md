@@ -166,7 +166,10 @@
 2. 甘特图 DOM 就绪后，由项目层执行一次无动画定位
 3. 定位方式为直接设置内部 viewport 的 `scrollLeft`
 4. 为每个新建实例维护一次性保护标记，例如 `didApplyInitialScroll`
-5. 该标记在首次定位成功或明确放弃后置为已处理，避免后续同实例中的刷新、resize 或视图切换误触发
+5. 该标记在以下两类路径都必须置为已处理：
+   - 已成功设置目标 `scrollLeft`
+   - 已判定无需处理或已明确放弃处理
+6. 标记置位后，不再允许同实例中的刷新、resize 或视图切换再次触发首次定位
 
 这样可以彻底避开第三方库内部的 `behavior: 'smooth'`。
 
@@ -182,14 +185,21 @@
    - 当 `now < ganttStart || now > ganttEnd` 时，视为不在范围内
    - 其余情况视为在范围内
 4. 若不在范围内，返回 `null`
-5. 若在范围内，使用以下公式计算 `todayX`：
-   - `todayX = (diff(now, ganttStart, unit) / step) * columnWidth`
-6. 目标滚动值使用：
+5. PM 甘特图当前只支持 `Day / Week / Month` 三种视图，因此这里允许的 `unit` 与 `step` 组合固定为：
+   - `Day`：`unit = 'day'`，`step = 1`
+   - `Week`：`unit = 'day'`，`step = 7`
+   - `Month`：`unit = 'month'`，`step = 1`
+6. `diff` 的计算必须复用 `frappe-gantt` 内部 `date_utils.diff(now, ganttStart, unit)` 的语义，不允许改为自定义毫秒差或自然日取整算法
+7. 若在范围内，使用以下公式计算 `todayX`：
+   - `todayX = (date_utils.diff(now, ganttStart, unit) / step) * columnWidth`
+   - 其中 `columnWidth` 与实例内部 `config.column_width` 保持一致
+8. `viewportWidth` 明确定义为“横向滚动容器 `.gantt-container` 的 `clientWidth`”
+9. 目标滚动值使用：
    - `targetScrollLeft = todayX - viewportWidth / 3`
-7. 最终再对结果做边界钳制：
+10. 最终再对结果做边界钳制：
    - 最小值为 `0`
-   - 最大值为 `scrollWidth - clientWidth`
-8. 当 `scrollWidth - clientWidth <= 0` 时，视为当前图表无需横向滚动，最终结果等价于 `0`
+   - 最大值为 `scrollWidth - viewportWidth`
+11. 当 `scrollWidth <= viewportWidth` 时，视为当前图表无需横向滚动，最终结果等价于 `0`
 
 这里的“三分之一”是产品目标位置，而不是额外再叠加库内部原来的 `column_width / 6` 偏移。
 
@@ -200,14 +210,14 @@
 1. 优先在实例创建完成后的同一轮流程中立即尝试定位
 2. 若首次尝试满足以下任一条件，则判定为“尺寸未就绪”，补一次 `requestAnimationFrame`
    - 未找到内部 viewport
-   - `clientWidth <= 0`
+   - `viewportWidth <= 0`
    - `scrollWidth <= 0`
-   - `scrollWidth <= clientWidth`
    - `ganttStart` / `ganttEnd` 缺失
    - `step <= 0`
    - `columnWidth <= 0`
-3. 第二次尝试若仍满足上述条件，则放弃本次初始定位，保留 `scroll_to: 'start'` 已落下的起始位置
-4. 放弃时不弹 toast，不新增界面提示，不触发额外重试
+3. 若首次尝试发现 `scrollWidth <= viewportWidth`，则判定为“无需横向滚动的稳定态”，直接以 `0` 作为结果并置位 `didApplyInitialScroll`
+4. 第二次尝试若仍满足“尺寸未就绪”条件，则放弃本次初始定位，保留 `scroll_to: 'start'` 已落下的起始位置，并置位 `didApplyInitialScroll`
+5. 放弃时不弹 toast，不新增界面提示，不触发额外重试
 
 该策略的目标是：
 
@@ -233,12 +243,15 @@
 
 1. DOM：
    - 继续复用现有 `getGanttViewport()`，读取内部 `.gantt-container`
+   - `.gantt-container` 本身就是用户看到的横向滚动容器，也是最终被写入 `scrollLeft` 的 DOM 节点
 2. 实例字段：
    - `gantt_start`
    - `gantt_end`
    - `config.unit`
    - `config.step`
    - `config.column_width`
+3. 工具函数：
+   - 允许复用 `frappe-gantt` 内部 `date_utils.diff`
 
 约束如下：
 
@@ -275,7 +288,7 @@
 2. 从 `ganttInstance` 读取 `gantt_start`、`gantt_end`、`config.unit`、`config.step`、`config.column_width`
 3. 调用纯函数获取目标值
 4. 执行 `viewport.scrollLeft = targetScrollLeft`
-5. 若 viewport 或字段不可用，则直接跳过本次初始定位，保持当前起始位置
+5. 若 viewport 或字段不可用，则直接跳过本次初始定位，保持当前起始位置，并置位 `didApplyInitialScroll`
 
 这样可以保持：
 
