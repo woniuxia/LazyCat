@@ -6,8 +6,7 @@
       <aside class="pm-sidebar">
         <div class="sidebar-header">
           <div>
-            <div class="sidebar-eyebrow">项目空间</div>
-            <span class="sidebar-title">{{ projects.length }} 个项目</span>
+            <div class="sidebar-eyebrow">项目管理</div>
           </div>
           <el-button class="sidebar-create-btn" type="primary" @click="showCreateProject">
             <el-icon><Plus /></el-icon>
@@ -20,13 +19,12 @@
           :class="{ 'is-active': selectedProjectId === 'overview' }"
           @click="selectProject('overview')"
         >
-          <div class="sidebar-overview-card-head">
-            <div class="sidebar-overview-card-title">
-              <span class="project-color overview-color" />
-              <span class="project-name">总览</span>
+            <div class="sidebar-overview-card-head">
+              <div class="sidebar-overview-card-title">
+                <span class="project-color overview-color" />
+                <span class="project-name">总览</span>
+              </div>
             </div>
-            <span class="project-count">{{ overviewUndoneCount }}</span>
-          </div>
           <div class="sidebar-overview-metrics">
             <div class="sidebar-overview-metric">
               <span class="sidebar-overview-metric-label">项目数</span>
@@ -63,7 +61,7 @@
               <span class="project-color" :style="{ backgroundColor: p.color }" />
               <span class="project-name">{{ p.name }}</span>
               <el-tag v-if="p.status === 'archived'" size="small" effect="plain" class="project-archived-tag">已归档</el-tag>
-              <span class="project-count">{{ p.pendingCount }}</span>
+              <span class="project-pending-badge">{{ p.pendingCount }}</span>
             </div>
           </div>
         </div>
@@ -76,47 +74,77 @@
       <!-- Center: Kanban / Gantt -->
       <div class="pm-main">
         <div v-if="selectedProject" class="pm-toolbar">
-          <div class="toolbar-row">
-            <div class="toolbar-left">
-              <span class="project-title-display" :style="{ color: isOverview ? '' : selectedProject.color }">{{ selectedProject.name }}</span>
-              <el-tag v-if="!isOverview && selectedProject.status === 'archived'" size="small" type="info">已归档</el-tag>
+          <div class="pm-toolbar-shell">
+            <div class="toolbar-row pm-toolbar-head">
+              <div class="toolbar-left pm-toolbar-context">
+                <span
+                  class="pm-toolbar-context-dot"
+                  :class="{ 'is-overview': isOverview }"
+                  :style="isOverview ? undefined : { backgroundColor: selectedProject.color }"
+                />
+                <div class="pm-toolbar-context-copy">
+                  <div class="pm-toolbar-context-title-row">
+                    <span class="project-title-display" :style="{ color: isOverview ? '' : selectedProject.color }">{{ selectedProject.name }}</span>
+                    <el-tag v-if="!isOverview && selectedProject.status === 'archived'" size="small" type="info" class="pm-toolbar-project-tag">已归档</el-tag>
+                  </div>
+                </div>
+              </div>
+              <div class="toolbar-right pm-toolbar-head-actions">
+                <div class="pm-view-switch">
+                  <el-switch
+                    v-model="viewMode"
+                    class="pm-view-switch-toggle"
+                    active-text="甘特图"
+                    inactive-text="看板"
+                    active-value="gantt"
+                    inactive-value="kanban"
+                  />
+                </div>
+                <el-button class="pm-toolbar-primary-btn" type="primary" @click="showCreateItem">
+                  <el-icon><Plus /></el-icon>
+                  新建工作项
+                </el-button>
+              </div>
             </div>
-            <div class="toolbar-right">
-              <el-radio-group v-model="viewMode" size="default">
-                <el-radio-button value="kanban">看板</el-radio-button>
-                <el-radio-button value="gantt">甘特图</el-radio-button>
-              </el-radio-group>
-              <el-button type="primary" @click="showCreateItem">新建工作项</el-button>
+            <div class="toolbar-row toolbar-filters pm-toolbar-controls">
+              <div class="pm-toolbar-filter-bar">
+                <div class="pm-toolbar-search-wrap">
+                  <el-input
+                    v-model="searchText"
+                    class="pm-toolbar-search-input"
+                    size="default"
+                    placeholder="标题、描述、标签关键词..."
+                    clearable
+                  >
+                    <template #prefix>
+                      <el-icon class="pm-toolbar-search-icon"><Search /></el-icon>
+                    </template>
+                  </el-input>
+                </div>
+                <div class="pm-toolbar-filter-cluster">
+                  <el-select v-model="filterType" class="pm-toolbar-select" size="default" placeholder="类型" clearable>
+                    <el-option v-for="(meta, key) in PM_ITEM_TYPE_MAP" :key="key" :label="meta.label" :value="key" />
+                  </el-select>
+                  <el-select v-model="filterPriority" class="pm-toolbar-select" size="default" placeholder="优先级" clearable>
+                    <el-option v-for="(meta, key) in PM_PRIORITY_MAP" :key="key" :label="meta.label" :value="key" />
+                  </el-select>
+                  <div class="pm-status-filter-wrap pm-toolbar-select pm-toolbar-select--status">
+                    <span class="pm-status-filter-label">状态筛选</span>
+                    <el-select
+                      v-model="selectedStatuses"
+                      class="pm-status-filter-select"
+                      size="default"
+                      multiple
+                      collapse-tags
+                      placeholder="状态筛选"
+                    >
+                      <el-option v-for="column in PM_STATUS_COLUMNS" :key="column.key" :label="column.label" :value="column.key" />
+                    </el-select>
+                  </div>
+                  <el-button class="pm-toolbar-secondary-btn" type="default" @click="openSiyuanDrawer">思源设置</el-button>
+                </div>
+              </div>
             </div>
-          </div>
-          <div class="toolbar-row toolbar-filters">
-            <el-input
-              v-model="searchText"
-              size="default"
-              placeholder="搜索工作项..."
-              clearable
-              style="width: 180px"
-            />
-            <el-select v-model="filterType" size="default" placeholder="类型" clearable style="width: 100px">
-              <el-option v-for="(meta, key) in PM_ITEM_TYPE_MAP" :key="key" :label="meta.label" :value="key" />
-            </el-select>
-            <el-select v-model="filterPriority" size="default" placeholder="优先级" clearable style="width: 100px">
-              <el-option v-for="(meta, key) in PM_PRIORITY_MAP" :key="key" :label="meta.label" :value="key" />
-            </el-select>
-            <div class="pm-status-filter-wrap">
-              <span class="pm-status-filter-label">状态筛选</span>
-              <el-select
-                v-model="selectedStatuses"
-                class="pm-status-filter-select"
-                size="default"
-                multiple
-                collapse-tags
-                placeholder="状态筛选"
-              >
-                <el-option v-for="column in PM_STATUS_COLUMNS" :key="column.key" :label="column.label" :value="column.key" />
-              </el-select>
-            </div>
-            <el-button type="default" @click="openSiyuanDrawer">思源设置</el-button>
           </div>
         </div>
 
@@ -941,7 +969,7 @@
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount, reactive } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import zhCn from "element-plus/es/locale/lang/zh-cn";
-import { Plus, Close, Top, CaretRight, AlarmClock } from "@element-plus/icons-vue";
+import { Plus, Close, Top, CaretRight, AlarmClock, Search } from "@element-plus/icons-vue";
 import { useToolInvoke } from "../composables/useToolInvoke";
 import { getSetting, getSettingJson, setSetting, setSettingJson } from "../composables/useSettings";
 import type {
@@ -3405,6 +3433,7 @@ onBeforeUnmount(() => {
 }
 
 .sidebar-header {
+  position: relative;
   padding: 0 2px 14px;
   margin-bottom: 10px;
 }
@@ -3417,18 +3446,31 @@ onBeforeUnmount(() => {
   color: var(--pm-text-muted);
 }
 
-.sidebar-title {
-  font-size: 18px;
-  font-weight: 700;
-  line-height: 1.2;
-  color: var(--pm-text-main);
-}
-
 .sidebar-create-btn {
+  position: absolute;
+  right: 2px;
+  top: 2px;
   min-height: 36px;
   padding-inline: 14px;
   border-radius: 12px;
   box-shadow: 0 10px 22px rgba(77, 125, 242, 0.2);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(-4px);
+  transition:
+    opacity 0.18s ease,
+    visibility 0.18s ease,
+    transform 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.sidebar-header:hover .sidebar-create-btn,
+.sidebar-header:focus-within .sidebar-create-btn {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateY(0);
 }
 
 .sidebar-overview-card {
@@ -3568,6 +3610,21 @@ onBeforeUnmount(() => {
   min-width: 0;
 }
 
+.project-pending-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-left: auto;
+  min-width: 24px;
+  justify-content: center;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(77, 125, 242, 0.10);
+  color: var(--pm-accent);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+}
+
 .project-card .project-color,
 .sidebar-overview-card .project-color {
   width: 10px;
@@ -3580,23 +3637,6 @@ onBeforeUnmount(() => {
   font-size: 14px;
   font-weight: 600;
   color: var(--pm-text-main);
-}
-
-.project-card .project-count,
-.sidebar-overview-card .project-count {
-  min-width: 28px;
-  padding: 0 8px;
-  line-height: 22px;
-  font-size: 12px;
-  font-weight: 700;
-  text-align: center;
-  color: var(--pm-accent);
-  background: rgba(77, 125, 242, 0.1);
-  border-radius: 999px;
-}
-
-.project-card .project-count {
-  margin-left: auto;
 }
 
 .overview-color {
@@ -3619,10 +3659,261 @@ onBeforeUnmount(() => {
 }
 
 .pm-toolbar {
-  padding: 14px 18px;
+  padding: 16px 18px 14px;
   border-bottom: 1px solid var(--pm-edge);
-  background: rgba(244, 247, 251, 0.88);
-  backdrop-filter: blur(12px);
+  background: rgba(244, 247, 251, 0.72);
+  backdrop-filter: blur(16px);
+}
+
+.pm-toolbar-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.92);
+  border-radius: 22px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(245, 249, 255, 0.9)),
+    radial-gradient(circle at top left, rgba(77, 125, 242, 0.09), transparent 36%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.8),
+    0 14px 30px rgba(34, 48, 66, 0.08);
+}
+
+.toolbar-row {
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.pm-toolbar-head {
+  align-items: center;
+}
+
+.pm-toolbar-controls {
+  align-items: flex-end;
+  width: 100%;
+}
+
+.pm-toolbar-filter-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid rgba(219, 229, 241, 0.95);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.62);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  flex-wrap: wrap;
+}
+
+.pm-toolbar-context {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  flex: 1 1 300px;
+}
+
+.pm-toolbar-context-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  flex-shrink: 0;
+  box-shadow: 0 0 0 4px rgba(77, 125, 242, 0.12);
+}
+
+.pm-toolbar-context-dot.is-overview {
+  background: linear-gradient(135deg, #4d7df2, #73a0ff 46%, #88c9ff 100%);
+}
+
+.pm-toolbar-context-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.pm-toolbar-context-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.pm-toolbar-project-tag {
+  border-radius: 999px;
+}
+
+.pm-toolbar-head-actions {
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.pm-view-switch {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 10px;
+  border: 1px solid var(--pm-edge-soft);
+  border-radius: 18px;
+  background: rgba(245, 249, 255, 0.82);
+}
+
+.pm-view-switch-toggle {
+  --el-switch-on-color: #4d7df2;
+  --el-switch-off-color: #7eb8f7;
+}
+
+:deep(.pm-view-switch-toggle .el-switch__core) {
+  min-width: 54px;
+  height: 30px;
+  border: 0;
+  border-radius: 999px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.46),
+    0 6px 14px rgba(34, 48, 66, 0.08);
+}
+
+:deep(.pm-view-switch-toggle .el-switch__action) {
+  width: 24px;
+  height: 24px;
+  left: 3px;
+  box-shadow: 0 3px 8px rgba(15, 23, 42, 0.18);
+}
+
+:deep(.pm-view-switch-toggle.is-checked .el-switch__core .el-switch__action) {
+  left: calc(100% - 27px);
+}
+
+:deep(.pm-view-switch-toggle .el-switch__label) {
+  color: #6c8099;
+  font-size: 13px;
+  font-weight: 700;
+  transition: color 0.18s ease;
+}
+
+:deep(.pm-view-switch-toggle .el-switch__label.is-active) {
+  color: var(--pm-text-main);
+}
+
+.pm-toolbar-primary-btn {
+  min-height: 42px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #4d7df2, #3d6ef0);
+  box-shadow: 0 12px 24px rgba(77, 125, 242, 0.22);
+}
+
+.pm-toolbar-primary-btn:hover {
+  background: linear-gradient(180deg, #5a88f5, #4674ef);
+}
+
+.pm-toolbar-primary-btn :deep(.el-icon) {
+  margin-right: 2px;
+}
+
+.pm-toolbar-search-wrap {
+  display: flex;
+  flex-direction: column;
+  min-width: 260px;
+  flex: 1 1 320px;
+}
+
+.pm-toolbar-search-input {
+  width: 100%;
+}
+
+.pm-toolbar-search-input :deep(.el-input__wrapper) {
+  min-height: 42px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: inset 0 0 0 1px rgba(77, 125, 242, 0.12);
+  transition: box-shadow 0.18s ease, border-color 0.18s ease;
+}
+
+.pm-toolbar-search-input :deep(.el-input__wrapper.is-focus) {
+  box-shadow:
+    inset 0 0 0 1px rgba(77, 125, 242, 0.32),
+    0 10px 20px rgba(77, 125, 242, 0.10);
+}
+
+.pm-toolbar-search-input :deep(.el-input__inner) {
+  font-size: 13px;
+  color: var(--pm-text-main);
+}
+
+.pm-toolbar-search-icon {
+  color: #7a90a8;
+  font-size: 15px;
+}
+
+.pm-toolbar-filter-cluster {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+}
+
+.pm-toolbar-select {
+  width: 108px;
+  flex-shrink: 0;
+}
+
+.pm-toolbar-select.pm-toolbar-select--status {
+  width: 138px;
+}
+
+.pm-toolbar-select :deep(.el-select__wrapper) {
+  min-height: 42px;
+  padding: 0 12px;
+  border-radius: 14px;
+  border-color: rgba(77, 125, 242, 0.12);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: none;
+  transition: box-shadow 0.18s ease, border-color 0.18s ease;
+}
+
+.pm-toolbar-select :deep(.el-select__wrapper.is-focused) {
+  box-shadow: 0 10px 20px rgba(77, 125, 242, 0.10);
+}
+
+.pm-toolbar-select :deep(.el-select__placeholder),
+.pm-toolbar-select .pm-status-filter-label {
+  color: #5a748f;
+  font-weight: 600;
+}
+
+.pm-status-filter-wrap.pm-toolbar-select {
+  position: relative;
+}
+
+.pm-status-filter-wrap.pm-toolbar-select .pm-status-filter-label {
+  left: 14px;
+  top: 50%;
+  font-size: 13px;
+}
+
+.pm-status-filter-wrap.pm-toolbar-select :deep(.el-select__wrapper) {
+  min-height: 42px;
+  border-radius: 14px;
+}
+
+.pm-toolbar-secondary-btn {
+  min-height: 42px;
+  padding: 0 14px;
+  border-radius: 14px;
+  border-color: rgba(77, 125, 242, 0.12);
+  background: rgba(245, 249, 255, 0.9);
+  color: var(--pm-text-main);
+}
+
+.pm-toolbar-secondary-btn:hover {
+  border-color: rgba(77, 125, 242, 0.22);
+  background: rgba(240, 246, 255, 0.98);
 }
 
 .project-title-display {
@@ -3633,13 +3924,6 @@ onBeforeUnmount(() => {
 
 .pm-status-filter-label {
   color: var(--pm-text-main);
-}
-
-.pm-status-filter-select :deep(.el-select__wrapper) {
-  border-radius: 8px;
-  border-color: rgba(77, 125, 242, 0.14);
-  background: rgba(255, 255, 255, 0.96);
-  box-shadow: none;
 }
 
 .kanban-board {
@@ -4056,6 +4340,94 @@ onBeforeUnmount(() => {
 
 .detail-actions :deep(.el-button) {
   flex: 1;
+}
+
+@media (max-width: 1380px) {
+  .pm-toolbar-controls {
+    align-items: stretch;
+  }
+
+  .pm-toolbar-filter-bar {
+    align-items: stretch;
+  }
+}
+
+@media (max-width: 1120px) {
+  .pm-toolbar-shell {
+    padding: 14px;
+    border-radius: 20px;
+  }
+
+  .pm-toolbar-head {
+    align-items: flex-start;
+  }
+
+  .pm-toolbar-head-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .pm-toolbar-controls {
+    flex-direction: column;
+  }
+
+  .pm-toolbar-filter-bar,
+  .pm-toolbar-search-wrap,
+  .pm-toolbar-filter-cluster {
+    width: 100%;
+    flex: 1 1 auto;
+  }
+
+  .pm-toolbar-filter-cluster {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 820px) {
+  .pm-toolbar {
+    padding: 14px 14px 12px;
+  }
+
+  .pm-toolbar-head-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .pm-view-switch {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .pm-toolbar-primary-btn {
+    width: 100%;
+  }
+
+  .pm-toolbar-filter-bar {
+    padding: 10px;
+  }
+
+  .pm-toolbar-filter-cluster {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: stretch;
+  }
+
+  .pm-toolbar-select,
+  .pm-toolbar-select.pm-toolbar-select--status,
+  .pm-toolbar-secondary-btn {
+    width: 100%;
+  }
+}
+
+@media (max-width: 560px) {
+  .pm-toolbar-filter-cluster {
+    grid-template-columns: 1fr;
+  }
+
+  .pm-view-switch {
+    flex-direction: column;
+    align-items: stretch;
+  }
 }
 
 @media (max-width: 1280px) {
