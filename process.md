@@ -8,6 +8,43 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-04-06: Windows 正式发版前先处理版本号与已存在 tag 冲突
+
+**场景**: 用户要求直接开始打包编译新版本并推送到 GitHub Release；仓库已存在上一版 `v0.2.6` tag，本地 4 处版本文件仍停留在 `0.2.6`。
+
+**问题**:
+1. `scripts/release-all-win.ps1` 会强校验 `package.json`、`apps/desktop/package.json`、`apps/desktop/src-tauri/Cargo.toml`、`apps/desktop/src-tauri/tauri.conf.json` 四处版本完全一致，并要求传入 tag 必须等于 `v<version>`。
+2. 远端如果已经存在同名 tag，继续沿用旧版本号会在发布阶段直接撞上旧 tag，无法当成“新版本”重新发。
+3. 发布脚本在上传 GitHub Release 前会要求当前分支为 `main` 且工作区干净，因此版本更新、经验记录这类改动必须先提交，不能留到脚本执行中途。
+
+**解决**:
+1. 先用 `git tag --list` / `git ls-remote --tags origin` 确认目标版本 tag 是否已存在，再和用户确认新的发布版本号。
+2. 把新版本统一写入上述 4 个文件后，先执行：
+   - `pnpm typecheck`
+   - `pnpm --filter @lazycat/desktop build:web`
+   - `pnpm test`
+3. 校验通过后，先提交版本变更，再执行 `pnpm release:all:win -- -Tag vX.Y.Z`，让脚本完成构建、推送 `main`、推送 tag 和 GitHub Release 上传。
+
+**关键点**:
+1. 发布前先查 tag 是否已存在，比等脚本跑到最后再失败更省时间。
+2. 这个项目的正式发版版本源只有 4 处；只改其中一部分会被脚本直接拦下。
+3. 只要要走 GitHub Release，发布脚本就要求干净工作区，因此“版本号修改”和“提交版本号”是正式发版链路的一部分。
+
+**涉及文件**:
+- `package.json`
+- `apps/desktop/package.json`
+- `apps/desktop/src-tauri/Cargo.toml`
+- `apps/desktop/src-tauri/tauri.conf.json`
+- `scripts/release-all-win.ps1`
+- `process.md`
+
+**验证**:
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+- `pnpm test`
+
+**使用次数**: 0
+
 ## 2026-04-06: 项目管理甘特图周末日期坐标增加红色圆底
 
 **场景**: 用户要求在项目管理甘特图的时间轴坐标里，为周末日期加一个红色圆底；同时明确不改已有周末整列淡色提示，只增强顶部日期数字本身。
