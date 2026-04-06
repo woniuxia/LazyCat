@@ -36,6 +36,7 @@ import {
   buildPmGanttPopupHtml,
   buildPmGanttTasks,
   clampPmGanttPopupPosition,
+  computePmGanttInitialScrollLeft,
   countPmGanttUnscheduledItems,
 } from "../utils/pmGantt";
 import type { PmGanttTask } from "../utils/pmGantt";
@@ -66,11 +67,14 @@ let dragTimer: ReturnType<typeof setTimeout> | null = null;
 let skipNextRefresh = false;
 let ganttViewportEl: HTMLElement | null = null;
 let popupObserver: MutationObserver | null = null;
+let didApplyInitialScroll = false;
+let initialScrollFrame: number | null = null;
 
 const GANTT_POPUP_GAP = 10;
 
 type GanttWithInternalOptions = Gantt & {
   options?: {
+    infinite_padding?: boolean;
     scroll_to?: string | null;
   };
 };
@@ -131,6 +135,21 @@ function getGanttPopupWrapper(): HTMLElement | null {
   return getGanttViewport()?.querySelector<HTMLElement>(".popup-wrapper") ?? null;
 }
 
+function getCurrentHighlight(): HTMLElement | null {
+  return getGanttViewport()?.querySelector<HTMLElement>(".current-highlight") ?? null;
+}
+
+function stripGanttBarAnimations() {
+  if (!ganttRef.value) return;
+
+  // frappe-gantt 会给 bar / progress rect 注入 <animate>，导致任务条从左往右“长出来”。
+  // PM 视图这里统一移除这些节点，保留静态最终宽度。
+  const animations = ganttRef.value.querySelectorAll(".bar-group animate");
+  for (const animation of animations) {
+    animation.remove();
+  }
+}
+
 function unbindGanttViewportScroll() {
   if (!ganttViewportEl) return;
   ganttViewportEl.removeEventListener("scroll", onViewportScroll);
@@ -146,6 +165,72 @@ function bindGanttViewportScroll() {
 function disconnectPopupObserver() {
   popupObserver?.disconnect();
   popupObserver = null;
+}
+
+function cancelInitialScrollFrame() {
+  if (initialScrollFrame === null) return;
+  cancelAnimationFrame(initialScrollFrame);
+  initialScrollFrame = null;
+}
+
+function resetInitialScrollState() {
+  didApplyInitialScroll = false;
+  cancelInitialScrollFrame();
+}
+
+function markInitialScrollHandled() {
+  didApplyInitialScroll = true;
+  cancelInitialScrollFrame();
+}
+
+function scheduleInitialScrollRetry(attempt: number) {
+  cancelInitialScrollFrame();
+  initialScrollFrame = requestAnimationFrame(() => {
+    initialScrollFrame = null;
+    applyInitialScroll(attempt);
+  });
+}
+
+function applyInitialScroll(attempt = 0) {
+  if (didApplyInitialScroll) return;
+
+  const viewport = getGanttViewport();
+  if (!viewport || viewport.clientWidth <= 0 || viewport.scrollWidth <= 0) {
+    if (attempt === 0) {
+      scheduleInitialScrollRetry(1);
+      return;
+    }
+    markInitialScrollHandled();
+    return;
+  }
+
+  if (viewport.scrollWidth <= viewport.clientWidth) {
+    viewport.scrollLeft = 0;
+    markInitialScrollHandled();
+    return;
+  }
+
+  const highlight = getCurrentHighlight();
+  if (!highlight) {
+    if (attempt === 0) {
+      scheduleInitialScrollRetry(1);
+      return;
+    }
+    markInitialScrollHandled();
+    return;
+  }
+
+  const viewportRect = viewport.getBoundingClientRect();
+  const highlightRect = highlight.getBoundingClientRect();
+  const currentX = highlightRect.left - viewportRect.left + viewport.scrollLeft;
+  const targetScrollLeft = computePmGanttInitialScrollLeft({
+    currentX,
+    viewportWidth: viewport.clientWidth,
+    scrollWidth: viewport.scrollWidth,
+  });
+
+  viewport.scrollLeft = targetScrollLeft;
+  markInitialScrollHandled();
 }
 
 function repositionPopupWithinViewport() {
@@ -203,6 +288,7 @@ function cleanupGanttDomBindings() {
 }
 
 function clearGantt() {
+  resetInitialScrollState();
   cleanupGanttDomBindings();
   ganttInstance?.hide_popup();
   ganttInstance = null;
@@ -217,12 +303,14 @@ function renderGantt() {
     return;
   }
 
-  ganttRef.value.innerHTML = "";
+  clearGantt();
   ganttInstance = new Gantt(ganttRef.value, ganttTasks.value, {
     view_mode: ganttViewMode.value,
     date_format: "YYYY-MM-DD",
+    infinite_padding: true,
     language: "zh",
     popup_on: "hover",
+    scroll_to: "start",
     popup: (context) => buildPmGanttPopupHtml(context.task as PmGanttTask, {
       showProjectMeta: props.showProjectMeta,
     }),
@@ -249,6 +337,8 @@ function renderGantt() {
       }, 300);
     },
   });
+  stripGanttBarAnimations();
+  applyInitialScroll();
   bindGanttViewportScroll();
   observePopupPosition();
   syncGanttBarStateClasses();
@@ -258,6 +348,7 @@ function changeViewMode(mode: string) {
   ganttInstance?.hide_popup();
   emit("view-change", mode);
   ganttInstance?.change_view_mode(mode, true);
+  stripGanttBarAnimations();
   nextTick(syncGanttBarStateClasses);
 }
 
@@ -325,6 +416,7 @@ watch(
         if (internalGantt.options) {
           internalGantt.options.scroll_to = previousScrollTo;
         }
+        stripGanttBarAnimations();
         syncGanttBarStateClasses();
         requestAnimationFrame(() => {
           const restoredViewport = getGanttViewport();
@@ -359,7 +451,8 @@ onBeforeUnmount(() => {
 }
 
 .gantt-toolbar {
-  padding: 8px 12px;
+  min-height: 50px;
+  padding: 14px 16px;
   display: flex;
   align-items: center;
   justify-content: space-between;

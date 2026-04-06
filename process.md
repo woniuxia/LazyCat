@@ -8,6 +8,49 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-04-06: 项目管理甘特图首次进入定位改为项目层无动画接管
+
+**场景**: 用户要求按 `2026-04-06-pm-gantt-initial-scroll-design.md` 实现项目管理甘特图首次进入定位：保留“默认看今天附近”，去掉每次进入时从左向右的平滑滑动，并让 today 落在视口左侧约三分之一处。实现后又追加收口：虽然视口不再滚动，但任务条本身仍会从左往右长出来，也需要一起去掉。
+
+**问题**:
+1. `PmGanttView.vue` 每次进入都会新建 `frappe-gantt` 实例；若不覆盖配置，库会沿用默认 `scroll_to: 'today'`，重新触发一次 smooth scroll。
+2. 现有组件已经在 `refresh()` 和 `change_view_mode(..., true)` 链路上做了“保持当前滚动位置”，如果把首次定位逻辑混进这些链路，容易误伤用户手动滚动后的视口。
+3. 仅靠 PM 侧自己镜像日期差值算法并不稳，因为 `frappe-gantt` 在不同 view mode / infinite padding 下本身就有内部时间轴换算与 DOM 偏移。
+4. 初次渲染时 `.gantt-container` 和 `.current-highlight` 可能晚一帧才稳定，若直接同步计算，容易出现“没定位到 today”或反复重试。
+5. 即使关掉了视口滚动，`frappe-gantt` 仍会在 `bar.js` 里通过 SVG `<animate>` 把 `bar` / `bar-progress` 的宽度从 `0` 补到最终值，因此用户还会看到项目条目“从左往右出现”。
+
+**解决**:
+1. 新实例创建时显式传入 `scroll_to: 'start'` 和 `infinite_padding: true`，先确定性绕开库内部 `scrollTo({ behavior: 'smooth' })` 的 today 默认路径。
+2. 在 `pmGantt.ts` 新增纯函数 `computePmGanttInitialScrollLeft`，只负责“today 左侧三分之一落点 + 0/max 边界钳制”，不感知 DOM。
+3. `PmGanttView.vue` 中新增一次性初始定位状态：
+   - 新实例创建后立即尝试读取 `.gantt-container` 与 `.current-highlight`
+   - 若尺寸或高亮未就绪，仅补一次 `requestAnimationFrame`
+   - 第二次仍不可用则直接放弃，保留 `scroll_to: 'start'` 的起始落点
+4. `today` 坐标统一按真实 DOM 计算：
+   - `currentX = (highlightRect.left - viewportRect.left) + viewport.scrollLeft`
+   - 不再使用 `offsetLeft` 或手写日期差值镜像
+5. 初始定位只在新实例创建后执行一次；`refresh()` 和 `change_view_mode(..., true)` 继续沿用现有滚动保持逻辑，不读取也不重置首次定位标记。
+6. 对条目本身的默认 SVG 宽度动画，不去 patch 第三方包，而是在 `PmGanttView.vue` 渲染后统一移除 `.bar-group animate` 节点；新建实例、切视图和 `refresh()` 后都要执行一次，确保条目直接以最终宽度出现。
+
+**关键点**:
+1. 只要目标是“保留 today 语义但取消动画”，优先用 `scroll_to: 'start'` 把第三方默认滚动关掉，再由项目层直接写 `scrollLeft`，比 patch 依赖更稳。
+2. 对第三方时间轴组件做定位时，优先读它已经渲染出来的真实锚点 DOM，而不是在业务层复制一套坐标算法。
+3. “首次定位”必须和“同实例刷新/切视图的滚动保持”分开建模；前者是一次性初始化，后者是用户上下文保持，不能混在一个状态里。
+4. 对首帧未稳定场景只补一帧重试即可，再多会引入闪动和状态复杂度；失败时安静降级到起始位置比持续纠偏更稳。
+5. 如果用户反馈“已经不滚动了，但任务条还会自己展开”，优先检查第三方是否注入了 SVG `<animate>`，这和 CSS transition 不是一类问题。
+
+**涉及文件**:
+- `apps/desktop/src/components/PmGanttView.vue`
+- `apps/desktop/src/utils/pmGantt.ts`
+- `apps/desktop/src/utils/pmGantt.test.ts`
+
+**验证**:
+- `pnpm --filter @lazycat/desktop test src/utils/pmGantt.test.ts`
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+
+**使用次数**: 0
+
 ## 2026-04-05: 项目管理状态筛选从甘特专用迁移为共享工具栏筛选
 
 **场景**: 用户要求把项目管理里“当前甘特图至少筛选状态进行任务显示”的能力拓展到看板视图，同时把入口改成顶部工具栏里的多选下拉，并要求同步把“可视化辅助默认开启”写进 `AGENTS.md` / `CLAUDE.md`。

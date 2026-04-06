@@ -7,6 +7,7 @@ import {
   buildPmGanttTask,
   buildPmGanttTasks,
   clampPmGanttPopupPosition,
+  computePmGanttInitialScrollLeft,
   countPmGanttUnscheduledItems,
   getPmGanttProgress,
 } from "./pmGantt";
@@ -161,5 +162,45 @@ describe("pmGantt", () => {
 
     expect(position.left).toBe(300);
     expect(position.top).toBe(170);
+  });
+
+  it("首次进入时将 today 定位到视口左侧约三分之一处", () => {
+    const scrollLeft = computePmGanttInitialScrollLeft({
+      currentX: 900,
+      viewportWidth: 600,
+      scrollWidth: 2400,
+    });
+
+    expect(scrollLeft).toBe(700);
+  });
+
+  it("目标值小于零时钳制到零", () => {
+    const scrollLeft = computePmGanttInitialScrollLeft({
+      currentX: 120,
+      viewportWidth: 600,
+      scrollWidth: 2400,
+    });
+
+    expect(scrollLeft).toBe(0);
+  });
+
+  it("目标值超过最大滚动值时钳制到最大值", () => {
+    const scrollLeft = computePmGanttInitialScrollLeft({
+      currentX: 1780,
+      viewportWidth: 600,
+      scrollWidth: 2000,
+    });
+
+    expect(scrollLeft).toBe(1400);
+  });
+
+  it("无需横向滚动时返回零", () => {
+    const scrollLeft = computePmGanttInitialScrollLeft({
+      currentX: 380,
+      viewportWidth: 800,
+      scrollWidth: 800,
+    });
+
+    expect(scrollLeft).toBe(0);
   });
 });

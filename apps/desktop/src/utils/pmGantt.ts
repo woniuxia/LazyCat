@@ -39,6 +39,12 @@ export interface PmGanttPopupPosition {
   top: number;
 }
 
+export interface PmGanttInitialScrollInput {
+  currentX: number;
+  viewportWidth: number;
+  scrollWidth: number;
+}
+
 const STATUS_PROGRESS_MAP: Record<PmItemStatus, number> = {
   todo: 0,
   in_progress: 40,
@@ -102,6 +108,19 @@ export function clampPmGanttPopupPosition(
     left: Math.min(Math.max(left, viewportLeft), Math.max(viewportLeft, viewportRight - input.popupWidth)),
     top: Math.min(Math.max(top, viewportTop), Math.max(viewportTop, viewportBottom - input.popupHeight)),
   };
+}
+
+export function computePmGanttInitialScrollLeft(
+  input: PmGanttInitialScrollInput,
+): number {
+  if (input.viewportWidth <= 0 || input.scrollWidth <= input.viewportWidth) {
+    return 0;
+  }
+
+  const maxScrollLeft = Math.max(0, input.scrollWidth - input.viewportWidth);
+  const targetScrollLeft = input.currentX - input.viewportWidth / 3;
+
+  return Math.min(Math.max(targetScrollLeft, 0), maxScrollLeft);
 }
 
 export function buildPmGanttTask(item: PmItem): PmGanttTask {
