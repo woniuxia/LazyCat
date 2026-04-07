@@ -1,7 +1,7 @@
 <template>
-  <el-config-provider :locale="zhCn">
   <div class="pm-panel">
-    <div class="pm-layout">
+    <el-config-provider :locale="zhCn">
+      <div class="pm-layout">
       <!-- Left: Project list -->
       <aside class="pm-sidebar">
         <div class="sidebar-header">
@@ -961,8 +961,8 @@
         <el-button @click="siyuanPageDialogVisible = false">关闭</el-button>
       </template>
     </el-dialog>
+    </el-config-provider>
   </div>
-  </el-config-provider>
 </template>
 
 <script setup lang="ts">
