@@ -3,7 +3,7 @@
     <!-- Base64 -->
     <div v-if="activeTool === 'base64'" class="panel-grid">
       <div class="panel-grid-full">
-        <el-radio-group v-model="base64UrlSafe" size="small">
+        <el-radio-group :model-value="base64UrlSafe" size="small" @update:model-value="handleBase64TypeChange">
           <el-radio-button :value="false">Standard</el-radio-button>
           <el-radio-button :value="true">URL-safe</el-radio-button>
         </el-radio-group>
@@ -127,8 +127,10 @@
 </template>
 
 <script lang="ts">
+type PersistedBase64ManualChoice = "standard" | "url-safe" | null;
+
 const encodeState = {
-  base64Input: "", base64Output: "", base64UrlSafe: false,
+  base64Input: "", base64Output: "", base64UrlSafe: false, base64ManualChoice: null as PersistedBase64ManualChoice,
   urlInput: "", urlOutput: "",
   md5Input: "", md5Output: "",
   qrInput: "", qrDataUrl: "",
@@ -137,16 +139,25 @@ const encodeState = {
 </script>
 
 <script setup lang="ts">
-import { onBeforeUnmount, ref } from "vue";
+import { onBeforeUnmount, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { invokeToolByChannel } from "../bridge/tauri";
 import { useClipboardSuggestion } from "../composables/useClipboardSuggestion";
+import {
+  detectBase64Kind,
+  resolveBase64DecodeKind,
+  type Base64DetectedKind,
+  type Base64ManualChoice,
+  type Base64ResolvedKind,
+} from "../utils/base64";
 
 const props = defineProps<{ activeTool: string }>();
 
 const base64Input = ref(encodeState.base64Input);
 const base64Output = ref(encodeState.base64Output);
 const base64UrlSafe = ref(encodeState.base64UrlSafe);
+const base64ManualChoice = ref<Base64ManualChoice>(encodeState.base64ManualChoice);
+const detectedBase64Kind = ref<Base64DetectedKind>("none");
 
 const urlInput = ref(encodeState.urlInput);
 const urlOutput = ref(encodeState.urlOutput);
@@ -169,9 +180,19 @@ async function call(channel: string, payload: Record<string, unknown>): Promise<
 
 async function runBase64(mode: "encode" | "decode") {
   try {
+    const decodeKind = mode === "decode"
+      ? resolveBase64DecodeKind({
+          detectedKind: detectAndSyncBase64Kind(base64Input.value),
+          manualChoice: base64ManualChoice.value,
+          currentKind: getCurrentBase64Kind(),
+        })
+      : null;
+    if (decodeKind) {
+      setBase64DisplayKind(decodeKind);
+    }
     const channel = mode === "encode"
       ? (base64UrlSafe.value ? "tool:encode:base64-url-encode" : "tool:encode:base64-encode")
-      : (base64UrlSafe.value ? "tool:encode:base64-url-decode" : "tool:encode:base64-decode");
+      : (decodeKind === "url-safe" ? "tool:encode:base64-url-decode" : "tool:encode:base64-decode");
     base64Output.value = await call(channel, { input: base64Input.value });
   } catch (e) {
     ElMessage.error((e as Error).message);
@@ -186,6 +207,8 @@ function swapBase64() {
 function clearBase64() {
   base64Input.value = "";
   base64Output.value = "";
+  base64ManualChoice.value = null;
+  detectedBase64Kind.value = "none";
 }
 
 async function runUrl(mode: "encode" | "decode") {
@@ -267,6 +290,44 @@ async function copyOutput(text: string) {
   }
 }
 
+function getCurrentBase64Kind(): Base64ResolvedKind {
+  return base64UrlSafe.value ? "url-safe" : "standard";
+}
+
+function setBase64DisplayKind(kind: Base64ResolvedKind) {
+  base64UrlSafe.value = kind === "url-safe";
+}
+
+function detectAndSyncBase64Kind(input: string): Base64DetectedKind {
+  const detectedKind = detectBase64Kind(input);
+  detectedBase64Kind.value = detectedKind;
+
+  if (detectedKind === "standard" || detectedKind === "url-safe") {
+    setBase64DisplayKind(detectedKind);
+    return detectedKind;
+  }
+
+  if (detectedKind === "ambiguous") {
+    setBase64DisplayKind(base64ManualChoice.value ?? "standard");
+  }
+
+  return detectedKind;
+}
+
+function handleBase64TypeChange(value: string | number | boolean) {
+  const urlSafe = Boolean(value);
+  base64UrlSafe.value = urlSafe;
+  base64ManualChoice.value = urlSafe ? "url-safe" : "standard";
+}
+
+watch(base64Input, (value) => {
+  if (value === "") {
+    base64ManualChoice.value = null;
+  }
+
+  detectAndSyncBase64Kind(value);
+}, { immediate: true });
+
 const { watchPendingInput } = useClipboardSuggestion();
 watchPendingInput(() => props.activeTool, (text) => {
   if (props.activeTool === "base64") base64Input.value = text;
@@ -277,6 +338,7 @@ onBeforeUnmount(() => {
   encodeState.base64Input = base64Input.value;
   encodeState.base64Output = base64Output.value;
   encodeState.base64UrlSafe = base64UrlSafe.value;
+  encodeState.base64ManualChoice = base64ManualChoice.value;
   encodeState.urlInput = urlInput.value;
   encodeState.urlOutput = urlOutput.value;
   encodeState.md5Input = md5Input.value;

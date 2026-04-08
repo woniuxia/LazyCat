@@ -2,7 +2,7 @@
   <div class="weekly-panel">
     <div class="weekly-header">
       <div class="header-left">
-        <h3>最近 7 天工作</h3>
+        <h3>本周工作</h3>
         <span class="window-hint">{{ windowHint }}</span>
       </div>
       <el-button size="small" @click="loadData" :loading="loading">刷新</el-button>
@@ -30,8 +30,9 @@
             </div>
             <div class="item-meta">
               <el-tag v-if="item.itemType" size="small" type="info">{{ itemTypeLabel(item.itemType) }}</el-tag>
+              <el-tag v-if="item.source === 'pm'" size="small" effect="plain">{{ statusLabel(item.status) }}</el-tag>
               <span class="item-priority" :style="{ color: priorityColor(item.priority) }">{{ item.priority }}</span>
-              <span class="item-time">{{ formatTime(item.completedAt) }}</span>
+              <span class="item-time">{{ formatItemTime(item) }}</span>
             </div>
           </div>
         </div>
@@ -39,7 +40,7 @@
     </div>
 
     <div v-else-if="!loading" class="weekly-empty">
-      <el-empty description="最近 7 天没有已完成的工作项" />
+      <el-empty description="本周没有命中的工作项" />
     </div>
   </div>
 </template>
@@ -48,7 +49,12 @@
 import { ref, computed, onMounted } from "vue";
 import { useToolInvoke } from "../composables/useToolInvoke";
 import type { WeeklyWorkResult, WeeklyWorkItem } from "../types/pm";
-import { PM_ITEM_TYPE_MAP, PM_PRIORITY_MAP } from "../types/pm";
+import { PM_ITEM_TYPE_MAP, PM_PRIORITY_MAP, PM_STATUS_COLUMNS } from "../types/pm";
+import {
+  formatPmDateForDisplay,
+  formatPmDateRangeForDisplay,
+  normalizePmDateRangeForDraft,
+} from "../utils/pmDate";
 
 const { invoke } = useToolInvoke();
 const loading = ref(false);
@@ -67,7 +73,7 @@ interface WorkGroup {
   projectColor: string | null;
   projectArchived: boolean;
   items: WeeklyWorkItem[];
-  latestCompletedAt: string;
+  latestSortAt: string;
 }
 
 const groupedData = computed<WorkGroup[]>(() => {
@@ -84,19 +90,23 @@ const groupedData = computed<WorkGroup[]>(() => {
         projectColor: item.projectColor ?? null,
         projectArchived: item.projectStatus === "archived",
         items: [],
-        latestCompletedAt: item.completedAt ?? "",
+        latestSortAt: getItemSortAt(item),
       });
     }
     const group = groups.get(key)!;
     group.items.push(item);
-    if (item.completedAt && item.completedAt > group.latestCompletedAt) {
-      group.latestCompletedAt = item.completedAt;
+    const itemSortAt = getItemSortAt(item);
+    if (itemSortAt > group.latestSortAt) {
+      group.latestSortAt = itemSortAt;
     }
   }
 
-  return Array.from(groups.values()).sort((a, b) =>
-    b.latestCompletedAt.localeCompare(a.latestCompletedAt)
-  );
+  return Array.from(groups.values())
+    .map((group) => ({
+      ...group,
+      items: [...group.items].sort((left, right) => getItemSortAt(right).localeCompare(getItemSortAt(left))),
+    }))
+    .sort((a, b) => b.latestSortAt.localeCompare(a.latestSortAt));
 });
 
 async function loadData() {
@@ -118,10 +128,33 @@ function priorityColor(priority: string): string {
   return PM_PRIORITY_MAP[priority as keyof typeof PM_PRIORITY_MAP]?.color ?? "#909399";
 }
 
+function statusLabel(status: string): string {
+  return PM_STATUS_COLUMNS.find((column) => column.key === status)?.label ?? status;
+}
+
 function formatTime(dateStr: string | null): string {
   if (!dateStr) return "";
   const d = new Date(dateStr);
   return d.toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
+function getItemSortAt(item: WeeklyWorkItem): string {
+  return item.sortAt ?? item.completedAt ?? item.endAt ?? item.startAt ?? item.createdAt;
+}
+
+function formatItemTime(item: WeeklyWorkItem): string {
+  if (item.source !== "pm") {
+    return formatTime(item.completedAt);
+  }
+
+  const range = normalizePmDateRangeForDraft(item.startAt, item.endAt);
+  if (!range.startAt || !range.endAt) {
+    return "";
+  }
+  if (range.startAt === range.endAt) {
+    return formatPmDateForDisplay(range.startAt, "short");
+  }
+  return formatPmDateRangeForDisplay(range.startAt, range.endAt, { mode: "short", emptyText: "" });
 }
 
 onMounted(loadData);

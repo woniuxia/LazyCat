@@ -102,7 +102,7 @@ const sidebarItems: SidebarItem[] = [
         { id: "launcher", name: "快捷启动", desc: "常用程序快速启动与管理" },
         { id: "todo", name: "任务清单", desc: "任务与周期事件管理" },
         { id: "pm", name: "项目管理", desc: "项目工作项跟踪与看板" },
-        { id: "weekly-work", name: "本周工作", desc: "最近7天完成工作汇总" },
+        { id: "weekly-work", name: "本周工作", desc: "按本周时间范围汇总工作项" },
         { id: "inbox", name: "收纳箱", desc: "后台剪贴板收件箱与历史整理" },
       ]
     }

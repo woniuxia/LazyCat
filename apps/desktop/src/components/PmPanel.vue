@@ -40,7 +40,7 @@
         <div v-if="sidebarProjects.length > 0" class="sidebar-projects">
           <div class="sidebar-projects-head">
             <span class="sidebar-projects-title">全部项目</span>
-            <span class="sidebar-projects-sort">按任务总数排序</span>
+            <span class="sidebar-projects-sort">活跃项目优先，按任务总数排序</span>
           </div>
           <div
             v-for="p in sidebarProjects"
@@ -100,7 +100,13 @@
                     inactive-value="kanban"
                   />
                 </div>
-                <el-button class="pm-toolbar-primary-btn" type="primary" @click="showCreateItem">
+                <el-button
+                  class="pm-toolbar-primary-btn"
+                  type="primary"
+                  :disabled="!canCreateItemsInCurrentContext"
+                  :title="createItemBlockedReason || undefined"
+                  @click="showCreateItem"
+                >
                   <el-icon><Plus /></el-icon>
                   新建工作项
                 </el-button>
@@ -233,7 +239,17 @@
               </div>
               <div v-if="columnItems(col.key).length === 0 && !draggingItemId" class="column-empty-state">
                 <span class="column-empty-text">{{ col.key === 'todo' ? '暂无待办事项' : col.key === 'done' ? '还没有完成的工作项' : '暂无工作项' }}</span>
-                <el-button v-if="col.key === 'todo'" size="small" type="primary" link @click="showCreateItem">新建工作项</el-button>
+                <el-button
+                  v-if="col.key === 'todo'"
+                  size="small"
+                  type="primary"
+                  link
+                  :disabled="!canCreateItemsInCurrentContext"
+                  :title="createItemBlockedReason || undefined"
+                  @click="showCreateItem"
+                >
+                  新建工作项
+                </el-button>
               </div>
             </div>
           </div>
@@ -1226,6 +1242,21 @@ const itemProjectSwitcherEnabled = computed(
 const itemDialogProject = computed(() =>
   projects.value.find((project) => project.id === itemDialogProjectId.value) ?? null,
 );
+const canCreateItemsInCurrentContext = computed(() => {
+  if (isOverview.value) {
+    return activeProjects.value.length > 0;
+  }
+  return selectedProject.value?.status !== "archived";
+});
+const createItemBlockedReason = computed(() => {
+  if (isOverview.value && activeProjects.value.length === 0) {
+    return "暂无可接收工作项的项目";
+  }
+  if (!isOverview.value && selectedProject.value?.status === "archived") {
+    return "归档项目不能接收工作项";
+  }
+  return "";
+});
 const itemDialogProjectDisplayName = computed(() => {
   if (itemDialogProject.value) {
     return itemDialogProject.value.name;
@@ -1873,6 +1904,10 @@ async function loadProjects() {
 async function loadItems() {
   if (!selectedProjectId.value) {
     items.value = [];
+    await nextTick();
+    if (!draggingItemId.value) {
+      initSortable();
+    }
     return;
   }
   try {
@@ -1882,6 +1917,10 @@ async function loadItems() {
     ElMessage.error((e as Error).message);
   }
   loadItemCounts();
+  await nextTick();
+  if (!draggingItemId.value) {
+    initSortable();
+  }
 }
 
 async function loadItemCounts() {
@@ -2265,6 +2304,10 @@ function onProjectContext(event: MouseEvent, p: PmProject) {
 // ── Item CRUD ────────────────────────────────────────────
 
 function showCreateItem() {
+  if (!canCreateItemsInCurrentContext.value) {
+    ElMessage.warning(createItemBlockedReason.value || "当前项目不能接收工作项");
+    return;
+  }
   editingItem.value = null;
   itemFormProjectId.value = isOverview.value ? (activeProjects.value[0]?.id ?? null) : null;
   itemProjectSwitchMenuVisible.value = false;
@@ -2320,6 +2363,11 @@ function resetItemForm() {
   itemProjectSwitchMenuVisible.value = false;
 }
 
+function formatItemTimestampValue(value: string | Date | null | undefined): string | null {
+  if (!value) return null;
+  return value instanceof Date ? value.toISOString() : value;
+}
+
 async function submitItem() {
   if (!itemForm.value.title.trim()) {
     ElMessage.warning("请输入标题");
@@ -2327,21 +2375,17 @@ async function submitItem() {
   }
   try {
     const normalizedDateRange = normalizePmDateRangeForDraft(itemForm.value.startAt, itemForm.value.endAt);
-    // Format timestamp fields: el-date-picker with type="datetime" may return Date objects
-    const fmtTs = (v: string | Date | null): string | null => {
-      if (!v) return null;
-      return v instanceof Date ? v.toISOString() : v;
-    };
-    const payload = {
-      ...itemForm.value,
+    const payload: Record<string, unknown> = {
+      title: itemForm.value.title,
+      itemType: itemForm.value.itemType,
+      priority: itemForm.value.priority,
+      status: itemForm.value.status,
       startAt: normalizedDateRange.startAt,
       endAt: normalizedDateRange.endAt,
       linkUrl: normalizeItemLinkUrl(itemForm.value.linkUrl) || null,
+      description: itemForm.value.description,
       siyuanPrimaryPage: itemPrimaryPage.value,
       siyuanExtraPages: itemExtraPages.value,
-      startedAt: fmtTs(itemForm.value.startedAt),
-      testingAt: fmtTs(itemForm.value.testingAt),
-      completedAt: fmtTs(itemForm.value.completedAt),
     };
     if (editingItem.value) {
       const targetProjectId = itemFormProjectId.value;
@@ -2355,6 +2399,16 @@ async function submitItem() {
           projectId: targetProjectId,
         });
       }
+
+      const timestampFields = ["startedAt", "testingAt", "completedAt"] as const;
+      for (const field of timestampFields) {
+        const draftValue = formatItemTimestampValue(itemForm.value[field]);
+        const originalValue = formatItemTimestampValue(editingItem.value[field]);
+        if (draftValue !== originalValue) {
+          payload[field] = draftValue;
+        }
+      }
+
       await invoke("tool:pm:item-update", {
         id: editingItem.value.id,
         ...payload,
@@ -2596,17 +2650,20 @@ function initSortable() {
         const newStatus = (evt.to as HTMLElement).dataset.status as PmItemStatus;
         if (!itemId || !newStatus) return;
 
-        const children = Array.from(evt.to.children) as HTMLElement[];
-        const reorderItems = children
-          .filter((c) => c.dataset.id)
-          .map((child, idx) => ({
-            id: parseInt(child.dataset.id ?? "0", 10),
-            sortOrder: idx,
-            status: newStatus,
-          }));
-
         try {
           const oldStatus = (evt.from as HTMLElement).dataset.status;
+          const statusChanged = oldStatus !== newStatus;
+          const children = Array.from(evt.to.children) as HTMLElement[];
+          const reorderItems = children
+            .filter((c) => c.dataset.id)
+            .map((child, idx) => {
+              const payload = {
+                id: parseInt(child.dataset.id ?? "0", 10),
+                sortOrder: idx,
+              };
+              return statusChanged ? { ...payload, status: newStatus } : payload;
+            });
+
           await invoke("tool:pm:item-reorder", { items: reorderItems });
           await loadItems();
           if (oldStatus && oldStatus !== newStatus) {
@@ -2647,9 +2704,8 @@ watch(
 // ── Cross-project drag (sidebar drop) ────────────────────
 
 function onProjectDragOver(p: PmProject) {
-  if (draggingItemId.value) {
-    dropTargetProjectId.value = p.id;
-  }
+  if (!draggingItemId.value) return;
+  dropTargetProjectId.value = p.status === "active" ? p.id : null;
 }
 
 function onProjectDragLeave(p: PmProject) {
@@ -2660,6 +2716,11 @@ function onProjectDragLeave(p: PmProject) {
 
 function onProjectDrop(p: PmProject) {
   if (!draggingItemId.value) return;
+  if (p.status === "archived") {
+    dropTargetProjectId.value = null;
+    ElMessage.warning("归档项目不能接收工作项");
+    return;
+  }
 
   const item = items.value.find((i) => i.id === draggingItemId.value);
   if (!item || item.projectId === p.id) {

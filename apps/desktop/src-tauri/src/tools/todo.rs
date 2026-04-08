@@ -544,9 +544,7 @@ fn compute_next_occurrence(
                 .next()
                 .map(|dt| dt.with_timezone(&Utc)))
         }
-        Err(_) => {
-            Err(format!("不支持的时区: {timezone}"))
-        }
+        Err(_) => Err(format!("不支持的时区: {timezone}")),
     }
 }
 
@@ -1576,7 +1574,8 @@ fn item_list(payload: &Value) -> Result<Value, String> {
     // Attach project info if the column exists
     if has_project_col {
         // Build a cache of project info
-        let mut proj_cache: std::collections::HashMap<i64, (String, String)> = std::collections::HashMap::new();
+        let mut proj_cache: std::collections::HashMap<i64, (String, String)> =
+            std::collections::HashMap::new();
         for item in items.iter_mut() {
             let item_id = item["id"].as_i64().unwrap_or(0);
             let project_id: Option<i64> = conn
@@ -2115,9 +2114,7 @@ fn item_delete(payload: &Value) -> Result<Value, String> {
                     if rule.active {
                         // 计算 base_time
                         let now = Utc::now();
-                        let event_at_dt = cached_event_at
-                            .as_deref()
-                            .and_then(parse_utc_datetime);
+                        let event_at_dt = cached_event_at.as_deref().and_then(parse_utc_datetime);
                         let base_time = event_at_dt
                             .map(|dt| if dt > now { dt } else { now })
                             .unwrap_or(now);

@@ -95,19 +95,15 @@ fn ensure_process_schema(conn: &Connection) -> Result<(), String> {
 fn ensure_schema(conn: &Connection) -> Result<(), String> {
     // 前置修补：为 schema 26 旧数据库补齐 completed_at 列。
     // ALTER TABLE ADD COLUMN 无 IF NOT EXISTS 语法，表不存在或列已存在均会报错，直接忽略。
-    let _ = conn.execute_batch(
-        "ALTER TABLE todo_items ADD COLUMN completed_at TEXT DEFAULT NULL;",
-    );
+    let _ = conn.execute_batch("ALTER TABLE todo_items ADD COLUMN completed_at TEXT DEFAULT NULL;");
 
     // Phase 2: Add project_id to todo_items
-    let _ = conn.execute_batch(
-        "ALTER TABLE todo_items ADD COLUMN project_id INTEGER DEFAULT NULL;",
-    );
+    let _ =
+        conn.execute_batch("ALTER TABLE todo_items ADD COLUMN project_id INTEGER DEFAULT NULL;");
 
     // PM-SiYuan integration: project-level default location override
-    let _ = conn.execute_batch(
-        "ALTER TABLE pm_projects ADD COLUMN siyuan_notebook_id TEXT DEFAULT NULL;",
-    );
+    let _ = conn
+        .execute_batch("ALTER TABLE pm_projects ADD COLUMN siyuan_notebook_id TEXT DEFAULT NULL;");
     let _ = conn.execute_batch(
         "ALTER TABLE pm_projects ADD COLUMN siyuan_notebook_name TEXT DEFAULT NULL;",
     );
@@ -117,43 +113,28 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
     let _ = conn.execute_batch(
         "ALTER TABLE pm_projects ADD COLUMN siyuan_parent_doc_title TEXT DEFAULT NULL;",
     );
-    let _ = conn.execute_batch(
-        "ALTER TABLE pm_projects ADD COLUMN siyuan_parent_hpath TEXT DEFAULT NULL;",
-    );
-    let _ = conn.execute_batch(
-        "ALTER TABLE pm_projects ADD COLUMN siyuan_parent_path TEXT DEFAULT NULL;",
-    );
+    let _ = conn
+        .execute_batch("ALTER TABLE pm_projects ADD COLUMN siyuan_parent_hpath TEXT DEFAULT NULL;");
+    let _ = conn
+        .execute_batch("ALTER TABLE pm_projects ADD COLUMN siyuan_parent_path TEXT DEFAULT NULL;");
 
     // Status flow timestamps
-    let _ = conn.execute_batch(
-        "ALTER TABLE pm_items ADD COLUMN started_at TEXT DEFAULT NULL;",
-    );
-    let _ = conn.execute_batch(
-        "ALTER TABLE pm_items ADD COLUMN testing_at TEXT DEFAULT NULL;",
-    );
+    let _ = conn.execute_batch("ALTER TABLE pm_items ADD COLUMN started_at TEXT DEFAULT NULL;");
+    let _ = conn.execute_batch("ALTER TABLE pm_items ADD COLUMN testing_at TEXT DEFAULT NULL;");
 
     // PM-SiYuan integration: item primary page cache
-    let _ = conn.execute_batch(
-        "ALTER TABLE pm_items ADD COLUMN siyuan_doc_id TEXT DEFAULT NULL;",
-    );
-    let _ = conn.execute_batch(
-        "ALTER TABLE pm_items ADD COLUMN siyuan_doc_title TEXT DEFAULT NULL;",
-    );
-    let _ = conn.execute_batch(
-        "ALTER TABLE pm_items ADD COLUMN siyuan_doc_hpath TEXT DEFAULT NULL;",
-    );
-    let _ = conn.execute_batch(
-        "ALTER TABLE pm_items ADD COLUMN siyuan_doc_path TEXT DEFAULT NULL;",
-    );
-    let _ = conn.execute_batch(
-        "ALTER TABLE pm_items ADD COLUMN siyuan_notebook_id TEXT DEFAULT NULL;",
-    );
-    let _ = conn.execute_batch(
-        "ALTER TABLE pm_items ADD COLUMN siyuan_notebook_name TEXT DEFAULT NULL;",
-    );
-    let _ = conn.execute_batch(
-        "ALTER TABLE pm_items ADD COLUMN link_url TEXT DEFAULT NULL;",
-    );
+    let _ = conn.execute_batch("ALTER TABLE pm_items ADD COLUMN siyuan_doc_id TEXT DEFAULT NULL;");
+    let _ =
+        conn.execute_batch("ALTER TABLE pm_items ADD COLUMN siyuan_doc_title TEXT DEFAULT NULL;");
+    let _ =
+        conn.execute_batch("ALTER TABLE pm_items ADD COLUMN siyuan_doc_hpath TEXT DEFAULT NULL;");
+    let _ =
+        conn.execute_batch("ALTER TABLE pm_items ADD COLUMN siyuan_doc_path TEXT DEFAULT NULL;");
+    let _ =
+        conn.execute_batch("ALTER TABLE pm_items ADD COLUMN siyuan_notebook_id TEXT DEFAULT NULL;");
+    let _ = conn
+        .execute_batch("ALTER TABLE pm_items ADD COLUMN siyuan_notebook_name TEXT DEFAULT NULL;");
+    let _ = conn.execute_batch("ALTER TABLE pm_items ADD COLUMN link_url TEXT DEFAULT NULL;");
 
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS hosts_profiles (

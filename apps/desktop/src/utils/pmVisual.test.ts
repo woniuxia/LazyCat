@@ -32,12 +32,13 @@ describe("pmVisual", () => {
     expect(getPmTotalCount()).toBe(0);
   });
 
-  it("按总任务数降序并保持稳定兜底排序", () => {
+  it("active 项目按总任务数排序，archived 项目统一置后并走稳定次序", () => {
     const projects = [
       createProject(1, "数据中台升级", "active", 2),
       createProject(2, "官网重构", "active", 1),
       createProject(3, "老版本迁移", "archived", 4),
       createProject(4, "移动端改版", "active", 3),
+      createProject(5, "历史需求池", "archived", 0),
     ];
 
     const sorted = sortPmProjectsForSidebar(projects, {
@@ -45,12 +46,14 @@ describe("pmVisual", () => {
       2: { total: 11, done: 3 },
       3: { total: 4, done: 4 },
       4: { total: 11, done: 6 },
+      5: { total: 99, done: 97 },
     });
 
-    expect(sorted.map((project) => project.id)).toEqual([2, 4, 1, 3]);
+    expect(sorted.map((project) => project.id)).toEqual([2, 4, 1, 5, 3]);
     expect(sorted[0].pendingCount).toBe(8);
     expect(sorted[2].pendingCount).toBe(3);
     expect(sorted[3].status).toBe("archived");
+    expect(sorted[3].pendingCount).toBe(2);
   });
 
   it("缺失计数时按 0 参与排序", () => {

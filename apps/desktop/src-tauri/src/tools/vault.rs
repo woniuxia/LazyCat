@@ -28,7 +28,10 @@ fn get_entry_tags(conn: &Connection, entry_id: i64) -> Result<Vec<String>, Strin
     Ok(tags)
 }
 
-fn get_entry_tags_map(conn: &Connection, entry_ids: &[i64]) -> Result<HashMap<i64, Vec<String>>, String> {
+fn get_entry_tags_map(
+    conn: &Connection,
+    entry_ids: &[i64],
+) -> Result<HashMap<i64, Vec<String>>, String> {
     let mut tags_by_entry = HashMap::with_capacity(entry_ids.len());
     if entry_ids.is_empty() {
         return Ok(tags_by_entry);
@@ -38,8 +41,10 @@ fn get_entry_tags_map(conn: &Connection, entry_ids: &[i64]) -> Result<HashMap<i6
     let sql = format!(
         "SELECT entry_id, tag FROM vault_entry_tags WHERE entry_id IN ({placeholders}) ORDER BY entry_id, tag"
     );
-    let params_refs: Vec<&dyn rusqlite::types::ToSql> =
-        entry_ids.iter().map(|entry_id| entry_id as &dyn rusqlite::types::ToSql).collect();
+    let params_refs: Vec<&dyn rusqlite::types::ToSql> = entry_ids
+        .iter()
+        .map(|entry_id| entry_id as &dyn rusqlite::types::ToSql)
+        .collect();
     let mut stmt = conn
         .prepare(&sql)
         .map_err(|e| format!("prepare batch tags: {e}"))?;

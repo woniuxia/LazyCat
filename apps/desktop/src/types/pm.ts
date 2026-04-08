@@ -71,6 +71,7 @@ export interface WeeklyWorkItem {
   title: string;
   priority: string;
   status: string;
+  sortAt?: string | null;
   completedAt: string | null;
   createdAt: string;
   projectId: number | null;
@@ -79,6 +80,8 @@ export interface WeeklyWorkItem {
   projectStatus: string | null;
   source: "pm" | "todo";
   itemType?: string;
+  startAt?: string | null;
+  endAt?: string | null;
 }
 
 export interface WeeklyWorkResult {

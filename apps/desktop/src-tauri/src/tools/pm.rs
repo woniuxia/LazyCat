@@ -1,5 +1,5 @@
-use chrono::{Local, Utc};
-use rusqlite::{params, Connection, Error as RusqliteError};
+use chrono::{Datelike, Local, NaiveDate, Utc};
+use rusqlite::{params, Connection, Error as RusqliteError, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
@@ -1381,6 +1381,24 @@ fn project_delete(payload: &Value) -> Result<Value, String> {
     Ok(json!({ "ok": true }))
 }
 
+fn ensure_project_accepts_items(conn: &Connection, project_id: i64) -> Result<(), String> {
+    let status = conn
+        .query_row(
+            "SELECT status FROM pm_projects WHERE id = ?1",
+            params![project_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|e| format!("load project status: {e}"))?;
+
+    match status.as_deref() {
+        Some("active") => Ok(()),
+        Some("archived") => Err("归档项目不能接收工作项，请先恢复项目".into()),
+        Some(other) => Err(format!("invalid project status: {other}")),
+        None => Err("目标项目不存在".into()),
+    }
+}
+
 // ── Item counts (lightweight, for sidebar) ───────────────
 
 fn item_counts() -> Result<Value, String> {
@@ -1389,7 +1407,6 @@ fn item_counts() -> Result<Value, String> {
         .prepare(
             "SELECT i.project_id, i.status, COUNT(*) FROM pm_items i
              JOIN pm_projects p ON i.project_id = p.id
-             WHERE p.status = 'active'
              GROUP BY i.project_id, i.status",
         )
         .map_err(|e| format!("prepare item_counts: {e}"))?;
@@ -1422,42 +1439,43 @@ fn item_counts() -> Result<Value, String> {
 
 // ── Item CRUD ────────────────────────────────────────────
 
+fn build_item_list_sql(project_id: Option<i64>) -> &'static str {
+    if project_id.is_some() {
+        "SELECT i.id, i.project_id, i.title, i.description, i.item_type, i.priority,
+                i.status, i.start_at, i.end_at, i.pinned, i.sort_order,
+                i.siyuan_doc_id, i.siyuan_doc_title, i.siyuan_doc_hpath,
+                i.siyuan_doc_path, i.siyuan_notebook_id, i.siyuan_notebook_name,
+                i.completed_at, i.created_at, i.updated_at, i.link_url,
+                p.name, p.color, i.started_at, i.testing_at
+         FROM pm_items i
+         LEFT JOIN pm_projects p ON i.project_id = p.id
+         WHERE i.project_id = ?1
+         ORDER BY i.pinned DESC, i.sort_order ASC,
+                  CASE i.priority WHEN 'P0' THEN 0 WHEN 'P1' THEN 1 WHEN 'P2' THEN 2 ELSE 3 END ASC,
+                  i.id DESC"
+    } else {
+        "SELECT i.id, i.project_id, i.title, i.description, i.item_type, i.priority,
+                i.status, i.start_at, i.end_at, i.pinned, i.sort_order,
+                i.siyuan_doc_id, i.siyuan_doc_title, i.siyuan_doc_hpath,
+                i.siyuan_doc_path, i.siyuan_notebook_id, i.siyuan_notebook_name,
+                i.completed_at, i.created_at, i.updated_at, i.link_url,
+                p.name, p.color, i.started_at, i.testing_at
+         FROM pm_items i
+         LEFT JOIN pm_projects p ON i.project_id = p.id
+         ORDER BY i.pinned DESC, i.sort_order ASC,
+                  CASE i.priority WHEN 'P0' THEN 0 WHEN 'P1' THEN 1 WHEN 'P2' THEN 2 ELSE 3 END ASC,
+                  i.id DESC"
+    }
+}
+
 fn item_list(payload: &Value) -> Result<Value, String> {
     let project_id = parse_i64(payload, "projectId");
     let conn = db_conn()?;
 
-    let (sql, qp): (String, Vec<Box<dyn rusqlite::types::ToSql>>) = if let Some(pid) = project_id {
-        (
-            "SELECT i.id, i.project_id, i.title, i.description, i.item_type, i.priority,
-                    i.status, i.start_at, i.end_at, i.pinned, i.sort_order,
-                    i.siyuan_doc_id, i.siyuan_doc_title, i.siyuan_doc_hpath,
-                    i.siyuan_doc_path, i.siyuan_notebook_id, i.siyuan_notebook_name,
-                    i.completed_at, i.created_at, i.updated_at, i.link_url,
-                    p.name, p.color, i.started_at, i.testing_at
-             FROM pm_items i
-             LEFT JOIN pm_projects p ON i.project_id = p.id
-             WHERE i.project_id = ?1
-             ORDER BY i.pinned DESC, i.sort_order ASC,
-                      CASE i.priority WHEN 'P0' THEN 0 WHEN 'P1' THEN 1 WHEN 'P2' THEN 2 ELSE 3 END ASC,
-                      i.id DESC".into(),
-            vec![Box::new(pid)],
-        )
+    let (sql, qp): (&'static str, Vec<Box<dyn rusqlite::types::ToSql>>) = if let Some(pid) = project_id {
+        (build_item_list_sql(Some(pid)), vec![Box::new(pid)])
     } else {
-        (
-            "SELECT i.id, i.project_id, i.title, i.description, i.item_type, i.priority,
-                    i.status, i.start_at, i.end_at, i.pinned, i.sort_order,
-                    i.siyuan_doc_id, i.siyuan_doc_title, i.siyuan_doc_hpath,
-                    i.siyuan_doc_path, i.siyuan_notebook_id, i.siyuan_notebook_name,
-                    i.completed_at, i.created_at, i.updated_at, i.link_url,
-                    p.name, p.color, i.started_at, i.testing_at
-             FROM pm_items i
-             LEFT JOIN pm_projects p ON i.project_id = p.id
-             WHERE p.status = 'active'
-             ORDER BY i.pinned DESC, i.sort_order ASC,
-                      CASE i.priority WHEN 'P0' THEN 0 WHEN 'P1' THEN 1 WHEN 'P2' THEN 2 ELSE 3 END ASC,
-                      i.id DESC".into(),
-            vec![],
-        )
+        (build_item_list_sql(None), vec![])
     };
 
     let mut stmt = conn.prepare(&sql).map_err(|e| format!("prepare item_list: {e}"))?;
@@ -1551,8 +1569,8 @@ fn batch_load_siyuan_links(conn: &Connection, item_ids: &[i64]) -> HashMap<i64, 
     }
     let placeholders: Vec<String> = item_ids.iter().enumerate().map(|(i, _)| format!("?{}", i + 1)).collect();
     let sql = format!(
-        "SELECT item_id, siyuan_doc_id, siyuan_doc_title, siyuan_doc_hpath,
-                siyuan_doc_path, siyuan_notebook_id, siyuan_notebook_name
+        "SELECT item_id, doc_id, doc_title, doc_hpath,
+                doc_path, notebook_id, notebook_name
          FROM pm_item_siyuan_links WHERE item_id IN ({})
          ORDER BY item_id, id",
         placeholders.join(",")
@@ -1602,6 +1620,8 @@ fn save_tags(conn: &Connection, item_id: i64, tags: &[String]) -> Result<(), Str
 
 fn item_create(payload: &Value) -> Result<Value, String> {
     let project_id = parse_i64(payload, "projectId").ok_or("projectId is required")?;
+    let conn = db_conn()?;
+    ensure_project_accepts_items(&conn, project_id)?;
     let title = parse_string(payload, "title").ok_or("title is required")?;
     let desc = parse_string(payload, "description").unwrap_or_default();
     let link_url = match payload.get("linkUrl") {
@@ -1638,7 +1658,7 @@ fn item_create(payload: &Value) -> Result<Value, String> {
     };
     let completed_at: Option<String> = if status == "done" { Some(now.clone()) } else { None };
 
-    let mut conn = db_conn()?;
+    let mut conn = conn;
     let tx = conn.transaction().map_err(|e| format!("item_create begin: {e}"))?;
     tx.execute(
         "INSERT INTO pm_items (
@@ -1681,6 +1701,57 @@ fn item_create(payload: &Value) -> Result<Value, String> {
 
     tx.commit().map_err(|e| format!("item_create commit: {e}"))?;
     Ok(json!({ "id": id }))
+}
+
+fn resolve_status_flow_timestamps(
+    cur_status: &str,
+    new_status: &str,
+    cur_started_at: Option<String>,
+    cur_testing_at: Option<String>,
+    cur_completed_at: Option<String>,
+    started_at_override: Option<Option<String>>,
+    testing_at_override: Option<Option<String>>,
+    completed_at_override: Option<Option<String>>,
+    now: &str,
+) -> (Option<String>, Option<String>, Option<String>) {
+    let status_changed = new_status != cur_status;
+
+    let auto_started_at = if status_changed {
+        match new_status {
+            "in_progress" | "testing" | "done" => {
+                Some(cur_started_at.clone().unwrap_or_else(|| now.to_string()))
+            }
+            _ => None,
+        }
+    } else {
+        cur_started_at
+    };
+
+    let auto_testing_at = if status_changed {
+        match new_status {
+            "testing" => Some(cur_testing_at.clone().unwrap_or_else(|| now.to_string())),
+            "todo" => None,
+            _ => cur_testing_at,
+        }
+    } else {
+        cur_testing_at
+    };
+
+    let auto_completed_at = if status_changed {
+        if new_status == "done" {
+            Some(now.to_string())
+        } else {
+            None
+        }
+    } else {
+        cur_completed_at
+    };
+
+    (
+        started_at_override.unwrap_or(auto_started_at),
+        testing_at_override.unwrap_or(auto_testing_at),
+        completed_at_override.unwrap_or(auto_completed_at),
+    )
 }
 
 fn item_update(payload: &Value) -> Result<Value, String> {
@@ -1789,43 +1860,23 @@ fn item_update(payload: &Value) -> Result<Value, String> {
         None => cur_extra_pages,
     };
 
-    // Determine status flow timestamps
-    // If user explicitly passes startedAt/testingAt/completedAt, use those (manual edit).
-    // Otherwise, auto-compute based on status transitions.
-    let status_changed = new_status != cur_status;
-
-    let started_at: Option<String> = if let Some(v) = payload.get("startedAt") {
-        v.as_str().map(|s| s.to_string())
-    } else if status_changed {
-        match new_status.as_str() {
-            "in_progress" | "testing" | "done" => Some(cur_started_at.unwrap_or_else(|| now.clone())),
-            _ => None, // "todo" — reset
-        }
-    } else {
-        cur_started_at
-    };
-
-    let testing_at: Option<String> = if let Some(v) = payload.get("testingAt") {
-        v.as_str().map(|s| s.to_string())
-    } else if status_changed {
-        match new_status.as_str() {
-            "testing" => Some(cur_testing_at.unwrap_or_else(|| now.clone())),
-            "todo" => None,
-            _ => cur_testing_at,
-        }
-    } else {
-        cur_testing_at
-    };
-
-    let completed_at: Option<String> = if let Some(v) = payload.get("completedAt") {
-        v.as_str().map(|s| s.to_string())
-    } else if status_changed && new_status == "done" {
-        Some(now.clone())
-    } else if status_changed && new_status != "done" {
-        None
-    } else {
-        cur_completed_at
-    };
+    let (started_at, testing_at, completed_at) = resolve_status_flow_timestamps(
+        &cur_status,
+        &new_status,
+        cur_started_at,
+        cur_testing_at,
+        cur_completed_at,
+        payload
+            .get("startedAt")
+            .map(|value| value.as_str().map(|raw| raw.to_string())),
+        payload
+            .get("testingAt")
+            .map(|value| value.as_str().map(|raw| raw.to_string())),
+        payload
+            .get("completedAt")
+            .map(|value| value.as_str().map(|raw| raw.to_string())),
+        &now,
+    );
 
     conn.execute(
         "UPDATE pm_items
@@ -1878,34 +1929,30 @@ fn item_change_status(payload: &Value) -> Result<Value, String> {
     let mut conn = db_conn()?;
     let tx = conn.transaction().map_err(|e| format!("item_change_status begin: {e}"))?;
 
-    // Read current timestamp values
-    let (cur_started_at, cur_testing_at): (Option<String>, Option<String>) = tx
+    let (cur_status, cur_started_at, cur_testing_at, cur_completed_at): (
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    ) = tx
         .query_row(
-            "SELECT started_at, testing_at FROM pm_items WHERE id = ?1",
+            "SELECT status, started_at, testing_at, completed_at FROM pm_items WHERE id = ?1",
             params![id],
-            |r| Ok((r.get(0)?, r.get(1)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
         )
         .map_err(|e| format!("item_change_status read: {e}"))?;
 
-    let (started_at, testing_at, completed_at): (Option<String>, Option<String>, Option<String>) =
-        match new_status.as_str() {
-            "in_progress" => (
-                Some(cur_started_at.unwrap_or_else(|| now.clone())),
-                cur_testing_at,
-                None,
-            ),
-            "testing" => (
-                Some(cur_started_at.unwrap_or_else(|| now.clone())),
-                Some(cur_testing_at.unwrap_or_else(|| now.clone())),
-                None,
-            ),
-            "done" => (
-                Some(cur_started_at.unwrap_or_else(|| now.clone())),
-                cur_testing_at,
-                Some(now.clone()),
-            ),
-            _ => (None, None, None), // "todo" — reset all
-        };
+    let (started_at, testing_at, completed_at) = resolve_status_flow_timestamps(
+        &cur_status,
+        &new_status,
+        cur_started_at,
+        cur_testing_at,
+        cur_completed_at,
+        None,
+        None,
+        None,
+        &now,
+    );
 
     tx.execute(
         "UPDATE pm_items SET status = ?1, started_at = ?2, testing_at = ?3, completed_at = ?4, updated_at = ?5 WHERE id = ?6",
@@ -1925,33 +1972,39 @@ fn reorder_with_timestamps(
     new_status: &str,
     now: &str,
 ) -> Result<(), String> {
-    let (cur_started_at, cur_testing_at): (Option<String>, Option<String>) = tx
+    let (cur_status, cur_started_at, cur_testing_at, cur_completed_at): (
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    ) = tx
         .query_row(
-            "SELECT started_at, testing_at FROM pm_items WHERE id = ?1",
+            "SELECT status, started_at, testing_at, completed_at FROM pm_items WHERE id = ?1",
             params![id],
-            |r| Ok((r.get(0)?, r.get(1)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
         )
         .map_err(|e| format!("reorder_with_timestamps read: {e}"))?;
 
-    let (started_at, testing_at, completed_at): (Option<String>, Option<String>, Option<String>) =
-        match new_status {
-            "in_progress" => (
-                Some(cur_started_at.unwrap_or_else(|| now.to_string())),
-                cur_testing_at,
-                None,
-            ),
-            "testing" => (
-                Some(cur_started_at.unwrap_or_else(|| now.to_string())),
-                Some(cur_testing_at.unwrap_or_else(|| now.to_string())),
-                None,
-            ),
-            "done" => (
-                Some(cur_started_at.unwrap_or_else(|| now.to_string())),
-                cur_testing_at,
-                Some(now.to_string()),
-            ),
-            _ => (None, None, None), // "todo" — reset all
-        };
+    if cur_status == new_status {
+        tx.execute(
+            "UPDATE pm_items SET sort_order = ?1, updated_at = ?3 WHERE id = ?2",
+            params![sort_order, id, now],
+        )
+        .map_err(|e| format!("reorder_with_timestamps: {e}"))?;
+        return Ok(());
+    }
+
+    let (started_at, testing_at, completed_at) = resolve_status_flow_timestamps(
+        &cur_status,
+        new_status,
+        cur_started_at,
+        cur_testing_at,
+        cur_completed_at,
+        None,
+        None,
+        None,
+        now,
+    );
 
     tx.execute(
         "UPDATE pm_items SET sort_order = ?1, status = ?2, started_at = ?3, testing_at = ?4, completed_at = ?5, updated_at = ?6 WHERE id = ?7",
@@ -2032,6 +2085,7 @@ fn item_move_project(payload: &Value) -> Result<Value, String> {
     let id = parse_i64(payload, "id").ok_or("id is required")?;
     let project_id = parse_i64(payload, "projectId").ok_or("projectId is required")?;
     let conn = db_conn()?;
+    ensure_project_accepts_items(&conn, project_id)?;
     conn.execute(
         "UPDATE pm_items SET project_id = ?1, updated_at = ?2 WHERE id = ?3",
         params![project_id, now_rfc3339(), id],
@@ -2244,57 +2298,169 @@ fn open_link(payload: &Value) -> Result<Value, String> {
 
 // ── Weekly work ──────────────────────────────────────────
 
-fn weekly_work(_payload: &Value) -> Result<Value, String> {
-    let conn = db_conn()?;
+fn format_pm_weekly_date(date: NaiveDate) -> String {
+    date.format("%Y-%m-%d").to_string()
+}
 
-    // Calculate 7-day window in local timezone, convert to UTC for comparison
-    let now_local = Local::now();
-    let start_local = (now_local - chrono::Duration::days(6))
-        .date_naive()
+fn parse_pm_weekly_date(value: Option<&str>) -> Option<NaiveDate> {
+    let trimmed = value?.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let prefix = trimmed.get(0..10)?;
+    NaiveDate::parse_from_str(prefix, "%Y-%m-%d").ok()
+}
+
+fn normalize_pm_weekly_range(
+    start_at: Option<&str>,
+    end_at: Option<&str>,
+) -> Option<(NaiveDate, NaiveDate)> {
+    let start = parse_pm_weekly_date(start_at);
+    let end = parse_pm_weekly_date(end_at);
+
+    match (start, end) {
+        (Some(start), Some(end)) if start <= end => Some((start, end)),
+        (Some(start), Some(end)) => Some((end, start)),
+        (Some(date), None) | (None, Some(date)) => Some((date, date)),
+        (None, None) => None,
+    }
+}
+
+fn resolve_pm_weekly_window_hit(
+    start_at: Option<&str>,
+    end_at: Option<&str>,
+    week_start: NaiveDate,
+    week_end: NaiveDate,
+) -> Option<(NaiveDate, NaiveDate, NaiveDate)> {
+    let (normalized_start, normalized_end) = normalize_pm_weekly_range(start_at, end_at)?;
+    if normalized_end < week_start || normalized_start > week_end {
+        return None;
+    }
+
+    Some((normalized_start, normalized_end, std::cmp::min(normalized_end, week_end)))
+}
+
+fn resolve_current_week_window(
+    now_local: chrono::DateTime<Local>,
+) -> Result<(NaiveDate, NaiveDate, String, String, String), String> {
+    let week_start =
+        now_local.date_naive() - chrono::Duration::days(now_local.weekday().num_days_from_monday() as i64);
+    let week_end = week_start + chrono::Duration::days(6);
+    let next_week_start = week_start + chrono::Duration::days(7);
+
+    let week_start_utc = week_start
         .and_hms_opt(0, 0, 0)
-        .unwrap();
-    let start_utc = start_local
+        .unwrap()
         .and_local_timezone(Local)
         .single()
         .map(|dt| dt.with_timezone(&Utc))
-        .ok_or("timezone conversion failed")?;
-    let start_str = start_utc.to_rfc3339();
+        .ok_or("week start timezone conversion failed")?;
+    let week_end_utc = week_end
+        .and_hms_opt(23, 59, 59)
+        .unwrap()
+        .and_local_timezone(Local)
+        .single()
+        .map(|dt| dt.with_timezone(&Utc))
+        .ok_or("week end timezone conversion failed")?;
+    let next_week_start_utc = next_week_start
+        .and_hms_opt(0, 0, 0)
+        .unwrap()
+        .and_local_timezone(Local)
+        .single()
+        .map(|dt| dt.with_timezone(&Utc))
+        .ok_or("next week start timezone conversion failed")?;
 
-    // PM items completed in window
+    Ok((
+        week_start,
+        week_end,
+        week_start_utc.to_rfc3339(),
+        week_end_utc.to_rfc3339(),
+        next_week_start_utc.to_rfc3339(),
+    ))
+}
+
+fn weekly_work(_payload: &Value) -> Result<Value, String> {
+    let conn = db_conn()?;
+    let now_local = Local::now();
+    let (week_start, week_end, week_start_str, week_end_str, next_week_start_str) =
+        resolve_current_week_window(now_local)?;
+
     let mut pm_stmt = conn
         .prepare(
             "SELECT i.id, i.project_id, i.title, i.item_type, i.priority, i.status,
-                    i.completed_at, i.created_at,
+                    i.start_at, i.end_at, i.completed_at, i.created_at,
                     p.name as project_name, p.color as project_color, p.status as project_status
              FROM pm_items i
              JOIN pm_projects p ON i.project_id = p.id
-             WHERE i.status = 'done' AND i.completed_at >= ?1
-             ORDER BY i.completed_at DESC",
+             WHERE i.start_at IS NOT NULL OR i.end_at IS NOT NULL
+             ORDER BY i.id DESC",
         )
         .map_err(|e| format!("weekly_work pm: {e}"))?;
 
-    let pm_items: Vec<Value> = pm_stmt
-        .query_map(params![start_str], |r| {
-            Ok(json!({
-                "id": r.get::<_, i64>(0)?,
-                "projectId": r.get::<_, i64>(1)?,
-                "title": r.get::<_, String>(2)?,
-                "itemType": r.get::<_, String>(3)?,
-                "priority": r.get::<_, String>(4)?,
-                "status": r.get::<_, String>(5)?,
-                "completedAt": r.get::<_, Option<String>>(6)?,
-                "createdAt": r.get::<_, String>(7)?,
-                "projectName": r.get::<_, String>(8)?,
-                "projectColor": r.get::<_, String>(9)?,
-                "projectStatus": r.get::<_, String>(10)?,
-                "source": "pm",
-            }))
+    let mut pm_items: Vec<(String, Value)> = pm_stmt
+        .query_map([], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, i64>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, String>(3)?,
+                r.get::<_, String>(4)?,
+                r.get::<_, String>(5)?,
+                r.get::<_, Option<String>>(6)?,
+                r.get::<_, Option<String>>(7)?,
+                r.get::<_, Option<String>>(8)?,
+                r.get::<_, String>(9)?,
+                r.get::<_, String>(10)?,
+                r.get::<_, String>(11)?,
+                r.get::<_, String>(12)?,
+            ))
         })
         .map_err(|e| format!("weekly_work pm query: {e}"))?
-        .filter_map(|r| r.ok())
+        .filter_map(|row| {
+            let (
+                id,
+                project_id,
+                title,
+                item_type,
+                priority,
+                status,
+                start_at,
+                end_at,
+                completed_at,
+                created_at,
+                project_name,
+                project_color,
+                project_status,
+            ) = row.ok()?;
+            let (normalized_start, normalized_end, sort_date) =
+                resolve_pm_weekly_window_hit(start_at.as_deref(), end_at.as_deref(), week_start, week_end)?;
+            let sort_at = format_pm_weekly_date(sort_date);
+            Some((
+                sort_at.clone(),
+                json!({
+                    "id": id,
+                    "projectId": project_id,
+                    "title": title,
+                    "itemType": item_type,
+                    "priority": priority,
+                    "status": status,
+                    "startAt": format_pm_weekly_date(normalized_start),
+                    "endAt": format_pm_weekly_date(normalized_end),
+                    "sortAt": sort_at,
+                    "completedAt": completed_at,
+                    "createdAt": created_at,
+                    "projectName": project_name,
+                    "projectColor": project_color,
+                    "projectStatus": project_status,
+                    "source": "pm",
+                }),
+            ))
+        })
         .collect();
+    pm_items.sort_by(|left, right| right.0.cmp(&left.0));
+    let pm_items: Vec<Value> = pm_items.into_iter().map(|(_, value)| value).collect();
 
-    // Todo items completed in window (project_id column may not exist yet)
     let has_project_col = conn
         .prepare("SELECT project_id FROM todo_items LIMIT 0")
         .is_ok();
@@ -2307,19 +2473,20 @@ fn weekly_work(_payload: &Value) -> Result<Value, String> {
                         p.name as project_name, p.color as project_color, p.status as project_status
                  FROM todo_items t
                  LEFT JOIN pm_projects p ON t.project_id = p.id
-                 WHERE t.status = 'completed' AND t.completed_at >= ?1
+                 WHERE t.status = 'completed' AND t.completed_at >= ?1 AND t.completed_at < ?2
                  ORDER BY t.completed_at DESC",
             )
             .map_err(|e| format!("weekly_work todo: {e}"))?;
 
         let result: Vec<Value> = todo_stmt
-            .query_map(params![start_str], |r| {
+            .query_map(params![week_start_str, next_week_start_str], |r| {
                 Ok(json!({
                     "id": r.get::<_, i64>(0)?,
                     "title": r.get::<_, String>(1)?,
                     "priority": r.get::<_, String>(2)?,
                     "status": r.get::<_, String>(3)?,
                     "completedAt": r.get::<_, Option<String>>(4)?,
+                    "sortAt": r.get::<_, Option<String>>(4)?,
                     "createdAt": r.get::<_, String>(5)?,
                     "projectId": r.get::<_, Option<i64>>(6)?,
                     "projectName": r.get::<_, Option<String>>(7)?,
@@ -2337,19 +2504,20 @@ fn weekly_work(_payload: &Value) -> Result<Value, String> {
             .prepare(
                 "SELECT t.id, t.title, t.priority, t.status, t.completed_at, t.created_at
                  FROM todo_items t
-                 WHERE t.status = 'completed' AND t.completed_at >= ?1
+                 WHERE t.status = 'completed' AND t.completed_at >= ?1 AND t.completed_at < ?2
                  ORDER BY t.completed_at DESC",
             )
             .map_err(|e| format!("weekly_work todo: {e}"))?;
 
         let result: Vec<Value> = todo_stmt
-            .query_map(params![start_str], |r| {
+            .query_map(params![week_start_str, next_week_start_str], |r| {
                 Ok(json!({
                     "id": r.get::<_, i64>(0)?,
                     "title": r.get::<_, String>(1)?,
                     "priority": r.get::<_, String>(2)?,
                     "status": r.get::<_, String>(3)?,
                     "completedAt": r.get::<_, Option<String>>(4)?,
+                    "sortAt": r.get::<_, Option<String>>(4)?,
                     "createdAt": r.get::<_, String>(5)?,
                     "projectId": null,
                     "projectName": null,
@@ -2367,14 +2535,426 @@ fn weekly_work(_payload: &Value) -> Result<Value, String> {
     Ok(json!({
         "pmItems": pm_items,
         "todoItems": todo_items,
-        "windowStart": start_str,
-        "windowEnd": now_local.to_rfc3339(),
+        "windowStart": week_start_str,
+        "windowEnd": week_end_str,
     }))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rusqlite::{params, Connection};
+
+    fn create_pm_reorder_test_conn() -> Connection {
+        let conn = Connection::open_in_memory().expect("open in-memory db");
+        conn.execute_batch(
+            "
+            CREATE TABLE pm_items (
+                id INTEGER PRIMARY KEY,
+                status TEXT NOT NULL,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                started_at TEXT DEFAULT NULL,
+                testing_at TEXT DEFAULT NULL,
+                completed_at TEXT DEFAULT NULL,
+                updated_at TEXT NOT NULL
+            );
+            ",
+        )
+        .expect("create pm_items schema");
+        conn
+    }
+
+    fn seed_pm_reorder_item(
+        conn: &Connection,
+        id: i64,
+        status: &str,
+        sort_order: i64,
+        started_at: Option<&str>,
+        testing_at: Option<&str>,
+        completed_at: Option<&str>,
+        updated_at: &str,
+    ) {
+        conn.execute(
+            "INSERT INTO pm_items(id, status, sort_order, started_at, testing_at, completed_at, updated_at)
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                id,
+                status,
+                sort_order,
+                started_at,
+                testing_at,
+                completed_at,
+                updated_at
+            ],
+        )
+        .expect("seed pm item");
+    }
+
+    fn create_pm_siyuan_links_test_conn() -> Connection {
+        let conn = Connection::open_in_memory().expect("open in-memory db");
+        conn.execute_batch(
+            "
+            CREATE TABLE pm_item_siyuan_links (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                item_id INTEGER NOT NULL,
+                doc_id TEXT NOT NULL,
+                doc_title TEXT NOT NULL,
+                doc_hpath TEXT NOT NULL,
+                doc_path TEXT DEFAULT NULL,
+                notebook_id TEXT NOT NULL,
+                notebook_name TEXT NOT NULL,
+                sort_order INTEGER NOT NULL DEFAULT 0
+            );
+            ",
+        )
+        .expect("create pm_item_siyuan_links schema");
+        conn
+    }
+
+    fn create_pm_projects_test_conn() -> Connection {
+        let conn = Connection::open_in_memory().expect("open in-memory db");
+        conn.execute_batch(
+            "
+            CREATE TABLE pm_projects (
+                id INTEGER PRIMARY KEY,
+                status TEXT NOT NULL
+            );
+            ",
+        )
+        .expect("create pm_projects schema");
+        conn
+    }
+
+    #[test]
+    fn normalize_pm_weekly_range_should_fold_single_side_and_swap_reverse_dates() {
+        let single_start = normalize_pm_weekly_range(Some("2026-04-08"), None)
+            .expect("single start should normalize");
+        let single_end = normalize_pm_weekly_range(None, Some("2026-04-09T09:00:00+08:00"))
+            .expect("single end should normalize");
+        let reversed = normalize_pm_weekly_range(Some("2026-04-12"), Some("2026-04-03"))
+            .expect("reversed range should normalize");
+
+        assert_eq!(single_start, (
+            NaiveDate::from_ymd_opt(2026, 4, 8).expect("valid date"),
+            NaiveDate::from_ymd_opt(2026, 4, 8).expect("valid date"),
+        ));
+        assert_eq!(single_end, (
+            NaiveDate::from_ymd_opt(2026, 4, 9).expect("valid date"),
+            NaiveDate::from_ymd_opt(2026, 4, 9).expect("valid date"),
+        ));
+        assert_eq!(reversed, (
+            NaiveDate::from_ymd_opt(2026, 4, 3).expect("valid date"),
+            NaiveDate::from_ymd_opt(2026, 4, 12).expect("valid date"),
+        ));
+    }
+
+    #[test]
+    fn resolve_pm_weekly_window_hit_should_include_overlap_and_ignore_status_semantics() {
+        let week_start = NaiveDate::from_ymd_opt(2026, 4, 6).expect("valid week start");
+        let week_end = NaiveDate::from_ymd_opt(2026, 4, 12).expect("valid week end");
+
+        let fully_inside = resolve_pm_weekly_window_hit(
+            Some("2026-04-07"),
+            Some("2026-04-10"),
+            week_start,
+            week_end,
+        )
+        .expect("inside range should hit");
+        let crosses_into_week = resolve_pm_weekly_window_hit(
+            Some("2026-04-04"),
+            Some("2026-04-08"),
+            week_start,
+            week_end,
+        )
+        .expect("cross-week range should hit");
+        let starts_this_week_ends_next_week = resolve_pm_weekly_window_hit(
+            Some("2026-04-11"),
+            Some("2026-04-15"),
+            week_start,
+            week_end,
+        )
+        .expect("range starting this week should hit");
+        let outside = resolve_pm_weekly_window_hit(
+            Some("2026-04-01"),
+            Some("2026-04-05"),
+            week_start,
+            week_end,
+        );
+
+        assert_eq!(fully_inside, (
+            NaiveDate::from_ymd_opt(2026, 4, 7).expect("valid date"),
+            NaiveDate::from_ymd_opt(2026, 4, 10).expect("valid date"),
+            NaiveDate::from_ymd_opt(2026, 4, 10).expect("valid date"),
+        ));
+        assert_eq!(crosses_into_week, (
+            NaiveDate::from_ymd_opt(2026, 4, 4).expect("valid date"),
+            NaiveDate::from_ymd_opt(2026, 4, 8).expect("valid date"),
+            NaiveDate::from_ymd_opt(2026, 4, 8).expect("valid date"),
+        ));
+        assert_eq!(starts_this_week_ends_next_week, (
+            NaiveDate::from_ymd_opt(2026, 4, 11).expect("valid date"),
+            NaiveDate::from_ymd_opt(2026, 4, 15).expect("valid date"),
+            NaiveDate::from_ymd_opt(2026, 4, 12).expect("valid date"),
+        ));
+        assert!(outside.is_none());
+    }
+
+    #[test]
+    fn resolve_status_flow_timestamps_should_match_shared_transition_rules() {
+        let (started_at, testing_at, completed_at) = resolve_status_flow_timestamps(
+            "todo",
+            "testing",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            "2026-04-08T12:00:00+08:00",
+        );
+
+        assert_eq!(started_at.as_deref(), Some("2026-04-08T12:00:00+08:00"));
+        assert_eq!(testing_at.as_deref(), Some("2026-04-08T12:00:00+08:00"));
+        assert_eq!(completed_at, None);
+    }
+
+    #[test]
+    fn resolve_status_flow_timestamps_should_reset_done_when_returning_to_in_progress() {
+        let (started_at, testing_at, completed_at) = resolve_status_flow_timestamps(
+            "done",
+            "in_progress",
+            Some("2026-04-01T09:00:00+08:00".into()),
+            Some("2026-04-02T09:00:00+08:00".into()),
+            Some("2026-04-03T09:00:00+08:00".into()),
+            None,
+            None,
+            None,
+            "2026-04-08T12:00:00+08:00",
+        );
+
+        assert_eq!(started_at.as_deref(), Some("2026-04-01T09:00:00+08:00"));
+        assert_eq!(testing_at.as_deref(), Some("2026-04-02T09:00:00+08:00"));
+        assert_eq!(completed_at, None);
+    }
+
+    #[test]
+    fn resolve_status_flow_timestamps_should_keep_same_status_without_side_effects() {
+        let (started_at, testing_at, completed_at) = resolve_status_flow_timestamps(
+            "testing",
+            "testing",
+            Some("2026-04-01T09:00:00+08:00".into()),
+            Some("2026-04-02T09:00:00+08:00".into()),
+            None,
+            None,
+            None,
+            None,
+            "2026-04-08T12:00:00+08:00",
+        );
+
+        assert_eq!(started_at.as_deref(), Some("2026-04-01T09:00:00+08:00"));
+        assert_eq!(testing_at.as_deref(), Some("2026-04-02T09:00:00+08:00"));
+        assert_eq!(completed_at, None);
+    }
+
+    #[test]
+    fn resolve_status_flow_timestamps_should_respect_manual_overrides() {
+        let (started_at, testing_at, completed_at) = resolve_status_flow_timestamps(
+            "todo",
+            "done",
+            None,
+            None,
+            None,
+            Some(Some("2026-03-31T08:00:00+08:00".into())),
+            Some(None),
+            Some(Some("2026-04-05T18:30:00+08:00".into())),
+            "2026-04-08T12:00:00+08:00",
+        );
+
+        assert_eq!(started_at.as_deref(), Some("2026-03-31T08:00:00+08:00"));
+        assert_eq!(testing_at, None);
+        assert_eq!(completed_at.as_deref(), Some("2026-04-05T18:30:00+08:00"));
+    }
+
+    #[test]
+    fn reorder_with_same_status_should_not_touch_flow_timestamps() {
+        let mut conn = create_pm_reorder_test_conn();
+        let started_at = "2026-04-01T09:00:00+08:00";
+        let testing_at = "2026-04-02T09:00:00+08:00";
+        let completed_at = "2026-04-03T09:00:00+08:00";
+        let now = "2026-04-08T12:00:00+08:00";
+
+        seed_pm_reorder_item(
+            &conn,
+            1,
+            "done",
+            7,
+            Some(started_at),
+            Some(testing_at),
+            Some(completed_at),
+            "2026-04-03T10:00:00+08:00",
+        );
+
+        let tx = conn.transaction().expect("begin tx");
+        reorder_with_timestamps(&tx, 1, 2, "done", now).expect("reorder");
+        tx.commit().expect("commit tx");
+
+        let (
+            status,
+            sort_order,
+            saved_started_at,
+            saved_testing_at,
+            saved_completed_at,
+            updated_at,
+        ): (
+            String,
+            i64,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            String,
+        ) = conn
+            .query_row(
+                "SELECT status, sort_order, started_at, testing_at, completed_at, updated_at
+                 FROM pm_items WHERE id = ?1",
+                params![1],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                    ))
+                },
+            )
+            .expect("read reordered item");
+
+        assert_eq!(status, "done");
+        assert_eq!(sort_order, 2);
+        assert_eq!(saved_started_at.as_deref(), Some(started_at));
+        assert_eq!(saved_testing_at.as_deref(), Some(testing_at));
+        assert_eq!(saved_completed_at.as_deref(), Some(completed_at));
+        assert_eq!(updated_at, now);
+    }
+
+    #[test]
+    fn reorder_with_changed_status_should_apply_flow_timestamps() {
+        let mut conn = create_pm_reorder_test_conn();
+        let started_at = "2026-04-01T09:00:00+08:00";
+        let testing_at = "2026-04-02T09:00:00+08:00";
+        let now = "2026-04-08T12:00:00+08:00";
+
+        seed_pm_reorder_item(
+            &conn,
+            1,
+            "testing",
+            4,
+            Some(started_at),
+            Some(testing_at),
+            None,
+            "2026-04-02T10:00:00+08:00",
+        );
+
+        let tx = conn.transaction().expect("begin tx");
+        reorder_with_timestamps(&tx, 1, 0, "done", now).expect("reorder");
+        tx.commit().expect("commit tx");
+
+        let (status, sort_order, saved_started_at, saved_testing_at, saved_completed_at): (
+            String,
+            i64,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        ) = conn
+            .query_row(
+                "SELECT status, sort_order, started_at, testing_at, completed_at
+                 FROM pm_items WHERE id = ?1",
+                params![1],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                    ))
+                },
+            )
+            .expect("read reordered item");
+
+        assert_eq!(status, "done");
+        assert_eq!(sort_order, 0);
+        assert_eq!(saved_started_at.as_deref(), Some(started_at));
+        assert_eq!(saved_testing_at.as_deref(), Some(testing_at));
+        assert_eq!(saved_completed_at.as_deref(), Some(now));
+    }
+
+    #[test]
+    fn batch_load_siyuan_links_should_use_pm_item_link_columns() {
+        let conn = create_pm_siyuan_links_test_conn();
+        conn.execute(
+            "INSERT INTO pm_item_siyuan_links(
+                item_id, doc_id, doc_title, doc_hpath, doc_path, notebook_id, notebook_name, sort_order
+             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                101_i64,
+                "doc-101",
+                "设计文档",
+                "/项目/设计文档",
+                "/project/design.sy",
+                "nb-1",
+                "产品库",
+                0_i64,
+            ],
+        )
+        .expect("seed siyuan link");
+
+        let links_map = batch_load_siyuan_links(&conn, &[101]);
+        let links = links_map.get(&101).expect("links for item 101");
+
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].doc_id, "doc-101");
+        assert_eq!(links[0].doc_title, "设计文档");
+        assert_eq!(links[0].doc_hpath, "/项目/设计文档");
+        assert_eq!(links[0].doc_path.as_deref(), Some("/project/design.sy"));
+        assert_eq!(links[0].notebook_id, "nb-1");
+        assert_eq!(links[0].notebook_name, "产品库");
+    }
+
+    #[test]
+    fn ensure_project_accepts_items_should_allow_active_projects() {
+        let conn = create_pm_projects_test_conn();
+        conn.execute(
+            "INSERT INTO pm_projects(id, status) VALUES(?1, ?2)",
+            params![1_i64, "active"],
+        )
+        .expect("seed active project");
+
+        ensure_project_accepts_items(&conn, 1).expect("active project should accept items");
+    }
+
+    #[test]
+    fn ensure_project_accepts_items_should_reject_archived_projects() {
+        let conn = create_pm_projects_test_conn();
+        conn.execute(
+            "INSERT INTO pm_projects(id, status) VALUES(?1, ?2)",
+            params![2_i64, "archived"],
+        )
+        .expect("seed archived project");
+
+        let err = ensure_project_accepts_items(&conn, 2).expect_err("archived project should reject items");
+        assert_eq!(err, "归档项目不能接收工作项，请先恢复项目");
+    }
+
+    #[test]
+    fn build_item_list_sql_should_include_archived_projects_in_overview() {
+        let overview_sql = build_item_list_sql(None);
+        let project_sql = build_item_list_sql(Some(1));
+
+        assert!(!overview_sql.contains("WHERE p.status = 'active'"));
+        assert!(project_sql.contains("WHERE i.project_id = ?1"));
+    }
 
     #[test]
     fn normalize_siyuan_base_url_should_trim_and_strip_trailing_slash() {

@@ -33,21 +33,31 @@ export function sortPmProjectsForSidebar(
   projects: PmProject[],
   projectItemCounts: Record<number, PmProjectItemCount>,
 ): PmSidebarProject[] {
+  const compareByStableFallback = (left: PmProject, right: PmProject) => {
+    const sortOrderDiff = left.sortOrder - right.sortOrder;
+    if (sortOrderDiff !== 0) {
+      return sortOrderDiff;
+    }
+    const nameDiff = left.name.localeCompare(right.name, "zh-CN");
+    if (nameDiff !== 0) {
+      return nameDiff;
+    }
+    return left.id - right.id;
+  };
+
   return [...projects]
     .sort((left, right) => {
+      if (left.status !== right.status) {
+        return left.status === "active" ? -1 : 1;
+      }
+      if (left.status === "archived") {
+        return compareByStableFallback(left, right);
+      }
       const totalDiff = getPmTotalCount(projectItemCounts[right.id]) - getPmTotalCount(projectItemCounts[left.id]);
       if (totalDiff !== 0) {
         return totalDiff;
       }
-      const sortOrderDiff = left.sortOrder - right.sortOrder;
-      if (sortOrderDiff !== 0) {
-        return sortOrderDiff;
-      }
-      const nameDiff = left.name.localeCompare(right.name, "zh-CN");
-      if (nameDiff !== 0) {
-        return nameDiff;
-      }
-      return left.id - right.id;
+      return compareByStableFallback(left, right);
     })
     .map((project) => ({
       ...project,

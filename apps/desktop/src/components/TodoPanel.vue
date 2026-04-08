@@ -3,7 +3,21 @@
     <div class="todo-layout">
       <aside class="todo-stats todo-sidebar">
         <div class="stats-section">
-          <div class="stats-section-title">概览</div>
+          <div class="stats-section-header">
+            <div class="stats-section-title">概览</div>
+            <el-button
+              size="small"
+              link
+              type="primary"
+              class="overview-settings-btn"
+              title="基础数据设置"
+              aria-label="基础数据设置"
+              @click="basicsDialogVisible = true"
+            >
+              <el-icon><Setting /></el-icon>
+              <span>基础数据</span>
+            </el-button>
+          </div>
           <div class="stats-grid">
             <div class="stat-card">
               <div class="stat-number">{{ activeItems.length }}</div>
@@ -134,15 +148,6 @@
             />
             <el-button @click="loadItems">刷新</el-button>
             <el-button type="primary" @click="startCreate">新增事项</el-button>
-            <el-button
-              text
-              class="toolbar-settings-btn"
-              title="基础数据设置"
-              aria-label="基础数据设置"
-              @click="basicsDialogVisible = true"
-            >
-              <el-icon><Setting /></el-icon>
-            </el-button>
           </div>
         </div>
         <div
@@ -1296,7 +1301,7 @@
     <el-dialog
       v-model="basicsDialogVisible"
       title="基础数据设置"
-      width="760px"
+      width="920px"
       :close-on-click-modal="false"
     >
       <div class="basic-grid">
@@ -3497,18 +3502,6 @@ onBeforeUnmount(() => {
   gap: 10px;
   align-items: center;
 }
-.toolbar-settings-btn {
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  border-radius: 999px;
-  color: var(--el-text-color-secondary);
-}
-.toolbar-settings-btn:hover {
-  color: var(--el-color-primary);
-  background: var(--el-fill-color-light);
-}
-
 /* --- Section headers --- */
 .item-section {
   display: flex;
@@ -4128,6 +4121,11 @@ onBeforeUnmount(() => {
 }
 .stats-section-header .stats-section-title {
   margin-bottom: 0;
+}
+.overview-settings-btn {
+  padding: 0;
+  gap: 4px;
+  font-weight: 500;
 }
 .stats-grid {
   display: grid;
@@ -4777,13 +4775,19 @@ onBeforeUnmount(() => {
 /* --- Dialog forms --- */
 .basic-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(280px, 1fr));
+  grid-template-columns: minmax(420px, 1.45fr) minmax(280px, 1fr);
   gap: 12px;
+  align-items: start;
 }
 .card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+@media (max-width: 900px) {
+  .basic-grid {
+    grid-template-columns: 1fr;
+  }
 }
 .todo-form-section {
   margin-bottom: 16px;

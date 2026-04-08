@@ -8,9 +8,9 @@ use serde_json::{json, Map, Value};
 use std::collections::HashSet;
 use std::fs;
 use std::io::Cursor;
+use std::path::{Path, PathBuf};
 #[cfg(windows)]
 use std::process::Command;
-use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{Duration, Instant};
 use walkdir::WalkDir;

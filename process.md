@@ -8,6 +8,143 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-04-08: PM 侧栏排序口径与项目计数口径必须拆开建模
+
+**场景**: 用户先后确认了两条 PM 规则：`archived` 项目不能再接收工作项，且 `archived` 项目不参与“按任务总数排序”；随后修复 A4 / A6 / A7 时，需要同时解决“总览只看 active”“侧栏排序失真”“总览摘要口径不一致”三类问题。
+
+**问题**:
+1. 原实现把 `item_counts()` 同时承担了两个职责：
+   - 给项目卡和总览卡提供数字
+   - 给侧栏排序提供总任务数依据
+2. 一旦后端只统计 active 项目，archived 项目的卡片数字会被误显示成 `0`，总览摘要也会只覆盖 active；但如果粗暴地把 archived 也纳入排序，又会和“archived 不参与排序”的规则冲突。
+3. 总览 `item_list()` 原来带 `WHERE p.status = 'active'`，导致 archived 项目下的工作项在总览消失、在单项目视图出现，形成展示分裂。
+
+**解决**:
+1. 先把“可见集合”修正为真实全量：
+   - 总览 `item_list()` 去掉 `p.status = 'active'`
+   - 让 archived 项目的既有工作项也进入总览
+2. 再把“计数”和“排序”明确拆开：
+   - `item_counts()` 返回所有项目的真实 `total / done`
+   - 这样 archived 项目卡数字和总览摘要都基于真实数据
+3. 前端 `sortPmProjectsForSidebar()` 改成两段式规则：
+   - `active` 项目排在前面，按任务总数降序
+   - `archived` 项目统一置后，只按 `sortOrder / name / id` 走稳定兜底
+4. 侧栏文案同步改成“活跃项目优先，按任务总数排序”，避免继续把 archived 误描述成参与同一排序口径。
+
+**关键点**:
+1. “项目卡要显示真实数字”和“项目列表要怎么排”是两个不同问题，不能继续共用同一口径硬绑在一起。
+2. 当产品规则变成“archived 不参与排序”时，最稳的实现不是不给 archived 计数，而是保留真实计数、单独处理排序分支。
+3. 总览如果要承担全局入口语义，可见集合和摘要口径必须对齐；否则用户会看到“卡片数和列表内容不是一个世界”的错觉。
+
+**涉及文件**:
+- `apps/desktop/src-tauri/src/tools/pm.rs`
+- `apps/desktop/src/utils/pmVisual.ts`
+- `apps/desktop/src/utils/pmVisual.test.ts`
+- `apps/desktop/src/components/PmPanel.vue`
+- `process.md`
+
+**验证**:
+- `cargo test pm::tests -- --nocapture`
+- `pnpm test src/utils/pmVisual.test.ts`
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+
+**使用次数**: 0
+
+## 2026-04-08: 本周工作面板改为按 PM 计划时间命中本周统计
+
+**场景**: 用户反馈“本周工作”里没有拿到本周进行中的项目管理任务；确认后的口径是：PM 任务是否进入“本周工作”，只看 `startAt / endAt` 是否命中本周，不再依赖 `status` 或 `completedAt`。
+
+**问题**:
+1. `pm.rs` 里的 `weekly_work()` 原实现把 PM 数据硬编码为 `status = 'done' AND completed_at >= 最近 7 天起点`，因此只会返回近 7 天已完成任务，进行中或测试中的本周任务会被直接漏掉。
+2. 面板标题、空态和工具描述仍写着“最近 7 天工作 / 完成工作汇总”，和“本周工作”的实际入口名称、用户心智以及目标口径不一致。
+3. `WeeklyWorkPanel.vue` 的时间列和分组排序都依赖 `completedAt`，即使后端补回 PM 任务，前端也无法正确展示计划时间范围。
+
+**解决**:
+1. 在 `pm.rs` 新增纯 helper：
+   - `normalize_pm_weekly_range()`
+   - `resolve_pm_weekly_window_hit()`
+   - `resolve_current_week_window()`
+   统一收口“单边日期补全、倒序日期纠正、本周窗口判定和排序日期钳制”。
+2. `weekly_work()` 改为：
+   - 本周窗口按“周一 00:00 ~ 周日 23:59:59”计算
+   - PM 任务只要 `startAt / endAt` 归一化后与本周有交集就返回
+   - 不再过滤 `status`
+   - Todo 仍按完成时间统计，但窗口同步改为“当前自然周”而不是“最近 7 天”
+3. PM 返回体补充 `startAt`、`endAt`、`sortAt`，让前端直接显示计划时间范围并按本周命中时间排序。
+4. `WeeklyWorkPanel.vue` 同步改为“本周工作”文案，PM 项展示计划时间范围与状态标签；排序从 `completedAt` 切换为统一 `sortAt`。
+5. `App.vue` 的工具描述一并改成“按本周时间范围汇总工作项”，避免入口文案继续误导。
+
+**关键点**:
+1. “本周工作”如果要承载 PM 计划视角，不能继续复用“已完成事项”思路；PM 应看排期区间与本周窗口是否相交，而不是看完成态。
+2. 对只有单边日期的 PM 任务，周统计也要命中；更稳的做法是把单边日期归一成单日区间，再统一做 overlap 判断。
+3. 周窗口如果要避免“23:59:59.xxx”边界遗漏，SQL 过滤尽量用 `[weekStart, nextWeekStart)` 的半开区间，而不是字符串形式的 `<= 周日 23:59:59`。
+4. 当统计口径从“完成时间”切到“计划时间范围”后，前端时间列、排序字段和空态文案必须一起切换，否则用户会觉得数据虽然回来了，但展示仍然不对。
+
+**涉及文件**:
+- `apps/desktop/src-tauri/src/tools/pm.rs`
+- `apps/desktop/src/components/WeeklyWorkPanel.vue`
+- `apps/desktop/src/types/pm.ts`
+- `apps/desktop/src/App.vue`
+- `process.md`
+
+**验证**:
+- `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml weekly_ -- --nocapture`
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+
+**使用次数**: 0
+
+## 2026-04-08: Base64 面板自动识别前端收口为纯函数校验 + 手动选择持久化
+
+**场景**: 用户要求按 `2026-04-07-base64-auto-detect-design.md` 实现 Base64 自动识别与类型同步，同时先审校 spec，再按审校后的规则落地前端最小改动方案。
+
+**问题**:
+1. 现有 `EncodePanel.vue` 只有一个 `base64UrlSafe` 布尔开关，编码与解码都完全依赖当前按钮状态，粘贴已编码文本时很容易因为类型没切对而直接解码失败。
+2. 这次目标不是改后端能力，而是让“输入时自动同步显示 + 解码时按识别结果纠偏”同时成立，因此如果把逻辑直接堆进组件，手动选择、自动识别、切工具恢复三者的优先级会很快变乱。
+3. Rust 侧实际用的是 `base64 0.22` 的 `STANDARD` 和 `URL_SAFE_NO_PAD`；如果前端偷懒用 `atob` / `Buffer` 判断，会和后端在 padding、无 padding、trailing bits 上出现细微边界偏差。
+4. Base64 输入状态当前通过 `EncodePanel.vue` 顶部普通 `<script>` 里的模块级 `encodeState` 持久化；如果只记显示状态、不记“手动选择”，切换工具回来后歧义输入的解码决策会漂移。
+
+**解决**:
+1. 先审校 spec，把实现边界收口为唯一方案：
+   - `manualChoice` 必须进入 `encodeState`
+   - `detectedKind` 只做运行时派生，不持久化
+   - 自动识别同步显示不得反写 `manualChoice`
+   - 前端可解码性校验必须自己实现，不能依赖浏览器宽松解码器
+2. 新增 `apps/desktop/src/utils/base64.ts`，把识别与解码决策抽成纯函数：
+   - `detectBase64Kind`
+   - `resolveBase64DecodeKind`
+   - 内部按 Standard / URL-safe 两套字母表、padding 规则和 trailing bits 规则做轻量校验
+3. `EncodePanel.vue` 中把 Base64 类型切换改成显式 `@update:model-value` 入口，只在用户主动点击时写入 `manualChoice`，避免自动同步污染手动兜底状态。
+4. 输入变化时统一走 `watch(base64Input, ..., { immediate: true })`：
+   - 明确类型时自动同步显示
+   - 歧义类型时按 `manualChoice ?? "standard"` 显示
+   - 非 Base64 输入不改当前显示类型
+   - 输入清空时重置 `manualChoice`
+5. 解码时不直接信当前按钮状态，而是重新识别一次当前输入，再通过 `resolveBase64DecodeKind` 决定最终走 Standard 还是 URL-safe 通道。
+6. 新增 `apps/desktop/src/utils/base64.test.ts`，固定明确类型、歧义输入、trailing bits 非法输入、空白输入和解码决策优先级。
+
+**关键点**:
+1. 这种“自动识别 + 仍保留手动切换”的交互，最容易错在把自动同步和手动选择混成一个状态；更稳的做法是把“当前显示类型”和“用户手动偏好”分开建模。
+2. Vue 表单控件如果既要支持程序性同步，又要精确捕捉“只有用户操作才算手动选择”，优先用 `:model-value + @update:model-value`，不要直接依赖 `v-model` 推断来源。
+3. 想和 Rust `base64` crate 保持一致时，前端至少要自己校验最后一个 sextet 的未使用 bits 是否为 0；否则像 `AB==`、`ABC=`、`AB`、`ABC` 这类输入会被前端误判为可解码。
+4. Base64 这类共享字符集协议天生会和普通短文本重叠，像 `test` 这样的 4 字符共享字符集文本落入 `ambiguous` 是当前最小改动方案下的接受成本，必须用单测固定，避免后续“优化”把规则漂移掉。
+5. 组件级持久化场景下，只恢复显示值不够；凡是会影响歧义分支决策的状态，都要和输入一起持久化，否则切换工具回来后行为会前后不一致。
+
+**涉及文件**:
+- `apps/desktop/src/components/EncodePanel.vue`
+- `apps/desktop/src/utils/base64.ts`
+- `apps/desktop/src/utils/base64.test.ts`
+- `docs/superpowers/specs/2026-04-07-base64-auto-detect-design.md`
+- `process.md`
+
+**验证**:
+- `pnpm --filter @lazycat/desktop test src/utils/base64.test.ts`
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+
+**使用次数**: 0
+
 ## 2026-04-07: 代理规范文档按检索场景重构并补 Agent 防错闸门
 
 **场景**: 用户要求同时更新 `AGENTS.md` 和 `CLAUDE.md`，目标不是增加更多规则，而是提升 agent 的实际使用效果，尤其减少漏规则、漏同步、漏验证和误触高风险操作。
