@@ -255,7 +255,14 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:pm:siyuan-search-pages": { domain: "pm", action: "siyuan_search_pages" },
   "tool:pm:siyuan-create-page": { domain: "pm", action: "siyuan_create_page" },
   "tool:pm:siyuan-open-page": { domain: "pm", action: "siyuan_open_page" },
-  "tool:pm:open-link": { domain: "pm", action: "open_link" }
+  "tool:pm:open-link": { domain: "pm", action: "open_link" },
+  "tool:pm:item-todo-list": { domain: "pm", action: "item_todo_list" },
+  "tool:pm:item-todo-link": { domain: "pm", action: "item_todo_link" },
+  "tool:pm:item-todo-unlink": { domain: "pm", action: "item_todo_unlink" },
+  "tool:pm:item-todo-create": { domain: "pm", action: "item_todo_create" },
+  "tool:pm:item-todo-candidates": { domain: "pm", action: "item_todo_candidates" },
+  "tool:todo:pm-candidates": { domain: "todo", action: "pm_candidates" },
+  "tool:todo:item-set-pm-link": { domain: "todo", action: "item_set_pm_link" }
 };
 
 export async function invokeToolByChannel(

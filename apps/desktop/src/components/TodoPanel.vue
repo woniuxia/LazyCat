@@ -530,6 +530,7 @@
                         clearable
                         placeholder="无"
                         style="width: 100%"
+                        :disabled="!!itemDraft.pmItemId"
                       >
                         <el-option
                           v-for="p in projectOptions"
@@ -538,6 +539,45 @@
                           :value="p.id"
                         />
                       </el-select>
+                      <div v-if="itemDraft.pmItemId && itemDraft.projectId" class="pm-link-project-lock-hint">
+                        已关联项目工作项，请先解除关联再切换项目
+                      </div>
+                    </el-form-item>
+                    <el-form-item label="项目工作项">
+                      <div v-if="itemDraft.kind === 'recurring'" class="pm-link-recurring-hint">
+                        重复事项暂不支持关联项目工作项
+                      </div>
+                      <div v-else-if="!itemDraft.projectId" class="pm-link-no-project-hint">
+                        请先选择项目，或从项目管理工作项内绑定该任务
+                      </div>
+                      <div v-else class="pm-link-selector">
+                        <el-select
+                          v-model="todoPmLinkItemId"
+                          clearable
+                          placeholder="未关联项目任务"
+                          style="width: 100%"
+                          @change="onTodoPmLinkChange"
+                        >
+                          <el-option
+                            v-for="pm in todoPmCandidates"
+                            :key="pm.id"
+                            :label="pm.title"
+                            :value="pm.id"
+                          >
+                            <span>{{ pm.title }}</span>
+                            <el-tag size="small" effect="plain" style="margin-left: 6px;">{{ pm.status }}</el-tag>
+                          </el-option>
+                        </el-select>
+                        <el-button
+                          v-if="itemDraft.pmItemId && itemDraft.pmItemTitle"
+                          size="small"
+                          link
+                          type="primary"
+                          @click="navigateToPmItem(itemDraft.pmItemId, itemDraft.pmItemProjectId)"
+                        >
+                          查看工作项
+                        </el-button>
+                      </div>
                     </el-form-item>
                     <el-form-item label="执行人">
                       <el-select
@@ -1480,6 +1520,8 @@ import type {
   TodoStatus,
   TodoType,
 } from "../types";
+import type { PmCandidateItem } from "../types/pm";
+import { useTabs } from "../composables/useTabs";
 import { groupTodoItemsByBucket } from "../utils/todoBuckets";
 import { clampContextMenuPosition } from "../utils/contextMenu";
 import { formatTodoRelativeDateTimeLabel } from "../utils/todoRelativeDate";
@@ -1540,6 +1582,8 @@ const doneCollapsed = ref(true);
 const recentWeekCollapsed = ref(true);
 const basicsDialogVisible = ref(false);
 const viewMode = ref<"list" | "calendar">("list");
+const todoPmLinkItemId = ref<number | null>(null);
+const todoPmCandidates = ref<PmCandidateItem[]>([]);
 const calendarMonth = ref(new Date());
 const itemDialogMode = ref<ItemDialogMode>("create");
 const detailMode = ref<DetailMode>("empty");
@@ -1559,6 +1603,7 @@ const todoContextMenu = reactive({
 let reminderUnlisten: UnlistenFn | null = null;
 let titleFocusTimer: ReturnType<typeof setTimeout> | null = null;
 const { watchPendingToolInput } = useClipboardSuggestion();
+const { openTab } = useTabs();
 
 // Drawer 相关状态
 
@@ -1735,6 +1780,9 @@ const itemDraft = reactive({
     dayOfMonth: 1,
   },
   projectId: null as number | null,
+  pmItemId: null as number | null,
+  pmItemTitle: null as string | null,
+  pmItemProjectId: null as number | null,
 });
 
 const typeDraft = reactive<TodoTypeDraft>({ id: 0, name: "", color: "", sortOrder: 0 });
@@ -2691,6 +2739,12 @@ function normalizeTodoItem(raw: unknown): TodoItem {
     completedAt: typeof record.completedAt === "string" ? record.completedAt : null,
     createdAt: typeof record.createdAt === "string" ? record.createdAt : "",
     updatedAt: typeof record.updatedAt === "string" ? record.updatedAt : "",
+    projectId: typeof record.projectId === "number" ? record.projectId : null,
+    projectName: typeof record.projectName === "string" ? record.projectName : null,
+    projectColor: typeof record.projectColor === "string" ? record.projectColor : null,
+    pmItemId: typeof record.pmItemId === "number" ? record.pmItemId : null,
+    pmItemTitle: typeof record.pmItemTitle === "string" ? record.pmItemTitle : null,
+    pmItemProjectId: typeof record.pmItemProjectId === "number" ? record.pmItemProjectId : null,
   };
 }
 
@@ -2886,6 +2940,11 @@ function resetItemDraft() {
   itemDraft.simple.weekdays = [1, 2, 3, 4, 5];
   itemDraft.simple.dayOfMonth = 1;
   itemDraft.projectId = null;
+  itemDraft.pmItemId = null;
+  itemDraft.pmItemTitle = null;
+  itemDraft.pmItemProjectId = null;
+  todoPmLinkItemId.value = null;
+  todoPmCandidates.value = [];
   lastReminderPresetSelection.value = [...itemDraft.reminderPresets];
   editingItemSnapshot.value = null;
   itemDialogMode.value = "create";
@@ -2923,6 +2982,15 @@ function applyItemToDraft(item: TodoItem) {
     }
   }
   itemDraft.projectId = item.projectId ?? null;
+  itemDraft.pmItemId = item.pmItemId ?? null;
+  itemDraft.pmItemTitle = item.pmItemTitle ?? null;
+  itemDraft.pmItemProjectId = item.pmItemProjectId ?? null;
+  todoPmLinkItemId.value = item.pmItemId ?? null;
+  if (item.projectId && item.kind !== "recurring") {
+    loadTodoPmCandidates(item.projectId);
+  } else {
+    todoPmCandidates.value = [];
+  }
 }
 
 async function loadTypes() {
@@ -2954,6 +3022,45 @@ async function loadProjects() {
   } catch {
     projectOptions.value = [];
   }
+}
+
+async function loadTodoPmCandidates(projectId: number) {
+  try {
+    const result = await invokeToolByChannel("tool:todo:pm-candidates", { projectId }) as { items: PmCandidateItem[] };
+    todoPmCandidates.value = result?.items || [];
+  } catch {
+    todoPmCandidates.value = [];
+  }
+}
+
+async function onTodoPmLinkChange(pmItemId: number | null) {
+  if (!itemDraft.id) return;
+  try {
+    if (pmItemId) {
+      await invokeToolByChannel("tool:todo:item-set-pm-link", {
+        todoItemId: itemDraft.id,
+        pmItemId,
+      });
+    } else {
+      await invokeToolByChannel("tool:todo:item-set-pm-link", {
+        todoItemId: itemDraft.id,
+        pmItemId: null,
+      });
+    }
+    itemDraft.pmItemId = pmItemId;
+    const candidate = pmItemId ? todoPmCandidates.value.find((c) => c.id === pmItemId) : null;
+    itemDraft.pmItemTitle = candidate?.title ?? null;
+    itemDraft.pmItemProjectId = candidate?.projectId ?? null;
+    await loadItems();
+  } catch (error) {
+    ElMessage.error((error as Error).message);
+    todoPmLinkItemId.value = itemDraft.pmItemId;
+  }
+}
+
+function navigateToPmItem(pmItemId: number, _pmProjectId: number | null) {
+  openTab("pm", "项目管理");
+  ElMessage.info({ message: `已切换到项目管理，请查看工作项 #${pmItemId}`, duration: 3000 });
 }
 
 async function resolveTypeId(value: SelectTypeValue) {
@@ -3434,6 +3541,21 @@ async function removeAssignee(item: TodoAssignee) {
 }
 
 watch(filterProjectId, () => loadItems());
+
+watch(
+  () => itemDraft.projectId,
+  (newProjectId) => {
+    todoPmLinkItemId.value = null;
+    itemDraft.pmItemId = null;
+    itemDraft.pmItemTitle = null;
+    itemDraft.pmItemProjectId = null;
+    if (newProjectId && itemDraft.kind !== "recurring" && itemDraft.id) {
+      loadTodoPmCandidates(newProjectId);
+    } else {
+      todoPmCandidates.value = [];
+    }
+  },
+);
 
 watch(selectedItem, (item) => {
   if (detailMode.value === "create") return;
@@ -5160,6 +5282,30 @@ onBeforeUnmount(() => {
   --el-radio-button-checked-bg-color: var(--el-color-primary-light-9);
   --el-radio-button-checked-text-color: var(--el-color-primary);
   --el-radio-button-checked-border-color: var(--el-color-primary-light-5);
+}
+
+/* PM link styles */
+.pm-link-project-lock-hint {
+  font-size: 12px;
+  color: var(--el-color-warning);
+  margin-top: 4px;
+}
+
+.pm-link-recurring-hint,
+.pm-link-no-project-hint {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+
+.pm-link-selector {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+}
+
+.pm-link-selector .el-select {
+  flex: 1;
 }
 </style>
 

@@ -4,3 +4,4 @@ export { initSettings, getSetting, getSettingJson, setSetting, setSettingJson, i
 export { useTabs } from "./useTabs";
 export { useMenuVisibility } from "./useMenuVisibility";
 export { useClipboardSuggestion } from "./useClipboardSuggestion";
+export { usePmTodoLinking } from "./usePmTodoLinking";

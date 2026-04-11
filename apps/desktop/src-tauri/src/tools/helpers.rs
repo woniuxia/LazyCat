@@ -288,6 +288,7 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
         CREATE INDEX IF NOT EXISTS idx_todo_items_series_id ON todo_items(series_id);
         CREATE INDEX IF NOT EXISTS idx_todo_items_parent_id ON todo_items(parent_id);
         CREATE INDEX IF NOT EXISTS idx_todo_items_completed_at ON todo_items(completed_at);
+        CREATE INDEX IF NOT EXISTS idx_todo_items_project_id ON todo_items(project_id);
 
         CREATE TABLE IF NOT EXISTS todo_series_rules (
             series_id INTEGER PRIMARY KEY,
@@ -486,6 +487,23 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
             ON pm_item_siyuan_links(item_id, sort_order ASC, id ASC);",
     )
     .map_err(|e| format!("initialize pm_item_siyuan_links failed: {e}"))?;
+
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS pm_item_todo_links (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            pm_item_id INTEGER NOT NULL,
+            todo_item_id INTEGER NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (pm_item_id) REFERENCES pm_items(id) ON DELETE CASCADE,
+            FOREIGN KEY (todo_item_id) REFERENCES todo_items(id) ON DELETE CASCADE
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_pm_item_todo_links_todo_item_id
+            ON pm_item_todo_links(todo_item_id);
+        CREATE INDEX IF NOT EXISTS idx_pm_item_todo_links_pm_item_id
+            ON pm_item_todo_links(pm_item_id);",
+    )
+    .map_err(|e| format!("initialize pm_item_todo_links failed: {e}"))?;
 
     let fts_result = conn.execute_batch(
         "CREATE VIRTUAL TABLE IF NOT EXISTS snippet_fts USING fts5(

@@ -64,9 +64,9 @@ struct SeriesRuleRow {
     active: bool,
 }
 
-struct ReminderConfig {
-    preset: String,
-    offset_minutes: i64,
+pub struct ReminderConfig {
+    pub preset: String,
+    pub offset_minutes: i64,
 }
 
 #[derive(Default)]
@@ -100,6 +100,8 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         "reminder_list_unread" => reminder_list_unread(payload),
         "reminder_mark_read" => reminder_mark_read(payload),
         "open_link" => open_link(payload),
+        "pm_candidates" => pm_candidates(payload),
+        "item_set_pm_link" => item_set_pm_link(payload),
         _ => Err(format!("unsupported todo action: {action}")),
     }
 }
@@ -597,7 +599,7 @@ fn parse_end_rule(payload: &Value) -> Result<(String, Option<String>), String> {
 
 // ── Reminder utilities ────────────────────────────────────
 
-fn reminder_offset_minutes_from_preset(preset: &str) -> Option<i64> {
+pub fn reminder_offset_minutes_from_preset(preset: &str) -> Option<i64> {
     REMINDER_PRESET_OFFSETS
         .iter()
         .find_map(|(candidate, minutes)| (*candidate == preset).then_some(*minutes))
@@ -683,7 +685,7 @@ fn parse_reminder_presets(payload: &Value) -> Result<Option<Vec<String>>, String
     Ok(Some(normalize_reminder_presets(&values)?))
 }
 
-fn reminder_configs_from_presets(presets: &[String]) -> Vec<ReminderConfig> {
+pub fn reminder_configs_from_presets(presets: &[String]) -> Vec<ReminderConfig> {
     let mut configs = presets
         .iter()
         .filter_map(|preset| {
@@ -697,7 +699,7 @@ fn reminder_configs_from_presets(presets: &[String]) -> Vec<ReminderConfig> {
     configs
 }
 
-fn compute_remind_at(
+pub fn compute_remind_at(
     event_at: Option<&str>,
     offset_minutes: Option<i64>,
 ) -> Result<Option<String>, String> {
@@ -938,7 +940,7 @@ fn load_item_reminder_summary(
     Ok(summary)
 }
 
-fn sync_item_reminders(
+pub fn sync_item_reminders(
     conn: &Connection,
     item_id: i64,
     event_at: Option<&str>,
@@ -1400,66 +1402,58 @@ fn item_list(payload: &Value) -> Result<Value, String> {
 
     let rows = stmt
         .query_map([], |row| {
-            Ok((
-                row.get::<_, i64>(0)?,             // id
-                row.get::<_, String>(1)?,          // title
-                row.get::<_, Option<i64>>(2)?,     // type_id
-                row.get::<_, String>(3)?,          // priority
-                row.get::<_, String>(4)?,          // description
-                row.get::<_, String>(5)?,          // status
-                row.get::<_, Option<String>>(6)?,  // event_at
-                row.get::<_, i64>(7)? != 0,        // pinned
-                row.get::<_, String>(8)?,          // kind
-                row.get::<_, Option<i64>>(9)?,     // series_id
-                row.get::<_, Option<i64>>(10)?,    // parent_id
-                row.get::<_, String>(11)?,         // created_at
-                row.get::<_, String>(12)?,         // updated_at
-                row.get::<_, Option<String>>(13)?, // completed_at
-                row.get::<_, Option<String>>(14)?, // type_name
-                row.get::<_, Option<String>>(15)?, // type_color
-                // series rules (nullable)
-                row.get::<_, Option<String>>(16)?, // rule_mode
-                row.get::<_, Option<String>>(17)?, // rule_json
-                row.get::<_, Option<String>>(18)?, // cron_expression
-                row.get::<_, Option<String>>(19)?, // timezone
-                row.get::<_, Option<String>>(20)?, // start_at
-                row.get::<_, Option<String>>(21)?, // end_mode
-                row.get::<_, Option<String>>(22)?, // end_value
-                row.get::<_, Option<i64>>(23)?,    // occurrence_index
-                row.get::<_, Option<i64>>(24)?,    // active (0/1/null)
-            ))
+            // Columns 0-24 are always present; columns 25+ depend on has_project_col
+            let base: (i64, String, Option<i64>, String, String, String,
+                       Option<String>, bool, String, Option<i64>, Option<i64>,
+                       String, String, Option<String>,
+                       Option<String>, Option<String>,
+                       Option<String>, Option<String>, Option<String>, Option<String>,
+                       Option<String>, Option<String>, Option<String>,
+                       Option<i64>, Option<i64>) = (
+                row.get(0)?,   // id
+                row.get(1)?,   // title
+                row.get(2)?,   // type_id
+                row.get(3)?,   // priority
+                row.get(4)?,   // description
+                row.get(5)?,   // status
+                row.get(6)?,   // event_at
+                row.get::<_, i64>(7)? != 0,  // pinned
+                row.get(8)?,   // kind
+                row.get(9)?,   // series_id
+                row.get(10)?,  // parent_id
+                row.get(11)?,  // created_at
+                row.get(12)?,  // updated_at
+                row.get(13)?,  // completed_at
+                row.get(14)?,  // type_name
+                row.get(15)?,  // type_color
+                row.get(16)?,  // rule_mode
+                row.get(17)?,  // rule_json
+                row.get(18)?,  // cron_expression
+                row.get(19)?,  // timezone
+                row.get(20)?,  // start_at
+                row.get(21)?,  // end_mode
+                row.get(22)?,  // end_value
+                row.get(23)?,  // occurrence_index
+                row.get(24)?,  // active
+            );
+            let project_id: Option<i64> = if has_project_col { row.get(25)? } else { None };
+            let project_name: Option<String> = if has_project_col { row.get(26)? } else { None };
+            let project_color: Option<String> = if has_project_col { row.get(27)? } else { None };
+            Ok((base, project_id, project_name, project_color))
         })
         .map_err(|e| format!("映射事项失败: {e}"))?;
 
     let mut items = Vec::new();
     for row in rows {
+        let (base, project_id_from_sql, project_name_from_sql, project_color_from_sql) = row.map_err(|e| e.to_string())?;
         let (
-            id,
-            title,
-            type_id,
-            priority,
-            description,
-            status_raw,
-            event_at,
-            pinned,
-            kind,
-            series_id,
-            _parent_id,
-            created_at,
-            updated_at,
-            completed_at,
-            type_name,
-            type_color,
-            rule_mode,
-            rule_json,
-            cron_expression,
-            timezone,
-            start_at,
-            end_mode,
-            end_value,
-            occurrence_index,
-            rule_active,
-        ) = row.map_err(|e| e.to_string())?;
+            id, title, type_id, priority, description, status_raw,
+            event_at, pinned, kind, series_id, _parent_id,
+            created_at, updated_at, completed_at,
+            type_name, type_color,
+            rule_mode, rule_json, cron_expression, timezone,
+            start_at, end_mode, end_value, occurrence_index, rule_active,
+        ) = base;
 
         // A1 归一化
         let status = normalize_status_a1(&status_raw).to_string();
@@ -1566,65 +1560,88 @@ fn item_list(payload: &Value) -> Result<Value, String> {
                 "nextReminderPreset".to_string(),
                 json!(reminder_summary.next_reminder_preset),
             );
-        }
-
-        items.push(item);
-    }
-
-    // Attach project info if the column exists
-    if has_project_col {
-        // Build a cache of project info
-        let mut proj_cache: std::collections::HashMap<i64, (String, String)> =
-            std::collections::HashMap::new();
-        for item in items.iter_mut() {
-            let item_id = item["id"].as_i64().unwrap_or(0);
-            let project_id: Option<i64> = conn
-                .query_row(
-                    "SELECT project_id FROM todo_items WHERE id = ?1",
-                    params![item_id],
-                    |r| r.get(0),
-                )
-                .unwrap_or(None);
-
-            if let Some(obj) = item.as_object_mut() {
-                obj.insert("projectId".to_string(), json!(project_id));
-                if let Some(pid) = project_id {
-                    let (pname, pcolor) = if let Some(cached) = proj_cache.get(&pid) {
-                        cached.clone()
-                    } else {
-                        let info: (String, String) = conn
-                            .query_row(
-                                "SELECT name, color FROM pm_projects WHERE id = ?1",
-                                params![pid],
-                                |r| Ok((r.get(0)?, r.get(1)?)),
-                            )
-                            .unwrap_or_else(|_| ("".to_string(), "".to_string()));
-                        proj_cache.insert(pid, info.clone());
-                        info
-                    };
-                    obj.insert("projectName".to_string(), json!(pname));
-                    obj.insert("projectColor".to_string(), json!(pcolor));
+            // Project info from SQL join (already fetched)
+            if has_project_col {
+                obj.insert("projectId".to_string(), json!(project_id_from_sql));
+                if project_id_from_sql.is_some() {
+                    obj.insert("projectName".to_string(), json!(project_name_from_sql.unwrap_or_default()));
+                    obj.insert("projectColor".to_string(), json!(project_color_from_sql.unwrap_or_default()));
                 } else {
                     obj.insert("projectName".to_string(), Value::Null);
                     obj.insert("projectColor".to_string(), Value::Null);
                 }
-            }
-        }
-    } else {
-        for item in items.iter_mut() {
-            if let Some(obj) = item.as_object_mut() {
+            } else {
                 obj.insert("projectId".to_string(), Value::Null);
                 obj.insert("projectName".to_string(), Value::Null);
                 obj.insert("projectColor".to_string(), Value::Null);
             }
         }
+
+        items.push(item);
     }
 
-    // Apply project filter
-    if let Some(pid) = project_filter {
-        items.retain(|item| item["projectId"].as_i64() == Some(pid));
-    } else if project_filter_mode.as_deref() == Some("none") {
-        items.retain(|item| item["projectId"].is_null());
+    // Apply project filter before PM enrichment to avoid unnecessary work
+    if has_project_col {
+        if let Some(pid) = project_filter {
+            items.retain(|item| item["projectId"].as_i64() == Some(pid));
+        } else if project_filter_mode.as_deref() == Some("none") {
+            items.retain(|item| item["projectId"].is_null());
+        }
+    }
+
+    // Project info already set inline per-item above
+
+    // Attach PM link info (pmItemId, pmItemTitle, pmItemProjectId)
+    {
+        let item_ids: Vec<i64> = items.iter().filter_map(|i| i["id"].as_i64()).collect();
+        if !item_ids.is_empty() {
+            // Batch query PM links for all items
+            let placeholders: Vec<String> = item_ids.iter().enumerate().map(|(i, _)| format!("?{}", i + 1)).collect();
+            let sql = format!(
+                "SELECT l.todo_item_id, l.pm_item_id, p.title, p.project_id \
+                 FROM pm_item_todo_links l \
+                 JOIN pm_items p ON p.id = l.pm_item_id \
+                 WHERE l.todo_item_id IN ({})",
+                placeholders.join(",")
+            );
+            let params: Vec<&dyn rusqlite::ToSql> = item_ids.iter().map(|id| id as &dyn rusqlite::ToSql).collect();
+            let mut stmt = conn.prepare(&sql).map_err(|e| format!("查询 PM 关联失败: {e}"))?;
+            let link_rows: Vec<(i64, i64, String, i64)> = stmt
+                .query_map(params.as_slice(), |r| {
+                    Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+                })
+                .map_err(|e| format!("映射 PM 关联失败: {e}"))?
+                .filter_map(|r| r.ok())
+                .collect();
+
+            let link_map: std::collections::HashMap<i64, (i64, String, i64)> = link_rows
+                .into_iter()
+                .map(|(todo_id, pm_id, pm_title, pm_proj_id)| (todo_id, (pm_id, pm_title, pm_proj_id)))
+                .collect();
+
+            for item in items.iter_mut() {
+                let item_id = item["id"].as_i64().unwrap_or(0);
+                if let Some(obj) = item.as_object_mut() {
+                    if let Some((pm_id, pm_title, pm_proj_id)) = link_map.get(&item_id) {
+                        obj.insert("pmItemId".to_string(), json!(pm_id));
+                        obj.insert("pmItemTitle".to_string(), json!(pm_title));
+                        obj.insert("pmItemProjectId".to_string(), json!(pm_proj_id));
+                    } else {
+                        obj.insert("pmItemId".to_string(), Value::Null);
+                        obj.insert("pmItemTitle".to_string(), Value::Null);
+                        obj.insert("pmItemProjectId".to_string(), Value::Null);
+                    }
+                }
+            }
+        } else {
+            for item in items.iter_mut() {
+                if let Some(obj) = item.as_object_mut() {
+                    obj.insert("pmItemId".to_string(), Value::Null);
+                    obj.insert("pmItemTitle".to_string(), Value::Null);
+                    obj.insert("pmItemProjectId".to_string(), Value::Null);
+                }
+            }
+        }
     }
 
     sort_item_rows(&mut items);
@@ -1793,6 +1810,18 @@ fn item_update(payload: &Value) -> Result<Value, String> {
         )
         .map_err(|e| format!("更新事项类型失败: {e}"))?;
     } else if kind == SERIES_KIND_ONE_OFF && new_kind == SERIES_KIND_RECURRING {
+        // Guard: block one_off -> recurring when PM linked
+        let linked_pm: Option<i64> = conn
+            .query_row(
+                "SELECT pm_item_id FROM pm_item_todo_links WHERE todo_item_id = ?1",
+                params![id],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(|e| format!("查询 PM 关联失败: {e}"))?;
+        if linked_pm.is_some() {
+            return Err("已关联项目工作项的任务不能改为重复事项，请先解除关联".to_string());
+        }
         // one_off -> recurring: set series_id = self, update kind
         conn.execute(
             "UPDATE todo_items SET kind=?1, series_id=?2, updated_at=CURRENT_TIMESTAMP WHERE id=?2",
@@ -1847,6 +1876,18 @@ fn item_update(payload: &Value) -> Result<Value, String> {
 
     // Update project_id if provided
     if payload.get("projectId").is_some() {
+        // Guard: if todo is linked to a PM item, block project change
+        let linked_pm: Option<i64> = conn
+            .query_row(
+                "SELECT pm_item_id FROM pm_item_todo_links WHERE todo_item_id = ?1",
+                params![id],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(|e| format!("查询 PM 关联失败: {e}"))?;
+        if linked_pm.is_some() {
+            return Err("已关联项目工作项的任务不能直接切换项目，请先解除关联".to_string());
+        }
         let project_id = parse_i64(payload, "projectId");
         let _ = conn.execute(
             "UPDATE todo_items SET project_id = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2",
@@ -2209,6 +2250,12 @@ fn delete_item_by_id(conn: &Connection, item_id: i64) -> Result<(), String> {
         params![item_id],
     )
     .map_err(|e| format!("删除提醒事件失败: {e}"))?;
+    // PM-Todo link cleanup (FK CASCADE also handles this, but explicit for clarity)
+    conn.execute(
+        "DELETE FROM pm_item_todo_links WHERE todo_item_id=?1",
+        params![item_id],
+    )
+    .map_err(|e| format!("删除 PM 关联记录失败: {e}"))?;
     conn.execute("DELETE FROM todo_items WHERE id=?1", params![item_id])
         .map_err(|e| format!("删除事项失败: {e}"))?;
     Ok(())
@@ -2481,6 +2528,130 @@ fn dispatch_due_reminders(
         });
     }
     Ok(reminders)
+}
+
+// ── PM-Todo linking (Todo side) ────────────────────────────
+
+/// Return PM items that a Todo can be linked to (same project).
+fn pm_candidates(payload: &Value) -> Result<Value, String> {
+    let project_id = parse_i64(payload, "projectId").ok_or("projectId is required")?;
+    let conn = db_conn()?;
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT i.id, i.title, i.status, i.priority, i.project_id,
+                    p.name AS project_name, p.color AS project_color
+             FROM pm_items i
+             LEFT JOIN pm_projects p ON p.id = i.project_id
+             WHERE i.project_id = ?1
+             ORDER BY
+                CASE i.status WHEN 'done' THEN 1 ELSE 0 END,
+                CASE i.priority WHEN 'P0' THEN 0 WHEN 'P1' THEN 1 WHEN 'P2' THEN 2 ELSE 3 END,
+                i.id DESC
+             LIMIT 200",
+        )
+        .map_err(|e| format!("pm_candidates prepare: {e}"))?;
+
+    let items: Vec<Value> = stmt
+        .query_map(params![project_id], |r| {
+            Ok(json!({
+                "id": r.get::<_, i64>(0)?,
+                "title": r.get::<_, String>(1)?,
+                "status": r.get::<_, String>(2)?,
+                "priority": r.get::<_, String>(3)?,
+                "projectId": r.get::<_, i64>(4)?,
+                "projectName": r.get::<_, Option<String>>(5)?,
+                "projectColor": r.get::<_, Option<String>>(6)?,
+            }))
+        })
+        .map_err(|e| format!("pm_candidates query: {e}"))?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok(json!({ "items": items }))
+}
+
+/// Set or clear the PM link for a Todo item.
+fn item_set_pm_link(payload: &Value) -> Result<Value, String> {
+    let todo_item_id = parse_i64(payload, "todoItemId").ok_or("todoItemId is required")?;
+    let new_pm_item_id = parse_i64(payload, "pmItemId"); // None = clear
+
+    let conn = db_conn()?;
+
+    // Verify todo exists and get kind + project_id
+    let (kind, todo_project_id): (String, Option<i64>) = conn
+        .query_row(
+            "SELECT kind, project_id FROM todo_items WHERE id = ?1",
+            params![todo_item_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .map_err(|_| "事项不存在".to_string())?;
+
+    // Only one_off allowed
+    if kind != SERIES_KIND_ONE_OFF {
+        return Err("重复事项暂不支持关联项目工作项".to_string());
+    }
+
+    if let Some(pm_id) = new_pm_item_id {
+        // Setting or changing PM link
+        // Verify PM item exists and get its project
+        let pm_project_id: i64 = conn
+            .query_row(
+                "SELECT project_id FROM pm_items WHERE id = ?1",
+                params![pm_id],
+                |r| r.get(0),
+            )
+            .map_err(|e| format!("项目工作项不存在: {e}"))?;
+
+        // Todo must have a project to link to PM
+        let todo_pid = todo_project_id.ok_or_else(|| {
+            "请先选择项目，或从项目管理工作项内绑定该任务".to_string()
+        })?;
+
+        // Same project required
+        if todo_pid != pm_project_id {
+            return Err("只能关联同一项目下的工作项，跨项目请先清除关联再改项目".to_string());
+        }
+
+        // Upsert: if already linked, change; otherwise insert
+        let existing_link: Option<i64> = conn
+            .query_row(
+                "SELECT pm_item_id FROM pm_item_todo_links WHERE todo_item_id = ?1",
+                params![todo_item_id],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(|e| format!("查询关联失败: {e}"))?;
+
+        let now = chrono::Utc::now().to_rfc3339();
+        if let Some(old_pm_id) = existing_link {
+            if old_pm_id == pm_id {
+                return Ok(json!({ "ok": true })); // already linked to same PM
+            }
+            // Change link
+            conn.execute(
+                "UPDATE pm_item_todo_links SET pm_item_id = ?1, updated_at = ?2 WHERE todo_item_id = ?3",
+                params![pm_id, now, todo_item_id],
+            )
+            .map_err(|e| format!("改挂关联失败: {e}"))?;
+        } else {
+            // Insert new link
+            conn.execute(
+                "INSERT INTO pm_item_todo_links (pm_item_id, todo_item_id, created_at, updated_at) VALUES (?1, ?2, ?3, ?4)",
+                params![pm_id, todo_item_id, now, now],
+            )
+            .map_err(|e| format!("设置关联失败: {e}"))?;
+        }
+    } else {
+        // Clear PM link (pmItemId = null or not provided)
+        conn.execute(
+            "DELETE FROM pm_item_todo_links WHERE todo_item_id = ?1",
+            params![todo_item_id],
+        )
+        .map_err(|e| format!("清除关联失败: {e}"))?;
+    }
+
+    Ok(json!({ "ok": true }))
 }
 
 // ── Tests ─────────────────────────────────────────────────

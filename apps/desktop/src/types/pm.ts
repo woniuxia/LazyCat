@@ -140,3 +140,47 @@ export const PM_PRIORITY_MAP: Record<PmPriority, { label: string; color: string 
   P2: { label: "P2 中", color: "#409eff" },
   P3: { label: "P3 低", color: "#909399" },
 };
+
+// ── PM-Todo Linking Types ──────────────────────────────────
+
+export interface PmTodoLinkItem {
+  id: number;
+  title: string;
+  status: string;
+  priority: string;
+  kind: string;
+  eventAt: string | null;
+  projectId: number | null;
+  projectName: string | null;
+  projectColor: string | null;
+  completedAt: string | null;
+  isOverdue: boolean;
+}
+
+export interface PmTodoSummary {
+  totalCount: number;
+  completedCount: number;
+  pendingCount: number;
+  projectId: number | null;
+}
+
+export interface PmTodoCandidateItem {
+  id: number;
+  title: string;
+  status: string;
+  priority: string;
+  eventAt: string | null;
+  projectId: number | null;
+  projectName: string | null;
+  isUnassignedProject: boolean;
+}
+
+export interface PmCandidateItem {
+  id: number;
+  title: string;
+  status: string;
+  priority: string;
+  projectId: number | null;
+  projectName: string | null;
+  projectColor: string | null;
+}

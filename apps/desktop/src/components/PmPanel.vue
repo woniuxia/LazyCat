@@ -359,6 +359,58 @@
                 <pre class="detail-value detail-description">{{ selectedItemDescriptionText }}</pre>
               </div>
 
+              <!-- 执行任务区块 -->
+              <div class="detail-section">
+                <div class="detail-section-head">
+                  <span class="detail-section-title">执行任务</span>
+                  <span class="detail-section-subtitle">当前工作项拆解出的任务清单事项</span>
+                </div>
+
+                <!-- 摘要区 -->
+                <div v-if="pmTodo.summary" class="pm-todo-summary">
+                  <span class="pm-todo-stat">已关联 {{ pmTodo.summary.totalCount }} 项</span>
+                  <span class="pm-todo-stat">已完成 {{ pmTodo.summary.completedCount }} / {{ pmTodo.summary.totalCount }}</span>
+                  <el-progress
+                    :percentage="pmTodo.progressPercent"
+                    :stroke-width="6"
+                    :show-text="false"
+                    :color="pmTodo.allCompleted ? '#67c23a' : '#409eff'"
+                    style="flex: 1; margin-left: 8px;"
+                  />
+                  <span v-if="pmTodo.allCompleted" class="pm-todo-all-done-hint">全部完成</span>
+                </div>
+
+                <!-- 操作区 -->
+                <div class="pm-todo-actions">
+                  <el-button size="small" type="primary" plain @click="pmTodo.createDialogVisible = true">新建执行任务</el-button>
+                  <el-button size="small" plain @click="pmTodo.openLinkDialog()">绑定已有任务</el-button>
+                </div>
+
+                <!-- 列表区 -->
+                <div v-if="pmTodo.loading" class="pm-todo-loading">加载中...</div>
+                <div v-else-if="pmTodo.items.length === 0" class="pm-todo-empty">暂无关联的执行任务</div>
+                <div v-else class="pm-todo-list">
+                  <div v-for="todo in pmTodo.items" :key="todo.id" class="pm-todo-item" :class="{ 'pm-todo-item--completed': todo.status === 'completed' }">
+                    <div class="pm-todo-item-main">
+                      <el-checkbox
+                        :model-value="todo.status === 'completed'"
+                        @change="pmTodo.toggleComplete(todo)"
+                      />
+                      <span class="pm-todo-item-title">{{ todo.title }}</span>
+                      <el-tag v-if="todo.isOverdue" size="small" type="danger">逾期</el-tag>
+                    </div>
+                    <div class="pm-todo-item-meta">
+                      <el-tag size="small" :type="todo.status === 'completed' ? 'success' : 'info'" effect="plain">
+                        {{ todo.status === 'completed' ? '已完成' : todo.status === 'in_progress' ? '进行中' : '待办' }}
+                      </el-tag>
+                      <span class="pm-todo-item-priority">{{ todo.priority }}</span>
+                      <span v-if="todo.eventAt" class="pm-todo-item-date">{{ todo.eventAt.substring(0, 10) }}</span>
+                      <el-button size="small" link type="danger" @click="pmTodo.unlink(todo.id)">解绑</el-button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <div class="detail-section">
                 <div class="detail-section-head">
                   <span class="detail-section-title">资源关联</span>
@@ -423,6 +475,67 @@
         </Transition>
       </div>
     </div>
+
+    <!-- 新建执行任务弹窗 -->
+    <el-dialog v-model="pmTodo.createDialogVisible" title="新建执行任务" width="480px" @close="pmTodo.createForm = { title: '', priority: 'P2', description: '', eventAt: null }">
+      <el-form label-width="60px" size="default" @submit.prevent="pmTodo.submitCreate()">
+        <el-form-item label="标题">
+          <el-input v-model="pmTodo.createForm.title" placeholder="任务标题" @keyup.enter="pmTodo.submitCreate()" />
+        </el-form-item>
+        <el-form-item label="优先级">
+          <el-select v-model="pmTodo.createForm.priority">
+            <el-option label="P0 紧急" value="P0" />
+            <el-option label="P1 高" value="P1" />
+            <el-option label="P2 中" value="P2" />
+            <el-option label="P3 低" value="P3" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="描述">
+          <el-input v-model="pmTodo.createForm.description" type="textarea" :rows="3" placeholder="可选描述" />
+        </el-form-item>
+        <el-form-item label="日期">
+          <el-date-picker v-model="pmTodo.createForm.eventAt" type="date" placeholder="可选日期" value-format="YYYY-MM-DD" clearable />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="pmTodo.createDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="pmTodo.submitCreate()">创建</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 绑定已有任务弹窗 -->
+    <el-dialog v-model="pmTodo.linkDialogVisible" title="绑定已有任务" width="560px" @open="pmTodo.loadCandidates()">
+      <div class="pm-todo-candidate-header">
+        <span class="pm-todo-candidate-hint">可绑定当前项目或未归项目的任务</span>
+        <el-input v-model="pmTodo.candidateKeyword" size="small" placeholder="搜索任务标题" clearable style="width: 200px;" @input="pmTodo.onCandidateInput()" />
+      </div>
+      <div v-if="pmTodo.candidateLoading" style="padding: 20px; text-align: center; color: #909399;">搜索中...</div>
+      <div v-else-if="pmTodo.candidates.length === 0" style="padding: 20px; text-align: center; color: #909399;">
+        <template v-if="pmTodo.candidateReason === 'blocked_only'">当前项目下所有任务已被其他工作项关联</template>
+        <template v-else>没有可绑定的任务</template>
+      </div>
+      <div v-else class="pm-todo-candidate-list">
+        <el-checkbox-group v-model="pmTodo.linkSelectedIds">
+          <div v-for="c in pmTodo.candidates" :key="c.id" class="pm-todo-candidate-item">
+            <el-checkbox :value="c.id">
+              <span>{{ c.title }}</span>
+              <el-tag v-if="c.isUnassignedProject" size="small" type="warning" effect="plain" style="margin-left: 4px;">未归项目</el-tag>
+              <el-tag size="small" :type="c.status === 'completed' ? 'success' : 'info'" effect="plain" style="margin-left: 4px;">
+                {{ c.status === 'completed' ? '已完成' : c.status === 'in_progress' ? '进行中' : '待办' }}
+              </el-tag>
+              <span style="margin-left: 4px; color: #909399; font-size: 12px;">{{ c.priority }}</span>
+            </el-checkbox>
+          </div>
+        </el-checkbox-group>
+      </div>
+      <template #footer>
+        <el-button @click="pmTodo.linkDialogVisible = false">取消</el-button>
+        <el-button type="primary" :disabled="pmTodo.linkSelectedIds.length === 0" @click="pmTodo.submitLink()">
+          绑定 ({{ pmTodo.linkSelectedIds.length }})
+        </el-button>
+      </template>
+    </el-dialog>
+
     <el-dialog v-model="projectDialogVisible" :title="editingProject ? '编辑项目' : '新建项目'" width="520px" @close="resetProjectForm">
       <el-form :model="projectForm" label-width="60px" size="default" @submit.prevent="submitProject">
         <el-form-item label="名称">
@@ -662,10 +775,117 @@
             </el-form-item>
           </div>
         </div>
+
+        <div v-if="editingItem" class="pm-item-section">
+          <div class="pm-item-section-title">执行任务</div>
+          <div class="pm-item-section-subtitle">当前工作项拆解出的任务清单事项</div>
+          <div v-if="dialogPmTodo.loading" class="pm-todo-loading">加载中...</div>
+          <template v-else>
+            <div v-if="dialogPmTodo.summary" class="pm-todo-summary">
+              <span class="pm-todo-stat">已关联 {{ dialogPmTodo.summary.totalCount }} 项</span>
+              <span class="pm-todo-stat">已完成 {{ dialogPmTodo.summary.completedCount }} / {{ dialogPmTodo.summary.totalCount }}</span>
+              <el-progress
+                :percentage="dialogPmTodo.progressPercent"
+                :stroke-width="6"
+                :show-text="false"
+                :color="dialogPmTodo.allCompleted ? '#67c23a' : '#409eff'"
+                style="flex: 1; margin-left: 8px;"
+              />
+              <span v-if="dialogPmTodo.allCompleted" class="pm-todo-all-done-hint">全部完成</span>
+            </div>
+            <div class="pm-todo-actions">
+              <el-button size="small" type="primary" plain @click="dialogPmTodo.createDialogVisible = true">新建执行任务</el-button>
+              <el-button size="small" plain @click="dialogPmTodo.openLinkDialog()">绑定已有任务</el-button>
+            </div>
+            <div v-if="dialogPmTodo.items.length === 0" class="pm-todo-empty">暂无关联的执行任务</div>
+            <div v-else class="pm-todo-list">
+              <div v-for="todo in dialogPmTodo.items" :key="todo.id" class="pm-todo-item" :class="{ 'pm-todo-item--completed': todo.status === 'completed' }">
+                <div class="pm-todo-item-main">
+                  <el-checkbox
+                    :model-value="todo.status === 'completed'"
+                    @change="dialogPmTodo.toggleComplete(todo)"
+                  />
+                  <span class="pm-todo-item-title">{{ todo.title }}</span>
+                  <el-tag v-if="todo.isOverdue" size="small" type="danger">逾期</el-tag>
+                </div>
+                <div class="pm-todo-item-meta">
+                  <el-tag size="small" :type="todo.status === 'completed' ? 'success' : 'info'" effect="plain">
+                    {{ todo.status === 'completed' ? '已完成' : todo.status === 'in_progress' ? '进行中' : '待办' }}
+                  </el-tag>
+                  <span class="pm-todo-item-priority">{{ todo.priority }}</span>
+                  <span v-if="todo.eventAt" class="pm-todo-item-date">{{ todo.eventAt.substring(0, 10) }}</span>
+                  <el-button size="small" link type="danger" @click="dialogPmTodo.unlink(todo.id)">解绑</el-button>
+                </div>
+              </div>
+            </div>
+          </template>
+        </div>
       </el-form>
       <template #footer>
         <el-button @click="itemDialogVisible = false">取消</el-button>
         <el-button type="primary" @click="submitItem">确定</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- Dialog: new todo for item dialog -->
+    <el-dialog v-model="dialogPmTodo.createDialogVisible" title="新建执行任务" width="480px" append-to-body @close="dialogPmTodo.createForm = { title: '', priority: 'P2', description: '', eventAt: null }">
+      <el-form label-width="60px" size="default" @submit.prevent="dialogPmTodo.submitCreate()">
+        <el-form-item label="标题">
+          <el-input v-model="dialogPmTodo.createForm.title" placeholder="任务标题" @keyup.enter="dialogPmTodo.submitCreate()" />
+        </el-form-item>
+        <el-form-item label="优先级">
+          <el-select v-model="dialogPmTodo.createForm.priority">
+            <el-option label="P0 紧急" value="P0" />
+            <el-option label="P1 高" value="P1" />
+            <el-option label="P2 中" value="P2" />
+            <el-option label="P3 低" value="P3" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="描述">
+          <el-input v-model="dialogPmTodo.createForm.description" type="textarea" :rows="3" placeholder="可选" />
+        </el-form-item>
+        <el-form-item label="日期">
+          <el-date-picker v-model="dialogPmTodo.createForm.eventAt" type="date" value-format="YYYY-MM-DD" placeholder="可选" clearable style="width: 100%" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="dialogPmTodo.createDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="dialogPmTodo.submitCreate()">创建</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- Dialog: link existing todo for item dialog -->
+    <el-dialog v-model="dialogPmTodo.linkDialogVisible" title="绑定已有任务" width="560px" append-to-body @open="dialogPmTodo.loadCandidates()">
+      <div class="pm-todo-candidate-header">
+        <span class="pm-todo-candidate-hint">可绑定当前项目或未归项目的任务</span>
+        <el-input v-model="dialogPmTodo.candidateKeyword" size="small" placeholder="搜索任务标题" clearable style="width: 200px;" @input="dialogPmTodo.onCandidateInput()" />
+      </div>
+      <div v-if="dialogPmTodo.candidateLoading" class="pm-todo-loading">加载中...</div>
+      <template v-else-if="dialogPmTodo.candidates.length === 0">
+        <div class="pm-todo-empty">
+          <template v-if="dialogPmTodo.candidateReason === 'blocked_only'">当前项目下所有任务已被其他工作项关联</template>
+          <template v-else>暂无可绑定的任务</template>
+        </div>
+      </template>
+      <div v-else class="pm-todo-candidate-list">
+        <el-checkbox-group v-model="dialogPmTodo.linkSelectedIds">
+          <div v-for="c in dialogPmTodo.candidates" :key="c.id" class="pm-todo-candidate-item">
+            <el-checkbox :value="c.id">
+              <span>{{ c.title }}</span>
+              <el-tag v-if="c.isUnassignedProject" size="small" type="warning" effect="plain" style="margin-left: 4px;">未归项目</el-tag>
+              <el-tag size="small" :type="c.status === 'completed' ? 'success' : 'info'" effect="plain" style="margin-left: 4px;">
+                {{ c.status === 'completed' ? '已完成' : c.status === 'in_progress' ? '进行中' : '待办' }}
+              </el-tag>
+              <span style="margin-left: 4px; color: #909399; font-size: 12px;">{{ c.priority }}</span>
+            </el-checkbox>
+          </div>
+        </el-checkbox-group>
+      </div>
+      <template #footer>
+        <el-button @click="dialogPmTodo.linkDialogVisible = false">取消</el-button>
+        <el-button type="primary" :disabled="dialogPmTodo.linkSelectedIds.length === 0" @click="dialogPmTodo.submitLink()">
+          绑定 ({{ dialogPmTodo.linkSelectedIds.length }})
+        </el-button>
       </template>
     </el-dialog>
 
@@ -1036,6 +1256,7 @@ import {
   getVisiblePmStatusColumns,
   groupPmItemsByStatus,
 } from "../utils/pmStatusFilter";
+import { usePmTodoLinking } from "../composables/usePmTodoLinking";
 
 const { invoke } = useToolInvoke();
 const defaultBaseUrl = "http://127.0.0.1:6806";
@@ -1108,6 +1329,10 @@ const itemForm = ref({
 const itemPrimaryPage = ref<PmSiyuanPageRef | null>(null);
 const itemExtraPages = ref<PmSiyuanPageRef[]>([]);
 const itemProjectSwitchMenuVisible = ref(false);
+
+// PM-Todo linking composables
+const pmTodo = reactive(usePmTodoLinking(() => selectedItemId.value));
+const dialogPmTodo = reactive(usePmTodoLinking(() => editingItem.value?.id));
 
 const siyuanDrawerVisible = ref(false);
 const siyuanForm = reactive({
@@ -1217,6 +1442,7 @@ const selectedItemProject = computed(() =>
   selectedItem.value ? projectMap.value.get(selectedItem.value.projectId) ?? null : null,
 );
 const selectedItemDescriptionText = computed(() => selectedItem.value?.description?.trim() ?? "");
+
 const itemDialogProjectId = computed<number | null>(() => {
   if (itemFormProjectId.value !== null) {
     return itemFormProjectId.value;
@@ -1936,6 +2162,7 @@ async function loadItemCounts() {
   }
 }
 
+
 function openSiyuanDrawer() {
   siyuanDrawerVisible.value = true;
 }
@@ -2121,6 +2348,15 @@ function onCardDblclick(item: PmItem) {
 
 watch(selectedProjectId, () => {
   loadItems();
+});
+
+// Load PM-Todo links when selected item changes
+watch(selectedItemId, (id) => {
+  if (id != null) {
+    pmTodo.loadItems(id);
+  } else {
+    pmTodo.reset();
+  }
 });
 
 watch(siyuanDrawerVisible, (visible) => {
@@ -2350,6 +2586,7 @@ function editItem(item: PmItem) {
   itemPrimaryPage.value = cloneSiyuanPage(item.siyuanPrimaryPage);
   itemExtraPages.value = cloneSiyuanPages(item.siyuanExtraPages);
   itemDialogVisible.value = true;
+  dialogPmTodo.loadItems(item.id);
   if (siyuanConfigReady.value && itemEffectiveLocation.value) {
     void ensureSiyuanDirectoryLoaded();
   }
@@ -2361,6 +2598,7 @@ function resetItemForm() {
   itemPrimaryPage.value = null;
   itemExtraPages.value = [];
   itemProjectSwitchMenuVisible.value = false;
+  dialogPmTodo.reset();
 }
 
 function formatItemTimestampValue(value: string | Date | null | undefined): string | null {
@@ -5369,5 +5607,123 @@ body.pm-is-dragging * {
   .pm-siyuan-page-actions {
     justify-content: flex-start;
   }
+}
+
+/* ── PM-Todo Linking Styles ────────────────────────────── */
+
+.pm-todo-summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  font-size: 13px;
+  color: #606266;
+}
+
+.pm-todo-stat {
+  white-space: nowrap;
+}
+
+.pm-todo-all-done-hint {
+  color: #67c23a;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.pm-todo-actions {
+  display: flex;
+  gap: 8px;
+  padding: 4px 0 8px;
+}
+
+.pm-todo-loading,
+.pm-todo-empty {
+  padding: 16px 0;
+  text-align: center;
+  color: #909399;
+  font-size: 13px;
+}
+
+.pm-todo-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pm-todo-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px solid #ebeef5;
+  border-radius: 6px;
+  background: #fafafa;
+  transition: background 0.15s;
+}
+
+.pm-todo-item:hover {
+  background: #f0f5ff;
+}
+
+.pm-todo-item--completed {
+  opacity: 0.65;
+}
+
+.pm-todo-item-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pm-todo-item-title {
+  flex: 1;
+  font-size: 13px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pm-todo-item-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-left: 30px;
+  font-size: 12px;
+  color: #909399;
+}
+
+.pm-todo-item-priority {
+  font-size: 11px;
+}
+
+.pm-todo-item-date {
+  font-size: 12px;
+}
+
+.pm-todo-candidate-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.pm-todo-candidate-hint {
+  font-size: 12px;
+  color: #909399;
+}
+
+.pm-todo-candidate-list {
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.pm-todo-candidate-item {
+  padding: 6px 0;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.pm-todo-candidate-item:last-child {
+  border-bottom: none;
 }
 </style>
