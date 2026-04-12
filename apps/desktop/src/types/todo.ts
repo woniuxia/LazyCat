@@ -104,6 +104,7 @@ export interface TodoItem {
   pmItemId?: number | null;
   pmItemTitle?: string | null;
   pmItemProjectId?: number | null;
+  pmItemStatus?: string | null;
 }
 
 export interface TodoReminderEvent {

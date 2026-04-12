@@ -1598,7 +1598,7 @@ fn item_list(payload: &Value) -> Result<Value, String> {
             // Batch query PM links for all items
             let placeholders: Vec<String> = item_ids.iter().enumerate().map(|(i, _)| format!("?{}", i + 1)).collect();
             let sql = format!(
-                "SELECT l.todo_item_id, l.pm_item_id, p.title, p.project_id \
+                "SELECT l.todo_item_id, l.pm_item_id, p.title, p.project_id, p.status \
                  FROM pm_item_todo_links l \
                  JOIN pm_items p ON p.id = l.pm_item_id \
                  WHERE l.todo_item_id IN ({})",
@@ -1606,30 +1606,32 @@ fn item_list(payload: &Value) -> Result<Value, String> {
             );
             let params: Vec<&dyn rusqlite::ToSql> = item_ids.iter().map(|id| id as &dyn rusqlite::ToSql).collect();
             let mut stmt = conn.prepare(&sql).map_err(|e| format!("查询 PM 关联失败: {e}"))?;
-            let link_rows: Vec<(i64, i64, String, i64)> = stmt
+            let link_rows: Vec<(i64, i64, String, i64, String)> = stmt
                 .query_map(params.as_slice(), |r| {
-                    Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+                    Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
                 })
                 .map_err(|e| format!("映射 PM 关联失败: {e}"))?
                 .filter_map(|r| r.ok())
                 .collect();
 
-            let link_map: std::collections::HashMap<i64, (i64, String, i64)> = link_rows
+            let link_map: std::collections::HashMap<i64, (i64, String, i64, String)> = link_rows
                 .into_iter()
-                .map(|(todo_id, pm_id, pm_title, pm_proj_id)| (todo_id, (pm_id, pm_title, pm_proj_id)))
+                .map(|(todo_id, pm_id, pm_title, pm_proj_id, pm_status)| (todo_id, (pm_id, pm_title, pm_proj_id, pm_status)))
                 .collect();
 
             for item in items.iter_mut() {
                 let item_id = item["id"].as_i64().unwrap_or(0);
                 if let Some(obj) = item.as_object_mut() {
-                    if let Some((pm_id, pm_title, pm_proj_id)) = link_map.get(&item_id) {
+                    if let Some((pm_id, pm_title, pm_proj_id, pm_status)) = link_map.get(&item_id) {
                         obj.insert("pmItemId".to_string(), json!(pm_id));
                         obj.insert("pmItemTitle".to_string(), json!(pm_title));
                         obj.insert("pmItemProjectId".to_string(), json!(pm_proj_id));
+                        obj.insert("pmItemStatus".to_string(), json!(pm_status));
                     } else {
                         obj.insert("pmItemId".to_string(), Value::Null);
                         obj.insert("pmItemTitle".to_string(), Value::Null);
                         obj.insert("pmItemProjectId".to_string(), Value::Null);
+                        obj.insert("pmItemStatus".to_string(), Value::Null);
                     }
                 }
             }
@@ -1639,6 +1641,7 @@ fn item_list(payload: &Value) -> Result<Value, String> {
                     obj.insert("pmItemId".to_string(), Value::Null);
                     obj.insert("pmItemTitle".to_string(), Value::Null);
                     obj.insert("pmItemProjectId".to_string(), Value::Null);
+                    obj.insert("pmItemStatus".to_string(), Value::Null);
                 }
             }
         }
@@ -1811,16 +1814,22 @@ fn item_update(payload: &Value) -> Result<Value, String> {
         .map_err(|e| format!("更新事项类型失败: {e}"))?;
     } else if kind == SERIES_KIND_ONE_OFF && new_kind == SERIES_KIND_RECURRING {
         // Guard: block one_off -> recurring when PM linked
-        let linked_pm: Option<i64> = conn
+        let link_info: Option<(i64, String, i64)> = conn
             .query_row(
-                "SELECT pm_item_id FROM pm_item_todo_links WHERE todo_item_id = ?1",
+                "SELECT l.pm_item_id, p.title, p.project_id \
+                 FROM pm_item_todo_links l \
+                 JOIN pm_items p ON p.id = l.pm_item_id \
+                 WHERE l.todo_item_id = ?1",
                 params![id],
-                |r| r.get(0),
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
             )
             .optional()
             .map_err(|e| format!("查询 PM 关联失败: {e}"))?;
-        if linked_pm.is_some() {
-            return Err("已关联项目工作项的任务不能改为重复事项，请先解除关联".to_string());
+        if let Some((_, pm_title, pm_proj_id)) = link_info {
+            return Err(format!(
+                "该任务已关联工作项「{}」（归属项目 #{}），不能改为重复事项，请先解除关联",
+                pm_title, pm_proj_id
+            ));
         }
         // one_off -> recurring: set series_id = self, update kind
         conn.execute(
@@ -1876,22 +1885,39 @@ fn item_update(payload: &Value) -> Result<Value, String> {
 
     // Update project_id if provided
     if payload.get("projectId").is_some() {
-        // Guard: if todo is linked to a PM item, block project change
-        let linked_pm: Option<i64> = conn
+        let new_project_id = parse_i64(payload, "projectId");
+        let current_project_id = conn
             .query_row(
-                "SELECT pm_item_id FROM pm_item_todo_links WHERE todo_item_id = ?1",
+                "SELECT project_id FROM todo_items WHERE id = ?1",
                 params![id],
-                |r| r.get(0),
+                |r| r.get::<_, Option<i64>>(0),
             )
             .optional()
-            .map_err(|e| format!("查询 PM 关联失败: {e}"))?;
-        if linked_pm.is_some() {
-            return Err("已关联项目工作项的任务不能直接切换项目，请先解除关联".to_string());
+            .map_err(|e| format!("查询事项项目失败: {e}"))?
+            .flatten();
+        // Only block if actually changing to a different project while linked to PM item
+        if new_project_id != current_project_id {
+            let link_info: Option<(i64, String, i64)> = conn
+                .query_row(
+                    "SELECT l.pm_item_id, p.title, p.project_id \
+                     FROM pm_item_todo_links l \
+                     JOIN pm_items p ON p.id = l.pm_item_id \
+                     WHERE l.todo_item_id = ?1",
+                    params![id],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                )
+                .optional()
+                .map_err(|e| format!("查询 PM 关联失败: {e}"))?;
+            if let Some((_, pm_title, pm_proj_id)) = link_info {
+                return Err(format!(
+                    "该任务已关联工作项「{}」（归属项目 #{}），切换项目前请先解除关联",
+                    pm_title, pm_proj_id
+                ));
+            }
         }
-        let project_id = parse_i64(payload, "projectId");
         let _ = conn.execute(
             "UPDATE todo_items SET project_id = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2",
-            params![project_id, id],
+            params![new_project_id, id],
         );
     }
 

@@ -556,16 +556,23 @@
                           clearable
                           placeholder="未关联项目任务"
                           style="width: 100%"
-                          @change="onTodoPmLinkChange"
+                          @change="handlePmSelectChange"
                         >
+                          <el-option :value="-1" style="padding-left: 8px;">
+                            <el-icon style="margin-right: 4px; vertical-align: middle;"><Plus /></el-icon>
+                            <span>新建工作项</span>
+                          </el-option>
+                          <el-divider style="margin: 4px 0;" />
                           <el-option
                             v-for="pm in todoPmCandidates"
                             :key="pm.id"
                             :label="pm.title"
                             :value="pm.id"
                           >
+                            <el-tag size="small" effect="plain" :style="{ marginRight: '6px', backgroundColor: pmStatusColor(pm.status) + '20', borderColor: pmStatusColor(pm.status) + '50', color: pmStatusColor(pm.status) }">
+                              {{ pmStatusLabel(pm.status) }}
+                            </el-tag>
                             <span>{{ pm.title }}</span>
-                            <el-tag size="small" effect="plain" style="margin-left: 6px;">{{ pm.status }}</el-tag>
                           </el-option>
                         </el-select>
                         <el-button
@@ -1137,6 +1144,58 @@
                   </div>
                 </div>
 
+                <!-- Project & PM Item Unified Card (Scheme E) -->
+                <div
+                  v-if="selectedItem.projectId"
+                  class="detail-card project-unified-card"
+                >
+                  <div class="detail-card-header">
+                    <div class="detail-card-icon warning">
+                      <el-icon><Briefcase /></el-icon>
+                    </div>
+                    <span class="detail-card-title">项目归属</span>
+                  </div>
+                  <div class="project-section">
+                    <span
+                      class="project-section-dot"
+                      :style="{ backgroundColor: selectedItem.projectColor || '#909399' }"
+                    />
+                    <span class="project-section-name">
+                      {{ selectedItem.projectName || `项目 #${selectedItem.projectId}` }}
+                    </span>
+                  </div>
+                  <div v-if="selectedItem.pmItemId" class="pm-section">
+                    <div class="pm-section-badge">
+                      <el-icon><Link /></el-icon>
+                    </div>
+                    <span class="pm-section-title">
+                      {{ selectedItem.pmItemTitle || `#${selectedItem.pmItemId}` }}
+                    </span>
+                    <el-tag
+                      size="small"
+                      effect="plain"
+                      round
+                      class="pm-section-status"
+                      :style="{
+                        backgroundColor: pmStatusColor(selectedItem.pmItemStatus) + '15',
+                        borderColor: pmStatusColor(selectedItem.pmItemStatus) + '40',
+                        color: pmStatusColor(selectedItem.pmItemStatus),
+                      }"
+                    >
+                      {{ pmStatusLabel(selectedItem.pmItemStatus) }}
+                    </el-tag>
+                    <el-button
+                      class="pm-section-jump"
+                      size="small"
+                      link
+                      type="primary"
+                      @click="navigateToPmItem(selectedItem.pmItemId, selectedItem.pmItemProjectId)"
+                    >
+                      跳转 &rarr;
+                    </el-button>
+                  </div>
+                </div>
+
                 <!-- Recurrence Card (only if has repeat rule) -->
                 <div v-if="hasRepeatRule(selectedItem)" class="detail-card">
                   <div class="detail-card-header">
@@ -1428,6 +1487,18 @@
       </template>
     </el-dialog>
 
+    <el-dialog v-model="pmCreateDialogVisible" title="新建工作项" width="420px" @closed="pmCreateTitle = ''">
+      <el-form>
+        <el-form-item label="标题">
+          <el-input v-model.trim="pmCreateTitle" placeholder="请输入工作项标题" @keyup.enter="onPmCreateConfirm" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="pmCreateDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="onPmCreateConfirm">创建并关联</el-button>
+      </template>
+    </el-dialog>
+
     <teleport to="body">
       <div
         v-if="todoContextMenu.visible && todoContextMenuItem"
@@ -1484,6 +1555,7 @@ import type { UnlistenFn } from "@tauri-apps/api/event";
 import {
   AlarmClock,
   Bell,
+  Briefcase,
   Calendar,
   Clock,
   Document,
@@ -1520,6 +1592,7 @@ import type {
   TodoStatus,
   TodoType,
 } from "../types";
+import { PM_STATUS_COLUMNS } from "../types/pm";
 import type { PmCandidateItem } from "../types/pm";
 import { useTabs } from "../composables/useTabs";
 import { groupTodoItemsByBucket } from "../utils/todoBuckets";
@@ -1564,6 +1637,13 @@ interface TodoAssigneeDraft {
   name: string;
 }
 
+function pmStatusColor(status: string | null | undefined): string {
+  return PM_STATUS_COLUMNS.find(c => c.key === (status || "todo"))?.color ?? "#909399";
+}
+function pmStatusLabel(status: string | null | undefined): string {
+  return PM_STATUS_COLUMNS.find(c => c.key === (status || "todo"))?.label ?? "待办";
+}
+
 const items = ref<TodoItem[]>([]);
 const types = ref<TodoType[]>([]);
 const assignees = ref<TodoAssignee[]>([]);
@@ -1584,6 +1664,9 @@ const basicsDialogVisible = ref(false);
 const viewMode = ref<"list" | "calendar">("list");
 const todoPmLinkItemId = ref<number | null>(null);
 const todoPmCandidates = ref<PmCandidateItem[]>([]);
+const todoLinkedPmItem = ref<{ id: number; title: string; status: string; projectId: number } | null>(null);
+const pmCreateDialogVisible = ref(false);
+const pmCreateTitle = ref("");
 const calendarMonth = ref(new Date());
 const itemDialogMode = ref<ItemDialogMode>("create");
 const detailMode = ref<DetailMode>("empty");
@@ -1783,6 +1866,7 @@ const itemDraft = reactive({
   pmItemId: null as number | null,
   pmItemTitle: null as string | null,
   pmItemProjectId: null as number | null,
+  pmItemStatus: null as string | null,
 });
 
 const typeDraft = reactive<TodoTypeDraft>({ id: 0, name: "", color: "", sortOrder: 0 });
@@ -1855,11 +1939,12 @@ const hasDetailCards = computed(() => {
   const hasStatusOrPriority = item.status !== "pending" || item.priority !== "P2";
   const hasSchedule = !!item.eventAt || effectiveReminderPresets(item.reminderPresets).length > 0;
   const hasInfo = !!item.typeName || item.assignees.length > 0;
+  const hasProject = !!item.projectId;
   const hasRepeat = hasRepeatRule(item);
   const hasDescription = item.description.trim().length > 0;
   const hasLinks = (item.links || []).length > 0;
 
-  return hasStatusOrPriority || hasSchedule || hasInfo || hasRepeat || hasDescription || hasLinks;
+  return hasStatusOrPriority || hasSchedule || hasInfo || hasProject || hasRepeat || hasDescription || hasLinks;
 });
 const renderedDescription = computed(() =>
   selectedItem.value?.description ? renderMarkdown(selectedItem.value.description) : "",
@@ -2745,6 +2830,7 @@ function normalizeTodoItem(raw: unknown): TodoItem {
     pmItemId: typeof record.pmItemId === "number" ? record.pmItemId : null,
     pmItemTitle: typeof record.pmItemTitle === "string" ? record.pmItemTitle : null,
     pmItemProjectId: typeof record.pmItemProjectId === "number" ? record.pmItemProjectId : null,
+    pmItemStatus: typeof record.pmItemStatus === "string" ? record.pmItemStatus : null,
   };
 }
 
@@ -2943,8 +3029,10 @@ function resetItemDraft() {
   itemDraft.pmItemId = null;
   itemDraft.pmItemTitle = null;
   itemDraft.pmItemProjectId = null;
+  itemDraft.pmItemStatus = null;
   todoPmLinkItemId.value = null;
   todoPmCandidates.value = [];
+  todoLinkedPmItem.value = null;
   lastReminderPresetSelection.value = [...itemDraft.reminderPresets];
   editingItemSnapshot.value = null;
   itemDialogMode.value = "create";
@@ -2985,9 +3073,21 @@ function applyItemToDraft(item: TodoItem) {
   itemDraft.pmItemId = item.pmItemId ?? null;
   itemDraft.pmItemTitle = item.pmItemTitle ?? null;
   itemDraft.pmItemProjectId = item.pmItemProjectId ?? null;
+  itemDraft.pmItemStatus = item.pmItemStatus ?? null;
   todoPmLinkItemId.value = item.pmItemId ?? null;
+  // Populate linked PM item info for display in dropdown
+  if (item.pmItemId) {
+    todoLinkedPmItem.value = {
+      id: item.pmItemId,
+      title: item.pmItemTitle ?? "",
+      status: item.pmItemStatus ?? "todo",
+      projectId: item.pmItemProjectId ?? item.projectId ?? 0,
+    };
+  } else {
+    todoLinkedPmItem.value = null;
+  }
   if (item.projectId && item.kind !== "recurring") {
-    loadTodoPmCandidates(item.projectId);
+    loadTodoPmCandidates(item.projectId, item.pmItemId);
   } else {
     todoPmCandidates.value = [];
   }
@@ -3024,12 +3124,57 @@ async function loadProjects() {
   }
 }
 
-async function loadTodoPmCandidates(projectId: number) {
+async function loadTodoPmCandidates(projectId: number, linkedPmItemId?: number | null) {
   try {
     const result = await invokeToolByChannel("tool:todo:pm-candidates", { projectId }) as { items: PmCandidateItem[] };
-    todoPmCandidates.value = result?.items || [];
+    let candidates = result?.items || [];
+    // Ensure currently linked PM item is in the list (it may be filtered out by other criteria)
+    if (linkedPmItemId && !candidates.some((c) => c.id === linkedPmItemId)) {
+      const linked = todoLinkedPmItem.value;
+      if (linked && linked.id === linkedPmItemId) {
+        candidates = [
+          { id: linked.id, title: linked.title, status: linked.status, priority: "P2", projectId: linked.projectId, projectName: null, projectColor: null },
+          ...candidates,
+        ];
+      }
+    }
+    todoPmCandidates.value = candidates;
   } catch {
     todoPmCandidates.value = [];
+  }
+}
+
+async function onPmCreateConfirm() {
+  const title = pmCreateTitle.value.trim();
+  if (!title) {
+    ElMessage.warning("请输入工作项标题");
+    return;
+  }
+  if (!itemDraft.projectId || !itemDraft.id) return;
+  try {
+    const result = await invokeToolByChannel("tool:pm:item-create", {
+      projectId: itemDraft.projectId,
+      title,
+      itemType: "task",
+      priority: "P2",
+      status: "todo",
+    }) as { id: number };
+    await invokeToolByChannel("tool:todo:item-set-pm-link", {
+      todoItemId: itemDraft.id,
+      pmItemId: result.id,
+    });
+    itemDraft.pmItemId = result.id;
+    itemDraft.pmItemTitle = title;
+    itemDraft.pmItemProjectId = itemDraft.projectId;
+    itemDraft.pmItemStatus = "todo";
+    todoPmLinkItemId.value = result.id;
+    todoLinkedPmItem.value = { id: result.id, title, status: "todo", projectId: itemDraft.projectId };
+    pmCreateDialogVisible.value = false;
+    pmCreateTitle.value = "";
+    await loadTodoPmCandidates(itemDraft.projectId);
+    await loadItems();
+  } catch (error) {
+    ElMessage.error((error as Error).message);
   }
 }
 
@@ -3051,11 +3196,27 @@ async function onTodoPmLinkChange(pmItemId: number | null) {
     const candidate = pmItemId ? todoPmCandidates.value.find((c) => c.id === pmItemId) : null;
     itemDraft.pmItemTitle = candidate?.title ?? null;
     itemDraft.pmItemProjectId = candidate?.projectId ?? null;
+    itemDraft.pmItemStatus = candidate?.status ?? null;
+    if (candidate) {
+      todoLinkedPmItem.value = { id: candidate.id, title: candidate.title, status: candidate.status, projectId: candidate.projectId };
+    } else {
+      todoLinkedPmItem.value = null;
+    }
     await loadItems();
   } catch (error) {
     ElMessage.error((error as Error).message);
     todoPmLinkItemId.value = itemDraft.pmItemId;
   }
+}
+
+function handlePmSelectChange(value: number | null) {
+  if (value === -1) {
+    todoPmLinkItemId.value = null;
+    pmCreateDialogVisible.value = true;
+    pmCreateTitle.value = "";
+    return;
+  }
+  void onTodoPmLinkChange(value);
 }
 
 function navigateToPmItem(pmItemId: number, _pmProjectId: number | null) {
@@ -3549,6 +3710,8 @@ watch(
     itemDraft.pmItemId = null;
     itemDraft.pmItemTitle = null;
     itemDraft.pmItemProjectId = null;
+    itemDraft.pmItemStatus = null;
+    todoLinkedPmItem.value = null;
     if (newProjectId && itemDraft.kind !== "recurring" && itemDraft.id) {
       loadTodoPmCandidates(newProjectId);
     } else {
@@ -4557,6 +4720,66 @@ onBeforeUnmount(() => {
   font-size: 13px;
   font-weight: 600;
   color: var(--lc-text);
+}
+.detail-card-title-sub {
+  font-weight: 400;
+  color: var(--lc-text-muted);
+}
+/* Project Unified Card — Scheme E */
+.project-section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+}
+.project-section-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.project-section-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--lc-text);
+}
+.pm-section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: linear-gradient(135deg, rgba(56, 189, 248, 0.04), rgba(56, 189, 248, 0.08));
+  border-top: 1px dashed var(--lc-border-subtle);
+}
+.pm-section-badge {
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: rgba(56, 189, 248, 0.12);
+  font-size: 12px;
+  color: var(--lc-accent);
+  flex-shrink: 0;
+}
+.pm-section-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--lc-text);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pm-section-status {
+  flex-shrink: 0;
+}
+.pm-section-jump {
+  font-size: 12px;
+  padding: 0;
+  flex-shrink: 0;
 }
 
 .detail-card-body {
