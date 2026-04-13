@@ -1028,23 +1028,14 @@ import PmItemDialog from "./PmItemDialog.vue";
 import PmTodoCreateDialog from "./PmTodoCreateDialog.vue";
 import PmTodoLinkDialog from "./PmTodoLinkDialog.vue";
 import { clampContextMenuPosition } from "../utils/contextMenu";
+import { usePmSiyuan } from "../composables/usePmSiyuan";
+import type { ItemSiyuanLinkedRow } from "../composables/usePmSiyuan";
 import {
-  addPmSiyuanExtraPage,
-  collectPmSiyuanExpandedKeys,
-  collectPmSiyuanPagesForLocation,
-  filterPmSiyuanDirectory,
-  filterPmSiyuanPages,
   formatPmSiyuanLocationLabel,
-  formatPmSiyuanLocationPathLabel,
-  formatPmSiyuanLocationTargetLabel,
   isPmSiyuanNotebookDirectory,
-  removePmSiyuanPage,
-  resolvePmSiyuanEffectiveLocation,
-  setPmSiyuanPrimaryPage,
 } from "../utils/pmSiyuan";
 import {
   formatPmDateRangeForDisplay,
-  getPmDateRangeValue,
   hasPmDateSchedule,
   isPmItemOverdue,
   normalizePmDateRangeForDraft,
@@ -1062,8 +1053,6 @@ import {
 import { usePmTodoLinking } from "../composables/usePmTodoLinking";
 
 const { invoke } = useToolInvoke();
-const defaultBaseUrl = "http://127.0.0.1:6806";
-const PM_SIYUAN_DEFAULT_LOCATION_KEY = "pm_siyuan_default_location";
 
 // ── Types ────────────────────────────────────────────────
 
@@ -1073,19 +1062,6 @@ interface CtxMenuAction {
   danger?: boolean;
   divider?: boolean;
 }
-
-interface ItemSiyuanLinkedRow {
-  page: PmSiyuanPageRef;
-  kind: "primary" | "extra";
-}
-
-type PmSiyuanPageLocationState =
-  | "ready"
-  | "missing-location"
-  | "missing-config"
-  | "load-error"
-  | "invalid-location"
-  | "empty";
 
 // ── State ────────────────────────────────────────────────
 
@@ -1204,52 +1180,103 @@ function pendingTodoSubmitLink() {
   pendingTodoLinkDialogVisible.value = false;
 }
 
-const siyuanDrawerVisible = ref(false);
-const siyuanForm = reactive({
-  baseUrl: getSetting("pm_siyuan_base_url") ?? defaultBaseUrl,
-  token: getSetting("pm_siyuan_token") ?? "",
-});
-const globalSiyuanLocation = ref<PmSiyuanLocation | null>(
-  getSettingJson<PmSiyuanLocation | null>(PM_SIYUAN_DEFAULT_LOCATION_KEY, null),
-);
-const globalSiyuanLocationDraft = ref<PmSiyuanLocation | null>(
-  globalSiyuanLocation.value ? { ...globalSiyuanLocation.value } : null,
-);
-const siyuanShowToken = ref(false);
-const siyuanTesting = ref(false);
-const siyuanTestingVersion = ref("");
-const siyuanLoadingDirectory = ref(false);
-const siyuanDirectory = ref<PmSiyuanNotebookDirectory[]>([]);
-const siyuanDirectoryFetchedAt = ref("");
-let siyuanDirectoryLoadPromise: Promise<boolean> | null = null;
-const siyuanError = ref("");
-const siyuanErrorContext = ref<"test" | "directory" | null>(null);
-const siyuanTreeProps = { label: "name", children: "children" };
-const siyuanLocationDialogVisible = ref(false);
-const siyuanLocationPickerTarget = ref<"global" | "project">("global");
-const siyuanLocationPickerValue = ref<PmSiyuanLocation | null>(null);
-const siyuanLocationPickerSearch = ref("");
-const siyuanPageDialogVisible = ref(false);
-const siyuanPageDialogMode = ref<"primary" | "extra">("primary");
-const siyuanPageDialogIntent = ref<"link" | "replace-primary">("link");
-const siyuanPageDialogSessionId = ref(0);
-const siyuanPageFilterKeyword = ref("");
-const siyuanPageResultSource = ref<"location" | "all">("location");
-const siyuanPageLocationResults = ref<PmSiyuanPageRef[]>([]);
-const siyuanPageAllResults = ref<PmSiyuanPageRef[]>([]);
-const siyuanPageSearchingAll = ref(false);
-const siyuanPageLocationState = ref<PmSiyuanPageLocationState>("ready");
-const siyuanPageLocationRefreshError = ref("");
-const siyuanPageCreating = ref(false);
-const siyuanErrorTitle = computed(() => {
-  if (siyuanErrorContext.value === "test") {
-    return "连接失败";
-  }
-  if (siyuanErrorContext.value === "directory") {
-    return "目录加载失败";
-  }
-  return "错误";
-});
+// ── SiYuan composable ─────────────────────────────────────
+const dialogProjectSiyuanOverride = computed(() => itemDialogProject.value?.siyuanLocationOverride ?? null);
+const dialogProjectName = computed(() => itemDialogProject.value?.name ?? "未归项目");
+const siyuan = reactive(usePmSiyuan({
+  dialogProjectSiyuanOverride,
+  editingItem,
+  itemForm,
+  dialogProjectName,
+  itemPrimaryPage,
+  itemExtraPages,
+  getProjectFormSiyuanOverride: () => projectForm.value.siyuanLocationOverride,
+  setProjectFormSiyuanOverride: (useOverride, location) => {
+    projectForm.value.useSiyuanOverride = useOverride;
+    projectForm.value.siyuanLocationOverride = location;
+  },
+}));
+// Aliases for backward compatibility
+const siyuanDrawerVisible = siyuan.drawerVisible;
+const siyuanForm = siyuan.form;
+const globalSiyuanLocation = siyuan.globalSiyuanLocation;
+const globalSiyuanLocationDraft = siyuan.globalSiyuanLocationDraft;
+const siyuanShowToken = siyuan.showToken;
+const siyuanTesting = siyuan.testing;
+const siyuanTestingVersion = siyuan.testingVersion;
+const siyuanLoadingDirectory = siyuan.loadingDirectory;
+const siyuanDirectory = siyuan.directory;
+const siyuanDirectoryFetchedAt = siyuan.directoryFetchedAt;
+const siyuanError = siyuan.error;
+const siyuanErrorContext = siyuan.errorContext;
+const siyuanErrorTitle = siyuan.errorTitle;
+const siyuanConfigReady = siyuan.configReady;
+const siyuanTreeProps = siyuan.treeProps;
+const siyuanLocationDialogVisible = siyuan.locationDialogVisible;
+const siyuanLocationPickerTarget = siyuan.locationPickerTarget;
+const siyuanLocationPickerValue = siyuan.locationPickerValue;
+const siyuanLocationPickerSearch = siyuan.locationPickerSearch;
+const siyuanLocationPickerTitle = siyuan.locationPickerTitle;
+const siyuanLocationPickerSearchKeyword = siyuan.locationPickerSearchKeyword;
+const siyuanLocationPickerTreeData = siyuan.locationPickerTreeData;
+const siyuanLocationPickerExpandedKeys = siyuan.locationPickerExpandedKeys;
+const siyuanLocationPickerTreeKey = siyuan.locationPickerTreeKey;
+const siyuanLocationPickerCurrentNodeKey = siyuan.locationPickerCurrentNodeKey;
+const siyuanLocationPickerSelectionTarget = siyuan.locationPickerSelectionTarget;
+const siyuanLocationPickerSelectionPath = siyuan.locationPickerSelectionPath;
+const siyuanLocationPickerStatusText = siyuan.locationPickerStatusText;
+const siyuanPageDialogVisible = siyuan.pageDialogVisible;
+const siyuanPageDialogMode = siyuan.pageDialogMode;
+const siyuanPageDialogIntent = siyuan.pageDialogIntent;
+const siyuanPageFilterKeyword = siyuan.pageFilterKeyword;
+const siyuanPageResultSource = siyuan.pageResultSource;
+const siyuanPageLocationResults = siyuan.pageLocationResults;
+const siyuanPageAllResults = siyuan.pageAllResults;
+const siyuanPageSearchingAll = siyuan.pageSearchingAll;
+const siyuanPageLocationState = siyuan.pageLocationState;
+const siyuanPageLocationRefreshError = siyuan.pageLocationRefreshError;
+const siyuanPageCreating = siyuan.pageCreating;
+const siyuanPageDialogInputPlaceholder = siyuan.pageDialogInputPlaceholder;
+const siyuanPageCreateTitle = siyuan.pageCreateTitle;
+const siyuanPageCanCreateImmediately = siyuan.pageCanCreateImmediately;
+const siyuanPageDialogTitle = siyuan.pageDialogTitle;
+const siyuanPageCurrentRangeText = siyuan.pageCurrentRangeText;
+const siyuanPageFilterSummary = siyuan.pageFilterSummary;
+const siyuanPageShowReturnToLocation = siyuan.pageShowReturnToLocation;
+const siyuanPageShowLocationLoading = siyuan.pageShowLocationLoading;
+const siyuanPageShowAllLoading = siyuan.pageShowAllLoading;
+const siyuanPageEmptyMessage = siyuan.pageEmptyMessage;
+const siyuanPageDisplayedResults = siyuan.pageDisplayedResults;
+const siyuanPageFilterKeywordTrimmed = siyuan.pageFilterKeywordTrimmed;
+const itemEffectiveLocation = siyuan.itemEffectiveLocation;
+// Function aliases
+const openSiyuanDrawer = siyuan.openDrawer;
+const saveSiyuanConfig = siyuan.saveConfig;
+const handleTestConnection = siyuan.testConnection;
+const handleLoadDirectory = siyuan.loadDirectory;
+const handleRefreshSiyuanLocationPicker = siyuan.refreshLocationPickerDirectory;
+const openSiyuanLocationPicker = siyuan.openLocationPicker;
+const handleSiyuanLocationTreeNodeClick = siyuan.handleLocationTreeNodeClick;
+const applySiyuanLocationPicker = siyuan.applyLocationPicker;
+const clearSiyuanLocationPicker = siyuan.clearLocationPicker;
+const clearProjectSiyuanOverride = siyuan.clearProjectSiyuanOverride;
+const isSiyuanLocationPickerNodeSelected = siyuan.isLocationPickerNodeSelected;
+const isSiyuanLocationPickerNodeDisabled = siyuan.isLocationPickerNodeDisabled;
+const openSiyuanPageDialog = siyuan.openPageDialog;
+const restoreSiyuanLocationResults = siyuan.restoreLocationResults;
+const expandSiyuanPagesToAll = siyuan.expandPagesToAll;
+const selectSiyuanPageResult = siyuan.selectPageResult;
+const createSiyuanPageForItem = siyuan.createPageForItem;
+const openSiyuanPage = siyuan.openSiyuanPage;
+const openSiyuanLinkPicker = siyuan.openLinkPicker;
+const openReplacePrimarySiyuanDialog = siyuan.openReplacePrimaryDialog;
+const handleItemSiyuanPageCommand = siyuan.handleItemPageCommand;
+const applyItemPrimaryPage = siyuan.applyItemPrimaryPage;
+const addItemExtraPage = siyuan.addItemExtraPage;
+const hasItemLinkedPage = siyuan.hasItemLinkedPage;
+const removeItemLinkedPage = siyuan.removeItemLinkedPage;
+const cloneSiyuanLocation = siyuan.cloneLocation;
+const cloneSiyuanPages = siyuan.clonePages;
 
 // Click debounce
 const clickTimer = ref<ReturnType<typeof setTimeout> | null>(null);
@@ -1340,153 +1367,6 @@ const createItemBlockedReason = computed(() => {
   }
   return "";
 });
-const itemEffectiveLocation = computed(() =>
-  resolvePmSiyuanEffectiveLocation(itemDialogProject.value?.siyuanLocationOverride, globalSiyuanLocation.value),
-);
-const siyuanLocationPickerTitle = computed(() =>
-  siyuanLocationPickerTarget.value === "global" ? "选择任务默认存储位置" : "选择项目专属存储位置",
-);
-const siyuanLocationPickerSearchKeyword = computed(() => siyuanLocationPickerSearch.value.trim());
-const siyuanLocationPickerTreeData = computed(() => {
-  if (!siyuanLocationPickerSearchKeyword.value) {
-    return siyuanDirectory.value;
-  }
-  return filterPmSiyuanDirectory(siyuanDirectory.value, siyuanLocationPickerSearchKeyword.value);
-});
-const siyuanLocationPickerExpandedKeys = computed(() => {
-  if (!siyuanLocationPickerSearchKeyword.value) {
-    return [];
-  }
-  return collectPmSiyuanExpandedKeys(siyuanLocationPickerTreeData.value);
-});
-const siyuanLocationPickerTreeKey = computed(
-  () =>
-    `${siyuanLocationPickerTarget.value}:${siyuanLocationPickerSearchKeyword.value}:${
-      siyuanLocationPickerExpandedKeys.value.join("|")
-    }:${siyuanLocationPickerValue.value?.parentDocId ?? siyuanLocationPickerValue.value?.notebookId ?? "none"}`,
-);
-const siyuanLocationPickerCurrentNodeKey = computed(
-  () => siyuanLocationPickerValue.value?.parentDocId ?? siyuanLocationPickerValue.value?.notebookId ?? undefined,
-);
-const siyuanLocationPickerSelectionTarget = computed(() =>
-  formatPmSiyuanLocationTargetLabel(siyuanLocationPickerValue.value),
-);
-const siyuanLocationPickerSelectionPath = computed(() =>
-  formatPmSiyuanLocationPathLabel(siyuanLocationPickerValue.value),
-);
-const siyuanLocationPickerStatusText = computed(() =>
-  siyuanLocationPickerSearchKeyword.value
-    ? `已按“${siyuanLocationPickerSearchKeyword.value}”过滤目录，只保留命中的目录路径。`
-    : "默认仅展开笔记本一级，点击文档后会把新页面放到该文档下面。",
-);
-const siyuanConfigReady = computed(() => Boolean(getSiyuanConfigSnapshot()));
-const siyuanPageFilterKeywordTrimmed = computed(() => siyuanPageFilterKeyword.value.trim());
-const siyuanPageFilteredLocationResults = computed(() =>
-  filterPmSiyuanPages(siyuanPageLocationResults.value, siyuanPageFilterKeyword.value),
-);
-const siyuanPageDisplayedResults = computed(() =>
-  siyuanPageResultSource.value === "all" ? siyuanPageAllResults.value : siyuanPageFilteredLocationResults.value,
-);
-const siyuanPageDialogInputPlaceholder = computed(() =>
-  itemEffectiveLocation.value && siyuanConfigReady.value
-    ? "输入标题或路径过滤当前列表"
-    : "输入关键词后点击扩展到全库",
-);
-const siyuanPageCreateTitle = computed(() => {
-  const itemTitle = itemForm.value.title.trim();
-  if (!itemEffectiveLocation.value) {
-    return "";
-  }
-  if (
-    siyuanPageFilterKeywordTrimmed.value &&
-    !siyuanPageShowLocationLoading.value &&
-    !siyuanPageShowAllLoading.value &&
-    siyuanPageDisplayedResults.value.length === 0
-  ) {
-    return siyuanPageFilterKeywordTrimmed.value;
-  }
-  return itemTitle;
-});
-const siyuanPageCanCreateImmediately = computed(() => {
-  if (!itemEffectiveLocation.value || !siyuanPageCreateTitle.value) {
-    return false;
-  }
-  if (
-    siyuanPageLocationState.value === "missing-location" ||
-    siyuanPageLocationState.value === "invalid-location" ||
-    siyuanPageLocationState.value === "missing-config"
-  ) {
-    return false;
-  }
-  if (siyuanPageLocationState.value === "load-error" && siyuanPageLocationResults.value.length === 0) {
-    return false;
-  }
-  return true;
-});
-const siyuanPageDialogTitle = computed(() => {
-  if (siyuanPageDialogIntent.value === "replace-primary") {
-    return "更换思源主页面";
-  }
-  return siyuanPageDialogMode.value === "primary" ? "关联思源主页面" : "添加思源附加页面";
-});
-const siyuanPageCurrentRangeText = computed(() => {
-  if (siyuanPageResultSource.value === "all") {
-    return `当前列表范围：本次全库搜索结果（当前显示 ${siyuanPageAllResults.value.length} 条）`;
-  }
-  if (itemEffectiveLocation.value) {
-    return `当前列表范围：${formatPmSiyuanLocationLabel(itemEffectiveLocation.value)}（共 ${siyuanPageLocationResults.value.length} 篇）`;
-  }
-  return "当前列表范围：未配置当前位置";
-});
-const siyuanPageFilterSummary = computed(() => {
-  if (siyuanPageResultSource.value === "all") {
-    return siyuanPageFilterKeywordTrimmed.value ? `当前关键词：${siyuanPageFilterKeywordTrimmed.value}` : "";
-  }
-  if (siyuanPageLocationState.value !== "ready") {
-    return "";
-  }
-  if (!siyuanPageFilterKeywordTrimmed.value) {
-    return "";
-  }
-  return `当前过滤命中 ${siyuanPageFilteredLocationResults.value.length} 条，完整列表共 ${siyuanPageLocationResults.value.length} 篇。`;
-});
-const siyuanPageShowReturnToLocation = computed(
-  () => siyuanPageResultSource.value === "all" && Boolean(itemEffectiveLocation.value),
-);
-const siyuanPageShowLocationLoading = computed(
-  () =>
-    siyuanPageResultSource.value === "location" &&
-    siyuanLoadingDirectory.value &&
-    siyuanPageLocationResults.value.length === 0 &&
-    siyuanPageLocationState.value === "ready" &&
-    siyuanConfigReady.value &&
-    Boolean(itemEffectiveLocation.value),
-);
-const siyuanPageShowAllLoading = computed(
-  () => siyuanPageResultSource.value === "all" && siyuanPageSearchingAll.value && siyuanPageAllResults.value.length === 0,
-);
-const siyuanPageEmptyMessage = computed(() => {
-  if (siyuanPageResultSource.value === "all") {
-    return siyuanPageSearchingAll.value ? "" : "全库中没有找到匹配文档，请调整关键词后重试。";
-  }
-
-  switch (siyuanPageLocationState.value) {
-    case "missing-location":
-      return "当前未配置项目专属位置或全局默认位置，无法展示当前位置列表；你仍可输入关键词后手动扩展到全库搜索。";
-    case "missing-config":
-      return "当前缺少思源服务地址或 API Token，请先完成思源配置。";
-    case "load-error":
-      return "当前位置列表加载失败，请稍后重试。";
-    case "invalid-location":
-      return "当前默认位置已失效，或所在笔记本已关闭，请重新选择位置。";
-    case "empty":
-      return "当前位置暂无可关联文档，可以直接新建页面。";
-    case "ready":
-      return siyuanPageFilteredLocationResults.value.length === 0 ? "当前过滤条件下没有匹配文档。" : "";
-    default:
-      return "";
-  }
-});
 
 const baseFilteredItems = computed(() => {
   let result = items.value;
@@ -1544,559 +1424,6 @@ function nextStatusLabel(item: PmItem): string {
   return idx >= 0 && idx < PM_STATUS_COLUMNS.length - 1 ? PM_STATUS_COLUMNS[idx + 1].label : "";
 }
 
-function cloneSiyuanLocation(location: PmSiyuanLocation | null | undefined): PmSiyuanLocation | null {
-  return location ? { ...location } : null;
-}
-
-function cloneSiyuanPage(page: PmSiyuanPageRef | null | undefined): PmSiyuanPageRef | null {
-  return page ? { ...page } : null;
-}
-
-function cloneSiyuanPages(pages: PmSiyuanPageRef[] | null | undefined): PmSiyuanPageRef[] {
-  return (pages ?? []).map((page) => ({ ...page }));
-}
-
-function resetSiyuanPageDialogState(mode: "primary" | "extra") {
-  siyuanPageDialogSessionId.value += 1;
-  siyuanPageDialogMode.value = mode;
-  siyuanPageDialogIntent.value = "link";
-  siyuanPageFilterKeyword.value = "";
-  siyuanPageResultSource.value = "location";
-  siyuanPageLocationResults.value = [];
-  siyuanPageAllResults.value = [];
-  siyuanPageSearchingAll.value = false;
-  siyuanPageLocationState.value = "ready";
-  siyuanPageLocationRefreshError.value = "";
-}
-
-function applySiyuanPageLocationResultsFromDirectory() {
-  const location = itemEffectiveLocation.value;
-  if (!siyuanConfigReady.value) {
-    siyuanPageLocationResults.value = [];
-    siyuanPageLocationState.value = "missing-config";
-    siyuanPageLocationRefreshError.value = "";
-    return;
-  }
-  if (!location) {
-    siyuanPageLocationResults.value = [];
-    siyuanPageLocationState.value = "missing-location";
-    siyuanPageLocationRefreshError.value = "";
-    return;
-  }
-
-  const result = collectPmSiyuanPagesForLocation(siyuanDirectory.value, location);
-  siyuanPageLocationResults.value = cloneSiyuanPages(result.pages);
-  siyuanPageLocationState.value = result.state;
-  siyuanPageLocationRefreshError.value = "";
-}
-
-async function refreshSiyuanPageLocationResults(options: { keepResultsOnError?: boolean; sessionId?: number } = {}) {
-  const { keepResultsOnError = false, sessionId = siyuanPageDialogSessionId.value } = options;
-
-  if (!siyuanConfigReady.value) {
-    siyuanPageLocationResults.value = [];
-    siyuanPageLocationState.value = "missing-config";
-    siyuanPageLocationRefreshError.value = "";
-    return;
-  }
-  if (!itemEffectiveLocation.value) {
-    siyuanPageLocationResults.value = [];
-    siyuanPageLocationState.value = "missing-location";
-    siyuanPageLocationRefreshError.value = "";
-    return;
-  }
-
-  const success = await refreshSiyuanDirectory({ showSuccess: false });
-  if (sessionId !== siyuanPageDialogSessionId.value) {
-    return;
-  }
-  if (success) {
-    applySiyuanPageLocationResultsFromDirectory();
-    return;
-  }
-
-  if (!keepResultsOnError) {
-    siyuanPageLocationResults.value = [];
-    siyuanPageLocationState.value = "load-error";
-  }
-  siyuanPageLocationRefreshError.value = siyuanError.value || "当前位置列表加载失败，请稍后重试。";
-}
-
-async function ensureSiyuanDirectoryLoaded() {
-  if (siyuanDirectory.value.length > 0) {
-    return;
-  }
-  await refreshSiyuanDirectory({ showSuccess: false });
-}
-
-function applyItemPrimaryPage(page: PmSiyuanPageRef | null) {
-  const result = setPmSiyuanPrimaryPage(itemPrimaryPage.value, itemExtraPages.value, page);
-  itemPrimaryPage.value = result.primaryPage ? { ...result.primaryPage } : null;
-  itemExtraPages.value = cloneSiyuanPages(result.extraPages);
-}
-
-function addItemExtraPage(page: PmSiyuanPageRef) {
-  itemExtraPages.value = addPmSiyuanExtraPage(itemPrimaryPage.value, itemExtraPages.value, page).map(
-    (item) => ({ ...item }),
-  );
-}
-
-function hasItemLinkedPage(docId: string): boolean {
-  return itemPrimaryPage.value?.docId === docId || itemExtraPages.value.some((page) => page.docId === docId);
-}
-
-function removeItemLinkedPage(docId: string) {
-  const result = removePmSiyuanPage(itemPrimaryPage.value, itemExtraPages.value, docId);
-  itemPrimaryPage.value = result.primaryPage ? { ...result.primaryPage } : null;
-  itemExtraPages.value = cloneSiyuanPages(result.extraPages);
-}
-
-function buildSiyuanLocationFromTreeNode(
-  data: PmSiyuanNotebookDirectory | PmSiyuanTreeNode,
-  node: { level: number; parent?: { level: number; data?: unknown; parent?: unknown } | null },
-): PmSiyuanLocation | null {
-  if (isPmSiyuanNotebookDirectory(data)) {
-    if (data.closed) {
-      return null;
-    }
-    return {
-      notebookId: data.id,
-      notebookName: data.name,
-      parentDocId: null,
-      parentDocTitle: null,
-      parentHpath: null,
-      parentPath: null,
-    };
-  }
-
-  let current = node.parent ?? null;
-  while (current && current.level > 1) {
-    current = (current.parent as typeof current | null) ?? null;
-  }
-  const notebook = current?.data as PmSiyuanNotebookDirectory | undefined;
-  if (!notebook || notebook.closed) {
-    return null;
-  }
-
-  return {
-    notebookId: notebook.id,
-    notebookName: notebook.name,
-    parentDocId: data.id,
-    parentDocTitle: data.name,
-    parentHpath: data.hpath,
-    parentPath: data.path,
-  };
-}
-
-function isSiyuanLocationPickerNodeSelected(data: PmSiyuanNotebookDirectory | PmSiyuanTreeNode) {
-  return siyuanLocationPickerCurrentNodeKey.value === data.id;
-}
-
-function isSiyuanLocationPickerNodeDisabled(
-  data: PmSiyuanNotebookDirectory | PmSiyuanTreeNode,
-  node: { level: number; parent?: { level: number; data?: unknown; parent?: unknown } | null },
-) {
-  return buildSiyuanLocationFromTreeNode(data, node) === null;
-}
-
-async function openSiyuanLocationPicker(target: "global" | "project") {
-  siyuanLocationPickerTarget.value = target;
-  siyuanLocationPickerSearch.value = "";
-  siyuanLocationPickerValue.value = cloneSiyuanLocation(
-    target === "global" ? globalSiyuanLocationDraft.value : projectForm.value.siyuanLocationOverride,
-  );
-  siyuanLocationDialogVisible.value = true;
-  if (siyuanDirectory.value.length === 0) {
-    await ensureSiyuanDirectoryLoaded();
-    return;
-  }
-  void refreshSiyuanDirectory({ showSuccess: false });
-}
-
-function handleSiyuanLocationTreeNodeClick(
-  data: PmSiyuanNotebookDirectory | PmSiyuanTreeNode,
-  node: { level: number; parent?: { level: number; data?: unknown; parent?: unknown } | null },
-) {
-  const location = buildSiyuanLocationFromTreeNode(data, node);
-  if (!location) {
-    ElMessage.warning("关闭的笔记本不能作为默认存储位置");
-    return;
-  }
-  siyuanLocationPickerValue.value = location;
-}
-
-function applySiyuanLocationPicker() {
-  const location = cloneSiyuanLocation(siyuanLocationPickerValue.value);
-  if (siyuanLocationPickerTarget.value === "global") {
-    globalSiyuanLocationDraft.value = location;
-  } else {
-    projectForm.value.useSiyuanOverride = Boolean(location);
-    projectForm.value.siyuanLocationOverride = location;
-  }
-  siyuanLocationDialogVisible.value = false;
-}
-
-function clearSiyuanLocationPicker() {
-  siyuanLocationPickerValue.value = null;
-}
-
-function clearProjectSiyuanOverride() {
-  projectForm.value.useSiyuanOverride = false;
-  projectForm.value.siyuanLocationOverride = null;
-}
-
-async function openSiyuanPageDialog(
-  mode: "primary" | "extra",
-  intent: "link" | "replace-primary" = "link",
-) {
-  resetSiyuanPageDialogState(mode);
-  siyuanPageDialogIntent.value = intent;
-  if (!editingItem.value && mode === "primary") {
-    siyuanPageFilterKeyword.value = itemForm.value.title.trim();
-  }
-  const sessionId = siyuanPageDialogSessionId.value;
-  siyuanPageDialogVisible.value = true;
-
-  if (!siyuanConfigReady.value) {
-    siyuanPageLocationState.value = "missing-config";
-    return;
-  }
-  if (!itemEffectiveLocation.value) {
-    siyuanPageLocationState.value = "missing-location";
-    return;
-  }
-
-  if (siyuanDirectory.value.length > 0) {
-    applySiyuanPageLocationResultsFromDirectory();
-    void refreshSiyuanPageLocationResults({ keepResultsOnError: true, sessionId });
-    return;
-  }
-
-  await refreshSiyuanPageLocationResults({ sessionId });
-}
-
-function restoreSiyuanLocationResults() {
-  siyuanPageResultSource.value = "location";
-  siyuanPageAllResults.value = [];
-}
-
-async function expandSiyuanPagesToAll() {
-  const keyword = siyuanPageFilterKeywordTrimmed.value;
-  const sessionId = siyuanPageDialogSessionId.value;
-  if (keyword.length < 2) {
-    ElMessage.warning("请输入至少 2 个字符后再扩展到全库");
-    return;
-  }
-
-  try {
-    ensureSiyuanConfig();
-  } catch (error) {
-    ElMessage.warning((error as Error).message);
-    return;
-  }
-
-  try {
-    siyuanPageSearchingAll.value = true;
-    const result = (await invoke<PmSiyuanSearchResult>("tool:pm:siyuan-search-pages", {
-      keyword,
-      searchAll: true,
-      location: null,
-    })) ?? { items: [], scope: "all" };
-    if (sessionId !== siyuanPageDialogSessionId.value) {
-      return;
-    }
-    siyuanPageAllResults.value = cloneSiyuanPages(result.items ?? []);
-    siyuanPageResultSource.value = "all";
-  } catch (error) {
-    if (sessionId !== siyuanPageDialogSessionId.value) {
-      return;
-    }
-    ElMessage.error((error as Error).message);
-  } finally {
-    if (sessionId === siyuanPageDialogSessionId.value) {
-      siyuanPageSearchingAll.value = false;
-    }
-  }
-}
-
-function selectSiyuanPageResult(page: PmSiyuanPageRef) {
-  if (siyuanPageDialogIntent.value === "replace-primary") {
-    if (itemPrimaryPage.value?.docId === page.docId) {
-      siyuanPageDialogVisible.value = false;
-      return;
-    }
-    applyItemPrimaryPage(page);
-    siyuanPageDialogVisible.value = false;
-    return;
-  }
-
-  if (hasItemLinkedPage(page.docId)) {
-    ElMessage.info("该页面已存在，无需重复关联。");
-    siyuanPageDialogVisible.value = false;
-    return;
-  }
-
-  if (itemPrimaryPage.value) {
-    addItemExtraPage(page);
-  } else {
-    applyItemPrimaryPage(page);
-  }
-  siyuanPageDialogVisible.value = false;
-}
-
-async function createSiyuanPageForItem() {
-  const title = siyuanPageCreateTitle.value;
-  if (!title) {
-    ElMessage.warning("请先填写工作项标题，或输入想创建的页面标题");
-    return;
-  }
-  if (!itemEffectiveLocation.value) {
-    ElMessage.warning("当前没有可用的思源默认位置，请先在配置或项目设置里指定");
-    return;
-  }
-
-  try {
-    siyuanPageCreating.value = true;
-    const result = (await invoke<{ created: boolean; page: PmSiyuanPageRef }>(
-      "tool:pm:siyuan-create-page",
-      {
-        title,
-        description: itemForm.value.description,
-        projectName: itemDialogProject.value?.name ?? "未归项目",
-        status: itemForm.value.status,
-        priority: itemForm.value.priority,
-        startAt: normalizePmDateRangeForDraft(itemForm.value.startAt, itemForm.value.endAt).startAt,
-        endAt: normalizePmDateRangeForDraft(itemForm.value.startAt, itemForm.value.endAt).endAt,
-        location: itemEffectiveLocation.value,
-      },
-    )) as { created: boolean; page: PmSiyuanPageRef };
-
-    if (!result?.page) {
-      throw new Error("思源页面创建结果为空");
-    }
-
-    if (!result.created) {
-      await ElMessageBox.confirm(
-        `同一路径下已存在页面「${result.page.docTitle}」，是否直接关联这个已有页面？`,
-        "页面已存在",
-        {
-          type: "warning",
-          confirmButtonText: "关联现有页面",
-          cancelButtonText: "取消",
-        },
-      );
-    } else {
-      ElMessage.success("思源页面已创建。若稍后取消工作项保存，该页面会保留但不会自动绑定。");
-    }
-
-    selectSiyuanPageResult(result.page);
-  } catch (error) {
-    if ((error as string) !== "cancel") {
-      ElMessage.error((error as Error).message);
-    }
-  } finally {
-    siyuanPageCreating.value = false;
-  }
-}
-
-async function openSiyuanPage(page: PmSiyuanPageRef | null | undefined) {
-  if (!page) return;
-  try {
-    await invoke("tool:pm:siyuan-open-page", { docId: page.docId });
-  } catch (error) {
-    ElMessage.error((error as Error).message);
-  }
-}
-
-// ── Data loading ─────────────────────────────────────────
-
-async function loadProjects() {
-  try {
-    projects.value = (await invoke<PmProject[]>("tool:pm:project-list", {})) ?? [];
-  } catch (e) {
-    ElMessage.error((e as Error).message);
-  }
-}
-
-async function loadItems() {
-  if (!selectedProjectId.value) {
-    items.value = [];
-    await nextTick();
-    if (!draggingItemId.value) {
-      initSortable();
-    }
-    return;
-  }
-  try {
-    const params = isOverview.value ? {} : { projectId: selectedProjectId.value };
-    items.value = (await invoke<PmItem[]>("tool:pm:item-list", params)) ?? [];
-  } catch (e) {
-    ElMessage.error((e as Error).message);
-  }
-  loadItemCounts();
-  await nextTick();
-  if (!draggingItemId.value) {
-    initSortable();
-  }
-}
-
-async function loadItemCounts() {
-  try {
-    const rows = (await invoke<{ projectId: number; total: number; done: number }[]>("tool:pm:item-counts", {})) ?? [];
-    const map: Record<number, { total: number; done: number }> = {};
-    for (const r of rows) {
-      map[r.projectId] = { total: r.total, done: r.done };
-    }
-    projectItemCounts.value = map;
-  } catch {
-    // Non-critical, silently ignore
-  }
-}
-
-
-function openSiyuanDrawer() {
-  siyuanDrawerVisible.value = true;
-}
-
-function normalizeBaseUrl(value: string): string {
-  let url = value.trim();
-  if (!url) return "";
-  if (!/^https?:\/\//i.test(url)) {
-    url = `http://${url}`;
-  }
-  while (url.endsWith("/")) {
-    url = url.slice(0, -1);
-  }
-  return url;
-}
-
-function normalizeItemLinkUrl(value: string | null | undefined): string {
-  let url = (value ?? "").trim();
-  if (!url) return "";
-  if (/^https?:\/\//i.test(url)) {
-    // Already has http/https scheme, keep as-is
-  } else if (url.includes("://")) {
-    // Non-http scheme (e.g. ftp://), reject like backend does
-    return "";
-  } else {
-    url = `http://${url}`;
-  }
-  return url;
-}
-
-async function openItemLink(url: string | null | undefined) {
-  const normalized = normalizeItemLinkUrl(url);
-  if (!normalized) {
-    return;
-  }
-  try {
-    await invoke("tool:pm:open-link", { url: normalized });
-  } catch (e) {
-    ElMessage.error((e as Error).message);
-  }
-}
-
-
-function getSiyuanConfigSnapshot(): { baseUrl: string; token: string } | null {
-  const baseUrl = normalizeBaseUrl(siyuanForm.baseUrl);
-  const token = (siyuanForm.token ?? "").trim();
-  if (!baseUrl || !token) {
-    return null;
-  }
-  return { baseUrl, token };
-}
-
-function ensureSiyuanConfig(): { baseUrl: string; token: string } {
-  const baseUrl = normalizeBaseUrl(siyuanForm.baseUrl);
-  if (!baseUrl) {
-    throw new Error("请填写思源服务地址");
-  }
-  const token = (siyuanForm.token ?? "").trim();
-  if (!token) {
-    throw new Error("请填写 API Token");
-  }
-  return { baseUrl, token };
-}
-
-function saveSiyuanConfig() {
-  try {
-    const { baseUrl, token } = ensureSiyuanConfig();
-    setSetting("pm_siyuan_base_url", baseUrl);
-    setSetting("pm_siyuan_token", token);
-    setSettingJson(PM_SIYUAN_DEFAULT_LOCATION_KEY, globalSiyuanLocationDraft.value);
-    siyuanForm.baseUrl = baseUrl;
-    siyuanForm.token = token;
-    globalSiyuanLocation.value = cloneSiyuanLocation(globalSiyuanLocationDraft.value);
-    ElMessage.success("配置已保存");
-  } catch (error) {
-    ElMessage.error((error as Error).message);
-  }
-}
-
-async function handleTestConnection() {
-  try {
-    const { baseUrl, token } = ensureSiyuanConfig();
-    siyuanTesting.value = true;
-    siyuanError.value = "";
-    siyuanErrorContext.value = null;
-    const result = (await invoke<{ version?: string }>("tool:pm:siyuan-test", { baseUrl, token })) ?? {};
-    siyuanTestingVersion.value = result.version ?? "未知版本";
-    ElMessage.success("连接成功");
-  } catch (error) {
-    siyuanTestingVersion.value = "";
-    siyuanError.value = (error as Error).message;
-    siyuanErrorContext.value = "test";
-  } finally {
-    siyuanTesting.value = false;
-  }
-}
-
-async function handleLoadDirectory() {
-  await refreshSiyuanDirectory({ showSuccess: true });
-}
-
-async function refreshSiyuanDirectory(options: { showSuccess?: boolean } = {}): Promise<boolean> {
-  if (siyuanDirectoryLoadPromise) {
-    return siyuanDirectoryLoadPromise;
-  }
-
-  const { showSuccess = true } = options;
-  siyuanDirectoryLoadPromise = (async () => {
-    try {
-      const { baseUrl, token } = ensureSiyuanConfig();
-      siyuanLoadingDirectory.value = true;
-      siyuanError.value = "";
-      siyuanErrorContext.value = null;
-      const directory =
-        (await invoke<PmSiyuanDirectoryResult>("tool:pm:siyuan-directory", { baseUrl, token })) ?? {
-          notebooks: [],
-          fetchedAt: "",
-        };
-      siyuanDirectory.value = directory.notebooks;
-      siyuanDirectoryFetchedAt.value = directory.fetchedAt
-        ? formatDateTime(directory.fetchedAt)
-        : new Date().toLocaleString();
-      if (showSuccess) {
-        ElMessage.success("目录已加载");
-      }
-      return true;
-    } catch (error) {
-      siyuanError.value = (error as Error).message;
-      siyuanErrorContext.value = "directory";
-      return false;
-    } finally {
-      siyuanLoadingDirectory.value = false;
-      siyuanDirectoryLoadPromise = null;
-    }
-  })();
-
-  return siyuanDirectoryLoadPromise;
-}
-
-function handleRefreshSiyuanLocationPicker() {
-  void refreshSiyuanDirectory({ showSuccess: true });
-}
-
 function selectProject(id: number | "overview") {
   selectedProjectId.value = id;
   selectedItemId.value = null;
@@ -2135,65 +1462,6 @@ watch(selectedItemId, (id) => {
     pmTodo.reset();
   }
 });
-
-watch(siyuanDrawerVisible, (visible) => {
-  if (visible) {
-    siyuanForm.baseUrl = getSetting("pm_siyuan_base_url") ?? defaultBaseUrl;
-    siyuanForm.token = getSetting("pm_siyuan_token") ?? "";
-    globalSiyuanLocationDraft.value = cloneSiyuanLocation(
-      getSettingJson<PmSiyuanLocation | null>(PM_SIYUAN_DEFAULT_LOCATION_KEY, null),
-    );
-  }
-});
-
-watch(siyuanLocationDialogVisible, (visible) => {
-  if (!visible) {
-    siyuanLocationPickerSearch.value = "";
-  }
-});
-
-watch(siyuanPageDialogVisible, (visible, previousVisible) => {
-  if (!visible && previousVisible) {
-    siyuanPageDialogSessionId.value += 1;
-    siyuanPageSearchingAll.value = false;
-  }
-});
-
-watch(siyuanPageFilterKeyword, (keyword, previousKeyword) => {
-  if (!siyuanPageDialogVisible.value) {
-    return;
-  }
-  if (siyuanPageResultSource.value !== "all" || keyword === previousKeyword) {
-    return;
-  }
-  restoreSiyuanLocationResults();
-});
-
-watch(
-  [siyuanPageDialogVisible, itemEffectiveLocation, siyuanConfigReady, siyuanDirectory, siyuanDirectoryFetchedAt],
-  ([visible]) => {
-    if (!visible) {
-      return;
-    }
-    if (!siyuanConfigReady.value) {
-      siyuanPageLocationResults.value = [];
-      siyuanPageLocationState.value = "missing-config";
-      siyuanPageLocationRefreshError.value = "";
-      return;
-    }
-    if (!itemEffectiveLocation.value) {
-      siyuanPageLocationResults.value = [];
-      siyuanPageLocationState.value = "missing-location";
-      siyuanPageLocationRefreshError.value = "";
-      return;
-    }
-    if (!siyuanDirectoryFetchedAt.value && siyuanDirectory.value.length === 0) {
-      return;
-    }
-    applySiyuanPageLocationResultsFromDirectory();
-  },
-  { flush: "post" },
-);
 
 // ── Project CRUD ─────────────────────────────────────────
 
@@ -2481,33 +1749,6 @@ async function onGanttDateChange(item: PmItem, start: string, end: string) {
   } catch (e) {
     await loadItems();
     ElMessage.error((e as Error).message);
-  }
-}
-
-async function openSiyuanLinkPicker() {
-  await openSiyuanPageDialog(itemPrimaryPage.value ? "extra" : "primary", "link");
-}
-
-async function openReplacePrimarySiyuanDialog() {
-  await openSiyuanPageDialog("primary", "replace-primary");
-}
-
-function handleItemSiyuanPageCommand(
-  row: ItemSiyuanLinkedRow,
-  command: string | number | object,
-) {
-  switch (command) {
-    case "replace-primary":
-      void openReplacePrimarySiyuanDialog();
-      return;
-    case "promote-primary":
-      applyItemPrimaryPage(row.page);
-      return;
-    case "remove":
-      removeItemLinkedPage(row.page.docId);
-      return;
-    default:
-      return;
   }
 }
 
