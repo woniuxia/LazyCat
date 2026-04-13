@@ -1664,6 +1664,7 @@ const basicsDialogVisible = ref(false);
 const viewMode = ref<"list" | "calendar">("list");
 const todoPmLinkItemId = ref<number | null>(null);
 const todoPmCandidates = ref<PmCandidateItem[]>([]);
+let skipProjectWatch = false;
 const todoLinkedPmItem = ref<{ id: number; title: string; status: string; projectId: number } | null>(null);
 const pmCreateDialogVisible = ref(false);
 const pmCreateTitle = ref("");
@@ -3069,6 +3070,7 @@ function applyItemToDraft(item: TodoItem) {
         itemDraft.cronExpression;
     }
   }
+  skipProjectWatch = true;
   itemDraft.projectId = item.projectId ?? null;
   itemDraft.pmItemId = item.pmItemId ?? null;
   itemDraft.pmItemTitle = item.pmItemTitle ?? null;
@@ -3722,6 +3724,10 @@ watch(filterProjectId, () => loadItems());
 watch(
   () => itemDraft.projectId,
   (newProjectId) => {
+    if (skipProjectWatch) {
+      skipProjectWatch = false;
+      return;
+    }
     todoPmLinkItemId.value = null;
     itemDraft.pmItemId = null;
     itemDraft.pmItemTitle = null;
