@@ -476,65 +476,24 @@
       </div>
     </div>
 
-    <!-- 新建执行任务弹窗 -->
-    <el-dialog v-model="pmTodo.createDialogVisible" title="新建执行任务" width="480px" @close="pmTodo.createForm = { title: '', priority: 'P2', description: '', eventAt: null }">
-      <el-form label-width="60px" size="default" @submit.prevent="pmTodo.submitCreate()">
-        <el-form-item label="标题">
-          <el-input v-model="pmTodo.createForm.title" placeholder="任务标题" @keyup.enter="pmTodo.submitCreate()" />
-        </el-form-item>
-        <el-form-item label="优先级">
-          <el-select v-model="pmTodo.createForm.priority">
-            <el-option label="P0 紧急" value="P0" />
-            <el-option label="P1 高" value="P1" />
-            <el-option label="P2 中" value="P2" />
-            <el-option label="P3 低" value="P3" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="描述">
-          <el-input v-model="pmTodo.createForm.description" type="textarea" :rows="3" placeholder="可选描述" />
-        </el-form-item>
-        <el-form-item label="日期">
-          <el-date-picker v-model="pmTodo.createForm.eventAt" type="date" placeholder="可选日期" value-format="YYYY-MM-DD" clearable />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="pmTodo.createDialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="pmTodo.submitCreate()">创建</el-button>
-      </template>
-    </el-dialog>
+    <!-- 新建执行任务弹窗 (detail panel) -->
+    <PmTodoCreateDialog
+      v-model:visible="pmTodo.createDialogVisible"
+      @submit="(f: any) => pmTodo.submitCreate(f)"
+    />
 
-    <!-- 绑定已有任务弹窗 -->
-    <el-dialog v-model="pmTodo.linkDialogVisible" title="绑定已有任务" width="560px" @open="pmTodo.loadCandidates()">
-      <div class="pm-todo-candidate-header">
-        <span class="pm-todo-candidate-hint">可绑定当前项目或未归项目的任务</span>
-        <el-input v-model="pmTodo.candidateKeyword" size="small" placeholder="搜索任务标题" clearable style="width: 200px;" @input="pmTodo.onCandidateInput()" />
-      </div>
-      <div v-if="pmTodo.candidateLoading" style="padding: 20px; text-align: center; color: #909399;">搜索中...</div>
-      <div v-else-if="pmTodo.candidates.length === 0" style="padding: 20px; text-align: center; color: #909399;">
-        <template v-if="pmTodo.candidateReason === 'blocked_only'">当前项目下所有任务已被其他工作项关联</template>
-        <template v-else>没有可绑定的任务</template>
-      </div>
-      <div v-else class="pm-todo-candidate-list">
-        <el-checkbox-group v-model="pmTodo.linkSelectedIds">
-          <div v-for="c in pmTodo.candidates" :key="c.id" class="pm-todo-candidate-item">
-            <el-checkbox :value="c.id">
-              <span>{{ c.title }}</span>
-              <el-tag v-if="c.isUnassignedProject" size="small" type="warning" effect="plain" style="margin-left: 4px;">未归项目</el-tag>
-              <el-tag size="small" :type="c.status === 'completed' ? 'success' : 'info'" effect="plain" style="margin-left: 4px;">
-                {{ c.status === 'completed' ? '已完成' : c.status === 'in_progress' ? '进行中' : '待办' }}
-              </el-tag>
-              <span style="margin-left: 4px; color: #909399; font-size: 12px;">{{ c.priority }}</span>
-            </el-checkbox>
-          </div>
-        </el-checkbox-group>
-      </div>
-      <template #footer>
-        <el-button @click="pmTodo.linkDialogVisible = false">取消</el-button>
-        <el-button type="primary" :disabled="pmTodo.linkSelectedIds.length === 0" @click="pmTodo.submitLink()">
-          绑定 ({{ pmTodo.linkSelectedIds.length }})
-        </el-button>
-      </template>
-    </el-dialog>
+    <!-- 绑定已有任务弹窗 (detail panel) -->
+    <PmTodoLinkDialog
+      v-model:visible="pmTodo.linkDialogVisible"
+      v-model:keyword="pmTodo.candidateKeyword"
+      v-model:selected-ids="pmTodo.linkSelectedIds"
+      :loading="pmTodo.candidateLoading"
+      :candidates="pmTodo.candidates"
+      :empty-reason="pmTodo.candidateReason"
+      @open="pmTodo.loadCandidates()"
+      @search="pmTodo.onCandidateInput()"
+      @submit="pmTodo.submitLink()"
+    />
 
     <el-dialog v-model="projectDialogVisible" :title="editingProject ? '编辑项目' : '新建项目'" width="520px" @close="resetProjectForm">
       <el-form :model="projectForm" label-width="60px" size="default" @submit.prevent="submitProject">
@@ -574,208 +533,25 @@
     </el-dialog>
 
     <!-- Item dialog -->
-    <el-dialog v-model="itemDialogVisible" :title="editingItem ? '编辑工作项' : '新建工作项'" width="860px" @close="resetItemForm">
-      <el-form :model="itemForm" label-position="top" size="default" class="pm-item-dialog-form">
-        <div
-          class="pm-item-project-card"
-          :class="{
-            'pm-item-project-card--switchable': itemProjectSwitcherEnabled,
-            'pm-item-project-card--switch-open': itemProjectSwitchMenuVisible,
-          }"
-        >
-          <div class="pm-item-project-card-head">
-            <div class="pm-item-project-card-body">
-              <div class="pm-item-section-eyebrow">所属项目</div>
-              <div class="pm-item-project-card-main">
-                <span class="pm-item-project-card-dot" :style="{ backgroundColor: itemDialogProjectDisplayColor }" />
-                <span class="pm-item-project-card-name">{{ itemDialogProjectDisplayName }}</span>
-              </div>
-            </div>
-            <div v-if="itemProjectSwitcherEnabled" class="pm-item-project-card-actions">
-              <el-dropdown
-                trigger="click"
-                placement="bottom-end"
-                @command="handleItemProjectSwitchCommand"
-                @visible-change="handleItemProjectSwitchVisibleChange"
-              >
-                <button type="button" class="pm-item-project-switch-trigger">
-                  切换项目
-                </button>
-                <template #dropdown>
-                  <el-dropdown-menu class="pm-item-project-switch-menu">
-                    <el-dropdown-item
-                      v-for="p in itemProjectOptions"
-                      :key="p.id"
-                      :command="p.id"
-                      :disabled="p.id === itemDialogProjectId"
-                    >
-                      <div class="pm-item-project-switch-item">
-                        <span class="pm-item-project-switch-item-name">{{ p.name }}</span>
-                        <span v-if="p.id === itemDialogProjectId" class="pm-item-project-switch-item-meta">
-                          当前项目
-                        </span>
-                        <span
-                          v-else-if="p.status === 'archived'"
-                          class="pm-item-project-switch-item-meta"
-                        >
-                          已归档
-                        </span>
-                      </div>
-                    </el-dropdown-item>
-                  </el-dropdown-menu>
-                </template>
-              </el-dropdown>
-            </div>
-          </div>
-        </div>
-
-        <div class="pm-item-section">
-          <div class="pm-item-section-title">核心信息</div>
-          <el-form-item label="标题">
-            <el-input v-model="itemForm.title" placeholder="工作项标题" />
-          </el-form-item>
-          <div class="pm-item-dialog-core-grid">
-            <el-form-item label="类型" class="pm-item-dialog-inline-field">
-              <el-select v-model="itemForm.itemType">
-                <el-option v-for="(meta, key) in PM_ITEM_TYPE_MAP" :key="key" :label="meta.label" :value="key" />
-              </el-select>
-            </el-form-item>
-            <el-form-item label="优先级" class="pm-item-dialog-inline-field">
-              <el-select v-model="itemForm.priority">
-                <template #prefix>
-                  <span class="priority-dot" :style="{ backgroundColor: PM_PRIORITY_MAP[itemForm.priority]?.color }" />
-                </template>
-                <el-option v-for="(meta, key) in PM_PRIORITY_MAP" :key="key" :label="meta.label" :value="key">
-                  <span class="priority-dot" :style="{ backgroundColor: meta.color }" />
-                  {{ meta.label }}
-                </el-option>
-              </el-select>
-            </el-form-item>
-            <el-form-item label="状态" class="pm-item-dialog-inline-field">
-              <el-select v-model="itemForm.status">
-                <el-option v-for="col in PM_STATUS_COLUMNS" :key="col.key" :label="col.label" :value="col.key" />
-              </el-select>
-            </el-form-item>
-          </div>
-        </div>
-
-        <div class="pm-item-section pm-item-section--inline">
-          <div class="pm-item-dialog-inline-row">
-            <div class="pm-item-dialog-inline-label">时间安排</div>
-            <div class="pm-item-dialog-inline-content">
-              <el-form-item class="pm-item-dialog-inline-form-item">
-                <el-date-picker
-                  v-model="itemFormDateRange"
-                  type="daterange"
-                  value-format="YYYY-MM-DD"
-                  range-separator="~"
-                  start-placeholder="开始日期"
-                  end-placeholder="截止日期"
-                  clearable
-                  class="pm-item-dialog-inline-picker"
-                />
-              </el-form-item>
-            </div>
-          </div>
-        </div>
-
-        <div class="pm-item-section pm-item-section--inline">
-          <div class="pm-item-dialog-inline-row pm-item-dialog-inline-row--link">
-            <div class="pm-item-dialog-inline-label">链接</div>
-            <div class="pm-item-dialog-inline-content pm-item-dialog-inline-content--link">
-              <div class="pm-item-dialog-link-main">
-                <el-form-item class="pm-item-dialog-inline-form-item pm-item-dialog-inline-form-item--grow">
-                  <el-input
-                    v-model="itemForm.linkUrl"
-                    placeholder="https://example.com 或 localhost:3000"
-                  />
-                </el-form-item>
-                <div class="pm-item-dialog-link-actions">
-                  <el-button
-                    plain
-                    class="pm-item-dialog-link-clear-btn"
-                    :disabled="!itemForm.linkUrl"
-                    @click="itemForm.linkUrl = ''"
-                  >
-                    清空
-                  </el-button>
-                  <el-button
-                    type="primary"
-                    plain
-                    class="pm-item-dialog-link-open-btn"
-                    :disabled="!itemFormOpenableLink"
-                    @click="openItemFormLink"
-                  >
-                    打开
-                  </el-button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="pm-item-section">
-          <el-form-item label="描述">
-            <el-input v-model="itemForm.description" type="textarea" :rows="4" />
-          </el-form-item>
-        </div>
-
-        <div class="pm-item-section">
-          <el-form-item label="思源关联" class="pm-form-item-top">
-            <div class="pm-siyuan-link-card">
-              <div class="pm-siyuan-link-header">
-                <div class="pm-siyuan-link-heading">
-                  <div class="pm-siyuan-link-title">思源关联</div>
-                  <div class="pm-siyuan-link-subtitle">{{ itemSiyuanLocationSummary }}</div>
-                </div>
-                <div class="pm-siyuan-inline-actions">
-                  <el-button size="small" type="primary" plain @click="openSiyuanLinkPicker()">关联页面</el-button>
-                </div>
-              </div>
-              <div v-if="itemLinkedPages.length > 0" class="pm-siyuan-page-list">
-                <div v-for="row in itemLinkedPages" :key="row.page.docId" class="pm-siyuan-page-row">
-                  <div class="pm-siyuan-page-main">
-                    <div class="pm-siyuan-page-row-head">
-                      <div class="pm-siyuan-page-title">{{ row.page.docTitle }}</div>
-                      <el-tag v-if="row.kind === 'primary'" size="small" effect="plain" type="primary">主页面</el-tag>
-                    </div>
-                    <div class="pm-siyuan-page-meta">{{ row.page.notebookName }} · {{ row.page.docHpath }}</div>
-                  </div>
-                  <div class="pm-siyuan-page-actions">
-                    <el-button size="small" link @click="openSiyuanPage(row.page)">打开</el-button>
-                    <el-dropdown trigger="click" @command="(command) => handleItemSiyuanPageCommand(row, command)">
-                      <el-button size="small" link class="pm-siyuan-more-trigger">更多</el-button>
-                      <template #dropdown>
-                        <el-dropdown-menu>
-                          <el-dropdown-item v-if="row.kind === 'primary'" command="replace-primary">更换主页面</el-dropdown-item>
-                          <el-dropdown-item v-else command="promote-primary">设为主页面</el-dropdown-item>
-                          <el-dropdown-item command="remove">移除</el-dropdown-item>
-                        </el-dropdown-menu>
-                      </template>
-                    </el-dropdown>
-                  </div>
-                </div>
-              </div>
-              <div v-else class="pm-siyuan-empty-inline">尚未关联页面，点击右上角开始关联。</div>
-            </div>
-          </el-form-item>
-        </div>
-
-        <div v-if="editingItem" class="pm-item-section pm-item-section--muted">
-          <div class="pm-item-section-title">流转记录</div>
-          <div class="pm-item-dialog-core-grid">
-            <el-form-item label="开始执行" class="pm-item-dialog-inline-field">
-              <el-date-picker v-model="itemForm.startedAt" type="datetime" clearable placeholder="自动记录，可手动修改" style="width: 100%" />
-            </el-form-item>
-            <el-form-item label="开始测试" class="pm-item-dialog-inline-field">
-              <el-date-picker v-model="itemForm.testingAt" type="datetime" clearable placeholder="自动记录，可手动修改" style="width: 100%" />
-            </el-form-item>
-            <el-form-item label="完成时间" class="pm-item-dialog-inline-field">
-              <el-date-picker v-model="itemForm.completedAt" type="datetime" clearable placeholder="自动记录，可手动修改" style="width: 100%" />
-            </el-form-item>
-          </div>
-        </div>
-
+    <PmItemDialog
+      ref="itemDialogRef"
+      v-model:visible="itemDialogVisible"
+      v-model:form-project-id="itemFormProjectId"
+      :editing-item="editingItem"
+      :projects="projects"
+      :selected-project-id="selectedProjectId"
+      :is-overview="isOverview"
+      :primary-page="itemPrimaryPage"
+      :extra-pages="itemExtraPages"
+      :global-siyuan-location="globalSiyuanLocation"
+      :siyuan-config-ready="siyuanConfigReady"
+      @submit="submitItem"
+      @open-siyuan-link-picker="openSiyuanLinkPicker"
+      @open-siyuan-page="openSiyuanPage"
+      @siyuan-page-command="handleItemSiyuanPageCommand"
+      @open-item-link="openItemLink"
+    >
+      <template #todo-edit-mode>
         <div v-if="editingItem" class="pm-item-section">
           <div class="pm-item-section-title">执行任务</div>
           <div class="pm-item-section-subtitle">当前工作项拆解出的任务清单事项</div>
@@ -820,74 +596,98 @@
             </div>
           </template>
         </div>
-      </el-form>
-      <template #footer>
-        <el-button @click="itemDialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="submitItem">确定</el-button>
       </template>
-    </el-dialog>
 
-    <!-- Dialog: new todo for item dialog -->
-    <el-dialog v-model="dialogPmTodo.createDialogVisible" title="新建执行任务" width="480px" append-to-body @close="dialogPmTodo.createForm = { title: '', priority: 'P2', description: '', eventAt: null }">
-      <el-form label-width="60px" size="default" @submit.prevent="dialogPmTodo.submitCreate()">
-        <el-form-item label="标题">
-          <el-input v-model="dialogPmTodo.createForm.title" placeholder="任务标题" @keyup.enter="dialogPmTodo.submitCreate()" />
-        </el-form-item>
-        <el-form-item label="优先级">
-          <el-select v-model="dialogPmTodo.createForm.priority">
-            <el-option label="P0 紧急" value="P0" />
-            <el-option label="P1 高" value="P1" />
-            <el-option label="P2 中" value="P2" />
-            <el-option label="P3 低" value="P3" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="描述">
-          <el-input v-model="dialogPmTodo.createForm.description" type="textarea" :rows="3" placeholder="可选" />
-        </el-form-item>
-        <el-form-item label="日期">
-          <el-date-picker v-model="dialogPmTodo.createForm.eventAt" type="date" value-format="YYYY-MM-DD" placeholder="可选" clearable style="width: 100%" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="dialogPmTodo.createDialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="dialogPmTodo.submitCreate()">创建</el-button>
-      </template>
-    </el-dialog>
-
-    <!-- Dialog: link existing todo for item dialog -->
-    <el-dialog v-model="dialogPmTodo.linkDialogVisible" title="绑定已有任务" width="560px" append-to-body @open="dialogPmTodo.loadCandidates()">
-      <div class="pm-todo-candidate-header">
-        <span class="pm-todo-candidate-hint">可绑定当前项目或未归项目的任务</span>
-        <el-input v-model="dialogPmTodo.candidateKeyword" size="small" placeholder="搜索任务标题" clearable style="width: 200px;" @input="dialogPmTodo.onCandidateInput()" />
-      </div>
-      <div v-if="dialogPmTodo.candidateLoading" class="pm-todo-loading">加载中...</div>
-      <template v-else-if="dialogPmTodo.candidates.length === 0">
-        <div class="pm-todo-empty">
-          <template v-if="dialogPmTodo.candidateReason === 'blocked_only'">当前项目下所有任务已被其他工作项关联</template>
-          <template v-else>暂无可绑定的任务</template>
+      <template #todo-create-mode>
+        <div v-if="!editingItem" class="pm-item-section">
+          <div class="pm-item-section-title">执行任务</div>
+          <div class="pm-item-section-subtitle">创建工作项后将自动关联以下任务</div>
+          <div v-if="pendingTodoTotalCount > 0" class="pm-todo-summary">
+            <span class="pm-todo-stat">待关联 {{ pendingTodoTotalCount }} 项</span>
+            <span class="pm-todo-stat pm-todo-stat--detail">
+              <template v-if="pendingTodoCreates.length > 0">{{ pendingTodoCreates.length }} 项新建</template>
+              <template v-if="pendingTodoCreates.length > 0 && pendingTodoLinkItems.length > 0">、</template>
+              <template v-if="pendingTodoLinkItems.length > 0">{{ pendingTodoLinkItems.length }} 项已有</template>
+            </span>
+          </div>
+          <div class="pm-todo-actions">
+            <el-button size="small" type="primary" plain @click="pendingTodoCreateDialogVisible = true">新建执行任务</el-button>
+            <el-button size="small" plain :disabled="!itemDialogProjectId" @click="pendingTodoLinkDialogVisible = true">绑定已有任务</el-button>
+          </div>
+          <div v-if="pendingTodoTotalCount === 0" class="pm-todo-empty">暂无待关联的执行任务</div>
+          <div v-else class="pm-todo-list">
+            <div v-for="(todo, idx) in pendingTodoCreates" :key="'create-' + idx" class="pm-todo-item">
+              <div class="pm-todo-item-main">
+                <span class="pm-todo-item-title">{{ todo.title }}</span>
+                <el-tag size="small" type="primary" effect="plain">新建</el-tag>
+              </div>
+              <div class="pm-todo-item-meta">
+                <span class="pm-todo-item-priority">{{ todo.priority }}</span>
+                <span v-if="todo.eventAt" class="pm-todo-item-date">{{ todo.eventAt }}</span>
+                <el-button size="small" link type="danger" @click="pendingTodoRemoveCreate(idx)">移除</el-button>
+              </div>
+            </div>
+            <div v-for="(todo, idx) in pendingTodoLinkItems" :key="'link-' + todo.id" class="pm-todo-item">
+              <div class="pm-todo-item-main">
+                <span class="pm-todo-item-title">{{ todo.title }}</span>
+                <el-tag size="small" effect="plain">已有</el-tag>
+              </div>
+              <div class="pm-todo-item-meta">
+                <el-tag size="small" :type="todo.status === 'completed' ? 'success' : 'info'" effect="plain">
+                  {{ todo.status === 'completed' ? '已完成' : todo.status === 'in_progress' ? '进行中' : '待办' }}
+                </el-tag>
+                <span class="pm-todo-item-priority">{{ todo.priority }}</span>
+                <el-button size="small" link type="danger" @click="pendingTodoRemoveLink(idx)">移除</el-button>
+              </div>
+            </div>
+          </div>
         </div>
       </template>
-      <div v-else class="pm-todo-candidate-list">
-        <el-checkbox-group v-model="dialogPmTodo.linkSelectedIds">
-          <div v-for="c in dialogPmTodo.candidates" :key="c.id" class="pm-todo-candidate-item">
-            <el-checkbox :value="c.id">
-              <span>{{ c.title }}</span>
-              <el-tag v-if="c.isUnassignedProject" size="small" type="warning" effect="plain" style="margin-left: 4px;">未归项目</el-tag>
-              <el-tag size="small" :type="c.status === 'completed' ? 'success' : 'info'" effect="plain" style="margin-left: 4px;">
-                {{ c.status === 'completed' ? '已完成' : c.status === 'in_progress' ? '进行中' : '待办' }}
-              </el-tag>
-              <span style="margin-left: 4px; color: #909399; font-size: 12px;">{{ c.priority }}</span>
-            </el-checkbox>
-          </div>
-        </el-checkbox-group>
-      </div>
-      <template #footer>
-        <el-button @click="dialogPmTodo.linkDialogVisible = false">取消</el-button>
-        <el-button type="primary" :disabled="dialogPmTodo.linkSelectedIds.length === 0" @click="dialogPmTodo.submitLink()">
-          绑定 ({{ dialogPmTodo.linkSelectedIds.length }})
-        </el-button>
-      </template>
-    </el-dialog>
+    </PmItemDialog>
+
+    <!-- Dialog: new todo for item dialog -->
+    <PmTodoCreateDialog
+      v-model:visible="dialogPmTodo.createDialogVisible"
+      append-to-body
+      @submit="(f: any) => dialogPmTodo.submitCreate(f)"
+    />
+
+    <!-- Dialog: link existing todo for item dialog -->
+    <PmTodoLinkDialog
+      v-model:visible="dialogPmTodo.linkDialogVisible"
+      v-model:keyword="dialogPmTodo.candidateKeyword"
+      v-model:selected-ids="dialogPmTodo.linkSelectedIds"
+      :loading="dialogPmTodo.candidateLoading"
+      :candidates="dialogPmTodo.candidates"
+      :empty-reason="dialogPmTodo.candidateReason"
+      append-to-body
+      @open="dialogPmTodo.loadCandidates()"
+      @search="dialogPmTodo.onCandidateInput()"
+      @submit="dialogPmTodo.submitLink()"
+    />
+
+    <!-- Dialog: new todo for create-mode (pending) -->
+    <PmTodoCreateDialog
+      v-model:visible="pendingTodoCreateDialogVisible"
+      append-to-body
+      confirm-text="添加"
+      @submit="pendingTodoSubmitCreate"
+    />
+
+    <!-- Dialog: link existing todo for create-mode (pending) -->
+    <PmTodoLinkDialog
+      v-model:visible="pendingTodoLinkDialogVisible"
+      v-model:keyword="pendingTodoLinkKeyword"
+      v-model:selected-ids="pendingTodoLinkSelectedIds"
+      :loading="pendingTodoLinkLoading"
+      :candidates="pendingTodoLinkCandidates"
+      :empty-reason="pendingTodoLinkReason === 'empty' && !pendingTodoLinkKeyword ? '' : 'no_match'"
+      append-to-body
+      confirm-text="添加"
+      @open="pendingTodoLoadCandidates()"
+      @search="pendingTodoOnCandidateInput()"
+      @submit="pendingTodoSubmitLink()"
+    />
 
     <!-- Context menu (Vue reactive) -->
     <Teleport to="body">
@@ -1224,6 +1024,9 @@ import type {
 import { PM_STATUS_COLUMNS, PM_ITEM_TYPE_MAP, PM_PRIORITY_MAP } from "../types/pm";
 import Sortable from "sortablejs";
 import PmGanttView from "./PmGanttView.vue";
+import PmItemDialog from "./PmItemDialog.vue";
+import PmTodoCreateDialog from "./PmTodoCreateDialog.vue";
+import PmTodoLinkDialog from "./PmTodoLinkDialog.vue";
 import { clampContextMenuPosition } from "../utils/contextMenu";
 import {
   addPmSiyuanExtraPage,
@@ -1313,7 +1116,10 @@ const presetColors = ["#7eb8f7", "#95d4a1", "#f7c97e", "#f7a1a1", "#b0bec5", "#8
 const itemDialogVisible = ref(false);
 const editingItem = ref<PmItem | null>(null);
 const itemFormProjectId = ref<number | null>(null);
-const itemForm = ref({
+const itemPrimaryPage = ref<PmSiyuanPageRef | null>(null);
+const itemExtraPages = ref<PmSiyuanPageRef[]>([]);
+const itemDialogRef = ref<InstanceType<typeof PmItemDialog> | null>(null);
+const itemForm = computed(() => itemDialogRef.value?.form ?? {
   title: "",
   itemType: "task" as PmItemType,
   priority: "P2" as PmPriority,
@@ -1326,13 +1132,77 @@ const itemForm = ref({
   testingAt: null as string | null,
   completedAt: null as string | null,
 });
-const itemPrimaryPage = ref<PmSiyuanPageRef | null>(null);
-const itemExtraPages = ref<PmSiyuanPageRef[]>([]);
-const itemProjectSwitchMenuVisible = ref(false);
 
 // PM-Todo linking composables
 const pmTodo = reactive(usePmTodoLinking(() => selectedItemId.value));
 const dialogPmTodo = reactive(usePmTodoLinking(() => editingItem.value?.id));
+
+// Pending todo state (for create-mode in item dialog)
+const pendingTodoCreates = ref<{ title: string; priority: string; description: string; eventAt: string | null }[]>([]);
+const pendingTodoLinkItems = ref<{ id: number; title: string; status: string; priority: string }[]>([]);
+const pendingTodoCreateDialogVisible = ref(false);
+const pendingTodoLinkDialogVisible = ref(false);
+const pendingTodoLinkKeyword = ref("");
+const pendingTodoLinkSelectedIds = ref<number[]>([]);
+const pendingTodoLinkLoading = ref(false);
+const pendingTodoLinkCandidates = ref<{ id: number; title: string; status: string; priority: string; isUnassignedProject?: boolean }[]>([]);
+const pendingTodoLinkReason = ref<"empty" | "blocked_only" | "no_match" | "">("");
+const pendingTodoTotalCount = computed(() => pendingTodoCreates.value.length + pendingTodoLinkItems.value.length);
+
+function resetPendingTodos() {
+  pendingTodoCreates.value = [];
+  pendingTodoLinkItems.value = [];
+  pendingTodoLinkSelectedIds.value = [];
+  pendingTodoLinkKeyword.value = "";
+  pendingTodoLinkReason.value = "";
+}
+
+function pendingTodoSubmitCreate(form: { title: string; priority: string; description: string; eventAt: string | null }) {
+  pendingTodoCreates.value.push({ ...form });
+  pendingTodoCreateDialogVisible.value = false;
+}
+
+function pendingTodoRemoveCreate(idx: number) {
+  pendingTodoCreates.value.splice(idx, 1);
+}
+
+function pendingTodoRemoveLink(idx: number) {
+  pendingTodoLinkItems.value.splice(idx, 1);
+}
+
+async function pendingTodoLoadCandidates() {
+  if (!itemDialogProjectId.value) return;
+  pendingTodoLinkLoading.value = true;
+  pendingTodoLinkReason.value = "";
+  try {
+    const result = await invoke<{ items: { id: number; title: string; status: string; priority: string; isUnassignedProject?: boolean }[]; reason?: string }>(
+      "tool:pm:todo-candidates",
+      { projectId: itemDialogProjectId.value, keyword: pendingTodoLinkKeyword.value },
+    );
+    pendingTodoLinkCandidates.value = result.items ?? [];
+    pendingTodoLinkReason.value = (result.items?.length === 0 ? (result.reason as typeof pendingTodoLinkReason.value) : "") || "";
+  } catch {
+    pendingTodoLinkCandidates.value = [];
+    pendingTodoLinkReason.value = "empty";
+  } finally {
+    pendingTodoLinkLoading.value = false;
+  }
+}
+
+function pendingTodoOnCandidateInput() {
+  void pendingTodoLoadCandidates();
+}
+
+function pendingTodoSubmitLink() {
+  for (const id of pendingTodoLinkSelectedIds.value) {
+    const c = pendingTodoLinkCandidates.value.find((item) => item.id === id);
+    if (c) {
+      pendingTodoLinkItems.value.push({ id: c.id, title: c.title, status: c.status, priority: c.priority });
+    }
+  }
+  pendingTodoLinkSelectedIds.value = [];
+  pendingTodoLinkDialogVisible.value = false;
+}
 
 const siyuanDrawerVisible = ref(false);
 const siyuanForm = reactive({
@@ -1452,19 +1322,6 @@ const itemDialogProjectId = computed<number | null>(() => {
   }
   return typeof selectedProjectId.value === "number" ? selectedProjectId.value : null;
 });
-const itemProjectOptions = computed(() => {
-  const active = [...activeProjects.value];
-  const currentProjectId = itemFormProjectId.value ?? editingItem.value?.projectId ?? null;
-  if (currentProjectId === null || active.some((project) => project.id === currentProjectId)) {
-    return active;
-  }
-
-  const currentProject = projects.value.find((project) => project.id === currentProjectId);
-  return currentProject ? [...active, currentProject] : active;
-});
-const itemProjectSwitcherEnabled = computed(
-  () => (isOverview.value || Boolean(editingItem.value)) && itemProjectOptions.value.length > 1,
-);
 const itemDialogProject = computed(() =>
   projects.value.find((project) => project.id === itemDialogProjectId.value) ?? null,
 );
@@ -1483,75 +1340,9 @@ const createItemBlockedReason = computed(() => {
   }
   return "";
 });
-const itemDialogProjectDisplayName = computed(() => {
-  if (itemDialogProject.value) {
-    return itemDialogProject.value.name;
-  }
-  if (typeof selectedProjectId.value === "number") {
-    return selectedProject.value?.name ?? "未选择项目";
-  }
-  return "未选择项目";
-});
-const itemDialogProjectDisplayColor = computed(() => {
-  if (itemDialogProject.value?.color) {
-    return itemDialogProject.value.color;
-  }
-  if (typeof selectedProjectId.value === "number") {
-    return selectedProject.value?.color ?? "#4d7df2";
-  }
-  return "#4d7df2";
-});
 const itemEffectiveLocation = computed(() =>
   resolvePmSiyuanEffectiveLocation(itemDialogProject.value?.siyuanLocationOverride, globalSiyuanLocation.value),
 );
-const itemEffectiveLocationSource = computed(() => {
-  if (itemDialogProject.value?.siyuanLocationOverride) {
-    return "项目专属位置";
-  }
-  if (globalSiyuanLocation.value) {
-    return "全局默认位置";
-  }
-  return "未配置";
-});
-const itemSiyuanLocationSummary = computed(() => {
-  if (!itemEffectiveLocation.value) {
-    return "未配置默认位置";
-  }
-  if (
-    siyuanErrorContext.value === "directory" &&
-    !siyuanDirectoryFetchedAt.value &&
-    siyuanDirectory.value.length === 0
-  ) {
-    return "位置读取失败";
-  }
-  if (siyuanDirectoryFetchedAt.value || siyuanDirectory.value.length > 0) {
-    const result = collectPmSiyuanPagesForLocation(siyuanDirectory.value, itemEffectiveLocation.value);
-    if (result.state === "invalid-location") {
-      return "位置已失效";
-    }
-  }
-  return `${itemEffectiveLocationSource.value} · ${formatPmSiyuanLocationLabel(itemEffectiveLocation.value)}`;
-});
-const itemLinkedPages = computed<ItemSiyuanLinkedRow[]>(() => [
-  ...(itemPrimaryPage.value ? [{ page: itemPrimaryPage.value, kind: "primary" as const }] : []),
-  ...itemExtraPages.value.map((page) => ({ page, kind: "extra" as const })),
-]);
-const itemFormDateRange = computed<[string, string] | null>({
-  get() {
-    return getPmDateRangeValue(itemForm.value.startAt, itemForm.value.endAt);
-  },
-  set(value) {
-    if (!value || value.length < 2) {
-      itemForm.value.startAt = null;
-      itemForm.value.endAt = null;
-      return;
-    }
-    const normalizedRange = normalizePmDateRangeForDraft(value[0], value[1]);
-    itemForm.value.startAt = normalizedRange.startAt;
-    itemForm.value.endAt = normalizedRange.endAt;
-  },
-});
-const itemFormOpenableLink = computed(() => Boolean(normalizeItemLinkUrl(itemForm.value.linkUrl)));
 const siyuanLocationPickerTitle = computed(() =>
   siyuanLocationPickerTarget.value === "global" ? "选择任务默认存储位置" : "选择项目专属存储位置",
 );
@@ -2205,9 +1996,6 @@ async function openItemLink(url: string | null | undefined) {
   }
 }
 
-async function openItemFormLink() {
-  await openItemLink(itemForm.value.linkUrl);
-}
 
 function getSiyuanConfigSnapshot(): { baseUrl: string; token: string } | null {
   const baseUrl = normalizeBaseUrl(siyuanForm.baseUrl);
@@ -2314,17 +2102,6 @@ function selectProject(id: number | "overview") {
   selectedItemId.value = null;
 }
 
-function handleItemProjectSwitchVisibleChange(visible: boolean) {
-  itemProjectSwitchMenuVisible.value = visible;
-}
-
-function handleItemProjectSwitchCommand(command: string | number) {
-  const nextProjectId = Number(command);
-  if (Number.isNaN(nextProjectId)) {
-    return;
-  }
-  itemFormProjectId.value = nextProjectId;
-}
 
 function selectItem(item: PmItem) {
   selectedItemId.value = item.id;
@@ -2546,19 +2323,9 @@ function showCreateItem() {
   }
   editingItem.value = null;
   itemFormProjectId.value = isOverview.value ? (activeProjects.value[0]?.id ?? null) : null;
-  itemProjectSwitchMenuVisible.value = false;
-  itemForm.value = {
-    title: "",
-    itemType: "task",
-    priority: "P2",
-    status: "todo",
-    startAt: null,
-    endAt: null,
-    linkUrl: "",
-    description: "",
-  };
   itemPrimaryPage.value = null;
   itemExtraPages.value = [];
+  resetPendingTodos();
   itemDialogVisible.value = true;
   if (siyuanConfigReady.value && itemEffectiveLocation.value) {
     void ensureSiyuanDirectoryLoaded();
@@ -2566,23 +2333,8 @@ function showCreateItem() {
 }
 
 function editItem(item: PmItem) {
-  const normalizedDateRange = normalizePmDateRangeForDraft(item.startAt, item.endAt);
   editingItem.value = item;
   itemFormProjectId.value = item.projectId;
-  itemProjectSwitchMenuVisible.value = false;
-  itemForm.value = {
-    title: item.title,
-    itemType: item.itemType,
-    priority: item.priority,
-    status: item.status,
-    startAt: normalizedDateRange.startAt,
-    endAt: normalizedDateRange.endAt,
-    linkUrl: item.linkUrl ?? "",
-    description: item.description,
-    startedAt: item.startedAt ?? null,
-    testingAt: item.testingAt ?? null,
-    completedAt: item.completedAt ?? null,
-  };
   itemPrimaryPage.value = cloneSiyuanPage(item.siyuanPrimaryPage);
   itemExtraPages.value = cloneSiyuanPages(item.siyuanExtraPages);
   itemDialogVisible.value = true;
@@ -2597,7 +2349,6 @@ function resetItemForm() {
   itemFormProjectId.value = null;
   itemPrimaryPage.value = null;
   itemExtraPages.value = [];
-  itemProjectSwitchMenuVisible.value = false;
   dialogPmTodo.reset();
 }
 
@@ -2606,22 +2357,34 @@ function formatItemTimestampValue(value: string | Date | null | undefined): stri
   return value instanceof Date ? value.toISOString() : value;
 }
 
-async function submitItem() {
-  if (!itemForm.value.title.trim()) {
+async function submitItem(form: {
+  title: string;
+  itemType: PmItemType;
+  priority: PmPriority;
+  status: PmItemStatus;
+  startAt: string | null;
+  endAt: string | null;
+  linkUrl: string;
+  description: string;
+  startedAt?: string | null;
+  testingAt?: string | null;
+  completedAt?: string | null;
+}) {
+  if (!form.title.trim()) {
     ElMessage.warning("请输入标题");
     return;
   }
   try {
-    const normalizedDateRange = normalizePmDateRangeForDraft(itemForm.value.startAt, itemForm.value.endAt);
+    const normalizedDateRange = normalizePmDateRangeForDraft(form.startAt, form.endAt);
     const payload: Record<string, unknown> = {
-      title: itemForm.value.title,
-      itemType: itemForm.value.itemType,
-      priority: itemForm.value.priority,
-      status: itemForm.value.status,
+      title: form.title,
+      itemType: form.itemType,
+      priority: form.priority,
+      status: form.status,
       startAt: normalizedDateRange.startAt,
       endAt: normalizedDateRange.endAt,
-      linkUrl: normalizeItemLinkUrl(itemForm.value.linkUrl) || null,
-      description: itemForm.value.description,
+      linkUrl: normalizeItemLinkUrl(form.linkUrl) || null,
+      description: form.description,
       siyuanPrimaryPage: itemPrimaryPage.value,
       siyuanExtraPages: itemExtraPages.value,
     };
@@ -2640,7 +2403,7 @@ async function submitItem() {
 
       const timestampFields = ["startedAt", "testingAt", "completedAt"] as const;
       for (const field of timestampFields) {
-        const draftValue = formatItemTimestampValue(itemForm.value[field]);
+        const draftValue = formatItemTimestampValue(form[field]);
         const originalValue = formatItemTimestampValue(editingItem.value[field]);
         if (draftValue !== originalValue) {
           payload[field] = draftValue;
