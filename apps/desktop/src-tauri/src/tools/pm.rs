@@ -38,6 +38,8 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         "siyuan_create_page" => crate::tools::pm_siyuan::siyuan_create_page(payload),
         "siyuan_open_page" => crate::tools::pm_siyuan::siyuan_open_page(payload),
         "open_link" => crate::tools::pm_siyuan::open_link(payload),
+        "siyuan_check_running" => crate::tools::pm_siyuan::siyuan_check_running(payload),
+        "siyuan_launch" => crate::tools::pm_siyuan::siyuan_launch(payload),
         "item_todo_list" => crate::tools::pm_todo_link::item_todo_list(payload),
         "item_todo_link" => crate::tools::pm_todo_link::item_todo_link(payload),
         "item_todo_unlink" => crate::tools::pm_todo_link::item_todo_unlink(payload),

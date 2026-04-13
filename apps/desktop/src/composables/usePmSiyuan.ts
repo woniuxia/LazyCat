@@ -646,7 +646,59 @@ export function usePmSiyuan(deps: {
     }
   }
 
-  function openLinkPicker() {
+  async function checkSiyuanRunning(): Promise<boolean> {
+    try {
+      const { baseUrl, token } = ensureConfig();
+      const result = (await invokeToolByChannel("tool:pm:siyuan-check-running", { baseUrl, token })) as {
+        running: boolean;
+      };
+      return result.running;
+    } catch {
+      return false;
+    }
+  }
+
+  async function launchSiyuan(): Promise<boolean> {
+    try {
+      const result = (await invokeToolByChannel("tool:pm:siyuan-launch", {})) as { launched: boolean };
+      return result.launched;
+    } catch (err) {
+      ElMessage.error((err as Error).message);
+      return false;
+    }
+  }
+
+  async function waitForSiyuanReady(maxRetries = 15, intervalMs = 2000): Promise<boolean> {
+    for (let i = 0; i < maxRetries; i++) {
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+      if (await checkSiyuanRunning()) return true;
+    }
+    return false;
+  }
+
+  async function openLinkPicker() {
+    if (configReady.value) {
+      const running = await checkSiyuanRunning();
+      if (!running) {
+        try {
+          await ElMessageBox.confirm("思源服务未启动，是否现在启动思源？", "思源未运行", {
+            confirmButtonText: "启动思源",
+            cancelButtonText: "取消",
+            type: "warning",
+          });
+          const launched = await launchSiyuan();
+          if (!launched) return;
+          ElMessage.info("正在等待思源服务就绪...");
+          const ready = await waitForSiyuanReady();
+          if (!ready) {
+            ElMessage.error("思源启动超时，请稍后重试。");
+            return;
+          }
+        } catch {
+          return;
+        }
+      }
+    }
     openPageDialog("primary", deps.itemPrimaryPage.value ? "replace-primary" : "link");
   }
 

@@ -1281,3 +1281,83 @@ pub fn open_link(payload: &Value) -> Result<Value, String> {
     open::that(&url).map_err(|e| format!("打开链接失败: {e}"))?;
     Ok(json!({ "ok": true, "url": url }))
 }
+
+// ── Launch helpers ─────────────────────────────────────
+
+pub fn siyuan_check_running(payload: &Value) -> Result<Value, String> {
+    let config = read_siyuan_config(payload)?;
+    match post_siyuan_json(&config, "/api/system/version", &json!({}), 3_000) {
+        Ok(_) => Ok(json!({ "running": true })),
+        Err(_) => Ok(json!({ "running": false })),
+    }
+}
+
+pub fn siyuan_launch(_payload: &Value) -> Result<Value, String> {
+    let exe_path = find_siyuan_executable().ok_or(
+        "未找到思源可执行文件，请确认思源已安装。\n\n常见安装位置：\n• Program Files\\SiYuan\n• 用户程序目录\\SiYuan\n• Scoop 安装目录",
+    )?;
+    std::process::Command::new(&exe_path)
+        .spawn()
+        .map_err(|e| format!("启动思源失败: {e}"))?;
+    Ok(json!({ "launched": true }))
+}
+
+fn find_siyuan_executable() -> Option<std::path::PathBuf> {
+    // 1. Try where command (searches PATH)
+    if let Ok(output) = std::process::Command::new("where")
+        .arg("SiYuan.exe")
+        .output()
+    {
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            if let Some(first_line) = stdout.lines().next() {
+                let path = std::path::PathBuf::from(first_line.trim());
+                if path.exists() {
+                    return Some(path);
+                }
+            }
+        }
+    }
+    // 2. Try common install paths
+    siyuan_install_candidates()
+        .into_iter()
+        .find(|p| p.exists())
+}
+
+fn siyuan_install_candidates() -> Vec<std::path::PathBuf> {
+    let mut paths = Vec::new();
+    if let Ok(local) = std::env::var("LOCALAPPDATA") {
+        paths.push(
+            std::path::PathBuf::from(&local)
+                .join("Programs")
+                .join("SiYuan")
+                .join("SiYuan.exe"),
+        );
+        paths.push(std::path::PathBuf::from(&local).join("SiYuan").join("SiYuan.exe"));
+    }
+    paths.push(std::path::PathBuf::from(
+        "C:\\Program Files\\SiYuan\\SiYuan.exe",
+    ));
+    paths.push(std::path::PathBuf::from(
+        "C:\\Program Files (x86)\\SiYuan\\SiYuan.exe",
+    ));
+    if let Ok(home) = std::env::var("USERPROFILE") {
+        paths.push(
+            std::path::PathBuf::from(&home)
+                .join("scoop")
+                .join("apps")
+                .join("siyuan")
+                .join("current")
+                .join("SiYuan.exe"),
+        );
+        paths.push(
+            std::path::PathBuf::from(&home)
+                .join("AppData")
+                .join("Local")
+                .join("Programs")
+                .join("siyuan")
+                .join("SiYuan.exe"),
+        );
+    }
+    paths
+}

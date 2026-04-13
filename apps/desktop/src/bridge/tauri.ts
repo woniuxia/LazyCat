@@ -256,6 +256,8 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:pm:siyuan-create-page": { domain: "pm", action: "siyuan_create_page" },
   "tool:pm:siyuan-open-page": { domain: "pm", action: "siyuan_open_page" },
   "tool:pm:open-link": { domain: "pm", action: "open_link" },
+  "tool:pm:siyuan-check-running": { domain: "pm", action: "siyuan_check_running" },
+  "tool:pm:siyuan-launch": { domain: "pm", action: "siyuan_launch" },
   "tool:pm:item-todo-list": { domain: "pm", action: "item_todo_list" },
   "tool:pm:item-todo-link": { domain: "pm", action: "item_todo_link" },
   "tool:pm:item-todo-unlink": { domain: "pm", action: "item_todo_unlink" },
