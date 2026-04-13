@@ -467,3 +467,70 @@ pub fn item_todo_candidates(payload: &Value) -> Result<Value, String> {
         "reason": reason,
     }))
 }
+
+/// Return candidate Todos for linking by project ID (no PM item required).
+/// Used when creating a new PM item and wanting to pre-select todos to link.
+pub fn item_todo_candidates_by_project(payload: &Value) -> Result<Value, String> {
+    let project_id = crate::tools::pm::parse_i64(payload, "projectId").ok_or("projectId is required")?;
+    let keyword = crate::tools::pm::parse_string(payload, "keyword");
+    let limit = crate::tools::pm::parse_i64(payload, "limit").unwrap_or(50).min(100) as usize;
+
+    let conn = db_conn()?;
+
+    // Query candidates: same project or null project, one_off, not already linked
+    let mut sql = String::from(
+        "SELECT t.id, t.title, t.status, t.priority, t.event_at, t.project_id
+         FROM todo_items t
+         WHERE t.kind = 'one_off'
+           AND NOT EXISTS (
+               SELECT 1 FROM pm_item_todo_links l WHERE l.todo_item_id = t.id
+           )
+           AND (t.project_id = ?1 OR t.project_id IS NULL)",
+    );
+
+    if keyword.is_some() {
+        sql.push_str(" AND t.title LIKE '%' || ?2 || '%'");
+    }
+
+    sql.push_str(" ORDER BY CASE t.status WHEN 'completed' THEN 1 ELSE 0 END, t.event_at DESC");
+    sql.push_str(" LIMIT ");
+    sql.push_str(&(limit + 1).to_string());
+
+    let mut stmt = conn.prepare(&sql).map_err(|e| format!("item_todo_candidates_by_project prepare: {e}"))?;
+
+    let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = vec![Box::new(project_id)];
+    if let Some(ref kw) = keyword {
+        param_values.push(Box::new(kw.clone()));
+    }
+    let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+        param_values.iter().map(|p| p.as_ref()).collect();
+
+    let rows: Vec<Value> = stmt
+        .query_map(param_refs.as_slice(), |r| {
+            let pid: Option<i64> = r.get(5)?;
+            Ok(json!({
+                "id": r.get::<_, i64>(0)?,
+                "title": r.get::<_, String>(1)?,
+                "status": r.get::<_, String>(2)?,
+                "priority": r.get::<_, String>(3)?,
+                "eventAt": r.get::<_, Option<String>>(4)?,
+                "projectId": pid,
+                "isUnassignedProject": pid.is_none(),
+            }))
+        })
+        .map_err(|e| format!("item_todo_candidates_by_project query: {e}"))?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    let overflow = rows.len() > limit;
+    let items: Vec<Value> = rows.into_iter().take(limit).collect();
+    let total = items.len() as i64;
+
+    let reason = if total == 0 { "empty" } else if overflow { "overflow" } else { "ok" };
+
+    Ok(json!({
+        "items": items,
+        "total": total,
+        "reason": reason,
+    }))
+}

@@ -261,6 +261,7 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:pm:item-todo-unlink": { domain: "pm", action: "item_todo_unlink" },
   "tool:pm:item-todo-create": { domain: "pm", action: "item_todo_create" },
   "tool:pm:item-todo-candidates": { domain: "pm", action: "item_todo_candidates" },
+  "tool:pm:item-todo-candidates-by-project": { domain: "pm", action: "item_todo_candidates_by_project" },
   "tool:todo:pm-candidates": { domain: "todo", action: "pm_candidates" },
   "tool:todo:item-set-pm-link": { domain: "todo", action: "item_set_pm_link" }
 };

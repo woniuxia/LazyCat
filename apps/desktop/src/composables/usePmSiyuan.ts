@@ -771,6 +771,7 @@ export function usePmSiyuan(deps: {
     saveConfig,
     testConnection,
     loadDirectory,
+    ensureDirectoryLoaded,
     refreshLocationPickerDirectory,
     // Location picker functions
     openLocationPicker,

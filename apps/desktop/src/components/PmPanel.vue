@@ -1181,6 +1181,18 @@ function pendingTodoSubmitLink() {
 }
 
 // ── SiYuan composable ─────────────────────────────────────
+const itemDialogProjectId = computed<number | null>(() => {
+  if (itemFormProjectId.value !== null) {
+    return itemFormProjectId.value;
+  }
+  if (editingItem.value) {
+    return editingItem.value.projectId;
+  }
+  return typeof selectedProjectId.value === "number" ? selectedProjectId.value : null;
+});
+const itemDialogProject = computed(() =>
+  projects.value.find((project) => project.id === itemDialogProjectId.value) ?? null,
+);
 const dialogProjectSiyuanOverride = computed(() => itemDialogProject.value?.siyuanLocationOverride ?? null);
 const dialogProjectName = computed(() => itemDialogProject.value?.name ?? "未归项目");
 const siyuan = reactive(usePmSiyuan({
@@ -1254,6 +1266,7 @@ const openSiyuanDrawer = siyuan.openDrawer;
 const saveSiyuanConfig = siyuan.saveConfig;
 const handleTestConnection = siyuan.testConnection;
 const handleLoadDirectory = siyuan.loadDirectory;
+const ensureSiyuanDirectoryLoaded = siyuan.ensureDirectoryLoaded;
 const handleRefreshSiyuanLocationPicker = siyuan.refreshLocationPickerDirectory;
 const openSiyuanLocationPicker = siyuan.openLocationPicker;
 const handleSiyuanLocationTreeNodeClick = siyuan.handleLocationTreeNodeClick;
@@ -1277,6 +1290,9 @@ const hasItemLinkedPage = siyuan.hasItemLinkedPage;
 const removeItemLinkedPage = siyuan.removeItemLinkedPage;
 const cloneSiyuanLocation = siyuan.cloneLocation;
 const cloneSiyuanPages = siyuan.clonePages;
+function cloneSiyuanPage(page: PmSiyuanPageRef | null | undefined): PmSiyuanPageRef | null {
+  return page ? { ...page } : null;
+}
 
 // Click debounce
 const clickTimer = ref<ReturnType<typeof setTimeout> | null>(null);
@@ -1340,18 +1356,6 @@ const selectedItemProject = computed(() =>
 );
 const selectedItemDescriptionText = computed(() => selectedItem.value?.description?.trim() ?? "");
 
-const itemDialogProjectId = computed<number | null>(() => {
-  if (itemFormProjectId.value !== null) {
-    return itemFormProjectId.value;
-  }
-  if (editingItem.value) {
-    return editingItem.value.projectId;
-  }
-  return typeof selectedProjectId.value === "number" ? selectedProjectId.value : null;
-});
-const itemDialogProject = computed(() =>
-  projects.value.find((project) => project.id === itemDialogProjectId.value) ?? null,
-);
 const canCreateItemsInCurrentContext = computed(() => {
   if (isOverview.value) {
     return activeProjects.value.length > 0;
@@ -1424,6 +1428,30 @@ function nextStatusLabel(item: PmItem): string {
   return idx >= 0 && idx < PM_STATUS_COLUMNS.length - 1 ? PM_STATUS_COLUMNS[idx + 1].label : "";
 }
 
+function normalizeItemLinkUrl(value: string | null | undefined): string {
+  let url = (value ?? "").trim();
+  if (!url) return "";
+  if (/^https?:\/\//i.test(url)) {
+    // Already has http/https scheme, keep as-is
+  } else if (url.includes("://")) {
+    // Non-http scheme (e.g. ftp://), reject like backend does
+    return "";
+  } else {
+    url = `http://${url}`;
+  }
+  return url;
+}
+
+async function openItemLink(url: string | null | undefined) {
+  const normalized = normalizeItemLinkUrl(url);
+  if (!normalized) return;
+  try {
+    await invoke("tool:pm:open-link", { url: normalized });
+  } catch (e) {
+    ElMessage.error((e as Error).message);
+  }
+}
+
 function selectProject(id: number | "overview") {
   selectedProjectId.value = id;
   selectedItemId.value = null;
@@ -1462,6 +1490,51 @@ watch(selectedItemId, (id) => {
     pmTodo.reset();
   }
 });
+
+// ── Data loading ─────────────────────────────────────────
+
+async function loadProjects() {
+  try {
+    projects.value = (await invoke<PmProject[]>("tool:pm:project-list", {})) ?? [];
+  } catch (e) {
+    ElMessage.error((e as Error).message);
+  }
+}
+
+async function loadItems() {
+  if (!selectedProjectId.value) {
+    items.value = [];
+    await nextTick();
+    if (!draggingItemId.value) {
+      initSortable();
+    }
+    return;
+  }
+  try {
+    const params = isOverview.value ? {} : { projectId: selectedProjectId.value };
+    items.value = (await invoke<PmItem[]>("tool:pm:item-list", params)) ?? [];
+  } catch (e) {
+    ElMessage.error((e as Error).message);
+  }
+  loadItemCounts();
+  await nextTick();
+  if (!draggingItemId.value) {
+    initSortable();
+  }
+}
+
+async function loadItemCounts() {
+  try {
+    const rows = (await invoke<{ projectId: number; total: number; done: number }[]>("tool:pm:item-counts", {})) ?? [];
+    const map: Record<number, { total: number; done: number }> = {};
+    for (const r of rows) {
+      map[r.projectId] = { total: r.total, done: r.done };
+    }
+    projectItemCounts.value = map;
+  } catch {
+    // Non-critical, silently ignore
+  }
+}
 
 // ── Project CRUD ─────────────────────────────────────────
 

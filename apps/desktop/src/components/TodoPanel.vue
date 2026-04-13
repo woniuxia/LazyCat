@@ -3150,8 +3150,18 @@ async function onPmCreateConfirm() {
     ElMessage.warning("请输入工作项标题");
     return;
   }
-  if (!itemDraft.projectId || !itemDraft.id) return;
+  if (!itemDraft.projectId) return;
   try {
+    // If the todo item hasn't been saved yet (create mode), save it first
+    let todoId = itemDraft.id;
+    if (!todoId) {
+      const saveResult = await submitItemChanges(false);
+      if (!saveResult.ok || !saveResult.id) {
+        return;
+      }
+      todoId = saveResult.id;
+      itemDraft.id = todoId;
+    }
     const result = await invokeToolByChannel("tool:pm:item-create", {
       projectId: itemDraft.projectId,
       title,
@@ -3160,7 +3170,7 @@ async function onPmCreateConfirm() {
       status: "todo",
     }) as { id: number };
     await invokeToolByChannel("tool:todo:item-set-pm-link", {
-      todoItemId: itemDraft.id,
+      todoItemId: todoId,
       pmItemId: result.id,
     });
     itemDraft.pmItemId = result.id;
@@ -3173,6 +3183,12 @@ async function onPmCreateConfirm() {
     pmCreateTitle.value = "";
     await loadTodoPmCandidates(itemDraft.projectId);
     await loadItems();
+    // If the item was just created (was in create mode), switch to edit mode so user can continue editing
+    if (itemDialogMode.value === "create") {
+      itemDialogMode.value = "edit_item";
+      selectedItemId.value = todoId;
+    }
+    ElMessage.success("工作项已创建并关联");
   } catch (error) {
     ElMessage.error((error as Error).message);
   }
@@ -3712,7 +3728,7 @@ watch(
     itemDraft.pmItemProjectId = null;
     itemDraft.pmItemStatus = null;
     todoLinkedPmItem.value = null;
-    if (newProjectId && itemDraft.kind !== "recurring" && itemDraft.id) {
+    if (newProjectId && itemDraft.kind !== "recurring") {
       loadTodoPmCandidates(newProjectId);
     } else {
       todoPmCandidates.value = [];

@@ -115,10 +115,10 @@ export function usePmTodoLinking(getPmItemId: PmItemIdGetter) {
     }
   }
 
-  async function submitCreate() {
+  async function submitCreate(formData?: PmTodoCreateForm) {
     const id = getPmItemId();
     if (id == null) return;
-    const form = createForm.value;
+    const form = formData ?? createForm.value;
     if (!form.title.trim()) {
       ElMessage.warning("请输入任务标题");
       return;

@@ -43,6 +43,7 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         "item_todo_unlink" => crate::tools::pm_todo_link::item_todo_unlink(payload),
         "item_todo_create" => crate::tools::pm_todo_link::item_todo_create(payload),
         "item_todo_candidates" => crate::tools::pm_todo_link::item_todo_candidates(payload),
+        "item_todo_candidates_by_project" => crate::tools::pm_todo_link::item_todo_candidates_by_project(payload),
         _ => Err(format!("unsupported pm action: {action}")),
     }
 }
