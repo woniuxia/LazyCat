@@ -363,7 +363,6 @@
               <div class="detail-section">
                 <div class="detail-section-head">
                   <span class="detail-section-title">执行任务</span>
-                  <span class="detail-section-subtitle">当前工作项拆解出的任务清单事项</span>
                 </div>
 
                 <!-- 摘要区 -->
@@ -554,44 +553,41 @@
       <template #todo-edit-mode>
         <div v-if="editingItem" class="pm-item-section">
           <div class="pm-item-section-title">执行任务</div>
-          <div class="pm-item-section-subtitle">当前工作项拆解出的任务清单事项</div>
           <div v-if="dialogPmTodo.loading" class="pm-todo-loading">加载中...</div>
           <template v-else>
-            <div v-if="dialogPmTodo.summary" class="pm-todo-summary">
-              <span class="pm-todo-stat">已关联 {{ dialogPmTodo.summary.totalCount }} 项</span>
-              <span class="pm-todo-stat">已完成 {{ dialogPmTodo.summary.completedCount }} / {{ dialogPmTodo.summary.totalCount }}</span>
-              <el-progress
-                :percentage="dialogPmTodo.progressPercent"
-                :stroke-width="6"
-                :show-text="false"
-                :color="dialogPmTodo.allCompleted ? '#67c23a' : '#409eff'"
-                style="flex: 1; margin-left: 8px;"
-              />
-              <span v-if="dialogPmTodo.allCompleted" class="pm-todo-all-done-hint">全部完成</span>
-            </div>
-            <div class="pm-todo-actions">
-              <el-button size="small" type="primary" plain @click="dialogPmTodo.createDialogVisible = true">新建执行任务</el-button>
-              <el-button size="small" plain @click="dialogPmTodo.openLinkDialog()">绑定已有任务</el-button>
+            <div class="pm-todo-header">
+              <div v-if="dialogPmTodo.summary" class="pm-todo-summary">
+                <span class="pm-todo-stat">已关联 {{ dialogPmTodo.summary.totalCount }} 项</span>
+                <span class="pm-todo-stat">已完成 {{ dialogPmTodo.summary.completedCount }} / {{ dialogPmTodo.summary.totalCount }}</span>
+                <el-progress
+                  :percentage="dialogPmTodo.progressPercent"
+                  :stroke-width="6"
+                  :show-text="false"
+                  :color="dialogPmTodo.allCompleted ? '#67c23a' : '#409eff'"
+                  style="flex: 1; margin-left: 8px;"
+                />
+                <span v-if="dialogPmTodo.allCompleted" class="pm-todo-all-done-hint">全部完成</span>
+              </div>
+              <div class="pm-todo-actions">
+                <el-button size="small" type="primary" plain @click="dialogPmTodo.createDialogVisible = true">新建执行任务</el-button>
+                <el-button size="small" plain @click="dialogPmTodo.openLinkDialog()">绑定已有任务</el-button>
+              </div>
             </div>
             <div v-if="dialogPmTodo.items.length === 0" class="pm-todo-empty">暂无关联的执行任务</div>
             <div v-else class="pm-todo-list">
               <div v-for="todo in dialogPmTodo.items" :key="todo.id" class="pm-todo-item" :class="{ 'pm-todo-item--completed': todo.status === 'completed' }">
-                <div class="pm-todo-item-main">
-                  <el-checkbox
-                    :model-value="todo.status === 'completed'"
-                    @change="dialogPmTodo.toggleComplete(todo)"
-                  />
-                  <span class="pm-todo-item-title">{{ todo.title }}</span>
-                  <el-tag v-if="todo.isOverdue" size="small" type="danger">逾期</el-tag>
-                </div>
-                <div class="pm-todo-item-meta">
-                  <el-tag size="small" :type="todo.status === 'completed' ? 'success' : 'info'" effect="plain">
-                    {{ todo.status === 'completed' ? '已完成' : todo.status === 'in_progress' ? '进行中' : '待办' }}
-                  </el-tag>
-                  <span class="pm-todo-item-priority">{{ todo.priority }}</span>
-                  <span v-if="todo.eventAt" class="pm-todo-item-date">{{ todo.eventAt.substring(0, 10) }}</span>
-                  <el-button size="small" link type="danger" @click="dialogPmTodo.unlink(todo.id)">解绑</el-button>
-                </div>
+                <el-checkbox
+                  :model-value="todo.status === 'completed'"
+                  @change="dialogPmTodo.toggleComplete(todo)"
+                />
+                <span class="pm-todo-item-title">{{ todo.title }}</span>
+                <el-tag v-if="todo.isOverdue" size="small" type="danger">逾期</el-tag>
+                <el-tag size="small" :type="todo.status === 'completed' ? 'success' : 'info'" effect="plain">
+                  {{ todo.status === 'completed' ? '已完成' : todo.status === 'in_progress' ? '进行中' : '待办' }}
+                </el-tag>
+                <span class="pm-todo-item-priority">{{ todo.priority }}</span>
+                <span v-if="todo.eventAt" class="pm-todo-item-date">{{ todo.eventAt.substring(0, 10) }}</span>
+                <el-button size="small" link type="danger" @click="dialogPmTodo.unlink(todo.id)">解绑</el-button>
               </div>
             </div>
           </template>
@@ -1195,7 +1191,7 @@ const itemDialogProject = computed(() =>
 );
 const dialogProjectSiyuanOverride = computed(() => itemDialogProject.value?.siyuanLocationOverride ?? null);
 const dialogProjectName = computed(() => itemDialogProject.value?.name ?? "未归项目");
-const siyuan = reactive(usePmSiyuan({
+const siyuan = usePmSiyuan({
   dialogProjectSiyuanOverride,
   editingItem,
   itemForm,
@@ -1207,7 +1203,7 @@ const siyuan = reactive(usePmSiyuan({
     projectForm.value.useSiyuanOverride = useOverride;
     projectForm.value.siyuanLocationOverride = location;
   },
-}));
+});
 // Aliases for backward compatibility
 const siyuanDrawerVisible = siyuan.drawerVisible;
 const siyuanForm = siyuan.form;
@@ -4688,11 +4684,18 @@ body.pm-is-dragging * {
 
 /* ── PM-Todo Linking Styles ────────────────────────────── */
 
+.pm-todo-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 0;
+}
+
 .pm-todo-summary {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 8px 0;
   font-size: 13px;
   color: #606266;
 }
@@ -4710,7 +4713,7 @@ body.pm-is-dragging * {
 .pm-todo-actions {
   display: flex;
   gap: 8px;
-  padding: 4px 0 8px;
+  flex-shrink: 0;
 }
 
 .pm-todo-loading,
@@ -4729,9 +4732,9 @@ body.pm-is-dragging * {
 
 .pm-todo-item {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 8px 10px;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
   border: 1px solid #ebeef5;
   border-radius: 6px;
   background: #fafafa;
