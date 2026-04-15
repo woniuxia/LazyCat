@@ -462,68 +462,9 @@
                   </el-form-item>
                 </div>
 
-                <div class="todo-form-more-toggle" @click="showMoreFields = !showMoreFields">
-                  <span class="more-toggle-text">
-                    {{ showMoreFields ? "收起设置" : "更多设置" }}
-                  </span>
-                  <span v-if="!showMoreFields && moreFieldsSummary" class="more-toggle-summary">
-                    {{ moreFieldsSummary }}
-                  </span>
-                  <span class="more-toggle-icon" :class="{ 'is-expanded': showMoreFields }">
-                    <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
-                      <path
-                        d="M4 6l4 4 4-4"
-                        stroke="currentColor"
-                        stroke-width="1.5"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                      />
-                    </svg>
-                  </span>
-                </div>
-
-                <div v-show="showMoreFields" class="todo-form-collapsible">
+                <!-- 项目与工作项：有值时提到更多设置上方 -->
+                <template v-if="hasProjectOrWorkItem">
                   <div class="todo-form-section">
-                    <el-form-item label="分类与优先级" class="todo-form-item-category-priority">
-                      <div class="category-priority-row">
-                        <el-select
-                          v-model="itemDraft.typeId"
-                          clearable
-                          filterable
-                          allow-create
-                          default-first-option
-                          placeholder="可输入新分类"
-                          style="flex: 1"
-                        >
-                          <el-option
-                            v-for="item in sortedTypes"
-                            :key="item.id"
-                            :label="item.name"
-                            :value="item.id"
-                          />
-                        </el-select>
-                        <el-select v-model="itemDraft.priority" style="width: 150px">
-                          <template #prefix>
-                            <span
-                              class="priority-dot"
-                              :class="'priority-' + itemDraft.priority.toLowerCase()"
-                            />
-                          </template>
-                          <el-option
-                            v-for="opt in priorityOptions"
-                            :key="opt.value"
-                            :label="opt.label"
-                            :value="opt.value"
-                          >
-                            <span
-                              class="priority-dot"
-                              :class="'priority-' + opt.value.toLowerCase()"
-                            />
-                            {{ opt.label }}
-                          </el-option>
-                        </el-select>
-                      </div>
-                    </el-form-item>
                     <el-form-item label="所属项目">
                       <el-select
                         v-model="itemDraft.projectId"
@@ -586,6 +527,135 @@
                         </el-button>
                       </div>
                     </el-form-item>
+                  </div>
+                </template>
+
+                <div class="todo-form-more-toggle" @click="showMoreFields = !showMoreFields">
+                  <span class="more-toggle-text">
+                    {{ showMoreFields ? "收起设置" : "更多设置" }}
+                  </span>
+                  <span v-if="!showMoreFields && moreFieldsSummary" class="more-toggle-summary">
+                    {{ moreFieldsSummary }}
+                  </span>
+                  <span class="more-toggle-icon" :class="{ 'is-expanded': showMoreFields }">
+                    <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                      <path
+                        d="M4 6l4 4 4-4"
+                        stroke="currentColor"
+                        stroke-width="1.5"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      />
+                    </svg>
+                  </span>
+                </div>
+
+                <div v-show="showMoreFields" class="todo-form-collapsible">
+                  <div class="todo-form-section">
+                    <el-form-item label="分类与优先级" class="todo-form-item-category-priority">
+                      <div class="category-priority-row">
+                        <el-select
+                          v-model="itemDraft.typeId"
+                          clearable
+                          filterable
+                          allow-create
+                          default-first-option
+                          placeholder="可输入新分类"
+                          style="flex: 1"
+                        >
+                          <el-option
+                            v-for="item in sortedTypes"
+                            :key="item.id"
+                            :label="item.name"
+                            :value="item.id"
+                          />
+                        </el-select>
+                        <el-select v-model="itemDraft.priority" style="width: 150px">
+                          <template #prefix>
+                            <span
+                              class="priority-dot"
+                              :class="'priority-' + itemDraft.priority.toLowerCase()"
+                            />
+                          </template>
+                          <el-option
+                            v-for="opt in priorityOptions"
+                            :key="opt.value"
+                            :label="opt.label"
+                            :value="opt.value"
+                          >
+                            <span
+                              class="priority-dot"
+                              :class="'priority-' + opt.value.toLowerCase()"
+                            />
+                            {{ opt.label }}
+                          </el-option>
+                        </el-select>
+                      </div>
+                    </el-form-item>
+                    <template v-if="!hasProjectOrWorkItem">
+                    <el-form-item label="所属项目">
+                      <el-select
+                        v-model="itemDraft.projectId"
+                        clearable
+                        placeholder="无"
+                        style="width: 100%"
+                        :disabled="!!itemDraft.pmItemId"
+                      >
+                        <el-option
+                          v-for="p in projectOptions"
+                          :key="p.id"
+                          :label="p.name"
+                          :value="p.id"
+                        />
+                      </el-select>
+                      <div v-if="itemDraft.pmItemId && itemDraft.projectId" class="pm-link-project-lock-hint">
+                        已关联项目工作项，请先解除关联再切换项目
+                      </div>
+                    </el-form-item>
+                    <el-form-item label="项目工作项">
+                      <div v-if="itemDraft.kind === 'recurring'" class="pm-link-recurring-hint">
+                        重复事项暂不支持关联项目工作项
+                      </div>
+                      <div v-else-if="!itemDraft.projectId" class="pm-link-no-project-hint">
+                        请先选择项目，或从项目管理工作项内绑定该任务
+                      </div>
+                      <div v-else class="pm-link-selector">
+                        <el-select
+                          v-model="todoPmLinkItemId"
+                          clearable
+                          placeholder="未关联项目任务"
+                          style="width: 100%"
+                          @change="handlePmSelectChange"
+                        >
+                          <el-option :value="-1" style="padding-left: 8px;">
+                            <el-icon style="margin-right: 4px; vertical-align: middle;"><Plus /></el-icon>
+                            <span>新建工作项</span>
+                          </el-option>
+                          <el-divider style="margin: 4px 0;" />
+                          <el-option
+                            v-for="pm in todoPmCandidates"
+                            :key="pm.id"
+                            :label="pm.title"
+                            :value="pm.id"
+                          >
+                            <el-tag size="small" effect="plain" :style="{ marginRight: '6px', backgroundColor: pmStatusColor(pm.status) + '20', borderColor: pmStatusColor(pm.status) + '50', color: pmStatusColor(pm.status) }">
+                              {{ pmStatusLabel(pm.status) }}
+                            </el-tag>
+                            <span>{{ pm.title }}</span>
+                          </el-option>
+                        </el-select>
+                        <el-button
+                          v-if="itemDraft.pmItemId && itemDraft.pmItemTitle"
+                          size="small"
+                          link
+                          type="primary"
+                          @click="navigateToPmItem(itemDraft.pmItemId, itemDraft.pmItemProjectId)"
+                        >
+                          查看工作项
+                        </el-button>
+                      </div>
+                    </el-form-item>
+                    </template>
                     <el-form-item label="执行人">
                       <el-select
                         v-model="itemDraft.assigneeIds"
@@ -1154,14 +1224,14 @@
                       <el-icon><Briefcase /></el-icon>
                     </div>
                     <span class="detail-card-title">项目归属</span>
-                  </div>
-                  <div class="project-section">
-                    <span
-                      class="project-section-dot"
-                      :style="{ backgroundColor: selectedItem.projectColor || '#909399' }"
-                    />
-                    <span class="project-section-name">
-                      {{ selectedItem.projectName || `项目 #${selectedItem.projectId}` }}
+                    <span class="project-inline">
+                      <span
+                        class="project-section-dot"
+                        :style="{ backgroundColor: selectedItem.projectColor || '#909399' }"
+                      />
+                      <span class="project-section-name">
+                        {{ selectedItem.projectName || `项目 #${selectedItem.projectId}` }}
+                      </span>
                     </span>
                   </div>
                   <div v-if="selectedItem.pmItemId" class="pm-section">
@@ -1650,6 +1720,7 @@ const assignees = ref<TodoAssignee[]>([]);
 const projectOptions = ref<{ id: number; name: string; color: string }[]>([]);
 const filterProjectId = ref<number | string | null>(null);
 const showMoreFields = ref(false);
+const hasProjectOrWorkItem = computed(() => !!itemDraft.projectId || !!itemDraft.pmItemId);
 const itemKeyword = ref("");
 const detailFormScrollRef = ref<HTMLElement | null>(null);
 const scheduleSectionRef = ref<HTMLElement | null>(null);
@@ -2416,6 +2487,8 @@ const itemDialogSubmitText = computed(() =>
 );
 const moreFieldsSummary = computed(() => {
   const parts: string[] = [];
+  if (!hasProjectOrWorkItem.value && itemDraft.projectId) parts.push("项目");
+  if (!hasProjectOrWorkItem.value && itemDraft.pmItemId) parts.push("工作项");
   if (itemDraft.typeId) parts.push("分类");
   if (itemDraft.priority !== "P2") parts.push("优先级");
   if (itemDraft.assigneeIds.length > 0) parts.push("执行人");
@@ -4748,11 +4821,11 @@ onBeforeUnmount(() => {
   color: var(--lc-text-muted);
 }
 /* Project Unified Card — Scheme E */
-.project-section {
-  display: flex;
+.project-inline {
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 12px 16px;
+  gap: 6px;
+  margin-left: 4px;
 }
 .project-section-dot {
   width: 8px;

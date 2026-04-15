@@ -65,6 +65,7 @@ const ganttViewMode = ref("Day");
 let ganttInstance: Gantt | null = null;
 let isDragging = false;
 let dragTimer: ReturnType<typeof setTimeout> | null = null;
+let clickTimer: ReturnType<typeof setTimeout> | null = null;
 let skipNextRefresh = false;
 let ganttViewportEl: HTMLElement | null = null;
 let popupObserver: MutationObserver | null = null;
@@ -422,11 +423,19 @@ function renderGantt() {
     }),
     on_click: (task) => {
       if (isDragging) return;
-      const found = resolveItem(task.id);
-      if (found) emit("select", found);
+      if (clickTimer) return;
+      clickTimer = setTimeout(() => {
+        clickTimer = null;
+        const found = resolveItem(task.id);
+        if (found) emit("select", found);
+      }, 320);
     },
     on_double_click: (task) => {
       if (isDragging) return;
+      if (clickTimer) {
+        clearTimeout(clickTimer);
+        clickTimer = null;
+      }
       const found = resolveItem(task.id);
       if (found) emit("edit", found);
     },
@@ -544,6 +553,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   if (dragTimer) clearTimeout(dragTimer);
+  if (clickTimer) clearTimeout(clickTimer);
   clearGantt();
 });
 </script>
