@@ -8,7 +8,7 @@
           <div>
             <div class="sidebar-eyebrow">项目管理</div>
           </div>
-          <el-button class="sidebar-create-btn" type="primary" @click="showCreateProject">
+          <el-button class="sidebar-create-btn" type="primary" @click="projectDialogRef?.showCreate()">
             <el-icon><Plus /></el-icon>
             新建
           </el-button>
@@ -52,7 +52,7 @@
               'is-archived': p.status === 'archived',
             }"
             @click="selectProject(p.id)"
-            @contextmenu.prevent="onProjectContext($event, p)"
+            @contextmenu.prevent="projectDialogRef?.handleContext($event, p, openCtxMenu)"
             @dragover.prevent="onProjectDragOver(p)"
             @dragleave="onProjectDragLeave(p)"
             @drop.prevent="onProjectDrop(p)"
@@ -276,260 +276,12 @@
         </div>
 
         <!-- Right: Detail panel (floating) -->
-        <Transition name="pm-detail-slide">
-          <aside v-if="selectedItem" class="pm-detail">
-            <div class="detail-header">
-              <div>
-                <div class="detail-header-eyebrow">工作项详情</div>
-                <span class="detail-title">详情</span>
-              </div>
-              <el-button size="small" link @click="selectedItemId = null">
-                <el-icon><Close /></el-icon>
-              </el-button>
-            </div>
-            <div class="detail-form">
-              <div class="detail-hero">
-                <div class="detail-hero-head">
-                  <div class="detail-project-chip">
-                    <span class="detail-project-dot" :style="{ backgroundColor: selectedItemProject?.color ?? selectedItem.projectColor ?? '#4d7df2' }" />
-                    <span class="detail-project-name">{{ selectedItemProject?.name ?? selectedItem.projectName ?? "-" }}</span>
-                    <el-tag v-if="selectedItemProject?.status === 'archived'" size="small" effect="plain" class="detail-project-archived-tag">
-                      已归档
-                    </el-tag>
-                  </div>
-                  <el-tag v-if="isOverdue(selectedItem)" size="small" effect="light" type="danger">已逾期</el-tag>
-                </div>
-                <div class="detail-item-title">{{ selectedItem.title }}</div>
-                <div class="detail-field-inline">
-                  <el-tag
-                    size="small"
-                    effect="light"
-                    round
-                    :style="getPmLightTagStyle(PM_ITEM_TYPE_MAP[selectedItem.itemType]?.color)"
-                  >
-                    {{ PM_ITEM_TYPE_MAP[selectedItem.itemType]?.label ?? selectedItem.itemType }}
-                  </el-tag>
-                  <el-tag size="small" effect="light" round>
-                    <span class="priority-dot" :style="{ backgroundColor: PM_PRIORITY_MAP[selectedItem.priority]?.color }" />
-                    {{ PM_PRIORITY_MAP[selectedItem.priority]?.label ?? selectedItem.priority }}
-                  </el-tag>
-                  <el-tag size="small" :type="selectedItem.status === 'done' ? 'success' : selectedItem.status === 'in_progress' ? 'primary' : selectedItem.status === 'testing' ? 'warning' : 'info'" effect="light" round>
-                    {{ PM_STATUS_COLUMNS.find(c => c.key === selectedItem.status)?.label ?? selectedItem.status }}
-                  </el-tag>
-                  <el-tag v-for="tag in selectedItem.tags" :key="tag" size="small" type="info">{{ tag }}</el-tag>
-                </div>
-              </div>
-
-              <div class="detail-section">
-                <div class="detail-section-head">
-                  <span class="detail-section-title">时间轨迹</span>
-                  <span class="detail-section-subtitle">按状态推进记录</span>
-                </div>
-                <div class="detail-timeline-grid">
-                  <div class="detail-timeline-card">
-                    <span class="detail-label">时间安排</span>
-                    <span class="detail-value" :class="{ 'is-overdue-date': isOverdue(selectedItem) }">
-                      {{ formatPmDateRangeForDisplay(selectedItem.startAt, selectedItem.endAt) }}
-                    </span>
-                  </div>
-                  <div class="detail-timeline-card">
-                    <span class="detail-label">创建时间</span>
-                    <span class="detail-value">{{ formatDateTime(selectedItem.createdAt) }}</span>
-                  </div>
-                  <div class="detail-timeline-card">
-                    <span class="detail-label">开始执行</span>
-                    <span class="detail-value">{{ selectedItem.startedAt ? formatDateTime(selectedItem.startedAt) : "-" }}</span>
-                  </div>
-                  <div class="detail-timeline-card">
-                    <span class="detail-label">开始测试</span>
-                    <span class="detail-value">{{ selectedItem.testingAt ? formatDateTime(selectedItem.testingAt) : "-" }}</span>
-                  </div>
-                  <div v-if="selectedItem.completedAt" class="detail-timeline-card">
-                    <span class="detail-label">完成时间</span>
-                    <span class="detail-value">{{ formatDateTime(selectedItem.completedAt) }}</span>
-                  </div>
-                </div>
-              </div>
-
-              <div v-if="selectedItemDescriptionText" class="detail-section">
-                <div class="detail-section-head">
-                  <span class="detail-section-title">描述</span>
-                  <span class="detail-section-subtitle">保留换行</span>
-                </div>
-                <pre class="detail-value detail-description">{{ selectedItemDescriptionText }}</pre>
-              </div>
-
-              <!-- 执行任务区块 -->
-              <div class="detail-section">
-                <div class="detail-section-head">
-                  <span class="detail-section-title">执行任务</span>
-                </div>
-
-                <!-- 摘要区 -->
-                <div v-if="pmTodo.summary" class="pm-todo-summary">
-                  <span class="pm-todo-stat">已关联 {{ pmTodo.summary.totalCount }} 项</span>
-                  <span class="pm-todo-stat">已完成 {{ pmTodo.summary.completedCount }} / {{ pmTodo.summary.totalCount }}</span>
-                  <el-progress
-                    :percentage="pmTodo.progressPercent"
-                    :stroke-width="6"
-                    :show-text="false"
-                    :color="pmTodo.allCompleted ? '#67c23a' : '#409eff'"
-                    style="flex: 1; margin-left: 8px;"
-                  />
-                  <span v-if="pmTodo.allCompleted" class="pm-todo-all-done-hint">全部完成</span>
-                </div>
-
-                <!-- 操作区 -->
-                <div class="pm-todo-actions">
-                  <el-button size="small" type="primary" plain @click="pmTodo.createDialogVisible = true">新建执行任务</el-button>
-                  <el-button size="small" plain @click="pmTodo.openLinkDialog()">绑定已有任务</el-button>
-                </div>
-
-                <!-- 列表区 -->
-                <div v-if="pmTodo.loading" class="pm-todo-loading">加载中...</div>
-                <div v-else-if="pmTodo.items.length === 0" class="pm-todo-empty">暂无关联的执行任务</div>
-                <div v-else class="pm-todo-list">
-                  <div v-for="todo in pmTodo.items" :key="todo.id" class="pm-todo-item" :class="{ 'pm-todo-item--completed': todo.status === 'completed' }">
-                    <div class="pm-todo-item-main">
-                      <el-checkbox
-                        :model-value="todo.status === 'completed'"
-                        @change="pmTodo.toggleComplete(todo)"
-                      />
-                      <span class="pm-todo-item-title">{{ todo.title }}</span>
-                      <el-tag v-if="todo.isOverdue" size="small" type="danger">逾期</el-tag>
-                    </div>
-                    <div class="pm-todo-item-meta">
-                      <el-tag size="small" :type="todo.status === 'completed' ? 'success' : 'info'" effect="plain">
-                        {{ todo.status === 'completed' ? '已完成' : todo.status === 'in_progress' ? '进行中' : '待办' }}
-                      </el-tag>
-                      <span class="pm-todo-item-priority">{{ todo.priority }}</span>
-                      <span v-if="todo.eventAt" class="pm-todo-item-date">{{ todo.eventAt.substring(0, 10) }}</span>
-                      <el-button size="small" link type="danger" @click="pmTodo.unlink(todo.id)">解绑</el-button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div class="detail-section">
-                <div class="detail-section-head">
-                  <span class="detail-section-title">资源关联</span>
-                  <span class="detail-section-subtitle">链接与思源页面</span>
-                </div>
-                <div class="detail-resource-list">
-                  <div class="detail-resource-card">
-                    <div class="detail-resource-main">
-                      <span class="detail-label">链接</span>
-                      <span class="detail-value detail-link-text">{{ selectedItem.linkUrl || "-" }}</span>
-                    </div>
-                    <el-button v-if="selectedItem.linkUrl" size="small" link @click="openItemLink(selectedItem.linkUrl)">
-                      打开
-                    </el-button>
-                  </div>
-                  <div class="detail-resource-card">
-                    <template v-if="selectedItem.siyuanPrimaryPage">
-                      <div class="detail-siyuan-page-main">
-                        <span class="detail-label">思源主页面</span>
-                        <span class="detail-siyuan-page-title">{{ selectedItem.siyuanPrimaryPage.docTitle }}</span>
-                        <span class="detail-siyuan-page-meta">
-                          {{ selectedItem.siyuanPrimaryPage.notebookName }} · {{ selectedItem.siyuanPrimaryPage.docHpath }}
-                        </span>
-                      </div>
-                      <el-button size="small" link @click="openSiyuanPage(selectedItem.siyuanPrimaryPage)">打开</el-button>
-                    </template>
-                    <template v-else>
-                      <div class="detail-resource-main">
-                        <span class="detail-label">思源主页面</span>
-                        <span class="detail-value">-</span>
-                      </div>
-                    </template>
-                  </div>
-                  <div v-for="page in selectedItem.siyuanExtraPages" :key="page.docId" class="detail-resource-card">
-                    <div class="detail-siyuan-page-main">
-                      <span class="detail-label">附加页面</span>
-                      <span class="detail-siyuan-page-title">{{ page.docTitle }}</span>
-                      <span class="detail-siyuan-page-meta">{{ page.notebookName }} · {{ page.docHpath }}</span>
-                    </div>
-                    <el-button size="small" link @click="openSiyuanPage(page)">打开</el-button>
-                  </div>
-                </div>
-              </div>
-
-              <div v-if="!selectedItemDescriptionText" class="detail-section detail-section--muted">
-                <div class="detail-section-head">
-                  <span class="detail-section-title">描述</span>
-                  <span class="detail-section-subtitle">暂无内容</span>
-                </div>
-                <div class="detail-empty-text">暂无描述</div>
-              </div>
-
-              <div class="detail-actions">
-                <el-button size="small" @click="togglePin">{{ selectedItem.pinned ? '取消置顶' : '置顶' }}</el-button>
-                <el-button v-if="selectedItem.status !== 'done'" size="small" type="primary" plain @click="advanceStatus">
-                  推进状态
-                </el-button>
-                <el-button size="small" type="danger" plain @click="deleteItem">删除</el-button>
-              </div>
-            </div>
-          </aside>
-        </Transition>
+        <PmDetailPanel v-if="selectedItem" :project="selectedItemProject" :item="selectedItem"
+          @close="selectedItemId = null" @toggle-pin="togglePin" @advance-status="advanceStatus" @delete="deleteItem" />
       </div>
     </div>
 
-    <!-- 新建执行任务弹窗 (detail panel) -->
-    <PmTodoCreateDialog
-      v-model:visible="pmTodo.createDialogVisible"
-      @submit="(f: any) => pmTodo.submitCreate(f)"
-    />
-
-    <!-- 绑定已有任务弹窗 (detail panel) -->
-    <PmTodoLinkDialog
-      v-model:visible="pmTodo.linkDialogVisible"
-      v-model:keyword="pmTodo.candidateKeyword"
-      v-model:selected-ids="pmTodo.linkSelectedIds"
-      :loading="pmTodo.candidateLoading"
-      :candidates="pmTodo.candidates"
-      :empty-reason="pmTodo.candidateReason"
-      @open="pmTodo.loadCandidates()"
-      @search="pmTodo.onCandidateInput()"
-      @submit="pmTodo.submitLink()"
-    />
-
-    <el-dialog v-model="projectDialogVisible" :title="editingProject ? '编辑项目' : '新建项目'" width="520px" @close="resetProjectForm">
-      <el-form :model="projectForm" label-width="60px" size="default" @submit.prevent="submitProject">
-        <el-form-item label="名称">
-          <el-input v-model="projectForm.name" placeholder="项目名称" @keyup.enter="submitProject" />
-        </el-form-item>
-        <el-form-item label="描述">
-          <el-input v-model="projectForm.description" type="textarea" :rows="2" placeholder="项目描述（可选）" />
-        </el-form-item>
-        <el-form-item label="颜色">
-          <el-color-picker v-model="projectForm.color" :predefine="presetColors" />
-        </el-form-item>
-        <el-form-item label="思源位置" class="pm-form-item-top">
-          <div class="pm-siyuan-config-card">
-            <el-radio-group v-model="projectForm.useSiyuanOverride">
-              <el-radio :value="false">继承全局默认</el-radio>
-              <el-radio :value="true">使用项目专属位置</el-radio>
-            </el-radio-group>
-            <div class="pm-siyuan-config-summary">
-              当前：{{
-                projectForm.useSiyuanOverride
-                  ? formatPmSiyuanLocationLabel(projectForm.siyuanLocationOverride)
-                  : formatPmSiyuanLocationLabel(globalSiyuanLocation)
-              }}
-            </div>
-            <div v-if="projectForm.useSiyuanOverride" class="pm-siyuan-inline-actions">
-              <el-button size="small" @click="openSiyuanLocationPicker('project')">选择位置</el-button>
-              <el-button size="small" @click="clearProjectSiyuanOverride">清空</el-button>
-            </div>
-          </div>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="projectDialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="submitProject">确定</el-button>
-      </template>
-    </el-dialog>
+    <PmProjectDialog ref="projectDialogRef" @projects-changed="onProjectsChanged" />
 
     <!-- Item dialog -->
     <PmItemDialog
@@ -710,295 +462,13 @@
       </Transition>
     </Teleport>
 
-    <el-drawer
-      :model-value="siyuanDrawerVisible"
-      direction="rtl"
-      size="420px"
-      wrapper-class="pm-siyuan-drawer"
-      destroy-on-close
-      :with-header="true"
-      @close="siyuanDrawerVisible = false"
-    >
-      <template #title>
-        思源配置
-      </template>
-      <div class="siyuan-drawer-body">
-        <el-form label-position="top" size="default">
-          <el-form-item label="服务地址">
-            <el-input
-              v-model="siyuanForm.baseUrl"
-              placeholder="http://127.0.0.1:6806"
-              clearable
-            />
-          </el-form-item>
-          <el-form-item label="API Token">
-            <el-input
-              :type="siyuanShowToken ? 'text' : 'password'"
-              v-model="siyuanForm.token"
-              placeholder="填写思源 API Token"
-              clearable
-            >
-              <template #suffix>
-                <el-button type="text" size="small" @click="siyuanShowToken = !siyuanShowToken">
-                  {{ siyuanShowToken ? "隐藏" : "显示" }}
-                </el-button>
-              </template>
-            </el-input>
-          </el-form-item>
-        </el-form>
-        <div class="pm-siyuan-config-card">
-          <div class="pm-siyuan-link-title">任务默认存储位置</div>
-          <div class="pm-siyuan-config-summary">
-            {{ formatPmSiyuanLocationLabel(globalSiyuanLocationDraft) }}
-          </div>
-          <div class="pm-siyuan-inline-actions">
-            <el-button size="small" @click="openSiyuanLocationPicker('global')">选择位置</el-button>
-            <el-button size="small" @click="globalSiyuanLocationDraft = null">清空</el-button>
-          </div>
-        </div>
-        <div class="siyuan-actions">
-          <el-button type="primary" @click="saveSiyuanConfig">保存配置</el-button>
-          <el-button type="info" :loading="siyuanTesting" @click="handleTestConnection">测试连接</el-button>
-          <el-button type="default" :loading="siyuanLoadingDirectory" @click="handleLoadDirectory">加载目录</el-button>
-        </div>
-        <div class="siyuan-status">
-          <el-tag v-if="siyuanTestingVersion" type="success" effect="dark">
-            已连接 · {{ siyuanTestingVersion }}
-          </el-tag>
-          <el-alert
-            v-if="siyuanError"
-            :title="siyuanErrorTitle"
-            :description="siyuanError"
-            type="error"
-            show-icon
-            class="siyuan-error-alert"
-          />
-          <div v-else-if="siyuanDirectoryFetchedAt" class="siyuan-fetch-hint">
-            最后一次加载：{{ siyuanDirectoryFetchedAt }}
-          </div>
-        </div>
-        <div class="siyuan-tree-section">
-          <div v-if="siyuanLoadingDirectory" class="siyuan-loading-hint">
-            正在从思源加载目录...
-          </div>
-          <el-empty
-            v-if="!siyuanDirectory.length && !siyuanLoadingDirectory"
-            description="暂无目录记录，先点击“加载目录”"
-          />
-          <el-tree
-            v-else-if="siyuanDirectory.length"
-            :data="siyuanDirectory"
-            :props="siyuanTreeProps"
-            node-key="id"
-            :expand-on-click-node="false"
-            class="siyuan-tree"
-          >
-            <template #default="{ data }">
-              <div class="siyuan-tree-node siyuan-tree-node--preview">
-                <div class="siyuan-node-main">
-                  <span class="siyuan-node-title">{{ data.name }}</span>
-                  <span
-                    v-if="isPmSiyuanNotebookDirectory(data)"
-                    class="siyuan-node-badge"
-                    :class="{ 'is-disabled': data.closed }"
-                  >
-                    {{ data.closed ? "已关闭" : `${data.docCount} 篇` }}
-                  </span>
-                </div>
-              </div>
-            </template>
-          </el-tree>
-        </div>
-      </div>
-    </el-drawer>
-
-    <el-dialog
-      v-model="siyuanLocationDialogVisible"
-      :title="siyuanLocationPickerTitle"
-      width="720px"
-      destroy-on-close
-    >
-      <div class="pm-siyuan-dialog-body pm-siyuan-dialog-body--picker">
-        <div class="pm-siyuan-picker-intro">
-          选择笔记本根目录或某个父文档后，项目内新建思源页面会默认存放到这里。
-        </div>
-        <el-input
-          v-model="siyuanLocationPickerSearch"
-          class="pm-siyuan-picker-search"
-          placeholder="搜索笔记本、文档标题或路径"
-          clearable
-        />
-        <div v-if="siyuanLoadingDirectory && !siyuanDirectory.length" class="pm-siyuan-empty-hint">
-          正在同步思源目录，请稍候…
-        </div>
-        <div v-else-if="!siyuanDirectory.length" class="pm-siyuan-empty-hint">
-          尚未加载思源目录，请先测试连接并加载目录。
-        </div>
-        <template v-else>
-          <div class="pm-siyuan-picker-tree-head">
-            <span>{{ siyuanLocationPickerStatusText }}</span>
-            <div class="pm-siyuan-inline-actions">
-              <span v-if="siyuanDirectoryFetchedAt">最后同步：{{ siyuanDirectoryFetchedAt }}</span>
-              <span v-if="siyuanLocationPickerSearchKeyword">清空搜索后会恢复默认折叠。</span>
-              <el-button
-                size="small"
-                text
-                :loading="siyuanLoadingDirectory"
-                @click="handleRefreshSiyuanLocationPicker"
-              >
-                刷新目录
-              </el-button>
-            </div>
-          </div>
-          <div class="pm-siyuan-picker-tree-shell">
-            <el-empty
-              v-if="siyuanLocationPickerTreeData.length === 0"
-              description="未找到匹配位置，请换个关键词试试"
-            />
-            <el-tree
-              v-else
-              :key="siyuanLocationPickerTreeKey"
-              :data="siyuanLocationPickerTreeData"
-              :props="siyuanTreeProps"
-              node-key="id"
-              highlight-current
-              :current-node-key="siyuanLocationPickerCurrentNodeKey"
-              :default-expanded-keys="siyuanLocationPickerExpandedKeys"
-              :expand-on-click-node="false"
-              class="siyuan-tree pm-siyuan-picker-tree"
-              @node-click="handleSiyuanLocationTreeNodeClick"
-            >
-              <template #default="{ data, node }">
-                <div
-                  class="siyuan-tree-node siyuan-tree-node--interactive"
-                  :class="{
-                    'is-selected': isSiyuanLocationPickerNodeSelected(data),
-                    'is-disabled': isSiyuanLocationPickerNodeDisabled(data, node),
-                  }"
-                >
-                  <div class="siyuan-node-main">
-                    <span class="siyuan-node-title">{{ data.name }}</span>
-                    <span
-                      v-if="isPmSiyuanNotebookDirectory(data)"
-                      class="siyuan-node-badge"
-                      :class="{ 'is-disabled': data.closed }"
-                    >
-                      {{ data.closed ? "已关闭" : `${data.docCount} 篇` }}
-                    </span>
-                  </div>
-                </div>
-              </template>
-            </el-tree>
-          </div>
-        </template>
-        <div
-          class="pm-siyuan-picker-selection"
-          :class="{ 'is-empty': !siyuanLocationPickerValue }"
-        >
-          <div class="pm-siyuan-picker-selection-label">当前选择</div>
-          <template v-if="siyuanLocationPickerValue">
-            <div class="pm-siyuan-picker-selection-title">
-              {{ siyuanLocationPickerSelectionTarget }}
-            </div>
-            <div class="pm-siyuan-picker-selection-meta">
-              {{ siyuanLocationPickerValue.notebookName }}
-            </div>
-            <div class="pm-siyuan-picker-selection-path">
-              {{ siyuanLocationPickerSelectionPath }}
-            </div>
-          </template>
-          <div v-else class="pm-siyuan-picker-selection-empty">
-            暂未选择位置，点击上方笔记本根目录或父文档即可。
-          </div>
-        </div>
-      </div>
-      <template #footer>
-        <el-button @click="siyuanLocationDialogVisible = false">取消</el-button>
-        <el-button @click="clearSiyuanLocationPicker">清空</el-button>
-        <el-button type="primary" @click="applySiyuanLocationPicker">确定</el-button>
-      </template>
-    </el-dialog>
-
-    <el-dialog
-      v-model="siyuanPageDialogVisible"
-      :title="siyuanPageDialogTitle"
-      width="760px"
-    >
-      <div class="pm-siyuan-dialog-body">
-        <div class="pm-siyuan-search-toolbar">
-          <el-input
-            v-model="siyuanPageFilterKeyword"
-            :placeholder="siyuanPageDialogInputPlaceholder"
-            clearable
-          />
-          <el-button v-if="siyuanPageShowReturnToLocation" @click="restoreSiyuanLocationResults()">
-            返回当前位置列表
-          </el-button>
-          <el-button :loading="siyuanPageSearchingAll" @click="expandSiyuanPagesToAll()">扩展到全库</el-button>
-          <el-button
-            type="success"
-            :loading="siyuanPageCreating"
-            :disabled="!siyuanPageCanCreateImmediately"
-            @click="createSiyuanPageForItem"
-          >
-            立即新建
-          </el-button>
-        </div>
-
-        <div class="pm-siyuan-dialog-hint">{{ siyuanPageCurrentRangeText }}</div>
-        <div v-if="siyuanPageFilterSummary" class="pm-siyuan-dialog-hint">{{ siyuanPageFilterSummary }}</div>
-        <div class="pm-siyuan-dialog-hint">
-          当前创建位置：{{ formatPmSiyuanLocationLabel(itemEffectiveLocation) }}
-        </div>
-        <div class="pm-siyuan-dialog-hint">
-          当前创建标题：{{ siyuanPageCreateTitle || "请先填写工作项标题或输入想创建的页面标题" }}
-        </div>
-
-        <div
-          v-if="
-            siyuanPageLocationRefreshError &&
-            siyuanPageResultSource === 'location' &&
-            siyuanPageLocationState !== 'load-error'
-          "
-          class="pm-siyuan-dialog-notice pm-siyuan-dialog-notice--warning"
-        >
-          当前位置列表刷新失败，暂展示上一次结果。{{ siyuanPageLocationRefreshError }}
-        </div>
-
-        <div v-if="siyuanPageShowLocationLoading" class="pm-siyuan-empty-hint">
-          正在加载当前位置文档列表...
-        </div>
-        <div v-else-if="siyuanPageShowAllLoading" class="pm-siyuan-empty-hint">
-          正在搜索全库...
-        </div>
-        <div v-else-if="siyuanPageEmptyMessage" class="pm-siyuan-empty-hint">
-          {{ siyuanPageEmptyMessage }}
-        </div>
-        <div v-else class="pm-siyuan-page-list">
-          <div v-for="page in siyuanPageDisplayedResults" :key="page.docId" class="pm-siyuan-page-row">
-            <div class="pm-siyuan-page-main">
-              <div class="pm-siyuan-page-title">{{ page.docTitle }}</div>
-              <div class="pm-siyuan-page-meta">{{ page.notebookName }} · {{ page.docHpath }}</div>
-            </div>
-            <div class="pm-siyuan-inline-actions">
-              <el-button size="small" type="primary" link @click="selectSiyuanPageResult(page)">
-                {{ siyuanPageDialogMode === 'primary' ? '设为主页面' : '添加' }}
-              </el-button>
-              <el-button size="small" link @click="openSiyuanPage(page)">打开</el-button>
-            </div>
-          </div>
-        </div>
-      </div>
-      <template #footer>
-        <el-button @click="siyuanPageDialogVisible = false">关闭</el-button>
-      </template>
-    </el-dialog>
+    <PmSiyuanDrawer />
     </el-config-provider>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount, reactive } from "vue";
+import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount, reactive, provide } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import zhCn from "element-plus/es/locale/lang/zh-cn";
 import { Plus, Close, Top, CaretRight, AlarmClock, Search } from "@element-plus/icons-vue";
@@ -1021,10 +491,14 @@ import { PM_STATUS_COLUMNS, PM_ITEM_TYPE_MAP, PM_PRIORITY_MAP } from "../types/p
 import Sortable from "sortablejs";
 import PmGanttView from "./PmGanttView.vue";
 import PmItemDialog from "./PmItemDialog.vue";
+import PmDetailPanel from "./PmDetailPanel.vue";
+import PmSiyuanDrawer from "./PmSiyuanDrawer.vue";
+import PmProjectDialog from "./PmProjectDialog.vue";
 import PmTodoCreateDialog from "./PmTodoCreateDialog.vue";
 import PmTodoLinkDialog from "./PmTodoLinkDialog.vue";
 import { clampContextMenuPosition } from "../utils/contextMenu";
 import { usePmSiyuan } from "../composables/usePmSiyuan";
+import { PM_SIYUAN_KEY } from "../composables/pmSiyuanKey";
 import type { ItemSiyuanLinkedRow } from "../composables/usePmSiyuan";
 import {
   formatPmSiyuanLocationLabel,
@@ -1072,17 +546,8 @@ const filterPriority = ref<PmPriority | "">("");
 const viewMode = ref<"kanban" | "gantt">("kanban");
 const selectedStatuses = ref<PmItemStatus[]>(getPmDefaultSelectedStatuses());
 
-// Project dialog
-const projectDialogVisible = ref(false);
-const editingProject = ref<PmProject | null>(null);
-const projectForm = ref({
-  name: "",
-  description: "",
-  color: "#409eff",
-  useSiyuanOverride: false,
-  siyuanLocationOverride: null as PmSiyuanLocation | null,
-});
-const presetColors = ["#7eb8f7", "#95d4a1", "#f7c97e", "#f7a1a1", "#b0bec5", "#80d8e8", "#ce93d8", "#ffab91", "#a5d6a7", "#fff176", "#80cbc4", "#ef9a9a"];
+// Project dialog ref
+const projectDialogRef = ref<InstanceType<typeof PmProjectDialog> | null>(null);
 
 // Item dialog
 const itemDialogVisible = ref(false);
@@ -1106,7 +571,6 @@ const itemForm = computed(() => itemDialogRef.value?.form ?? {
 });
 
 // PM-Todo linking composables
-const pmTodo = reactive(usePmTodoLinking(() => selectedItemId.value));
 const dialogPmTodo = reactive(usePmTodoLinking(() => editingItem.value?.id));
 
 // Pending todo state (for create-mode in item dialog)
@@ -1198,93 +662,29 @@ const siyuan = usePmSiyuan({
   dialogProjectName,
   itemPrimaryPage,
   itemExtraPages,
-  getProjectFormSiyuanOverride: () => projectForm.value.siyuanLocationOverride,
+  getProjectFormSiyuanOverride: () => projectDialogRef.value?.getSiyuanOverride?.() ?? null,
   setProjectFormSiyuanOverride: (useOverride, location) => {
-    projectForm.value.useSiyuanOverride = useOverride;
-    projectForm.value.siyuanLocationOverride = location;
+    projectDialogRef.value?.setSiyuanOverride?.(useOverride, location);
   },
 });
-// Aliases for backward compatibility
-const siyuanDrawerVisible = siyuan.drawerVisible;
-const siyuanForm = siyuan.form;
+provide(PM_SIYUAN_KEY, siyuan);
+// Aliases still used by PmPanel template/script
 const globalSiyuanLocation = siyuan.globalSiyuanLocation;
-const globalSiyuanLocationDraft = siyuan.globalSiyuanLocationDraft;
-const siyuanShowToken = siyuan.showToken;
-const siyuanTesting = siyuan.testing;
-const siyuanTestingVersion = siyuan.testingVersion;
-const siyuanLoadingDirectory = siyuan.loadingDirectory;
-const siyuanDirectory = siyuan.directory;
-const siyuanDirectoryFetchedAt = siyuan.directoryFetchedAt;
-const siyuanError = siyuan.error;
-const siyuanErrorContext = siyuan.errorContext;
-const siyuanErrorTitle = siyuan.errorTitle;
-const siyuanConfigReady = siyuan.configReady;
-const siyuanTreeProps = siyuan.treeProps;
-const siyuanLocationDialogVisible = siyuan.locationDialogVisible;
-const siyuanLocationPickerTarget = siyuan.locationPickerTarget;
-const siyuanLocationPickerValue = siyuan.locationPickerValue;
-const siyuanLocationPickerSearch = siyuan.locationPickerSearch;
-const siyuanLocationPickerTitle = siyuan.locationPickerTitle;
-const siyuanLocationPickerSearchKeyword = siyuan.locationPickerSearchKeyword;
-const siyuanLocationPickerTreeData = siyuan.locationPickerTreeData;
-const siyuanLocationPickerExpandedKeys = siyuan.locationPickerExpandedKeys;
-const siyuanLocationPickerTreeKey = siyuan.locationPickerTreeKey;
-const siyuanLocationPickerCurrentNodeKey = siyuan.locationPickerCurrentNodeKey;
-const siyuanLocationPickerSelectionTarget = siyuan.locationPickerSelectionTarget;
-const siyuanLocationPickerSelectionPath = siyuan.locationPickerSelectionPath;
-const siyuanLocationPickerStatusText = siyuan.locationPickerStatusText;
-const siyuanPageDialogVisible = siyuan.pageDialogVisible;
-const siyuanPageDialogMode = siyuan.pageDialogMode;
-const siyuanPageDialogIntent = siyuan.pageDialogIntent;
-const siyuanPageFilterKeyword = siyuan.pageFilterKeyword;
-const siyuanPageResultSource = siyuan.pageResultSource;
-const siyuanPageLocationResults = siyuan.pageLocationResults;
-const siyuanPageAllResults = siyuan.pageAllResults;
-const siyuanPageSearchingAll = siyuan.pageSearchingAll;
-const siyuanPageLocationState = siyuan.pageLocationState;
-const siyuanPageLocationRefreshError = siyuan.pageLocationRefreshError;
-const siyuanPageCreating = siyuan.pageCreating;
-const siyuanPageDialogInputPlaceholder = siyuan.pageDialogInputPlaceholder;
-const siyuanPageCreateTitle = siyuan.pageCreateTitle;
-const siyuanPageCanCreateImmediately = siyuan.pageCanCreateImmediately;
-const siyuanPageDialogTitle = siyuan.pageDialogTitle;
-const siyuanPageCurrentRangeText = siyuan.pageCurrentRangeText;
-const siyuanPageFilterSummary = siyuan.pageFilterSummary;
-const siyuanPageShowReturnToLocation = siyuan.pageShowReturnToLocation;
-const siyuanPageShowLocationLoading = siyuan.pageShowLocationLoading;
-const siyuanPageShowAllLoading = siyuan.pageShowAllLoading;
-const siyuanPageEmptyMessage = siyuan.pageEmptyMessage;
-const siyuanPageDisplayedResults = siyuan.pageDisplayedResults;
-const siyuanPageFilterKeywordTrimmed = siyuan.pageFilterKeywordTrimmed;
 const itemEffectiveLocation = siyuan.itemEffectiveLocation;
+const siyuanConfigReady = siyuan.configReady;
 // Function aliases
 const openSiyuanDrawer = siyuan.openDrawer;
-const saveSiyuanConfig = siyuan.saveConfig;
-const handleTestConnection = siyuan.testConnection;
-const handleLoadDirectory = siyuan.loadDirectory;
-const ensureSiyuanDirectoryLoaded = siyuan.ensureDirectoryLoaded;
-const handleRefreshSiyuanLocationPicker = siyuan.refreshLocationPickerDirectory;
 const openSiyuanLocationPicker = siyuan.openLocationPicker;
-const handleSiyuanLocationTreeNodeClick = siyuan.handleLocationTreeNodeClick;
-const applySiyuanLocationPicker = siyuan.applyLocationPicker;
-const clearSiyuanLocationPicker = siyuan.clearLocationPicker;
-const clearProjectSiyuanOverride = siyuan.clearProjectSiyuanOverride;
-const isSiyuanLocationPickerNodeSelected = siyuan.isLocationPickerNodeSelected;
-const isSiyuanLocationPickerNodeDisabled = siyuan.isLocationPickerNodeDisabled;
-const openSiyuanPageDialog = siyuan.openPageDialog;
-const restoreSiyuanLocationResults = siyuan.restoreLocationResults;
-const expandSiyuanPagesToAll = siyuan.expandPagesToAll;
-const selectSiyuanPageResult = siyuan.selectPageResult;
-const createSiyuanPageForItem = siyuan.createPageForItem;
 const openSiyuanPage = siyuan.openSiyuanPage;
 const openSiyuanLinkPicker = siyuan.openLinkPicker;
 const openReplacePrimarySiyuanDialog = siyuan.openReplacePrimaryDialog;
+const openSiyuanPageDialog = siyuan.openPageDialog;
 const handleItemSiyuanPageCommand = siyuan.handleItemPageCommand;
 const applyItemPrimaryPage = siyuan.applyItemPrimaryPage;
 const addItemExtraPage = siyuan.addItemExtraPage;
 const hasItemLinkedPage = siyuan.hasItemLinkedPage;
 const removeItemLinkedPage = siyuan.removeItemLinkedPage;
-const cloneSiyuanLocation = siyuan.cloneLocation;
+const ensureSiyuanDirectoryLoaded = siyuan.ensureDirectoryLoaded;
 const cloneSiyuanPages = siyuan.clonePages;
 function cloneSiyuanPage(page: PmSiyuanPageRef | null | undefined): PmSiyuanPageRef | null {
   return page ? { ...page } : null;
@@ -1350,7 +750,6 @@ const selectedItem = computed(() => items.value.find((i) => i.id === selectedIte
 const selectedItemProject = computed(() =>
   selectedItem.value ? projectMap.value.get(selectedItem.value.projectId) ?? null : null,
 );
-const selectedItemDescriptionText = computed(() => selectedItem.value?.description?.trim() ?? "");
 
 const canCreateItemsInCurrentContext = computed(() => {
   if (isOverview.value) {
@@ -1478,15 +877,6 @@ watch(selectedProjectId, () => {
   loadItems();
 });
 
-// Load PM-Todo links when selected item changes
-watch(selectedItemId, (id) => {
-  if (id != null) {
-    pmTodo.loadItems(id);
-  } else {
-    pmTodo.reset();
-  }
-});
-
 // ── Data loading ─────────────────────────────────────────
 
 async function loadProjects() {
@@ -1532,123 +922,12 @@ async function loadItemCounts() {
   }
 }
 
-// ── Project CRUD ─────────────────────────────────────────
-
-function showCreateProject() {
-  editingProject.value = null;
-  const randomColor = presetColors[Math.floor(Math.random() * presetColors.length)];
-  projectForm.value = {
-    name: "",
-    description: "",
-    color: randomColor,
-    useSiyuanOverride: false,
-    siyuanLocationOverride: null,
-  };
-  projectDialogVisible.value = true;
-}
-
-function showEditProject(p: PmProject) {
-  editingProject.value = p;
-  projectForm.value = {
-    name: p.name,
-    description: p.description,
-    color: p.color,
-    useSiyuanOverride: Boolean(p.siyuanLocationOverride),
-    siyuanLocationOverride: cloneSiyuanLocation(p.siyuanLocationOverride),
-  };
-  projectDialogVisible.value = true;
-}
-
-function resetProjectForm() {
-  editingProject.value = null;
-}
-
-async function submitProject() {
-  if (!projectForm.value.name.trim()) {
-    ElMessage.warning("请输入项目名称");
-    return;
+async function onProjectsChanged({ deletedProjectId }: { deletedProjectId?: number }) {
+  await loadProjects();
+  await loadItemCounts();
+  if (deletedProjectId && selectedProjectId.value === deletedProjectId) {
+    selectedProjectId.value = null;
   }
-  try {
-    const payload = {
-      name: projectForm.value.name,
-      description: projectForm.value.description,
-      color: projectForm.value.color,
-      siyuanLocationOverride: projectForm.value.useSiyuanOverride
-        ? projectForm.value.siyuanLocationOverride
-        : null,
-    };
-    if (editingProject.value) {
-      await invoke("tool:pm:project-update", {
-        id: editingProject.value.id,
-        ...payload,
-        sortOrder: editingProject.value.sortOrder,
-      });
-    } else {
-      await invoke("tool:pm:project-create", payload);
-    }
-    projectDialogVisible.value = false;
-    await loadProjects();
-    if (!editingProject.value && projects.value.length > 0) {
-      const latest = projects.value.filter((p) => p.status === "active");
-      if (latest.length > 0) {
-        selectProject(latest[latest.length - 1].id);
-      }
-    }
-  } catch (e) {
-    ElMessage.error((e as Error).message);
-  }
-}
-
-async function archiveProject(p: PmProject) {
-  try {
-    await invoke("tool:pm:project-archive", { id: p.id });
-    await loadProjects();
-  } catch (e) {
-    ElMessage.error((e as Error).message);
-  }
-}
-
-async function restoreProject(p: PmProject) {
-  try {
-    await invoke("tool:pm:project-restore", { id: p.id });
-    await loadProjects();
-  } catch (e) {
-    ElMessage.error((e as Error).message);
-  }
-}
-
-async function deleteProject(p: PmProject) {
-  try {
-    await ElMessageBox.confirm(`确定删除项目「${p.name}」？此操作会同时删除所有工作项。`, "删除确认", {
-      type: "warning",
-    });
-    await invoke("tool:pm:project-delete", { id: p.id });
-    if (selectedProjectId.value === p.id) {
-      selectedProjectId.value = null;
-    }
-    await loadProjects();
-  } catch (e) {
-    if ((e as string) !== "cancel") {
-      ElMessage.error((e as Error).message);
-    }
-  }
-}
-
-function onProjectContext(event: MouseEvent, p: PmProject) {
-  const actions: CtxMenuAction[] = p.status === "active"
-    ? [
-        { label: "编辑", action: () => showEditProject(p) },
-        { label: "归档", action: () => archiveProject(p) },
-        { divider: true, label: "", action: () => {} },
-        { label: "删除", action: () => deleteProject(p), danger: true },
-      ]
-    : [
-        { label: "编辑", action: () => showEditProject(p) },
-        { label: "恢复", action: () => restoreProject(p) },
-        { divider: true, label: "", action: () => {} },
-        { label: "删除", action: () => deleteProject(p), danger: true },
-      ];
-  openCtxMenu(event, actions);
 }
 
 // ── Item CRUD ────────────────────────────────────────────
@@ -2143,14 +1422,6 @@ function handleCtxGlobalContextMenu(event: MouseEvent) {
 
 function handleCtxViewportChange() {
   closeCtxMenu();
-}
-
-// ── Formatting ───────────────────────────────────────────
-
-function formatDateTime(dateStr: string): string {
-  if (!dateStr) return "";
-  const d = new Date(dateStr);
-  return d.toLocaleString("zh-CN");
 }
 
 // ── Lifecycle ────────────────────────────────────────────
@@ -2654,118 +1925,6 @@ onBeforeUnmount(() => {
 .column-empty-text {
   font-size: 13px;
   color: var(--el-text-color-placeholder);
-}
-
-/* Detail panel (floating overlay) */
-.pm-detail {
-  position: absolute;
-  top: 0;
-  right: 0;
-  width: 320px;
-  height: 100%;
-  border-left: 1px solid var(--el-border-color-lighter);
-  padding: 12px;
-  overflow-y: auto;
-  background: var(--el-bg-color);
-  box-shadow: -4px 0 12px rgba(0, 0, 0, 0.08);
-  z-index: 10;
-}
-.detail-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 12px;
-}
-.detail-title {
-  font-weight: 600;
-  font-size: 16px;
-}
-.detail-form {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.detail-section {
-  background: var(--el-fill-color-lighter);
-  border-radius: 8px;
-  padding: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.detail-field-inline {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  align-items: center;
-}
-.detail-item-title {
-  font-size: 16px;
-  font-weight: 600;
-  line-height: 1.4;
-}
-.detail-field {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.detail-label {
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
-  font-weight: 500;
-}
-.detail-value {
-  font-size: 14px;
-  color: var(--el-text-color-primary);
-  word-break: break-word;
-}
-.detail-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-.detail-link-row {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 8px;
-}
-.detail-link-text {
-  flex: 1;
-  min-width: 0;
-  word-break: break-all;
-}
-.detail-description {
-  margin: 0;
-  font-family: inherit;
-  white-space: pre-wrap;
-  background: var(--el-fill-color-lighter);
-  border-radius: 4px;
-  padding: 6px 8px;
-  font-size: 13px;
-  color: var(--el-text-color-regular);
-}
-.detail-readonly {
-  font-size: 14px;
-  color: var(--el-text-color-secondary);
-}
-.detail-actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin-top: 12px;
-}
-/* Detail panel transition */
-.pm-detail-slide-enter-active {
-  transition: opacity 0.2s ease, transform 0.2s ease;
-}
-.pm-detail-slide-leave-active {
-  transition: opacity 0.15s ease, transform 0.15s ease;
-}
-.pm-detail-slide-enter-from,
-.pm-detail-slide-leave-to {
-  opacity: 0;
-  transform: translateX(20px);
 }
 
 /* Empty state */
@@ -3513,207 +2672,6 @@ onBeforeUnmount(() => {
   color: var(--pm-text-muted);
 }
 
-.pm-detail {
-  width: 364px;
-  padding: 16px;
-  border-left: 1px solid var(--pm-edge);
-  background: linear-gradient(180deg, rgba(249, 251, 255, 0.97), rgba(242, 246, 252, 0.98));
-  box-shadow: -16px 0 30px rgba(34, 48, 66, 0.08);
-}
-
-.detail-header {
-  margin-bottom: 14px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid rgba(219, 229, 241, 0.9);
-}
-
-.detail-header-eyebrow {
-  margin-bottom: 4px;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  color: var(--pm-text-muted);
-}
-
-.detail-title {
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--pm-text-main);
-}
-
-.detail-form {
-  min-height: calc(100% - 58px);
-  gap: 12px;
-}
-
-.detail-hero,
-.detail-section {
-  padding: 14px 16px;
-  border: 1px solid var(--pm-edge-soft);
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.92);
-  box-shadow: 0 10px 24px rgba(34, 48, 66, 0.05);
-}
-
-.detail-hero {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 1), rgba(244, 247, 251, 0.9));
-}
-
-.detail-hero-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.detail-project-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  max-width: 100%;
-  padding: 6px 10px;
-  border: 1px solid rgba(77, 125, 242, 0.14);
-  border-radius: 999px;
-  background: rgba(77, 125, 242, 0.08);
-}
-
-.detail-project-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 999px;
-  box-shadow: 0 0 0 3px rgba(77, 125, 242, 0.12);
-  flex-shrink: 0;
-}
-
-.detail-project-name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--pm-text-main);
-}
-
-.detail-item-title {
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--pm-text-main);
-}
-
-.detail-field-inline {
-  gap: 8px;
-}
-
-.detail-label {
-  color: var(--pm-text-muted);
-}
-
-.detail-value {
-  color: var(--pm-text-main);
-}
-
-.detail-section--muted {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.84), rgba(244, 247, 251, 0.82));
-}
-
-.detail-section-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.detail-section-title {
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--pm-text-main);
-}
-
-.detail-section-subtitle {
-  font-size: 12px;
-  color: var(--pm-text-muted);
-}
-
-.detail-timeline-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.detail-timeline-card {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-height: 76px;
-  padding: 12px;
-  border: 1px solid rgba(219, 229, 241, 0.95);
-  border-radius: 12px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 1), rgba(244, 247, 251, 0.84));
-}
-
-.detail-resource-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.detail-resource-card {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 12px;
-  border: 1px solid rgba(219, 229, 241, 0.96);
-  border-radius: 12px;
-  background: rgba(244, 247, 251, 0.76);
-}
-
-.detail-resource-main {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.detail-link-text {
-  line-height: 1.55;
-}
-
-.detail-description {
-  padding: 10px 12px;
-  border: 1px solid var(--pm-edge-soft);
-  border-radius: 12px;
-  background: rgba(244, 247, 251, 0.88);
-  line-height: 1.7;
-  color: var(--pm-text-main);
-}
-
-.detail-empty-text {
-  color: var(--pm-text-muted);
-  font-size: 13px;
-  line-height: 1.6;
-}
-
-.detail-actions {
-  position: sticky;
-  bottom: -16px;
-  z-index: 1;
-  gap: 8px;
-  margin-top: auto;
-  padding: 14px 0 2px;
-  background: linear-gradient(180deg, rgba(242, 246, 252, 0), rgba(242, 246, 252, 0.94) 32%, rgba(242, 246, 252, 1));
-}
-
-.detail-actions :deep(.el-button) {
-  flex: 1;
-}
-
 @media (max-width: 1380px) {
   .pm-toolbar-controls {
     align-items: stretch;
@@ -3801,12 +2759,6 @@ onBeforeUnmount(() => {
     align-items: stretch;
   }
 }
-
-@media (max-width: 1280px) {
-  .pm-detail {
-    width: 350px;
-  }
-}
 </style>
 
 <style>
@@ -3863,11 +2815,7 @@ body.pm-is-dragging * {
   cursor: grabbing !important;
 }
 
-.pm-siyuan-drawer .el-drawer__body {
-  padding: 20px;
-}
-
-.pm-form-item-top :deep(.el-form-item__content) {
+.pm-form-item-top .el-form-item__content {
   align-items: flex-start;
 }
 
@@ -4198,430 +3146,8 @@ body.pm-is-dragging * {
   border-radius: 12px;
 }
 
-.pm-siyuan-config-card,
-.pm-siyuan-link-card {
-  width: 100%;
-  border: 1px solid var(--el-border-color-lighter);
-  border-radius: 14px;
-  padding: 14px 16px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), var(--el-fill-color-blank));
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75);
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.pm-siyuan-link-card {
-  gap: 14px;
-}
-
-.pm-siyuan-config-summary,
-.pm-siyuan-link-subtitle,
-.pm-siyuan-dialog-hint,
-.pm-siyuan-dialog-notice,
-.pm-siyuan-picker-intro {
-  font-size: 13px;
-  line-height: 1.6;
-  color: var(--el-text-color-secondary);
-}
-
-.pm-siyuan-dialog-notice {
-  border-radius: 10px;
-  padding: 10px 12px;
-  background: var(--el-fill-color-light);
-}
-
-.pm-siyuan-dialog-notice--warning {
-  color: var(--el-color-warning-dark-2);
-  background: var(--el-color-warning-light-9);
-  border: 1px solid var(--el-color-warning-light-7);
-}
-
-.pm-siyuan-inline-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.pm-siyuan-link-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--el-text-color-primary);
-}
-
-.pm-siyuan-link-heading {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.pm-siyuan-link-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.pm-siyuan-link-subtitle {
-  display: flex;
-  flex-wrap: wrap;
-  margin-top: 0;
-}
-
-.pm-siyuan-page-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.pm-siyuan-page-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  border: 1px solid var(--el-border-color-extra-light);
-  border-radius: 10px;
-  padding: 8px 10px;
-  background: var(--el-bg-color);
-}
-
-.pm-siyuan-page-main {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.pm-siyuan-page-row-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.pm-siyuan-page-title,
-.detail-siyuan-page-title {
-  font-size: 14px;
-  font-weight: 600;
-  line-height: 1.4;
-  color: var(--el-text-color-primary);
-}
-
-.pm-siyuan-page-title {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.detail-siyuan-page-title {
-  word-break: break-word;
-}
-
-.pm-siyuan-page-meta,
-.detail-siyuan-page-meta {
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
-  line-height: 1.5;
-}
-
-.pm-siyuan-page-meta {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.detail-siyuan-page-meta {
-  word-break: break-word;
-}
-
-.pm-siyuan-page-actions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
-}
-
-.pm-siyuan-more-trigger {
-  padding-left: 4px;
-  padding-right: 4px;
-}
-
-.pm-siyuan-empty-inline {
-  color: var(--el-text-color-secondary);
-  font-size: 13px;
-  line-height: 1.6;
-  padding: 2px 0;
-}
-
-.pm-siyuan-empty-hint {
-  border: 1px dashed var(--el-border-color);
-  border-radius: 12px;
-  padding: 14px 16px;
-  background: var(--el-fill-color-lighter);
-  color: var(--el-text-color-secondary);
-  font-size: 13px;
-  line-height: 1.6;
-}
-
-.detail-siyuan-pages {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.detail-siyuan-page {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 10px 12px;
-  border: 1px solid var(--el-border-color-extra-light);
-  border-radius: 10px;
-  background: var(--el-fill-color-blank);
-}
-
-.detail-siyuan-page-main {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.siyuan-drawer-body {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  height: 100%;
-}
-
-.siyuan-actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.siyuan-status {
-  min-height: 32px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.siyuan-fetch-hint {
-  color: var(--el-text-color-secondary);
-  font-size: 12px;
-}
-
-.siyuan-loading-hint {
-  color: var(--el-text-color-secondary);
-  font-size: 13px;
-  margin-bottom: 8px;
-}
-
-.siyuan-tree-section {
-  flex: 1;
-  border-top: 1px solid var(--el-border-color-extra-light);
-  padding-top: 12px;
-  min-height: 0;
-}
-
-.siyuan-tree {
-  max-height: 360px;
-  overflow: auto;
-  padding-right: 4px;
-}
-
-.siyuan-tree-node {
-  display: flex;
-  align-items: center;
-  width: 100%;
-  min-width: 0;
-}
-
-.siyuan-tree-node--preview {
-  padding: 2px 0;
-}
-
-.siyuan-tree-node--interactive {
-  padding: 6px 8px;
-  border: 1px solid transparent;
-  border-radius: 12px;
-  transition: background 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
-}
-
-.siyuan-tree-node--interactive.is-selected {
-  border-color: var(--el-color-primary-light-5);
-  background: linear-gradient(135deg, var(--el-color-primary-light-9), rgba(255, 255, 255, 0.96));
-  box-shadow: 0 6px 16px rgba(64, 158, 255, 0.08);
-}
-
-.siyuan-tree-node--interactive.is-disabled {
-  opacity: 0.68;
-}
-
-.siyuan-node-main {
-  width: 100%;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.siyuan-node-title {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-weight: 500;
-  color: var(--el-text-color-primary);
-}
-
-.siyuan-node-badge {
-  flex-shrink: 0;
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: var(--el-fill-color);
-  color: var(--el-text-color-secondary);
-  font-size: 12px;
-  line-height: 1.45;
-}
-
-.siyuan-node-badge.is-disabled {
-  background: var(--el-color-danger-light-9);
-  color: var(--el-color-danger);
-}
-
-.pm-siyuan-dialog-body {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.pm-siyuan-search-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.pm-siyuan-search-toolbar .el-input {
-  flex: 1;
-  min-width: 220px;
-}
-
-.pm-siyuan-dialog-body--picker {
-  gap: 14px;
-}
-
-.pm-siyuan-picker-selection {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  border: 1px solid var(--el-color-primary-light-5);
-  border-radius: 12px;
-  padding: 12px 16px;
-  background: linear-gradient(135deg, var(--el-color-primary-light-9), rgba(255, 255, 255, 0.96));
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.86);
-}
-
-.pm-siyuan-picker-selection.is-empty {
-  border-style: dashed;
-  border-color: var(--el-border-color);
-  background: linear-gradient(180deg, var(--el-fill-color-lighter), rgba(255, 255, 255, 0.98));
-  box-shadow: none;
-}
-
-.pm-siyuan-picker-selection-label {
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
-  font-weight: 600;
-  letter-spacing: 0.04em;
-}
-
-.pm-siyuan-picker-selection-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--el-text-color-primary);
-  line-height: 1.3;
-}
-
-.pm-siyuan-picker-selection-meta {
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
-}
-
-.pm-siyuan-picker-selection-path {
-  font-size: 11px;
-  color: var(--el-text-color-placeholder);
-}
-
-.pm-siyuan-picker-selection-empty {
-  font-size: 13px;
-  color: var(--el-text-color-secondary);
-}
-
-.pm-siyuan-picker-tree-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
-}
-
-.pm-siyuan-picker-tree-shell {
-  border: 1px solid var(--el-border-color-lighter);
-  border-radius: 16px;
-  padding: 10px 12px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.97), var(--el-fill-color-blank));
-}
-
-.siyuan-error-alert {
-  padding: 6px 8px;
-}
-
-:deep(.siyuan-tree .el-tree-node__content) {
-  min-height: 42px;
-  height: auto;
-  align-items: center;
-  border-radius: 12px;
-  margin-bottom: 4px;
-  padding-right: 6px;
-}
-
-:deep(.siyuan-tree .el-tree-node__content:hover) {
-  background: rgba(64, 158, 255, 0.08);
-}
-
-:deep(.pm-siyuan-picker-tree .el-tree-node.is-current > .el-tree-node__content) {
-  background: rgba(64, 158, 255, 0.12);
-}
-
-:deep(.siyuan-tree .el-tree-node__expand-icon) {
-  color: var(--el-text-color-secondary);
-}
-
-:deep(.siyuan-tree .el-tree-node__expand-icon.expanded) {
-  color: var(--el-color-primary);
-}
-
-:deep(.siyuan-tree .el-tree-node__label) {
-  width: 100%;
-  min-width: 0;
-}
-
 @media (max-width: 900px) {
   .pm-item-project-card-head,
-  .pm-siyuan-link-header,
-  .pm-siyuan-page-row,
-  .detail-siyuan-page,
   .detail-resource-card {
     flex-direction: column;
     align-items: stretch;
@@ -4668,17 +3194,9 @@ body.pm-is-dragging * {
     align-self: flex-start;
   }
 
-  .detail-timeline-grid {
-    grid-template-columns: 1fr;
-  }
-
   .pm-sidebar {
     width: 224px;
     min-width: 224px;
-  }
-
-  .pm-siyuan-page-actions {
-    justify-content: flex-start;
   }
 }
 
