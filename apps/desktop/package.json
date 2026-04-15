@@ -19,7 +19,7 @@
     "@element-plus/icons-vue": "^2.3.1",
     "@lazycat/formatters": "workspace:*",
     "@tauri-apps/api": "^2.0.0",
-    "@tauri-apps/plugin-dialog": "^2.0.0",
+    "@tauri-apps/plugin-dialog": "^2.7.0",
     "element-plus": "^2.11.1",
     "frappe-gantt": "^1.2.2",
     "pinyin-pro": "^3.26.0",
