@@ -439,911 +439,57 @@
 
       <aside class="todo-detail-pane" :key="detailMode">
         <template v-if="detailMode === 'create' || detailMode === 'edit'">
-          <div class="detail-edit">
-            <div class="detail-pane-header">
-              <div class="detail-title-group">
-                <div class="detail-eyebrow">事项编辑</div>
-                <h3 class="detail-title">{{ itemDialogTitle }}</h3>
-                <div class="detail-subtitle">
-                  {{ detailMode === "create" ? "在右栏直接填写并保存" : "修改后会保留当前选中项" }}
-                </div>
-              </div>
-            </div>
-            <div ref="detailFormScrollRef" class="detail-scroll detail-scroll--form">
-              <el-form label-position="top" class="todo-item-form">
-                <div class="todo-form-section">
-                  <el-form-item label="标题">
-                    <el-input
-                      ref="titleInputRef"
-                      v-model.trim="itemDraft.title"
-                      placeholder="请输入事项标题"
-                      @keydown.enter.exact.prevent="onCreateTitleEnter"
-                    />
-                  </el-form-item>
-                </div>
-
-                <!-- 项目与工作项：有值时提到更多设置上方 -->
-                <template v-if="hasProjectOrWorkItem">
-                  <div class="todo-form-section">
-                    <el-form-item label="所属项目">
-                      <el-select
-                        v-model="itemDraft.projectId"
-                        clearable
-                        placeholder="无"
-                        style="width: 100%"
-                        :disabled="!!itemDraft.pmItemId"
-                      >
-                        <el-option
-                          v-for="p in projectOptions"
-                          :key="p.id"
-                          :label="p.name"
-                          :value="p.id"
-                        />
-                      </el-select>
-                      <div v-if="itemDraft.pmItemId && itemDraft.projectId" class="pm-link-project-lock-hint">
-                        已关联项目工作项，请先解除关联再切换项目
-                      </div>
-                    </el-form-item>
-                    <el-form-item label="项目工作项">
-                      <div v-if="itemDraft.kind === 'recurring'" class="pm-link-recurring-hint">
-                        重复事项暂不支持关联项目工作项
-                      </div>
-                      <div v-else-if="!itemDraft.projectId" class="pm-link-no-project-hint">
-                        请先选择项目，或从项目管理工作项内绑定该任务
-                      </div>
-                      <div v-else class="pm-link-selector">
-                        <el-select
-                          v-model="todoPmLinkItemId"
-                          clearable
-                          placeholder="未关联项目任务"
-                          style="width: 100%"
-                          @change="handlePmSelectChange"
-                        >
-                          <el-option :value="-1" style="padding-left: 8px;">
-                            <el-icon style="margin-right: 4px; vertical-align: middle;"><Plus /></el-icon>
-                            <span>新建工作项</span>
-                          </el-option>
-                          <el-divider style="margin: 4px 0;" />
-                          <el-option
-                            v-for="pm in todoPmCandidates"
-                            :key="pm.id"
-                            :label="pm.title"
-                            :value="pm.id"
-                          >
-                            <el-tag size="small" effect="plain" :style="{ marginRight: '6px', backgroundColor: pmStatusColor(pm.status) + '20', borderColor: pmStatusColor(pm.status) + '50', color: pmStatusColor(pm.status) }">
-                              {{ pmStatusLabel(pm.status) }}
-                            </el-tag>
-                            <span>{{ pm.title }}</span>
-                          </el-option>
-                        </el-select>
-                        <el-button
-                          v-if="itemDraft.pmItemId && itemDraft.pmItemTitle"
-                          size="small"
-                          link
-                          type="primary"
-                          @click="navigateToPmItem(itemDraft.pmItemId, itemDraft.pmItemProjectId)"
-                        >
-                          查看工作项
-                        </el-button>
-                      </div>
-                    </el-form-item>
-                  </div>
-                </template>
-
-                <div class="todo-form-more-toggle" @click="showMoreFields = !showMoreFields">
-                  <span class="more-toggle-text">
-                    {{ showMoreFields ? "收起设置" : "更多设置" }}
-                  </span>
-                  <span v-if="!showMoreFields && moreFieldsSummary" class="more-toggle-summary">
-                    {{ moreFieldsSummary }}
-                  </span>
-                  <span class="more-toggle-icon" :class="{ 'is-expanded': showMoreFields }">
-                    <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
-                      <path
-                        d="M4 6l4 4 4-4"
-                        stroke="currentColor"
-                        stroke-width="1.5"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                      />
-                    </svg>
-                  </span>
-                </div>
-
-                <div v-show="showMoreFields" class="todo-form-collapsible">
-                  <div class="todo-form-section">
-                    <el-form-item label="分类与优先级" class="todo-form-item-category-priority">
-                      <div class="category-priority-row">
-                        <el-select
-                          v-model="itemDraft.typeId"
-                          clearable
-                          filterable
-                          allow-create
-                          default-first-option
-                          placeholder="可输入新分类"
-                          style="flex: 1"
-                        >
-                          <el-option
-                            v-for="item in sortedTypes"
-                            :key="item.id"
-                            :label="item.name"
-                            :value="item.id"
-                          />
-                        </el-select>
-                        <el-select v-model="itemDraft.priority" style="width: 150px">
-                          <template #prefix>
-                            <span
-                              class="priority-dot"
-                              :class="'priority-' + itemDraft.priority.toLowerCase()"
-                            />
-                          </template>
-                          <el-option
-                            v-for="opt in priorityOptions"
-                            :key="opt.value"
-                            :label="opt.label"
-                            :value="opt.value"
-                          >
-                            <span
-                              class="priority-dot"
-                              :class="'priority-' + opt.value.toLowerCase()"
-                            />
-                            {{ opt.label }}
-                          </el-option>
-                        </el-select>
-                      </div>
-                    </el-form-item>
-                    <template v-if="!hasProjectOrWorkItem">
-                    <el-form-item label="所属项目">
-                      <el-select
-                        v-model="itemDraft.projectId"
-                        clearable
-                        placeholder="无"
-                        style="width: 100%"
-                        :disabled="!!itemDraft.pmItemId"
-                      >
-                        <el-option
-                          v-for="p in projectOptions"
-                          :key="p.id"
-                          :label="p.name"
-                          :value="p.id"
-                        />
-                      </el-select>
-                      <div v-if="itemDraft.pmItemId && itemDraft.projectId" class="pm-link-project-lock-hint">
-                        已关联项目工作项，请先解除关联再切换项目
-                      </div>
-                    </el-form-item>
-                    <el-form-item label="项目工作项">
-                      <div v-if="itemDraft.kind === 'recurring'" class="pm-link-recurring-hint">
-                        重复事项暂不支持关联项目工作项
-                      </div>
-                      <div v-else-if="!itemDraft.projectId" class="pm-link-no-project-hint">
-                        请先选择项目，或从项目管理工作项内绑定该任务
-                      </div>
-                      <div v-else class="pm-link-selector">
-                        <el-select
-                          v-model="todoPmLinkItemId"
-                          clearable
-                          placeholder="未关联项目任务"
-                          style="width: 100%"
-                          @change="handlePmSelectChange"
-                        >
-                          <el-option :value="-1" style="padding-left: 8px;">
-                            <el-icon style="margin-right: 4px; vertical-align: middle;"><Plus /></el-icon>
-                            <span>新建工作项</span>
-                          </el-option>
-                          <el-divider style="margin: 4px 0;" />
-                          <el-option
-                            v-for="pm in todoPmCandidates"
-                            :key="pm.id"
-                            :label="pm.title"
-                            :value="pm.id"
-                          >
-                            <el-tag size="small" effect="plain" :style="{ marginRight: '6px', backgroundColor: pmStatusColor(pm.status) + '20', borderColor: pmStatusColor(pm.status) + '50', color: pmStatusColor(pm.status) }">
-                              {{ pmStatusLabel(pm.status) }}
-                            </el-tag>
-                            <span>{{ pm.title }}</span>
-                          </el-option>
-                        </el-select>
-                        <el-button
-                          v-if="itemDraft.pmItemId && itemDraft.pmItemTitle"
-                          size="small"
-                          link
-                          type="primary"
-                          @click="navigateToPmItem(itemDraft.pmItemId, itemDraft.pmItemProjectId)"
-                        >
-                          查看工作项
-                        </el-button>
-                      </div>
-                    </el-form-item>
-                    </template>
-                    <el-form-item label="执行人">
-                      <el-select
-                        v-model="itemDraft.assigneeIds"
-                        multiple
-                        clearable
-                        filterable
-                        allow-create
-                        default-first-option
-                        :reserve-keyword="false"
-                        placeholder="可输入新执行人"
-                        style="width: 100%"
-                      >
-                        <el-option
-                          v-for="item in assignees"
-                          :key="item.id"
-                          :label="item.name"
-                          :value="item.id"
-                        />
-                      </el-select>
-                    </el-form-item>
-                  </div>
-
-                  <div ref="scheduleSectionRef" class="todo-form-section">
-                    <el-form-item label="日期与时间" class="todo-form-item-datetime">
-                      <div class="datetime-row">
-                        <el-date-picker
-                          v-model="eventDateModel"
-                          type="date"
-                          value-format="YYYY-MM-DD"
-                          clearable
-                          style="width: 160px"
-                        />
-                        <div class="time-picker-fused">
-                          <el-select v-model="eventHour" class="time-fused-select" placeholder="时">
-                            <el-option
-                              v-for="option in hourOptions"
-                              :key="option.value"
-                              :label="option.label"
-                              :value="option.value"
-                            />
-                          </el-select>
-                          <span class="time-fused-separator">:</span>
-                          <el-select
-                            v-model="eventMinute"
-                            class="time-fused-select"
-                            placeholder="分"
-                          >
-                            <el-option
-                              v-for="option in minuteOptions"
-                              :key="option.value"
-                              :label="option.label"
-                              :value="option.value"
-                            />
-                          </el-select>
-                        </div>
-                      </div>
-                      <div class="datetime-actions">
-                        <div class="date-quick-presets">
-                          <el-button
-                            text
-                            size="small"
-                            class="date-preset-btn"
-                            @click="fillQuickDate(0)"
-                            >今天</el-button
-                          >
-                          <el-button
-                            text
-                            size="small"
-                            class="date-preset-btn"
-                            @click="fillQuickDate(1)"
-                            >明天</el-button
-                          >
-                          <el-button
-                            text
-                            size="small"
-                            class="date-preset-btn"
-                            @click="fillQuickDate(2)"
-                            >后天</el-button
-                          >
-                        </div>
-                        <el-button
-                          v-if="!itemDraft.eventDate || !itemDraft.eventTime"
-                          text
-                          size="small"
-                          class="time-fused-clear"
-                          @click="fillDefaultDateTime"
-                          >填充</el-button
-                        >
-                        <el-button
-                          v-else
-                          text
-                          size="small"
-                          class="time-fused-clear"
-                          @click="clearEventSchedule"
-                          >清空</el-button
-                        >
-                      </div>
-                    </el-form-item>
-                    <el-form-item label="提醒">
-                      <el-select
-                        v-model="itemDraft.reminderPresets"
-                        multiple
-                        clearable
-                        style="width: 100%"
-                        @change="onReminderPresetsChange"
-                      >
-                        <el-option
-                          v-for="option in reminderPresetOptions"
-                          :key="option.value"
-                          :label="option.label"
-                          :value="option.value"
-                        />
-                      </el-select>
-                    </el-form-item>
-                  </div>
-
-                  <div class="todo-form-section">
-                    <el-form-item label="重复方式">
-                      <el-radio-group
-                        v-model="itemDraft.repeatPreset"
-                        class="repeat-radio-group"
-                        @change="onRepeatPresetChange"
-                      >
-                        <el-radio-button
-                          v-for="option in repeatPresetOptions"
-                          :key="option.value"
-                          :value="option.value"
-                        >
-                          {{ option.label }}
-                        </el-radio-button>
-                      </el-radio-group>
-                    </el-form-item>
-                    <template v-if="isRepeating">
-                      <div class="repeat-detail-card">
-                        <template v-if="showCustomRepeatFields">
-                          <div class="todo-form-row">
-                            <el-form-item label="频率" class="todo-form-item-flex">
-                              <el-select
-                                v-model="itemDraft.simple.frequency"
-                                style="width: 100%"
-                                @change="onCustomFrequencyChange"
-                              >
-                                <el-option label="每天" value="daily" />
-                                <el-option label="每周" value="weekly" />
-                                <el-option label="每月" value="monthly" />
-                              </el-select>
-                            </el-form-item>
-                            <el-form-item label="间隔" class="todo-form-item-flex">
-                              <el-input-number
-                                v-model="itemDraft.simple.interval"
-                                :min="1"
-                                :max="365"
-                                style="width: 100%"
-                              />
-                            </el-form-item>
-                          </div>
-                        </template>
-                        <el-form-item v-if="showWeeklyWeekdays" label="周几">
-                          <el-checkbox-group v-model="itemDraft.simple.weekdays">
-                            <el-checkbox
-                              v-for="option in weekdayOptions"
-                              :key="option.value"
-                              :value="option.value"
-                            >
-                              {{ option.label }}
-                            </el-checkbox>
-                          </el-checkbox-group>
-                        </el-form-item>
-                        <el-form-item v-if="showMonthlyDayOfMonth" label="每月几号">
-                          <el-input-number
-                            v-model="itemDraft.simple.dayOfMonth"
-                            :min="1"
-                            :max="31"
-                            style="width: 100%"
-                          />
-                        </el-form-item>
-                        <template v-if="showCronRepeatFields">
-                          <el-form-item label="Cron 表达式">
-                            <el-input
-                              v-model.trim="itemDraft.cronExpression"
-                              placeholder="例如：0 0 9 * * Mon-Fri"
-                            />
-                          </el-form-item>
-                          <el-form-item label="时区">
-                            <el-select
-                              v-model="itemDraft.timezone"
-                              filterable
-                              allow-create
-                              default-first-option
-                              style="width: 100%"
-                            >
-                              <el-option label="本地时区" value="local" />
-                              <el-option label="UTC" value="UTC" />
-                              <el-option label="Asia/Shanghai" value="Asia/Shanghai" />
-                            </el-select>
-                          </el-form-item>
-                        </template>
-                        <div class="todo-form-row">
-                          <el-form-item label="结束条件" class="todo-form-item-flex">
-                            <el-select v-model="itemDraft.endMode" style="width: 100%">
-                              <el-option label="持续生成" value="never" />
-                              <el-option label="结束时间" value="until_date" />
-                              <el-option label="生成次数" value="after_count" />
-                            </el-select>
-                          </el-form-item>
-                          <el-form-item
-                            v-if="itemDraft.endMode === 'until_date'"
-                            label="结束时间"
-                            class="todo-form-item-flex"
-                          >
-                            <el-date-picker
-                              v-model="itemDraft.endValueDate"
-                              type="datetime"
-                              value-format="YYYY-MM-DDTHH:mm:ssZ"
-                              :disabled-minutes="disabledFiveMinuteMinutes"
-                              :disabled-seconds="disabledAllSeconds"
-                              style="width: 100%"
-                            />
-                          </el-form-item>
-                          <el-form-item
-                            v-else-if="itemDraft.endMode === 'after_count'"
-                            label="生成次数"
-                            class="todo-form-item-flex"
-                          >
-                            <el-input-number
-                              v-model="itemDraft.endValueCount"
-                              :min="1"
-                              :max="9999"
-                              style="width: 100%"
-                            />
-                          </el-form-item>
-                        </div>
-                      </div>
-                      <div class="repeat-tip">{{ repeatFormTip }}</div>
-                    </template>
-                  </div>
-                </div>
-
-                <div class="todo-form-section">
-                  <el-form-item label="描述">
-                    <div class="md-toolbar">
-                      <el-button
-                        text
-                        size="small"
-                        class="md-toolbar-btn"
-                        @click="insertMdSyntax('**', '**')"
-                        ><strong>B</strong></el-button
-                      >
-                      <el-button
-                        text
-                        size="small"
-                        class="md-toolbar-btn"
-                        @click="insertMdSyntax('*', '*')"
-                        ><em>I</em></el-button
-                      >
-                      <el-button
-                        text
-                        size="small"
-                        class="md-toolbar-btn"
-                        @click="insertMdSyntax('`', '`')"
-                        >Code</el-button
-                      >
-                      <el-button
-                        text
-                        size="small"
-                        class="md-toolbar-btn"
-                        @click="insertMdSyntax('\n- ', '')"
-                        >List</el-button
-                      >
-                      <el-button
-                        text
-                        size="small"
-                        class="md-toolbar-btn"
-                        @click="insertMdSyntax('[', '](url)')"
-                        >Link</el-button
-                      >
-                    </div>
-                    <el-input
-                      ref="descTextareaRef"
-                      v-model="itemDraft.description"
-                      type="textarea"
-                      :rows="4"
-                      placeholder="支持 Markdown 语法"
-                    />
-                  </el-form-item>
-                </div>
-                <div class="todo-form-section">
-                  <el-form-item label="关联链接">
-                    <div class="link-edit-list">
-                      <div v-for="(link, i) in itemDraft.links" :key="i" class="link-edit-row">
-                        <el-input v-model="link.url" placeholder="URL 或文件路径" size="small" />
-                        <el-input
-                          v-model="link.title"
-                          placeholder="标题（可选）"
-                          size="small"
-                          style="width: 150px; flex-shrink: 0"
-                        />
-                        <el-button
-                          text
-                          size="small"
-                          type="danger"
-                          @click="itemDraft.links.splice(i, 1)"
-                          >删除</el-button
-                        >
-                      </div>
-                    </div>
-                    <el-button
-                      text
-                      type="primary"
-                      size="small"
-                      @click="itemDraft.links.push({ url: '', title: '' })"
-                    >
-                      + 添加链接
-                    </el-button>
-                  </el-form-item>
-                </div>
-              </el-form>
-            </div>
-            <div class="detail-pane-footer">
-              <div v-if="detailMode === 'edit' && selectedItem" class="detail-footer-actions">
-                <el-button
-                  v-if="canPinItem(selectedItem)"
-                  size="small"
-                  link
-                  @click="toggleItemPin(selectedItem.id)"
-                >
-                  {{ selectedItem.pinned ? "取消置顶" : "置顶" }}
-                </el-button>
-                <el-button
-                  size="small"
-                  link
-                  type="success"
-                  @click="
-                    changeItemStatus(
-                      selectedItem.id,
-                      isDoneItem(selectedItem) ? 'pending' : 'completed',
-                    )
-                  "
-                >
-                  {{ isDoneItem(selectedItem) ? "恢复" : "完成" }}
-                </el-button>
-                <el-button size="small" link type="danger" @click="deleteItem(selectedItem)">
-                  删除
-                </el-button>
-              </div>
-              <div class="detail-footer-submit">
-                <el-button @click="cancelDetailEdit">取消</el-button>
-                <el-button type="primary" @click="saveItem">{{ itemDialogSubmitText }}</el-button>
-              </div>
-            </div>
-          </div>
+          <TodoDetailEdit
+            ref="todoDetailEditRef"
+            :mode="detailMode === 'create' ? 'create' : 'edit'"
+            :draft="itemDraft"
+            :selected-item="selectedItem"
+            :show-more-fields="showMoreFields"
+            :pm-link-item-id="todoPmLinkItemId"
+            :sorted-types="sortedTypes"
+            :assignees="assignees"
+            :project-options="projectOptions"
+            :pm-candidates="todoPmCandidates"
+            :priority-options="priorityOptions"
+            :reminder-preset-options="reminderPresetOptions"
+            :repeat-preset-options="repeatPresetOptions"
+            :weekday-options="weekdayOptions"
+            :hour-options="hourOptions"
+            :minute-options="minuteOptions"
+            :time-hour="eventHour"
+            :time-minute="eventMinute"
+            @title-enter="onCreateTitleEnter"
+            @toggle-more-fields="showMoreFields = !showMoreFields"
+            @pm-select-change="handlePmSelectChange"
+            @navigate-to-pm="navigateToPmItem"
+            @event-date-change="(v) => { if (!v) clearEventSchedule(); else itemDraft.eventDate = v; }"
+            @event-hour-change="(v) => { const { minute } = splitDraftEventTime(itemDraft.eventTime); itemDraft.eventTime = composeDraftEventTime(v, minute); }"
+            @event-minute-change="(v) => { const { hour } = splitDraftEventTime(itemDraft.eventTime); itemDraft.eventTime = composeDraftEventTime(hour, v); }"
+            @fill-quick-date="fillQuickDate"
+            @fill-default-date-time="fillDefaultDateTime"
+            @clear-event-schedule="clearEventSchedule"
+            @reminder-presets-change="onReminderPresetsChange"
+            @repeat-preset-change="onRepeatPresetChange"
+            @custom-frequency-change="onCustomFrequencyChange"
+            @insert-md-syntax="insertMdSyntax"
+            @toggle-pin="toggleItemPin"
+            @change-status="(id, status) => changeItemStatus(id, status as TodoStatus)"
+            @delete="deleteItem"
+            @cancel="cancelDetailEdit"
+            @save="saveItem"
+          />
         </template>
         <template v-else-if="detailMode === 'view' && selectedItem !== null">
-          <div class="detail-view" :key="selectedItem.id">
-            <!-- Header -->
-            <div class="detail-pane-header detail-pane-header--view">
-              <div class="detail-title-group">
-                <div class="detail-eyebrow">事项详情</div>
-                <div class="detail-title-row">
-                  <h3 class="detail-title detail-title--copyable" title="点击复制标题" @click="copyTitle(selectedItem.title)">{{ selectedItem.title }}</h3>
-                  <div class="detail-badges">
-                    <span class="detail-badge pinned" v-if="selectedItem.pinned">
-                      <el-icon :size="12"><Top /></el-icon> 置顶
-                    </span>
-                    <span class="detail-badge repeat" v-if="hasRepeatRule(selectedItem)">
-                      <el-icon :size="12"><Refresh /></el-icon> 重复
-                    </span>
-                    <span class="detail-badge overdue" v-if="isItemOverdue(selectedItem)">
-                      <el-icon :size="12"><AlarmClock /></el-icon> 逾期
-                    </span>
-                  </div>
-                </div>
-              </div>
-              <div class="detail-header-actions">
-                <el-button
-                  size="small"
-                  link
-                  class="detail-edit-btn"
-                  @click="enterEditMode(selectedItem)"
-                  >编辑</el-button
-                >
-                <el-button
-                  v-if="canPinItem(selectedItem)"
-                  size="small"
-                  link
-                  @click="toggleItemPin(selectedItem.id)"
-                >
-                  {{ selectedItem.pinned ? "取消置顶" : "置顶" }}
-                </el-button>
-                <el-button
-                  size="small"
-                  link
-                  :type="isDoneItem(selectedItem) ? '' : 'success'"
-                  @click="
-                    changeItemStatus(
-                      selectedItem.id,
-                      isDoneItem(selectedItem) ? 'pending' : 'completed',
-                    )
-                  "
-                >
-                  {{ isDoneItem(selectedItem) ? "恢复" : "完成" }}
-                </el-button>
-                <el-button size="small" link type="danger" @click="deleteItem(selectedItem)"
-                  >删除</el-button
-                >
-              </div>
-            </div>
-
-            <!-- Content -->
-            <div class="detail-scroll">
-              <div class="detail-content">
-                <div v-if="!hasDetailCards" class="detail-card detail-card--empty">
-                  <div class="detail-card-header">
-                    <div class="detail-card-icon primary">
-                      <el-icon><Document /></el-icon>
-                    </div>
-                    <span class="detail-card-title">暂无可展示详情</span>
-                  </div>
-                  <div class="detail-card-body">
-                    <div class="detail-empty-info">
-                      <div class="detail-empty-info-text">当前事项还没有补充任何可展示信息。</div>
-                      <div class="detail-empty-info-hint">
-                        你可以在编辑中添加：到期时间、提醒、分类、执行人或详细描述。
-                      </div>
-                      <div class="detail-empty-info-actions">
-                        <el-button size="small" type="primary" @click="enterEditMode(selectedItem)">
-                          去完善
-                        </el-button>
-                        <el-button size="small" link @click="enterEditMode(selectedItem)">
-                          编辑
-                        </el-button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Status Card (only if has non-default status or priority) -->
-                <div
-                  v-if="selectedItem.status !== 'pending' || selectedItem.priority !== 'P2'"
-                  class="detail-card"
-                >
-                  <div class="detail-card-header">
-                    <div class="detail-card-icon" :class="priorityCardClass(selectedItem.priority)">
-                      <el-icon><Flag /></el-icon>
-                    </div>
-                    <span class="detail-card-title">状态与优先级</span>
-                  </div>
-                  <div class="detail-card-body">
-                    <div class="detail-grid">
-                      <div v-if="selectedItem.status !== 'pending'" class="detail-field">
-                        <div class="detail-label">当前状态</div>
-                        <div class="detail-value">
-                          <el-tag size="small" effect="plain" round>
-                            {{ formatStatusLabel(selectedItem.status) }}
-                          </el-tag>
-                        </div>
-                      </div>
-                      <div v-if="selectedItem.priority !== 'P2'" class="detail-field">
-                        <div class="detail-label">优先级</div>
-                        <div class="detail-value">
-                          <span class="priority-with-dot">
-                            <span
-                              class="priority-dot"
-                              :class="'priority-' + selectedItem.priority.toLowerCase()"
-                            />
-                            {{ selectedItem.priority }} - {{ priorityLabel(selectedItem.priority) }}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Schedule Card (only if has schedule info) -->
-                <div
-                  v-if="
-                    selectedItem.eventAt ||
-                    effectiveReminderPresets(selectedItem.reminderPresets).length > 0
-                  "
-                  class="detail-card"
-                >
-                  <div class="detail-card-header">
-                    <div class="detail-card-icon primary">
-                      <el-icon><Calendar /></el-icon>
-                    </div>
-                    <span class="detail-card-title">时间安排</span>
-                  </div>
-                  <div class="detail-card-body">
-                    <div class="detail-grid" :class="{ 'is-stacked': !selectedItem.eventAt }">
-                      <div v-if="selectedItem.eventAt" class="detail-field">
-                        <div class="detail-label">
-                          <el-icon :size="12"><Clock /></el-icon> 任务时间
-                        </div>
-                        <div class="detail-value">
-                          {{ formatDate(selectedItem.eventAt) }}
-                        </div>
-                        <div v-if="relativeTimeLabel(selectedItem)" class="detail-hint">
-                          {{ relativeTimeLabel(selectedItem) }}
-                        </div>
-                      </div>
-                      <div
-                        v-if="effectiveReminderPresets(selectedItem.reminderPresets).length > 0"
-                        class="detail-field"
-                      >
-                        <div class="detail-label">
-                          <el-icon :size="12"><Bell /></el-icon> 提醒设置
-                        </div>
-                        <div class="detail-value">
-                          {{ formatReminderDescription(selectedItem) }}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Info Card (only if has type or assignees) -->
-                <div
-                  v-if="selectedItem.typeName || selectedItem.assignees.length > 0"
-                  class="detail-card"
-                >
-                  <div class="detail-card-header">
-                    <div class="detail-card-icon success">
-                      <el-icon><User /></el-icon>
-                    </div>
-                    <span class="detail-card-title">分类与执行人</span>
-                  </div>
-                  <div class="detail-card-body">
-                    <div class="detail-grid">
-                      <div v-if="selectedItem.typeName" class="detail-field">
-                        <div class="detail-label">分类</div>
-                        <div class="detail-value">
-                          <span class="type-with-color">
-                            <span
-                              class="color-dot-sm"
-                              :style="{ backgroundColor: selectedItem.typeColor || '#909399' }"
-                            />
-                            {{ selectedItem.typeName }}
-                          </span>
-                        </div>
-                      </div>
-                      <div v-if="selectedItem.assignees.length > 0" class="detail-field">
-                        <div class="detail-label">执行人</div>
-                        <div class="detail-value">
-                          <div class="assignee-list">
-                            <span
-                              v-for="assignee in selectedItem.assignees"
-                              :key="assignee.id"
-                              class="assignee-tag"
-                            >
-                              {{ assignee.name }}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Project & PM Item Unified Card (Scheme E) -->
-                <div
-                  v-if="selectedItem.projectId"
-                  class="detail-card project-unified-card"
-                >
-                  <div class="detail-card-header">
-                    <div class="detail-card-icon warning">
-                      <el-icon><Briefcase /></el-icon>
-                    </div>
-                    <span class="detail-card-title">项目归属</span>
-                    <span class="project-inline">
-                      <span
-                        class="project-section-dot"
-                        :style="{ backgroundColor: selectedItem.projectColor || '#909399' }"
-                      />
-                      <span class="project-section-name">
-                        {{ selectedItem.projectName || `项目 #${selectedItem.projectId}` }}
-                      </span>
-                    </span>
-                  </div>
-                  <div v-if="selectedItem.pmItemId" class="pm-section">
-                    <div class="pm-section-badge">
-                      <el-icon><Link /></el-icon>
-                    </div>
-                    <span class="pm-section-title">
-                      {{ selectedItem.pmItemTitle || `#${selectedItem.pmItemId}` }}
-                    </span>
-                    <el-tag
-                      size="small"
-                      effect="plain"
-                      round
-                      class="pm-section-status"
-                      :style="{
-                        backgroundColor: pmStatusColor(selectedItem.pmItemStatus) + '15',
-                        borderColor: pmStatusColor(selectedItem.pmItemStatus) + '40',
-                        color: pmStatusColor(selectedItem.pmItemStatus),
-                      }"
-                    >
-                      {{ pmStatusLabel(selectedItem.pmItemStatus) }}
-                    </el-tag>
-                    <el-button
-                      class="pm-section-jump"
-                      size="small"
-                      link
-                      type="primary"
-                      @click="navigateToPmItem(selectedItem.pmItemId, selectedItem.pmItemProjectId)"
-                    >
-                      跳转 &rarr;
-                    </el-button>
-                  </div>
-                </div>
-
-                <!-- Recurrence Card (only if has repeat rule) -->
-                <div v-if="hasRepeatRule(selectedItem)" class="detail-card">
-                  <div class="detail-card-header">
-                    <div class="detail-card-icon warning">
-                      <el-icon><Refresh /></el-icon>
-                    </div>
-                    <span class="detail-card-title">重复规则</span>
-                  </div>
-                  <div class="detail-card-body">
-                    <div class="detail-grid is-stacked">
-                      <div class="detail-field detail-field--full">
-                        <div class="detail-label">规则描述</div>
-                        <div class="detail-value">
-                          {{ formatRecurrenceDescription(selectedItem) }}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Description Card (only if has description) -->
-                <div v-if="selectedItem.description" class="detail-card">
-                  <div class="detail-card-header">
-                    <div class="detail-card-icon primary">
-                      <el-icon><Document /></el-icon>
-                    </div>
-                    <span class="detail-card-title">详细描述</span>
-                  </div>
-                  <div class="detail-card-body">
-                    <div class="detail-description-card" :key="'desc-' + selectedItem.id">
-                      <div
-                        class="detail-description md-rendered"
-                        v-html="renderedDescription"
-                      ></div>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Links Card (only if has links) -->
-                <div v-if="selectedItem.links?.length" class="detail-card">
-                  <div class="detail-card-header">
-                    <div class="detail-card-icon primary">
-                      <el-icon><Link /></el-icon>
-                    </div>
-                    <span class="detail-card-title">关联链接</span>
-                  </div>
-                  <div class="detail-card-body">
-                    <div class="detail-links-list">
-                      <div
-                        v-for="link in selectedItem.links"
-                        :key="link.id"
-                        class="detail-link-item"
-                        @click="openLink(link.url)"
-                      >
-                        <el-icon class="detail-link-icon"><Link /></el-icon>
-                        <span class="detail-link-text">{{ link.title || link.url }}</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <!-- Footer -->
-            <div class="detail-pane-footer detail-pane-footer--meta">
-              <div class="meta-timestamps">
-                <span
-                  ><span class="meta-label">创建：</span
-                  >{{ formatDate(selectedItem.createdAt) }}</span
-                >
-                <span class="meta-divider">·</span>
-                <span
-                  ><span class="meta-label">更新：</span
-                  >{{ formatDate(selectedItem.updatedAt) }}</span
-                >
-              </div>
-            </div>
-          </div>
+          <TodoDetailView
+            :item="selectedItem"
+            @edit="enterEditMode"
+            @toggle-pin="toggleItemPin"
+            @change-status="(id, status) => changeItemStatus(id, status as TodoStatus)"
+            @delete="deleteItem"
+            @copy-title="copyTitle"
+            @open-link="openLink"
+            @navigate-to-pm="navigateToPmItem"
+          />
         </template>
         <div v-else class="detail-empty-pane">
           <div class="detail-empty-visual">
@@ -1557,8 +703,13 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="pmCreateDialogVisible" title="新建工作项" width="420px" @closed="pmCreateTitle = ''">
+    <el-dialog v-model="pmCreateDialogVisible" title="新建工作项" width="420px" @closed="onPmCreateClosed">
       <el-form>
+        <el-form-item v-if="!itemDraft.projectId" label="所属项目">
+          <el-select v-model="pmCreateProjectId" placeholder="请选择项目" style="width: 100%">
+            <el-option v-for="p in projectOptions" :key="p.id" :label="p.name" :value="p.id" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="标题">
           <el-input v-model.trim="pmCreateTitle" placeholder="请输入工作项标题" @keyup.enter="onPmCreateConfirm" />
         </el-form-item>
@@ -1624,14 +775,9 @@ import { listen } from "@tauri-apps/api/event";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import {
   AlarmClock,
-  Bell,
-  Briefcase,
   Calendar,
-  Clock,
   Document,
-  Flag,
   Grid,
-  Link,
   Plus,
   Refresh,
   Setting,
@@ -1639,7 +785,6 @@ import {
   User,
 } from "@element-plus/icons-vue";
 import { ElMessage, ElMessageBox } from "element-plus";
-import type { InputInstance } from "element-plus";
 import { invokeToolByChannel } from "../bridge/tauri";
 import {
   useClipboardSuggestion,
@@ -1668,14 +813,14 @@ import { useTabs } from "../composables/useTabs";
 import { groupTodoItemsByBucket } from "../utils/todoBuckets";
 import { clampContextMenuPosition } from "../utils/contextMenu";
 import { formatTodoRelativeDateTimeLabel } from "../utils/todoRelativeDate";
-import { renderMarkdown } from "../utils/renderMarkdown";
 import {
   prevMonth as calPrevMonth,
   nextMonth as calNextMonth,
   formatDateKey,
 } from "../utils/calendarGrid";
 import TodoCalendarGrid from "./TodoCalendarGrid.vue";
-import MdContent from "./MdContent.vue";
+import TodoDetailView from "./TodoDetailView.vue";
+import TodoDetailEdit from "./TodoDetailEdit.vue";
 import {
   TODO_REPEAT_PRESET_OPTIONS,
   TODO_WEEKDAY_OPTIONS,
@@ -1720,13 +865,14 @@ const assignees = ref<TodoAssignee[]>([]);
 const projectOptions = ref<{ id: number; name: string; color: string }[]>([]);
 const filterProjectId = ref<number | string | null>(null);
 const showMoreFields = ref(false);
-const hasProjectOrWorkItem = computed(() => !!itemDraft.projectId || !!itemDraft.pmItemId);
 const itemKeyword = ref("");
-const detailFormScrollRef = ref<HTMLElement | null>(null);
-const scheduleSectionRef = ref<HTMLElement | null>(null);
 const todoContextMenuRef = ref<HTMLElement | null>(null);
-const titleInputRef = ref<InputInstance | null>(null);
-const descTextareaRef = ref<InstanceType<(typeof import("element-plus"))["ElInput"]> | null>(null);
+const todoDetailEditRef = ref<{
+  titleInputRef: { value: { focus: () => void } | null };
+  descTextareaRef: { value: { $el: HTMLElement } | null };
+  scrollRef: { value: HTMLElement | null };
+  scheduleRef: { value: HTMLElement | null };
+} | null>(null);
 const filterType = ref<string | null>(null);
 const filterPriority = ref<TodoPriority | null>(null);
 const doneCollapsed = ref(true);
@@ -1739,6 +885,7 @@ let skipProjectWatch = false;
 const todoLinkedPmItem = ref<{ id: number; title: string; status: string; projectId: number } | null>(null);
 const pmCreateDialogVisible = ref(false);
 const pmCreateTitle = ref("");
+const pmCreateProjectId = ref<number | null>(null);
 const calendarMonth = ref(new Date());
 const itemDialogMode = ref<ItemDialogMode>("create");
 const detailMode = ref<DetailMode>("empty");
@@ -1773,16 +920,18 @@ const reminderPresetOptions: Array<{ label: string; value: TodoReminderPreset }>
   { label: "提前两天", value: "2d" },
 ];
 
-const reminderPresetToMinutesMap: Record<TodoReminderPreset, number | null> = {
-  "0m": 0,
-  none: null,
-  "5m": 5,
-  "10m": 10,
-  "30m": 30,
-  "1h": 60,
-  "1d": 24 * 60,
-  "2d": 2 * 24 * 60,
-};
+import {
+  asRecord,
+  effectiveReminderPresets,
+  getResponseItems,
+  getRootItemId,
+  normalizeReminderPresets,
+  normalizeTodoItem,
+  readNullableNumber,
+  reminderPresetFromMinutes,
+  reminderPresetToMinutes,
+  toDraftReminderPresets,
+} from "../composables/useTodoItem";
 
 function pad2(value: number) {
   return String(value).padStart(2, "0");
@@ -2001,26 +1150,6 @@ const selectedItem = computed(() =>
     ? null
     : items.value.find((item) => item.id === selectedItemId.value) || null,
 );
-const selectedItemRecurrence = computed(() =>
-  selectedItem.value ? getItemRecurrence(selectedItem.value) : null,
-);
-const hasDetailCards = computed(() => {
-  const item = selectedItem.value;
-  if (!item) return false;
-
-  const hasStatusOrPriority = item.status !== "pending" || item.priority !== "P2";
-  const hasSchedule = !!item.eventAt || effectiveReminderPresets(item.reminderPresets).length > 0;
-  const hasInfo = !!item.typeName || item.assignees.length > 0;
-  const hasProject = !!item.projectId;
-  const hasRepeat = hasRepeatRule(item);
-  const hasDescription = item.description.trim().length > 0;
-  const hasLinks = (item.links || []).length > 0;
-
-  return hasStatusOrPriority || hasSchedule || hasInfo || hasProject || hasRepeat || hasDescription || hasLinks;
-});
-const renderedDescription = computed(() =>
-  selectedItem.value?.description ? renderMarkdown(selectedItem.value.description) : "",
-);
 const allItemsForCalendar = computed(() => items.value);
 const isDetailEditing = computed(
   () => detailMode.value === "edit" || detailMode.value === "create",
@@ -2105,7 +1234,7 @@ function normalizeDraftAssigneeValues(values: SelectAssigneeValue[]) {
 }
 
 function insertMdSyntax(prefix: string, suffix: string) {
-  const el = descTextareaRef.value?.$el?.querySelector("textarea") as HTMLTextAreaElement | null;
+  const el = todoDetailEditRef.value?.descTextareaRef.value?.$el?.querySelector("textarea") as HTMLTextAreaElement | null;
   if (!el) return;
   const start = el.selectionStart;
   const end = el.selectionEnd;
@@ -2155,77 +1284,12 @@ function markDraftBaseline() {
   draftBaseline.value = snapshotItemDraft();
 }
 
-function formatStatusLabel(status: TodoStatus | null) {
-  switch (status) {
-    case "pending":
-      return "任务";
-    case "in_progress":
-      return "进行中";
-    case "completed":
-      return "已完成";
-    default:
-      return "未设置";
-  }
-}
-
-function getReminderPresetLabel(preset: TodoReminderPreset) {
-  return reminderPresetOptions.find((option) => option.value === preset)?.label || preset;
-}
-
-function formatReminderDescription(item: TodoItem) {
-  const presets = effectiveReminderPresets(item.reminderPresets);
-  const baseText = presets.length > 0 ? presets.map(getReminderPresetLabel).join("、") : "不提醒";
-  if (item.snoozeUntil) {
-    return `${baseText} · 已稍后至 ${formatDate(item.snoozeUntil)}`;
-  }
-  return baseText;
-}
-
-function formatWeekdayList(days: number[] = []) {
-  const labelMap = new Map([
-    [1, "周一"],
-    [2, "周二"],
-    [3, "周三"],
-    [4, "周四"],
-    [5, "周五"],
-    [6, "周六"],
-    [7, "周日"],
-  ]);
-  return days
-    .map((day) => labelMap.get(day))
-    .filter((label): label is string => !!label)
-    .join("、");
-}
-
-function formatRecurrenceDescription(item: TodoItem) {
-  const recurrence = getItemRecurrence(item);
-  if (!recurrence) return "单次事项";
-
-  const endText =
-    recurrence.endMode === "until_date"
-      ? `截止至 ${formatDate(String(recurrence.endValue || ""))}`
-      : recurrence.endMode === "after_count"
-        ? `共 ${Number(recurrence.endValue || 1)} 次`
-        : "持续生成";
-
-  if (recurrence.ruleMode === "cron") {
-    const expression =
-      recurrence.cronExpression || (recurrence.rule as { expression?: string }).expression || "-";
-    return `Cron：${expression} · ${endText}`;
-  }
-
-  const rule = recurrence.rule as TodoSimpleRule;
-  if (rule.frequency === "weekly") {
-    const prefix = rule.interval > 1 ? `每 ${rule.interval} 周` : "每周";
-    const weekdays = formatWeekdayList(rule.weekdays || []);
-    return `${prefix}${weekdays ? ` · ${weekdays}` : ""} · ${rule.time} · ${endText}`;
-  }
-  if (rule.frequency === "monthly") {
-    const prefix = rule.interval > 1 ? `每 ${rule.interval} 个月` : "每月";
-    return `${prefix} · ${rule.dayOfMonth || 1} 号 ${rule.time} · ${endText}`;
-  }
-  const prefix = rule.interval > 1 ? `每 ${rule.interval} 天` : "每天";
-  return `${prefix} · ${rule.time} · ${endText}`;
+async function ensureDetailCanLeave() {
+  if (!isDetailEditing.value || !isDraftDirty.value) return true;
+  const result = await submitItemChanges(false);
+  if (!result.ok) return false;
+  finalizeDetailAfterSave(result.id);
+  return true;
 }
 
 function finalizeDetailAfterSave(savedId?: number | null) {
@@ -2240,14 +1304,6 @@ function finalizeDetailAfterSave(savedId?: number | null) {
   }
   selectedItemId.value = null;
   detailMode.value = "empty";
-}
-
-async function ensureDetailCanLeave() {
-  if (!isDetailEditing.value || !isDraftDirty.value) return true;
-  const result = await submitItemChanges(false);
-  if (!result.ok) return false;
-  finalizeDetailAfterSave(result.id);
-  return true;
 }
 
 function selectItem(item: TodoItem) {
@@ -2318,9 +1374,9 @@ async function enterEditTimeMode(item?: TodoItem | null) {
   if (selectedItemId.value !== target.id) return;
   showMoreFields.value = true;
   await nextTick();
-  const scheduleSection = scheduleSectionRef.value;
+  const scheduleSection = todoDetailEditRef.value?.scheduleRef.value;
   if (!scheduleSection) return;
-  const formScroll = detailFormScrollRef.value;
+  const formScroll = todoDetailEditRef.value?.scrollRef.value;
   if (formScroll) {
     const scrollHostRect = formScroll.getBoundingClientRect();
     const sectionRect = scheduleSection.getBoundingClientRect();
@@ -2383,7 +1439,7 @@ async function focusCreateTitleInput() {
   titleFocusTimer = setTimeout(() => {
     titleFocusTimer = null;
     if (detailMode.value !== "create" || itemDialogMode.value !== "create") return;
-    titleInputRef.value?.focus();
+    todoDetailEditRef.value?.titleInputRef.value?.focus();
   }, 0);
 }
 
@@ -2433,32 +1489,10 @@ const editingItemIsRecurring = computed(
 const showRecurrenceFields = computed(() => {
   return isRepeating.value;
 });
-const showWeeklyWeekdays = computed(
-  () =>
-    isRepeating.value &&
-    (itemDraft.repeatPreset === "weekly" ||
-      (itemDraft.repeatPreset === "custom" && itemDraft.simple.frequency === "weekly")),
-);
-const showMonthlyDayOfMonth = computed(
-  () =>
-    isRepeating.value &&
-    (itemDraft.repeatPreset === "monthly" ||
-      (itemDraft.repeatPreset === "custom" && itemDraft.simple.frequency === "monthly")),
-);
 const showCustomRepeatFields = computed(
   () => isRepeating.value && itemDraft.repeatPreset === "custom",
 );
 const showCronRepeatFields = computed(() => isRepeating.value && itemDraft.repeatPreset === "cron");
-const eventDateModel = computed({
-  get: () => itemDraft.eventDate || undefined,
-  set: (value: string | null | undefined) => {
-    if (!value) {
-      clearEventSchedule();
-      return;
-    }
-    itemDraft.eventDate = value;
-  },
-});
 const eventHour = computed({
   get: () => splitDraftEventTime(itemDraft.eventTime).hour,
   set: (value: string) => {
@@ -2472,30 +1506,6 @@ const eventMinute = computed({
     const { hour } = splitDraftEventTime(itemDraft.eventTime);
     itemDraft.eventTime = composeDraftEventTime(hour, value);
   },
-});
-const repeatFormTip = computed(() => {
-  if (showCronRepeatFields.value)
-    return "Cron \u8868\u8fbe\u5f0f\u51b3\u5b9a\u5b9e\u9645\u89e6\u53d1\u65f6\u95f4\uff1b\u65e5\u671f\u53ea\u4f5c\u4e3a\u9996\u6b21\u751f\u6548\u4e0b\u754c\u3002";
-  return "\u91cd\u590d\u4e8b\u9879\u4f1a\u4ece\u65e5\u671f\u8d77\u6309\u89c4\u5219\u751f\u6210\u5b9e\u4f8b\uff1b\u9009\u62e9\u201c\u6b64\u540e\u672a\u53d1\u751f\u9879\u201d\u65f6\uff0c\u4fdd\u5b58\u7684\u662f\u91cd\u590d\u89c4\u5219\u3002";
-});
-const itemDialogTitle = computed(() => {
-  if (itemDialogMode.value === "create") return "新增事项";
-  return "编辑事项";
-});
-const itemDialogSubmitText = computed(() =>
-  itemDialogMode.value === "create" ? "创建事项" : "保存",
-);
-const moreFieldsSummary = computed(() => {
-  const parts: string[] = [];
-  if (!hasProjectOrWorkItem.value && itemDraft.projectId) parts.push("项目");
-  if (!hasProjectOrWorkItem.value && itemDraft.pmItemId) parts.push("工作项");
-  if (itemDraft.typeId) parts.push("分类");
-  if (itemDraft.priority !== "P2") parts.push("优先级");
-  if (itemDraft.assigneeIds.length > 0) parts.push("执行人");
-  if (itemDraft.eventDate || itemDraft.eventTime) parts.push("日期");
-  if (effectiveReminderPresets(itemDraft.reminderPresets).length > 0) parts.push("提醒");
-  if (itemDraft.repeatPreset !== "none") parts.push("重复");
-  return parts.length > 0 ? `已设${parts.join("、")}` : "";
 });
 const typeDialogTitle = computed(() => (typeDraft.id ? "编辑分类" : "新增分类"));
 const assigneeDialogTitle = computed(() => (assigneeDraft.id ? "编辑执行人" : "新增执行人"));
@@ -2603,309 +1613,6 @@ function toggleRecentWeekCollapsed() {
 function onCheckItem(item: TodoItem) {
   if (!item.status) return;
   void changeItemStatus(item.id, isDoneItem(item) ? "pending" : "completed");
-}
-
-function normalizeReminderPreset(value: unknown): TodoReminderPreset | null {
-  if (typeof value !== "string") return null;
-  const normalized = value.trim().toLowerCase();
-  if (["0m", "none", "5m", "10m", "30m", "1h", "1d", "2d"].includes(normalized)) {
-    return normalized as TodoReminderPreset;
-  }
-  return null;
-}
-
-function sortReminderPresets(presets: TodoReminderPreset[]) {
-  const order: TodoReminderPreset[] = ["none", "0m", "5m", "10m", "30m", "1h", "1d", "2d"];
-  presets.sort((left, right) => order.indexOf(left) - order.indexOf(right));
-}
-
-function normalizeReminderPresets(values: unknown[]) {
-  const presets: TodoReminderPreset[] = [];
-  let hasNone = false;
-  for (const value of values) {
-    const normalized = normalizeReminderPreset(value);
-    if (!normalized) continue;
-    if (normalized === "none") {
-      hasNone = true;
-      continue;
-    }
-    if (!presets.includes(normalized)) presets.push(normalized);
-  }
-  sortReminderPresets(presets);
-  if (hasNone && presets.length === 0) return ["none"] as TodoReminderPreset[];
-  return presets;
-}
-
-function effectiveReminderPresets(values: TodoReminderPreset[]) {
-  return normalizeReminderPresets(values).filter((preset) => preset !== "none");
-}
-
-function toDraftReminderPresets(values?: TodoReminderPreset[] | null) {
-  const normalized = normalizeReminderPresets(values || []);
-  return normalized.length > 0 ? normalized : (["none"] as TodoReminderPreset[]);
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
-}
-
-function readUnknown(record: Record<string, unknown>, keys: string[]) {
-  for (const key of keys) {
-    if (key in record) return record[key];
-  }
-  return undefined;
-}
-
-function readString(record: Record<string, unknown>, keys: string[], fallback = "") {
-  const value = readUnknown(record, keys);
-  return typeof value === "string" ? value : fallback;
-}
-
-function readNullableString(record: Record<string, unknown>, keys: string[]) {
-  const value = readUnknown(record, keys);
-  if (typeof value === "string") return value;
-  if (typeof value === "number" && Number.isFinite(value)) return String(value);
-  return null;
-}
-
-function readNumber(record: Record<string, unknown>, keys: string[], fallback = 0) {
-  const value = readUnknown(record, keys);
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value === "string") {
-    const parsed = Number(value);
-    if (Number.isFinite(parsed)) return parsed;
-  }
-  return fallback;
-}
-
-function readNullableNumber(record: Record<string, unknown>, keys: string[]) {
-  const value = readUnknown(record, keys);
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value === "string" && value.trim()) {
-    const parsed = Number(value);
-    if (Number.isFinite(parsed)) return parsed;
-  }
-  return null;
-}
-
-function readBoolean(record: Record<string, unknown>, keys: string[], fallback = false) {
-  const value = readUnknown(record, keys);
-  if (typeof value === "boolean") return value;
-  if (typeof value === "number") return value !== 0;
-  if (typeof value === "string") {
-    const normalized = value.trim().toLowerCase();
-    if (["true", "1", "yes", "enabled", "active"].includes(normalized)) return true;
-    if (["false", "0", "no", "disabled", "inactive"].includes(normalized)) return false;
-  }
-  return fallback;
-}
-
-function readArray(record: Record<string, unknown>, keys: string[]) {
-  const value = readUnknown(record, keys);
-  return Array.isArray(value) ? value : [];
-}
-
-function getResponseItems(payload: unknown) {
-  const record = asRecord(payload);
-  const items = record.items;
-  return Array.isArray(items) ? items : [];
-}
-
-function normalizePriority(value: string): TodoPriority {
-  return ["P0", "P1", "P2", "P3"].includes(value) ? (value as TodoPriority) : "P2";
-}
-
-function normalizeStatus(value: string): TodoStatus {
-  return ["pending", "in_progress", "completed"].includes(value)
-    ? (value as TodoStatus)
-    : "pending";
-}
-
-function normalizeKind(value: unknown): TodoKind {
-  if (value === "recurring") return "recurring";
-  return "one_off";
-}
-
-function normalizeRuleMode(value: string): TodoRuleMode {
-  return value === "cron" ? "cron" : "simple";
-}
-
-function reminderPresetFromMinutes(minutes: number | null): TodoReminderPreset {
-  if (minutes == null) return "none";
-  const matched = Object.entries(reminderPresetToMinutesMap).find(
-    ([, value]) => value === minutes,
-  )?.[0];
-  return (matched as TodoReminderPreset | undefined) || "none";
-}
-
-function reminderPresetToMinutes(preset: TodoReminderPreset) {
-  return reminderPresetToMinutesMap[preset] ?? null;
-}
-
-function deriveReminderPresets(record: Record<string, unknown>): TodoReminderPreset[] {
-  const presetValues = record.reminderPresets;
-  return Array.isArray(presetValues) ? effectiveReminderPresets(presetValues as TodoReminderPreset[]) : [];
-}
-
-function normalizeAssignees(value: unknown): TodoAssignee[] {
-  if (!Array.isArray(value)) return [];
-  return value
-    .map((item) => {
-      if (typeof item === "string") {
-        return { id: 0, name: item, createdAt: "", updatedAt: "" } satisfies TodoAssignee;
-      }
-      const record = asRecord(item);
-      const name = readString(record, ["name", "label", "assigneeName"]);
-      if (!name) return null;
-      return {
-        id: readNumber(record, ["id", "assigneeId", "userId"], 0),
-        name,
-        createdAt: readString(record, ["createdAt"], ""),
-        updatedAt: readString(record, ["updatedAt"], ""),
-      } satisfies TodoAssignee;
-    })
-    .filter((item): item is TodoAssignee => Boolean(item));
-}
-
-function normalizeLinks(value: unknown): TodoLink[] {
-  if (!Array.isArray(value)) return [];
-  return value
-    .map((item) => {
-      const record = asRecord(item);
-      const url = readString(record, ["url"]);
-      if (!url) return null;
-      return {
-        id: readNumber(record, ["id"], 0),
-        url,
-        title: readString(record, ["title"], ""),
-      } satisfies TodoLink;
-    })
-    .filter((item): item is TodoLink => Boolean(item));
-}
-
-function normalizeRule(
-  rawRule: unknown,
-  ruleMode: TodoRuleMode,
-  fallbackCronExpression = "",
-): TodoRule {
-  if (ruleMode === "cron") {
-    const expressionRecord = asRecord(rawRule);
-    const expression =
-      typeof rawRule === "string"
-        ? rawRule
-        : readString(expressionRecord, ["expression", "cronExpression"], fallbackCronExpression);
-    return { expression };
-  }
-
-  const source =
-    typeof rawRule === "string"
-      ? (() => {
-          try {
-            return asRecord(JSON.parse(rawRule));
-          } catch {
-            return {};
-          }
-        })()
-      : asRecord(rawRule);
-
-  const frequency = (["daily", "weekly", "monthly"] as const).includes(
-    readString(source, ["frequency"], "daily") as "daily" | "weekly" | "monthly",
-  )
-    ? (readString(source, ["frequency"], "daily") as "daily" | "weekly" | "monthly")
-    : "daily";
-  const interval = Math.max(1, readNumber(source, ["interval"], 1));
-  const time = readString(source, ["time"], "09:00");
-  const weekdays = readArray(source, ["weekdays"])
-    .map((item) => Number(item))
-    .filter((day) => Number.isInteger(day) && day >= 1 && day <= 7);
-  const dayOfMonth = Math.min(31, Math.max(1, readNumber(source, ["dayOfMonth"], 1)));
-  if (frequency === "weekly")
-    return {
-      frequency,
-      interval,
-      time,
-      weekdays: weekdays.length > 0 ? weekdays : [1, 2, 3, 4, 5],
-    };
-  if (frequency === "monthly") return { frequency, interval, time, dayOfMonth };
-  return { frequency, interval, time };
-}
-
-function getRootItemId(item: TodoItem) {
-  return item.rootId || item.id;
-}
-
-function normalizeTodoItem(raw: unknown): TodoItem {
-  const record = asRecord(raw);
-  const eventAt = typeof record.eventAt === "string" ? record.eventAt : null;
-  const kind = normalizeKind(record.kind);
-  const recurrenceRecord = asRecord(record.recurrence);
-  const hasRecurrence =
-    kind === "recurring" &&
-    ("ruleMode" in recurrenceRecord || "rule" in recurrenceRecord || "cronExpression" in recurrenceRecord);
-  const recurrenceRuleMode = normalizeRuleMode(
-    typeof recurrenceRecord.ruleMode === "string" ? recurrenceRecord.ruleMode : "simple",
-  );
-  const recurrenceCronExpression =
-    typeof recurrenceRecord.cronExpression === "string" ? recurrenceRecord.cronExpression : "";
-  const recurrence = hasRecurrence
-    ? ({
-        startAt: typeof recurrenceRecord.startAt === "string" ? recurrenceRecord.startAt : null,
-        ruleMode: recurrenceRuleMode,
-        rule: normalizeRule(recurrenceRecord.rule, recurrenceRuleMode, recurrenceCronExpression),
-        cronExpression: recurrenceCronExpression,
-        timezone: typeof recurrenceRecord.timezone === "string" ? recurrenceRecord.timezone : "local",
-        endMode: normalizeEndMode(
-          typeof recurrenceRecord.endMode === "string" ? recurrenceRecord.endMode : "never",
-        ),
-        endValue:
-          recurrenceRecord.endValue == null ||
-          typeof recurrenceRecord.endValue === "string" ||
-          typeof recurrenceRecord.endValue === "number"
-            ? (recurrenceRecord.endValue as string | number | null)
-            : null,
-        occurrenceIndex:
-          typeof recurrenceRecord.occurrenceIndex === "number" ? recurrenceRecord.occurrenceIndex : 0,
-        active: typeof recurrenceRecord.active === "boolean" ? recurrenceRecord.active : true,
-      } satisfies TodoRecurrence)
-    : null;
-  const id = typeof record.id === "number" ? record.id : 0;
-  const rootId = typeof record.rootId === "number" ? record.rootId : id;
-  const normalizedStatus =
-    typeof record.status === "string" ? normalizeStatus(record.status) : ("pending" satisfies TodoStatus);
-  return {
-    id,
-    rootId,
-    kind,
-    pinned: record.pinned === true,
-    title: typeof record.title === "string" ? record.title : "",
-    typeId: typeof record.typeId === "number" ? record.typeId : null,
-    typeName: typeof record.typeName === "string" ? record.typeName : null,
-    typeColor: typeof record.typeColor === "string" ? record.typeColor : null,
-    priority: normalizePriority(typeof record.priority === "string" ? record.priority : "P2"),
-    description: typeof record.description === "string" ? record.description : "",
-    status: normalizedStatus,
-    eventAt,
-    reminderPresets: deriveReminderPresets(record),
-    snoozeUntil: typeof record.snoozeUntil === "string" ? record.snoozeUntil : null,
-    lastNotifiedAt: typeof record.lastNotifiedAt === "string" ? record.lastNotifiedAt : null,
-    displayAt: typeof record.displayAt === "string" ? record.displayAt : eventAt,
-    assignees: normalizeAssignees(record.assignees),
-    links: normalizeLinks(record.links),
-    isOverdue: record.isOverdue === true,
-    recurrence,
-    nextTaskReminderId: typeof record.nextTaskReminderId === "number" ? record.nextTaskReminderId : null,
-    nextReminderPreset: normalizeReminderPreset(record.nextReminderPreset),
-    completedAt: typeof record.completedAt === "string" ? record.completedAt : null,
-    createdAt: typeof record.createdAt === "string" ? record.createdAt : "",
-    updatedAt: typeof record.updatedAt === "string" ? record.updatedAt : "",
-    projectId: typeof record.projectId === "number" ? record.projectId : null,
-    projectName: typeof record.projectName === "string" ? record.projectName : null,
-    projectColor: typeof record.projectColor === "string" ? record.projectColor : null,
-    pmItemId: typeof record.pmItemId === "number" ? record.pmItemId : null,
-    pmItemTitle: typeof record.pmItemTitle === "string" ? record.pmItemTitle : null,
-    pmItemProjectId: typeof record.pmItemProjectId === "number" ? record.pmItemProjectId : null,
-    pmItemStatus: typeof record.pmItemStatus === "string" ? record.pmItemStatus : null,
-  };
 }
 
 function disabledFiveMinuteMinutes(..._args: unknown[]) {
@@ -3166,6 +1873,9 @@ function applyItemToDraft(item: TodoItem) {
   } else {
     todoPmCandidates.value = [];
   }
+  // Ensure skipProjectWatch is consumed: if projectId didn't change (e.g. both null),
+  // the watcher won't fire, so we reset here after the scheduler flushes.
+  nextTick(() => { skipProjectWatch = false; });
 }
 
 async function loadTypes() {
@@ -3225,8 +1935,17 @@ async function onPmCreateConfirm() {
     ElMessage.warning("请输入工作项标题");
     return;
   }
-  if (!itemDraft.projectId) return;
+  const projectId = itemDraft.projectId ?? pmCreateProjectId.value;
+  if (!projectId) {
+    ElMessage.warning("请选择所属项目");
+    return;
+  }
   try {
+    // Set project on draft if not already set
+    if (!itemDraft.projectId) {
+      skipProjectWatch = true;
+      itemDraft.projectId = projectId;
+    }
     // If the todo item hasn't been saved yet (create mode), save it first
     let todoId = itemDraft.id;
     if (!todoId) {
@@ -3236,9 +1955,12 @@ async function onPmCreateConfirm() {
       }
       todoId = saveResult.id;
       itemDraft.id = todoId;
+    } else {
+      // Existing todo — persist the project change before linking
+      await submitItemChanges(false);
     }
     const result = await invokeToolByChannel("tool:pm:item-create", {
-      projectId: itemDraft.projectId,
+      projectId,
       title,
       itemType: "task",
       priority: "P2",
@@ -3250,13 +1972,14 @@ async function onPmCreateConfirm() {
     });
     itemDraft.pmItemId = result.id;
     itemDraft.pmItemTitle = title;
-    itemDraft.pmItemProjectId = itemDraft.projectId;
+    itemDraft.pmItemProjectId = projectId;
     itemDraft.pmItemStatus = "todo";
     todoPmLinkItemId.value = result.id;
-    todoLinkedPmItem.value = { id: result.id, title, status: "todo", projectId: itemDraft.projectId };
+    todoLinkedPmItem.value = { id: result.id, title, status: "todo", projectId };
     pmCreateDialogVisible.value = false;
     pmCreateTitle.value = "";
-    await loadTodoPmCandidates(itemDraft.projectId);
+    pmCreateProjectId.value = null;
+    await loadTodoPmCandidates(projectId);
     await loadItems();
     // If the item was just created (was in create mode), switch to edit mode so user can continue editing
     if (itemDialogMode.value === "create") {
@@ -3269,9 +1992,16 @@ async function onPmCreateConfirm() {
   }
 }
 
+function onPmCreateClosed() {
+  pmCreateTitle.value = "";
+  pmCreateProjectId.value = null;
+}
+
 async function onTodoPmLinkChange(pmItemId: number | null) {
   if (!itemDraft.id) return;
   try {
+    // Ensure the project assignment is persisted before linking/unlinking PM item
+    await submitItemChanges(false);
     if (pmItemId) {
       await invokeToolByChannel("tool:todo:item-set-pm-link", {
         todoItemId: itemDraft.id,
@@ -3284,6 +2014,7 @@ async function onTodoPmLinkChange(pmItemId: number | null) {
       });
     }
     itemDraft.pmItemId = pmItemId;
+    todoPmLinkItemId.value = pmItemId;
     const candidate = pmItemId ? todoPmCandidates.value.find((c) => c.id === pmItemId) : null;
     itemDraft.pmItemTitle = candidate?.title ?? null;
     itemDraft.pmItemProjectId = candidate?.projectId ?? null;
@@ -4668,19 +3399,9 @@ onBeforeUnmount(() => {
   border-bottom: 1px solid var(--lc-border);
   background: linear-gradient(180deg, var(--lc-surface-0), var(--lc-surface-1));
 }
-.detail-pane-header--view {
-  flex-direction: column;
-  gap: 16px;
-}
 .detail-title-group {
   min-width: 0;
   width: 100%;
-}
-.detail-title-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
 }
 .detail-eyebrow {
   font-size: 11px;
@@ -4699,22 +3420,6 @@ onBeforeUnmount(() => {
   word-break: break-word;
   flex: 1;
   min-width: 0;
-}
-.detail-title--copyable {
-  cursor: pointer;
-  border-radius: 4px;
-  transition: background-color 0.15s;
-}
-.detail-title--copyable:hover {
-  background-color: var(--el-fill-color-light, rgba(0, 0, 0, 0.04));
-}
-.detail-title--copyable:active {
-  background-color: var(--el-fill-color, rgba(0, 0, 0, 0.08));
-}
-.detail-badges {
-  display: flex;
-  gap: 6px;
-  flex-shrink: 0;
 }
 .detail-subtitle {
   margin-top: 4px;
@@ -4749,14 +3454,6 @@ onBeforeUnmount(() => {
   overflow-y: auto;
   padding: 16px 20px;
 }
-.detail-scroll--form {
-  padding-bottom: 12px;
-}
-.detail-content {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
 
 /* Detail Card Component */
 .detail-card {
@@ -4771,122 +3468,11 @@ onBeforeUnmount(() => {
   box-shadow: var(--lc-shadow-sm);
 }
 
-.detail-card-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 16px;
-  background: var(--lc-surface-2);
-  border-bottom: 1px solid var(--lc-border-subtle);
-}
 
-.detail-card-icon {
-  width: 28px;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 8px;
-  font-size: 14px;
-  flex-shrink: 0;
-}
-
-.detail-card-icon.primary {
-  color: var(--lc-accent);
-  background: rgba(56, 189, 248, 0.12);
-}
-
-.detail-card-icon.success {
-  color: var(--lc-success);
-  background: rgba(52, 211, 153, 0.12);
-}
-
-.detail-card-icon.warning {
-  color: var(--lc-warning);
-  background: rgba(251, 191, 36, 0.12);
-}
-
-.detail-card-icon.danger {
-  color: var(--lc-danger);
-  background: rgba(248, 113, 113, 0.12);
-}
-
-.detail-card-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--lc-text);
-}
-.detail-card-title-sub {
-  font-weight: 400;
-  color: var(--lc-text-muted);
-}
 /* Project Unified Card — Scheme E */
-.project-inline {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-left: 4px;
-}
-.project-section-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-.project-section-name {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--lc-text);
-}
-.pm-section {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 16px;
-  background: linear-gradient(135deg, rgba(56, 189, 248, 0.04), rgba(56, 189, 248, 0.08));
-  border-top: 1px dashed var(--lc-border-subtle);
-}
-.pm-section-badge {
-  width: 22px;
-  height: 22px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 6px;
-  background: rgba(56, 189, 248, 0.12);
-  font-size: 12px;
-  color: var(--lc-accent);
-  flex-shrink: 0;
-}
-.pm-section-title {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--lc-text);
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.pm-section-status {
-  flex-shrink: 0;
-}
-.pm-section-jump {
-  font-size: 12px;
-  padding: 0;
-  flex-shrink: 0;
-}
 
-.detail-card-body {
-  padding: 16px;
-}
 
 /* Detail empty hint */
-.detail-empty-info {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
 
 .detail-empty-info-text {
   font-size: 13px;
@@ -4907,87 +3493,15 @@ onBeforeUnmount(() => {
 }
 
 /* Detail Grid & Fields */
-.detail-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-}
 
-.detail-grid.is-stacked {
-  grid-template-columns: 1fr;
-}
-
-.detail-field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 12px 14px;
-  border-radius: 10px;
-  background: var(--lc-surface-0);
-  border: 1px solid var(--lc-border-subtle);
-  transition: all 0.2s var(--lc-ease);
-}
-
-.detail-field:hover {
-  background: var(--lc-surface-2);
-  border-color: var(--lc-border);
-}
 
 .detail-field--full {
   grid-column: 1 / -1;
 }
 
-.detail-label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: var(--lc-text-muted);
-}
-
-.detail-value {
-  font-size: 13px;
-  line-height: 1.5;
-  color: var(--lc-text);
-  word-break: break-word;
-}
-
-.detail-hint {
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--lc-text-muted);
-}
 
 /* Detail Description Card */
-.detail-description-card {
-  background: var(--lc-surface-0);
-  border: 1px solid var(--lc-border-subtle);
-  border-radius: 10px;
-  padding: 16px;
-  min-height: 100px;
-}
 
-.detail-description-card.is-empty {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--lc-text-muted);
-  font-size: 13px;
-}
-
-.detail-description {
-  font-size: 13px;
-  line-height: 1.7;
-  color: var(--lc-text);
-  word-break: break-word;
-}
-
-.detail-description:not(.md-rendered) {
-  white-space: pre-wrap;
-}
 
 /* Markdown rendered styles */
 .md-rendered :deep(h1) {
@@ -5049,91 +3563,17 @@ onBeforeUnmount(() => {
 }
 
 /* Markdown toolbar */
-.md-toolbar {
-  display: flex;
-  gap: 2px;
-  margin-bottom: 4px;
-  padding: 2px 4px;
-  background: var(--lc-surface-0);
-  border: 1px solid var(--lc-border-subtle);
-  border-radius: 6px;
-}
 
-.md-toolbar-btn {
-  padding: 2px 8px !important;
-  font-size: 12px !important;
-  min-height: 24px !important;
-  color: var(--lc-text-muted) !important;
-}
-
-.md-toolbar-btn:hover {
-  color: var(--lc-text) !important;
-  background: var(--el-fill-color) !important;
-}
 
 /* Priority & Status Badges in Detail */
-.detail-badges {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
 
-.detail-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 10px;
-  border-radius: 20px;
-  font-size: 11px;
-  font-weight: 500;
-}
-
-.detail-badge.pinned {
-  color: var(--lc-success);
-  background: rgba(52, 211, 153, 0.12);
-}
-
-.detail-badge.repeat {
-  color: var(--lc-warning);
-  background: rgba(251, 191, 36, 0.12);
-}
-
-.detail-badge.overdue {
-  color: var(--lc-danger);
-  background: rgba(248, 113, 113, 0.12);
-}
 
 /* Priority with Dot */
-.priority-with-dot {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
 
 /* Type with Color */
-.type-with-color {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
 
 /* Assignee List */
-.assignee-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
 
-.assignee-tag {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 8px;
-  border-radius: 12px;
-  font-size: 12px;
-  background: var(--lc-surface-2);
-  border: 1px solid var(--lc-border);
-  color: var(--lc-text);
-}
 
 /* Text Muted */
 .text-muted {
@@ -5141,12 +3581,6 @@ onBeforeUnmount(() => {
 }
 
 /* Meta Timestamps */
-.meta-timestamps {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
 
 .meta-label {
   color: var(--lc-text-muted);
@@ -5157,59 +3591,14 @@ onBeforeUnmount(() => {
 }
 
 /* Detail Footer */
-.detail-pane-footer {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 16px 20px;
-  border-top: 1px solid var(--lc-border);
-  background: var(--lc-surface-0);
-}
 
-.detail-footer-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
 
-.detail-footer-submit {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 10px;
-  margin-left: auto;
-}
-
-.detail-pane-footer--meta {
-  justify-content: space-between;
-  font-size: 12px;
-  color: var(--lc-text-muted);
-  padding-top: 12px;
-  border-top: 1px dashed var(--lc-border-subtle);
-}
 .detail-edit,
 .detail-view {
   display: flex;
   flex: 1;
   min-height: 0;
   flex-direction: column;
-}
-.todo-detail-pane .todo-form-row {
-  flex-direction: column;
-  gap: 0;
-}
-.todo-detail-pane .todo-form-item-datetime,
-.todo-detail-pane .todo-form-item-category-priority,
-.todo-detail-pane .todo-form-item-flex {
-  width: 100%;
-}
-.todo-detail-pane .datetime-row {
-  flex-wrap: wrap;
-}
-.todo-detail-pane .time-picker-fused {
-  flex: 1;
-  min-width: 0;
 }
 
 /* --- Dialog forms --- */
@@ -5228,138 +3617,6 @@ onBeforeUnmount(() => {
   .basic-grid {
     grid-template-columns: 1fr;
   }
-}
-.todo-form-section {
-  margin-bottom: 16px;
-}
-.todo-form-section:last-child {
-  margin-bottom: 0;
-}
-.todo-form-more-toggle {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 0;
-  margin-bottom: 8px;
-  cursor: pointer;
-  user-select: none;
-  color: var(--el-color-primary);
-  font-size: 13px;
-  border-top: 1px solid var(--lc-border-subtle);
-  border-bottom: 1px solid var(--lc-border-subtle);
-  border-radius: 0;
-  transition:
-    background 0.15s ease,
-    border-radius 0.15s ease;
-}
-.todo-form-more-toggle:hover {
-  background: var(--lc-surface-1);
-  border-radius: 6px;
-}
-.more-toggle-text {
-  font-weight: 500;
-}
-.more-toggle-summary {
-  color: var(--lc-text-muted);
-  font-size: 12px;
-}
-.more-toggle-icon {
-  display: inline-flex;
-  transition: transform 0.2s;
-}
-.more-toggle-icon.is-expanded {
-  transform: rotate(180deg);
-}
-.todo-form-collapsible {
-  /* container for v-show toggled fields */
-}
-.todo-item-form :deep(.el-form-item__label) {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--lc-text);
-}
-.todo-form-row {
-  display: flex;
-  gap: 16px;
-}
-.todo-form-row .el-form-item {
-  margin-bottom: 14px;
-}
-.todo-form-item-flex {
-  flex: 1;
-}
-.todo-form-item-datetime {
-  width: 100%;
-}
-.todo-form-item-category-priority {
-  width: 100%;
-}
-.category-priority-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-}
-.datetime-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-}
-.datetime-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  margin-top: 4px;
-}
-.time-picker-fused {
-  display: flex;
-  align-items: center;
-  border: 1px solid var(--lc-border);
-  border-radius: var(--el-border-radius-base);
-  overflow: hidden;
-  transition: border-color 0.2s;
-}
-.time-picker-fused:hover {
-  border-color: var(--lc-border-hover);
-}
-.time-picker-fused:focus-within {
-  border-color: var(--lc-accent);
-}
-.time-picker-fused .time-fused-select :deep(.el-input__wrapper) {
-  box-shadow: none !important;
-  border-radius: 0;
-}
-.time-fused-separator {
-  color: var(--lc-text-muted);
-  font-weight: 600;
-  padding: 0 2px;
-  user-select: none;
-}
-.time-fused-clear {
-  flex-shrink: 0;
-}
-.repeat-detail-card {
-  background: var(--lc-surface-0);
-  border: 1px solid var(--lc-border);
-  border-radius: var(--el-border-radius-base);
-  padding: 12px;
-  margin-bottom: 12px;
-}
-.repeat-tip {
-  color: var(--lc-text-muted);
-  font-size: 13px;
-  line-height: 1.6;
-  margin-top: 4px;
-}
-.repeat-radio-group {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.repeat-radio-group :deep(.el-radio-button__inner) {
-  min-width: 76px;
 }
 
 /* --- Animation --- */
@@ -5487,29 +3744,12 @@ onBeforeUnmount(() => {
     grid-template-columns: 1fr;
   }
   .detail-pane-header,
-  .detail-pane-footer {
-    padding-left: 14px;
-    padding-right: 14px;
-  }
   .detail-scroll {
     padding: 14px;
   }
 }
 
 /* --- Quick date presets --- */
-.date-quick-presets {
-  display: flex;
-  gap: 4px;
-}
-.date-preset-btn {
-  font-size: 12px;
-  padding: 2px 8px;
-  height: auto;
-  color: var(--lc-text-muted);
-}
-.date-preset-btn:hover {
-  color: var(--lc-accent);
-}
 
 
 /* --- Custom scrollbar --- */
@@ -5536,52 +3776,7 @@ onBeforeUnmount(() => {
 }
 
 /* Link styles */
-.detail-links-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
 
-.detail-link-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: background 0.15s;
-}
-
-.detail-link-item:hover {
-  background: var(--el-fill-color);
-}
-
-.detail-link-icon {
-  color: var(--el-color-primary);
-  flex-shrink: 0;
-}
-
-.detail-link-text {
-  font-size: 13px;
-  color: var(--el-color-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.link-edit-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  width: 100%;
-  margin-bottom: 6px;
-}
-
-.link-edit-row {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-}
 
 /* Calendar view */
 .todo-calendar-view {
@@ -5602,29 +3797,6 @@ onBeforeUnmount(() => {
   --el-radio-button-checked-border-color: var(--el-color-primary-light-5);
 }
 
-/* PM link styles */
-.pm-link-project-lock-hint {
-  font-size: 12px;
-  color: var(--el-color-warning);
-  margin-top: 4px;
-}
-
-.pm-link-recurring-hint,
-.pm-link-no-project-hint {
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
-}
-
-.pm-link-selector {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  width: 100%;
-}
-
-.pm-link-selector .el-select {
-  flex: 1;
-}
 </style>
 
 <style>

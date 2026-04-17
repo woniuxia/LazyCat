@@ -437,30 +437,14 @@
       @submit="pendingTodoSubmitLink()"
     />
 
-    <!-- Context menu (Vue reactive) -->
-    <Teleport to="body">
-      <Transition name="ctx-fade">
-        <div
-          v-if="ctxMenuVisible"
-          ref="ctxMenuRef"
-          class="pm-ctx-menu"
-          :style="{ left: ctxMenuX + 'px', top: ctxMenuY + 'px' }"
-          @contextmenu.prevent
-        >
-          <template v-for="(act, idx) in ctxMenuActions" :key="idx">
-            <div v-if="act.divider" class="pm-ctx-divider" />
-            <div
-              v-else
-              class="pm-ctx-item"
-              :class="{ 'is-danger': act.danger }"
-              @click="executeCtxAction(act)"
-            >
-              {{ act.label }}
-            </div>
-          </template>
-        </div>
-      </Transition>
-    </Teleport>
+    <!-- Context menu -->
+    <PmContextMenu
+      :visible="ctxMenuVisible"
+      :x="ctxMenuX"
+      :y="ctxMenuY"
+      :actions="ctxMenuActions"
+      @close="closeCtxMenu"
+    />
 
     <PmSiyuanDrawer />
     </el-config-provider>
@@ -486,6 +470,7 @@ import type {
   PmSiyuanDirectoryResult,
   PmSiyuanSearchResult,
   PmSiyuanTreeNode,
+  CtxMenuAction,
 } from "../types/pm";
 import { PM_STATUS_COLUMNS, PM_ITEM_TYPE_MAP, PM_PRIORITY_MAP } from "../types/pm";
 import Sortable from "sortablejs";
@@ -496,7 +481,7 @@ import PmSiyuanDrawer from "./PmSiyuanDrawer.vue";
 import PmProjectDialog from "./PmProjectDialog.vue";
 import PmTodoCreateDialog from "./PmTodoCreateDialog.vue";
 import PmTodoLinkDialog from "./PmTodoLinkDialog.vue";
-import { clampContextMenuPosition } from "../utils/contextMenu";
+import PmContextMenu from "./PmContextMenu.vue";
 import { usePmSiyuan } from "../composables/usePmSiyuan";
 import { PM_SIYUAN_KEY } from "../composables/pmSiyuanKey";
 import type { ItemSiyuanLinkedRow } from "../composables/usePmSiyuan";
@@ -526,12 +511,6 @@ const { invoke } = useToolInvoke();
 
 // ── Types ────────────────────────────────────────────────
 
-interface CtxMenuAction {
-  label: string;
-  action: () => void | Promise<void>;
-  danger?: boolean;
-  divider?: boolean;
-}
 
 // ── State ────────────────────────────────────────────────
 
@@ -709,12 +688,7 @@ const ctxMenuVisible = ref(false);
 const ctxMenuX = ref(0);
 const ctxMenuY = ref(0);
 const ctxMenuActions = ref<CtxMenuAction[]>([]);
-const ctxMenuRef = ref<HTMLElement | null>(null);
 
-const PM_CTX_MENU_WIDTH = 168;
-const PM_CTX_MENU_ITEM_HEIGHT = 34;
-const PM_CTX_MENU_DIVIDER_HEIGHT = 9;
-const PM_CTX_MENU_VERTICAL_PADDING = 8;
 const PM_ITEM_STATUS_ORDER: PmItemStatus[] = ["todo", "in_progress", "testing", "done"];
 
 // ── Computed ─────────────────────────────────────────────
@@ -1189,7 +1163,10 @@ function openItemContextMenu(event: MouseEvent, item: PmItem) {
 }
 
 function openItemContextMenuAt(item: PmItem, anchorX: number, anchorY: number) {
-  openCtxMenuAt(anchorX, anchorY, buildItemContextActions(item));
+  ctxMenuActions.value = buildItemContextActions(item);
+  ctxMenuX.value = anchorX;
+  ctxMenuY.value = anchorY;
+  ctxMenuVisible.value = true;
 }
 
 // ── Sortable (drag & drop) ───────────────────────────────
@@ -1333,95 +1310,17 @@ function onProjectDrop(p: PmProject) {
     });
 }
 
-// ── Context menu (Vue reactive) ──────────────────────────
+// ── Context menu (delegated to PmContextMenu) ───────────
 
 function openCtxMenu(event: MouseEvent, actions: CtxMenuAction[]) {
-  openCtxMenuAt(event.clientX, event.clientY, actions);
-}
-
-function estimateCtxMenuHeight(actions: CtxMenuAction[]): number {
-  const dividerCount = actions.filter((action) => action.divider).length;
-  const itemCount = actions.length - dividerCount;
-  return (
-    itemCount * PM_CTX_MENU_ITEM_HEIGHT +
-    dividerCount * PM_CTX_MENU_DIVIDER_HEIGHT +
-    PM_CTX_MENU_VERTICAL_PADDING
-  );
-}
-
-function positionCtxMenu(anchorX: number, anchorY: number) {
-  const menuWidth = ctxMenuRef.value?.offsetWidth ?? PM_CTX_MENU_WIDTH;
-  const menuHeight = ctxMenuRef.value?.offsetHeight ?? estimateCtxMenuHeight(ctxMenuActions.value);
-  const position = clampContextMenuPosition({
-    anchorX,
-    anchorY,
-    menuWidth,
-    menuHeight,
-    viewportWidth: window.innerWidth,
-    viewportHeight: window.innerHeight,
-  });
-  ctxMenuX.value = position.x;
-  ctxMenuY.value = position.y;
-}
-
-function openCtxMenuAt(anchorX: number, anchorY: number, actions: CtxMenuAction[]) {
-  closeCtxMenu();
   ctxMenuActions.value = actions;
+  ctxMenuX.value = event.clientX;
+  ctxMenuY.value = event.clientY;
   ctxMenuVisible.value = true;
-  ctxMenuX.value = anchorX;
-  ctxMenuY.value = anchorY;
-  nextTick(() => {
-    positionCtxMenu(anchorX, anchorY);
-  });
-  // 用 setTimeout（宏任务）注册监听器，避免 nextTick（微任务）
-  // 在当前 contextmenu 事件冒泡完成前执行导致菜单被立即关闭
-  setTimeout(() => {
-    if (!ctxMenuVisible.value) return;
-    document.addEventListener("pointerdown", handleCtxClickAway);
-    document.addEventListener("keydown", handleCtxKeydown);
-    document.addEventListener("contextmenu", handleCtxGlobalContextMenu);
-    document.addEventListener("scroll", handleCtxViewportChange, true);
-    window.addEventListener("resize", handleCtxViewportChange);
-  }, 0);
 }
 
 function closeCtxMenu() {
   ctxMenuVisible.value = false;
-  document.removeEventListener("pointerdown", handleCtxClickAway);
-  document.removeEventListener("keydown", handleCtxKeydown);
-  document.removeEventListener("contextmenu", handleCtxGlobalContextMenu);
-  document.removeEventListener("scroll", handleCtxViewportChange, true);
-  window.removeEventListener("resize", handleCtxViewportChange);
-}
-
-function handleCtxClickAway(e: PointerEvent) {
-  const target = e.target;
-  if (!(target instanceof Element) || !target.closest(".pm-ctx-menu")) {
-    closeCtxMenu();
-  }
-}
-
-function executeCtxAction(act: CtxMenuAction) {
-  closeCtxMenu();
-  void act.action();
-}
-
-function handleCtxKeydown(event: KeyboardEvent) {
-  if (event.key === "Escape") {
-    closeCtxMenu();
-  }
-}
-
-function handleCtxGlobalContextMenu(event: MouseEvent) {
-  const target = event.target;
-  if (target instanceof Element && target.closest(".pm-ctx-menu")) {
-    return;
-  }
-  closeCtxMenu();
-}
-
-function handleCtxViewportChange() {
-  closeCtxMenu();
 }
 
 // ── Lifecycle ────────────────────────────────────────────
@@ -1458,7 +1357,6 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   document.removeEventListener("pointerdown", onDetailClickAway);
   destroySortable();
-  closeCtxMenu();
 });
 </script>
 
@@ -2762,53 +2660,6 @@ onBeforeUnmount(() => {
 </style>
 
 <style>
-/* Context menu (global because of Teleport to body) */
-.pm-ctx-menu {
-  position: fixed;
-  z-index: 9999;
-  background: var(--el-bg-color-overlay);
-  border: 1px solid var(--el-border-color-light);
-  border-radius: 6px;
-  padding: 4px 0;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
-  min-width: 140px;
-}
-.pm-ctx-item {
-  padding: 6px 16px;
-  font-size: 15px;
-  cursor: pointer;
-  transition: background 0.15s;
-}
-.pm-ctx-item:hover {
-  background: var(--el-fill-color-light);
-}
-.pm-ctx-item.is-danger {
-  color: var(--el-color-danger);
-}
-.pm-ctx-item.is-danger:hover {
-  background: var(--el-color-danger-light-9);
-}
-.pm-ctx-divider {
-  height: 1px;
-  margin: 4px 8px;
-  background: var(--el-border-color-extra-light);
-}
-
-/* Context menu transition */
-.ctx-fade-enter-active {
-  transition: opacity 0.1s ease, transform 0.1s ease;
-}
-.ctx-fade-leave-active {
-  transition: opacity 0.08s ease;
-}
-.ctx-fade-enter-from {
-  opacity: 0;
-  transform: scale(0.95);
-}
-.ctx-fade-leave-to {
-  opacity: 0;
-}
-
 /* Global drag cursor */
 body.pm-is-dragging,
 body.pm-is-dragging * {

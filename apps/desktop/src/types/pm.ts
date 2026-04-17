@@ -184,3 +184,10 @@ export interface PmCandidateItem {
   projectName: string | null;
   projectColor: string | null;
 }
+
+export interface CtxMenuAction {
+  label: string;
+  action: () => void | Promise<void>;
+  danger?: boolean;
+  divider?: boolean;
+}
