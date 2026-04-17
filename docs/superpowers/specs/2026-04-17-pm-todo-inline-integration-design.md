@@ -10,7 +10,7 @@
 1. **6 个弹窗实例** -- PmTodoCreateDialog 和 PmTodoLinkDialog 在编辑模式、创建模式、详情面板三处各一份，代码冗余
 2. **创建模式 bug** -- PmPanel.vue 中 `pendingTodoCreates` 和 `pendingTodoLinkItems` 积累的数据在 `submitItem()` 中从未提交到后端
 3. **状态不同步** -- 详情面板和编辑对话框各自持有独立的 `usePmTodoLinking` 实例
-4. **操作路径深** -- Todo 侧关联工作项藏在「更多设置」下拉框中
+4. **操作路径深** -- Todo 侧关联工作项在 `hasProjectOrWorkItem` 为 false 时藏于「更多设置」折叠区，需展开才能操作
 
 ## 设计目标
 
@@ -70,6 +70,15 @@
 - `unlink(id: number)` -- 解绑任务
 - `link(ids: number[])` -- 批量绑定
 - `search-candidates(keyword: string)` -- 搜索候选任务
+- `pending-change(pendingCreates: Array<{title,priority,description}>, pendingLinks: number[])` -- 创建模式下暴露本地积累的待关联数据，供父组件在提交工作项时批量处理
+
+**创建模式行为**:
+当 `pmItemId` getter 返回 `undefined`（即工作项尚未持久化），组件进入创建模式:
+- `items` 和 `summary` 为空，跳过数据加载
+- 创建任务时通过 `pending-change` emit 累积到本地数组，而非调用后端
+- 绑定已有任务时通过 `pending-change` emit 累积已选 ID
+- 组件内部维护 `localItems` 数组展示待关联任务（含本地创建的和已选的已有任务）
+- 父组件监听 `pending-change`，在 `submitItem()` 拿到新工作项 ID 后，调用 composable 的 `quickCreate` 和 `linkBatch` 完成批量关联
 
 **模式差异**:
 - `detail` 模式: 隐藏创建/绑定入口，只展示只读列表
@@ -79,7 +88,7 @@
 
 **新组件**: `InlinePmSelector.vue`（约 180 行）
 
-替换 TodoDetailEdit 中现有的 project selector + pm-link-selector 区域。项目+工作项合为一个卡片，始终可见，不再藏于「更多设置」。
+替换 TodoDetailEdit 中现有的 project selector + pm-link-selector 区域。项目+工作项合为一个卡片，始终可见（不受 `hasProjectOrWorkItem` 条件控制，不再条件性地藏于「更多设置」折叠区）。
 
 **三种显示状态**:
 
@@ -92,6 +101,11 @@
 3. **搜索中** -- 内联下拉:
    - 搜索框 + 候选工作项列表（带状态标签）
    - 底部「新建工作项并关联」入口
+4. **新建工作项** -- 点击「新建工作项并关联」后展开内联迷你表单:
+   - 项目选择器（默认使用当前已选项目，可切换）
+   - 标题输入框
+   - 回车或点击「创建」即调用 `create-pm` emit
+   - 创建成功后自动切换到已关联状态
 
 **Props**:
 - `projectId`: `number | null`
@@ -121,7 +135,8 @@
 
 - 状态标签使用与 PM 面板一致的颜色方案
 - 一行小字，不影响卡片主体布局
-- 点击可跳转到 PM 面板（保留现有 navigateToPm 行为）
+- 仅在有关联工作项时渲染，避免视觉噪音
+- 点击整个标签区域触发 `navigateToPm` 事件，TodoPanel 监听后切换到 PM 面板（复用现有 `openTab("pm")` 机制）
 
 ### 四、Composable 重构
 
@@ -130,7 +145,7 @@
 移除:
 - `createDialogVisible`、`createForm`（弹窗状态）
 - `linkDialogVisible`、`linkSelectedIds`（弹窗状态）
-- `loadCandidates()` 的弹窗关联逻辑
+- `openLinkDialog()`（弹窗打开函数，内部调用 `loadCandidates()`）
 - `submitCreate()`、`submitLink()`（弹窗提交逻辑）
 
 保留:
@@ -148,7 +163,7 @@
 
 **问题**: PmPanel.vue 中创建工作项时，`pendingTodoCreates` 和 `pendingTodoLinkItems` 积累的数据在 `submitItem()` 中从未提交到后端。
 
-**修复方案**: 创建模式下 InlineTodoList 维护本地待关联列表（无需 composable 实例）。`submitItem()` 拿到新建工作项 ID 后，依次调用 `quickCreate` 和 `linkBatch` 完成批量关联。
+**修复方案**: 创建模式下 InlineTodoList 维护本地待关联列表（无需 composable 实例）。`submitItem()` 拿到新建工作项 ID 后，根据 `pending-change` emit 积累的数据，依次调用 `quickCreate` 和 `linkBatch` 完成批量关联。
 
 移除 PmPanel.vue 中手写的 `pendingTodo*` 系列状态（约 65 行）:
 - `pendingTodoCreates`
@@ -178,13 +193,13 @@
 | `PmTodoLinkDialog.vue` | 删除 | -87 行 |
 | `usePmTodoLinking.ts` | 重构 | 243→120 行 |
 | `PmPanel.vue` | 改造 | -200 行 |
-| `PmItemDialog.vue` | 改造 | -80 行 |
+| `PmItemDialog.vue` | 改造 | -10 行（移除 todo 插槽声明） |
 | `PmDetailPanel.vue` | 改造 | -60 行 |
 | `TodoDetailEdit.vue` | 改造 | -80 行 |
 | `TodoDetailView.vue` | 改造 | -20 行 |
 | `TodoPanel.vue` | 改造 | -40 行 |
 
-**净效果**: +380 行新组件，-545 行旧代码，总计减少约 165 行。消除 6 个弹窗实例和 1 个 bug。
+**净效果**: +380 行新组件，-475 行旧代码，总计减少约 95 行。消除 6 个弹窗实例和 1 个 bug。
 
 ## 不在范围内
 
