@@ -1,117 +1,14 @@
 <template>
   <div class="todo-panel">
     <div class="todo-layout">
-      <aside class="todo-stats todo-sidebar">
-        <div class="stats-section">
-          <div class="stats-section-header">
-            <div class="stats-section-title">概览</div>
-            <el-button
-              size="small"
-              link
-              type="primary"
-              class="overview-settings-btn"
-              title="基础数据设置"
-              aria-label="基础数据设置"
-              @click="basicsDialogVisible = true"
-            >
-              <el-icon><Setting /></el-icon>
-              <span>基础数据</span>
-            </el-button>
-          </div>
-          <div class="stats-grid">
-            <div class="stat-card">
-              <div class="stat-number">{{ activeItems.length }}</div>
-              <div class="stat-label">任务</div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-number">{{ doneItems.length + recentWeekItems.length }}</div>
-              <div class="stat-label">已完成</div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-number">{{ todayDueCount }}</div>
-              <div class="stat-label">今日到期</div>
-            </div>
-            <div class="stat-card" :class="{ 'is-alert': overdueCount > 0 }">
-              <div class="stat-number">{{ overdueCount }}</div>
-              <div class="stat-label">逾期</div>
-            </div>
-          </div>
-        </div>
-        <div v-if="typeDistribution.length > 0" class="stats-section">
-          <div class="stats-section-header">
-            <div class="stats-section-title">分类分布</div>
-            <el-button
-              size="small"
-              link
-              type="primary"
-              :disabled="filterType === null"
-              @click="clearTypeFilter"
-            >
-              清空
-            </el-button>
-          </div>
-          <div class="stats-bar-list">
-            <div
-              v-for="entry in typeDistribution"
-              :key="entry.name"
-              class="stats-bar-item is-clickable"
-              :class="{ 'is-active': filterType === entry.name }"
-              @click="toggleTypeFilter(entry.name)"
-            >
-              <div class="stats-bar-label">
-                <span class="color-dot" :style="{ backgroundColor: entry.color }" />
-                <span>{{ entry.name }}</span>
-                <span class="stats-bar-count">{{ entry.count }}</span>
-              </div>
-              <div class="stats-bar-track">
-                <div
-                  class="stats-bar-fill"
-                  :style="{
-                    width: statsBarWidth(entry.count, typeDistribution),
-                    backgroundColor: entry.color,
-                  }"
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-        <div v-if="priorityDistribution.length > 0" class="stats-section">
-          <div class="stats-section-header">
-            <div class="stats-section-title">优先级分布</div>
-            <el-button
-              size="small"
-              link
-              type="primary"
-              :disabled="filterPriority === null"
-              @click="clearPriorityFilter"
-            >
-              清空
-            </el-button>
-          </div>
-          <div class="stats-bar-list">
-            <div
-              v-for="entry in priorityDistribution"
-              :key="entry.priority"
-              class="stats-bar-item is-clickable"
-              :class="{ 'is-active': filterPriority === entry.priority }"
-              @click="togglePriorityFilter(entry.priority)"
-            >
-              <div class="stats-bar-label">
-                <span class="priority-dot" :class="'priority-' + entry.priority.toLowerCase()" />
-                <span>{{ entry.priority }}</span>
-                <span class="stats-bar-count">{{ entry.count }}</span>
-              </div>
-              <div class="stats-bar-track">
-                <div
-                  class="stats-bar-fill"
-                  :class="'priority-bar-' + entry.priority.toLowerCase()"
-                  :style="{ width: statsBarWidth(entry.count, priorityDistribution) }"
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-      </aside>
+      <TodoSidebar
+        :active-items="activeItems"
+        :recent-week-items="recentWeekItems"
+        :done-items="doneItems"
+        v-model:filter-type="filterType"
+        v-model:filter-priority="filterPriority"
+        @open-basics="basicsDialogVisible = true"
+      />
       <section class="todo-list-pane">
         <div class="toolbar">
           <div class="toolbar-left">
@@ -491,217 +388,22 @@
             @navigate-to-pm="navigateToPmItem"
           />
         </template>
-        <div v-else class="detail-empty-pane">
-          <div class="detail-empty-visual">
-            <div class="empty-illustration">
-              <svg class="empty-svg" viewBox="0 0 200 160" fill="none">
-                <!-- 背景装饰圆 -->
-                <circle cx="160" cy="40" r="20" fill="var(--lc-accent)" opacity="0.08" />
-                <circle cx="30" cy="120" r="15" fill="var(--lc-success)" opacity="0.06" />
-                <circle cx="170" cy="130" r="10" fill="var(--lc-warning)" opacity="0.08" />
-                <!-- 主文档图形 -->
-                <rect
-                  x="50"
-                  y="20"
-                  width="100"
-                  height="120"
-                  rx="12"
-                  fill="var(--lc-surface-1)"
-                  stroke="var(--lc-border)"
-                  stroke-width="2"
-                />
-                <rect
-                  x="65"
-                  y="45"
-                  width="70"
-                  height="6"
-                  rx="3"
-                  fill="var(--lc-border)"
-                  opacity="0.6"
-                />
-                <rect
-                  x="65"
-                  y="60"
-                  width="50"
-                  height="6"
-                  rx="3"
-                  fill="var(--lc-border)"
-                  opacity="0.4"
-                />
-                <rect
-                  x="65"
-                  y="75"
-                  width="60"
-                  height="6"
-                  rx="3"
-                  fill="var(--lc-border)"
-                  opacity="0.4"
-                />
-                <rect
-                  x="65"
-                  y="90"
-                  width="40"
-                  height="6"
-                  rx="3"
-                  fill="var(--lc-border)"
-                  opacity="0.4"
-                />
-                <!-- 勾选标记 -->
-                <circle
-                  cx="140"
-                  cy="115"
-                  r="22"
-                  fill="var(--lc-surface-0)"
-                  stroke="var(--lc-accent)"
-                  stroke-width="2.5"
-                />
-                <path
-                  d="M130 115L137 122L152 107"
-                  stroke="var(--lc-accent)"
-                  stroke-width="3"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                />
-                <!-- 小装饰点 -->
-                <circle cx="60" cy="30" r="4" fill="var(--lc-danger)" opacity="0.6" />
-                <circle cx="75" cy="30" r="4" fill="var(--lc-warning)" opacity="0.6" />
-                <circle cx="90" cy="30" r="4" fill="var(--lc-success)" opacity="0.6" />
-              </svg>
-              <div class="empty-glow"></div>
-            </div>
-          </div>
-          <div class="detail-empty-content">
-            <div class="detail-empty-title">选择事项查看详情</div>
-            <div class="detail-empty-text">
-              在列表中点击任意任务，或快速创建新任务开始管理您的工作。
-            </div>
-          </div>
-          <div class="detail-empty-actions">
-            <el-button type="primary" size="large" @click="startCreate">
-              <el-icon class="empty-btn-icon"><Plus /></el-icon>
-              新建任务
-            </el-button>
-            <el-button size="large" @click="loadItems">
-              <el-icon class="empty-btn-icon"><Refresh /></el-icon>
-              刷新列表
-            </el-button>
-          </div>
-          <div class="detail-empty-divider">
-            <span>今日概览</span>
-          </div>
-          <div class="detail-empty-stats">
-            <div class="detail-empty-stat" :class="{ 'is-active': todayDueCount > 0 }">
-              <div class="stat-icon today">
-                <el-icon><Calendar /></el-icon>
-              </div>
-              <div class="stat-info">
-                <span class="stat-label">今日到期</span>
-                <strong class="stat-value">{{ todayDueCount }}</strong>
-              </div>
-            </div>
-            <div class="detail-empty-stat" :class="{ 'is-alert': overdueCount > 0 }">
-              <div class="stat-icon overdue">
-                <el-icon><AlarmClock /></el-icon>
-              </div>
-              <div class="stat-info">
-                <span class="stat-label">逾期事项</span>
-                <strong class="stat-value">{{ overdueCount }}</strong>
-              </div>
-            </div>
-          </div>
-        </div>
+        <TodoEmptyState
+          v-else
+          :today-due-count="todayDueCount"
+          :overdue-count="overdueCount"
+          @create="startCreate"
+          @refresh="loadItems"
+        />
       </aside>
     </div>
 
-    <el-dialog
+    <TodoBasicsDialog
       v-model="basicsDialogVisible"
-      title="基础数据设置"
-      width="920px"
-      :close-on-click-modal="false"
-    >
-      <div class="basic-grid">
-        <el-card>
-          <template #header>
-            <div class="card-header">
-              <span>事项分类</span>
-              <el-button text type="primary" @click="addType">新增</el-button>
-            </div>
-          </template>
-          <el-table :data="types" size="small" border>
-            <el-table-column prop="name" label="名称" min-width="120" />
-            <el-table-column prop="color" label="颜色" width="110">
-              <template #default="{ row }">
-                <span class="color-dot" :style="{ backgroundColor: row.color || '#409eff' }" />
-                {{ row.color || "-" }}
-              </template>
-            </el-table-column>
-            <el-table-column label="操作" width="160">
-              <template #default="{ row }">
-                <el-button size="small" text @click="renameType(row)">编辑</el-button>
-                <el-button size="small" text type="danger" @click="removeType(row)">删除</el-button>
-              </template>
-            </el-table-column>
-          </el-table>
-        </el-card>
-
-        <el-card>
-          <template #header>
-            <div class="card-header">
-              <span>执行人</span>
-              <el-button text type="primary" @click="addAssignee">新增</el-button>
-            </div>
-          </template>
-          <el-table :data="assignees" size="small" border>
-            <el-table-column prop="name" label="名称" min-width="120" />
-            <el-table-column label="操作" width="160">
-              <template #default="{ row }">
-                <el-button size="small" text @click="renameAssignee(row)">编辑</el-button>
-                <el-button size="small" text type="danger" @click="removeAssignee(row)"
-                  >删除</el-button
-                >
-              </template>
-            </el-table-column>
-          </el-table>
-        </el-card>
-      </div>
-    </el-dialog>
-
-    <el-dialog
-      v-model="typeDialogVisible"
-      :title="typeDialogTitle"
-      width="480px"
-      @closed="resetTypeDraft"
-    >
-      <el-form label-width="72px">
-        <el-form-item label="名称"
-          ><el-input v-model.trim="typeDraft.name" placeholder="请输入分类名称"
-        /></el-form-item>
-        <el-form-item label="颜色"
-          ><el-input v-model.trim="typeDraft.color" placeholder="例如：#409eff"
-        /></el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="typeDialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="saveType">保存</el-button>
-      </template>
-    </el-dialog>
-
-    <el-dialog
-      v-model="assigneeDialogVisible"
-      :title="assigneeDialogTitle"
-      width="420px"
-      @closed="resetAssigneeDraft"
-    >
-      <el-form label-width="72px">
-        <el-form-item label="名称"
-          ><el-input v-model.trim="assigneeDraft.name" placeholder="请输入执行人名称"
-        /></el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="assigneeDialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="saveAssignee">保存</el-button>
-      </template>
-    </el-dialog>
+      :types="types"
+      :assignees="assignees"
+      @refresh="onBasicsChanged"
+    />
 
     <el-dialog v-model="pmCreateDialogVisible" title="新建工作项" width="420px" @closed="onPmCreateClosed">
       <el-form>
@@ -720,52 +422,14 @@
       </template>
     </el-dialog>
 
-    <teleport to="body">
-      <div
-        v-if="todoContextMenu.visible && todoContextMenuItem"
-        ref="todoContextMenuRef"
-        class="todo-context-menu"
-        :style="{ left: `${todoContextMenu.x}px`, top: `${todoContextMenu.y}px` }"
-        role="menu"
-        aria-label="任务操作菜单"
-        @click.stop
-        @contextmenu.prevent.stop
-      >
-        <button
-          type="button"
-          class="todo-context-menu-item"
-          role="menuitem"
-          @click="handleTodoContextMenuCommand('pin')"
-        >
-          {{ todoContextMenuItem.pinned ? "取消置顶" : "置顶" }}
-        </button>
-        <button
-          type="button"
-          class="todo-context-menu-item"
-          role="menuitem"
-          @click="handleTodoContextMenuCommand('complete')"
-        >
-          完成
-        </button>
-        <button
-          type="button"
-          class="todo-context-menu-item"
-          role="menuitem"
-          @click="handleTodoContextMenuCommand('edit-time')"
-        >
-          编辑任务时间
-        </button>
-        <div class="todo-context-menu-divider" />
-        <button
-          type="button"
-          class="todo-context-menu-item is-danger"
-          role="menuitem"
-          @click="handleTodoContextMenuCommand('delete')"
-        >
-          删除
-        </button>
-      </div>
-    </teleport>
+    <TodoContextMenu
+      :visible="todoContextMenu.visible && !!todoContextMenuItem"
+      :x="todoContextMenu.x"
+      :y="todoContextMenu.y"
+      :pinned="!!todoContextMenuItem?.pinned"
+      @close="closeTodoContextMenu"
+      @select="handleTodoContextMenuCommand"
+    />
   </div>
 </template>
 
@@ -780,7 +444,6 @@ import {
   Grid,
   Plus,
   Refresh,
-  Setting,
   Top,
   User,
 } from "@element-plus/icons-vue";
@@ -811,7 +474,6 @@ import { PM_STATUS_COLUMNS } from "../types/pm";
 import type { PmCandidateItem } from "../types/pm";
 import { useTabs } from "../composables/useTabs";
 import { groupTodoItemsByBucket } from "../utils/todoBuckets";
-import { clampContextMenuPosition } from "../utils/contextMenu";
 import { formatTodoRelativeDateTimeLabel } from "../utils/todoRelativeDate";
 import {
   prevMonth as calPrevMonth,
@@ -821,6 +483,11 @@ import {
 import TodoCalendarGrid from "./TodoCalendarGrid.vue";
 import TodoDetailView from "./TodoDetailView.vue";
 import TodoDetailEdit from "./TodoDetailEdit.vue";
+import TodoContextMenu from "./TodoContextMenu.vue";
+import type { TodoContextMenuCommand } from "./TodoContextMenu.vue";
+import TodoBasicsDialog from "./TodoBasicsDialog.vue";
+import TodoSidebar from "./TodoSidebar.vue";
+import TodoEmptyState from "./TodoEmptyState.vue";
 import {
   TODO_REPEAT_PRESET_OPTIONS,
   TODO_WEEKDAY_OPTIONS,
@@ -840,18 +507,6 @@ type SelectAssigneeValue = number | string;
 type ItemDialogMode = "create" | "edit_item";
 type DetailMode = "empty" | "view" | "edit" | "create";
 
-interface TodoTypeDraft {
-  id: number;
-  name: string;
-  color: string;
-  sortOrder: number;
-}
-
-interface TodoAssigneeDraft {
-  id: number;
-  name: string;
-}
-
 function pmStatusColor(status: string | null | undefined): string {
   return PM_STATUS_COLUMNS.find(c => c.key === (status || "todo"))?.color ?? "#909399";
 }
@@ -866,7 +521,6 @@ const projectOptions = ref<{ id: number; name: string; color: string }[]>([]);
 const filterProjectId = ref<number | string | null>(null);
 const showMoreFields = ref(false);
 const itemKeyword = ref("");
-const todoContextMenuRef = ref<HTMLElement | null>(null);
 const todoDetailEditRef = ref<{
   titleInputRef: { value: { focus: () => void } | null };
   descTextareaRef: { value: { $el: HTMLElement } | null };
@@ -891,8 +545,6 @@ const itemDialogMode = ref<ItemDialogMode>("create");
 const detailMode = ref<DetailMode>("empty");
 const selectedItemId = ref<number | null>(null);
 const draftBaseline = ref("");
-const typeDialogVisible = ref(false);
-const assigneeDialogVisible = ref(false);
 const editingItemSnapshot = ref<TodoItem | null>(null);
 const defaultReminderPresets: TodoReminderPreset[] = ["none"];
 const lastReminderPresetSelection = ref<TodoReminderPreset[]>([...defaultReminderPresets]);
@@ -1090,9 +742,6 @@ const itemDraft = reactive({
   pmItemStatus: null as string | null,
 });
 
-const typeDraft = reactive<TodoTypeDraft>({ id: 0, name: "", color: "", sortOrder: 0 });
-const assigneeDraft = reactive<TodoAssigneeDraft>({ id: 0, name: "" });
-
 const isRepeating = computed(() => itemDraft.repeatPreset !== "none");
 
 const filteredItems = computed(() => {
@@ -1170,54 +819,9 @@ const overdueCount = computed(() => {
   return activeItems.value.filter((item) => isItemOverdue(item)).length;
 });
 
-const typeDistribution = computed(() => {
-  const map = new Map<string, { name: string; color: string; count: number }>();
-  for (const item of activeItems.value) {
-    const name = item.typeName || "未分类";
-    const existing = map.get(name);
-    if (existing) {
-      existing.count++;
-    } else {
-      map.set(name, { name, color: item.typeColor || "#909399", count: 1 });
-    }
-  }
-  return [...map.values()].sort((a, b) => b.count - a.count);
-});
-
-const priorityDistribution = computed(() => {
-  const counts: Record<string, number> = { P0: 0, P1: 0, P2: 0, P3: 0 };
-  for (const item of activeItems.value) {
-    if (counts[item.priority] !== undefined) counts[item.priority]++;
-  }
-  return (["P0", "P1", "P2", "P3"] as const)
-    .map((p) => ({ priority: p, count: counts[p] }))
-    .filter((entry) => entry.count > 0);
-});
-
-function statsBarWidth(count: number, list: { count: number }[]) {
-  const max = Math.max(...list.map((i) => i.count), 1);
-  return Math.round((count / max) * 100) + "%";
-}
-
-function toggleTypeFilter(name: string) {
-  filterType.value = filterType.value === name ? null : name;
-}
-
-function togglePriorityFilter(priority: TodoPriority) {
-  filterPriority.value = filterPriority.value === priority ? null : priority;
-}
-
-function clearTypeFilter() {
-  filterType.value = null;
-}
-
-function clearPriorityFilter() {
-  filterPriority.value = null;
-}
-
 function clearAllFilters() {
-  clearTypeFilter();
-  clearPriorityFilter();
+  filterType.value = null;
+  filterPriority.value = null;
 }
 
 function normalizeDraftTypeValue(value: SelectTypeValue) {
@@ -1322,10 +926,6 @@ async function selectItemAsync(item: TodoItem) {
   detailMode.value = "view";
 }
 
-type TodoContextMenuCommand = "pin" | "complete" | "edit-time" | "delete";
-
-const TODO_CONTEXT_MENU_PADDING = 12;
-
 function closeTodoContextMenu() {
   todoContextMenu.visible = false;
   todoContextMenu.itemId = null;
@@ -1338,22 +938,6 @@ async function prepareItemForInlineAction(item: TodoItem) {
   return true;
 }
 
-function positionTodoContextMenu(anchorX: number, anchorY: number) {
-  const menu = todoContextMenuRef.value;
-  if (!menu) return;
-  const position = clampContextMenuPosition({
-    anchorX,
-    anchorY,
-    menuWidth: menu.offsetWidth,
-    menuHeight: menu.offsetHeight,
-    viewportWidth: window.innerWidth,
-    viewportHeight: window.innerHeight,
-    padding: TODO_CONTEXT_MENU_PADDING,
-  });
-  todoContextMenu.x = position.x;
-  todoContextMenu.y = position.y;
-}
-
 async function openTodoContextMenu(event: MouseEvent, item: TodoItem) {
   event.preventDefault();
   event.stopPropagation();
@@ -1363,8 +947,6 @@ async function openTodoContextMenu(event: MouseEvent, item: TodoItem) {
   todoContextMenu.visible = true;
   todoContextMenu.x = event.clientX;
   todoContextMenu.y = event.clientY;
-  await nextTick();
-  positionTodoContextMenu(event.clientX, event.clientY);
 }
 
 async function enterEditTimeMode(item?: TodoItem | null) {
@@ -1409,25 +991,6 @@ async function handleTodoContextMenuCommand(command: TodoContextMenuCommand) {
       await deleteItem(item);
       break;
   }
-}
-
-function onTodoContextMenuGlobalClick(event: MouseEvent) {
-  if (!todoContextMenu.visible) return;
-  const target = event.target;
-  if (target instanceof Node && todoContextMenuRef.value?.contains(target)) return;
-  closeTodoContextMenu();
-}
-
-function onTodoContextMenuGlobalContextMenu(event: MouseEvent) {
-  if (!todoContextMenu.visible) return;
-  const target = event.target;
-  if (target instanceof Node && todoContextMenuRef.value?.contains(target)) return;
-  closeTodoContextMenu();
-}
-
-function onTodoContextMenuGlobalKeydown(event: KeyboardEvent) {
-  if (event.key !== "Escape") return;
-  closeTodoContextMenu();
 }
 
 async function focusCreateTitleInput() {
@@ -1507,8 +1070,6 @@ const eventMinute = computed({
     itemDraft.eventTime = composeDraftEventTime(hour, value);
   },
 });
-const typeDialogTitle = computed(() => (typeDraft.id ? "编辑分类" : "新增分类"));
-const assigneeDialogTitle = computed(() => (assigneeDraft.id ? "编辑执行人" : "新增执行人"));
 
 function formatDate(value?: string | null) {
   if (!value) return "-";
@@ -2429,98 +1990,8 @@ async function showDeleteScopeDialog(itemTitle: string): Promise<string | null> 
   });
 }
 
-function resetTypeDraft() {
-  typeDraft.id = 0;
-  typeDraft.name = "";
-  typeDraft.color = "";
-  typeDraft.sortOrder = getNextTypeSortOrder();
-}
-function addType() {
-  resetTypeDraft();
-  typeDialogVisible.value = true;
-}
-function renameType(item: TodoType) {
-  typeDraft.id = item.id;
-  typeDraft.name = item.name;
-  typeDraft.color = item.color;
-  typeDraft.sortOrder = item.sortOrder;
-  typeDialogVisible.value = true;
-}
-async function saveType() {
-  const name = typeDraft.name.trim();
-  if (!name) {
-    ElMessage.warning("请输入分类名称");
-    return;
-  }
-  try {
-    await invokeToolByChannel(
-      "tool:todo:type-upsert",
-      typeDraft.id
-        ? { id: typeDraft.id, name, color: typeDraft.color, sortOrder: typeDraft.sortOrder }
-        : {
-            name,
-            color: typeDraft.color,
-            sortOrder: typeDraft.sortOrder || getNextTypeSortOrder(),
-          },
-    );
-    typeDialogVisible.value = false;
-    resetTypeDraft();
-    await Promise.all([loadTypes(), loadItems()]);
-  } catch (error) {
-    ElMessage.error((error as Error).message);
-  }
-}
-async function removeType(item: TodoType) {
-  try {
-    await ElMessageBox.confirm(`确认删除分类「${item.name}」吗？`, "删除确认", { type: "warning" });
-    await invokeToolByChannel("tool:todo:type-delete", { id: item.id });
-    await Promise.all([loadTypes(), loadItems()]);
-  } catch (error) {
-    if ((error as Error).message !== "cancel") ElMessage.error((error as Error).message);
-  }
-}
-
-function resetAssigneeDraft() {
-  assigneeDraft.id = 0;
-  assigneeDraft.name = "";
-}
-function addAssignee() {
-  resetAssigneeDraft();
-  assigneeDialogVisible.value = true;
-}
-function renameAssignee(item: TodoAssignee) {
-  assigneeDraft.id = item.id;
-  assigneeDraft.name = item.name;
-  assigneeDialogVisible.value = true;
-}
-async function saveAssignee() {
-  const name = assigneeDraft.name.trim();
-  if (!name) {
-    ElMessage.warning("请输入执行人名称");
-    return;
-  }
-  try {
-    await invokeToolByChannel(
-      "tool:todo:assignee-upsert",
-      assigneeDraft.id ? { id: assigneeDraft.id, name } : { name },
-    );
-    assigneeDialogVisible.value = false;
-    resetAssigneeDraft();
-    await Promise.all([loadAssignees(), loadItems()]);
-  } catch (error) {
-    ElMessage.error((error as Error).message);
-  }
-}
-async function removeAssignee(item: TodoAssignee) {
-  try {
-    await ElMessageBox.confirm(`确认删除执行人「${item.name}」吗？`, "删除确认", {
-      type: "warning",
-    });
-    await invokeToolByChannel("tool:todo:assignee-delete", { id: item.id });
-    await Promise.all([loadAssignees(), loadItems()]);
-  } catch (error) {
-    if ((error as Error).message !== "cancel") ElMessage.error((error as Error).message);
-  }
+async function onBasicsChanged() {
+  await Promise.all([loadTypes(), loadAssignees(), loadItems()]);
 }
 
 watch(filterProjectId, () => loadItems());
@@ -2568,9 +2039,6 @@ watch(todoContextMenuItem, (item) => {
 watchPendingToolInput("todo", (input) => applyPendingTodoInput(input));
 
 onMounted(async () => {
-  document.addEventListener("click", onTodoContextMenuGlobalClick);
-  document.addEventListener("contextmenu", onTodoContextMenuGlobalContextMenu);
-  window.addEventListener("keydown", onTodoContextMenuGlobalKeydown);
   await Promise.all([loadTypes(), loadAssignees(), loadItems(), loadProjects()]);
   try {
     reminderUnlisten = await listen("todo-reminder-fired", async () => {
@@ -2582,9 +2050,6 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
-  document.removeEventListener("click", onTodoContextMenuGlobalClick);
-  document.removeEventListener("contextmenu", onTodoContextMenuGlobalContextMenu);
-  window.removeEventListener("keydown", onTodoContextMenuGlobalKeydown);
   closeTodoContextMenu();
   reminderUnlisten?.();
   reminderUnlisten = null;
@@ -2687,203 +2152,6 @@ onBeforeUnmount(() => {
   color: var(--lc-text-muted);
 }
 
-/* --- Detail Empty State (Enhanced) --- */
-.detail-empty-pane {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 20px;
-  padding: 32px 24px;
-  text-align: center;
-  animation: fadeIn 0.4s var(--lc-ease);
-}
-
-.detail-empty-visual {
-  position: relative;
-}
-
-.empty-illustration {
-  position: relative;
-  width: 180px;
-  height: 144px;
-}
-
-.empty-svg {
-  width: 100%;
-  height: 100%;
-  animation: float 6s ease-in-out infinite;
-}
-
-.empty-glow {
-  position: absolute;
-  inset: 20%;
-  background: radial-gradient(circle, var(--lc-accent) 0%, transparent 70%);
-  opacity: 0.1;
-  filter: blur(20px);
-  animation: pulse 4s ease-in-out infinite;
-}
-
-@keyframes float {
-  0%,
-  100% {
-    transform: translateY(0px);
-  }
-  50% {
-    transform: translateY(-8px);
-  }
-}
-
-@keyframes pulse {
-  0%,
-  100% {
-    opacity: 0.08;
-    transform: scale(1);
-  }
-  50% {
-    opacity: 0.15;
-    transform: scale(1.1);
-  }
-}
-
-.detail-empty-content {
-  max-width: 280px;
-}
-
-.detail-empty-title {
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--lc-text);
-  margin-bottom: 8px;
-}
-
-.detail-empty-text {
-  font-size: 13px;
-  line-height: 1.7;
-  color: var(--lc-text-muted);
-}
-
-.detail-empty-actions {
-  display: flex;
-  gap: 12px;
-  margin-top: 4px;
-}
-
-.empty-btn-icon {
-  margin-right: 4px;
-}
-
-.detail-empty-divider {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  width: 100%;
-  max-width: 320px;
-  color: var(--lc-text-muted);
-  font-size: 12px;
-  margin-top: 8px;
-}
-
-.detail-empty-divider::before,
-.detail-empty-divider::after {
-  content: "";
-  flex: 1;
-  height: 1px;
-  background: var(--lc-border);
-}
-
-.detail-empty-stats {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 12px;
-  width: 100%;
-  max-width: 320px;
-}
-
-.detail-empty-stat {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 14px;
-  border-radius: 12px;
-  background: var(--lc-surface-1);
-  border: 1px solid var(--lc-border);
-  transition: all 0.25s var(--lc-ease);
-}
-
-.detail-empty-stat:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--lc-shadow-sm);
-}
-
-.detail-empty-stat.is-active {
-  background: linear-gradient(135deg, rgba(56, 189, 248, 0.08), var(--lc-surface-1));
-  border-color: rgba(56, 189, 248, 0.3);
-}
-
-.detail-empty-stat.is-alert {
-  background: linear-gradient(135deg, rgba(248, 113, 113, 0.08), var(--lc-surface-1));
-  border-color: rgba(248, 113, 113, 0.3);
-}
-
-.detail-empty-stat .stat-icon {
-  width: 36px;
-  height: 36px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 10px;
-  font-size: 18px;
-  flex-shrink: 0;
-}
-
-.stat-icon.today {
-  color: var(--lc-accent);
-  background: rgba(56, 189, 248, 0.12);
-}
-
-.stat-icon.overdue {
-  color: var(--lc-danger);
-  background: rgba(248, 113, 113, 0.12);
-}
-
-.detail-empty-stat .stat-info {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-}
-
-.detail-empty-stat .stat-label {
-  font-size: 12px;
-  color: var(--lc-text-muted);
-  white-space: nowrap;
-}
-
-.detail-empty-stat .stat-value {
-  font-size: 20px;
-  font-weight: 700;
-  color: var(--lc-text);
-  white-space: nowrap;
-}
-
-.detail-empty-stat.is-alert .stat-value {
-  color: var(--lc-danger);
-}
-
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
 /* --- Card list --- */
 .todo-card-list {
   display: flex;
@@ -2915,67 +2183,6 @@ onBeforeUnmount(() => {
   border-color: var(--lc-border-hover);
   box-shadow: var(--lc-shadow-sm);
   transform: translateY(-1px);
-}
-
-.todo-context-menu {
-  position: fixed;
-  z-index: 3000;
-  min-width: 164px;
-  padding: 6px;
-  border-radius: 14px;
-  border: 1px solid rgba(148, 163, 184, 0.22);
-  background: rgba(255, 255, 255, 0.96);
-  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.16);
-  backdrop-filter: blur(16px);
-  animation: todoContextMenuEnter 0.16s var(--lc-ease-out);
-}
-
-.todo-context-menu-item {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  padding: 10px 12px;
-  border: none;
-  border-radius: 10px;
-  background: transparent;
-  color: var(--lc-text);
-  font-size: 13px;
-  text-align: left;
-  cursor: pointer;
-  transition:
-    background var(--lc-duration) var(--lc-ease),
-    color var(--lc-duration) var(--lc-ease);
-}
-
-.todo-context-menu-item:hover {
-  background: rgba(14, 165, 233, 0.08);
-  color: var(--lc-accent-strong);
-}
-
-.todo-context-menu-item.is-danger {
-  color: var(--lc-danger);
-}
-
-.todo-context-menu-item.is-danger:hover {
-  background: rgba(248, 113, 113, 0.12);
-  color: var(--lc-danger);
-}
-
-.todo-context-menu-divider {
-  height: 1px;
-  margin: 6px 4px;
-  background: rgba(148, 163, 184, 0.18);
-}
-
-@keyframes todoContextMenuEnter {
-  from {
-    opacity: 0;
-    transform: translateY(6px) scale(0.98);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
 }
 
 /* Priority strips */
@@ -3198,138 +2405,6 @@ onBeforeUnmount(() => {
   border-radius: var(--lc-radius-md);
 }
 
-/* --- Sidebar stats --- */
-.todo-stats {
-  width: auto;
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-  overflow-y: auto;
-  padding-right: 4px;
-}
-.stats-section {
-  background: var(--lc-surface-1);
-  border: 1px solid var(--lc-border);
-  border-radius: var(--lc-radius-sm);
-  padding: 14px;
-}
-.stats-section-title {
-  font-family: var(--lc-font-display);
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--lc-text-muted);
-  margin-bottom: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.8px;
-}
-.stats-section-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 10px;
-}
-.stats-section-header .stats-section-title {
-  margin-bottom: 0;
-}
-.overview-settings-btn {
-  padding: 0;
-  gap: 4px;
-  font-weight: 500;
-}
-.stats-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-}
-.stat-card {
-  text-align: center;
-  padding: 10px 8px 8px;
-  background: var(--lc-surface-2);
-  border-radius: 6px;
-  border: 1px solid var(--lc-border-subtle);
-}
-.stat-number {
-  font-family: var(--lc-font-display);
-  font-size: 20px;
-  font-weight: 700;
-  color: var(--lc-text);
-  line-height: 1.1;
-}
-.stat-label {
-  font-family: var(--lc-font-body);
-  font-size: 11px;
-  color: var(--lc-text-muted);
-  margin-top: 2px;
-  letter-spacing: 0.3px;
-}
-.stat-card.is-alert .stat-number {
-  color: var(--lc-danger);
-}
-.stats-bar-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.stats-bar-item {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.stats-bar-item.is-clickable {
-  cursor: pointer;
-  border-radius: 6px;
-  padding: 4px 8px;
-  margin: -4px -8px;
-  transition: background-color 0.15s ease;
-}
-.stats-bar-item.is-clickable:hover {
-  background-color: var(--el-fill-color-light);
-}
-.stats-bar-item.is-active {
-  background-color: var(--lc-accent-dim);
-  border-left: 3px solid var(--lc-accent);
-  padding-left: 5px;
-}
-.stats-bar-label {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 13px;
-  color: var(--lc-text);
-}
-.stats-bar-count {
-  margin-left: auto;
-  font-family: var(--lc-font-display);
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--lc-text-secondary);
-}
-.stats-bar-track {
-  height: 5px;
-  background: var(--lc-surface-3);
-  border-radius: 3px;
-  overflow: hidden;
-}
-.stats-bar-fill {
-  height: 100%;
-  border-radius: 3px;
-  transition: width 0.35s var(--lc-ease);
-}
-.priority-bar-p0 {
-  background-color: var(--lc-danger);
-}
-.priority-bar-p1 {
-  background-color: var(--lc-warning);
-}
-.priority-bar-p2 {
-  background-color: var(--lc-accent);
-}
-.priority-bar-p3 {
-  background-color: var(--lc-text-muted);
-}
-
 /* --- Filter indicator --- */
 .filter-indicator {
   display: flex;
@@ -3345,37 +2420,6 @@ onBeforeUnmount(() => {
 }
 .filter-indicator-text {
   color: var(--lc-text);
-}
-
-/* --- Shared dot styles --- */
-.color-dot {
-  display: inline-block;
-  width: 10px;
-  height: 10px;
-  margin-right: 6px;
-  border-radius: 50%;
-  vertical-align: middle;
-}
-.priority-dot {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  margin-right: 6px;
-  vertical-align: middle;
-  flex-shrink: 0;
-}
-.priority-p0 {
-  background-color: var(--lc-danger);
-}
-.priority-p1 {
-  background-color: var(--lc-warning);
-}
-.priority-p2 {
-  background-color: var(--lc-accent);
-}
-.priority-p3 {
-  background-color: var(--lc-text-muted);
 }
 
 .todo-card.is-selected {
@@ -3601,24 +2645,6 @@ onBeforeUnmount(() => {
   flex-direction: column;
 }
 
-/* --- Dialog forms --- */
-.basic-grid {
-  display: grid;
-  grid-template-columns: minmax(420px, 1.45fr) minmax(280px, 1fr);
-  gap: 12px;
-  align-items: start;
-}
-.card-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-@media (max-width: 900px) {
-  .basic-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
 /* --- Animation --- */
 @keyframes todoCardSlideIn {
   from {
@@ -3700,9 +2726,6 @@ onBeforeUnmount(() => {
     grid-template-columns: 220px minmax(300px, 1fr) 300px;
     gap: 12px;
   }
-  .detail-empty-stats {
-    grid-template-columns: 1fr;
-  }
 }
 @media (max-width: 900px) {
   .todo-layout {
@@ -3726,21 +2749,9 @@ onBeforeUnmount(() => {
     overflow: visible;
     padding-right: 0;
   }
-  .todo-stats {
-    flex-direction: row;
-    flex-wrap: wrap;
-  }
-  .stats-section {
-    flex: 1;
-    min-width: 200px;
-  }
 }
 @media (max-width: 640px) {
-  .basic-grid {
-    grid-template-columns: 1fr;
-  }
-  .detail-grid,
-  .detail-empty-stats {
+  .detail-grid {
     grid-template-columns: 1fr;
   }
   .detail-pane-header,
@@ -3754,24 +2765,20 @@ onBeforeUnmount(() => {
 
 /* --- Custom scrollbar --- */
 .todo-list-scroll::-webkit-scrollbar,
-.detail-scroll::-webkit-scrollbar,
-.todo-sidebar::-webkit-scrollbar {
+.detail-scroll::-webkit-scrollbar {
   width: 4px;
 }
 .todo-list-scroll::-webkit-scrollbar-thumb,
-.detail-scroll::-webkit-scrollbar-thumb,
-.todo-sidebar::-webkit-scrollbar-thumb {
+.detail-scroll::-webkit-scrollbar-thumb {
   background: var(--lc-border);
   border-radius: 2px;
 }
 .todo-list-scroll::-webkit-scrollbar-thumb:hover,
-.detail-scroll::-webkit-scrollbar-thumb:hover,
-.todo-sidebar::-webkit-scrollbar-thumb:hover {
+.detail-scroll::-webkit-scrollbar-thumb:hover {
   background: var(--lc-border-hover);
 }
 .todo-list-scroll::-webkit-scrollbar-track,
-.detail-scroll::-webkit-scrollbar-track,
-.todo-sidebar::-webkit-scrollbar-track {
+.detail-scroll::-webkit-scrollbar-track {
   background: transparent;
 }
 
