@@ -305,137 +305,45 @@
       <template #todo-edit-mode>
         <div v-if="editingItem" class="pm-item-section">
           <div class="pm-item-section-title">执行任务</div>
-          <div v-if="dialogPmTodo.loading" class="pm-todo-loading">加载中...</div>
-          <template v-else>
-            <div class="pm-todo-header">
-              <div v-if="dialogPmTodo.summary" class="pm-todo-summary">
-                <span class="pm-todo-stat">已关联 {{ dialogPmTodo.summary.totalCount }} 项</span>
-                <span class="pm-todo-stat">已完成 {{ dialogPmTodo.summary.completedCount }} / {{ dialogPmTodo.summary.totalCount }}</span>
-                <el-progress
-                  :percentage="dialogPmTodo.progressPercent"
-                  :stroke-width="6"
-                  :show-text="false"
-                  :color="dialogPmTodo.allCompleted ? '#67c23a' : '#409eff'"
-                  style="flex: 1; margin-left: 8px;"
-                />
-                <span v-if="dialogPmTodo.allCompleted" class="pm-todo-all-done-hint">全部完成</span>
-              </div>
-              <div class="pm-todo-actions">
-                <el-button size="small" type="primary" plain @click="dialogPmTodo.createDialogVisible = true">新建执行任务</el-button>
-                <el-button size="small" plain @click="dialogPmTodo.openLinkDialog()">绑定已有任务</el-button>
-              </div>
-            </div>
-            <div v-if="dialogPmTodo.items.length === 0" class="pm-todo-empty">暂无关联的执行任务</div>
-            <div v-else class="pm-todo-list">
-              <div v-for="todo in dialogPmTodo.items" :key="todo.id" class="pm-todo-item" :class="{ 'pm-todo-item--completed': todo.status === 'completed' }">
-                <el-checkbox
-                  :model-value="todo.status === 'completed'"
-                  @change="dialogPmTodo.toggleComplete(todo)"
-                />
-                <span class="pm-todo-item-title">{{ todo.title }}</span>
-                <el-tag v-if="todo.isOverdue" size="small" type="danger">逾期</el-tag>
-                <el-tag size="small" :type="todo.status === 'completed' ? 'success' : 'info'" effect="plain">
-                  {{ todo.status === 'completed' ? '已完成' : todo.status === 'in_progress' ? '进行中' : '待办' }}
-                </el-tag>
-                <span class="pm-todo-item-priority">{{ todo.priority }}</span>
-                <span v-if="todo.eventAt" class="pm-todo-item-date">{{ todo.eventAt.substring(0, 10) }}</span>
-                <el-button size="small" link type="danger" @click="dialogPmTodo.unlink(todo.id)">解绑</el-button>
-              </div>
-            </div>
-          </template>
+          <InlineTodoList
+            :pm-item-id="() => editingItem?.id"
+            :items="dialogPmTodo.items"
+            :summary="dialogPmTodo.summary"
+            :loading="dialogPmTodo.loading"
+            mode="edit"
+            :candidates="dialogPmTodo.candidates"
+            :candidates-loading="dialogPmTodo.candidateLoading"
+            @create="dialogPmTodo.quickCreate"
+            @toggle="dialogPmTodo.toggleCompleteById"
+            @unlink="dialogPmTodo.unlink"
+            @link="dialogPmTodo.linkBatch"
+            @search-candidates="dialogPmTodo.searchCandidates"
+          />
         </div>
       </template>
 
       <template #todo-create-mode>
         <div v-if="!editingItem" class="pm-item-section">
           <div class="pm-item-section-title">执行任务</div>
-          <div class="pm-item-section-subtitle">创建工作项后将自动关联以下任务</div>
-          <div v-if="pendingTodoTotalCount > 0" class="pm-todo-summary">
-            <span class="pm-todo-stat">待关联 {{ pendingTodoTotalCount }} 项</span>
-            <span class="pm-todo-stat pm-todo-stat--detail">
-              <template v-if="pendingTodoCreates.length > 0">{{ pendingTodoCreates.length }} 项新建</template>
-              <template v-if="pendingTodoCreates.length > 0 && pendingTodoLinkItems.length > 0">、</template>
-              <template v-if="pendingTodoLinkItems.length > 0">{{ pendingTodoLinkItems.length }} 项已有</template>
-            </span>
-          </div>
-          <div class="pm-todo-actions">
-            <el-button size="small" type="primary" plain @click="pendingTodoCreateDialogVisible = true">新建执行任务</el-button>
-            <el-button size="small" plain :disabled="!itemDialogProjectId" @click="pendingTodoLinkDialogVisible = true">绑定已有任务</el-button>
-          </div>
-          <div v-if="pendingTodoTotalCount === 0" class="pm-todo-empty">暂无待关联的执行任务</div>
-          <div v-else class="pm-todo-list">
-            <div v-for="(todo, idx) in pendingTodoCreates" :key="'create-' + idx" class="pm-todo-item">
-              <div class="pm-todo-item-main">
-                <span class="pm-todo-item-title">{{ todo.title }}</span>
-                <el-tag size="small" type="primary" effect="plain">新建</el-tag>
-              </div>
-              <div class="pm-todo-item-meta">
-                <span class="pm-todo-item-priority">{{ todo.priority }}</span>
-                <span v-if="todo.eventAt" class="pm-todo-item-date">{{ todo.eventAt }}</span>
-                <el-button size="small" link type="danger" @click="pendingTodoRemoveCreate(idx)">移除</el-button>
-              </div>
-            </div>
-            <div v-for="(todo, idx) in pendingTodoLinkItems" :key="'link-' + todo.id" class="pm-todo-item">
-              <div class="pm-todo-item-main">
-                <span class="pm-todo-item-title">{{ todo.title }}</span>
-                <el-tag size="small" effect="plain">已有</el-tag>
-              </div>
-              <div class="pm-todo-item-meta">
-                <el-tag size="small" :type="todo.status === 'completed' ? 'success' : 'info'" effect="plain">
-                  {{ todo.status === 'completed' ? '已完成' : todo.status === 'in_progress' ? '进行中' : '待办' }}
-                </el-tag>
-                <span class="pm-todo-item-priority">{{ todo.priority }}</span>
-                <el-button size="small" link type="danger" @click="pendingTodoRemoveLink(idx)">移除</el-button>
-              </div>
-            </div>
-          </div>
+          <InlineTodoList
+            ref="createModeTodoRef"
+            :pm-item-id="() => undefined"
+            :items="[]"
+            :summary="null"
+            :loading="false"
+            mode="edit"
+            :candidates="createModeCandidates"
+            :candidates-loading="createModeCandidatesLoading"
+            @create="onCreateModeTodoCreate"
+            @toggle="() => {}"
+            @unlink="() => {}"
+            @link="onCreateModeTodoLink"
+            @search-candidates="onCreateModeSearchCandidates"
+            @pending-change="onPendingChange"
+          />
         </div>
       </template>
     </PmItemDialog>
-
-    <!-- Dialog: new todo for item dialog -->
-    <PmTodoCreateDialog
-      v-model:visible="dialogPmTodo.createDialogVisible"
-      append-to-body
-      @submit="(f: any) => dialogPmTodo.submitCreate(f)"
-    />
-
-    <!-- Dialog: link existing todo for item dialog -->
-    <PmTodoLinkDialog
-      v-model:visible="dialogPmTodo.linkDialogVisible"
-      v-model:keyword="dialogPmTodo.candidateKeyword"
-      v-model:selected-ids="dialogPmTodo.linkSelectedIds"
-      :loading="dialogPmTodo.candidateLoading"
-      :candidates="dialogPmTodo.candidates"
-      :empty-reason="dialogPmTodo.candidateReason"
-      append-to-body
-      @open="dialogPmTodo.loadCandidates()"
-      @search="dialogPmTodo.onCandidateInput()"
-      @submit="dialogPmTodo.submitLink()"
-    />
-
-    <!-- Dialog: new todo for create-mode (pending) -->
-    <PmTodoCreateDialog
-      v-model:visible="pendingTodoCreateDialogVisible"
-      append-to-body
-      confirm-text="添加"
-      @submit="pendingTodoSubmitCreate"
-    />
-
-    <!-- Dialog: link existing todo for create-mode (pending) -->
-    <PmTodoLinkDialog
-      v-model:visible="pendingTodoLinkDialogVisible"
-      v-model:keyword="pendingTodoLinkKeyword"
-      v-model:selected-ids="pendingTodoLinkSelectedIds"
-      :loading="pendingTodoLinkLoading"
-      :candidates="pendingTodoLinkCandidates"
-      :empty-reason="pendingTodoLinkReason === 'empty' && !pendingTodoLinkKeyword ? '' : 'no_match'"
-      append-to-body
-      confirm-text="添加"
-      @open="pendingTodoLoadCandidates()"
-      @search="pendingTodoOnCandidateInput()"
-      @submit="pendingTodoSubmitLink()"
-    />
 
     <!-- Context menu -->
     <PmContextMenu
@@ -471,6 +379,7 @@ import type {
   PmSiyuanSearchResult,
   PmSiyuanTreeNode,
   CtxMenuAction,
+  PmTodoCandidateItem,
 } from "../types/pm";
 import { PM_STATUS_COLUMNS, PM_ITEM_TYPE_MAP, PM_PRIORITY_MAP } from "../types/pm";
 import Sortable from "sortablejs";
@@ -479,8 +388,7 @@ import PmItemDialog from "./PmItemDialog.vue";
 import PmDetailPanel from "./PmDetailPanel.vue";
 import PmSiyuanDrawer from "./PmSiyuanDrawer.vue";
 import PmProjectDialog from "./PmProjectDialog.vue";
-import PmTodoCreateDialog from "./PmTodoCreateDialog.vue";
-import PmTodoLinkDialog from "./PmTodoLinkDialog.vue";
+import InlineTodoList from "./InlineTodoList.vue";
 import PmContextMenu from "./PmContextMenu.vue";
 import { usePmSiyuan } from "../composables/usePmSiyuan";
 import { PM_SIYUAN_KEY } from "../composables/pmSiyuanKey";
@@ -552,71 +460,46 @@ const itemForm = computed(() => itemDialogRef.value?.form ?? {
 // PM-Todo linking composables
 const dialogPmTodo = reactive(usePmTodoLinking(() => editingItem.value?.id));
 
-// Pending todo state (for create-mode in item dialog)
-const pendingTodoCreates = ref<{ title: string; priority: string; description: string; eventAt: string | null }[]>([]);
-const pendingTodoLinkItems = ref<{ id: number; title: string; status: string; priority: string }[]>([]);
-const pendingTodoCreateDialogVisible = ref(false);
-const pendingTodoLinkDialogVisible = ref(false);
-const pendingTodoLinkKeyword = ref("");
-const pendingTodoLinkSelectedIds = ref<number[]>([]);
-const pendingTodoLinkLoading = ref(false);
-const pendingTodoLinkCandidates = ref<{ id: number; title: string; status: string; priority: string; isUnassignedProject?: boolean }[]>([]);
-const pendingTodoLinkReason = ref<"empty" | "blocked_only" | "no_match" | "">("");
-const pendingTodoTotalCount = computed(() => pendingTodoCreates.value.length + pendingTodoLinkItems.value.length);
+// Create-mode todo state (for InlineTodoList in create mode)
+const createModeTodoRef = ref<InstanceType<typeof InlineTodoList> | null>(null);
+const createModeCandidates = ref<PmTodoCandidateItem[]>([]);
+const createModeCandidatesLoading = ref(false);
+const pendingTodoCreates = ref<Array<{ title: string; priority: string; description: string }>>([]);
+const pendingTodoLinkIds = ref<number[]>([]);
+
+function onCreateModeTodoCreate(title: string, priority: string) {
+  // InlineTodoList handles local state internally
+}
+
+async function onCreateModeSearchCandidates(keyword: string) {
+  if (!itemDialogProjectId.value) return;
+  createModeCandidatesLoading.value = true;
+  try {
+    const result = await invoke<{ items: PmTodoCandidateItem[]; reason?: string }>(
+      "tool:pm:todo-candidates",
+      { projectId: itemDialogProjectId.value, keyword },
+    );
+    createModeCandidates.value = result.items ?? [];
+  } catch {
+    createModeCandidates.value = [];
+  } finally {
+    createModeCandidatesLoading.value = false;
+  }
+}
+
+function onCreateModeTodoLink(ids: number[]) {
+  // InlineTodoList handles local state internally
+}
+
+function onPendingChange(creates: Array<{ title: string; priority: string; description: string }>, links: number[]) {
+  pendingTodoCreates.value = creates;
+  pendingTodoLinkIds.value = links;
+}
 
 function resetPendingTodos() {
   pendingTodoCreates.value = [];
-  pendingTodoLinkItems.value = [];
-  pendingTodoLinkSelectedIds.value = [];
-  pendingTodoLinkKeyword.value = "";
-  pendingTodoLinkReason.value = "";
-}
-
-function pendingTodoSubmitCreate(form: { title: string; priority: string; description: string; eventAt: string | null }) {
-  pendingTodoCreates.value.push({ ...form });
-  pendingTodoCreateDialogVisible.value = false;
-}
-
-function pendingTodoRemoveCreate(idx: number) {
-  pendingTodoCreates.value.splice(idx, 1);
-}
-
-function pendingTodoRemoveLink(idx: number) {
-  pendingTodoLinkItems.value.splice(idx, 1);
-}
-
-async function pendingTodoLoadCandidates() {
-  if (!itemDialogProjectId.value) return;
-  pendingTodoLinkLoading.value = true;
-  pendingTodoLinkReason.value = "";
-  try {
-    const result = await invoke<{ items: { id: number; title: string; status: string; priority: string; isUnassignedProject?: boolean }[]; reason?: string }>(
-      "tool:pm:todo-candidates",
-      { projectId: itemDialogProjectId.value, keyword: pendingTodoLinkKeyword.value },
-    );
-    pendingTodoLinkCandidates.value = result.items ?? [];
-    pendingTodoLinkReason.value = (result.items?.length === 0 ? (result.reason as typeof pendingTodoLinkReason.value) : "") || "";
-  } catch {
-    pendingTodoLinkCandidates.value = [];
-    pendingTodoLinkReason.value = "empty";
-  } finally {
-    pendingTodoLinkLoading.value = false;
-  }
-}
-
-function pendingTodoOnCandidateInput() {
-  void pendingTodoLoadCandidates();
-}
-
-function pendingTodoSubmitLink() {
-  for (const id of pendingTodoLinkSelectedIds.value) {
-    const c = pendingTodoLinkCandidates.value.find((item) => item.id === id);
-    if (c) {
-      pendingTodoLinkItems.value.push({ id: c.id, title: c.title, status: c.status, priority: c.priority });
-    }
-  }
-  pendingTodoLinkSelectedIds.value = [];
-  pendingTodoLinkDialogVisible.value = false;
+  pendingTodoLinkIds.value = [];
+  createModeTodoRef.value?.resetLocal();
 }
 
 // ── SiYuan composable ─────────────────────────────────────
@@ -1010,10 +893,20 @@ async function submitItem(form: {
         ElMessage.warning("请选择所属项目");
         return;
       }
-      await invoke("tool:pm:item-create", {
+      const result = await invoke<{ id: number }>("tool:pm:item-create", {
         projectId,
         ...payload,
       });
+      // Process pending todo data for newly created item
+      if (result.id && (pendingTodoCreates.value.length > 0 || pendingTodoLinkIds.value.length > 0)) {
+        const tempTodo = usePmTodoLinking(() => result.id);
+        for (const c of pendingTodoCreates.value) {
+          await tempTodo.quickCreate(c.title, c.priority, c.description);
+        }
+        if (pendingTodoLinkIds.value.length > 0) {
+          await tempTodo.linkBatch(pendingTodoLinkIds.value);
+        }
+      }
     }
     itemDialogVisible.value = false;
     await loadItems();

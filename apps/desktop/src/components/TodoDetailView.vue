@@ -7,6 +7,14 @@
         <div class="detail-title-row">
           <h3 class="detail-title detail-title--copyable" title="点击复制标题" @click="$emit('copyTitle', item.title)">{{ item.title }}</h3>
           <div class="detail-badges">
+            <span
+              v-if="item.priority !== 'P2'"
+              class="detail-badge"
+              :class="'priority-' + item.priority.toLowerCase()"
+            >
+              <el-icon :size="12"><Flag /></el-icon>
+              {{ item.priority }} {{ priorityLabel(item.priority) }}
+            </span>
             <span class="detail-badge pinned" v-if="item.pinned">
               <el-icon :size="12"><Top /></el-icon> 置顶
             </span>
@@ -72,80 +80,76 @@
           </div>
         </div>
 
-        <!-- Status Card -->
-        <div
-          v-if="item.status !== 'pending' || item.priority !== 'P2'"
-          class="detail-card"
-        >
-          <div class="detail-card-header">
-            <div class="detail-card-icon" :class="priorityCardClass(item.priority)">
-              <el-icon><Flag /></el-icon>
-            </div>
-            <span class="detail-card-title">状态与优先级</span>
-          </div>
-          <div class="detail-card-body">
-            <div class="detail-grid">
-              <div v-if="item.status !== 'pending'" class="detail-field">
-                <div class="detail-label">当前状态</div>
-                <div class="detail-value">
-                  <el-tag size="small" effect="plain" round>
-                    {{ formatStatusLabel(item.status) }}
-                  </el-tag>
-                </div>
-              </div>
-              <div v-if="item.priority !== 'P2'" class="detail-field">
-                <div class="detail-label">优先级</div>
-                <div class="detail-value">
-                  <span class="priority-with-dot">
-                    <span
-                      class="priority-dot"
-                      :class="'priority-' + item.priority.toLowerCase()"
-                    />
-                    {{ item.priority }} - {{ priorityLabel(item.priority) }}
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
         <!-- Schedule Card -->
         <div
           v-if="
             item.eventAt ||
             effectiveReminderPresets(item.reminderPresets).length > 0
           "
-          class="detail-card"
+          class="detail-card schedule-card"
+          :class="scheduleInsight ? `is-${scheduleInsight.urgencyKind}` : ''"
         >
           <div class="detail-card-header">
-            <div class="detail-card-icon primary">
+            <div class="detail-card-icon" :class="scheduleHeaderIconClass">
               <el-icon><Calendar /></el-icon>
             </div>
             <span class="detail-card-title">时间安排</span>
+            <span
+              v-if="scheduleInsight?.showBadge"
+              class="schedule-urgency-badge"
+              :class="`is-${scheduleInsight.badgeKind}`"
+            >
+              {{ scheduleInsight.badgeLabel }}
+            </span>
           </div>
-          <div class="detail-card-body">
-            <div class="detail-grid" :class="{ 'is-stacked': !item.eventAt }">
-              <div v-if="item.eventAt" class="detail-field">
-                <div class="detail-label">
-                  <el-icon :size="12"><Clock /></el-icon> 任务时间
-                </div>
-                <div class="detail-value">
-                  {{ formatDate(item.eventAt) }}
-                </div>
-                <div v-if="relativeTimeLabel(item)" class="detail-hint">
-                  {{ relativeTimeLabel(item) }}
+          <div class="detail-card-body schedule-card-body">
+            <div v-if="scheduleInsight" class="schedule-hero">
+              <div class="schedule-hero-left">
+                <span
+                  class="schedule-hero-icon"
+                  :class="`is-${scheduleInsight.badgeKind}`"
+                >
+                  <el-icon :size="18">
+                    <AlarmClock v-if="scheduleInsight.urgencyKind === 'overdue'" />
+                    <CircleCheck v-else-if="scheduleInsight.urgencyKind === 'completed'" />
+                    <Clock v-else />
+                  </el-icon>
+                </span>
+                <div class="schedule-hero-text">
+                  <div class="schedule-hero-headline">
+                    {{ scheduleInsight.headline }}
+                  </div>
+                  <div v-if="scheduleInsight.headlineSub" class="schedule-hero-sub">
+                    {{ scheduleInsight.headlineSub }}
+                  </div>
                 </div>
               </div>
-              <div
-                v-if="effectiveReminderPresets(item.reminderPresets).length > 0"
-                class="detail-field"
-              >
-                <div class="detail-label">
-                  <el-icon :size="12"><Bell /></el-icon> 提醒设置
+              <div class="schedule-hero-right">
+                <div class="schedule-date-main">{{ scheduleInsight.dateMain }}</div>
+                <div v-if="scheduleInsight.dateSub" class="schedule-date-sub">
+                  {{ scheduleInsight.dateSub }}
                 </div>
-                <div class="detail-value">
-                  {{ formatReminderDescription(item) }}
-                </div>
+              </div>
+            </div>
+            <div
+              v-if="scheduleInsight && reminderChips.length > 0"
+              class="schedule-divider"
+            ></div>
+            <div
+              v-if="reminderChips.length > 0"
+              class="schedule-reminders"
+              :class="{ 'is-only': !scheduleInsight }"
+            >
+              <el-icon class="schedule-reminders-icon" :size="14"><Bell /></el-icon>
+              <span class="schedule-reminders-label">提醒</span>
+              <div class="schedule-reminder-chips">
+                <span
+                  v-for="chip in reminderChips"
+                  :key="chip.value"
+                  class="schedule-reminder-chip"
+                >
+                  {{ chip.label }}
+                </span>
               </div>
             </div>
           </div>
@@ -321,12 +325,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import {
   AlarmClock,
   Bell,
   Briefcase,
   Calendar,
+  CircleCheck,
   Clock,
   Document,
   Flag,
@@ -336,7 +341,7 @@ import {
   User,
 } from "@element-plus/icons-vue";
 import { effectiveReminderPresets } from "../composables/useTodoItem";
-import type { TodoItem, TodoPriority, TodoStatus } from "../types";
+import type { TodoItem, TodoPriority } from "../types";
 import { formatTodoRelativeDateTimeLabel } from "../utils/todoRelativeDate";
 import { renderMarkdown } from "../utils/renderMarkdown";
 
@@ -378,22 +383,6 @@ function pmStatusLabel(status: string | null | undefined): string {
   return map[status] || status;
 }
 
-function formatStatusLabel(status: TodoStatus | null) {
-  if (!status) return "";
-  const map: Record<string, string> = {
-    pending: "待办",
-    in_progress: "进行中",
-    completed: "已完成",
-  };
-  return map[status] || status;
-}
-
-function priorityCardClass(priority: TodoPriority): "danger" | "warning" | "primary" | "" {
-  if (priority === "P0" || priority === "P1") return "danger";
-  if (priority === "P2") return "warning";
-  return "";
-}
-
 function priorityLabel(priority: TodoPriority): string {
   const map: Record<TodoPriority, string> = { P0: "紧急", P1: "高", P2: "中", P3: "低" };
   return map[priority] || priority;
@@ -433,25 +422,6 @@ function isItemOverdue(item: TodoItem): boolean {
   return new Date(item.eventAt).getTime() < Date.now();
 }
 
-function relativeTimeLabel(item: TodoItem): string {
-  return formatTodoRelativeDateTimeLabel(item.eventAt);
-}
-
-function formatReminderDescription(item: TodoItem) {
-  const presets = effectiveReminderPresets(item.reminderPresets);
-  if (presets.length === 0) return "";
-  const labels: Record<string, string> = {
-    "0m": "任务开始时",
-    "5m": "提前 5 分钟",
-    "10m": "提前 10 分钟",
-    "30m": "提前 30 分钟",
-    "1h": "提前 1 小时",
-    "1d": "提前 1 天",
-    "2d": "提前 2 天",
-  };
-  return presets.map((p) => labels[p] || p).join("、");
-}
-
 function formatWeekdayList(days: number[] = []) {
   const names = ["", "周一", "周二", "周三", "周四", "周五", "周六", "周日"];
   return days.map((d) => names[d] || `周${d}`).join("、");
@@ -475,14 +445,213 @@ function formatRecurrenceDescription(item: TodoItem) {
   return "";
 }
 
+// --- Schedule insight ---
+
+const WEEKDAY_LABELS = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"] as const;
+
+const REMINDER_CHIP_LABELS: Record<string, string> = {
+  "0m": "开始时",
+  "5m": "-5 分钟",
+  "10m": "-10 分钟",
+  "30m": "-30 分钟",
+  "1h": "-1 小时",
+  "1d": "-1 天",
+  "2d": "-2 天",
+};
+
+type ScheduleUrgencyKind =
+  | "overdue"
+  | "today"
+  | "tomorrow"
+  | "thisWeek"
+  | "later"
+  | "completed";
+
+type ScheduleBadgeKind =
+  | "danger"
+  | "warning"
+  | "primary"
+  | "info"
+  | "success"
+  | "neutral";
+
+interface ScheduleInsight {
+  urgencyKind: ScheduleUrgencyKind;
+  badgeKind: ScheduleBadgeKind;
+  badgeLabel: string;
+  showBadge: boolean;
+  headline: string;
+  headlineSub: string | null;
+  dateMain: string;
+  dateSub: string | null;
+}
+
+function startOfDay(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function formatDurationBrief(ms: number): string {
+  const totalSec = Math.max(1, Math.round(ms / 1000));
+  if (totalSec < 60) return `${totalSec} 秒`;
+  const min = Math.floor(totalSec / 60);
+  if (min < 60) return `${min} 分钟`;
+  const hour = Math.floor(min / 60);
+  if (hour < 24) return `${hour} 小时`;
+  const day = Math.floor(hour / 24);
+  if (day < 30) return `${day} 天`;
+  const month = Math.floor(day / 30);
+  if (month < 12) return `${month} 个月`;
+  const year = Math.floor(month / 12);
+  return `${year} 年`;
+}
+
+const now = ref(new Date());
+let scheduleTimer: ReturnType<typeof setInterval> | null = null;
+
+onMounted(() => {
+  scheduleTimer = setInterval(() => {
+    now.value = new Date();
+  }, 30_000);
+});
+
+onBeforeUnmount(() => {
+  if (scheduleTimer) {
+    clearInterval(scheduleTimer);
+    scheduleTimer = null;
+  }
+});
+
 // --- Computed ---
+
+const scheduleInsight = computed<ScheduleInsight | null>(() => {
+  const item = props.item;
+  if (!item.eventAt) return null;
+  const date = new Date(item.eventAt);
+  if (Number.isNaN(date.getTime())) return null;
+
+  const nowValue = now.value;
+  const diffMs = date.getTime() - nowValue.getTime();
+  const todayStartMs = startOfDay(nowValue).getTime();
+  const itemDayStartMs = startOfDay(date).getTime();
+  const dayDiff = Math.round((itemDayStartMs - todayStartMs) / 86_400_000);
+
+  const friendly = formatTodoRelativeDateTimeLabel(item.eventAt, nowValue);
+  const weekday = WEEKDAY_LABELS[date.getDay()];
+  const absoluteDate = `${date.getMonth() + 1}月${date.getDate()}日`;
+  const dateSub = friendly.includes(absoluteDate)
+    ? weekday
+    : `${absoluteDate} ${weekday}`;
+
+  if (item.status === "completed") {
+    return {
+      urgencyKind: "completed",
+      badgeKind: "success",
+      badgeLabel: "已完成",
+      showBadge: true,
+      headline: "已完成",
+      headlineSub: null,
+      dateMain: friendly,
+      dateSub,
+    };
+  }
+
+  if (diffMs < 0) {
+    const gap = formatDurationBrief(-diffMs);
+    return {
+      urgencyKind: "overdue",
+      badgeKind: "danger",
+      badgeLabel: `逾期 · 已过 ${gap}`,
+      showBadge: true,
+      headline: `已过 ${gap}`,
+      headlineSub: "请尽快处理或调整时间",
+      dateMain: friendly,
+      dateSub,
+    };
+  }
+
+  if (dayDiff === 0) {
+    const minutes = Math.max(0, Math.round(diffMs / 60_000));
+    let headline: string;
+    if (minutes < 1) headline = "即刻开始";
+    else if (minutes < 60) headline = `还有 ${minutes} 分钟`;
+    else headline = `还有 ${Math.round(diffMs / 3_600_000)} 小时`;
+    return {
+      urgencyKind: "today",
+      badgeKind: "warning",
+      badgeLabel: "今天",
+      showBadge: true,
+      headline,
+      headlineSub: null,
+      dateMain: friendly,
+      dateSub,
+    };
+  }
+
+  if (dayDiff === 1) {
+    return {
+      urgencyKind: "tomorrow",
+      badgeKind: "primary",
+      badgeLabel: "",
+      showBadge: false,
+      headline: "明天",
+      headlineSub: `约 ${Math.max(1, Math.round(diffMs / 3_600_000))} 小时后`,
+      dateMain: friendly,
+      dateSub,
+    };
+  }
+
+  if (dayDiff <= 6) {
+    return {
+      urgencyKind: "thisWeek",
+      badgeKind: "info",
+      badgeLabel: "",
+      showBadge: false,
+      headline: `${dayDiff} 天后`,
+      headlineSub: null,
+      dateMain: friendly,
+      dateSub,
+    };
+  }
+
+  return {
+    urgencyKind: "later",
+    badgeKind: "neutral",
+    badgeLabel: "",
+    showBadge: false,
+    headline: `${dayDiff} 天后`,
+    headlineSub: null,
+    dateMain: friendly,
+    dateSub,
+  };
+});
+
+const scheduleHeaderIconClass = computed(() => {
+  const insight = scheduleInsight.value;
+  if (!insight) return "primary";
+  const map: Record<ScheduleBadgeKind, string> = {
+    danger: "danger",
+    warning: "warning",
+    primary: "primary",
+    info: "primary",
+    success: "success",
+    neutral: "primary",
+  };
+  return map[insight.badgeKind];
+});
+
+const reminderChips = computed(() => {
+  const presets = effectiveReminderPresets(props.item.reminderPresets);
+  if (presets.length === 0) return [];
+  return presets.map((preset) => ({
+    value: preset,
+    label: REMINDER_CHIP_LABELS[preset] || preset,
+  }));
+});
 
 const hasDetailCards = computed(() => {
   const item = props.item;
   const hasSchedule = !!item.eventAt || effectiveReminderPresets(item.reminderPresets).length > 0;
   return (
-    item.status !== "pending" ||
-    item.priority !== "P2" ||
     hasSchedule ||
     !!item.typeName ||
     item.assignees.length > 0 ||
@@ -529,6 +698,7 @@ const renderedDescription = computed(() => {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
 }
 .detail-eyebrow {
   font-size: 11px;
@@ -545,7 +715,6 @@ const renderedDescription = computed(() => {
   line-height: 1.3;
   color: var(--lc-text);
   word-break: break-word;
-  flex: 1;
   min-width: 0;
 }
 .detail-title--copyable {
@@ -794,6 +963,18 @@ const renderedDescription = computed(() => {
   background: var(--el-color-danger-light-9);
   color: var(--el-color-danger);
 }
+.detail-badge.priority-p0 {
+  background: var(--el-color-danger-light-9);
+  color: var(--el-color-danger);
+}
+.detail-badge.priority-p1 {
+  background: var(--el-color-warning-light-9);
+  color: var(--el-color-warning);
+}
+.detail-badge.priority-p3 {
+  background: var(--lc-surface-1);
+  color: var(--el-text-color-secondary);
+}
 .priority-dot {
   display: inline-block;
   width: 8px;
@@ -884,6 +1065,208 @@ const renderedDescription = computed(() => {
   font-size: 13px;
   color: var(--el-color-primary);
   word-break: break-all;
+}
+
+/* --- Schedule Card --- */
+.schedule-card {
+  position: relative;
+}
+.schedule-card.is-overdue::before,
+.schedule-card.is-today::before,
+.schedule-card.is-tomorrow::before,
+.schedule-card.is-thisWeek::before,
+.schedule-card.is-completed::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  pointer-events: none;
+  z-index: 1;
+}
+.schedule-card.is-overdue::before { background: var(--el-color-danger); }
+.schedule-card.is-today::before { background: var(--el-color-warning); }
+.schedule-card.is-tomorrow::before { background: var(--el-color-primary); }
+.schedule-card.is-thisWeek::before { background: var(--el-color-info, var(--el-color-primary)); }
+.schedule-card.is-completed::before { background: var(--el-color-success); }
+
+.schedule-urgency-badge {
+  margin-left: auto;
+  padding: 2px 10px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+  letter-spacing: 0.2px;
+  line-height: 1.6;
+}
+.schedule-urgency-badge.is-danger {
+  background: var(--el-color-danger-light-9);
+  color: var(--el-color-danger);
+}
+.schedule-urgency-badge.is-warning {
+  background: var(--el-color-warning-light-9);
+  color: var(--el-color-warning);
+}
+.schedule-urgency-badge.is-primary {
+  background: var(--el-color-primary-light-9);
+  color: var(--el-color-primary);
+}
+.schedule-urgency-badge.is-info {
+  background: var(--el-color-info-light-9, var(--el-color-primary-light-9));
+  color: var(--el-color-info, var(--el-color-primary));
+}
+.schedule-urgency-badge.is-success {
+  background: var(--el-color-success-light-9);
+  color: var(--el-color-success);
+}
+.schedule-urgency-badge.is-neutral {
+  background: var(--lc-surface-1);
+  color: var(--el-text-color-secondary);
+}
+
+.schedule-card-body {
+  padding: 14px;
+}
+.schedule-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.schedule-hero-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  flex: 1;
+}
+.schedule-hero-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: var(--el-color-primary-light-9);
+  color: var(--el-color-primary);
+}
+.schedule-hero-icon.is-danger {
+  background: var(--el-color-danger-light-9);
+  color: var(--el-color-danger);
+}
+.schedule-hero-icon.is-warning {
+  background: var(--el-color-warning-light-9);
+  color: var(--el-color-warning);
+}
+.schedule-hero-icon.is-primary {
+  background: var(--el-color-primary-light-9);
+  color: var(--el-color-primary);
+}
+.schedule-hero-icon.is-info {
+  background: var(--el-color-info-light-9, var(--el-color-primary-light-9));
+  color: var(--el-color-info, var(--el-color-primary));
+}
+.schedule-hero-icon.is-success {
+  background: var(--el-color-success-light-9);
+  color: var(--el-color-success);
+}
+.schedule-hero-icon.is-neutral {
+  background: var(--lc-surface-1);
+  color: var(--el-text-color-secondary);
+}
+.schedule-hero-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.schedule-hero-headline {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+  line-height: 1.25;
+  letter-spacing: 0.2px;
+  word-break: break-word;
+}
+.schedule-hero-sub {
+  font-size: 12px;
+  color: var(--el-text-color-placeholder);
+  line-height: 1.4;
+}
+.schedule-hero-right {
+  text-align: right;
+  flex-shrink: 0;
+  min-width: 0;
+}
+.schedule-date-main {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--el-text-color-primary);
+  line-height: 1.3;
+  white-space: nowrap;
+}
+.schedule-date-sub {
+  font-size: 12px;
+  color: var(--el-text-color-placeholder);
+  margin-top: 2px;
+}
+
+.schedule-divider {
+  height: 1px;
+  background: var(--lc-border);
+  margin: 12px 0;
+}
+
+.schedule-reminders {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.schedule-reminders-icon {
+  color: var(--el-text-color-secondary);
+  flex-shrink: 0;
+}
+.schedule-reminders-label {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  flex-shrink: 0;
+  letter-spacing: 0.2px;
+}
+.schedule-reminder-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.schedule-reminder-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  border-radius: 10px;
+  background: var(--lc-surface-1);
+  color: var(--el-text-color-regular);
+  font-size: 11px;
+  border: 1px solid var(--lc-border);
+  line-height: 1.5;
+  letter-spacing: 0.2px;
+}
+
+@media (max-width: 520px) {
+  .schedule-hero {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .schedule-hero-right {
+    text-align: left;
+    width: 100%;
+  }
+  .schedule-date-main {
+    white-space: normal;
+  }
 }
 
 /* --- Animations --- */

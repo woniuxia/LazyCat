@@ -1,29 +1,13 @@
-import { ref, computed, type Ref } from "vue";
+import { ref, computed } from "vue";
 import { ElMessage } from "element-plus";
 import { invokeToolByChannel } from "../bridge/tauri";
 import type { PmTodoLinkItem, PmTodoSummary, PmTodoCandidateItem } from "../types/pm";
 
 type PmItemIdGetter = () => number | null | undefined;
 
-interface PmTodoCreateForm {
-  title: string;
-  priority: string;
-  description: string;
-  eventAt: string | null;
-}
-
-const EMPTY_CREATE_FORM: PmTodoCreateForm = {
-  title: "",
-  priority: "P2",
-  description: "",
-  eventAt: null,
-};
-
 /**
- * Reusable composable for PM-Todo linking UI logic.
- * Used in both the detail panel and the edit dialog of PmPanel.vue.
- *
- * @param getPmItemId - Getter returning the current PM item ID
+ * Composable for PM-Todo linking logic.
+ * Provides data loading, inline creation, candidate search, and batch operations.
  */
 export function usePmTodoLinking(getPmItemId: PmItemIdGetter) {
   // ── State ────────────────────────────────────────────────
@@ -31,17 +15,12 @@ export function usePmTodoLinking(getPmItemId: PmItemIdGetter) {
   const summary = ref<PmTodoSummary | null>(null);
   const loading = ref(false);
 
-  const createDialogVisible = ref(false);
-  const createForm = ref<PmTodoCreateForm>({ ...EMPTY_CREATE_FORM });
-
-  const linkDialogVisible = ref(false);
   const candidates = ref<PmTodoCandidateItem[]>([]);
   const candidateKeyword = ref("");
   const candidateLoading = ref(false);
   const candidateEligibleCount = ref(0);
   const candidateBlockedCount = ref(0);
   const candidateReason = ref("");
-  const linkSelectedIds = ref<number[]>([]);
 
   // ── Computed ─────────────────────────────────────────────
   const progressPercent = computed(() => {
@@ -56,13 +35,13 @@ export function usePmTodoLinking(getPmItemId: PmItemIdGetter) {
   // ── Debounce helper ──────────────────────────────────────
   let _debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
-  function debouncedLoadCandidates(delay = 300) {
+  function debouncedSearchCandidates(delay = 300) {
     if (_debounceTimer) clearTimeout(_debounceTimer);
-    _debounceTimer = setTimeout(() => loadCandidates(), delay);
+    _debounceTimer = setTimeout(() => searchCandidates(), delay);
   }
 
   function onCandidateInput() {
-    debouncedLoadCandidates();
+    debouncedSearchCandidates();
   }
 
   // ── Actions ──────────────────────────────────────────────
@@ -115,40 +94,38 @@ export function usePmTodoLinking(getPmItemId: PmItemIdGetter) {
     }
   }
 
-  async function submitCreate(formData?: PmTodoCreateForm) {
+  async function toggleCompleteById(todoItemId: number) {
+    const found = items.value.find((t) => t.id === todoItemId);
+    if (found) await toggleComplete(found);
+  }
+
+  async function quickCreate(title: string, priority: string, description?: string) {
     const id = getPmItemId();
     if (id == null) return;
-    const form = formData ?? createForm.value;
-    if (!form.title.trim()) {
-      ElMessage.warning("请输入任务标题");
-      return;
-    }
+    if (!title.trim()) return;
     try {
       await invokeToolByChannel("tool:pm:item-todo-create", {
         pmItemId: id,
-        title: form.title.trim(),
-        priority: form.priority,
-        description: form.description,
-        eventAt: form.eventAt || null,
+        title: title.trim(),
+        priority,
+        description: description ?? "",
+        eventAt: null,
       });
       ElMessage.success("执行任务已创建");
-      createDialogVisible.value = false;
-      createForm.value = { ...EMPTY_CREATE_FORM };
       loadItems(id);
     } catch (e) {
       ElMessage.error((e as Error).message);
     }
   }
 
-  async function loadCandidates() {
+  async function searchCandidates(keyword?: string) {
     const id = getPmItemId();
     if (id == null) return;
     candidateLoading.value = true;
-    linkSelectedIds.value = [];
     try {
       const result = await invokeToolByChannel("tool:pm:item-todo-candidates", {
         pmItemId: id,
-        keyword: candidateKeyword.value || undefined,
+        keyword: keyword ?? (candidateKeyword.value || undefined),
         limit: 50,
       }) as {
         items: PmTodoCandidateItem[];
@@ -169,17 +146,15 @@ export function usePmTodoLinking(getPmItemId: PmItemIdGetter) {
     }
   }
 
-  async function submitLink() {
+  async function linkBatch(ids: number[]) {
     const id = getPmItemId();
-    if (id == null || linkSelectedIds.value.length === 0) return;
+    if (id == null || ids.length === 0) return;
     try {
       await invokeToolByChannel("tool:pm:item-todo-link", {
         pmItemId: id,
-        todoItemIds: linkSelectedIds.value,
+        todoItemIds: ids,
       });
-      ElMessage.success(`已关联 ${linkSelectedIds.value.length} 项任务`);
-      linkDialogVisible.value = false;
-      linkSelectedIds.value = [];
+      ElMessage.success(`已关联 ${ids.length} 项任务`);
       candidateKeyword.value = "";
       loadItems(id);
     } catch (e) {
@@ -187,24 +162,13 @@ export function usePmTodoLinking(getPmItemId: PmItemIdGetter) {
     }
   }
 
-  function openLinkDialog() {
-    linkDialogVisible.value = true;
-    candidateKeyword.value = "";
-    linkSelectedIds.value = [];
-    loadCandidates();
-  }
-
   function reset() {
     items.value = [];
     summary.value = null;
-    createDialogVisible.value = false;
-    createForm.value = { ...EMPTY_CREATE_FORM };
-    linkDialogVisible.value = false;
     candidates.value = [];
     candidateKeyword.value = "";
     candidateLoading.value = false;
     candidateReason.value = "";
-    linkSelectedIds.value = [];
     if (_debounceTimer) {
       clearTimeout(_debounceTimer);
       _debounceTimer = null;
@@ -216,16 +180,12 @@ export function usePmTodoLinking(getPmItemId: PmItemIdGetter) {
     items,
     summary,
     loading,
-    createDialogVisible,
-    createForm,
-    linkDialogVisible,
     candidates,
     candidateKeyword,
     candidateLoading,
     candidateEligibleCount,
     candidateBlockedCount,
     candidateReason,
-    linkSelectedIds,
     // Computed
     progressPercent,
     allCompleted,
@@ -233,10 +193,10 @@ export function usePmTodoLinking(getPmItemId: PmItemIdGetter) {
     loadItems,
     unlink,
     toggleComplete,
-    submitCreate,
-    loadCandidates,
-    submitLink,
-    openLinkDialog,
+    toggleCompleteById,
+    quickCreate,
+    searchCandidates,
+    linkBatch,
     onCandidateInput,
     reset,
   };

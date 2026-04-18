@@ -87,50 +87,20 @@
           <div class="detail-section-head">
             <span class="detail-section-title">执行任务</span>
           </div>
-
-          <!-- 摘要区 -->
-          <div v-if="pmTodo.summary" class="pm-todo-summary">
-            <span class="pm-todo-stat">已关联 {{ pmTodo.summary.totalCount }} 项</span>
-            <span class="pm-todo-stat">已完成 {{ pmTodo.summary.completedCount }} / {{ pmTodo.summary.totalCount }}</span>
-            <el-progress
-              :percentage="pmTodo.progressPercent"
-              :stroke-width="6"
-              :show-text="false"
-              :color="pmTodo.allCompleted ? '#67c23a' : '#409eff'"
-              style="flex: 1; margin-left: 8px;"
-            />
-            <span v-if="pmTodo.allCompleted" class="pm-todo-all-done-hint">全部完成</span>
-          </div>
-
-          <!-- 操作区 -->
-          <div class="pm-todo-actions">
-            <el-button size="small" type="primary" plain @click="pmTodo.createDialogVisible = true">新建执行任务</el-button>
-            <el-button size="small" plain @click="pmTodo.openLinkDialog()">绑定已有任务</el-button>
-          </div>
-
-          <!-- 列表区 -->
-          <div v-if="pmTodo.loading" class="pm-todo-loading">加载中...</div>
-          <div v-else-if="pmTodo.items.length === 0" class="pm-todo-empty">暂无关联的执行任务</div>
-          <div v-else class="pm-todo-list">
-            <div v-for="todo in pmTodo.items" :key="todo.id" class="pm-todo-item" :class="{ 'pm-todo-item--completed': todo.status === 'completed' }">
-              <div class="pm-todo-item-main">
-                <el-checkbox
-                  :model-value="todo.status === 'completed'"
-                  @change="pmTodo.toggleComplete(todo)"
-                />
-                <span class="pm-todo-item-title">{{ todo.title }}</span>
-                <el-tag v-if="todo.isOverdue" size="small" type="danger">逾期</el-tag>
-              </div>
-              <div class="pm-todo-item-meta">
-                <el-tag size="small" :type="todo.status === 'completed' ? 'success' : 'info'" effect="plain">
-                  {{ todo.status === 'completed' ? '已完成' : todo.status === 'in_progress' ? '进行中' : '待办' }}
-                </el-tag>
-                <span class="pm-todo-item-priority">{{ todo.priority }}</span>
-                <span v-if="todo.eventAt" class="pm-todo-item-date">{{ todo.eventAt.substring(0, 10) }}</span>
-                <el-button size="small" link type="danger" @click="pmTodo.unlink(todo.id)">解绑</el-button>
-              </div>
-            </div>
-          </div>
+          <InlineTodoList
+            :pm-item-id="() => item?.id"
+            :items="pmTodo.items"
+            :summary="pmTodo.summary"
+            :loading="pmTodo.loading"
+            mode="edit"
+            :candidates="pmTodo.candidates"
+            :candidates-loading="pmTodo.candidateLoading"
+            @create="pmTodo.quickCreate"
+            @toggle="pmTodo.toggleCompleteById"
+            @unlink="pmTodo.unlink"
+            @link="pmTodo.linkBatch"
+            @search-candidates="pmTodo.searchCandidates"
+          />
         </div>
 
         <div class="detail-section">
@@ -195,25 +165,6 @@
       </div>
     </aside>
   </Transition>
-
-  <!-- 新建执行任务弹窗 -->
-  <PmTodoCreateDialog
-    v-model:visible="pmTodo.createDialogVisible"
-    @submit="(f: any) => pmTodo.submitCreate(f)"
-  />
-
-  <!-- 绑定已有任务弹窗 -->
-  <PmTodoLinkDialog
-    v-model:visible="pmTodo.linkDialogVisible"
-    v-model:keyword="pmTodo.candidateKeyword"
-    v-model:selected-ids="pmTodo.linkSelectedIds"
-    :loading="pmTodo.candidateLoading"
-    :candidates="pmTodo.candidates"
-    :empty-reason="pmTodo.candidateReason"
-    @open="pmTodo.loadCandidates()"
-    @search="pmTodo.onCandidateInput()"
-    @submit="pmTodo.submitLink()"
-  />
 </template>
 
 <script setup lang="ts">
@@ -225,8 +176,7 @@ import type { PmProject, PmItem } from "../types/pm";
 import { PM_STATUS_COLUMNS, PM_ITEM_TYPE_MAP, PM_PRIORITY_MAP } from "../types/pm";
 import { isPmItemOverdue } from "../utils/pmDate";
 import { formatPmDateRangeForDisplay } from "../utils/pmDate";
-import PmTodoCreateDialog from "./PmTodoCreateDialog.vue";
-import PmTodoLinkDialog from "./PmTodoLinkDialog.vue";
+import InlineTodoList from "./InlineTodoList.vue";
 import { usePmTodoLinking } from "../composables/usePmTodoLinking";
 import { PM_SIYUAN_KEY } from "../composables/pmSiyuanKey";
 
@@ -574,9 +524,16 @@ async function openItemLink(url: string | null | undefined) {
   justify-content: space-between;
   gap: 10px;
   padding: 12px;
-  border: 1px solid rgba(219, 229, 241, 0.96);
+  border: 1px solid var(--pm-edge-soft);
   border-radius: 12px;
-  background: rgba(244, 247, 251, 0.76);
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 2px 6px rgba(34, 48, 66, 0.03);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.detail-resource-card:hover {
+  border-color: rgba(77, 125, 242, 0.22);
+  box-shadow: 0 6px 14px rgba(77, 125, 242, 0.06);
 }
 
 .detail-resource-main {

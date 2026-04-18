@@ -168,6 +168,16 @@
                       />
                       {{ row.projectName }}
                     </span>
+                    <span
+                      v-if="row.pmItemId && row.pmItemTitle"
+                      class="meta-chip meta-pm-link"
+                      @click.stop="navigateToPmItem(row.pmItemId!, row.pmItemProjectId ?? null)"
+                    >
+                      <el-tag size="small" effect="plain" :style="pmItemTagStyle(row.pmItemStatus)">
+                        {{ pmStatusLabel(row.pmItemStatus) }}
+                      </el-tag>
+                      #{{ row.pmItemId }} {{ row.pmItemTitle }}
+                    </span>
                     <span v-if="row.assignees.length > 0" class="meta-chip meta-assignee">
                       <el-icon :size="12"><User /></el-icon>
                       {{ row.assignees.map((a: TodoAssignee) => a.name).join("、") }}
@@ -358,6 +368,8 @@
             @title-enter="onCreateTitleEnter"
             @toggle-more-fields="showMoreFields = !showMoreFields"
             @pm-select-change="handlePmSelectChange"
+            @pm-create="handlePmCreate"
+            @pm-search="handlePmSearch"
             @navigate-to-pm="navigateToPmItem"
             @event-date-change="(v) => { if (!v) clearEventSchedule(); else itemDraft.eventDate = v; }"
             @event-hour-change="(v) => { const { minute } = splitDraftEventTime(itemDraft.eventTime); itemDraft.eventTime = composeDraftEventTime(v, minute); }"
@@ -1470,9 +1482,9 @@ async function loadProjects() {
   }
 }
 
-async function loadTodoPmCandidates(projectId: number, linkedPmItemId?: number | null) {
+async function loadTodoPmCandidates(projectId: number, linkedPmItemId?: number | null, keyword?: string) {
   try {
-    const result = await invokeToolByChannel("tool:todo:pm-candidates", { projectId }) as { items: PmCandidateItem[] };
+    const result = await invokeToolByChannel("tool:todo:pm-candidates", { projectId, keyword: keyword || undefined }) as { items: PmCandidateItem[] };
     let candidates = result?.items || [];
     // Ensure currently linked PM item is in the list (it may be filtered out by other criteria)
     if (linkedPmItemId && !candidates.some((c) => c.id === linkedPmItemId)) {
@@ -1594,17 +1606,54 @@ async function onTodoPmLinkChange(pmItemId: number | null) {
 
 function handlePmSelectChange(value: number | null) {
   if (value === -1) {
-    todoPmLinkItemId.value = null;
-    pmCreateDialogVisible.value = true;
-    pmCreateTitle.value = "";
+    // Handled by InlinePmSelector now - create mode is inline
     return;
   }
   void onTodoPmLinkChange(value);
 }
 
+async function handlePmCreate(title: string, projectId: number) {
+  if (!title.trim()) return;
+  try {
+    const result = await invokeToolByChannel("tool:pm:item-create", {
+      projectId,
+      title: title.trim(),
+      itemType: "task",
+      priority: "P2",
+      status: "todo",
+    }) as { id: number };
+    if (itemDraft.id) {
+      await invokeToolByChannel("tool:todo:item-set-pm-link", {
+        todoItemId: itemDraft.id,
+        pmItemId: result.id,
+      });
+    }
+    itemDraft.pmItemId = result.id;
+    itemDraft.pmItemTitle = title.trim();
+    itemDraft.pmItemProjectId = projectId;
+    itemDraft.pmItemStatus = "todo";
+    todoPmLinkItemId.value = result.id;
+    todoLinkedPmItem.value = { id: result.id, title: title.trim(), status: "todo", projectId };
+    await loadItems();
+  } catch (error) {
+    ElMessage.error((error as Error).message);
+  }
+}
+
+function handlePmSearch(keyword: string) {
+  if (itemDraft.projectId && itemDraft.kind !== "recurring") {
+    loadTodoPmCandidates(itemDraft.projectId, itemDraft.pmItemId, keyword);
+  }
+}
+
 function navigateToPmItem(pmItemId: number, _pmProjectId: number | null) {
   openTab("pm", "项目管理");
   ElMessage.info({ message: `已切换到项目管理，请查看工作项 #${pmItemId}`, duration: 3000 });
+}
+
+function pmItemTagStyle(status: string | null | undefined): Record<string, string> {
+  const color = pmStatusColor(status);
+  return { backgroundColor: color + "14", borderColor: color + "33", color };
 }
 
 async function resolveTypeId(value: SelectTypeValue) {
@@ -2317,6 +2366,18 @@ onBeforeUnmount(() => {
 .meta-chip.is-overdue {
   color: var(--lc-danger);
   font-weight: 600;
+}
+.meta-pm-link {
+  cursor: pointer;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.meta-pm-link:hover {
+  opacity: 0.8;
+}
+.meta-pm-link .el-tag {
+  flex-shrink: 0;
 }
 .color-dot-sm {
   display: inline-block;

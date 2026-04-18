@@ -22,74 +22,49 @@
           </el-form-item>
         </div>
 
-        <!-- 项目与工作项：有值时提到更多设置上方 -->
-        <template v-if="hasProjectOrWorkItem">
-          <div class="todo-form-section">
-            <el-form-item label="所属项目">
-              <el-select
-                v-model="draft.projectId"
-                clearable
-                placeholder="无"
-                style="width: 100%"
-                :disabled="!!draft.pmItemId"
-              >
-                <el-option
-                  v-for="p in projectOptions"
-                  :key="p.id"
-                  :label="p.name"
-                  :value="p.id"
-                />
-              </el-select>
-              <div v-if="draft.pmItemId && draft.projectId" class="pm-link-project-lock-hint">
-                已关联项目工作项，请先解除关联再切换项目
-              </div>
-            </el-form-item>
-            <el-form-item label="项目工作项">
-              <div v-if="draft.kind === 'recurring'" class="pm-link-recurring-hint">
-                重复事项暂不支持关联项目工作项
-              </div>
-              <div v-else-if="!draft.projectId" class="pm-link-no-project-hint">
-                <span>未选择项目，</span>
-                <el-button type="primary" link size="small" @click="$emit('pmSelectChange', -1)">新建工作项</el-button>
-              </div>
-              <div v-else class="pm-link-selector">
-                <el-select
-                  :model-value="pmLinkItemId"
-                  clearable
-                  placeholder="未关联项目任务"
-                  style="width: 100%"
-                  @change="(v: number | null) => $emit('pmSelectChange', v)"
-                >
-                  <el-option :value="-1" style="padding-left: 8px;">
-                    <el-icon style="margin-right: 4px; vertical-align: middle;"><Plus /></el-icon>
-                    <span>新建工作项</span>
-                  </el-option>
-                  <el-divider style="margin: 4px 0;" />
-                  <el-option
-                    v-for="pm in pmCandidates"
-                    :key="pm.id"
-                    :label="pm.title"
-                    :value="pm.id"
-                  >
-                    <el-tag size="small" effect="plain" :style="{ marginRight: '6px', backgroundColor: pmStatusColor(pm.status) + '20', borderColor: pmStatusColor(pm.status) + '50', color: pmStatusColor(pm.status) }">
-                      {{ pmStatusLabel(pm.status) }}
-                    </el-tag>
-                    <span>{{ pm.title }}</span>
-                  </el-option>
-                </el-select>
-                <el-button
-                  v-if="draft.pmItemId && draft.pmItemTitle"
-                  size="small"
-                  link
-                  type="primary"
-                  @click="$emit('navigateToPm', draft.pmItemId, draft.pmItemProjectId)"
-                >
-                  查看工作项
-                </el-button>
-              </div>
-            </el-form-item>
-          </div>
-        </template>
+        <!-- 项目与工作项（始终可见） -->
+        <div class="todo-form-section">
+          <el-form-item label="所属项目">
+            <el-select
+              v-model="draft.projectId"
+              clearable
+              placeholder="无"
+              style="width: 100%"
+              :disabled="!!draft.pmItemId"
+            >
+              <el-option
+                v-for="p in projectOptions"
+                :key="p.id"
+                :label="p.name"
+                :value="p.id"
+              />
+            </el-select>
+            <div v-if="draft.pmItemId && draft.projectId" class="pm-link-project-lock-hint">
+              已关联项目工作项，请先解除关联再切换项目
+            </div>
+          </el-form-item>
+          <el-form-item label="项目工作项">
+            <div v-if="draft.kind === 'recurring'" class="pm-link-recurring-hint">
+              重复事项暂不支持关联项目工作项
+            </div>
+            <InlinePmSelector
+              v-else
+              :project-id="draft.projectId"
+              :project-name="draft.projectId ? projectOptions.find(p => p.id === draft.projectId)?.name ?? null : null"
+              :project-color="draft.projectId ? projectOptions.find(p => p.id === draft.projectId)?.color ?? null : null"
+              :pm-item-id="draft.pmItemId"
+              :pm-item-title="draft.pmItemTitle"
+              :pm-item-status="draft.pmItemStatus"
+              :candidates="pmCandidates"
+              :candidates-loading="false"
+              :project-list="projectOptions"
+              @link="(id: number) => $emit('pmSelectChange', id)"
+              @unlink="$emit('pmSelectChange', null)"
+              @create-pm="(title: string, projectId: number) => $emit('pmCreate', title, projectId)"
+              @search="(keyword: string) => $emit('pmSearch', keyword)"
+            />
+          </el-form-item>
+        </div>
 
         <div class="todo-form-more-toggle" @click="$emit('toggleMoreFields')">
           <span class="more-toggle-text">
@@ -153,71 +128,6 @@
                 </el-select>
               </div>
             </el-form-item>
-            <template v-if="!hasProjectOrWorkItem">
-            <el-form-item label="所属项目">
-              <el-select
-                v-model="draft.projectId"
-                clearable
-                placeholder="无"
-                style="width: 100%"
-                :disabled="!!draft.pmItemId"
-              >
-                <el-option
-                  v-for="p in projectOptions"
-                  :key="p.id"
-                  :label="p.name"
-                  :value="p.id"
-                />
-              </el-select>
-              <div v-if="draft.pmItemId && draft.projectId" class="pm-link-project-lock-hint">
-                已关联项目工作项，请先解除关联再切换项目
-              </div>
-            </el-form-item>
-            <el-form-item label="项目工作项">
-              <div v-if="draft.kind === 'recurring'" class="pm-link-recurring-hint">
-                重复事项暂不支持关联项目工作项
-              </div>
-              <div v-else-if="!draft.projectId" class="pm-link-no-project-hint">
-                <span>未选择项目，</span>
-                <el-button type="primary" link size="small" @click="$emit('pmSelectChange', -1)">新建工作项</el-button>
-              </div>
-              <div v-else class="pm-link-selector">
-                <el-select
-                  :model-value="pmLinkItemId"
-                  clearable
-                  placeholder="未关联项目任务"
-                  style="width: 100%"
-                  @change="(v: number | null) => $emit('pmSelectChange', v)"
-                >
-                  <el-option :value="-1" style="padding-left: 8px;">
-                    <el-icon style="margin-right: 4px; vertical-align: middle;"><Plus /></el-icon>
-                    <span>新建工作项</span>
-                  </el-option>
-                  <el-divider style="margin: 4px 0;" />
-                  <el-option
-                    v-for="pm in pmCandidates"
-                    :key="pm.id"
-                    :label="pm.title"
-                    :value="pm.id"
-                  >
-                    <el-tag size="small" effect="plain" :style="{ marginRight: '6px', backgroundColor: pmStatusColor(pm.status) + '20', borderColor: pmStatusColor(pm.status) + '50', color: pmStatusColor(pm.status) }">
-                      {{ pmStatusLabel(pm.status) }}
-                    </el-tag>
-                    <span>{{ pm.title }}</span>
-                  </el-option>
-                </el-select>
-                <el-button
-                  v-if="draft.pmItemId && draft.pmItemTitle"
-                  size="small"
-                  link
-                  type="primary"
-                  @click="$emit('navigateToPm', draft.pmItemId, draft.pmItemProjectId)"
-                >
-                  查看工作项
-                </el-button>
-              </div>
-            </el-form-item>
-            </template>
             <el-form-item label="执行人">
               <el-select
                 v-model="draft.assigneeIds"
@@ -563,6 +473,7 @@ import { Plus } from "@element-plus/icons-vue";
 import type { TodoAssignee, TodoItem, TodoPriority, TodoReminderPreset, TodoRepeatPreset, TodoSimpleRule } from "../types";
 import type { PmCandidateItem } from "../types/pm";
 import { effectiveReminderPresets } from "../composables/useTodoItem";
+import InlinePmSelector from "./InlinePmSelector.vue";
 
 interface DraftShape {
   title: string;
@@ -613,6 +524,8 @@ defineEmits<{
   titleEnter: [event: KeyboardEvent];
   toggleMoreFields: [];
   pmSelectChange: [value: number | null];
+  pmCreate: [title: string, projectId: number];
+  pmSearch: [keyword: string];
   navigateToPm: [pmItemId: number, pmProjectId: number | null];
   eventDateChange: [value: string | null | undefined];
   eventHourChange: [value: string];
@@ -644,8 +557,6 @@ defineExpose({
 });
 
 // --- Computed ---
-
-const hasProjectOrWorkItem = computed(() => !!props.draft.projectId || !!props.draft.pmItemId);
 
 const isRepeating = computed(() => props.draft.repeatPreset !== "none");
 
@@ -683,8 +594,6 @@ const submitText = computed(() => (props.mode === "create" ? "创建事项" : "�
 
 const moreFieldsSummary = computed(() => {
   const parts: string[] = [];
-  if (!hasProjectOrWorkItem.value && props.draft.projectId) parts.push("项目");
-  if (!hasProjectOrWorkItem.value && props.draft.pmItemId) parts.push("工作项");
   if (props.draft.typeId) parts.push("分类");
   if (props.draft.priority !== "P2") parts.push("优先级");
   if (props.draft.assigneeIds.length > 0) parts.push("执行人");
@@ -695,22 +604,6 @@ const moreFieldsSummary = computed(() => {
 });
 
 // --- Helpers ---
-
-function pmStatusColor(status: string | null | undefined): string {
-  if (!status) return "#909399";
-  const map: Record<string, string> = {
-    todo: "#909399", in_progress: "#409eff", done: "#67c23a", cancelled: "#f56c6c",
-  };
-  return map[status] || "#909399";
-}
-
-function pmStatusLabel(status: string | null | undefined): string {
-  if (!status) return "未知";
-  const map: Record<string, string> = {
-    todo: "待办", in_progress: "进行中", done: "已完成", cancelled: "已取消",
-  };
-  return map[status] || status;
-}
 
 function isDoneItem(item: TodoItem) {
   return item.status === "completed";
