@@ -23,6 +23,12 @@ export const PM_VIEWS: ViewDefinition[] = [
     component: defineAsyncComponent(() => import("../components/PmGanttView.vue")),
   },
   {
+    id: "today",
+    label: "今日",
+    icon: "◷",
+    component: defineAsyncComponent(() => import("../components/PmTodayView.vue")),
+  },
+  {
     id: "list",
     label: "列表",
     icon: "≡",
@@ -39,12 +45,6 @@ export const PM_VIEWS: ViewDefinition[] = [
     label: "四象限",
     icon: "⊞",
     component: defineAsyncComponent(() => import("../components/PmMatrixView.vue")),
-  },
-  {
-    id: "today",
-    label: "今日",
-    icon: "◷",
-    component: defineAsyncComponent(() => import("../components/PmTodayView.vue")),
   },
 ];
 

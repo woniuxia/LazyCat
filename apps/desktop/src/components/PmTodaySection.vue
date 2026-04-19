@@ -24,6 +24,7 @@
           @start="(i: PmItem) => emit('start', i)"
           @postpone="(i: PmItem) => emit('postpone', i)"
           @complete="(i: PmItem) => emit('complete', i)"
+          @detail="(i: PmItem) => emit('select', i)"
         />
       </div>
     </div>

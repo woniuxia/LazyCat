@@ -9,7 +9,7 @@ function settingsKey(ctx: PmContextId): string {
 }
 
 function defaultView(ctx: PmContextId): ViewId {
-  return ctx === "overview" ? "kanban" : "kanban";
+  return ctx === "overview" ? "list" : "kanban";
 }
 
 function readSavedView(ctx: PmContextId): ViewId | null {

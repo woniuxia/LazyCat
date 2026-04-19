@@ -59,6 +59,7 @@ export interface PmItem {
   updatedAt: string;
   projectName?: string | null;
   projectColor?: string | null;
+  todoCount?: number;
 }
 
 export interface PmTagStat {

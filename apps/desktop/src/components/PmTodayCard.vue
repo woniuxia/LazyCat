@@ -44,6 +44,15 @@
           {{ PM_ITEM_TYPE_MAP[item.itemType]?.label }}
         </span>
         <span
+          class="card-pill"
+          :style="{
+            color: statusMeta.color,
+            borderColor: statusMeta.color + '40',
+          }"
+        >
+          {{ statusMeta.label }}
+        </span>
+        <span
           v-if="dateChipText"
           class="card-date-chip"
           :class="{ 'is-overdue': overdue }"
@@ -79,13 +88,19 @@
       >
         标记完成
       </button>
+      <button
+        class="card-action"
+        @click.stop="emit('detail', item)"
+      >
+        详情
+      </button>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed } from "vue";
-import { PM_ITEM_TYPE_MAP, PM_PRIORITY_MAP, type PmItem } from "../types/pm";
+import { PM_ITEM_TYPE_MAP, PM_PRIORITY_MAP, PM_STATUS_COLUMNS, type PmItem } from "../types/pm";
 import {
   formatPmDateRangeForDisplay,
   hasPmDateSchedule,
@@ -101,9 +116,20 @@ const emit = defineEmits<{
   (e: "start", item: PmItem): void;
   (e: "postpone", item: PmItem): void;
   (e: "complete", item: PmItem): void;
+  (e: "detail", item: PmItem): void;
 }>();
 
 const overdue = computed(() => isPmItemOverdue(props.item));
+
+const statusMeta = computed(() => {
+  return (
+    PM_STATUS_COLUMNS.find((c) => c.key === props.item.status) ?? {
+      key: props.item.status,
+      label: props.item.status,
+      color: "#909399",
+    }
+  );
+});
 
 const dateChipText = computed(() => {
   if (!hasPmDateSchedule(props.item.startAt, props.item.endAt)) return "";

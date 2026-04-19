@@ -74,6 +74,32 @@
       </el-popover>
     </div>
 
+    <div v-if="hasActiveFilters" class="pm-list-filter-bar">
+      <span class="pm-list-filter-bar-label">已筛选：</span>
+      <el-tag
+        v-for="tag in filters.tags"
+        :key="`tag-${tag}`"
+        size="small"
+        closable
+        class="pm-list-filter-chip"
+        @close="removeTagFilter(tag)"
+      >
+        标签：{{ tag }}
+      </el-tag>
+      <el-tag
+        v-if="filters.dateRange"
+        size="small"
+        closable
+        class="pm-list-filter-chip"
+        @close="clearDateFilter"
+      >
+        日期：{{ filters.dateRange[0] }} ~ {{ filters.dateRange[1] }}
+      </el-tag>
+      <el-button size="small" text class="pm-list-filter-clear" @click="onClearFilters">
+        清除全部
+      </el-button>
+    </div>
+
     <!-- Data area -->
     <div
       ref="scrollEl"
@@ -100,6 +126,7 @@
             <span v-if="group.color" class="group-color-dot" :style="{ backgroundColor: group.color }" />
             <span class="group-label">{{ group.label }}</span>
             <span class="group-count">{{ group.items.length }}</span>
+            <span v-if="group.metrics" class="group-metrics">{{ group.metrics }}</span>
           </div>
           <el-table
             v-show="group.key === 'all' || isGroupOpen(group.key)"
@@ -117,6 +144,71 @@
             @row-contextmenu="onRowContextmenu"
             @sort-change="onSortChange"
           >
+            <el-table-column type="expand" width="36">
+              <template #default="{ row }">
+                <div class="row-expand">
+                  <div class="row-expand-info">
+                    <div v-if="row.description" class="row-expand-desc">
+                      {{ row.description }}
+                    </div>
+                    <div v-else class="row-expand-desc is-empty">暂无描述</div>
+                    <div class="row-expand-meta">
+                      <span v-if="row.startAt" class="row-expand-meta-item">
+                        <span class="meta-label">开始</span>
+                        <span class="meta-value">{{ formatPmDateForDisplay(row.startAt, 'short') }}</span>
+                      </span>
+                      <span v-if="row.endAt" class="row-expand-meta-item">
+                        <span class="meta-label">截止</span>
+                        <span class="meta-value" :class="{ 'is-overdue': isPmItemOverdue(row) }">
+                          {{ formatPmDateForDisplay(row.endAt, 'short') }}
+                        </span>
+                      </span>
+                      <span v-if="row.startedAt" class="row-expand-meta-item">
+                        <span class="meta-label">实际开始</span>
+                        <span class="meta-value">{{ formatDateTime(row.startedAt) }}</span>
+                      </span>
+                      <span v-if="row.completedAt" class="row-expand-meta-item">
+                        <span class="meta-label">完成时间</span>
+                        <span class="meta-value">{{ formatDateTime(row.completedAt) }}</span>
+                      </span>
+                      <span class="row-expand-meta-item">
+                        <span class="meta-label">更新</span>
+                        <span class="meta-value">{{ formatDateTime(row.updatedAt) }}</span>
+                      </span>
+                    </div>
+                  </div>
+                  <div class="row-expand-actions">
+                    <el-button
+                      v-if="row.status === 'todo'"
+                      size="small"
+                      @click.stop="onQuickStart(row)"
+                    >
+                      开始做
+                    </el-button>
+                    <el-button
+                      v-if="row.status !== 'done' && row.endAt"
+                      size="small"
+                      @click.stop="onQuickPostpone(row)"
+                    >
+                      推到明天
+                    </el-button>
+                    <el-button
+                      v-if="row.status !== 'done'"
+                      size="small"
+                      type="success"
+                      @click.stop="onQuickComplete(row)"
+                    >
+                      标记完成
+                    </el-button>
+                    <el-button size="small" @click.stop="emit('edit', row)">编辑</el-button>
+                    <el-button size="small" type="primary" @click.stop="emit('select', row)">
+                      打开详情面板
+                    </el-button>
+                  </div>
+                </div>
+              </template>
+            </el-table-column>
+
             <el-table-column type="selection" width="42" :selectable="rowSelectable" />
 
             <el-table-column
@@ -127,9 +219,26 @@
               show-overflow-tooltip
             >
               <template #default="{ row }">
-                <div class="cell-title">
+                <div v-if="editingTitleId === row.id" class="cell-title-editor" @click.stop>
+                  <el-input
+                    :ref="(el) => setTitleInputRef(row.id, el)"
+                    v-model="titleDraft"
+                    size="small"
+                    @keydown.enter.prevent="commitTitleEdit(row)"
+                    @keydown.esc.prevent="cancelTitleEdit"
+                    @blur="commitTitleEdit(row)"
+                  />
+                </div>
+                <div v-else class="cell-title">
                   <span v-if="row.pinned" class="title-pin" title="已置顶">📌</span>
                   <span class="title-text">{{ row.title }}</span>
+                  <el-icon
+                    class="title-edit-icon"
+                    title="编辑标题"
+                    @click.stop="beginTitleEdit(row)"
+                  >
+                    <Edit />
+                  </el-icon>
                 </div>
               </template>
             </el-table-column>
@@ -142,8 +251,46 @@
               sortable="custom"
             >
               <template #default="{ row }">
+                <el-dropdown
+                  v-if="movableProjects.length > 0"
+                  trigger="click"
+                  @command="(cmd) => onInlineProject(row, cmd)"
+                >
+                  <span
+                    v-if="row.projectName"
+                    class="cell-project cell-editable"
+                    :style="{
+                      backgroundColor: (row.projectColor || '#4d7df2') + '18',
+                      color: row.projectColor || '#4d7df2',
+                    }"
+                    @click.stop
+                  >
+                    <span
+                      class="cell-project-dot"
+                      :style="{ backgroundColor: row.projectColor || '#4d7df2' }"
+                    />
+                    {{ row.projectName }}
+                  </span>
+                  <span v-else class="cell-empty cell-editable" @click.stop>选择项目</span>
+                  <template #dropdown>
+                    <el-dropdown-menu>
+                      <el-dropdown-item
+                        v-for="project in movableProjects"
+                        :key="project.id"
+                        :command="project.id"
+                        :disabled="row.projectId === project.id"
+                      >
+                        <span
+                          class="cell-project-dot"
+                          :style="{ backgroundColor: project.color || '#4d7df2', marginRight: '6px' }"
+                        />
+                        {{ project.name }}
+                      </el-dropdown-item>
+                    </el-dropdown-menu>
+                  </template>
+                </el-dropdown>
                 <span
-                  v-if="row.projectName"
+                  v-else-if="row.projectName"
                   class="cell-project"
                   :style="{
                     backgroundColor: (row.projectColor || '#4d7df2') + '18',
@@ -378,6 +525,91 @@
                 <span class="cell-date">{{ formatUpdatedAt(row.updatedAt) }}</span>
               </template>
             </el-table-column>
+
+            <el-table-column
+              v-if="colVisible('startAt')"
+              label="开始"
+              width="110"
+              prop="startAt"
+              sortable="custom"
+            >
+              <template #default="{ row }">
+                <span v-if="row.startAt" class="cell-date">
+                  {{ formatPmDateForDisplay(row.startAt, 'short') }}
+                </span>
+                <span v-else class="cell-empty">—</span>
+              </template>
+            </el-table-column>
+
+            <el-table-column
+              v-if="colVisible('startedAt')"
+              label="实际开始"
+              width="130"
+              prop="startedAt"
+            >
+              <template #default="{ row }">
+                <span v-if="row.startedAt" class="cell-date">{{ formatDateTime(row.startedAt) }}</span>
+                <span v-else class="cell-empty">—</span>
+              </template>
+            </el-table-column>
+
+            <el-table-column
+              v-if="colVisible('completedAt')"
+              label="完成时间"
+              width="130"
+              prop="completedAt"
+            >
+              <template #default="{ row }">
+                <span v-if="row.completedAt" class="cell-date">{{ formatDateTime(row.completedAt) }}</span>
+                <span v-else class="cell-empty">—</span>
+              </template>
+            </el-table-column>
+
+            <el-table-column
+              v-if="colVisible('description')"
+              label="描述摘要"
+              min-width="200"
+            >
+              <template #default="{ row }">
+                <span v-if="row.description" class="cell-desc" :title="row.description">
+                  {{ truncateDesc(row.description) }}
+                </span>
+                <span v-else class="cell-empty">—</span>
+              </template>
+            </el-table-column>
+
+            <el-table-column
+              v-if="colVisible('linkUrl')"
+              label="链接"
+              min-width="140"
+            >
+              <template #default="{ row }">
+                <a
+                  v-if="row.linkUrl"
+                  :href="row.linkUrl"
+                  class="cell-link"
+                  :title="row.linkUrl"
+                  target="_blank"
+                  rel="noreferrer"
+                  @click.stop
+                >
+                  {{ shortenLink(row.linkUrl) }}
+                </a>
+                <span v-else class="cell-empty">—</span>
+              </template>
+            </el-table-column>
+
+            <el-table-column
+              v-if="colVisible('todoCount')"
+              label="Todo 数"
+              width="92"
+              prop="todoCount"
+              sortable="custom"
+            >
+              <template #default="{ row }">
+                <span class="cell-todo-count">{{ row.todoCount ?? 0 }}</span>
+              </template>
+            </el-table-column>
           </el-table>
         </div>
         <div v-if="virtualActive && renderedTotal < filteredItems.length" class="pm-list-more-hint">
@@ -394,6 +626,8 @@
           <el-button size="small" text @click="clearSelection">清除</el-button>
         </div>
         <div class="batch-actions">
+          <el-button size="small" type="success" @click="onBatchComplete">标记完成</el-button>
+
           <el-dropdown trigger="click" @command="onBatchStatus">
             <el-button size="small">
               改状态
@@ -452,6 +686,42 @@
             </template>
           </el-dropdown>
 
+          <el-popover
+            v-model:visible="batchTagPopoverVisible"
+            trigger="click"
+            placement="top"
+            :width="280"
+          >
+            <template #reference>
+              <el-button size="small">打标签</el-button>
+            </template>
+            <div class="batch-tag-popover">
+              <el-select
+                v-model="batchTagDraft"
+                multiple
+                filterable
+                allow-create
+                default-first-option
+                placeholder="输入或选择标签"
+                size="small"
+                style="width: 100%;"
+              >
+                <el-option v-for="tag in availableTags" :key="tag" :label="tag" :value="tag" />
+              </el-select>
+              <div class="batch-tag-popover-actions">
+                <el-button size="small" @click="cancelBatchTag">取消</el-button>
+                <el-button
+                  size="small"
+                  type="primary"
+                  :disabled="batchTagDraft.length === 0"
+                  @click="confirmBatchTag"
+                >
+                  追加
+                </el-button>
+              </div>
+            </div>
+          </el-popover>
+
           <el-button size="small" @click="onBatchPin(true)">置顶</el-button>
           <el-button size="small" @click="onBatchPin(false)">取消置顶</el-button>
           <el-button size="small" type="danger" @click="onBatchDelete">删除</el-button>
@@ -464,7 +734,7 @@
 <script setup lang="ts">
 import { computed, ref, watch, nextTick } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
-import { CaretBottom, CaretRight, Grid } from "@element-plus/icons-vue";
+import { CaretBottom, CaretRight, Edit, Grid } from "@element-plus/icons-vue";
 import type { PmItem, PmItemStatus, PmPriority, PmProject } from "../types/pm";
 import {
   PM_ITEM_TYPE_MAP,
@@ -493,6 +763,7 @@ interface GroupItem {
   label: string;
   color?: string | null;
   items: PmItem[];
+  metrics?: string;
 }
 
 const props = defineProps<{
@@ -565,6 +836,29 @@ function formatUpdatedAt(value: string): string {
   return value.slice(0, 10);
 }
 
+function formatDateTime(value: string | null | undefined): string {
+  if (!value) return "-";
+  if (value.length >= 16) return value.replace("T", " ").slice(0, 16);
+  return value.slice(0, 10);
+}
+
+function truncateDesc(value: string): string {
+  const trimmed = value.replace(/\s+/g, " ").trim();
+  if (trimmed.length <= 40) return trimmed;
+  return trimmed.slice(0, 40) + "…";
+}
+
+function shortenLink(url: string): string {
+  try {
+    const u = new URL(url);
+    const host = u.hostname.replace(/^www\./, "");
+    const path = u.pathname === "/" ? "" : u.pathname;
+    return host + path;
+  } catch {
+    return url.length > 30 ? url.slice(0, 30) + "…" : url;
+  }
+}
+
 function rowClassName({ row }: { row: PmItem }) {
   return row.id === props.selectedItemId ? "is-selected-row" : "";
 }
@@ -595,8 +889,12 @@ function sortValue(item: PmItem, prop: string): string | number | null {
       return statusRank[item.status] ?? 99;
     case "endAt":
       return item.endAt ?? null;
+    case "startAt":
+      return item.startAt ?? null;
     case "updatedAt":
       return item.updatedAt ?? null;
+    case "todoCount":
+      return item.todoCount ?? 0;
     default:
       return null;
   }
@@ -604,7 +902,7 @@ function sortValue(item: PmItem, prop: string): string | number | null {
 
 function sortedItemsOf(list: PmItem[]): PmItem[] {
   const { prop, order } = sortState.value;
-  if (!prop || !order) return list;
+  if (!prop || !order) return defaultSorted(list);
   const dir = order === "asc" ? 1 : -1;
   return [...list].sort((a, b) => {
     const va = sortValue(a, prop);
@@ -614,6 +912,27 @@ function sortedItemsOf(list: PmItem[]): PmItem[] {
     if (vb === null || vb === undefined) return -1;
     if (typeof va === "number" && typeof vb === "number") return (va - vb) * dir;
     return String(va).localeCompare(String(vb)) * dir;
+  });
+}
+
+function defaultSorted(list: PmItem[]): PmItem[] {
+  return [...list].sort((a, b) => {
+    const pa = a.pinned ? 1 : 0;
+    const pb = b.pinned ? 1 : 0;
+    if (pa !== pb) return pb - pa;
+    const prA = priorityRank[a.priority] ?? 99;
+    const prB = priorityRank[b.priority] ?? 99;
+    if (prA !== prB) return prA - prB;
+    const eA = a.endAt ?? null;
+    const eB = b.endAt ?? null;
+    if (eA !== eB) {
+      if (eA === null) return 1;
+      if (eB === null) return -1;
+      return eA.localeCompare(eB);
+    }
+    const uA = a.updatedAt ?? "";
+    const uB = b.updatedAt ?? "";
+    return uB.localeCompare(uA);
   });
 }
 
@@ -691,6 +1010,15 @@ const hasActiveFilters = computed(() => {
 
 function onClearFilters() {
   resetFilters();
+}
+
+function removeTagFilter(tag: string) {
+  const next = filters.value.tags.filter((t) => t !== tag);
+  setFilters({ ...filters.value, tags: next });
+}
+
+function clearDateFilter() {
+  setFilters({ ...filters.value, dateRange: null });
 }
 
 const availableTags = computed<string[]>(() => {
@@ -823,6 +1151,9 @@ const groups = computed<GroupItem[]>(() => {
     buckets.get(gkey)!.items.push(item);
   }
   const list = Array.from(buckets.values());
+  for (const g of list) {
+    g.metrics = buildGroupMetrics(g.items);
+  }
   list.sort((a, b) => {
     if (groupBy.value === "priority") {
       const rank = (k: string): number => {
@@ -875,6 +1206,33 @@ const movableProjects = computed(() => {
   return props.projects.filter((p) => p.status === "active");
 });
 
+function buildGroupMetrics(list: PmItem[]): string {
+  if (list.length === 0) return "";
+  const todayStr = toLocalDateStr(new Date());
+  let overdue = 0;
+  let inProgressCount = 0;
+  let dueTodayCount = 0;
+  for (const item of list) {
+    if (item.status === "done") continue;
+    const end = (item.endAt ?? "").slice(0, 10);
+    if (end && end < todayStr) overdue += 1;
+    else if (end && end === todayStr) dueTodayCount += 1;
+    if (item.status === "in_progress") inProgressCount += 1;
+  }
+  const parts: string[] = [];
+  if (overdue > 0) parts.push(`逾期 ${overdue}`);
+  if (dueTodayCount > 0) parts.push(`今日 ${dueTodayCount}`);
+  if (inProgressCount > 0) parts.push(`进行中 ${inProgressCount}`);
+  return parts.join(" · ");
+}
+
+function toLocalDateStr(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
 // Inline edit
 async function onInlineStatus(row: PmItem, command: unknown) {
   const status = command as PmItemStatus;
@@ -923,6 +1281,104 @@ async function onInlineTags(row: PmItem, tags: string[]) {
   }
 }
 
+async function onInlineProject(row: PmItem, command: unknown) {
+  const projectId = command as number;
+  if (row.projectId === projectId) return;
+  try {
+    await invoke("tool:pm:item-move-project", { id: row.id, projectId });
+    const target = props.projects.find((p) => p.id === projectId);
+    ElMessage.success({ message: `已移至「${target?.name ?? projectId}」`, duration: 1200 });
+    emit("items-changed");
+  } catch (e) {
+    ElMessage.error((e as Error).message);
+  }
+}
+
+const editingTitleId = ref<number | null>(null);
+const titleDraft = ref("");
+const titleInputRefs = new Map<number, { focus?: () => void } | null>();
+
+function setTitleInputRef(id: number, el: unknown) {
+  titleInputRefs.set(id, el as { focus?: () => void } | null);
+  if (editingTitleId.value === id) {
+    nextTick(() => {
+      const inst = titleInputRefs.get(id);
+      inst?.focus?.();
+    });
+  }
+}
+
+function beginTitleEdit(row: PmItem) {
+  editingTitleId.value = row.id;
+  titleDraft.value = row.title;
+  nextTick(() => {
+    const inst = titleInputRefs.get(row.id);
+    inst?.focus?.();
+  });
+}
+
+function cancelTitleEdit() {
+  editingTitleId.value = null;
+  titleDraft.value = "";
+}
+
+async function commitTitleEdit(row: PmItem) {
+  if (editingTitleId.value !== row.id) return;
+  const next = titleDraft.value.trim();
+  editingTitleId.value = null;
+  titleDraft.value = "";
+  if (!next || next === row.title) return;
+  try {
+    await invoke("tool:pm:item-update", { id: row.id, title: next });
+    emit("items-changed");
+  } catch (e) {
+    ElMessage.error((e as Error).message);
+  }
+}
+
+async function onQuickStart(row: PmItem) {
+  try {
+    await invoke("tool:pm:item-change-status", { id: row.id, status: "in_progress" });
+    ElMessage.success({ message: "已开始", duration: 1200 });
+    emit("items-changed");
+  } catch (e) {
+    ElMessage.error((e as Error).message);
+  }
+}
+
+async function onQuickComplete(row: PmItem) {
+  try {
+    await invoke("tool:pm:item-change-status", { id: row.id, status: "done" });
+    ElMessage.success({ message: "已标记完成", duration: 1200 });
+    emit("items-changed");
+  } catch (e) {
+    ElMessage.error((e as Error).message);
+  }
+}
+
+async function onQuickPostpone(row: PmItem) {
+  const currentEnd = row.endAt;
+  if (!currentEnd) return;
+  const prefix = currentEnd.length >= 10 ? currentEnd.slice(0, 10) : currentEnd;
+  const parts = prefix.split("-");
+  if (parts.length !== 3) return;
+  const date = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+  date.setDate(date.getDate() + 1);
+  const nextEnd = toLocalDateStr(date);
+  const nextStart = row.startAt && row.startAt > nextEnd ? nextEnd : row.startAt;
+  try {
+    await invoke("tool:pm:item-update", {
+      id: row.id,
+      startAt: nextStart,
+      endAt: nextEnd,
+    });
+    ElMessage.success({ message: "已推到明天", duration: 1200 });
+    emit("items-changed");
+  } catch (e) {
+    ElMessage.error((e as Error).message);
+  }
+}
+
 // Batch ops
 async function runBatch(fields: Record<string, unknown>, successMsg: string) {
   if (selectedIds.value.size === 0) return;
@@ -957,6 +1413,26 @@ async function onBatchProject(command: unknown) {
 
 async function onBatchPin(pinned: boolean) {
   await runBatch({ pinned }, pinned ? "已置顶" : "已取消置顶");
+}
+
+async function onBatchComplete() {
+  await runBatch({ status: "done" }, "已标记完成");
+}
+
+const batchTagPopoverVisible = ref(false);
+const batchTagDraft = ref<string[]>([]);
+
+function cancelBatchTag() {
+  batchTagDraft.value = [];
+  batchTagPopoverVisible.value = false;
+}
+
+async function confirmBatchTag() {
+  if (batchTagDraft.value.length === 0) return;
+  const tags = batchTagDraft.value.slice();
+  await runBatch({ addTags: tags }, `已追加 ${tags.length} 个标签`);
+  batchTagDraft.value = [];
+  batchTagPopoverVisible.value = false;
 }
 
 async function onBatchDelete() {
@@ -1036,6 +1512,26 @@ async function onBatchDelete() {
   display: flex;
 }
 
+.pm-list-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 20px;
+  background: var(--el-fill-color-lighter, #fafbfc);
+  border-bottom: 1px solid var(--el-border-color-lighter, #ebeef5);
+}
+.pm-list-filter-bar-label {
+  font-size: 12px;
+  color: var(--el-text-color-secondary, #909399);
+}
+.pm-list-filter-chip {
+  margin-right: 0;
+}
+.pm-list-filter-clear {
+  margin-left: auto;
+}
+
 .pm-list-scroll {
   flex: 1;
   overflow: auto;
@@ -1104,6 +1600,12 @@ async function onBatchDelete() {
   border-radius: 8px;
   border: 1px solid var(--el-border-color-lighter, #ebeef5);
 }
+.group-metrics {
+  margin-left: 6px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary, #909399);
+  letter-spacing: 0.02em;
+}
 
 .pm-list-table :deep(.el-table__row) {
   cursor: pointer;
@@ -1127,6 +1629,23 @@ async function onBatchDelete() {
 .title-text {
   font-weight: 500;
   color: var(--el-text-color-primary, #303133);
+}
+.title-edit-icon {
+  font-size: 13px;
+  color: var(--el-text-color-placeholder, #c0c4cc);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s;
+}
+.cell-title:hover .title-edit-icon {
+  opacity: 1;
+}
+.title-edit-icon:hover {
+  color: var(--el-color-primary, #409eff);
+}
+.cell-title-editor {
+  display: flex;
+  align-items: center;
 }
 
 .cell-project {
@@ -1267,5 +1786,97 @@ async function onBatchDelete() {
 .pm-list-batch-slide-leave-to {
   transform: translateY(20px);
   opacity: 0;
+}
+.cell-desc {
+  display: inline-block;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--el-text-color-regular, #606266);
+  font-size: 12px;
+}
+
+.cell-link {
+  color: var(--el-color-primary, #409eff);
+  text-decoration: none;
+  font-size: 12px;
+  max-width: 200px;
+  display: inline-block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.cell-link:hover {
+  text-decoration: underline;
+}
+
+.cell-todo-count {
+  font-size: 12px;
+  color: var(--el-text-color-regular, #606266);
+}
+
+.row-expand {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 6px 14px;
+  background: var(--el-fill-color-lighter, #fafbfc);
+  border-radius: 6px;
+}
+.row-expand-info {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.row-expand-desc {
+  font-size: 13px;
+  color: var(--el-text-color-regular, #606266);
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+.row-expand-desc.is-empty {
+  color: var(--el-text-color-placeholder, #a8abb2);
+  font-style: italic;
+}
+.row-expand-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  font-size: 12px;
+}
+.row-expand-meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.meta-label {
+  color: var(--el-text-color-placeholder, #909399);
+}
+.meta-value {
+  color: var(--el-text-color-regular, #303133);
+}
+.meta-value.is-overdue {
+  color: #f56c6c;
+}
+.row-expand-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+  padding-top: 4px;
+  border-top: 1px dashed var(--el-border-color-lighter, #ebeef5);
+}
+
+.batch-tag-popover {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.batch-tag-popover-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
 }
 </style>

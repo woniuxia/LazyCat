@@ -10,6 +10,7 @@
         >
           <div class="pm-today-stat-value">{{ stat.value }}</div>
           <div class="pm-today-stat-label">{{ stat.label }}</div>
+          <div v-if="stat.subText" class="pm-today-stat-sub">{{ stat.subText }}</div>
         </div>
       </div>
 
@@ -134,11 +135,80 @@ const allEmpty = computed(
 );
 
 const statsList = computed(() => [
-  { key: "overdue", label: "逾期", value: overdue.value.length },
-  { key: "dueToday", label: "今日到期", value: dueToday.value.length },
-  { key: "inProgress", label: "进行中", value: inProgress.value.length },
-  { key: "completedToday", label: "今日完成", value: completedToday.value.length },
+  {
+    key: "overdue",
+    label: "逾期",
+    value: overdue.value.length,
+    subText: overdueSubText.value,
+  },
+  {
+    key: "dueToday",
+    label: "今日到期",
+    value: dueToday.value.length,
+    subText: dueTodaySubText.value,
+  },
+  {
+    key: "inProgress",
+    label: "进行中",
+    value: inProgress.value.length,
+    subText: inProgressSubText.value,
+  },
+  {
+    key: "completedToday",
+    label: "今日完成",
+    value: completedToday.value.length,
+    subText: completedSubText.value,
+  },
 ]);
+
+const isOverview = computed(() => props.selectedProjectId === "overview");
+
+const overdueSubText = computed(() => {
+  if (overdue.value.length === 0) return "";
+  const todayStr = formatLocalDate(new Date());
+  let maxDays = 0;
+  for (const item of overdue.value) {
+    const end = (item.endAt ?? "").slice(0, 10);
+    if (!end || end >= todayStr) continue;
+    const endDate = new Date(end + "T00:00:00");
+    const today = new Date(todayStr + "T00:00:00");
+    const diff = Math.round((today.getTime() - endDate.getTime()) / 86400000);
+    if (diff > maxDays) maxDays = diff;
+  }
+  return maxDays > 0 ? `最长逾期 ${maxDays} 天` : "";
+});
+
+const dueTodaySubText = computed(() => {
+  if (dueToday.value.length === 0) return "";
+  let p0 = 0;
+  let p1 = 0;
+  for (const item of dueToday.value) {
+    if (item.priority === "P0") p0 += 1;
+    else if (item.priority === "P1") p1 += 1;
+  }
+  const parts: string[] = [];
+  if (p0 > 0) parts.push(`P0 × ${p0}`);
+  if (p1 > 0) parts.push(`P1 × ${p1}`);
+  return parts.join(" · ");
+});
+
+const inProgressSubText = computed(() => {
+  if (inProgress.value.length === 0) return "";
+  if (!isOverview.value) return "";
+  const projectIds = new Set<number>();
+  for (const item of inProgress.value) {
+    if (typeof item.projectId === "number") projectIds.add(item.projectId);
+  }
+  return projectIds.size > 0 ? `跨 ${projectIds.size} 个项目` : "";
+});
+
+const completedSubText = computed(() => {
+  const n = completedToday.value.length;
+  if (n === 0) return "今天刚开始，加油";
+  if (n >= 5) return "今天收获满满";
+  if (n >= 3) return "保持节奏";
+  return "已有进展";
+});
 
 function formatLocalDate(date: Date): string {
   const y = date.getFullYear();
@@ -318,6 +388,14 @@ defineExpose({ refresh: load });
 .pm-today-stat-label {
   font-size: 12px;
   color: var(--el-text-color-secondary, #606266);
+}
+
+.pm-today-stat-sub {
+  font-size: 11px;
+  color: var(--el-text-color-placeholder, #a8abb2);
+  line-height: 1.4;
+  margin-top: 2px;
+  min-height: 15px;
 }
 
 .pm-today-stat.is-overdue {

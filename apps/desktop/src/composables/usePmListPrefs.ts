@@ -10,7 +10,13 @@ export type PmListColId =
   | "status"
   | "endAt"
   | "updatedAt"
-  | "tags";
+  | "tags"
+  | "startAt"
+  | "startedAt"
+  | "completedAt"
+  | "description"
+  | "linkUrl"
+  | "todoCount";
 
 export type PmListGroupBy = "none" | "project" | "status" | "priority" | "tag";
 
@@ -28,6 +34,12 @@ export const ALL_LIST_COLS: PmListColId[] = [
   "endAt",
   "updatedAt",
   "tags",
+  "startAt",
+  "startedAt",
+  "completedAt",
+  "description",
+  "linkUrl",
+  "todoCount",
 ];
 
 export const COL_LABELS: Record<PmListColId, string> = {
@@ -39,6 +51,12 @@ export const COL_LABELS: Record<PmListColId, string> = {
   endAt: "截止",
   updatedAt: "更新",
   tags: "标签",
+  startAt: "开始",
+  startedAt: "实际开始",
+  completedAt: "完成时间",
+  description: "描述摘要",
+  linkUrl: "链接",
+  todoCount: "Todo 数",
 };
 
 function defaultVisibleCols(): PmListColId[] {

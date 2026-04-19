@@ -437,6 +437,7 @@ fn item_list(payload: &Value) -> Result<Value, String> {
 
     let tag_map = batch_load_tags(&conn, &item_ids);
     let links_map = batch_load_siyuan_links(&conn, &item_ids);
+    let todo_count_map = batch_load_todo_counts(&conn, &item_ids);
 
     let result: Vec<Value> = items
         .into_iter()
@@ -444,10 +445,14 @@ fn item_list(payload: &Value) -> Result<Value, String> {
             let item_id = item["id"].as_i64().unwrap_or(0);
             let tags = tag_map.get(&item_id).cloned().unwrap_or_default();
             let extra_pages = links_map.get(&item_id).cloned().unwrap_or_default();
+            let todo_count = todo_count_map.get(&item_id).copied().unwrap_or(0);
             item.as_object_mut().unwrap().insert("tags".to_string(), json!(tags));
             item.as_object_mut()
                 .unwrap()
                 .insert("siyuanExtraPages".to_string(), json!(extra_pages));
+            item.as_object_mut()
+                .unwrap()
+                .insert("todoCount".to_string(), json!(todo_count));
             item
         })
         .collect();
@@ -472,6 +477,30 @@ pub(crate) fn batch_load_tags(conn: &Connection, item_ids: &[i64]) -> HashMap<i6
         }) {
             for row in rows.flatten() {
                 map.entry(row.0).or_default().push(row.1);
+            }
+        }
+    }
+    map
+}
+
+fn batch_load_todo_counts(conn: &Connection, item_ids: &[i64]) -> HashMap<i64, i64> {
+    if item_ids.is_empty() {
+        return HashMap::new();
+    }
+    let placeholders: Vec<String> = item_ids.iter().enumerate().map(|(i, _)| format!("?{}", i + 1)).collect();
+    let sql = format!(
+        "SELECT pm_item_id, COUNT(*) FROM pm_item_todo_links
+         WHERE pm_item_id IN ({}) GROUP BY pm_item_id",
+        placeholders.join(",")
+    );
+    let params: Vec<&dyn rusqlite::types::ToSql> = item_ids.iter().map(|id| id as &dyn rusqlite::types::ToSql).collect();
+    let mut map: HashMap<i64, i64> = HashMap::new();
+    if let Ok(mut stmt) = conn.prepare(&sql) {
+        if let Ok(rows) = stmt.query_map(params.as_slice(), |r| {
+            Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?))
+        }) {
+            for row in rows.flatten() {
+                map.insert(row.0, row.1);
             }
         }
     }
@@ -1011,11 +1040,13 @@ fn item_batch_update(payload: &Value) -> Result<Value, String> {
     let new_priority = parse_string(fields, "priority");
     let new_project_id = parse_i64(fields, "projectId");
     let pinned_value = fields.get("pinned").and_then(Value::as_bool);
+    let add_tags: Vec<String> = parse_string_array(fields, "addTags");
 
     if new_status.is_none()
         && new_priority.is_none()
         && new_project_id.is_none()
         && pinned_value.is_none()
+        && add_tags.is_empty()
     {
         return Ok(json!({ "updated": 0 }));
     }
@@ -1112,6 +1143,15 @@ fn item_batch_update(payload: &Value) -> Result<Value, String> {
                 ],
             )
             .map_err(|e| format!("item_batch_update exec: {e}"))?;
+
+        for tag in &add_tags {
+            tx.execute(
+                "INSERT OR IGNORE INTO pm_item_tags (item_id, tag) VALUES (?1, ?2)",
+                params![id, tag],
+            )
+            .map_err(|e| format!("item_batch_update tag insert: {e}"))?;
+        }
+
         updated += changed as u32;
     }
 
