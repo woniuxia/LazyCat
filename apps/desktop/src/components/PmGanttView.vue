@@ -462,8 +462,13 @@ function renderGantt() {
 function changeViewMode(mode: string) {
   ganttInstance?.hide_popup();
   emit("view-change", mode);
-  ganttInstance?.change_view_mode(mode, true);
+  // 传 false 让 frappe-gantt 按新视图模式的 padding 重新扩展 gantt_start/end，
+  // 避免保留旧 scrollLeft 在新 column_width/step 下产生位置漂移，
+  // 同时保证 Month/Week 视图下 dates.length * column_width 足够填满容器。
+  ganttInstance?.change_view_mode(mode, false);
+  resetInitialScrollState();
   nextTick(() => {
+    applyInitialScroll();
     syncGanttDecorations();
   });
 }
@@ -687,6 +692,17 @@ onBeforeUnmount(() => {
 
 .gantt .grid-header {
   fill: var(--el-fill-color-lighter);
+}
+
+/*
+ * frappe-gantt 会把 $svg 的 width 固定为 "100%"（容器宽度），但 grid-background
+ * 和 grid-row 的 rect width 使用 dates.length * column_width（内容宽度）。当内容
+ * 宽度小于容器时，右侧会露出未填充的空白。此处让两个背景 rect 充满 SVG，兜底
+ * 月视图等低密度场景的视觉一致性。
+ */
+.gantt .grid-background,
+.gantt .grid-row {
+  width: 100%;
 }
 
 .gantt-wrapper {
