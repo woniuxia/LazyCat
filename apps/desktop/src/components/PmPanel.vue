@@ -15,6 +15,18 @@
         </div>
 
         <div
+          class="sidebar-today-card"
+          :class="{ 'is-active': viewId === 'today' }"
+          @click="showToday"
+        >
+          <div class="sidebar-today-head">
+            <span class="sidebar-today-icon" aria-hidden="true">◷</span>
+            <span class="sidebar-today-name">今日</span>
+            <span class="sidebar-today-badge">{{ todayBadgeCount }}</span>
+          </div>
+        </div>
+
+        <div
           class="sidebar-overview-card"
           :class="{ 'is-active': selectedProjectId === 'overview' }"
           @click="selectProject('overview')"
@@ -91,14 +103,7 @@
               </div>
               <div class="toolbar-right pm-toolbar-head-actions">
                 <div class="pm-view-switch">
-                  <el-switch
-                    v-model="viewMode"
-                    class="pm-view-switch-toggle"
-                    active-text="甘特图"
-                    inactive-text="看板"
-                    active-value="gantt"
-                    inactive-value="kanban"
-                  />
+                  <PmViewSwitcher :model-value="viewId" @update:model-value="setView" />
                 </div>
                 <el-button
                   class="pm-toolbar-primary-btn"
@@ -154,112 +159,25 @@
           </div>
         </div>
 
-        <div v-if="selectedProject && viewMode === 'kanban' && statusFilteredItems.length > 0" class="kanban-board">
-          <div v-for="col in visibleStatusColumns" :key="col.key" class="kanban-column" :class="{ 'is-drag-over': draggingOverColumn === col.key }">
-            <div class="column-header" :style="{ borderBottomColor: col.color }">
-              <span class="column-title">{{ col.label }}</span>
-              <span class="column-count" :style="{ background: col.color + '1a', color: col.color }">{{ columnItems(col.key).length }}</span>
-            </div>
-            <div
-              :ref="(el) => setColumnRef(col.key, el)"
-              class="column-body"
-              :data-status="col.key"
-            >
-              <div
-                v-for="item in columnItems(col.key)"
-                :key="item.id"
-                class="kanban-card"
-                :class="{
-                  'is-selected': selectedItemId === item.id,
-                  'is-pinned': item.pinned,
-                  'is-overdue': isOverdue(item),
-                  ['is-' + item.priority.toLowerCase()]: true,
-                }"
-                :style="{ borderLeftColor: PM_PRIORITY_MAP[item.priority]?.color }"
-                :data-id="item.id"
-                @click="onCardClick($event, item)"
-                @dblclick="onCardDblclick(item)"
-                @contextmenu.prevent="onItemContext($event, item)"
-              >
-                <div class="card-topbar" :class="{ 'is-overview': isOverview }">
-                  <div class="card-topbar-left">
-                    <template v-if="isOverview && item.projectName">
-                      <span class="card-project-badge" :style="{ backgroundColor: (item.projectColor || '#4d7df2') + '18', color: item.projectColor || '#4d7df2' }">
-                        <span class="card-project-dot" :style="{ backgroundColor: item.projectColor || '#4d7df2' }" />
-                        <span class="card-project-name">{{ item.projectName }}</span>
-                      </span>
-                    </template>
-                    <template v-else>
-                      <span class="card-meta-pill" :style="{ color: PM_ITEM_TYPE_MAP[item.itemType]?.color, borderColor: PM_ITEM_TYPE_MAP[item.itemType]?.color + '40' }">
-                        {{ PM_ITEM_TYPE_MAP[item.itemType]?.label }}
-                      </span>
-                      <span class="card-meta-pill" :style="{ color: PM_PRIORITY_MAP[item.priority]?.color, borderColor: PM_PRIORITY_MAP[item.priority]?.color + '40' }">
-                        {{ PM_PRIORITY_MAP[item.priority]?.label }}
-                      </span>
-                    </template>
-                  </div>
-                  <div class="card-topbar-right">
-                    <el-icon v-if="item.pinned" class="badge-pin" title="已置顶"><Top /></el-icon>
-                    <el-icon v-if="isOverdue(item)" class="badge-overdue" title="已逾期"><AlarmClock /></el-icon>
-                    <span
-                      v-if="hasPmDateSchedule(item.startAt, item.endAt)"
-                      class="card-date-chip"
-                      :class="{ 'is-overdue-date': isOverdue(item) }"
-                    >
-                      {{ formatPmDateRangeForDisplay(item.startAt, item.endAt, { mode: 'short', emptyText: '' }) }}
-                    </span>
-                  </div>
-                </div>
-                <div class="card-title-row">
-                  <span class="card-title">{{ item.title }}</span>
-                  <el-tooltip v-if="item.status !== 'done'" :content="'推进到「' + nextStatusLabel(item) + '」'" placement="top">
-                    <button
-                      class="card-advance-btn"
-                      @click.stop="quickAdvance(item)"
-                    >
-                      <el-icon :size="12"><CaretRight /></el-icon>
-                    </button>
-                  </el-tooltip>
-                </div>
-                <div v-if="isOverview" class="card-meta">
-                  <span class="card-meta-pill" :style="{ color: PM_ITEM_TYPE_MAP[item.itemType]?.color, borderColor: PM_ITEM_TYPE_MAP[item.itemType]?.color + '40' }">
-                    {{ PM_ITEM_TYPE_MAP[item.itemType]?.label }}
-                  </span>
-                  <span class="card-meta-pill" :style="{ color: PM_PRIORITY_MAP[item.priority]?.color, borderColor: PM_PRIORITY_MAP[item.priority]?.color + '40' }">
-                    {{ PM_PRIORITY_MAP[item.priority]?.label }}
-                  </span>
-                </div>
-                <div v-if="item.tags.length > 0" class="card-tags">
-                  <el-tag v-for="tag in getItemTagSummary(item).visibleTags" :key="tag" size="small" type="info">{{ tag }}</el-tag>
-                  <el-tag v-if="getItemTagSummary(item).hiddenCount > 0" size="small" type="info">+{{ getItemTagSummary(item).hiddenCount }}</el-tag>
-                </div>
-              </div>
-              <div v-if="columnItems(col.key).length === 0 && draggingItemId" class="column-drop-hint">
-                拖放到此列
-              </div>
-              <div v-if="columnItems(col.key).length === 0 && !draggingItemId" class="column-empty-state">
-                <span class="column-empty-text">{{ col.key === 'todo' ? '暂无待办事项' : col.key === 'done' ? '还没有完成的工作项' : '暂无工作项' }}</span>
-                <el-button
-                  v-if="col.key === 'todo'"
-                  size="small"
-                  type="primary"
-                  link
-                  :disabled="!canCreateItemsInCurrentContext"
-                  :title="createItemBlockedReason || undefined"
-                  @click="showCreateItem"
-                >
-                  新建工作项
-                </el-button>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div v-else-if="selectedProject && viewMode === 'kanban'" class="pm-empty">
-          <el-empty description="当前筛选结果没有可显示的工作项" />
-        </div>
+        <PmKanbanView
+          v-if="selectedProject && viewId === 'kanban'"
+          :items="statusFilteredItems"
+          :selected-item-id="selectedItemId"
+          :selected-statuses="selectedStatuses"
+          :is-overview="isOverview"
+          :can-create-items="canCreateItemsInCurrentContext"
+          :create-blocked-reason="createItemBlockedReason"
+          :enabled="true"
+          @select="selectItem"
+          @edit="editItem"
+          @item-context="onItemContext"
+          @quick-advance="quickAdvance"
+          @create-item="showCreateItem"
+          @items-changed="loadItems"
+        />
 
         <PmGanttView
-          v-else-if="selectedProject && viewMode === 'gantt'"
+          v-else-if="selectedProject && viewId === 'gantt'"
           :items="statusFilteredItems"
           :selected-item-id="selectedItemId"
           :show-project-meta="isOverview"
@@ -269,6 +187,52 @@
           @date-change="onGanttDateChange"
           @view-change="closeCtxMenu"
           @viewport-scroll="closeCtxMenu"
+        />
+
+        <PmTodayView
+          v-else-if="selectedProject && viewId === 'today'"
+          ref="todayViewRef"
+          :selected-project-id="selectedProjectId"
+          :selected-item-id="selectedItemId"
+          :refresh-signal="todayRefreshSignal"
+          @select="selectItem"
+          @edit="editItem"
+          @item-context="onItemContext"
+          @items-changed="onTodayItemsChanged"
+        />
+
+        <PmListView
+          v-else-if="selectedProject && viewId === 'list'"
+          :items="statusFilteredItems"
+          :projects="projects"
+          :selected-item-id="selectedItemId"
+          :is-overview="isOverview"
+          :selected-project-id="selectedProjectId"
+          @select="selectItem"
+          @edit="editItem"
+          @item-context="onItemContext"
+          @items-changed="loadItems"
+        />
+
+        <PmCalendarView
+          v-else-if="selectedProject && viewId === 'calendar'"
+          :selected-project-id="selectedProjectId"
+          :selected-item-id="selectedItemId"
+          @select="selectItem"
+          @edit="editItem"
+          @item-context="onItemContext"
+          @create-at-date="showCreateItemAtDate"
+          @items-changed="loadItems"
+        />
+
+        <PmMatrixView
+          v-else-if="selectedProject && viewId === 'matrix'"
+          :selected-project-id="selectedProjectId"
+          :selected-item-id="selectedItemId"
+          @select="selectItem"
+          @edit="editItem"
+          @item-context="onItemContext"
+          @items-changed="loadItems"
         />
 
         <div v-else-if="!selectedProject" class="pm-empty">
@@ -363,7 +327,7 @@
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount, reactive, provide } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import zhCn from "element-plus/es/locale/lang/zh-cn";
-import { Plus, Close, Top, CaretRight, AlarmClock, Search } from "@element-plus/icons-vue";
+import { Plus, Close, Search } from "@element-plus/icons-vue";
 import { useToolInvoke } from "../composables/useToolInvoke";
 import { getSetting, getSettingJson, setSetting, setSettingJson } from "../composables/useSettings";
 import type {
@@ -382,7 +346,6 @@ import type {
   PmTodoCandidateItem,
 } from "../types/pm";
 import { PM_STATUS_COLUMNS, PM_ITEM_TYPE_MAP, PM_PRIORITY_MAP } from "../types/pm";
-import Sortable from "sortablejs";
 import PmGanttView from "./PmGanttView.vue";
 import PmItemDialog from "./PmItemDialog.vue";
 import PmDetailPanel from "./PmDetailPanel.vue";
@@ -390,6 +353,12 @@ import PmSiyuanDrawer from "./PmSiyuanDrawer.vue";
 import PmProjectDialog from "./PmProjectDialog.vue";
 import InlineTodoList from "./InlineTodoList.vue";
 import PmContextMenu from "./PmContextMenu.vue";
+import PmViewSwitcher from "./PmViewSwitcher.vue";
+import PmKanbanView from "./PmKanbanView.vue";
+import PmTodayView from "./PmTodayView.vue";
+import PmListView from "./PmListView.vue";
+import PmCalendarView from "./PmCalendarView.vue";
+import PmMatrixView from "./PmMatrixView.vue";
 import { usePmSiyuan } from "../composables/usePmSiyuan";
 import { PM_SIYUAN_KEY } from "../composables/pmSiyuanKey";
 import type { ItemSiyuanLinkedRow } from "../composables/usePmSiyuan";
@@ -398,22 +367,18 @@ import {
   isPmSiyuanNotebookDirectory,
 } from "../utils/pmSiyuan";
 import {
-  formatPmDateRangeForDisplay,
-  hasPmDateSchedule,
-  isPmItemOverdue,
   normalizePmDateRangeForDraft,
 } from "../utils/pmDate";
 import {
   sortPmProjectsForSidebar,
-  summarizePmItemTags,
 } from "../utils/pmVisual";
 import {
   filterPmItemsBySelectedStatuses,
   getPmDefaultSelectedStatuses,
-  getVisiblePmStatusColumns,
-  groupPmItemsByStatus,
 } from "../utils/pmStatusFilter";
 import { usePmTodoLinking } from "../composables/usePmTodoLinking";
+import { usePmViewMemory } from "../composables/usePmViewMemory";
+import { PM_KANBAN_DRAG_KEY } from "../composables/pmKanbanDragKey";
 
 const { invoke } = useToolInvoke();
 
@@ -430,8 +395,11 @@ const selectedItemId = ref<number | null>(null);
 const searchText = ref("");
 const filterType = ref<PmItemType | "">("");
 const filterPriority = ref<PmPriority | "">("");
-const viewMode = ref<"kanban" | "gantt">("kanban");
+const { currentView: viewId, setView } = usePmViewMemory(selectedProjectId);
 const selectedStatuses = ref<PmItemStatus[]>(getPmDefaultSelectedStatuses());
+const todayBadgeCount = ref(0);
+const todayRefreshSignal = ref(0);
+const todayViewRef = ref<{ refresh: () => Promise<void> } | null>(null);
 
 // Project dialog ref
 const projectDialogRef = ref<InstanceType<typeof PmProjectDialog> | null>(null);
@@ -552,19 +520,21 @@ function cloneSiyuanPage(page: PmSiyuanPageRef | null | undefined): PmSiyuanPage
   return page ? { ...page } : null;
 }
 
-// Click debounce
-const clickTimer = ref<ReturnType<typeof setTimeout> | null>(null);
-const PM_CARD_SINGLE_CLICK_DELAY_MS = 320;
+// Click debounce — for project card click (sidebar selects project)
+// Card-level click debounce moved into PmKanbanView
 
-// Sortable instances
-const sortableInstances = ref<Map<string, Sortable>>(new Map());
-const columnRefs = ref<Map<string, HTMLElement>>(new Map());
-
-// Drag state (cross-project)
+// Drag state (cross-project, shared with PmKanbanView via provide)
 const draggingItemId = ref<number | null>(null);
 const dropTargetProjectId = ref<number | null>(null);
 const dragConsumed = ref(false);
 const draggingOverColumn = ref<PmItemStatus | null>(null);
+
+provide(PM_KANBAN_DRAG_KEY, {
+  draggingItemId,
+  dropTargetProjectId,
+  dragConsumed,
+  draggingOverColumn,
+});
 
 // Context menu (reactive)
 const ctxMenuVisible = ref(false);
@@ -648,23 +618,7 @@ const statusFilteredItems = computed(() =>
   filterPmItemsBySelectedStatuses(baseFilteredItems.value, selectedStatuses.value),
 );
 
-const visibleStatusColumns = computed(() => getVisiblePmStatusColumns(selectedStatuses.value));
-const visibleStatusColumnKey = computed(() => visibleStatusColumns.value.map((column) => column.key).join("|"));
-const columnItemsMap = computed(() => groupPmItemsByStatus(statusFilteredItems.value));
-
-function columnItems(status: PmItemStatus) {
-  return columnItemsMap.value.get(status) ?? [];
-}
-
 // ── Helpers ──────────────────────────────────────────────
-
-function isOverdue(item: PmItem): boolean {
-  return isPmItemOverdue(item);
-}
-
-function getItemTagSummary(item: PmItem) {
-  return summarizePmItemTags(item.tags);
-}
 
 function getPmLightTagStyle(color?: string | null) {
   const resolvedColor = color ?? "#409eff";
@@ -673,11 +627,6 @@ function getPmLightTagStyle(color?: string | null) {
     "--el-tag-border-color": `${resolvedColor}33`,
     "--el-tag-text-color": resolvedColor,
   };
-}
-
-function nextStatusLabel(item: PmItem): string {
-  const idx = PM_STATUS_COLUMNS.findIndex((c) => c.key === item.status);
-  return idx >= 0 && idx < PM_STATUS_COLUMNS.length - 1 ? PM_STATUS_COLUMNS[idx + 1].label : "";
 }
 
 function normalizeItemLinkUrl(value: string | null | undefined): string {
@@ -714,22 +663,6 @@ function selectItem(item: PmItem) {
   selectedItemId.value = item.id;
 }
 
-function onCardClick(event: MouseEvent, item: PmItem) {
-  if (event.detail > 1 || clickTimer.value) return;
-  clickTimer.value = setTimeout(() => {
-    clickTimer.value = null;
-    selectItem(item);
-  }, PM_CARD_SINGLE_CLICK_DELAY_MS);
-}
-
-function onCardDblclick(item: PmItem) {
-  if (clickTimer.value) {
-    clearTimeout(clickTimer.value);
-    clickTimer.value = null;
-  }
-  editItem(item);
-}
-
 watch(selectedProjectId, () => {
   loadItems();
 });
@@ -747,10 +680,6 @@ async function loadProjects() {
 async function loadItems() {
   if (!selectedProjectId.value) {
     items.value = [];
-    await nextTick();
-    if (!draggingItemId.value) {
-      initSortable();
-    }
     return;
   }
   try {
@@ -760,10 +689,51 @@ async function loadItems() {
     ElMessage.error((e as Error).message);
   }
   loadItemCounts();
-  await nextTick();
-  if (!draggingItemId.value) {
-    initSortable();
+  void loadTodayCounts();
+  todayRefreshSignal.value++;
+}
+
+function formatLocalDate(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+async function loadTodayCounts() {
+  try {
+    const payload: Record<string, unknown> = { todayDate: formatLocalDate(new Date()) };
+    if (typeof selectedProjectId.value === "number") {
+      payload.projectId = selectedProjectId.value;
+    }
+    const counts = (await invoke<{
+      overdue: number;
+      dueToday: number;
+      inProgress: number;
+      completedToday: number;
+      totalActive: number;
+    }>("tool:pm:item-today-counts", payload)) ?? {
+      overdue: 0,
+      dueToday: 0,
+      inProgress: 0,
+      completedToday: 0,
+      totalActive: 0,
+    };
+    todayBadgeCount.value = (counts.overdue ?? 0) + (counts.dueToday ?? 0) + (counts.inProgress ?? 0);
+  } catch {
+    todayBadgeCount.value = 0;
   }
+}
+
+function showToday() {
+  if (selectedProjectId.value === null) {
+    selectedProjectId.value = "overview";
+  }
+  setView("today");
+}
+
+function onTodayItemsChanged() {
+  void loadItems();
 }
 
 async function loadItemCounts() {
@@ -803,6 +773,29 @@ function showCreateItem() {
   if (siyuanConfigReady.value && itemEffectiveLocation.value) {
     void ensureSiyuanDirectoryLoaded();
   }
+}
+
+function showCreateItemAtDate(date: string) {
+  if (!canCreateItemsInCurrentContext.value) {
+    ElMessage.warning(createItemBlockedReason.value || "当前项目不能接收工作项");
+    return;
+  }
+  editingItem.value = null;
+  itemFormProjectId.value = isOverview.value ? (activeProjects.value[0]?.id ?? null) : null;
+  itemPrimaryPage.value = null;
+  itemExtraPages.value = [];
+  resetPendingTodos();
+  itemDialogVisible.value = true;
+  if (siyuanConfigReady.value && itemEffectiveLocation.value) {
+    void ensureSiyuanDirectoryLoaded();
+  }
+  void nextTick(() => {
+    const form = itemDialogRef.value?.form;
+    if (form) {
+      form.startAt = date;
+      form.endAt = date;
+    }
+  });
 }
 
 function editItem(item: PmItem) {
@@ -1062,102 +1055,10 @@ function openItemContextMenuAt(item: PmItem, anchorX: number, anchorY: number) {
   ctxMenuVisible.value = true;
 }
 
-// ── Sortable (drag & drop) ───────────────────────────────
-
-function setColumnRef(status: string, el: unknown) {
-  if (el instanceof HTMLElement) {
-    columnRefs.value.set(status, el);
-    return;
-  }
-  columnRefs.value.delete(status);
-}
-
-function initSortable() {
-  destroySortable();
-  if (viewMode.value !== "kanban" || !selectedProject.value) {
-    return;
-  }
-  for (const col of visibleStatusColumns.value) {
-    const el = columnRefs.value.get(col.key);
-    if (!el) continue;
-    const instance = Sortable.create(el, {
-      group: "kanban",
-      animation: 150,
-      forceFallback: true,
-      ghostClass: "kanban-ghost",
-      dragClass: "kanban-drag",
-      fallbackClass: "kanban-fallback",
-      onStart: (evt) => {
-        draggingItemId.value = parseInt(evt.item.dataset.id ?? "0", 10);
-        document.body.classList.add("pm-is-dragging");
-      },
-      onMove: (evt) => {
-        draggingOverColumn.value = (evt.to as HTMLElement).dataset.status as PmItemStatus || null;
-      },
-      onEnd: async (evt) => {
-        draggingItemId.value = null;
-        draggingOverColumn.value = null;
-        dropTargetProjectId.value = null;
-        document.body.classList.remove("pm-is-dragging");
-
-        // Skip reorder if the drag was consumed by sidebar drop
-        if (dragConsumed.value) {
-          dragConsumed.value = false;
-          return;
-        }
-
-        const itemId = parseInt(evt.item.dataset.id ?? "0", 10);
-        const newStatus = (evt.to as HTMLElement).dataset.status as PmItemStatus;
-        if (!itemId || !newStatus) return;
-
-        try {
-          const oldStatus = (evt.from as HTMLElement).dataset.status;
-          const statusChanged = oldStatus !== newStatus;
-          const children = Array.from(evt.to.children) as HTMLElement[];
-          const reorderItems = children
-            .filter((c) => c.dataset.id)
-            .map((child, idx) => {
-              const payload = {
-                id: parseInt(child.dataset.id ?? "0", 10),
-                sortOrder: idx,
-              };
-              return statusChanged ? { ...payload, status: newStatus } : payload;
-            });
-
-          await invoke("tool:pm:item-reorder", { items: reorderItems });
-          await loadItems();
-          if (oldStatus && oldStatus !== newStatus) {
-            const label = PM_STATUS_COLUMNS.find((c) => c.key === newStatus)?.label ?? newStatus;
-            ElMessage.success({ message: `已移至「${label}」`, duration: 1500 });
-          }
-        } catch (e) {
-          ElMessage.error((e as Error).message);
-          await loadItems();
-        }
-      },
-    });
-    sortableInstances.value.set(col.key, instance);
-  }
-}
-
-function destroySortable() {
-  for (const inst of sortableInstances.value.values()) {
-    inst.destroy();
-  }
-  sortableInstances.value.clear();
-}
-
-// 项目/视图切换 → 立即重建 Sortable
-watch(
-  () => [selectedProjectId.value, viewMode.value, visibleStatusColumnKey.value],
-  () => { nextTick(() => { if (!draggingItemId.value) initSortable(); }); }
-);
-
-// 过滤条件变化不需要重建 Sortable 实例：
-// Sortable 绑定的是 DOM 容器，过滤只改变内部子元素渲染，实例自动跟随
+// ── View change side-effects ───────────────────────────
 
 watch(
-  () => [selectedProjectId.value, viewMode.value],
+  () => [selectedProjectId.value, viewId.value],
   () => closeCtxMenu(),
 );
 
@@ -1249,7 +1150,6 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   document.removeEventListener("pointerdown", onDetailClickAway);
-  destroySortable();
 });
 </script>
 
@@ -1795,6 +1695,66 @@ onBeforeUnmount(() => {
   transform: translateY(0);
 }
 
+.sidebar-today-card {
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--pm-edge);
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 251, 255, 0.92));
+  box-shadow: var(--pm-shadow-soft);
+  cursor: pointer;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease, background 0.18s ease;
+}
+
+.sidebar-today-card:hover,
+.sidebar-today-card.is-active {
+  border-color: rgba(77, 125, 242, 0.45);
+  box-shadow: 0 14px 24px rgba(77, 125, 242, 0.16);
+  transform: translateY(-1px);
+}
+
+.sidebar-today-card.is-active {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 1), rgba(229, 240, 255, 0.95));
+}
+
+.sidebar-today-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sidebar-today-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 10px;
+  background: rgba(77, 125, 242, 0.12);
+  color: var(--pm-accent);
+  font-size: 16px;
+  font-family: "Segoe UI Symbol", "Apple Symbols", sans-serif;
+}
+
+.sidebar-today-name {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--pm-text-main);
+}
+
+.sidebar-today-badge {
+  min-width: 24px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--pm-accent);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+  line-height: 18px;
+}
+
 .sidebar-overview-card {
   margin-bottom: 16px;
   padding: 14px;
@@ -2076,47 +2036,6 @@ onBeforeUnmount(() => {
 .pm-view-switch {
   display: inline-flex;
   align-items: center;
-  padding: 8px 10px;
-  border: 1px solid var(--pm-edge-soft);
-  border-radius: 18px;
-  background: rgba(245, 249, 255, 0.82);
-}
-
-.pm-view-switch-toggle {
-  --el-switch-on-color: #4d7df2;
-  --el-switch-off-color: #7eb8f7;
-}
-
-:deep(.pm-view-switch-toggle .el-switch__core) {
-  min-width: 54px;
-  height: 30px;
-  border: 0;
-  border-radius: 999px;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.46),
-    0 6px 14px rgba(34, 48, 66, 0.08);
-}
-
-:deep(.pm-view-switch-toggle .el-switch__action) {
-  width: 24px;
-  height: 24px;
-  left: 3px;
-  box-shadow: 0 3px 8px rgba(15, 23, 42, 0.18);
-}
-
-:deep(.pm-view-switch-toggle.is-checked .el-switch__core .el-switch__action) {
-  left: calc(100% - 27px);
-}
-
-:deep(.pm-view-switch-toggle .el-switch__label) {
-  color: #6c8099;
-  font-size: 13px;
-  font-weight: 700;
-  transition: color 0.18s ease;
-}
-
-:deep(.pm-view-switch-toggle .el-switch__label.is-active) {
-  color: var(--pm-text-main);
 }
 
 .pm-toolbar-primary-btn {

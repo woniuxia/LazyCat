@@ -8,6 +8,48 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-04-19: PM 视图扩展与列表渐进式渲染
+
+**场景**: 在 PM 面板上新增「今日 / 列表 / 日历 / 四象限」4 个视图，原本只有看板和甘特两个视图，切换靠 `el-switch`。扩展后需要 6+ 视图共享一个切换器，并对大数据量做响应式与渲染性能兜底。
+
+**问题**:
+1. 面板内多视图系统没有注册表；新增一个视图要在 `PmPanel.vue` 的 template、script、watch 里同时改 `v-if === 'xxx'`，扩展性差。
+2. 上下文（overview / project-<id>）× 视图正交要求：切项目后视图选择要记住；但 `user_settings` 读写的 key 策略要统一，不然不同入口（侧栏/切换器）切不同步。
+3. 列表视图 `el-table` 全量渲染在 1000+ 条数据下首帧明显卡顿；直接迁 `el-table-v2` 会丢失排序、多选、Popover 内联编辑等能力。
+4. 切换器响应式降级若用 CSS 媒体查询，面板可能被嵌在不同父布局，阈值不一致；若观察组件自身 `inline-flex` 宽度，又会陷入“自己撑多宽就是多宽”的反馈循环。
+
+**解决**:
+1. 新增 `composables/pmViewRegistry.ts`：集中注册 6 个视图（id / label / icon / defineAsyncComponent），`PmPanel.vue` 通过 `<component :is="currentView.component">` 渲染。新增视图只改注册表一处。
+2. 新增 `composables/usePmViewMemory.ts` 封装「上下文 → viewId」记忆，`user_settings` key 规则 `pm:view:overview` 与 `pm:view:project-<id>`；侧栏「今日」入口和顶部切换器共用同一个 `setView`，避免两个路径分叉。
+3. 列表视图不迁 v2，改为渐进式渲染：当 `groupBy === 'none'` 且过滤后 >500 行时，首批渲染 200 行，滚动到底部 240px 内自动追加 200；排序/筛选/分组变化时重置到首批并回到顶部。滚动监听节流交给浏览器（单次 scroll 事件判断），实现成本低于集成 `vue-virtual-scroller`。
+4. 切换器观察 `document.documentElement`（视口尺寸）的 `ResizeObserver`，阈值 1100px；label 在 compact 模式下由 `el-tooltip` 补齐。观察视口等价于「窗口宽度」但不用 CSS 媒体查询，仍保持可被父布局复用的语义。
+
+**关键点**:
+1. 面板内的「视图注册表」是 `tool-registry.ts` 的微缩复刻：同样的 `id → async component` 模式，拿到扩展性的同时避免 PmPanel 再膨胀。
+2. 渐进式渲染是 el-table 虚拟滚动的廉价替代品：性能目标（首帧 <50ms、滚动不卡）可达，且不触碰成熟组件的多选/排序/内联编辑契约。数据量上到万级再考虑真正虚拟化。
+3. `ResizeObserver(document.documentElement)` 是「窗口宽度但不用媒体查询」的稳妥写法；观察组件自身 inline-flex 容器会形成反馈循环，观察父元素又受父布局影响，观察视口最中立。
+4. 后端 5 个新 action（`item_today_list / item_today_counts / item_calendar_range / item_matrix_bucket / item_batch_update`）配合 `pm_items` 已有索引 `idx_pm_items_project_status/end_at/status/updated_at/completed_at`，跨项目查询在千行规模下 <5ms，无需额外性能工程。
+
+**涉及文件**:
+- `apps/desktop/src-tauri/src/tools/pm_today.rs`（新增）
+- `apps/desktop/src-tauri/src/tools/pm_calendar.rs`（新增）
+- `apps/desktop/src-tauri/src/tools/pm_matrix.rs`（新增）
+- `apps/desktop/src-tauri/src/tools/pm.rs`（新增 `item_batch_update`）
+- `apps/desktop/src-tauri/src/tools/mod.rs`、`helpers.rs`
+- `apps/desktop/src/composables/pmViewRegistry.ts`（新增）
+- `apps/desktop/src/composables/usePmViewMemory.ts`（新增）
+- `apps/desktop/src/composables/usePmListPrefs.ts`（新增）
+- `apps/desktop/src/components/PmViewSwitcher.vue`、`PmKanbanView.vue`、`PmTodayView.vue`、`PmListView.vue`、`PmCalendarView.vue`、`PmMatrixView.vue`、`PmMatrixQuadrant.vue`、`PmTodayCard.vue`、`PmTodaySection.vue`（新增）
+- `apps/desktop/src/components/PmPanel.vue`、`src/bridge/tauri.ts`
+- `CLAUDE.md`、`AGENTS.md`（新增 04.7 PM 域视图扩展小节）
+
+**验证**:
+- `cargo test tools::pm_` → 19 passed
+- `pnpm typecheck`
+- 后续需补 `pnpm test` / `pnpm --filter @lazycat/desktop build:web`
+
+**使用次数**: 0
+
 ## 2026-04-08: PM 侧栏排序口径与项目计数口径必须拆开建模
 
 **场景**: 用户先后确认了两条 PM 规则：`archived` 项目不能再接收工作项，且 `archived` 项目不参与“按任务总数排序”；随后修复 A4 / A6 / A7 时，需要同时解决“总览只看 active”“侧栏排序失真”“总览摘要口径不一致”三类问题。

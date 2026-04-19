@@ -28,6 +28,7 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         "item_change_status" => item_change_status(payload),
         "item_reorder" => item_reorder(payload),
         "item_toggle_pin" => item_toggle_pin(payload),
+        "item_batch_update" => item_batch_update(payload),
         "item_delete" => item_delete(payload),
         "item_move_project" => item_move_project(payload),
         "tag_list" => tag_list(payload),
@@ -46,6 +47,10 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         "item_todo_create" => crate::tools::pm_todo_link::item_todo_create(payload),
         "item_todo_candidates" => crate::tools::pm_todo_link::item_todo_candidates(payload),
         "item_todo_candidates_by_project" => crate::tools::pm_todo_link::item_todo_candidates_by_project(payload),
+        "item_today_list" => crate::tools::pm_today::item_today_list(payload),
+        "item_today_counts" => crate::tools::pm_today::item_today_counts(payload),
+        "item_calendar_range" => crate::tools::pm_calendar::item_calendar_range(payload),
+        "item_matrix_bucket" => crate::tools::pm_matrix::item_matrix_bucket(payload),
         _ => Err(format!("unsupported pm action: {action}")),
     }
 }
@@ -450,7 +455,7 @@ fn item_list(payload: &Value) -> Result<Value, String> {
     Ok(json!(result))
 }
 
-fn batch_load_tags(conn: &Connection, item_ids: &[i64]) -> HashMap<i64, Vec<String>> {
+pub(crate) fn batch_load_tags(conn: &Connection, item_ids: &[i64]) -> HashMap<i64, Vec<String>> {
     if item_ids.is_empty() {
         return HashMap::new();
     }
@@ -989,6 +994,130 @@ fn item_toggle_pin(payload: &Value) -> Result<Value, String> {
     )
     .map_err(|e| format!("item_toggle_pin: {e}"))?;
     Ok(json!({ "ok": true }))
+}
+
+fn item_batch_update(payload: &Value) -> Result<Value, String> {
+    let ids: Vec<i64> = payload
+        .get("ids")
+        .and_then(Value::as_array)
+        .map(|arr| arr.iter().filter_map(Value::as_i64).collect())
+        .unwrap_or_default();
+    if ids.is_empty() {
+        return Ok(json!({ "updated": 0 }));
+    }
+
+    let fields = payload.get("fields").ok_or("fields is required")?;
+    let new_status = parse_string(fields, "status");
+    let new_priority = parse_string(fields, "priority");
+    let new_project_id = parse_i64(fields, "projectId");
+    let pinned_value = fields.get("pinned").and_then(Value::as_bool);
+
+    if new_status.is_none()
+        && new_priority.is_none()
+        && new_project_id.is_none()
+        && pinned_value.is_none()
+    {
+        return Ok(json!({ "updated": 0 }));
+    }
+
+    if let Some(ref s) = new_status {
+        if !STATUSES.contains(&s.as_str()) {
+            return Err(format!("invalid status: {s}"));
+        }
+    }
+    if let Some(ref p) = new_priority {
+        if !PRIORITIES.contains(&p.as_str()) {
+            return Err(format!("invalid priority: {p}"));
+        }
+    }
+
+    let now = now_rfc3339();
+    let mut conn = db_conn()?;
+
+    if let Some(pid) = new_project_id {
+        ensure_project_accepts_items(&conn, pid)?;
+    }
+
+    let tx = conn
+        .transaction()
+        .map_err(|e| format!("item_batch_update begin: {e}"))?;
+
+    let mut updated: u32 = 0;
+    for id in &ids {
+        let row = tx
+            .query_row(
+                "SELECT status, started_at, testing_at, completed_at, priority, project_id, pinned
+                 FROM pm_items WHERE id = ?1",
+                params![id],
+                |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, Option<String>>(1)?,
+                        r.get::<_, Option<String>>(2)?,
+                        r.get::<_, Option<String>>(3)?,
+                        r.get::<_, String>(4)?,
+                        r.get::<_, i64>(5)?,
+                        r.get::<_, bool>(6)?,
+                    ))
+                },
+            )
+            .optional()
+            .map_err(|e| format!("item_batch_update read: {e}"))?;
+
+        let Some((
+            cur_status,
+            cur_started,
+            cur_testing,
+            cur_completed,
+            cur_priority,
+            cur_project_id,
+            cur_pinned,
+        )) = row
+        else {
+            continue;
+        };
+
+        let target_status = new_status.clone().unwrap_or_else(|| cur_status.clone());
+        let target_priority = new_priority.clone().unwrap_or(cur_priority);
+        let target_project_id = new_project_id.unwrap_or(cur_project_id);
+        let target_pinned = pinned_value.unwrap_or(cur_pinned);
+
+        let (started_at, testing_at, completed_at) = resolve_status_flow_timestamps(
+            &cur_status,
+            &target_status,
+            cur_started,
+            cur_testing,
+            cur_completed,
+            None,
+            None,
+            None,
+            &now,
+        );
+
+        let changed = tx
+            .execute(
+                "UPDATE pm_items SET status = ?1, priority = ?2, project_id = ?3, pinned = ?4,
+                        started_at = ?5, testing_at = ?6, completed_at = ?7, updated_at = ?8
+                 WHERE id = ?9",
+                params![
+                    target_status,
+                    target_priority,
+                    target_project_id,
+                    target_pinned,
+                    started_at,
+                    testing_at,
+                    completed_at,
+                    now,
+                    id
+                ],
+            )
+            .map_err(|e| format!("item_batch_update exec: {e}"))?;
+        updated += changed as u32;
+    }
+
+    tx.commit()
+        .map_err(|e| format!("item_batch_update commit: {e}"))?;
+    Ok(json!({ "updated": updated }))
 }
 
 fn item_delete(payload: &Value) -> Result<Value, String> {

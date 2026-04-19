@@ -246,6 +246,7 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:pm:item-change-status": { domain: "pm", action: "item_change_status" },
   "tool:pm:item-reorder": { domain: "pm", action: "item_reorder" },
   "tool:pm:item-toggle-pin": { domain: "pm", action: "item_toggle_pin" },
+  "tool:pm:item-batch-update": { domain: "pm", action: "item_batch_update" },
   "tool:pm:item-delete": { domain: "pm", action: "item_delete" },
   "tool:pm:item-move-project": { domain: "pm", action: "item_move_project" },
   "tool:pm:tag-list": { domain: "pm", action: "tag_list" },
@@ -264,6 +265,10 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:pm:item-todo-create": { domain: "pm", action: "item_todo_create" },
   "tool:pm:item-todo-candidates": { domain: "pm", action: "item_todo_candidates" },
   "tool:pm:item-todo-candidates-by-project": { domain: "pm", action: "item_todo_candidates_by_project" },
+  "tool:pm:item-today-list": { domain: "pm", action: "item_today_list" },
+  "tool:pm:item-today-counts": { domain: "pm", action: "item_today_counts" },
+  "tool:pm:item-calendar-range": { domain: "pm", action: "item_calendar_range" },
+  "tool:pm:item-matrix-bucket": { domain: "pm", action: "item_matrix_bucket" },
   "tool:todo:pm-candidates": { domain: "todo", action: "pm_candidates" },
   "tool:todo:item-set-pm-link": { domain: "todo", action: "item_set_pm_link" }
 };

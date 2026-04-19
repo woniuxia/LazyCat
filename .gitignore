@@ -21,3 +21,7 @@ apps/desktop/src-tauri/WebView2
 .playwright-mcp
 .codex
 .superpowers
+
+# Local preview/screenshot artifacts
+previews/
+/*.png

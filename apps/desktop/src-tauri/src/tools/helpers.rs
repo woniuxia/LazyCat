@@ -456,6 +456,12 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
             ON pm_items(project_id, status);
         CREATE INDEX IF NOT EXISTS idx_pm_items_completed_at
             ON pm_items(completed_at);
+        CREATE INDEX IF NOT EXISTS idx_pm_items_end_at
+            ON pm_items(end_at);
+        CREATE INDEX IF NOT EXISTS idx_pm_items_status
+            ON pm_items(status);
+        CREATE INDEX IF NOT EXISTS idx_pm_items_updated_at
+            ON pm_items(updated_at);
 
         CREATE TABLE IF NOT EXISTS pm_item_tags (
             item_id INTEGER NOT NULL,

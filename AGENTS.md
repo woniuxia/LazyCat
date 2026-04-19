@@ -148,6 +148,7 @@ scripts/                         构建脚本（build-tauri-win.ps1、release-al
 - 未使用 `vue-router`；`App.vue` 通过 `activeTool` + `tool-registry.ts` 动态加载面板。
 - 工具面板通过 `<component :is="currentComponent">` 渲染。
 - 新增前端工具入口时，通常会同时改 `App.vue`、`tool-registry.ts` 和对应面板组件。
+- 面板内部多视图切换走相同模式：PM 面板的 `composables/pmViewRegistry.ts` 注册 `kanban/gantt/today/list/calendar/matrix` 6 个视图，`PmPanel.vue` 通过 `<component :is="currentView.component">` 渲染；视图选择按上下文记忆，由 `composables/usePmViewMemory.ts` 读写 `user_settings`（key 规则 `pm:view:overview` 或 `pm:view:project-<id>`）。
 
 ### 04.4 关键 Composables
 
@@ -179,6 +180,17 @@ scripts/                         构建脚本（build-tauri-win.ps1、release-al
 1. 先完成前端入口、组件和工具注册。
 2. 再在 `src-tauri/src/main.rs` 增加并注册 Tauri command。
 3. 前端通过 `@tauri-apps/api/core` 的 `invoke` 直接调用 command。
+
+### 04.7 PM 域视图扩展
+
+- PM 后端按视图拆分到独立模块：`pm.rs`（CRUD 主干）、`pm_today.rs`（今日视图）、`pm_calendar.rs`（日历视图）、`pm_matrix.rs`（四象限视图）、`pm_siyuan.rs`（思源集成）、`pm_todo_link.rs`（Todo 打通）。
+- 5 个扩展 action（均走常规通道分发）：
+  - `item_today_list` / `item_today_counts`：今日视图分区数据与侧栏 badge 计数，参数含 `todayDate` 客户端本地日期。
+  - `item_calendar_range`：日历视图区间查询，参数 `startDate`、`endDate`。
+  - `item_matrix_bucket`：四象限分桶，参数 `urgentThresholdDays`、`hideCompleted`、`todayDate`。
+  - `item_batch_update`：列表视图批量改 `status/priority/project/pinned`，事务中一次写入。
+- 性能索引已在 `helpers.rs` 建好：`idx_pm_items_project_status`、`idx_pm_items_end_at`、`idx_pm_items_status`、`idx_pm_items_updated_at`、`idx_pm_items_completed_at`。跨项目查询（`project_id IS NULL`）依赖 `end_at`/`status`/`completed_at` 索引避免全表扫描。
+- 列表视图 `PmListView.vue` 在无分组且数据 > 500 行时启用渐进式渲染（初始 200 行，滚动底部追加 200），避免大数据量初次渲染卡顿。
 
 ## 05. 高频注意事项
 
