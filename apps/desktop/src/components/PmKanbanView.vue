@@ -307,6 +307,7 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+/* Kanban */
 .kanban-board {
   display: flex;
   flex: 1;
@@ -346,13 +347,14 @@ onBeforeUnmount(() => {
   min-height: 120px;
 }
 
+/* Cards */
 .kanban-card {
   position: relative;
   background: var(--el-bg-color);
   border: 1px solid var(--el-border-color-lighter);
   border-left: 3px solid var(--el-color-primary);
   border-radius: 6px;
-  padding: 12px;
+  padding: 12px 12px 12px 12px;
   margin-bottom: 8px;
   cursor: grab;
   transition: box-shadow 0.15s, border-color 0.15s, margin 0.15s;
@@ -393,12 +395,24 @@ onBeforeUnmount(() => {
 .kanban-card.is-overdue:hover {
   background: linear-gradient(135deg, rgba(248, 113, 113, 0.10), var(--el-bg-color) 60%);
 }
-
+.card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 4px;
+  margin-bottom: 8px;
+}
 .card-title {
   font-size: 15px;
   font-weight: 500;
   line-height: 1.4;
   word-break: break-all;
+}
+.card-badges {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
 }
 .badge-pin {
   color: var(--el-color-warning);
@@ -431,11 +445,53 @@ onBeforeUnmount(() => {
   font-size: 12px;
   height: 18px;
 }
+.card-dates {
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+}
 .is-overdue-date {
   color: var(--lc-danger, #f56c6c);
   font-weight: 600;
 }
+.priority-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 6px;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+.card-project {
+  margin-top: 4px;
+}
+.card-project-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 1px 6px;
+  border-radius: 3px;
+  line-height: 16px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.card-project-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+.card-project-name {
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
+/* Quick action button */
 .card-advance-btn {
   position: absolute;
   right: 6px;
@@ -459,6 +515,7 @@ onBeforeUnmount(() => {
   color: var(--el-color-success);
 }
 
+/* Drag */
 :deep(.kanban-ghost) {
   opacity: 0.4;
   border: 2px dashed var(--el-color-primary-light-5);
@@ -475,6 +532,7 @@ onBeforeUnmount(() => {
   z-index: 100;
 }
 
+/* Column drag-over highlight */
 .kanban-column.is-drag-over {
   background: var(--el-color-primary-light-9);
   box-shadow: inset 0 0 0 2px var(--el-color-primary-light-5);
@@ -498,6 +556,7 @@ onBeforeUnmount(() => {
   to { transform: scaleX(1); }
 }
 
+/* Empty column drop hint */
 .column-drop-hint {
   text-align: center;
   padding: 16px 8px;
@@ -521,10 +580,226 @@ onBeforeUnmount(() => {
   color: var(--el-text-color-placeholder);
 }
 
+/* Empty state */
 .pm-empty {
   flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+/* ── PM visual unification overrides ─────────────────── */
+.kanban-board {
+  gap: 12px;
+  padding: 18px;
+}
+
+.kanban-column {
+  min-width: 272px;
+  margin: 0;
+  border: 1px solid var(--pm-edge-soft);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: var(--pm-shadow-soft);
+  overflow: hidden;
+}
+
+.column-header {
+  padding: 14px 16px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(244, 247, 251, 0.9));
+}
+
+.column-title {
+  color: var(--pm-text-main);
+}
+
+.column-count {
+  min-width: 30px;
+  line-height: 22px;
+  text-align: center;
+}
+
+.column-body {
+  padding: 10px;
+  background: linear-gradient(180deg, rgba(244, 247, 251, 0.82), rgba(255, 255, 255, 0.58));
+}
+
+.kanban-card {
+  padding: 12px;
+  margin-bottom: 10px;
+  border-width: 1px 1px 1px 4px;
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 1), rgba(248, 251, 255, 0.98));
+  box-shadow: 0 10px 22px rgba(34, 48, 66, 0.05);
+}
+
+.kanban-card:hover {
+  margin-top: 0;
+  margin-bottom: 10px;
+  border-color: rgba(77, 125, 242, 0.3);
+  box-shadow: var(--pm-shadow-strong);
+  transform: translateY(-1px);
+}
+
+.kanban-card.is-selected {
+  border-color: rgba(77, 125, 242, 0.42);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 1), rgba(233, 241, 255, 0.92));
+  box-shadow:
+    0 0 0 1px rgba(77, 125, 242, 0.12),
+    0 18px 32px rgba(77, 125, 242, 0.14);
+}
+
+.kanban-card.is-overdue {
+  background: linear-gradient(180deg, rgba(255, 247, 247, 0.96), rgba(255, 255, 255, 1));
+}
+
+.kanban-card.is-overdue:hover {
+  background: linear-gradient(180deg, rgba(255, 244, 244, 1), rgba(255, 255, 255, 1));
+}
+
+.card-topbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.card-topbar-left,
+.card-topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.card-topbar-right {
+  justify-content: flex-end;
+}
+
+.card-project-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  padding: 4px 10px;
+  border: 1px solid rgba(77, 125, 242, 0.12);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.card-project-name {
+  color: inherit;
+  font-size: 12px;
+}
+
+.card-meta-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border: 1px solid;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.78);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.card-date-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(219, 229, 241, 0.7);
+  color: var(--pm-text-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.card-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.card-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.45;
+  color: var(--pm-text-main);
+  word-break: break-word;
+}
+
+.card-meta {
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.card-tags {
+  gap: 6px;
+  margin-bottom: 0;
+}
+
+.card-tags :deep(.el-tag) {
+  border-radius: 999px;
+}
+
+.card-advance-btn {
+  position: static;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  border-color: rgba(77, 125, 242, 0.16);
+  background: rgba(77, 125, 242, 0.08);
+  color: var(--pm-accent);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(2px);
+  transition:
+    opacity 0.16s ease,
+    visibility 0.16s ease,
+    transform 0.16s ease,
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.kanban-card:hover .card-advance-btn,
+.kanban-card:focus-within .card-advance-btn {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.card-advance-btn:hover {
+  background: var(--pm-accent);
+  border-color: var(--pm-accent);
+  color: #ffffff;
+}
+
+.column-drop-hint {
+  border-radius: 14px;
+  border-color: rgba(77, 125, 242, 0.32);
+  background: rgba(77, 125, 242, 0.06);
+  color: var(--pm-accent);
+}
+
+.column-empty-state {
+  border-radius: 14px;
+  border-color: var(--pm-edge);
+  background: rgba(255, 255, 255, 0.68);
+}
+
+.column-empty-text {
+  color: var(--pm-text-muted);
 }
 </style>

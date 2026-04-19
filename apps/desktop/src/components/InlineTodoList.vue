@@ -533,12 +533,12 @@ defineExpose({ resetLocal, localCreates, localLinkIds });
 
 /* el-select 做成 pill */
 .inline-todo-create-priority {
-  width: 72px;
   flex-shrink: 0;
+  width: 34px;
 }
 .inline-todo-create-priority :deep(.el-select__wrapper) {
-  min-height: 24px;
-  padding: 2px 10px;
+  min-height: 22px;
+  padding: 2px 8px;
   border-radius: 999px;
   background: rgba(77, 125, 242, 0.08);
   box-shadow: 0 0 0 1px rgba(77, 125, 242, 0.18) inset !important;
@@ -552,8 +552,8 @@ defineExpose({ resetLocal, localCreates, localLinkIds });
   font-weight: 600;
   color: var(--pm-accent);
 }
-.inline-todo-create-priority :deep(.el-select__caret) {
-  color: var(--pm-accent);
+.inline-todo-create-priority :deep(.el-select__suffix) {
+  display: none;
 }
 
 /* 绑定已有任务入口：居中 pill 按钮 */

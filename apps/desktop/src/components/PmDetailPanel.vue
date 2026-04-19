@@ -465,6 +465,10 @@ async function openItemLink(url: string | null | undefined) {
   gap: 8px;
 }
 
+.detail-field-inline :deep(.el-tag) {
+  border-radius: 999px;
+}
+
 .detail-label {
   color: var(--pm-text-muted);
 }
