@@ -26,33 +26,6 @@
           <span class="card-project-name">{{ item.projectName }}</span>
         </span>
         <span
-          class="card-pill"
-          :style="{
-            color: PM_PRIORITY_MAP[item.priority]?.color,
-            borderColor: PM_PRIORITY_MAP[item.priority]?.color + '40',
-          }"
-        >
-          {{ PM_PRIORITY_MAP[item.priority]?.label }}
-        </span>
-        <span
-          class="card-pill"
-          :style="{
-            color: PM_ITEM_TYPE_MAP[item.itemType]?.color,
-            borderColor: PM_ITEM_TYPE_MAP[item.itemType]?.color + '40',
-          }"
-        >
-          {{ PM_ITEM_TYPE_MAP[item.itemType]?.label }}
-        </span>
-        <span
-          class="card-pill"
-          :style="{
-            color: statusMeta.color,
-            borderColor: statusMeta.color + '40',
-          }"
-        >
-          {{ statusMeta.label }}
-        </span>
-        <span
           v-if="dateChipText"
           class="card-date-chip"
           :class="{ 'is-overdue': overdue }"
@@ -61,10 +34,7 @@
         </span>
         <span v-if="item.pinned" class="card-flag" title="已置顶">📌</span>
       </div>
-      <div class="card-title">{{ item.title }}</div>
-      <div v-if="item.description" class="card-desc">
-        {{ truncatedDesc }}
-      </div>
+      <div class="card-title" :title="cardTitleTooltip">{{ item.title }}</div>
     </div>
     <div class="card-actions">
       <button
@@ -100,7 +70,7 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
-import { PM_ITEM_TYPE_MAP, PM_PRIORITY_MAP, PM_STATUS_COLUMNS, type PmItem } from "../types/pm";
+import { PM_PRIORITY_MAP, type PmItem } from "../types/pm";
 import {
   formatPmDateRangeForDisplay,
   hasPmDateSchedule,
@@ -121,16 +91,6 @@ const emit = defineEmits<{
 
 const overdue = computed(() => isPmItemOverdue(props.item));
 
-const statusMeta = computed(() => {
-  return (
-    PM_STATUS_COLUMNS.find((c) => c.key === props.item.status) ?? {
-      key: props.item.status,
-      label: props.item.status,
-      color: "#909399",
-    }
-  );
-});
-
 const dateChipText = computed(() => {
   if (!hasPmDateSchedule(props.item.startAt, props.item.endAt)) return "";
   return formatPmDateRangeForDisplay(props.item.startAt, props.item.endAt, {
@@ -139,10 +99,9 @@ const dateChipText = computed(() => {
   });
 });
 
-const truncatedDesc = computed(() => {
-  const text = props.item.description ?? "";
-  if (text.length <= 80) return text;
-  return text.slice(0, 80) + "…";
+const cardTitleTooltip = computed(() => {
+  const desc = (props.item.description ?? "").trim();
+  return desc ? `${props.item.title}\n\n${desc}` : props.item.title;
 });
 
 const showStart = computed(() => props.item.status === "todo");
@@ -157,10 +116,11 @@ const showComplete = computed(() => props.item.status !== "done");
   border: 1px solid var(--pm-edge-soft, #e4e7ed);
   border-left: 3px solid #dcdfe6;
   border-radius: 8px;
-  padding: 10px 14px;
+  padding: 6px 12px;
   display: flex;
-  flex-direction: column;
-  gap: 8px;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
   cursor: pointer;
   transition: border-color 0.18s, box-shadow 0.18s, transform 0.18s;
 }
@@ -184,14 +144,18 @@ const showComplete = computed(() => props.item.status !== "done");
 }
 
 .card-body {
+  flex: 1;
+  min-width: 0;
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
 }
 
 .card-meta {
+  flex: none;
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 6px;
 }
@@ -217,15 +181,6 @@ const showComplete = computed(() => props.item.status !== "done");
   text-overflow: ellipsis;
 }
 
-.card-pill {
-  font-size: 11px;
-  line-height: 1.5;
-  padding: 0 6px;
-  border: 1px solid;
-  border-radius: 4px;
-  background: transparent;
-}
-
 .card-date-chip {
   font-size: 11px;
   line-height: 1.5;
@@ -233,6 +188,7 @@ const showComplete = computed(() => props.item.status !== "done");
   background: var(--el-fill-color-light, #f5f7fa);
   padding: 0 6px;
   border-radius: 4px;
+  white-space: nowrap;
 }
 .card-date-chip.is-overdue {
   color: #f56c6c;
@@ -245,23 +201,21 @@ const showComplete = computed(() => props.item.status !== "done");
 }
 
 .card-title {
-  font-size: 14px;
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
   font-weight: 500;
   color: var(--el-text-color-primary, #303133);
-  word-break: break-word;
-}
-
-.card-desc {
-  font-size: 12px;
-  color: var(--el-text-color-regular, #606266);
-  line-height: 1.5;
-  word-break: break-word;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .card-actions {
+  flex: none;
   display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  gap: 4px;
 }
 
 .card-action {
@@ -269,12 +223,13 @@ const showComplete = computed(() => props.item.status !== "done");
   background: var(--el-bg-color, #fff);
   border: 1px solid var(--el-border-color, #dcdfe6);
   color: var(--el-text-color-regular, #606266);
-  font-size: 12px;
+  font-size: 11px;
   line-height: 1.5;
-  padding: 2px 10px;
+  padding: 2px 8px;
   border-radius: 4px;
   cursor: pointer;
   transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+  white-space: nowrap;
 }
 .card-action:hover {
   background: var(--el-fill-color-light, #f5f7fa);

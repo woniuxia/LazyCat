@@ -243,10 +243,22 @@ pub fn item_today_list(payload: &Value) -> Result<Value, String> {
     let mut due_today: Vec<Value> = Vec::new();
     let mut in_progress: Vec<Value> = Vec::new();
     let mut completed_today: Vec<Value> = Vec::new();
+    let mut unscheduled_count: u32 = 0;
 
     let mut collected_ids: Vec<i64> = Vec::new();
 
     for row in rows {
+        if row.status != "done" {
+            let start_at_val = row
+                .item
+                .get("startAt")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .unwrap_or("");
+            if start_at_val.is_empty() {
+                unscheduled_count += 1;
+            }
+        }
         let bucket = classify(&row, &today_str, &today_start_utc, &today_end_utc);
         if bucket == Bucket::None {
             continue;
@@ -292,6 +304,7 @@ pub fn item_today_list(payload: &Value) -> Result<Value, String> {
         "dueToday": due_today,
         "inProgress": in_progress,
         "completedToday": completed_today,
+        "unscheduledCount": unscheduled_count,
     }))
 }
 

@@ -4,16 +4,14 @@ import { hasView, type ViewId } from "./pmViewRegistry";
 
 export type PmContextId = number | "overview";
 
-function settingsKey(ctx: PmContextId): string {
-  return `pm:view:${ctx === "overview" ? "overview" : `project-${ctx}`}`;
-}
+const GLOBAL_KEY = "pm:view";
 
 function defaultView(ctx: PmContextId): ViewId {
   return ctx === "overview" ? "list" : "kanban";
 }
 
-function readSavedView(ctx: PmContextId): ViewId | null {
-  const raw = getSetting(settingsKey(ctx));
+function readSavedView(): ViewId | null {
+  const raw = getSetting(GLOBAL_KEY);
   if (raw && hasView(raw)) return raw;
   const legacy = getSetting("pm:viewMode");
   if (legacy && hasView(legacy)) return legacy;
@@ -21,23 +19,24 @@ function readSavedView(ctx: PmContextId): ViewId | null {
 }
 
 export function usePmViewMemory(contextRef: Ref<PmContextId | null>) {
-  const currentView = ref<ViewId>("kanban");
+  const saved = readSavedView();
+  const currentView = ref<ViewId>(saved ?? "kanban");
 
-  watch(
-    contextRef,
-    (ctx) => {
-      if (ctx === null) return;
-      const saved = readSavedView(ctx);
-      currentView.value = saved ?? defaultView(ctx);
-    },
-    { immediate: true },
-  );
+  if (!saved) {
+    const stop = watch(
+      contextRef,
+      (ctx) => {
+        if (ctx === null) return;
+        currentView.value = defaultView(ctx);
+        stop();
+      },
+      { immediate: true },
+    );
+  }
 
   function setView(viewId: ViewId) {
-    const ctx = contextRef.value;
     currentView.value = viewId;
-    if (ctx === null) return;
-    setSetting(settingsKey(ctx), viewId);
+    setSetting(GLOBAL_KEY, viewId);
   }
 
   return { currentView, setView };
