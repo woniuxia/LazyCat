@@ -164,35 +164,29 @@
             <div class="detail-card-icon success">
               <el-icon><User /></el-icon>
             </div>
-            <span class="detail-card-title">分类与执行人</span>
+            <span class="detail-card-title">{{ infoCardTitle }}</span>
           </div>
-          <div class="detail-card-body">
-            <div class="detail-grid">
-              <div v-if="item.typeName" class="detail-field">
-                <div class="detail-label">分类</div>
-                <div class="detail-value">
-                  <span class="type-with-color">
-                    <span
-                      class="color-dot-sm"
-                      :style="{ backgroundColor: item.typeColor || '#909399' }"
-                    />
-                    {{ item.typeName }}
-                  </span>
-                </div>
-              </div>
-              <div v-if="item.assignees.length > 0" class="detail-field">
-                <div class="detail-label">执行人</div>
-                <div class="detail-value">
-                  <div class="assignee-list">
-                    <span
-                      v-for="assignee in item.assignees"
-                      :key="assignee.id"
-                      class="assignee-tag"
-                    >
-                      {{ assignee.name }}
-                    </span>
-                  </div>
-                </div>
+          <div class="detail-card-body info-inline-body">
+            <div v-if="item.typeName" class="info-inline-group">
+              <el-icon class="info-inline-icon" :size="14"><CollectionTag /></el-icon>
+              <span class="info-type-chip" :style="typeChipStyle">
+                <span
+                  class="color-dot-sm"
+                  :style="{ backgroundColor: item.typeColor || '#909399' }"
+                />
+                {{ item.typeName }}
+              </span>
+            </div>
+            <div v-if="item.assignees.length > 0" class="info-inline-group info-inline-group--assignees">
+              <el-icon class="info-inline-icon" :size="14"><UserFilled /></el-icon>
+              <div class="info-assignee-list">
+                <span
+                  v-for="assignee in item.assignees"
+                  :key="assignee.id"
+                  class="info-assignee-chip"
+                >
+                  {{ assignee.name }}
+                </span>
               </div>
             </div>
           </div>
@@ -333,12 +327,14 @@ import {
   Calendar,
   CircleCheck,
   Clock,
+  CollectionTag,
   Document,
   Flag,
   Link,
   Refresh,
   Top,
   User,
+  UserFilled,
 } from "@element-plus/icons-vue";
 import { effectiveReminderPresets } from "../composables/useTodoItem";
 import type { TodoItem, TodoPriority } from "../types";
@@ -666,6 +662,36 @@ const renderedDescription = computed(() => {
   const desc = props.item.description;
   if (!desc) return "";
   return renderMarkdown(desc);
+});
+
+function hexToRgba(hex: string, alpha: number): string {
+  const clean = hex.replace(/^#/, "");
+  if (clean.length !== 3 && clean.length !== 6) return hex;
+  const full = clean.length === 3
+    ? clean.split("").map((c) => c + c).join("")
+    : clean;
+  const r = parseInt(full.slice(0, 2), 16);
+  const g = parseInt(full.slice(2, 4), 16);
+  const b = parseInt(full.slice(4, 6), 16);
+  if ([r, g, b].some(Number.isNaN)) return hex;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+const typeChipStyle = computed(() => {
+  const color = props.item.typeColor || "#909399";
+  return {
+    backgroundColor: hexToRgba(color, 0.1),
+    borderColor: hexToRgba(color, 0.28),
+    color,
+  };
+});
+
+const infoCardTitle = computed(() => {
+  const hasType = !!props.item.typeName;
+  const hasAssignees = props.item.assignees.length > 0;
+  if (hasType && hasAssignees) return "分类与执行人";
+  if (hasType) return "分类";
+  return "执行人";
 });
 </script>
 
@@ -998,23 +1024,67 @@ const renderedDescription = computed(() => {
   border-radius: 50%;
   flex-shrink: 0;
 }
-.type-with-color {
+.info-inline-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 20px;
+  padding: 12px 14px;
+}
+.info-inline-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+}
+.info-inline-group--assignees {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.info-inline-icon {
+  color: var(--el-text-color-secondary);
+  flex-shrink: 0;
+}
+.info-type-chip {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-}
-.assignee-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.assignee-tag {
-  display: inline-block;
-  padding: 2px 10px;
-  border-radius: 10px;
+  padding: 3px 10px;
+  border-radius: 999px;
   font-size: 12px;
+  font-weight: 500;
+  line-height: 1.5;
+  letter-spacing: 0.2px;
+  border: 1px solid var(--lc-border);
+  background: var(--lc-surface-1);
+  color: var(--el-text-color-primary);
+  white-space: nowrap;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.info-assignee-list {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.info-assignee-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 1.5;
   background: var(--lc-surface-1);
   color: var(--el-text-color-regular);
+  border: 1px solid var(--lc-border);
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .meta-timestamps {
   display: flex;
