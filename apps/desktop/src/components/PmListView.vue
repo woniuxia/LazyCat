@@ -139,7 +139,7 @@
             class="pm-list-table"
             :row-class-name="rowClassName"
             @selection-change="(rows) => onSelectionChange(group.key, rows)"
-            @row-click="onRowClick"
+            @row-click="(row) => onRowClick(row, group.key)"
             @row-dblclick="onRowDblclick"
             @row-contextmenu="onRowContextmenu"
             @sort-change="onSortChange"
@@ -251,19 +251,55 @@
               sortable="custom"
             >
               <template #default="{ row }">
-                <el-dropdown
-                  v-if="movableProjects.length > 0"
-                  trigger="click"
-                  @command="(cmd) => onInlineProject(row, cmd)"
-                >
+                <template v-if="movableProjects.length > 0">
+                  <template v-if="isEditorActive(row.id, 'project')">
+                    <el-dropdown
+                      :ref="(el) => setLazyDropdownRef(row.id, 'project', el)"
+                      trigger="click"
+                      @command="(cmd) => onInlineProject(row, cmd)"
+                    >
+                      <span
+                        v-if="row.projectName"
+                        class="cell-project cell-editable"
+                        :style="{
+                          backgroundColor: (row.projectColor || '#4d7df2') + '18',
+                          color: row.projectColor || '#4d7df2',
+                        }"
+                        @click.stop
+                      >
+                        <span
+                          class="cell-project-dot"
+                          :style="{ backgroundColor: row.projectColor || '#4d7df2' }"
+                        />
+                        {{ row.projectName }}
+                      </span>
+                      <span v-else class="cell-empty cell-editable" @click.stop>选择项目</span>
+                      <template #dropdown>
+                        <el-dropdown-menu>
+                          <el-dropdown-item
+                            v-for="project in movableProjects"
+                            :key="project.id"
+                            :command="project.id"
+                            :disabled="row.projectId === project.id"
+                          >
+                            <span
+                              class="cell-project-dot"
+                              :style="{ backgroundColor: project.color || '#4d7df2', marginRight: '6px' }"
+                            />
+                            {{ project.name }}
+                          </el-dropdown-item>
+                        </el-dropdown-menu>
+                      </template>
+                    </el-dropdown>
+                  </template>
                   <span
-                    v-if="row.projectName"
+                    v-else-if="row.projectName"
                     class="cell-project cell-editable"
                     :style="{
                       backgroundColor: (row.projectColor || '#4d7df2') + '18',
                       color: row.projectColor || '#4d7df2',
                     }"
-                    @click.stop
+                    @click.stop="activateDropdown(row.id, 'project')"
                   >
                     <span
                       class="cell-project-dot"
@@ -271,24 +307,14 @@
                     />
                     {{ row.projectName }}
                   </span>
-                  <span v-else class="cell-empty cell-editable" @click.stop>选择项目</span>
-                  <template #dropdown>
-                    <el-dropdown-menu>
-                      <el-dropdown-item
-                        v-for="project in movableProjects"
-                        :key="project.id"
-                        :command="project.id"
-                        :disabled="row.projectId === project.id"
-                      >
-                        <span
-                          class="cell-project-dot"
-                          :style="{ backgroundColor: project.color || '#4d7df2', marginRight: '6px' }"
-                        />
-                        {{ project.name }}
-                      </el-dropdown-item>
-                    </el-dropdown-menu>
-                  </template>
-                </el-dropdown>
+                  <span
+                    v-else
+                    class="cell-empty cell-editable"
+                    @click.stop="activateDropdown(row.id, 'project')"
+                  >
+                    选择项目
+                  </span>
+                </template>
                 <span
                   v-else-if="row.projectName"
                   class="cell-project"
@@ -334,41 +360,55 @@
               sortable="custom"
             >
               <template #default="{ row }">
-                <el-dropdown
-                  trigger="click"
-                  @command="(cmd) => onInlinePriority(row, cmd)"
-                >
-                  <span
-                    class="cell-pill cell-editable"
-                    :style="{
-                      color: PM_PRIORITY_MAP[row.priority]?.color,
-                      borderColor: PM_PRIORITY_MAP[row.priority]?.color + '40',
-                    }"
-                    @click.stop
+                <template v-if="isEditorActive(row.id, 'priority')">
+                  <el-dropdown
+                    :ref="(el) => setLazyDropdownRef(row.id, 'priority', el)"
+                    trigger="click"
+                    @command="(cmd) => onInlinePriority(row, cmd)"
                   >
-                    {{ PM_PRIORITY_MAP[row.priority]?.label }}
-                  </span>
-                  <template #dropdown>
-                    <el-dropdown-menu>
-                      <el-dropdown-item
-                        v-for="(meta, key) in PM_PRIORITY_MAP"
-                        :key="key"
-                        :command="key"
-                        :disabled="row.priority === key"
-                      >
-                        <span
-                          class="cell-pill"
-                          :style="{
-                            color: meta.color,
-                            borderColor: meta.color + '40',
-                          }"
+                    <span
+                      class="cell-pill cell-editable"
+                      :style="{
+                        color: PM_PRIORITY_MAP[row.priority]?.color,
+                        borderColor: PM_PRIORITY_MAP[row.priority]?.color + '40',
+                      }"
+                      @click.stop
+                    >
+                      {{ PM_PRIORITY_MAP[row.priority]?.label }}
+                    </span>
+                    <template #dropdown>
+                      <el-dropdown-menu>
+                        <el-dropdown-item
+                          v-for="(meta, key) in PM_PRIORITY_MAP"
+                          :key="key"
+                          :command="key"
+                          :disabled="row.priority === key"
                         >
-                          {{ meta.label }}
-                        </span>
-                      </el-dropdown-item>
-                    </el-dropdown-menu>
-                  </template>
-                </el-dropdown>
+                          <span
+                            class="cell-pill"
+                            :style="{
+                              color: meta.color,
+                              borderColor: meta.color + '40',
+                            }"
+                          >
+                            {{ meta.label }}
+                          </span>
+                        </el-dropdown-item>
+                      </el-dropdown-menu>
+                    </template>
+                  </el-dropdown>
+                </template>
+                <span
+                  v-else
+                  class="cell-pill cell-editable"
+                  :style="{
+                    color: PM_PRIORITY_MAP[row.priority]?.color,
+                    borderColor: PM_PRIORITY_MAP[row.priority]?.color + '40',
+                  }"
+                  @click.stop="activateDropdown(row.id, 'priority')"
+                >
+                  {{ PM_PRIORITY_MAP[row.priority]?.label }}
+                </span>
               </template>
             </el-table-column>
 
@@ -380,41 +420,55 @@
               sortable="custom"
             >
               <template #default="{ row }">
-                <el-dropdown
-                  trigger="click"
-                  @command="(cmd) => onInlineStatus(row, cmd)"
-                >
-                  <span
-                    class="cell-pill cell-editable"
-                    :style="{
-                      color: statusMeta(row.status).color,
-                      borderColor: statusMeta(row.status).color + '40',
-                    }"
-                    @click.stop
+                <template v-if="isEditorActive(row.id, 'status')">
+                  <el-dropdown
+                    :ref="(el) => setLazyDropdownRef(row.id, 'status', el)"
+                    trigger="click"
+                    @command="(cmd) => onInlineStatus(row, cmd)"
                   >
-                    {{ statusMeta(row.status).label }}
-                  </span>
-                  <template #dropdown>
-                    <el-dropdown-menu>
-                      <el-dropdown-item
-                        v-for="col in PM_STATUS_COLUMNS"
-                        :key="col.key"
-                        :command="col.key"
-                        :disabled="row.status === col.key"
-                      >
-                        <span
-                          class="cell-pill"
-                          :style="{
-                            color: col.color,
-                            borderColor: col.color + '40',
-                          }"
+                    <span
+                      class="cell-pill cell-editable"
+                      :style="{
+                        color: statusMeta(row.status).color,
+                        borderColor: statusMeta(row.status).color + '40',
+                      }"
+                      @click.stop
+                    >
+                      {{ statusMeta(row.status).label }}
+                    </span>
+                    <template #dropdown>
+                      <el-dropdown-menu>
+                        <el-dropdown-item
+                          v-for="col in PM_STATUS_COLUMNS"
+                          :key="col.key"
+                          :command="col.key"
+                          :disabled="row.status === col.key"
                         >
-                          {{ col.label }}
-                        </span>
-                      </el-dropdown-item>
-                    </el-dropdown-menu>
-                  </template>
-                </el-dropdown>
+                          <span
+                            class="cell-pill"
+                            :style="{
+                              color: col.color,
+                              borderColor: col.color + '40',
+                            }"
+                          >
+                            {{ col.label }}
+                          </span>
+                        </el-dropdown-item>
+                      </el-dropdown-menu>
+                    </template>
+                  </el-dropdown>
+                </template>
+                <span
+                  v-else
+                  class="cell-pill cell-editable"
+                  :style="{
+                    color: statusMeta(row.status).color,
+                    borderColor: statusMeta(row.status).color + '40',
+                  }"
+                  @click.stop="activateDropdown(row.id, 'status')"
+                >
+                  {{ statusMeta(row.status).label }}
+                </span>
               </template>
             </el-table-column>
 
@@ -427,10 +481,13 @@
             >
               <template #default="{ row }">
                 <el-popover
+                  v-if="isEditorActive(row.id, 'endAt')"
+                  :visible="lazyPopoverVisible[editorKey(row.id, 'endAt')]"
                   trigger="click"
                   placement="bottom-start"
                   :width="260"
                   :popper-options="{ modifiers: [{ name: 'preventOverflow', enabled: true }] }"
+                  @update:visible="(v) => (lazyPopoverVisible[editorKey(row.id, 'endAt')] = v)"
                 >
                   <template #reference>
                     <span class="cell-date-trigger" @click.stop>
@@ -465,6 +522,20 @@
                     </el-button>
                   </div>
                 </el-popover>
+                <span
+                  v-else
+                  class="cell-date-trigger"
+                  @click.stop="activatePopover(row.id, 'endAt')"
+                >
+                  <span
+                    v-if="row.endAt"
+                    class="cell-date"
+                    :class="{ 'is-overdue': isPmItemOverdue(row) }"
+                  >
+                    {{ formatPmDateForDisplay(row.endAt, 'short') }}
+                  </span>
+                  <span v-else class="cell-empty">设置日期</span>
+                </span>
               </template>
             </el-table-column>
 
@@ -475,9 +546,12 @@
             >
               <template #default="{ row }">
                 <el-popover
+                  v-if="isEditorActive(row.id, 'tags')"
+                  :visible="lazyPopoverVisible[editorKey(row.id, 'tags')]"
                   trigger="click"
                   placement="bottom-start"
                   :width="260"
+                  @update:visible="(v) => (lazyPopoverVisible[editorKey(row.id, 'tags')] = v)"
                 >
                   <template #reference>
                     <span class="cell-tags" @click.stop>
@@ -511,6 +585,26 @@
                     <el-option v-for="tag in availableTags" :key="tag" :label="tag" :value="tag" />
                   </el-select>
                 </el-popover>
+                <span
+                  v-else
+                  class="cell-tags"
+                  @click.stop="activatePopover(row.id, 'tags')"
+                >
+                  <el-tag
+                    v-for="tag in (row.tags || []).slice(0, 3)"
+                    :key="tag"
+                    size="small"
+                    class="cell-tag"
+                  >
+                    {{ tag }}
+                  </el-tag>
+                  <span v-if="(row.tags || []).length > 3" class="tag-more">
+                    +{{ row.tags.length - 3 }}
+                  </span>
+                  <span v-if="(row.tags || []).length === 0" class="cell-empty">
+                    添加标签
+                  </span>
+                </span>
               </template>
             </el-table-column>
 
@@ -802,6 +896,37 @@ watch(
   { immediate: true },
 );
 
+// Lazy editor activation (dropdown / popover 按需挂载，避免 23 行 × 5 列一次性渲染 400+ 组件)
+const activatedEditors = ref(new Set<string>());
+const lazyDropdownRefs = new Map<string, { handleOpen?: () => void }>();
+const lazyPopoverVisible = ref<Record<string, boolean>>({});
+
+function editorKey(rowId: number, field: string): string {
+  return `${rowId}:${field}`;
+}
+function isEditorActive(rowId: number, field: string): boolean {
+  return activatedEditors.value.has(editorKey(rowId, field));
+}
+function setLazyDropdownRef(rowId: number, field: string, el: unknown) {
+  const key = editorKey(rowId, field);
+  if (el) lazyDropdownRefs.set(key, el as { handleOpen?: () => void });
+  else lazyDropdownRefs.delete(key);
+}
+async function activateDropdown(rowId: number, field: string) {
+  const key = editorKey(rowId, field);
+  activatedEditors.value.add(key);
+  // 双 nextTick：等 el-dropdown + 内部 ElTooltip 都就位
+  await nextTick();
+  await nextTick();
+  lazyDropdownRefs.get(key)?.handleOpen?.();
+}
+async function activatePopover(rowId: number, field: string) {
+  const key = editorKey(rowId, field);
+  activatedEditors.value.add(key);
+  await nextTick();
+  lazyPopoverVisible.value[key] = true;
+}
+
 // Selection
 const tableRefs = ref<Map<string, any>>(new Map());
 function setTableRef(key: string, el: unknown) {
@@ -953,8 +1078,9 @@ function onSelectionChange(groupKey: string, rows: PmItem[]) {
   selectionMap.value = new Map(selectionMap.value);
 }
 
-function onRowClick(row: PmItem) {
-  emit("select", row);
+function onRowClick(row: PmItem, groupKey: string) {
+  const table = tableRefs.value.get(groupKey);
+  table?.toggleRowExpansion?.(row);
 }
 
 function onRowDblclick(row: PmItem) {

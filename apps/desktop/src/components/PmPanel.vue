@@ -52,7 +52,6 @@
         <div v-if="sidebarProjects.length > 0" class="sidebar-projects">
           <div class="sidebar-projects-head">
             <span class="sidebar-projects-title">全部项目</span>
-            <span class="sidebar-projects-sort">活跃项目优先，按任务总数排序</span>
           </div>
           <div
             v-for="p in sidebarProjects"
@@ -159,85 +158,90 @@
           </div>
         </div>
 
-        <PmKanbanView
-          v-if="selectedProject && viewId === 'kanban'"
-          :items="statusFilteredItems"
-          :selected-item-id="selectedItemId"
-          :selected-statuses="selectedStatuses"
-          :is-overview="isOverview"
-          :can-create-items="canCreateItemsInCurrentContext"
-          :create-blocked-reason="createItemBlockedReason"
-          :enabled="true"
-          @select="selectItem"
-          @edit="editItem"
-          @item-context="onItemContext"
-          @quick-advance="quickAdvance"
-          @create-item="showCreateItem"
-          @items-changed="loadItems"
-        />
-
-        <PmGanttView
-          v-else-if="selectedProject && viewId === 'gantt'"
-          :items="statusFilteredItems"
-          :selected-item-id="selectedItemId"
-          :show-project-meta="isOverview"
-          @select="selectItem"
-          @edit="editItem"
-          @item-context="onGanttItemContext"
-          @date-change="onGanttDateChange"
-          @view-change="closeCtxMenu"
-          @viewport-scroll="closeCtxMenu"
-        />
-
-        <PmTodayView
-          v-else-if="selectedProject && viewId === 'today'"
-          ref="todayViewRef"
-          :selected-project-id="selectedProjectId"
-          :selected-item-id="selectedItemId"
-          :refresh-signal="todayRefreshSignal"
-          @select="selectItem"
-          @edit="editItem"
-          @item-context="onItemContext"
-          @items-changed="onTodayItemsChanged"
-        />
-
-        <PmListView
-          v-else-if="selectedProject && viewId === 'list'"
-          :items="statusFilteredItems"
-          :projects="projects"
-          :selected-item-id="selectedItemId"
-          :is-overview="isOverview"
-          :selected-project-id="selectedProjectId"
-          @select="selectItem"
-          @edit="editItem"
-          @item-context="onItemContext"
-          @items-changed="loadItems"
-        />
-
-        <PmCalendarView
-          v-else-if="selectedProject && viewId === 'calendar'"
-          :selected-project-id="selectedProjectId"
-          :selected-item-id="selectedItemId"
-          @select="selectItem"
-          @edit="editItem"
-          @item-context="onItemContext"
-          @create-at-date="showCreateItemAtDate"
-          @items-changed="loadItems"
-        />
-
-        <PmMatrixView
-          v-else-if="selectedProject && viewId === 'matrix'"
-          :selected-project-id="selectedProjectId"
-          :selected-item-id="selectedItemId"
-          @select="selectItem"
-          @edit="editItem"
-          @item-context="onItemContext"
-          @items-changed="loadItems"
-        />
-
-        <div v-else-if="!selectedProject" class="pm-empty">
+        <div v-if="!selectedProject" class="pm-empty">
           <el-empty description="选择一个项目查看看板" />
         </div>
+
+        <template v-else>
+          <PmKanbanView
+            v-if="viewId === 'kanban'"
+            :items="statusFilteredItems"
+            :selected-item-id="selectedItemId"
+            :selected-statuses="selectedStatuses"
+            :is-overview="isOverview"
+            :can-create-items="canCreateItemsInCurrentContext"
+            :create-blocked-reason="createItemBlockedReason"
+            :enabled="true"
+            @select="selectItem"
+            @edit="editItem"
+            @item-context="onItemContext"
+            @quick-advance="quickAdvance"
+            @create-item="showCreateItem"
+            @items-changed="loadItems"
+          />
+
+          <PmGanttView
+            v-else-if="viewId === 'gantt'"
+            :items="statusFilteredItems"
+            :selected-item-id="selectedItemId"
+            :show-project-meta="isOverview"
+            @select="selectItem"
+            @edit="editItem"
+            @item-context="onGanttItemContext"
+            @date-change="onGanttDateChange"
+            @view-change="closeCtxMenu"
+            @viewport-scroll="closeCtxMenu"
+          />
+
+          <PmTodayView
+            v-else-if="viewId === 'today'"
+            ref="todayViewRef"
+            :selected-project-id="selectedProjectId"
+            :selected-item-id="selectedItemId"
+            :refresh-signal="todayRefreshSignal"
+            @select="selectItem"
+            @edit="editItem"
+            @item-context="onItemContext"
+            @items-changed="onTodayItemsChanged"
+          />
+
+          <PmCalendarView
+            v-else-if="viewId === 'calendar'"
+            :selected-project-id="selectedProjectId"
+            :selected-item-id="selectedItemId"
+            @select="selectItem"
+            @edit="editItem"
+            @item-context="onItemContext"
+            @create-at-date="showCreateItemAtDate"
+            @items-changed="loadItems"
+          />
+
+          <PmMatrixView
+            v-else-if="viewId === 'matrix'"
+            :selected-project-id="selectedProjectId"
+            :selected-item-id="selectedItemId"
+            @select="selectItem"
+            @edit="editItem"
+            @item-context="onItemContext"
+            @items-changed="loadItems"
+          />
+
+          <!-- 列表视图单独缓存：dropdown/popover 的挂载开销较大，避免每次切换都重建 -->
+          <KeepAlive>
+            <PmListView
+              v-if="viewId === 'list'"
+              :items="statusFilteredItems"
+              :projects="projects"
+              :selected-item-id="selectedItemId"
+              :is-overview="isOverview"
+              :selected-project-id="selectedProjectId"
+              @select="selectItem"
+              @edit="editItem"
+              @item-context="onItemContext"
+              @items-changed="loadItems"
+            />
+          </KeepAlive>
+        </template>
 
         <!-- Right: Detail panel (floating) -->
         <PmDetailPanel v-if="selectedItem" :project="selectedItemProject" :item="selectedItem"
@@ -1544,8 +1548,7 @@ onBeforeUnmount(() => {
   background: rgba(255, 255, 255, 0.78);
 }
 
-.sidebar-overview-metric-label,
-.sidebar-projects-sort {
+.sidebar-overview-metric-label {
   font-size: 12px;
   color: var(--pm-text-muted);
 }
