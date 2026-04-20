@@ -382,6 +382,7 @@ import {
 } from "../utils/pmStatusFilter";
 import { usePmTodoLinking } from "../composables/usePmTodoLinking";
 import { usePmViewMemory } from "../composables/usePmViewMemory";
+import { usePmNavigation } from "../composables/usePmNavigation";
 import { PM_KANBAN_DRAG_KEY } from "../composables/pmKanbanDragKey";
 
 const { invoke } = useToolInvoke();
@@ -400,6 +401,7 @@ const searchText = ref("");
 const filterType = ref<PmItemType | "">("");
 const filterPriority = ref<PmPriority | "">("");
 const { currentView: viewId, setView } = usePmViewMemory(selectedProjectId);
+const { consumeFocus: consumePmFocus } = usePmNavigation();
 const selectedStatuses = ref<PmItemStatus[]>(getPmDefaultSelectedStatuses());
 const todayBadgeCount = ref(0);
 const todayRefreshSignal = ref(0);
@@ -1149,7 +1151,19 @@ function onDetailClickAway(e: PointerEvent) {
 onMounted(async () => {
   document.addEventListener("pointerdown", onDetailClickAway);
   await loadProjects();
-  selectProject("overview");
+  const focus = consumePmFocus();
+  if (focus) {
+    selectedProjectId.value = focus.projectId ?? "overview";
+    await loadItems();
+    const target = items.value.find((i) => i.id === focus.itemId);
+    if (target) {
+      editItem(target);
+    } else {
+      ElMessage.warning("未找到该工作项，可能已被删除");
+    }
+  } else {
+    selectProject("overview");
+  }
 });
 
 onBeforeUnmount(() => {

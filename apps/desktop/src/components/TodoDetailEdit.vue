@@ -22,28 +22,9 @@
           </el-form-item>
         </div>
 
-        <!-- 项目与工作项（始终可见） -->
+        <!-- 关联项目/工作项（始终可见） -->
         <div class="todo-form-section">
-          <el-form-item label="所属项目">
-            <el-select
-              v-model="draft.projectId"
-              clearable
-              placeholder="无"
-              style="width: 100%"
-              :disabled="!!draft.pmItemId"
-            >
-              <el-option
-                v-for="p in projectOptions"
-                :key="p.id"
-                :label="p.name"
-                :value="p.id"
-              />
-            </el-select>
-            <div v-if="draft.pmItemId && draft.projectId" class="pm-link-project-lock-hint">
-              已关联项目工作项，请先解除关联再切换项目
-            </div>
-          </el-form-item>
-          <el-form-item label="项目工作项">
+          <el-form-item label="关联">
             <div v-if="draft.kind === 'recurring'" class="pm-link-recurring-hint">
               重复事项暂不支持关联项目工作项
             </div>
@@ -62,6 +43,8 @@
               @unlink="$emit('pmSelectChange', null)"
               @create-pm="(title: string, projectId: number) => $emit('pmCreate', title, projectId)"
               @search="(keyword: string) => $emit('pmSearch', keyword)"
+              @change-project="(projectId: number) => $emit('pmProjectChange', projectId)"
+              @clear-all="$emit('pmProjectChange', null)"
             />
           </el-form-item>
         </div>
@@ -524,6 +507,7 @@ defineEmits<{
   titleEnter: [event: KeyboardEvent];
   toggleMoreFields: [];
   pmSelectChange: [value: number | null];
+  pmProjectChange: [value: number | null];
   pmCreate: [title: string, projectId: number];
   pmSearch: [keyword: string];
   navigateToPm: [pmItemId: number, pmProjectId: number | null];
@@ -900,27 +884,6 @@ function disabledAllSeconds(..._args: unknown[]) {
   display: flex;
   gap: 6px;
   align-items: center;
-}
-.pm-link-project-lock-hint {
-  font-size: 12px;
-  color: var(--el-color-warning);
-  margin-top: 4px;
-}
-.pm-link-no-project-hint {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
-}
-.pm-link-selector {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  width: 100%;
-}
-.pm-link-selector .el-select {
-  flex: 1;
 }
 
 /* --- Custom scrollbar --- */

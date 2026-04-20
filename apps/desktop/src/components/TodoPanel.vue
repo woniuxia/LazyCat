@@ -176,7 +176,7 @@
                       <el-tag size="small" effect="plain" :style="pmItemTagStyle(row.pmItemStatus)">
                         {{ pmStatusLabel(row.pmItemStatus) }}
                       </el-tag>
-                      #{{ row.pmItemId }} {{ row.pmItemTitle }}
+                      {{ row.pmItemTitle }}
                     </span>
                     <span v-if="row.assignees.length > 0" class="meta-chip meta-assignee">
                       <el-icon :size="12"><User /></el-icon>
@@ -368,6 +368,7 @@
             @title-enter="onCreateTitleEnter"
             @toggle-more-fields="showMoreFields = !showMoreFields"
             @pm-select-change="handlePmSelectChange"
+            @pm-project-change="handlePmProjectChange"
             @pm-create="handlePmCreate"
             @pm-search="handlePmSearch"
             @navigate-to-pm="navigateToPmItem"
@@ -485,6 +486,7 @@ import type {
 import { PM_STATUS_COLUMNS } from "../types/pm";
 import type { PmCandidateItem } from "../types/pm";
 import { useTabs } from "../composables/useTabs";
+import { usePmNavigation } from "../composables/usePmNavigation";
 import { groupTodoItemsByBucket } from "../utils/todoBuckets";
 import { formatTodoRelativeDateTimeLabel } from "../utils/todoRelativeDate";
 import {
@@ -570,6 +572,7 @@ let reminderUnlisten: UnlistenFn | null = null;
 let titleFocusTimer: ReturnType<typeof setTimeout> | null = null;
 const { watchPendingToolInput } = useClipboardSuggestion();
 const { openTab } = useTabs();
+const { requestFocus: requestPmFocus } = usePmNavigation();
 
 // Drawer 相关状态
 
@@ -1609,12 +1612,33 @@ function handlePmSelectChange(value: number | null) {
     // Handled by InlinePmSelector now - create mode is inline
     return;
   }
+  if (value) {
+    const candidate = todoPmCandidates.value.find((c) => c.id === value);
+    if (candidate && candidate.projectId && candidate.projectId !== itemDraft.projectId) {
+      skipProjectWatch = true;
+      itemDraft.projectId = candidate.projectId;
+    }
+  }
   void onTodoPmLinkChange(value);
+}
+
+async function handlePmProjectChange(projectId: number | null) {
+  if (itemDraft.pmItemId) {
+    await onTodoPmLinkChange(null);
+  }
+  itemDraft.projectId = projectId;
 }
 
 async function handlePmCreate(title: string, projectId: number) {
   if (!title.trim()) return;
   try {
+    if (itemDraft.projectId !== projectId) {
+      skipProjectWatch = true;
+      itemDraft.projectId = projectId;
+    }
+    if (itemDraft.id) {
+      await submitItemChanges(false);
+    }
     const result = await invokeToolByChannel("tool:pm:item-create", {
       projectId,
       title: title.trim(),
@@ -1634,6 +1658,7 @@ async function handlePmCreate(title: string, projectId: number) {
     itemDraft.pmItemStatus = "todo";
     todoPmLinkItemId.value = result.id;
     todoLinkedPmItem.value = { id: result.id, title: title.trim(), status: "todo", projectId };
+    await loadTodoPmCandidates(projectId);
     await loadItems();
   } catch (error) {
     ElMessage.error((error as Error).message);
@@ -1646,9 +1671,9 @@ function handlePmSearch(keyword: string) {
   }
 }
 
-function navigateToPmItem(pmItemId: number, _pmProjectId: number | null) {
+function navigateToPmItem(pmItemId: number, pmProjectId: number | null) {
+  requestPmFocus(pmItemId, pmProjectId);
   openTab("pm", "项目管理");
-  ElMessage.info({ message: `已切换到项目管理，请查看工作项 #${pmItemId}`, duration: 3000 });
 }
 
 function pmItemTagStyle(status: string | null | undefined): Record<string, string> {
