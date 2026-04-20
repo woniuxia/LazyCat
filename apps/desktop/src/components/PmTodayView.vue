@@ -23,6 +23,7 @@
         :items="overdue"
         :selected-item-id="selectedItemId"
         :loading="loading"
+        :collapsible="true"
         @select="handleSelect"
         @edit="handleEdit"
         @item-context="handleContext"
@@ -40,6 +41,7 @@
         :items="dueToday"
         :selected-item-id="selectedItemId"
         :loading="loading"
+        :collapsible="true"
         @select="handleSelect"
         @edit="handleEdit"
         @item-context="handleContext"
@@ -57,6 +59,7 @@
         :items="inProgress"
         :selected-item-id="selectedItemId"
         :loading="loading"
+        :collapsible="true"
         @select="handleSelect"
         @edit="handleEdit"
         @item-context="handleContext"
@@ -88,16 +91,25 @@
         <el-empty description="今天没有需要处理的任务" :image-size="80" />
       </div>
 
-      <div
-        v-if="!loading && unscheduledCount > 0"
-        class="pm-today-unscheduled-tip"
-      >
-        <div class="pm-today-unscheduled-accent" aria-hidden="true"></div>
-        <div class="pm-today-unscheduled-text">
-          <span class="pm-today-unscheduled-number">{{ unscheduledCount }}</span>
-          个待办未设置开始时间
-        </div>
-      </div>
+      <PmTodaySection
+        v-if="!loading && unscheduled.length > 0"
+        key-name="unscheduled"
+        icon="?"
+        title="未排期"
+        accent-color="#909399"
+        empty-text="暂无未排期任务"
+        :items="unscheduled"
+        :selected-item-id="selectedItemId"
+        :loading="loading"
+        :collapsible="true"
+        :default-collapsed="true"
+        @select="handleSelect"
+        @edit="handleEdit"
+        @item-context="handleContext"
+        @start="handleStart"
+        @postpone="handlePostpone"
+        @complete="handleComplete"
+      />
     </div>
   </div>
 </template>
@@ -114,6 +126,7 @@ interface TodayListResponse {
   dueToday: PmItem[];
   inProgress: PmItem[];
   completedToday: PmItem[];
+  unscheduled?: PmItem[];
   unscheduledCount?: number;
 }
 
@@ -136,7 +149,7 @@ const overdue = ref<PmItem[]>([]);
 const dueToday = ref<PmItem[]>([]);
 const inProgress = ref<PmItem[]>([]);
 const completedToday = ref<PmItem[]>([]);
-const unscheduledCount = ref(0);
+const unscheduled = ref<PmItem[]>([]);
 const loading = ref(false);
 
 const allEmpty = computed(
@@ -242,7 +255,7 @@ async function load() {
     dueToday.value = [];
     inProgress.value = [];
     completedToday.value = [];
-    unscheduledCount.value = 0;
+    unscheduled.value = [];
     return;
   }
   loading.value = true;
@@ -257,13 +270,13 @@ async function load() {
       dueToday: [],
       inProgress: [],
       completedToday: [],
-      unscheduledCount: 0,
+      unscheduled: [],
     };
     overdue.value = data.overdue ?? [];
     dueToday.value = data.dueToday ?? [];
     inProgress.value = data.inProgress ?? [];
     completedToday.value = data.completedToday ?? [];
-    unscheduledCount.value = data.unscheduledCount ?? 0;
+    unscheduled.value = data.unscheduled ?? [];
   } catch (e) {
     ElMessage.error((e as Error).message);
   } finally {
@@ -443,36 +456,6 @@ defineExpose({ refresh: load });
   display: flex;
   justify-content: center;
   padding: 24px 0;
-}
-
-.pm-today-unscheduled-tip {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 12px;
-  border: 1px solid rgba(230, 162, 60, 0.25);
-  border-radius: 8px;
-  background: rgba(230, 162, 60, 0.06);
-}
-
-.pm-today-unscheduled-accent {
-  width: 3px;
-  flex: none;
-  align-self: stretch;
-  border-radius: 2px;
-  background: #e6a23c;
-}
-
-.pm-today-unscheduled-text {
-  font-size: 12px;
-  line-height: 1.4;
-  color: var(--el-text-color-secondary, #606266);
-}
-
-.pm-today-unscheduled-number {
-  font-weight: 600;
-  color: #e6a23c;
-  margin-right: 4px;
 }
 
 @media (max-width: 900px) {

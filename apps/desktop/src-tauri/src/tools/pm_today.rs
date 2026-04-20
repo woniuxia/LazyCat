@@ -243,22 +243,30 @@ pub fn item_today_list(payload: &Value) -> Result<Value, String> {
     let mut due_today: Vec<Value> = Vec::new();
     let mut in_progress: Vec<Value> = Vec::new();
     let mut completed_today: Vec<Value> = Vec::new();
-    let mut unscheduled_count: u32 = 0;
+    let mut unscheduled: Vec<Value> = Vec::new();
 
     let mut collected_ids: Vec<i64> = Vec::new();
 
     for row in rows {
-        if row.status != "done" {
+        let is_unscheduled = if row.status != "done" {
             let start_at_val = row
                 .item
                 .get("startAt")
                 .and_then(Value::as_str)
                 .map(str::trim)
                 .unwrap_or("");
-            if start_at_val.is_empty() {
-                unscheduled_count += 1;
+            start_at_val.is_empty()
+        } else {
+            false
+        };
+
+        if is_unscheduled {
+            if let Some(id) = row.item["id"].as_i64() {
+                collected_ids.push(id);
             }
+            unscheduled.push(row.item.clone());
         }
+
         let bucket = classify(&row, &today_str, &today_start_utc, &today_end_utc);
         if bucket == Bucket::None {
             continue;
@@ -289,21 +297,27 @@ pub fn item_today_list(payload: &Value) -> Result<Value, String> {
     let mut due_today = due_today;
     let mut in_progress = in_progress;
     let mut completed_today = completed_today;
+    let mut unscheduled = unscheduled;
     inject_tags(&mut overdue);
     inject_tags(&mut due_today);
     inject_tags(&mut in_progress);
     inject_tags(&mut completed_today);
+    inject_tags(&mut unscheduled);
 
     sort_by_priority_then_end(&mut overdue);
     sort_by_priority_then_end(&mut due_today);
     sort_by_priority_then_end(&mut in_progress);
     sort_by_completed_desc(&mut completed_today);
+    sort_by_priority_then_end(&mut unscheduled);
+
+    let unscheduled_count = unscheduled.len() as u32;
 
     Ok(json!({
         "overdue": overdue,
         "dueToday": due_today,
         "inProgress": in_progress,
         "completedToday": completed_today,
+        "unscheduled": unscheduled,
         "unscheduledCount": unscheduled_count,
     }))
 }

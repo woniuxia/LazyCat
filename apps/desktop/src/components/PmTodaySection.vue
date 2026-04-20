@@ -3,30 +3,32 @@
     <header class="pm-today-section-head" @click="toggle">
       <span class="pm-today-section-icon">{{ icon }}</span>
       <span class="pm-today-section-title">{{ title }}</span>
-      <span class="pm-today-section-count">{{ items.length }}</span>
+      <span class="pm-today-section-count">{{ count ?? items.length }}</span>
       <span v-if="collapsible" class="pm-today-section-toggle" aria-hidden="true">
         {{ collapsed ? "展开" : "收起" }}
       </span>
     </header>
     <div v-if="!collapsed" class="pm-today-section-body">
-      <div v-if="items.length === 0" class="pm-today-section-empty">
-        <span>{{ loading ? "加载中…" : emptyText }}</span>
-      </div>
-      <div v-else class="pm-today-card-list">
-        <PmTodayCard
-          v-for="item in items"
-          :key="item.id"
-          :item="item"
-          :selected="selectedItemId === item.id"
-          @click="$emit('select', item)"
-          @dblclick="$emit('edit', item)"
-          @contextmenu.prevent="(e: MouseEvent) => emit('item-context', e, item)"
-          @start="(i: PmItem) => emit('start', i)"
-          @postpone="(i: PmItem) => emit('postpone', i)"
-          @complete="(i: PmItem) => emit('complete', i)"
-          @detail="(i: PmItem) => emit('select', i)"
-        />
-      </div>
+      <slot>
+        <div v-if="items.length === 0" class="pm-today-section-empty">
+          <span>{{ loading ? "加载中…" : emptyText }}</span>
+        </div>
+        <div v-else class="pm-today-card-list">
+          <PmTodayCard
+            v-for="item in items"
+            :key="item.id"
+            :item="item"
+            :selected="selectedItemId === item.id"
+            @click="$emit('select', item)"
+            @dblclick="$emit('edit', item)"
+            @contextmenu.prevent="(e: MouseEvent) => emit('item-context', e, item)"
+            @start="(i: PmItem) => emit('start', i)"
+            @postpone="(i: PmItem) => emit('postpone', i)"
+            @complete="(i: PmItem) => emit('complete', i)"
+            @detail="(i: PmItem) => emit('select', i)"
+          />
+        </div>
+      </slot>
     </div>
   </section>
 </template>
@@ -47,6 +49,7 @@ const props = defineProps<{
   loading: boolean;
   collapsible?: boolean;
   defaultCollapsed?: boolean;
+  count?: number | null;
 }>();
 
 const emit = defineEmits<{

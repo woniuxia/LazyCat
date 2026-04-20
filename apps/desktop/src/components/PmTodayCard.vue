@@ -25,16 +25,16 @@
           />
           <span class="card-project-name">{{ item.projectName }}</span>
         </span>
-        <span
-          v-if="dateChipText"
-          class="card-date-chip"
-          :class="{ 'is-overdue': overdue }"
-        >
-          {{ dateChipText }}
-        </span>
         <span v-if="item.pinned" class="card-flag" title="已置顶">📌</span>
       </div>
       <div class="card-title" :title="cardTitleTooltip">{{ item.title }}</div>
+      <span
+        v-if="dateChipText"
+        class="card-date-chip"
+        :class="{ 'is-overdue': overdue }"
+      >
+        {{ dateChipText }}
+      </span>
     </div>
     <div class="card-actions">
       <button
@@ -182,6 +182,7 @@ const showComplete = computed(() => props.item.status !== "done");
 }
 
 .card-date-chip {
+  flex: none;
   font-size: 11px;
   line-height: 1.5;
   color: var(--el-text-color-secondary, #909399);
@@ -201,7 +202,7 @@ const showComplete = computed(() => props.item.status !== "done");
 }
 
 .card-title {
-  flex: 1;
+  flex: 0 1 auto;
   min-width: 0;
   font-size: 13px;
   font-weight: 500;
