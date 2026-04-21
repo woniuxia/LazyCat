@@ -255,6 +255,13 @@ fn action_set_data_dir(payload: &Value) -> Result<Value, String> {
         copy_dir_recursive(&current_backups, &target_backups)?;
     }
 
+    // Copy attachments directory（富文本描述及未来文件附件的物理存储）
+    let current_attachments = current_dir.join("attachments");
+    let target_attachments = target_path.join("attachments");
+    if current_attachments.is_dir() {
+        copy_dir_recursive(&current_attachments, &target_attachments)?;
+    }
+
     // 4. Update config.json
     let config_path = get_config_path()?;
     let config = json!({ "data_dir": target });

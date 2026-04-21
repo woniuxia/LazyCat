@@ -1,11 +1,22 @@
 <template>
-  <el-dialog v-model="dialogVisible" :title="editing ? '编辑项目' : '新建项目'" width="520px" @close="resetForm">
+  <el-dialog
+    v-model="dialogVisible"
+    :title="editing ? '编辑项目' : '新建项目'"
+    width="680px"
+    @close="onDialogClose"
+  >
     <el-form :model="form" label-width="60px" size="default" @submit.prevent="submit">
       <el-form-item label="名称">
         <el-input v-model="form.name" placeholder="项目名称" @keyup.enter="submit" />
       </el-form-item>
-      <el-form-item label="描述">
-        <el-input v-model="form.description" type="textarea" :rows="2" placeholder="项目描述（可选）" />
+      <el-form-item label="描述" class="pm-form-item-top">
+        <RichDescriptionEditor
+          ref="editorRef"
+          v-model="form.description"
+          owner-type="pm_project"
+          :owner-id="editing?.id ?? null"
+          placeholder="项目描述（支持粘贴图片）"
+        />
       </el-form-item>
       <el-form-item label="颜色">
         <el-color-picker v-model="form.color" :predefine="presetColors" />
@@ -44,6 +55,11 @@ import { useToolInvoke } from "../composables/useToolInvoke";
 import type { PmProject, PmSiyuanLocation } from "../types/pm";
 import { formatPmSiyuanLocationLabel } from "../utils/pmSiyuan";
 import { PM_SIYUAN_KEY } from "../composables/pmSiyuanKey";
+import RichDescriptionEditor from "./RichDescriptionEditor.vue";
+import {
+  useRichDescriptionLifecycle,
+  type RichEditorExposed,
+} from "../composables/useRichDescriptionLifecycle";
 
 interface ProjectForm {
   name: string;
@@ -62,6 +78,14 @@ const siyuan = inject(PM_SIYUAN_KEY)!;
 
 const dialogVisible = ref(false);
 const editing = ref<PmProject | null>(null);
+const editorRef = ref<RichEditorExposed | null>(null);
+const submittedThisRound = ref(false);
+
+const lifecycle = useRichDescriptionLifecycle({
+  ownerType: "pm_project",
+  editorRef,
+  getRealId: () => editing.value?.id ?? null,
+});
 
 const presetColors = [
   "#4d7df2", "#67c23a", "#e6a23c", "#f56c6c",
@@ -85,7 +109,10 @@ function createEmptyForm(): ProjectForm {
 function showCreate() {
   editing.value = null;
   form.value = createEmptyForm();
+  submittedThisRound.value = false;
   dialogVisible.value = true;
+  // 等 Dialog 挂载/Editor 拿到新值后再 reset，保证 tempId 每次新建都是新的
+  queueMicrotask(() => editorRef.value && (editorRef.value as any).reset?.(""));
 }
 
 function showEdit(p: PmProject) {
@@ -97,11 +124,28 @@ function showEdit(p: PmProject) {
     useSiyuanOverride: Boolean(p.siyuanLocationOverride),
     siyuanLocationOverride: siyuan.cloneLocation(p.siyuanLocationOverride),
   };
+  submittedThisRound.value = false;
   dialogVisible.value = true;
+  queueMicrotask(() =>
+    editorRef.value && (editorRef.value as any).reset?.(p.description ?? "")
+  );
 }
 
 function resetForm() {
   editing.value = null;
+}
+
+async function onDialogClose() {
+  // 未提交关闭：清理新建场景残留的 tmp 附件
+  if (!submittedThisRound.value) {
+    try {
+      await lifecycle.onCancel();
+    } catch (e) {
+      console.warn("cleanup tmp attachments failed:", e);
+    }
+  }
+  submittedThisRound.value = false;
+  resetForm();
 }
 
 async function submit() {
@@ -119,17 +163,23 @@ async function submit() {
         : null,
     };
     if (editing.value) {
+      // 编辑：保存前按当前 doc 清理已删图的残留附件
+      await lifecycle.beforeCloseEdit();
       await invoke("tool:pm:project-update", {
         id: editing.value.id,
         ...payload,
         sortOrder: editing.value.sortOrder,
       });
+      submittedThisRound.value = true;
       dialogVisible.value = false;
       emit("projects-changed", {});
     } else {
-      await invoke("tool:pm:project-create", payload);
+      const res = (await invoke("tool:pm:project-create", payload)) as { id: number };
+      // 新建：将 tmp-<uuid> 下的附件 rebind 到 realId
+      await lifecycle.afterSubmit(res.id);
+      submittedThisRound.value = true;
       dialogVisible.value = false;
-      emit("projects-changed", {});
+      emit("projects-changed", { newProjectId: res.id });
     }
   } catch (e) {
     ElMessage.error((e as Error).message);
@@ -160,7 +210,7 @@ async function deleteProject(p: PmProject) {
       type: "warning",
     });
     await invoke("tool:pm:project-delete", { id: p.id });
-    emit("projects-changed", { deletedProjectId: p.id });
+    emit("projects-changed", { deletedProjectId: p.id } as any);
   } catch (e) {
     if ((e as string) !== "cancel") {
       ElMessage.error((e as Error).message);

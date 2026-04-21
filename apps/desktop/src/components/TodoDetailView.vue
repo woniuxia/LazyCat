@@ -274,10 +274,7 @@
           </div>
           <div class="detail-card-body">
             <div class="detail-description-card" :key="'desc-' + item.id">
-              <div
-                class="detail-description md-rendered"
-                v-html="renderedDescription"
-              ></div>
+              <RichDescriptionViewer :value="item.description" />
             </div>
           </div>
         </div>
@@ -339,7 +336,7 @@ import {
 import { effectiveReminderPresets } from "../composables/useTodoItem";
 import type { TodoItem, TodoPriority } from "../types";
 import { formatTodoRelativeDateTimeLabel } from "../utils/todoRelativeDate";
-import { renderMarkdown } from "../utils/renderMarkdown";
+import RichDescriptionViewer from "./RichDescriptionViewer.vue";
 
 const props = defineProps<{
   item: TodoItem;
@@ -656,12 +653,6 @@ const hasDetailCards = computed(() => {
     hasRepeatRule(item) ||
     !!item.projectId
   );
-});
-
-const renderedDescription = computed(() => {
-  const desc = props.item.description;
-  if (!desc) return "";
-  return renderMarkdown(desc);
 });
 
 function hexToRgba(hex: string, alpha: number): string {

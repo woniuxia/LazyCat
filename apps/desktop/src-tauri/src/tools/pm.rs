@@ -277,7 +277,7 @@ fn project_restore(payload: &Value) -> Result<Value, String> {
 
 fn project_delete(payload: &Value) -> Result<Value, String> {
     let id = parse_i64(payload, "id").ok_or("id is required")?;
-    let conn = db_conn()?;
+    let mut conn = db_conn()?;
 
     let todo_count: i64 = conn
         .query_row(
@@ -292,8 +292,37 @@ fn project_delete(payload: &Value) -> Result<Value, String> {
         ));
     }
 
-    conn.execute("DELETE FROM pm_projects WHERE id = ?1", params![id])
+    let tx = conn
+        .transaction()
+        .map_err(|e| format!("project_delete begin tx: {e}"))?;
+
+    // 1. 收集子 pm_items.id，逐一清附件
+    let item_ids: Vec<i64> = {
+        let mut stmt = tx
+            .prepare("SELECT id FROM pm_items WHERE project_id = ?1")
+            .map_err(|e| format!("project_delete prepare children: {e}"))?;
+        let rows = stmt
+            .query_map(params![id], |r| r.get::<_, i64>(0))
+            .map_err(|e| format!("project_delete query children: {e}"))?;
+        rows.filter_map(|r| r.ok()).collect()
+    };
+    for item_id in &item_ids {
+        super::attachments::delete_by_owner_internal(&tx, "pm_item", &item_id.to_string())?;
+    }
+
+    // 2. 显式删子 items（pm_items 无 FK CASCADE，否则会产生孤儿记录）
+    tx.execute("DELETE FROM pm_items WHERE project_id = ?1", params![id])
+        .map_err(|e| format!("project_delete pm_items: {e}"))?;
+
+    // 3. 删项目自身附件
+    super::attachments::delete_by_owner_internal(&tx, "pm_project", &id.to_string())?;
+
+    // 4. 删项目行
+    tx.execute("DELETE FROM pm_projects WHERE id = ?1", params![id])
         .map_err(|e| format!("project_delete: {e}"))?;
+
+    tx.commit()
+        .map_err(|e| format!("project_delete commit: {e}"))?;
     Ok(json!({ "ok": true }))
 }
 
@@ -1165,6 +1194,7 @@ fn item_delete(payload: &Value) -> Result<Value, String> {
     let conn = db_conn()?;
     conn.execute("DELETE FROM pm_items WHERE id = ?1", params![id])
         .map_err(|e| format!("item_delete: {e}"))?;
+    super::attachments::delete_by_owner_internal(&conn, "pm_item", &id.to_string())?;
     Ok(json!({ "ok": true }))
 }
 

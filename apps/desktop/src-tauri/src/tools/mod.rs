@@ -37,6 +37,8 @@ pub mod text;
 pub mod time;
 pub mod todo;
 pub mod vault;
+pub mod attachments;
+pub mod system;
 
 use serde_json::Value;
 
@@ -73,6 +75,8 @@ pub fn execute_tool(domain: &str, action: &str, payload: &Value) -> Result<Value
         "pm" => pm::execute(action, payload),
         "maven" => maven::execute(action, payload),
         "inbox" => inbox::execute(action, payload),
+        "attachments" => attachments::execute(action, payload),
+        "system" => system::execute(action, payload),
         _ => Err(format!("unsupported command: {domain}.{action}")),
     }
 }

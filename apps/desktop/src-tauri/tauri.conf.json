@@ -18,7 +18,11 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: http://127.0.0.1:*; font-src 'self' data:; connect-src 'self' http://127.0.0.1:* https://127.0.0.1:*; frame-src http://127.0.0.1:*; worker-src 'self' blob:"
+      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: http://127.0.0.1:* http://asset.localhost asset:; font-src 'self' data:; connect-src 'self' http://127.0.0.1:* https://127.0.0.1:* http://asset.localhost ipc: http://ipc.localhost; frame-src http://127.0.0.1:*; worker-src 'self' blob:",
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["**/.lazycat/attachments/**", "**/attachments/**"]
+      }
     }
   },
   "bundle": {

@@ -120,6 +120,8 @@ declare module 'vue' {
     PortsPanel: typeof import('./src/components/PortsPanel.vue')['default']
     RegexPanel: typeof import('./src/components/RegexPanel.vue')['default']
     ReminderPopup: typeof import('./src/components/ReminderPopup.vue')['default']
+    RichDescriptionEditor: typeof import('./src/components/RichDescriptionEditor.vue')['default']
+    RichDescriptionViewer: typeof import('./src/components/RichDescriptionViewer.vue')['default']
     RsaPanel: typeof import('./src/components/RsaPanel.vue')['default']
     SettingsPanel: typeof import('./src/components/SettingsPanel.vue')['default']
     ShortcutHelpOverlay: typeof import('./src/components/ShortcutHelpOverlay.vue')['default']

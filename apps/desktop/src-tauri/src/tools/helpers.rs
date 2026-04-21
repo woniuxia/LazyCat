@@ -511,6 +511,24 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
     )
     .map_err(|e| format!("initialize pm_item_todo_links failed: {e}"))?;
 
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS attachments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            owner_type TEXT NOT NULL,
+            owner_id   TEXT NOT NULL,
+            rel_path   TEXT NOT NULL,
+            original_name TEXT NOT NULL DEFAULT '',
+            mime       TEXT NOT NULL DEFAULT '',
+            size       INTEGER NOT NULL DEFAULT 0,
+            hash       TEXT NOT NULL DEFAULT '',
+            kind       TEXT NOT NULL DEFAULT 'file',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_attachments_owner ON attachments(owner_type, owner_id);
+        CREATE INDEX IF NOT EXISTS idx_attachments_hash  ON attachments(hash);",
+    )
+    .map_err(|e| format!("initialize attachments failed: {e}"))?;
+
     let fts_result = conn.execute_batch(
         "CREATE VIRTUAL TABLE IF NOT EXISTS snippet_fts USING fts5(
             entry_id UNINDEXED,
@@ -578,4 +596,12 @@ pub fn db_conn() -> Result<Connection, String> {
     initialize_connection(&conn)?;
     ensure_process_schema(&conn)?;
     Ok(conn)
+}
+
+/// 附件物理目录：<data_dir>/attachments
+/// 首次访问会自动创建目录；跨平台用 fs 层，目录名始终是 "attachments"。
+pub fn get_attachments_dir() -> Result<PathBuf, String> {
+    let dir = get_data_dir()?.join("attachments");
+    fs::create_dir_all(&dir).map_err(|e| format!("create attachments dir failed: {e}"))?;
+    Ok(dir)
 }

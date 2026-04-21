@@ -925,6 +925,16 @@ fn main() {
             }
         })
         .setup(|app| {
+            // 允许附件目录通过 asset:// 协议访问，覆盖默认目录与用户自定义数据目录两种场景
+            if let Ok(dir) = tools::helpers::get_attachments_dir() {
+                if let Err(e) = app
+                    .asset_protocol_scope()
+                    .allow_directory(&dir, true)
+                {
+                    eprintln!("allow attachments dir failed: {e}");
+                }
+            }
+
             // 启动离线文档 HTTP 服务器
             // 打包后从 resource_dir/manuals 读取；开发模式下 fallback 到源码目录
             let manuals_dir = {

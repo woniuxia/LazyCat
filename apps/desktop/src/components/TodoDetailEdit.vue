@@ -348,44 +348,12 @@
 
         <div class="todo-form-section">
           <el-form-item label="描述">
-            <div class="md-toolbar">
-              <el-button
-                text
-                size="small"
-                class="md-toolbar-btn"
-                @click="$emit('insertMdSyntax', '**', '**')"
-              ><strong>B</strong></el-button>
-              <el-button
-                text
-                size="small"
-                class="md-toolbar-btn"
-                @click="$emit('insertMdSyntax', '*', '*')"
-              ><em>I</em></el-button>
-              <el-button
-                text
-                size="small"
-                class="md-toolbar-btn"
-                @click="$emit('insertMdSyntax', '`', '`')"
-              >Code</el-button>
-              <el-button
-                text
-                size="small"
-                class="md-toolbar-btn"
-                @click="$emit('insertMdSyntax', '\n- ', '')"
-              >List</el-button>
-              <el-button
-                text
-                size="small"
-                class="md-toolbar-btn"
-                @click="$emit('insertMdSyntax', '[', '](url)')"
-              >Link</el-button>
-            </div>
-            <el-input
-              ref="descTextareaRef"
+            <RichDescriptionEditor
+              ref="editorRef"
               v-model="draft.description"
-              type="textarea"
-              :rows="4"
-              placeholder="支持 Markdown 语法"
+              owner-type="todo"
+              :owner-id="selectedItem?.id ?? null"
+              placeholder="Todo 描述（支持粘贴图片）"
             />
           </el-form-item>
         </div>
@@ -451,12 +419,17 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import { Plus } from "@element-plus/icons-vue";
 import type { TodoAssignee, TodoItem, TodoPriority, TodoReminderPreset, TodoRepeatPreset, TodoSimpleRule } from "../types";
 import type { PmCandidateItem } from "../types/pm";
 import { effectiveReminderPresets } from "../composables/useTodoItem";
 import InlinePmSelector from "./InlinePmSelector.vue";
+import RichDescriptionEditor from "./RichDescriptionEditor.vue";
+import {
+  useRichDescriptionLifecycle,
+  type RichEditorExposed,
+} from "../composables/useRichDescriptionLifecycle";
 
 interface DraftShape {
   title: string;
@@ -520,7 +493,6 @@ defineEmits<{
   reminderPresetsChange: [values: TodoReminderPreset[]];
   repeatPresetChange: [preset: TodoRepeatPreset];
   customFrequencyChange: [];
-  insertMdSyntax: [prefix: string, suffix: string];
   togglePin: [id: number];
   changeStatus: [id: number, status: string];
   delete: [item: TodoItem];
@@ -529,15 +501,52 @@ defineEmits<{
 }>();
 
 const titleInputRef = ref<{ focus: () => void } | null>(null);
-const descTextareaRef = ref<{ $el: HTMLElement } | null>(null);
+const editorRef = ref<RichEditorExposed | null>(null);
 const scrollRef = ref<HTMLElement | null>(null);
 const scheduleRef = ref<HTMLElement | null>(null);
+const submittedThisRound = ref(false);
+
+const richLifecycle = useRichDescriptionLifecycle({
+  ownerType: "todo",
+  editorRef,
+  getRealId: () => props.selectedItem?.id ?? null,
+});
+
+// 切换编辑对象时：重置 submit 标记，并让 Editor 生成新 tempId / 同步 description
+watch(
+  () => [props.mode, props.selectedItem?.id],
+  () => {
+    submittedThisRound.value = false;
+    queueMicrotask(() => {
+      (editorRef.value as any)?.reset?.(props.draft.description ?? "");
+    });
+  },
+  { immediate: true }
+);
 
 defineExpose({
   titleInputRef,
-  descTextareaRef,
   scrollRef,
   scheduleRef,
+  /** 新建 Todo 成功后：把 tmp-<uuid> 下附件 rebind 到 realId */
+  async runAfterSubmit(realId: number) {
+    submittedThisRound.value = true;
+    await richLifecycle.afterSubmit(realId);
+  },
+  /** 编辑 Todo 保存前：按当前 doc attIds 清理被删图的残留附件 */
+  async runBeforeSubmit() {
+    submittedThisRound.value = true;
+    await richLifecycle.beforeCloseEdit();
+  },
+  /** 取消/离开：仅对未提交的新建场景做 tmp 清理 */
+  async runOnCancel() {
+    if (submittedThisRound.value) return;
+    try {
+      await richLifecycle.onCancel();
+    } catch (e) {
+      console.warn("TodoDetailEdit cleanup cancel failed:", e);
+    }
+  },
 });
 
 // --- Computed ---
@@ -658,25 +667,6 @@ function disabledAllSeconds(..._args: unknown[]) {
 }
 .detail-scroll--form {
   padding-bottom: 12px;
-}
-.md-toolbar {
-  display: flex;
-  gap: 2px;
-  margin-bottom: 4px;
-  padding: 2px 4px;
-  background: var(--lc-surface-0);
-  border: 1px solid var(--lc-border-subtle);
-  border-radius: 6px;
-}
-.md-toolbar-btn {
-  padding: 2px 8px !important;
-  font-size: 12px !important;
-  min-height: 24px !important;
-  color: var(--lc-text-muted) !important;
-}
-.md-toolbar-btn:hover {
-  color: var(--lc-text) !important;
-  background: var(--el-fill-color) !important;
 }
 .detail-pane-footer {
   display: flex;

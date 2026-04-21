@@ -2284,6 +2284,8 @@ fn delete_item_by_id(conn: &Connection, item_id: i64) -> Result<(), String> {
     .map_err(|e| format!("删除 PM 关联记录失败: {e}"))?;
     conn.execute("DELETE FROM todo_items WHERE id=?1", params![item_id])
         .map_err(|e| format!("删除事项失败: {e}"))?;
+    // 事项描述可能持有富文本附件，按 owner 汇点清理
+    super::attachments::delete_by_owner_internal(conn, "todo", &item_id.to_string())?;
     Ok(())
 }
 

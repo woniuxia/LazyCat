@@ -381,7 +381,6 @@
             @reminder-presets-change="onReminderPresetsChange"
             @repeat-preset-change="onRepeatPresetChange"
             @custom-frequency-change="onCustomFrequencyChange"
-            @insert-md-syntax="insertMdSyntax"
             @toggle-pin="toggleItemPin"
             @change-status="(id, status) => changeItemStatus(id, status as TodoStatus)"
             @delete="deleteItem"
@@ -537,9 +536,11 @@ const showMoreFields = ref(false);
 const itemKeyword = ref("");
 const todoDetailEditRef = ref<{
   titleInputRef: { value: { focus: () => void } | null };
-  descTextareaRef: { value: { $el: HTMLElement } | null };
   scrollRef: { value: HTMLElement | null };
   scheduleRef: { value: HTMLElement | null };
+  runAfterSubmit?: (realId: number) => Promise<void>;
+  runBeforeSubmit?: () => Promise<void>;
+  runOnCancel?: () => Promise<void>;
 } | null>(null);
 const filterType = ref<string | null>(null);
 const filterPriority = ref<TodoPriority | null>(null);
@@ -852,23 +853,8 @@ function normalizeDraftAssigneeValues(values: SelectAssigneeValue[]) {
     .sort();
 }
 
-function insertMdSyntax(prefix: string, suffix: string) {
-  const el = todoDetailEditRef.value?.descTextareaRef.value?.$el?.querySelector("textarea") as HTMLTextAreaElement | null;
-  if (!el) return;
-  const start = el.selectionStart;
-  const end = el.selectionEnd;
-  const text = itemDraft.description;
-  const selected = text.slice(start, end);
-  const replacement = prefix + (selected || "文本") + suffix;
-  itemDraft.description = text.slice(0, start) + replacement + text.slice(end);
-  nextTick(() => {
-    const cursorPos = start + prefix.length + (selected || "文本").length;
-    el.focus();
-    el.setSelectionRange(
-      selected ? start + prefix.length : start + prefix.length,
-      selected ? start + prefix.length + selected.length : cursorPos,
-    );
-  });
+function insertMdSyntax(_prefix: string, _suffix: string) {
+  // 已迁移至 TipTap 富文本；保留空函数以兼容可能残留的旧调用路径
 }
 
 function snapshotItemDraft() {
@@ -1052,6 +1038,8 @@ async function createOnDate(dateKey: string) {
 }
 
 function cancelDetailEdit() {
+  // 先让 Editor 清理 tmp 附件（编辑场景会静默跳过）
+  try { void todoDetailEditRef.value?.runOnCancel?.(); } catch {}
   resetItemDraft();
   draftBaseline.value = "";
   if (selectedItemId.value !== null && selectedItem.value) {
@@ -1845,12 +1833,18 @@ async function submitItemChanges(showSuccess = true) {
     } else {
       payload.id = itemDraft.id;
       if (itemDraft.rootId) payload.rootId = itemDraft.rootId;
+      // 编辑：update 前按当前 doc attIds 清理被删图的附件
+      try { await todoDetailEditRef.value?.runBeforeSubmit?.(); } catch {}
       response = await invokeToolByChannel("tool:todo:item-update", payload);
     }
 
     const savedId =
       readNullableNumber(asRecord(response), ["id"]) ??
       (itemDialogMode.value === "edit_item" ? itemDraft.id : null);
+    // 新建：把 tmp owner 改写为 savedId
+    if (itemDialogMode.value === "create" && typeof savedId === "number") {
+      try { await todoDetailEditRef.value?.runAfterSubmit?.(savedId); } catch {}
+    }
     await loadItems();
     if (showSuccess) ElMessage.success("保存成功");
     return { ok: true, id: savedId };

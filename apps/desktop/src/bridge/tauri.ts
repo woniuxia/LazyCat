@@ -270,7 +270,15 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:pm:item-calendar-range": { domain: "pm", action: "item_calendar_range" },
   "tool:pm:item-matrix-bucket": { domain: "pm", action: "item_matrix_bucket" },
   "tool:todo:pm-candidates": { domain: "todo", action: "pm_candidates" },
-  "tool:todo:item-set-pm-link": { domain: "todo", action: "item_set_pm_link" }
+  "tool:todo:item-set-pm-link": { domain: "todo", action: "item_set_pm_link" },
+  "tool:attachments:save":             { domain: "attachments", action: "save" },
+  "tool:attachments:list":             { domain: "attachments", action: "list" },
+  "tool:attachments:remove":           { domain: "attachments", action: "remove" },
+  "tool:attachments:rebind":           { domain: "attachments", action: "rebind" },
+  "tool:attachments:cleanup-orphans":  { domain: "attachments", action: "cleanup_orphans" },
+  "tool:attachments:delete-by-owner":  { domain: "attachments", action: "delete_by_owner" },
+  "tool:system:get-paths":             { domain: "system", action: "get_paths" },
+  "tool:system:open-external":         { domain: "system", action: "open_external" }
 };
 
 export async function invokeToolByChannel(

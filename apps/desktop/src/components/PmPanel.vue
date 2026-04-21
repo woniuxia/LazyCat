@@ -886,6 +886,8 @@ async function submitItem(form: {
         id: editingItem.value.id,
         ...payload,
       });
+      // 编辑：保存完成后按当前 doc 的 attIds 清理被删除的附件
+      try { await itemDialogRef.value?.runBeforeSubmit?.(); } catch {}
     } else {
       const projectId = isOverview.value ? itemFormProjectId.value : selectedProjectId.value;
       if (!projectId || projectId === "overview") {
@@ -896,6 +898,8 @@ async function submitItem(form: {
         projectId,
         ...payload,
       });
+      // 新建：把 tmp-<uuid> 下的附件 rebind 到 realId
+      try { await itemDialogRef.value?.runAfterSubmit?.(result.id); } catch {}
       // Process pending todo data for newly created item
       if (result.id && (pendingTodoCreates.value.length > 0 || pendingTodoLinkIds.value.length > 0)) {
         const tempTodo = usePmTodoLinking(() => result.id);

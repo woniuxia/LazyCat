@@ -77,9 +77,10 @@
         <div v-if="descriptionText" class="detail-section">
           <div class="detail-section-head">
             <span class="detail-section-title">描述</span>
-            <span class="detail-section-subtitle">保留换行</span>
           </div>
-          <pre class="detail-value detail-description">{{ descriptionText }}</pre>
+          <div class="detail-value detail-description">
+            <RichDescriptionViewer :value="item?.description ?? ''" />
+          </div>
         </div>
 
         <!-- 执行任务区块 -->
@@ -179,6 +180,7 @@ import { formatPmDateRangeForDisplay } from "../utils/pmDate";
 import InlineTodoList from "./InlineTodoList.vue";
 import { usePmTodoLinking } from "../composables/usePmTodoLinking";
 import { PM_SIYUAN_KEY } from "../composables/pmSiyuanKey";
+import RichDescriptionViewer from "./RichDescriptionViewer.vue";
 
 const props = defineProps<{
   project: PmProject | null;

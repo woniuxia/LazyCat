@@ -150,8 +150,14 @@
 
       <!-- 描述 -->
       <div class="pm-item-section">
-        <el-form-item label="描述">
-          <el-input v-model="form.description" type="textarea" :rows="4" />
+        <el-form-item label="描述" class="pm-form-item-top">
+          <RichDescriptionEditor
+            ref="editorRef"
+            v-model="form.description"
+            owner-type="pm_item"
+            :owner-id="editingItem?.id ?? null"
+            placeholder="工作项描述（支持粘贴图片）"
+          />
         </el-form-item>
       </div>
 
@@ -232,6 +238,11 @@ import type { PmProject, PmItem, PmItemType, PmPriority, PmItemStatus, PmSiyuanP
 import { PM_STATUS_COLUMNS, PM_ITEM_TYPE_MAP, PM_PRIORITY_MAP } from "../types/pm";
 import { getPmDateRangeValue, normalizePmDateRangeForDraft } from "../utils/pmDate";
 import { formatPmSiyuanLocationLabel, resolvePmSiyuanEffectiveLocation } from "../utils/pmSiyuan";
+import RichDescriptionEditor from "./RichDescriptionEditor.vue";
+import {
+  useRichDescriptionLifecycle,
+  type RichEditorExposed,
+} from "../composables/useRichDescriptionLifecycle";
 
 interface ItemSiyuanLinkedRow {
   page: PmSiyuanPageRef;
@@ -455,8 +466,50 @@ watch(() => props.editingItem, (item) => {
   }
 }, { immediate: true });
 
+// ── Rich description lifecycle ────────────────────────────
+
+const editorRef = ref<RichEditorExposed | null>(null);
+const submittedThisRound = ref(false);
+const richLifecycle = useRichDescriptionLifecycle({
+  ownerType: "pm_item",
+  editorRef,
+  getRealId: () => props.editingItem?.id ?? null,
+});
+
+watch(
+  () => props.visible,
+  async (v, prev) => {
+    if (v && !prev) {
+      // 每次打开对话框：重置 submit 标记；让 Editor 重建 tempId 并同步当前描述
+      submittedThisRound.value = false;
+      queueMicrotask(() => {
+        const descCurrent = form.value.description ?? "";
+        (editorRef.value as any)?.reset?.(descCurrent);
+      });
+    }
+    if (!v && prev && !submittedThisRound.value) {
+      // 用户取消/关闭：清理新建场景残留的 tmp 附件（编辑场景 onCancel 会因非 tmp 跳过）
+      try {
+        await richLifecycle.onCancel();
+      } catch (e) {
+        console.warn("PmItemDialog cleanup cancel failed:", e);
+      }
+    }
+  }
+);
+
 defineExpose({
   form,
+  /** 新建场景：调用方拿到 realId 后调用，将 tmp owner 改写为 realId */
+  async runAfterSubmit(realId: number) {
+    submittedThisRound.value = true;
+    await richLifecycle.afterSubmit(realId);
+  },
+  /** 编辑场景：调用 update 之前先按当前 doc 的 attIds 清理用户删除的附件 */
+  async runBeforeSubmit() {
+    submittedThisRound.value = true;
+    await richLifecycle.beforeCloseEdit();
+  },
 });
 </script>
 
