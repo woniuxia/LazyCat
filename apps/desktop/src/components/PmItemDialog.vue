@@ -152,12 +152,14 @@
       <div class="pm-item-section">
         <el-form-item label="描述" class="pm-form-item-top">
           <RichDescriptionEditor
+            v-if="dataDirReady"
             ref="editorRef"
             v-model="form.description"
             owner-type="pm_item"
             :owner-id="editingItem?.id ?? null"
             placeholder="工作项描述（支持粘贴图片）"
           />
+          <div v-else class="pm-item-editor-placeholder">加载编辑器...</div>
         </el-form-item>
       </div>
 
@@ -239,6 +241,7 @@ import { PM_STATUS_COLUMNS, PM_ITEM_TYPE_MAP, PM_PRIORITY_MAP } from "../types/p
 import { getPmDateRangeValue, normalizePmDateRangeForDraft } from "../utils/pmDate";
 import { formatPmSiyuanLocationLabel, resolvePmSiyuanEffectiveLocation } from "../utils/pmSiyuan";
 import RichDescriptionEditor from "./RichDescriptionEditor.vue";
+import { ensureDataDir } from "../rich/data-dir";
 import {
   useRichDescriptionLifecycle,
   type RichEditorExposed,
@@ -469,6 +472,8 @@ watch(() => props.editingItem, (item) => {
 // ── Rich description lifecycle ────────────────────────────
 
 const editorRef = ref<RichEditorExposed | null>(null);
+const dataDirReady = ref(false);
+void ensureDataDir().then(() => { dataDirReady.value = true; });
 const submittedThisRound = ref(false);
 const richLifecycle = useRichDescriptionLifecycle({
   ownerType: "pm_item",
@@ -480,7 +485,8 @@ watch(
   () => props.visible,
   async (v, prev) => {
     if (v && !prev) {
-      // 每次打开对话框：重置 submit 标记；让 Editor 重建 tempId 并同步当前描述
+      // 每次打开对话框：预热 dataDir 并重置 submit 标记
+      void ensureDataDir();
       submittedThisRound.value = false;
       queueMicrotask(() => {
         const descCurrent = form.value.description ?? "";
@@ -824,5 +830,18 @@ defineExpose({
 
 .pm-form-item-top :deep(.el-form-item__label) {
   margin-bottom: 8px;
+}
+
+.pm-item-editor-placeholder {
+  width: 100%;
+  min-height: 180px;
+  border: 1px solid var(--el-border-color);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+  background: var(--el-fill-color-lighter);
 }
 </style>

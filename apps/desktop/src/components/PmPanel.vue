@@ -373,6 +373,7 @@ import {
 import {
   normalizePmDateRangeForDraft,
 } from "../utils/pmDate";
+import { ensureDataDir } from "../rich/data-dir";
 import {
   sortPmProjectsForSidebar,
 } from "../utils/pmVisual";
@@ -1154,6 +1155,8 @@ function onDetailClickAway(e: PointerEvent) {
 
 onMounted(async () => {
   document.addEventListener("pointerdown", onDetailClickAway);
+  // 预热 dataDir 缓存，避免首次打开编辑对话框时 IPC 耗时导致图片批量加载卡顿
+  void ensureDataDir();
   await loadProjects();
   const focus = consumePmFocus();
   if (focus) {
