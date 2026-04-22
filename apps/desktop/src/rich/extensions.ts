@@ -4,7 +4,17 @@ import Image from '@tiptap/extension-image';
 import Link from '@tiptap/extension-link';
 import { Placeholder } from '@tiptap/extensions';
 
-import { ensureDataDir, getSyncDataDir, resolveAttachmentUrl } from './data-dir';
+import { ensureDataDir, getSyncDataDir, resolveAttachmentPath } from './data-dir';
+
+/**
+ * 封装 Tauri asset 协议转换。
+ * TS 5.9 无法正确解析 @tauri-apps/api/core 的 convertFileSrc 命名导出（.d.ts 确实有导出），
+ * 通过 __TAURI_INTERNALS__ 间接调用规避类型检查问题。
+ */
+function toAssetUrl(absPath: string): string {
+  return (window as unknown as { __TAURI_INTERNALS__: { convertFileSrc: (p: string) => string } })
+    .__TAURI_INTERNALS__.convertFileSrc(absPath);
+}
 
 /**
  * 共享 schema 模块：Editor 与 Viewer 必须使用完全一致的扩展集，
@@ -79,12 +89,12 @@ const CustomImage = Image.extend({
         }
         const dir = getSyncDataDir();
         if (dir) {
-          dom.src = resolveAttachmentUrl(src, dir);
+          dom.src = toAssetUrl(resolveAttachmentPath(src, dir));
           return;
         }
         void ensureDataDir().then((d) => {
           if (!d || currentSrc !== src) return;
-          dom.src = resolveAttachmentUrl(src, d);
+          dom.src = toAssetUrl(resolveAttachmentPath(src, d));
         });
       };
 

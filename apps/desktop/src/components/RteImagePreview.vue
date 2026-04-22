@@ -21,6 +21,9 @@ import { computed, onMounted, onUnmounted, ref } from 'vue';
 defineProps<{ src: string }>();
 const emit = defineEmits<{ (e: 'close'): void }>();
 
+const ZOOM_STEP = 0.15;
+const MAX_SCALE = 8;
+
 const scale = ref(1);
 const ox = ref(0);
 const oy = ref(0);
@@ -34,8 +37,8 @@ const imgStyle = computed(() => ({
 }));
 
 function onWheel(e: WheelEvent) {
-  const d = e.deltaY > 0 ? -0.15 : 0.15;
-  scale.value = Math.max(1, Math.min(8, scale.value + d));
+  const d = e.deltaY > 0 ? -ZOOM_STEP : ZOOM_STEP;
+  scale.value = Math.max(1, Math.min(MAX_SCALE, scale.value + d));
   if (scale.value <= 1) {
     ox.value = 0;
     oy.value = 0;

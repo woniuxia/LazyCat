@@ -1,0 +1,30 @@
+/* Rich text editor / viewer shared file-ref chip styles */
+
+.rte-file-ref {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 6px;
+  margin: 0 2px;
+  background: var(--el-color-primary-light-9);
+  color: var(--el-color-primary);
+  border-radius: 4px;
+  font-size: 13px;
+  line-height: 1.4;
+  cursor: pointer;
+  border: 1px solid var(--el-color-primary-light-7);
+  user-select: none;
+  white-space: nowrap;
+  vertical-align: baseline;
+}
+
+.rte-file-ref:hover {
+  background: var(--el-color-primary-light-8);
+}
+
+.rte-file-ref.is-missing {
+  background: var(--el-color-danger-light-9);
+  color: var(--el-color-danger);
+  border-color: var(--el-color-danger-light-7);
+  text-decoration: line-through;
+}

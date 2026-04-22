@@ -1,5 +1,3 @@
-import { convertFileSrc } from '@tauri-apps/api/core';
-
 import { invokeToolByChannel } from '../bridge/tauri';
 
 /**
@@ -43,20 +41,16 @@ export function joinAttachmentPath(dir: string, rel: string): string {
 
 /**
  * 把 FileRef / Image 的 `src`（可能是相对路径、已带 scheme 的 URL、blob:）
- * 转成 WebView 可加载的 URL。
- * - blob: 或已带 scheme 的直接原样返回
- * - 相对路径：dataDir 未就绪时返回原值（交由调用方异步重试），就绪时走 convertFileSrc
+ * 转为绝对路径。
+ * - blob: 或已带 scheme 的直接原样返回（调用方无需再转 convertFileSrc）
+ * - 相对路径：拼接 dataDir 得到绝对路径（统一正斜杠，供 convertFileSrc 使用）
+ * - dataDir 未就绪时返回原值（交由调用方异步重试）
  */
-export function resolveAttachmentUrl(src: string, dataDir: string): string {
+export function resolveAttachmentPath(src: string, dataDir: string): string {
   if (!src) return '';
   if (src.startsWith('blob:') || /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(src)) {
     return src;
   }
   if (!dataDir) return src;
-  const abs = joinAttachmentPath(dataDir, src).replace(/\\/g, '/');
-  try {
-    return convertFileSrc(abs);
-  } catch {
-    return src;
-  }
+  return joinAttachmentPath(dataDir, src).replace(/\\/g, '/');
 }

@@ -128,12 +128,12 @@ import { ElMessage, ElMessageBox } from 'element-plus';
 import { buildExtensions } from '../rich/extensions';
 import { normalizeLegacy } from '../rich/legacy';
 import { ensureDataDir, joinAttachmentPath } from '../rich/data-dir';
+import type { FileRefKind } from '../rich/data-dir';
 import { invokeToolByChannel } from '../bridge/tauri';
 import RteFileRefMenu from './RteFileRefMenu.vue';
 import RteImagePreview from './RteImagePreview.vue';
 
 type OwnerType = 'pm_project' | 'pm_item' | 'todo';
-type FileRefKind = 'attachment' | 'path';
 
 const props = withDefaults(
   defineProps<{
@@ -242,11 +242,11 @@ const editor = useEditor({
       }
       return false;
     },
-    handleDoubleClick: (_view, pos) => {
-      const node = _view.state.doc.nodeAt(pos);
+    handleDoubleClick: (view, pos) => {
+      const node = view.state.doc.nodeAt(pos);
       if (!node || node.type.name !== 'image') return false;
       if (node.attrs?.uploadingId) return false;
-      const dom = _view.nodeDOM(pos);
+      const dom = view.nodeDOM(pos);
       const imgEl =
         dom instanceof HTMLImageElement
           ? dom
@@ -908,8 +908,6 @@ defineExpose({
 }
 .rte-editable :deep(img[data-uploading-id]) {
   cursor: default;
-}
-.rte-editable :deep(img[data-uploading-id]) {
   opacity: 0.55;
   outline: 2px dashed var(--el-color-primary-light-5);
   outline-offset: 2px;
@@ -946,26 +944,6 @@ defineExpose({
 .rte-editable :deep(ul),
 .rte-editable :deep(ol) {
   padding-left: 22px;
-}
-.rte-editable :deep(.rte-file-ref) {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  padding: 1px 6px;
-  margin: 0 2px;
-  background: var(--el-color-primary-light-9);
-  color: var(--el-color-primary);
-  border-radius: 4px;
-  font-size: 13px;
-  line-height: 1.4;
-  cursor: pointer;
-  border: 1px solid var(--el-color-primary-light-7);
-  user-select: none;
-  white-space: nowrap;
-  vertical-align: baseline;
-}
-.rte-editable :deep(.rte-file-ref:hover) {
-  background: var(--el-color-primary-light-8);
 }
 .rte-editable :deep(.rte-file-ref.ProseMirror-selectednode) {
   outline: 2px solid var(--el-color-primary);

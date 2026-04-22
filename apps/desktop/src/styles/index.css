@@ -8,4 +8,5 @@
 @import "./panels.css";
 @import "./element-overrides.css";
 @import "./responsive.css";
+@import "./rte-file-ref.css";
 @import "./theme-light.css";

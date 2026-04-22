@@ -32,11 +32,10 @@ import { ElMessage } from 'element-plus';
 import { buildExtensions } from '../rich/extensions';
 import { rewriteLocalSrc, tryParseDoc, walkFileRefPaths } from '../rich/legacy';
 import { ensureDataDir } from '../rich/data-dir';
+import type { FileRefKind } from '../rich/data-dir';
 import { invokeToolByChannel } from '../bridge/tauri';
 import RteFileRefMenu from './RteFileRefMenu.vue';
 import RteImagePreview from './RteImagePreview.vue';
-
-type FileRefKind = 'attachment' | 'path';
 
 const props = withDefaults(
   defineProps<{
@@ -349,32 +348,6 @@ onUnmounted(() => {
   border: none;
   border-top: 1px solid var(--el-border-color);
   margin: 10px 0;
-}
-.rte-viewer :deep(.rte-file-ref) {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  padding: 1px 6px;
-  margin: 0 2px;
-  background: var(--el-color-primary-light-9);
-  color: var(--el-color-primary);
-  border-radius: 4px;
-  font-size: 13px;
-  line-height: 1.4;
-  cursor: pointer;
-  border: 1px solid var(--el-color-primary-light-7);
-  user-select: none;
-  white-space: nowrap;
-  vertical-align: baseline;
-}
-.rte-viewer :deep(.rte-file-ref:hover) {
-  background: var(--el-color-primary-light-8);
-}
-.rte-viewer :deep(.rte-file-ref.is-missing) {
-  background: var(--el-color-danger-light-9);
-  color: var(--el-color-danger);
-  border-color: var(--el-color-danger-light-7);
-  text-decoration: line-through;
 }
 .rte-legacy {
   white-space: pre-wrap;

@@ -853,10 +853,6 @@ function normalizeDraftAssigneeValues(values: SelectAssigneeValue[]) {
     .sort();
 }
 
-function insertMdSyntax(_prefix: string, _suffix: string) {
-  // 已迁移至 TipTap 富文本；保留空函数以兼容可能残留的旧调用路径
-}
-
 function snapshotItemDraft() {
   return JSON.stringify({
     mode: itemDialogMode.value,
