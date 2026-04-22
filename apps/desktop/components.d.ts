@@ -123,6 +123,7 @@ declare module 'vue' {
     RichDescriptionEditor: typeof import('./src/components/RichDescriptionEditor.vue')['default']
     RichDescriptionViewer: typeof import('./src/components/RichDescriptionViewer.vue')['default']
     RsaPanel: typeof import('./src/components/RsaPanel.vue')['default']
+    RteFileRefMenu: typeof import('./src/components/RteFileRefMenu.vue')['default']
     SettingsPanel: typeof import('./src/components/SettingsPanel.vue')['default']
     ShortcutHelpOverlay: typeof import('./src/components/ShortcutHelpOverlay.vue')['default']
     ShortcutRecorder: typeof import('./src/components/ShortcutRecorder.vue')['default']

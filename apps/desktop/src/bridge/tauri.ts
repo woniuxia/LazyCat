@@ -272,13 +272,18 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:todo:pm-candidates": { domain: "todo", action: "pm_candidates" },
   "tool:todo:item-set-pm-link": { domain: "todo", action: "item_set_pm_link" },
   "tool:attachments:save":             { domain: "attachments", action: "save" },
+  "tool:attachments:save-from-path":   { domain: "attachments", action: "save_from_path" },
   "tool:attachments:list":             { domain: "attachments", action: "list" },
   "tool:attachments:remove":           { domain: "attachments", action: "remove" },
   "tool:attachments:rebind":           { domain: "attachments", action: "rebind" },
   "tool:attachments:cleanup-orphans":  { domain: "attachments", action: "cleanup_orphans" },
   "tool:attachments:delete-by-owner":  { domain: "attachments", action: "delete_by_owner" },
   "tool:system:get-paths":             { domain: "system", action: "get_paths" },
-  "tool:system:open-external":         { domain: "system", action: "open_external" }
+  "tool:system:open-external":         { domain: "system", action: "open_external" },
+  "tool:system:read-clipboard-files":  { domain: "system", action: "read_clipboard_files" },
+  "tool:system:open-local-path":       { domain: "system", action: "open_local_path" },
+  "tool:system:reveal-in-folder":      { domain: "system", action: "reveal_in_folder" },
+  "tool:system:check-paths-exist":     { domain: "system", action: "check_paths_exist" }
 };
 
 export async function invokeToolByChannel(

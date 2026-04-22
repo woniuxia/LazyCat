@@ -21,6 +21,7 @@ const MAX_SIZE_BYTES: i64 = 5 * 1024 * 1024;
 pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
     match action {
         "save" => save(payload),
+        "save_from_path" => save_from_path(payload),
         "list" => list(payload),
         "remove" => remove(payload),
         "rebind" => rebind(payload),
@@ -69,6 +70,28 @@ fn pick_ext(mime: &str, file_name: &str) -> Result<String, String> {
         "image/avif" => Some("avif"),
         "image/heic" | "image/heif" => Some("heic"),
         "application/pdf" => Some("pdf"),
+        "application/zip" => Some("zip"),
+        "application/x-7z-compressed" => Some("7z"),
+        "application/x-rar-compressed" | "application/vnd.rar" => Some("rar"),
+        "application/x-tar" => Some("tar"),
+        "application/gzip" => Some("gz"),
+        "application/msword" => Some("doc"),
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document" => Some("docx"),
+        "application/vnd.ms-excel" => Some("xls"),
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" => Some("xlsx"),
+        "application/vnd.ms-powerpoint" => Some("ppt"),
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation" => Some("pptx"),
+        "text/plain" => Some("txt"),
+        "text/markdown" => Some("md"),
+        "text/csv" => Some("csv"),
+        "application/json" => Some("json"),
+        "application/xml" | "text/xml" => Some("xml"),
+        "audio/mpeg" => Some("mp3"),
+        "audio/wav" | "audio/x-wav" => Some("wav"),
+        "audio/flac" => Some("flac"),
+        "video/mp4" => Some("mp4"),
+        "video/x-matroska" => Some("mkv"),
+        "video/quicktime" => Some("mov"),
         _ => None,
     };
     if let Some(ext) = from_mime {
@@ -143,8 +166,67 @@ fn save(payload: &Value) -> Result<Value, String> {
         return Err("single image exceeds 5 MB".into());
     }
 
+    persist_bytes(owner_type, owner_id, &bytes, file_name, mime, kind)
+}
+
+// ── save_from_path ─────────────────────────────────────
+//
+// 直接从本地路径读取字节落盘。用于"复制到附件"场景的零 base64 路径：
+// - 无 5 MB 上限（文件场景可能远超单图阈值）
+// - fileName / mime 可省略，由 srcPath 的 basename / 扩展名推断
+// - 其余归一化走 persist_bytes，确保与 save 同样的 hash/去重/rel_path 语义
+
+fn save_from_path(payload: &Value) -> Result<Value, String> {
+    let owner_type = require_str(payload, "ownerType")?;
+    validate_owner_type(owner_type)?;
+    let owner_id = require_str(payload, "ownerId")?;
+    if owner_id.is_empty() {
+        return Err("ownerId is required".into());
+    }
+    let src_path = require_str(payload, "srcPath")?;
+    if src_path.trim().is_empty() {
+        return Err("srcPath is required".into());
+    }
+
+    let src = std::path::Path::new(src_path);
+    let inferred_name = src
+        .file_name()
+        .and_then(|n| n.to_str())
+        .map(|s| s.to_string())
+        .unwrap_or_default();
+    let file_name = payload
+        .get("fileName")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .unwrap_or(inferred_name);
+    let mime = payload
+        .get("mime")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let kind = payload
+        .get("kind")
+        .and_then(|v| v.as_str())
+        .unwrap_or("file");
+
+    let bytes = fs::read(src).map_err(|e| format!("read source file failed: {e}"))?;
+    persist_bytes(owner_type, owner_id, &bytes, &file_name, mime, kind)
+}
+
+/// save / save_from_path 共用的字节→附件落盘 + DB 插入核心逻辑。
+/// 不做大小校验（调用方按场景决定），调用前需确保 owner_type / owner_id 已校验。
+fn persist_bytes(
+    owner_type: &str,
+    owner_id: &str,
+    bytes: &[u8],
+    file_name: &str,
+    mime: &str,
+    kind: &str,
+) -> Result<Value, String> {
+    let size = bytes.len() as i64;
+
     // blake3 前 16 字节 hex = 32 字符
-    let hash_full = blake3::hash(&bytes);
+    let hash_full = blake3::hash(bytes);
     let hex = hash_full.to_hex();
     let hash = hex
         .as_str()
@@ -171,7 +253,7 @@ fn save(payload: &Value) -> Result<Value, String> {
     if !abs.exists() {
         // 保证父目录存在（当自定义数据目录首次写入时）
         let _ = get_attachments_dir()?;
-        fs::write(&abs, &bytes).map_err(|e| format!("write attachment failed: {e}"))?;
+        fs::write(&abs, bytes).map_err(|e| format!("write attachment failed: {e}"))?;
     }
 
     conn.execute(

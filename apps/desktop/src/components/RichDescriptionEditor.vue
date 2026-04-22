@@ -1,5 +1,5 @@
 <template>
-  <div class="rte" :class="{ 'is-disabled': disabled }">
+  <div class="rte" :class="{ 'is-disabled': disabled }" @contextmenu="onContextMenu">
     <div class="rte-toolbar" v-if="!disabled">
       <el-button-group size="small">
         <el-tooltip content="加粗 Ctrl+B" placement="top">
@@ -99,27 +99,39 @@
         </el-tooltip>
       </el-button-group>
       <span class="rte-hint" v-if="uploadingCount > 0">
-        {{ uploadingCount }} 张图片上传中…
+        {{ uploadingCount }} 个附件上传中…
       </span>
     </div>
     <EditorContent
       class="rte-prose rte-editable"
       :editor="editor"
     />
+    <RteFileRefMenu
+      :visible="menu.visible"
+      :x="menu.x"
+      :y="menu.y"
+      :kind="menu.kind"
+      :can-delete="!disabled"
+      @close="menu.visible = false"
+      @action="onMenuAction"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, ref, watch } from 'vue';
+import { onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { EditorContent, useEditor } from '@tiptap/vue-3';
-import type { Editor, ChainedCommands } from '@tiptap/vue-3';
+import type { ChainedCommands } from '@tiptap/vue-3';
 import { ElMessage, ElMessageBox } from 'element-plus';
 
 import { buildExtensions } from '../rich/extensions';
 import { normalizeLegacy } from '../rich/legacy';
+import { ensureDataDir, joinAttachmentPath } from '../rich/data-dir';
 import { invokeToolByChannel } from '../bridge/tauri';
+import RteFileRefMenu from './RteFileRefMenu.vue';
 
 type OwnerType = 'pm_project' | 'pm_item' | 'todo';
+type FileRefKind = 'attachment' | 'path';
 
 const props = withDefaults(
   defineProps<{
@@ -131,7 +143,7 @@ const props = withDefaults(
     disabled?: boolean;
   }>(),
   {
-    placeholder: '输入描述，支持粘贴图片与基础排版',
+    placeholder: '输入描述，支持粘贴图片/文件与基础排版',
     maxImageMb: 5,
     disabled: false,
     ownerId: null,
@@ -159,6 +171,29 @@ function getEffectiveOwnerId(): string {
 const activeBlobs = new Map<string, string>();
 const uploadingCount = ref(0);
 
+// 右键菜单状态。target 信息从 DOM 反解：
+// - src：附件相对路径 or 本地绝对路径
+// - kind：决定展示与点击行为
+// - attId：仅 attachment 类型有值，用于"删除节点"时可选地回调 cleanup
+// - domEl：用于在选择"删除"时通过 view.posAtDOM 定位节点
+interface MenuTarget {
+  src: string;
+  name: string;
+  kind: FileRefKind;
+  attId: number | null;
+  domEl: HTMLElement;
+}
+const menu = reactive({
+  visible: false,
+  x: 0,
+  y: 0,
+  kind: 'attachment' as FileRefKind,
+  target: null as MenuTarget | null,
+});
+
+// dataDir 走共享缓存：Editor/Viewer/NodeView 共用一份，避免重复 IPC。
+// onMounted 里预热一次，让 NodeView 首次渲染就能同步拿到值。
+
 const editor = useEditor({
   content: normalizeLegacy(props.modelValue),
   extensions: buildExtensions({ placeholder: props.placeholder }),
@@ -166,20 +201,60 @@ const editor = useEditor({
   editorProps: {
     handlePaste: (_view, event) => {
       const files = Array.from(event.clipboardData?.files ?? []);
+      if (files.length === 0) return false;
       const images = files.filter((f) => f.type.startsWith('image/'));
-      if (images.length === 0) return false;
-      event.preventDefault();
-      images.forEach((f) => uploadPastedImage(f));
-      return true;
+      const nonImages = files.filter((f) => !f.type.startsWith('image/'));
+      if (nonImages.length === 0 && images.length > 0) {
+        event.preventDefault();
+        images.forEach((f) => uploadPastedImage(f));
+        return true;
+      }
+      if (nonImages.length > 0) {
+        event.preventDefault();
+        void handlePastedFiles(nonImages, /* fromPaste */ true);
+        // 混合粘贴：图片也并发处理，避免截图+文件场景图片丢失
+        images.forEach((f) => uploadPastedImage(f));
+        return true;
+      }
+      return false;
     },
     handleDrop: (_view, event, _slice, moved) => {
       if (moved) return false;
       const dt = event.dataTransfer;
       if (!dt) return false;
-      const files = Array.from(dt.files ?? []).filter((f) => f.type.startsWith('image/'));
+      const files = Array.from(dt.files ?? []);
       if (files.length === 0) return false;
-      event.preventDefault();
-      files.forEach((f) => uploadPastedImage(f));
+      const images = files.filter((f) => f.type.startsWith('image/'));
+      const nonImages = files.filter((f) => !f.type.startsWith('image/'));
+      if (nonImages.length === 0 && images.length > 0) {
+        event.preventDefault();
+        images.forEach((f) => uploadPastedImage(f));
+        return true;
+      }
+      if (nonImages.length > 0) {
+        event.preventDefault();
+        void handlePastedFiles(nonImages, /* fromPaste */ false);
+        images.forEach((f) => uploadPastedImage(f));
+        return true;
+      }
+      return false;
+    },
+    handleClickOn: (_view, _pos, node, _nodePos, event, _direct) => {
+      if (node.type.name !== 'fileRef') return false;
+      // 左键点击：用系统默认程序打开；右键不在此分支处理
+      if ((event as MouseEvent).button !== 0) return false;
+      const kind = (node.attrs.kind === 'path' ? 'path' : 'attachment') as FileRefKind;
+      const src = String(node.attrs.src ?? '');
+      const uploadingId = node.attrs.uploadingId;
+      if (uploadingId) {
+        ElMessage.info('文件上传中，请稍候');
+        return true;
+      }
+      if (!src) {
+        ElMessage.warning('附件路径为空');
+        return true;
+      }
+      void openFileRef(kind, src);
       return true;
     },
   },
@@ -309,6 +384,171 @@ async function uploadPastedImage(file: File): Promise<void> {
   }
 }
 
+// ── 非图片文件处理 ────────────────────────────────────
+//
+// 粘贴场景：调 system:read_clipboard_files 拿真实路径（仅 Windows 有效）；
+// 拖拽场景：无法拿真实路径，files[i].name 仅是 basename。
+// 弹窗询问："复制到附件" / "仅保存路径"，无路径时只允许前者。
+
+async function handlePastedFiles(files: File[], fromPaste: boolean): Promise<void> {
+  let paths: string[] = [];
+  if (fromPaste) {
+    try {
+      const res = (await invokeToolByChannel('tool:system:read-clipboard-files', {})) as {
+        paths?: string[];
+      };
+      paths = Array.isArray(res?.paths) ? res.paths : [];
+    } catch {
+      paths = [];
+    }
+  }
+  // 对齐到 files 数量，保证索引 mapping 稳定；不够的位置置空
+  if (paths.length !== files.length) {
+    const hasAny = paths.length > 0;
+    const aligned = new Array<string>(files.length).fill('');
+    if (hasAny) {
+      // 按 basename 匹配；匹配不到的保持空串
+      const used = new Set<number>();
+      files.forEach((file, idx) => {
+        const base = file.name;
+        const hit = paths.findIndex((p, i) => {
+          if (used.has(i)) return false;
+          const bn = p.split(/[\\/]/).pop() ?? '';
+          return bn === base;
+        });
+        if (hit >= 0) {
+          aligned[idx] = paths[hit];
+          used.add(hit);
+        }
+      });
+    }
+    paths = aligned;
+  }
+
+  const hasPath = paths.some((p) => p && p.length > 0);
+  let mode: 'copy' | 'path' = 'copy';
+  try {
+    await ElMessageBox.confirm(
+      hasPath
+        ? `共 ${files.length} 个文件。选择"复制到附件"将文件拷贝到本工具的附件目录；选择"仅保存路径"只记录原始路径（原文件被移动或删除后将失效）。`
+        : `共 ${files.length} 个文件，当前只能复制到附件目录（未能获取原始路径）。`,
+      '粘贴文件',
+      {
+        confirmButtonText: '复制到附件',
+        cancelButtonText: hasPath ? '仅保存路径' : '取消',
+        distinguishCancelAndClose: true,
+        type: 'info',
+      }
+    );
+    mode = 'copy';
+  } catch (action) {
+    if (action === 'cancel' && hasPath) {
+      mode = 'path';
+    } else {
+      return; // close 或 无路径时取消
+    }
+  }
+
+  if (mode === 'copy') {
+    for (let i = 0; i < files.length; i += 1) {
+      const f = files[i];
+      const srcPath = paths[i] || undefined;
+      void uploadPastedFile(f, srcPath);
+    }
+  } else {
+    for (let i = 0; i < files.length; i += 1) {
+      const f = files[i];
+      const p = paths[i];
+      if (!p) continue;
+      insertPathRef(p, f);
+    }
+  }
+}
+
+async function uploadPastedFile(file: File, srcPath?: string): Promise<void> {
+  const uploadingId = crypto.randomUUID();
+  uploadingCount.value += 1;
+  const e = editor.value;
+  if (e) {
+    e.chain()
+      .focus()
+      .insertContent({
+        type: 'fileRef',
+        attrs: {
+          src: '',
+          name: file.name,
+          size: file.size,
+          mime: file.type || '',
+          kind: 'attachment',
+          uploadingId,
+          attId: null,
+        },
+      })
+      .run();
+  }
+
+  try {
+    let res: { id: number; relPath: string; hash: string; size: number };
+    if (srcPath) {
+      res = (await invokeToolByChannel('tool:attachments:save-from-path', {
+        ownerType: props.ownerType,
+        ownerId: getEffectiveOwnerId(),
+        srcPath,
+        fileName: file.name,
+        mime: file.type || '',
+        kind: 'file',
+      })) as { id: number; relPath: string; hash: string; size: number };
+    } else {
+      // 拖拽场景无原始路径：回退 base64（大文件会慢，已在弹窗提示）
+      const bytesBase64 = await fileToBase64(file);
+      res = (await invokeToolByChannel('tool:attachments:save', {
+        ownerType: props.ownerType,
+        ownerId: getEffectiveOwnerId(),
+        fileName: file.name,
+        mime: file.type || 'application/octet-stream',
+        kind: 'file',
+        bytesBase64,
+      })) as { id: number; relPath: string; hash: string; size: number };
+    }
+    if (editor.value) {
+      replaceUploadingFileRef(uploadingId, {
+        src: res.relPath,
+        attId: res.id,
+        size: res.size,
+        name: file.name,
+        mime: file.type || '',
+      });
+    }
+    emit('attachment-added', res.id);
+  } catch (err) {
+    const msg = (err as Error)?.message ?? '上传文件失败';
+    ElMessage.error(msg);
+    if (editor.value) removeUploadingFileRef(uploadingId);
+  } finally {
+    uploadingCount.value = Math.max(0, uploadingCount.value - 1);
+  }
+}
+
+function insertPathRef(srcPath: string, file: File): void {
+  const e = editor.value;
+  if (!e) return;
+  e.chain()
+    .focus()
+    .insertContent({
+      type: 'fileRef',
+      attrs: {
+        src: srcPath,
+        name: file.name,
+        size: file.size,
+        mime: file.type || '',
+        kind: 'path',
+        attId: null,
+        uploadingId: null,
+      },
+    })
+    .run();
+}
+
 function replaceUploadingImage(uploadingId: string, src: string, attId: number): void {
   const view = editor.value?.view;
   if (!view) return;
@@ -358,6 +598,60 @@ function removeUploadingImage(uploadingId: string): void {
   }
 }
 
+function replaceUploadingFileRef(
+  uploadingId: string,
+  next: { src: string; attId: number; size: number; name: string; mime: string }
+): void {
+  const view = editor.value?.view;
+  if (!view) return;
+  const tr = view.state.tr;
+  let changed = false;
+  view.state.doc.descendants((node, pos) => {
+    if (node.type.name === 'fileRef' && node.attrs?.uploadingId === uploadingId) {
+      tr.setNodeMarkup(pos, undefined, {
+        ...node.attrs,
+        src: next.src,
+        attId: next.attId,
+        size: next.size,
+        name: next.name,
+        mime: next.mime,
+        kind: 'attachment',
+        uploadingId: null,
+      });
+      changed = true;
+    }
+  });
+  if (changed) {
+    view.dispatch(tr);
+    const e = editor.value;
+    if (e) emit('update:modelValue', JSON.stringify(e.getJSON()));
+  }
+}
+
+function removeUploadingFileRef(uploadingId: string): void {
+  const view = editor.value?.view;
+  if (!view) return;
+  let tr = view.state.tr;
+  let changed = false;
+  const positions: Array<{ pos: number; size: number }> = [];
+  view.state.doc.descendants((node, pos) => {
+    if (node.type.name === 'fileRef' && node.attrs?.uploadingId === uploadingId) {
+      positions.push({ pos, size: node.nodeSize });
+    }
+  });
+  positions
+    .sort((a, b) => b.pos - a.pos)
+    .forEach(({ pos, size }) => {
+      tr = tr.delete(pos, pos + size);
+      changed = true;
+    });
+  if (changed) {
+    view.dispatch(tr);
+    const e = editor.value;
+    if (e) emit('update:modelValue', JSON.stringify(e.getJSON()));
+  }
+}
+
 function collectAttachmentIds(): number[] {
   const e = editor.value;
   if (!e) return [];
@@ -366,14 +660,138 @@ function collectAttachmentIds(): number[] {
     if (node.type.name === 'image') {
       const v = node.attrs?.attId;
       if (typeof v === 'number' && Number.isFinite(v)) ids.add(v);
+    } else if (node.type.name === 'fileRef' && node.attrs?.kind !== 'path') {
+      const v = node.attrs?.attId;
+      if (typeof v === 'number' && Number.isFinite(v)) ids.add(v);
     }
   });
   return [...ids];
 }
 
+// ── 右键菜单 & 左键打开 ─────────────────────────────
+
+function onContextMenu(event: MouseEvent): void {
+  const target = event.target as Element | null;
+  const el = target?.closest?.('.rte-file-ref') as HTMLElement | null;
+  if (!el) return; // 非 FileRef 区域：走浏览器默认右键
+  event.preventDefault();
+  const kind = (el.getAttribute('data-kind') === 'path' ? 'path' : 'attachment') as FileRefKind;
+  const src = el.getAttribute('data-src') ?? '';
+  const name = el.getAttribute('data-name') ?? '';
+  const attIdRaw = el.getAttribute('data-att-id');
+  const attId = attIdRaw ? Number(attIdRaw) : null;
+  menu.target = {
+    src,
+    name,
+    kind,
+    attId: Number.isFinite(attId as number) ? (attId as number) : null,
+    domEl: el,
+  };
+  menu.kind = kind;
+  menu.x = event.clientX;
+  menu.y = event.clientY;
+  menu.visible = true;
+}
+
+async function onMenuAction(action: 'open' | 'reveal' | 'copy-path' | 'delete'): Promise<void> {
+  const target = menu.target;
+  if (!target) return;
+  const absPath = await resolveAbsPath(target.kind, target.src);
+  if (action === 'open') {
+    if (!absPath) return;
+    void openAbsPath(absPath);
+  } else if (action === 'reveal') {
+    if (!absPath) return;
+    try {
+      await invokeToolByChannel('tool:system:reveal-in-folder', { path: absPath });
+    } catch (err) {
+      ElMessage.error((err as Error).message || '无法定位文件');
+    }
+  } else if (action === 'copy-path') {
+    if (!absPath) return;
+    try {
+      await navigator.clipboard.writeText(absPath);
+      ElMessage.success('路径已复制');
+    } catch {
+      ElMessage.error('复制失败');
+    }
+  } else if (action === 'delete') {
+    deleteFileRefByDom(target.domEl);
+  }
+}
+
+function deleteFileRefByDom(el: HTMLElement): void {
+  const view = editor.value?.view;
+  if (!view) return;
+  let pos: number | null = null;
+  try {
+    pos = view.posAtDOM(el, 0);
+  } catch {
+    pos = null;
+  }
+  if (pos == null) return;
+  const $pos = view.state.doc.resolve(pos);
+  // posAtDOM 返回节点内部的位置；向父层找到 fileRef 节点
+  for (let depth = $pos.depth; depth >= 0; depth -= 1) {
+    const node = $pos.node(depth);
+    if (node.type.name === 'fileRef') {
+      const start = $pos.before(depth);
+      const tr = view.state.tr.delete(start, start + node.nodeSize);
+      view.dispatch(tr);
+      const e = editor.value;
+      if (e) emit('update:modelValue', JSON.stringify(e.getJSON()));
+      return;
+    }
+  }
+  // posAtDOM 返回的是紧邻节点外侧位置时，直接按 nodeSize 删除
+  const node = view.state.doc.nodeAt(pos);
+  if (node && node.type.name === 'fileRef') {
+    const tr = view.state.tr.delete(pos, pos + node.nodeSize);
+    view.dispatch(tr);
+    const e = editor.value;
+    if (e) emit('update:modelValue', JSON.stringify(e.getJSON()));
+  }
+}
+
+async function resolveAbsPath(kind: FileRefKind, src: string): Promise<string> {
+  if (!src) return '';
+  if (kind === 'path') return src;
+  const dir = await ensureDataDir();
+  if (!dir) return '';
+  return joinAttachmentPath(dir, src);
+}
+
+async function openFileRef(kind: FileRefKind, src: string): Promise<void> {
+  const abs = await resolveAbsPath(kind, src);
+  if (!abs) {
+    ElMessage.error('附件路径解析失败');
+    return;
+  }
+  await openAbsPath(abs);
+}
+
+async function openAbsPath(absPath: string): Promise<void> {
+  try {
+    await invokeToolByChannel('tool:system:open-local-path', { path: absPath });
+  } catch (err) {
+    const msg = (err as Error).message || '';
+    if (msg.includes('file not found')) {
+      ElMessage.error('文件不存在');
+    } else {
+      ElMessage.error(msg || '无法打开文件');
+    }
+  }
+}
+
 onBeforeUnmount(() => {
   activeBlobs.forEach((url) => URL.revokeObjectURL(url));
   activeBlobs.clear();
+});
+
+// 挂载后预热 dataDir：NodeView 首次创建时若拿不到同步值，会走异步兜底；
+// 这里直接发起一次请求确保缓存尽快填充。
+onMounted(() => {
+  void ensureDataDir();
 });
 
 defineExpose({
@@ -391,6 +809,8 @@ defineExpose({
     activeBlobs.forEach((url) => URL.revokeObjectURL(url));
     activeBlobs.clear();
     uploadingCount.value = 0;
+    menu.visible = false;
+    menu.target = null;
     const e = editor.value;
     if (!e) return;
     e.commands.setContent(normalizeLegacy(nextValue), { emitUpdate: false });
@@ -400,6 +820,7 @@ defineExpose({
 
 <style scoped>
 .rte {
+  width: 100%;
   border: 1px solid var(--el-border-color);
   border-radius: 6px;
   background: var(--el-bg-color);
@@ -497,5 +918,33 @@ defineExpose({
 .rte-editable :deep(ul),
 .rte-editable :deep(ol) {
   padding-left: 22px;
+}
+.rte-editable :deep(.rte-file-ref) {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 6px;
+  margin: 0 2px;
+  background: var(--el-color-primary-light-9);
+  color: var(--el-color-primary);
+  border-radius: 4px;
+  font-size: 13px;
+  line-height: 1.4;
+  cursor: pointer;
+  border: 1px solid var(--el-color-primary-light-7);
+  user-select: none;
+  white-space: nowrap;
+  vertical-align: baseline;
+}
+.rte-editable :deep(.rte-file-ref:hover) {
+  background: var(--el-color-primary-light-8);
+}
+.rte-editable :deep(.rte-file-ref.ProseMirror-selectednode) {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: 1px;
+}
+.rte-editable :deep(.rte-file-ref[data-uploading-id]) {
+  opacity: 0.6;
+  cursor: progress;
 }
 </style>

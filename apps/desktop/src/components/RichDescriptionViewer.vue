@@ -1,20 +1,39 @@
 <template>
-  <div ref="containerRef" class="rte-viewer" @click="onClick">
+  <div
+    ref="containerRef"
+    class="rte-viewer"
+    @click="onClick"
+    @contextmenu="onContextMenu"
+  >
     <div v-if="parsedDoc" class="rte-prose" v-html="html" />
     <div v-else-if="fallbackText" class="rte-prose rte-legacy">{{ fallbackText }}</div>
     <div v-else class="rte-empty">{{ emptyText }}</div>
+    <RteFileRefMenu
+      :visible="menu.visible"
+      :x="menu.x"
+      :y="menu.y"
+      :kind="menu.kind"
+      :can-delete="false"
+      @close="menu.visible = false"
+      @action="onMenuAction"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import type { JSONContent } from '@tiptap/vue-3';
 import { renderToHTMLString } from '@tiptap/static-renderer/pm/html-string';
 import { convertFileSrc } from '@tauri-apps/api/core';
+import { ElMessage } from 'element-plus';
 
 import { buildExtensions } from '../rich/extensions';
-import { rewriteLocalSrc, tryParseDoc } from '../rich/legacy';
+import { rewriteLocalSrc, tryParseDoc, walkFileRefPaths } from '../rich/legacy';
+import { ensureDataDir } from '../rich/data-dir';
 import { invokeToolByChannel } from '../bridge/tauri';
+import RteFileRefMenu from './RteFileRefMenu.vue';
+
+type FileRefKind = 'attachment' | 'path';
 
 const props = withDefaults(
   defineProps<{
@@ -33,30 +52,9 @@ const fallbackText = computed(() => {
   return parsedDoc.value ? '' : t;
 });
 
-/**
- * dataDir 缓存：Viewer 挂载后一次性取，之后所有 Viewer 共享这份静态值。
- * 通过 module-level 闭包避免重复 IPC；首次失败会 retry。
- */
-let sharedDataDir = '';
-let sharedDataDirPromise: Promise<string> | null = null;
-
-async function fetchDataDir(): Promise<string> {
-  if (sharedDataDir) return sharedDataDir;
-  if (!sharedDataDirPromise) {
-    sharedDataDirPromise = invokeToolByChannel('tool:system:get-paths', {})
-      .then((res) => {
-        const v = (res as { dataDir?: string })?.dataDir ?? '';
-        sharedDataDir = v;
-        return v;
-      })
-      .catch(() => '') as Promise<string>;
-  }
-  return sharedDataDirPromise;
-}
-
 const dataDir = ref('');
 onMounted(async () => {
-  dataDir.value = await fetchDataDir();
+  dataDir.value = await ensureDataDir();
 });
 
 const rewrittenDoc = computed<JSONContent | null>(() => {
@@ -86,6 +84,69 @@ const html = computed(() => {
   }
 });
 
+// ── FileRef 失效检测：挂载 & 内容变化时批量 stat 原路径类节点 ─
+
+const missingPaths = ref<Set<string>>(new Set());
+
+async function detectMissingPaths(): Promise<void> {
+  const doc = parsedDoc.value;
+  if (!doc) {
+    if (missingPaths.value.size > 0) missingPaths.value = new Set();
+    return;
+  }
+  const paths = walkFileRefPaths(doc);
+  if (paths.length === 0) {
+    if (missingPaths.value.size > 0) missingPaths.value = new Set();
+    return;
+  }
+  try {
+    const res = (await invokeToolByChannel('tool:system:check-paths-exist', {
+      paths,
+    })) as { missing?: string[] };
+    const list = Array.isArray(res?.missing) ? res.missing : [];
+    missingPaths.value = new Set(list);
+  } catch {
+    missingPaths.value = new Set();
+  }
+  await nextTick();
+  applyMissingClass();
+}
+
+function applyMissingClass(): void {
+  const root = containerRef.value;
+  if (!root) return;
+  const nodes = root.querySelectorAll<HTMLElement>('.rte-file-ref[data-kind="path"]');
+  nodes.forEach((el) => {
+    const src = el.getAttribute('data-src') ?? '';
+    if (missingPaths.value.has(src)) {
+      el.classList.add('is-missing');
+      el.setAttribute('title', '文件不存在');
+    } else {
+      el.classList.remove('is-missing');
+      el.removeAttribute('title');
+    }
+  });
+}
+
+onMounted(() => {
+  void detectMissingPaths();
+});
+
+watch(
+  () => props.value,
+  () => {
+    void detectMissingPaths();
+  }
+);
+
+watch(
+  () => html.value,
+  async () => {
+    await nextTick();
+    applyMissingClass();
+  }
+);
+
 function joinPath(dir: string, sub: string): string {
   const d = dir.replace(/[\/\\]+$/, '');
   const s = sub.replace(/^[\/\\]+/, '');
@@ -93,8 +154,38 @@ function joinPath(dir: string, sub: string): string {
   return `${d}/${s}`.replace(/\\/g, '/');
 }
 
+function joinLocalPath(dir: string, sub: string): string {
+  const d = dir.replace(/[\/\\]+$/, '');
+  const s = sub.replace(/^[\/\\]+/, '');
+  return `${d}/${s}`;
+}
+
+// ── 左键 / 右键 / 菜单 ─────────────────────────────
+
+interface MenuTarget {
+  src: string;
+  name: string;
+  kind: FileRefKind;
+}
+const menu = reactive({
+  visible: false,
+  x: 0,
+  y: 0,
+  kind: 'attachment' as FileRefKind,
+  target: null as MenuTarget | null,
+});
+
 function onClick(e: MouseEvent): void {
   const target = e.target as Element | null;
+  const fileEl = target?.closest?.('.rte-file-ref') as HTMLElement | null;
+  if (fileEl) {
+    e.preventDefault();
+    const kind = (fileEl.getAttribute('data-kind') === 'path' ? 'path' : 'attachment') as FileRefKind;
+    const src = fileEl.getAttribute('data-src') ?? '';
+    if (!src) return;
+    void openFileRef(kind, src);
+    return;
+  }
   const a = target?.closest?.('a[href]') as HTMLAnchorElement | null;
   if (!a) return;
   e.preventDefault();
@@ -103,6 +194,78 @@ function onClick(e: MouseEvent): void {
   invokeToolByChannel('tool:system:open-external', { url: href }).catch(() => {
     /* 忽略：后端会二次校验协议并返回错误，这里不弹窗打扰 */
   });
+}
+
+function onContextMenu(e: MouseEvent): void {
+  const target = e.target as Element | null;
+  const el = target?.closest?.('.rte-file-ref') as HTMLElement | null;
+  if (!el) return;
+  e.preventDefault();
+  const kind = (el.getAttribute('data-kind') === 'path' ? 'path' : 'attachment') as FileRefKind;
+  const src = el.getAttribute('data-src') ?? '';
+  const name = el.getAttribute('data-name') ?? '';
+  menu.target = { src, name, kind };
+  menu.kind = kind;
+  menu.x = e.clientX;
+  menu.y = e.clientY;
+  menu.visible = true;
+}
+
+async function onMenuAction(action: 'open' | 'reveal' | 'copy-path' | 'delete'): Promise<void> {
+  if (action === 'delete') return; // Viewer 不支持删除
+  const target = menu.target;
+  if (!target) return;
+  const abs = await resolveAbsPath(target.kind, target.src);
+  if (!abs) {
+    ElMessage.error('附件路径解析失败');
+    return;
+  }
+  if (action === 'open') {
+    void openAbsPath(abs);
+  } else if (action === 'reveal') {
+    try {
+      await invokeToolByChannel('tool:system:reveal-in-folder', { path: abs });
+    } catch (err) {
+      ElMessage.error((err as Error).message || '无法定位文件');
+    }
+  } else if (action === 'copy-path') {
+    try {
+      await navigator.clipboard.writeText(abs);
+      ElMessage.success('路径已复制');
+    } catch {
+      ElMessage.error('复制失败');
+    }
+  }
+}
+
+async function resolveAbsPath(kind: FileRefKind, src: string): Promise<string> {
+  if (!src) return '';
+  if (kind === 'path') return src;
+  const dir = await ensureDataDir();
+  if (!dir) return '';
+  return joinLocalPath(dir, src);
+}
+
+async function openFileRef(kind: FileRefKind, src: string): Promise<void> {
+  const abs = await resolveAbsPath(kind, src);
+  if (!abs) {
+    ElMessage.error('附件路径解析失败');
+    return;
+  }
+  await openAbsPath(abs);
+}
+
+async function openAbsPath(absPath: string): Promise<void> {
+  try {
+    await invokeToolByChannel('tool:system:open-local-path', { path: absPath });
+  } catch (err) {
+    const msg = (err as Error).message || '';
+    if (msg.includes('file not found')) {
+      ElMessage.error('文件不存在');
+    } else {
+      ElMessage.error(msg || '无法打开文件');
+    }
+  }
 }
 
 onUnmounted(() => {
@@ -169,6 +332,32 @@ onUnmounted(() => {
   border: none;
   border-top: 1px solid var(--el-border-color);
   margin: 10px 0;
+}
+.rte-viewer :deep(.rte-file-ref) {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 6px;
+  margin: 0 2px;
+  background: var(--el-color-primary-light-9);
+  color: var(--el-color-primary);
+  border-radius: 4px;
+  font-size: 13px;
+  line-height: 1.4;
+  cursor: pointer;
+  border: 1px solid var(--el-color-primary-light-7);
+  user-select: none;
+  white-space: nowrap;
+  vertical-align: baseline;
+}
+.rte-viewer :deep(.rte-file-ref:hover) {
+  background: var(--el-color-primary-light-8);
+}
+.rte-viewer :deep(.rte-file-ref.is-missing) {
+  background: var(--el-color-danger-light-9);
+  color: var(--el-color-danger);
+  border-color: var(--el-color-danger-light-7);
+  text-decoration: line-through;
 }
 .rte-legacy {
   white-space: pre-wrap;

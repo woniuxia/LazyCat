@@ -43,7 +43,14 @@ export function tryParseDoc(raw: string | null | undefined): JSONContent | null 
   }
 }
 
-/** 遍历 doc 收集所有 image 节点的 attId（忽略 null/未落盘占位节点）。 */
+/**
+ * 遍历 doc 收集所有"已落盘附件"的 attId：
+ * - image 节点：attId（历史图片场景）
+ * - fileRef 节点且 kind='attachment'：attId（文件附件场景）
+ *
+ * 忽略 null / 未落盘占位节点。
+ * 用于 `attachments:cleanup_orphans` 的 keepIds 列表。
+ */
 export function walkAttIds(doc: JSONContent | null | undefined): number[] {
   const out = new Set<number>();
   if (!doc) return [];
@@ -52,6 +59,28 @@ export function walkAttIds(doc: JSONContent | null | undefined): number[] {
     if (node.type === 'image' && node.attrs) {
       const v = node.attrs.attId;
       if (typeof v === 'number' && Number.isFinite(v)) out.add(v);
+    } else if (node.type === 'fileRef' && node.attrs && node.attrs.kind !== 'path') {
+      const v = node.attrs.attId;
+      if (typeof v === 'number' && Number.isFinite(v)) out.add(v);
+    }
+    if (Array.isArray(node.content)) node.content.forEach(visit);
+  };
+  visit(doc);
+  return [...out];
+}
+
+/**
+ * 收集所有 kind='path' 的 FileRef 节点的 src（绝对路径）。
+ * 用于 Viewer 挂载后的批量失效检测。
+ */
+export function walkFileRefPaths(doc: JSONContent | null | undefined): string[] {
+  const out = new Set<string>();
+  if (!doc) return [];
+  const visit = (node: JSONContent | undefined) => {
+    if (!node) return;
+    if (node.type === 'fileRef' && node.attrs && node.attrs.kind === 'path') {
+      const v = node.attrs.src;
+      if (typeof v === 'string' && v) out.add(v);
     }
     if (Array.isArray(node.content)) node.content.forEach(visit);
   };
@@ -63,6 +92,10 @@ export function walkAttIds(doc: JSONContent | null | undefined): number[] {
  * 递归克隆 doc：
  * - 对 image.src 是相对路径（不带 scheme）的情况调用 rewrite 得到可访问 URL
  * - 对 link mark 的 href 做 sanitize，拦截 javascript:/data:/file: 等协议
+ *
+ * 注：FileRef 节点的 src 不在此重写。FileRef 的 renderHTML 只输出 data-src 原值，
+ * Viewer 点击时会用 data-kind + data-src 组合自行解析绝对路径，避免 JSON 序列化
+ * 保存回 DB 时污染原始相对路径 / 绝对路径字段。
  */
 export function rewriteLocalSrc(
   doc: JSONContent,
