@@ -4,6 +4,7 @@
     class="rte-viewer"
     @click="onClick"
     @contextmenu="onContextMenu"
+    @dblclick="onImageDblClick"
   >
     <div v-if="parsedDoc" class="rte-prose" v-html="html" />
     <div v-else-if="fallbackText" class="rte-prose rte-legacy">{{ fallbackText }}</div>
@@ -17,6 +18,7 @@
       @close="menu.visible = false"
       @action="onMenuAction"
     />
+    <RteImagePreview v-if="previewSrc" :src="previewSrc" @close="closePreview" />
   </div>
 </template>
 
@@ -32,6 +34,7 @@ import { rewriteLocalSrc, tryParseDoc, walkFileRefPaths } from '../rich/legacy';
 import { ensureDataDir } from '../rich/data-dir';
 import { invokeToolByChannel } from '../bridge/tauri';
 import RteFileRefMenu from './RteFileRefMenu.vue';
+import RteImagePreview from './RteImagePreview.vue';
 
 type FileRefKind = 'attachment' | 'path';
 
@@ -44,6 +47,7 @@ const props = withDefaults(
 );
 
 const containerRef = ref<HTMLElement | null>(null);
+const previewSrc = ref('');
 
 const parsedDoc = computed(() => tryParseDoc(props.value));
 const fallbackText = computed(() => {
@@ -196,6 +200,18 @@ function onClick(e: MouseEvent): void {
   });
 }
 
+function onImageDblClick(e: MouseEvent): void {
+  const target = e.target as Element | null;
+  const img = target?.closest?.('img') as HTMLImageElement | null;
+  if (!img) return;
+  e.preventDefault();
+  previewSrc.value = img.src;
+}
+
+function closePreview(): void {
+  previewSrc.value = '';
+}
+
 function onContextMenu(e: MouseEvent): void {
   const target = e.target as Element | null;
   const el = target?.closest?.('.rte-file-ref') as HTMLElement | null;
@@ -323,6 +339,7 @@ onUnmounted(() => {
   height: auto;
   border-radius: 4px;
   margin: 4px 0;
+  cursor: zoom-in;
 }
 .rte-viewer :deep(a) {
   color: var(--el-color-primary);

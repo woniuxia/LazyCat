@@ -115,6 +115,7 @@
       @close="menu.visible = false"
       @action="onMenuAction"
     />
+    <RteImagePreview v-if="previewSrc" :src="previewSrc" @close="closePreview" />
   </div>
 </template>
 
@@ -129,6 +130,7 @@ import { normalizeLegacy } from '../rich/legacy';
 import { ensureDataDir, joinAttachmentPath } from '../rich/data-dir';
 import { invokeToolByChannel } from '../bridge/tauri';
 import RteFileRefMenu from './RteFileRefMenu.vue';
+import RteImagePreview from './RteImagePreview.vue';
 
 type OwnerType = 'pm_project' | 'pm_item' | 'todo';
 type FileRefKind = 'attachment' | 'path';
@@ -170,6 +172,7 @@ function getEffectiveOwnerId(): string {
 
 const activeBlobs = new Map<string, string>();
 const uploadingCount = ref(0);
+const previewSrc = ref('');
 
 // 右键菜单状态。target 信息从 DOM 反解：
 // - src：附件相对路径 or 本地绝对路径
@@ -238,6 +241,21 @@ const editor = useEditor({
         return true;
       }
       return false;
+    },
+    handleDoubleClick: (_view, pos) => {
+      const node = _view.state.doc.nodeAt(pos);
+      if (!node || node.type.name !== 'image') return false;
+      if (node.attrs?.uploadingId) return false;
+      const dom = _view.nodeDOM(pos);
+      const imgEl =
+        dom instanceof HTMLImageElement
+          ? dom
+          : dom instanceof HTMLElement
+            ? dom.querySelector('img')
+            : null;
+      if (!imgEl || !imgEl.src) return false;
+      previewSrc.value = imgEl.src;
+      return true;
     },
     handleClickOn: (_view, _pos, node, _nodePos, event, _direct) => {
       if (node.type.name !== 'fileRef') return false;
@@ -668,6 +686,12 @@ function collectAttachmentIds(): number[] {
   return [...ids];
 }
 
+// ── 图片预览 ─────────────────────────────────────
+
+function closePreview(): void {
+  previewSrc.value = '';
+}
+
 // ── 右键菜单 & 左键打开 ─────────────────────────────
 
 function onContextMenu(event: MouseEvent): void {
@@ -880,6 +904,10 @@ defineExpose({
   max-width: 100%;
   height: auto;
   border-radius: 4px;
+  cursor: zoom-in;
+}
+.rte-editable :deep(img[data-uploading-id]) {
+  cursor: default;
 }
 .rte-editable :deep(img[data-uploading-id]) {
   opacity: 0.55;
