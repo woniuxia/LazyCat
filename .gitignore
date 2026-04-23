@@ -22,6 +22,9 @@ apps/desktop/src-tauri/WebView2
 .codex
 .superpowers
 
+# Local build cache config
+apps/desktop/src-tauri/.cargo/
+
 # Local preview/screenshot artifacts
 previews/
 /*.png

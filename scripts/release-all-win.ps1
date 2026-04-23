@@ -271,6 +271,72 @@ function Assert-ReleaseVersions {
   throw "Release version mismatch detected: $($details -join '; ')"
 }
 
+function New-LiteNsisFromFull {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$NsisDir,
+    [Parameter(Mandatory = $true)]
+    [string]$OutputPath
+  )
+
+  $fullScript = Join-Path $NsisDir "installer.nsi"
+  $liteScript = Join-Path $NsisDir "installer-lite.nsi"
+
+  if (!(Test-Path $fullScript)) {
+    throw "Full NSIS script not found: $fullScript"
+  }
+
+  $lines = Get-Content $fullScript -Encoding UTF8
+  $filtered = foreach ($line in $lines) {
+    # Skip WebView2 File directives (install section)
+    if ($line -match 'File\s+/a\s+"/oname=WebView2\\') { continue }
+    # Skip WebView2 Delete directives (uninstall section)
+    if ($line -match 'Delete\s+"?\$INSTDIR\\WebView2\\') { continue }
+    # Skip WebView2 RMDir directives (uninstall section)
+    if ($line -match 'RMDir\s+/REBOOTOK\s+"?\$INSTDIR\\WebView2') { continue }
+
+    # Update defines for lite variant
+    if ($line -match '^\s*!define\s+INSTALLWEBVIEW2MODE') {
+      '  !define INSTALLWEBVIEW2MODE "downloadBootstrapper"'
+    }
+    elseif ($line -match '^\s*!define\s+OUTFILE') {
+      '  !define OUTFILE "nsis-output-lite.exe"'
+    }
+    else {
+      $line
+    }
+  }
+
+  $filtered | Set-Content -Encoding UTF8 $liteScript
+
+  $tauriNsisDir = Join-Path $env:LOCALAPPDATA "tauri/NSIS"
+  $makensis = Join-Path $tauriNsisDir "makensis.exe"
+  if (!(Test-Path $makensis)) {
+    throw "makensis.exe not found at: $makensis"
+  }
+
+  Push-Location $NsisDir
+  try {
+    & $makensis $liteScript 2>&1 | ForEach-Object { Write-Host $_ }
+    if ($LASTEXITCODE -ne 0) {
+      throw "makensis failed for lite installer with exit code $LASTEXITCODE"
+    }
+  }
+  finally {
+    Pop-Location
+  }
+
+  $liteOutput = Join-Path $NsisDir "nsis-output-lite.exe"
+  if (!(Test-Path $liteOutput)) {
+    throw "Lite NSIS output not found: $liteOutput"
+  }
+  Copy-Item -Path $liteOutput -Destination $OutputPath -Force
+
+  # Cleanup temp files
+  Remove-Item -Force $liteScript -ErrorAction SilentlyContinue
+  Remove-Item -Force $liteOutput -ErrorAction SilentlyContinue
+}
+
 function Get-CurrentBranch {
   $branch = ((git branch --show-current) | Out-String).Trim()
   if ($LASTEXITCODE -ne 0) {
@@ -367,12 +433,7 @@ try {
       throw "build:web failed with exit code $LASTEXITCODE"
     }
 
-    Write-Host "[2/6] Build slim NSIS installer..."
-    Invoke-InVsDevEnv -Command "pnpm --filter @lazycat/desktop exec tauri build --bundles nsis"
-    $latestSlimSetup = Get-LatestSetupExe -NsisBundleDir $nsisBundleDir
-    Copy-Item -Path $latestSlimSetup -Destination $setupLiteExe -Force
-
-    Write-Host "[3/6] Build integrated NSIS installer (fixedRuntime)..."
+    Write-Host "[2/6] Build integrated NSIS installer (fixedRuntime)..."
     $offlineCfg = Get-Content $tauriConfigPath -Raw | ConvertFrom-Json
     Ensure-ObjectProperty -Target $offlineCfg -Name "bundle" -Value ([pscustomobject]@{})
     Ensure-ObjectProperty -Target $offlineCfg.bundle -Name "windows" -Value ([pscustomobject]@{})
@@ -393,6 +454,10 @@ try {
     }
     $latestFullSetup = Get-LatestSetupExe -NsisBundleDir $nsisBundleDir
     Copy-Item -Path $latestFullSetup -Destination $setupFullExe -Force
+
+    Write-Host "[3/6] Build slim NSIS installer (makensis only)..."
+    $nsisDir = Join-Path $releaseDir "nsis/x64"
+    New-LiteNsisFromFull -NsisDir $nsisDir -OutputPath $setupLiteExe
 
     Write-Host "[4/6] Build portable zip packages..."
     foreach ($dir in @($stageLiteDir, $stageFullDir)) {
