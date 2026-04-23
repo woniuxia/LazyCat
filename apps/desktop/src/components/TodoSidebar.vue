@@ -7,7 +7,7 @@
           size="small"
           link
           type="primary"
-          class="overview-settings-btn"
+          class="clear-btn overview-settings-btn"
           title="基础数据设置"
           aria-label="基础数据设置"
           @click="emit('openBasics')"
@@ -42,6 +42,7 @@
           size="small"
           link
           type="primary"
+          class="clear-btn"
           :disabled="filterType === null"
           @click="emit('update:filterType', null)"
         >
@@ -80,6 +81,7 @@
           size="small"
           link
           type="primary"
+          class="clear-btn"
           :disabled="filterPriority === null"
           @click="emit('update:filterPriority', null)"
         >
@@ -214,6 +216,13 @@ function statsBarWidth(count: number, list: { count: number }[]) {
   justify-content: space-between;
   gap: 8px;
   margin-bottom: 10px;
+}
+.stats-section-header .clear-btn {
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+.stats-section:hover .clear-btn {
+  opacity: 1;
 }
 .stats-section-header .stats-section-title {
   margin-bottom: 0;
