@@ -8,7 +8,7 @@
     <el-form :model="form" label-position="top" size="default" class="pm-item-dialog-form">
       <!-- 所属项目卡片 -->
       <div
-        class="pm-item-project-card"
+        class="pm-item-card pm-item-project-card"
         :class="{
           'pm-item-project-card--switchable': projectSwitcherEnabled,
           'pm-item-project-card--switch-open': projectSwitchMenuVisible,
@@ -92,29 +92,26 @@
       </div>
 
       <!-- 时间安排 -->
-      <div class="pm-item-section pm-item-section--inline">
-        <div class="pm-item-dialog-inline-row">
-          <div class="pm-item-dialog-inline-label">时间安排</div>
-          <div class="pm-item-dialog-inline-content">
-            <el-form-item class="pm-item-dialog-inline-form-item">
-              <el-date-picker
-                v-model="formDateRange"
-                type="daterange"
-                value-format="YYYY-MM-DD"
-                range-separator="~"
-                start-placeholder="开始日期"
-                end-placeholder="截止日期"
-                clearable
-                class="pm-item-dialog-inline-picker"
-              />
-            </el-form-item>
-          </div>
+      <div class="pm-item-card pm-item-dialog-inline-row">
+        <div class="pm-item-dialog-inline-label">时间安排</div>
+        <div class="pm-item-dialog-inline-content">
+          <el-form-item class="pm-item-dialog-inline-form-item">
+            <el-date-picker
+              v-model="formDateRange"
+              type="daterange"
+              value-format="YYYY-MM-DD"
+              range-separator="~"
+              start-placeholder="开始日期"
+              end-placeholder="截止日期"
+              clearable
+              class="pm-item-dialog-inline-picker"
+            />
+          </el-form-item>
         </div>
       </div>
 
       <!-- 链接 -->
-      <div class="pm-item-section pm-item-section--inline">
-        <div class="pm-item-dialog-inline-row pm-item-dialog-inline-row--link">
+      <div class="pm-item-card pm-item-dialog-inline-row pm-item-dialog-inline-row--link">
           <div class="pm-item-dialog-inline-label">链接</div>
           <div class="pm-item-dialog-inline-content pm-item-dialog-inline-content--link">
             <div class="pm-item-dialog-link-main">
@@ -145,7 +142,6 @@
               </div>
             </div>
           </div>
-        </div>
       </div>
 
       <!-- 描述 -->
@@ -164,49 +160,45 @@
       </div>
 
       <!-- 思源关联 -->
-      <div class="pm-item-section">
-        <el-form-item label="思源关联" class="pm-form-item-top">
-          <div class="pm-siyuan-link-card">
-            <div class="pm-siyuan-link-header">
-              <div class="pm-siyuan-link-heading">
-                <div class="pm-siyuan-link-title">思源关联</div>
-                <div class="pm-siyuan-link-subtitle">{{ siyuanLocationSummary }}</div>
-              </div>
-              <div class="pm-siyuan-inline-actions">
-                <el-button size="small" type="primary" plain @click="$emit('open-siyuan-link-picker')">关联页面</el-button>
-              </div>
-            </div>
-            <div v-if="linkedPages.length > 0" class="pm-siyuan-page-list">
-              <div v-for="row in linkedPages" :key="row.page.docId" class="pm-siyuan-page-row">
-                <div class="pm-siyuan-page-main">
-                  <div class="pm-siyuan-page-row-head">
-                    <div class="pm-siyuan-page-title">{{ row.page.docTitle }}</div>
-                    <el-tag v-if="row.kind === 'primary'" size="small" effect="plain" type="primary">主页面</el-tag>
-                  </div>
-                  <div class="pm-siyuan-page-meta">{{ row.page.notebookName }} · {{ row.page.docHpath }}</div>
-                </div>
-                <div class="pm-siyuan-page-actions">
-                  <el-button size="small" link @click="$emit('open-siyuan-page', row.page)">打开</el-button>
-                  <el-dropdown trigger="click" @command="(command) => $emit('siyuan-page-command', row, command)">
-                    <el-button size="small" link class="pm-siyuan-more-trigger">更多</el-button>
-                    <template #dropdown>
-                      <el-dropdown-menu>
-                        <el-dropdown-item v-if="row.kind === 'primary'" command="replace-primary">更换主页面</el-dropdown-item>
-                        <el-dropdown-item v-else command="promote-primary">设为主页面</el-dropdown-item>
-                        <el-dropdown-item command="remove">移除</el-dropdown-item>
-                      </el-dropdown-menu>
-                    </template>
-                  </el-dropdown>
-                </div>
-              </div>
-            </div>
-            <div v-else class="pm-siyuan-empty-inline">尚未关联页面，点击右上角开始关联。</div>
+      <div class="pm-item-card pm-siyuan-link-card">
+        <div class="pm-siyuan-link-header">
+          <div class="pm-siyuan-link-heading">
+            <div class="pm-siyuan-link-title">思源关联</div>
+            <div class="pm-siyuan-link-subtitle">{{ siyuanLocationSummary }}</div>
           </div>
-        </el-form-item>
+          <div class="pm-siyuan-inline-actions">
+            <el-button size="small" type="primary" plain @click="$emit('open-siyuan-link-picker')">关联页面</el-button>
+          </div>
+        </div>
+        <div v-if="linkedPages.length > 0" class="pm-siyuan-page-list">
+          <div v-for="row in linkedPages" :key="row.page.docId" class="pm-siyuan-page-row">
+            <div class="pm-siyuan-page-main">
+              <div class="pm-siyuan-page-row-head">
+                <div class="pm-siyuan-page-title">{{ row.page.docTitle }}</div>
+                <el-tag v-if="row.kind === 'primary'" size="small" effect="plain" type="primary">主页面</el-tag>
+              </div>
+              <div class="pm-siyuan-page-meta">{{ row.page.notebookName }} · {{ row.page.docHpath }}</div>
+            </div>
+            <div class="pm-siyuan-page-actions">
+              <el-button size="small" link @click="$emit('open-siyuan-page', row.page)">打开</el-button>
+              <el-dropdown trigger="click" @command="(command) => $emit('siyuan-page-command', row, command)">
+                <el-button size="small" link class="pm-siyuan-more-trigger">更多</el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item v-if="row.kind === 'primary'" command="replace-primary">更换主页面</el-dropdown-item>
+                    <el-dropdown-item v-else command="promote-primary">设为主页面</el-dropdown-item>
+                    <el-dropdown-item command="remove">移除</el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+            </div>
+          </div>
+        </div>
+        <div v-else class="pm-siyuan-empty-inline">尚未关联页面，点击右上角开始关联。</div>
       </div>
 
       <!-- 流转记录（仅编辑模式） -->
-      <div v-if="editingItem" class="pm-item-section pm-item-section--muted">
+      <div v-if="editingItem" class="pm-item-card">
         <div class="pm-item-section-title">流转记录</div>
         <div class="pm-item-dialog-core-grid">
           <el-form-item label="开始执行" class="pm-item-dialog-inline-field">
@@ -488,6 +480,22 @@ watch(
       // 每次打开对话框：预热 dataDir 并重置 submit 标记
       void ensureDataDir();
       submittedThisRound.value = false;
+      // 新建模式下 editingItem 始终为 null，watch 不会触发，需要在此重置表单
+      if (!props.editingItem) {
+        form.value = {
+          title: "",
+          itemType: "task",
+          priority: "P2",
+          status: "todo",
+          startAt: null,
+          endAt: null,
+          linkUrl: "",
+          description: "",
+          startedAt: null,
+          testingAt: null,
+          completedAt: null,
+        };
+      }
       queueMicrotask(() => {
         const descCurrent = form.value.description ?? "";
         (editorRef.value as any)?.reset?.(descCurrent);
@@ -531,16 +539,14 @@ defineExpose({
   display: flex;
   flex-direction: column;
   gap: 8px;
+  padding-bottom: 4px;
 }
 
-.pm-item-section--inline {
-  gap: 0;
-}
-
-.pm-item-section--muted {
-  background: var(--el-fill-color-lighter);
+.pm-item-card {
+  border: 1px solid rgba(77, 125, 242, 0.12);
   border-radius: 8px;
   padding: 12px;
+  background: rgba(77, 125, 242, 0.04);
 }
 
 .pm-item-section-title {
@@ -562,14 +568,12 @@ defineExpose({
   color: var(--el-text-color-secondary);
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  margin-bottom: 4px;
+  margin-bottom: 0;
+  flex-shrink: 0;
 }
 
 .pm-item-project-card {
-  border: 1px solid var(--el-border-color-light);
-  border-radius: 8px;
-  padding: 12px;
-  background: var(--el-fill-color-lighter);
+  border-color: rgba(77, 125, 242, 0.2);
   transition: border-color 0.2s;
 }
 
@@ -595,6 +599,9 @@ defineExpose({
 .pm-item-project-card-body {
   flex: 1;
   min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .pm-item-project-card-main {
@@ -662,10 +669,6 @@ defineExpose({
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 12px;
-  border: 1px solid var(--el-border-color-lighter);
-  border-radius: 8px;
-  background: var(--el-fill-color-lighter);
 }
 
 .pm-item-dialog-inline-row--link {
@@ -728,13 +731,6 @@ defineExpose({
 }
 
 /* Siyuan styles */
-.pm-siyuan-link-card {
-  border: 1px solid var(--el-border-color-lighter);
-  border-radius: 8px;
-  padding: 12px;
-  background: var(--el-fill-color-lighter);
-}
-
 .pm-siyuan-link-header {
   display: flex;
   align-items: flex-start;
