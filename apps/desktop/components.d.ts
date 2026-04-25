@@ -118,6 +118,7 @@ declare module 'vue' {
     PmTodayView: typeof import('./src/components/PmTodayView.vue')['default']
     PmViewSwitcher: typeof import('./src/components/PmViewSwitcher.vue')['default']
     PortsPanel: typeof import('./src/components/PortsPanel.vue')['default']
+    QuickCapture: typeof import('./src/components/QuickCapture.vue')['default']
     RegexPanel: typeof import('./src/components/RegexPanel.vue')['default']
     ReminderPopup: typeof import('./src/components/ReminderPopup.vue')['default']
     RichDescriptionEditor: typeof import('./src/components/RichDescriptionEditor.vue')['default']

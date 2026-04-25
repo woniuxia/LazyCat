@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Default capability for Lazycat desktop app.",
-  "windows": ["main", "reminder-popup"],
+  "windows": ["main", "reminder-popup", "quick-capture"],
   "permissions": [
     "core:default",
     "core:window:allow-close",

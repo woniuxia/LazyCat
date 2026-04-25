@@ -232,6 +232,7 @@ const snippetsHotkeyInput = ref("");
 const vaultHotkeyInput = ref("");
 const launcherHotkeyInput = ref("");
 const todoHotkeyInput = ref("");
+const quickCaptureHotkeyInput = ref("");
 const shortcutHelp = ref<InstanceType<typeof ShortcutHelpOverlay> | null>(null);
 const topBarRef = ref<InstanceType<typeof TopBar> | null>(null);
 
@@ -329,6 +330,7 @@ const currentComponentProps = computed(() => {
     vaultHotkeyInput: vaultHotkeyInput.value,
     launcherHotkeyInput: launcherHotkeyInput.value,
     todoHotkeyInput: todoHotkeyInput.value,
+    quickCaptureHotkeyInput: quickCaptureHotkeyInput.value,
     homeTopLimit: homeTopLimit.value,
     sidebarItems,
     getHiddenIds,
@@ -341,6 +343,7 @@ const currentComponentProps = computed(() => {
     "onUpdate:vaultHotkeyInput": (v: string) => { vaultHotkeyInput.value = v; },
     "onUpdate:launcherHotkeyInput": (v: string) => { launcherHotkeyInput.value = v; },
     "onUpdate:todoHotkeyInput": (v: string) => { todoHotkeyInput.value = v; },
+    "onUpdate:quickCaptureHotkeyInput": (v: string) => { quickCaptureHotkeyInput.value = v; },
     "onUpdate:homeTopLimit": (v: number) => { homeTopLimit.value = v; },
   };
   return {};
@@ -483,6 +486,11 @@ onMounted(async () => {
   todoHotkeyInput.value = savedTodoHotkey;
   if (savedTodoHotkey) {
     try { await registerNamedHotkey("todo", savedTodoHotkey); } catch { /* ignore */ }
+  }
+  const savedQuickCaptureHotkey = getSetting("hotkey_quick_capture") ?? "Ctrl+Shift+N";
+  quickCaptureHotkeyInput.value = savedQuickCaptureHotkey;
+  if (savedQuickCaptureHotkey) {
+    try { await registerNamedHotkey("quick-capture", savedQuickCaptureHotkey); } catch { /* ignore */ }
   }
   try {
     await listen("main-window-toggle", async () => {

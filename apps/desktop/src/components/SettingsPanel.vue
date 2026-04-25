@@ -133,6 +133,19 @@
             </div>
           </div>
 
+          <div class="setting-item">
+            <div class="setting-label">
+              <span class="label-text">快速捕获</span>
+            </div>
+            <div class="setting-control">
+              <ShortcutRecorder
+                :model-value="quickCaptureHotkeyInput"
+                :check-conflict="makeConflictChecker('quickCaptureHotkeyInput')"
+                @update:model-value="emit('update:quickCaptureHotkeyInput', $event)"
+              />
+            </div>
+          </div>
+
           <div class="setting-actions">
             <el-button type="primary" @click="saveHotkeySettings">保存快捷键</el-button>
             <el-button @click="clearHotkeySettings">清除全部</el-button>
@@ -423,6 +436,7 @@ const props = defineProps<{
   vaultHotkeyInput: string;
   launcherHotkeyInput: string;
   todoHotkeyInput: string;
+  quickCaptureHotkeyInput: string;
   homeTopLimit: number;
   sidebarItems: SidebarItem[];
   getHiddenIds: () => string[];
@@ -438,6 +452,7 @@ const emit = defineEmits<{
   (event: "update:vaultHotkeyInput", value: string): void;
   (event: "update:launcherHotkeyInput", value: string): void;
   (event: "update:todoHotkeyInput", value: string): void;
+  (event: "update:quickCaptureHotkeyInput", value: string): void;
   (event: "update:homeTopLimit", value: number): void;
 }>();
 
@@ -471,6 +486,7 @@ const HOTKEY_FIELDS = [
   { key: "vaultHotkeyInput" as const, label: "密码管理" },
   { key: "launcherHotkeyInput" as const, label: "快捷启动" },
   { key: "todoHotkeyInput" as const, label: "任务清单" },
+  { key: "quickCaptureHotkeyInput" as const, label: "快速捕获" },
 ] as const;
 
 function makeConflictChecker(selfKey: typeof HOTKEY_FIELDS[number]["key"]) {
@@ -547,6 +563,10 @@ async function saveHotkeySettings() {
     await registerNamedHotkey("todo", todo);
     setSetting("hotkey_todo", todo);
 
+    const quickCapture = props.quickCaptureHotkeyInput.trim();
+    await registerNamedHotkey("quick-capture", quickCapture);
+    setSetting("hotkey_quick_capture", quickCapture);
+
     ElMessage.success("快捷键已保存");
   } catch (e) {
     ElMessage.error(`保存失败：${(e as Error).message}`);
@@ -559,17 +579,20 @@ async function clearHotkeySettings() {
   emit("update:vaultHotkeyInput", "");
   emit("update:launcherHotkeyInput", "");
   emit("update:todoHotkeyInput", "");
+  emit("update:quickCaptureHotkeyInput", "");
   try {
     await unregisterHotkey();
     await unregisterNamedHotkey("snippets");
     await unregisterNamedHotkey("vault");
     await unregisterNamedHotkey("launcher");
     await unregisterNamedHotkey("todo");
+    await unregisterNamedHotkey("quick-capture");
     setSetting("hotkey", "");
     setSetting("hotkey_snippets", "");
     setSetting("hotkey_vault", "");
     setSetting("hotkey_launcher", "");
     setSetting("hotkey_todo", "");
+    setSetting("hotkey_quick_capture", "");
     ElMessage.success("快捷键已清除");
   } catch (e) {
     ElMessage.error(`清除失败：${(e as Error).message}`);

@@ -323,10 +323,23 @@ if (!window.location.search.includes('view=reminder-popup')) {
 }
 "#;
 
+const QUICK_CAPTURE_LABEL: &str = "quick-capture";
+const QUICK_CAPTURE_TITLE: &str = "快速捕获";
+const QUICK_CAPTURE_WIDTH: i64 = 520;
+const QUICK_CAPTURE_HEIGHT: i64 = 56;
+const QUICK_CAPTURE_VIEW_SCRIPT: &str = r#"
+window.__LAZYCAT_VIEW__ = 'quick-capture';
+if (!window.location.search.includes('view=quick-capture')) {
+  const hash = window.location.hash || '';
+  window.history.replaceState(window.history.state, '', `${window.location.pathname}?view=quick-capture${hash}`);
+}
+"#;
+
 fn expected_window_title(window_label: &str) -> Option<&'static str> {
     match window_label {
         MAIN_WINDOW_LABEL => Some(MAIN_WINDOW_TITLE),
         REMINDER_POPUP_LABEL => Some(REMINDER_POPUP_TITLE),
+        QUICK_CAPTURE_LABEL => Some(QUICK_CAPTURE_TITLE),
         _ => None,
     }
 }
@@ -410,6 +423,64 @@ fn show_reminder_popup(app: &AppHandle, reminders: Vec<tools::todo::ReminderDisp
         };
 
         position_reminder_popup(&window);
+        let _ = window.show();
+        let _ = window.set_focus();
+        #[cfg(windows)]
+        force_foreground(&window);
+    });
+}
+
+fn quick_capture_url() -> WebviewUrl {
+    if cfg!(debug_assertions) {
+        WebviewUrl::External(
+            "http://localhost:5173/?view=quick-capture"
+                .parse()
+                .expect("valid quick capture dev url"),
+        )
+    } else {
+        WebviewUrl::App("index.html".into())
+    }
+}
+
+fn position_quick_capture(window: &WebviewWindow) {
+    let Ok(Some(monitor)) = window.primary_monitor() else {
+        return;
+    };
+    let size = monitor.size();
+    let x = clamp_i64_to_i32((size.width as i64 - QUICK_CAPTURE_WIDTH) / 2);
+    let y = clamp_i64_to_i32((size.height as i64 - QUICK_CAPTURE_HEIGHT) / 2);
+    let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
+}
+
+fn show_quick_capture(app: &AppHandle) {
+    let app_handle = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        if let Some(window) = app_handle.get_webview_window(QUICK_CAPTURE_LABEL) {
+            position_quick_capture(&window);
+            let _ = window.show();
+            let _ = window.set_focus();
+            #[cfg(windows)]
+            force_foreground(&window);
+            let _ = window.emit("quick-capture-reset", json!({}));
+            return;
+        }
+
+        let builder =
+            WebviewWindowBuilder::new(&app_handle, QUICK_CAPTURE_LABEL, quick_capture_url())
+                .title(QUICK_CAPTURE_TITLE)
+                .inner_size(QUICK_CAPTURE_WIDTH as f64, QUICK_CAPTURE_HEIGHT as f64)
+                .decorations(false)
+                .always_on_top(true)
+                .resizable(false)
+                .skip_taskbar(true)
+                .focused(true)
+                .visible(false)
+                .initialization_script(QUICK_CAPTURE_VIEW_SCRIPT);
+
+        let Ok(window) = builder.build() else {
+            return;
+        };
+        position_quick_capture(&window);
         let _ = window.show();
         let _ = window.set_focus();
         #[cfg(windows)]
@@ -573,6 +644,10 @@ fn sync_all_shortcuts(app: &tauri::AppHandle) -> Result<(), String> {
         manager
             .on_shortcut(sc, move |app_handle, _sc, event| {
                 if event.state != ShortcutState::Pressed {
+                    return;
+                }
+                if name_owned == "quick-capture" {
+                    show_quick_capture(app_handle);
                     return;
                 }
                 handle_main_window_shortcut(app_handle, name_owned.as_str());
