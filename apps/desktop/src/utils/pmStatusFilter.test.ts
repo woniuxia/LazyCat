@@ -20,6 +20,7 @@ const baseItem: PmItem = {
   title: "状态过滤测试",
   description: "",
   linkUrl: null,
+  refCode: null,
   itemType: "task",
   priority: "P2",
   status: "todo",

@@ -1,8 +1,10 @@
 use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use url::Url;
+
+use calamine::{open_workbook_auto, Data, Reader};
 
 use super::helpers::db_conn;
 
@@ -51,6 +53,8 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         "item_today_counts" => crate::tools::pm_today::item_today_counts(payload),
         "item_calendar_range" => crate::tools::pm_calendar::item_calendar_range(payload),
         "item_matrix_bucket" => crate::tools::pm_matrix::item_matrix_bucket(payload),
+        "item_import_preview" => item_import_preview(payload),
+        "item_import" => item_import(payload),
         _ => Err(format!("unsupported pm action: {action}")),
     }
 }
@@ -391,7 +395,7 @@ fn build_item_list_sql(project_id: Option<i64>) -> &'static str {
                 i.siyuan_doc_id, i.siyuan_doc_title, i.siyuan_doc_hpath,
                 i.siyuan_doc_path, i.siyuan_notebook_id, i.siyuan_notebook_name,
                 i.completed_at, i.created_at, i.updated_at, i.link_url,
-                p.name, p.color, i.started_at, i.testing_at
+                p.name, p.color, i.started_at, i.testing_at, i.ref_code
          FROM pm_items i
          LEFT JOIN pm_projects p ON i.project_id = p.id
          WHERE i.project_id = ?1
@@ -404,7 +408,7 @@ fn build_item_list_sql(project_id: Option<i64>) -> &'static str {
                 i.siyuan_doc_id, i.siyuan_doc_title, i.siyuan_doc_hpath,
                 i.siyuan_doc_path, i.siyuan_notebook_id, i.siyuan_notebook_name,
                 i.completed_at, i.created_at, i.updated_at, i.link_url,
-                p.name, p.color, i.started_at, i.testing_at
+                p.name, p.color, i.started_at, i.testing_at, i.ref_code
          FROM pm_items i
          LEFT JOIN pm_projects p ON i.project_id = p.id
          ORDER BY i.pinned DESC, i.sort_order ASC,
@@ -456,6 +460,7 @@ fn item_list(payload: &Value) -> Result<Value, String> {
                 "projectColor": r.get::<_, Option<String>>(22)?,
                 "startedAt": r.get::<_, Option<String>>(23)?,
                 "testingAt": r.get::<_, Option<String>>(24)?,
+                "refCode": r.get::<_, Option<String>>(25)?,
             }))
         })
         .map_err(|e| format!("query item_list: {e}"))?
@@ -614,6 +619,7 @@ fn item_create(payload: &Value) -> Result<Value, String> {
         Some(value) => parse_item_link_url_value(value)?,
         None => None,
     };
+    let ref_code = parse_string(payload, "refCode");
     let item_type = parse_string(payload, "itemType")
         .filter(|v| ITEM_TYPES.contains(&v.as_str()))
         .unwrap_or_else(|| "task".to_string());
@@ -647,17 +653,18 @@ fn item_create(payload: &Value) -> Result<Value, String> {
     let tx = conn.transaction().map_err(|e| format!("item_create begin: {e}"))?;
     tx.execute(
         "INSERT INTO pm_items (
-            project_id, title, description, link_url, item_type, priority, status,
+            project_id, title, description, link_url, ref_code, item_type, priority, status,
             start_at, end_at,
             siyuan_doc_id, siyuan_doc_title, siyuan_doc_hpath, siyuan_doc_path,
             siyuan_notebook_id, siyuan_notebook_name,
             started_at, testing_at, completed_at, created_at, updated_at
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
         params![
             project_id,
             title,
             desc,
             link_url,
+            ref_code,
             item_type,
             priority,
             status,
@@ -749,6 +756,7 @@ fn item_update(payload: &Value) -> Result<Value, String> {
         cur_title,
         cur_desc,
         cur_link_url,
+        cur_ref_code,
         cur_type,
         cur_prio,
         cur_status,
@@ -762,6 +770,7 @@ fn item_update(payload: &Value) -> Result<Value, String> {
         String,
         String,
         Option<String>,
+        Option<String>,
         String,
         String,
         String,
@@ -773,7 +782,7 @@ fn item_update(payload: &Value) -> Result<Value, String> {
         Option<String>,
     ) = conn
         .query_row(
-            "SELECT title, description, link_url, item_type, priority, status, start_at, end_at,
+            "SELECT title, description, link_url, ref_code, item_type, priority, status, start_at, end_at,
                     siyuan_doc_id, siyuan_doc_title, siyuan_doc_hpath,
                     siyuan_doc_path, siyuan_notebook_id, siyuan_notebook_name,
                     started_at, testing_at, completed_at
@@ -789,17 +798,18 @@ fn item_update(payload: &Value) -> Result<Value, String> {
                     r.get(5)?,
                     r.get(6)?,
                     r.get(7)?,
+                    r.get(8)?,
                     crate::tools::pm_siyuan::build_siyuan_page_ref_from_parts(
-                        r.get::<_, Option<String>>(8)?,
                         r.get::<_, Option<String>>(9)?,
                         r.get::<_, Option<String>>(10)?,
                         r.get::<_, Option<String>>(11)?,
                         r.get::<_, Option<String>>(12)?,
                         r.get::<_, Option<String>>(13)?,
+                        r.get::<_, Option<String>>(14)?,
                     ),
-                    r.get(14)?,
                     r.get(15)?,
                     r.get(16)?,
+                    r.get(17)?,
                 ))
             },
         )
@@ -816,6 +826,11 @@ fn item_update(payload: &Value) -> Result<Value, String> {
         parse_item_link_url_value(value)?
     } else {
         cur_link_url
+    };
+    let ref_code = if payload.get("refCode").is_some() {
+        parse_string(payload, "refCode")
+    } else {
+        cur_ref_code
     };
     let item_type = parse_string(payload, "itemType")
         .filter(|v| ITEM_TYPES.contains(&v.as_str()))
@@ -865,16 +880,17 @@ fn item_update(payload: &Value) -> Result<Value, String> {
 
     conn.execute(
         "UPDATE pm_items
-         SET title=?1, description=?2, link_url=?3, item_type=?4, priority=?5, status=?6,
-             start_at=?7, end_at=?8,
-             siyuan_doc_id=?9, siyuan_doc_title=?10, siyuan_doc_hpath=?11,
-             siyuan_doc_path=?12, siyuan_notebook_id=?13, siyuan_notebook_name=?14,
-             started_at=?15, testing_at=?16, completed_at=?17, updated_at=?18
-         WHERE id=?19",
+         SET title=?1, description=?2, link_url=?3, ref_code=?4, item_type=?5, priority=?6, status=?7,
+             start_at=?8, end_at=?9,
+             siyuan_doc_id=?10, siyuan_doc_title=?11, siyuan_doc_hpath=?12,
+             siyuan_doc_path=?13, siyuan_notebook_id=?14, siyuan_notebook_name=?15,
+             started_at=?16, testing_at=?17, completed_at=?18, updated_at=?19
+         WHERE id=?20",
         params![
             title,
             desc,
             link_url,
+            ref_code,
             item_type,
             priority,
             new_status,
@@ -1955,4 +1971,354 @@ mod tests {
         let link = crate::tools::pm_siyuan::build_siyuan_deep_link("20260329120000-abc123").expect("deep link");
         assert_eq!(link, "siyuan://blocks/20260329120000-abc123");
     }
+}
+
+// ── Excel Import ───────────────────────────────────────────
+
+fn cell_to_string(cell: &Data) -> Option<String> {
+    match cell {
+        Data::Empty => None,
+        Data::String(s) => Some(s.trim().to_string()).filter(|v: &String| !v.is_empty()),
+        Data::Float(f) => Some(format!("{f}")),
+        Data::Int(i) => Some(format!("{i}")),
+        Data::Bool(b) => Some(b.to_string()),
+        Data::DateTime(dt) => Some(dt.to_string()),
+        _ => None,
+    }
+}
+
+fn excel_date_to_string(val: &str) -> Option<String> {
+    if val.is_empty() {
+        return None;
+    }
+    // Try ISO format: YYYY-MM-DD or YYYY/MM/DD
+    let cleaned = val.replace('/', "-");
+    if cleaned.len() >= 10 {
+        let parts: Vec<&str> = cleaned.split('-').collect();
+        if parts.len() == 3 {
+            if let (Ok(y), Ok(m), Ok(d)) = (
+                parts[0].parse::<i32>(),
+                parts[1].parse::<u32>(),
+                parts[2].parse::<u32>(),
+            ) {
+                if y > 1900 && m >= 1 && m <= 12 && d >= 1 && d <= 31 {
+                    return Some(format!("{y:04}-{m:02}-{d:02}"));
+                }
+            }
+        }
+    }
+    // Try Excel serial number (e.g. "45678")
+    if let Ok(serial) = val.parse::<f64>() {
+        if serial > 30000.0 && serial < 100000.0 {
+            // Excel serial: days since 1900-01-01 (with the Lotus 1-2-3 bug)
+            let base = chrono::NaiveDate::from_ymd_opt(1899, 12, 30).unwrap();
+            let date = base + chrono::Duration::days(serial as i64);
+            return Some(date.format("%Y-%m-%d").to_string());
+        }
+    }
+    None
+}
+
+fn item_import_preview(payload: &Value) -> Result<Value, String> {
+    let file_path = parse_string(payload, "filePath").ok_or("filePath is required")?;
+    let mut workbook =
+        open_workbook_auto(&file_path).map_err(|e| format!("无法打开 Excel 文件: {e}"))?;
+
+    let sheet_names: Vec<String> = workbook.sheet_names().to_vec();
+    let first_sheet = sheet_names
+        .first()
+        .ok_or("Excel 文件没有工作表")?
+        .clone();
+
+    let range = workbook
+        .worksheet_range(&first_sheet)
+        .map_err(|e| format!("无法读取工作表: {e}"))?;
+
+    let mut rows_iter = range.rows();
+    let headers: Vec<String> = rows_iter
+        .next()
+        .map(|row| {
+            row.iter()
+                .enumerate()
+                .map(|(i, cell)| {
+                    cell_to_string(cell).unwrap_or_else(|| format!("列{}", i + 1))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let sample_rows: Vec<Vec<String>> = rows_iter
+        .take(5)
+        .map(|row| {
+            row.iter()
+                .map(|cell| cell_to_string(cell).unwrap_or_default())
+                .collect()
+        })
+        .collect();
+
+    Ok(json!({
+        "sheetNames": sheet_names,
+        "headers": headers,
+        "sampleRows": sample_rows,
+    }))
+}
+
+fn item_import(payload: &Value) -> Result<Value, String> {
+    let file_path = parse_string(payload, "filePath").ok_or("filePath is required")?;
+
+    let mapping = payload
+        .get("mapping")
+        .ok_or("mapping is required")?;
+    let title_col = parse_string(mapping, "title").ok_or("mapping.title is required")?;
+    let project_name_col = parse_string(mapping, "projectName");
+    let start_at_col = parse_string(mapping, "startAt");
+    let end_at_col = parse_string(mapping, "endAt");
+    let desc_a_col = parse_string(mapping, "descriptionA");
+    let desc_b_col = parse_string(mapping, "descriptionB");
+    let ref_code_col = parse_string(mapping, "refCode");
+
+    let filters: Vec<Value> = payload
+        .get("filters")
+        .and_then(|f| f.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    let mut workbook =
+        open_workbook_auto(&file_path).map_err(|e| format!("无法打开 Excel 文件: {e}"))?;
+    let first_sheet = workbook
+        .sheet_names()
+        .first()
+        .ok_or("Excel 文件没有工作表")?
+        .clone();
+    let range = workbook
+        .worksheet_range(&first_sheet)
+        .map_err(|e| format!("无法读取工作表: {e}"))?;
+
+    let mut rows_iter = range.rows();
+    let header_row = match rows_iter.next() {
+        Some(row) => row,
+        None => return Ok(json!({ "imported": 0, "skippedDuplicate": 0, "skippedFilter": 0, "skippedEmptyTitle": 0 })),
+    };
+
+    // Build column index map
+    let col_index: HashMap<String, usize> = header_row
+        .iter()
+        .enumerate()
+        .filter_map(|(i, cell)| cell_to_string(cell).map(|s| (s, i)))
+        .collect();
+
+    let title_idx = col_index
+        .get(&title_col)
+        .ok_or(format!("映射列 '{title_col}' 在 Excel 中不存在"))?;
+    let start_at_idx = start_at_col.as_ref().and_then(|c| col_index.get(c));
+    let end_at_idx = end_at_col.as_ref().and_then(|c| col_index.get(c));
+    let desc_a_idx = desc_a_col.as_ref().and_then(|c| col_index.get(c));
+    let desc_b_idx = desc_b_col.as_ref().and_then(|c| col_index.get(c));
+    let ref_code_idx = ref_code_col.as_ref().and_then(|c| col_index.get(c));
+    let project_name_idx = project_name_col.as_ref().and_then(|c| col_index.get(c));
+
+    // Build filter column indices
+    let filter_specs: Vec<(usize, String, String)> = filters
+        .iter()
+        .filter_map(|f| {
+            let col_name = f.get("column")?.as_str()?.to_string();
+            let idx = col_index.get(&col_name)?;
+            let op = f.get("operator")?.as_str()?.to_string();
+            let val = f.get("value")?.as_str()?.to_string();
+            Some((*idx, op, val))
+        })
+        .collect();
+
+    // Load existing ref_codes for dedup
+    let mut conn = db_conn()?;
+    let existing_refs: HashSet<String> = {
+        let mut stmt = conn
+            .prepare("SELECT ref_code FROM pm_items WHERE ref_code IS NOT NULL")
+            .map_err(|e| format!("加载已有编号: {e}"))?;
+        let refs: HashSet<String> = stmt
+            .query_map([], |r| r.get::<_, String>(0))
+            .map_err(|e| format!("查询已有编号: {e}"))?
+            .filter_map(|r| r.ok())
+            .collect();
+        drop(stmt);
+        refs
+    };
+
+    let mut imported = 0u32;
+    let mut skipped_duplicate = 0u32;
+    let mut skipped_filter = 0u32;
+    let mut skipped_empty_title = 0u32;
+    let mut skipped_no_project = 0u32;
+    let mut projects_created = 0u32;
+    let now = now_rfc3339();
+
+    let tx = conn
+        .transaction()
+        .map_err(|e| format!("import begin: {e}"))?;
+
+    // Load project name -> id map
+    let mut project_map: HashMap<String, i64> = {
+        let mut stmt = tx
+            .prepare("SELECT id, name FROM pm_projects")
+            .map_err(|e| format!("加载项目列表: {e}"))?;
+        let map: HashMap<String, i64> = stmt
+            .query_map([], |r| Ok((r.get::<_, String>(1)?, r.get::<_, i64>(0)?)))
+            .map_err(|e| format!("查询项目列表: {e}"))?
+            .filter_map(|r| r.ok())
+            .collect();
+        drop(stmt);
+        map
+    };
+
+    // Default project for rows without project name
+    let default_project_id: Option<i64> = if project_name_idx.is_none() {
+        project_map.values().next().copied()
+    } else {
+        None
+    };
+
+    let mut create_project_stmt = tx.prepare(
+        "INSERT INTO pm_projects (name, description, color, created_at, updated_at)
+         VALUES (?1, '', '#409eff', ?2, ?3)",
+    ).map_err(|e| format!("prepare create project: {e}"))?;
+
+    {
+        let mut insert_stmt = tx.prepare(
+            "INSERT INTO pm_items (
+                project_id, title, description, ref_code, item_type, priority, status,
+                start_at, end_at,
+                started_at, testing_at, completed_at, created_at, updated_at
+             ) VALUES (?1, ?2, ?3, ?4, 'task', 'P2', 'todo', ?5, ?6, NULL, NULL, NULL, ?7, ?8)",
+        ).map_err(|e| format!("prepare insert: {e}"))?;
+
+        for row in rows_iter {
+            // Get title
+            let title = row
+                .get(*title_idx)
+                .and_then(|cell| cell_to_string(cell))
+                .unwrap_or_default();
+
+            if title.is_empty() {
+                skipped_empty_title += 1;
+                continue;
+            }
+
+            // Resolve project_id
+            let project_id = if let Some(&pidx) = project_name_idx {
+                let pname = row
+                    .get(pidx)
+                    .and_then(|cell| cell_to_string(cell))
+                    .unwrap_or_default();
+                if pname.is_empty() {
+                    skipped_no_project += 1;
+                    continue;
+                }
+                if let Some(&pid) = project_map.get(&pname) {
+                    pid
+                } else {
+                    create_project_stmt
+                        .execute(params![pname, now, now])
+                        .map_err(|e| format!("创建项目 '{pname}': {e}"))?;
+                    let pid = tx.last_insert_rowid();
+                    project_map.insert(pname, pid);
+                    projects_created += 1;
+                    pid
+                }
+            } else if let Some(pid) = default_project_id {
+                pid
+            } else {
+                skipped_no_project += 1;
+                continue;
+            };
+
+            // Get ref_code and check duplicate
+            let ref_code = ref_code_idx.and_then(|&i| row.get(i)).and_then(|cell| cell_to_string(cell));
+            if let Some(ref rc) = ref_code {
+                if existing_refs.contains(rc) {
+                    skipped_duplicate += 1;
+                    continue;
+                }
+            }
+
+            // Apply filters (keep mode: only rows matching all rules are kept)
+            let mut matched = true;
+            for &(idx, ref op, ref val) in &filter_specs {
+                let cell_val = row
+                    .get(idx)
+                    .and_then(|cell| cell_to_string(cell))
+                    .unwrap_or_default();
+                let cell_lower = cell_val.to_lowercase();
+                let val_lower = val.to_lowercase();
+                let rule_match = match op.as_str() {
+                    "contains" => cell_lower.contains(&val_lower),
+                    "not_contains" => !cell_lower.contains(&val_lower),
+                    "equals" => cell_lower == val_lower,
+                    "not_equals" => cell_lower != val_lower,
+                    "empty" => cell_val.is_empty(),
+                    "not_empty" => !cell_val.is_empty(),
+                    _ => true,
+                };
+                if !rule_match {
+                    matched = false;
+                    break;
+                }
+            }
+            if !matched {
+                skipped_filter += 1;
+                continue;
+            }
+
+            // Build description
+            let desc_a = desc_a_idx
+                .and_then(|&i| row.get(i))
+                .and_then(|cell| cell_to_string(cell));
+            let desc_b = desc_b_idx
+                .and_then(|&i| row.get(i))
+                .and_then(|cell| cell_to_string(cell));
+            let description = match (desc_a, desc_b) {
+                (Some(a), Some(b)) => format!("{a}\n\n{b}"),
+                (Some(a), None) => a,
+                (None, Some(b)) => b,
+                _ => String::new(),
+            };
+
+            // Parse dates
+            let start_at = start_at_idx
+                .and_then(|&i| row.get(i))
+                .and_then(|cell| cell_to_string(cell))
+                .and_then(|v| excel_date_to_string(&v));
+            let end_at = end_at_idx
+                .and_then(|&i| row.get(i))
+                .and_then(|cell| cell_to_string(cell))
+                .and_then(|v| excel_date_to_string(&v));
+
+            insert_stmt
+                .execute(params![
+                    project_id,
+                    title,
+                    description,
+                    ref_code,
+                    start_at,
+                    end_at,
+                    now,
+                    now,
+                ])
+                .map_err(|e| format!("insert row: {e}"))?;
+
+            imported += 1;
+        }
+        drop(create_project_stmt);
+    }
+
+    tx.commit()
+        .map_err(|e| format!("import commit: {e}"))?;
+
+    Ok(json!({
+        "imported": imported,
+        "skippedDuplicate": skipped_duplicate,
+        "skippedFilter": skipped_filter,
+        "skippedEmptyTitle": skipped_empty_title,
+        "skippedNoProject": skipped_no_project,
+        "projectsCreated": projects_created,
+    }))
 }

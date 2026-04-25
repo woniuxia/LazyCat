@@ -269,6 +269,8 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:pm:item-today-counts": { domain: "pm", action: "item_today_counts" },
   "tool:pm:item-calendar-range": { domain: "pm", action: "item_calendar_range" },
   "tool:pm:item-matrix-bucket": { domain: "pm", action: "item_matrix_bucket" },
+  "tool:pm:item-import-preview": { domain: "pm", action: "item_import_preview" },
+  "tool:pm:item-import": { domain: "pm", action: "item_import" },
   "tool:todo:pm-candidates": { domain: "todo", action: "pm_candidates" },
   "tool:todo:item-set-pm-link": { domain: "todo", action: "item_set_pm_link" },
   "tool:attachments:save":             { domain: "attachments", action: "save" },

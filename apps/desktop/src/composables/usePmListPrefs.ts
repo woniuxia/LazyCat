@@ -4,6 +4,7 @@ import type { PmContextId } from "./usePmViewMemory";
 
 export type PmListColId =
   | "title"
+  | "refCode"
   | "project"
   | "itemType"
   | "priority"
@@ -27,6 +28,7 @@ export interface PmListFilters {
 
 export const ALL_LIST_COLS: PmListColId[] = [
   "title",
+  "refCode",
   "project",
   "itemType",
   "priority",
@@ -44,6 +46,7 @@ export const ALL_LIST_COLS: PmListColId[] = [
 
 export const COL_LABELS: Record<PmListColId, string> = {
   title: "标题",
+  refCode: "编号",
   project: "项目",
   itemType: "类型",
   priority: "优先级",

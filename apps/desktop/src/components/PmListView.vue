@@ -333,6 +333,17 @@
             </el-table-column>
 
             <el-table-column
+              v-if="colVisible('refCode')"
+              label="编号"
+              width="110"
+              prop="refCode"
+            >
+              <template #default="{ row }">
+                <span v-if="row.refCode" class="cell-ref-code">{{ row.refCode }}</span>
+              </template>
+            </el-table-column>
+
+            <el-table-column
               v-if="colVisible('itemType')"
               label="类型"
               width="92"
@@ -1801,6 +1812,11 @@ async function onBatchDelete() {
   padding: 0 6px;
   border: 1px solid;
   border-radius: 4px;
+}
+.cell-ref-code {
+  font-size: 11px;
+  color: var(--el-text-color-secondary);
+  font-family: monospace;
 }
 .cell-editable {
   cursor: pointer;

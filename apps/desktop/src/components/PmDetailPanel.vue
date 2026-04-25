@@ -22,7 +22,10 @@
             </div>
             <el-tag v-if="isOverdue(item)" size="small" effect="light" type="danger">已逾期</el-tag>
           </div>
-          <div class="detail-item-title">{{ item.title }}</div>
+          <div class="detail-item-title">
+            <span v-if="item.refCode" class="detail-ref-code">{{ item.refCode }}</span>
+            {{ item.title }}
+          </div>
           <div class="detail-field-inline">
             <el-tag
               size="small"
@@ -461,6 +464,13 @@ async function openItemLink(url: string | null | undefined) {
   font-size: 18px;
   font-weight: 700;
   color: var(--pm-text-main);
+}
+.detail-ref-code {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--el-text-color-secondary);
+  font-family: monospace;
+  margin-right: 6px;
 }
 
 .detail-field-inline {

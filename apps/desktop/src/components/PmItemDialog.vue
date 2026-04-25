@@ -66,6 +66,9 @@
         <el-form-item label="标题">
           <el-input v-model="form.title" placeholder="工作项标题" />
         </el-form-item>
+        <el-form-item label="编号">
+          <el-input v-model="form.refCode" placeholder="可选，用于外部系统关联和去重" clearable />
+        </el-form-item>
         <div class="pm-item-dialog-core-grid">
           <el-form-item label="类型" class="pm-item-dialog-inline-field">
             <el-select v-model="form.itemType">
@@ -273,6 +276,7 @@ const emit = defineEmits<{
 
 const form = ref({
   title: "",
+  refCode: "" as string,
   itemType: "task" as PmItemType,
   priority: "P2" as PmPriority,
   status: "todo" as PmItemStatus,
@@ -433,6 +437,7 @@ watch(() => props.editingItem, (item) => {
     const normalizedDateRange = normalizePmDateRangeForDraft(item.startAt, item.endAt);
     form.value = {
       title: item.title,
+      refCode: item.refCode ?? "",
       itemType: item.itemType,
       priority: item.priority,
       status: item.status,
@@ -447,6 +452,7 @@ watch(() => props.editingItem, (item) => {
   } else {
     form.value = {
       title: "",
+      refCode: "",
       itemType: "task",
       priority: "P2",
       status: "todo",

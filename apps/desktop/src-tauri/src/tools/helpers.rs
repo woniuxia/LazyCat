@@ -135,6 +135,7 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
     let _ = conn
         .execute_batch("ALTER TABLE pm_items ADD COLUMN siyuan_notebook_name TEXT DEFAULT NULL;");
     let _ = conn.execute_batch("ALTER TABLE pm_items ADD COLUMN link_url TEXT DEFAULT NULL;");
+    let _ = conn.execute_batch("ALTER TABLE pm_items ADD COLUMN ref_code TEXT DEFAULT NULL;");
 
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS hosts_profiles (
@@ -432,6 +433,7 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
             title TEXT NOT NULL,
             description TEXT NOT NULL DEFAULT '',
             link_url TEXT DEFAULT NULL,
+            ref_code TEXT DEFAULT NULL,
             item_type TEXT NOT NULL DEFAULT 'task' CHECK (item_type IN ('task', 'bug', 'feature', 'improvement')),
             priority TEXT NOT NULL DEFAULT 'P2' CHECK (priority IN ('P0', 'P1', 'P2', 'P3')),
             status TEXT NOT NULL DEFAULT 'todo' CHECK (status IN ('todo', 'in_progress', 'testing', 'done')),
@@ -462,6 +464,8 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
             ON pm_items(status);
         CREATE INDEX IF NOT EXISTS idx_pm_items_updated_at
             ON pm_items(updated_at);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_pm_items_ref_code
+            ON pm_items(ref_code) WHERE ref_code IS NOT NULL;
 
         CREATE TABLE IF NOT EXISTS pm_item_tags (
             item_id INTEGER NOT NULL,

@@ -4,16 +4,6 @@
       <div class="pm-layout">
       <!-- Left: Project list -->
       <aside class="pm-sidebar">
-        <div class="sidebar-header">
-          <div>
-            <div class="sidebar-eyebrow">项目管理</div>
-          </div>
-          <el-button class="sidebar-create-btn" type="primary" @click="projectDialogRef?.showCreate()">
-            <el-icon><Plus /></el-icon>
-            新建
-          </el-button>
-        </div>
-
         <div
           class="sidebar-today-card"
           :class="{ 'is-active': viewId === 'today' }"
@@ -52,6 +42,10 @@
         <div v-if="sidebarProjects.length > 0" class="sidebar-projects">
           <div class="sidebar-projects-head">
             <span class="sidebar-projects-title">全部项目</span>
+            <el-button class="sidebar-create-btn" type="primary" @click="projectDialogRef?.showCreate()">
+              <el-icon><Plus /></el-icon>
+              新建
+            </el-button>
           </div>
           <div
             v-for="p in sidebarProjects"
@@ -79,6 +73,15 @@
 
         <div v-if="projects.length === 0" class="empty-hint">
           暂无项目，点击 + 创建
+        </div>
+
+        <div class="sidebar-footer">
+          <button class="sidebar-footer-btn" @click="showSettingsDrawer = true">
+            <span class="sidebar-footer-btn-icon" aria-hidden="true">
+              <el-icon><Setting /></el-icon>
+            </span>
+            <span class="sidebar-footer-btn-text">导入与设置</span>
+          </button>
         </div>
       </aside>
 
@@ -151,7 +154,6 @@
                       <el-option v-for="column in PM_STATUS_COLUMNS" :key="column.key" :label="column.label" :value="column.key" />
                     </el-select>
                   </div>
-                  <el-button class="pm-toolbar-secondary-btn" type="default" @click="openSiyuanDrawer">思源设置</el-button>
                 </div>
               </div>
             </div>
@@ -322,7 +324,11 @@
       @close="closeCtxMenu"
     />
 
-    <PmSiyuanDrawer />
+    <PmSettingsDrawer
+      v-model="showSettingsDrawer"
+      @imported="onImported"
+    />
+
     </el-config-provider>
   </div>
 </template>
@@ -331,7 +337,7 @@
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount, reactive, provide } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import zhCn from "element-plus/es/locale/lang/zh-cn";
-import { Plus, Close, Search } from "@element-plus/icons-vue";
+import { Plus, Close, Search, Setting } from "@element-plus/icons-vue";
 import { useToolInvoke } from "../composables/useToolInvoke";
 import { getSetting, getSettingJson, setSetting, setSettingJson } from "../composables/useSettings";
 import type {
@@ -353,7 +359,6 @@ import { PM_STATUS_COLUMNS, PM_ITEM_TYPE_MAP, PM_PRIORITY_MAP } from "../types/p
 import PmGanttView from "./PmGanttView.vue";
 import PmItemDialog from "./PmItemDialog.vue";
 import PmDetailPanel from "./PmDetailPanel.vue";
-import PmSiyuanDrawer from "./PmSiyuanDrawer.vue";
 import PmProjectDialog from "./PmProjectDialog.vue";
 import InlineTodoList from "./InlineTodoList.vue";
 import PmContextMenu from "./PmContextMenu.vue";
@@ -363,6 +368,7 @@ import PmTodayView from "./PmTodayView.vue";
 import PmListView from "./PmListView.vue";
 import PmCalendarView from "./PmCalendarView.vue";
 import PmMatrixView from "./PmMatrixView.vue";
+import PmSettingsDrawer from "./PmSettingsDrawer.vue";
 import { usePmSiyuan } from "../composables/usePmSiyuan";
 import { PM_SIYUAN_KEY } from "../composables/pmSiyuanKey";
 import type { ItemSiyuanLinkedRow } from "../composables/usePmSiyuan";
@@ -413,6 +419,7 @@ const projectDialogRef = ref<InstanceType<typeof PmProjectDialog> | null>(null);
 
 // Item dialog
 const itemDialogVisible = ref(false);
+const showSettingsDrawer = ref(false);
 const editingItem = ref<PmItem | null>(null);
 const itemFormProjectId = ref<number | null>(null);
 const itemPrimaryPage = ref<PmSiyuanPageRef | null>(null);
@@ -766,6 +773,12 @@ async function onProjectsChanged({ deletedProjectId }: { deletedProjectId?: numb
 
 // ── Item CRUD ────────────────────────────────────────────
 
+async function onImported() {
+  await loadProjects();
+  await loadItems();
+  await loadItemCounts();
+}
+
 function showCreateItem() {
   if (!canCreateItemsInCurrentContext.value) {
     ElMessage.warning(createItemBlockedReason.value || "当前项目不能接收工作项");
@@ -832,6 +845,7 @@ function formatItemTimestampValue(value: string | Date | null | undefined): stri
 
 async function submitItem(form: {
   title: string;
+  refCode?: string;
   itemType: PmItemType;
   priority: PmPriority;
   status: PmItemStatus;
@@ -851,6 +865,7 @@ async function submitItem(form: {
     const normalizedDateRange = normalizePmDateRangeForDraft(form.startAt, form.endAt);
     const payload: Record<string, unknown> = {
       title: form.title,
+      refCode: form.refCode?.trim() || null,
       itemType: form.itemType,
       priority: form.priority,
       status: form.status,
@@ -1191,6 +1206,8 @@ onBeforeUnmount(() => {
 
 /* Sidebar */
 .pm-sidebar {
+  display: flex;
+  flex-direction: column;
   width: 200px;
   min-width: 200px;
   border-right: 1px solid var(--el-border-color-lighter);
@@ -1198,11 +1215,67 @@ onBeforeUnmount(() => {
   overflow-y: auto;
   background: var(--el-bg-color);
 }
-.sidebar-header {
+.sidebar-footer {
+  margin-top: auto;
+  padding: 10px 10px 4px;
+  border-top: 1px solid var(--pm-edge);
+}
+
+.sidebar-footer-btn {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 0 12px 8px;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid var(--pm-edge-soft);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--pm-text-muted);
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  transition:
+    border-color 0.18s ease,
+    background 0.18s ease,
+    color 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.18s ease;
+}
+
+.sidebar-footer-btn:hover {
+  border-color: rgba(77, 125, 242, 0.28);
+  background: rgba(255, 255, 255, 0.95);
+  color: var(--pm-accent);
+  box-shadow: 0 8px 18px rgba(77, 125, 242, 0.1);
+  transform: translateY(-1px);
+}
+
+.sidebar-footer-btn:active {
+  transform: translateY(0);
+  box-shadow: none;
+}
+
+.sidebar-footer-btn-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: rgba(77, 125, 242, 0.08);
+  color: var(--pm-accent);
+  font-size: 15px;
+  flex-shrink: 0;
+  transition: background 0.18s ease;
+}
+
+.sidebar-footer-btn:hover .sidebar-footer-btn-icon {
+  background: rgba(77, 125, 242, 0.14);
+}
+
+.sidebar-footer-btn-text {
+  font-weight: 500;
+  white-space: nowrap;
 }
 .sidebar-title {
   font-weight: 600;
@@ -1406,28 +1479,11 @@ onBeforeUnmount(() => {
   background: linear-gradient(180deg, #f8fbff 0%, #f1f5fb 100%);
 }
 
-.sidebar-header {
-  position: relative;
-  padding: 0 2px 14px;
-  margin-bottom: 10px;
-}
-
-.sidebar-eyebrow {
-  margin-bottom: 4px;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  color: var(--pm-text-muted);
-}
-
 .sidebar-create-btn {
-  position: absolute;
-  right: 2px;
-  top: 2px;
-  min-height: 36px;
-  padding-inline: 14px;
-  border-radius: 12px;
-  box-shadow: 0 10px 22px rgba(77, 125, 242, 0.2);
+  min-height: 28px;
+  padding-inline: 10px;
+  border-radius: 10px;
+  box-shadow: 0 8px 16px rgba(77, 125, 242, 0.2);
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
@@ -1437,10 +1493,11 @@ onBeforeUnmount(() => {
     visibility 0.18s ease,
     transform 0.18s ease,
     box-shadow 0.18s ease;
+  font-size: 12px;
 }
 
-.sidebar-header:hover .sidebar-create-btn,
-.sidebar-header:focus-within .sidebar-create-btn {
+.sidebar-projects-head:hover .sidebar-create-btn,
+.sidebar-projects-head:focus-within .sidebar-create-btn {
   opacity: 1;
   visibility: visible;
   pointer-events: auto;
@@ -1588,6 +1645,7 @@ onBeforeUnmount(() => {
 
 .sidebar-projects-head {
   padding: 0 2px;
+  position: relative;
 }
 
 .sidebar-projects-title {

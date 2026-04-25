@@ -42,6 +42,7 @@ export interface PmItem {
   title: string;
   description: string;
   linkUrl: string | null;
+  refCode: string | null;
   itemType: PmItemType;
   priority: PmPriority;
   status: PmItemStatus;
@@ -191,4 +192,52 @@ export interface CtxMenuAction {
   action: () => void | Promise<void>;
   danger?: boolean;
   divider?: boolean;
+}
+
+// ── PM Import Types ────────────────────────────────────────
+
+export type ImportFilterOperator =
+  | "contains"
+  | "not_contains"
+  | "equals"
+  | "not_equals"
+  | "empty"
+  | "not_empty";
+
+export interface PmImportFilterRule {
+  column: string;
+  operator: ImportFilterOperator;
+  value: string;
+}
+
+export interface PmImportMapping {
+  title: string;
+  projectName?: string | null;
+  startAt?: string | null;
+  endAt?: string | null;
+  descriptionA?: string | null;
+  descriptionB?: string | null;
+  refCode?: string | null;
+}
+
+export interface PmImportTemplate {
+  id: string;
+  name: string;
+  mapping: PmImportMapping;
+  filters: PmImportFilterRule[];
+}
+
+export interface PmImportPreview {
+  sheetNames: string[];
+  headers: string[];
+  sampleRows: string[][];
+}
+
+export interface PmImportResult {
+  imported: number;
+  skippedDuplicate: number;
+  skippedFilter: number;
+  skippedEmptyTitle: number;
+  skippedNoProject: number;
+  projectsCreated: number;
 }
