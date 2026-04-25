@@ -41,10 +41,12 @@
 
 - 要看项目背景、目录或命令：看 `03`
 - 要理解调用链路、前后端边界或新增工具入口：看 `04`
+- 要改富文本编辑器或附件相关：看 `04.8`
 - 要改 Element Plus 样式：看 `05.1`
 - 要处理中文乱码、编码或写文件问题：看 `05.2`
 - 要查数据目录、迁移与备份策略：看 `05.3`
 - 要新增离线手册：看 `05.4`
+- 要看通用工程模式和约定：看 `05.5`
 - 要看 Windows 构建、便携包、WebView2 或正式发版：看 `06`
 - 要看协作纪律、可视化辅助和 `process.md` 规则：看 `07`
 - 要按场景执行防错检查：看 `07.4` 到 `07.7`
@@ -95,16 +97,20 @@
 ```text
 apps/desktop/                    Tauri 桌面应用
   src-tauri/                     Rust 后端
-    src/tools/                   工具域模块、mod.rs、helpers.rs
+    src/tools/                   工具域模块（42 个 .rs）、mod.rs、helpers.rs
   src/components/                Vue 面板组件
   src/composables/               状态管理 composables
+  src/rich/                      TipTap 富文本支持层（extensions / legacy / data-dir）
+  src/styles/                    CSS 分层（tokens / reset / layout / theme-light / element-overrides 等）
+  src/types/                     集中类型定义（pm / todo / inbox / cron / hosts 等）
+  src/utils/                     纯函数工具集（含对应 .test.ts）
   src/bridge/tauri.ts            IPC 通道映射
   src/tool-registry.ts           工具 ID -> 异步组件注册
 packages/formatters/             Prettier standalone（唯一实际使用 package）
 resources/manuals/               离线手册（Vue 3、Element Plus、MDN JavaScript）
 resources/regex-library/         内置正则模板
 resources/hotkey-library/        快捷键库资源
-scripts/                         构建脚本（build-tauri-win.ps1、release-all-win.ps1、scrape-mdn-js.mjs）
+scripts/                         构建与发布脚本
 ```
 
 ### 03.3 本地命令
@@ -152,18 +158,31 @@ scripts/                         构建脚本（build-tauri-win.ps1、release-al
 
 ### 04.4 关键 Composables
 
+通用：
 - `useToolInvoke`：IPC 调用包装，管理 loading / error 状态。
 - `useTabs`：标签页管理，支持打开、切换、关闭和快捷键切换。
-- `useSettings`：设置读写持久化。
+- `useSettings`：设置读写持久化（同时导出 `getSetting` / `setSetting` 等独立函数）。
 - `useFavorites`：收藏夹与点击历史，驱动高频推荐。
 - `useMenuVisibility`：侧边栏显隐管理。
 - `useClipboardSuggestion`：剪贴板智能检测与工具推荐。
+
+PM 域：
+- `pmViewRegistry`：视图注册表（kanban / gantt / today / list / calendar / matrix），新增视图只改此文件。
+- `usePmViewMemory`：按上下文（overview / project-<id>）记忆当前视图，读写 `user_settings`。
+- `usePmNavigation`：工作项聚焦/导航请求状态。
+- `usePmListPrefs`：列表视图列可见性偏好。
+- `usePmTodoLinking`：PM-Todo 打通（候选查询、关联/取消）。
+- `usePmSiyuan`：思源集成（抽屉显隐、导入导出、页面关联）。
+
+其他域：
+- `useTodoItem`：Todo 事项数据归一化纯函数（无响应式状态）。
+- `useRichDescriptionLifecycle`：富文本编辑器附件生命周期（临时绑定、孤儿清理、保存前整理）。
 
 ### 04.5 持久化与格式化
 
 - XML / HTML / Java / SQL 格式化在 Rust 端为直通模式，核心依赖 `@lazycat/formatters`（Prettier standalone + 显式解析器插件）。
 - `user_settings` 主要存储用户偏好与配置项。
-- 业务数据按域存储在独立表中，例如 `hosts_profiles`、`snippet_*`、`vault_*`、`launcher_entries`、`todo_items`。
+- 业务数据按域存储在独立表中，例如 `hosts_profiles`、`snippet_*`、`vault_*`、`launcher_entries`、`todo_items`、`pm_items`、`inbox_*`、`attachments`（内容寻址附件存储，服务富文本编辑器）。
 
 ### 04.6 新增工具标准流程
 
@@ -191,6 +210,17 @@ scripts/                         构建脚本（build-tauri-win.ps1、release-al
   - `item_batch_update`：列表视图批量改 `status/priority/project/pinned`，事务中一次写入。
 - 性能索引已在 `helpers.rs` 建好：`idx_pm_items_project_status`、`idx_pm_items_end_at`、`idx_pm_items_status`、`idx_pm_items_updated_at`、`idx_pm_items_completed_at`。跨项目查询（`project_id IS NULL`）依赖 `end_at`/`status`/`completed_at` 索引避免全表扫描。
 - 列表视图 `PmListView.vue` 在无分组且数据 > 500 行时启用渐进式渲染（初始 200 行，滚动底部追加 200），避免大数据量初次渲染卡顿。
+
+### 04.8 富文本编辑器（TipTap）
+
+- 支持层位于 `src/rich/`：`extensions.ts`（共享 ProseMirror schema）、`legacy.ts`（纯文本旧数据兼容）、`data-dir.ts`（dataDir 同步缓存）。
+- 编辑器组件 `RichDescriptionEditor.vue`，只读渲染器 `RichDescriptionViewer.vue`；两者必须使用完全一致的扩展集（均调用 `buildExtensions()`），否则 Viewer 无法识别 Editor 写入的 JSON 节点。
+- 图片通过自定义 NodeView 在渲染时将相对路径转为 `convertFileSrc()` 资产 URL；持久化数据始终保持相对路径不变。
+- 文件引用（FileRef）为自定义内联原子节点，支持两种 `kind`：`attachment`（复制到附件目录）和 `path`（仅保存原始路径）。右键菜单由 `RteFileRefMenu.vue` 通过 Teleport 渲染。
+- 图片预览（`RteImagePreview.vue`）：双击放大，滚轮缩放，拖拽平移，Escape 关闭。
+- 附件生命周期由 `useRichDescriptionLifecycle` 管理：创建后重新绑定临时 ID、取消时清理孤儿、保存前整理未引用附件。
+- 后端存储由 `attachments.rs` 提供，内容寻址（hash 命名），通道为 `tool:attachments:*`。
+- 消费方：`PmItemDialog`、`PmProjectDialog`、`TodoDetailEdit`（编辑器），`PmDetailPanel`、`TodoDetailView`（只读渲染器）。
 
 ## 05. 高频注意事项
 
@@ -242,6 +272,26 @@ scripts/                         构建脚本（build-tauri-win.ps1、release-al
 4. 如需清理噪音元素，在 `main.rs` 的 `INJECT` CSS 选择器中补充。
 5. 路径解析规则：打包时用 `resource_dir()/manuals`，开发态 fallback 到项目根 `resources/manuals`。
 
+### 05.5 通用工程模式
+
+以下模式在 `process.md` 中反复出现，作为默认工程约定。
+
+**纯函数抽取**：业务逻辑优先抽到 `src/utils/*.ts` 的纯函数中，配套 `*.test.ts` 单测；组件只负责状态编排和 UI 绑定。不要把筛选、排序、校验、格式化等逻辑堆进组件。
+
+**分层筛选**：多个视图共享基础筛选时，先建 `baseFilteredItems`（搜索 / 类型等），再在各视图上叠加专用筛选层（如 `statusFilteredItems`）。不要把视图专用筛选直接塞进共享集合。
+
+**独立模型**：两个不同职责不能共用同一状态或口径。常见场景：
+- "展示数字"和"排序规则"是两个问题，不要共用一个计数函数。
+- "显示类型"和"用户手动偏好"分开建模，自动同步不能反写手动状态。
+- "首次定位"和"刷新后滚动保持"是两个独立状态。
+- `displayAt` / `eventAt` / `updatedAt` 各有固定语义，不能松散回退。
+
+**受控组件**：Vue 表单控件如果既要支持程序性同步，又要精确区分用户手动操作，使用 `:model-value` + `@update:model-value`，不要直接依赖 `v-model` 推断来源。
+
+**Teleport 样式**：`Teleport to="body"` 的内容不能依赖父容器上的局部 CSS 变量（如 `.pm-panel` 上的变量）；弹窗样式使用全局变量或硬编码设计色。
+
+**时间语义**：本地日期禁止 `new Date('YYYY-MM-DD')`，必须先归一化到 `YYYY-MM-DD` 再用 `new Date(year, monthIndex, day, ...)` 构造。逾期判断只面向待处理项（`pending / in_progress`），已办项不标逾期。
+
 ## 06. 构建、打包与发布
 
 适用场景：
@@ -254,7 +304,8 @@ scripts/                         构建脚本（build-tauri-win.ps1、release-al
 
 - 规则：必须使用 `tauri build`，不要用 `cargo build --release`。
 - 原因：后者不会嵌入前端资源，最终会白屏。
-- `pnpm build:portable` 当前等价于 NSIS 构建流程；绿色 `zip` 仍需通过 `release-all-win.ps1` 或手动 `7z` 封装。
+- `release-all-win.ps1` 构建顺序：先完整 tauri build（离线/带 WebView2） → 从完整 NSIS 脚本裁剪掉 WebView2 指令生成轻量 NSIS（`New-LiteNsisFromFull`，避免二次 `tauri build`） → 打包 portable zip。
+- `pnpm build:portable` 当前等价于 NSIS 构建流程；绿色 `zip` 由 `release-all-win.ps1` 自动生成（完整版和轻量版各一份）。
 - `main.rs` 启动时会扫描 exe 同级 `Microsoft.WebView2.FixedVersionRuntime.*`；若存在则自动切换到本地 WebView2。
 - `release-all-win.ps1` 已处理 Git `usr/bin/link.exe` 遮蔽 MSVC 链接器、便携包 DLL 输出路径变化、旧 PowerShell 缺少 `Get-FileHash` 的兼容问题。
 - `build:web` 出现 `spawn EPERM` 时先重试，仍失败再提升权限重试。
