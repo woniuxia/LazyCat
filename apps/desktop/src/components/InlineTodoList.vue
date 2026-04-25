@@ -273,8 +273,8 @@ defineExpose({ resetLocal, localCreates, localLinkIds });
 .inline-todo-list {
   --pm-edge: #dbe5f1;
   --pm-edge-soft: #e3ebf5;
-  --pm-accent: #4d7df2;
-  --pm-accent-soft: rgba(77, 125, 242, 0.12);
+  --pm-accent: #0ea5e9;
+  --pm-accent-soft: rgba(14, 165, 233, 0.12);
   --pm-text-main: #223042;
   --pm-text-muted: #6f8098;
   --pm-surface: #ffffff;
@@ -349,8 +349,8 @@ defineExpose({ resetLocal, localCreates, localLinkIds });
 }
 
 .inline-todo-row:hover {
-  border-color: rgba(77, 125, 242, 0.32);
-  box-shadow: 0 6px 14px rgba(77, 125, 242, 0.08);
+  border-color: rgba(14, 165, 233, 0.32);
+  box-shadow: 0 6px 14px rgba(14, 165, 233, 0.08);
 }
 
 .inline-todo-row.is-completed {
@@ -474,9 +474,9 @@ defineExpose({ resetLocal, localCreates, localLinkIds });
   border-color: rgba(230, 162, 60, 0.22);
 }
 .inline-todo-priority-pill.is-p2 {
-  background: rgba(77, 125, 242, 0.08);
+  background: rgba(14, 165, 233, 0.08);
   color: var(--pm-accent);
-  border-color: rgba(77, 125, 242, 0.2);
+  border-color: rgba(14, 165, 233, 0.2);
 }
 .inline-todo-priority-pill.is-p3 {
   background: rgba(144, 147, 153, 0.08);
@@ -490,7 +490,7 @@ defineExpose({ resetLocal, localCreates, localLinkIds });
   align-items: center;
   gap: 8px;
   padding: 6px 10px;
-  border: 1px dashed rgba(77, 125, 242, 0.35);
+  border: 1px dashed rgba(14, 165, 233, 0.35);
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.7);
   transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
@@ -499,7 +499,7 @@ defineExpose({ resetLocal, localCreates, localLinkIds });
   border-style: solid;
   border-color: var(--pm-accent);
   background: #fff;
-  box-shadow: 0 0 0 4px rgba(77, 125, 242, 0.1);
+  box-shadow: 0 0 0 4px rgba(14, 165, 233, 0.1);
 }
 .inline-todo-create-plus {
   width: 16px;
@@ -540,8 +540,8 @@ defineExpose({ resetLocal, localCreates, localLinkIds });
   min-height: 22px;
   padding: 2px 8px;
   border-radius: 999px;
-  background: rgba(77, 125, 242, 0.08);
-  box-shadow: 0 0 0 1px rgba(77, 125, 242, 0.18) inset !important;
+  background: rgba(14, 165, 233, 0.08);
+  box-shadow: 0 0 0 1px rgba(14, 165, 233, 0.18) inset !important;
 }
 .inline-todo-create-priority :deep(.el-select__wrapper.is-focused) {
   box-shadow: 0 0 0 1px var(--pm-accent) inset !important;
@@ -574,7 +574,7 @@ defineExpose({ resetLocal, localCreates, localLinkIds });
   transition: background 0.15s;
 }
 .inline-todo-link-entry-btn:hover {
-  background: rgba(77, 125, 242, 0.08);
+  background: rgba(14, 165, 233, 0.08);
 }
 
 /* 搜索态容器 */
@@ -604,7 +604,7 @@ defineExpose({ resetLocal, localCreates, localLinkIds });
   transition: background 0.12s;
 }
 .inline-todo-candidate-row:hover {
-  background: rgba(77, 125, 242, 0.06);
+  background: rgba(14, 165, 233, 0.06);
 }
 
 .inline-todo-candidate-row :deep(.el-checkbox) {

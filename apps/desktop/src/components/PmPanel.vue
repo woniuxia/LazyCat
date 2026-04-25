@@ -1243,10 +1243,10 @@ onBeforeUnmount(() => {
 }
 
 .sidebar-footer-btn:hover {
-  border-color: rgba(77, 125, 242, 0.28);
+  border-color: rgba(14, 165, 233, 0.28);
   background: rgba(255, 255, 255, 0.95);
   color: var(--pm-accent);
-  box-shadow: 0 8px 18px rgba(77, 125, 242, 0.1);
+  box-shadow: 0 8px 18px rgba(14, 165, 233, 0.1);
   transform: translateY(-1px);
 }
 
@@ -1262,7 +1262,7 @@ onBeforeUnmount(() => {
   width: 28px;
   height: 28px;
   border-radius: 8px;
-  background: rgba(77, 125, 242, 0.08);
+  background: rgba(14, 165, 233, 0.08);
   color: var(--pm-accent);
   font-size: 15px;
   flex-shrink: 0;
@@ -1270,7 +1270,7 @@ onBeforeUnmount(() => {
 }
 
 .sidebar-footer-btn:hover .sidebar-footer-btn-icon {
-  background: rgba(77, 125, 242, 0.14);
+  background: rgba(14, 165, 233, 0.14);
 }
 
 .sidebar-footer-btn-text {
@@ -1453,21 +1453,20 @@ onBeforeUnmount(() => {
 
 /* PM visual unification */
 .pm-panel {
-  --pm-surface: #ffffff;
   --pm-page-bg: #f4f7fb;
-  --pm-edge: #dbe5f1;
-  --pm-edge-soft: #e3ebf5;
-  --pm-accent: #4d7df2;
-  --pm-accent-soft: rgba(77, 125, 242, 0.12);
-  --pm-text-main: #223042;
-  --pm-text-muted: #6f8098;
-  --pm-shadow-soft: 0 10px 24px rgba(34, 48, 66, 0.06);
-  --pm-shadow-strong: 0 18px 34px rgba(34, 48, 66, 0.1);
+  --pm-edge: var(--lc-border);
+  --pm-edge-soft: var(--lc-border-subtle);
+  --pm-accent: var(--lc-accent);
+  --pm-accent-soft: var(--lc-accent-dim);
+  --pm-text-main: var(--lc-text);
+  --pm-text-muted: var(--lc-text-secondary);
+  --pm-shadow-soft: var(--lc-shadow-sm);
+  --pm-shadow-strong: var(--lc-shadow-md);
 }
 
 .pm-layout {
   background:
-    radial-gradient(circle at top left, rgba(77, 125, 242, 0.08), transparent 28%),
+    radial-gradient(circle at top left, rgba(14, 165, 233, 0.06), transparent 28%),
     linear-gradient(180deg, #f7faff 0%, var(--pm-page-bg) 42%, #eff4fa 100%);
 }
 
@@ -1483,7 +1482,7 @@ onBeforeUnmount(() => {
   min-height: 28px;
   padding-inline: 10px;
   border-radius: 10px;
-  box-shadow: 0 8px 16px rgba(77, 125, 242, 0.2);
+  box-shadow: 0 8px 16px rgba(14, 165, 233, 0.2);
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
@@ -1517,8 +1516,8 @@ onBeforeUnmount(() => {
 
 .sidebar-today-card:hover,
 .sidebar-today-card.is-active {
-  border-color: rgba(77, 125, 242, 0.45);
-  box-shadow: 0 14px 24px rgba(77, 125, 242, 0.16);
+  border-color: rgba(14, 165, 233, 0.45);
+  box-shadow: 0 14px 24px rgba(14, 165, 233, 0.16);
   transform: translateY(-1px);
 }
 
@@ -1539,7 +1538,7 @@ onBeforeUnmount(() => {
   width: 28px;
   height: 28px;
   border-radius: 10px;
-  background: rgba(77, 125, 242, 0.12);
+  background: rgba(14, 165, 233, 0.12);
   color: var(--pm-accent);
   font-size: 16px;
   font-family: "Segoe UI Symbol", "Apple Symbols", sans-serif;
@@ -1581,8 +1580,8 @@ onBeforeUnmount(() => {
 
 .sidebar-overview-card:hover,
 .sidebar-overview-card.is-active {
-  border-color: rgba(77, 125, 242, 0.35);
-  box-shadow: 0 16px 28px rgba(77, 125, 242, 0.14);
+  border-color: rgba(14, 165, 233, 0.35);
+  box-shadow: 0 16px 28px rgba(14, 165, 233, 0.14);
   transform: translateY(-1px);
 }
 
@@ -1669,16 +1668,16 @@ onBeforeUnmount(() => {
 }
 
 .project-card:hover {
-  border-color: rgba(77, 125, 242, 0.25);
+  border-color: rgba(14, 165, 233, 0.25);
   background: rgba(255, 255, 255, 0.98);
   box-shadow: 0 14px 24px rgba(34, 48, 66, 0.08);
   transform: translateY(-1px);
 }
 
 .project-card.is-active {
-  border-color: rgba(77, 125, 242, 0.36);
+  border-color: rgba(14, 165, 233, 0.36);
   background: linear-gradient(180deg, rgba(255, 255, 255, 1), rgba(232, 240, 255, 0.94));
-  box-shadow: 0 16px 28px rgba(77, 125, 242, 0.14);
+  box-shadow: 0 16px 28px rgba(14, 165, 233, 0.14);
 }
 
 .project-card.is-archived {
@@ -1686,11 +1685,11 @@ onBeforeUnmount(() => {
 }
 
 .project-card.is-drop-target {
-  border-color: rgba(77, 125, 242, 0.45);
+  border-color: rgba(14, 165, 233, 0.45);
   background: linear-gradient(180deg, rgba(255, 255, 255, 1), rgba(223, 234, 255, 0.96));
   box-shadow:
-    0 0 0 2px rgba(77, 125, 242, 0.16),
-    0 18px 30px rgba(77, 125, 242, 0.16);
+    0 0 0 2px rgba(14, 165, 233, 0.16),
+    0 18px 30px rgba(14, 165, 233, 0.16);
   animation: none;
 }
 
@@ -1709,7 +1708,7 @@ onBeforeUnmount(() => {
   justify-content: center;
   padding: 4px 8px;
   border-radius: 999px;
-  background: rgba(77, 125, 242, 0.10);
+  background: rgba(14, 165, 233, 0.10);
   color: var(--pm-accent);
   font-size: 12px;
   font-weight: 700;
@@ -1731,7 +1730,7 @@ onBeforeUnmount(() => {
 }
 
 .overview-color {
-  background: linear-gradient(135deg, #4d7df2, #73a0ff 46%, #88c9ff 100%);
+  background: linear-gradient(135deg, var(--lc-accent), #73a0ff 46%, #88c9ff 100%);
 }
 
 .empty-hint {
@@ -1745,7 +1744,7 @@ onBeforeUnmount(() => {
 
 .pm-main {
   background:
-    radial-gradient(circle at top center, rgba(77, 125, 242, 0.06), transparent 30%),
+    radial-gradient(circle at top center, rgba(14, 165, 233, 0.06), transparent 30%),
     linear-gradient(180deg, rgba(247, 250, 255, 0.96), rgba(240, 245, 251, 0.98));
 }
 
@@ -1765,7 +1764,7 @@ onBeforeUnmount(() => {
   border-radius: 22px;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(245, 249, 255, 0.9)),
-    radial-gradient(circle at top left, rgba(77, 125, 242, 0.09), transparent 36%);
+    radial-gradient(circle at top left, rgba(14, 165, 233, 0.09), transparent 36%);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.8),
     0 14px 30px rgba(34, 48, 66, 0.08);
@@ -1812,11 +1811,11 @@ onBeforeUnmount(() => {
   height: 14px;
   border-radius: 999px;
   flex-shrink: 0;
-  box-shadow: 0 0 0 4px rgba(77, 125, 242, 0.12);
+  box-shadow: 0 0 0 4px rgba(14, 165, 233, 0.12);
 }
 
 .pm-toolbar-context-dot.is-overview {
-  background: linear-gradient(135deg, #4d7df2, #73a0ff 46%, #88c9ff 100%);
+  background: linear-gradient(135deg, var(--lc-accent), #73a0ff 46%, #88c9ff 100%);
 }
 
 .pm-toolbar-context-copy {
@@ -1852,12 +1851,12 @@ onBeforeUnmount(() => {
   padding: 0 16px;
   border: 0;
   border-radius: 14px;
-  background: linear-gradient(180deg, #4d7df2, #3d6ef0);
-  box-shadow: 0 12px 24px rgba(77, 125, 242, 0.22);
+  background: linear-gradient(180deg, var(--lc-accent), #0284c7);
+  box-shadow: 0 12px 24px rgba(14, 165, 233, 0.22);
 }
 
 .pm-toolbar-primary-btn:hover {
-  background: linear-gradient(180deg, #5a88f5, #4674ef);
+  background: linear-gradient(180deg, #38bdf8, var(--lc-accent));
 }
 
 .pm-toolbar-primary-btn :deep(.el-icon) {
@@ -1879,14 +1878,14 @@ onBeforeUnmount(() => {
   min-height: 42px;
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.98);
-  box-shadow: inset 0 0 0 1px rgba(77, 125, 242, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(14, 165, 233, 0.12);
   transition: box-shadow 0.18s ease, border-color 0.18s ease;
 }
 
 .pm-toolbar-search-input :deep(.el-input__wrapper.is-focus) {
   box-shadow:
-    inset 0 0 0 1px rgba(77, 125, 242, 0.32),
-    0 10px 20px rgba(77, 125, 242, 0.10);
+    inset 0 0 0 1px rgba(14, 165, 233, 0.32),
+    0 10px 20px rgba(14, 165, 233, 0.10);
 }
 
 .pm-toolbar-search-input :deep(.el-input__inner) {
@@ -1921,14 +1920,14 @@ onBeforeUnmount(() => {
   min-height: 42px;
   padding: 0 12px;
   border-radius: 14px;
-  border-color: rgba(77, 125, 242, 0.12);
+  border-color: rgba(14, 165, 233, 0.12);
   background: rgba(255, 255, 255, 0.96);
   box-shadow: none;
   transition: box-shadow 0.18s ease, border-color 0.18s ease;
 }
 
 .pm-toolbar-select :deep(.el-select__wrapper.is-focused) {
-  box-shadow: 0 10px 20px rgba(77, 125, 242, 0.10);
+  box-shadow: 0 10px 20px rgba(14, 165, 233, 0.10);
 }
 
 .pm-toolbar-select :deep(.el-select__placeholder),
@@ -1956,13 +1955,13 @@ onBeforeUnmount(() => {
   min-height: 42px;
   padding: 0 14px;
   border-radius: 14px;
-  border-color: rgba(77, 125, 242, 0.12);
+  border-color: rgba(14, 165, 233, 0.12);
   background: rgba(245, 249, 255, 0.9);
   color: var(--pm-text-main);
 }
 
 .pm-toolbar-secondary-btn:hover {
-  border-color: rgba(77, 125, 242, 0.22);
+  border-color: rgba(14, 165, 233, 0.22);
   background: rgba(240, 246, 255, 0.98);
 }
 
@@ -2097,7 +2096,7 @@ body.pm-is-dragging * {
   position: absolute;
   inset: 0 auto 0 0;
   width: 4px;
-  background: linear-gradient(180deg, rgba(77, 125, 242, 0.9), rgba(121, 179, 255, 0.86));
+  background: linear-gradient(180deg, rgba(14, 165, 233, 0.9), rgba(121, 179, 255, 0.86));
 }
 
 .pm-item-project-card-head {
@@ -2137,7 +2136,7 @@ body.pm-is-dragging * {
   width: 12px;
   height: 12px;
   border-radius: 999px;
-  box-shadow: 0 0 0 5px rgba(77, 125, 242, 0.12);
+  box-shadow: 0 0 0 5px rgba(14, 165, 233, 0.12);
   flex-shrink: 0;
 }
 
@@ -2146,7 +2145,7 @@ body.pm-is-dragging * {
   font-size: 17px;
   font-weight: 800;
   line-height: 1.25;
-  color: #223042;
+  color: var(--lc-text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2164,9 +2163,9 @@ body.pm-is-dragging * {
   justify-content: center;
   min-height: 34px;
   padding: 0 13px;
-  border: 1px solid rgba(77, 125, 242, 0.16);
+  border: 1px solid rgba(14, 165, 233, 0.16);
   border-radius: 999px;
-  background: rgba(77, 125, 242, 0.1);
+  background: rgba(14, 165, 233, 0.1);
   color: #4464ad;
   font-size: 12px;
   font-weight: 800;
@@ -2183,13 +2182,13 @@ body.pm-is-dragging * {
 }
 
 .pm-item-project-switch-trigger:hover {
-  background: rgba(77, 125, 242, 0.14);
-  border-color: rgba(77, 125, 242, 0.24);
+  background: rgba(14, 165, 233, 0.14);
+  border-color: rgba(14, 165, 233, 0.24);
   box-shadow: 0 10px 18px rgba(36, 66, 114, 0.12);
 }
 
 .pm-item-project-switch-trigger:focus-visible {
-  outline: 2px solid rgba(77, 125, 242, 0.34);
+  outline: 2px solid rgba(14, 165, 233, 0.34);
   outline-offset: 2px;
 }
 
@@ -2247,11 +2246,11 @@ body.pm-is-dragging * {
 .detail-project-archived-tag {
   border-color: rgba(111, 128, 152, 0.24) !important;
   background: rgba(111, 128, 152, 0.1) !important;
-  color: #6f8098 !important;
+  color: var(--lc-text-secondary) !important;
 }
 
 .pm-item-section {
-  border: 1px solid #e3ebf5;
+  border: 1px solid var(--lc-border-subtle);
   border-radius: 16px;
   padding: 14px 16px 2px;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(246, 249, 253, 0.92));
@@ -2272,7 +2271,7 @@ body.pm-is-dragging * {
   margin-bottom: 12px;
   font-size: 15px;
   font-weight: 700;
-  color: #223042;
+  color: var(--lc-text);
 }
 
 .pm-item-dialog-core-grid {

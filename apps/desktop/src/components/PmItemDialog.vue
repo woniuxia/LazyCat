@@ -341,9 +341,9 @@ const projectDisplayColor = computed(() => {
   }
   if (typeof props.selectedProjectId === "number") {
     const selectedProject = props.projects.find((p) => p.id === props.selectedProjectId);
-    return selectedProject?.color ?? "#4d7df2";
+    return selectedProject?.color ?? "#0ea5e9";
   }
-  return "#4d7df2";
+  return "#0ea5e9";
 });
 
 const effectiveLocation = computed(() =>
@@ -549,10 +549,10 @@ defineExpose({
 }
 
 .pm-item-card {
-  border: 1px solid rgba(77, 125, 242, 0.12);
+  border: 1px solid rgba(14, 165, 233, 0.12);
   border-radius: 8px;
   padding: 12px;
-  background: rgba(77, 125, 242, 0.04);
+  background: rgba(14, 165, 233, 0.04);
 }
 
 .pm-item-section-title {
@@ -579,7 +579,7 @@ defineExpose({
 }
 
 .pm-item-project-card {
-  border-color: rgba(77, 125, 242, 0.2);
+  border-color: rgba(14, 165, 233, 0.2);
   transition: border-color 0.2s;
 }
 

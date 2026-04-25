@@ -99,7 +99,7 @@
   border-radius: inherit;
   background: radial-gradient(
     300px circle at var(--mx, 50%) var(--my, 50%),
-    rgba(56, 189, 248, 0.06) 0%,
+    rgba(14, 165, 233, 0.05) 0%,
     transparent 70%
   );
   opacity: 0;
@@ -110,8 +110,8 @@
 .home-tool-card:hover {
   border-color: var(--lc-border-active);
   box-shadow:
-    0 0 24px rgba(56, 189, 248, 0.06),
-    0 8px 24px rgba(0, 0, 0, 0.2);
+    0 0 20px rgba(14, 165, 233, 0.08),
+    0 8px 24px rgba(0, 0, 0, 0.06);
   transform: translateY(-2px);
 }
 

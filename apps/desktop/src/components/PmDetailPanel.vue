@@ -14,7 +14,7 @@
         <div class="detail-hero">
           <div class="detail-hero-head">
             <div class="detail-project-chip">
-              <span class="detail-project-dot" :style="{ backgroundColor: project?.color ?? item.projectColor ?? '#4d7df2' }" />
+              <span class="detail-project-dot" :style="{ backgroundColor: project?.color ?? item.projectColor ?? '#0ea5e9' }" />
               <span class="detail-project-name">{{ project?.name ?? item.projectName ?? "-" }}</span>
               <el-tag v-if="project?.status === 'archived'" size="small" effect="plain" class="detail-project-archived-tag">
                 已归档
@@ -437,16 +437,16 @@ async function openItemLink(url: string | null | undefined) {
   gap: 8px;
   max-width: 100%;
   padding: 6px 10px;
-  border: 1px solid rgba(77, 125, 242, 0.14);
+  border: 1px solid rgba(14, 165, 233, 0.14);
   border-radius: 999px;
-  background: rgba(77, 125, 242, 0.08);
+  background: rgba(14, 165, 233, 0.08);
 }
 
 .detail-project-dot {
   width: 10px;
   height: 10px;
   border-radius: 999px;
-  box-shadow: 0 0 0 3px rgba(77, 125, 242, 0.12);
+  box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.12);
   flex-shrink: 0;
 }
 
@@ -548,8 +548,8 @@ async function openItemLink(url: string | null | undefined) {
 }
 
 .detail-resource-card:hover {
-  border-color: rgba(77, 125, 242, 0.22);
-  box-shadow: 0 6px 14px rgba(77, 125, 242, 0.06);
+  border-color: rgba(14, 165, 233, 0.22);
+  box-shadow: 0 6px 14px rgba(14, 165, 233, 0.06);
 }
 
 .detail-resource-main {

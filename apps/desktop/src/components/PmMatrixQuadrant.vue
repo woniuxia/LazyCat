@@ -21,7 +21,7 @@
           'is-done': item.status === 'done',
           'is-overdue': overdueMap[item.id],
         }"
-        :style="{ borderLeftColor: item.projectColor || '#4d7df2' }"
+        :style="{ borderLeftColor: item.projectColor || '#0ea5e9' }"
         @click="emit('select', item)"
         @dblclick="emit('edit', item)"
         @contextmenu.prevent="(e: MouseEvent) => emit('context', e, item)"
@@ -32,13 +32,13 @@
             v-if="item.projectName"
             class="card-project-chip"
             :style="{
-              backgroundColor: (item.projectColor || '#4d7df2') + '18',
-              color: item.projectColor || '#4d7df2',
+              backgroundColor: (item.projectColor || '#0ea5e9') + '18',
+              color: item.projectColor || '#0ea5e9',
             }"
           >
             <span
               class="card-project-dot"
-              :style="{ backgroundColor: item.projectColor || '#4d7df2' }"
+              :style="{ backgroundColor: item.projectColor || '#0ea5e9' }"
             />
             {{ item.projectName }}
           </span>

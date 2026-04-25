@@ -15,13 +15,13 @@
           v-if="item.projectName"
           class="card-project-chip"
           :style="{
-            backgroundColor: (item.projectColor || '#4d7df2') + '18',
-            color: item.projectColor || '#4d7df2',
+            backgroundColor: (item.projectColor || '#0ea5e9') + '18',
+            color: item.projectColor || '#0ea5e9',
           }"
         >
           <span
             class="card-project-dot"
-            :style="{ backgroundColor: item.projectColor || '#4d7df2' }"
+            :style="{ backgroundColor: item.projectColor || '#0ea5e9' }"
           />
           <span class="card-project-name">{{ item.projectName }}</span>
         </span>

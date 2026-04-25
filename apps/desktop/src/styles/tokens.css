@@ -1,35 +1,35 @@
 /* Design Tokens & Element Plus Variable Overrides */
 
 /* ============================================
-   LazyCat -- Arctic Depth Theme
-   Deep oceanic workspace with cyan luminance
+   LazyCat -- Arctic Light Theme
+   Clean light workspace with sky blue accent
    ============================================ */
 
 /* ---------- Design Tokens ---------- */
 :root {
-  /* Core palette -- deep blue-grey gradient */
-  --lc-bg: #0a0e14;
-  --lc-surface-0: #0f1319;
-  --lc-surface-1: #151b26;
-  --lc-surface-2: #1a2232;
-  --lc-surface-3: #222c3d;
+  /* Core palette */
+  --lc-bg: #f0f4f8;
+  --lc-surface-0: #ffffff;
+  --lc-surface-1: #f6f8fb;
+  --lc-surface-2: #ecf0f6;
+  --lc-surface-3: #e0e5ee;
 
-  /* Borders -- subtle cyan tint */
-  --lc-border: rgba(56, 189, 248, 0.06);
-  --lc-border-subtle: rgba(56, 189, 248, 0.03);
-  --lc-border-hover: rgba(56, 189, 248, 0.15);
-  --lc-border-active: rgba(56, 189, 248, 0.35);
+  /* Borders */
+  --lc-border: rgba(56, 130, 220, 0.10);
+  --lc-border-subtle: rgba(56, 130, 220, 0.05);
+  --lc-border-hover: rgba(56, 130, 220, 0.20);
+  --lc-border-active: rgba(56, 189, 248, 0.40);
 
-  /* Text -- cool white */
-  --lc-text: #e2e8f0;
-  --lc-text-secondary: #8494a7;
-  --lc-text-muted: #4a5567;
+  /* Text */
+  --lc-text: #0f172a;
+  --lc-text-secondary: #475569;
+  --lc-text-muted: #94a3b8;
 
-  /* Accent (arctic cyan) */
-  --lc-accent: #38bdf8;
-  --lc-accent-light: #67d4fc;
-  --lc-accent-dim: rgba(56, 189, 248, 0.12);
-  --lc-accent-glow: rgba(56, 189, 248, 0.08);
+  /* Accent -- sky blue */
+  --lc-accent: #0ea5e9;
+  --lc-accent-light: #38bdf8;
+  --lc-accent-dim: rgba(14, 165, 233, 0.08);
+  --lc-accent-glow: rgba(14, 165, 233, 0.05);
 
   /* Semantic */
   --lc-success: #34d399;
@@ -37,11 +37,11 @@
   --lc-info: #60a5fa;
   --lc-warning: #fbbf24;
 
-  /* Depth -- with cyan glow */
-  --lc-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
-  --lc-shadow-md: 0 4px 16px rgba(0, 0, 0, 0.4);
-  --lc-shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.5);
-  --lc-shadow-glow: 0 0 30px rgba(56, 189, 248, 0.08);
+  /* Depth -- softer shadows */
+  --lc-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.05);
+  --lc-shadow-md: 0 4px 14px rgba(0, 0, 0, 0.07);
+  --lc-shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.10);
+  --lc-shadow-glow: 0 0 24px var(--lc-accent-glow);
 
   /* Radius */
   --lc-radius-sm: 8px;
@@ -61,13 +61,13 @@
   --lc-duration-slow: 350ms;
 
   /* ---- Element Plus Variable Overrides ---- */
-  --el-color-primary: #38bdf8;
-  --el-color-primary-light-3: #5ccbfa;
-  --el-color-primary-light-5: #7dd6fb;
+  --el-color-primary: #0ea5e9;
+  --el-color-primary-light-3: #38bdf8;
+  --el-color-primary-light-5: #67d4fc;
   --el-color-primary-light-7: #a3e3fc;
-  --el-color-primary-light-8: #b8ebfd;
-  --el-color-primary-light-9: #cef2fe;
-  --el-color-primary-dark-2: #0ea5e9;
+  --el-color-primary-light-8: #baeafd;
+  --el-color-primary-light-9: #d4f2fe;
+  --el-color-primary-dark-2: #0284c7;
 
   --el-color-success: #34d399;
   --el-color-success-light-3: #5ee0ad;
@@ -81,41 +81,41 @@
   --el-color-danger: #f87171;
   --el-color-info: #60a5fa;
 
-  --el-bg-color: #0f1319;
-  --el-bg-color-overlay: #1a2232;
-  --el-bg-color-page: #0a0e14;
+  --el-bg-color: #ffffff;
+  --el-bg-color-overlay: #ffffff;
+  --el-bg-color-page: #f0f4f8;
 
-  --el-text-color-primary: #e2e8f0;
-  --el-text-color-regular: #c0c8d8;
-  --el-text-color-secondary: #8494a7;
-  --el-text-color-placeholder: #4a5567;
-  --el-text-color-disabled: #3a4250;
+  --el-text-color-primary: #0f172a;
+  --el-text-color-regular: #334155;
+  --el-text-color-secondary: #475569;
+  --el-text-color-placeholder: #94a3b8;
+  --el-text-color-disabled: #cbd5e1;
 
-  --el-border-color: rgba(56, 189, 248, 0.08);
-  --el-border-color-light: rgba(56, 189, 248, 0.05);
-  --el-border-color-lighter: rgba(56, 189, 248, 0.03);
-  --el-border-color-extra-light: rgba(56, 189, 248, 0.02);
-  --el-border-color-dark: rgba(56, 189, 248, 0.15);
-  --el-border-color-darker: rgba(56, 189, 248, 0.20);
+  --el-border-color: rgba(0, 0, 0, 0.10);
+  --el-border-color-light: rgba(0, 0, 0, 0.07);
+  --el-border-color-lighter: rgba(0, 0, 0, 0.05);
+  --el-border-color-extra-light: rgba(0, 0, 0, 0.03);
+  --el-border-color-dark: rgba(0, 0, 0, 0.15);
+  --el-border-color-darker: rgba(0, 0, 0, 0.20);
 
-  --el-fill-color: rgba(255, 255, 255, 0.05);
-  --el-fill-color-light: rgba(255, 255, 255, 0.03);
-  --el-fill-color-lighter: rgba(255, 255, 255, 0.02);
-  --el-fill-color-extra-light: rgba(255, 255, 255, 0.015);
-  --el-fill-color-dark: rgba(255, 255, 255, 0.06);
-  --el-fill-color-darker: rgba(255, 255, 255, 0.08);
-  --el-fill-color-blank: #151b26;
+  --el-fill-color: rgba(0, 0, 0, 0.03);
+  --el-fill-color-light: rgba(0, 0, 0, 0.02);
+  --el-fill-color-lighter: rgba(0, 0, 0, 0.015);
+  --el-fill-color-extra-light: rgba(0, 0, 0, 0.01);
+  --el-fill-color-dark: rgba(0, 0, 0, 0.05);
+  --el-fill-color-darker: rgba(0, 0, 0, 0.07);
+  --el-fill-color-blank: #ffffff;
 
-  --el-mask-color: rgba(10, 14, 20, 0.85);
-  --el-mask-color-extra-light: rgba(10, 14, 20, 0.4);
+  --el-mask-color: rgba(255, 255, 255, 0.85);
+  --el-mask-color-extra-light: rgba(255, 255, 255, 0.4);
 
-  --el-box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
-  --el-box-shadow-light: 0 2px 8px rgba(0, 0, 0, 0.35);
-  --el-box-shadow-lighter: 0 1px 4px rgba(0, 0, 0, 0.25);
-  --el-box-shadow-dark: 0 8px 24px rgba(0, 0, 0, 0.55);
+  --el-box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --el-box-shadow-light: 0 2px 8px rgba(0, 0, 0, 0.06);
+  --el-box-shadow-lighter: 0 1px 4px rgba(0, 0, 0, 0.04);
+  --el-box-shadow-dark: 0 8px 24px rgba(0, 0, 0, 0.12);
 
   --el-menu-bg-color: transparent;
-  --el-menu-hover-bg-color: rgba(255, 255, 255, 0.04);
+  --el-menu-hover-bg-color: rgba(0, 0, 0, 0.04);
   --el-menu-active-color: var(--lc-accent);
   --el-menu-text-color: var(--lc-text-secondary);
   --el-menu-hover-text-color: var(--lc-text);
@@ -123,11 +123,11 @@
   --el-menu-sub-item-height: 38px;
   --el-menu-item-font-size: 14px;
 
-  --el-disabled-bg-color: rgba(255, 255, 255, 0.02);
-  --el-disabled-text-color: #3a4250;
-  --el-disabled-border-color: rgba(255, 255, 255, 0.04);
+  --el-disabled-bg-color: rgba(0, 0, 0, 0.02);
+  --el-disabled-text-color: #cbd5e1;
+  --el-disabled-border-color: rgba(0, 0, 0, 0.06);
 
-  --el-overlay-color: rgba(10, 14, 20, 0.75);
-  --el-overlay-color-light: rgba(10, 14, 20, 0.5);
-  --el-overlay-color-lighter: rgba(10, 14, 20, 0.25);
+  --el-overlay-color: rgba(0, 0, 0, 0.5);
+  --el-overlay-color-light: rgba(0, 0, 0, 0.3);
+  --el-overlay-color-lighter: rgba(0, 0, 0, 0.15);
 }

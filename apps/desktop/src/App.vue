@@ -59,7 +59,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onBeforeUnmount, ref, watch } from "vue";
+import { computed, onMounted, onBeforeUnmount, ref } from "vue";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ElMessageBox } from "element-plus";
@@ -226,7 +226,6 @@ function isRealToolId(id: string) { return allToolMap.has(id); }
 
 const { openTabs, activeTabId, openTab, closeTab, closeOthers, closeToLeft, closeToRight } = useTabs();
 const activeTool = activeTabId;
-const themeMode = ref<"system" | "dark" | "light">("system");
 const hotkeyInput = ref("");
 const snippetsHotkeyInput = ref("");
 const vaultHotkeyInput = ref("");
@@ -324,7 +323,6 @@ const currentComponentProps = computed(() => {
   if (ENCODE_PANEL_IDS.has(id)) return { activeTool: id };
   if (id.startsWith("manual-")) return { manualId: id };
   if (id === "settings") return {
-    themeMode: themeMode.value,
     hotkeyInput: hotkeyInput.value,
     snippetsHotkeyInput: snippetsHotkeyInput.value,
     vaultHotkeyInput: vaultHotkeyInput.value,
@@ -337,7 +335,6 @@ const currentComponentProps = computed(() => {
     setHiddenIds,
     getToolSearchMetaMap,
     setToolSearchMetaMap,
-    "onUpdate:themeMode": (v: "system" | "dark" | "light") => { themeMode.value = v; },
     "onUpdate:hotkeyInput": (v: string) => { hotkeyInput.value = v; },
     "onUpdate:snippetsHotkeyInput": (v: string) => { snippetsHotkeyInput.value = v; },
     "onUpdate:vaultHotkeyInput": (v: string) => { vaultHotkeyInput.value = v; },
@@ -380,15 +377,6 @@ function onClipboardToolOpen(toolId: string, toolName: string) {
 
 function focusSearch() {
   topBarRef.value?.focusSearch();
-}
-
-function resolveTheme(mode: "system" | "dark" | "light"): boolean {
-  if (mode === "system") return window.matchMedia("(prefers-color-scheme: dark)").matches;
-  return mode === "dark";
-}
-
-function applyTheme(dark: boolean) {
-  document.documentElement.dataset.theme = dark ? "dark" : "light";
 }
 
 async function tryOpenClipboardPathFromToggle(): Promise<boolean> {
@@ -437,29 +425,9 @@ async function ensureInboxCaptureConsent() {
   }
 }
 
-const systemMediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
-function onSystemThemeChange() {
-  if (themeMode.value === "system") applyTheme(resolveTheme("system"));
-}
-
-watch(themeMode, (mode) => {
-  applyTheme(resolveTheme(mode));
-  setSetting("theme", mode);
-});
-
 onMounted(async () => {
   await initSettings();
   await ensureInboxCaptureConsent();
-  const savedTheme = getSetting("theme") as "system" | "dark" | "light" | null;
-  if (savedTheme === "system" || savedTheme === "dark" || savedTheme === "light") {
-    themeMode.value = savedTheme;
-  } else if (savedTheme === null || savedTheme === undefined) {
-    themeMode.value = "system";
-  } else {
-    themeMode.value = savedTheme === "light" ? "light" : "dark";
-  }
-  applyTheme(resolveTheme(themeMode.value));
-  systemMediaQuery.addEventListener("change", onSystemThemeChange);
   loadFavoritesFromStorage();
   loadMenuVisibility();
   const savedHotkey = getSetting("hotkey") ?? "";
@@ -518,6 +486,5 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   window.removeEventListener("keydown", onKeydown);
-  systemMediaQuery.removeEventListener("change", onSystemThemeChange);
 });
 </script>

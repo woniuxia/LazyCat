@@ -25,17 +25,12 @@ const emit = defineEmits<{
 const container = ref<HTMLElement | null>(null);
 let editor: monaco.editor.IStandaloneCodeEditor | null = null;
 let suppressEmit = false;
-let themeObserver: MutationObserver | null = null;
-
-function currentMonacoTheme(): string {
-  return document.documentElement.dataset.theme === "light" ? "vs" : "vs-dark";
-}
 
 onMounted(() => {
   editor = monaco.editor.create(container.value as HTMLElement, {
     value: props.modelValue,
     language: props.language,
-    theme: currentMonacoTheme(),
+    theme: "vs",
     readOnly: props.readOnly,
     automaticLayout: true,
     minimap: { enabled: false },
@@ -48,15 +43,6 @@ onMounted(() => {
   editor.onDidChangeModelContent(() => {
     if (suppressEmit || !editor) return;
     emit("update:modelValue", editor.getValue());
-  });
-
-  // Watch for data-theme changes on <html> and switch Monaco theme
-  themeObserver = new MutationObserver(() => {
-    monaco.editor.setTheme(currentMonacoTheme());
-  });
-  themeObserver.observe(document.documentElement, {
-    attributes: true,
-    attributeFilter: ["data-theme"],
   });
 });
 
@@ -82,10 +68,6 @@ watch(
 );
 
 onBeforeUnmount(() => {
-  if (themeObserver) {
-    themeObserver.disconnect();
-    themeObserver = null;
-  }
   if (editor) {
     editor.dispose();
     editor = null;

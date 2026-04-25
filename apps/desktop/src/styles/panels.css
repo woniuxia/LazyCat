@@ -78,7 +78,7 @@
 }
 
 .calc-row-history:hover {
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(0, 0, 0, 0.025);
 }
 
 .calc-row-history:focus {
@@ -89,7 +89,7 @@
 .calc-row-active {
   border: 1px solid var(--lc-border-active);
   border-radius: var(--lc-radius-md);
-  background: rgba(56, 189, 248, 0.06);
+  background: rgba(14, 165, 233, 0.06);
   align-items: stretch;
 }
 
@@ -113,7 +113,7 @@
   font-family: var(--lc-font-display);
   font-size: 36px;
   line-height: 1;
-  color: var(--lc-accent-light);
+  color: #0284c7;
   white-space: nowrap;
   font-weight: 600;
 }

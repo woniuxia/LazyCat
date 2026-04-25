@@ -171,13 +171,13 @@
                 v-if="item.projectName"
                 class="card-project-chip"
                 :style="{
-                  backgroundColor: (item.projectColor || '#4d7df2') + '18',
-                  color: item.projectColor || '#4d7df2',
+                  backgroundColor: (item.projectColor || '#0ea5e9') + '18',
+                  color: item.projectColor || '#0ea5e9',
                 }"
               >
                 <span
                   class="card-project-dot"
-                  :style="{ backgroundColor: item.projectColor || '#4d7df2' }"
+                  :style="{ backgroundColor: item.projectColor || '#0ea5e9' }"
                 />
                 {{ item.projectName }}
               </span>
@@ -215,7 +215,7 @@
         >
           <span
             class="card-project-dot"
-            :style="{ backgroundColor: item.projectColor || '#4d7df2' }"
+            :style="{ backgroundColor: item.projectColor || '#0ea5e9' }"
           />
           <span class="overflow-title">{{ item.title }}</span>
           <span
@@ -248,13 +248,13 @@
             v-if="popoverItem.projectName"
             class="card-project-chip"
             :style="{
-              backgroundColor: (popoverItem.projectColor || '#4d7df2') + '18',
-              color: popoverItem.projectColor || '#4d7df2',
+              backgroundColor: (popoverItem.projectColor || '#0ea5e9') + '18',
+              color: popoverItem.projectColor || '#0ea5e9',
             }"
           >
             <span
               class="card-project-dot"
-              :style="{ backgroundColor: popoverItem.projectColor || '#4d7df2' }"
+              :style="{ backgroundColor: popoverItem.projectColor || '#0ea5e9' }"
             />
             {{ popoverItem.projectName }}
           </span>
@@ -612,7 +612,7 @@ function barDotColor(item: ItemView): string {
   if (colorBy.value === "status") {
     return statusColor(item.status);
   }
-  return item.projectColor || "#4d7df2";
+  return item.projectColor || "#0ea5e9";
 }
 
 function buildBarStyle(item: ItemView): Record<string, string> {
@@ -632,7 +632,7 @@ function buildBarStyle(item: ItemView): Record<string, string> {
       color,
     };
   }
-  const color = item.projectColor || "#4d7df2";
+  const color = item.projectColor || "#0ea5e9";
   return {
     backgroundColor: color + "1a",
     borderColor: color + "66",

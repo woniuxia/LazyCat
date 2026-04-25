@@ -528,7 +528,7 @@ const siyuan = inject(PM_SIYUAN_KEY)!;
 }
 
 .siyuan-tree-node--interactive.is-selected {
-  background: rgba(77, 125, 242, 0.08);
+  background: rgba(14, 165, 233, 0.08);
 }
 
 .siyuan-tree-node--interactive.is-disabled {
@@ -653,11 +653,11 @@ const siyuan = inject(PM_SIYUAN_KEY)!;
 }
 
 :deep(.siyuan-tree .el-tree-node__content:hover) {
-  background: rgba(77, 125, 242, 0.04);
+  background: rgba(14, 165, 233, 0.04);
 }
 
 :deep(.pm-siyuan-picker-tree .el-tree-node.is-current > .el-tree-node__content) {
-  background: rgba(77, 125, 242, 0.08);
+  background: rgba(14, 165, 233, 0.08);
 }
 
 :deep(.siyuan-tree .el-tree-node__expand-icon) {

@@ -542,7 +542,7 @@ async function doImport() {
 .siyuan-tree-node { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; }
 .siyuan-tree-node--preview { cursor: default; }
 .siyuan-tree-node--interactive { cursor: pointer; padding: 4px 8px; border-radius: 6px; transition: background 0.15s; }
-.siyuan-tree-node--interactive.is-selected { background: rgba(77, 125, 242, 0.08); }
+.siyuan-tree-node--interactive.is-selected { background: rgba(14, 165, 233, 0.08); }
 .siyuan-tree-node--interactive.is-disabled { opacity: 0.45; cursor: not-allowed; }
 .siyuan-node-main { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; }
 .siyuan-node-title { font-size: 14px; color: var(--pm-text-main); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -577,8 +577,8 @@ async function doImport() {
 
 /* Tree depth overrides */
 :deep(.siyuan-tree .el-tree-node__content) { height: 34px; border-radius: 6px; }
-:deep(.siyuan-tree .el-tree-node__content:hover) { background: rgba(77, 125, 242, 0.04); }
-:deep(.pm-siyuan-picker-tree .el-tree-node.is-current > .el-tree-node__content) { background: rgba(77, 125, 242, 0.08); }
+:deep(.siyuan-tree .el-tree-node__content:hover) { background: rgba(14, 165, 233, 0.04); }
+:deep(.pm-siyuan-picker-tree .el-tree-node.is-current > .el-tree-node__content) { background: rgba(14, 165, 233, 0.08); }
 :deep(.siyuan-tree .el-tree-node__expand-icon) { color: var(--pm-text-muted); }
 :deep(.siyuan-tree .el-tree-node__expand-icon.expanded) { color: var(--pm-text-muted); }
 :deep(.siyuan-tree .el-tree-node__label) { width: 100%; }

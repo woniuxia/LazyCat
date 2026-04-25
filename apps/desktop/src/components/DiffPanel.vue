@@ -24,15 +24,10 @@ import monaco from "../utils/monaco-setup";
 const diffContainer = ref<HTMLElement | null>(null);
 const renderSideBySide = ref(true);
 let diffEditor: monaco.editor.IStandaloneDiffEditor | null = null;
-let themeObserver: MutationObserver | null = null;
-
-function currentMonacoTheme(): string {
-  return document.documentElement.dataset.theme === "light" ? "vs" : "vs-dark";
-}
 
 onMounted(() => {
   diffEditor = monaco.editor.createDiffEditor(diffContainer.value as HTMLElement, {
-    theme: currentMonacoTheme(),
+    theme: "vs",
     automaticLayout: true,
     renderSideBySide: renderSideBySide.value,
     minimap: { enabled: false },
@@ -43,14 +38,6 @@ onMounted(() => {
   const originalModel = monaco.editor.createModel(diffState.original, "plaintext");
   const modifiedModel = monaco.editor.createModel(diffState.modified, "plaintext");
   diffEditor.setModel({ original: originalModel, modified: modifiedModel });
-
-  themeObserver = new MutationObserver(() => {
-    monaco.editor.setTheme(currentMonacoTheme());
-  });
-  themeObserver.observe(document.documentElement, {
-    attributes: true,
-    attributeFilter: ["data-theme"],
-  });
 });
 
 watch(renderSideBySide, (val) => {
@@ -75,10 +62,6 @@ function clearAll() {
 }
 
 onBeforeUnmount(() => {
-  if (themeObserver) {
-    themeObserver.disconnect();
-    themeObserver = null;
-  }
   if (diffEditor) {
     const model = diffEditor.getModel();
     diffState.original = model?.original.getValue() ?? "";

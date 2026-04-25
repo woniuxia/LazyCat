@@ -34,8 +34,8 @@
           <div class="card-topbar" :class="{ 'is-overview': isOverview }">
             <div class="card-topbar-left">
               <template v-if="isOverview && item.projectName">
-                <span class="card-project-badge" :style="{ backgroundColor: (item.projectColor || '#4d7df2') + '18', color: item.projectColor || '#4d7df2' }">
-                  <span class="card-project-dot" :style="{ backgroundColor: item.projectColor || '#4d7df2' }" />
+                <span class="card-project-badge" :style="{ backgroundColor: (item.projectColor || '#0ea5e9') + '18', color: item.projectColor || '#0ea5e9' }">
+                  <span class="card-project-dot" :style="{ backgroundColor: item.projectColor || '#0ea5e9' }" />
                   <span class="card-project-name">{{ item.projectName }}</span>
                 </span>
               </template>
@@ -636,17 +636,17 @@ onBeforeUnmount(() => {
 .kanban-card:hover {
   margin-top: 0;
   margin-bottom: 10px;
-  border-color: rgba(77, 125, 242, 0.3);
+  border-color: rgba(14, 165, 233, 0.3);
   box-shadow: var(--pm-shadow-strong);
   transform: translateY(-1px);
 }
 
 .kanban-card.is-selected {
-  border-color: rgba(77, 125, 242, 0.42);
+  border-color: rgba(14, 165, 233, 0.42);
   background: linear-gradient(180deg, rgba(255, 255, 255, 1), rgba(233, 241, 255, 0.92));
   box-shadow:
-    0 0 0 1px rgba(77, 125, 242, 0.12),
-    0 18px 32px rgba(77, 125, 242, 0.14);
+    0 0 0 1px rgba(14, 165, 233, 0.12),
+    0 18px 32px rgba(14, 165, 233, 0.14);
 }
 
 .kanban-card.is-overdue {
@@ -684,7 +684,7 @@ onBeforeUnmount(() => {
   gap: 8px;
   max-width: 100%;
   padding: 4px 10px;
-  border: 1px solid rgba(77, 125, 242, 0.12);
+  border: 1px solid rgba(14, 165, 233, 0.12);
   border-radius: 999px;
   font-size: 12px;
   font-weight: 600;
@@ -756,8 +756,8 @@ onBeforeUnmount(() => {
   height: 28px;
   flex-shrink: 0;
   border-radius: 10px;
-  border-color: rgba(77, 125, 242, 0.16);
-  background: rgba(77, 125, 242, 0.08);
+  border-color: rgba(14, 165, 233, 0.16);
+  background: rgba(14, 165, 233, 0.08);
   color: var(--pm-accent);
   opacity: 0;
   visibility: hidden;
@@ -788,8 +788,8 @@ onBeforeUnmount(() => {
 
 .column-drop-hint {
   border-radius: 14px;
-  border-color: rgba(77, 125, 242, 0.32);
-  background: rgba(77, 125, 242, 0.06);
+  border-color: rgba(14, 165, 233, 0.32);
+  background: rgba(14, 165, 233, 0.06);
   color: var(--pm-accent);
 }
 

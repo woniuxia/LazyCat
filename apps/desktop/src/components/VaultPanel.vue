@@ -2084,18 +2084,18 @@ onBeforeUnmount(() => {
 }
 
 .vault-tag.is-prod {
-  background: rgba(248, 113, 113, 0.15);
-  color: #f87171;
+  background: rgba(220, 38, 38, 0.10);
+  color: #dc2626;
 }
 
 .vault-tag.is-dev {
-  background: rgba(52, 211, 153, 0.15);
-  color: #34d399;
+  background: rgba(5, 150, 105, 0.10);
+  color: #059669;
 }
 
 .vault-tag.is-local {
-  background: rgba(96, 165, 250, 0.15);
-  color: #60a5fa;
+  background: rgba(37, 99, 235, 0.10);
+  color: #2563eb;
 }
 
 .vault-tag-dot {
@@ -2352,8 +2352,8 @@ onBeforeUnmount(() => {
 
 /* --- Search Highlight --- */
 .vault-highlight {
-  background: rgba(56,189,248, 0.25);
-  color: var(--lc-accent);
+  background: rgba(14,165,233, 0.18);
+  color: #0369a1;
   border-radius: 2px;
   padding: 0 1px;
   font-style: normal;

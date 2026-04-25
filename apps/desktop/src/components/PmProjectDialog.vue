@@ -88,7 +88,7 @@ const lifecycle = useRichDescriptionLifecycle({
 });
 
 const presetColors = [
-  "#4d7df2", "#67c23a", "#e6a23c", "#f56c6c",
+  "#0ea5e9", "#67c23a", "#e6a23c", "#f56c6c",
   "#909399", "#409eff", "#19be6b", "#ff9900",
   "#ed4014", "#2b85e4", "#5cad2f", "#ff6900",
 ];

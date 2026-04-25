@@ -52,7 +52,11 @@
 .content {
   flex: 1;
   border-top: 1px solid var(--lc-border);
-  background: var(--lc-surface-0);
+  background:
+    radial-gradient(ellipse at 8% 0%, rgba(14, 165, 233, 0.04) 0%, transparent 40%),
+    radial-gradient(ellipse at 92% 100%, rgba(56, 189, 248, 0.03) 0%, transparent 40%),
+    var(--lc-surface-0);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
   padding: 20px 24px;
   overflow: auto;
   display: flex;

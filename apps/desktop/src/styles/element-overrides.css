@@ -1,13 +1,13 @@
-/* Element Plus Component Dark Overrides */
+/* Element Plus Component Overrides */
 
 /* ==========================================
-   Element Plus Component Dark Overrides
+   Element Plus Component Overrides
    ========================================== */
 
 /* -- Input / Textarea -- */
 .el-input__wrapper,
 .el-textarea__inner {
-  background-color: var(--lc-surface-2) !important;
+  background-color: #ffffff !important;
   box-shadow: 0 0 0 1px var(--lc-border) inset !important;
   color: var(--lc-text);
   transition: box-shadow var(--lc-duration) var(--lc-ease);
@@ -36,9 +36,9 @@
 
 /* -- Select Dropdown -- */
 .el-select-dropdown {
-  background-color: var(--lc-surface-2) !important;
-  border: 1px solid var(--lc-border-hover) !important;
-  box-shadow: var(--lc-shadow-lg) !important;
+  background-color: #ffffff !important;
+  border: 1px solid var(--lc-border) !important;
+  box-shadow: var(--lc-shadow-md) !important;
 }
 
 .el-select-dropdown__item {
@@ -46,7 +46,7 @@
 }
 
 .el-select-dropdown__item.is-hovering {
-  background-color: rgba(255, 255, 255, 0.05) !important;
+  background-color: rgba(0, 0, 0, 0.04) !important;
   color: var(--lc-text) !important;
 }
 
@@ -66,8 +66,6 @@
   --el-button-bg-color: var(--lc-accent);
   --el-button-border-color: var(--lc-accent);
   --el-button-text-color: #ffffff;
-  --el-button-hover-bg-color: var(--lc-accent-light);
-  --el-button-hover-border-color: var(--lc-accent-light);
   --el-button-hover-text-color: #ffffff;
   --el-button-active-bg-color: #0284c7;
   --el-button-active-border-color: #0284c7;
@@ -81,12 +79,17 @@
   --el-button-border-color: transparent;
 }
 
+.el-button.el-button--primary.is-link {
+  --el-button-text-color: var(--lc-accent);
+  --el-button-hover-text-color: var(--lc-accent-light);
+}
+
 .el-button--default {
-  --el-button-bg-color: var(--lc-surface-2);
+  --el-button-bg-color: #ffffff;
   --el-button-border-color: var(--lc-border-hover);
   --el-button-text-color: var(--lc-text-secondary);
-  --el-button-hover-bg-color: var(--lc-surface-3);
-  --el-button-hover-border-color: rgba(255, 255, 255, 0.18);
+  --el-button-hover-bg-color: #f5f6f8;
+  --el-button-hover-border-color: rgba(0, 0, 0, 0.18);
   --el-button-hover-text-color: var(--lc-text);
 }
 
@@ -95,7 +98,7 @@
   --el-table-bg-color: var(--lc-surface-1) !important;
   --el-table-tr-bg-color: var(--lc-surface-1) !important;
   --el-table-header-bg-color: var(--lc-surface-2) !important;
-  --el-table-row-hover-bg-color: rgba(255, 255, 255, 0.03) !important;
+  --el-table-row-hover-bg-color: rgba(0, 0, 0, 0.02) !important;
   --el-table-border-color: var(--lc-border) !important;
   --el-table-text-color: var(--lc-text-secondary) !important;
   --el-table-header-text-color: var(--lc-text-muted) !important;
@@ -111,7 +114,7 @@
 }
 
 .el-table--striped .el-table__body tr.el-table__row--striped td.el-table__cell {
-  background: rgba(255, 255, 255, 0.015) !important;
+  background: rgba(0, 0, 0, 0.015) !important;
 }
 
 /* -- Tabs -- */
@@ -139,7 +142,7 @@
 
 /* -- Dialog -- */
 .el-dialog {
-  background-color: var(--lc-surface-1) !important;
+  background-color: #ffffff !important;
   border: 1px solid var(--lc-border-hover);
   border-radius: var(--lc-radius-lg) !important;
   box-shadow: var(--lc-shadow-lg);
@@ -162,14 +165,14 @@
 
 .el-descriptions__label {
   color: var(--lc-text-muted) !important;
-  background: var(--lc-surface-2) !important;
+  background: #f5f6f8 !important;
   font-weight: 600;
   font-size: 12px;
 }
 
 .el-descriptions__content {
   color: var(--lc-text) !important;
-  background: var(--lc-surface-1) !important;
+  background: #ffffff !important;
 }
 
 /* -- Switch -- */
@@ -183,18 +186,14 @@
 
 /* -- Radio Group/Button -- */
 .el-radio-button__inner {
-  background: var(--lc-surface-2) !important;
+  background: #ffffff !important;
   border-color: var(--lc-border-hover) !important;
   color: var(--lc-text-secondary) !important;
   box-shadow: none !important;
 }
 
 .el-radio-button__original-radio:checked + .el-radio-button__inner {
-  background: var(--lc-accent) !important;
-  border-color: var(--lc-accent) !important;
   color: #ffffff !important;
-  box-shadow: none !important;
-  font-weight: 600;
 }
 
 /* -- Button Group -- */
@@ -218,15 +217,15 @@
 }
 
 .el-divider__text {
-  background-color: var(--lc-surface-0) !important;
+  background-color: #ffffff !important;
   color: var(--lc-text-muted) !important;
 }
 
 /* -- Message (Toast) -- */
 .el-message {
-  background-color: var(--lc-surface-2) !important;
-  border-color: var(--lc-border-hover) !important;
-  box-shadow: var(--lc-shadow-lg) !important;
+  background-color: #ffffff !important;
+  border-color: var(--lc-border) !important;
+  box-shadow: var(--lc-shadow-md) !important;
 }
 
 .el-message .el-message__content {
@@ -251,7 +250,7 @@
 /* -- Input Number -- */
 .el-input-number__decrease,
 .el-input-number__increase {
-  background: var(--lc-surface-3) !important;
+  background: #f5f6f8 !important;
   color: var(--lc-text-secondary) !important;
   border-color: var(--lc-border) !important;
 }
@@ -268,12 +267,20 @@
 
 /* -- Popover / Tooltip -- */
 .el-popper {
-  background: var(--lc-surface-2) !important;
-  border: 1px solid var(--lc-border-hover) !important;
+  background: #ffffff !important;
+  border: 1px solid var(--lc-border) !important;
   color: var(--lc-text) !important;
 }
 
 .el-popper__arrow::before {
-  background: var(--lc-surface-2) !important;
-  border-color: var(--lc-border-hover) !important;
+  background: #ffffff !important;
+  border-color: var(--lc-border) !important;
+}
+
+/* -- Monaco editor -- */
+.monaco-editor .margin,
+.monaco-editor,
+.monaco-editor-background,
+.monaco-editor .inputarea.ime-input {
+  background-color: #ffffff !important;
 }

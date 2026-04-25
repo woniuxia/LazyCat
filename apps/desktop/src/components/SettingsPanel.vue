@@ -1,33 +1,16 @@
 <template>
   <div class="settings-panel">
     <div class="settings-container">
-      <!-- 外观设置 -->
+      <!-- 菜单设置 -->
       <section class="settings-section">
         <div class="section-header">
-          <div class="section-icon">🎨</div>
+          <div class="section-icon">📋</div>
           <div class="section-title">
-            <h3>外观</h3>
-            <p>自定义应用的视觉效果</p>
+            <h3>菜单</h3>
+            <p>自定义侧边栏显示的工具</p>
           </div>
         </div>
         <div class="section-content">
-          <div class="setting-item">
-            <div class="setting-label">
-              <span class="label-text">主题模式</span>
-            </div>
-            <div class="setting-control">
-              <el-radio-group
-                :model-value="themeMode"
-                @update:model-value="emit('update:themeMode', $event as 'system' | 'dark' | 'light')"
-                size="default"
-              >
-                <el-radio-button value="system">跟随系统</el-radio-button>
-                <el-radio-button value="dark">深色</el-radio-button>
-                <el-radio-button value="light">浅色</el-radio-button>
-              </el-radio-group>
-            </div>
-          </div>
-
           <div class="setting-item">
             <div class="setting-label">
               <span class="label-text">菜单显示</span>
@@ -430,7 +413,6 @@ const {
 } = useAutostartSettings();
 
 const props = defineProps<{
-  themeMode: "system" | "dark" | "light";
   hotkeyInput: string;
   snippetsHotkeyInput: string;
   vaultHotkeyInput: string;
@@ -446,7 +428,6 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  (event: "update:themeMode", value: "system" | "dark" | "light"): void;
   (event: "update:hotkeyInput", value: string): void;
   (event: "update:snippetsHotkeyInput", value: string): void;
   (event: "update:vaultHotkeyInput", value: string): void;

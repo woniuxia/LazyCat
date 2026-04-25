@@ -2773,6 +2773,7 @@ mod tests {
         end_mode: &str,
         end_value: Option<&str>,
     ) {
+        let start = (Utc::now() - chrono::Duration::days(1)).format("%Y-%m-%dT09:00:00+00:00").to_string();
         conn.execute(
             "INSERT INTO todo_series_rules
              (series_id, rule_mode, rule_json, cron_expression, timezone, start_at, end_mode, end_value, occurrence_index, active)
@@ -2780,7 +2781,7 @@ mod tests {
             params![
                 series_id,
                 "0 0 9 * * *",
-                "2026-03-07T09:00:00+00:00",
+                start,
                 end_mode,
                 end_value,
                 occurrence_index,
@@ -3074,8 +3075,9 @@ mod tests {
     #[test]
     fn completing_recurring_item_should_generate_next_when_no_other_open() {
         let conn = create_test_conn();
+        // Use a date far in the past so base_time falls back to now
         seed_series_rule(&conn, 7, 1, "never", None);
-        seed_recurring_item(&conn, 1, STATUS_PENDING, "2026-03-07T09:00:00+00:00", 7);
+        seed_recurring_item(&conn, 1, STATUS_PENDING, "2020-01-01T09:00:00+00:00", 7);
 
         // Mark as completed
         conn.execute(
@@ -3097,8 +3099,15 @@ mod tests {
             )
             .expect("load new item");
         assert_eq!(status, STATUS_PENDING);
-        assert_eq!(event_at, "2026-03-08T09:00:00+00:00");
         assert_eq!(series_id, 7);
+
+        // The next occurrence should be today or tomorrow at 09:00 UTC
+        let next_dt = event_at.parse::<chrono::DateTime<Utc>>().expect("parse event_at");
+        let now = Utc::now();
+        let today_09 = now.date_naive().and_hms_opt(9, 0, 0).unwrap();
+        let tomorrow_09 = (now.date_naive() + chrono::Duration::days(1)).and_hms_opt(9, 0, 0).unwrap();
+        let next_naive = next_dt.date_naive().and_hms_opt(next_dt.hour(), next_dt.minute(), 0).unwrap();
+        assert!(next_naive == today_09 || next_naive == tomorrow_09, "expected 09:00 today or tomorrow, got {event_at}");
 
         // Verify occurrence_index incremented
         let idx: i64 = conn

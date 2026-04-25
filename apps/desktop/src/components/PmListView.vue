@@ -262,14 +262,14 @@
                         v-if="row.projectName"
                         class="cell-project cell-editable"
                         :style="{
-                          backgroundColor: (row.projectColor || '#4d7df2') + '18',
-                          color: row.projectColor || '#4d7df2',
+                          backgroundColor: (row.projectColor || '#0ea5e9') + '18',
+                          color: row.projectColor || '#0ea5e9',
                         }"
                         @click.stop
                       >
                         <span
                           class="cell-project-dot"
-                          :style="{ backgroundColor: row.projectColor || '#4d7df2' }"
+                          :style="{ backgroundColor: row.projectColor || '#0ea5e9' }"
                         />
                         {{ row.projectName }}
                       </span>
@@ -284,7 +284,7 @@
                           >
                             <span
                               class="cell-project-dot"
-                              :style="{ backgroundColor: project.color || '#4d7df2', marginRight: '6px' }"
+                              :style="{ backgroundColor: project.color || '#0ea5e9', marginRight: '6px' }"
                             />
                             {{ project.name }}
                           </el-dropdown-item>
@@ -296,14 +296,14 @@
                     v-else-if="row.projectName"
                     class="cell-project cell-editable"
                     :style="{
-                      backgroundColor: (row.projectColor || '#4d7df2') + '18',
-                      color: row.projectColor || '#4d7df2',
+                      backgroundColor: (row.projectColor || '#0ea5e9') + '18',
+                      color: row.projectColor || '#0ea5e9',
                     }"
                     @click.stop="activateDropdown(row.id, 'project')"
                   >
                     <span
                       class="cell-project-dot"
-                      :style="{ backgroundColor: row.projectColor || '#4d7df2' }"
+                      :style="{ backgroundColor: row.projectColor || '#0ea5e9' }"
                     />
                     {{ row.projectName }}
                   </span>
@@ -319,13 +319,13 @@
                   v-else-if="row.projectName"
                   class="cell-project"
                   :style="{
-                    backgroundColor: (row.projectColor || '#4d7df2') + '18',
-                    color: row.projectColor || '#4d7df2',
+                    backgroundColor: (row.projectColor || '#0ea5e9') + '18',
+                    color: row.projectColor || '#0ea5e9',
                   }"
                 >
                   <span
                     class="cell-project-dot"
-                    :style="{ backgroundColor: row.projectColor || '#4d7df2' }"
+                    :style="{ backgroundColor: row.projectColor || '#0ea5e9' }"
                   />
                   {{ row.projectName }}
                 </span>
