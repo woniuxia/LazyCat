@@ -379,6 +379,8 @@ defineExpose({ refresh: load });
   flex-direction: column;
   overflow: hidden;
   padding: 0;
+  background: var(--lc-surface-1);
+  border-radius: var(--lc-radius-lg);
 }
 
 .pm-today-scroll {

@@ -1201,7 +1201,8 @@ onBeforeUnmount(() => {
 .pm-layout {
   display: flex;
   height: 100%;
-  gap: 0;
+  gap: 8px;
+  padding: 8px;
 }
 
 /* Sidebar */
@@ -1210,7 +1211,6 @@ onBeforeUnmount(() => {
   flex-direction: column;
   width: 200px;
   min-width: 200px;
-  border-right: 1px solid var(--el-border-color-lighter);
   padding: 12px 0;
   overflow-y: auto;
   background: var(--el-bg-color);
@@ -1224,6 +1224,7 @@ onBeforeUnmount(() => {
 .sidebar-footer-btn {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
   width: 100%;
   padding: 10px 14px;
@@ -1246,7 +1247,6 @@ onBeforeUnmount(() => {
   border-color: rgba(14, 165, 233, 0.28);
   background: rgba(255, 255, 255, 0.95);
   color: var(--pm-accent);
-  box-shadow: 0 8px 18px rgba(14, 165, 233, 0.1);
   transform: translateY(-1px);
 }
 
@@ -1262,7 +1262,7 @@ onBeforeUnmount(() => {
   width: 28px;
   height: 28px;
   border-radius: 8px;
-  background: rgba(14, 165, 233, 0.08);
+  background: transparent;
   color: var(--pm-accent);
   font-size: 15px;
   flex-shrink: 0;
@@ -1270,7 +1270,7 @@ onBeforeUnmount(() => {
 }
 
 .sidebar-footer-btn:hover .sidebar-footer-btn-icon {
-  background: rgba(14, 165, 233, 0.14);
+  background: transparent;
 }
 
 .sidebar-footer-btn-text {
@@ -1380,6 +1380,8 @@ onBeforeUnmount(() => {
   min-width: 0;
   overflow: hidden;
   position: relative;
+  background: var(--lc-surface-0);
+  border-radius: var(--lc-radius-lg);
 }
 .pm-toolbar {
   display: flex;
@@ -1453,7 +1455,7 @@ onBeforeUnmount(() => {
 
 /* PM visual unification */
 .pm-panel {
-  --pm-page-bg: #f4f7fb;
+  --pm-page-bg: var(--lc-bg);
   --pm-edge: var(--lc-border);
   --pm-edge-soft: var(--lc-border-subtle);
   --pm-accent: var(--lc-accent);
@@ -1465,17 +1467,16 @@ onBeforeUnmount(() => {
 }
 
 .pm-layout {
-  background:
-    radial-gradient(circle at top left, rgba(14, 165, 233, 0.06), transparent 28%),
-    linear-gradient(180deg, #f7faff 0%, var(--pm-page-bg) 42%, #eff4fa 100%);
+  background: var(--lc-surface-1);
 }
 
 .pm-sidebar {
   width: 248px;
   min-width: 248px;
   padding: 16px 14px 18px;
-  border-right: 1px solid var(--pm-edge);
-  background: linear-gradient(180deg, #f8fbff 0%, #f1f5fb 100%);
+  border: 1px solid var(--pm-edge);
+  border-radius: var(--lc-radius-lg);
+  background: var(--lc-surface-0);
 }
 
 .sidebar-create-btn {
@@ -1743,16 +1744,14 @@ onBeforeUnmount(() => {
 }
 
 .pm-main {
-  background:
-    radial-gradient(circle at top center, rgba(14, 165, 233, 0.06), transparent 30%),
-    linear-gradient(180deg, rgba(247, 250, 255, 0.96), rgba(240, 245, 251, 0.98));
+  border-radius: var(--lc-radius-lg);
 }
 
 .pm-toolbar {
-  padding: 16px 18px 14px;
+  padding: 0 0 14px;
   border-bottom: 1px solid var(--pm-edge);
-  background: rgba(244, 247, 251, 0.72);
-  backdrop-filter: blur(16px);
+  background: var(--lc-surface-0);
+  border-radius: var(--lc-radius-lg) var(--lc-radius-lg) 0 0;
 }
 
 .pm-toolbar-shell {

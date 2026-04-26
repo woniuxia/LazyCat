@@ -314,6 +314,8 @@ onBeforeUnmount(() => {
   gap: 0;
   overflow-x: auto;
   padding: 12px;
+  background: var(--lc-surface-1);
+  border-radius: var(--lc-radius-lg);
 }
 .kanban-column {
   flex: 1;

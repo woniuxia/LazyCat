@@ -1607,6 +1607,8 @@ async function onBatchDelete() {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  background: var(--lc-surface-1);
+  border-radius: var(--lc-radius-lg);
 }
 
 .pm-list-toolbar {

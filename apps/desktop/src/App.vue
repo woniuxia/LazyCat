@@ -31,27 +31,29 @@
     </TabBar>
 
     <main class="content">
-      <ClipboardSuggestionBar @open-tool="onClipboardToolOpen" />
+      <div class="content-inner">
+        <ClipboardSuggestionBar @open-tool="onClipboardToolOpen" />
 
-      <Transition name="panel-switch" mode="out-in">
-        <HomePanel
-          v-if="activeTool === HOME_ID"
-          key="home"
-          :all-items="visibleSidebarItems"
-          :merged-home-tools="mergedHomeTools"
-          :is-favorite="isFavorite"
-          @open-tool="onSelect"
-          @toggle-favorite="toggleFavorite"
-          @reorder-favorites="reorderFavorites"
-        />
+        <Transition name="panel-switch" mode="out-in">
+          <HomePanel
+            v-if="activeTool === HOME_ID"
+            key="home"
+            :all-items="visibleSidebarItems"
+            :merged-home-tools="mergedHomeTools"
+            :is-favorite="isFavorite"
+            @open-tool="onSelect"
+            @toggle-favorite="toggleFavorite"
+            @reorder-favorites="reorderFavorites"
+          />
 
-        <component
-          v-else-if="currentComponent"
-          :is="currentComponent"
-          :key="activeTool"
-          v-bind="currentComponentProps"
-        />
-      </Transition>
+          <component
+            v-else-if="currentComponent"
+            :is="currentComponent"
+            :key="activeTool"
+            v-bind="currentComponentProps"
+          />
+        </Transition>
+      </div>
     </main>
     <ShortcutHelpOverlay ref="shortcutHelp" />
   </div>

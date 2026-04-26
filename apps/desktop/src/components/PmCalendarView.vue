@@ -885,6 +885,8 @@ defineExpose({ refresh: reloadFrame });
   overflow: hidden;
   padding: 12px 20px 16px;
   gap: 12px;
+  background: var(--lc-surface-1);
+  border-radius: var(--lc-radius-lg);
 }
 
 .calendar-toolbar {

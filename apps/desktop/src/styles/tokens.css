@@ -7,12 +7,12 @@
 
 /* ---------- Design Tokens ---------- */
 :root {
-  /* Core palette */
-  --lc-bg: #f0f4f8;
+  /* Core palette -- Glacier Blue */
+  --lc-bg: #f2f6fc;
   --lc-surface-0: #ffffff;
-  --lc-surface-1: #f6f8fb;
-  --lc-surface-2: #ecf0f6;
-  --lc-surface-3: #e0e5ee;
+  --lc-surface-1: #f5faff;
+  --lc-surface-2: #ecf2fa;
+  --lc-surface-3: #dfe8f5;
 
   /* Borders */
   --lc-border: rgba(56, 130, 220, 0.10);
@@ -83,7 +83,7 @@
 
   --el-bg-color: #ffffff;
   --el-bg-color-overlay: #ffffff;
-  --el-bg-color-page: #f0f4f8;
+  --el-bg-color-page: #f2f6fc;
 
   --el-text-color-primary: #0f172a;
   --el-text-color-regular: #334155;
