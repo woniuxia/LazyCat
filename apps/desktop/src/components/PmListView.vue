@@ -2,76 +2,79 @@
   <div class="pm-list-view">
     <!-- Toolbar: tag / date / groupBy / cols (search/type/priority/status come from PmPanel toolbar) -->
     <div class="pm-list-toolbar">
-      <el-select
-        v-if="availableTags.length > 0"
-        v-model="filters.tags"
-        multiple
-        collapse-tags
-        collapse-tags-tooltip
-        filterable
-        placeholder="标签"
-        size="small"
-        class="toolbar-select"
-      >
-        <el-option v-for="tag in availableTags" :key="tag" :label="tag" :value="tag" />
-      </el-select>
+      <div class="pm-list-toolbar-inner">
+        <el-select
+          v-if="availableTags.length > 0"
+          v-model="filters.tags"
+          multiple
+          collapse-tags
+          collapse-tags-tooltip
+          filterable
+          placeholder="标签"
+          size="default"
+          class="toolbar-select"
+        >
+          <el-option v-for="tag in availableTags" :key="tag" :label="tag" :value="tag" />
+        </el-select>
 
-      <el-date-picker
-        v-model="dateRangeModel"
-        type="daterange"
-        size="small"
-        value-format="YYYY-MM-DD"
-        range-separator="~"
-        start-placeholder="起始时间"
-        end-placeholder="截止时间"
-        class="toolbar-date"
-        :clearable="true"
-      />
+        <el-date-picker
+          v-model="dateRangeModel"
+          type="daterange"
+          size="default"
+          value-format="YYYY-MM-DD"
+          range-separator="~"
+          start-placeholder="起始时间"
+          end-placeholder="截止时间"
+          class="toolbar-date"
+          :clearable="true"
+        />
 
-      <el-button
-        size="small"
-        :disabled="!hasActiveFilters"
-        @click="onClearFilters"
-      >
-        重置
-      </el-button>
+        <el-button
+          size="default"
+          class="toolbar-reset-btn"
+          :disabled="!hasActiveFilters"
+          @click="onClearFilters"
+        >
+          重置
+        </el-button>
 
-      <div class="toolbar-spacer" />
+        <div class="toolbar-spacer" />
 
-      <el-select
-        :model-value="groupBy"
-        size="small"
-        class="toolbar-group"
-        placeholder="分组"
-        @update:model-value="(v) => setGroupBy(v as PmListGroupBy)"
-      >
-        <el-option label="不分组" value="none" />
-        <el-option label="按项目" value="project" :disabled="!isOverview" />
-        <el-option label="按状态" value="status" />
-        <el-option label="按优先级" value="priority" />
-        <el-option label="按标签" value="tag" />
-      </el-select>
+        <el-select
+          :model-value="groupBy"
+          size="default"
+          class="toolbar-group"
+          placeholder="分组"
+          @update:model-value="(v) => setGroupBy(v as PmListGroupBy)"
+        >
+          <el-option label="不分组" value="none" />
+          <el-option label="按项目" value="project" :disabled="!isOverview" />
+          <el-option label="按状态" value="status" />
+          <el-option label="按优先级" value="priority" />
+          <el-option label="按标签" value="tag" />
+        </el-select>
 
-      <el-popover placement="bottom-end" trigger="click" :width="180">
-        <template #reference>
-          <el-button size="small">
-            <el-icon><Grid /></el-icon>
-            <span class="btn-label">列</span>
-          </el-button>
-        </template>
-        <div class="cols-popover">
-          <el-checkbox-group :model-value="visibleCols" @change="onToggleCols">
-            <el-checkbox
-              v-for="col in ALL_LIST_COLS"
-              :key="col"
-              :value="col"
-              :disabled="col === 'title' || (col === 'project' && !isOverview)"
-            >
-              {{ COL_LABELS[col] }}
-            </el-checkbox>
-          </el-checkbox-group>
-        </div>
-      </el-popover>
+        <el-popover placement="bottom-end" trigger="click" :width="180">
+          <template #reference>
+            <el-button size="default" class="toolbar-col-btn">
+              <el-icon><Grid /></el-icon>
+              <span class="btn-label">列</span>
+            </el-button>
+          </template>
+          <div class="cols-popover">
+            <el-checkbox-group :model-value="visibleCols" @change="onToggleCols">
+              <el-checkbox
+                v-for="col in ALL_LIST_COLS"
+                :key="col"
+                :value="col"
+                :disabled="col === 'title' || (col === 'project' && !isOverview)"
+              >
+                {{ COL_LABELS[col] }}
+              </el-checkbox>
+            </el-checkbox-group>
+          </div>
+        </el-popover>
+      </div>
     </div>
 
     <div v-if="hasActiveFilters" class="pm-list-filter-bar">
@@ -1611,31 +1614,88 @@ async function onBatchDelete() {
   border-radius: var(--lc-radius-lg);
 }
 
+/* ---------- Toolbar ---------- */
 .pm-list-toolbar {
+  padding: 12px 16px;
+  background: var(--lc-surface-1);
+}
+.pm-list-toolbar-inner {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  padding: 10px 20px;
+  gap: 10px;
   align-items: center;
-  border-bottom: 1px solid var(--el-border-color-lighter, #ebeef5);
-  background: var(--el-bg-color, #fff);
-}
-.toolbar-search {
-  width: 200px;
-  min-width: 140px;
+  padding: 10px 14px;
+  border-radius: 18px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(245, 249, 255, 0.9)),
+    radial-gradient(circle at top left, rgba(14, 165, 233, 0.07), transparent 36%);
+  border: 1px solid rgba(255, 255, 255, 0.92);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
 }
 .toolbar-select {
   width: 140px;
   min-width: 110px;
 }
+.toolbar-select :deep(.el-select__wrapper) {
+  min-height: 36px;
+  padding: 0 10px;
+  border-radius: 12px;
+  border-color: rgba(14, 165, 233, 0.12);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: none;
+  transition: box-shadow 0.18s var(--lc-ease), border-color 0.18s var(--lc-ease);
+}
+.toolbar-select :deep(.el-select__wrapper.is-focused) {
+  box-shadow: 0 6px 16px rgba(14, 165, 233, 0.10);
+  border-color: rgba(14, 165, 233, 0.28);
+}
+.toolbar-select :deep(.el-select__placeholder) {
+  color: #5a748f;
+  font-weight: 500;
+  font-size: 13px;
+}
 .toolbar-date {
-  width: 240px;
+  width: 260px;
+}
+.toolbar-date :deep(.el-range-editor) {
+  min-height: 36px;
+  border-radius: 12px;
+  border-color: rgba(14, 165, 233, 0.12);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: none;
+}
+.toolbar-date :deep(.el-date-editor .el-input__wrapper) {
+  min-height: 36px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: inset 0 0 0 1px rgba(14, 165, 233, 0.12);
+  transition: box-shadow 0.18s var(--lc-ease);
+}
+.toolbar-date :deep(.el-date-editor .el-input__wrapper.is-focus) {
+  box-shadow:
+    inset 0 0 0 1px rgba(14, 165, 233, 0.28),
+    0 6px 16px rgba(14, 165, 233, 0.10);
 }
 .toolbar-group {
   width: 120px;
 }
 .toolbar-spacer {
   flex: 1 1 auto;
+}
+.toolbar-reset-btn,
+.toolbar-col-btn {
+  min-height: 36px;
+  border-radius: 12px;
+  font-weight: 500;
+  border-color: rgba(14, 165, 233, 0.12);
+  background: rgba(255, 255, 255, 0.96);
+  transition: all 0.18s var(--lc-ease);
+}
+.toolbar-reset-btn:hover,
+.toolbar-col-btn:hover {
+  border-color: rgba(14, 165, 233, 0.25);
+  background: rgba(255, 255, 255, 1);
+  box-shadow: 0 4px 12px rgba(14, 165, 233, 0.08);
 }
 .btn-label {
   margin-left: 4px;
@@ -1651,18 +1711,20 @@ async function onBatchDelete() {
   display: flex;
 }
 
+/* ---------- Filter bar ---------- */
 .pm-list-filter-bar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  padding: 6px 20px;
-  background: var(--el-fill-color-lighter, #fafbfc);
-  border-bottom: 1px solid var(--el-border-color-lighter, #ebeef5);
+  padding: 6px 16px;
+  background: var(--lc-accent-dim);
+  border-bottom: 1px solid var(--lc-border);
 }
 .pm-list-filter-bar-label {
   font-size: 12px;
-  color: var(--el-text-color-secondary, #909399);
+  color: var(--lc-text-secondary);
+  font-weight: 500;
 }
 .pm-list-filter-chip {
   margin-right: 0;
@@ -1671,91 +1733,104 @@ async function onBatchDelete() {
   margin-left: auto;
 }
 
+/* ---------- Scrollable data area ---------- */
 .pm-list-scroll {
   flex: 1;
   overflow: auto;
-  padding: 12px 20px 24px;
-  transition: padding-bottom 0.18s;
+  padding: 12px 16px 24px;
+  transition: padding-bottom 0.2s var(--lc-ease);
 }
 .pm-list-scroll.has-batch {
   padding-bottom: 72px;
 }
 
 .pm-list-empty {
-  padding: 40px 0;
+  padding: 48px 0;
   display: flex;
   justify-content: center;
 }
 
 .pm-list-more-hint {
-  padding: 12px 0 4px;
+  padding: 14px 0 4px;
   text-align: center;
   font-size: 12px;
-  color: var(--el-text-color-secondary, #909399);
+  color: var(--lc-text-muted);
   letter-spacing: 0.02em;
 }
 
+/* ---------- Group ---------- */
 .pm-list-group {
   margin-bottom: 12px;
+  background: var(--lc-surface-0);
+  border-radius: var(--lc-radius-sm);
+  overflow: hidden;
+  box-shadow: var(--lc-shadow-sm);
 }
-
 .pm-list-group-header {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 8px;
-  margin-bottom: 4px;
-  border-radius: 4px;
+  gap: 8px;
+  padding: 8px 12px;
   cursor: pointer;
   user-select: none;
-  background: var(--el-fill-color-light, #f5f7fa);
-  transition: background 0.15s;
+  background: linear-gradient(135deg, var(--lc-surface-1), var(--lc-surface-0));
+  transition: background 0.15s var(--lc-ease);
 }
 .pm-list-group-header:hover {
-  background: var(--el-fill-color, #f0f2f5);
+  background: var(--lc-accent-dim);
 }
 .group-caret {
   font-size: 12px;
-  transition: transform 0.15s;
+  color: var(--lc-text-muted);
+  transition: transform 0.2s var(--lc-ease);
 }
 .group-caret.is-open {
   transform: rotate(90deg);
+  color: var(--lc-accent);
 }
 .group-color-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
+  flex-shrink: 0;
 }
 .group-label {
   font-size: 13px;
   font-weight: 600;
-  color: var(--el-text-color-primary, #303133);
+  color: var(--lc-text);
 }
 .group-count {
-  font-size: 12px;
-  color: var(--el-text-color-secondary, #606266);
-  background: var(--el-bg-color, #fff);
-  padding: 0 6px;
-  border-radius: 8px;
-  border: 1px solid var(--el-border-color-lighter, #ebeef5);
+  font-size: 11px;
+  color: var(--lc-accent);
+  background: var(--lc-accent-dim);
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
 }
 .group-metrics {
-  margin-left: 6px;
+  margin-left: 4px;
   font-size: 12px;
-  color: var(--el-text-color-secondary, #909399);
+  color: var(--lc-text-muted);
   letter-spacing: 0.02em;
 }
 
+/* ---------- Table row states ---------- */
 .pm-list-table :deep(.el-table__row) {
   cursor: pointer;
+  transition: background 0.15s var(--lc-ease);
+}
+.pm-list-table :deep(.el-table__row:hover td) {
+  background: var(--lc-surface-1) !important;
 }
 .pm-list-table :deep(.el-table__row.is-selected-row) {
-  background-color: var(--el-color-primary-light-9, #ecf5ff) !important;
+  background-color: var(--lc-accent-dim) !important;
 }
 .pm-list-table :deep(.el-table__row.is-selected-row td) {
-  background-color: var(--el-color-primary-light-9, #ecf5ff) !important;
+  background-color: var(--lc-accent-dim) !important;
 }
 
+/* ---------- Title cell ---------- */
 .cell-title {
   display: flex;
   align-items: center;
@@ -1767,11 +1842,11 @@ async function onBatchDelete() {
 }
 .title-text {
   font-weight: 500;
-  color: var(--el-text-color-primary, #303133);
+  color: var(--lc-text);
 }
 .title-edit-icon {
   font-size: 13px;
-  color: var(--el-text-color-placeholder, #c0c4cc);
+  color: var(--lc-text-muted);
   cursor: pointer;
   opacity: 0;
   transition: opacity 0.15s, color 0.15s;
@@ -1780,19 +1855,20 @@ async function onBatchDelete() {
   opacity: 1;
 }
 .title-edit-icon:hover {
-  color: var(--el-color-primary, #409eff);
+  color: var(--lc-accent);
 }
 .cell-title-editor {
   display: flex;
   align-items: center;
 }
 
+/* ---------- Project cell ---------- */
 .cell-project {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 1px 8px;
-  border-radius: 10px;
+  padding: 2px 10px;
+  border-radius: 12px;
   font-size: 12px;
   line-height: 1.6;
   max-width: 100%;
@@ -1807,48 +1883,53 @@ async function onBatchDelete() {
   flex-shrink: 0;
 }
 
+/* ---------- Pill (priority / status / type) ---------- */
 .cell-pill {
   display: inline-block;
   font-size: 11px;
   line-height: 1.6;
-  padding: 0 6px;
+  padding: 1px 8px;
   border: 1px solid;
-  border-radius: 4px;
+  border-radius: 10px;
+  font-weight: 500;
 }
 .cell-ref-code {
   font-size: 11px;
-  color: var(--el-text-color-secondary);
-  font-family: monospace;
+  color: var(--lc-text-secondary);
+  font-family: var(--lc-font-mono);
+  letter-spacing: 0.02em;
 }
 .cell-editable {
   cursor: pointer;
-  transition: background 0.15s, filter 0.15s;
+  transition: background 0.15s var(--lc-ease), filter 0.15s;
 }
 .cell-editable:hover {
   filter: brightness(1.05);
-  background: var(--el-fill-color-lighter, #fafafa);
+  background: var(--lc-accent-dim);
 }
 
+/* ---------- Date cell ---------- */
 .cell-date {
   font-size: 12px;
-  color: var(--el-text-color-secondary, #606266);
+  color: var(--lc-text-secondary);
 }
 .cell-date.is-overdue {
-  color: #f56c6c;
+  color: var(--lc-danger);
+  font-weight: 500;
 }
 .cell-empty {
-  color: var(--el-text-color-placeholder, #a8abb2);
+  color: var(--lc-text-muted);
   font-size: 12px;
 }
 .cell-date-trigger {
   display: inline-block;
-  padding: 1px 4px;
-  border-radius: 3px;
+  padding: 2px 6px;
+  border-radius: 6px;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background 0.15s var(--lc-ease);
 }
 .cell-date-trigger:hover {
-  background: var(--el-fill-color-lighter, #fafafa);
+  background: var(--lc-accent-dim);
 }
 
 .inline-date-editor {
@@ -1860,6 +1941,7 @@ async function onBatchDelete() {
   align-self: flex-end;
 }
 
+/* ---------- Tags cell ---------- */
 .cell-tags {
   display: inline-flex;
   flex-wrap: wrap;
@@ -1867,36 +1949,38 @@ async function onBatchDelete() {
   align-items: center;
   max-width: 100%;
   cursor: pointer;
-  padding: 1px 2px;
-  border-radius: 3px;
-  transition: background 0.15s;
+  padding: 2px 4px;
+  border-radius: 6px;
+  transition: background 0.15s var(--lc-ease);
 }
 .cell-tags:hover {
-  background: var(--el-fill-color-lighter, #fafafa);
+  background: var(--lc-accent-dim);
 }
 .cell-tag {
   max-width: 120px;
 }
 .tag-more {
   font-size: 11px;
-  color: var(--el-text-color-secondary, #606266);
+  color: var(--lc-text-muted);
   padding: 0 4px;
 }
 
+/* ---------- Batch bar ---------- */
 .pm-list-batch-bar {
   position: absolute;
-  left: 20px;
-  right: 20px;
+  left: 16px;
+  right: 16px;
   bottom: 16px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
   padding: 10px 16px;
-  background: var(--el-bg-color, #fff);
-  border: 1px solid var(--el-border-color, #dcdfe6);
-  border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--lc-border);
+  border-radius: var(--lc-radius-md);
+  box-shadow: var(--lc-shadow-lg);
 }
 
 .batch-info {
@@ -1906,8 +1990,8 @@ async function onBatchDelete() {
 }
 .batch-count {
   font-size: 13px;
-  color: var(--el-text-color-primary, #303133);
-  font-weight: 500;
+  color: var(--lc-text);
+  font-weight: 600;
 }
 
 .batch-actions {
@@ -1922,27 +2006,30 @@ async function onBatchDelete() {
   font-size: 11px;
 }
 
+/* ---------- Batch slide transition ---------- */
 .pm-list-batch-slide-enter-active,
 .pm-list-batch-slide-leave-active {
-  transition: transform 0.22s, opacity 0.22s;
+  transition: transform 0.25s var(--lc-ease-out), opacity 0.25s var(--lc-ease-out);
 }
 .pm-list-batch-slide-enter-from,
 .pm-list-batch-slide-leave-to {
-  transform: translateY(20px);
+  transform: translateY(16px);
   opacity: 0;
 }
+
+/* ---------- Description / Link / TodoCount ---------- */
 .cell-desc {
   display: inline-block;
   max-width: 260px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--el-text-color-regular, #606266);
+  color: var(--lc-text-secondary);
   font-size: 12px;
 }
 
 .cell-link {
-  color: var(--el-color-primary, #409eff);
+  color: var(--lc-accent);
   text-decoration: none;
   font-size: 12px;
   max-width: 200px;
@@ -1951,43 +2038,48 @@ async function onBatchDelete() {
   text-overflow: ellipsis;
   white-space: nowrap;
   vertical-align: middle;
+  transition: color 0.15s;
 }
 .cell-link:hover {
   text-decoration: underline;
+  color: var(--lc-accent-light);
 }
 
 .cell-todo-count {
   font-size: 12px;
-  color: var(--el-text-color-regular, #606266);
+  color: var(--lc-text-secondary);
+  font-variant-numeric: tabular-nums;
 }
 
+/* ---------- Row expand ---------- */
 .row-expand {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 6px 14px;
-  background: var(--el-fill-color-lighter, #fafbfc);
-  border-radius: 6px;
+  gap: 12px;
+  padding: 10px 16px;
+  background: var(--lc-surface-1);
+  border-radius: var(--lc-radius-sm);
+  margin: 0 8px 8px;
 }
 .row-expand-info {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 .row-expand-desc {
   font-size: 13px;
-  color: var(--el-text-color-regular, #606266);
-  line-height: 1.5;
+  color: var(--lc-text-secondary);
+  line-height: 1.6;
   white-space: pre-wrap;
 }
 .row-expand-desc.is-empty {
-  color: var(--el-text-color-placeholder, #a8abb2);
+  color: var(--lc-text-muted);
   font-style: italic;
 }
 .row-expand-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 14px;
+  gap: 16px;
   font-size: 12px;
 }
 .row-expand-meta-item {
@@ -1996,21 +2088,23 @@ async function onBatchDelete() {
   gap: 4px;
 }
 .meta-label {
-  color: var(--el-text-color-placeholder, #909399);
+  color: var(--lc-text-muted);
 }
 .meta-value {
-  color: var(--el-text-color-regular, #303133);
+  color: var(--lc-text);
+  font-variant-numeric: tabular-nums;
 }
 .meta-value.is-overdue {
-  color: #f56c6c;
+  color: var(--lc-danger);
+  font-weight: 500;
 }
 .row-expand-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px;
   justify-content: center;
-  padding-top: 4px;
-  border-top: 1px dashed var(--el-border-color-lighter, #ebeef5);
+  padding-top: 8px;
+  border-top: 1px dashed var(--lc-border);
 }
 
 .batch-tag-popover {
