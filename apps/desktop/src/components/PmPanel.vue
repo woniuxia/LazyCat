@@ -1387,7 +1387,6 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   padding: 8px 16px;
-  border-bottom: 1px solid var(--el-border-color-lighter);
   flex-shrink: 0;
   gap: 6px;
 }
@@ -1748,10 +1747,8 @@ onBeforeUnmount(() => {
 }
 
 .pm-toolbar {
-  padding: 0 0 14px;
-  border-bottom: 1px solid var(--pm-edge);
-  background: var(--lc-surface-0);
-  border-radius: var(--lc-radius-lg) var(--lc-radius-lg) 0 0;
+  padding: 0;
+  background: var(--lc-surface-1);
 }
 
 .pm-toolbar-shell {
@@ -1764,9 +1761,7 @@ onBeforeUnmount(() => {
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(245, 249, 255, 0.9)),
     radial-gradient(circle at top left, rgba(14, 165, 233, 0.09), transparent 36%);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.8),
-    0 14px 30px rgba(34, 48, 66, 0.08);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
 }
 
 .toolbar-row {
