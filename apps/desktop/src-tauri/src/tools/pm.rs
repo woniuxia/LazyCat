@@ -2203,8 +2203,8 @@ fn item_import(payload: &Value) -> Result<Value, String> {
                 continue;
             }
 
-            // Resolve project_id
-            let project_id = if let Some(&pidx) = project_name_idx {
+            // Read project name (defer creation until after filtering)
+            let project_name = if let Some(&pidx) = project_name_idx {
                 let pname = row
                     .get(pidx)
                     .and_then(|cell| cell_to_string(cell))
@@ -2213,22 +2213,9 @@ fn item_import(payload: &Value) -> Result<Value, String> {
                     skipped_no_project += 1;
                     continue;
                 }
-                if let Some(&pid) = project_map.get(&pname) {
-                    pid
-                } else {
-                    create_project_stmt
-                        .execute(params![pname, now, now])
-                        .map_err(|e| format!("创建项目 '{pname}': {e}"))?;
-                    let pid = tx.last_insert_rowid();
-                    project_map.insert(pname, pid);
-                    projects_created += 1;
-                    pid
-                }
-            } else if let Some(pid) = default_project_id {
-                pid
+                Some(pname)
             } else {
-                skipped_no_project += 1;
-                continue;
+                None
             };
 
             // Get ref_code and check duplicate
@@ -2267,6 +2254,26 @@ fn item_import(payload: &Value) -> Result<Value, String> {
                 skipped_filter += 1;
                 continue;
             }
+
+            // Resolve project_id (only after all checks pass)
+            let project_id = if let Some(ref pname) = project_name {
+                if let Some(&pid) = project_map.get(pname) {
+                    pid
+                } else {
+                    create_project_stmt
+                        .execute(params![pname, now, now])
+                        .map_err(|e| format!("创建项目 '{pname}': {e}"))?;
+                    let pid = tx.last_insert_rowid();
+                    project_map.insert(pname.clone(), pid);
+                    projects_created += 1;
+                    pid
+                }
+            } else if let Some(pid) = default_project_id {
+                pid
+            } else {
+                skipped_no_project += 1;
+                continue;
+            };
 
             // Build description
             let desc_a = desc_a_idx
