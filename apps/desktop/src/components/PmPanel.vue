@@ -273,7 +273,7 @@
       @open-item-link="openItemLink"
     >
       <template #todo-edit-mode>
-        <div v-if="editingItem" class="pm-item-section">
+        <div v-if="editingItem" class="pm-item-card pm-item-section">
           <div class="pm-item-section-title">执行任务</div>
           <InlineTodoList
             :pm-item-id="() => editingItem?.id"
@@ -293,7 +293,7 @@
       </template>
 
       <template #todo-create-mode>
-        <div v-if="!editingItem" class="pm-item-section">
+        <div v-if="!editingItem" class="pm-item-card pm-item-section">
           <div class="pm-item-section-title">执行任务</div>
           <InlineTodoList
             ref="createModeTodoRef"
@@ -328,6 +328,8 @@
       v-model="showSettingsDrawer"
       @imported="onImported"
     />
+
+    <PmSiyuanDrawer />
 
     </el-config-provider>
   </div>
@@ -369,6 +371,7 @@ import PmListView from "./PmListView.vue";
 import PmCalendarView from "./PmCalendarView.vue";
 import PmMatrixView from "./PmMatrixView.vue";
 import PmSettingsDrawer from "./PmSettingsDrawer.vue";
+import PmSiyuanDrawer from "./PmSiyuanDrawer.vue";
 import { usePmSiyuan } from "../composables/usePmSiyuan";
 import { PM_SIYUAN_KEY } from "../composables/pmSiyuanKey";
 import type { ItemSiyuanLinkedRow } from "../composables/usePmSiyuan";

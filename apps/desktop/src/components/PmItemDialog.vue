@@ -148,7 +148,7 @@
       </div>
 
       <!-- 描述 -->
-      <div class="pm-item-section">
+      <div class="pm-item-card pm-item-section">
         <el-form-item label="描述" class="pm-form-item-top">
           <RichDescriptionEditor
             v-if="dataDirReady"
@@ -175,14 +175,11 @@
         </div>
         <div v-if="linkedPages.length > 0" class="pm-siyuan-page-list">
           <div v-for="row in linkedPages" :key="row.page.docId" class="pm-siyuan-page-row">
-            <div class="pm-siyuan-page-main">
-              <div class="pm-siyuan-page-row-head">
-                <div class="pm-siyuan-page-title">{{ row.page.docTitle }}</div>
-                <el-tag v-if="row.kind === 'primary'" size="small" effect="plain" type="primary">主页面</el-tag>
-              </div>
-              <div class="pm-siyuan-page-meta">{{ row.page.notebookName }} · {{ row.page.docHpath }}</div>
-            </div>
-            <div class="pm-siyuan-page-actions">
+            <span class="pm-siyuan-page-title">{{ row.page.docTitle }}</span>
+            <el-tag v-if="row.kind === 'primary'" size="small" effect="plain" type="primary">主</el-tag>
+            <span class="pm-siyuan-page-notebook">{{ row.page.notebookName }}</span>
+            <span class="pm-siyuan-page-path">{{ row.page.docHpath }}</span>
+            <span class="pm-siyuan-page-actions">
               <el-button size="small" link @click="$emit('open-siyuan-page', row.page)">打开</el-button>
               <el-dropdown trigger="click" @command="(command) => $emit('siyuan-page-command', row, command)">
                 <el-button size="small" link class="pm-siyuan-more-trigger">更多</el-button>
@@ -194,7 +191,7 @@
                   </el-dropdown-menu>
                 </template>
               </el-dropdown>
-            </div>
+            </span>
           </div>
         </div>
         <div v-else class="pm-siyuan-empty-inline">尚未关联页面，点击右上角开始关联。</div>
@@ -739,7 +736,7 @@ defineExpose({
 /* Siyuan styles */
 .pm-siyuan-link-header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 12px;
@@ -771,52 +768,52 @@ defineExpose({
 .pm-siyuan-page-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .pm-siyuan-page-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px;
+  gap: 8px;
+  padding: 6px 12px;
   border: 1px solid var(--el-border-color-lighter);
   border-radius: 6px;
   background: var(--el-bg-color);
+  transition: border-color 0.2s;
 }
-
-.pm-siyuan-page-main {
-  flex: 1;
-  min-width: 0;
-}
-
-.pm-siyuan-page-row-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 4px;
+.pm-siyuan-page-row:hover {
+  border-color: var(--el-border-color);
 }
 
 .pm-siyuan-page-title {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 500;
   color: var(--el-text-color-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex-shrink: 1;
+  min-width: 0;
 }
 
-.pm-siyuan-page-meta {
+.pm-siyuan-page-notebook {
   font-size: 12px;
   color: var(--el-text-color-secondary);
+  flex-shrink: 0;
+}
+.pm-siyuan-page-path {
+  font-size: 12px;
+  color: var(--el-text-color-placeholder);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex: 1;
+  min-width: 0;
 }
 
 .pm-siyuan-page-actions {
   display: flex;
-  gap: 4px;
+  gap: 2px;
   flex-shrink: 0;
 }
 
