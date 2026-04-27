@@ -3,6 +3,7 @@
     :model-value="visible"
     :title="editingItem ? '编辑工作项' : '新建工作项'"
     width="860px"
+    class="pm-item-edit-dialog"
     @close="handleClose"
   >
     <el-form :model="form" label-position="top" size="default" class="pm-item-dialog-form">
@@ -227,7 +228,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from "vue";
+import { ref, computed, watch, onUnmounted } from "vue";
 import type { PmProject, PmItem, PmItemType, PmPriority, PmItemStatus, PmSiyuanPageRef, PmSiyuanLocation } from "../types/pm";
 import { PM_STATUS_COLUMNS, PM_ITEM_TYPE_MAP, PM_PRIORITY_MAP } from "../types/pm";
 import { getPmDateRangeValue, normalizePmDateRangeForDraft } from "../utils/pmDate";
@@ -426,6 +427,25 @@ function handleClose() {
 function handleSubmit() {
   emit("submit", form.value);
 }
+
+function onKeydown(e: KeyboardEvent) {
+  if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+    e.preventDefault();
+    handleSubmit();
+  }
+}
+
+watch(() => props.visible, (v) => {
+  if (v) {
+    window.addEventListener("keydown", onKeydown);
+  } else {
+    window.removeEventListener("keydown", onKeydown);
+  }
+});
+
+onUnmounted(() => {
+  window.removeEventListener("keydown", onKeydown);
+});
 
 // ── Watch ────────────────────────────────────────────────
 
@@ -842,5 +862,24 @@ defineExpose({
   color: var(--el-text-color-secondary);
   font-size: 13px;
   background: var(--el-fill-color-lighter);
+}
+</style>
+
+<style>
+/* Dialog-level sticky footer (unscoped to reach el-dialog internals) */
+.pm-item-edit-dialog {
+  display: flex;
+  flex-direction: column;
+  max-height: 85vh;
+}
+.pm-item-edit-dialog .el-dialog__body {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+.pm-item-edit-dialog .el-dialog__footer {
+  flex-shrink: 0;
+  border-top: 1px solid var(--el-border-color-lighter);
+  padding: 12px 20px;
 }
 </style>
