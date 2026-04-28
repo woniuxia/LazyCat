@@ -28,6 +28,7 @@ pub mod pm_siyuan;
 pub mod pm_today;
 pub mod pm_weekly;
 pub mod pm_todo_link;
+pub mod pm_todo_unified;
 pub mod port;
 pub mod regex;
 pub mod schema;
@@ -76,6 +77,7 @@ pub fn execute_tool(domain: &str, action: &str, payload: &Value) -> Result<Value
         "maven" => maven::execute(action, payload),
         "inbox" => inbox::execute(action, payload),
         "attachments" => attachments::execute(action, payload),
+        "unified" => pm_todo_unified::execute(action, payload),
         "system" => system::execute(action, payload),
         _ => Err(format!("unsupported command: {domain}.{action}")),
     }

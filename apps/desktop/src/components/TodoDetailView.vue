@@ -3,37 +3,61 @@
     <!-- Header -->
     <div class="detail-pane-header detail-pane-header--view">
       <div class="detail-title-group">
-        <div class="detail-eyebrow">事项详情</div>
+        <div class="detail-eyebrow">{{ isPmItem ? '工作项详情' : '事项详情' }}</div>
         <div class="detail-title-row">
           <h3 class="detail-title detail-title--copyable" title="点击复制标题" @click="$emit('copyTitle', item.title)">{{ item.title }}</h3>
           <div class="detail-badges">
-            <span
-              v-if="item.priority !== 'P2'"
-              class="detail-badge"
-              :class="'priority-' + item.priority.toLowerCase()"
-            >
-              <el-icon :size="12"><Flag /></el-icon>
-              {{ item.priority }} {{ priorityLabel(item.priority) }}
-            </span>
-            <span class="detail-badge pinned" v-if="item.pinned">
-              <el-icon :size="12"><Top /></el-icon> 置顶
-            </span>
-            <span class="detail-badge repeat" v-if="hasRepeatRule(item)">
-              <el-icon :size="12"><Refresh /></el-icon> 重复
-            </span>
-            <span class="detail-badge overdue" v-if="isItemOverdue(item)">
-              <el-icon :size="12"><AlarmClock /></el-icon> 逾期
-            </span>
+            <template v-if="isPmItem">
+              <span
+                v-if="PM_ITEM_TYPE_MAP[(item as UnifiedItem).itemType as string]"
+                class="detail-badge pm-type-badge"
+                :style="getPmLightTagStyle(PM_ITEM_TYPE_MAP[(item as UnifiedItem).itemType as string]?.color)"
+              >
+                {{ PM_ITEM_TYPE_MAP[(item as UnifiedItem).itemType as string]?.label ?? (item as UnifiedItem).itemType }}
+              </span>
+              <span class="detail-badge" :class="'priority-' + item.priority.toLowerCase()">
+                <el-icon :size="12"><Flag /></el-icon>
+                {{ item.priority }} {{ priorityLabel(item.priority as TodoPriority) }}
+              </span>
+              <span
+                class="detail-badge pm-status-badge"
+                :style="{ backgroundColor: pmItemStatusColor + '18', color: pmItemStatusColor }"
+              >
+                {{ pmItemStatusLabel }}
+              </span>
+              <span v-if="item.pinned" class="detail-badge pinned">
+                <el-icon :size="12"><Top /></el-icon> 置顶
+              </span>
+              <span v-if="isItemOverdue(item)" class="detail-badge overdue">
+                <el-icon :size="12"><AlarmClock /></el-icon> 逾期
+              </span>
+            </template>
+            <template v-else>
+              <span
+                v-if="item.priority !== 'P2'"
+                class="detail-badge"
+                :class="'priority-' + item.priority.toLowerCase()"
+              >
+                <el-icon :size="12"><Flag /></el-icon>
+                {{ item.priority }} {{ priorityLabel(item.priority) }}
+              </span>
+              <span class="detail-badge pinned" v-if="item.pinned">
+                <el-icon :size="12"><Top /></el-icon> 置顶
+              </span>
+              <span class="detail-badge repeat" v-if="hasRepeatRule(item)">
+                <el-icon :size="12"><Refresh /></el-icon> 重复
+              </span>
+              <span class="detail-badge overdue" v-if="isItemOverdue(item)">
+                <el-icon :size="12"><AlarmClock /></el-icon> 逾期
+              </span>
+            </template>
           </div>
         </div>
       </div>
       <div class="detail-header-actions">
-        <el-button
-          size="small"
-          link
-          class="detail-edit-btn"
-          @click="$emit('edit', item)"
-        >编辑</el-button>
+        <el-button size="small" link class="detail-edit-btn" @click="$emit('edit', item)">
+          {{ isPmItem ? '在PM中编辑' : '编辑' }}
+        </el-button>
         <el-button
           v-if="canPinItem(item)"
           size="small"
@@ -43,6 +67,7 @@
           {{ item.pinned ? "取消置顶" : "置顶" }}
         </el-button>
         <el-button
+          v-if="!isPmItem"
           size="small"
           link
           :type="isDoneItem(item) ? '' : 'success'"
@@ -50,14 +75,185 @@
         >
           {{ isDoneItem(item) ? "恢复" : "完成" }}
         </el-button>
-        <el-button size="small" link type="danger" @click="$emit('delete', item)"
-        >删除</el-button>
+        <el-button
+          v-if="isPmItem && !isDoneItem(item)"
+          size="small"
+          link
+          type="primary"
+          @click="$emit('changeStatus', item.id, 'advance')"
+        >
+          推进状态
+        </el-button>
+        <el-button size="small" link type="danger" @click="$emit('delete', item)">删除</el-button>
       </div>
     </div>
 
     <!-- Content -->
     <div class="detail-scroll">
       <div class="detail-content">
+        <!-- ===== PM Item Cards ===== -->
+        <template v-if="isPmItem">
+          <!-- PM Project & Type Card -->
+          <div v-if="item.projectId || (item as UnifiedItem).itemType" class="detail-card">
+            <div class="detail-card-header">
+              <div class="detail-card-icon warning">
+                <el-icon><Briefcase /></el-icon>
+              </div>
+              <span class="detail-card-title">工作项属性</span>
+            </div>
+            <div class="detail-card-body pm-attrs-body">
+              <div v-if="item.projectId" class="pm-attr-row">
+                <span class="pm-attr-label">所属项目</span>
+                <span class="pm-attr-project">
+                  <span class="project-section-dot" :style="{ backgroundColor: item.projectColor || '#909399' }" />
+                  <span class="project-section-name">{{ item.projectName || '项目 #' + item.projectId }}</span>
+                </span>
+              </div>
+              <div v-if="(item as UnifiedItem).itemType" class="pm-attr-row">
+                <span class="pm-attr-label">工作类型</span>
+                <el-tag size="small" effect="light" round :style="getPmLightTagStyle(PM_ITEM_TYPE_MAP[(item as UnifiedItem).itemType as string]?.color)">
+                  {{ PM_ITEM_TYPE_MAP[(item as UnifiedItem).itemType as string]?.label ?? (item as UnifiedItem).itemType }}
+                </el-tag>
+              </div>
+              <div v-if="(item as UnifiedItem).refCode" class="pm-attr-row">
+                <span class="pm-attr-label">编号</span>
+                <span class="detail-ref-code">{{ (item as UnifiedItem).refCode }}</span>
+              </div>
+              <div v-if="(item as UnifiedItem).tags && (item as UnifiedItem).tags!.length > 0" class="pm-attr-row">
+                <span class="pm-attr-label">标签</span>
+                <div class="pm-tags-list">
+                  <el-tag v-for="tag in (item as UnifiedItem).tags" :key="tag" size="small" type="info" round>{{ tag }}</el-tag>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- PM Timeline Card -->
+          <div class="detail-card">
+            <div class="detail-card-header">
+              <div class="detail-card-icon primary">
+                <el-icon><Calendar /></el-icon>
+              </div>
+              <span class="detail-card-title">时间轨迹</span>
+            </div>
+            <div class="detail-card-body">
+              <div class="pm-timeline-grid">
+                <div class="pm-timeline-item">
+                  <span class="detail-label">时间安排</span>
+                  <span class="detail-value" :class="{ 'is-overdue-date': isItemOverdue(item) }">
+                    {{ formatPmDateRangeForDisplay((item as UnifiedItem).startAt, (item as UnifiedItem).endAt) }}
+                  </span>
+                </div>
+                <div class="pm-timeline-item">
+                  <span class="detail-label">创建时间</span>
+                  <span class="detail-value">{{ formatDateTime(item.createdAt) }}</span>
+                </div>
+                <div class="pm-timeline-item">
+                  <span class="detail-label">开始执行</span>
+                  <span class="detail-value">{{ formatDateTime((item as UnifiedItem).startedAt) }}</span>
+                </div>
+                <div class="pm-timeline-item">
+                  <span class="detail-label">开始测试</span>
+                  <span class="detail-value">{{ formatDateTime((item as UnifiedItem).testingAt) }}</span>
+                </div>
+                <div v-if="item.completedAt" class="pm-timeline-item">
+                  <span class="detail-label">完成时间</span>
+                  <span class="detail-value">{{ formatDateTime(item.completedAt) }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- PM Description Card -->
+          <div v-if="item.description" class="detail-card">
+            <div class="detail-card-header">
+              <div class="detail-card-icon primary">
+                <el-icon><Document /></el-icon>
+              </div>
+              <span class="detail-card-title">描述</span>
+            </div>
+            <div class="detail-card-body">
+              <div class="detail-description-card" :key="'pm-desc-' + item.id">
+                <RichDescriptionViewer :value="item.description" />
+              </div>
+            </div>
+          </div>
+
+          <!-- PM Exec Tasks Card -->
+          <div class="detail-card">
+            <div class="detail-card-header">
+              <div class="detail-card-icon success">
+                <el-icon><CircleCheck /></el-icon>
+              </div>
+              <span class="detail-card-title">执行任务</span>
+            </div>
+            <div class="detail-card-body pm-todo-body">
+              <InlineTodoList
+                :pm-item-id="() => item.id"
+                :items="pmTodo.items"
+                :summary="pmTodo.summary"
+                :loading="pmTodo.loading"
+                mode="edit"
+                :candidates="pmTodo.candidates"
+                :candidates-loading="pmTodo.candidateLoading"
+                @create="pmTodo.quickCreate"
+                @toggle="pmTodo.toggleCompleteById"
+                @unlink="pmTodo.unlink"
+                @link="pmTodo.linkBatch"
+                @search-candidates="pmTodo.searchCandidates"
+              />
+            </div>
+          </div>
+
+          <!-- PM Resources Card -->
+          <div class="detail-card">
+            <div class="detail-card-header">
+              <div class="detail-card-icon primary">
+                <el-icon><Link /></el-icon>
+              </div>
+              <span class="detail-card-title">资源关联</span>
+            </div>
+            <div class="detail-card-body">
+              <div class="pm-resource-list">
+                <div class="pm-resource-item">
+                  <span class="detail-label">链接</span>
+                  <div class="pm-resource-link-row">
+                    <span class="detail-value detail-link-text">{{ (item as UnifiedItem).linkUrl || "-" }}</span>
+                    <el-button
+                      v-if="(item as UnifiedItem).linkUrl"
+                      size="small"
+                      link
+                      @click="openItemLink((item as UnifiedItem).linkUrl)"
+                    >打开</el-button>
+                  </div>
+                </div>
+                <div v-if="(item as UnifiedItem).siyuanPrimaryPage" class="pm-resource-item">
+                  <span class="detail-label">思源主页面</span>
+                  <div class="pm-resource-link-row">
+                    <span class="detail-value">{{ (item as UnifiedItem).siyuanPrimaryPage!.docTitle }}</span>
+                    <el-button size="small" link @click="openSiyuanPage((item as UnifiedItem).siyuanPrimaryPage!.docId)">打开</el-button>
+                  </div>
+                  <span class="pm-siyuan-meta">{{ (item as UnifiedItem).siyuanPrimaryPage!.notebookName }} · {{ (item as UnifiedItem).siyuanPrimaryPage!.docHpath }}</span>
+                </div>
+                <div
+                  v-for="page in (item as UnifiedItem).siyuanExtraPages"
+                  :key="page.docId"
+                  class="pm-resource-item"
+                >
+                  <span class="detail-label">附加页面</span>
+                  <div class="pm-resource-link-row">
+                    <span class="detail-value">{{ page.docTitle }}</span>
+                    <el-button size="small" link @click="openSiyuanPage(page.docId)">打开</el-button>
+                  </div>
+                  <span class="pm-siyuan-meta">{{ page.notebookName }} · {{ page.docHpath }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <!-- ===== Todo Item Cards ===== -->
+        <template v-else>
         <div v-if="!hasDetailCards" class="detail-card detail-card--empty">
           <div class="detail-card-header">
             <div class="detail-card-icon primary">
@@ -157,7 +353,7 @@
 
         <!-- Info Card -->
         <div
-          v-if="item.typeName || item.assignees.length > 0"
+          v-if="item.typeName || (item.assignees?.length ?? 0) > 0"
           class="detail-card"
         >
           <div class="detail-card-header">
@@ -177,7 +373,7 @@
                 {{ item.typeName }}
               </span>
             </div>
-            <div v-if="item.assignees.length > 0" class="info-inline-group info-inline-group--assignees">
+            <div v-if="(item.assignees?.length ?? 0) > 0" class="info-inline-group info-inline-group--assignees">
               <el-icon class="info-inline-icon" :size="14"><UserFilled /></el-icon>
               <div class="info-assignee-list">
                 <span
@@ -301,6 +497,7 @@
             </div>
           </div>
         </div>
+        </template>
       </div>
     </div>
 
@@ -316,7 +513,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import {
   AlarmClock,
   Bell,
@@ -334,19 +531,27 @@ import {
   UserFilled,
 } from "@element-plus/icons-vue";
 import { effectiveReminderPresets } from "../composables/useTodoItem";
+import { invokeToolByChannel } from "../bridge/tauri";
 import type { TodoItem, TodoPriority } from "../types";
+import type { PmItem } from "../types/pm";
+import { PM_STATUS_COLUMNS, PM_ITEM_TYPE_MAP, PM_PRIORITY_MAP } from "../types/pm";
+import { isPmItemOverdue } from "../utils/pmDate";
+import { formatPmDateRangeForDisplay } from "../utils/pmDate";
 import { formatTodoRelativeDateTimeLabel } from "../utils/todoRelativeDate";
 import RichDescriptionViewer from "./RichDescriptionViewer.vue";
+import InlineTodoList from "./InlineTodoList.vue";
+import { usePmTodoLinking } from "../composables/usePmTodoLinking";
+import type { UnifiedItem } from "../utils/todoBuckets";
 
 const props = defineProps<{
-  item: TodoItem;
+  item: TodoItem | UnifiedItem;
 }>();
 
 const emit = defineEmits<{
-  edit: [item: TodoItem];
+  edit: [item: TodoItem | UnifiedItem];
   togglePin: [id: number];
   changeStatus: [id: number, status: string];
-  delete: [item: TodoItem];
+  delete: [item: TodoItem | UnifiedItem];
   copyTitle: [title: string];
   openLink: [url: string];
   navigateToPm: [pmItemId: number, pmProjectId: number | null];
@@ -395,24 +600,6 @@ function formatDate(value?: string | null) {
   } catch {
     return value;
   }
-}
-
-function isDoneItem(item: TodoItem) {
-  return item.status === "completed";
-}
-
-function canPinItem(item: TodoItem) {
-  return item.status !== "completed";
-}
-
-function hasRepeatRule(item: TodoItem): boolean {
-  return item.kind === "recurring" && item.recurrence !== null;
-}
-
-function isItemOverdue(item: TodoItem): boolean {
-  if (item.status === "completed") return false;
-  if (!item.eventAt) return false;
-  return new Date(item.eventAt).getTime() < Date.now();
 }
 
 function formatWeekdayList(days: number[] = []) {
@@ -647,7 +834,7 @@ const hasDetailCards = computed(() => {
   return (
     hasSchedule ||
     !!item.typeName ||
-    item.assignees.length > 0 ||
+    (item.assignees?.length ?? 0) > 0 ||
     item.description ||
     (item.links?.length ?? 0) > 0 ||
     hasRepeatRule(item) ||
@@ -679,11 +866,109 @@ const typeChipStyle = computed(() => {
 
 const infoCardTitle = computed(() => {
   const hasType = !!props.item.typeName;
-  const hasAssignees = props.item.assignees.length > 0;
+  const hasAssignees = (props.item.assignees?.length ?? 0) > 0;
   if (hasType && hasAssignees) return "分类与执行人";
   if (hasType) return "分类";
   return "执行人";
 });
+
+// --- PM item support ---
+
+const isPmItem = computed(() => (props.item as UnifiedItem).source === "pm");
+
+function getPmField<T>(field: string, fallback: T): T {
+  return ((props.item as Record<string, unknown>)[field] as T) ?? fallback;
+}
+
+const pmItemStatusColor = computed(() =>
+  PM_STATUS_COLUMNS.find((c) => c.key === (props.item.status || "todo"))?.color ?? "#909399",
+);
+
+const pmItemStatusLabel = computed(() =>
+  PM_STATUS_COLUMNS.find((c) => c.key === (props.item.status || "todo"))?.label ?? "待办",
+);
+
+function getPmLightTagStyle(color?: string | null) {
+  const c = color ?? "#409eff";
+  return {
+    "--el-tag-bg-color": `${c}14`,
+    "--el-tag-border-color": `${c}33`,
+    "--el-tag-text-color": c,
+  };
+}
+
+function formatDateTime(dateStr: string | null | undefined): string {
+  if (!dateStr) return "-";
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return "-";
+  return d.toLocaleString("zh-CN");
+}
+
+const pmTodo = reactive(usePmTodoLinking(() => (isPmItem.value ? props.item.id : null)));
+
+watch(
+  () => (isPmItem.value ? props.item.id : null),
+  (id) => {
+    if (id != null) {
+      pmTodo.loadItems(id);
+    } else {
+      pmTodo.reset();
+    }
+  },
+);
+
+function isDoneItem(item: TodoItem | UnifiedItem): boolean {
+  const src = (item as UnifiedItem).source;
+  if (src === "pm") return item.status === "done";
+  return item.status === "completed";
+}
+
+function canPinItem(item: TodoItem | UnifiedItem): boolean {
+  const src = (item as UnifiedItem).source;
+  if (src === "pm") return item.status !== "done";
+  return item.status !== "completed";
+}
+
+function hasRepeatRule(item: TodoItem | UnifiedItem): boolean {
+  if ((item as UnifiedItem).source === "pm") return false;
+  return item.kind === "recurring" && item.recurrence !== null;
+}
+
+function isItemOverdue(item: TodoItem | UnifiedItem): boolean {
+  const src = (item as UnifiedItem).source;
+  if (src === "pm") {
+    return isPmItemOverdue(item as unknown as PmItem);
+  }
+  if (item.status === "completed") return false;
+  if (!item.eventAt) return false;
+  return new Date(item.eventAt).getTime() < Date.now();
+}
+
+function normalizeItemLinkUrl(value: string | null | undefined): string {
+  let url = (value ?? "").trim();
+  if (!url) return "";
+  if (/^https?:\/\//i.test(url)) return url;
+  if (url.includes("://")) return "";
+  return `http://${url}`;
+}
+
+async function openItemLink(url: string | null | undefined) {
+  const normalized = normalizeItemLinkUrl(url);
+  if (!normalized) return;
+  try {
+    await invokeToolByChannel("tool:pm:open-link", { url: normalized });
+  } catch (e) {
+    console.error("打开链接失败:", e);
+  }
+}
+
+async function openSiyuanPage(docId: string) {
+  try {
+    await invokeToolByChannel("tool:pm:siyuan-open-page", { docId });
+  } catch (e) {
+    console.error("打开思源页面失败:", e);
+  }
+}
 </script>
 
 <style scoped>
@@ -1422,5 +1707,98 @@ const infoCardTitle = computed(() => {
   .detail-scroll {
     padding: 14px;
   }
+}
+
+/* --- PM item styles --- */
+.pm-attrs-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+}
+.pm-attr-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.pm-attr-label {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  flex-shrink: 0;
+  min-width: 56px;
+}
+.pm-attr-project {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.pm-tags-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.detail-ref-code {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--el-text-color-secondary);
+  font-family: monospace;
+}
+.pm-timeline-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.pm-timeline-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 64px;
+  padding: 10px 12px;
+  border: 1px solid var(--lc-border);
+  border-radius: 10px;
+  background: var(--lc-surface-1);
+}
+.is-overdue-date {
+  color: var(--el-color-danger);
+  font-weight: 600;
+}
+.pm-todo-body {
+  padding: 0;
+}
+.pm-todo-body :deep(.inline-todo-list) {
+  border: none;
+  border-radius: 0;
+}
+.pm-resource-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.pm-resource-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.pm-resource-link-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.pm-siyuan-meta {
+  font-size: 11px;
+  color: var(--el-text-color-placeholder);
+}
+.pm-type-badge {
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 8px;
+}
+.pm-status-badge {
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 8px;
 }
 </style>

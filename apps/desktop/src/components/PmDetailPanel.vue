@@ -6,7 +6,7 @@
           <div class="detail-header-eyebrow">工作项详情</div>
           <span class="detail-title">详情</span>
         </div>
-        <el-button size="small" link @click="emit('close')">
+        <el-button v-if="!embed" size="small" link @click="emit('close')">
           <el-icon><Close /></el-icon>
         </el-button>
       </div>
@@ -131,7 +131,7 @@
                     {{ item.siyuanPrimaryPage.notebookName }} · {{ item.siyuanPrimaryPage.docHpath }}
                   </span>
                 </div>
-                <el-button size="small" link @click="siyuan.openSiyuanPage(item.siyuanPrimaryPage)">打开</el-button>
+                <el-button size="small" link @click="siyuan?.openSiyuanPage(item.siyuanPrimaryPage)">打开</el-button>
               </template>
               <template v-else>
                 <div class="detail-resource-main">
@@ -146,7 +146,7 @@
                 <span class="detail-siyuan-page-title">{{ page.docTitle }}</span>
                 <span class="detail-siyuan-page-meta">{{ page.notebookName }} · {{ page.docHpath }}</span>
               </div>
-              <el-button size="small" link @click="siyuan.openSiyuanPage(page)">打开</el-button>
+              <el-button size="small" link @click="siyuan?.openSiyuanPage(page)">打开</el-button>
             </div>
           </div>
         </div>
@@ -165,6 +165,7 @@
             推进状态
           </el-button>
           <el-button size="small" type="danger" plain @click="emit('delete', item)">删除</el-button>
+          <el-button v-if="embed" size="small" type="primary" @click="emit('navigate-to-pm')">在PM中编辑</el-button>
         </div>
       </div>
     </aside>
@@ -188,6 +189,7 @@ import RichDescriptionViewer from "./RichDescriptionViewer.vue";
 const props = defineProps<{
   project: PmProject | null;
   item: PmItem | null;
+  embed?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -195,10 +197,11 @@ const emit = defineEmits<{
   "toggle-pin": [item: PmItem];
   "advance-status": [item: PmItem];
   delete: [item: PmItem];
+  "navigate-to-pm": [];
 }>();
 
 const { invoke } = useToolInvoke();
-const siyuan = inject(PM_SIYUAN_KEY)!;
+const siyuan = inject(PM_SIYUAN_KEY, null);
 
 const pmTodo = reactive(usePmTodoLinking(() => props.item?.id));
 

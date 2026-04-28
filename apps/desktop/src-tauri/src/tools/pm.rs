@@ -541,7 +541,7 @@ fn batch_load_todo_counts(conn: &Connection, item_ids: &[i64]) -> HashMap<i64, i
     map
 }
 
-fn batch_load_siyuan_links(conn: &Connection, item_ids: &[i64]) -> HashMap<i64, Vec<crate::tools::pm_siyuan::SiyuanPageRef>> {
+pub(crate) fn batch_load_siyuan_links(conn: &Connection, item_ids: &[i64]) -> HashMap<i64, Vec<crate::tools::pm_siyuan::SiyuanPageRef>> {
     if item_ids.is_empty() {
         return HashMap::new();
     }
