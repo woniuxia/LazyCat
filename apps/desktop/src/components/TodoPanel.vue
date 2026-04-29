@@ -1,6 +1,6 @@
 <template>
   <div class="todo-panel">
-    <div class="todo-layout">
+    <div class="todo-layout" v-loading="initialLoading">
       <TodoSidebar
         :active-items="activeItems"
         :recent-week-items="recentWeekItems"
@@ -545,6 +545,7 @@ const todoDetailEditRef = ref<{
 const filterType = ref<string | null>(null);
 const filterPriority = ref<TodoPriority | null>(null);
 const doneCollapsed = ref(true);
+const initialLoading = ref(true);
 const recentWeekCollapsed = ref(true);
 const basicsDialogVisible = ref(false);
 const viewMode = ref<"list" | "calendar">("list");
@@ -2104,6 +2105,7 @@ watchPendingToolInput("todo", (input) => applyPendingTodoInput(input));
 
 onMounted(async () => {
   await Promise.all([loadTypes(), loadAssignees(), loadItems(), loadProjects()]);
+  initialLoading.value = false;
   try {
     reminderUnlisten = await listen("todo-reminder-fired", async () => {
       await loadItems();

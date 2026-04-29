@@ -1,7 +1,7 @@
 <template>
   <div class="pm-panel">
     <el-config-provider :locale="zhCn">
-      <div class="pm-layout">
+      <div class="pm-layout" v-loading="initialLoading">
       <!-- Left: Project list -->
       <aside class="pm-sidebar">
         <div
@@ -407,6 +407,7 @@ const items = ref<PmItem[]>([]);
 const projectItemCounts = ref<Record<number, { total: number; done: number }>>({});
 const selectedProjectId = ref<number | "overview" | null>(null);
 const selectedItemId = ref<number | null>(null);
+const initialLoading = ref(true);
 const searchText = ref("");
 const filterType = ref<PmItemType | "">("");
 const filterPriority = ref<PmPriority | "">("");
@@ -1173,7 +1174,6 @@ function onDetailClickAway(e: PointerEvent) {
 
 onMounted(async () => {
   document.addEventListener("pointerdown", onDetailClickAway);
-  // 预热 dataDir 缓存，避免首次打开编辑对话框时 IPC 耗时导致图片批量加载卡顿
   void ensureDataDir();
   await loadProjects();
   const focus = consumePmFocus();
@@ -1187,8 +1187,11 @@ onMounted(async () => {
       ElMessage.warning("未找到该工作项，可能已被删除");
     }
   } else {
-    selectProject("overview");
+    selectedProjectId.value = "overview";
+    selectedItemId.value = null;
+    await loadItems();
   }
+  initialLoading.value = false;
 });
 
 onBeforeUnmount(() => {
