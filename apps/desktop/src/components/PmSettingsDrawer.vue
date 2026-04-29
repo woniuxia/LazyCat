@@ -9,7 +9,7 @@
     @update:model-value="$emit('update:modelValue', $event)"
     @close="$emit('update:modelValue', false)"
   >
-    <template #title>
+    <template #header>
       导入与设置
     </template>
     <el-tabs v-model="activeTab" class="pm-settings-tabs">

@@ -8,7 +8,7 @@
     :with-header="true"
     @close="siyuan.drawerVisible.value = false"
   >
-    <template #title>
+    <template #header>
       思源配置
     </template>
     <div class="siyuan-drawer-body">
