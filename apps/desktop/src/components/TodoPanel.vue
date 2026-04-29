@@ -2880,6 +2880,10 @@ onBeforeUnmount(() => {
   --el-radio-button-checked-border-color: var(--el-color-primary-light-5);
 }
 
+.toolbar-left :deep(.el-radio-button__original-radio:checked + .el-radio-button__inner) {
+  color: var(--el-color-primary) !important;
+}
+
 </style>
 
 <style>
