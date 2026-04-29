@@ -1,11 +1,21 @@
 <template>
   <div class="weekly-panel">
+    <el-config-provider :locale="zhCn">
     <div class="weekly-header">
       <div class="header-left">
-        <span class="header-kicker">本周时间范围内的推进轨迹与完成情况</span>
+        <span class="header-kicker">近7天内的推进轨迹与完成情况</span>
         <div class="header-title-row">
           <h3>本周工作</h3>
-          <span class="window-hint">{{ windowHint }}</span>
+          <el-date-picker
+            v-model="dateRange"
+            type="daterange"
+            range-separator="~"
+            start-placeholder="开始"
+            end-placeholder="结束"
+            size="small"
+            :disabled-date="noop"
+            @change="onDateChange"
+          />
         </div>
       </div>
       <el-button size="small" @click="loadData" :loading="loading">刷新</el-button>
@@ -71,8 +81,9 @@
     </div>
 
     <div v-else-if="!loading" class="weekly-empty">
-      <el-empty description="本周还没有命中的工作项" />
+      <el-empty description="近7天还没有命中的工作项" />
     </div>
+    </el-config-provider>
   </div>
 </template>
 
@@ -81,6 +92,7 @@ import { computed, onMounted, ref } from "vue";
 import { useToolInvoke } from "../composables/useToolInvoke";
 import type { WeeklyWorkItem, WeeklyWorkResult } from "../types/pm";
 import { PM_ITEM_TYPE_MAP, PM_PRIORITY_MAP, PM_STATUS_COLUMNS } from "../types/pm";
+import zhCn from "element-plus/es/locale/lang/zh-cn";
 import {
   formatPmDateForDisplay,
   formatPmDateRangeForDisplay,
@@ -90,6 +102,31 @@ import {
 const { invoke } = useToolInvoke();
 const loading = ref(false);
 const data = ref<WeeklyWorkResult | null>(null);
+
+function pad(n: number) {
+  return String(n).padStart(2, "0");
+}
+
+function todayStr() {
+  const d = new Date();
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function daysAgoStr(n: number) {
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+const dateRange = ref<[string, string]>([daysAgoStr(6), todayStr()]);
+
+function noop(_d: Date) {
+  return false;
+}
+
+function onDateChange() {
+  loadData();
+}
 
 interface SummaryCard {
   key: string;
@@ -111,13 +148,6 @@ interface WorkGroup {
   riskCount: number;
 }
 
-const windowHint = computed(() => {
-  if (!data.value) return "";
-  const start = new Date(data.value.windowStart).toLocaleDateString("zh-CN");
-  const end = new Date(data.value.windowEnd).toLocaleDateString("zh-CN");
-  return `${start} ~ ${end}`;
-});
-
 const allItems = computed<WeeklyWorkItem[]>(() => {
   if (!data.value) return [];
   return [...data.value.pmItems, ...data.value.todoItems];
@@ -137,7 +167,7 @@ const summaryCards = computed<SummaryCard[]>(() => {
       key: "total",
       label: "总量",
       value: totalCount,
-      hint: "本周命中的全部事项",
+      hint: "时间窗口内命中的全部事项",
     },
     {
       key: "active",
@@ -149,13 +179,13 @@ const summaryCards = computed<SummaryCard[]>(() => {
       key: "done",
       label: "已完成",
       value: doneCount,
-      hint: "本周已经收口的事项",
+      hint: "时间窗口内已收口的事项",
     },
     {
       key: "risk",
       label: "风险项",
       value: riskCount,
-      hint: "测试中或高优先级未完成",
+      hint: "周期内未完成的PM事项",
       tone: "alert",
     },
   ];
@@ -209,7 +239,8 @@ const groupedData = computed<WorkGroup[]>(() => {
 async function loadData() {
   loading.value = true;
   try {
-    data.value = (await invoke<WeeklyWorkResult>("tool:pm:weekly-work", {})) ?? null;
+    const [start, end] = dateRange.value;
+    data.value = (await invoke<WeeklyWorkResult>("tool:pm:weekly-work", { windowStart: start, windowEnd: end })) ?? null;
   } catch (error) {
     console.error(error);
   } finally {
@@ -245,10 +276,8 @@ function isActiveItem(item: WeeklyWorkItem): boolean {
 }
 
 function isRiskItem(item: WeeklyWorkItem): boolean {
-  if (item.source !== "pm" || item.status === "done") {
-    return false;
-  }
-  return item.status === "testing" || item.priority === "P0" || item.priority === "P1";
+  if (item.source !== "pm") return false;
+  return item.status !== "done";
 }
 
 function formatDateOnly(value: string | null | undefined): string {
@@ -331,7 +360,7 @@ function formatGroupSummary(group: WorkGroup): string {
   }
 
   if (parts.length === 0) {
-    return "本周命中事项已全部收口";
+    return "时间窗口内事项已全部收口";
   }
 
   return parts.join(" · ");
@@ -381,17 +410,15 @@ onMounted(loadData);
   min-width: 0;
 }
 
+.header-title-row .el-date-editor {
+  max-width: 260px;
+}
+
 .header-left h3 {
   margin: 0;
   font-size: 18px;
   font-weight: 600;
   color: var(--lc-text);
-}
-
-.window-hint {
-  font-size: 13px;
-  color: var(--lc-text-secondary);
-  white-space: nowrap;
 }
 
 .weekly-body {
@@ -682,10 +709,6 @@ onMounted(loadData);
 @media (max-width: 820px) {
   .weekly-header {
     align-items: flex-start;
-  }
-
-  .window-hint {
-    white-space: normal;
   }
 
   .timeline-row {

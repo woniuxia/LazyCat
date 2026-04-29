@@ -1,4 +1,4 @@
-use chrono::{Datelike, Local, NaiveDate, Utc};
+use chrono::{Local, NaiveDate, Utc};
 use rusqlite::params;
 use serde_json::{json, Value};
 
@@ -50,47 +50,81 @@ pub fn resolve_pm_weekly_window_hit(
 pub fn resolve_current_week_window(
     now_local: chrono::DateTime<Local>,
 ) -> Result<(NaiveDate, NaiveDate, String, String, String), String> {
-    let week_start =
-        now_local.date_naive() - chrono::Duration::days(now_local.weekday().num_days_from_monday() as i64);
-    let week_end = week_start + chrono::Duration::days(6);
-    let next_week_start = week_start + chrono::Duration::days(7);
+    let window_end = now_local.date_naive();
+    let window_start = window_end - chrono::Duration::days(6);
+    let next_start = window_end + chrono::Duration::days(1);
 
-    let week_start_utc = week_start
+    let window_start_utc = window_start
         .and_hms_opt(0, 0, 0)
         .unwrap()
         .and_local_timezone(Local)
         .single()
         .map(|dt| dt.with_timezone(&Utc))
-        .ok_or("week start timezone conversion failed")?;
-    let week_end_utc = week_end
+        .ok_or("window start timezone conversion failed")?;
+    let window_end_utc = window_end
         .and_hms_opt(23, 59, 59)
         .unwrap()
         .and_local_timezone(Local)
         .single()
         .map(|dt| dt.with_timezone(&Utc))
-        .ok_or("week end timezone conversion failed")?;
-    let next_week_start_utc = next_week_start
+        .ok_or("window end timezone conversion failed")?;
+    let next_start_utc = next_start
         .and_hms_opt(0, 0, 0)
         .unwrap()
         .and_local_timezone(Local)
         .single()
         .map(|dt| dt.with_timezone(&Utc))
-        .ok_or("next week start timezone conversion failed")?;
+        .ok_or("next start timezone conversion failed")?;
 
     Ok((
-        week_start,
-        week_end,
-        week_start_utc.to_rfc3339(),
-        week_end_utc.to_rfc3339(),
-        next_week_start_utc.to_rfc3339(),
+        window_start,
+        window_end,
+        window_start_utc.to_rfc3339(),
+        window_end_utc.to_rfc3339(),
+        next_start_utc.to_rfc3339(),
     ))
 }
 
-pub fn weekly_work(_payload: &Value) -> Result<Value, String> {
+fn resolve_custom_window(
+    window_start_str: &str,
+    window_end_str: &str,
+) -> Result<(NaiveDate, NaiveDate, String, String, String), String> {
+    let window_start = parse_pm_weekly_date(Some(window_start_str))
+        .ok_or_else(|| format!("invalid windowStart: {window_start_str}"))?;
+    let window_end = parse_pm_weekly_date(Some(window_end_str))
+        .ok_or_else(|| format!("invalid windowEnd: {window_end_str}"))?;
+    if window_start > window_end {
+        return Err("windowStart must be <= windowEnd".into());
+    }
+    let next_start = window_end + chrono::Duration::days(1);
+    let fmt_naive = |d: NaiveDate, h: u32, m: u32, s: u32| -> Result<String, String> {
+        d.and_hms_opt(h, m, s)
+            .unwrap()
+            .and_local_timezone(Local)
+            .single()
+            .map(|dt| dt.with_timezone(&Utc).to_rfc3339())
+            .ok_or("timezone conversion failed".into())
+    };
+    Ok((
+        window_start,
+        window_end,
+        fmt_naive(window_start, 0, 0, 0)?,
+        fmt_naive(window_end, 23, 59, 59)?,
+        fmt_naive(next_start, 0, 0, 0)?,
+    ))
+}
+
+pub fn weekly_work(payload: &Value) -> Result<Value, String> {
     let conn = db_conn()?;
-    let now_local = Local::now();
-    let (week_start, week_end, week_start_str, week_end_str, next_week_start_str) =
-        resolve_current_week_window(now_local)?;
+    let (window_start, window_end, window_start_str, window_end_str, next_start_str) =
+        if let (Some(ws), Some(we)) = (
+            payload.get("windowStart").and_then(|v| v.as_str()),
+            payload.get("windowEnd").and_then(|v| v.as_str()),
+        ) {
+            resolve_custom_window(ws, we)?
+        } else {
+            resolve_current_week_window(Local::now())?
+        };
 
     let mut pm_stmt = conn
         .prepare(
@@ -140,7 +174,7 @@ pub fn weekly_work(_payload: &Value) -> Result<Value, String> {
                 project_status,
             ) = row.ok()?;
             let (normalized_start, normalized_end, sort_date) =
-                resolve_pm_weekly_window_hit(start_at.as_deref(), end_at.as_deref(), week_start, week_end)?;
+                resolve_pm_weekly_window_hit(start_at.as_deref(), end_at.as_deref(), window_start, window_end)?;
             let sort_at = format_pm_weekly_date(sort_date);
             Some((
                 sort_at.clone(),
@@ -185,7 +219,7 @@ pub fn weekly_work(_payload: &Value) -> Result<Value, String> {
             .map_err(|e| format!("weekly_work todo: {e}"))?;
 
         let result: Vec<Value> = todo_stmt
-            .query_map(params![week_start_str, next_week_start_str], |r| {
+            .query_map(params![window_start_str, next_start_str], |r| {
                 Ok(json!({
                     "id": r.get::<_, i64>(0)?,
                     "title": r.get::<_, String>(1)?,
@@ -216,7 +250,7 @@ pub fn weekly_work(_payload: &Value) -> Result<Value, String> {
             .map_err(|e| format!("weekly_work todo: {e}"))?;
 
         let result: Vec<Value> = todo_stmt
-            .query_map(params![week_start_str, next_week_start_str], |r| {
+            .query_map(params![window_start_str, next_start_str], |r| {
                 Ok(json!({
                     "id": r.get::<_, i64>(0)?,
                     "title": r.get::<_, String>(1)?,
@@ -241,7 +275,7 @@ pub fn weekly_work(_payload: &Value) -> Result<Value, String> {
     Ok(json!({
         "pmItems": pm_items,
         "todoItems": todo_items,
-        "windowStart": week_start_str,
-        "windowEnd": week_end_str,
+        "windowStart": window_start_str,
+        "windowEnd": window_end_str,
     }))
 }
