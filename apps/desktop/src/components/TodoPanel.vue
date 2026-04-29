@@ -2,9 +2,9 @@
   <div class="todo-panel">
     <div class="todo-layout">
       <TodoSidebar
-        :active-items="viewMode === 'unified' ? unifiedActiveItems : activeItems"
-        :recent-week-items="viewMode === 'unified' ? unifiedRecentWeekItems : recentWeekItems"
-        :done-items="viewMode === 'unified' ? unifiedDoneItems : doneItems"
+        :active-items="activeItems"
+        :recent-week-items="recentWeekItems"
+        :done-items="doneItems"
         v-model:filter-type="filterType"
         v-model:filter-priority="filterPriority"
         @open-basics="basicsDialogVisible = true"
@@ -13,16 +13,11 @@
         <div class="toolbar">
           <div class="toolbar-left">
             <el-radio-group v-model="viewMode" size="small">
-              <el-radio-button value="unified">
-                <el-icon><Grid /></el-icon>
-                <span style="margin-left: 4px">全部工作</span>
-              </el-radio-button>
               <el-radio-button value="list">
                 <el-icon><Document /></el-icon>
-                <span style="margin-left: 4px">仅Todo</span>
               </el-radio-button>
               <el-radio-button value="calendar">
-                <el-icon><Calendar /></el-icon>
+                <el-icon><Grid /></el-icon>
               </el-radio-button>
             </el-radio-group>
           </div>
@@ -120,7 +115,7 @@
                   {
                     'is-pinned': row.pinned,
                     'is-overdue-card': isItemOverdue(row),
-                    'is-selected': isSelectedItem(row),
+                    'is-selected': selectedItemId === row.id,
                   },
                 ]"
                 :style="{ '--item-index': index }"
@@ -335,193 +330,6 @@
             </div>
           </div>
         </div>
-        <div v-if="viewMode === 'unified'" class="todo-list-scroll" @scroll.passive="closeTodoContextMenu">
-          <div v-if="hasActiveFilter" class="filter-indicator">
-            <span class="filter-indicator-text">
-              已筛选
-              <template v-if="filterType !== null">分类「{{ filterType }}」</template>
-              <template v-if="filterType !== null && filterPriority !== null">、</template>
-              <template v-if="filterPriority !== null">优先级 {{ filterPriority }}</template>
-            </span>
-            <el-button size="small" link type="primary" @click="clearAllFilters">清除筛选</el-button>
-          </div>
-
-          <div class="item-section">
-            <div class="item-section-header">
-              <div class="item-section-title-wrap">
-                <h3 class="item-section-title">全部工作</h3>
-                <span class="count-badge">{{ displayUnifiedActiveItems.length }}</span>
-              </div>
-            </div>
-
-            <div v-if="displayUnifiedActiveItems.length === 0" class="todo-empty">
-              <div class="todo-empty-icon">
-                <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
-                  <rect x="8" y="12" width="32" height="28" rx="4" stroke="currentColor" stroke-width="1.5" opacity="0.25" />
-                  <path d="M16 8v8M32 8v8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.25" />
-                  <path d="M19 26l3 3 7-7" stroke="var(--lc-accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-                </svg>
-              </div>
-              <span class="todo-empty-text">{{ hasActiveFilter ? "当前筛选条件下暂无工作项" : "一切安好，暂无工作项" }}</span>
-            </div>
-            <div v-else class="todo-card-list">
-              <div
-                v-for="(row, index) in displayUnifiedActiveItems"
-                :key="row.source + '-' + row.id"
-                class="todo-card"
-                :class="[
-                  'priority-stripe-' + row.priority.toLowerCase(),
-                  {
-                    'is-pinned': row.pinned,
-                    'is-selected': isSelectedItem(row),
-                  },
-                ]"
-                :style="{ '--item-index': index }"
-                @click="selectItem(row)"
-                @dblclick="enterEditMode(row)"
-                @contextmenu.prevent="row.source === 'todo' && openTodoContextMenu($event, row)"
-              >
-                <div v-if="row.source === 'todo'" class="todo-card-check" @click.stop>
-                  <el-checkbox
-                    :model-value="row.status === 'completed'"
-                    :disabled="!row.status"
-                    @change="onCheckItem(row)"
-                  />
-                </div>
-                <div v-else class="todo-card-check" @click.stop>
-                  <span class="source-dot" :style="{ backgroundColor: pmStatusColor(row.status) }" />
-                </div>
-                <div class="todo-card-body">
-                  <div class="todo-card-top">
-                    <span class="todo-card-title">{{ row.title }}</span>
-                    <span class="todo-card-badges">
-                      <span v-if="row.pinned" class="item-badge badge-pinned" title="置顶">
-                        <el-icon :size="11"><Top /></el-icon>
-                      </span>
-                      <span v-if="row.source === 'todo' && hasRepeatRule(row)" class="item-badge badge-repeat" title="重复">
-                        <el-icon :size="11"><Refresh /></el-icon>
-                      </span>
-                    </span>
-                  </div>
-                  <div class="todo-card-meta">
-                    <span v-if="row.source === 'pm'" class="meta-chip meta-type">
-                      <el-tag size="small" effect="light" round :style="getPmLightTagStyle(PM_ITEM_TYPE_MAP[row.itemType as string]?.color)">
-                        {{ PM_ITEM_TYPE_MAP[row.itemType as string]?.label ?? row.itemType }}
-                      </el-tag>
-                    </span>
-                    <span v-if="row.source === 'pm'" class="meta-chip">
-                      <el-tag size="small" effect="light" round :type="pmStatusTagType(row.status)">
-                        {{ pmStatusLabel(row.status) }}
-                      </el-tag>
-                    </span>
-                    <span v-if="row.source === 'todo' && row.typeName" class="meta-chip meta-type">
-                      <span class="color-dot-sm" :style="{ backgroundColor: row.typeColor || '#909399' }" />
-                      {{ row.typeName }}
-                    </span>
-                    <span v-if="row.projectName" class="meta-chip meta-project">
-                      <span class="color-dot-sm" :style="{ backgroundColor: row.projectColor || '#909399' }" />
-                      {{ row.projectName }}
-                    </span>
-                    <span v-if="row.source === 'pm' && row.tags && row.tags.length > 0" class="meta-chip">
-                      <el-icon :size="12"><Collection /></el-icon>
-                      {{ row.tags.join(", ") }}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div class="item-section">
-            <div class="item-section-header done-section-header" @click="toggleUnifiedRecentCollapsed">
-              <div class="item-section-title-wrap">
-                <h3 class="item-section-title done-title">最近一周已办</h3>
-                <span class="count-badge is-muted">{{ displayUnifiedRecentWeekItems.length }}</span>
-              </div>
-              <span class="done-toggle-icon" :class="{ 'is-collapsed': unifiedRecentCollapsed }">
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                  <path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
-                </svg>
-              </span>
-            </div>
-
-            <div v-if="displayUnifiedRecentWeekItems.length === 0" class="todo-empty is-muted">
-              <span class="todo-empty-text">{{ hasActiveFilter ? "当前筛选条件下最近一周暂无已办事项" : "最近一周暂无已办事项" }}</span>
-            </div>
-            <div v-else v-show="!unifiedRecentCollapsed" class="todo-card-list is-done-list">
-              <div
-                v-for="(row, index) in displayUnifiedRecentWeekItems"
-                :key="row.source + '-' + row.id"
-                class="todo-card is-done-card"
-                :class="[
-                  'priority-stripe-' + row.priority.toLowerCase(),
-                  { 'is-selected': isSelectedItem(row) },
-                ]"
-                :style="{ '--item-index': index }"
-                @click="selectItem(row)"
-                @dblclick="row.source === 'pm' && navigateToPmItem(row.id, row.projectId as number ?? null)"
-              >
-                <div class="todo-card-check" @click.stop>
-                  <span class="source-dot" :style="{ backgroundColor: row.source === 'pm' ? pmStatusColor(row.status) : 'var(--lc-color-success)' }" />
-                </div>
-                <div class="todo-card-body">
-                  <div class="todo-card-top">
-                    <span class="todo-card-title is-done">{{ row.title }}</span>
-                  </div>
-                  <div class="todo-card-meta">
-                    <span v-if="row.projectName" class="meta-chip meta-project">
-                      <span class="color-dot-sm" :style="{ backgroundColor: row.projectColor || '#909399' }" />
-                      {{ row.projectName }}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div class="item-section">
-            <div class="item-section-header done-section-header" @click="toggleUnifiedDoneCollapsed">
-              <div class="item-section-title-wrap">
-                <h3 class="item-section-title done-title">已办事项</h3>
-                <span class="count-badge is-muted">{{ displayUnifiedDoneItems.length }}</span>
-              </div>
-              <span class="done-toggle-icon" :class="{ 'is-collapsed': unifiedDoneCollapsed }">
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                  <path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
-                </svg>
-              </span>
-            </div>
-
-            <div v-if="displayUnifiedDoneItems.length === 0" class="todo-empty is-muted">
-              <span class="todo-empty-text">{{ hasActiveFilter ? "当前筛选条件下暂无已办事项" : "暂无已办事项" }}</span>
-            </div>
-            <div v-else v-show="!unifiedDoneCollapsed" class="todo-card-list is-done-list">
-              <div
-                v-for="(row, index) in displayUnifiedDoneItems"
-                :key="row.source + '-' + row.id"
-                class="todo-card is-done-card"
-                :class="[
-                  'priority-stripe-' + row.priority.toLowerCase(),
-                  { 'is-selected': isSelectedItem(row) },
-                ]"
-                :style="{ '--item-index': index }"
-                @click="selectItem(row)"
-              >
-                <div class="todo-card-body">
-                  <div class="todo-card-top">
-                    <span class="todo-card-title is-done">{{ row.title }}</span>
-                  </div>
-                  <div class="todo-card-meta">
-                    <span v-if="row.projectName" class="meta-chip meta-project">
-                      <span class="color-dot-sm" :style="{ backgroundColor: row.projectColor || '#909399' }" />
-                      {{ row.projectName }}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
         <div v-if="viewMode === 'calendar'" class="todo-calendar-view">
           <TodoCalendarGrid
             :items="allItemsForCalendar"
@@ -583,10 +391,10 @@
         <template v-else-if="detailMode === 'view' && selectedItem !== null">
           <TodoDetailView
             :item="selectedItem"
-            @edit="onDetailEdit"
-            @toggle-pin="onDetailTogglePin"
-            @change-status="onDetailChangeStatus"
-            @delete="onDetailDelete"
+            @edit="enterEditMode"
+            @toggle-pin="toggleItemPin"
+            @change-status="(id, status) => changeItemStatus(id, status as TodoStatus)"
+            @delete="deleteItem"
             @copy-title="copyTitle"
             @open-link="openLink"
             @navigate-to-pm="navigateToPmItem"
@@ -644,7 +452,6 @@ import type { UnlistenFn } from "@tauri-apps/api/event";
 import {
   AlarmClock,
   Calendar,
-  Collection,
   Document,
   Grid,
   Plus,
@@ -675,11 +482,11 @@ import type {
   TodoStatus,
   TodoType,
 } from "../types";
-import { PM_STATUS_COLUMNS, PM_ITEM_TYPE_MAP, PM_PRIORITY_MAP } from "../types/pm";
-import type { PmCandidateItem, PmItem } from "../types/pm";
+import { PM_STATUS_COLUMNS } from "../types/pm";
+import type { PmCandidateItem } from "../types/pm";
 import { useTabs } from "../composables/useTabs";
 import { usePmNavigation } from "../composables/usePmNavigation";
-import { groupTodoItemsByBucket, groupUnifiedItemsByBucket, type UnifiedItem } from "../utils/todoBuckets";
+import { groupTodoItemsByBucket } from "../utils/todoBuckets";
 import { formatTodoRelativeDateTimeLabel } from "../utils/todoRelativeDate";
 import {
   prevMonth as calPrevMonth,
@@ -720,25 +527,6 @@ function pmStatusLabel(status: string | null | undefined): string {
   return PM_STATUS_COLUMNS.find(c => c.key === (status || "todo"))?.label ?? "待办";
 }
 
-function pmStatusTagType(status: string | null | undefined): "success" | "primary" | "warning" | "info" | "danger" {
-  if (!status) return "info";
-  switch (status) {
-    case "done": return "success";
-    case "in_progress": return "primary";
-    case "testing": return "warning";
-    default: return "info";
-  }
-}
-
-function getPmLightTagStyle(color?: string | null) {
-  const resolvedColor = color ?? "#409eff";
-  return {
-    "--el-tag-bg-color": `${resolvedColor}14`,
-    "--el-tag-border-color": `${resolvedColor}33`,
-    "--el-tag-text-color": resolvedColor,
-  };
-}
-
 const items = ref<TodoItem[]>([]);
 const types = ref<TodoType[]>([]);
 const assignees = ref<TodoAssignee[]>([]);
@@ -758,13 +546,8 @@ const filterType = ref<string | null>(null);
 const filterPriority = ref<TodoPriority | null>(null);
 const doneCollapsed = ref(true);
 const recentWeekCollapsed = ref(true);
-const unifiedDoneCollapsed = ref(true);
-const unifiedRecentCollapsed = ref(true);
 const basicsDialogVisible = ref(false);
-const viewMode = ref<"unified" | "list" | "calendar">("list");
-const unifiedItems = ref<UnifiedItem[]>([]);
-const unifiedPmCount = ref(0);
-const unifiedTodoCount = ref(0);
+const viewMode = ref<"list" | "calendar">("list");
 const todoPmLinkItemId = ref<number | null>(null);
 const todoPmCandidates = ref<PmCandidateItem[]>([]);
 let skipProjectWatch = false;
@@ -776,7 +559,6 @@ const calendarMonth = ref(new Date());
 const itemDialogMode = ref<ItemDialogMode>("create");
 const detailMode = ref<DetailMode>("empty");
 const selectedItemId = ref<number | null>(null);
-const selectedItemSource = ref<"pm" | "todo" | null>(null);
 const draftBaseline = ref("");
 const editingItemSnapshot = ref<TodoItem | null>(null);
 const defaultReminderPresets: TodoReminderPreset[] = ["none"];
@@ -1023,67 +805,16 @@ function applyDisplayFilter(list: TodoItem[]): TodoItem[] {
 const displayActiveItems = computed(() => applyDisplayFilter(activeItems.value));
 const displayRecentWeekItems = computed(() => applyDisplayFilter(recentWeekItems.value));
 const displayDoneItems = computed(() => applyDisplayFilter(doneItems.value));
-
-// ── Unified view computed ──────────────────────────────────
-const unifiedBucketed = computed(() => groupUnifiedItemsByBucket(unifiedItems.value));
-const unifiedActiveItems = computed(() => unifiedBucketed.value.activeItems);
-const unifiedRecentWeekItems = computed(() => unifiedBucketed.value.recentWeekItems);
-const unifiedDoneItems = computed(() => unifiedBucketed.value.doneItems);
-
-function applyUnifiedDisplayFilter(list: UnifiedItem[]): UnifiedItem[] {
-  let result = list;
-  if (filterType.value !== null) {
-    const currentType = filterType.value;
-    result = result.filter((item) => {
-      if (item.source === "pm") return true;
-      return (item.typeName as string | undefined || "未分类") === currentType;
-    });
-  }
-  if (filterPriority.value !== null) {
-    const currentPriority = filterPriority.value;
-    result = result.filter((item) => item.priority === currentPriority);
-  }
-  const keyword = itemKeyword.value.trim().toLowerCase();
-  if (keyword) {
-    result = result.filter((item) =>
-      item.title.toLowerCase().includes(keyword) ||
-      item.description.toLowerCase().includes(keyword)
-    );
-  }
-  if (filterProjectId.value === "none") {
-    result = result.filter((item) => item.projectId == null);
-  } else if (typeof filterProjectId.value === "number") {
-    result = result.filter((item) => item.projectId === filterProjectId.value);
-  }
-  return result;
-}
-
-const displayUnifiedActiveItems = computed(() => applyUnifiedDisplayFilter(unifiedActiveItems.value));
-const displayUnifiedRecentWeekItems = computed(() => applyUnifiedDisplayFilter(unifiedRecentWeekItems.value));
-const displayUnifiedDoneItems = computed(() => applyUnifiedDisplayFilter(unifiedDoneItems.value));
-
 const todoContextMenuItem = computed(() =>
   todoContextMenu.itemId == null
     ? null
     : items.value.find((item) => item.id === todoContextMenu.itemId) || null,
 );
-const selectedItem = computed(() => {
-  if (selectedItemId.value == null) return null;
-  if (viewMode.value === "unified") {
-    return unifiedItems.value.find(
-      (item) => item.id === selectedItemId.value && item.source === selectedItemSource.value,
-    ) || null;
-  }
-  return items.value.find((item) => item.id === selectedItemId.value) || null;
-});
-
-function isSelectedItem(item: { id: number; source?: string }): boolean {
-  if (selectedItemId.value === null) return false;
-  if (item.id !== selectedItemId.value) return false;
-  if (selectedItemSource.value === null) return true;
-  return (item as UnifiedItem).source === selectedItemSource.value;
-}
-
+const selectedItem = computed(() =>
+  selectedItemId.value == null
+    ? null
+    : items.value.find((item) => item.id === selectedItemId.value) || null,
+);
 const allItemsForCalendar = computed(() => items.value);
 const isDetailEditing = computed(
   () => detailMode.value === "edit" || detailMode.value === "create",
@@ -1176,21 +907,19 @@ function finalizeDetailAfterSave(savedId?: number | null) {
   detailMode.value = "empty";
 }
 
-function selectItem(item: TodoItem | UnifiedItem) {
-  if (isSelectedItem(item) && detailMode.value === "view") return;
+function selectItem(item: TodoItem) {
+  if (selectedItemId.value === item.id && detailMode.value === "view") return;
   if (isDetailEditing.value && isDraftDirty.value) {
     selectItemAsync(item);
     return;
   }
   selectedItemId.value = item.id;
-  selectedItemSource.value = (item as UnifiedItem).source ?? null;
   detailMode.value = "view";
 }
 
-async function selectItemAsync(item: TodoItem | UnifiedItem) {
+async function selectItemAsync(item: TodoItem) {
   if (!(await ensureDetailCanLeave())) return;
   selectedItemId.value = item.id;
-  selectedItemSource.value = (item as UnifiedItem).source ?? null;
   detailMode.value = "view";
 }
 
@@ -1202,16 +931,15 @@ function closeTodoContextMenu() {
 async function prepareItemForInlineAction(item: TodoItem) {
   if (!(await ensureDetailCanLeave())) return false;
   selectedItemId.value = item.id;
-  selectedItemSource.value = null;
   detailMode.value = "view";
   return true;
 }
 
-async function openTodoContextMenu(event: MouseEvent, item: TodoItem | UnifiedItem) {
+async function openTodoContextMenu(event: MouseEvent, item: TodoItem) {
   event.preventDefault();
   event.stopPropagation();
   closeTodoContextMenu();
-  if (!(await prepareItemForInlineAction(item as TodoItem))) return;
+  if (!(await prepareItemForInlineAction(item))) return;
   todoContextMenu.itemId = item.id;
   todoContextMenu.visible = true;
   todoContextMenu.x = event.clientX;
@@ -1222,7 +950,7 @@ async function enterEditTimeMode(item?: TodoItem | null) {
   const target = item || selectedItem.value;
   if (!target) return;
   await enterEditMode(target);
-  if (!isSelectedItem(target)) return;
+  if (selectedItemId.value !== target.id) return;
   showMoreFields.value = true;
   await nextTick();
   const scheduleSection = todoDetailEditRef.value?.scheduleRef.value;
@@ -1385,7 +1113,7 @@ function itemKindOf(item: TodoItem): TodoKind {
   return item.kind;
 }
 
-function hasRepeatRule(item: { kind?: string; recurrence?: Record<string, unknown> | null }): boolean {
+function hasRepeatRule(item: TodoItem): boolean {
   return item.kind === "recurring" && !!item.recurrence;
 }
 
@@ -1442,17 +1170,9 @@ function toggleRecentWeekCollapsed() {
   recentWeekCollapsed.value = !recentWeekCollapsed.value;
 }
 
-function toggleUnifiedDoneCollapsed() {
-  unifiedDoneCollapsed.value = !unifiedDoneCollapsed.value;
-}
-
-function toggleUnifiedRecentCollapsed() {
-  unifiedRecentCollapsed.value = !unifiedRecentCollapsed.value;
-}
-
-function onCheckItem(item: TodoItem | UnifiedItem) {
+function onCheckItem(item: TodoItem) {
   if (!item.status) return;
-  void changeItemStatus(item.id, item.status === "completed" ? "pending" : "completed");
+  void changeItemStatus(item.id, isDoneItem(item) ? "pending" : "completed");
 }
 
 function disabledFiveMinuteMinutes(..._args: unknown[]) {
@@ -1729,10 +1449,6 @@ async function loadAssignees() {
 }
 async function loadItems() {
   closeTodoContextMenu();
-  if (viewMode.value === "unified") {
-    await loadUnifiedItems();
-    return;
-  }
   const params: Record<string, unknown> = {};
   if (filterProjectId.value === "none") {
     params.projectFilter = "none";
@@ -1742,17 +1458,6 @@ async function loadItems() {
   items.value = getResponseItems(await invokeToolByChannel("tool:todo:item-list", params)).map(
     normalizeTodoItem,
   );
-}
-
-async function loadUnifiedItems() {
-  const result = await invokeToolByChannel("tool:unified:list", {}) as {
-    items: UnifiedItem[];
-    pmCount: number;
-    todoCount: number;
-  };
-  unifiedItems.value = result.items || [];
-  unifiedPmCount.value = result.pmCount ?? 0;
-  unifiedTodoCount.value = result.todoCount ?? 0;
 }
 
 async function loadProjects() {
@@ -1840,7 +1545,6 @@ async function onPmCreateConfirm() {
     if (itemDialogMode.value === "create") {
       itemDialogMode.value = "edit_item";
       selectedItemId.value = todoId;
-      selectedItemSource.value = "todo";
     }
     ElMessage.success("工作项已创建并关联");
   } catch (error) {
@@ -1956,36 +1660,6 @@ function navigateToPmItem(pmItemId: number, pmProjectId: number | null) {
   openTab("pm", "项目管理");
 }
 
-async function handlePmTogglePin(item: PmItem) {
-  await invokeToolByChannel("tool:pm:item-toggle-pin", { id: item.id });
-  await loadUnifiedItems();
-  ElMessage.success(item.pinned ? "已取消置顶" : "已置顶");
-}
-
-async function handlePmAdvanceStatus(item: PmItem) {
-  await invokeToolByChannel("tool:pm:item-change-status", { id: item.id });
-  await loadUnifiedItems();
-  ElMessage.success("状态已推进");
-}
-
-async function handlePmDelete(item: PmItem) {
-  try {
-    await ElMessageBox.confirm(`确认删除工作项「${item.title}」？`, "删除确认", {
-      type: "warning",
-      confirmButtonText: "删除",
-      cancelButtonText: "取消",
-    });
-    await invokeToolByChannel("tool:pm:item-delete", { id: item.id });
-    selectedItemId.value = null;
-    selectedItemSource.value = null;
-    detailMode.value = "empty";
-    await loadUnifiedItems();
-    ElMessage.success("已删除");
-  } catch {
-    // cancelled
-  }
-}
-
 function pmItemTagStyle(status: string | null | undefined): Record<string, string> {
   const color = pmStatusColor(status);
   return { backgroundColor: color + "14", borderColor: color + "33", color };
@@ -2039,65 +1713,22 @@ async function copyTitle(title: string) {
   ElMessage.success("标题已复制");
 }
 
-// Unified detail view event handlers (route between PM and Todo logic)
-function onDetailEdit(item: TodoItem | UnifiedItem) {
-  if ((item as UnifiedItem).source === "pm") {
-    navigateToPmItem(item.id, (item as UnifiedItem).projectId as number ?? null);
-  } else {
-    enterEditMode(item as TodoItem);
-  }
-}
-
-async function onDetailTogglePin(id: number) {
-  const item = selectedItem.value;
-  if (item && (item as UnifiedItem).source === "pm") {
-    await handlePmTogglePin(item as unknown as PmItem);
-  } else {
-    await toggleItemPin(id);
-  }
-}
-
-async function onDetailChangeStatus(id: number, status: string) {
-  const item = selectedItem.value;
-  if (item && (item as UnifiedItem).source === "pm") {
-    if (status === "advance") {
-      await handlePmAdvanceStatus(item as unknown as PmItem);
-    }
-  } else {
-    await changeItemStatus(id, status as TodoStatus);
-  }
-}
-
-async function onDetailDelete(item: TodoItem | UnifiedItem) {
-  if ((item as UnifiedItem).source === "pm") {
-    await handlePmDelete(item as unknown as PmItem);
-  } else {
-    await deleteItem(item as TodoItem);
-  }
-}
-
-async function enterEditMode(item?: TodoItem | UnifiedItem | null) {
+async function enterEditMode(item?: TodoItem | null) {
   const target = item || selectedItem.value;
   if (!target) return;
-  // PM items in unified mode: navigate to PM panel
-  if ((target as UnifiedItem).source === "pm") {
-    navigateToPmItem(target.id, (target as UnifiedItem).projectId as number ?? null);
-    return;
-  }
-  if (detailMode.value === "edit" && isSelectedItem(target)) return;
+  if (detailMode.value === "edit" && selectedItemId.value === target.id) return;
   if (!(await ensureDetailCanLeave())) return;
   selectedItemId.value = target.id;
-  selectedItemSource.value = (target as UnifiedItem).source ?? null;
   resetItemDraft();
   itemDialogMode.value = "edit_item";
-  editingItemSnapshot.value = target as TodoItem;
-  applyItemToDraft(target as TodoItem);
+  editingItemSnapshot.value = target;
+  applyItemToDraft(target);
   detailMode.value = "edit";
   showMoreFields.value =
-    (target as TodoItem).assignees.length > 0 ||
-    !!(target as TodoItem).eventAt ||
-    effectiveReminderPresets((target as TodoItem).reminderPresets).length > 0 ||
-    hasRepeatRule(target as TodoItem);
+    target.assignees.length > 0 ||
+    !!target.eventAt ||
+    effectiveReminderPresets(target.reminderPresets).length > 0 ||
+    hasRepeatRule(target);
   markDraftBaseline();
 }
 
@@ -2462,7 +2093,6 @@ watch(selectedItem, (item) => {
 
 watch(viewMode, () => {
   closeTodoContextMenu();
-  loadItems();
 });
 
 watch(todoContextMenuItem, (item) => {
@@ -2662,12 +2292,6 @@ onBeforeUnmount(() => {
   flex-shrink: 0;
   display: flex;
   align-items: center;
-}
-.source-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  display: inline-block;
 }
 .todo-card-body {
   flex: 1;
@@ -3250,6 +2874,11 @@ onBeforeUnmount(() => {
   gap: 8px;
 }
 
+.toolbar-left .el-radio-group {
+  --el-radio-button-checked-bg-color: var(--el-color-primary-light-9);
+  --el-radio-button-checked-text-color: var(--el-color-primary);
+  --el-radio-button-checked-border-color: var(--el-color-primary-light-5);
+}
 
 </style>
 

@@ -1,5 +1,4 @@
 import type { TodoItem } from "../types";
-import type { PmSiyuanPageRef } from "../types/pm";
 
 function isActionableStatus(status: TodoItem["status"]) {
   return status === "pending" || status === "in_progress";
@@ -58,89 +57,6 @@ export function getRecentWeekStart(): string {
   const m = String(start.getMonth() + 1).padStart(2, "0");
   const d = String(start.getDate()).padStart(2, "0");
   return `${y}-${m}-${d}`;
-}
-
-export interface UnifiedItem {
-  id: number;
-  source: "pm" | "todo";
-  title: string;
-  description: string;
-  priority: string;
-  status: string;
-  pinned: boolean;
-  displayAt: string;
-  completedAt: string | null;
-  createdAt: string;
-  updatedAt: string;
-  // Project
-  projectId: number | null;
-  projectName: string | null;
-  projectColor: string | null;
-  // PM-specific
-  itemType?: string;
-  startAt?: string | null;
-  endAt?: string | null;
-  tags?: string[];
-  sortOrder?: number;
-  linkUrl?: string | null;
-  refCode?: string | null;
-  startedAt?: string | null;
-  testingAt?: string | null;
-  siyuanPrimaryPage?: PmSiyuanPageRef | null;
-  siyuanExtraPages?: PmSiyuanPageRef[];
-  // Todo-specific
-  rootId?: number;
-  typeId?: number | null;
-  typeName?: string | null;
-  typeColor?: string | null;
-  kind?: string;
-  eventAt?: string | null;
-  recurrence?: Record<string, unknown> | null;
-  isOverdue?: boolean;
-  assignees?: TodoItem["assignees"];
-  links?: TodoItem["links"];
-  reminderPresets?: string[];
-  snoozeUntil?: string | null;
-  // PM link (for todo items)
-  pmItemId?: number | null;
-  pmItemTitle?: string | null;
-  pmItemProjectId?: number | null;
-  pmItemStatus?: string | null;
-}
-
-function isUnifiedDone(item: UnifiedItem): boolean {
-  if (item.source === "pm") return item.status === "done";
-  return item.status === "completed";
-}
-
-function isUnifiedActive(item: UnifiedItem): boolean {
-  if (item.source === "pm") return item.status === "todo" || item.status === "in_progress" || item.status === "testing";
-  return item.status === "pending" || item.status === "in_progress";
-}
-
-export function groupUnifiedItemsByBucket(items: UnifiedItem[]) {
-  const activeItems: UnifiedItem[] = [];
-  const doneItems: UnifiedItem[] = [];
-  const recentWeekItems: UnifiedItem[] = [];
-  const recentWeekStart = getRecentWeekStart();
-
-  for (const item of items) {
-    if (isUnifiedDone(item)) {
-      const doneTime = (item.completedAt || "").slice(0, 10);
-      if (doneTime && doneTime >= recentWeekStart) {
-        recentWeekItems.push(item);
-      } else {
-        doneItems.push(item);
-      }
-      continue;
-    }
-
-    if (isUnifiedActive(item)) {
-      activeItems.push(item);
-    }
-  }
-
-  return { activeItems, recentWeekItems, doneItems };
 }
 
 export function groupTodoItemsByBucket(items: TodoItem[]) {

@@ -63,10 +63,9 @@ function sortReminderPresets(presets: TodoReminderPreset[]) {
   presets.sort((left, right) => order.indexOf(left) - order.indexOf(right));
 }
 
-export function normalizeReminderPresets(values: unknown): TodoReminderPreset[] {
+export function normalizeReminderPresets(values: unknown[]) {
   const presets: TodoReminderPreset[] = [];
   let hasNone = false;
-  if (!Array.isArray(values)) return [];
   for (const value of values) {
     const normalized = normalizeReminderPreset(value);
     if (!normalized) continue;
@@ -81,7 +80,7 @@ export function normalizeReminderPresets(values: unknown): TodoReminderPreset[] 
   return presets;
 }
 
-export function effectiveReminderPresets(values: unknown): TodoReminderPreset[] {
+export function effectiveReminderPresets(values: TodoReminderPreset[]) {
   return normalizeReminderPresets(values).filter((preset) => preset !== "none");
 }
 

@@ -184,6 +184,18 @@
   color: var(--lc-text) !important;
 }
 
+/* -- Radio Group/Button -- */
+.el-radio-button__inner {
+  background: #ffffff !important;
+  border-color: var(--lc-border-hover) !important;
+  color: var(--lc-text-secondary) !important;
+  box-shadow: none !important;
+}
+
+.el-radio-button__original-radio:checked + .el-radio-button__inner {
+  color: #ffffff !important;
+}
+
 /* -- Button Group -- */
 .el-button-group .el-button {
   border-color: var(--lc-border-hover) !important;

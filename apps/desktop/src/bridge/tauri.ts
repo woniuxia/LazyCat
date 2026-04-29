@@ -271,7 +271,6 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:pm:item-matrix-bucket": { domain: "pm", action: "item_matrix_bucket" },
   "tool:pm:item-import-preview": { domain: "pm", action: "item_import_preview" },
   "tool:pm:item-import": { domain: "pm", action: "item_import" },
-  "tool:unified:list": { domain: "unified", action: "list" },
   "tool:todo:pm-candidates": { domain: "todo", action: "pm_candidates" },
   "tool:todo:item-set-pm-link": { domain: "todo", action: "item_set_pm_link" },
   "tool:attachments:save":             { domain: "attachments", action: "save" },

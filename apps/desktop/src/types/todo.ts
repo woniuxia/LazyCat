@@ -105,12 +105,6 @@ export interface TodoItem {
   pmItemTitle?: string | null;
   pmItemProjectId?: number | null;
   pmItemStatus?: string | null;
-  source?: "pm" | "todo";
-  itemType?: string;
-  startAt?: string | null;
-  endAt?: string | null;
-  tags?: string[];
-  sortOrder?: number;
 }
 
 export interface TodoReminderEvent {

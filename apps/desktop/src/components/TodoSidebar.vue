@@ -121,9 +121,9 @@ import type { TodoItem, TodoPriority } from "../types";
 import { getTodayDateString } from "../utils/todoSchedule";
 
 const props = defineProps<{
-  activeItems: { id: number; typeName?: string | null; typeColor?: string | null; eventAt?: string | null; status?: string; priority?: string; pinned?: boolean; [key: string]: unknown }[];
-  recentWeekItems: { id: number; typeName?: string | null; typeColor?: string | null; completedAt?: string | null; priority?: string; [key: string]: unknown }[];
-  doneItems: { id: number; typeName?: string | null; typeColor?: string | null; completedAt?: string | null; priority?: string; [key: string]: unknown }[];
+  activeItems: TodoItem[];
+  recentWeekItems: TodoItem[];
+  doneItems: TodoItem[];
   filterType: string | null;
   filterPriority: TodoPriority | null;
 }>();
@@ -140,18 +140,16 @@ const doneCount = computed(() => props.doneItems.length + props.recentWeekItems.
 const todayDueCount = computed(() => {
   const today = getTodayDateString();
   return props.activeItems.filter((item) => {
-    const time = (item as Record<string, unknown>).eventAt ?? (item as Record<string, unknown>).endAt;
-    return time && typeof time === "string" && time.startsWith(today);
+    const time = item.eventAt;
+    return time && time.startsWith(today);
   }).length;
 });
 
 const overdueCount = computed(() => {
   return props.activeItems.filter((item) => {
-    const raw = item as Record<string, unknown>;
-    const time = raw.eventAt ?? raw.endAt;
-    if (!time || typeof time !== "string") return false;
-    const status = raw.status;
-    const actionable = status === "pending" || status === "in_progress" || status === "todo" || status === "testing";
+    const time = item.eventAt;
+    if (!time) return false;
+    const actionable = item.status === "pending" || item.status === "in_progress";
     if (!actionable) return false;
     return new Date(time).getTime() < Date.now();
   }).length;
