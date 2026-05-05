@@ -16,6 +16,10 @@ if (currentView === "reminder-popup") {
   import("./ReminderPopupApp").then(({ default: mount }) => mount());
 } else if (currentView === "quick-capture") {
   import("./QuickCaptureApp").then(({ default: mount }) => mount());
+} else if (currentView === "spotlight") {
+  import("./SpotlightApp").then(({ default: mount }) => mount());
+} else if (currentView === "wallpaper-poc-canvas") {
+  import("./WallpaperPocCanvasApp").then(({ default: mount }) => mount());
 } else {
   createApp(App).mount("#app");
 }

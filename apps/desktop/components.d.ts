@@ -134,6 +134,7 @@ declare module 'vue' {
     SidebarNav: typeof import('./src/components/SidebarNav.vue')['default']
     SnippetPanel: typeof import('./src/components/SnippetPanel.vue')['default']
     SplitMergePanel: typeof import('./src/components/SplitMergePanel.vue')['default']
+    SpotlightPanel: typeof import('./src/components/SpotlightPanel.vue')['default']
     SqlEntityPanel: typeof import('./src/components/SqlEntityPanel.vue')['default']
     TabBar: typeof import('./src/components/TabBar.vue')['default']
     TextProcessPanel: typeof import('./src/components/TextProcessPanel.vue')['default']
@@ -151,6 +152,8 @@ declare module 'vue' {
     VaultEntryDialog: typeof import('./src/components/VaultEntryDialog.vue')['default']
     VaultLockScreen: typeof import('./src/components/VaultLockScreen.vue')['default']
     VaultPanel: typeof import('./src/components/VaultPanel.vue')['default']
+    WallpaperPocCanvas: typeof import('./src/components/WallpaperPocCanvas.vue')['default']
+    WallpaperPocPanel: typeof import('./src/components/WallpaperPocPanel.vue')['default']
     WeeklyWorkPanel: typeof import('./src/components/WeeklyWorkPanel.vue')['default']
   }
   export interface GlobalDirectives {

@@ -75,3 +75,11 @@ windows-sys = { version = "0.59", features = [
 ] }
 windows-icons = "0.3"
 winping = "0.10"
+# wallpaper PoC (B1 spike): WebView2 CapturePreview + COM stream
+# 与 wry 0.54 间接依赖的版本对齐，避免 ICoreWebView2 类型重复
+webview2-com = "0.38"
+windows = { version = "0.61", features = [
+  "Win32_System_Com",
+  "Win32_System_Com_StructuredStorage",
+  "Win32_System_Memory",
+] }

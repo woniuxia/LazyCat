@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod tools;
+mod wallpaper_poc;
 
 use tauri::{
     menu::{Menu, MenuItem},
@@ -335,11 +336,24 @@ if (!window.location.search.includes('view=quick-capture')) {
 }
 "#;
 
+const SPOTLIGHT_LABEL: &str = "spotlight";
+const SPOTLIGHT_TITLE: &str = "Spotlight";
+const SPOTLIGHT_WIDTH: i64 = 560;
+const SPOTLIGHT_HEIGHT: i64 = 420;
+const SPOTLIGHT_VIEW_SCRIPT: &str = r#"
+window.__LAZYCAT_VIEW__ = 'spotlight';
+if (!window.location.search.includes('view=spotlight')) {
+  const hash = window.location.hash || '';
+  window.history.replaceState(window.history.state, '', `${window.location.pathname}?view=spotlight${hash}`);
+}
+"#;
+
 fn expected_window_title(window_label: &str) -> Option<&'static str> {
     match window_label {
         MAIN_WINDOW_LABEL => Some(MAIN_WINDOW_TITLE),
         REMINDER_POPUP_LABEL => Some(REMINDER_POPUP_TITLE),
         QUICK_CAPTURE_LABEL => Some(QUICK_CAPTURE_TITLE),
+        SPOTLIGHT_LABEL => Some(SPOTLIGHT_TITLE),
         _ => None,
     }
 }
@@ -481,6 +495,82 @@ fn show_quick_capture(app: &AppHandle) {
             return;
         };
         position_quick_capture(&window);
+        let _ = window.show();
+        let _ = window.set_focus();
+        #[cfg(windows)]
+        force_foreground(&window);
+    });
+}
+
+fn spotlight_url() -> WebviewUrl {
+    if cfg!(debug_assertions) {
+        WebviewUrl::External(
+            "http://localhost:5173/?view=spotlight"
+                .parse()
+                .expect("valid spotlight dev url"),
+        )
+    } else {
+        WebviewUrl::App("index.html".into())
+    }
+}
+
+fn position_spotlight(window: &WebviewWindow) {
+    let monitor = window
+        .cursor_position()
+        .ok()
+        .and_then(|cursor| window.monitor_from_point(cursor.x, cursor.y).ok().flatten())
+        .or_else(|| window.current_monitor().ok().flatten())
+        .or_else(|| window.primary_monitor().ok().flatten());
+
+    let Some(monitor) = monitor else {
+        return;
+    };
+
+    let work_area = monitor.work_area();
+    let area_w = work_area.size.width as i64;
+    let area_h = work_area.size.height as i64;
+    let relative_x = ((area_w - SPOTLIGHT_WIDTH).max(0)) / 2;
+    // 居中偏上：上 1/3 处
+    let relative_y = ((area_h - SPOTLIGHT_HEIGHT).max(0)) / 3;
+    let x = clamp_i64_to_i32(work_area.position.x as i64 + relative_x);
+    let y = clamp_i64_to_i32(work_area.position.y as i64 + relative_y);
+    let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
+}
+
+fn show_spotlight(app: &AppHandle) {
+    let app_handle = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        if let Some(window) = app_handle.get_webview_window(SPOTLIGHT_LABEL) {
+            let visible = window.is_visible().unwrap_or(false);
+            let focused = window.is_focused().unwrap_or(false);
+            if visible && focused {
+                let _ = window.hide();
+                return;
+            }
+            position_spotlight(&window);
+            let _ = window.show();
+            let _ = window.set_focus();
+            #[cfg(windows)]
+            force_foreground(&window);
+            let _ = window.emit("spotlight-reset", json!({}));
+            return;
+        }
+
+        let builder = WebviewWindowBuilder::new(&app_handle, SPOTLIGHT_LABEL, spotlight_url())
+            .title(SPOTLIGHT_TITLE)
+            .inner_size(SPOTLIGHT_WIDTH as f64, SPOTLIGHT_HEIGHT as f64)
+            .decorations(false)
+            .always_on_top(true)
+            .resizable(false)
+            .skip_taskbar(true)
+            .focused(true)
+            .visible(false)
+            .initialization_script(SPOTLIGHT_VIEW_SCRIPT);
+
+        let Ok(window) = builder.build() else {
+            return;
+        };
+        position_spotlight(&window);
         let _ = window.show();
         let _ = window.set_focus();
         #[cfg(windows)]
@@ -648,6 +738,10 @@ fn sync_all_shortcuts(app: &tauri::AppHandle) -> Result<(), String> {
                 }
                 if name_owned == "quick-capture" {
                     show_quick_capture(app_handle);
+                    return;
+                }
+                if name_owned == "spotlight" {
+                    show_spotlight(app_handle);
                     return;
                 }
                 handle_main_window_shortcut(app_handle, name_owned.as_str());
@@ -879,6 +973,40 @@ fn reminder_popup_dismiss(app: tauri::AppHandle, event_id: i64) -> Result<Value,
 fn suppress_clipboard_capture(content: String) -> Result<Value, String> {
     tools::inbox::suppress_clipboard_capture(&content)?;
     Ok(json!({ "ok": true }))
+}
+
+#[tauri::command]
+fn spotlight_pick(app: tauri::AppHandle, target: String) -> Result<(), String> {
+    if let Some(spot) = app.get_webview_window(SPOTLIGHT_LABEL) {
+        let _ = spot.hide();
+    }
+    let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) else {
+        return Err("主窗口不可用".into());
+    };
+    let visible = window.is_visible().unwrap_or(false);
+    let focused = window.is_focused().unwrap_or(false);
+    let cursor_monitor_relation = move_window_to_cursor_monitor(&window);
+    let did_move_to_cursor_monitor =
+        cursor_monitor_relation == CursorMonitorRelation::MovedToCursorMonitor;
+    reveal_main_window(&app);
+    let _ = window.emit(
+        "hotkey-navigate",
+        HotkeyNavigatePayload {
+            target,
+            did_move_to_cursor_monitor,
+            was_window_visible: visible,
+            was_window_focused: focused,
+        },
+    );
+    Ok(())
+}
+
+#[tauri::command]
+fn spotlight_close(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window(SPOTLIGHT_LABEL) {
+        let _ = window.hide();
+    }
+    Ok(())
 }
 
 fn start_todo_scheduler(app: tauri::AppHandle) {
@@ -1139,26 +1267,37 @@ fn main() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            if let WindowEvent::CloseRequested { api, .. } = event {
-                // 读取用户设置
-                let close_to_tray = match tools::helpers::db_conn() {
-                    Ok(conn) => {
-                        let value: Result<String, _> = conn.query_row(
-                            "SELECT value FROM user_settings WHERE key = ?1",
-                            ["close_to_tray"],
-                            |row| row.get(0),
-                        );
-                        value.unwrap_or_else(|_| "true".to_string()) == "true"
+            match event {
+                WindowEvent::CloseRequested { api, .. } => {
+                    if window.label() != MAIN_WINDOW_LABEL {
+                        return;
                     }
-                    Err(_) => true, // 数据库连接失败，使用默认行为（隐藏到托盘）
-                };
+                    // 读取用户设置
+                    let close_to_tray = match tools::helpers::db_conn() {
+                        Ok(conn) => {
+                            let value: Result<String, _> = conn.query_row(
+                                "SELECT value FROM user_settings WHERE key = ?1",
+                                ["close_to_tray"],
+                                |row| row.get(0),
+                            );
+                            value.unwrap_or_else(|_| "true".to_string()) == "true"
+                        }
+                        Err(_) => true, // 数据库连接失败，使用默认行为（隐藏到托盘）
+                    };
 
-                if close_to_tray {
-                    api.prevent_close();
-                    tools::vault::force_lock();
-                    let _ = window.hide();
+                    if close_to_tray {
+                        api.prevent_close();
+                        tools::vault::force_lock();
+                        let _ = window.hide();
+                    }
+                    // 否则允许窗口关闭（应用退出）
                 }
-                // 否则允许窗口关闭（应用退出）
+                WindowEvent::Focused(false) => {
+                    if window.label() == SPOTLIGHT_LABEL {
+                        let _ = window.hide();
+                    }
+                }
+                _ => {}
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -1173,12 +1312,18 @@ fn main() {
             reminder_popup_snooze,
             reminder_popup_dismiss,
             suppress_clipboard_capture,
+            spotlight_pick,
+            spotlight_close,
             check_npcap_installed,
             list_capture_interfaces,
             start_capture,
             stop_capture,
             clear_capture_session,
-            export_pcap
+            export_pcap,
+            wallpaper_poc::wallpaper_poc_open,
+            wallpaper_poc::wallpaper_poc_show,
+            wallpaper_poc::wallpaper_poc_close,
+            wallpaper_poc::wallpaper_poc_capture,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
