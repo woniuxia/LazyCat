@@ -84,6 +84,7 @@ export interface WeeklyWorkItem {
   itemType?: string;
   startAt?: string | null;
   endAt?: string | null;
+  refCode?: string | null;
 }
 
 export interface WeeklyWorkResult {

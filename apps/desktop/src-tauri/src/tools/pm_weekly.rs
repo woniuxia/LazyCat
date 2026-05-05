@@ -129,7 +129,7 @@ pub fn weekly_work(payload: &Value) -> Result<Value, String> {
     let mut pm_stmt = conn
         .prepare(
             "SELECT i.id, i.project_id, i.title, i.item_type, i.priority, i.status,
-                    i.start_at, i.end_at, i.completed_at, i.created_at,
+                    i.start_at, i.end_at, i.completed_at, i.created_at, i.ref_code,
                     p.name as project_name, p.color as project_color, p.status as project_status
              FROM pm_items i
              JOIN pm_projects p ON i.project_id = p.id
@@ -151,9 +151,10 @@ pub fn weekly_work(payload: &Value) -> Result<Value, String> {
                 r.get::<_, Option<String>>(7)?,
                 r.get::<_, Option<String>>(8)?,
                 r.get::<_, String>(9)?,
-                r.get::<_, String>(10)?,
+                r.get::<_, Option<String>>(10)?,
                 r.get::<_, String>(11)?,
                 r.get::<_, String>(12)?,
+                r.get::<_, String>(13)?,
             ))
         })
         .map_err(|e| format!("weekly_work pm query: {e}"))?
@@ -169,6 +170,7 @@ pub fn weekly_work(payload: &Value) -> Result<Value, String> {
                 end_at,
                 completed_at,
                 created_at,
+                ref_code,
                 project_name,
                 project_color,
                 project_status,
@@ -190,6 +192,7 @@ pub fn weekly_work(payload: &Value) -> Result<Value, String> {
                     "sortAt": sort_at,
                     "completedAt": completed_at,
                     "createdAt": created_at,
+                    "refCode": ref_code,
                     "projectName": project_name,
                     "projectColor": project_color,
                     "projectStatus": project_status,

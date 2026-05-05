@@ -18,7 +18,10 @@
           />
         </div>
       </div>
-      <el-button size="small" @click="loadData" :loading="loading">刷新</el-button>
+      <div class="header-actions">
+        <el-button size="small" @click="loadData" :loading="loading">刷新</el-button>
+        <el-button size="small" type="primary" @click="generateWeeklyReport" :disabled="!hasData">生成周报</el-button>
+      </div>
     </div>
 
     <div v-if="hasData" class="weekly-body">
@@ -89,6 +92,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
+import { ElMessage } from "element-plus";
 import { useToolInvoke } from "../composables/useToolInvoke";
 import type { WeeklyWorkItem, WeeklyWorkResult } from "../types/pm";
 import { PM_ITEM_TYPE_MAP, PM_PRIORITY_MAP, PM_STATUS_COLUMNS } from "../types/pm";
@@ -150,7 +154,9 @@ interface WorkGroup {
 
 const allItems = computed<WeeklyWorkItem[]>(() => {
   if (!data.value) return [];
-  return [...data.value.pmItems, ...data.value.todoItems];
+  const merged = [...data.value.pmItems, ...data.value.todoItems];
+  merged.sort((a, b) => getItemSortAt(a).localeCompare(getItemSortAt(b)));
+  return merged;
 });
 
 const hasData = computed(() => allItems.value.length > 0);
@@ -366,6 +372,87 @@ function formatGroupSummary(group: WorkGroup): string {
   return parts.join(" · ");
 }
 
+function toReportDate(value: string | null | undefined): string {
+  if (!value) return "--";
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (match) {
+    return `${match[2]}/${match[3]}`;
+  }
+  return "--";
+}
+
+function formatReportTitle(): string {
+  const [start, end] = dateRange.value;
+  const fmt = (d: string) => {
+    const parts = d.split("-");
+    return `${parts[1]}/${parts[2]}`;
+  };
+  return `周报 ${fmt(start)} ~ ${fmt(end)}`;
+}
+
+function progressLabel(item: WeeklyWorkItem): string {
+  if (item.source === "todo") {
+    return "已完成";
+  }
+  return statusLabel(item.status);
+}
+
+async function generateWeeklyReport() {
+  const items = allItems.value;
+  if (items.length === 0) return;
+
+  const rows = items.map((item) => {
+    const sys = item.projectName ?? "--";
+    const start = item.startAt ? toReportDate(item.startAt) : "--";
+    const end = item.endAt
+      ? toReportDate(item.endAt)
+      : (item.source === "todo" && item.completedAt ? toReportDate(item.completedAt) : "--");
+    const ref = item.refCode ?? "--";
+    const progress = progressLabel(item);
+    return { title: item.title, system: sys, start, end, ref, progress };
+  });
+
+  const headers = ["标题", "系统", "开始时间", "结束时间", "编号", "进展"];
+  const keys: (keyof (typeof rows)[0])[] = ["title", "system", "start", "end", "ref", "progress"];
+
+  const theadCells = headers
+    .map((h) => `<th style="padding:8px 10px;text-align:center;font-weight:700;font-size:13px;color:#ffffff;background-color:#0ea5e9;border:1px solid #0284c7">${h}</th>`)
+    .join("");
+  const tbodyRows = rows
+    .map((row, idx) => {
+      const bg = idx % 2 === 0 ? "#ffffff" : "#f5faff";
+      return `<tr style="background-color:${bg}">${keys.map((k) => `<td style="padding:6px 10px;font-size:13px;color:#0f172a;border:1px solid #e2e8f0;vertical-align:top">${escapeHtml(row[k])}</td>`).join("")}</tr>`;
+    })
+    .join("");
+
+  const titleHtml = `<div style="margin-bottom:12px;font-size:16px;font-weight:700;color:#0f172a;font-family:'Microsoft YaHei','PingFang SC',sans-serif">${formatReportTitle()}</div>`;
+  const html = `${titleHtml}<table border="0" cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;font-size:13px;font-family:'Microsoft YaHei','PingFang SC',sans-serif;border:1px solid #cbd5e1"><thead><tr>${theadCells}</tr></thead><tbody>${tbodyRows}</tbody></table>`;
+
+  const title = formatReportTitle();
+  const text = [title, "", headers.join("\t"), ...rows.map((row) => keys.map((k) => row[k]).join("\t"))].join("\n");
+
+  try {
+    await navigator.clipboard.write([
+      new ClipboardItem({
+        "text/html": new Blob([html], { type: "text/html" }),
+        "text/plain": new Blob([text], { type: "text/plain" }),
+      }),
+    ]);
+    ElMessage.success(`已复制 ${rows.length} 条工作项到剪贴板`);
+  } catch (err) {
+    console.error(err);
+    ElMessage.error("复制失败，请重试");
+  }
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
 onMounted(loadData);
 </script>
 
@@ -419,6 +506,13 @@ onMounted(loadData);
   font-size: 18px;
   font-weight: 600;
   color: var(--lc-text);
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
 .weekly-body {
