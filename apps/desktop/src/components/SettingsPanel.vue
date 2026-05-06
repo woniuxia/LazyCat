@@ -239,6 +239,19 @@
               />
             </div>
           </div>
+
+          <div class="setting-item">
+            <div class="setting-label">
+              <span class="label-text">唤出后聚焦搜索框</span>
+              <span class="label-desc">通过快捷键或托盘唤出窗口时，自动聚焦搜索框并展开推荐</span>
+            </div>
+            <div class="setting-control">
+              <el-switch
+                v-model="focusSearchOnShow"
+                @change="handleFocusSearchOnShowChange"
+              />
+            </div>
+          </div>
         </div>
       </section>
 
@@ -456,6 +469,7 @@ const importMode = ref<"merge" | "overwrite">("merge");
 const dataDirPath = ref("");
 const dataDirIsCustom = ref(false);
 const clipboardDetection = ref(true);
+const focusSearchOnShow = ref(false);
 const inboxCaptureEnabled = ref(false);
 const inboxCaptureWhenHidden = ref(true);
 const inboxHistoryRetentionDays = ref(14);
@@ -498,6 +512,7 @@ function makeConflictChecker(selfKey: typeof HOTKEY_FIELDS[number]["key"]) {
 onMounted(async () => {
   await loadDataDir();
   clipboardDetection.value = getSetting("clipboard_detection") !== "false";
+  focusSearchOnShow.value = getSetting("focus_search_on_show") === "true";
   await loadInboxCaptureStatus();
   vaultLockProfile.value = getVaultLockProfile();
 });
@@ -722,6 +737,11 @@ async function handleCloseToTrayChange(value: boolean) {
 function handleClipboardDetectionChange(value: boolean) {
   setSetting("clipboard_detection", value ? "true" : "false");
   ElMessage.success(value ? "已启用剪贴板智能检测" : "已关闭剪贴板智能检测");
+}
+
+function handleFocusSearchOnShowChange(value: boolean) {
+  setSetting("focus_search_on_show", value ? "true" : "false");
+  ElMessage.success(value ? "已开启唤出后聚焦搜索框" : "已关闭唤出后聚焦搜索框");
 }
 
 function handleInboxCaptureEnabledChange(value: boolean) {

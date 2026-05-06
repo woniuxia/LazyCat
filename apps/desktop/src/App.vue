@@ -347,7 +347,9 @@ onMounted(async () => {
   try {
     await listen("main-window-toggle", async () => {
       await tryOpenClipboardPathFromToggle();
-      focusSearch();
+      if (getSetting("focus_search_on_show") === "true") {
+        focusSearch();
+      }
     });
   } catch { /* ignore in non-Tauri env */ }
   try {
