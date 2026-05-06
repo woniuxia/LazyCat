@@ -165,6 +165,30 @@ fn restore_wallpaper() -> Result<Value, String> {
     }))
 }
 
+/// 应用退出钩子（design §10）。
+///
+/// 按 `wallpaper.exit_behavior` 处理桌面：
+/// - 未启用 → no-op
+/// - `keep_last` → no-op（保留最后一帧合成图）
+/// - `restore_original`（默认）→ 调 [`restore_wallpaper`] 还原原图
+///
+/// 由 main.rs 在 `RunEvent::ExitRequested` 触发；幂等，多次调用无副作用。
+/// 任何错误只打 stderr，不阻塞退出流程。
+pub fn on_app_exit() {
+    let cfg = config::read_config();
+    if !cfg.enabled {
+        return;
+    }
+    if cfg.exit_behavior == "keep_last" {
+        return;
+    }
+    // restore_original 或未知值都视为「恢复」
+    match restore_wallpaper() {
+        Ok(_) => eprintln!("[wallpaper] on_app_exit: original wallpaper restored"),
+        Err(e) => eprintln!("[wallpaper] on_app_exit: restore failed: {e}"),
+    }
+}
+
 /// 把当前壁纸文件复制到 `<data_dir>/wallpapers/original/<timestamp>.<ext>`。
 fn backup_original(src: &Path) -> Result<PathBuf, String> {
     let dir = get_data_dir()?.join("wallpapers").join("original");

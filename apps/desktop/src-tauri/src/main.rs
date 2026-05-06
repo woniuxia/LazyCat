@@ -7,7 +7,8 @@ use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     webview::PageLoadEvent,
-    AppHandle, Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent,
+    AppHandle, Emitter, Manager, RunEvent, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
+    WindowEvent,
 };
 use tauri_plugin_autostart::MacosLauncher;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
@@ -1352,8 +1353,15 @@ fn main() {
             wallpaper_poc::wallpaper_poc_close,
             wallpaper_poc::wallpaper_poc_capture,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_app_handle, event| {
+            // 应用退出时按 wallpaper.exit_behavior 处理桌面（design §10）
+            // ExitRequested 涵盖：托盘 quit / 最后一个窗口关闭 / app.exit() 调用
+            if let RunEvent::ExitRequested { .. } = event {
+                tools::wallpaper::on_app_exit();
+            }
+        });
 }
 
 #[cfg(test)]
