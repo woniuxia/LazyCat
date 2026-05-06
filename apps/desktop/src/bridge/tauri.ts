@@ -285,7 +285,19 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:system:read-clipboard-files":  { domain: "system", action: "read_clipboard_files" },
   "tool:system:open-local-path":       { domain: "system", action: "open_local_path" },
   "tool:system:reveal-in-folder":      { domain: "system", action: "reveal_in_folder" },
-  "tool:system:check-paths-exist":     { domain: "system", action: "check_paths_exist" }
+  "tool:system:check-paths-exist":     { domain: "system", action: "check_paths_exist" },
+  "tool:wallpaper:dashboard-data":     { domain: "wallpaper", action: "dashboard_data" },
+  "tool:wallpaper:render-once":        { domain: "wallpaper", action: "render_once" },
+  "tool:wallpaper:apply":              { domain: "wallpaper", action: "apply" },
+  "tool:wallpaper:restore":            { domain: "wallpaper", action: "restore" },
+  "tool:wallpaper:pause":              { domain: "wallpaper", action: "pause" },
+  "tool:wallpaper:resume":             { domain: "wallpaper", action: "resume" },
+  "tool:wallpaper:status":             { domain: "wallpaper", action: "status" },
+  "tool:wallpaper:enable":             { domain: "wallpaper", action: "enable" },
+  "tool:wallpaper:disable":            { domain: "wallpaper", action: "disable" },
+  "tool:wallpaper:get-config":         { domain: "wallpaper", action: "get_config" },
+  "tool:wallpaper:set-config":         { domain: "wallpaper", action: "set_config" },
+  "tool:wallpaper:list-history":       { domain: "wallpaper", action: "list_history" }
 };
 
 export async function invokeToolByChannel(

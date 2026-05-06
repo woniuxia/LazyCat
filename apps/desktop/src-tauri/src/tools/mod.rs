@@ -39,6 +39,7 @@ pub mod todo;
 pub mod vault;
 pub mod attachments;
 pub mod system;
+pub mod wallpaper;
 
 use serde_json::Value;
 
@@ -77,6 +78,7 @@ pub fn execute_tool(domain: &str, action: &str, payload: &Value) -> Result<Value
         "inbox" => inbox::execute(action, payload),
         "attachments" => attachments::execute(action, payload),
         "system" => system::execute(action, payload),
+        "wallpaper" => wallpaper::execute(action, payload),
         _ => Err(format!("unsupported command: {domain}.{action}")),
     }
 }
