@@ -8,6 +8,65 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-05-07: Living Wallpaper（合成壁纸）端到端落地
+
+**场景**: 实现 Living Wallpaper 全套：跨 PM/Todo 数据聚合 → hidden WebView 渲染信息层 → CapturePreview 抓 PNG → 与原壁纸合成 → IDesktopWallpaper 设回桌面 → 心跳/事件驱动调度 + 老板键 + 退出策略。Tauri 2.10 + Rust + Vue 3 + windows-rs 0.61，约 17 个 commit。
+
+**问题**:
+1. tool_execute 是 `#[tauri::command] fn ... -> ToolResponse` 同步 IPC，但 wallpaper.apply 需要 `AppHandle`（emit + with_webview），且涉及跨线程握手（UI 线程抓帧 vs 工作线程主流程）。如何在不引入 tokio、不破坏现有同步分发的前提下完成？
+2. CapturePreview 是 `ICoreWebView2::CapturePreview` + COM stream + 异步回调，PoC 已抽出三段原语（`capture_inner` / `pump_messages` / `read_stream_to_vec`）。要让 PoC 调试入口（`wallpaper-poc-canvas` route）和正式 apply 路径（`wallpaper-canvas` route）共用一份实现，但 PoC 是 `cfg(all(windows, debug_assertions))`、apply 在 release 也要跑。
+3. 后端发完 `wallpaper://dashboard-data` 事件后什么时候能抓帧？冷启 hidden WebView ~300ms 创建 + ~200ms Vue 挂载，热路径 ~50ms；如果在 emit 之前监听器还没注册，就丢事件；如果 emit 之后才创建窗口，前端没收到。
+4. 心跳调度若没有跳过条件，用户锁屏 / 全屏游戏期间也会强行刷新；空闲降频又涉及 `GetLastInputInfo` + 32 位 tick 回环；锁屏判定用 `WTSRegisterSessionNotification` 需要建 message-only window，太重。
+5. PM/Todo CRUD 后想立刷壁纸，但用户连按 3 个完成不能 fire 3 次合成；需要 trailing-edge 5s debounce。
+6. 启用壁纸（enable）→ 备份原图 → 合成新图 → 设桌面后，用户退出 LazyCat 默认应恢复原图，否则合成图永久残留在桌面。
+
+**解决**:
+1. **AppHandle 路由 + 全程同步握手**。沿 `settings::execute_with_app` 模式扩展：`wallpaper::execute_with_app(action, payload, &AppHandle)` 只在需要 app 的 action 上转发（`apply` / `resume`）；其余仍走 sync `execute`。`tools/mod.rs::execute_tool_with_app` 处只多一行 `"wallpaper" => wallpaper::execute_with_app(...)`。整条 apply 流程不要 async：emit / set_wallpaper / image 编解码本身就是 sync；canvas 握手用 `std::sync::mpsc + tauri::Listener`；CapturePreview 跨 UI/worker 线程用 `Arc<Mutex<Option<Result<Vec<u8>>>>>` + `AtomicBool` done flag + 5ms 轮询。整条流程在工作线程上同步完成，IPC 直接返回结果。
+2. **抽到 `tools/wallpaper/capture.rs`，cfg(windows) 真实 + 非 Windows stub，不带 debug_assertions**。PoC 的 `capture_inner` 改为 `crate::tools::wallpaper::capture::capture_inner(webview)` 一行 delegate。public API 用 `pub use imp::capture_inner;` + `cfg(not(windows))` 提供同名 stub fn，调用方完全不感知平台差异。
+3. **两阶段握手 + 边沿监听**。`WallpaperCanvas.vue` 挂载完成立即 `emit('wallpaper://canvas-mounted')`；数据到达后等 2 RAF 再 `emit('wallpaper://canvas-ready')`。后端 apply：先 `is_canvas_open(app)` 记录冷启 / 热路径；冷启时 `wait_for_event('wallpaper://canvas-mounted', 2s)`；之后**先注册** `canvas-ready` listener **再 emit** 数据，避免 emit 后立即响应漏接；ready 超时 2.5s 不致命，仍尝试 capture（前端可能渲染慢但已绘制）。
+4. **多模块各管一事，all 同步轮询，failures 回退「不锁定」/「不空闲」**。`lock.rs` 用 `OpenInputDesktop + GetUserObjectInformationW` 取桌面名，"Default" 之外都判锁定；`fullscreen.rs` 用 `SHQueryUserNotificationState` 三态判定（`QUNS_BUSY` / `QUNS_RUNNING_D3D_FULL_SCREEN` / `QUNS_PRESENTATION_MODE`）；`idle.rs` 用 `GetLastInputInfo + GetTickCount64`，`u32::wrapping_sub` 处理 tick 回环。所有判定只读不写 state，scheduler::should_skip 串成一条调用链；不再需要后台轮询线程也不需要 message-only window。
+5. **trailing-edge 滚动 deadline**。`events.rs::start` 在 std::thread 里 `mpsc::sync_channel(16)` recv → 收到第一条事件后 `deadline = now + 5s`，每来一条新事件就 `deadline = now + 5s` 重置；`recv_timeout(deadline - now)` 超时即触发 apply。`tools/mod.rs::execute_tool` wrap 一层在 PM/Todo 数据变更类 action 成功后 `notify_data_changed` —— 仅 `try_send` 不阻塞业务流，channel 满直接丢（debounce 后只 fire 一次反正等价）。`should_skip` 与 scheduler 同口径，避免事件驱动绕过禁用 / 锁屏。
+6. **`RunEvent::ExitRequested` 钩子 + `restore_wallpaper` 复用**。把 `.run(ctx)` 拆成 `.build(ctx).run(|h, ev| match ev { ExitRequested => on_app_exit })`：托盘 Quit / 最后一窗关闭 / `app.exit()` 三个路径都覆盖。`on_app_exit` 读 `wallpaper.exit_behavior`：`keep_last` no-op，`restore_original`（默认）调既有 `restore_wallpaper`。错误只 stderr，不阻塞退出。
+
+**关键点**:
+1. **「需要 AppHandle」≠「需要 async」**。Tauri command 本身就是同步包装；`emit` / `with_webview` / `Listener::listen` 都不要求 async runtime。整个 apply 链路用 std::sync::mpsc + Arc<Mutex> 完成跨线程握手，比引入 tokio 简单得多，也避免了 IPC 工作线程上 `block_on` 可能的 reentrancy 风险。
+2. **PoC 与正式实现共用底层原语，cfg gate 用 `pub use` + `not(windows)` stub fn 同名互补**。`capture.rs` 是这次最干净的复用：PoC 改为一行 delegate，正式 apply 直接调；release/debug 都可用，跨平台编译过 stub。windows-rs 0.61 有些类型（如 `HDESK` ↔ `HANDLE`）没自动转换，需要手工 `HANDLE(h.0)` 包一次（结构体都是 `*mut c_void`），编译器会精确指出错误位置。
+3. **跨 webview 事件握手必须「先注册再 emit」**。Tauri 事件不重放；如果 emit 之后才注册，事件已经派发完毕。两阶段握手（mounted 通知存活 + ready 通知绘制完成）解决冷启动顺序问题；冷启专用 `wait_for_event('canvas-mounted')`，热路径直接跳到 ready 等待。
+4. **「跳过判定」是中央枢纽**。心跳 `should_skip` 串 4 个判定（enabled / paused / lock / fullscreen），事件驱动 `should_skip` 串同一组（虽然代码重复一份，函数都很短）；任何新增切净源（Spotlight / 第三方引擎）只改这两处。`lock`/`fullscreen`/`idle` 各自 cfg(windows) 真实 + 非 Windows stub 返回 false（不锁定 / 不空闲），保证「失败回退到不暂停」—— 错误的暂停比错误的刷新更难诊断。
+5. **content hash 去重 + force 标记两套**。`apply_with_force(app, force: bool)`：心跳 / 事件驱动 force=false（DefaultHasher 比对 dashboard JSON + base path + base mtime + position + mode，命中跳过整条 compose+persist+set 链路）；手动「立即刷新」/ 老板键 resume / restore force=true。`enable / restore / boss_key.toggle` 三处显式调 `apply::invalidate_input_hash()`，保证桌面切换边界后下一帧必然真渲一次。hash 用 sentinel 0 表示「无效」，结果碰撞回退到 1 防误判。
+6. **「事件驱动 + 心跳」双路径但只信 hash**。前者用 trailing-edge 5s debounce 防抖；后者用空闲降频（5min idle → 60min sleep）+ 30s 分块 sleep + 边沿检测「刚回来立刷」。两路径都走 `apply_with_force(force=false)`，靠 hash 去重避免无意义合成；用户感受是「数据一变 5s 内就刷新」「闲着不耗 CPU」「回来立刻看到最新」。
+
+**涉及文件**:
+- `apps/desktop/src-tauri/Cargo.toml`（windows features 追加 `Win32_System_StationsAndDesktops` / `Win32_System_SystemInformation` / `Win32_UI_Input_KeyboardAndMouse` / `Win32_UI_Shell_PropertiesSystem` / `Win32_UI_WindowsAndMessaging` / `Win32_Graphics_Gdi`）
+- `apps/desktop/src-tauri/src/tools/wallpaper/`（新增模块）：
+  - `capture.rs`（CapturePreview 原语）/ `compose.rs`（区域 / 采样 / 缓存 / 合成 / 写盘）/ `desktop.rs`（IDesktopWallpaper + SysParam 双层）
+  - `data.rs` + `dashboard_logic.rs`（跨 PM/Todo 聚合）
+  - `hidden.rs`（hidden WebView 生命周期）/ `apply.rs`（主流程 + hash 去重）
+  - `scheduler.rs`（心跳 + 空闲降频 + burnout）/ `events.rs`（trailing-edge debounce）
+  - `lock.rs` / `fullscreen.rs` / `idle.rs`（三个独立检测模块）
+  - `boss_key.rs`（Ctrl+Alt+W toggle）
+  - `mod.rs`（execute / execute_with_app 路由 + on_app_exit）
+- `apps/desktop/src-tauri/src/tools/pm_today.rs`（`priority_rank` 提为 `pub`）/ `tools/todo.rs`（`is_open_status` 提为 `pub`）—— 跨模块复用判定
+- `apps/desktop/src-tauri/src/tools/mod.rs`（dispatch_tool 抽出 + PM/Todo CRUD action 白名单 → notify_data_changed）
+- `apps/desktop/src-tauri/src/main.rs`（scheduler/events/boss_key 注册；`.run(ctx)` 拆 build+run 接 ExitRequested）
+- `apps/desktop/src-tauri/src/wallpaper_poc.rs`（`capture_inner` 改为 delegate）
+- `apps/desktop/src/components/`：`WallpaperPanel.vue`（状态卡片 + 三组配置）/ `WallpaperCanvas.vue` + `WallpaperOverviewBlock.vue` + `WallpaperTodoList.vue` + `WallpaperExtensionSlot.vue`（hidden WebView 信息层 360×800）
+- `apps/desktop/src/WallpaperCanvasApp.ts`（mount entry）/ `main.ts`（`wallpaper-canvas` 路由）
+- `apps/desktop/src/composables/toolCatalog.ts`（"更多工具" 组追加桌面壁纸入口）/ `tool-registry.ts`（注册 WallpaperPanel）
+- `docs/superpowers/specs/2026-05-05-living-wallpaper-{design,plan}.md`（设计与实施文档）
+
+**验证**:
+- `cargo test --bin lazycat-desktop tools::wallpaper::` → 67 passed（含 4 个 hash 纯函数单测）
+- `cargo test --bin lazycat-desktop tools::` → 287 passed（PM/Todo 既有用例不受 dispatch_tool 包装影响）
+- `cargo check --bin lazycat-desktop` → ok（仅 pm_siyuan 既有 `private_interfaces` 警告，与本次无关）
+- `pnpm typecheck` → ok
+- `pnpm --filter @lazycat/desktop build:web` → ok（`WallpaperPanel-*.js` / `WallpaperCanvasApp-*.js` 独立分块）
+- 真机端到端实测仍待补：需启动 dev server 在真桌面环境触发一次 `tool:wallpaper:apply` 验证 base 解码 / region 计算 / DPI scale / set_wallpaper 链路
+
+**使用次数**: 0
+
+---
+
 ## 2026-04-19: PM 视图扩展与列表渐进式渲染
 
 **场景**: 在 PM 面板上新增「今日 / 列表 / 日历 / 四象限」4 个视图，原本只有看板和甘特两个视图，切换靠 `el-switch`。扩展后需要 6+ 视图共享一个切换器，并对大数据量做响应式与渲染性能兜底。
