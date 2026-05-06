@@ -1264,6 +1264,9 @@ fn main() {
             start_todo_scheduler(app.handle().clone());
             start_clipboard_monitor(app.handle().clone());
 
+            // 启动壁纸心跳调度（仅在 wallpaper.enabled=true 时实际刷新；线程内部判断）
+            tools::wallpaper::scheduler::start(app.handle().clone());
+
             Ok(())
         })
         .on_window_event(|window, event| {
