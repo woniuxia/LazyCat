@@ -16,7 +16,7 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
-import type { WallpaperTodoItem } from "@/types/wallpaper";
+import type { WallpaperTodoItem } from "../types/wallpaper";
 
 const props = defineProps<{ items: WallpaperTodoItem[] }>();
 

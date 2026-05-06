@@ -155,6 +155,7 @@ declare module 'vue' {
     WallpaperCanvas: typeof import('./src/components/WallpaperCanvas.vue')['default']
     WallpaperExtensionSlot: typeof import('./src/components/WallpaperExtensionSlot.vue')['default']
     WallpaperOverviewBlock: typeof import('./src/components/WallpaperOverviewBlock.vue')['default']
+    WallpaperPanel: typeof import('./src/components/WallpaperPanel.vue')['default']
     WallpaperPocCanvas: typeof import('./src/components/WallpaperPocCanvas.vue')['default']
     WallpaperPocPanel: typeof import('./src/components/WallpaperPocPanel.vue')['default']
     WallpaperTodoList: typeof import('./src/components/WallpaperTodoList.vue')['default']

@@ -10,7 +10,7 @@
 <script setup lang="ts">
 import { onMounted, onBeforeUnmount, ref } from "vue";
 import { listen, emit, type UnlistenFn } from "@tauri-apps/api/event";
-import type { WallpaperDashboardData } from "@/types/wallpaper";
+import type { WallpaperDashboardData } from "../types/wallpaper";
 import WallpaperOverviewBlock from "./WallpaperOverviewBlock.vue";
 import WallpaperTodoList from "./WallpaperTodoList.vue";
 import WallpaperExtensionSlot from "./WallpaperExtensionSlot.vue";

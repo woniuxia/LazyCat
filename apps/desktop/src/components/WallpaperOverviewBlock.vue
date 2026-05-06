@@ -32,7 +32,7 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
-import type { WallpaperOverview } from "@/types/wallpaper";
+import type { WallpaperOverview } from "../types/wallpaper";
 
 const props = defineProps<{ overview: WallpaperOverview }>();
 
