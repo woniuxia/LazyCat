@@ -3,8 +3,14 @@
 //! 关联设计：docs/superpowers/specs/2026-05-05-living-wallpaper-design.md (v0.5)
 //! 关联实施：docs/superpowers/specs/2026-05-05-living-wallpaper-plan.md
 //!
-//! Phase 0 仅搭建骨架；Phase 1.8 接入 enable / disable / restore；
-//! Phase 2.4 接入 apply 主流程；render_once / pause / resume / 调度由 Phase 3 接入。
+//! 通道分发表：
+//! - `status` / `get_config` / `set_config` / `dashboard_data` / `list_history` 同步
+//! - `enable` / `disable` / `restore` / `pause` 同步
+//! - `apply` / `resume` 需要 AppHandle，走 `execute_with_app`
+//!
+//! `render_once` 在 plan §1.7 起初设计为「前端把 PNG 推回后端」的回写通道；
+//! 实际实现走 `wallpaper://canvas-ready` 事件 + 后端 CapturePreview 直接抓帧，
+//! 因此该通道未启用，已从分发表移除。
 
 pub mod apply;
 pub mod boss_key;
@@ -36,14 +42,13 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
             .map_err(|e| format!("serialize wallpaper config failed: {e}")),
         "set_config" => config::set_config(payload),
         "dashboard_data" => data::dashboard_data(payload),
-        "render_once" => Err(not_yet_implemented("render_once")),
         "apply" => Err(needs_app_handle("apply")),
         "restore" => restore_wallpaper(),
         "pause" => pause_wallpaper(payload),
         "resume" => Err(needs_app_handle("resume")),
         "enable" => enable_wallpaper(),
         "disable" => disable_wallpaper(payload),
-        "list_history" => Ok(json!({ "items": [] })),
+        "list_history" => list_history_action(payload),
         _ => Err(format!("unsupported wallpaper action: {action}")),
     }
 }
@@ -59,19 +64,62 @@ pub fn execute_with_app(action: &str, payload: &Value, app: &AppHandle) -> Resul
     }
 }
 
-fn not_yet_implemented(action: &str) -> String {
-    format!("wallpaper.{action} not yet implemented (Phase 0 skeleton)")
-}
-
 fn needs_app_handle(action: &str) -> String {
     format!("wallpaper.{action} requires AppHandle; route via execute_tool_with_app")
+}
+
+/// 列出历史合成图（design §6 / plan §1.5）；按文件 mtime 倒序，最新在前。
+///
+/// 输出 `{ items: [{ path, size, createdAt }] }`，与前端
+/// `WallpaperHistoryEntry` 类型一一对应。目录不存在时返回空数组。
+fn list_history_action(_payload: &Value) -> Result<Value, String> {
+    let dir = get_data_dir()?.join("wallpapers").join("rendered");
+    if !dir.exists() {
+        return Ok(json!({ "items": [] }));
+    }
+
+    let mut entries: Vec<(PathBuf, u64, std::time::SystemTime)> = Vec::new();
+    let read_dir = std::fs::read_dir(&dir)
+        .map_err(|e| format!("read wallpapers dir: {e}"))?;
+    for entry in read_dir.flatten() {
+        let Ok(meta) = entry.metadata() else { continue };
+        if !meta.is_file() {
+            continue;
+        }
+        let mtime = meta.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+        entries.push((entry.path(), meta.len(), mtime));
+    }
+    // 最新在前；mtime 解析失败的回到 EPOCH 自动沉底
+    entries.sort_by(|a, b| b.2.cmp(&a.2));
+
+    let items: Vec<Value> = entries
+        .into_iter()
+        .map(|(path, size, mtime)| {
+            let secs = mtime
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0);
+            let created_at = chrono::DateTime::<chrono::Local>::from(
+                std::time::UNIX_EPOCH + std::time::Duration::from_secs(secs.max(0) as u64),
+            )
+            .format("%Y-%m-%dT%H:%M:%S%:z")
+            .to_string();
+            json!({
+                "path": path.to_string_lossy(),
+                "size": size,
+                "createdAt": created_at,
+            })
+        })
+        .collect();
+
+    Ok(json!({ "items": items }))
 }
 
 // ── 生命周期（plan §1.8 / design §10） ──────────
 
 /// 启用：备份原壁纸 → 写 original_path → 置 enabled=true。
 ///
-/// 此 action 不立即合成；首次合成由 `apply` / `render_once` 触发（Phase 2）。
+/// 此 action 不立即合成；首次合成由 `apply` 触发（scheduler 启动后立即跑一轮）。
 fn enable_wallpaper() -> Result<Value, String> {
     let cfg = config::read_config();
     if cfg.enabled {

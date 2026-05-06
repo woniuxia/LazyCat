@@ -287,7 +287,6 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:system:reveal-in-folder":      { domain: "system", action: "reveal_in_folder" },
   "tool:system:check-paths-exist":     { domain: "system", action: "check_paths_exist" },
   "tool:wallpaper:dashboard-data":     { domain: "wallpaper", action: "dashboard_data" },
-  "tool:wallpaper:render-once":        { domain: "wallpaper", action: "render_once" },
   "tool:wallpaper:apply":              { domain: "wallpaper", action: "apply" },
   "tool:wallpaper:restore":            { domain: "wallpaper", action: "restore" },
   "tool:wallpaper:pause":              { domain: "wallpaper", action: "pause" },
