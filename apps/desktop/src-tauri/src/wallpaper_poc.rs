@@ -130,99 +130,10 @@ mod imp {
         None
     }
 
+    /// 复用 `tools::wallpaper::capture::capture_inner`（plan §2.1 抽取后），
+    /// PoC 不再持有自己的 CapturePreview 实现。
     fn capture_inner(webview: tauri::webview::PlatformWebview) -> Result<Vec<u8>, String> {
-        use webview2_com::CapturePreviewCompletedHandler;
-        use webview2_com::Microsoft::Web::WebView2::Win32::COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG;
-        use windows::Win32::System::Com::{IStream, STREAM_SEEK_SET};
-        use windows::Win32::System::Com::StructuredStorage::CreateStreamOnHGlobal;
-
-        unsafe {
-            let controller = webview.controller();
-            let core = controller
-                .CoreWebView2()
-                .map_err(|e| format!("CoreWebView2 failed: {e:?}"))?;
-
-            let stream: IStream = CreateStreamOnHGlobal(Default::default(), true)
-                .map_err(|e| format!("CreateStreamOnHGlobal failed: {e:?}"))?;
-
-            let stream_for_cb = stream.clone();
-            let bytes_slot: Arc<Mutex<Result<Vec<u8>, String>>> =
-                Arc::new(Mutex::new(Err("callback not invoked".to_string())));
-            let bytes_slot_cb = bytes_slot.clone();
-            let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
-            let done_cb = done.clone();
-
-            let handler = CapturePreviewCompletedHandler::create(Box::new(move |hr| {
-                let result = if hr.is_err() {
-                    Err(format!("CapturePreview HRESULT: {hr:?}"))
-                } else {
-                    read_stream_to_vec(&stream_for_cb)
-                };
-                *bytes_slot_cb.lock().unwrap() = result;
-                done_cb.store(true, std::sync::atomic::Ordering::SeqCst);
-                Ok(())
-            }));
-
-            core.CapturePreview(
-                COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG,
-                &stream,
-                &handler,
-            )
-            .map_err(|e| format!("CapturePreview call failed: {e:?}"))?;
-
-            let pump_start = Instant::now();
-            while !done.load(std::sync::atomic::Ordering::SeqCst) {
-                if pump_start.elapsed() > std::time::Duration::from_secs(5) {
-                    return Err("capture inner timeout (5s pump)".into());
-                }
-                pump_messages();
-                std::thread::sleep(std::time::Duration::from_millis(2));
-            }
-
-            let _ = stream.Seek(0, STREAM_SEEK_SET, None);
-            let res = bytes_slot.lock().unwrap();
-            match &*res {
-                Ok(v) => Ok(v.clone()),
-                Err(e) => Err(e.clone()),
-            }
-        }
-    }
-
-    unsafe fn pump_messages() {
-        use windows::Win32::Foundation::HWND;
-        use windows::Win32::UI::WindowsAndMessaging::{
-            DispatchMessageW, PeekMessageW, TranslateMessage, MSG, PM_REMOVE,
-        };
-        let mut msg = MSG::default();
-        while PeekMessageW(&mut msg, Some(HWND(std::ptr::null_mut())), 0, 0, PM_REMOVE).as_bool() {
-            let _ = TranslateMessage(&msg);
-            DispatchMessageW(&msg);
-        }
-    }
-
-    unsafe fn read_stream_to_vec(
-        stream: &windows::Win32::System::Com::IStream,
-    ) -> Result<Vec<u8>, String> {
-        use windows::Win32::System::Com::STREAM_SEEK_SET;
-        stream
-            .Seek(0, STREAM_SEEK_SET, None)
-            .map_err(|e| format!("Seek failed: {e:?}"))?;
-
-        let mut buf = Vec::<u8>::with_capacity(64 * 1024);
-        let mut chunk = [0u8; 8192];
-        loop {
-            let mut read: u32 = 0;
-            let _ = stream.Read(
-                chunk.as_mut_ptr() as *mut _,
-                chunk.len() as u32,
-                Some(&mut read as *mut u32),
-            );
-            if read == 0 {
-                break;
-            }
-            buf.extend_from_slice(&chunk[..read as usize]);
-        }
-        Ok(buf)
+        crate::tools::wallpaper::capture::capture_inner(webview)
     }
 }
 
