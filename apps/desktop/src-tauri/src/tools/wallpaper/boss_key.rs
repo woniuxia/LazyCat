@@ -30,6 +30,8 @@ pub fn toggle(app: &AppHandle) -> Result<Value, String> {
             s.paused = false;
             s.pause_reason = None;
         });
+        // boss key 切换期间桌面已被换过；hash 失效保证下一帧真正合成
+        apply::invalidate_input_hash();
 
         // 立即合成；失败不回滚暂停态（用户已经显式表示要回到工作态）
         match apply::apply(app) {
@@ -50,6 +52,8 @@ pub fn toggle(app: &AppHandle) -> Result<Value, String> {
             s.paused = true;
             s.pause_reason = Some(state::PauseReason::BossKey);
         });
+        // 桌面切回原图；下次 resume 必须重渲，hash 同步失效
+        apply::invalidate_input_hash();
 
         let restore_result = restore_original_inline();
         match restore_result {

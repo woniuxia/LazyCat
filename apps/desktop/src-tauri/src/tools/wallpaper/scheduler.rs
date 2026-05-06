@@ -23,7 +23,7 @@ use std::time::Duration;
 
 use tauri::AppHandle;
 
-use crate::tools::wallpaper::{apply, config, hidden, lock, state};
+use crate::tools::wallpaper::{apply, config, fullscreen, hidden, lock, state};
 
 /// 进程内仅启动一次的守门员；防止 main.rs 误重复调 [`start`]。
 static SCHEDULER_RUNNING: AtomicBool = AtomicBool::new(false);
@@ -40,7 +40,8 @@ pub fn start(app: AppHandle) {
         loop {
             // 1. 跳过判定先行（避免在禁用状态下也走完一次 apply）
             if !should_skip(&app) {
-                match apply::apply(&app) {
+                // 心跳走 force=false：相同输入的合成结果会被 hash 去重跳过
+                match apply::apply_with_force(&app, false) {
                     Ok(_) => clear_burnout(),
                     Err(e) => handle_apply_error(&app, &e),
                 }
@@ -71,6 +72,10 @@ fn should_skip(_app: &AppHandle) -> bool {
     }
 
     if lock::is_locked() {
+        return true;
+    }
+
+    if fullscreen::is_fullscreen_busy() {
         return true;
     }
 

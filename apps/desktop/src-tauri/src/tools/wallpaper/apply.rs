@@ -13,11 +13,13 @@
 
 #![allow(dead_code)] // Phase 3 调度接入前部分常量未引用
 
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU64, Ordering},
     mpsc, Arc, Mutex,
 };
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, UNIX_EPOCH};
 
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, Listener, Manager, WebviewWindow};
@@ -39,8 +41,25 @@ const MONITOR_INDEX: u32 = 0;
 /// load_base_cached 的 monitor 标识（与缓存 key 对齐）。
 const PRIMARY_MONITOR_ID: &str = "primary";
 
-/// `tool:wallpaper:apply` 入口；返回 `{ ok, path, method, coldStart }`。
+/// 上一次成功合成的输入 hash（dashboard + position + mode + base mtime）。
+/// 0 表示无历史 / 已失效；调用 [`invalidate_input_hash`] 强制下一轮重渲。
+static LAST_INPUT_HASH: AtomicU64 = AtomicU64::new(0);
+
+/// 重置内容 hash；enable / restore / boss key cycle 后调用，避免被旧 hash 卡住。
+pub fn invalidate_input_hash() {
+    LAST_INPUT_HASH.store(0, Ordering::SeqCst);
+}
+
+/// `tool:wallpaper:apply` 入口；返回 `{ ok, path, method, coldStart, skipped }`。
+///
+/// `force = true` 时跳过 hash 去重（手动「立即刷新」/ 老板键恢复 / resume 走这里）；
+/// `force = false` 用于心跳 / 事件驱动，命中相同输入时直接返回 skipped。
 pub fn apply(app: &AppHandle) -> Result<Value, String> {
+    apply_with_force(app, true)
+}
+
+/// 带 force 标记的入口；调度 / 事件驱动调用方走此版本传 false 启用 hash 去重。
+pub fn apply_with_force(app: &AppHandle, force: bool) -> Result<Value, String> {
     let start = Instant::now();
 
     // 1. 拉数据 + 读配置（fast path，纯 SQL）
@@ -60,6 +79,19 @@ pub fn apply(app: &AppHandle) -> Result<Value, String> {
     let position = compose::Position::from_str(&cfg.position);
     let region = compose::region_for(base.width(), base.height(), position, region_w, region_h);
     let mode = compose::sample_color_mode(&base, region);
+
+    // 3b. 内容 hash 去重（plan §3.1 v0.5 优化点 2）：输入未变化直接跳过整条
+    //     compose + persist + set_wallpaper 链路，节省 IO + GPU。
+    //     force=true 时（手动刷新 / 老板键恢复 / resume）跳过此判定。
+    let input_hash = compute_input_hash(&dashboard, &base_path, position, mode);
+    if !force && input_hash != 0 && input_hash == LAST_INPUT_HASH.load(Ordering::SeqCst) {
+        return Ok(json!({
+            "ok": true,
+            "skipped": true,
+            "reason": "no-change",
+            "elapsedMs": start.elapsed().as_millis() as u64,
+        }));
+    }
 
     // 4. 确保 hidden window；记录是否冷启
     let cold_start = !hidden::is_canvas_open(app);
@@ -113,6 +145,11 @@ pub fn apply(app: &AppHandle) -> Result<Value, String> {
         s.burnout = 0;
     });
 
+    // 12. 落地内容 hash 供下次去重比对
+    if input_hash != 0 {
+        LAST_INPUT_HASH.store(input_hash, Ordering::SeqCst);
+    }
+
     Ok(json!({
         "ok": true,
         "path": path_str,
@@ -120,6 +157,7 @@ pub fn apply(app: &AppHandle) -> Result<Value, String> {
         "coldStart": cold_start,
         "elapsedMs": start.elapsed().as_millis() as u64,
         "readyOk": ready_ok,
+        "skipped": false,
     }))
 }
 
@@ -210,4 +248,104 @@ fn primary_scale_factor(app: &AppHandle) -> f64 {
 
 fn now_iso() -> String {
     chrono::Local::now().format("%Y-%m-%dT%H:%M:%S%:z").to_string()
+}
+
+/// 计算 apply 输入哈希（用于内容去重）。组成：
+/// - dashboard JSON（全部数据 + generatedAt 决定 todoList 顺序）
+/// - base 文件路径 + mtime（user 手改壁纸即变）
+/// - 贴边位置 + 颜色模式（配置 / 采样结果）
+///
+/// 任一字段无法序列化时返回 0；外层将 0 视为「无效 hash」跳过去重。
+fn compute_input_hash(
+    dashboard: &Value,
+    base_path: &std::path::Path,
+    position: compose::Position,
+    mode: compose::ColorMode,
+) -> u64 {
+    let Ok(json) = serde_json::to_string(dashboard) else {
+        return 0;
+    };
+    let mtime_secs = std::fs::metadata(base_path)
+        .ok()
+        .and_then(|m| m.modified().ok())
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+
+    let mut h = DefaultHasher::new();
+    json.hash(&mut h);
+    base_path.to_string_lossy().hash(&mut h);
+    mtime_secs.hash(&mut h);
+    position.as_str().hash(&mut h);
+    mode.as_str().hash(&mut h);
+    let result = h.finish();
+    if result == 0 {
+        // 0 是 sentinel；理论碰撞概率极低，但仍按约定跳到 1 避免误判
+        1
+    } else {
+        result
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    /// 用不存在的路径即可：compute_input_hash 内 stat 失败回退 mtime=0，
+    /// 测试只关心 dashboard / position / mode 三个维度的差异。
+    fn fake_base() -> PathBuf {
+        PathBuf::from("/nonexistent/wallpaper-apply-test/base.png")
+    }
+
+    #[test]
+    fn hash_changes_with_dashboard_data() {
+        let p = fake_base();
+        let h1 = compute_input_hash(
+            &json!({ "todoList": [{ "id": "a" }] }),
+            &p,
+            compose::Position::Right,
+            compose::ColorMode::Light,
+        );
+        let h2 = compute_input_hash(
+            &json!({ "todoList": [{ "id": "b" }] }),
+            &p,
+            compose::Position::Right,
+            compose::ColorMode::Light,
+        );
+        assert_ne!(h1, h2);
+    }
+
+    #[test]
+    fn hash_changes_with_position_and_mode() {
+        let p = fake_base();
+        let data = json!({ "todoList": [] });
+
+        let right_light = compute_input_hash(&data, &p, compose::Position::Right, compose::ColorMode::Light);
+        let left_light = compute_input_hash(&data, &p, compose::Position::Left, compose::ColorMode::Light);
+        let right_dark = compute_input_hash(&data, &p, compose::Position::Right, compose::ColorMode::Dark);
+        assert_ne!(right_light, left_light);
+        assert_ne!(right_light, right_dark);
+    }
+
+    #[test]
+    fn hash_stable_across_calls() {
+        let p = fake_base();
+        let data = json!({ "todoList": [{ "id": "a" }] });
+        let a = compute_input_hash(&data, &p, compose::Position::Right, compose::ColorMode::Light);
+        let b = compute_input_hash(&data, &p, compose::Position::Right, compose::ColorMode::Light);
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn hash_never_returns_sentinel_zero() {
+        let p = fake_base();
+        let h = compute_input_hash(
+            &json!({}),
+            &p,
+            compose::Position::Right,
+            compose::ColorMode::Light,
+        );
+        assert_ne!(h, 0);
+    }
 }

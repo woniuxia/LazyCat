@@ -14,6 +14,7 @@ pub mod config;
 pub mod dashboard_logic;
 pub mod data;
 pub mod desktop;
+pub mod fullscreen;
 pub mod hidden;
 pub mod lock;
 pub mod scheduler;
@@ -105,6 +106,9 @@ fn enable_wallpaper() -> Result<Value, String> {
     // set_method 延后到首次 apply 写入（COM 成功 → "com"，回退 → "sysparam"）
     config::set_string(config::KEY_ENABLED, "true")?;
 
+    // 4. 重置内容 hash：新启用周期内首次 apply 必须真正合成一次
+    apply::invalidate_input_hash();
+
     Ok(json!({
         "ok": true,
         "originalPath": backup_path.to_string_lossy(),
@@ -150,6 +154,8 @@ fn restore_wallpaper() -> Result<Value, String> {
     }
     let method = desktop::set_wallpaper(desktop::PRIMARY_MONITOR_INDEX, &path)?;
     config::set_string(config::KEY_ORIGINAL_SET_METHOD, method.as_str())?;
+    // 桌面壁纸已被替换，下次 apply 必须真正合成（不依赖 hash 去重）
+    apply::invalidate_input_hash();
     Ok(json!({
         "ok": true,
         "method": method.as_str(),
