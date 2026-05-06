@@ -4,8 +4,9 @@
 //! 关联实施：docs/superpowers/specs/2026-05-05-living-wallpaper-plan.md
 //!
 //! Phase 0 仅搭建骨架；Phase 1.8 接入 enable / disable / restore；
-//! 实质渲染 / 合成 / set 壁纸 / 调度逻辑在 Phase 2-3 接入。
+//! Phase 2.4 接入 apply 主流程；render_once / pause / resume / 调度由 Phase 3 接入。
 
+pub mod apply;
 pub mod capture;
 pub mod compose;
 pub mod config;
@@ -19,6 +20,7 @@ pub mod state;
 use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
+use tauri::AppHandle;
 
 use crate::tools::helpers::{db_conn, get_data_dir};
 
@@ -30,7 +32,7 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         "set_config" => config::set_config(payload),
         "dashboard_data" => data::dashboard_data(payload),
         "render_once" => Err(not_yet_implemented("render_once")),
-        "apply" => Err(not_yet_implemented("apply")),
+        "apply" => Err(needs_app_handle("apply")),
         "restore" => restore_wallpaper(),
         "pause" => Err(not_yet_implemented("pause")),
         "resume" => Err(not_yet_implemented("resume")),
@@ -41,8 +43,22 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
     }
 }
 
+/// 带 AppHandle 版本（plan §2.4）：apply 需要 emit / with_webview，
+/// 单纯走 sync execute 拿不到 app；调度方走 `execute_tool_with_app`。
+pub fn execute_with_app(action: &str, payload: &Value, app: &AppHandle) -> Result<Value, String> {
+    match action {
+        "apply" => apply::apply(app),
+        // 其他 action 不需要 app，直接走 sync 入口
+        _ => execute(action, payload),
+    }
+}
+
 fn not_yet_implemented(action: &str) -> String {
     format!("wallpaper.{action} not yet implemented (Phase 0 skeleton)")
+}
+
+fn needs_app_handle(action: &str) -> String {
+    format!("wallpaper.{action} requires AppHandle; route via execute_tool_with_app")
 }
 
 // ── 生命周期（plan §1.8 / design §10） ──────────

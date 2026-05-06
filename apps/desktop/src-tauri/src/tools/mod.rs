@@ -91,6 +91,7 @@ pub fn execute_tool_with_app(
 ) -> Result<Value, String> {
     match domain {
         "settings" => settings::execute_with_app(action, payload, app),
+        "wallpaper" => wallpaper::execute_with_app(action, payload, app),
         _ => execute_tool(domain, action, payload),
     }
 }
