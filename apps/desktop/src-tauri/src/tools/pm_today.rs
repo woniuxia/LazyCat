@@ -198,7 +198,8 @@ fn load_candidate_rows(
     Ok(list)
 }
 
-fn priority_rank(priority: &str) -> i32 {
+/// 优先级排序权重；`wallpaper` 模块复用，禁止在其他模块重写。
+pub fn priority_rank(priority: &str) -> i32 {
     match priority {
         "P0" => 0,
         "P1" => 1,

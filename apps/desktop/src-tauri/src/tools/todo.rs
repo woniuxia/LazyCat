@@ -285,7 +285,8 @@ fn normalize_status_a1(status: &str) -> &str {
     }
 }
 
-fn is_open_status(status: &str) -> bool {
+/// 待处理状态判定；`wallpaper` 模块复用，禁止在其他模块重写。
+pub fn is_open_status(status: &str) -> bool {
     status == STATUS_PENDING || status == STATUS_IN_PROGRESS
 }
 
