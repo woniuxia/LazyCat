@@ -23,7 +23,7 @@ use std::time::Duration;
 
 use tauri::AppHandle;
 
-use crate::tools::wallpaper::{apply, config, hidden, state};
+use crate::tools::wallpaper::{apply, config, hidden, lock, state};
 
 /// 进程内仅启动一次的守门员；防止 main.rs 误重复调 [`start`]。
 static SCHEDULER_RUNNING: AtomicBool = AtomicBool::new(false);
@@ -53,9 +53,12 @@ pub fn start(app: AppHandle) {
     });
 }
 
-/// 跳过判定：禁用 / 暂停态都跳过。
+/// 跳过判定：禁用 / 暂停态 / 锁屏 / 屏保 / 用户切换 都跳过。
 ///
-/// 为后续 Phase 3.x 留扩展点：空闲、锁屏、全屏、Spotlight 检测都汇入此函数。
+/// 锁屏判定走 [`lock::is_locked`] 同步轮询，不写状态：用户解锁后下一轮
+/// 心跳自动恢复；状态卡片不会出现 "锁屏暂停" 字样（用户锁屏期间也看不到）。
+///
+/// 为后续 Phase 3.x 留扩展点：空闲、全屏、Spotlight 检测都汇入此函数。
 fn should_skip(_app: &AppHandle) -> bool {
     let cfg = config::read_config();
     if !cfg.enabled {
@@ -64,6 +67,10 @@ fn should_skip(_app: &AppHandle) -> bool {
 
     let s = state::snapshot();
     if s.paused {
+        return true;
+    }
+
+    if lock::is_locked() {
         return true;
     }
 
