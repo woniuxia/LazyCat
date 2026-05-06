@@ -12,6 +12,7 @@ pub mod config;
 pub mod dashboard_logic;
 pub mod data;
 pub mod desktop;
+pub mod hidden;
 pub mod scheduler;
 pub mod state;
 
