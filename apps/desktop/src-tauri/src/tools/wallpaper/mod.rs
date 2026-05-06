@@ -14,6 +14,7 @@ pub mod config;
 pub mod dashboard_logic;
 pub mod data;
 pub mod desktop;
+pub mod events;
 pub mod fullscreen;
 pub mod hidden;
 pub mod lock;

@@ -1283,6 +1283,9 @@ fn main() {
             // 启动壁纸心跳调度（仅在 wallpaper.enabled=true 时实际刷新；线程内部判断）
             tools::wallpaper::scheduler::start(app.handle().clone());
 
+            // 启动壁纸事件驱动 debounce 线程（PM/Todo CRUD → 5s 静默后立刷）
+            tools::wallpaper::events::start(app.handle().clone());
+
             // 注册壁纸老板键（默认 Ctrl+Alt+W；wallpaper.boss_key 配置项可改）
             if let Err(e) = init_wallpaper_boss_key(app.handle()) {
                 eprintln!("[wallpaper] register boss key failed: {e}");

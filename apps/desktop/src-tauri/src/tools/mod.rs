@@ -44,6 +44,15 @@ pub mod wallpaper;
 use serde_json::Value;
 
 pub fn execute_tool(domain: &str, action: &str, payload: &Value) -> Result<Value, String> {
+    let result = dispatch_tool(domain, action, payload);
+    // 数据变更类 action 成功后通知壁纸：5s 静默后立刷一次
+    if result.is_ok() && pm_or_todo_data_changed(domain, action) {
+        wallpaper::events::notify_data_changed(domain_static(domain));
+    }
+    result
+}
+
+fn dispatch_tool(domain: &str, action: &str, payload: &Value) -> Result<Value, String> {
     match domain {
         "encode" => encode::execute(action, payload),
         "convert" => convert::execute(action, payload),
@@ -80,6 +89,56 @@ pub fn execute_tool(domain: &str, action: &str, payload: &Value) -> Result<Value
         "system" => system::execute(action, payload),
         "wallpaper" => wallpaper::execute(action, payload),
         _ => Err(format!("unsupported command: {domain}.{action}")),
+    }
+}
+
+/// 判定是否要通知壁纸刷新；只对真正改写 PM / Todo 数据的 action 触发。
+///
+/// 故意排除纯查询（item_list / item_counts / siyuan_*）与跨域副作用（todo_link
+/// 由 PM 域统一覆盖），避免无意义的合成请求。
+fn pm_or_todo_data_changed(domain: &str, action: &str) -> bool {
+    match domain {
+        "pm" => matches!(
+            action,
+            "item_create"
+                | "item_update"
+                | "item_change_status"
+                | "item_reorder"
+                | "item_toggle_pin"
+                | "item_batch_update"
+                | "item_delete"
+                | "item_move_project"
+                | "item_todo_create"
+                | "item_todo_link"
+                | "item_todo_unlink"
+                | "project_create"
+                | "project_update"
+                | "project_archive"
+                | "project_restore"
+                | "project_delete"
+        ),
+        "todo" => matches!(
+            action,
+            "item_create"
+                | "item_update"
+                | "item_change_status"
+                | "item_reorder"
+                | "item_toggle_pin"
+                | "item_batch_update"
+                | "item_delete"
+                | "item_complete"
+                | "item_undo_complete"
+        ),
+        _ => false,
+    }
+}
+
+/// 把 domain &str 升级为 'static str（仅 pm / todo 两个值，匹配 events::notify 签名）。
+fn domain_static(domain: &str) -> &'static str {
+    match domain {
+        "pm" => "pm",
+        "todo" => "todo",
+        _ => "other",
     }
 }
 
