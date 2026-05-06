@@ -7,6 +7,7 @@
 //! Phase 2.4 接入 apply 主流程；render_once / pause / resume / 调度由 Phase 3 接入。
 
 pub mod apply;
+pub mod boss_key;
 pub mod capture;
 pub mod compose;
 pub mod config;
@@ -34,8 +35,8 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         "render_once" => Err(not_yet_implemented("render_once")),
         "apply" => Err(needs_app_handle("apply")),
         "restore" => restore_wallpaper(),
-        "pause" => Err(not_yet_implemented("pause")),
-        "resume" => Err(not_yet_implemented("resume")),
+        "pause" => pause_wallpaper(payload),
+        "resume" => Err(needs_app_handle("resume")),
         "enable" => enable_wallpaper(),
         "disable" => disable_wallpaper(payload),
         "list_history" => Ok(json!({ "items": [] })),
@@ -48,6 +49,7 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
 pub fn execute_with_app(action: &str, payload: &Value, app: &AppHandle) -> Result<Value, String> {
     match action {
         "apply" => apply::apply(app),
+        "resume" => resume_wallpaper(app),
         // 其他 action 不需要 app，直接走 sync 入口
         _ => execute(action, payload),
     }
@@ -168,4 +170,52 @@ fn backup_original(src: &Path) -> Result<PathBuf, String> {
     std::fs::copy(src, &dst)
         .map_err(|e| format!("copy original wallpaper: {e}"))?;
     Ok(dst)
+}
+
+// ── 暂停 / 恢复（plan §3.4） ──────────
+
+/// 暂停：写状态 paused=true + 记录原因；调度线程下一轮 should_skip 时跳过 apply。
+///
+/// 入参 `{ reason?: "manual" | "boss_key" | "fullscreen" | "lock" }`，缺省 manual。
+/// 不直接还原原图（restore 由调用方按需触发；老板键有专门的 boss_key::toggle）。
+fn pause_wallpaper(payload: &Value) -> Result<Value, String> {
+    let reason_str = payload
+        .get("reason")
+        .and_then(Value::as_str)
+        .unwrap_or("manual");
+    let reason = match reason_str {
+        "boss_key" => state::PauseReason::BossKey,
+        "fullscreen" => state::PauseReason::Fullscreen,
+        "lock" => state::PauseReason::Lock,
+        _ => state::PauseReason::Manual,
+    };
+    state::write(|s| {
+        s.paused = true;
+        s.pause_reason = Some(reason);
+    });
+    Ok(json!({ "ok": true, "paused": true, "reason": reason.as_str() }))
+}
+
+/// 恢复：清暂停 + 立即 apply 一次（避免用户等下一个心跳）。
+///
+/// 由 execute_with_app 路由进入；apply 失败不阻塞 resume，错误透出给前端。
+fn resume_wallpaper(app: &AppHandle) -> Result<Value, String> {
+    state::write(|s| {
+        s.paused = false;
+        s.pause_reason = None;
+    });
+    match apply::apply(app) {
+        Ok(v) => Ok(json!({
+            "ok": true,
+            "paused": false,
+            "applied": true,
+            "applyResult": v,
+        })),
+        Err(e) => Ok(json!({
+            "ok": true,
+            "paused": false,
+            "applied": false,
+            "applyError": e,
+        })),
+    }
 }

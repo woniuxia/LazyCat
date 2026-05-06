@@ -744,6 +744,10 @@ fn sync_all_shortcuts(app: &tauri::AppHandle) -> Result<(), String> {
                     show_spotlight(app_handle);
                     return;
                 }
+                if name_owned == "wallpaper-boss-key" {
+                    let _ = tools::wallpaper::boss_key::toggle(app_handle);
+                    return;
+                }
                 handle_main_window_shortcut(app_handle, name_owned.as_str());
             })
             .map_err(|e| e.to_string())?;
@@ -792,6 +796,18 @@ fn unregister_named_hotkey(app: tauri::AppHandle, name: String) -> Result<(), St
         map.remove(&name);
     }
     sync_all_shortcuts(&app)
+}
+
+/// Setup-time 注册壁纸老板键。读 `wallpaper.boss_key`（默认 Ctrl+Alt+W），
+/// 注入到全局快捷键 map 后 sync 一次；与 `register_named_hotkey` 同口径，
+/// 仅省去前端往返。注册失败不阻塞应用启动（design §9 要求降级提示）。
+fn init_wallpaper_boss_key(app: &tauri::AppHandle) -> Result<(), String> {
+    let cfg = tools::wallpaper::config::read_config();
+    let key = cfg.boss_key.trim().to_string();
+    if key.is_empty() {
+        return Ok(());
+    }
+    register_named_hotkey(app.clone(), "wallpaper-boss-key".into(), key)
 }
 
 /// Window subclass ID (arbitrary unique value)
@@ -1266,6 +1282,11 @@ fn main() {
 
             // 启动壁纸心跳调度（仅在 wallpaper.enabled=true 时实际刷新；线程内部判断）
             tools::wallpaper::scheduler::start(app.handle().clone());
+
+            // 注册壁纸老板键（默认 Ctrl+Alt+W；wallpaper.boss_key 配置项可改）
+            if let Err(e) = init_wallpaper_boss_key(app.handle()) {
+                eprintln!("[wallpaper] register boss key failed: {e}");
+            }
 
             Ok(())
         })
