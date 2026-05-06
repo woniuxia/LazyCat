@@ -17,6 +17,7 @@ pub mod desktop;
 pub mod events;
 pub mod fullscreen;
 pub mod hidden;
+pub mod idle;
 pub mod lock;
 pub mod scheduler;
 pub mod state;

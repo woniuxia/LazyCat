@@ -1,20 +1,16 @@
 //! 壁纸刷新心跳调度（plan §3.1 / design §8）
 //!
-//! ## Phase 3.1 范围（最小可用）
-//!
-//! - 后台线程按 `wallpaper.refresh_interval_min` 心跳触发 [`apply::apply`]
+//! - 后台线程按 `wallpaper.refresh_interval_min` 心跳触发 [`apply::apply_with_force`]
 //! - 启动时若 `enabled=true`，先立即 apply 一次（避免用户开启后等 15min 才看到效果）
-//! - 跳过条件：未启用 / 暂停态
+//! - 跳过条件：未启用 / 暂停态 / 锁屏 / 全屏切净（lock + fullscreen 模块）
+//! - 空闲降频：5min 无输入降到 60min sleep；用户回来立即 break sleep
 //! - 连续渲染失败 ≥ [`hidden::BURNOUT_REBUILD_THRESHOLD`] 时销毁 hidden window，
 //!   下一轮重建，避免 WebView 内存泄漏 / 黑帧（design §7.5）
 //!
 //! ## 后续 Phase 3.x（暂不接入）
 //!
-//! - 空闲降频：`GetLastInputInfo` 检测，5min 无操作降到 60min
-//! - 锁屏暂停：`WTSRegisterSessionNotification` 监听
-//! - 全屏切净：`SHQueryUserNotificationState`
-//! - 事件驱动立刷：PM/Todo 副作用 → trailing-edge debounce 5s
-//! - 内容 hash 去重：跳过未变化的合成
+//! - 全屏黑名单进程匹配（GetForegroundWindow + QueryFullProcessImageName）
+//! - Spotlight 检测（design §9 第三方引擎兜底）
 
 #![allow(dead_code)] // Phase 3.x 增量接入
 
@@ -23,7 +19,16 @@ use std::time::Duration;
 
 use tauri::AppHandle;
 
-use crate::tools::wallpaper::{apply, config, fullscreen, hidden, lock, state};
+use crate::tools::wallpaper::{apply, config, fullscreen, hidden, idle, lock, state};
+
+/// 5min 无输入即视为空闲，sleep 间隔降为 [`IDLE_INTERVAL_SECS`]。
+const IDLE_THRESHOLD_SECS: u32 = 300;
+/// 空闲降频后的固定间隔（60min），覆盖用户离开期间。
+const IDLE_INTERVAL_SECS: u64 = 60 * 60;
+/// 用户「刚回来」判定阈值：本周期 < 30s 输入间隔即视为活跃。
+const ACTIVE_THRESHOLD_SECS: u32 = 30;
+/// 分块睡眠粒度；越小响应越快，越大 CPU 越省。30s 在两者间取折中。
+const SLEEP_CHUNK_SECS: u64 = 30;
 
 /// 进程内仅启动一次的守门员；防止 main.rs 误重复调 [`start`]。
 static SCHEDULER_RUNNING: AtomicBool = AtomicBool::new(false);
@@ -47,19 +52,43 @@ pub fn start(app: AppHandle) {
                 }
             }
 
-            // 2. 配置可能在运行期改动；每轮重新读
-            let interval_min = config::read_config().refresh_interval_min.max(1) as u64;
-            std::thread::sleep(Duration::from_secs(interval_min * 60));
+            // 2. 计算本轮 sleep 目标：空闲态 60min，活跃态走配置间隔
+            let cfg_interval_min = config::read_config().refresh_interval_min.max(1) as u64;
+            let target_secs = if idle::seconds_idle() >= IDLE_THRESHOLD_SECS {
+                IDLE_INTERVAL_SECS
+            } else {
+                cfg_interval_min * 60
+            };
+
+            // 3. 分块睡眠 + 空闲恢复立刷探测
+            sleep_with_idle_check(target_secs);
         }
     });
 }
 
-/// 跳过判定：禁用 / 暂停态 / 锁屏 / 屏保 / 用户切换 都跳过。
+/// 分块 sleep；进入时若已空闲则记录，期间检测「刚回来」立即 break。
 ///
-/// 锁屏判定走 [`lock::is_locked`] 同步轮询，不写状态：用户解锁后下一轮
-/// 心跳自动恢复；状态卡片不会出现 "锁屏暂停" 字样（用户锁屏期间也看不到）。
+/// plan §3.1 v0.5：上一周期 idle ≥ 5min、本周期 < 30s → 用户刚回来，
+/// 不必等 sleep 走完，立刻进入下一轮 apply 让用户看到最新数据。
+fn sleep_with_idle_check(target_secs: u64) {
+    let was_idle_at_start = idle::seconds_idle() >= IDLE_THRESHOLD_SECS;
+    let mut elapsed = 0u64;
+
+    while elapsed < target_secs {
+        let chunk = (target_secs - elapsed).min(SLEEP_CHUNK_SECS);
+        std::thread::sleep(Duration::from_secs(chunk));
+        elapsed += chunk;
+
+        // 仅在「刚才空闲、现在活跃」的边沿触发；连续活跃不重复 break
+        if was_idle_at_start && idle::seconds_idle() < ACTIVE_THRESHOLD_SECS {
+            return;
+        }
+    }
+}
+
+/// 跳过判定：禁用 / 暂停态 / 锁屏 / 屏保 / 全屏切净 都跳过。
 ///
-/// 为后续 Phase 3.x 留扩展点：空闲、全屏、Spotlight 检测都汇入此函数。
+/// 不写 state.paused：用户锁屏 / 全屏期间也看不到面板，恢复后下一轮自动接上。
 fn should_skip(_app: &AppHandle) -> bool {
     let cfg = config::read_config();
     if !cfg.enabled {
