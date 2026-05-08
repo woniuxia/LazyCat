@@ -36,12 +36,18 @@ static EVENT_TX: OnceLock<mpsc::SyncSender<&'static str>> = OnceLock::new();
 ///
 /// 线程接收事件后用 trailing-edge 策略：每个新事件重置截止时间到 now+5s，
 /// 直到没有新事件流入才真正触发 apply。
+///
+/// 同时启动 midnight 调度线程：每天本地 00:00:00 触发一次 apply（design §8 跨日立刷），
+/// 让用户凌晨 0:01 看到的"今日 X/Y" 立即反映新一天的统计。
 pub fn start(app: AppHandle) {
     let (tx, rx) = mpsc::sync_channel::<&'static str>(CHANNEL_CAPACITY);
     if EVENT_TX.set(tx).is_err() {
         // 已经启动过，直接返回
         return;
     }
+
+    let app_for_midnight = app.clone();
+    std::thread::spawn(move || midnight_loop(app_for_midnight));
 
     std::thread::spawn(move || {
         loop {
@@ -75,6 +81,35 @@ pub fn start(app: AppHandle) {
             }
         }
     });
+}
+
+/// 每天本地 00:00:00 触发一次 apply，让仪表盘"今日"统计立即跟上新一天。
+///
+/// - 不依赖 tokio：用 chrono 算下次 midnight 偏移 + std::thread::sleep
+/// - 跳过判定与 debounce loop 同口径（禁用 / 暂停 / 锁屏 / 全屏期间不执行）
+/// - force=true：跨日时其它字段可能未变（hash 命中），但"今日"统计已变，必须真合成
+fn midnight_loop(app: AppHandle) {
+    use chrono::{Duration as ChronoDuration, Local, NaiveTime, TimeZone};
+
+    loop {
+        let now = Local::now();
+        let tomorrow = now.date_naive().succ_opt().unwrap_or(now.date_naive());
+        let midnight_naive = tomorrow.and_time(NaiveTime::MIN);
+        let midnight = match Local.from_local_datetime(&midnight_naive).earliest() {
+            Some(dt) => dt,
+            None => now + ChronoDuration::hours(24), // 极端 DST 边界回退
+        };
+        let wait_ms = (midnight - now).num_milliseconds().max(60_000) as u64;
+
+        std::thread::sleep(Duration::from_millis(wait_ms));
+
+        if should_skip(&app) {
+            continue;
+        }
+        if let Err(e) = apply::apply_with_force(&app, true) {
+            eprintln!("[wallpaper] midnight apply failed: {e}");
+        }
+    }
 }
 
 /// PM / Todo 副作用末尾调用；reason 用 `'static str`（"pm" / "todo"）便于日志。

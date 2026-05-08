@@ -49,6 +49,9 @@ pub struct WallpaperState {
     pub burnout: u8,
     /// design §9：老板键注册失败时的提示文案；setup 时写入，前端面板透出
     pub boss_key_error: Option<String>,
+    /// 调度上轮 should_skip 命中的原因（lock / fullscreen）；
+    /// 与 `paused` 互斥透出：未显式暂停时由此字段反映"自动跳过"。None = 未跳过
+    pub auto_skip_reason: Option<&'static str>,
 }
 
 static STATE: LazyLock<RwLock<WallpaperState>> = LazyLock::new(|| RwLock::new(WallpaperState::default()));
@@ -131,6 +134,7 @@ pub fn status_snapshot() -> Value {
         "bossKeyError": st.boss_key_error,
         "privacyMaskActive": mask_active,
         "privacyMaskUntil": cfg.privacy_mask_until,
+        "autoSkipReason": st.auto_skip_reason,
     })
 }
 

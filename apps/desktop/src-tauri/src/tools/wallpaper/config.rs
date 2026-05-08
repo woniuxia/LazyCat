@@ -177,7 +177,12 @@ pub fn set_config(payload: &Value) -> Result<Value, String> {
 
     for (key, val) in obj.iter() {
         match key.as_str() {
-            "enabled" => write_bool(KEY_ENABLED, val)?,
+            // enabled 必须走 enable / disable 通道，避免绕过备份原图、销毁 hidden WebView 等副作用
+            "enabled" => {
+                return Err(
+                    "enabled must be set via tool:wallpaper:enable / disable channels".into(),
+                );
+            }
             "style" => write_string(KEY_STYLE, val)?,
             "position" => write_string(KEY_POSITION, val)?,
             "refreshIntervalMin" => write_i64(KEY_REFRESH_INTERVAL_MIN, val)?,
@@ -285,6 +290,13 @@ mod tests {
     fn set_config_rejects_unknown_key() {
         let err = set_config(&json!({ "foo": "bar" })).expect_err("unknown key");
         assert!(err.contains("unknown wallpaper config key"));
+    }
+
+    #[test]
+    fn set_config_rejects_enabled_key() {
+        // enabled 必须走 enable / disable channel，避免绕过备份 / 销毁 WebView 副作用
+        let err = set_config(&json!({ "enabled": false })).expect_err("must reject enabled");
+        assert!(err.contains("enable / disable channels"));
     }
 
     #[test]

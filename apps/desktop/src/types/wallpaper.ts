@@ -70,6 +70,8 @@ export interface WallpaperStatus {
   privacyMaskActive?: boolean;
   /** 敏感模式自动到期时间（ISO；null = 直到手动关） */
   privacyMaskUntil?: string | null;
+  /** 调度上轮自动跳过原因（"lock" | "fullscreen"）；null = 未跳过 */
+  autoSkipReason?: "lock" | "fullscreen" | null;
 }
 
 export interface WallpaperConfig {

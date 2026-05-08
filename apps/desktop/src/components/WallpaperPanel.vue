@@ -44,6 +44,11 @@
         <el-button size="small" type="primary" link :loading="applying" @click="onApply">重试</el-button>
       </div>
 
+      <!-- 调度自动跳过透出（review #11）：锁屏 / 全屏期间桌面不刷新，给用户一个解释 -->
+      <div v-if="autoSkipBanner" class="banner banner-info">
+        <span>⏸ {{ autoSkipBanner }}</span>
+      </div>
+
       <div class="status-meta">
         <div class="meta-item">
           <span class="meta-label">上次刷新</span>
@@ -69,7 +74,12 @@
       />
 
       <div class="status-buttons">
-        <el-button :loading="applying" :disabled="!config.enabled" @click="onApply">
+        <el-button
+          :loading="applying"
+          :disabled="!config.enabled || !!status?.paused"
+          :title="status?.paused ? '当前已暂停，请先点恢复或老板键再刷新' : ''"
+          @click="onApply"
+        >
           立即刷新
         </el-button>
         <el-button
@@ -80,7 +90,14 @@
           暂停
         </el-button>
         <el-button v-else type="primary" @click="onResume">恢复</el-button>
-        <el-button :loading="restoring" @click="onRestore">恢复原壁纸</el-button>
+        <el-button
+          :loading="restoring"
+          :disabled="!status?.originalPath"
+          :title="!status?.originalPath ? '尚未备份原壁纸，请先启用一次以建立备份' : ''"
+          @click="onRestore"
+        >
+          恢复原壁纸
+        </el-button>
       </div>
     </section>
 
@@ -125,8 +142,8 @@
               placeholder="例：Ctrl+Alt+W"
               style="max-width: 280px"
             />
-            <el-button class="ml" @click="saveField('bossKey')">保存</el-button>
-            <div class="hint">需重启应用才能完整生效；冲突时面板会显示警告</div>
+            <el-button class="ml" :loading="rebindingBossKey" @click="onSaveBossKey">保存</el-button>
+            <div class="hint">保存后立即生效；若快捷键被其它程序占用，状态卡片会提示重设</div>
           </el-form-item>
           <el-form-item label="退出策略">
             <el-radio-group v-model="config.exitBehavior" @change="saveField('exitBehavior')">
@@ -135,22 +152,21 @@
             </el-radio-group>
           </el-form-item>
           <el-form-item label="敏感模式">
-            <el-switch
-              :model-value="config.privacyMask"
-              @update:model-value="onPrivacyToggle"
-            />
-            <span class="hint ml">开启后 todo 标题打码（▓▓▓）</span>
-          </el-form-item>
-          <el-form-item v-if="config.privacyMask" label="自动到期">
+            <!-- review #7：把"开关 + 时长（开启后才显示）"合并为四选一，
+                 用户在切到 ON 那一刻即决定时长，不再被默认 2h 锁定 -->
             <el-radio-group
-              :model-value="privacyDurationChoice"
-              @update:model-value="onPrivacyDurationChange"
+              :model-value="privacyChoice"
+              @update:model-value="onPrivacyChoiceChange"
             >
+              <el-radio-button label="off">关闭</el-radio-button>
               <el-radio-button :label="30">30 分钟</el-radio-button>
               <el-radio-button :label="120">2 小时</el-radio-button>
               <el-radio-button :label="0">直到手动关</el-radio-button>
             </el-radio-group>
-            <span v-if="config.privacyMaskUntil" class="hint ml">将于 {{ formatTime(config.privacyMaskUntil) }} 自动关闭</span>
+            <div v-if="config.privacyMaskUntil" class="hint">
+              将于 {{ formatTime(config.privacyMaskUntil) }} 自动关闭
+            </div>
+            <div v-else class="hint">开启后 todo 标题打码（▓▓▓）</div>
           </el-form-item>
           <el-form-item label="全屏切净">
             <el-input
@@ -218,7 +234,7 @@
 import { onMounted, onBeforeUnmount, computed, ref } from "vue";
 import { ElMessage, ElMessageBox, ElImageViewer } from "element-plus";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { invokeToolByChannel } from "../bridge/tauri";
+import { invokeToolByChannel, registerNamedHotkey } from "../bridge/tauri";
 import type {
   WallpaperConfig,
   WallpaperHistoryEntry,
@@ -233,6 +249,7 @@ const activeTab = ref<"basic" | "privacy" | "advanced">("basic");
 const toggling = ref(false);
 const applying = ref(false);
 const restoring = ref(false);
+const rebindingBossKey = ref(false);
 
 let pollHandle: number | null = null;
 
@@ -298,16 +315,43 @@ async function refreshConfig() {
 }
 
 async function onToggleEnabled(next: boolean) {
+  if (next && !status.value?.originalPath) {
+    // review #12：首次启用（尚未备份原壁纸）先弹说明，让用户知道接下来会发生什么
+    try {
+      await ElMessageBox.confirm(
+        `桌面壁纸工具会把今日仪表盘叠加到桌面右侧 360×800 区域，并自动备份你当前的壁纸。退出 LazyCat 时按下方「退出策略」处理（默认：恢复原图）。继续？`,
+        "首次启用桌面壁纸",
+        {
+          type: "info",
+          confirmButtonText: "继续启用",
+          cancelButtonText: "取消",
+        },
+      );
+    } catch {
+      // 用户取消：不要让 toggle 视觉状态卡在 ON
+      config.value.enabled = false;
+      return;
+    }
+  }
+
   toggling.value = true;
   try {
     if (next) {
       await invokeToolByChannel("tool:wallpaper:enable", {});
+      config.value.enabled = true;
+      ElMessage.success("已启用桌面壁纸，正在合成首帧…");
+      await Promise.all([refreshStatus(), refreshConfig()]);
+      // 启用后立即合成一次，避免用户等到下一个心跳（默认 15 min）才看到效果
+      // 异步触发不阻塞 toggle UI；失败时单独提示
+      invokeToolByChannel("tool:wallpaper:apply", {})
+        .then(() => refreshStatus())
+        .catch((e) => ElMessage.warning(`首帧合成失败：${formatError(e)}`));
     } else {
       await invokeToolByChannel("tool:wallpaper:disable", {});
+      config.value.enabled = false;
+      ElMessage.success("已关闭桌面壁纸");
+      await Promise.all([refreshStatus(), refreshConfig()]);
     }
-    config.value.enabled = next;
-    ElMessage.success(next ? "已启用桌面壁纸" : "已关闭桌面壁纸");
-    await Promise.all([refreshStatus(), refreshConfig()]);
   } catch (e) {
     ElMessage.error(`切换失败：${formatError(e)}`);
   } finally {
@@ -350,10 +394,10 @@ async function onRestore() {
   restoring.value = true;
   try {
     await invokeToolByChannel("tool:wallpaper:restore", {});
-    ElMessage.success("已恢复原壁纸");
-    await refreshStatus();
+    ElMessage.success("已恢复原壁纸（自动暂停刷新，重新启用请按上方开关）");
+    await Promise.all([refreshStatus(), refreshConfig()]);
   } catch (e) {
-    ElMessage.error(`恢复失败：${formatError(e)}`);
+    ElMessage.error(`恢复失败：${humanizeWallpaperError(e)}`);
   } finally {
     restoring.value = false;
   }
@@ -374,6 +418,38 @@ function onBlacklistInput(v: string) {
     .split("\n")
     .map((s) => s.trim())
     .filter(Boolean);
+}
+
+/**
+ * 保存老板键 + 立即热重绑（review #8）。
+ * 步骤：set-config 持久化 → 调 register_named_hotkey 实际注册 → 写状态卡片错误位
+ *   - 成功：清 boss_key_error，ElMessage success
+ *   - 失败：把后端 register 的 Err（如"快捷键已被占用"）写进 boss_key_error，状态卡片显眼透出
+ */
+async function onSaveBossKey() {
+  const trimmed = config.value.bossKey.trim();
+  if (!trimmed) {
+    ElMessage.warning("老板键不能为空");
+    return;
+  }
+  rebindingBossKey.value = true;
+  try {
+    await invokeToolByChannel("tool:wallpaper:set-config", { bossKey: trimmed });
+    try {
+      await registerNamedHotkey("wallpaper-boss-key", trimmed);
+      await invokeToolByChannel("tool:wallpaper:set-boss-key-error", { error: null });
+      ElMessage.success(`老板键已生效：${trimmed}`);
+    } catch (e) {
+      const errMsg = `老板键 ${trimmed} 注册失败：${formatError(e)}`;
+      await invokeToolByChannel("tool:wallpaper:set-boss-key-error", { error: errMsg });
+      ElMessage.error(errMsg);
+    }
+    await refreshStatus();
+  } catch (e) {
+    ElMessage.error(`保存失败：${formatError(e)}`);
+  } finally {
+    rebindingBossKey.value = false;
+  }
 }
 
 function pauseReasonLabel(reason: WallpaperPauseReason): string {
@@ -403,6 +479,21 @@ function formatError(e: unknown): string {
   if (e instanceof Error) return e.message;
   if (typeof e === "string") return e;
   return JSON.stringify(e);
+}
+
+/**
+ * 把后端壁纸模块的英文 Err 翻译成中文，用户更友好。
+ * 未识别时回落 formatError 原文，避免吞错。
+ */
+function humanizeWallpaperError(e: unknown): string {
+  const raw = formatError(e);
+  if (raw.includes("no original wallpaper backed up")) {
+    return "尚未备份原壁纸，请先启用一次以建立备份";
+  }
+  if (raw.includes("original wallpaper backup missing")) {
+    return "原壁纸备份文件已丢失，请到设置中重新选择壁纸后再试";
+  }
+  return raw;
 }
 
 async function refreshHistory() {
@@ -442,8 +533,11 @@ async function onReset() {
     return;
   }
   try {
+    // 1. 先走 disable：销毁 hidden WebView + 按 exit_behavior 恢复原图
+    //    （注意 set_config 已禁止直接写 enabled，此处必须走 disable channel）
+    await invokeToolByChannel("tool:wallpaper:disable", { restore: true });
+    // 2. 再写其余偏好回默认
     await invokeToolByChannel("tool:wallpaper:set-config", {
-      enabled: false,
       style: "dashboard",
       position: "right",
       refreshIntervalMin: 15,
@@ -455,15 +549,10 @@ async function onReset() {
       imageFormat: "jpeg",
       keepHistoryCount: 20,
     });
-    try {
-      await invokeToolByChannel("tool:wallpaper:restore", {});
-    } catch (e) {
-      console.warn("[wallpaper] reset restore failed", e);
-    }
     ElMessage.success("已重置壁纸偏好");
     await Promise.all([refreshConfig(), refreshStatus(), refreshHistory()]);
   } catch (e) {
-    ElMessage.error("重置失败：" + formatError(e));
+    ElMessage.error("重置失败：" + humanizeWallpaperError(e));
   }
 }
 
@@ -489,12 +578,27 @@ async function onPrivacyOff() {
   }
 }
 
-/** durationMin: 30 / 120 / 0（=直到手动关） */
-async function onPrivacyDurationChange(min: string | number | boolean | undefined) {
-  const n = typeof min === "number" ? min : Number(min ?? 0);
+/**
+ * 四选一时长直接驱动开关（review #7）：用户选时长那一刻就开启 + 设到期。
+ * - "off"  → 关闭敏感模式
+ * - 30 / 120 / 0 → 开启 + 写到期分钟（0 = 直到手动关）
+ */
+async function onPrivacyChoiceChange(choice: string | number | boolean | undefined) {
+  if (choice === "off" || choice === undefined) {
+    await onPrivacyOff();
+    return;
+  }
+  const min = typeof choice === "number" ? choice : Number(choice);
+  if (Number.isNaN(min) || min < 0) {
+    ElMessage.warning("无效的时长选项");
+    return;
+  }
   try {
-    await invokeToolByChannel("tool:wallpaper:set-privacy-mask", { enabled: true, durationMin: n });
-    ElMessage.success(n > 0 ? `已设置 ${n} 分钟后自动关闭` : "已设置直到手动关");
+    await invokeToolByChannel("tool:wallpaper:set-privacy-mask", {
+      enabled: true,
+      durationMin: min,
+    });
+    ElMessage.success(min > 0 ? `已开启敏感模式（${min} 分钟后自动关）` : "已开启敏感模式（直到手动关）");
     await Promise.all([refreshConfig(), refreshStatus()]);
   } catch (e) {
     ElMessage.error(`保存失败：${formatError(e)}`);
@@ -512,9 +616,35 @@ const privacyDurationChoice = computed<number>(() => {
   return 0;
 });
 
+/**
+ * 四选一选项：'off' | 30 | 120 | 0（review #7）。
+ * privacyMask=false → 'off'；否则按剩余时长归类到 30 / 120 / 0（直到手动关）。
+ */
+const privacyChoice = computed<"off" | number>(() => {
+  if (!config.value.privacyMask) return "off";
+  return privacyDurationChoice.value;
+});
+
 const privacyUntilLabel = computed<string>(() => {
   if (!status.value?.privacyMaskUntil) return "（直到手动关）";
   return `（将于 ${formatTime(status.value.privacyMaskUntil)} 自动关闭）`;
+});
+
+/**
+ * 调度自动跳过原因的中文文案（review #11）。
+ * 仅在未显式暂停 / 已启用时才显示——显式暂停由 banner+按钮透出，无需重复说明。
+ */
+const autoSkipBanner = computed<string>(() => {
+  if (!config.value.enabled) return "";
+  if (status.value?.paused) return "";
+  switch (status.value?.autoSkipReason) {
+    case "lock":
+      return "检测到锁屏 / 屏保，已暂停刷新（解锁后自动恢复）";
+    case "fullscreen":
+      return "检测到全屏应用，已暂停刷新（退出全屏后自动恢复）";
+    default:
+      return "";
+  }
 });
 
 function defaultConfig(): WallpaperConfig {
@@ -662,6 +792,17 @@ html[data-theme="dark"] .banner-error {
   background: rgba(252, 165, 165, 0.12);
   color: #f87171;
   border-color: rgba(252, 165, 165, 0.4);
+}
+
+.banner-info {
+  background: #e0f2fe;
+  color: #075985;
+  border: 1px solid #7dd3fc;
+}
+html[data-theme="dark"] .banner-info {
+  background: rgba(125, 211, 252, 0.12);
+  color: #38bdf8;
+  border-color: rgba(125, 211, 252, 0.4);
 }
 
 .thumb {

@@ -297,7 +297,8 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:wallpaper:get-config":         { domain: "wallpaper", action: "get_config" },
   "tool:wallpaper:set-config":         { domain: "wallpaper", action: "set_config" },
   "tool:wallpaper:list-history":       { domain: "wallpaper", action: "list_history" },
-  "tool:wallpaper:set-privacy-mask":   { domain: "wallpaper", action: "set_privacy_mask" }
+  "tool:wallpaper:set-privacy-mask":   { domain: "wallpaper", action: "set_privacy_mask" },
+  "tool:wallpaper:set-boss-key-error": { domain: "wallpaper", action: "set_boss_key_error" }
 };
 
 export async function invokeToolByChannel(

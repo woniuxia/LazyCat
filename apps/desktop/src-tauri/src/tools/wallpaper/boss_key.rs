@@ -10,7 +10,7 @@
 use serde_json::{json, Value};
 use tauri::AppHandle;
 
-use crate::tools::wallpaper::{apply, config, desktop, state};
+use crate::tools::wallpaper::{self, apply, state};
 
 /// 切换老板键暂停态。
 ///
@@ -33,11 +33,12 @@ pub fn toggle(app: &AppHandle) -> Result<Value, String> {
         // boss key 切换期间桌面已被换过；hash 失效保证下一帧真正合成
         apply::invalidate_input_hash();
 
-        // 立即合成；失败不回滚暂停态（用户已经显式表示要回到工作态）
+        // 立即合成；失败时回滚暂停态，并把错误暴露给状态卡片，避免老板键看似没生效
         match apply::apply(app) {
             Ok(_) => Ok(json!({ "ok": true, "paused": false, "action": "resumed" })),
             Err(e) => {
                 eprintln!("[wallpaper] boss-key resume apply failed: {e}");
+                state::write(|s| s.last_error = Some(format!("老板键恢复失败：{e}")));
                 Ok(json!({
                     "ok": true,
                     "paused": false,
@@ -52,16 +53,14 @@ pub fn toggle(app: &AppHandle) -> Result<Value, String> {
             s.paused = true;
             s.pause_reason = Some(state::PauseReason::BossKey);
         });
-        // 桌面切回原图；下次 resume 必须重渲，hash 同步失效
-        apply::invalidate_input_hash();
 
-        let restore_result = restore_original_inline();
-        match restore_result {
-            Ok(method) => Ok(json!({
+        // 复用 mod.rs::restore_original_inline，避免重复实现 set_wallpaper 链路
+        match wallpaper::restore_original_inline() {
+            Ok(info) => Ok(json!({
                 "ok": true,
                 "paused": true,
                 "action": "paused",
-                "restoreMethod": method,
+                "restoreMethod": info.method,
             })),
             Err(e) => {
                 eprintln!("[wallpaper] boss-key pause restore failed: {e}");
@@ -75,25 +74,4 @@ pub fn toggle(app: &AppHandle) -> Result<Value, String> {
             }
         }
     }
-}
-
-/// 直接读 wallpaper.original_path，调 desktop::set_wallpaper 还原；
-/// 与 mod.rs::restore_wallpaper 同口径，但不写日志、不更新 set_method。
-///
-/// 返回值是实际走的设置路径（com / sysparam），供前端透出。
-fn restore_original_inline() -> Result<&'static str, String> {
-    use crate::tools::helpers::db_conn;
-    use std::path::PathBuf;
-
-    let conn = db_conn()?;
-    let original = config::read_string(&conn, config::KEY_ORIGINAL_PATH).unwrap_or_default();
-    if original.is_empty() {
-        return Err("no original wallpaper backed up".into());
-    }
-    let path = PathBuf::from(&original);
-    if !path.exists() {
-        return Err(format!("original wallpaper backup missing: {original}"));
-    }
-    let method = desktop::set_wallpaper(desktop::PRIMARY_MONITOR_INDEX, &path)?;
-    Ok(method.as_str())
 }

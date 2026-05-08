@@ -98,25 +98,35 @@ fn sleep_with_idle_check(target_secs: u64) {
 /// 跳过判定：禁用 / 暂停态 / 锁屏 / 屏保 / 全屏切净 都跳过。
 ///
 /// 不写 state.paused：用户锁屏 / 全屏期间也看不到面板，恢复后下一轮自动接上。
+/// 但写 state.auto_skip_reason 让前端状态卡片显示"⏸ 已自动跳过：锁屏/全屏"，
+/// 避免用户看到"运行中"但桌面不刷新而困惑。
 fn should_skip(_app: &AppHandle) -> bool {
     let cfg = config::read_config();
     if !cfg.enabled {
+        // 未启用不属于"自动跳过"，不写 reason 避免与"未启用"重复透出
+        state::write(|s| s.auto_skip_reason = None);
         return true;
     }
 
     let s = state::snapshot();
     if s.paused {
+        // 显式暂停由 pauseReason 透出，不再叠加 auto_skip_reason
+        state::write(|s| s.auto_skip_reason = None);
         return true;
     }
 
     if lock::is_locked() {
+        state::write(|s| s.auto_skip_reason = Some("lock"));
         return true;
     }
 
     if fullscreen::is_fullscreen_busy() {
+        state::write(|s| s.auto_skip_reason = Some("fullscreen"));
         return true;
     }
 
+    // 路径正常 → 清掉上轮跳过原因
+    state::write(|s| s.auto_skip_reason = None);
     false
 }
 

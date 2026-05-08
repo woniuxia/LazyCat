@@ -48,9 +48,10 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         "pause" => pause_wallpaper(payload),
         "resume" => Err(needs_app_handle("resume")),
         "enable" => enable_wallpaper(),
-        "disable" => disable_wallpaper(payload),
+        "disable" => disable_wallpaper(payload, None),
         "list_history" => list_history_action(payload),
         "set_privacy_mask" => set_privacy_mask(payload),
+        "set_boss_key_error" => set_boss_key_error_action(payload),
         _ => Err(format!("unsupported wallpaper action: {action}")),
     }
 }
@@ -61,6 +62,8 @@ pub fn execute_with_app(action: &str, payload: &Value, app: &AppHandle) -> Resul
     match action {
         "apply" => apply::apply(app),
         "resume" => resume_wallpaper(app),
+        // disable 需要 AppHandle 才能销毁 hidden WebView；走 with_app 路径
+        "disable" => disable_wallpaper(payload, Some(app)),
         // 其他 action 不需要 app，直接走 sync 入口
         _ => execute(action, payload),
     }
@@ -168,14 +171,24 @@ fn enable_wallpaper() -> Result<Value, String> {
     }))
 }
 
-/// 关闭：置 enabled=false；按 `exit_behavior` 决定是否同步恢复原图。
+/// 关闭：置 enabled=false；按 `exit_behavior` 决定是否同步恢复原图；销毁 hidden WebView。
 ///
 /// 入参 `{ restore?: bool }` 显式覆盖；缺省时按 `wallpaper.exit_behavior`：
 /// - `restore_original`（默认） → 调 restore
 /// - `keep_last`                → 保留最后一帧合成图
-fn disable_wallpaper(payload: &Value) -> Result<Value, String> {
+///
+/// `app` 为 `Some` 时同步销毁 hidden WebView（design §7.5：禁用应释放 ~60 MB）；
+/// 仅 sync execute 入口（如内部测试或非 with_app 路径）会走 `None`。
+fn disable_wallpaper(payload: &Value, app: Option<&AppHandle>) -> Result<Value, String> {
     let cfg = config::read_config();
     config::set_string(config::KEY_ENABLED, "false")?;
+
+    // 释放 hidden WebView（约 60 MB）；销毁失败仅 log，不阻塞 disable
+    if let Some(a) = app {
+        if let Err(e) = hidden::destroy_canvas_window(a) {
+            eprintln!("[wallpaper] disable: destroy hidden window failed: {e}");
+        }
+    }
 
     let restore_flag = payload
         .get("restore")
@@ -194,7 +207,34 @@ fn disable_wallpaper(payload: &Value) -> Result<Value, String> {
 }
 
 /// 恢复：从 `wallpaper.original_path` 读备份并 set 回桌面。
+///
+/// 用户主动点"恢复原壁纸"时调用：除了把桌面切回原图，还要把状态写为 manual 暂停，
+/// 否则下一个心跳 / 事件驱动会立刻把仪表盘合成回去（违反"恢复 = 我现在不要了"的直觉）。
+/// 老板键暂停 / pause(manual) 走 [`restore_original_inline`]，自行管理 paused 状态机，
+/// 不与此处冲突。
 fn restore_wallpaper() -> Result<Value, String> {
+    let info = restore_original_inline()?;
+    // 自动进入手动暂停态，避免心跳 / 事件驱动立即覆盖回仪表盘
+    state::write(|s| {
+        s.paused = true;
+        s.pause_reason = Some(state::PauseReason::Manual);
+    });
+    Ok(json!({
+        "ok": true,
+        "method": info.method,
+        "path": info.path,
+        "paused": true,
+    }))
+}
+
+/// 调用方负责自身 paused 状态机的"纯还原"：仅把桌面切回原图 +
+/// 持久化 set_method + 清 hash。不写任何 paused 字段。
+///
+/// 使用方：
+/// - [`restore_wallpaper`]：用户主动点"恢复"，外层补写 paused=manual
+/// - [`pause_wallpaper`] reason=manual：暂停同时把桌面变干净
+/// - [`boss_key::toggle`] 暂停分支：与上面同理（老板键通过自身 inline 实现，结构一致）
+pub(crate) fn restore_original_inline() -> Result<RestoreInfo, String> {
     let conn = db_conn()?;
     let original = config::read_string(&conn, config::KEY_ORIGINAL_PATH).unwrap_or_default();
     if original.is_empty() {
@@ -206,13 +246,16 @@ fn restore_wallpaper() -> Result<Value, String> {
     }
     let method = desktop::set_wallpaper(desktop::PRIMARY_MONITOR_INDEX, &path)?;
     config::set_string(config::KEY_ORIGINAL_SET_METHOD, method.as_str())?;
-    // 桌面壁纸已被替换，下次 apply 必须真正合成（不依赖 hash 去重）
     apply::invalidate_input_hash();
-    Ok(json!({
-        "ok": true,
-        "method": method.as_str(),
-        "path": original,
-    }))
+    Ok(RestoreInfo {
+        method: method.as_str().to_string(),
+        path: original,
+    })
+}
+
+pub(crate) struct RestoreInfo {
+    pub method: String,
+    pub path: String,
 }
 
 /// 应用退出钩子（design §10）。
@@ -260,7 +303,11 @@ fn backup_original(src: &Path) -> Result<PathBuf, String> {
 /// 暂停：写状态 paused=true + 记录原因；调度线程下一轮 should_skip 时跳过 apply。
 ///
 /// 入参 `{ reason?: "manual" | "boss_key" | "fullscreen" | "lock" }`，缺省 manual。
-/// 不直接还原原图（restore 由调用方按需触发；老板键有专门的 boss_key::toggle）。
+///
+/// 用户视角语义统一（修订前 manual 暂停只停心跳，桌面仍是合成图，与老板键不一致）：
+/// `manual` 分支同步还原桌面回原图，让用户点暂停就立刻看到桌面变干净；
+/// 还原失败仍保持暂停，错误透出给前端。其他 reason 由 scheduler / boss_key 各自负责
+/// 桌面状态，本函数仅写状态字段。
 fn pause_wallpaper(payload: &Value) -> Result<Value, String> {
     let reason_str = payload
         .get("reason")
@@ -276,7 +323,28 @@ fn pause_wallpaper(payload: &Value) -> Result<Value, String> {
         s.paused = true;
         s.pause_reason = Some(reason);
     });
-    Ok(json!({ "ok": true, "paused": true, "reason": reason.as_str() }))
+
+    // manual 暂停时同步还原桌面（与老板键体验一致）；其他 reason 不动桌面
+    let mut payload_out = json!({
+        "ok": true,
+        "paused": true,
+        "reason": reason.as_str(),
+    });
+    if matches!(reason, state::PauseReason::Manual) {
+        match restore_original_inline() {
+            Ok(info) => {
+                payload_out["restored"] = Value::Bool(true);
+                payload_out["restoreMethod"] = Value::String(info.method);
+            }
+            Err(e) => {
+                // 还原失败不回滚暂停态：用户已显式表示"暂停"，桌面保持原状即可
+                eprintln!("[wallpaper] manual pause restore failed: {e}");
+                payload_out["restored"] = Value::Bool(false);
+                payload_out["restoreError"] = Value::String(e);
+            }
+        }
+    }
+    Ok(payload_out)
 }
 
 /// 恢复：清暂停 + 立即 apply 一次（避免用户等下一个心跳）。
@@ -357,4 +425,19 @@ fn set_privacy_mask(payload: &Value) -> Result<Value, String> {
 /// 由 main.rs setup 调用：注册成功 → 清空错误；失败 → 写文案让前端透出。
 pub fn record_boss_key_error(msg: Option<String>) {
     state::write(|st| st.boss_key_error = msg);
+}
+
+/// 前端 channel `tool:wallpaper:set-boss-key-error` 入口：
+/// 用户在面板修改老板键并热重绑后写入结果——成功传 `{ error: null }` 清状态，
+/// 失败传 `{ error: "..." }` 让状态卡片展示。复用 [`record_boss_key_error`]。
+fn set_boss_key_error_action(payload: &Value) -> Result<Value, String> {
+    let entry = payload.get("error");
+    let msg = match entry {
+        Some(Value::Null) | None => None,
+        Some(Value::String(s)) if s.is_empty() => None,
+        Some(Value::String(s)) => Some(s.clone()),
+        Some(other) => return Err(format!("error must be string or null, got {other}")),
+    };
+    record_boss_key_error(msg);
+    Ok(json!({ "ok": true }))
 }
