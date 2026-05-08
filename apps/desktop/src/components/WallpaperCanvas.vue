@@ -2,7 +2,7 @@
   <!-- Living Wallpaper · 信息层 canvas，360×800 -->
   <div class="wallpaper-canvas" :class="`mode-${colorMode}`" :data-state="state">
     <WallpaperOverviewBlock v-if="data" :overview="data.overview" />
-    <WallpaperTodoList v-if="data" :items="data.todoList" />
+    <WallpaperTodoList v-if="data" :items="data.todoList" :privacy-mask="privacyMask" />
     <WallpaperExtensionSlot />
   </div>
 </template>
@@ -19,6 +19,7 @@ type ColorMode = "light" | "dark";
 
 const data = ref<WallpaperDashboardData | null>(null);
 const colorMode = ref<ColorMode>("dark");
+const privacyMask = ref(false);
 // "boot" → "rendering" → "ready"；供 e2e / 调试观察
 const state = ref<"boot" | "rendering" | "ready">("boot");
 
@@ -29,6 +30,7 @@ onMounted(async () => {
   unlisteners.push(
     await listen<WallpaperDashboardData>("wallpaper://dashboard-data", (e) => {
       data.value = e.payload;
+      privacyMask.value = e.payload.privacyMask === true;
       state.value = "rendering";
       // 等 Vue 完成 reconcile + 浏览器至少绘制一次后再通知后端
       waitTwoFrames().then(() => {

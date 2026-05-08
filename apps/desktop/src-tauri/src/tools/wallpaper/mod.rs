@@ -16,6 +16,7 @@ pub mod apply;
 pub mod boss_key;
 pub mod capture;
 pub mod compose;
+pub mod conflicts;
 pub mod config;
 pub mod dashboard_logic;
 pub mod data;
@@ -49,6 +50,7 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         "enable" => enable_wallpaper(),
         "disable" => disable_wallpaper(payload),
         "list_history" => list_history_action(payload),
+        "set_privacy_mask" => set_privacy_mask(payload),
         _ => Err(format!("unsupported wallpaper action: {action}")),
     }
 }
@@ -299,4 +301,60 @@ fn resume_wallpaper(app: &AppHandle) -> Result<Value, String> {
             "applyError": e,
         })),
     }
+}
+
+// ── 敏感模式（design §9 / §11.2） ──────────
+
+/// 设置敏感模式开关 + 自动到期时间。
+///
+/// 入参语义（payload）：
+/// - enabled=false → 关闭：写 false + 清空 until
+/// - enabled=true + durationMin>0 → 开启 N 分钟后自动到期（默认 120）
+/// - enabled=true + durationMin=null|0 → 直到手动关
+///
+/// 写完后让 LAST_INPUT_HASH 失效，下一次 apply 必须把新的 privacyMask
+/// 标记推到 canvas（避免被旧 hash 卡住继续显示明文）。
+fn set_privacy_mask(payload: &Value) -> Result<Value, String> {
+    let enabled = payload
+        .get("enabled")
+        .and_then(Value::as_bool)
+        .ok_or("set_privacy_mask: missing enabled")?;
+
+    if !enabled {
+        config::set_string(config::KEY_PRIVACY_MASK, "false")?;
+        config::set_string(config::KEY_PRIVACY_MASK_UNTIL, "")?;
+        apply::invalidate_input_hash();
+        return Ok(json!({ "ok": true, "enabled": false }));
+    }
+
+    let duration_min = payload
+        .get("durationMin")
+        .and_then(Value::as_i64)
+        .unwrap_or(120);
+
+    let until = if duration_min > 0 {
+        let dt = chrono::Utc::now() + chrono::Duration::minutes(duration_min);
+        Some(dt.to_rfc3339())
+    } else {
+        None
+    };
+
+    config::set_string(config::KEY_PRIVACY_MASK, "true")?;
+    config::set_string(
+        config::KEY_PRIVACY_MASK_UNTIL,
+        until.as_deref().unwrap_or(""),
+    )?;
+    apply::invalidate_input_hash();
+    Ok(json!({
+        "ok": true,
+        "enabled": true,
+        "until": until,
+    }))
+}
+
+// ── 老板键失败提示（design §9） ──────────
+
+/// 由 main.rs setup 调用：注册成功 → 清空错误；失败 → 写文案让前端透出。
+pub fn record_boss_key_error(msg: Option<String>) {
+    state::write(|st| st.boss_key_error = msg);
 }

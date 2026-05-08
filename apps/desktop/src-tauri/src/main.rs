@@ -811,6 +811,59 @@ fn init_wallpaper_boss_key(app: &tauri::AppHandle) -> Result<(), String> {
     register_named_hotkey(app.clone(), "wallpaper-boss-key".into(), key)
 }
 
+/// 壁纸子类化 ID（design §18 E3 / E8）。任意唯一值，避开 SUBCLASS_ID。
+#[cfg(windows)]
+const WALLPAPER_SUBCLASS_ID: usize = 0x4C5A_5750; // "LZWP"
+
+/// 壁纸全局 AppHandle（仅供 wallpaper_subclass_proc 在线程外触发 apply 用）。
+#[cfg(windows)]
+static WALLPAPER_APP_HANDLE: std::sync::OnceLock<tauri::AppHandle> = std::sync::OnceLock::new();
+
+/// 主窗口安装壁纸 WndProc 子类，监听 WM_DISPLAYCHANGE / WM_POWERBROADCAST。
+#[cfg(windows)]
+fn install_wallpaper_window_subclass(app: &tauri::AppHandle) {
+    let _ = WALLPAPER_APP_HANDLE.set(app.clone());
+    let Some(window) = app.get_webview_window("main") else { return; };
+    let Ok(hwnd) = window.hwnd() else { return; };
+    unsafe {
+        windows_sys::Win32::UI::Shell::SetWindowSubclass(
+            hwnd.0,
+            Some(wallpaper_subclass_proc),
+            WALLPAPER_SUBCLASS_ID,
+            0,
+        );
+    }
+}
+
+/// 监听 DISPLAYCHANGE → 清 base 缓存；POWERBROADCAST APMRESUMEAUTOMATIC → 立刷
+#[cfg(windows)]
+unsafe extern "system" fn wallpaper_subclass_proc(
+    hwnd: windows_sys::Win32::Foundation::HWND,
+    msg: u32,
+    wparam: windows_sys::Win32::Foundation::WPARAM,
+    lparam: windows_sys::Win32::Foundation::LPARAM,
+    _uid_subclass: usize,
+    _ref_data: usize,
+) -> windows_sys::Win32::Foundation::LRESULT {
+    use windows_sys::Win32::UI::WindowsAndMessaging::WM_DISPLAYCHANGE;
+    const WM_POWERBROADCAST: u32 = 0x0218;
+    const PBT_APMRESUMEAUTOMATIC: usize = 0x0012;
+
+    if msg == WM_DISPLAYCHANGE {
+        tools::wallpaper::state::clear_base_cache();
+        tools::wallpaper::apply::invalidate_input_hash();
+    } else if msg == WM_POWERBROADCAST && wparam == PBT_APMRESUMEAUTOMATIC {
+        if let Some(app) = WALLPAPER_APP_HANDLE.get().cloned() {
+            std::thread::spawn(move || {
+                if let Err(e) = tools::wallpaper::apply::apply(&app) {
+                    eprintln!("[wallpaper] resume apply failed: {e}");
+                }
+            });
+        }
+    }
+    windows_sys::Win32::UI::Shell::DefSubclassProc(hwnd, msg, wparam, lparam)
+}
+
 /// Window subclass ID (arbitrary unique value)
 /// Force a window to the foreground on Windows using the AttachThreadInput trick.
 /// Windows 10+ restricts SetForegroundWindow to the current foreground process;
@@ -1288,9 +1341,17 @@ fn main() {
             tools::wallpaper::events::start(app.handle().clone());
 
             // 注册壁纸老板键（默认 Ctrl+Alt+W；wallpaper.boss_key 配置项可改）
-            if let Err(e) = init_wallpaper_boss_key(app.handle()) {
-                eprintln!("[wallpaper] register boss key failed: {e}");
+            match init_wallpaper_boss_key(app.handle()) {
+                Ok(()) => tools::wallpaper::record_boss_key_error(None),
+                Err(e) => {
+                    eprintln!("[wallpaper] register boss key failed: {e}");
+                    tools::wallpaper::record_boss_key_error(Some(format!("老板键注册失败：{e}")));
+                }
             }
+
+            // 安装壁纸 WndProc 子类：监听 DISPLAYCHANGE / POWERBROADCAST（design §18 E3/E8）
+            #[cfg(windows)]
+            install_wallpaper_window_subclass(app.handle());
 
             Ok(())
         })

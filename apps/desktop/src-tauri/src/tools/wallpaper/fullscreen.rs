@@ -1,17 +1,14 @@
 //! 全屏切净检测（plan §3.3 / design §9）
 //!
-//! 通过 [`SHQueryUserNotificationState`] 取系统当前通知态：
-//! - `QUNS_BUSY` / `QUNS_RUNNING_D3D_FULL_SCREEN` / `QUNS_PRESENTATION_MODE` → 演示 / 录屏 / 全屏游戏
-//! - 其他态（`QUNS_APP` / `QUNS_ACCEPTS_NOTIFICATIONS` / 等）→ 正常工作
+//! 三层判定，命中任一即视为「不该刷新」：
+//! 1. SHQueryUserNotificationState：QUNS_BUSY / QUNS_RUNNING_D3D_FULL_SCREEN /
+//!    QUNS_PRESENTATION_MODE → 演示 / 录屏 / 全屏 D3D
+//! 2. 前台窗口 rect 是否完全覆盖整块主屏（含 Chrome / VLC 全屏播放）
+//! 3. 前台进程名是否在 wallpaper.fullscreen_blacklist（OBS / PowerPoint / Zoom 等）
 //!
-//! 相比设计文档完整版的「兜底全屏窗口检测 + 进程黑名单匹配」，此最小子集
-//! 仅依赖系统通知态判定。Chrome / VLC 等日常应用全屏播放由系统 API 兜底，
-//! 已避免 design §9 强调的「窗口化使用时长期误切净」。
-//!
-//! 黑名单匹配将在后续 Phase 接入：要 `GetForegroundWindow` +
-//! `QueryFullProcessImageName`，整体代码量偏大，暂留扩展位。
+//! 任一 Win32 失败回退为 false，避免误切净。
 
-#![allow(dead_code)] // is_fullscreen_busy 由 scheduler::should_skip 调用
+#![allow(dead_code)]
 
 #[cfg(windows)]
 pub use imp::is_fullscreen_busy;
@@ -23,24 +20,95 @@ pub fn is_fullscreen_busy() -> bool {
 
 #[cfg(windows)]
 mod imp {
-    use windows::Win32::UI::Shell::{
-        SHQueryUserNotificationState, QUNS_BUSY, QUNS_PRESENTATION_MODE,
-        QUNS_RUNNING_D3D_FULL_SCREEN,
-    };
+    use std::ffi::OsString;
+    use std::os::windows::ffi::OsStringExt;
 
-    /// 系统是否处于「不该被打扰」的态：演示 / 录屏 / 全屏 D3D 游戏。
-    ///
-    /// 任何调用失败 → 返回 false，避免误切净；与 [`crate::tools::wallpaper::lock`]
-    /// 的失败-回退策略一致。
+    use windows::core::PWSTR;
+    use windows::Win32::Foundation::{CloseHandle, HWND, RECT};
+    use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTOPRIMARY};
+    use windows::Win32::System::Threading::{
+        OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_FORMAT, PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+    use windows::Win32::UI::Shell::{
+        SHQueryUserNotificationState, QUNS_BUSY, QUNS_PRESENTATION_MODE, QUNS_RUNNING_D3D_FULL_SCREEN,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowRect, GetWindowThreadProcessId};
+
+    use crate::tools::wallpaper::config;
+
     pub fn is_fullscreen_busy() -> bool {
+        if check_notification_state() { return true; }
+        if check_foreground_full_screen() { return true; }
+        if check_foreground_blacklisted() { return true; }
+        false
+    }
+
+    fn check_notification_state() -> bool {
         unsafe {
             match SHQueryUserNotificationState() {
-                Ok(state) => matches!(
-                    state,
-                    QUNS_BUSY | QUNS_RUNNING_D3D_FULL_SCREEN | QUNS_PRESENTATION_MODE
-                ),
+                Ok(state) => matches!(state, QUNS_BUSY | QUNS_RUNNING_D3D_FULL_SCREEN | QUNS_PRESENTATION_MODE),
                 Err(_) => false,
             }
         }
+    }
+
+    fn check_foreground_full_screen() -> bool {
+        unsafe {
+            let hwnd = GetForegroundWindow();
+            if hwnd.is_invalid() { return false; }
+            let mut rect = RECT::default();
+            if GetWindowRect(hwnd, &mut rect).is_err() { return false; }
+            let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTOPRIMARY);
+            if monitor.is_invalid() { return false; }
+            let mut info = MONITORINFO {
+                cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+                ..Default::default()
+            };
+            if !GetMonitorInfoW(monitor, &mut info).as_bool() { return false; }
+            // 严格相等 → 用户化 Chrome 全屏 / VLC 全屏视频也命中；非全屏窗口不会误判
+            rect.left == info.rcMonitor.left
+                && rect.top == info.rcMonitor.top
+                && rect.right == info.rcMonitor.right
+                && rect.bottom == info.rcMonitor.bottom
+        }
+    }
+
+    fn check_foreground_blacklisted() -> bool {
+        let cfg = config::read_config();
+        if cfg.fullscreen_blacklist.is_empty() { return false; }
+        let Some(name) = foreground_process_name() else { return false; };
+        let lower = name.to_ascii_lowercase();
+        cfg.fullscreen_blacklist.iter().any(|raw| raw.to_ascii_lowercase() == lower)
+    }
+
+    fn foreground_process_name() -> Option<String> {
+        unsafe {
+            let hwnd = GetForegroundWindow();
+            if hwnd.is_invalid() { return None; }
+            let mut pid = 0u32;
+            GetWindowThreadProcessId(hwnd, Some(&mut pid));
+            if pid == 0 { return None; }
+            let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
+            if process.is_invalid() { return None; }
+            let mut buf = [0u16; 1024];
+            let mut size = buf.len() as u32;
+            let q = QueryFullProcessImageNameW(
+                process,
+                PROCESS_NAME_FORMAT(0),
+                PWSTR(buf.as_mut_ptr()),
+                &mut size,
+            );
+            let _ = CloseHandle(process);
+            if q.is_err() { return None; }
+            let full_path = OsString::from_wide(&buf[..size as usize]).to_string_lossy().into_owned();
+            // 取最末段 .exe 名
+            std::path::Path::new(&full_path).file_name().and_then(|s| s.to_str()).map(|s| s.to_string())
+        }
+    }
+
+    // 抑制可能未使用的 import
+    #[allow(dead_code)]
+    fn _silence() {
+        let _ = HWND::default();
     }
 }

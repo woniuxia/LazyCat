@@ -4,7 +4,7 @@
     <div v-for="item in visibleItems" :key="item.id" class="todo-row">
       <span class="dot" :class="`p-${item.priority.toLowerCase()}`"></span>
       <span v-if="item.pinned" class="pin">📌</span>
-      <span class="title">{{ item.title }}</span>
+      <span class="title">{{ displayTitle(item.title) }}</span>
       <span class="deadline" :class="{ overdue: isOverdue(item) }">
         {{ formatDeadline(item.endAt) }}
       </span>
@@ -18,7 +18,18 @@
 import { computed } from "vue";
 import type { WallpaperTodoItem } from "../types/wallpaper";
 
-const props = defineProps<{ items: WallpaperTodoItem[] }>();
+const props = defineProps<{
+  items: WallpaperTodoItem[];
+  /** design §9：开启敏感模式时把 title 替换为 ▓ */
+  privacyMask?: boolean;
+}>();
+
+function displayTitle(title: string): string {
+  if (!props.privacyMask) return title;
+  // 仅打码字符数 ≥ 1 的标题，保持节奏；最少 4 个，最多 8 个
+  const len = Math.max(4, Math.min(title.length, 8));
+  return "▓".repeat(len);
+}
 
 // design §5.2：maxLines = floor((listHeight - paddingY * 2) / lineHeight)
 //                       = floor((480 - 32) / 44) = 10

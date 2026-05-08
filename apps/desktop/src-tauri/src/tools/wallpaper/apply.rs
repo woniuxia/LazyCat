@@ -13,8 +13,6 @@
 
 #![allow(dead_code)] // Phase 3 调度接入前部分常量未引用
 
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
     mpsc, Arc, Mutex,
@@ -26,7 +24,7 @@ use tauri::{AppHandle, Emitter, Listener, Manager, WebviewWindow};
 
 use crate::tools::helpers::db_conn;
 use crate::tools::wallpaper::{
-    capture, compose, config, data, desktop, hidden, state,
+    capture, compose, config, dashboard_logic, data, desktop, hidden, state,
 };
 
 /// 等 canvas-ready 的最长时间。冷启动（hidden WebView 首次创建）
@@ -83,7 +81,13 @@ pub fn apply_with_force(app: &AppHandle, force: bool) -> Result<Value, String> {
     // 3b. 内容 hash 去重（plan §3.1 v0.5 优化点 2）：输入未变化直接跳过整条
     //     compose + persist + set_wallpaper 链路，节省 IO + GPU。
     //     force=true 时（手动刷新 / 老板键恢复 / resume）跳过此判定。
-    let input_hash = compute_input_hash(&dashboard, &base_path, position, mode);
+    //
+    //     dashboard 自带 generatedAt 时间戳，每次必不同；这里仅取 overview +
+    //     todoList 两个稳定字段（口径与 dashboard_logic::compute_dashboard_hash
+    //     一致），再混入 base 路径 / mtime / position / mode。
+    let overview_value = dashboard.get("overview").cloned().unwrap_or(Value::Null);
+    let todo_list_value: Vec<Value> = dashboard.get("todoList").and_then(|v| v.as_array().cloned()).unwrap_or_default();
+    let input_hash = compute_input_hash(&overview_value, &todo_list_value, &base_path, position, mode);
     if !force && input_hash != 0 && input_hash == LAST_INPUT_HASH.load(Ordering::SeqCst) {
         return Ok(json!({
             "ok": true,
@@ -106,10 +110,20 @@ pub fn apply_with_force(app: &AppHandle, force: bool) -> Result<Value, String> {
         wait_for_event(app, "wallpaper://canvas-mounted", MOUNTED_TIMEOUT)?;
     }
 
-    // 6. emit 配色 + 数据 → 前端渲染 → 2 RAF 后回 canvas-ready
+    // 6. 注入敏感模式标记（design §9）：自动到期则写回 false 并清除时间戳
+    let privacy_mask = resolve_privacy_mask(&cfg);
+    let mut dashboard_emit = dashboard.clone();
+    if let Some(obj) = dashboard_emit.as_object_mut() {
+        obj.insert(
+            "privacyMask".into(),
+            Value::Bool(privacy_mask),
+        );
+    }
+
+    // 7. emit 配色 + 数据 → 前端渲染 → 2 RAF 后回 canvas-ready
     app.emit("wallpaper://color-mode", mode.as_str())
         .map_err(|e| format!("emit color-mode failed: {e}"))?;
-    app.emit("wallpaper://dashboard-data", &dashboard)
+    app.emit("wallpaper://dashboard-data", &dashboard_emit)
         .map_err(|e| format!("emit dashboard-data failed: {e}"))?;
 
     // 7. 等 ready；超时不 fatal，仍尝试 capture（前端可能渲染慢但已绘制）
@@ -250,21 +264,46 @@ fn now_iso() -> String {
     chrono::Local::now().format("%Y-%m-%dT%H:%M:%S%:z").to_string()
 }
 
+/// 判定当前是否处于敏感模式；过期则同步写回 wallpaper.privacy_mask=false +
+/// 清空 wallpaper.privacy_mask_until，避免下次 apply 重复检查。
+fn resolve_privacy_mask(cfg: &config::WallpaperConfig) -> bool {
+    if !cfg.privacy_mask {
+        return false;
+    }
+    let Some(until) = cfg.privacy_mask_until.as_deref() else {
+        return true;
+    };
+    let Ok(dt) = chrono::DateTime::parse_from_rfc3339(until) else {
+        return true;
+    };
+    if chrono::Utc::now() <= dt.with_timezone(&chrono::Utc) {
+        return true;
+    }
+    // 已过期：清零（写失败仅 log，不阻塞 apply）
+    if let Err(e) = config::set_string(config::KEY_PRIVACY_MASK, "false") {
+        eprintln!("[wallpaper] auto-clear privacy_mask failed: {e}");
+    }
+    if let Err(e) = config::set_string(config::KEY_PRIVACY_MASK_UNTIL, "") {
+        eprintln!("[wallpaper] auto-clear privacy_mask_until failed: {e}");
+    }
+    false
+}
+
 /// 计算 apply 输入哈希（用于内容去重）。组成：
-/// - dashboard JSON（全部数据 + generatedAt 决定 todoList 顺序）
+/// - overview + 排序后的 todoList（复用 dashboard_logic::compute_dashboard_hash，
+///   排除 dashboard.generatedAt 时间戳，保证内容相同时哈希稳定）
 /// - base 文件路径 + mtime（user 手改壁纸即变）
 /// - 贴边位置 + 颜色模式（配置 / 采样结果）
 ///
-/// 任一字段无法序列化时返回 0；外层将 0 视为「无效 hash」跳过去重。
+/// 取 blake3 输出前 8 字节作为 u64；结果为 0 时映射到 1 避免与 sentinel 冲突。
 fn compute_input_hash(
-    dashboard: &Value,
+    overview: &Value,
+    todo_list: &[Value],
     base_path: &std::path::Path,
     position: compose::Position,
     mode: compose::ColorMode,
 ) -> u64 {
-    let Ok(json) = serde_json::to_string(dashboard) else {
-        return 0;
-    };
+    let dashboard_hex = dashboard_logic::compute_dashboard_hash(overview, todo_list);
     let mtime_secs = std::fs::metadata(base_path)
         .ok()
         .and_then(|m| m.modified().ok())
@@ -272,19 +311,22 @@ fn compute_input_hash(
         .map(|d| d.as_secs())
         .unwrap_or(0);
 
-    let mut h = DefaultHasher::new();
-    json.hash(&mut h);
-    base_path.to_string_lossy().hash(&mut h);
-    mtime_secs.hash(&mut h);
-    position.as_str().hash(&mut h);
-    mode.as_str().hash(&mut h);
-    let result = h.finish();
-    if result == 0 {
-        // 0 是 sentinel；理论碰撞概率极低，但仍按约定跳到 1 避免误判
-        1
-    } else {
-        result
-    }
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(dashboard_hex.as_bytes());
+    hasher.update(b"|");
+    hasher.update(base_path.to_string_lossy().as_bytes());
+    hasher.update(b"|");
+    hasher.update(&mtime_secs.to_le_bytes());
+    hasher.update(b"|");
+    hasher.update(position.as_str().as_bytes());
+    hasher.update(b"|");
+    hasher.update(mode.as_str().as_bytes());
+
+    let bytes = hasher.finalize();
+    let mut buf = [0u8; 8];
+    buf.copy_from_slice(&bytes.as_bytes()[..8]);
+    let result = u64::from_le_bytes(buf);
+    if result == 0 { 1 } else { result }
 }
 
 #[cfg(test)]
@@ -292,60 +334,54 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
-    /// 用不存在的路径即可：compute_input_hash 内 stat 失败回退 mtime=0，
-    /// 测试只关心 dashboard / position / mode 三个维度的差异。
     fn fake_base() -> PathBuf {
         PathBuf::from("/nonexistent/wallpaper-apply-test/base.png")
     }
 
     #[test]
-    fn hash_changes_with_dashboard_data() {
+    fn hash_ignores_generated_at_timestamp() {
         let p = fake_base();
-        let h1 = compute_input_hash(
-            &json!({ "todoList": [{ "id": "a" }] }),
-            &p,
-            compose::Position::Right,
-            compose::ColorMode::Light,
-        );
-        let h2 = compute_input_hash(
-            &json!({ "todoList": [{ "id": "b" }] }),
-            &p,
-            compose::Position::Right,
-            compose::ColorMode::Light,
-        );
+        let overview = json!({ "completedToday": 1, "totalToday": 5 });
+        let todos = vec![json!({ "id": "pm:1", "title": "x" })];
+        let a = compute_input_hash(&overview, &todos, &p, compose::Position::Right, compose::ColorMode::Light);
+        let b = compute_input_hash(&overview, &todos, &p, compose::Position::Right, compose::ColorMode::Light);
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn hash_changes_with_todo_list() {
+        let p = fake_base();
+        let overview = json!({});
+        let h1 = compute_input_hash(&overview, &[json!({ "id": "a" })], &p, compose::Position::Right, compose::ColorMode::Light);
+        let h2 = compute_input_hash(&overview, &[json!({ "id": "b" })], &p, compose::Position::Right, compose::ColorMode::Light);
+        assert_ne!(h1, h2);
+    }
+
+    #[test]
+    fn hash_changes_with_overview() {
+        let p = fake_base();
+        let todos: Vec<Value> = Vec::new();
+        let h1 = compute_input_hash(&json!({ "p0Pending": 0 }), &todos, &p, compose::Position::Right, compose::ColorMode::Light);
+        let h2 = compute_input_hash(&json!({ "p0Pending": 1 }), &todos, &p, compose::Position::Right, compose::ColorMode::Light);
         assert_ne!(h1, h2);
     }
 
     #[test]
     fn hash_changes_with_position_and_mode() {
         let p = fake_base();
-        let data = json!({ "todoList": [] });
-
-        let right_light = compute_input_hash(&data, &p, compose::Position::Right, compose::ColorMode::Light);
-        let left_light = compute_input_hash(&data, &p, compose::Position::Left, compose::ColorMode::Light);
-        let right_dark = compute_input_hash(&data, &p, compose::Position::Right, compose::ColorMode::Dark);
+        let overview = json!({});
+        let todos: Vec<Value> = Vec::new();
+        let right_light = compute_input_hash(&overview, &todos, &p, compose::Position::Right, compose::ColorMode::Light);
+        let left_light = compute_input_hash(&overview, &todos, &p, compose::Position::Left, compose::ColorMode::Light);
+        let right_dark = compute_input_hash(&overview, &todos, &p, compose::Position::Right, compose::ColorMode::Dark);
         assert_ne!(right_light, left_light);
         assert_ne!(right_light, right_dark);
     }
 
     #[test]
-    fn hash_stable_across_calls() {
-        let p = fake_base();
-        let data = json!({ "todoList": [{ "id": "a" }] });
-        let a = compute_input_hash(&data, &p, compose::Position::Right, compose::ColorMode::Light);
-        let b = compute_input_hash(&data, &p, compose::Position::Right, compose::ColorMode::Light);
-        assert_eq!(a, b);
-    }
-
-    #[test]
     fn hash_never_returns_sentinel_zero() {
         let p = fake_base();
-        let h = compute_input_hash(
-            &json!({}),
-            &p,
-            compose::Position::Right,
-            compose::ColorMode::Light,
-        );
+        let h = compute_input_hash(&json!({}), &[], &p, compose::Position::Right, compose::ColorMode::Light);
         assert_ne!(h, 0);
     }
 }

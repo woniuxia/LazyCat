@@ -50,6 +50,8 @@ export interface WallpaperDashboardData {
   /** 阶段 1 始终为 null（扩展位预留） */
   echo: string | null;
   generatedAt: string;
+  /** design §9 敏感模式：开启时 canvas 把 todo 标题打码 */
+  privacyMask?: boolean;
 }
 
 export interface WallpaperStatus {
@@ -62,6 +64,12 @@ export interface WallpaperStatus {
   lastError?: string | null;
   spotlightDetected: boolean;
   thirdPartyEngine?: string | null;
+  /** design §9 老板键注册失败时的提示文案；null/undefined = 正常 */
+  bossKeyError?: string | null;
+  /** 当前敏感模式开启状态（与 config.privacyMask 联动；自动到期时由后端清零） */
+  privacyMaskActive?: boolean;
+  /** 敏感模式自动到期时间（ISO；null = 直到手动关） */
+  privacyMaskUntil?: string | null;
 }
 
 export interface WallpaperConfig {

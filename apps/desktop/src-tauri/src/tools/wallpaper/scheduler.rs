@@ -19,7 +19,7 @@ use std::time::Duration;
 
 use tauri::AppHandle;
 
-use crate::tools::wallpaper::{apply, config, fullscreen, hidden, idle, lock, state};
+use crate::tools::wallpaper::{apply, config, conflicts, fullscreen, hidden, idle, lock, state};
 
 /// 5min 无输入即视为空闲，sleep 间隔降为 [`IDLE_INTERVAL_SECS`]。
 const IDLE_THRESHOLD_SECS: u32 = 300;
@@ -41,8 +41,17 @@ pub fn start(app: AppHandle) {
         return;
     }
 
+    // 启动时立即探测一次 Spotlight / 第三方引擎（design §13.4）
+    conflicts::refresh();
+
     std::thread::spawn(move || {
+        let mut last_conflict_check = std::time::Instant::now();
         loop {
+            // 每 10min 重新探测一次冲突
+            if last_conflict_check.elapsed() >= std::time::Duration::from_secs(600) {
+                conflicts::refresh();
+                last_conflict_check = std::time::Instant::now();
+            }
             // 1. 跳过判定先行（避免在禁用状态下也走完一次 apply）
             if !should_skip(&app) {
                 // 心跳走 force=false：相同输入的合成结果会被 hash 去重跳过

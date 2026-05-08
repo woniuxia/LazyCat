@@ -47,6 +47,8 @@ pub struct WallpaperState {
     pub spotlight_detected: bool,
     pub third_party_engine: Option<String>,
     pub burnout: u8,
+    /// design §9：老板键注册失败时的提示文案；setup 时写入，前端面板透出
+    pub boss_key_error: Option<String>,
 }
 
 static STATE: LazyLock<RwLock<WallpaperState>> = LazyLock::new(|| RwLock::new(WallpaperState::default()));
@@ -108,6 +110,14 @@ pub fn status_snapshot() -> Value {
         .and_then(|conn| config::read_string(&conn, KEY_ORIGINAL_PATH))
         .filter(|s| !s.is_empty());
 
+    // 敏感模式自动到期：privacy_mask_until 已过 → 视为关
+    let mask_active = cfg.privacy_mask
+        && cfg
+            .privacy_mask_until
+            .as_deref()
+            .map(|until| !is_iso_past(until))
+            .unwrap_or(true);
+
     json!({
         "enabled": cfg.enabled,
         "paused": st.paused,
@@ -118,7 +128,16 @@ pub fn status_snapshot() -> Value {
         "lastError": st.last_error,
         "spotlightDetected": st.spotlight_detected,
         "thirdPartyEngine": st.third_party_engine,
+        "bossKeyError": st.boss_key_error,
+        "privacyMaskActive": mask_active,
+        "privacyMaskUntil": cfg.privacy_mask_until,
     })
+}
+
+/// ISO 8601 时间字符串是否已过当前时刻；解析失败 → false（保守起见视为未过期）。
+fn is_iso_past(iso: &str) -> bool {
+    let Ok(dt) = chrono::DateTime::parse_from_rfc3339(iso) else { return false; };
+    chrono::Utc::now() > dt.with_timezone(&chrono::Utc)
 }
 
 #[cfg(test)]

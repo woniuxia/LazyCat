@@ -21,6 +21,29 @@
         </div>
       </div>
 
+      <!-- design §9：敏感模式开启时显眼提示 + 一键关闭 -->
+      <div v-if="status?.privacyMaskActive" class="banner banner-warn">
+        <span>🔒 敏感模式已开启{{ privacyUntilLabel }}</span>
+        <el-button size="small" type="primary" link @click="onPrivacyOff">一键关闭</el-button>
+      </div>
+      <!-- design §9：老板键注册失败提示 -->
+      <div v-if="status?.bossKeyError" class="banner banner-warn">
+        <span>⚠ {{ status.bossKeyError }}</span>
+      </div>
+      <!-- design §13.4：Spotlight / 第三方引擎冲突 -->
+      <div v-if="status?.spotlightDetected" class="banner banner-warn">
+        <span>⚠ 检测到 Windows Spotlight 启用，可能覆盖本工具壁纸；请到「设置 → 个性化 → 背景」改为「图片」</span>
+      </div>
+      <div v-if="status?.thirdPartyEngine" class="banner banner-warn">
+        <span>⚠ 检测到 {{ status.thirdPartyEngine }}，可能覆盖本工具输出的壁纸</span>
+      </div>
+
+      <!-- design §13.7：合成失败时显眼提示 + 重试按钮 -->
+      <div v-if="status?.lastError" class="banner banner-error">
+        <span>⚠ {{ status.lastError }}</span>
+        <el-button size="small" type="primary" link :loading="applying" @click="onApply">重试</el-button>
+      </div>
+
       <div class="status-meta">
         <div class="meta-item">
           <span class="meta-label">上次刷新</span>
@@ -32,10 +55,18 @@
             {{ status?.originalPath ?? "—" }}
           </span>
         </div>
-        <div v-if="status?.lastError" class="meta-error" :title="status.lastError">
-          ⚠ {{ status.lastError }}
-        </div>
       </div>
+
+      <!-- design §11.2：当前合成图缩略图，点击放大预览 -->
+      <div v-if="status?.lastRenderedPath" class="thumb">
+        <img :src="thumbUrl" alt="当前合成图" @click="onThumbPreview" />
+      </div>
+      <el-image-viewer
+        v-if="thumbViewer"
+        :url-list="[thumbUrl]"
+        :hide-on-click-modal="true"
+        @close="thumbViewer = false"
+      />
 
       <div class="status-buttons">
         <el-button :loading="applying" :disabled="!config.enabled" @click="onApply">
@@ -105,10 +136,21 @@
           </el-form-item>
           <el-form-item label="敏感模式">
             <el-switch
-              v-model="config.privacyMask"
-              @change="saveField('privacyMask')"
+              :model-value="config.privacyMask"
+              @update:model-value="onPrivacyToggle"
             />
-            <span class="hint ml">开启后标题打码（▓▓▓）</span>
+            <span class="hint ml">开启后 todo 标题打码（▓▓▓）</span>
+          </el-form-item>
+          <el-form-item v-if="config.privacyMask" label="自动到期">
+            <el-radio-group
+              :model-value="privacyDurationChoice"
+              @update:model-value="onPrivacyDurationChange"
+            >
+              <el-radio-button :label="30">30 分钟</el-radio-button>
+              <el-radio-button :label="120">2 小时</el-radio-button>
+              <el-radio-button :label="0">直到手动关</el-radio-button>
+            </el-radio-group>
+            <span v-if="config.privacyMaskUntil" class="hint ml">将于 {{ formatTime(config.privacyMaskUntil) }} 自动关闭</span>
           </el-form-item>
           <el-form-item label="全屏切净">
             <el-input
@@ -139,6 +181,33 @@
               @change="saveField('keepHistoryCount')"
             />
           </el-form-item>
+          <el-form-item label="合成历史">
+            <div class="history-grid">
+              <div
+                v-for="entry in history"
+                :key="entry.path"
+                class="history-cell"
+                :title="entry.path"
+                @click="onHistoryPreview(entry)"
+              >
+                <img :src="historyUrl(entry.path)" alt="历史合成图" />
+                <span class="history-meta">{{ formatTime(entry.createdAt) }}</span>
+              </div>
+              <div v-if="history.length === 0" class="hint">暂无合成历史</div>
+            </div>
+            <el-button size="small" class="mt" @click="refreshHistory">刷新列表</el-button>
+            <el-image-viewer
+              v-if="historyViewer"
+              :url-list="historyUrls"
+              :initial-index="historyViewerIndex"
+              :hide-on-click-modal="true"
+              @close="historyViewer = false"
+            />
+          </el-form-item>
+          <el-form-item label="重置所有">
+            <el-button type="danger" @click="onReset">重置壁纸偏好 + 恢复原图</el-button>
+            <div class="hint">所有 wallpaper.* 设置回默认值，并立即恢复原壁纸</div>
+          </el-form-item>
         </el-form>
       </el-tab-pane>
     </el-tabs>
@@ -147,10 +216,12 @@
 
 <script setup lang="ts">
 import { onMounted, onBeforeUnmount, computed, ref } from "vue";
-import { ElMessage } from "element-plus";
+import { ElMessage, ElMessageBox, ElImageViewer } from "element-plus";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import { invokeToolByChannel } from "../bridge/tauri";
 import type {
   WallpaperConfig,
+  WallpaperHistoryEntry,
   WallpaperPauseReason,
   WallpaperStatus,
 } from "../types/wallpaper";
@@ -165,8 +236,25 @@ const restoring = ref(false);
 
 let pollHandle: number | null = null;
 
+const history = ref<WallpaperHistoryEntry[]>([]);
+const thumbViewer = ref(false);
+const historyViewer = ref(false);
+const historyViewerIndex = ref(0);
+
+const thumbUrl = computed(() => {
+  const path = status.value?.lastRenderedPath;
+  if (!path) return "";
+  return convertFileSrc(path) + "?t=" + (status.value?.lastRenderedAt ?? "");
+});
+
+const historyUrls = computed(() => history.value.map((h) => historyUrl(h.path)));
+
+function historyUrl(path: string): string {
+  return convertFileSrc(path);
+}
+
 onMounted(async () => {
-  await Promise.all([refreshStatus(), refreshConfig()]);
+  await Promise.all([refreshStatus(), refreshConfig(), refreshHistory()]);
   pollHandle = window.setInterval(refreshStatus, 5000);
 });
 
@@ -317,6 +405,118 @@ function formatError(e: unknown): string {
   return JSON.stringify(e);
 }
 
+async function refreshHistory() {
+  try {
+    const v = (await invokeToolByChannel("tool:wallpaper:list-history", {})) as {
+      items: WallpaperHistoryEntry[];
+    };
+    history.value = v.items.slice(0, 12);
+  } catch (e) {
+    console.warn("[wallpaper] list history failed", e);
+  }
+}
+
+function onThumbPreview() {
+  if (!status.value?.lastRenderedPath) return;
+  thumbViewer.value = true;
+}
+
+function onHistoryPreview(entry: WallpaperHistoryEntry) {
+  const idx = history.value.findIndex((h) => h.path === entry.path);
+  historyViewerIndex.value = idx >= 0 ? idx : 0;
+  historyViewer.value = true;
+}
+
+async function onReset() {
+  try {
+    await ElMessageBox.confirm(
+      "重置后所有壁纸偏好将丢失，原壁纸会立即恢复，是否继续？",
+      "重置壁纸设置",
+      {
+        type: "warning",
+        confirmButtonText: "重置",
+        cancelButtonText: "取消",
+      },
+    );
+  } catch {
+    return;
+  }
+  try {
+    await invokeToolByChannel("tool:wallpaper:set-config", {
+      enabled: false,
+      style: "dashboard",
+      position: "right",
+      refreshIntervalMin: 15,
+      fullscreenBlacklist: ["obs64.exe", "obs32.exe", "powerpnt.exe", "wpp.exe", "zoom.exe"],
+      privacyMask: false,
+      privacyMaskUntil: null,
+      exitBehavior: "restore_original",
+      bossKey: "Ctrl+Alt+W",
+      imageFormat: "jpeg",
+      keepHistoryCount: 20,
+    });
+    try {
+      await invokeToolByChannel("tool:wallpaper:restore", {});
+    } catch (e) {
+      console.warn("[wallpaper] reset restore failed", e);
+    }
+    ElMessage.success("已重置壁纸偏好");
+    await Promise.all([refreshConfig(), refreshStatus(), refreshHistory()]);
+  } catch (e) {
+    ElMessage.error("重置失败：" + formatError(e));
+  }
+}
+
+/** design §9：开关敏感模式（默认 2h 自动关）。后端会写 enabled + until 两个字段。 */
+async function onPrivacyToggle(next: boolean) {
+  try {
+    const payload = next ? { enabled: true, durationMin: 120 } : { enabled: false };
+    await invokeToolByChannel("tool:wallpaper:set-privacy-mask", payload);
+    ElMessage.success(next ? "已开启敏感模式（默认 2 小时）" : "已关闭敏感模式");
+    await Promise.all([refreshConfig(), refreshStatus()]);
+  } catch (e) {
+    ElMessage.error(`切换失败：${formatError(e)}`);
+  }
+}
+
+async function onPrivacyOff() {
+  try {
+    await invokeToolByChannel("tool:wallpaper:set-privacy-mask", { enabled: false });
+    ElMessage.success("已关闭敏感模式");
+    await Promise.all([refreshConfig(), refreshStatus()]);
+  } catch (e) {
+    ElMessage.error(`关闭失败：${formatError(e)}`);
+  }
+}
+
+/** durationMin: 30 / 120 / 0（=直到手动关） */
+async function onPrivacyDurationChange(min: string | number | boolean | undefined) {
+  const n = typeof min === "number" ? min : Number(min ?? 0);
+  try {
+    await invokeToolByChannel("tool:wallpaper:set-privacy-mask", { enabled: true, durationMin: n });
+    ElMessage.success(n > 0 ? `已设置 ${n} 分钟后自动关闭` : "已设置直到手动关");
+    await Promise.all([refreshConfig(), refreshStatus()]);
+  } catch (e) {
+    ElMessage.error(`保存失败：${formatError(e)}`);
+  }
+}
+
+const privacyDurationChoice = computed<number>(() => {
+  if (!config.value.privacyMaskUntil) return 0;
+  const remainMs = new Date(config.value.privacyMaskUntil).getTime() - Date.now();
+  if (remainMs <= 0) return 0;
+  // 容差 5 分钟内的归类：30 → ≤45min；120 → 45<x≤180；其他 → 0
+  const remainMin = Math.round(remainMs / 60000);
+  if (remainMin <= 45) return 30;
+  if (remainMin <= 180) return 120;
+  return 0;
+});
+
+const privacyUntilLabel = computed<string>(() => {
+  if (!status.value?.privacyMaskUntil) return "（直到手动关）";
+  return `（将于 ${formatTime(status.value.privacyMaskUntil)} 自动关闭）`;
+});
+
 function defaultConfig(): WallpaperConfig {
   return {
     enabled: false,
@@ -430,6 +630,83 @@ function defaultConfig(): WallpaperConfig {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+.banner-warn {
+  background: #fef3c7;
+  color: #78350f;
+  border: 1px solid #fcd34d;
+}
+html[data-theme="dark"] .banner-warn {
+  background: rgba(252, 211, 77, 0.12);
+  color: #fbbf24;
+  border-color: rgba(252, 211, 77, 0.4);
+}
+
+.banner-error {
+  background: #fee2e2;
+  color: #7f1d1d;
+  border: 1px solid #fca5a5;
+}
+html[data-theme="dark"] .banner-error {
+  background: rgba(252, 165, 165, 0.12);
+  color: #f87171;
+  border-color: rgba(252, 165, 165, 0.4);
+}
+
+.thumb {
+  margin-bottom: 12px;
+}
+.thumb img {
+  max-width: 320px;
+  max-height: 200px;
+  border-radius: 8px;
+  border: 1px solid var(--el-border-color-lighter);
+  cursor: zoom-in;
+  display: block;
+}
+
+.history-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 8px;
+  width: 100%;
+}
+.history-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  cursor: zoom-in;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--el-border-color-lighter);
+  background: var(--el-fill-color-lighter);
+  padding: 4px;
+}
+.history-cell img {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: 6px;
+  background: #000;
+}
+.history-meta {
+  font-size: 11px;
+  color: var(--el-text-color-secondary);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .config-tabs :deep(.el-tabs__content) {
