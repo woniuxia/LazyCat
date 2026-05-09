@@ -50,15 +50,15 @@ pub struct WidgetState {
     pub auto_skip_reason: Option<&'static str>,
 }
 
-static STATE: LazyLock<RwLock<WallpaperState>> = LazyLock::new(|| RwLock::new(WallpaperState::default()));
+static STATE: LazyLock<RwLock<WidgetState>> = LazyLock::new(|| RwLock::new(WidgetState::default()));
 
 /// 通用读访问（拿快照副本）
-pub fn snapshot() -> WallpaperState {
+pub fn snapshot() -> WidgetState {
     STATE.read().map(|g| g.clone()).unwrap_or_default()
 }
 
 /// 通用写访问（毒锁时静默回退）
-pub fn write<F: FnOnce(&mut WallpaperState)>(f: F) {
+pub fn write<F: FnOnce(&mut WidgetState)>(f: F) {
     if let Ok(mut g) = STATE.write() {
         f(&mut g);
     }
@@ -112,7 +112,7 @@ mod tests {
 
     #[test]
     fn default_state_is_empty() {
-        let s = WallpaperState::default();
+        let s = WidgetState::default();
         assert!(!s.paused);
         assert!(s.pause_reason.is_none());
         assert!(s.last_rendered_at.is_none());
