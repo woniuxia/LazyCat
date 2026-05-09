@@ -4,7 +4,7 @@
 //! 1. SHQueryUserNotificationState：QUNS_BUSY / QUNS_RUNNING_D3D_FULL_SCREEN /
 //!    QUNS_PRESENTATION_MODE → 演示 / 录屏 / 全屏 D3D
 //! 2. 前台窗口 rect 是否完全覆盖整块主屏（含 Chrome / VLC 全屏播放）
-//! 3. 前台进程名是否在 wallpaper.fullscreen_blacklist（OBS / PowerPoint / Zoom 等）
+//! 3. 前台进程名是否在 widget.fullscreen_blacklist（OBS / PowerPoint / Zoom 等）
 //!
 //! 任一 Win32 失败回退为 false，避免误切净。
 
@@ -34,7 +34,7 @@ mod imp {
     };
     use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowRect, GetWindowThreadProcessId};
 
-    use crate::tools::wallpaper::config;
+    use crate::tools::widget::config;
 
     pub fn is_fullscreen_busy() -> bool {
         if check_notification_state() { return true; }

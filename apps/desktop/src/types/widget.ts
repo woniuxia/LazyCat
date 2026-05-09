@@ -1,16 +1,14 @@
-// Living Wallpaper / Desktop Widget 类型定义
+// Desktop Widget 类型定义
 //
-// v2 (挂件改造)：删除原 PNG 链路相关类型（WallpaperPosition / WallpaperStyle /
-// WallpaperExitBehavior / WallpaperImageFormat / WallpaperHistoryEntry / lastRenderedPath /
-// originalPath / exitBehavior / imageFormat / keepHistoryCount / position）。
+// v2 (挂件改造)：删除原 PNG 链路相关类型，统一为 widget 架构。
 
-export type WallpaperPauseReason = "boss_key" | "fullscreen" | "lock" | "manual";
+export type WidgetPauseReason = "boss_key" | "fullscreen" | "lock" | "manual";
 
-export type WallpaperPriority = "P0" | "P1" | "P2" | "P3";
+export type WidgetPriority = "P0" | "P1" | "P2" | "P3";
 
-export type WallpaperItemSource = "pm" | "todo";
+export type WidgetItemSource = "pm" | "todo";
 
-export interface WallpaperOverview {
+export interface WidgetOverview {
   completedToday: number;
   totalToday: number;
   p0Pending: number;
@@ -18,21 +16,21 @@ export interface WallpaperOverview {
   nearestDeadlineHours: number | null;
 }
 
-export interface WallpaperTodoItem {
+export interface WidgetTodoItem {
   /** `pm:<id>` | `todo:<id>` */
   id: string;
   title: string;
-  priority: WallpaperPriority;
+  priority: WidgetPriority;
   pinned: boolean;
   /** ISO 日期，无截止则为 null */
   endAt: string | null;
   status: string;
-  source: WallpaperItemSource;
+  source: WidgetItemSource;
 }
 
-export interface WallpaperDashboardData {
-  overview: WallpaperOverview;
-  todoList: WallpaperTodoItem[];
+export interface WidgetDashboardData {
+  overview: WidgetOverview;
+  todoList: WidgetTodoItem[];
   /** 扩展位预留 */
   echo: string | null;
   generatedAt: string;
@@ -40,10 +38,10 @@ export interface WallpaperDashboardData {
   privacyMask?: boolean;
 }
 
-export interface WallpaperStatus {
+export interface WidgetStatus {
   enabled: boolean;
   paused: boolean;
-  pauseReason?: WallpaperPauseReason | null;
+  pauseReason?: WidgetPauseReason | null;
   lastRenderedAt: string | null;
   lastError?: string | null;
   spotlightDetected: boolean;
@@ -58,7 +56,7 @@ export interface WallpaperStatus {
   autoSkipReason?: "lock" | "fullscreen" | null;
 }
 
-export interface WallpaperConfig {
+export interface WidgetConfig {
   enabled: boolean;
   style: string;
   refreshIntervalMin: number;

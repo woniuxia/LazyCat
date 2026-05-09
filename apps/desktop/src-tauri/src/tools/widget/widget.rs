@@ -22,10 +22,10 @@ use tauri::{
     WindowEvent,
 };
 
-use crate::tools::wallpaper::config;
+use crate::tools::widget::config;
 
-/// 挂件窗口 label（与旧 hidden 的 "wallpaper-canvas" 区分）。
-pub const WIDGET_LABEL: &str = "wallpaper-widget";
+/// 挂件窗口 label。
+pub const WIDGET_LABEL: &str = "widget";
 
 const LOGICAL_W: f64 = 360.0;
 const LOGICAL_H: f64 = 800.0;
@@ -93,9 +93,9 @@ pub fn ensure(app: &AppHandle) -> Result<WebviewWindow, String> {
     if let Some(w) = app.get_webview_window(WIDGET_LABEL) {
         return Ok(w);
     }
-    eprintln!("[wallpaper] widget: building widget window");
+    eprintln!("[widget] widget: building widget window");
 
-    let url = WebviewUrl::App("index.html?view=wallpaper-canvas".into());
+    let url = WebviewUrl::App("index.html?view=widget-canvas".into());
     let win = WebviewWindowBuilder::new(app, WIDGET_LABEL, url)
         .title("LazyCat Widget")
         .inner_size(LOGICAL_W, LOGICAL_H)
@@ -113,7 +113,7 @@ pub fn ensure(app: &AppHandle) -> Result<WebviewWindow, String> {
 
     store_state(VisualState::Peek);
     if let Err(e) = apply_position(app, &win, VisualState::Peek) {
-        eprintln!("[wallpaper] widget: initial apply_position failed: {e}");
+        eprintln!("[widget] widget: initial apply_position failed: {e}");
     }
     win.show().map_err(|e| format!("widget show failed: {e}"))?;
 
@@ -125,10 +125,10 @@ pub fn ensure(app: &AppHandle) -> Result<WebviewWindow, String> {
 pub fn destroy(app: &AppHandle) -> Result<(), String> {
     store_state(VisualState::Hidden);
     if let Some(w) = app.get_webview_window(WIDGET_LABEL) {
-        eprintln!("[wallpaper] widget: scheduling close");
+        eprintln!("[widget] widget: scheduling close");
         std::thread::spawn(move || match w.close() {
-            Ok(()) => eprintln!("[wallpaper] widget: close ok"),
-            Err(e) => eprintln!("[wallpaper] widget: close failed: {e}"),
+            Ok(()) => eprintln!("[widget] widget: close ok"),
+            Err(e) => eprintln!("[widget] widget: close failed: {e}"),
         });
     }
     Ok(())
@@ -149,7 +149,7 @@ pub fn set_state(app: &AppHandle, target: VisualState) -> Result<(), String> {
         .ok_or("widget not open")?;
 
     eprintln!(
-        "[wallpaper] widget: state {} → {}",
+        "[widget] widget: state {} → {}",
         cur.as_str(),
         target.as_str(),
     );
@@ -178,7 +178,7 @@ fn apply_win32_styles(win: &WebviewWindow) {
         GetWindowLongPtrW, SetWindowLongPtrW, GWL_EXSTYLE, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
     };
     let Ok(hwnd) = win.hwnd() else {
-        eprintln!("[wallpaper] widget: hwnd unavailable, skip ex-style");
+        eprintln!("[widget] widget: hwnd unavailable, skip ex-style");
         return;
     };
     unsafe {
@@ -270,7 +270,7 @@ fn start_background_loops_once(app: &AppHandle) {
     std::thread::spawn(move || cursor_loop(app_for_cursor));
 
     std::thread::spawn(move || flush_loop());
-    eprintln!("[wallpaper] widget: background loops started");
+    eprintln!("[widget] widget: background loops started");
 }
 
 /// 把 PENDING_Y 中的最新值写到 user_settings；200ms 检查一次，
@@ -287,7 +287,7 @@ fn flush_loop() {
             continue;
         }
         if let Err(e) = config::set_string(config::KEY_WIDGET_Y, &cur.to_string()) {
-            eprintln!("[wallpaper] widget: persist Y failed: {e}");
+            eprintln!("[widget] widget: persist Y failed: {e}");
             continue;
         }
         last_flushed = Some(cur);

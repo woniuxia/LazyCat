@@ -1,7 +1,7 @@
 //! 仪表盘数据聚合（plan §1.1）
 //!
 //! 负责跨 PM / Todo 拉取今日相关数据，调用 `dashboard_logic` 完成合并、排序、
-//! 聚合统计；最终输出对齐前端 `WallpaperDashboardData` 类型。
+//! 聚合统计；最终输出对齐前端 `WidgetDashboardData` 类型。
 
 use chrono::{Local, NaiveDate, TimeZone, Utc};
 use rusqlite::{params, Connection};
@@ -9,14 +9,14 @@ use serde_json::{json, Value};
 
 use crate::tools::helpers::db_conn;
 use crate::tools::todo::is_open_status;
-use crate::tools::wallpaper::dashboard_logic::{
+use crate::tools::widget::dashboard_logic::{
     compute_nearest_deadline_hours, merge_and_dedup_items, sort_dashboard_items,
 };
 
 /// `todoList` 截断上限（前端按高度二次裁剪）。
 const TODO_LIMIT: usize = 20;
 
-/// 仪表盘聚合主入口；通道 `tool:wallpaper:dashboard_data` 直接调用。
+/// 仪表盘聚合主入口；通道 `tool:widget:dashboard_data` 直接调用。
 pub fn dashboard_data(_payload: &Value) -> Result<Value, String> {
     let now_local = Local::now();
     let today = now_local.date_naive();
@@ -228,7 +228,7 @@ fn load_pm_rows(
              WHERE status != 'done'
                 OR (status = 'done' AND completed_at >= ?1 AND completed_at <= ?2)",
         )
-        .map_err(|e| format!("prepare wallpaper.pm sql: {e}"))?;
+        .map_err(|e| format!("prepare widget.pm sql: {e}"))?;
     let rows = stmt
         .query_map(params![today_start_utc, today_end_utc], |r| {
             let id: i64 = r.get(0)?;
@@ -252,10 +252,10 @@ fn load_pm_rows(
                 "startedAt": started_at,
             }))
         })
-        .map_err(|e| format!("query wallpaper.pm: {e}"))?;
+        .map_err(|e| format!("query widget.pm: {e}"))?;
     let mut list = Vec::new();
     for r in rows {
-        list.push(r.map_err(|e| format!("read wallpaper.pm row: {e}"))?);
+        list.push(r.map_err(|e| format!("read widget.pm row: {e}"))?);
     }
     Ok(list)
 }
@@ -274,7 +274,7 @@ fn load_todo_rows(
              WHERE i.status IN ('pending', 'in_progress')
                 OR (i.status = 'completed' AND i.completed_at >= ?1 AND i.completed_at <= ?2)",
         )
-        .map_err(|e| format!("prepare wallpaper.todo sql: {e}"))?;
+        .map_err(|e| format!("prepare widget.todo sql: {e}"))?;
     let rows = stmt
         .query_map(params![today_start_utc, today_end_utc], |r| {
             let id: i64 = r.get(0)?;
@@ -298,10 +298,10 @@ fn load_todo_rows(
                 "pmItemId": pm_item_id,
             }))
         })
-        .map_err(|e| format!("query wallpaper.todo: {e}"))?;
+        .map_err(|e| format!("query widget.todo: {e}"))?;
     let mut list = Vec::new();
     for r in rows {
-        list.push(r.map_err(|e| format!("read wallpaper.todo row: {e}"))?);
+        list.push(r.map_err(|e| format!("read widget.todo row: {e}"))?);
     }
     Ok(list)
 }

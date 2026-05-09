@@ -25,7 +25,7 @@ const SIDEBAR_ITEMS: SidebarItem[] = [
         { id: "pm", name: "项目管理", desc: "项目工作项跟踪与看板" },
         { id: "weekly-work", name: "本周工作", desc: "按本周时间范围汇总工作项" },
         { id: "inbox", name: "收纳箱", desc: "后台剪贴板收件箱与历史整理" },
-        { id: "wallpaper", name: "桌面壁纸", desc: "把今日仪表盘合成到桌面壁纸" },
+        { id: "widget", name: "桌面挂件", desc: "在桌面挂件中显示今日仪表盘" },
       ],
     },
   },

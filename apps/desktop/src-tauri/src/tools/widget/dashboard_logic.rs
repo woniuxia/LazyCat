@@ -1,4 +1,4 @@
-//! 壁纸仪表盘合并/排序/格式化的纯函数集合
+//! 挂件仪表盘合并/排序/格式化的纯函数集合
 //!
 //! 设计依据：
 //! - design §5.2：`pinned → 已逾期 → P0 → P1 → P2 → P3 → 截止日期升序 → 创建时间降序`
@@ -48,7 +48,7 @@ pub fn is_overdue(status: &str, deadline_date: Option<&str>, today: &str) -> boo
     deadline_date.map(|d| d < today).unwrap_or(false)
 }
 
-/// 把 PM Value 归一化为壁纸 dashboard 项；可与 Todo 项一起排序。
+/// 把 PM Value 归一化为挂件 dashboard 项；可与 Todo 项一起排序。
 pub fn pm_to_dashboard(item: &Value, today: &str) -> Value {
     let id = item.get("id").and_then(Value::as_i64).unwrap_or(0);
     let title = item
@@ -89,7 +89,7 @@ pub fn pm_to_dashboard(item: &Value, today: &str) -> Value {
     })
 }
 
-/// 把 Todo Value 归一化为壁纸 dashboard 项。
+/// 把 Todo Value 归一化为挂件 dashboard 项。
 pub fn todo_to_dashboard(item: &Value, today: &str) -> Value {
     let id = item.get("id").and_then(Value::as_i64).unwrap_or(0);
     let title = item
@@ -226,7 +226,7 @@ pub fn compute_nearest_deadline_hours(items: &[Value], now: DateTime<Local>) -> 
     Some(end_dt.signed_duration_since(now).num_hours())
 }
 
-/// 对 overview + 排序后的 todoList 计算稳定 hash（hex），用于 SetWallpaper 内容短路（design §14.1）。
+/// 对 overview + 排序后的 todoList 计算稳定 hash（hex），用于内容短路（design §14.1）。
 pub fn compute_dashboard_hash(overview: &Value, todo_list: &[Value]) -> String {
     let mut hasher = blake3::Hasher::new();
     hasher.update(overview.to_string().as_bytes());

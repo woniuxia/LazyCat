@@ -12,9 +12,9 @@ use std::sync::{LazyLock, RwLock};
 
 use serde_json::{json, Value};
 
-use crate::tools::wallpaper::config;
+use crate::tools::widget::config;
 
-/// 暂停原因，与前端 `WallpaperPauseReason` 对齐。
+/// 暂停原因，与前端 `WidgetPauseReason` 对齐。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PauseReason {
     BossKey,
@@ -35,7 +35,7 @@ impl PauseReason {
 }
 
 #[derive(Debug, Default, Clone)]
-pub struct WallpaperState {
+pub struct WidgetState {
     pub paused: bool,
     pub pause_reason: Option<PauseReason>,
     /// 最近一次推送 dashboard-data 给挂件的本地 ISO 时间。
@@ -64,7 +64,7 @@ pub fn write<F: FnOnce(&mut WallpaperState)>(f: F) {
     }
 }
 
-/// status 通道返回值；前端 `WallpaperStatus` 直接消费。
+/// status 通道返回值；前端 `WidgetStatus` 直接消费。
 pub fn status_snapshot() -> Value {
     let cfg = config::read_config();
     let st = snapshot();

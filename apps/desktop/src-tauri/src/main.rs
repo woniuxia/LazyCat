@@ -744,8 +744,8 @@ fn sync_all_shortcuts(app: &tauri::AppHandle) -> Result<(), String> {
                     show_spotlight(app_handle);
                     return;
                 }
-                if name_owned == "wallpaper-boss-key" {
-                    let _ = tools::wallpaper::boss_key::toggle(app_handle);
+                if name_owned == "widget-boss-key" {
+                    let _ = tools::widget::boss_key::toggle(app_handle);
                     return;
                 }
                 handle_main_window_shortcut(app_handle, name_owned.as_str());
@@ -798,16 +798,16 @@ fn unregister_named_hotkey(app: tauri::AppHandle, name: String) -> Result<(), St
     sync_all_shortcuts(&app)
 }
 
-/// Setup-time 注册壁纸老板键。读 `wallpaper.boss_key`（默认 Ctrl+Alt+W），
+/// Setup-time 注册挂件老板键。读 `widget.boss_key`（默认 Ctrl+Alt+W），
 /// 注入到全局快捷键 map 后 sync 一次；与 `register_named_hotkey` 同口径，
 /// 仅省去前端往返。注册失败不阻塞应用启动（design §9 要求降级提示）。
-fn init_wallpaper_boss_key(app: &tauri::AppHandle) -> Result<(), String> {
-    let cfg = tools::wallpaper::config::read_config();
+fn init_widget_boss_key(app: &tauri::AppHandle) -> Result<(), String> {
+    let cfg = tools::widget::config::read_config();
     let key = cfg.boss_key.trim().to_string();
     if key.is_empty() {
         return Ok(());
     }
-    register_named_hotkey(app.clone(), "wallpaper-boss-key".into(), key)
+    register_named_hotkey(app.clone(), "widget-boss-key".into(), key)
 }
 
 /// Window subclass ID (arbitrary unique value)
@@ -1280,18 +1280,18 @@ fn main() {
             start_todo_scheduler(app.handle().clone());
             start_clipboard_monitor(app.handle().clone());
 
-            // 启动壁纸心跳调度（仅在 wallpaper.enabled=true 时实际刷新；线程内部判断）
-            tools::wallpaper::scheduler::start(app.handle().clone());
+            // 启动挂件心跳调度（仅在 widget.enabled=true 时实际刷新；线程内部判断）
+            tools::widget::scheduler::start(app.handle().clone());
 
-            // 启动壁纸事件驱动 debounce 线程（PM/Todo CRUD → 5s 静默后立刷）
-            tools::wallpaper::events::start(app.handle().clone());
+            // 启动挂件事件驱动 debounce 线程（PM/Todo CRUD → 5s 静默后立刷）
+            tools::widget::events::start(app.handle().clone());
 
-            // 注册壁纸老板键（默认 Ctrl+Alt+W；wallpaper.boss_key 配置项可改）
-            match init_wallpaper_boss_key(app.handle()) {
-                Ok(()) => tools::wallpaper::record_boss_key_error(None),
+            // 注册挂件老板键（默认 Ctrl+Alt+W；widget.boss_key 配置项可改）
+            match init_widget_boss_key(app.handle()) {
+                Ok(()) => tools::widget::record_boss_key_error(None),
                 Err(e) => {
-                    eprintln!("[wallpaper] register boss key failed: {e}");
-                    tools::wallpaper::record_boss_key_error(Some(format!("老板键注册失败：{e}")));
+                    eprintln!("[widget] register boss key failed: {e}");
+                    tools::widget::record_boss_key_error(Some(format!("老板键注册失败：{e}")));
                 }
             }
 
@@ -1357,7 +1357,7 @@ fn main() {
         .run(|app_handle, event| {
             // 应用退出时销毁挂件窗口
             if let RunEvent::ExitRequested { .. } = event {
-                tools::wallpaper::on_app_exit(app_handle);
+                tools::widget::on_app_exit(app_handle);
             }
         });
 }

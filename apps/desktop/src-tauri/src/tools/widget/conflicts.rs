@@ -30,7 +30,7 @@ mod imp {
         REG_VALUE_TYPE,
     };
 
-    use crate::tools::wallpaper::state;
+    use crate::tools::widget::state;
 
     const KNOWN_ENGINES: &[&str] = &[
         "wallpaper32.exe",

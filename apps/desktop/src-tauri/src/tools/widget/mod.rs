@@ -1,7 +1,7 @@
-//! Living Wallpaper · 桌面挂件
+//! Desktop Widget · 桌面挂件
 //!
-//! v2 架构：放弃 PNG 合成 + IDesktopWallpaper::SetWallpaper 链路，
-//! 改为常驻挂件窗口（widget.rs）+ 状态机（peek/full/hidden）。
+//! 常驻挂件窗口（widget.rs）+ 状态机（peek/full/hidden），
+//! 在桌面右侧展示今日仪表盘（PM/Todo 概览 + 待办列表）。
 //!
 //! 通道分发表：
 //! - 不需要 AppHandle：`status` / `get_config` / `set_config` / `dashboard_data`
@@ -33,43 +33,43 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
     match action {
         "status" => Ok(state::status_snapshot()),
         "get_config" => serde_json::to_value(config::read_config())
-            .map_err(|e| format!("serialize wallpaper config failed: {e}")),
+            .map_err(|e| format!("serialize widget config failed: {e}")),
         "set_config" => config::set_config(payload),
         "dashboard_data" => data::dashboard_data(payload),
         "apply" => Err(needs_app_handle("apply")),
         "enable" => Err(needs_app_handle("enable")),
         "disable" => Err(needs_app_handle("disable")),
         "resume" => Err(needs_app_handle("resume")),
-        "pause" => pause_wallpaper(payload),
+        "pause" => pause_widget(payload),
         "set_privacy_mask" => set_privacy_mask(payload),
         "set_boss_key_error" => set_boss_key_error_action(payload),
-        _ => Err(format!("unsupported wallpaper action: {action}")),
+        _ => Err(format!("unsupported widget action: {action}")),
     }
 }
 
 pub fn execute_with_app(action: &str, payload: &Value, app: &AppHandle) -> Result<Value, String> {
     match action {
         "apply" => apply::apply(app),
-        "enable" => enable_wallpaper(app),
-        "disable" => disable_wallpaper(app),
-        "resume" => resume_wallpaper(app),
+        "enable" => enable_widget(app),
+        "disable" => disable_widget(app),
+        "resume" => resume_widget(app),
         _ => execute(action, payload),
     }
 }
 
 fn needs_app_handle(action: &str) -> String {
-    format!("wallpaper.{action} requires AppHandle; route via execute_tool_with_app")
+    format!("widget.{action} requires AppHandle; route via execute_tool_with_app")
 }
 
 // ── 生命周期 ─────────────────────────────────────
 
 /// 启用挂件：写 enabled=true → 数据迁移（一次性清旧 PNG 链路产物）→
 /// 创建挂件窗口 → 立即推一次数据。
-fn enable_wallpaper(app: &AppHandle) -> Result<Value, String> {
-    eprintln!("[wallpaper] enable: enter");
+fn enable_widget(app: &AppHandle) -> Result<Value, String> {
+    eprintln!("[widget] enable: enter");
     let cfg = config::read_config();
     if cfg.enabled {
-        eprintln!("[wallpaper] enable: already enabled, ensuring widget");
+        eprintln!("[widget] enable: already enabled, ensuring widget");
         widget::ensure(app)?;
         let _ = apply::apply(app);
         return Ok(json!({ "ok": true, "alreadyEnabled": true }));
@@ -77,6 +77,8 @@ fn enable_wallpaper(app: &AppHandle) -> Result<Value, String> {
 
     // 一次性清理旧链路产物（壁纸备份目录 + 渲染历史 + 废弃 user_settings key）
     perform_legacy_cleanup();
+    // 迁移旧 wallpaper.* key 到新 widget.* key
+    config::migrate_legacy_keys();
 
     config::set_string(config::KEY_ENABLED, "true")?;
 
@@ -92,19 +94,19 @@ fn enable_wallpaper(app: &AppHandle) -> Result<Value, String> {
     widget::ensure(app)?;
     // 立即推一次数据，避免用户开启后等下个心跳才看到内容
     if let Err(e) = apply::apply(app) {
-        eprintln!("[wallpaper] enable: first apply failed (continuing): {e}");
+        eprintln!("[widget] enable: first apply failed (continuing): {e}");
     }
 
-    eprintln!("[wallpaper] enable: done");
+    eprintln!("[widget] enable: done");
     Ok(json!({ "ok": true }))
 }
 
 /// 关闭挂件：销毁窗口 + 写 enabled=false。
-fn disable_wallpaper(app: &AppHandle) -> Result<Value, String> {
-    eprintln!("[wallpaper] disable: enter");
+fn disable_widget(app: &AppHandle) -> Result<Value, String> {
+    eprintln!("[widget] disable: enter");
     config::set_string(config::KEY_ENABLED, "false")?;
     if let Err(e) = widget::destroy(app) {
-        eprintln!("[wallpaper] disable: destroy failed: {e}");
+        eprintln!("[widget] disable: destroy failed: {e}");
     }
     // 清运行时状态，下次启用是干净的
     state::write(|s| {
@@ -113,7 +115,7 @@ fn disable_wallpaper(app: &AppHandle) -> Result<Value, String> {
         s.last_error = None;
         s.auto_skip_reason = None;
     });
-    eprintln!("[wallpaper] disable: done");
+    eprintln!("[widget] disable: done");
     Ok(json!({ "ok": true }))
 }
 
@@ -124,7 +126,7 @@ pub fn on_app_exit(app: &AppHandle) {
         return;
     }
     if let Err(e) = widget::destroy(app) {
-        eprintln!("[wallpaper] on_app_exit: destroy failed: {e}");
+        eprintln!("[widget] on_app_exit: destroy failed: {e}");
     }
 }
 
@@ -141,11 +143,11 @@ fn perform_legacy_cleanup() {
             if path.exists() {
                 if let Err(e) = std::fs::remove_dir_all(&path) {
                     eprintln!(
-                        "[wallpaper] cleanup: remove {} failed: {e}",
+                        "[widget] cleanup: remove {} failed: {e}",
                         path.display()
                     );
                 } else {
-                    eprintln!("[wallpaper] cleanup: removed {}", path.display());
+                    eprintln!("[widget] cleanup: removed {}", path.display());
                 }
             }
         }
@@ -160,7 +162,7 @@ fn perform_legacy_cleanup() {
         "wallpaper.position",
     ] {
         if let Err(e) = config::delete_key(key) {
-            eprintln!("[wallpaper] cleanup: delete key {key} failed: {e}");
+            eprintln!("[widget] cleanup: delete key {key} failed: {e}");
         }
     }
 }
@@ -172,7 +174,7 @@ fn perform_legacy_cleanup() {
 /// 入参 `{ reason?: "manual" | "boss_key" | "fullscreen" | "lock" }`。
 /// `manual` 由用户在面板点击触发，挂件不强制隐藏（用户仍可看到 peek 条），
 /// 仅停掉调度心跳；其他 reason 由对应模块自己控制 widget 状态。
-fn pause_wallpaper(payload: &Value) -> Result<Value, String> {
+fn pause_widget(payload: &Value) -> Result<Value, String> {
     let reason_str = payload
         .get("reason")
         .and_then(Value::as_str)
@@ -195,7 +197,7 @@ fn pause_wallpaper(payload: &Value) -> Result<Value, String> {
 }
 
 /// 恢复：清暂停 + 立即推一次数据。
-fn resume_wallpaper(app: &AppHandle) -> Result<Value, String> {
+fn resume_widget(app: &AppHandle) -> Result<Value, String> {
     state::write(|s| {
         s.paused = false;
         s.pause_reason = None;
@@ -265,7 +267,7 @@ pub fn record_boss_key_error(msg: Option<String>) {
     state::write(|st| st.boss_key_error = msg);
 }
 
-/// 前端 channel `tool:wallpaper:set-boss-key-error` 入口。
+/// 前端 channel `tool:widget:set-boss-key-error` 入口。
 fn set_boss_key_error_action(payload: &Value) -> Result<Value, String> {
     let entry = payload.get("error");
     let msg = match entry {

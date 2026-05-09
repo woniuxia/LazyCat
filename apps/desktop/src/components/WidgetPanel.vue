@@ -1,5 +1,5 @@
 <template>
-  <div class="wallpaper-panel">
+  <div class="widget-panel">
     <!-- 状态卡片 -->
     <section class="status-card" :class="{ 'is-paused': status?.paused }">
       <div class="status-head">
@@ -149,13 +149,13 @@ import { onMounted, onBeforeUnmount, computed, ref } from "vue";
 import { ElMessage } from "element-plus";
 import { invokeToolByChannel, registerNamedHotkey } from "../bridge/tauri";
 import type {
-  WallpaperConfig,
-  WallpaperPauseReason,
-  WallpaperStatus,
-} from "../types/wallpaper";
+  WidgetConfig,
+  WidgetPauseReason,
+  WidgetStatus,
+} from "../types/widget";
 
-const status = ref<WallpaperStatus | null>(null);
-const config = ref<WallpaperConfig>(defaultConfig());
+const status = ref<WidgetStatus | null>(null);
+const config = ref<WidgetConfig>(defaultConfig());
 const activeTab = ref<"basic" | "privacy">("basic");
 
 const toggling = ref(false);
@@ -192,19 +192,19 @@ const statusDotClass = computed(() => {
 
 async function refreshStatus() {
   try {
-    const v = (await invokeToolByChannel("tool:wallpaper:status", {})) as WallpaperStatus;
+    const v = (await invokeToolByChannel("tool:widget:status", {})) as WallpaperStatus;
     status.value = v;
   } catch (e) {
-    console.warn("[wallpaper] refresh status failed", e);
+    console.warn("[widget] refresh status failed", e);
   }
 }
 
 async function refreshConfig() {
   try {
-    const v = (await invokeToolByChannel("tool:wallpaper:get-config", {})) as WallpaperConfig;
+    const v = (await invokeToolByChannel("tool:widget:get-config", {})) as WallpaperConfig;
     config.value = { ...defaultConfig(), ...v };
   } catch (e) {
-    console.warn("[wallpaper] read config failed", e);
+    console.warn("[widget] read config failed", e);
   }
 }
 
@@ -212,11 +212,11 @@ async function onToggleEnabled(next: boolean) {
   toggling.value = true;
   try {
     if (next) {
-      await invokeToolByChannel("tool:wallpaper:enable", {});
+      await invokeToolByChannel("tool:widget:enable", {});
       config.value.enabled = true;
       ElMessage.success("已启用挂件");
     } else {
-      await invokeToolByChannel("tool:wallpaper:disable", {});
+      await invokeToolByChannel("tool:widget:disable", {});
       config.value.enabled = false;
       ElMessage.success("已关闭挂件");
     }
@@ -231,7 +231,7 @@ async function onToggleEnabled(next: boolean) {
 async function onApply() {
   applying.value = true;
   try {
-    await invokeToolByChannel("tool:wallpaper:apply", {});
+    await invokeToolByChannel("tool:widget:apply", {});
     ElMessage.success("已刷新挂件");
     await refreshStatus();
   } catch (e) {
@@ -243,7 +243,7 @@ async function onApply() {
 
 async function onPause() {
   try {
-    await invokeToolByChannel("tool:wallpaper:pause", { reason: "manual" });
+    await invokeToolByChannel("tool:widget:pause", { reason: "manual" });
     await refreshStatus();
   } catch (e) {
     ElMessage.error(`暂停失败：${formatError(e)}`);
@@ -252,7 +252,7 @@ async function onPause() {
 
 async function onResume() {
   try {
-    await invokeToolByChannel("tool:wallpaper:resume", {});
+    await invokeToolByChannel("tool:widget:resume", {});
     await refreshStatus();
   } catch (e) {
     ElMessage.error(`恢复失败：${formatError(e)}`);
@@ -261,7 +261,7 @@ async function onResume() {
 
 async function onResetPosition() {
   try {
-    await invokeToolByChannel("tool:wallpaper:set-config", { widgetY: null });
+    await invokeToolByChannel("tool:widget:set-config", { widgetY: null });
     ElMessage.success("已重置挂件位置；下次启用或刷新后挂件回到屏幕居中");
     await refreshConfig();
   } catch (e) {
@@ -272,7 +272,7 @@ async function onResetPosition() {
 async function saveField(field: keyof WallpaperConfig) {
   const payload: Record<string, unknown> = { [field]: config.value[field] };
   try {
-    await invokeToolByChannel("tool:wallpaper:set-config", payload);
+    await invokeToolByChannel("tool:widget:set-config", payload);
     ElMessage.success("已保存");
   } catch (e) {
     ElMessage.error(`保存失败：${formatError(e)}`);
@@ -294,14 +294,14 @@ async function onSaveBossKey() {
   }
   rebindingBossKey.value = true;
   try {
-    await invokeToolByChannel("tool:wallpaper:set-config", { bossKey: trimmed });
+    await invokeToolByChannel("tool:widget:set-config", { bossKey: trimmed });
     try {
-      await registerNamedHotkey("wallpaper-boss-key", trimmed);
-      await invokeToolByChannel("tool:wallpaper:set-boss-key-error", { error: null });
+      await registerNamedHotkey("widget-boss-key", trimmed);
+      await invokeToolByChannel("tool:widget:set-boss-key-error", { error: null });
       ElMessage.success(`老板键已生效：${trimmed}`);
     } catch (e) {
       const errMsg = `老板键 ${trimmed} 注册失败：${formatError(e)}`;
-      await invokeToolByChannel("tool:wallpaper:set-boss-key-error", { error: errMsg });
+      await invokeToolByChannel("tool:widget:set-boss-key-error", { error: errMsg });
       ElMessage.error(errMsg);
     }
     await refreshStatus();
@@ -312,7 +312,7 @@ async function onSaveBossKey() {
   }
 }
 
-function pauseReasonLabel(reason: WallpaperPauseReason): string {
+function pauseReasonLabel(reason: WidgetPauseReason): string {
   switch (reason) {
     case "boss_key":
       return "老板键";
@@ -342,7 +342,7 @@ function formatError(e: unknown): string {
 
 async function onPrivacyOff() {
   try {
-    await invokeToolByChannel("tool:wallpaper:set-privacy-mask", { enabled: false });
+    await invokeToolByChannel("tool:widget:set-privacy-mask", { enabled: false });
     ElMessage.success("已关闭敏感模式");
     await Promise.all([refreshConfig(), refreshStatus()]);
   } catch (e) {
@@ -361,7 +361,7 @@ async function onPrivacyChoiceChange(choice: string | number | boolean | undefin
     return;
   }
   try {
-    await invokeToolByChannel("tool:wallpaper:set-privacy-mask", {
+    await invokeToolByChannel("tool:widget:set-privacy-mask", {
       enabled: true,
       durationMin: min,
     });
@@ -405,7 +405,7 @@ const autoSkipBanner = computed<string>(() => {
   }
 });
 
-function defaultConfig(): WallpaperConfig {
+function defaultConfig(): WidgetConfig {
   return {
     enabled: false,
     style: "dashboard",
@@ -420,7 +420,7 @@ function defaultConfig(): WallpaperConfig {
 </script>
 
 <style scoped>
-.wallpaper-panel {
+.widget-panel {
   padding: 20px;
   max-width: 880px;
   display: flex;

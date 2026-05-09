@@ -39,15 +39,15 @@ pub mod todo;
 pub mod vault;
 pub mod attachments;
 pub mod system;
-pub mod wallpaper;
+pub mod widget;
 
 use serde_json::Value;
 
 pub fn execute_tool(domain: &str, action: &str, payload: &Value) -> Result<Value, String> {
     let result = dispatch_tool(domain, action, payload);
-    // 数据变更类 action 成功后通知壁纸：5s 静默后立刷一次
+    // 数据变更类 action 成功后通知挂件：5s 静默后立刷一次
     if result.is_ok() && pm_or_todo_data_changed(domain, action) {
-        wallpaper::events::notify_data_changed(domain_static(domain));
+        widget::events::notify_data_changed(domain_static(domain));
     }
     result
 }
@@ -87,12 +87,12 @@ fn dispatch_tool(domain: &str, action: &str, payload: &Value) -> Result<Value, S
         "inbox" => inbox::execute(action, payload),
         "attachments" => attachments::execute(action, payload),
         "system" => system::execute(action, payload),
-        "wallpaper" => wallpaper::execute(action, payload),
+        "widget" => widget::execute(action, payload),
         _ => Err(format!("unsupported command: {domain}.{action}")),
     }
 }
 
-/// 判定是否要通知壁纸刷新；只对真正改写 PM / Todo 数据的 action 触发。
+/// 判定是否要通知挂件刷新；只对真正改写 PM / Todo 数据的 action 触发。
 ///
 /// 故意排除纯查询（item_list / item_counts / siyuan_*）与跨域副作用（todo_link
 /// 由 PM 域统一覆盖），避免无意义的合成请求。
@@ -150,7 +150,7 @@ pub fn execute_tool_with_app(
 ) -> Result<Value, String> {
     match domain {
         "settings" => settings::execute_with_app(action, payload, app),
-        "wallpaper" => wallpaper::execute_with_app(action, payload, app),
+        "widget" => widget::execute_with_app(action, payload, app),
         _ => execute_tool(domain, action, payload),
     }
 }

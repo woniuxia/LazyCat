@@ -1,11 +1,11 @@
-//! 壁纸/挂件配置读写
+//! 挂件配置读写
 //!
 //! 默认值常量集中维护在此；前端读不到时回落 default。
-//! 不动 user_settings schema，仅以 wallpaper.* 为 key 前缀写入既有表。
+//! 不动 user_settings schema，仅以 widget.* 为 key 前缀写入既有表。
 //!
 //! v2（挂件改造）：原 PNG 链路相关字段（position / exit_behavior /
 //! image_format / keep_history_count / original_path / original_set_method）
-//! 已废弃，由 mod.rs::enable_wallpaper 启动时一次性清理。
+//! 已废弃，由 mod.rs::enable_widget 启动时一次性清理。
 
 #![allow(dead_code)]
 
@@ -17,15 +17,26 @@ use crate::tools::helpers::db_conn;
 
 // ── key 常量 ────────────────────────────────────────
 
-pub const KEY_ENABLED: &str = "wallpaper.enabled";
-pub const KEY_STYLE: &str = "wallpaper.style";
-pub const KEY_REFRESH_INTERVAL_MIN: &str = "wallpaper.refresh_interval_min";
-pub const KEY_FULLSCREEN_BLACKLIST: &str = "wallpaper.fullscreen_blacklist";
-pub const KEY_PRIVACY_MASK: &str = "wallpaper.privacy_mask";
-pub const KEY_PRIVACY_MASK_UNTIL: &str = "wallpaper.privacy_mask_until";
-pub const KEY_BOSS_KEY: &str = "wallpaper.boss_key";
+pub const KEY_ENABLED: &str = "widget.enabled";
+pub const KEY_STYLE: &str = "widget.style";
+pub const KEY_REFRESH_INTERVAL_MIN: &str = "widget.refresh_interval_min";
+pub const KEY_FULLSCREEN_BLACKLIST: &str = "widget.fullscreen_blacklist";
+pub const KEY_PRIVACY_MASK: &str = "widget.privacy_mask";
+pub const KEY_PRIVACY_MASK_UNTIL: &str = "widget.privacy_mask_until";
+pub const KEY_BOSS_KEY: &str = "widget.boss_key";
 /// 挂件持久化 Y（物理像素，整数）；空 = 居中。X 始终贴右由 widget.rs 计算。
-pub const KEY_WIDGET_Y: &str = "wallpaper.widget_y";
+pub const KEY_WIDGET_Y: &str = "widget.widget_y";
+
+// ── 旧 wallpaper.* key（兼容读取 + 迁移清理用） ────────
+
+pub const LEGACY_KEY_ENABLED: &str = "wallpaper.enabled";
+pub const LEGACY_KEY_STYLE: &str = "wallpaper.style";
+pub const LEGACY_KEY_REFRESH_INTERVAL_MIN: &str = "wallpaper.refresh_interval_min";
+pub const LEGACY_KEY_FULLSCREEN_BLACKLIST: &str = "wallpaper.fullscreen_blacklist";
+pub const LEGACY_KEY_PRIVACY_MASK: &str = "wallpaper.privacy_mask";
+pub const LEGACY_KEY_PRIVACY_MASK_UNTIL: &str = "wallpaper.privacy_mask_until";
+pub const LEGACY_KEY_BOSS_KEY: &str = "wallpaper.boss_key";
+pub const LEGACY_KEY_WIDGET_Y: &str = "wallpaper.widget_y";
 
 // ── 默认值 ────────────────────────────────────────
 
@@ -48,7 +59,7 @@ pub fn default_fullscreen_blacklist() -> Vec<String> {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct WallpaperConfig {
+pub struct WidgetConfig {
     pub enabled: bool,
     pub style: String,
     pub refresh_interval_min: i64,
@@ -60,7 +71,7 @@ pub struct WallpaperConfig {
     pub widget_y: Option<i64>,
 }
 
-impl Default for WallpaperConfig {
+impl Default for WidgetConfig {
     fn default() -> Self {
         Self {
             enabled: false,
@@ -77,18 +88,27 @@ impl Default for WallpaperConfig {
 
 // ── 读 ────────────────────────────────────────────
 
-/// 读取整个 wallpaper 配置；任意 key 不存在或解析失败时回落默认。
-pub fn read_config() -> WallpaperConfig {
-    let mut cfg = WallpaperConfig::default();
+/// 读取整个挂件配置；任意 key 不存在或解析失败时回落默认。
+pub fn read_config() -> WidgetConfig {
+    let mut cfg = WidgetConfig::default();
     let Ok(conn) = db_conn() else { return cfg };
 
     if let Some(v) = read_string(&conn, KEY_ENABLED) {
         cfg.enabled = parse_bool(&v).unwrap_or(false);
+    } else if let Some(v) = read_string(&conn, LEGACY_KEY_ENABLED) {
+        // 兼容旧 wallpaper.* key
+        cfg.enabled = parse_bool(&v).unwrap_or(false);
     }
     if let Some(v) = read_string(&conn, KEY_STYLE) {
         cfg.style = v;
+    } else if let Some(v) = read_string(&conn, LEGACY_KEY_STYLE) {
+        cfg.style = v;
     }
     if let Some(v) = read_string(&conn, KEY_REFRESH_INTERVAL_MIN) {
+        if let Ok(n) = v.parse::<i64>() {
+            cfg.refresh_interval_min = n;
+        }
+    } else if let Some(v) = read_string(&conn, LEGACY_KEY_REFRESH_INTERVAL_MIN) {
         if let Ok(n) = v.parse::<i64>() {
             cfg.refresh_interval_min = n;
         }
@@ -97,15 +117,29 @@ pub fn read_config() -> WallpaperConfig {
         if let Ok(list) = serde_json::from_str::<Vec<String>>(&v) {
             cfg.fullscreen_blacklist = list;
         }
+    } else if let Some(v) = read_string(&conn, LEGACY_KEY_FULLSCREEN_BLACKLIST) {
+        if let Ok(list) = serde_json::from_str::<Vec<String>>(&v) {
+            cfg.fullscreen_blacklist = list;
+        }
     }
     if let Some(v) = read_string(&conn, KEY_PRIVACY_MASK) {
         cfg.privacy_mask = parse_bool(&v).unwrap_or(false);
+    } else if let Some(v) = read_string(&conn, LEGACY_KEY_PRIVACY_MASK) {
+        cfg.privacy_mask = parse_bool(&v).unwrap_or(false);
     }
-    cfg.privacy_mask_until = read_string(&conn, KEY_PRIVACY_MASK_UNTIL).filter(|s| !s.is_empty());
+    cfg.privacy_mask_until = read_string(&conn, KEY_PRIVACY_MASK_UNTIL)
+        .or_else(|| read_string(&conn, LEGACY_KEY_PRIVACY_MASK_UNTIL))
+        .filter(|s| !s.is_empty());
     if let Some(v) = read_string(&conn, KEY_BOSS_KEY) {
+        cfg.boss_key = v;
+    } else if let Some(v) = read_string(&conn, LEGACY_KEY_BOSS_KEY) {
         cfg.boss_key = v;
     }
     if let Some(v) = read_string(&conn, KEY_WIDGET_Y) {
+        if let Ok(n) = v.parse::<i64>() {
+            cfg.widget_y = Some(n);
+        }
+    } else if let Some(v) = read_string(&conn, LEGACY_KEY_WIDGET_Y) {
         if let Ok(n) = v.parse::<i64>() {
             cfg.widget_y = Some(n);
         }
@@ -147,7 +181,7 @@ pub fn set_string(key: &str, value: &str) -> Result<(), String> {
          ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP",
         params![key, value],
     )
-    .map_err(|e| format!("save wallpaper setting {key} failed: {e}"))?;
+    .map_err(|e| format!("save widget setting {key} failed: {e}"))?;
     Ok(())
 }
 
@@ -155,7 +189,7 @@ pub fn set_string(key: &str, value: &str) -> Result<(), String> {
 pub fn delete_key(key: &str) -> Result<(), String> {
     let conn = db_conn()?;
     conn.execute("DELETE FROM user_settings WHERE key = ?1", params![key])
-        .map_err(|e| format!("delete wallpaper setting {key} failed: {e}"))?;
+        .map_err(|e| format!("delete widget setting {key} failed: {e}"))?;
     Ok(())
 }
 
@@ -170,7 +204,7 @@ pub fn set_config(payload: &Value) -> Result<Value, String> {
             // enabled 必须走 enable / disable channel，避免绕过 widget 创建/销毁副作用
             "enabled" => {
                 return Err(
-                    "enabled must be set via tool:wallpaper:enable / disable channels".into(),
+                    "enabled must be set via tool:widget:enable / disable channels".into(),
                 );
             }
             "style" => write_string(KEY_STYLE, val)?,
@@ -181,7 +215,7 @@ pub fn set_config(payload: &Value) -> Result<Value, String> {
             "bossKey" => write_string(KEY_BOSS_KEY, val)?,
             "widgetY" => write_optional_i64(KEY_WIDGET_Y, val)?,
             other => {
-                return Err(format!("unknown wallpaper config key: {other}"));
+                return Err(format!("unknown widget config key: {other}"));
             }
         }
     }
@@ -245,13 +279,38 @@ fn write_string_array(key: &str, val: &Value) -> Result<(), String> {
     set_string(key, &json)
 }
 
+/// 将旧 wallpaper.* key 迁移到新 widget.* key。
+/// 对于每个旧 key：若新 key 不存在且旧 key 有值，则复制到新 key 并删除旧 key。
+pub fn migrate_legacy_keys() {
+    let Ok(conn) = db_conn() else { return };
+    let pairs: &[(&str, &str)] = &[
+        (KEY_ENABLED, LEGACY_KEY_ENABLED),
+        (KEY_STYLE, LEGACY_KEY_STYLE),
+        (KEY_REFRESH_INTERVAL_MIN, LEGACY_KEY_REFRESH_INTERVAL_MIN),
+        (KEY_FULLSCREEN_BLACKLIST, LEGACY_KEY_FULLSCREEN_BLACKLIST),
+        (KEY_PRIVACY_MASK, LEGACY_KEY_PRIVACY_MASK),
+        (KEY_PRIVACY_MASK_UNTIL, LEGACY_KEY_PRIVACY_MASK_UNTIL),
+        (KEY_BOSS_KEY, LEGACY_KEY_BOSS_KEY),
+        (KEY_WIDGET_Y, LEGACY_KEY_WIDGET_Y),
+    ];
+    for (new_key, old_key) in pairs {
+        if read_string(&conn, new_key).is_some() {
+            continue;
+        }
+        if let Some(val) = read_string(&conn, old_key) {
+            let _ = set_string(new_key, &val);
+            let _ = delete_key(old_key);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn default_config_basics() {
-        let cfg = WallpaperConfig::default();
+        let cfg = WidgetConfig::default();
         assert_eq!(cfg.enabled, false);
         assert_eq!(cfg.style, "dashboard");
         assert_eq!(cfg.refresh_interval_min, 15);
@@ -284,7 +343,7 @@ mod tests {
     #[test]
     fn set_config_rejects_unknown_key() {
         let err = set_config(&json!({ "foo": "bar" })).expect_err("unknown key");
-        assert!(err.contains("unknown wallpaper config key"));
+        assert!(err.contains("unknown widget config key"));
     }
 
     #[test]

@@ -20,7 +20,7 @@ use std::time::{Duration, Instant};
 
 use tauri::{AppHandle, Listener};
 
-use crate::tools::wallpaper::{apply, config, fullscreen, lock, state};
+use crate::tools::widget::{apply, config, fullscreen, lock, state};
 
 /// Trailing-edge debounce 静默期；最后一条事件 5s 内无新事件即触发 apply。
 const DEBOUNCE_WINDOW: Duration = Duration::from_secs(5);
@@ -50,9 +50,9 @@ pub fn start(app: AppHandle) {
     std::thread::spawn(move || midnight_loop(app_for_midnight));
 
     // 监听前端挂件交互（v2 新增）：用户点击 todo checkbox 等动作 → 立即推新数据。
-    // 走 debounce 通道避免连点抖动；前端 emit `wallpaper://canvas-action`。
-    app.listen("wallpaper://canvas-action", |evt| {
-        eprintln!("[wallpaper] canvas-action received: {}", evt.payload());
+    // 走 debounce 通道避免连点抖动；前端 emit `widget://canvas-action`。
+    app.listen("widget://canvas-action", |evt| {
+        eprintln!("[widget] canvas-action received: {}", evt.payload());
         apply::invalidate_input_hash();
         notify_data_changed("widget");
     });
@@ -85,7 +85,7 @@ pub fn start(app: AppHandle) {
             }
             match apply::apply_with_force(&app, false) {
                 Ok(_) => {}
-                Err(e) => eprintln!("[wallpaper] event-driven apply failed: {e}"),
+                Err(e) => eprintln!("[widget] event-driven apply failed: {e}"),
             }
         }
     });
@@ -115,7 +115,7 @@ fn midnight_loop(app: AppHandle) {
             continue;
         }
         if let Err(e) = apply::apply_with_force(&app, true) {
-            eprintln!("[wallpaper] midnight apply failed: {e}");
+            eprintln!("[widget] midnight apply failed: {e}");
         }
     }
 }

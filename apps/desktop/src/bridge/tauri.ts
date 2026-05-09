@@ -286,17 +286,17 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:system:open-local-path":       { domain: "system", action: "open_local_path" },
   "tool:system:reveal-in-folder":      { domain: "system", action: "reveal_in_folder" },
   "tool:system:check-paths-exist":     { domain: "system", action: "check_paths_exist" },
-  "tool:wallpaper:dashboard-data":     { domain: "wallpaper", action: "dashboard_data" },
-  "tool:wallpaper:apply":              { domain: "wallpaper", action: "apply" },
-  "tool:wallpaper:pause":              { domain: "wallpaper", action: "pause" },
-  "tool:wallpaper:resume":             { domain: "wallpaper", action: "resume" },
-  "tool:wallpaper:status":             { domain: "wallpaper", action: "status" },
-  "tool:wallpaper:enable":             { domain: "wallpaper", action: "enable" },
-  "tool:wallpaper:disable":            { domain: "wallpaper", action: "disable" },
-  "tool:wallpaper:get-config":         { domain: "wallpaper", action: "get_config" },
-  "tool:wallpaper:set-config":         { domain: "wallpaper", action: "set_config" },
-  "tool:wallpaper:set-privacy-mask":   { domain: "wallpaper", action: "set_privacy_mask" },
-  "tool:wallpaper:set-boss-key-error": { domain: "wallpaper", action: "set_boss_key_error" }
+  "tool:widget:dashboard-data":     { domain: "widget", action: "dashboard_data" },
+  "tool:widget:apply":              { domain: "widget", action: "apply" },
+  "tool:widget:pause":              { domain: "widget", action: "pause" },
+  "tool:widget:resume":             { domain: "widget", action: "resume" },
+  "tool:widget:status":             { domain: "widget", action: "status" },
+  "tool:widget:enable":             { domain: "widget", action: "enable" },
+  "tool:widget:disable":            { domain: "widget", action: "disable" },
+  "tool:widget:get-config":         { domain: "widget", action: "get_config" },
+  "tool:widget:set-config":         { domain: "widget", action: "set_config" },
+  "tool:widget:set-privacy-mask":   { domain: "widget", action: "set_privacy_mask" },
+  "tool:widget:set-boss-key-error": { domain: "widget", action: "set_boss_key_error" }
 };
 
 export async function invokeToolByChannel(

@@ -26,16 +26,16 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
-import type { WallpaperTodoItem } from "../types/wallpaper";
+import type { WidgetTodoItem } from "../types/widget";
 
 const props = defineProps<{
-  items: WallpaperTodoItem[];
+  items: WidgetTodoItem[];
   /** design §9：开启敏感模式时把 title 替换为 ▓ */
   privacyMask?: boolean;
 }>();
 
 const emit = defineEmits<{
-  (e: "complete", item: WallpaperTodoItem): void;
+  (e: "complete", item: WidgetTodoItem): void;
 }>();
 
 function displayTitle(title: string): string {
@@ -52,11 +52,11 @@ const overflowCount = computed(() =>
   Math.max(0, props.items.length - MAX_LINES),
 );
 
-function onComplete(item: WallpaperTodoItem) {
+function onComplete(item: WidgetTodoItem) {
   emit("complete", item);
 }
 
-function isOverdue(item: WallpaperTodoItem): boolean {
+function isOverdue(item: WidgetTodoItem): boolean {
   if (!item.endAt) return false;
   const today = new Date();
   today.setHours(0, 0, 0, 0);

@@ -1,15 +1,14 @@
-//! `tool:wallpaper:apply` —— 推数据给挂件
+//! `tool:widget:apply` —— 推数据给挂件
 //!
 //! 重构后职责精简：
 //! 1. 拉 dashboard_data
 //! 2. 注入 privacyMask 标记
 //! 3. 算内容 hash（force=false 命中跳过）
 //! 4. ensure 挂件存在（失败不阻塞）
-//! 5. emit `wallpaper://color-mode` + `wallpaper://dashboard-data`
+//! 5. emit `widget://color-mode` + `widget://dashboard-data`
 //! 6. 写 state.last_rendered_at
 //!
-//! 不再做：CapturePreview / 图像合成 / IDesktopWallpaper::SetWallpaper /
-//! canvas-ready 握手 / hidden WebView 重建。
+//! 不再做：CapturePreview / 图像合成 / canvas-ready 握手 / hidden WebView 重建。
 
 #![allow(dead_code)]
 
@@ -19,7 +18,7 @@ use std::time::Instant;
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter};
 
-use crate::tools::wallpaper::{config, dashboard_logic, data, state, widget};
+use crate::tools::widget::{config, dashboard_logic, data, state, widget};
 
 /// 上一次推送的输入 hash（dashboard 内容 + privacy_mask）。
 /// 0 = 失效；调用 [`invalidate_input_hash`] 强制下一轮真正推一次。
@@ -30,7 +29,7 @@ pub fn invalidate_input_hash() {
     LAST_INPUT_HASH.store(0, Ordering::SeqCst);
 }
 
-/// `tool:wallpaper:apply` 入口；force=true 跳过 hash 去重。
+/// `tool:widget:apply` 入口；force=true 跳过 hash 去重。
 pub fn apply(app: &AppHandle) -> Result<Value, String> {
     apply_with_force(app, true)
 }
@@ -38,7 +37,7 @@ pub fn apply(app: &AppHandle) -> Result<Value, String> {
 /// 调度 / 事件驱动入口；force=false 启用内容 hash 去重。
 pub fn apply_with_force(app: &AppHandle, force: bool) -> Result<Value, String> {
     let start = Instant::now();
-    eprintln!("[wallpaper] apply: enter (force={force})");
+    eprintln!("[widget] apply: enter (force={force})");
 
     // 1. 数据 + 配置
     let dashboard = data::dashboard_data(&Value::Null)?;
@@ -56,7 +55,7 @@ pub fn apply_with_force(app: &AppHandle, force: bool) -> Result<Value, String> {
     let input_hash = compute_input_hash(&overview_value, &todo_list_value, privacy_mask);
     let prev_hash = LAST_INPUT_HASH.load(Ordering::SeqCst);
     if !force && input_hash != 0 && input_hash == prev_hash {
-        eprintln!("[wallpaper] apply: skipped (no-change, hash={input_hash:#x})");
+        eprintln!("[widget] apply: skipped (no-change, hash={input_hash:#x})");
         return Ok(json!({
             "ok": true,
             "skipped": true,
@@ -67,7 +66,7 @@ pub fn apply_with_force(app: &AppHandle, force: bool) -> Result<Value, String> {
 
     // 4. 确保挂件存在（失败仅 log，不阻塞数据推送——下次 apply 自然重试）
     if let Err(e) = widget::ensure(app) {
-        eprintln!("[wallpaper] apply: widget ensure failed: {e}");
+        eprintln!("[widget] apply: widget ensure failed: {e}");
     }
 
     // 5. 注入 privacyMask 标记
@@ -80,10 +79,10 @@ pub fn apply_with_force(app: &AppHandle, force: bool) -> Result<Value, String> {
     //    color-mode 固定 "dark"（浅玻璃蒙层 + 深色字）：挂件背景透明，
     //    深色字在多数壁纸上对比度都可接受，且不依赖 base 壁纸采样。
     //    未来可让用户在面板里切换 light / dark / auto。
-    if let Err(e) = app.emit("wallpaper://color-mode", "dark") {
-        eprintln!("[wallpaper] apply: emit color-mode failed: {e}");
+    if let Err(e) = app.emit("widget://color-mode", "dark") {
+        eprintln!("[widget] apply: emit color-mode failed: {e}");
     }
-    app.emit("wallpaper://dashboard-data", &dashboard_emit)
+    app.emit("widget://dashboard-data", &dashboard_emit)
         .map_err(|e| format!("emit dashboard-data failed: {e}"))?;
 
     // 7. 写状态
@@ -97,7 +96,7 @@ pub fn apply_with_force(app: &AppHandle, force: bool) -> Result<Value, String> {
     }
 
     let elapsed = start.elapsed().as_millis() as u64;
-    eprintln!("[wallpaper] apply: done in {elapsed}ms");
+    eprintln!("[widget] apply: done in {elapsed}ms");
     Ok(json!({
         "ok": true,
         "skipped": false,
@@ -112,9 +111,9 @@ fn now_iso() -> String {
     chrono::Local::now().format("%Y-%m-%dT%H:%M:%S%:z").to_string()
 }
 
-/// 判定当前是否处于敏感模式；过期则同步写回 wallpaper.privacy_mask=false +
-/// 清空 wallpaper.privacy_mask_until。
-fn resolve_privacy_mask(cfg: &config::WallpaperConfig) -> bool {
+/// 判定当前是否处于敏感模式；过期则同步写回 widget.privacy_mask=false +
+/// 清空 widget.privacy_mask_until。
+fn resolve_privacy_mask(cfg: &config::WidgetConfig) -> bool {
     if !cfg.privacy_mask {
         return false;
     }
@@ -128,10 +127,10 @@ fn resolve_privacy_mask(cfg: &config::WallpaperConfig) -> bool {
         return true;
     }
     if let Err(e) = config::set_string(config::KEY_PRIVACY_MASK, "false") {
-        eprintln!("[wallpaper] auto-clear privacy_mask failed: {e}");
+        eprintln!("[widget] auto-clear privacy_mask failed: {e}");
     }
     if let Err(e) = config::set_string(config::KEY_PRIVACY_MASK_UNTIL, "") {
-        eprintln!("[wallpaper] auto-clear privacy_mask_until failed: {e}");
+        eprintln!("[widget] auto-clear privacy_mask_until failed: {e}");
     }
     false
 }

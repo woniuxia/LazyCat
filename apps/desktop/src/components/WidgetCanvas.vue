@@ -1,19 +1,19 @@
 <template>
   <!-- LazyCat 桌面挂件 · 360×800 信息层 -->
-  <div class="wallpaper-canvas" :class="`mode-${colorMode}`">
+  <div class="widget-canvas" :class="`mode-${colorMode}`">
     <!-- 顶部拖拽把手：仅 16px 高，CSS app-region: drag 让用户沿屏幕沿移动挂件 Y -->
     <div class="drag-handle" data-tauri-drag-region>
       <span class="grip">⋮⋮</span>
     </div>
 
     <template v-if="data">
-      <WallpaperOverviewBlock :overview="data.overview" />
-      <WallpaperTodoList
+      <WidgetOverviewBlock :overview="data.overview" />
+      <WidgetTodoList
         :items="data.todoList"
         :privacy-mask="privacyMask"
         @complete="onCompleteItem"
       />
-      <WallpaperExtensionSlot />
+      <WidgetExtensionSlot />
     </template>
     <div v-else class="boot">
       <span>加载中…</span>
@@ -25,14 +25,14 @@
 import { onMounted, onBeforeUnmount, ref } from "vue";
 import { listen, emit, type UnlistenFn } from "@tauri-apps/api/event";
 import { invokeToolByChannel } from "../bridge/tauri";
-import type { WallpaperDashboardData, WallpaperTodoItem } from "../types/wallpaper";
-import WallpaperOverviewBlock from "./WallpaperOverviewBlock.vue";
-import WallpaperTodoList from "./WallpaperTodoList.vue";
-import WallpaperExtensionSlot from "./WallpaperExtensionSlot.vue";
+import type { WidgetDashboardData, WidgetTodoItem } from "../types/widget";
+import WidgetOverviewBlock from "./WidgetOverviewBlock.vue";
+import WidgetTodoList from "./WidgetTodoList.vue";
+import WidgetExtensionSlot from "./WidgetExtensionSlot.vue";
 
 type ColorMode = "light" | "dark";
 
-const data = ref<WallpaperDashboardData | null>(null);
+const data = ref<WidgetDashboardData | null>(null);
 const colorMode = ref<ColorMode>("dark");
 const privacyMask = ref(false);
 
@@ -40,13 +40,13 @@ const unlisteners: UnlistenFn[] = [];
 
 onMounted(async () => {
   unlisteners.push(
-    await listen<WallpaperDashboardData>("wallpaper://dashboard-data", (e) => {
+    await listen<WidgetDashboardData>("widget://dashboard-data", (e) => {
       data.value = e.payload;
       privacyMask.value = e.payload?.privacyMask === true;
     }),
   );
   unlisteners.push(
-    await listen<ColorMode>("wallpaper://color-mode", (e) => {
+    await listen<ColorMode>("widget://color-mode", (e) => {
       colorMode.value = e.payload;
     }),
   );
@@ -62,11 +62,11 @@ onBeforeUnmount(() => {
  * id 形如 `pm:123` / `todo:456`，按 prefix 路由到对应的 change-status 通道。
  * 完成后通知后端 invalidate hash + 立即推新数据。
  */
-async function onCompleteItem(item: WallpaperTodoItem) {
+async function onCompleteItem(item: WidgetTodoItem) {
   const [source, idRaw] = item.id.split(":", 2);
   const id = Number(idRaw);
   if (!Number.isFinite(id) || id <= 0) {
-    console.warn("[wallpaper-canvas] invalid item id", item.id);
+    console.warn("[widget-canvas] invalid item id", item.id);
     return;
   }
   // 乐观更新：从本地列表移除，避免等待后端往返的卡顿
@@ -79,13 +79,13 @@ async function onCompleteItem(item: WallpaperTodoItem) {
     } else if (source === "todo") {
       await invokeToolByChannel("tool:todo:item-change-status", { id, status: "done" });
     } else {
-      console.warn("[wallpaper-canvas] unknown source", source);
+      console.warn("[widget-canvas] unknown source", source);
       return;
     }
     // 通知后端：让 dashboard 重算并推一份新数据
-    void emit("wallpaper://canvas-action", { kind: "todo-completed", id: item.id });
+    void emit("widget://canvas-action", { kind: "todo-completed", id: item.id });
   } catch (e) {
-    console.error("[wallpaper-canvas] complete failed", e);
+    console.error("[widget-canvas] complete failed", e);
     // 失败回滚：把项放回去（按原顺序难精确恢复，简单 unshift 到顶部）
     if (data.value) {
       data.value.todoList = [item, ...data.value.todoList];
@@ -99,7 +99,7 @@ async function onCompleteItem(item: WallpaperTodoItem) {
  * 360×800 挂件信息层。
  * 浅 / 深玻璃蒙层在 :class="mode-light/dark" 上切换 CSS 变量。
  */
-.wallpaper-canvas {
+.widget-canvas {
   width: 360px;
   height: 800px;
   padding: 16px;
@@ -139,7 +139,7 @@ async function onCompleteItem(item: WallpaperTodoItem) {
 }
 
 /* mode-light：浅色文字 + 深玻璃蒙层（深色壁纸下用） */
-.wallpaper-canvas.mode-light {
+.widget-canvas.mode-light {
   --wc-text: #ffffff;
   --wc-text-muted: rgba(255, 255, 255, 0.6);
   --wc-text-strong: #ffffff;
@@ -152,7 +152,7 @@ async function onCompleteItem(item: WallpaperTodoItem) {
 }
 
 /* mode-dark：深色文字 + 浅玻璃蒙层（浅色壁纸下用） */
-.wallpaper-canvas.mode-dark {
+.widget-canvas.mode-dark {
   --wc-text: #1a1a1a;
   --wc-text-muted: rgba(26, 26, 26, 0.55);
   --wc-text-strong: #0f172a;

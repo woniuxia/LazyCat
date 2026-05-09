@@ -10,7 +10,7 @@
 use serde_json::{json, Value};
 use tauri::AppHandle;
 
-use crate::tools::wallpaper::{apply, state, widget};
+use crate::tools::widget::{apply, state, widget};
 
 /// 切换老板键暂停态。
 ///
@@ -31,12 +31,12 @@ pub fn toggle(app: &AppHandle) -> Result<Value, String> {
         apply::invalidate_input_hash();
 
         if let Err(e) = widget::set_state(app, widget::VisualState::Peek) {
-            eprintln!("[wallpaper] boss-key resume: widget show failed: {e}");
+            eprintln!("[widget] boss-key resume: widget show failed: {e}");
         }
         match apply::apply(app) {
             Ok(_) => Ok(json!({ "ok": true, "paused": false, "action": "resumed" })),
             Err(e) => {
-                eprintln!("[wallpaper] boss-key resume apply failed: {e}");
+                eprintln!("[widget] boss-key resume apply failed: {e}");
                 state::write(|s| s.last_error = Some(format!("老板键恢复失败：{e}")));
                 Ok(json!({
                     "ok": true,
@@ -53,7 +53,7 @@ pub fn toggle(app: &AppHandle) -> Result<Value, String> {
             s.pause_reason = Some(state::PauseReason::BossKey);
         });
         if let Err(e) = widget::set_state(app, widget::VisualState::Hidden) {
-            eprintln!("[wallpaper] boss-key pause: widget hide failed: {e}");
+            eprintln!("[widget] boss-key pause: widget hide failed: {e}");
         }
         Ok(json!({ "ok": true, "paused": true, "action": "paused" }))
     }

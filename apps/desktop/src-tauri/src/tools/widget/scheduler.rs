@@ -1,6 +1,6 @@
 //! 挂件刷新心跳调度（v2 挂件版）
 //!
-//! - 后台线程按 `wallpaper.refresh_interval_min` 心跳触发 [`apply::apply_with_force`]
+//! - 后台线程按 `widget.refresh_interval_min` 心跳触发 [`apply::apply_with_force`]
 //! - 启动时若 `enabled=true`，先 ensure widget + 立即 apply 一次
 //! - 跳过条件：未启用 / 暂停态 / 锁屏 / 全屏切净（lock + fullscreen 模块）
 //! - **挂件状态联动**：should_skip 命中 → widget::set_state(Hidden)；
@@ -14,7 +14,7 @@ use std::time::Duration;
 
 use tauri::AppHandle;
 
-use crate::tools::wallpaper::{apply, conflicts, config, fullscreen, idle, lock, state, widget};
+use crate::tools::widget::{apply, conflicts, config, fullscreen, idle, lock, state, widget};
 
 /// 5min 无输入即视为空闲，sleep 间隔降为 [`IDLE_INTERVAL_SECS`]。
 const IDLE_THRESHOLD_SECS: u32 = 300;
@@ -144,6 +144,6 @@ fn sync_widget_visibility(app: &AppHandle, skip: bool) {
 
 /// 写入失败状态；不再有 burnout / hidden window 重建逻辑。
 fn handle_apply_error(err: &str) {
-    eprintln!("[wallpaper] scheduled apply failed: {err}");
+    eprintln!("[widget] scheduled apply failed: {err}");
     state::write(|s| s.last_error = Some(err.to_string()));
 }

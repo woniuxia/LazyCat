@@ -32,9 +32,9 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
-import type { WallpaperOverview } from "../types/wallpaper";
+import type { WidgetOverview } from "../types/widget";
 
-const props = defineProps<{ overview: WallpaperOverview }>();
+const props = defineProps<{ overview: WidgetOverview }>();
 
 // 圆周长 ≈ 264（2π·42）；保留 1 位小数避免 stroke 抖动
 const RING_CIRCUMFERENCE = 264;
