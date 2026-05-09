@@ -18,7 +18,7 @@
 use std::sync::{mpsc, OnceLock};
 use std::time::{Duration, Instant};
 
-use tauri::AppHandle;
+use tauri::{AppHandle, Listener};
 
 use crate::tools::wallpaper::{apply, config, fullscreen, lock, state};
 
@@ -48,6 +48,14 @@ pub fn start(app: AppHandle) {
 
     let app_for_midnight = app.clone();
     std::thread::spawn(move || midnight_loop(app_for_midnight));
+
+    // 监听前端挂件交互（v2 新增）：用户点击 todo checkbox 等动作 → 立即推新数据。
+    // 走 debounce 通道避免连点抖动；前端 emit `wallpaper://canvas-action`。
+    app.listen("wallpaper://canvas-action", |evt| {
+        eprintln!("[wallpaper] canvas-action received: {}", evt.payload());
+        apply::invalidate_input_hash();
+        notify_data_changed("widget");
+    });
 
     std::thread::spawn(move || {
         loop {

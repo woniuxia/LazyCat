@@ -288,7 +288,6 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:system:check-paths-exist":     { domain: "system", action: "check_paths_exist" },
   "tool:wallpaper:dashboard-data":     { domain: "wallpaper", action: "dashboard_data" },
   "tool:wallpaper:apply":              { domain: "wallpaper", action: "apply" },
-  "tool:wallpaper:restore":            { domain: "wallpaper", action: "restore" },
   "tool:wallpaper:pause":              { domain: "wallpaper", action: "pause" },
   "tool:wallpaper:resume":             { domain: "wallpaper", action: "resume" },
   "tool:wallpaper:status":             { domain: "wallpaper", action: "status" },
@@ -296,7 +295,6 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:wallpaper:disable":            { domain: "wallpaper", action: "disable" },
   "tool:wallpaper:get-config":         { domain: "wallpaper", action: "get_config" },
   "tool:wallpaper:set-config":         { domain: "wallpaper", action: "set_config" },
-  "tool:wallpaper:list-history":       { domain: "wallpaper", action: "list_history" },
   "tool:wallpaper:set-privacy-mask":   { domain: "wallpaper", action: "set_privacy_mask" },
   "tool:wallpaper:set-boss-key-error": { domain: "wallpaper", action: "set_boss_key_error" }
 };

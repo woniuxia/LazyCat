@@ -1,9 +1,13 @@
-//! 壁纸配置读写
+//! 壁纸/挂件配置读写
 //!
 //! 默认值常量集中维护在此；前端读不到时回落 default。
 //! 不动 user_settings schema，仅以 wallpaper.* 为 key 前缀写入既有表。
+//!
+//! v2（挂件改造）：原 PNG 链路相关字段（position / exit_behavior /
+//! image_format / keep_history_count / original_path / original_set_method）
+//! 已废弃，由 mod.rs::enable_wallpaper 启动时一次性清理。
 
-#![allow(dead_code)] // Phase 0 骨架：部分 KEY/helper 由后续 Phase 接入
+#![allow(dead_code)]
 
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
@@ -15,27 +19,19 @@ use crate::tools::helpers::db_conn;
 
 pub const KEY_ENABLED: &str = "wallpaper.enabled";
 pub const KEY_STYLE: &str = "wallpaper.style";
-pub const KEY_POSITION: &str = "wallpaper.position";
 pub const KEY_REFRESH_INTERVAL_MIN: &str = "wallpaper.refresh_interval_min";
-pub const KEY_ORIGINAL_PATH: &str = "wallpaper.original_path";
-pub const KEY_ORIGINAL_SET_METHOD: &str = "wallpaper.original_set_method";
 pub const KEY_FULLSCREEN_BLACKLIST: &str = "wallpaper.fullscreen_blacklist";
 pub const KEY_PRIVACY_MASK: &str = "wallpaper.privacy_mask";
 pub const KEY_PRIVACY_MASK_UNTIL: &str = "wallpaper.privacy_mask_until";
-pub const KEY_EXIT_BEHAVIOR: &str = "wallpaper.exit_behavior";
 pub const KEY_BOSS_KEY: &str = "wallpaper.boss_key";
-pub const KEY_IMAGE_FORMAT: &str = "wallpaper.image_format";
-pub const KEY_KEEP_HISTORY_COUNT: &str = "wallpaper.keep_history_count";
+/// 挂件持久化 Y（物理像素，整数）；空 = 居中。X 始终贴右由 widget.rs 计算。
+pub const KEY_WIDGET_Y: &str = "wallpaper.widget_y";
 
 // ── 默认值 ────────────────────────────────────────
 
 pub const DEFAULT_STYLE: &str = "dashboard";
-pub const DEFAULT_POSITION: &str = "right";
 pub const DEFAULT_REFRESH_INTERVAL_MIN: i64 = 15;
-pub const DEFAULT_EXIT_BEHAVIOR: &str = "restore_original";
 pub const DEFAULT_BOSS_KEY: &str = "Ctrl+Alt+W";
-pub const DEFAULT_IMAGE_FORMAT: &str = "jpeg";
-pub const DEFAULT_KEEP_HISTORY_COUNT: i64 = 20;
 
 /// 默认仅纳入演示 / 录屏 / 会议软件，避免 chrome / vlc 长期误切净。
 pub fn default_fullscreen_blacklist() -> Vec<String> {
@@ -55,15 +51,13 @@ pub fn default_fullscreen_blacklist() -> Vec<String> {
 pub struct WallpaperConfig {
     pub enabled: bool,
     pub style: String,
-    pub position: String,
     pub refresh_interval_min: i64,
     pub fullscreen_blacklist: Vec<String>,
     pub privacy_mask: bool,
     pub privacy_mask_until: Option<String>,
-    pub exit_behavior: String,
     pub boss_key: String,
-    pub image_format: String,
-    pub keep_history_count: i64,
+    /// 挂件 Y 位置（物理像素）；None = 居中
+    pub widget_y: Option<i64>,
 }
 
 impl Default for WallpaperConfig {
@@ -71,15 +65,12 @@ impl Default for WallpaperConfig {
         Self {
             enabled: false,
             style: DEFAULT_STYLE.into(),
-            position: DEFAULT_POSITION.into(),
             refresh_interval_min: DEFAULT_REFRESH_INTERVAL_MIN,
             fullscreen_blacklist: default_fullscreen_blacklist(),
             privacy_mask: false,
             privacy_mask_until: None,
-            exit_behavior: DEFAULT_EXIT_BEHAVIOR.into(),
             boss_key: DEFAULT_BOSS_KEY.into(),
-            image_format: DEFAULT_IMAGE_FORMAT.into(),
-            keep_history_count: DEFAULT_KEEP_HISTORY_COUNT,
+            widget_y: None,
         }
     }
 }
@@ -97,9 +88,6 @@ pub fn read_config() -> WallpaperConfig {
     if let Some(v) = read_string(&conn, KEY_STYLE) {
         cfg.style = v;
     }
-    if let Some(v) = read_string(&conn, KEY_POSITION) {
-        cfg.position = v;
-    }
     if let Some(v) = read_string(&conn, KEY_REFRESH_INTERVAL_MIN) {
         if let Ok(n) = v.parse::<i64>() {
             cfg.refresh_interval_min = n;
@@ -114,18 +102,12 @@ pub fn read_config() -> WallpaperConfig {
         cfg.privacy_mask = parse_bool(&v).unwrap_or(false);
     }
     cfg.privacy_mask_until = read_string(&conn, KEY_PRIVACY_MASK_UNTIL).filter(|s| !s.is_empty());
-    if let Some(v) = read_string(&conn, KEY_EXIT_BEHAVIOR) {
-        cfg.exit_behavior = v;
-    }
     if let Some(v) = read_string(&conn, KEY_BOSS_KEY) {
         cfg.boss_key = v;
     }
-    if let Some(v) = read_string(&conn, KEY_IMAGE_FORMAT) {
-        cfg.image_format = v;
-    }
-    if let Some(v) = read_string(&conn, KEY_KEEP_HISTORY_COUNT) {
+    if let Some(v) = read_string(&conn, KEY_WIDGET_Y) {
         if let Ok(n) = v.parse::<i64>() {
-            cfg.keep_history_count = n;
+            cfg.widget_y = Some(n);
         }
     }
     cfg
@@ -169,7 +151,15 @@ pub fn set_string(key: &str, value: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// 部分更新；payload 形如 `{ "style": "dashboard", "refreshIntervalMin": 30 }`。
+/// 删除 user_settings 中指定 key（数据迁移用）。不存在不报错。
+pub fn delete_key(key: &str) -> Result<(), String> {
+    let conn = db_conn()?;
+    conn.execute("DELETE FROM user_settings WHERE key = ?1", params![key])
+        .map_err(|e| format!("delete wallpaper setting {key} failed: {e}"))?;
+    Ok(())
+}
+
+/// 部分更新；payload 形如 `{ "refreshIntervalMin": 30 }`。
 pub fn set_config(payload: &Value) -> Result<Value, String> {
     let obj = payload
         .as_object()
@@ -177,22 +167,19 @@ pub fn set_config(payload: &Value) -> Result<Value, String> {
 
     for (key, val) in obj.iter() {
         match key.as_str() {
-            // enabled 必须走 enable / disable 通道，避免绕过备份原图、销毁 hidden WebView 等副作用
+            // enabled 必须走 enable / disable channel，避免绕过 widget 创建/销毁副作用
             "enabled" => {
                 return Err(
                     "enabled must be set via tool:wallpaper:enable / disable channels".into(),
                 );
             }
             "style" => write_string(KEY_STYLE, val)?,
-            "position" => write_string(KEY_POSITION, val)?,
             "refreshIntervalMin" => write_i64(KEY_REFRESH_INTERVAL_MIN, val)?,
             "fullscreenBlacklist" => write_string_array(KEY_FULLSCREEN_BLACKLIST, val)?,
             "privacyMask" => write_bool(KEY_PRIVACY_MASK, val)?,
             "privacyMaskUntil" => write_optional_string(KEY_PRIVACY_MASK_UNTIL, val)?,
-            "exitBehavior" => write_string(KEY_EXIT_BEHAVIOR, val)?,
             "bossKey" => write_string(KEY_BOSS_KEY, val)?,
-            "imageFormat" => write_string(KEY_IMAGE_FORMAT, val)?,
-            "keepHistoryCount" => write_i64(KEY_KEEP_HISTORY_COUNT, val)?,
+            "widgetY" => write_optional_i64(KEY_WIDGET_Y, val)?,
             other => {
                 return Err(format!("unknown wallpaper config key: {other}"));
             }
@@ -231,6 +218,17 @@ fn write_i64(key: &str, val: &Value) -> Result<(), String> {
     set_string(key, &n.to_string())
 }
 
+fn write_optional_i64(key: &str, val: &Value) -> Result<(), String> {
+    if val.is_null() {
+        set_string(key, "")
+    } else {
+        let n = val
+            .as_i64()
+            .ok_or_else(|| format!("{key} must be integer or null"))?;
+        set_string(key, &n.to_string())
+    }
+}
+
 fn write_string_array(key: &str, val: &Value) -> Result<(), String> {
     let arr = val
         .as_array()
@@ -252,18 +250,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_config_matches_design_v05() {
+    fn default_config_basics() {
         let cfg = WallpaperConfig::default();
         assert_eq!(cfg.enabled, false);
         assert_eq!(cfg.style, "dashboard");
-        assert_eq!(cfg.position, "right");
         assert_eq!(cfg.refresh_interval_min, 15);
-        assert_eq!(cfg.exit_behavior, "restore_original");
         assert_eq!(cfg.boss_key, "Ctrl+Alt+W");
-        assert_eq!(cfg.image_format, "jpeg");
-        assert_eq!(cfg.keep_history_count, 20);
         assert_eq!(cfg.privacy_mask, false);
         assert!(cfg.privacy_mask_until.is_none());
+        assert!(cfg.widget_y.is_none());
     }
 
     #[test]
@@ -294,7 +289,6 @@ mod tests {
 
     #[test]
     fn set_config_rejects_enabled_key() {
-        // enabled 必须走 enable / disable channel，避免绕过备份 / 销毁 WebView 副作用
         let err = set_config(&json!({ "enabled": false })).expect_err("must reject enabled");
         assert!(err.contains("enable / disable channels"));
     }

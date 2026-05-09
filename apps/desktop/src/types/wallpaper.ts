@@ -1,22 +1,8 @@
-// Living Wallpaper 类型定义
-// 关联设计：docs/superpowers/specs/2026-05-05-living-wallpaper-design.md (v0.5)
-// 关联实施：docs/superpowers/specs/2026-05-05-living-wallpaper-plan.md
-
-export type WallpaperPosition =
-  | "right"
-  | "left"
-  | "top"
-  | "bottom"
-  | "tl"
-  | "tr"
-  | "bl"
-  | "br";
-
-export type WallpaperStyle = "dashboard" | "sticky" | "banner";
-
-export type WallpaperExitBehavior = "keep_last" | "restore_original";
-
-export type WallpaperImageFormat = "jpeg" | "png";
+// Living Wallpaper / Desktop Widget 类型定义
+//
+// v2 (挂件改造)：删除原 PNG 链路相关类型（WallpaperPosition / WallpaperStyle /
+// WallpaperExitBehavior / WallpaperImageFormat / WallpaperHistoryEntry / lastRenderedPath /
+// originalPath / exitBehavior / imageFormat / keepHistoryCount / position）。
 
 export type WallpaperPauseReason = "boss_key" | "fullscreen" | "lock" | "manual";
 
@@ -47,7 +33,7 @@ export interface WallpaperTodoItem {
 export interface WallpaperDashboardData {
   overview: WallpaperOverview;
   todoList: WallpaperTodoItem[];
-  /** 阶段 1 始终为 null（扩展位预留） */
+  /** 扩展位预留 */
   echo: string | null;
   generatedAt: string;
   /** design §9 敏感模式：开启时 canvas 把 todo 标题打码 */
@@ -58,9 +44,7 @@ export interface WallpaperStatus {
   enabled: boolean;
   paused: boolean;
   pauseReason?: WallpaperPauseReason | null;
-  originalPath: string | null;
   lastRenderedAt: string | null;
-  lastRenderedPath: string | null;
   lastError?: string | null;
   spotlightDetected: boolean;
   thirdPartyEngine?: string | null;
@@ -76,22 +60,13 @@ export interface WallpaperStatus {
 
 export interface WallpaperConfig {
   enabled: boolean;
-  style: WallpaperStyle;
-  position: WallpaperPosition;
+  style: string;
   refreshIntervalMin: number;
   fullscreenBlacklist: string[];
   privacyMask: boolean;
   /** ISO 时间字符串，null = 永久 */
   privacyMaskUntil: string | null;
-  exitBehavior: WallpaperExitBehavior;
   bossKey: string;
-  imageFormat: WallpaperImageFormat;
-  keepHistoryCount: number;
-}
-
-export interface WallpaperHistoryEntry {
-  path: string;
-  size: number;
-  /** ISO 时间字符串 */
-  createdAt: string;
+  /** 挂件 Y 位置（物理像素）；null = 居中 */
+  widgetY: number | null;
 }

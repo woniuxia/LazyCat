@@ -1,7 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod tools;
-mod wallpaper_poc;
 
 use tauri::{
     menu::{Menu, MenuItem},
@@ -811,59 +810,6 @@ fn init_wallpaper_boss_key(app: &tauri::AppHandle) -> Result<(), String> {
     register_named_hotkey(app.clone(), "wallpaper-boss-key".into(), key)
 }
 
-/// 壁纸子类化 ID（design §18 E3 / E8）。任意唯一值，避开 SUBCLASS_ID。
-#[cfg(windows)]
-const WALLPAPER_SUBCLASS_ID: usize = 0x4C5A_5750; // "LZWP"
-
-/// 壁纸全局 AppHandle（仅供 wallpaper_subclass_proc 在线程外触发 apply 用）。
-#[cfg(windows)]
-static WALLPAPER_APP_HANDLE: std::sync::OnceLock<tauri::AppHandle> = std::sync::OnceLock::new();
-
-/// 主窗口安装壁纸 WndProc 子类，监听 WM_DISPLAYCHANGE / WM_POWERBROADCAST。
-#[cfg(windows)]
-fn install_wallpaper_window_subclass(app: &tauri::AppHandle) {
-    let _ = WALLPAPER_APP_HANDLE.set(app.clone());
-    let Some(window) = app.get_webview_window("main") else { return; };
-    let Ok(hwnd) = window.hwnd() else { return; };
-    unsafe {
-        windows_sys::Win32::UI::Shell::SetWindowSubclass(
-            hwnd.0,
-            Some(wallpaper_subclass_proc),
-            WALLPAPER_SUBCLASS_ID,
-            0,
-        );
-    }
-}
-
-/// 监听 DISPLAYCHANGE → 清 base 缓存；POWERBROADCAST APMRESUMEAUTOMATIC → 立刷
-#[cfg(windows)]
-unsafe extern "system" fn wallpaper_subclass_proc(
-    hwnd: windows_sys::Win32::Foundation::HWND,
-    msg: u32,
-    wparam: windows_sys::Win32::Foundation::WPARAM,
-    lparam: windows_sys::Win32::Foundation::LPARAM,
-    _uid_subclass: usize,
-    _ref_data: usize,
-) -> windows_sys::Win32::Foundation::LRESULT {
-    use windows_sys::Win32::UI::WindowsAndMessaging::WM_DISPLAYCHANGE;
-    const WM_POWERBROADCAST: u32 = 0x0218;
-    const PBT_APMRESUMEAUTOMATIC: usize = 0x0012;
-
-    if msg == WM_DISPLAYCHANGE {
-        tools::wallpaper::state::clear_base_cache();
-        tools::wallpaper::apply::invalidate_input_hash();
-    } else if msg == WM_POWERBROADCAST && wparam == PBT_APMRESUMEAUTOMATIC {
-        if let Some(app) = WALLPAPER_APP_HANDLE.get().cloned() {
-            std::thread::spawn(move || {
-                if let Err(e) = tools::wallpaper::apply::apply(&app) {
-                    eprintln!("[wallpaper] resume apply failed: {e}");
-                }
-            });
-        }
-    }
-    windows_sys::Win32::UI::Shell::DefSubclassProc(hwnd, msg, wparam, lparam)
-}
-
 /// Window subclass ID (arbitrary unique value)
 /// Force a window to the foreground on Windows using the AttachThreadInput trick.
 /// Windows 10+ restricts SetForegroundWindow to the current foreground process;
@@ -1349,10 +1295,6 @@ fn main() {
                 }
             }
 
-            // 安装壁纸 WndProc 子类：监听 DISPLAYCHANGE / POWERBROADCAST（design §18 E3/E8）
-            #[cfg(windows)]
-            install_wallpaper_window_subclass(app.handle());
-
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -1409,18 +1351,13 @@ fn main() {
             stop_capture,
             clear_capture_session,
             export_pcap,
-            wallpaper_poc::wallpaper_poc_open,
-            wallpaper_poc::wallpaper_poc_show,
-            wallpaper_poc::wallpaper_poc_close,
-            wallpaper_poc::wallpaper_poc_capture,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|_app_handle, event| {
-            // 应用退出时按 wallpaper.exit_behavior 处理桌面（design §10）
-            // ExitRequested 涵盖：托盘 quit / 最后一个窗口关闭 / app.exit() 调用
+        .run(|app_handle, event| {
+            // 应用退出时销毁挂件窗口
             if let RunEvent::ExitRequested { .. } = event {
-                tools::wallpaper::on_app_exit();
+                tools::wallpaper::on_app_exit(app_handle);
             }
         });
 }

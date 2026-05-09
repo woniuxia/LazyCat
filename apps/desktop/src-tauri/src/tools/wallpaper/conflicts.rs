@@ -1,6 +1,6 @@
 //! Spotlight / 第三方壁纸引擎冲突检测（design §13.4）
 //!
-//! - Spotlight：读注册表 BackgroundType（==2）或当前壁纸路径指向 Spotlight 缓存
+//! - Spotlight：读注册表 BackgroundType（==3）或当前壁纸路径指向 Spotlight 缓存
 //! - 第三方引擎：枚举进程列表，匹配 wallpaper32/64.exe / Lively.exe / DeskScapes11.exe
 //!
 //! 由 scheduler 启动一次 + 每 10min 重查；结果写入 state.spotlight_detected /
@@ -58,7 +58,12 @@ mod imp {
     fn read_background_type_is_spotlight() -> bool {
         let subkey = wide(r"Software\Microsoft\Windows\CurrentVersion\Explorer\Wallpapers");
         let value = wide("BackgroundType");
-        read_dword(HKEY_CURRENT_USER, &subkey, &value).map(|v| v == 2).unwrap_or(false)
+        // BackgroundType 取值（W10 1903+ / W11）：
+        //   0 = Picture, 1 = SolidColor, 2 = Slideshow, 3 = Spotlight
+        // 旧实现误判 ==2 为 Spotlight（实际是幻灯片）；正确值是 3。
+        read_dword(HKEY_CURRENT_USER, &subkey, &value)
+            .map(|v| v == 3)
+            .unwrap_or(false)
     }
 
     fn read_wallpaper_path_in_spotlight_cache() -> bool {
@@ -66,7 +71,11 @@ mod imp {
         let value = wide("WallPaper");
         let Some(path) = read_string(HKEY_CURRENT_USER, &subkey, &value) else { return false; };
         let lower = path.to_ascii_lowercase();
-        lower.contains("microsoftwindows.client.cbs")
+        // Spotlight 缓存路径通常落在：
+        //   %LOCALAPPDATA%\Packages\Microsoft.Windows.ContentDeliveryManager_cw5n1h2txyewy\
+        //     LocalState\Assets\<hash>
+        // 部分 W11 较新版本路径里出现 MicrosoftWindows.Client.CBS_*，旧关键词保留兼容。
+        (lower.contains("contentdeliverymanager") || lower.contains("microsoftwindows.client.cbs"))
             && lower.contains(r"localstate\assets")
     }
 

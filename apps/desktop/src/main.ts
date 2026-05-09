@@ -18,8 +18,6 @@ if (currentView === "reminder-popup") {
   import("./QuickCaptureApp").then(({ default: mount }) => mount());
 } else if (currentView === "spotlight") {
   import("./SpotlightApp").then(({ default: mount }) => mount());
-} else if (currentView === "wallpaper-poc-canvas") {
-  import("./WallpaperPocCanvasApp").then(({ default: mount }) => mount());
 } else if (currentView === "wallpaper-canvas") {
   import("./WallpaperCanvasApp").then(({ default: mount }) => mount());
 } else {

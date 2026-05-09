@@ -57,7 +57,6 @@ const toolRegistry: Record<string, Component> = {
   maven: defineAsyncComponent(() => import("./components/MavenPanel.vue")),
   hotkey: defineAsyncComponent(() => import("./components/HotkeyPanel.vue")),
   capture: defineAsyncComponent(() => import("./components/CapturePanel.vue")),
-  "wallpaper-poc": defineAsyncComponent(() => import("./components/WallpaperPocPanel.vue")),
   wallpaper: defineAsyncComponent(() => import("./components/WallpaperPanel.vue")),
   settings: defineAsyncComponent(() => import("./components/SettingsPanel.vue")),
 };
