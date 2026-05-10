@@ -91,13 +91,11 @@ pub fn is_open(app: &AppHandle) -> bool {
 /// 已存在则直接返回句柄。
 pub fn ensure(app: &AppHandle) -> Result<WebviewWindow, String> {
     if let Some(w) = app.get_webview_window(WIDGET_LABEL) {
-        eprintln!("[widget] widget: window already exists, returning handle");
         return Ok(w);
     }
     eprintln!("[widget] widget: building widget window");
 
     let url = WebviewUrl::App("index.html?view=widget-canvas".into());
-    eprintln!("[widget] widget: calling WebviewWindowBuilder::build...");
     let win = WebviewWindowBuilder::new(app, WIDGET_LABEL, url)
         .title("LazyCat Widget")
         .inner_size(LOGICAL_W, LOGICAL_H)
@@ -109,20 +107,15 @@ pub fn ensure(app: &AppHandle) -> Result<WebviewWindow, String> {
         .visible(false)
         .build()
         .map_err(|e| format!("widget build failed: {e}"))?;
-    eprintln!("[widget] widget: build ok, applying win32 styles...");
 
     apply_win32_styles(&win);
-    eprintln!("[widget] widget: styles ok, installing position listener...");
     install_position_listener(&win);
-    eprintln!("[widget] widget: listener ok, setting peek position...");
 
     store_state(VisualState::Peek);
     if let Err(e) = apply_position(app, &win, VisualState::Peek) {
         eprintln!("[widget] widget: initial apply_position failed: {e}");
     }
-    eprintln!("[widget] widget: position ok, calling show...");
     win.show().map_err(|e| format!("widget show failed: {e}"))?;
-    eprintln!("[widget] widget: show ok");
 
     start_background_loops_once(app);
     Ok(win)

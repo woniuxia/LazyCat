@@ -39,28 +39,17 @@ const privacyMask = ref(false);
 const unlisteners: UnlistenFn[] = [];
 
 onMounted(async () => {
-  console.log("[widget-canvas] onMounted start", Date.now());
-  try {
-    const unlistenData = await listen<WidgetDashboardData>("widget://dashboard-data", (e) => {
-      console.log("[widget-canvas] received dashboard-data", e.payload);
+  unlisteners.push(
+    await listen<WidgetDashboardData>("widget://dashboard-data", (e) => {
       data.value = e.payload;
       privacyMask.value = e.payload?.privacyMask === true;
-    });
-    console.log("[widget-canvas] dashboard-data listener registered");
-    unlisteners.push(unlistenData);
-  } catch (e) {
-    console.error("[widget-canvas] dashboard-data listen failed", e);
-  }
-  try {
-    const unlistenColor = await listen<ColorMode>("widget://color-mode", (e) => {
-      console.log("[widget-canvas] received color-mode", e.payload);
+    }),
+  );
+  unlisteners.push(
+    await listen<ColorMode>("widget://color-mode", (e) => {
       colorMode.value = e.payload;
-    });
-    console.log("[widget-canvas] color-mode listener registered");
-    unlisteners.push(unlistenColor);
-  } catch (e) {
-    console.error("[widget-canvas] color-mode listen failed", e);
-  }
+    }),
+  );
 });
 
 onBeforeUnmount(() => {
