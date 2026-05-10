@@ -64,13 +64,17 @@ fn needs_app_handle(action: &str) -> String {
 // ── 生命周期 ─────────────────────────────────────
 
 /// 启用挂件：写 enabled=true → 数据迁移（一次性清旧 PNG 链路产物）→
-/// 创建挂件窗口 → 立即推一次数据。
+/// 创建/复用挂件窗口 → 切到 Peek 可见态 → 立即推一次数据。
 fn enable_widget(app: &AppHandle) -> Result<Value, String> {
     eprintln!("[widget] enable: enter");
     let cfg = config::read_config();
     if cfg.enabled {
         eprintln!("[widget] enable: already enabled, ensuring widget");
         widget::ensure(app)?;
+        // 窗口可能处于 Hidden（上次 disable 隐藏），恢复可见态
+        if widget::snapshot_state() == widget::VisualState::Hidden {
+            let _ = widget::set_state(app, widget::VisualState::Peek);
+        }
         let _ = apply::apply(app);
         return Ok(json!({ "ok": true, "alreadyEnabled": true }));
     }
@@ -92,6 +96,10 @@ fn enable_widget(app: &AppHandle) -> Result<Value, String> {
     apply::invalidate_input_hash();
 
     widget::ensure(app)?;
+    // 首次创建时 ensure 内部 set_state(Peek) + show，无需再切；非首次则切到 Peek
+    if widget::snapshot_state() == widget::VisualState::Hidden {
+        let _ = widget::set_state(app, widget::VisualState::Peek);
+    }
     // 立即推一次数据，避免用户开启后等下个心跳才看到内容
     if let Err(e) = apply::apply(app) {
         eprintln!("[widget] enable: first apply failed (continuing): {e}");
@@ -101,12 +109,13 @@ fn enable_widget(app: &AppHandle) -> Result<Value, String> {
     Ok(json!({ "ok": true }))
 }
 
-/// 关闭挂件：销毁窗口 + 写 enabled=false。
+/// 关闭挂件：隐藏窗口 + 写 enabled=false；不销毁，避免重建窗口时 Tauri 死锁。
 fn disable_widget(app: &AppHandle) -> Result<Value, String> {
     eprintln!("[widget] disable: enter");
     config::set_string(config::KEY_ENABLED, "false")?;
-    if let Err(e) = widget::destroy(app) {
-        eprintln!("[widget] disable: destroy failed: {e}");
+    // 隐藏而非销毁：Tauri 2 中 close() + 立即 build() 同名窗口会卡死 WebviewWindowBuilder::build()
+    if let Err(e) = widget::set_state(app, widget::VisualState::Hidden) {
+        eprintln!("[widget] disable: hide widget failed: {e}");
     }
     // 清运行时状态，下次启用是干净的
     state::write(|s| {
