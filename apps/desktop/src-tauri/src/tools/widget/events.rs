@@ -49,6 +49,17 @@ pub fn start(app: AppHandle) {
     let app_for_midnight = app.clone();
     std::thread::spawn(move || midnight_loop(app_for_midnight));
 
+    // 挂件就绪握手：前端挂载完成后通知后端，触发立即推送数据
+    // 解决启动时 apply 在 Vue 挂载前 emit 导致的数据丢失问题
+    let app_for_ready = app.clone();
+    app.listen("widget://ready", move |_evt| {
+        eprintln!("[widget] ready received, pushing data");
+        apply::invalidate_input_hash();
+        if let Err(e) = apply::apply_with_force(&app_for_ready, true) {
+            eprintln!("[widget] ready apply failed: {e}");
+        }
+    });
+
     // 监听前端挂件交互（v2 新增）：用户点击 todo checkbox 等动作 → 立即推新数据。
     // 走 debounce 通道避免连点抖动；前端 emit `widget://canvas-action`。
     app.listen("widget://canvas-action", |evt| {

@@ -50,6 +50,10 @@ onMounted(async () => {
       colorMode.value = e.payload;
     }),
   );
+
+  // 握手：通知后端挂件已就绪，触发立即推送数据
+  // 解决启动时 apply 在 Vue 挂载前发射事件导致数据丢失的竞态问题
+  void emit("widget://ready");
 });
 
 onBeforeUnmount(() => {
