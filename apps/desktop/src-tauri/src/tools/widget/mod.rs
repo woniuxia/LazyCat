@@ -5,11 +5,10 @@
 //!
 //! 通道分发表：
 //! - 不需要 AppHandle：`status` / `get_config` / `set_config` / `dashboard_data`
-//!   / `pause` / `set_privacy_mask` / `set_boss_key_error`
+//!   / `pause` / `set_privacy_mask`
 //! - 需要 AppHandle：`enable` / `disable` / `apply` / `resume`
 
 pub mod apply;
-pub mod boss_key;
 pub mod conflicts;
 pub mod config;
 pub mod dashboard_logic;
@@ -42,7 +41,6 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         "resume" => Err(needs_app_handle("resume")),
         "pause" => pause_widget(payload),
         "set_privacy_mask" => set_privacy_mask(payload),
-        "set_boss_key_error" => set_boss_key_error_action(payload),
         _ => Err(format!("unsupported widget action: {action}")),
     }
 }
@@ -180,7 +178,7 @@ fn perform_legacy_cleanup() {
 
 /// 暂停：写状态 + 让挂件按当前 reason 进入 Hidden 或保留 peek。
 ///
-/// 入参 `{ reason?: "manual" | "boss_key" | "fullscreen" | "lock" }`。
+/// 入参 `{ reason?: "manual" | "fullscreen" | "lock" }`。
 /// `manual` 由用户在面板点击触发，挂件不强制隐藏（用户仍可看到 peek 条），
 /// 仅停掉调度心跳；其他 reason 由对应模块自己控制 widget 状态。
 fn pause_widget(payload: &Value) -> Result<Value, String> {
@@ -189,7 +187,6 @@ fn pause_widget(payload: &Value) -> Result<Value, String> {
         .and_then(Value::as_str)
         .unwrap_or("manual");
     let reason = match reason_str {
-        "boss_key" => state::PauseReason::BossKey,
         "fullscreen" => state::PauseReason::Fullscreen,
         "lock" => state::PauseReason::Lock,
         _ => state::PauseReason::Manual,
@@ -269,22 +266,4 @@ fn set_privacy_mask(payload: &Value) -> Result<Value, String> {
     }))
 }
 
-// ── 老板键失败提示 ────────────────────────────────
-
-/// 由 main.rs setup 调用：注册成功 → 清空错误；失败 → 写文案让前端透出。
-pub fn record_boss_key_error(msg: Option<String>) {
-    state::write(|st| st.boss_key_error = msg);
-}
-
-/// 前端 channel `tool:widget:set-boss-key-error` 入口。
-fn set_boss_key_error_action(payload: &Value) -> Result<Value, String> {
-    let entry = payload.get("error");
-    let msg = match entry {
-        Some(Value::Null) | None => None,
-        Some(Value::String(s)) if s.is_empty() => None,
-        Some(Value::String(s)) => Some(s.clone()),
-        Some(other) => return Err(format!("error must be string or null, got {other}")),
-    };
-    record_boss_key_error(msg);
-    Ok(json!({ "ok": true }))
-}
+// ── 旧 PNG 链路清理 ────────────────────────────────

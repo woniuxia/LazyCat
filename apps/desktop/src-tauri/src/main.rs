@@ -744,10 +744,6 @@ fn sync_all_shortcuts(app: &tauri::AppHandle) -> Result<(), String> {
                     show_spotlight(app_handle);
                     return;
                 }
-                if name_owned == "widget-boss-key" {
-                    let _ = tools::widget::boss_key::toggle(app_handle);
-                    return;
-                }
                 handle_main_window_shortcut(app_handle, name_owned.as_str());
             })
             .map_err(|e| e.to_string())?;
@@ -796,18 +792,6 @@ fn unregister_named_hotkey(app: tauri::AppHandle, name: String) -> Result<(), St
         map.remove(&name);
     }
     sync_all_shortcuts(&app)
-}
-
-/// Setup-time 注册挂件老板键。读 `widget.boss_key`（默认 Ctrl+Alt+W），
-/// 注入到全局快捷键 map 后 sync 一次；与 `register_named_hotkey` 同口径，
-/// 仅省去前端往返。注册失败不阻塞应用启动（design §9 要求降级提示）。
-fn init_widget_boss_key(app: &tauri::AppHandle) -> Result<(), String> {
-    let cfg = tools::widget::config::read_config();
-    let key = cfg.boss_key.trim().to_string();
-    if key.is_empty() {
-        return Ok(());
-    }
-    register_named_hotkey(app.clone(), "widget-boss-key".into(), key)
 }
 
 /// Window subclass ID (arbitrary unique value)
@@ -1285,15 +1269,6 @@ fn main() {
 
             // 启动挂件事件驱动 debounce 线程（PM/Todo CRUD → 5s 静默后立刷）
             tools::widget::events::start(app.handle().clone());
-
-            // 注册挂件老板键（默认 Ctrl+Alt+W；widget.boss_key 配置项可改）
-            match init_widget_boss_key(app.handle()) {
-                Ok(()) => tools::widget::record_boss_key_error(None),
-                Err(e) => {
-                    eprintln!("[widget] register boss key failed: {e}");
-                    tools::widget::record_boss_key_error(Some(format!("老板键注册失败：{e}")));
-                }
-            }
 
             Ok(())
         })

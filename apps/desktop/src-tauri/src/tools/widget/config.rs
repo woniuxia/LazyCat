@@ -23,7 +23,6 @@ pub const KEY_REFRESH_INTERVAL_MIN: &str = "widget.refresh_interval_min";
 pub const KEY_FULLSCREEN_BLACKLIST: &str = "widget.fullscreen_blacklist";
 pub const KEY_PRIVACY_MASK: &str = "widget.privacy_mask";
 pub const KEY_PRIVACY_MASK_UNTIL: &str = "widget.privacy_mask_until";
-pub const KEY_BOSS_KEY: &str = "widget.boss_key";
 /// 挂件持久化 Y（物理像素，整数）；空 = 居中。X 始终贴右由 widget.rs 计算。
 pub const KEY_WIDGET_Y: &str = "widget.widget_y";
 
@@ -35,14 +34,12 @@ pub const LEGACY_KEY_REFRESH_INTERVAL_MIN: &str = "wallpaper.refresh_interval_mi
 pub const LEGACY_KEY_FULLSCREEN_BLACKLIST: &str = "wallpaper.fullscreen_blacklist";
 pub const LEGACY_KEY_PRIVACY_MASK: &str = "wallpaper.privacy_mask";
 pub const LEGACY_KEY_PRIVACY_MASK_UNTIL: &str = "wallpaper.privacy_mask_until";
-pub const LEGACY_KEY_BOSS_KEY: &str = "wallpaper.boss_key";
 pub const LEGACY_KEY_WIDGET_Y: &str = "wallpaper.widget_y";
 
 // ── 默认值 ────────────────────────────────────────
 
 pub const DEFAULT_STYLE: &str = "dashboard";
 pub const DEFAULT_REFRESH_INTERVAL_MIN: i64 = 15;
-pub const DEFAULT_BOSS_KEY: &str = "Ctrl+Alt+W";
 
 /// 默认仅纳入演示 / 录屏 / 会议软件，避免 chrome / vlc 长期误切净。
 pub fn default_fullscreen_blacklist() -> Vec<String> {
@@ -66,7 +63,6 @@ pub struct WidgetConfig {
     pub fullscreen_blacklist: Vec<String>,
     pub privacy_mask: bool,
     pub privacy_mask_until: Option<String>,
-    pub boss_key: String,
     /// 挂件 Y 位置（物理像素）；None = 居中
     pub widget_y: Option<i64>,
 }
@@ -80,7 +76,6 @@ impl Default for WidgetConfig {
             fullscreen_blacklist: default_fullscreen_blacklist(),
             privacy_mask: false,
             privacy_mask_until: None,
-            boss_key: DEFAULT_BOSS_KEY.into(),
             widget_y: None,
         }
     }
@@ -130,11 +125,6 @@ pub fn read_config() -> WidgetConfig {
     cfg.privacy_mask_until = read_string(&conn, KEY_PRIVACY_MASK_UNTIL)
         .or_else(|| read_string(&conn, LEGACY_KEY_PRIVACY_MASK_UNTIL))
         .filter(|s| !s.is_empty());
-    if let Some(v) = read_string(&conn, KEY_BOSS_KEY) {
-        cfg.boss_key = v;
-    } else if let Some(v) = read_string(&conn, LEGACY_KEY_BOSS_KEY) {
-        cfg.boss_key = v;
-    }
     if let Some(v) = read_string(&conn, KEY_WIDGET_Y) {
         if let Ok(n) = v.parse::<i64>() {
             cfg.widget_y = Some(n);
@@ -212,7 +202,6 @@ pub fn set_config(payload: &Value) -> Result<Value, String> {
             "fullscreenBlacklist" => write_string_array(KEY_FULLSCREEN_BLACKLIST, val)?,
             "privacyMask" => write_bool(KEY_PRIVACY_MASK, val)?,
             "privacyMaskUntil" => write_optional_string(KEY_PRIVACY_MASK_UNTIL, val)?,
-            "bossKey" => write_string(KEY_BOSS_KEY, val)?,
             "widgetY" => write_optional_i64(KEY_WIDGET_Y, val)?,
             other => {
                 return Err(format!("unknown widget config key: {other}"));
@@ -290,7 +279,6 @@ pub fn migrate_legacy_keys() {
         (KEY_FULLSCREEN_BLACKLIST, LEGACY_KEY_FULLSCREEN_BLACKLIST),
         (KEY_PRIVACY_MASK, LEGACY_KEY_PRIVACY_MASK),
         (KEY_PRIVACY_MASK_UNTIL, LEGACY_KEY_PRIVACY_MASK_UNTIL),
-        (KEY_BOSS_KEY, LEGACY_KEY_BOSS_KEY),
         (KEY_WIDGET_Y, LEGACY_KEY_WIDGET_Y),
     ];
     for (new_key, old_key) in pairs {
@@ -314,7 +302,6 @@ mod tests {
         assert_eq!(cfg.enabled, false);
         assert_eq!(cfg.style, "dashboard");
         assert_eq!(cfg.refresh_interval_min, 15);
-        assert_eq!(cfg.boss_key, "Ctrl+Alt+W");
         assert_eq!(cfg.privacy_mask, false);
         assert!(cfg.privacy_mask_until.is_none());
         assert!(cfg.widget_y.is_none());

@@ -14,7 +14,7 @@
         @complete="onCompleteItem"
         @action="onCanvasAction"
       />
-      <WidgetExtensionSlot />
+      <WidgetExtensionSlot :echo="data.echo" @action="onCanvasAction" />
     </template>
     <div v-else class="boot">
       <span>加载中…</span>
@@ -40,14 +40,23 @@ const privacyMask = ref(false);
 
 const unlisteners: UnlistenFn[] = [];
 
-/** 解析工具名后的热点工具列表，供 WidgetOverviewBlock 渲染。 */
+/** 解析工具名后的热点工具列表，供 WidgetOverviewBlock 渲染。无点击数据时提供默认推荐。 */
 const resolvedHotTools = computed(() => {
   const hotTools = data.value?.hotTools ?? [];
-  if (hotTools.length === 0) return [];
   const map = getAllToolMap();
-  return hotTools
-    .map((t: WidgetHotTool) => ({ ...t, name: map.get(t.id)?.name }))
-    .filter((t): t is WidgetHotTool & { name: string } => t.name !== undefined);
+  if (hotTools.length > 0) {
+    return hotTools
+      .map((t: WidgetHotTool) => ({ ...t, name: map.get(t.id)?.name }))
+      .filter((t): t is WidgetHotTool & { name: string } => t.name !== undefined);
+  }
+  // 无历史数据时提供默认推荐（常用工具 Top 3）
+  const defaults = ["pm", "inbox", "snippets"];
+  return defaults
+    .map((id) => {
+      const def = map.get(id);
+      return def ? { id, count: 0, name: def.name } : null;
+    })
+    .filter((t): t is WidgetHotTool & { name: string } => t !== null);
 });
 
 onMounted(async () => {

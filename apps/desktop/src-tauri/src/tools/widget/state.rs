@@ -17,7 +17,6 @@ use crate::tools::widget::config;
 /// 暂停原因，与前端 `WidgetPauseReason` 对齐。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PauseReason {
-    BossKey,
     Fullscreen,
     Lock,
     Manual,
@@ -26,7 +25,6 @@ pub enum PauseReason {
 impl PauseReason {
     pub fn as_str(self) -> &'static str {
         match self {
-            PauseReason::BossKey => "boss_key",
             PauseReason::Fullscreen => "fullscreen",
             PauseReason::Lock => "lock",
             PauseReason::Manual => "manual",
@@ -43,8 +41,6 @@ pub struct WidgetState {
     pub last_error: Option<String>,
     pub spotlight_detected: bool,
     pub third_party_engine: Option<String>,
-    /// design §9：老板键注册失败时的提示文案；setup 时写入，前端面板透出
-    pub boss_key_error: Option<String>,
     /// 调度上轮 should_skip 命中的原因（lock / fullscreen）；
     /// 与 `paused` 互斥透出：未显式暂停时由此字段反映"自动跳过"。None = 未跳过
     pub auto_skip_reason: Option<&'static str>,
@@ -85,7 +81,6 @@ pub fn status_snapshot() -> Value {
         "lastError": st.last_error,
         "spotlightDetected": st.spotlight_detected,
         "thirdPartyEngine": st.third_party_engine,
-        "bossKeyError": st.boss_key_error,
         "privacyMaskActive": mask_active,
         "privacyMaskUntil": cfg.privacy_mask_until,
         "autoSkipReason": st.auto_skip_reason,
@@ -104,7 +99,6 @@ mod tests {
 
     #[test]
     fn pause_reason_str_round_trip() {
-        assert_eq!(PauseReason::BossKey.as_str(), "boss_key");
         assert_eq!(PauseReason::Fullscreen.as_str(), "fullscreen");
         assert_eq!(PauseReason::Lock.as_str(), "lock");
         assert_eq!(PauseReason::Manual.as_str(), "manual");

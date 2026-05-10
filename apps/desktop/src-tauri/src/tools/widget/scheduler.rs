@@ -114,8 +114,8 @@ fn should_skip() -> bool {
 
 /// 把跳过状态映射到挂件可见性：跳过 → Hidden；正常 → 当前若 Hidden 切回 Peek。
 ///
-/// 显式 paused（manual / boss_key）不在这里处理：manual 由用户自行决定是否
-/// 隐藏挂件（默认保留 peek 条让其知道工具仍在）；boss_key 由 boss_key.rs 自己 set Hidden。
+/// 显式 paused（manual）不在这里处理：manual 由用户自行决定是否
+/// 隐藏挂件（默认保留 peek 条让其知道工具仍在）。
 fn sync_widget_visibility(app: &AppHandle, skip: bool) {
     if !widget::is_open(app) {
         return;
@@ -123,7 +123,7 @@ fn sync_widget_visibility(app: &AppHandle, skip: bool) {
     let cur = widget::snapshot_state();
 
     let s = state::snapshot();
-    // 显式暂停 (manual/boss_key) 不动挂件可见性
+    // 显式暂停 (manual) 不动挂件可见性
     if s.paused
         && !matches!(
             s.pause_reason,

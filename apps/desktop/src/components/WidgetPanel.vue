@@ -25,9 +25,6 @@
         <span>🔒 敏感模式已开启{{ privacyUntilLabel }}</span>
         <el-button size="small" type="primary" link @click="onPrivacyOff">一键关闭</el-button>
       </div>
-      <div v-if="status?.bossKeyError" class="banner banner-warn">
-        <span>⚠ {{ status.bossKeyError }}</span>
-      </div>
       <div v-if="status?.spotlightDetected" class="banner banner-warn">
         <span>⚠ 检测到 Windows Spotlight 启用，可能影响桌面壁纸；不影响本工具挂件</span>
       </div>
@@ -99,19 +96,8 @@
         </el-form>
       </el-tab-pane>
 
-      <el-tab-pane label="隐私与老板键" name="privacy">
+      <el-tab-pane label="隐私" name="privacy">
         <el-form label-width="120px" label-position="left">
-          <el-form-item label="老板键">
-            <el-input
-              v-model="config.bossKey"
-              placeholder="例：Ctrl+Alt+W"
-              style="max-width: 280px"
-            />
-            <el-button class="ml" :loading="rebindingBossKey" @click="onSaveBossKey">保存</el-button>
-            <div class="hint">
-              保存后立即生效；按一次隐藏挂件，再按一次恢复。若被其它程序占用，状态卡片会提示重设
-            </div>
-          </el-form-item>
           <el-form-item label="敏感模式">
             <el-radio-group
               :model-value="privacyChoice"
@@ -147,7 +133,7 @@
 <script setup lang="ts">
 import { onMounted, onBeforeUnmount, computed, ref } from "vue";
 import { ElMessage } from "element-plus";
-import { invokeToolByChannel, registerNamedHotkey } from "../bridge/tauri";
+import { invokeToolByChannel } from "../bridge/tauri";
 import type {
   WidgetConfig,
   WidgetPauseReason,
@@ -160,7 +146,6 @@ const activeTab = ref<"basic" | "privacy">("basic");
 
 const toggling = ref(false);
 const applying = ref(false);
-const rebindingBossKey = ref(false);
 
 let pollHandle: number | null = null;
 
@@ -286,36 +271,8 @@ function onBlacklistInput(v: string) {
     .filter(Boolean);
 }
 
-async function onSaveBossKey() {
-  const trimmed = config.value.bossKey.trim();
-  if (!trimmed) {
-    ElMessage.warning("老板键不能为空");
-    return;
-  }
-  rebindingBossKey.value = true;
-  try {
-    await invokeToolByChannel("tool:widget:set-config", { bossKey: trimmed });
-    try {
-      await registerNamedHotkey("widget-boss-key", trimmed);
-      await invokeToolByChannel("tool:widget:set-boss-key-error", { error: null });
-      ElMessage.success(`老板键已生效：${trimmed}`);
-    } catch (e) {
-      const errMsg = `老板键 ${trimmed} 注册失败：${formatError(e)}`;
-      await invokeToolByChannel("tool:widget:set-boss-key-error", { error: errMsg });
-      ElMessage.error(errMsg);
-    }
-    await refreshStatus();
-  } catch (e) {
-    ElMessage.error(`保存失败：${formatError(e)}`);
-  } finally {
-    rebindingBossKey.value = false;
-  }
-}
-
 function pauseReasonLabel(reason: WidgetPauseReason): string {
   switch (reason) {
-    case "boss_key":
-      return "老板键";
     case "fullscreen":
       return "全屏切净";
     case "lock":
@@ -413,7 +370,6 @@ function defaultConfig(): WidgetConfig {
     fullscreenBlacklist: [],
     privacyMask: false,
     privacyMaskUntil: null,
-    bossKey: "Ctrl+Alt+W",
     widgetY: null,
   };
 }

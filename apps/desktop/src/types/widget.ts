@@ -2,7 +2,7 @@
 //
 // v2 (挂件改造)：删除原 PNG 链路相关类型，统一为 widget 架构。
 
-export type WidgetPauseReason = "boss_key" | "fullscreen" | "lock" | "manual";
+export type WidgetPauseReason = "fullscreen" | "lock" | "manual";
 
 export type WidgetPriority = "P0" | "P1" | "P2" | "P3";
 
@@ -55,8 +55,6 @@ export interface WidgetStatus {
   lastError?: string | null;
   spotlightDetected: boolean;
   thirdPartyEngine?: string | null;
-  /** design §9 老板键注册失败时的提示文案；null/undefined = 正常 */
-  bossKeyError?: string | null;
   /** 当前敏感模式开启状态（与 config.privacyMask 联动；自动到期时由后端清零） */
   privacyMaskActive?: boolean;
   /** 敏感模式自动到期时间（ISO；null = 直到手动关） */
@@ -73,7 +71,6 @@ export interface WidgetConfig {
   privacyMask: boolean;
   /** ISO 时间字符串，null = 永久 */
   privacyMaskUntil: string | null;
-  bossKey: string;
   /** 挂件 Y 位置（物理像素）；null = 居中 */
   widgetY: number | null;
 }
