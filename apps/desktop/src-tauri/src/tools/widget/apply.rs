@@ -71,6 +71,7 @@ pub fn apply_with_force(app: &AppHandle, force: bool) -> Result<Value, String> {
     }
 
     // 4. 确保挂件存在（失败仅 log，不阻塞数据推送——下次 apply 自然重试）
+    eprintln!("[widget] apply: ensuring widget window");
     if let Err(e) = widget::ensure(app) {
         eprintln!("[widget] apply: widget ensure failed: {e}");
     }

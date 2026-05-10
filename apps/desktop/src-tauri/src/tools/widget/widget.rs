@@ -71,12 +71,15 @@ pub fn ensure(app: &AppHandle) -> Result<WebviewWindow, String> {
         .build()
         .map_err(|e| format!("widget build failed: {e}"))?;
 
+    eprintln!("[widget] widget: build() ok, applying win32 styles");
+
     apply_win32_styles(&win);
     install_position_listener(&win);
 
     // 存储窗口 + 自增 generation
     s.set_window(win.clone());
     s.set_ready_deadline();
+    eprintln!("[widget] widget: window stored, generation={}, transitioning to Peek", s.generation());
 
     // 通过 transition 设置 Peek 状态（positioning + show）
     if let Err(e) = s.transition(app, VisualState::Peek) {

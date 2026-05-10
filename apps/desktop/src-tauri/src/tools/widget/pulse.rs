@@ -62,6 +62,7 @@ pub fn start(app: AppHandle) {
     // widget://ready 握手监听
     let app_ready = app.clone();
     app.listen("widget://ready", move |_evt| {
+        eprintln!("[widget] pulse: widget://ready received");
         let s = session::session();
         s.set_ready();
         s.invalidate_input_hash();
@@ -114,7 +115,11 @@ pub fn start(app: AppHandle) {
             }
 
             if has_event {
-                debounce_5s(&rx);
+                // 快速通道：窗口不存在时立即 tick（首次 enable），
+                // 否则走 5s trailing-edge debounce 批处理 CRUD 事件
+                if session::session().is_window_open() {
+                    debounce_5s(&rx);
+                }
                 tick(&app, false);
                 last_heartbeat = Instant::now();
                 continue;
@@ -136,6 +141,9 @@ pub fn start(app: AppHandle) {
 
             // 4. 看门狗
             check_watchdog(&app);
+
+            // 4b. Ready 超时：ensure() 后 3s 内未收到 widget://ready → 重建
+            check_ready_timeout(&app);
 
             // 5. 等待事件唤醒（最迟 30s）
             match rx.recv_timeout(Duration::from_secs(SLEEP_CHUNK_SECS)) {
@@ -172,6 +180,8 @@ fn tick(app: &AppHandle, force: bool) {
     s.refresh_config_if_dirty();
 
     let skip = s.should_skip();
+    eprintln!("[widget] pulse: tick force={force} skip={skip} enabled={} paused={} window_exists={}",
+        s.is_enabled(), s.is_paused(), s.is_window_open());
     s.sync_visibility(app, skip);
 
     if !skip {
@@ -272,6 +282,19 @@ fn check_watchdog(app: &AppHandle) {
     }
 }
 
+/// ensure() 后 3s 内未收到 widget://ready → 窗口可能加载失败，触发重建。
+fn check_ready_timeout(app: &AppHandle) {
+    let s = session::session();
+    if s.check_ready_timeout() {
+        eprintln!("[widget] pulse: ready timeout, triggering rebuild");
+        s.record(WidgetEvent::Error {
+            source: "ready_timeout".into(),
+            message: "widget://ready not received within 3s".into(),
+        });
+        rebuild_window(app);
+    }
+}
+
 fn rebuild_window(app: &AppHandle) {
     let s = session::session();
     if !s.begin_rebuild() {
@@ -286,12 +309,20 @@ fn rebuild_window(app: &AppHandle) {
         reason: "watchdog rebuild".into(),
     });
 
-    // 切换到 Windowless（不调用 transition 因为窗口可能已失效）
+    // 关闭旧窗口（必须先 close 再清理 session，否则 ensure() 中 build() 同名窗口会死锁。
+    // 参考 fix 0e5e631 / c516c16：Tauri 2 中 close() 后立即 build() 同名窗口会导致 build() 阻塞。）
+    let old_win = s.inner.write().ok().and_then(|mut g| {
+        g.ready_deadline = None;
+        g.window.take()
+    });
     s.visual_state
         .store(session::VisualState::Windowless as u8, Ordering::SeqCst);
-    if let Ok(mut inner) = s.inner.write() {
-        inner.window = None;
-        inner.ready_deadline = None;
+    if let Some(w) = old_win {
+        eprintln!("[widget] pulse: closing old widget window before rebuild");
+        match w.close() {
+            Ok(()) => eprintln!("[widget] pulse: old window closed ok"),
+            Err(e) => eprintln!("[widget] pulse: old window close failed: {e}"),
+        }
     }
 
     // 重建

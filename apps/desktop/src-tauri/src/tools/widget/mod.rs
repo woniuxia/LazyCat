@@ -56,25 +56,26 @@ fn needs_app_handle(action: &str) -> String {
 
 // ── 生命周期 ─────────────────────────────────────
 
-/// 启用挂件：写 enabled=true → 数据迁移（一次性清旧 PNG 链路产物）→
-/// 创建/复用挂件窗口 → 切到 Peek 可见态 → 立即推一次数据。
+/// 启用挂件：写 enabled=true → 清理运行时状态 → 委托 pulse 循环创建窗口。
+///
+/// **重要**：不在此线程（Tauri sync command thread pool）直接调 ensure() → build()，
+/// Tauri 2 中从非主线程创建第二个 WebView2 窗口可能导致 build() 死锁。
+/// 改为通知 pulse 循环立即处理，其 running loop 会唤醒并走 tick → apply → ensure。
 fn enable_widget(app: &AppHandle) -> Result<Value, String> {
     eprintln!("[widget] enable: enter");
     let cfg = config::read_config();
     if cfg.enabled {
-        eprintln!("[widget] enable: already enabled, ensuring widget");
-        widget::ensure(app)?;
+        eprintln!("[widget] enable: already enabled");
         // 窗口可能处于 Hidden（上次 disable 隐藏），恢复可见态
-        if session::session().visual_state() == widget::VisualState::Hidden {
+        if session::session().is_window_open()
+            && session::session().visual_state() == widget::VisualState::Hidden
+        {
             let _ = widget::set_state(app, widget::VisualState::Peek);
         }
-        let _ = apply::apply(app);
+        // 通知 pulse 立即推送数据
+        pulse::notify_data_changed("widget-enable");
         return Ok(json!({ "ok": true, "alreadyEnabled": true }));
     }
-
-    // 一次性清理旧链路产物（壁纸备份目录 + 渲染历史 + 废弃 user_settings key）
-    // perform_legacy_cleanup 已完成历史使命；legacy 迁移由 pulse::start() 启动时兜底调用
-    // 迁移旧 wallpaper.* key 到新 widget.* key
 
     config::set_string(config::KEY_ENABLED, "true")?;
 
@@ -87,17 +88,10 @@ fn enable_widget(app: &AppHandle) -> Result<Value, String> {
     session::session().paused.store(false, std::sync::atomic::Ordering::SeqCst);
     session::session().invalidate_input_hash();
 
-    widget::ensure(app)?;
-    // 首次创建时 ensure 内部 set_state(Peek) + show，无需再切；非首次则切到 Peek
-    if session::session().visual_state() == widget::VisualState::Hidden {
-        let _ = widget::set_state(app, widget::VisualState::Peek);
-    }
-    // 立即推一次数据，避免用户开启后等下个心跳才看到内容
-    if let Err(e) = apply::apply(app) {
-        eprintln!("[widget] enable: first apply failed (continuing): {e}");
-    }
+    // 通知 pulse 循环：立即创建窗口 + 推送数据（跳过事件去重 debounce）
+    pulse::notify_data_changed("widget-enable");
 
-    eprintln!("[widget] enable: done");
+    eprintln!("[widget] enable: done (window creation delegated to pulse loop)");
     Ok(json!({ "ok": true }))
 }
 

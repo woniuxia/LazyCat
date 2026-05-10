@@ -211,13 +211,14 @@ impl WidgetSession {
             return Ok(());
         }
 
-        // Windowless → 非 Windowless：必须有窗口
-        if cur == VisualState::Windowless && to != VisualState::Windowless {
+        // Windowless → 非 Windowless：必须有窗口（通过 set_window() 已存储）
+        if cur == VisualState::Windowless && to != VisualState::Windowless && !self.is_window_open() {
             return Err("transition from Windowless requires set_window() first".into());
         }
 
         let from_str = cur.as_str().to_string();
         let to_str = to.as_str().to_string();
+        eprintln!("[widget] session: transition {} → {}", from_str, to_str);
 
         // 1. 更新 AtomicU8（先改状态）
         self.visual_state
@@ -284,6 +285,7 @@ impl WidgetSession {
             }
             VisualState::Peek | VisualState::Full => {
                 if cur == VisualState::Hidden || cur == VisualState::Windowless {
+                    eprintln!("[widget] session: show() (was {:?})", cur);
                     let _ = win.show();
                 }
                 widget::apply_position(app, win, to)
@@ -491,9 +493,11 @@ impl WidgetSession {
     }
 
     /// 设置 ready deadline（ensure() 后调用）。
+    /// 同时重置 last_ping_at，避免看门狗用窗口创建前的旧 ping 时间误判超时。
     pub fn set_ready_deadline(&self) {
         if let Ok(mut g) = self.inner.write() {
             g.ready_deadline = Some(Instant::now() + std::time::Duration::from_secs(3));
+            g.last_ping_at = Instant::now();
         }
     }
 
