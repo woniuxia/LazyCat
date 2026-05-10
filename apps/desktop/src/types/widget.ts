@@ -74,3 +74,21 @@ export interface WidgetConfig {
   /** 挂件 Y 位置（物理像素）；null = 居中 */
   widgetY: number | null;
 }
+
+export interface WidgetHealth {
+  status: string;
+  visualState: string;
+  lastPingSecsAgo: number;
+  lastApplySecsAgo: number;
+  lastApplyResult: string;
+  todaySkipCount: number;
+  todayWatchdogCount: number;
+  todayRebuildCount: number;
+}
+
+export interface WidgetEventEntry {
+  sequenceId: number;
+  timestamp: string;
+  type: string;
+  detail: string;
+}

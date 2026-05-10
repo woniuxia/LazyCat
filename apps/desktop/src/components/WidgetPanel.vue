@@ -126,6 +126,47 @@
           </el-form-item>
         </el-form>
       </el-tab-pane>
+
+      <el-tab-pane label="诊断" name="diagnostics">
+        <div v-if="diagnostics" class="diagnostics-pane">
+          <div class="health-grid">
+            <div class="health-item">
+              <span class="health-label">状态</span>
+              <span class="health-value">{{ diagnostics.health.status }}</span>
+            </div>
+            <div class="health-item">
+              <span class="health-label">窗口态</span>
+              <span class="health-value">{{ diagnostics.health.visualState }}</span>
+            </div>
+            <div class="health-item">
+              <span class="health-label">今日跳过</span>
+              <span class="health-value">{{ diagnostics.health.todaySkipCount }}</span>
+            </div>
+            <div class="health-item">
+              <span class="health-label">今日看门狗</span>
+              <span class="health-value">{{ diagnostics.health.todayWatchdogCount }}</span>
+            </div>
+            <div class="health-item">
+              <span class="health-label">今日重建</span>
+              <span class="health-value">{{ diagnostics.health.todayRebuildCount }}</span>
+            </div>
+          </div>
+          <div class="event-timeline">
+            <div class="section-title">事件时间线（最近 20 条）</div>
+            <div
+              v-for="evt in diagnostics.events.slice(0, 20)"
+              :key="evt.sequenceId"
+              class="event-row"
+            >
+              <span class="event-seq">#{{ evt.sequenceId }}</span>
+              <span class="event-type">{{ evt.type }}</span>
+              <span class="event-detail">{{ evt.detail }}</span>
+            </div>
+            <div v-if="!diagnostics.events.length" class="event-empty">暂无事件</div>
+          </div>
+        </div>
+        <div v-else class="diagnostics-loading">加载诊断数据中…</div>
+      </el-tab-pane>
     </el-tabs>
   </div>
 </template>
@@ -136,28 +177,37 @@ import { ElMessage } from "element-plus";
 import { invokeToolByChannel } from "../bridge/tauri";
 import type {
   WidgetConfig,
+  WidgetHealth,
+  WidgetEventEntry,
   WidgetPauseReason,
   WidgetStatus,
 } from "../types/widget";
 
 const status = ref<WidgetStatus | null>(null);
 const config = ref<WidgetConfig>(defaultConfig());
-const activeTab = ref<"basic" | "privacy">("basic");
+const activeTab = ref<"basic" | "privacy" | "diagnostics">("basic");
+const diagnostics = ref<{ health: WidgetHealth; events: WidgetEventEntry[] } | null>(null);
 
 const toggling = ref(false);
 const applying = ref(false);
 
 let pollHandle: number | null = null;
+let pollDiagnosticsHandle: number | null = null;
 
 onMounted(async () => {
   await Promise.all([refreshStatus(), refreshConfig()]);
   pollHandle = window.setInterval(refreshStatus, 5000);
+  pollDiagnosticsHandle = window.setInterval(refreshDiagnostics, 5000);
 });
 
 onBeforeUnmount(() => {
   if (pollHandle !== null) {
     window.clearInterval(pollHandle);
     pollHandle = null;
+  }
+  if (pollDiagnosticsHandle !== null) {
+    window.clearInterval(pollDiagnosticsHandle);
+    pollDiagnosticsHandle = null;
   }
 });
 
@@ -362,6 +412,17 @@ const autoSkipBanner = computed<string>(() => {
   }
 });
 
+async function refreshDiagnostics() {
+  try {
+    diagnostics.value = (await invokeToolByChannel("tool:widget:diagnostics", {})) as {
+      health: WidgetHealth;
+      events: WidgetEventEntry[];
+    };
+  } catch (e) {
+    console.warn("[widget] diagnostics fetch failed", e);
+  }
+}
+
 function defaultConfig(): WidgetConfig {
   return {
     enabled: false,
@@ -519,5 +580,89 @@ html[data-theme="dark"] .banner-info {
 
 .mt {
   margin-top: 8px;
+}
+
+.diagnostics-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.diagnostics-loading {
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+  padding: 12px 0;
+}
+
+.health-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+.health-item {
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--el-fill-color-light);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.health-label {
+  font-size: 11px;
+  color: var(--el-text-color-secondary);
+}
+
+.health-value {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+
+.event-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.section-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+  margin-bottom: 4px;
+}
+
+.event-row {
+  display: flex;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--el-text-color-regular);
+  padding: 3px 0;
+  border-bottom: 1px solid var(--el-border-color-lighter);
+}
+
+.event-seq {
+  color: var(--el-text-color-placeholder);
+  min-width: 40px;
+  font-family: monospace;
+}
+
+.event-type {
+  color: var(--el-color-primary);
+  min-width: 120px;
+  font-family: monospace;
+  font-size: 11px;
+}
+
+.event-detail {
+  color: var(--el-text-color-secondary);
+  flex: 1;
+}
+
+.event-empty {
+  font-size: 12px;
+  color: var(--el-text-color-placeholder);
+  padding: 8px 0;
 }
 </style>

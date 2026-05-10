@@ -295,7 +295,8 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:widget:disable":            { domain: "widget", action: "disable" },
   "tool:widget:get-config":         { domain: "widget", action: "get_config" },
   "tool:widget:set-config":         { domain: "widget", action: "set_config" },
-  "tool:widget:set-privacy-mask":   { domain: "widget", action: "set_privacy_mask" }
+  "tool:widget:set-privacy-mask":   { domain: "widget", action: "set_privacy_mask" },
+  "tool:widget:diagnostics":       { domain: "widget", action: "diagnostics" }
 };
 
 export async function invokeToolByChannel(

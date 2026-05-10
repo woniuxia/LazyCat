@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::tools::helpers::db_conn;
+use crate::tools::widget::session;
 
 // ── key 常量 ────────────────────────────────────────
 
@@ -25,16 +26,6 @@ pub const KEY_PRIVACY_MASK: &str = "widget.privacy_mask";
 pub const KEY_PRIVACY_MASK_UNTIL: &str = "widget.privacy_mask_until";
 /// 挂件持久化 Y（物理像素，整数）；空 = 居中。X 始终贴右由 widget.rs 计算。
 pub const KEY_WIDGET_Y: &str = "widget.widget_y";
-
-// ── 旧 wallpaper.* key（兼容读取 + 迁移清理用） ────────
-
-pub const LEGACY_KEY_ENABLED: &str = "wallpaper.enabled";
-pub const LEGACY_KEY_STYLE: &str = "wallpaper.style";
-pub const LEGACY_KEY_REFRESH_INTERVAL_MIN: &str = "wallpaper.refresh_interval_min";
-pub const LEGACY_KEY_FULLSCREEN_BLACKLIST: &str = "wallpaper.fullscreen_blacklist";
-pub const LEGACY_KEY_PRIVACY_MASK: &str = "wallpaper.privacy_mask";
-pub const LEGACY_KEY_PRIVACY_MASK_UNTIL: &str = "wallpaper.privacy_mask_until";
-pub const LEGACY_KEY_WIDGET_Y: &str = "wallpaper.widget_y";
 
 // ── 默认值 ────────────────────────────────────────
 
@@ -90,20 +81,11 @@ pub fn read_config() -> WidgetConfig {
 
     if let Some(v) = read_string(&conn, KEY_ENABLED) {
         cfg.enabled = parse_bool(&v).unwrap_or(false);
-    } else if let Some(v) = read_string(&conn, LEGACY_KEY_ENABLED) {
-        // 兼容旧 wallpaper.* key
-        cfg.enabled = parse_bool(&v).unwrap_or(false);
     }
     if let Some(v) = read_string(&conn, KEY_STYLE) {
         cfg.style = v;
-    } else if let Some(v) = read_string(&conn, LEGACY_KEY_STYLE) {
-        cfg.style = v;
     }
     if let Some(v) = read_string(&conn, KEY_REFRESH_INTERVAL_MIN) {
-        if let Ok(n) = v.parse::<i64>() {
-            cfg.refresh_interval_min = n;
-        }
-    } else if let Some(v) = read_string(&conn, LEGACY_KEY_REFRESH_INTERVAL_MIN) {
         if let Ok(n) = v.parse::<i64>() {
             cfg.refresh_interval_min = n;
         }
@@ -112,24 +94,13 @@ pub fn read_config() -> WidgetConfig {
         if let Ok(list) = serde_json::from_str::<Vec<String>>(&v) {
             cfg.fullscreen_blacklist = list;
         }
-    } else if let Some(v) = read_string(&conn, LEGACY_KEY_FULLSCREEN_BLACKLIST) {
-        if let Ok(list) = serde_json::from_str::<Vec<String>>(&v) {
-            cfg.fullscreen_blacklist = list;
-        }
     }
     if let Some(v) = read_string(&conn, KEY_PRIVACY_MASK) {
         cfg.privacy_mask = parse_bool(&v).unwrap_or(false);
-    } else if let Some(v) = read_string(&conn, LEGACY_KEY_PRIVACY_MASK) {
-        cfg.privacy_mask = parse_bool(&v).unwrap_or(false);
     }
     cfg.privacy_mask_until = read_string(&conn, KEY_PRIVACY_MASK_UNTIL)
-        .or_else(|| read_string(&conn, LEGACY_KEY_PRIVACY_MASK_UNTIL))
         .filter(|s| !s.is_empty());
     if let Some(v) = read_string(&conn, KEY_WIDGET_Y) {
-        if let Ok(n) = v.parse::<i64>() {
-            cfg.widget_y = Some(n);
-        }
-    } else if let Some(v) = read_string(&conn, LEGACY_KEY_WIDGET_Y) {
         if let Ok(n) = v.parse::<i64>() {
             cfg.widget_y = Some(n);
         }
@@ -172,6 +143,7 @@ pub fn set_string(key: &str, value: &str) -> Result<(), String> {
         params![key, value],
     )
     .map_err(|e| format!("save widget setting {key} failed: {e}"))?;
+    session::session().mark_config_dirty();
     Ok(())
 }
 
@@ -273,13 +245,13 @@ fn write_string_array(key: &str, val: &Value) -> Result<(), String> {
 pub fn migrate_legacy_keys() {
     let Ok(conn) = db_conn() else { return };
     let pairs: &[(&str, &str)] = &[
-        (KEY_ENABLED, LEGACY_KEY_ENABLED),
-        (KEY_STYLE, LEGACY_KEY_STYLE),
-        (KEY_REFRESH_INTERVAL_MIN, LEGACY_KEY_REFRESH_INTERVAL_MIN),
-        (KEY_FULLSCREEN_BLACKLIST, LEGACY_KEY_FULLSCREEN_BLACKLIST),
-        (KEY_PRIVACY_MASK, LEGACY_KEY_PRIVACY_MASK),
-        (KEY_PRIVACY_MASK_UNTIL, LEGACY_KEY_PRIVACY_MASK_UNTIL),
-        (KEY_WIDGET_Y, LEGACY_KEY_WIDGET_Y),
+        (KEY_ENABLED, "wallpaper.enabled"),
+        (KEY_STYLE, "wallpaper.style"),
+        (KEY_REFRESH_INTERVAL_MIN, "wallpaper.refresh_interval_min"),
+        (KEY_FULLSCREEN_BLACKLIST, "wallpaper.fullscreen_blacklist"),
+        (KEY_PRIVACY_MASK, "wallpaper.privacy_mask"),
+        (KEY_PRIVACY_MASK_UNTIL, "wallpaper.privacy_mask_until"),
+        (KEY_WIDGET_Y, "wallpaper.widget_y"),
     ];
     for (new_key, old_key) in pairs {
         if read_string(&conn, new_key).is_some() {

@@ -37,12 +37,6 @@
 | `lock.rs` | — | **删除** — 合并入 guards.rs |
 | `idle.rs` | — | **删除** — 合并入 guards.rs |
 | `widget.rs` | `widget.rs` | **修改** — 状态管理移出，保留窗口创建/销毁/定位/光标轮询(cursor_loop)；保留 flush_loop（200ms 将 PENDING_Y 持久化到 DB，现通过 session.pending_y 读写） |
-| `mod.rs` | `mod.rs` | **修改** — 生命周期委托 session；删除 perform_legacy_cleanup |
-| `apply.rs` | `apply.rs` | **修改** — hash 读写走 session |
-| `config.rs` | `config.rs` | **微调** — 移除 Legacy key 读取兼容；保留 migrate_legacy_keys() 调用（已完成历史使命的用户不受影响，新用户无旧 key 无害） |
-| `data.rs` | `data.rs` | 不变 |
-| `dashboard_logic.rs` | `dashboard_logic.rs` | 不变 |
-| `conflicts.rs` | `conflicts.rs` | **小幅联动** — `state::write()` 改为 `session::write()`；依赖的字段从 state.rs 移入 session |
 
 模块数：12 → 10。新增 4，删除 6，修改 4（widget.rs, mod.rs, apply.rs, config.rs），不变 2（data.rs, dashboard_logic.rs），小幅联动 1（conflicts.rs — 写入目标从 state.rs 改为 session.rs）。
 
@@ -81,14 +75,16 @@ enum PauseReason {
 struct WidgetSession {
     // 窗口
     window: Option<WebviewWindow>,
-    visual_state: VisualState,
 
-    // 运行时状态（原 state.rs）
-    paused: bool,
+    // 热路径字段（独立原子变量，不在 RwLock 内）
+    visual_state: AtomicU8,          // VisualState，cursor_loop 80ms 轮询无锁读取
+    paused: AtomicBool,              // cursor_loop / pulse 高频读取，无锁
+
+    // 运行时状态（原 state.rs，RwLock 保护）
     pause_reason: Option<PauseReason>,
     last_rendered_at: Option<String>,
     last_error: Option<String>,
-    auto_skip_reason: Option<&'static str>,
+    auto_skip_reason: Option<String>,
     spotlight_detected: bool,        // 原 state.rs，由 conflicts::refresh() 写入
     third_party_engine: Option<String>, // 原 state.rs
 
@@ -111,6 +107,7 @@ struct WidgetSession {
     last_ping_at: Instant,
 
     // 看门狗（新增）
+    window_generation: u64,          // 窗口重建次数，cursor_loop 用此检测窗口有效性
     watchdog_rebuilds: u32,         // 连续重建计数（成功时清零）
     rebuild_in_progress: bool,      // 防止并行重建
 }
@@ -124,13 +121,23 @@ struct WidgetSession {
 - `record(event: WidgetEvent)` — 追加事件到环形缓冲，next_sequence_id 自增
 - `rebuild_window() -> Result<()>` — 设置 rebuild_in_progress=true → 销毁旧窗口 → 重建 → 等 ready（3s 超时）→ apply；失败返回 Err + watchdog_rebuilds += 1；成功清零 rebuilds
 - `is_window_open() -> bool` — `window.is_some()`，看门狗/可见性同步前检查
+- `visual_state() -> VisualState` — 从 AtomicU8 无锁读取当前可见状态
+- `generation() -> u64` — 从 window_generation 无锁读取，cursor_loop 用于校验窗口有效性
 - `refresh_config_if_dirty()` — config_dirty 为 true 时从 DB 重读 config 到 config_cache
+- `mark_config_dirty()` — 供 config.rs 的 set_* 函数调用，标记下次 tick 需刷新配置缓存
 - `invalidate_input_hash()` — 设置 input_hash = 0，下一轮 apply 强制推送
 - `status_snapshot() -> Value` — 从 session 字段构造 status 通道返回值（替代原 state::status_snapshot()），privacy_mask 过期判断同现逻辑
 
 **SINGLETON**: WidgetSession 通过 `std::sync::LazyLock<RwLock<WidgetSession>>` 全局访问。本项目 Rust 版本 ≥1.80，LazyLock 已 stabilised；否则可回退 `once_cell::sync::Lazy`。
 
 **模块依赖规则**：diagnostics.rs 是叶模块 — 只被 session.rs 导入，不反向导入任何 widget 模块，避免循环依赖。
+
+**并发安全设计：**
+
+- **热路径字段拆分**：`visual_state` 和 `paused` 两个字段被 cursor_loop（80ms 轮询）和 pulse tick（30s~3600s）高频读取。将它们从 RwLock 中拆出为独立 `AtomicU8`（visual_state）和 `AtomicBool`（paused），避免 cursor_loop 的读锁被 pulse 的写操作（record 事件等）阻塞。其余低频字段仍走 RwLock。
+- **窗口 generation counter**：session 中增加 `window_generation: u64`，每次 rebuild_window 成功后自增。cursor_loop 在调用 `transition()` 前对比当前 generation 与捕获时的值，不匹配则放弃本次 transition，防止操作已销毁的旧窗口。
+- **transition() 锁持有策略**：transition() 仅在修改 `visual_state`（AtomicU8 store）和 record 事件（短暂写锁）时持锁，窗口操作（show/hide/set_position）在锁外执行，避免慢速窗口 API 阻塞其他读写。
+- **配置变更通知路径**：前端设置面板修改配置（如 refresh_interval_min、privacy_mask 等）→ 走现有通道（`tool:widget:set_config` 等）→ 后端写入 DB → 调用 `session.mark_config_dirty()` 设置 `config_dirty=true`。pulse 下一轮 tick 时 `refresh_config_if_dirty()` 重读并清 dirty 标记。config.rs 中原有的 `set_*` 函数统一增加 `session.mark_config_dirty()` 调用。
 
 ### 3.3 状态机
 
@@ -146,6 +153,8 @@ Peek/Full/Hidden ──[app_exit() / destroy()]──> Windowless
 ```
 
 **hover 检测机制不变**：Peek↔Full 切换仍由 `widget.rs` 的后台线程 `cursor_loop()` 驱动（80ms GetCursorPos 轮询，12.5Hz），不改为前端驱动。`cursor_loop()` 检测到条件变化后调用 `session.transition(to)`。此机制经过验证稳定，本次重构不改动其逻辑，仅将其中的 `set_state()` 调用替换为 `session.transition()`。
+
+**Windowless 状态约束**：`ensure()` 成功后必须执行 `session.transition(Peek)` 更新状态；`destroy()` 成功后必须执行 `session.transition(Windowless)`。禁止绕过 transition 直接操作窗口句柄或修改 visual_state。cursor_loop 在每次迭代中捕获 `window_generation` 并在调用 transition 前校验，不匹配则跳过本轮。
 
 所有迁移通过 `session.transition(to)` 执行，调用方不直接操作窗口句柄。
 
@@ -173,8 +182,9 @@ struct WidgetConfig {
 loop {
     // 1. 非阻塞检查事件（try_recv 排空 channel）
     while event_rx.try_recv().is_ok() { has_event = true; }
-    // debounce_5s: 滚动等待 5s 静默期，收到新事件重置计时；最多阻塞 5s
-    if has_event { debounce_5s(); tick(false); }
+    // 收到事件 → 立即进入 5s trailing-edge debounce，不等满 30s chunk
+    // debounce 期间新事件重置计时；最多等 5s 静默期
+    if has_event { debounce_5s(event_rx); tick(false); continue; }
 
     // 2. 心跳到期检查
     if since_heartbeat >= current_interval { tick(false); }
@@ -182,11 +192,11 @@ loop {
     // 3. 跨日检查（每小时一次，通过 last_midnight_check 记录）
     if midnight_just_passed() { tick(true); }
 
-    // 4. 看门狗（每次 loop 唤醒都检查，即最多 30s + 5s debounce = 35s 间隔）
+    // 4. 看门狗（每次 tick 后都检查）
     check_watchdog();
 
     // 5. 分块 sleep 30s，同时监听事件唤醒
-    //    最大 tick 间隔 = 30s，所以看门狗检查 ≤35s 保证
+    //    最大 tick 间隔 = 30s，收到事件立即 break 进入 debounce
     event_rx.recv_timeout(Duration::from_secs(30));
 }
 ```
@@ -197,6 +207,10 @@ loop {
 3. session.sync_visibility(skip)
 4. if !skip → apply::apply_with_force(force)
 5. session.record(ApplyAttempt 或 ApplySkipped)
+
+**事件延迟最坏情况**：CRUD 事件到达后立即被 `try_recv` 捕获并进入 `debounce_5s()`，最坏延迟 = 5s 静默期。不再受 sleep chunk 长度影响。
+
+**看门狗最坏间隔**：心跳间隔最大 3600s，但 `recv_timeout(30s)` 保证每 30s 至少醒来一次检查看门狗。实测最坏 = 30s sleep + 5s debounce = 35s（仅当事件在看门狗检查前到达时）。
 
 **interval 计算**：每秒检查 `guards::seconds_idle()`，≥300s 空闲时 interval=3600s，否则使用 config_cache.refresh_interval_min。钟控间隔可能因事件到达而提前唤醒，不影响正确性。
 
@@ -245,12 +259,12 @@ loop {
 
 **rebuild_window 流程与防重入**：
 1. 检查 `rebuild_in_progress`：true → 跳过（上一轮重建仍在进行）
-2. 设 `rebuild_in_progress = true` → `pending_y = session.pending_y` 保存 → destroy 旧窗口 → widget::ensure() 创建新窗口 → 恢复 `pending_y` → 等待 widget://ready（3s 超时）→ `rebuild_in_progress = false`
+2. 设 `rebuild_in_progress = true` → 从 `PENDING_Y` atomic 直读最新值（避免 200ms flush 窗口期内 DB 值滞后）→ destroy 旧窗口 → widget::ensure() 创建新窗口 → `window_generation += 1` → 恢复 `pending_y` → 等待 widget://ready（3s 超时）→ `rebuild_in_progress = false`
 3. ensure() 失败或 ready 超时 → 返回 Err → rebuilds += 1
 4. rebuilds >= 3 → session.last_error = "窗口连续 3 次重建失败，已暂停" + session.paused = true
 5. 无论成功或失败，最后 `rebuild_in_progress = false`
 
-**pending_y 保留**：重建前读取 session.pending_y，重建后 restore_y_phys() 从 DB 读回相同的 Y 值（flush_loop 已将最新值持久化），保证用户拖拽位置不丢失。
+**pending_y 保留**：重建前直接从 `PENDING_Y` atomic 读取（不经 DB 中转），重建后 restore_y_phys() 将 Y 值写回新窗口，保证用户拖拽位置不丢失。
 
 ### 3.8 widget://ready 握手加固
 
@@ -336,29 +350,34 @@ struct WidgetHealth {
 
 | Step | 内容 | 新增行 | 验证 |
 |------|------|--------|------|
-| 1 | diagnostics.rs | ~120 | `cargo test widget::diagnostics` — WidgetEvent 序列化/反序列化、环形缓冲溢出逻辑、sequence_id 单调性 |
+| 1 | diagnostics.rs | ~120 | `cargo test widget::diagnostics` — WidgetEvent 全变体 serde 往返、环形缓冲溢出、sequence_id 单调性 |
 | 2 | guards.rs + 删除 fullscreen/lock/idle | ~200 | `cargo check -p lazycat-desktop` 编译通过；手动验证锁屏/全屏检测行为不变 |
-| 3 | session.rs + widget.rs 改造 + 删除 state.rs | ~350 | 编译通过；`cargo test widget::session` — transition 幂等性、状态往返、should_skip 四条件组合（启用/禁用 × 暂停/恢复 × 锁屏 × 全屏）；手动验证拖拽 + peek↔full 交互 |
-| 4 | pulse.rs + 删除 scheduler/events | ~250 | 编译通过；`cargo test widget::pulse` — tick 跳过逻辑、debounce 策略、看门狗触发/恢复、空闲降频切换；手动验证 CRUD 事件 5s 内触发刷新 |
-| 5 | 前端 ping + 诊断 Tab + mod.rs/config.rs 清理 | ~200 | `pnpm typecheck` + `pnpm --filter @lazycat/desktop build:web`；手动验证看门狗（模拟：启动后立即 kill WebView2 进程，15s 内应自动重建） |
+| 3a | session.rs + 删除 state.rs | ~300 | 编译通过；`cargo test widget::session` — transition 幂等性、状态全组合往返、should_skip 四条件真值表（启用/禁用 × 暂停/恢复 × 锁屏 × 全屏）、config_dirty 标记→刷新流转、generation counter 单调性 |
+| 3b | widget.rs 改造（cursor_loop 接入 session.transition + generation 校验） | ~150 | 编译通过；手动验证拖拽 + peek↔full 交互正常、拖拽 Y 持久化、generation 不匹配时 cursor_loop 安全跳过 |
+| 4 | pulse.rs + 删除 scheduler/events | ~250 | 编译通过；`cargo test widget::pulse` — tick 跳过逻辑、debounce 策略（含事件提前唤醒不等待 30s chunk）、看门狗触发/恢复、空闲降频切换；手动验证 CRUD 事件 5s 内触发刷新 |
+| 5 | 前端 ping + 诊断 Tab + mod.rs/config.rs 清理 | ~200 | `pnpm typecheck` + `pnpm --filter @lazycat/desktop build:web`；手动验证看门狗（模拟：启动后立即 kill WebView2 进程，15s 内应自动重建）；config.rs 移除 Legacy key 读取兼容后，`migrate_legacy_keys()` 对空 DB 无害通过 |
 
 **测试策略摘要：**
 
-- **单元测试**（Step 1/3/4）：覆盖纯逻辑 — 状态机迁移、should_skip 真值表、环形缓冲、hash 去重。不需要真实的 WebviewWindow。
-- **集成测试**（Step 3/4/5）：需要真实 Tauri 窗口的手动场景 — 拖拽位置持久化、peek↔full 过渡、看门狗触发重建、跨日立刷。
+- **单元测试**（Step 1/3a/4）：覆盖纯逻辑 — 状态机迁移、should_skip 真值表、环形缓冲、hash 去重、config_dirty 流转、generation counter 单调性、serde 全变体往返。不需要真实的 WebviewWindow。
+- **集成测试**（Step 3b/4/5）：需要真实 Tauri 窗口的手动场景 — 拖拽位置持久化、peek↔full 过渡、generation 不匹配安全跳过、看门狗触发重建、跨日立刷。
 - **回归测试**：`pnpm test`（现有单元测试套件）+ `pnpm test:e2e`（E2E 回归，确保 PM/Todo CRUD 不因 widget 重构而退化）。
-- **冒烟测试**（Step 5）：构建 web + 运行应用 → 启用挂件 → 验证仪表盘数据 → 鼠标右边缘触发展开 → 拖拽改变 Y 位置 → 禁用再启用 → 检查诊断 Tab 事件时间线。
+- **冒烟测试**（Step 5）：构建 web + 运行应用 → 启用挂件 → 验证仪表盘数据 → 鼠标右边缘触发展开 → 拖拽改变 Y 位置 → 禁用再启用 → kill WebView2 验证看门狗 15s 内自动重建 → 检查诊断 Tab 事件时间线。
+- **Legacy 迁移测试**（Step 5）：config.rs 移除 Legacy key 读取兼容后，对空 DB 调用 `migrate_legacy_keys()` 应无害通过；对含旧 key 的 fixture DB 应正确迁移。
 
 ## 七、风险与缓解
 
 | 风险 | 缓解 |
 |------|------|
-| session 锁竞争 | RwLock 读多写少；pulse tick 间隔 30s~3600s，锁持有时间 μs 级 |
+| session 锁竞争 | visual_state/paused 拆为独立原子变量，热路径（cursor_loop 80ms、pulse tick）无锁读取；transition 锁持有时间 μs 级（仅 atomic store + event push），窗口操作在锁外执行 |
+| cursor_loop 操作已销毁窗口 | window_generation counter：cursor_loop 捕获当前值 → 调用 transition 前校验 → 不匹配则跳过 |
 | 看门狗误触发 | 阈值 15s（3 个 ping 周期），pulse tick 每 30s 检查一次（recv_timeout chunk）；短时 WebView2 渲染延迟不会触发 |
 | rebuild_window 死锁 | 与 disable 同策略：destroy 异步 close()，不等待回调 |
 | rebuild_window 重入 | `rebuild_in_progress` 标志位阻止并行重建；看门狗下次 tick 重试 |
+| rebuild_window 丢 Y 位置 | 直接从 PENDING_Y atomic 读取最新值，不经 DB 中转，消除 200ms flush 窗口 |
 | 前端 ping 未注册 | pulse tick 中 `session.is_window_open()` 检查；窗口不存在时跳过看门狗 |
-| 旧配置 | 移除 wallpaper.* Legacy key 的**读取**兼容；`migrate_legacy_keys()` 已在 v2 迁移时调用完毕（所有已升级用户均完成迁移）；`perform_legacy_cleanup()` 已完成历史使命一并删除 |
+| 配置缓存过时 | 所有配置写入方统一调用 `session.mark_config_dirty()`；pulse 每轮 tick 前刷新 |
+| 旧配置 | 移除 wallpaper.* Legacy key 的**读取**兼容；`migrate_legacy_keys()` 已在 v2 迁移时调用完毕（所有已升级用户均完成迁移）；`perform_legacy_cleanup()` 已完成历史使命一并删除；新增空 DB/fixture DB 迁移测试防止回归 |
 | cursor_loop panic | 改为 `std::panic::catch_unwind` 包裹；panic 后 record(Error) + 自动重启线程 |
 | pulse panic | 同 catch_unwind；panic 后 record(Error) + 重启 pulse 线程 |
 

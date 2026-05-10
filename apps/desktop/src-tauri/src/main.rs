@@ -1264,11 +1264,8 @@ fn main() {
             start_todo_scheduler(app.handle().clone());
             start_clipboard_monitor(app.handle().clone());
 
-            // 启动挂件心跳调度（仅在 widget.enabled=true 时实际刷新；线程内部判断）
-            tools::widget::scheduler::start(app.handle().clone());
-
-            // 启动挂件事件驱动 debounce 线程（PM/Todo CRUD → 5s 静默后立刷）
-            tools::widget::events::start(app.handle().clone());
+            // 启动挂件统一脉冲调度（心跳 + 事件 debounce + 看门狗 + 跨日立刷）
+            tools::widget::pulse::start(app.handle().clone());
 
             Ok(())
         })

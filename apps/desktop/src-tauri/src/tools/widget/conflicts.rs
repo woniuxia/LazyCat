@@ -30,7 +30,7 @@ mod imp {
         REG_VALUE_TYPE,
     };
 
-    use crate::tools::widget::state;
+    use crate::tools::widget::session;
 
     const KNOWN_ENGINES: &[&str] = &[
         "wallpaper32.exe",
@@ -44,10 +44,7 @@ mod imp {
     pub fn refresh() {
         let spotlight = detect_spotlight();
         let engine = detect_third_party_engine();
-        state::write(|s| {
-            s.spotlight_detected = spotlight;
-            s.third_party_engine = engine;
-        });
+        session::session().update_conflicts(spotlight, engine);
     }
 
     fn detect_spotlight() -> bool {

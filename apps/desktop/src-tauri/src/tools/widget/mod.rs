@@ -13,24 +13,18 @@ pub mod conflicts;
 pub mod config;
 pub mod dashboard_logic;
 pub mod data;
-pub mod events;
-pub mod fullscreen;
-pub mod idle;
-pub mod lock;
-pub mod scheduler;
-pub mod state;
+pub mod diagnostics;
+pub mod guards;
+pub mod pulse;
+pub mod session;
 pub mod widget;
-
-use std::path::PathBuf;
 
 use serde_json::{json, Value};
 use tauri::AppHandle;
 
-use crate::tools::helpers::get_data_dir;
-
 pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
     match action {
-        "status" => Ok(state::status_snapshot()),
+        "status" => Ok(session::session().status_snapshot()),
         "get_config" => serde_json::to_value(config::read_config())
             .map_err(|e| format!("serialize widget config failed: {e}")),
         "set_config" => config::set_config(payload),
@@ -41,6 +35,7 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         "resume" => Err(needs_app_handle("resume")),
         "pause" => pause_widget(payload),
         "set_privacy_mask" => set_privacy_mask(payload),
+        "diagnostics" => Ok(session::session().diagnostics_snapshot()),
         _ => Err(format!("unsupported widget action: {action}")),
     }
 }
@@ -70,7 +65,7 @@ fn enable_widget(app: &AppHandle) -> Result<Value, String> {
         eprintln!("[widget] enable: already enabled, ensuring widget");
         widget::ensure(app)?;
         // 窗口可能处于 Hidden（上次 disable 隐藏），恢复可见态
-        if widget::snapshot_state() == widget::VisualState::Hidden {
+        if session::session().visual_state() == widget::VisualState::Hidden {
             let _ = widget::set_state(app, widget::VisualState::Peek);
         }
         let _ = apply::apply(app);
@@ -78,24 +73,23 @@ fn enable_widget(app: &AppHandle) -> Result<Value, String> {
     }
 
     // 一次性清理旧链路产物（壁纸备份目录 + 渲染历史 + 废弃 user_settings key）
-    perform_legacy_cleanup();
+    // perform_legacy_cleanup 已完成历史使命；legacy 迁移由 pulse::start() 启动时兜底调用
     // 迁移旧 wallpaper.* key 到新 widget.* key
-    config::migrate_legacy_keys();
 
     config::set_string(config::KEY_ENABLED, "true")?;
 
     // 防御性清理运行时状态：上一轮可能残留的 paused / lastError 都归零
-    state::write(|s| {
-        s.paused = false;
+    session::session().write_inner(|s| {
         s.pause_reason = None;
         s.last_error = None;
         s.auto_skip_reason = None;
     });
-    apply::invalidate_input_hash();
+    session::session().paused.store(false, std::sync::atomic::Ordering::SeqCst);
+    session::session().invalidate_input_hash();
 
     widget::ensure(app)?;
     // 首次创建时 ensure 内部 set_state(Peek) + show，无需再切；非首次则切到 Peek
-    if widget::snapshot_state() == widget::VisualState::Hidden {
+    if session::session().visual_state() == widget::VisualState::Hidden {
         let _ = widget::set_state(app, widget::VisualState::Peek);
     }
     // 立即推一次数据，避免用户开启后等下个心跳才看到内容
@@ -116,12 +110,12 @@ fn disable_widget(app: &AppHandle) -> Result<Value, String> {
         eprintln!("[widget] disable: hide widget failed: {e}");
     }
     // 清运行时状态，下次启用是干净的
-    state::write(|s| {
-        s.paused = false;
+    session::session().write_inner(|s| {
         s.pause_reason = None;
         s.last_error = None;
         s.auto_skip_reason = None;
     });
+    session::session().paused.store(false, std::sync::atomic::Ordering::SeqCst);
     eprintln!("[widget] disable: done");
     Ok(json!({ "ok": true }))
 }
@@ -134,43 +128,6 @@ pub fn on_app_exit(app: &AppHandle) {
     }
     if let Err(e) = widget::destroy(app) {
         eprintln!("[widget] on_app_exit: destroy failed: {e}");
-    }
-}
-
-/// 旧 PNG 链路的一次性清理：
-/// - 删 `<data_dir>/wallpapers/original/`（备份原图）
-/// - 删 `<data_dir>/wallpapers/rendered/`（合成历史）
-/// - 删 user_settings 中废弃 key
-///
-/// 失败仅 log，不阻塞 enable。
-fn perform_legacy_cleanup() {
-    if let Ok(data_dir) = get_data_dir() {
-        for sub in ["original", "rendered"] {
-            let path: PathBuf = data_dir.join("wallpapers").join(sub);
-            if path.exists() {
-                if let Err(e) = std::fs::remove_dir_all(&path) {
-                    eprintln!(
-                        "[widget] cleanup: remove {} failed: {e}",
-                        path.display()
-                    );
-                } else {
-                    eprintln!("[widget] cleanup: removed {}", path.display());
-                }
-            }
-        }
-    }
-
-    for key in [
-        "wallpaper.original_path",
-        "wallpaper.original_set_method",
-        "wallpaper.exit_behavior",
-        "wallpaper.image_format",
-        "wallpaper.keep_history_count",
-        "wallpaper.position",
-    ] {
-        if let Err(e) = config::delete_key(key) {
-            eprintln!("[widget] cleanup: delete key {key} failed: {e}");
-        }
     }
 }
 
@@ -187,12 +144,12 @@ fn pause_widget(payload: &Value) -> Result<Value, String> {
         .and_then(Value::as_str)
         .unwrap_or("manual");
     let reason = match reason_str {
-        "fullscreen" => state::PauseReason::Fullscreen,
-        "lock" => state::PauseReason::Lock,
-        _ => state::PauseReason::Manual,
+        "fullscreen" => session::PauseReason::Fullscreen,
+        "lock" => session::PauseReason::Lock,
+        _ => session::PauseReason::Manual,
     };
-    state::write(|s| {
-        s.paused = true;
+    session::session().paused.store(true, std::sync::atomic::Ordering::SeqCst);
+    session::session().write_inner(|s| {
         s.pause_reason = Some(reason);
     });
     Ok(json!({
@@ -204,11 +161,11 @@ fn pause_widget(payload: &Value) -> Result<Value, String> {
 
 /// 恢复：清暂停 + 立即推一次数据。
 fn resume_widget(app: &AppHandle) -> Result<Value, String> {
-    state::write(|s| {
-        s.paused = false;
+    session::session().paused.store(false, std::sync::atomic::Ordering::SeqCst);
+    session::session().write_inner(|s| {
         s.pause_reason = None;
     });
-    apply::invalidate_input_hash();
+    session::session().invalidate_input_hash();
     match apply::apply(app) {
         Ok(v) => Ok(json!({
             "ok": true,
@@ -237,7 +194,7 @@ fn set_privacy_mask(payload: &Value) -> Result<Value, String> {
     if !enabled {
         config::set_string(config::KEY_PRIVACY_MASK, "false")?;
         config::set_string(config::KEY_PRIVACY_MASK_UNTIL, "")?;
-        apply::invalidate_input_hash();
+        session::session().invalidate_input_hash();
         return Ok(json!({ "ok": true, "enabled": false }));
     }
 
@@ -258,7 +215,7 @@ fn set_privacy_mask(payload: &Value) -> Result<Value, String> {
         config::KEY_PRIVACY_MASK_UNTIL,
         until.as_deref().unwrap_or(""),
     )?;
-    apply::invalidate_input_hash();
+    session::session().invalidate_input_hash();
     Ok(json!({
         "ok": true,
         "enabled": true,

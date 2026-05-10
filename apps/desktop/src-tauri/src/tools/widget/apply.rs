@@ -12,22 +12,12 @@
 
 #![allow(dead_code)]
 
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter};
 
-use crate::tools::widget::{config, dashboard_logic, data, state, widget};
-
-/// 上一次推送的输入 hash（dashboard 内容 + privacy_mask）。
-/// 0 = 失效；调用 [`invalidate_input_hash`] 强制下一轮真正推一次。
-static LAST_INPUT_HASH: AtomicU64 = AtomicU64::new(0);
-
-/// 重置内容 hash；enable / 老板键恢复 / 用户交互后调用。
-pub fn invalidate_input_hash() {
-    LAST_INPUT_HASH.store(0, Ordering::SeqCst);
-}
+use crate::tools::widget::{config, dashboard_logic, data, session, widget};
 
 /// `tool:widget:apply` 入口；force=true 跳过 hash 去重。
 pub fn apply(app: &AppHandle) -> Result<Value, String> {
@@ -69,7 +59,7 @@ pub fn apply_with_force(app: &AppHandle, force: bool) -> Result<Value, String> {
         .and_then(|v| v.as_array().cloned())
         .unwrap_or_default();
     let input_hash = compute_input_hash(&overview_value, &todo_list_value, &hot_tools_value, privacy_mask);
-    let prev_hash = LAST_INPUT_HASH.load(Ordering::SeqCst);
+    let prev_hash = session::session().input_hash();
     if !force && input_hash != 0 && input_hash == prev_hash {
         eprintln!("[widget] apply: skipped (no-change, hash={input_hash:#x})");
         return Ok(json!({
@@ -102,13 +92,10 @@ pub fn apply_with_force(app: &AppHandle, force: bool) -> Result<Value, String> {
         .map_err(|e| format!("emit dashboard-data failed: {e}"))?;
 
     // 7. 写状态
-    state::write(|s| {
-        s.last_rendered_at = Some(now_iso());
-        s.last_error = None;
-    });
+    session::session().update_last_rendered();
 
     if input_hash != 0 {
-        LAST_INPUT_HASH.store(input_hash, Ordering::SeqCst);
+        session::session().store_input_hash(input_hash);
     }
 
     let elapsed = start.elapsed().as_millis() as u64;

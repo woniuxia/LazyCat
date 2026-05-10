@@ -15,6 +15,7 @@
         @action="onCanvasAction"
       />
       <WidgetExtensionSlot :echo="data.echo" @action="onCanvasAction" />
+      <div v-if="showStaleHint" class="stale-hint">刷新中…</div>
     </template>
     <div v-else class="boot">
       <span>加载中…</span>
@@ -37,8 +38,16 @@ type ColorMode = "light" | "dark";
 const data = ref<WidgetDashboardData | null>(null);
 const colorMode = ref<ColorMode>("dark");
 const privacyMask = ref(false);
+const lastDataReceivedAt = ref(0);
 
 const unlisteners: UnlistenFn[] = [];
+let pingHandle: ReturnType<typeof setInterval> | null = null;
+
+/** 如果超过 60s 无数据，显示"刷新中…"提示 */
+const showStaleHint = computed(() => {
+  if (!data.value) return false;
+  return lastDataReceivedAt.value > 0 && Date.now() - lastDataReceivedAt.value > 60_000;
+});
 
 /** 解析工具名后的热点工具列表，供 WidgetOverviewBlock 渲染。无点击数据时提供默认推荐。 */
 const resolvedHotTools = computed(() => {
@@ -64,6 +73,7 @@ onMounted(async () => {
     await listen<WidgetDashboardData>("widget://dashboard-data", (e) => {
       data.value = e.payload;
       privacyMask.value = e.payload?.privacyMask === true;
+      lastDataReceivedAt.value = Date.now();
     }),
   );
   unlisteners.push(
@@ -75,10 +85,19 @@ onMounted(async () => {
   // 握手：通知后端挂件已就绪，触发立即推送数据
   // 解决启动时 apply 在 Vue 挂载前发射事件导致数据丢失的竞态问题
   void emit("widget://ready");
+
+  // 看门狗 ping：每 5s 通知后端挂件存活
+  pingHandle = setInterval(() => {
+    void emit("widget://ping");
+  }, 5000);
 });
 
 onBeforeUnmount(() => {
   unlisteners.splice(0).forEach((un) => un());
+  if (pingHandle !== null) {
+    clearInterval(pingHandle);
+    pingHandle = null;
+  }
 });
 
 /** 子组件（WidgetOverviewBlock / WidgetTodoList）的 action 统一通过 Tauri event 转发后端。 */
@@ -192,6 +211,17 @@ async function onCompleteItem(item: WidgetTodoItem) {
   --wc-divider: rgba(0, 0, 0, 0.06);
   background: var(--wc-glass);
   color: var(--wc-text);
+}
+
+.stale-hint {
+  position: absolute;
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 11px;
+  color: var(--wc-text-muted);
+  opacity: 0.6;
+  pointer-events: none;
 }
 
 .boot {

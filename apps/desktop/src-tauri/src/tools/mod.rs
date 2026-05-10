@@ -47,7 +47,7 @@ pub fn execute_tool(domain: &str, action: &str, payload: &Value) -> Result<Value
     let result = dispatch_tool(domain, action, payload);
     // 数据变更类 action 成功后通知挂件：5s 静默后立刷一次
     if result.is_ok() && pm_or_todo_data_changed(domain, action) {
-        widget::events::notify_data_changed(domain_static(domain));
+        widget::pulse::notify_data_changed(domain_static(domain));
     }
     result
 }
