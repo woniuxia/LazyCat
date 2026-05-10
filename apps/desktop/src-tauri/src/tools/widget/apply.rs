@@ -39,9 +39,21 @@ pub fn apply_with_force(app: &AppHandle, force: bool) -> Result<Value, String> {
     let start = Instant::now();
     eprintln!("[widget] apply: enter (force={force})");
 
-    // 1. 数据 + 配置
-    let dashboard = data::dashboard_data(&Value::Null)?;
+    // 0. 快速路径：已禁用时跳过，防御 TOCTOU 竞态
+    //    （scheduler / events 在 should_skip 之后到进入本函数之间，用户可能已 disable）
     let cfg = config::read_config();
+    if !cfg.enabled {
+        eprintln!("[widget] apply: skipped (disabled)");
+        return Ok(json!({
+            "ok": true,
+            "skipped": true,
+            "reason": "disabled",
+            "elapsedMs": start.elapsed().as_millis() as u64,
+        }));
+    }
+
+    // 1. 数据
+    let dashboard = data::dashboard_data(&Value::Null)?;
 
     // 2. 解析 privacy 状态（含到期清零）
     let privacy_mask = resolve_privacy_mask(&cfg);
