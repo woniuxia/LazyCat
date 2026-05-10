@@ -7,11 +7,12 @@
     </div>
 
     <template v-if="data">
-      <WidgetOverviewBlock :overview="data.overview" />
+      <WidgetOverviewBlock :overview="data.overview" :hot-tools="resolvedHotTools" @action="onCanvasAction" />
       <WidgetTodoList
         :items="data.todoList"
         :privacy-mask="privacyMask"
         @complete="onCompleteItem"
+        @action="onCanvasAction"
       />
       <WidgetExtensionSlot />
     </template>
@@ -22,10 +23,11 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, onBeforeUnmount, ref } from "vue";
+import { onMounted, onBeforeUnmount, ref, computed } from "vue";
 import { listen, emit, type UnlistenFn } from "@tauri-apps/api/event";
 import { invokeToolByChannel } from "../bridge/tauri";
-import type { WidgetDashboardData, WidgetTodoItem } from "../types/widget";
+import type { WidgetDashboardData, WidgetTodoItem, WidgetHotTool } from "../types/widget";
+import { getAllToolMap } from "../composables/toolCatalog";
 import WidgetOverviewBlock from "./WidgetOverviewBlock.vue";
 import WidgetTodoList from "./WidgetTodoList.vue";
 import WidgetExtensionSlot from "./WidgetExtensionSlot.vue";
@@ -37,6 +39,16 @@ const colorMode = ref<ColorMode>("dark");
 const privacyMask = ref(false);
 
 const unlisteners: UnlistenFn[] = [];
+
+/** 解析工具名后的热点工具列表，供 WidgetOverviewBlock 渲染。 */
+const resolvedHotTools = computed(() => {
+  const hotTools = data.value?.hotTools ?? [];
+  if (hotTools.length === 0) return [];
+  const map = getAllToolMap();
+  return hotTools
+    .map((t: WidgetHotTool) => ({ ...t, name: map.get(t.id)?.name }))
+    .filter((t): t is WidgetHotTool & { name: string } => t.name !== undefined);
+});
 
 onMounted(async () => {
   unlisteners.push(
@@ -59,6 +71,11 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   unlisteners.splice(0).forEach((un) => un());
 });
+
+/** 子组件（WidgetOverviewBlock / WidgetTodoList）的 action 统一通过 Tauri event 转发后端。 */
+function onCanvasAction(payload: { kind: string; [key: string]: unknown }) {
+  void emit("widget://canvas-action", payload);
+}
 
 /**
  * 用户点击 todo 行 checkbox 完成事项。

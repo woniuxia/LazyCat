@@ -1,42 +1,68 @@
 <template>
-  <!-- 概览块（design §5.1）：左进度环 + 右警戒栏，高度 ~220 px -->
   <section class="overview-block" :class="{ alert: isAlert }">
-    <div class="ring">
-      <svg viewBox="0 0 100 100" class="ring-svg">
-        <circle cx="50" cy="50" r="42" class="ring-bg" />
-        <circle
-          cx="50"
-          cy="50"
-          r="42"
-          class="ring-fg"
-          :class="{ 'ring-alert': isAlert }"
-          :stroke-dasharray="`${ringValue} 999`"
-        />
-      </svg>
-      <div class="ring-text">
-        <div class="ring-percent">{{ percentText }}</div>
-        <div class="ring-count">{{ overview.completedToday }}/{{ overview.totalToday }} 件</div>
+    <div class="overview-top">
+      <div class="ring">
+        <svg viewBox="0 0 100 100" class="ring-svg">
+          <circle cx="50" cy="50" r="42" class="ring-bg" />
+          <circle
+            cx="50"
+            cy="50"
+            r="42"
+            class="ring-fg"
+            :class="{ 'ring-alert': isAlert }"
+            :stroke-dasharray="`${ringValue} 999`"
+          />
+        </svg>
+        <div class="ring-text">
+          <div class="ring-percent">{{ percentText }}</div>
+          <div class="ring-count">{{ overview.completedToday }}/{{ overview.totalToday }} 件</div>
+        </div>
+      </div>
+      <div class="alarms">
+        <div v-if="overview.p0Pending > 0" class="alarm warn" :class="{ strong: isAlert }">
+          ⚠ P0×{{ overview.p0Pending }}
+        </div>
+        <div v-if="nearestText" class="alarm time" :class="{ strong: isAlert }">
+          ⏰ {{ nearestText }}
+        </div>
+        <div v-if="!overview.p0Pending && !nearestText" class="alarm idle">无紧急事项</div>
       </div>
     </div>
-    <div class="alarms">
-      <div v-if="overview.p0Pending > 0" class="alarm warn" :class="{ strong: isAlert }">
-        ⚠ P0×{{ overview.p0Pending }}
+    <template v-if="tools.length > 0">
+      <div class="hot-divider"></div>
+      <div class="hot-tools-row">
+        <button
+          v-for="tool in tools"
+          :key="tool.id"
+          class="hot-tool-btn"
+          @click="$emit('action', { kind: 'open-tool', toolId: tool.id })"
+        >
+          {{ tool.name }}
+        </button>
       </div>
-      <div v-if="nearestText" class="alarm time" :class="{ strong: isAlert }">
-        ⏰ {{ nearestText }}
-      </div>
-      <div v-if="!overview.p0Pending && !nearestText" class="alarm idle">无紧急事项</div>
-    </div>
+    </template>
   </section>
 </template>
 
 <script setup lang="ts">
 import { computed } from "vue";
-import type { WidgetOverview } from "../types/widget";
+import type { WidgetOverview, WidgetHotTool } from "../types/widget";
 
-const props = defineProps<{ overview: WidgetOverview }>();
+interface ResolvedHotTool extends WidgetHotTool {
+  name: string;
+}
+
+const props = defineProps<{
+  overview: WidgetOverview;
+  hotTools?: ResolvedHotTool[];
+}>();
+
+defineEmits<{
+  (e: "action", payload: { kind: string; [key: string]: unknown }): void;
+}>();
 
 // 圆周长 ≈ 264（2π·42）；保留 1 位小数避免 stroke 抖动
+const tools = computed(() => props.hotTools ?? []);
 const RING_CIRCUMFERENCE = 264;
 
 const percent = computed(() => {
@@ -69,15 +95,20 @@ const isAlert = computed(() => {
 
 <style scoped>
 .overview-block {
-  height: 200px;
   display: flex;
-  align-items: center;
-  gap: 16px;
+  flex-direction: column;
+  gap: 8px;
   padding: 12px;
   border-radius: 12px;
   background: var(--wc-block-bg);
   border: 1px solid var(--wc-block-border);
   flex-shrink: 0;
+}
+
+.overview-top {
+  display: flex;
+  align-items: center;
+  gap: 16px;
 }
 
 .ring {
@@ -161,5 +192,33 @@ const isAlert = computed(() => {
 
 .alarm.strong {
   font-weight: 600;
+}
+
+.hot-divider {
+  height: 1px;
+  background: var(--wc-divider);
+  margin: 4px 0;
+}
+
+.hot-tools-row {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.hot-tool-btn {
+  padding: 5px 9px;
+  border-radius: 5px;
+  background: var(--wc-block-bg);
+  border: 1px solid var(--wc-block-border);
+  color: var(--wc-text);
+  font-size: 11px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background-color 0.15s ease;
+}
+
+.hot-tool-btn:hover {
+  background: var(--wc-block-border);
 }
 </style>

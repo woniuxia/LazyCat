@@ -3,6 +3,10 @@
   <section class="extension-slot" />
 </template>
 
+<script setup lang="ts">
+// 阶段 1 占位，阶段 2 接回声短语等交互内容
+</script>
+
 <style scoped>
 .extension-slot {
   height: 80px;

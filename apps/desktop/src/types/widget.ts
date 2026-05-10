@@ -16,6 +16,13 @@ export interface WidgetOverview {
   nearestDeadlineHours: number | null;
 }
 
+export interface WidgetHotTool {
+  /** 工具 ID（如 "pm", "inbox"） */
+  id: string;
+  /** 近 30 天点击次数 */
+  count: number;
+}
+
 export interface WidgetTodoItem {
   /** `pm:<id>` | `todo:<id>` */
   id: string;
@@ -36,6 +43,8 @@ export interface WidgetDashboardData {
   generatedAt: string;
   /** design §9 敏感模式：开启时 canvas 把 todo 标题打码 */
   privacyMask?: boolean;
+  /** 动态工具推荐（id + count，name 由前端查 toolCatalog） */
+  hotTools: WidgetHotTool[];
 }
 
 export interface WidgetStatus {

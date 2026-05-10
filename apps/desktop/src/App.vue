@@ -61,7 +61,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onBeforeUnmount, ref } from "vue";
+import { computed, onMounted, onBeforeUnmount, ref, provide } from "vue";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ElMessageBox } from "element-plus";
@@ -109,6 +109,8 @@ const launcherHotkeyInput = ref("");
 const todoHotkeyInput = ref("");
 const quickCaptureHotkeyInput = ref("");
 const spotlightHotkeyInput = ref("");
+const pendingTodoCreate = ref(false);
+provide("pendingTodoCreate", pendingTodoCreate);
 const shortcutHelp = ref<InstanceType<typeof ShortcutHelpOverlay> | null>(null);
 const topBarRef = ref<InstanceType<typeof TopBar> | null>(null);
 
@@ -349,6 +351,17 @@ onMounted(async () => {
       await tryOpenClipboardPathFromToggle();
       if (getSetting("focus_search_on_show") === "true") {
         focusSearch();
+      }
+    });
+  } catch { /* ignore in non-Tauri env */ }
+  try {
+    await listen<{ kind: string; toolId?: string }>("widget://navigate", (event) => {
+      const { kind, toolId } = event.payload;
+      if (kind === "open-tool" && toolId) {
+        onSelect(toolId);
+      } else if (kind === "open-todo-create") {
+        pendingTodoCreate.value = true;
+        onSelect("todo");
       }
     });
   } catch { /* ignore in non-Tauri env */ }

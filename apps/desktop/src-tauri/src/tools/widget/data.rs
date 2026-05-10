@@ -9,12 +9,16 @@ use serde_json::{json, Value};
 
 use crate::tools::helpers::db_conn;
 use crate::tools::todo::is_open_status;
+use crate::tools::widget::config;
 use crate::tools::widget::dashboard_logic::{
     compute_nearest_deadline_hours, merge_and_dedup_items, sort_dashboard_items,
 };
 
 /// `todoList` 截断上限（前端按高度二次裁剪）。
 const TODO_LIMIT: usize = 20;
+
+/// 动态推荐数量上限。
+const HOT_TOOLS_LIMIT: usize = 3;
 
 /// 仪表盘聚合主入口；通道 `tool:widget:dashboard_data` 直接调用。
 pub fn dashboard_data(_payload: &Value) -> Result<Value, String> {
@@ -90,11 +94,14 @@ pub fn dashboard_data(_payload: &Value) -> Result<Value, String> {
         "nearestDeadlineHours": nearest,
     });
 
+    let hot_tools = compute_hot_tools(&conn);
+
     Ok(json!({
         "overview": overview,
         "todoList": merged,
         "echo": Value::Null,
         "generatedAt": Utc::now().to_rfc3339(),
+        "hotTools": hot_tools,
     }))
 }
 
@@ -304,6 +311,50 @@ fn load_todo_rows(
         list.push(r.map_err(|e| format!("read widget.todo row: {e}"))?);
     }
     Ok(list)
+}
+
+// ── 热点工具 ──────────────────────────────────────
+
+/// 读取 `tool_clicks`，统计近 30 天每个工具的点击数，取 Top N。
+/// 排除 `todo`（挂件已有快捷入口）和 `widget`（挂件不应推荐自身）。
+fn compute_hot_tools(conn: &Connection) -> Vec<Value> {
+    let raw = match config::read_string(conn, "tool_clicks") {
+        Some(s) => s,
+        None => return Vec::new(),
+    };
+
+    let clicks: std::collections::HashMap<String, Vec<i64>> = match serde_json::from_str(&raw) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("[widget] parse tool_clicks failed: {e}");
+            return Vec::new();
+        }
+    };
+
+    let cutoff = Utc::now().timestamp_millis() - 30 * 24 * 3600 * 1000;
+
+    let mut counts: Vec<(&str, usize)> = clicks
+        .iter()
+        .filter(|(id, _)| *id != "todo" && *id != "widget")
+        .map(|(id, timestamps)| {
+            let count = timestamps.iter().filter(|&&ts| ts >= cutoff).count();
+            (id.as_str(), count)
+        })
+        .filter(|(_, count)| *count > 0)
+        .collect();
+
+    counts.sort_by(|a, b| b.1.cmp(&a.1));
+    counts.truncate(HOT_TOOLS_LIMIT);
+
+    counts
+        .into_iter()
+        .map(|(id, count)| {
+            json!({
+                "id": id,
+                "count": count,
+            })
+        })
+        .collect()
 }
 
 #[cfg(test)]

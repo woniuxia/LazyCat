@@ -1,6 +1,10 @@
 <template>
   <!-- 待办列表（design §5.2 + 挂件交互版）：每行可点 checkbox 完成。 -->
   <section class="todo-list">
+    <div class="list-header">
+      <span class="header-title">待办事项</span>
+      <button class="header-add" title="新建待办" @click="$emit('action', { kind: 'open-todo-create' })">+ 新建</button>
+    </div>
     <div
       v-for="item in visibleItems"
       :key="item.id"
@@ -10,7 +14,7 @@
       <button
         class="check"
         :class="`p-${item.priority.toLowerCase()}`"
-        :title="`完成 · ${item.title}`"
+        :title="`完成 · ${displayTitle(item.title)}`"
         @click="onComplete(item)"
       ></button>
       <span v-if="item.pinned" class="pin">📌</span>
@@ -36,6 +40,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: "complete", item: WidgetTodoItem): void;
+  (e: "action", payload: { kind: string; [key: string]: unknown }): void;
 }>();
 
 function displayTitle(title: string): string {
@@ -97,18 +102,48 @@ function parseLocalDate(raw: string): Date | null {
   flex: 1;
   display: flex;
   flex-direction: column;
-  padding: 12px;
+  padding: 0;
   border-radius: 12px;
   background: var(--wc-block-bg);
   border: 1px solid var(--wc-block-border);
   overflow: hidden;
 }
 
+.list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--wc-divider);
+  flex-shrink: 0;
+}
+
+.header-title {
+  font-size: 12px;
+  color: var(--wc-text-muted);
+}
+
+.header-add {
+  padding: 4px 9px;
+  border-radius: 5px;
+  background: var(--wc-block-bg);
+  border: 1px solid var(--wc-block-border);
+  color: var(--wc-text);
+  font-size: 11px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background-color 0.15s ease;
+}
+
+.header-add:hover {
+  background: var(--wc-block-border);
+}
+
 .todo-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 4px;
+  padding: 8px 12px;
   font-size: 13px;
   line-height: 28px;
   border-bottom: 1px solid var(--wc-divider);
@@ -182,6 +217,7 @@ function parseLocalDate(raw: string): Date | null {
 
 .empty {
   margin: auto;
+  padding-bottom: 12px;
   font-size: 13px;
   color: var(--wc-text-muted);
 }

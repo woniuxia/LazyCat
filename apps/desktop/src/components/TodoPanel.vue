@@ -446,7 +446,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, h, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+import { computed, h, inject, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { listen } from "@tauri-apps/api/event";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import {
@@ -2102,6 +2102,14 @@ watch(todoContextMenuItem, (item) => {
 });
 
 watchPendingToolInput("todo", (input) => applyPendingTodoInput(input));
+
+const pendingTodoCreate = inject<ReturnType<typeof ref<boolean>>>("pendingTodoCreate", ref(false));
+watch(pendingTodoCreate, (v) => {
+  if (v) {
+    pendingTodoCreate.value = false;
+    void startCreate();
+  }
+});
 
 onMounted(async () => {
   await Promise.all([loadTypes(), loadAssignees(), loadItems(), loadProjects()]);

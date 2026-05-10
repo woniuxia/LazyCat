@@ -18,7 +18,7 @@
 use std::sync::{mpsc, OnceLock};
 use std::time::{Duration, Instant};
 
-use tauri::{AppHandle, Listener};
+use tauri::{AppHandle, Emitter, Listener};
 
 use crate::tools::widget::{apply, config, fullscreen, lock, state};
 
@@ -62,10 +62,23 @@ pub fn start(app: AppHandle) {
 
     // 监听前端挂件交互（v2 新增）：用户点击 todo checkbox 等动作 → 立即推新数据。
     // 走 debounce 通道避免连点抖动；前端 emit `widget://canvas-action`。
-    app.listen("widget://canvas-action", |evt| {
+    // 若为导航型 action（open-tool / open-todo-create），额外转发到主窗口。
+    let app_for_navigate = app.clone();
+    app.listen("widget://canvas-action", move |evt| {
         eprintln!("[widget] canvas-action received: {}", evt.payload());
         apply::invalidate_input_hash();
         notify_data_changed("widget");
+
+        // 解析 payload，转发导航型 action 到主窗口
+        if let Ok(payload) = serde_json::from_str::<serde_json::Value>(evt.payload()) {
+            let kind = payload.get("kind").and_then(|v| v.as_str()).unwrap_or("");
+            match kind {
+                "open-tool" | "open-todo-create" => {
+                    let _ = app_for_navigate.emit("widget://navigate", &payload);
+                }
+                _ => {}
+            }
+        }
     });
 
     std::thread::spawn(move || {
