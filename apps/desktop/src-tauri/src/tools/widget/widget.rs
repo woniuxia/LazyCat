@@ -121,15 +121,15 @@ pub fn ensure(app: &AppHandle) -> Result<WebviewWindow, String> {
     Ok(win)
 }
 
-/// 销毁挂件；在独立线程关 close() 避免主线程 sync 命令死锁（同 hidden.rs 老办法）。
+/// 销毁挂件。
 pub fn destroy(app: &AppHandle) -> Result<(), String> {
     store_state(VisualState::Hidden);
     if let Some(w) = app.get_webview_window(WIDGET_LABEL) {
-        eprintln!("[widget] widget: scheduling close");
-        std::thread::spawn(move || match w.close() {
+        eprintln!("[widget] widget: closing widget window");
+        match w.close() {
             Ok(()) => eprintln!("[widget] widget: close ok"),
             Err(e) => eprintln!("[widget] widget: close failed: {e}"),
-        });
+        }
     }
     Ok(())
 }
