@@ -155,7 +155,6 @@ declare module 'vue' {
     WeeklyWorkPanel: typeof import('./src/components/WeeklyWorkPanel.vue')['default']
     WidgetCanvas: typeof import('./src/components/WidgetCanvas.vue')['default']
     WidgetExtensionSlot: typeof import('./src/components/WidgetExtensionSlot.vue')['default']
-    WidgetOverviewBlock: typeof import('./src/components/WidgetOverviewBlock.vue')['default']
     WidgetPanel: typeof import('./src/components/WidgetPanel.vue')['default']
     WidgetTodoList: typeof import('./src/components/WidgetTodoList.vue')['default']
   }

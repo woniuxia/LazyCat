@@ -11,11 +11,11 @@ use crate::tools::helpers::db_conn;
 use crate::tools::todo::is_open_status;
 use crate::tools::widget::config;
 use crate::tools::widget::dashboard_logic::{
-    compute_nearest_deadline_hours, merge_and_dedup_items, sort_dashboard_items,
+    merge_and_dedup_items, sort_dashboard_items,
 };
 
-/// `todoList` 截断上限（前端按高度二次裁剪）。
-const TODO_LIMIT: usize = 20;
+/// `todoList` 截断上限（前端可滚动浏览全部）。
+const TODO_LIMIT: usize = 100;
 
 /// 动态推荐数量上限。
 const HOT_TOOLS_LIMIT: usize = 3;
@@ -50,157 +50,17 @@ pub fn dashboard_data(_payload: &Value) -> Result<Value, String> {
         merged.truncate(TODO_LIMIT);
     }
 
-    // 2. overview 统计直接对原 row 做（包含 completed-today 项）
-    let mut completed_today: u32 = 0;
-    let mut total_today: u32 = 0;
-    let mut p0_pending: u32 = 0;
-    for row in &pm_rows {
-        match classify_pm(row, &today_str, &today_start_utc, &today_end_utc) {
-            Bucket::CompletedToday => {
-                completed_today += 1;
-                total_today += 1;
-            }
-            Bucket::Overdue | Bucket::DueToday | Bucket::InProgress => {
-                total_today += 1;
-            }
-            Bucket::Other => {}
-        }
-        if is_p0_open_pm(row) {
-            p0_pending += 1;
-        }
-    }
-    for row in &todo_rows {
-        match classify_todo(row, &today_str, &today_start_utc, &today_end_utc) {
-            Bucket::CompletedToday => {
-                completed_today += 1;
-                total_today += 1;
-            }
-            Bucket::Overdue | Bucket::DueToday | Bucket::InProgress => {
-                total_today += 1;
-            }
-            Bucket::Other => {}
-        }
-        if is_p0_open_todo(row) {
-            p0_pending += 1;
-        }
-    }
-
-    let nearest = compute_nearest_deadline_hours(&merged, now_local);
-
-    let overview = json!({
-        "completedToday": completed_today,
-        "totalToday": total_today,
-        "p0Pending": p0_pending,
-        "nearestDeadlineHours": nearest,
-    });
-
     let hot_tools = compute_hot_tools(&conn);
 
     Ok(json!({
-        "overview": overview,
         "todoList": merged,
-        "echo": Value::Null,
         "generatedAt": Utc::now().to_rfc3339(),
         "hotTools": hot_tools,
     }))
 }
 
-// ── 内部分类 ──────────────────────────────────────
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Bucket {
-    Overdue,
-    DueToday,
-    InProgress,
-    CompletedToday,
-    Other,
-}
-
-fn classify_pm(
-    row: &Value,
-    today_str: &str,
-    today_start_utc: &str,
-    today_end_utc: &str,
-) -> Bucket {
-    let status = row.get("status").and_then(Value::as_str).unwrap_or("");
-    let completed_at = row.get("completedAt").and_then(Value::as_str);
-    if let Some(c) = completed_at {
-        if c >= today_start_utc && c <= today_end_utc {
-            return Bucket::CompletedToday;
-        }
-    }
-    if status == "done" {
-        return Bucket::Other;
-    }
-    if let Some(date) = row
-        .get("endAt")
-        .and_then(Value::as_str)
-        .and_then(|s| s.get(0..10))
-    {
-        if date < today_str {
-            return Bucket::Overdue;
-        }
-        if date == today_str {
-            return Bucket::DueToday;
-        }
-    }
-    if row
-        .get("startedAt")
-        .and_then(Value::as_str)
-        .map(|s| !s.is_empty())
-        .unwrap_or(false)
-    {
-        return Bucket::InProgress;
-    }
-    Bucket::Other
-}
-
-fn classify_todo(
-    row: &Value,
-    today_str: &str,
-    today_start_utc: &str,
-    today_end_utc: &str,
-) -> Bucket {
-    let status = row.get("status").and_then(Value::as_str).unwrap_or("");
-    let completed_at = row.get("completedAt").and_then(Value::as_str);
-    if let Some(c) = completed_at {
-        if c >= today_start_utc && c <= today_end_utc {
-            return Bucket::CompletedToday;
-        }
-    }
-    if status == "completed" {
-        return Bucket::Other;
-    }
-    if let Some(date) = row
-        .get("eventAt")
-        .and_then(Value::as_str)
-        .and_then(|s| s.get(0..10))
-    {
-        if date < today_str {
-            return Bucket::Overdue;
-        }
-        if date == today_str {
-            return Bucket::DueToday;
-        }
-    }
-    if status == "in_progress" {
-        return Bucket::InProgress;
-    }
-    Bucket::Other
-}
-
 fn is_pm_done(row: &Value) -> bool {
     row.get("status").and_then(Value::as_str) == Some("done")
-}
-
-fn is_p0_open_pm(row: &Value) -> bool {
-    !is_pm_done(row)
-        && row.get("priority").and_then(Value::as_str) == Some("P0")
-}
-
-fn is_p0_open_todo(row: &Value) -> bool {
-    let s = row.get("status").and_then(Value::as_str).unwrap_or("");
-    is_open_status(s) && row.get("priority").and_then(Value::as_str) == Some("P0")
 }
 
 // ── 时区 / 范围 ────────────────────────────────
@@ -357,114 +217,3 @@ fn compute_hot_tools(conn: &Connection) -> Vec<Value> {
         .collect()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn pm(status: &str, end_at: Option<&str>, started_at: Option<&str>, completed_at: Option<&str>) -> Value {
-        json!({
-            "id": 1,
-            "title": "x",
-            "priority": "P2",
-            "status": status,
-            "endAt": end_at,
-            "pinned": false,
-            "completedAt": completed_at,
-            "createdAt": "2026-04-01T00:00:00Z",
-            "startedAt": started_at,
-        })
-    }
-
-    fn todo_item(status: &str, event_at: Option<&str>, completed_at: Option<&str>) -> Value {
-        json!({
-            "id": 1,
-            "title": "x",
-            "priority": "P2",
-            "status": status,
-            "eventAt": event_at,
-            "pinned": false,
-            "completedAt": completed_at,
-            "createdAt": "2026-04-01T00:00:00Z",
-            "pmItemId": null,
-        })
-    }
-
-    const TODAY: &str = "2026-05-06";
-    const START_UTC: &str = "2026-05-05T16:00:00+00:00";
-    const END_UTC: &str = "2026-05-06T15:59:59+00:00";
-
-    #[test]
-    fn classify_pm_completed_in_window() {
-        let row = pm("done", Some("2026-05-04"), None, Some("2026-05-06T05:00:00+00:00"));
-        assert_eq!(classify_pm(&row, TODAY, START_UTC, END_UTC), Bucket::CompletedToday);
-    }
-
-    #[test]
-    fn classify_pm_overdue() {
-        let row = pm("todo", Some("2026-05-04"), None, None);
-        assert_eq!(classify_pm(&row, TODAY, START_UTC, END_UTC), Bucket::Overdue);
-    }
-
-    #[test]
-    fn classify_pm_due_today() {
-        let row = pm("in_progress", Some("2026-05-06"), None, None);
-        assert_eq!(classify_pm(&row, TODAY, START_UTC, END_UTC), Bucket::DueToday);
-    }
-
-    #[test]
-    fn classify_pm_in_progress_no_date() {
-        let row = pm("in_progress", None, Some("2026-05-05T08:00:00+00:00"), None);
-        assert_eq!(classify_pm(&row, TODAY, START_UTC, END_UTC), Bucket::InProgress);
-    }
-
-    #[test]
-    fn classify_pm_open_no_signal() {
-        let row = pm("todo", None, None, None);
-        assert_eq!(classify_pm(&row, TODAY, START_UTC, END_UTC), Bucket::Other);
-    }
-
-    #[test]
-    fn classify_pm_done_outside_window() {
-        let row = pm("done", Some("2026-05-04"), None, Some("2026-05-04T05:00:00+00:00"));
-        assert_eq!(classify_pm(&row, TODAY, START_UTC, END_UTC), Bucket::Other);
-    }
-
-    #[test]
-    fn classify_todo_completed_in_window() {
-        let row = todo_item("completed", Some("2026-05-06T08:00:00+00:00"), Some("2026-05-06T09:00:00+00:00"));
-        assert_eq!(classify_todo(&row, TODAY, START_UTC, END_UTC), Bucket::CompletedToday);
-    }
-
-    #[test]
-    fn classify_todo_overdue() {
-        let row = todo_item("pending", Some("2026-05-04T08:00:00+00:00"), None);
-        assert_eq!(classify_todo(&row, TODAY, START_UTC, END_UTC), Bucket::Overdue);
-    }
-
-    #[test]
-    fn classify_todo_in_progress_only_status() {
-        let row = todo_item("in_progress", None, None);
-        assert_eq!(classify_todo(&row, TODAY, START_UTC, END_UTC), Bucket::InProgress);
-    }
-
-    #[test]
-    fn p0_pending_counts() {
-        let pm_p0 = json!({
-            "id": 1, "priority": "P0", "status": "todo",
-        });
-        let pm_p0_done = json!({
-            "id": 2, "priority": "P0", "status": "done",
-        });
-        let pm_p1 = json!({
-            "id": 3, "priority": "P1", "status": "todo",
-        });
-        assert!(is_p0_open_pm(&pm_p0));
-        assert!(!is_p0_open_pm(&pm_p0_done));
-        assert!(!is_p0_open_pm(&pm_p1));
-
-        let todo_p0 = json!({ "priority": "P0", "status": "pending" });
-        let todo_p0_done = json!({ "priority": "P0", "status": "completed" });
-        assert!(is_p0_open_todo(&todo_p0));
-        assert!(!is_p0_open_todo(&todo_p0_done));
-    }
-}

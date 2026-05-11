@@ -6,7 +6,7 @@
       <button class="header-add" title="新建待办" @click="$emit('action', { kind: 'open-todo-create' })">+ 新建</button>
     </div>
     <div
-      v-for="item in visibleItems"
+      v-for="item in items"
       :key="item.id"
       class="todo-row"
       :class="`p-${item.priority.toLowerCase()}`"
@@ -23,13 +23,11 @@
         {{ formatDeadline(item.endAt) }}
       </span>
     </div>
-    <div v-if="overflowCount > 0" class="more">+{{ overflowCount }} 件</div>
-    <div v-else-if="visibleItems.length === 0" class="empty">今日无待办</div>
+    <div v-if="items.length === 0" class="empty">今日无待办</div>
   </section>
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
 import type { WidgetTodoItem } from "../types/widget";
 
 const props = defineProps<{
@@ -48,14 +46,6 @@ function displayTitle(title: string): string {
   const len = Math.max(4, Math.min(title.length, 8));
   return "▓".repeat(len);
 }
-
-// design §5.2：maxLines = floor((listHeight - paddingY * 2) / lineHeight)
-const MAX_LINES = 10;
-
-const visibleItems = computed(() => props.items.slice(0, MAX_LINES));
-const overflowCount = computed(() =>
-  Math.max(0, props.items.length - MAX_LINES),
-);
 
 function onComplete(item: WidgetTodoItem) {
   emit("complete", item);
@@ -106,7 +96,26 @@ function parseLocalDate(raw: string): Date | null {
   border-radius: 12px;
   background: var(--wc-block-bg);
   border: 1px solid var(--wc-block-border);
-  overflow: hidden;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--wc-bg-tertiary) transparent;
+}
+
+.todo-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.todo-list::-webkit-scrollbar-thumb {
+  background: var(--wc-bg-tertiary);
+  border-radius: 3px;
+}
+
+.todo-list::-webkit-scrollbar-thumb:hover {
+  background: var(--wc-text-muted);
+}
+
+.todo-list::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .list-header {
@@ -206,13 +215,6 @@ function parseLocalDate(raw: string): Date | null {
 .deadline.overdue {
   color: #ef4444;
   font-weight: 600;
-}
-
-.more {
-  font-size: 12px;
-  color: var(--wc-text-muted);
-  text-align: center;
-  padding-top: 6px;
 }
 
 .empty {

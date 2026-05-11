@@ -27,7 +27,7 @@ use std::time::{Duration, Instant};
 
 use chrono::Local;
 use serde_json::Value;
-use tauri::{AppHandle, Emitter, Listener};
+use tauri::{AppHandle, Emitter, Listener, Manager};
 
 use crate::tools::widget::{apply, conflicts, guards, session, widget};
 use crate::tools::widget::diagnostics::{WidgetEvent, ApplyResult, SkipReason};
@@ -83,6 +83,11 @@ pub fn start(app: AppHandle) {
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
             if matches!(kind, "open-tool" | "open-todo-create") {
+                // 确保主窗口在点击快捷操作时呼出到前台
+                if let Some(main) = app_nav.get_webview_window("main") {
+                    let _ = main.show();
+                    let _ = main.set_focus();
+                }
                 let _ = app_nav.emit("widget://navigate", &payload);
             }
         }

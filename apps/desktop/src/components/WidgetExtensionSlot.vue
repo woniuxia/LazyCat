@@ -1,12 +1,10 @@
 <template>
-  <section class="extension-slot" :style="inlineStyle">
+  <section class="extension-slot">
     <div class="ext-inner">
-      <span class="ext-text">{{ displayText }}</span>
       <button
-        v-for="btn in buttons"
+        v-for="btn in allButtons"
         :key="btn.key"
         class="ext-btn"
-        :style="btnStyle"
         :title="btn.title"
         @click="$emit('action', btn.payload)"
       >{{ btn.label }}</button>
@@ -18,30 +16,32 @@
 import { computed } from "vue";
 
 const props = defineProps<{
-  echo?: string | null;
+  hotTools?: { id: string; label: string }[];
 }>();
 
 defineEmits<{
   (e: "action", payload: { kind: string; [key: string]: unknown }): void;
 }>();
 
-const displayText = computed(() => {
-  if (props.echo && props.echo.trim().length > 0) return props.echo;
-  return "快捷操作";
-});
+const FIXED_IDS = new Set(["pm", "todo", "inbox"]);
 
-const buttons = [
+const fixedButtons = [
   { key: "pm", label: "PM", title: "项目管理", payload: { kind: "open-tool", toolId: "pm" } },
   { key: "todo", label: "待办", title: "新建待办", payload: { kind: "open-todo-create" } },
   { key: "inbox", label: "Inbox", title: "收集箱", payload: { kind: "open-tool", toolId: "inbox" } },
 ];
 
-const inlineStyle = computed(() => {
-  // 硬编码颜色确保挂件扩展区始终可见，不依赖 CSS 变量
-  return "background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.2);";
+const allButtons = computed(() => {
+  const dynamic = (props.hotTools ?? [])
+    .filter((t) => !FIXED_IDS.has(t.id))
+    .map((t) => ({
+      key: `hot-${t.id}`,
+      label: t.label,
+      title: t.label,
+      payload: { kind: "open-tool", toolId: t.id },
+    }));
+  return [...fixedButtons, ...dynamic];
 });
-
-const btnStyle = "background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.25); color: #fff;";
 </script>
 
 <style scoped>
@@ -51,23 +51,17 @@ const btnStyle = "background: rgba(255,255,255,0.15); border: 1px solid rgba(255
   flex-shrink: 0;
   display: flex;
   align-items: center;
+  background: var(--wc-block-bg);
+  border: 1px solid var(--wc-block-border);
 }
 
 .ext-inner {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   padding: 10px 14px;
   width: 100%;
-}
-
-.ext-text {
-  flex: 1;
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.75);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .ext-btn {
@@ -78,10 +72,12 @@ const btnStyle = "background: rgba(255,255,255,0.15); border: 1px solid rgba(255
   font-family: inherit;
   white-space: nowrap;
   transition: background-color 0.15s ease;
-  flex-shrink: 0;
+  background: var(--wc-block-bg);
+  border: 1px solid var(--wc-block-border);
+  color: var(--wc-text);
 }
 
 .ext-btn:hover {
-  background: rgba(255, 255, 255, 0.3) !important;
+  background: var(--wc-block-border);
 }
 </style>

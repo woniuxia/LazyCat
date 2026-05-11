@@ -6,9 +6,7 @@
 //!
 //! 所有函数保持纯：不依赖数据库、时钟、文件系统，便于完整覆盖单测。
 
-#![allow(dead_code)] // Phase 1.1：format_deadline_label / compute_dashboard_hash 由 Phase 2 接入
-
-use chrono::{DateTime, Datelike, Local, NaiveDate, TimeZone};
+use chrono::NaiveDate;
 use serde_json::{json, Value};
 
 use crate::tools::pm_today::priority_rank;
@@ -191,46 +189,9 @@ pub fn sort_dashboard_items(items: &mut [Value]) {
     });
 }
 
-/// 渲染人类可读的截止标签：今天 / 明天 / N 月 N 日 / 已逾期 N 天 / None
-pub fn format_deadline_label(deadline_date: Option<&str>, today: &str) -> Option<String> {
-    let date = deadline_date?;
-    let parsed = NaiveDate::parse_from_str(date, "%Y-%m-%d").ok()?;
-    let today_d = NaiveDate::parse_from_str(today, "%Y-%m-%d").ok()?;
-    let diff = (parsed - today_d).num_days();
-    if diff < 0 {
-        Some(format!("已逾期 {} 天", -diff))
-    } else if diff == 0 {
-        Some("今天".to_string())
-    } else if diff == 1 {
-        Some("明天".to_string())
-    } else {
-        Some(format!("{}月{}日", parsed.month(), parsed.day()))
-    }
-}
-
-/// 跨 PM/Todo 合集计算最近未完成截止距离 now 的小时差（按当地时间 23:59:59 计）。
-/// 仅考虑 `is_open_status(status)` 为 true 的项；无候选返回 None。
-pub fn compute_nearest_deadline_hours(items: &[Value], now: DateTime<Local>) -> Option<i64> {
-    let earliest: Option<NaiveDate> = items
-        .iter()
-        .filter(|i| {
-            let s = i.get("status").and_then(Value::as_str).unwrap_or("");
-            is_dashboard_open(s)
-        })
-        .filter_map(|i| i.get("endAt").and_then(Value::as_str))
-        .filter_map(|d| NaiveDate::parse_from_str(d, "%Y-%m-%d").ok())
-        .min();
-    let earliest = earliest?;
-    let end_local = earliest.and_hms_opt(23, 59, 59)?;
-    let end_dt: DateTime<Local> = Local.from_local_datetime(&end_local).single()?;
-    Some(end_dt.signed_duration_since(now).num_hours())
-}
-
-/// 对 overview + 排序后的 todoList 计算稳定 hash（hex），用于内容短路（design §14.1）。
-pub fn compute_dashboard_hash(overview: &Value, todo_list: &[Value]) -> String {
+/// 对排序后的 todoList 计算稳定 hash（hex），用于内容短路（design §14.1）。
+pub fn compute_dashboard_hash(todo_list: &[Value]) -> String {
     let mut hasher = blake3::Hasher::new();
-    hasher.update(overview.to_string().as_bytes());
-    hasher.update(b"|");
     for item in todo_list {
         hasher.update(item.to_string().as_bytes());
         hasher.update(b"\n");
@@ -367,78 +328,13 @@ mod tests {
     }
 
     #[test]
-    fn format_label_today_tomorrow_and_overdue() {
-        let today = "2026-05-06";
-        assert_eq!(
-            format_deadline_label(Some("2026-05-06"), today),
-            Some("今天".to_string())
-        );
-        assert_eq!(
-            format_deadline_label(Some("2026-05-07"), today),
-            Some("明天".to_string())
-        );
-        assert_eq!(
-            format_deadline_label(Some("2026-05-09"), today),
-            Some("5月9日".to_string())
-        );
-        assert_eq!(
-            format_deadline_label(Some("2026-05-04"), today),
-            Some("已逾期 2 天".to_string())
-        );
-        assert_eq!(format_deadline_label(None, today), None);
-    }
-
-    #[test]
-    fn nearest_deadline_picks_smallest_open_date() {
-        let today = "2026-05-06";
-        let items = vec![
-            pm_to_dashboard(&pm(1, "P1", "todo", Some("2026-05-12"), false), today),
-            pm_to_dashboard(&pm(2, "P1", "done", Some("2026-05-04"), false), today), // 已完成不参与
-            pm_to_dashboard(&pm(3, "P1", "todo", Some("2026-05-08"), false), today),
-        ];
-        let now = Local
-            .with_ymd_and_hms(2026, 5, 6, 12, 0, 0)
-            .single()
-            .unwrap();
-        let h = compute_nearest_deadline_hours(&items, now).unwrap();
-        // 5/8 23:59:59 - 5/6 12:00:00 ≈ 60h，允许 ±1h 的 chrono 取整
-        assert!(h >= 59 && h <= 60, "expected ~60h, got {h}");
-    }
-
-    #[test]
-    fn nearest_deadline_returns_none_when_all_done_or_no_date() {
-        let today = "2026-05-06";
-        let items = vec![pm_to_dashboard(
-            &pm(1, "P1", "done", Some("2026-05-12"), false),
-            today,
-        )];
-        let now = Local
-            .with_ymd_and_hms(2026, 5, 6, 12, 0, 0)
-            .single()
-            .unwrap();
-        assert!(compute_nearest_deadline_hours(&items, now).is_none());
-    }
-
-    #[test]
     fn dashboard_hash_is_stable_for_same_input() {
-        let overview = json!({"completedToday": 1, "totalToday": 3, "p0Pending": 0, "nearestDeadlineHours": 12});
         let list = vec![pm_to_dashboard(
             &pm(1, "P0", "todo", Some("2026-05-10"), false),
             "2026-05-06",
         )];
-        let h1 = compute_dashboard_hash(&overview, &list);
-        let h2 = compute_dashboard_hash(&overview, &list);
+        let h1 = compute_dashboard_hash(&list);
+        let h2 = compute_dashboard_hash(&list);
         assert_eq!(h1, h2);
-    }
-
-    #[test]
-    fn dashboard_hash_changes_when_overview_changes() {
-        let v1 = json!({"completedToday": 1, "totalToday": 3});
-        let v2 = json!({"completedToday": 2, "totalToday": 3});
-        let list: Vec<Value> = vec![];
-        assert_ne!(
-            compute_dashboard_hash(&v1, &list),
-            compute_dashboard_hash(&v2, &list)
-        );
     }
 }

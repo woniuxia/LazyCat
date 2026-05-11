@@ -10,8 +10,6 @@
 //!
 //! 不再做：CapturePreview / 图像合成 / canvas-ready 握手 / hidden WebView 重建。
 
-#![allow(dead_code)]
-
 use std::time::Instant;
 
 use serde_json::{json, Value};
@@ -49,7 +47,6 @@ pub fn apply_with_force(app: &AppHandle, force: bool) -> Result<Value, String> {
     let privacy_mask = resolve_privacy_mask(&cfg);
 
     // 3. 内容 hash
-    let overview_value = dashboard.get("overview").cloned().unwrap_or(Value::Null);
     let todo_list_value: Vec<Value> = dashboard
         .get("todoList")
         .and_then(|v| v.as_array().cloned())
@@ -58,7 +55,7 @@ pub fn apply_with_force(app: &AppHandle, force: bool) -> Result<Value, String> {
         .get("hotTools")
         .and_then(|v| v.as_array().cloned())
         .unwrap_or_default();
-    let input_hash = compute_input_hash(&overview_value, &todo_list_value, &hot_tools_value, privacy_mask);
+    let input_hash = compute_input_hash(&todo_list_value, &hot_tools_value, privacy_mask);
     let prev_hash = session::session().input_hash();
     if !force && input_hash != 0 && input_hash == prev_hash {
         eprintln!("[widget] apply: skipped (no-change, hash={input_hash:#x})");
@@ -111,10 +108,6 @@ pub fn apply_with_force(app: &AppHandle, force: bool) -> Result<Value, String> {
 
 // ── 内部 ──────────────────────────────────────────
 
-fn now_iso() -> String {
-    chrono::Local::now().format("%Y-%m-%dT%H:%M:%S%:z").to_string()
-}
-
 /// 判定当前是否处于敏感模式；过期则同步写回 widget.privacy_mask=false +
 /// 清空 widget.privacy_mask_until。
 fn resolve_privacy_mask(cfg: &config::WidgetConfig) -> bool {
@@ -141,8 +134,8 @@ fn resolve_privacy_mask(cfg: &config::WidgetConfig) -> bool {
 
 /// 内容哈希：dashboard（去掉 generatedAt 时间戳）+ hotTools + privacy_mask。
 /// 0 → 1 避免与 sentinel 冲突。
-fn compute_input_hash(overview: &Value, todo_list: &[Value], hot_tools: &[Value], privacy_mask: bool) -> u64 {
-    let dashboard_hex = dashboard_logic::compute_dashboard_hash(overview, todo_list);
+fn compute_input_hash(todo_list: &[Value], hot_tools: &[Value], privacy_mask: bool) -> u64 {
+    let dashboard_hex = dashboard_logic::compute_dashboard_hash(todo_list);
 
     let mut hasher = blake3::Hasher::new();
     hasher.update(dashboard_hex.as_bytes());
@@ -169,45 +162,37 @@ mod tests {
 
     #[test]
     fn hash_stable_for_same_input() {
-        let overview = json!({ "completedToday": 1, "totalToday": 5 });
         let todos = vec![json!({ "id": "pm:1", "title": "x" })];
         let hot = vec![json!({ "id": "pm", "count": 3 })];
-        let a = compute_input_hash(&overview, &todos, &hot, false);
-        let b = compute_input_hash(&overview, &todos, &hot, false);
+        let a = compute_input_hash(&todos, &hot, false);
+        let b = compute_input_hash(&todos, &hot, false);
         assert_eq!(a, b);
     }
 
     #[test]
     fn hash_changes_with_todo_list() {
-        let h1 = compute_input_hash(&json!({}), &[json!({ "id": "a" })], &[], false);
-        let h2 = compute_input_hash(&json!({}), &[json!({ "id": "b" })], &[], false);
-        assert_ne!(h1, h2);
-    }
-
-    #[test]
-    fn hash_changes_with_overview() {
-        let h1 = compute_input_hash(&json!({ "p0Pending": 0 }), &[], &[], false);
-        let h2 = compute_input_hash(&json!({ "p0Pending": 1 }), &[], &[], false);
+        let h1 = compute_input_hash(&[json!({ "id": "a" })], &[], false);
+        let h2 = compute_input_hash(&[json!({ "id": "b" })], &[], false);
         assert_ne!(h1, h2);
     }
 
     #[test]
     fn hash_changes_with_privacy_mask() {
-        let h1 = compute_input_hash(&json!({}), &[], &[], false);
-        let h2 = compute_input_hash(&json!({}), &[], &[], true);
+        let h1 = compute_input_hash(&[], &[], false);
+        let h2 = compute_input_hash(&[], &[], true);
         assert_ne!(h1, h2);
     }
 
     #[test]
     fn hash_changes_with_hot_tools() {
-        let h1 = compute_input_hash(&json!({}), &[], &[json!({ "id": "pm" })], false);
-        let h2 = compute_input_hash(&json!({}), &[], &[json!({ "id": "inbox" })], false);
+        let h1 = compute_input_hash(&[], &[json!({ "id": "pm" })], false);
+        let h2 = compute_input_hash(&[], &[json!({ "id": "inbox" })], false);
         assert_ne!(h1, h2);
     }
 
     #[test]
     fn hash_never_returns_sentinel_zero() {
-        let h = compute_input_hash(&json!({}), &[], &[], false);
+        let h = compute_input_hash(&[], &[], false);
         assert_ne!(h, 0);
     }
 }

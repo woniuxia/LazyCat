@@ -7,14 +7,13 @@
     </div>
 
     <template v-if="data">
-      <WidgetOverviewBlock :overview="data.overview" :hot-tools="resolvedHotTools" @action="onCanvasAction" />
       <WidgetTodoList
         :items="data.todoList"
         :privacy-mask="privacyMask"
         @complete="onCompleteItem"
         @action="onCanvasAction"
       />
-      <WidgetExtensionSlot :echo="data.echo" @action="onCanvasAction" />
+      <WidgetExtensionSlot :hot-tools="hotToolsForSlot" @action="onCanvasAction" />
       <div v-if="showStaleHint" class="stale-hint">刷新中…</div>
     </template>
     <div v-else class="boot">
@@ -29,7 +28,6 @@ import { listen, emit, type UnlistenFn } from "@tauri-apps/api/event";
 import { invokeToolByChannel } from "../bridge/tauri";
 import type { WidgetDashboardData, WidgetTodoItem, WidgetHotTool } from "../types/widget";
 import { getAllToolMap } from "../composables/toolCatalog";
-import WidgetOverviewBlock from "./WidgetOverviewBlock.vue";
 import WidgetTodoList from "./WidgetTodoList.vue";
 import WidgetExtensionSlot from "./WidgetExtensionSlot.vue";
 
@@ -49,23 +47,25 @@ const showStaleHint = computed(() => {
   return lastDataReceivedAt.value > 0 && Date.now() - lastDataReceivedAt.value > 60_000;
 });
 
-/** 解析工具名后的热点工具列表，供 WidgetOverviewBlock 渲染。无点击数据时提供默认推荐。 */
-const resolvedHotTools = computed(() => {
+/** 解析工具名后的热门工具列表，供 WidgetExtensionSlot 渲染。无点击数据时提供默认推荐。 */
+const hotToolsForSlot = computed(() => {
   const hotTools = data.value?.hotTools ?? [];
   const map = getAllToolMap();
   if (hotTools.length > 0) {
     return hotTools
-      .map((t: WidgetHotTool) => ({ ...t, name: map.get(t.id)?.name }))
-      .filter((t): t is WidgetHotTool & { name: string } => t.name !== undefined);
+      .map((t: WidgetHotTool) => {
+        const def = map.get(t.id);
+        return def ? { id: t.id, label: def.name } : null;
+      })
+      .filter((t): t is { id: string; label: string } => t !== null);
   }
-  // 无历史数据时提供默认推荐（常用工具 Top 3）
   const defaults = ["pm", "inbox", "snippets"];
   return defaults
     .map((id) => {
       const def = map.get(id);
-      return def ? { id, count: 0, name: def.name } : null;
+      return def ? { id, label: def.name } : null;
     })
-    .filter((t): t is WidgetHotTool & { name: string } => t !== null);
+    .filter((t): t is { id: string; label: string } => t !== null);
 });
 
 onMounted(async () => {
@@ -100,7 +100,7 @@ onBeforeUnmount(() => {
   }
 });
 
-/** 子组件（WidgetOverviewBlock / WidgetTodoList）的 action 统一通过 Tauri event 转发后端。 */
+/** 子组件（WidgetTodoList / WidgetExtensionSlot）的 action 统一通过 Tauri event 转发后端。 */
 function onCanvasAction(payload: { kind: string; [key: string]: unknown }) {
   void emit("widget://canvas-action", payload);
 }
@@ -196,6 +196,7 @@ async function onCompleteItem(item: WidgetTodoItem) {
   --wc-block-bg: rgba(255, 255, 255, 0.06);
   --wc-block-border: rgba(255, 255, 255, 0.1);
   --wc-divider: rgba(255, 255, 255, 0.05);
+  --wc-bg-tertiary: rgba(255, 255, 255, 0.15);
   background: var(--wc-glass);
   color: var(--wc-text);
 }
@@ -209,6 +210,7 @@ async function onCompleteItem(item: WidgetTodoItem) {
   --wc-block-bg: rgba(0, 0, 0, 0.04);
   --wc-block-border: rgba(0, 0, 0, 0.08);
   --wc-divider: rgba(0, 0, 0, 0.06);
+  --wc-bg-tertiary: rgba(0, 0, 0, 0.12);
   background: var(--wc-glass);
   color: var(--wc-text);
 }

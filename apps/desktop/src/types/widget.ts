@@ -8,14 +8,6 @@ export type WidgetPriority = "P0" | "P1" | "P2" | "P3";
 
 export type WidgetItemSource = "pm" | "todo";
 
-export interface WidgetOverview {
-  completedToday: number;
-  totalToday: number;
-  p0Pending: number;
-  /** null = 无截止 */
-  nearestDeadlineHours: number | null;
-}
-
 export interface WidgetHotTool {
   /** 工具 ID（如 "pm", "inbox"） */
   id: string;
@@ -36,10 +28,7 @@ export interface WidgetTodoItem {
 }
 
 export interface WidgetDashboardData {
-  overview: WidgetOverview;
   todoList: WidgetTodoItem[];
-  /** 扩展位预留 */
-  echo: string | null;
   generatedAt: string;
   /** design §9 敏感模式：开启时 canvas 把 todo 标题打码 */
   privacyMask?: boolean;
