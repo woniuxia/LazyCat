@@ -18,7 +18,7 @@ use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
 use tauri::{
-    AppHandle, Manager, PhysicalPosition, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
+    AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
     WindowEvent,
 };
 
@@ -37,6 +37,8 @@ const HOVER_TRIGGER: f64 = 8.0;
 const COLLAPSE_DELAY_MS: u64 = 800;
 const CURSOR_POLL_MS: u64 = 80;
 const HOVER_TOLERANCE_PX: f64 = 16.0;
+/// DWM 窗口阴影宽度（逻辑像素），Peek 隐藏时额外偏移量
+const SHADOW_MARGIN: f64 = 20.0;
 
 // ── 公开 API ─────────────────────────────────────
 
@@ -171,16 +173,58 @@ pub(crate) fn apply_position(
 ) -> Result<(), String> {
     let (screen_w, screen_h, scale) = primary_screen_phys(app);
     let widget_w_phys = LOGICAL_W * scale;
-    let peek_phys = PEEK_WIDTH * scale;
+    let shadow_phys = SHADOW_MARGIN * scale;
     let y = restore_y_phys(screen_h, scale);
-    let x = match vstate {
-        VisualState::Peek => (screen_w - peek_phys).round() as i32,
-        VisualState::Full => (screen_w - widget_w_phys).round() as i32,
-        VisualState::Hidden | VisualState::Windowless => return Ok(()),
+    let edge = session::session().config().edge;
+    let x = match (vstate, edge.as_str()) {
+        // 右侧停靠：Peek 完全隐藏到屏幕右外（含阴影），Full 向左展开
+        (VisualState::Peek, "right") => (screen_w + shadow_phys).round() as i32,
+        (VisualState::Full, "right") => (screen_w - widget_w_phys).round() as i32,
+        // 左侧停靠：Peek 完全隐藏到屏幕左外（含阴影），Full 向右展开
+        (VisualState::Peek, "left") => (-widget_w_phys - shadow_phys).round() as i32,
+        (VisualState::Full, "left") => 0,
+        (VisualState::Hidden | VisualState::Windowless, _) => return Ok(()),
+        // 未知 edge 值回落右侧
+        (s, unknown) => {
+            eprintln!(
+                "[widget] widget: apply_position unknown edge '{unknown}', falling back to right"
+            );
+            match s {
+                VisualState::Peek => (screen_w + shadow_phys).round() as i32,
+                VisualState::Full => (screen_w - widget_w_phys).round() as i32,
+                _ => return Ok(()),
+            }
+        }
     };
-    win.set_position(PhysicalPosition::new(x, y))
-        .map_err(|e| format!("set_position failed: {e}"))?;
+    eprintln!("[widget] widget: apply_position {:?} edge={edge} x={x} y={y}", vstate);
+    set_window_pos(win, x, y)
+}
+
+/// 使用 Windows SetWindowPos 设置窗口位置，避免 Tauri set_position 对负坐标的 clamp。
+#[cfg(windows)]
+fn set_window_pos(win: &WebviewWindow, x: i32, y: i32) -> Result<(), String> {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOSIZE, SWP_NOZORDER,
+    };
+    let hwnd = win.hwnd().map_err(|e| format!("hwnd unavailable: {e}"))?;
+    unsafe {
+        let _ = SetWindowPos(
+            hwnd,
+            Some(HWND_TOPMOST),
+            x,
+            y,
+            0,
+            0,
+            SWP_NOACTIVATE | SWP_NOSIZE | SWP_NOZORDER,
+        );
+    }
     Ok(())
+}
+
+#[cfg(not(windows))]
+fn set_window_pos(win: &WebviewWindow, x: i32, y: i32) -> Result<(), String> {
+    win.set_position(tauri::PhysicalPosition::new(x, y))
+        .map_err(|e| format!("set_position failed: {e}"))
 }
 
 // ── 内部：事件监听 ─────────────────────────────────
@@ -243,6 +287,7 @@ fn cursor_loop(app: AppHandle) {
 
     let mut last_in_widget = Instant::now();
     let mut was_in_full = false;
+    let mut last_edge: String = String::new();
 
     loop {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -259,6 +304,18 @@ fn cursor_loop(app: AppHandle) {
 
             // 捕获 generation，transition 前校验
             let gen = s.generation();
+
+            // 每次迭代刷新配置缓存（仅在 dirty 时才读 DB，通常只是读一次 boolean）
+            s.refresh_config_if_dirty();
+            let edge = s.config().edge;
+
+            // edge 改变时强制重定位（Peek→Peek 是 no-op，不会自动 reposition）
+            if edge != last_edge {
+                last_edge = edge.clone();
+                if let Some(ref win) = s.window_handle() {
+                    let _ = apply_position(&app, win, cur);
+                }
+            }
 
             let (screen_w, screen_h, scale) = primary_screen_phys(&app);
             let widget_w_phys = LOGICAL_W * scale;
@@ -279,8 +336,11 @@ fn cursor_loop(app: AppHandle) {
 
             match cur {
                 VisualState::Peek => {
-                    let in_trigger =
-                        cx >= screen_w - trigger_phys && cy >= y_top && cy < y_bot;
+                    let in_trigger = if edge == "left" {
+                        cx <= trigger_phys && cy >= y_top && cy < y_bot
+                    } else {
+                        cx >= screen_w - trigger_phys && cy >= y_top && cy < y_bot
+                    };
                     if in_trigger {
                         if s.generation() == gen {
                             let _ = s.transition(&app, VisualState::Full);
@@ -290,11 +350,18 @@ fn cursor_loop(app: AppHandle) {
                     }
                 }
                 VisualState::Full => {
-                    let widget_left = screen_w - widget_w_phys;
-                    let in_rect = cx >= widget_left - tolerance_phys
-                        && cx <= screen_w
-                        && cy >= y_top - tolerance_phys
-                        && cy <= y_bot + tolerance_phys;
+                    let in_rect = if edge == "left" {
+                        cx >= 0.0 - tolerance_phys
+                            && cx <= widget_w_phys + tolerance_phys
+                            && cy >= y_top - tolerance_phys
+                            && cy <= y_bot + tolerance_phys
+                    } else {
+                        let widget_left = screen_w - widget_w_phys;
+                        cx >= widget_left - tolerance_phys
+                            && cx <= screen_w
+                            && cy >= y_top - tolerance_phys
+                            && cy <= y_bot + tolerance_phys
+                    };
                     if in_rect {
                         last_in_widget = Instant::now();
                         was_in_full = true;

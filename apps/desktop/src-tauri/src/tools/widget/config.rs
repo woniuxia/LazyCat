@@ -24,8 +24,10 @@ pub const KEY_REFRESH_INTERVAL_MIN: &str = "widget.refresh_interval_min";
 pub const KEY_FULLSCREEN_BLACKLIST: &str = "widget.fullscreen_blacklist";
 pub const KEY_PRIVACY_MASK: &str = "widget.privacy_mask";
 pub const KEY_PRIVACY_MASK_UNTIL: &str = "widget.privacy_mask_until";
-/// 挂件持久化 Y（物理像素，整数）；空 = 居中。X 始终贴右由 widget.rs 计算。
+/// 挂件持久化 Y（物理像素，整数）；空 = 居中。X 贴左右边缘由 widget_edge 决定，widget.rs 计算。
 pub const KEY_WIDGET_Y: &str = "widget.widget_y";
+/// 挂件停靠边："left" | "right"（默认 "right"）
+pub const KEY_EDGE: &str = "widget.edge";
 
 // ── 默认值 ────────────────────────────────────────
 
@@ -56,6 +58,8 @@ pub struct WidgetConfig {
     pub privacy_mask_until: Option<String>,
     /// 挂件 Y 位置（物理像素）；None = 居中
     pub widget_y: Option<i64>,
+    /// 挂件停靠边："left" | "right"
+    pub edge: String,
 }
 
 impl Default for WidgetConfig {
@@ -68,6 +72,7 @@ impl Default for WidgetConfig {
             privacy_mask: false,
             privacy_mask_until: None,
             widget_y: None,
+            edge: "right".into(),
         }
     }
 }
@@ -103,6 +108,12 @@ pub fn read_config() -> WidgetConfig {
     if let Some(v) = read_string(&conn, KEY_WIDGET_Y) {
         if let Ok(n) = v.parse::<i64>() {
             cfg.widget_y = Some(n);
+        }
+    }
+    if let Some(v) = read_string(&conn, KEY_EDGE) {
+        let trimmed = v.trim();
+        if trimmed == "left" || trimmed == "right" {
+            cfg.edge = trimmed.to_string();
         }
     }
     cfg
@@ -175,6 +186,7 @@ pub fn set_config(payload: &Value) -> Result<Value, String> {
             "privacyMask" => write_bool(KEY_PRIVACY_MASK, val)?,
             "privacyMaskUntil" => write_optional_string(KEY_PRIVACY_MASK_UNTIL, val)?,
             "widgetY" => write_optional_i64(KEY_WIDGET_Y, val)?,
+            "edge" => write_edge(val)?,
             other => {
                 return Err(format!("unknown widget config key: {other}"));
             }
@@ -221,6 +233,14 @@ fn write_optional_i64(key: &str, val: &Value) -> Result<(), String> {
             .as_i64()
             .ok_or_else(|| format!("{key} must be integer or null"))?;
         set_string(key, &n.to_string())
+    }
+}
+
+fn write_edge(val: &Value) -> Result<(), String> {
+    let s = val.as_str().ok_or_else(|| "edge must be string")?;
+    match s {
+        "left" | "right" => set_string(KEY_EDGE, s),
+        _ => Err(format!("edge must be 'left' or 'right', got '{s}'")),
     }
 }
 
@@ -277,6 +297,7 @@ mod tests {
         assert_eq!(cfg.privacy_mask, false);
         assert!(cfg.privacy_mask_until.is_none());
         assert!(cfg.widget_y.is_none());
+        assert_eq!(cfg.edge, "right");
     }
 
     #[test]

@@ -93,6 +93,15 @@
               心跳间隔（PM/Todo CRUD 后 5s 自动立刷，不依赖此间隔）
             </div>
           </el-form-item>
+          <el-form-item label="停靠位置">
+            <el-radio-group
+              v-model="config.edge"
+              @change="saveField('edge')"
+            >
+              <el-radio-button label="right">右侧</el-radio-button>
+              <el-radio-button label="left">左侧</el-radio-button>
+            </el-radio-group>
+          </el-form-item>
         </el-form>
       </el-tab-pane>
 
@@ -433,6 +442,7 @@ function defaultConfig(): WidgetConfig {
     privacyMask: false,
     privacyMaskUntil: null,
     widgetY: null,
+    edge: "right",
   };
 }
 </script>

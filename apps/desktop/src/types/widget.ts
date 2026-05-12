@@ -62,6 +62,8 @@ export interface WidgetConfig {
   privacyMaskUntil: string | null;
   /** 挂件 Y 位置（物理像素）；null = 居中 */
   widgetY: number | null;
+  /** 挂件停靠边："left" | "right" */
+  edge: "left" | "right";
 }
 
 export interface WidgetHealth {
