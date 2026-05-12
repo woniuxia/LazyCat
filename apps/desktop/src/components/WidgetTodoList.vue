@@ -1,38 +1,60 @@
 <template>
-  <!-- 待办列表（design §5.2 + 挂件交互版）：每行可点 checkbox 完成。 -->
-  <section class="todo-list">
+  <!-- 待办列表：每行可点 checkbox 完成 -->
+  <section class="todo-list" :class="{ 'is-scrollable': scrollable }">
     <div class="list-header">
       <span class="header-title">待办事项</span>
       <button class="header-add" title="新建待办" @click="$emit('action', { kind: 'open-todo-create' })">+ 新建</button>
     </div>
-    <div
-      v-for="item in items"
-      :key="item.id"
-      class="todo-row"
-      :class="`p-${item.priority.toLowerCase()}`"
-    >
-      <button
-        class="check"
+    <div class="list-body" ref="listBodyRef" @scroll="onScroll">
+      <div
+        v-for="item in items"
+        :key="item.id"
+        class="todo-row"
         :class="`p-${item.priority.toLowerCase()}`"
-        :title="`完成 · ${displayTitle(item.title)}`"
-        @click="onComplete(item)"
-      ></button>
-      <span v-if="item.pinned" class="pin">📌</span>
-      <span class="title">{{ displayTitle(item.title) }}</span>
-      <span class="deadline" :class="{ overdue: isOverdue(item) }">
-        {{ formatDeadline(item.endAt) }}
-      </span>
+      >
+        <button
+          class="check"
+          :class="`p-${item.priority.toLowerCase()}`"
+          :title="`完成 · ${displayTitle(item.title)}`"
+          @click="onComplete(item)"
+        >
+          <svg class="check-icon" viewBox="0 0 12 12" fill="none">
+            <path d="M2.5 6L5 8.5L9.5 3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+        <svg v-if="item.pinned" class="pin-icon" viewBox="0 0 16 16" fill="none" aria-label="已置顶">
+          <path d="M9.5 2L10.5 3L10 3.5L9.5 3L7 5.5V9L10 12V14H6V12L9 9V5.5L6.5 3L6 3.5L5.5 3L6.5 2L8 3.5L9.5 2Z" fill="currentColor"/>
+          <line x1="10" y1="12" x2="10" y2="14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        <span class="title">{{ displayTitle(item.title) }}</span>
+        <span class="deadline" :class="{ overdue: isOverdue(item) }">
+          <svg v-if="isOverdue(item)" class="overdue-icon" viewBox="0 0 14 14" fill="none" aria-label="已逾期">
+            <circle cx="7" cy="7" r="5.5" stroke="currentColor" stroke-width="1.2"/>
+            <path d="M7 4V7.5L9 9" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          {{ formatDeadline(item.endAt) }}
+        </span>
+      </div>
+      <div v-if="items.length === 0" class="empty">
+        <svg class="empty-icon" viewBox="0 0 24 24" fill="none">
+          <path d="M9 11L12 14L22 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M21 12V19C21 19.5304 20.7893 20.0391 20.4142 20.4142C20.0391 20.7893 19.5304 21 19 21H5C4.46957 21 3.96086 20.7893 3.58579 20.4142C3.21071 20.0391 3 19.5304 3 19V5C3 4.46957 3.21071 3.96086 3.58579 3.58579C3.96086 3.21071 4.46957 3 5 3H16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span>今日无待办</span>
+        <button class="empty-action" @click="$emit('action', { kind: 'open-todo-create' })">+ 新建待办</button>
+      </div>
     </div>
-    <div v-if="items.length === 0" class="empty">今日无待办</div>
+    <div v-if="scrollable" class="scroll-shadow" :class="{ 'is-bottom': showScrollShadow }" />
   </section>
 </template>
 
 <script setup lang="ts">
+import { ref, onMounted, onBeforeUnmount } from "vue";
 import type { WidgetTodoItem } from "../types/widget";
 
 const props = defineProps<{
   items: WidgetTodoItem[];
-  /** design §9：开启敏感模式时把 title 替换为 ▓ */
+  /** 开启敏感模式时把 title 替换为 ▓ */
   privacyMask?: boolean;
 }>();
 
@@ -40,6 +62,40 @@ const emit = defineEmits<{
   (e: "complete", item: WidgetTodoItem): void;
   (e: "action", payload: { kind: string; [key: string]: unknown }): void;
 }>();
+
+const listBodyRef = ref<HTMLElement | null>(null);
+const scrollable = ref(false);
+const showScrollShadow = ref(false);
+
+let resizeObserver: ResizeObserver | null = null;
+
+function checkScrollable() {
+  const el = listBodyRef.value;
+  if (!el) return;
+  scrollable.value = el.scrollHeight > el.clientHeight;
+}
+
+function onScroll() {
+  const el = listBodyRef.value;
+  if (!el) return;
+  const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 2;
+  showScrollShadow.value = !atBottom && scrollable.value;
+}
+
+onMounted(() => {
+  if (listBodyRef.value) {
+    resizeObserver = new ResizeObserver(() => {
+      checkScrollable();
+      onScroll();
+    });
+    resizeObserver.observe(listBodyRef.value);
+  }
+});
+
+onBeforeUnmount(() => {
+  resizeObserver?.disconnect();
+  resizeObserver = null;
+});
 
 function displayTitle(title: string): string {
   if (!props.privacyMask) return title;
@@ -92,30 +148,12 @@ function parseLocalDate(raw: string): Date | null {
   flex: 1;
   display: flex;
   flex-direction: column;
-  padding: 0;
+  min-height: 0;
   border-radius: 12px;
   background: var(--wc-block-bg);
   border: 1px solid var(--wc-block-border);
-  overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: var(--wc-bg-tertiary) transparent;
-}
-
-.todo-list::-webkit-scrollbar {
-  width: 6px;
-}
-
-.todo-list::-webkit-scrollbar-thumb {
-  background: var(--wc-bg-tertiary);
-  border-radius: 3px;
-}
-
-.todo-list::-webkit-scrollbar-thumb:hover {
-  background: var(--wc-text-muted);
-}
-
-.todo-list::-webkit-scrollbar-track {
-  background: transparent;
+  overflow: hidden;
+  position: relative;
 }
 
 .list-header {
@@ -129,6 +167,8 @@ function parseLocalDate(raw: string): Date | null {
 
 .header-title {
   font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
   color: var(--wc-text-muted);
 }
 
@@ -148,6 +188,34 @@ function parseLocalDate(raw: string): Date | null {
   background: var(--wc-block-border);
 }
 
+.header-add:active {
+  transform: scale(0.96);
+}
+
+.list-body {
+  flex: 1;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--wc-bg-tertiary) transparent;
+}
+
+.list-body::-webkit-scrollbar {
+  width: 4px;
+}
+
+.list-body::-webkit-scrollbar-thumb {
+  background: var(--wc-bg-tertiary);
+  border-radius: 2px;
+}
+
+.list-body::-webkit-scrollbar-thumb:hover {
+  background: var(--wc-text-muted);
+}
+
+.list-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
 .todo-row {
   display: flex;
   align-items: center;
@@ -155,6 +223,7 @@ function parseLocalDate(raw: string): Date | null {
   padding: 8px 12px;
   font-size: 13px;
   line-height: 28px;
+  min-height: 44px;
   border-bottom: 1px solid var(--wc-divider);
 }
 
@@ -162,7 +231,7 @@ function parseLocalDate(raw: string): Date | null {
   border-bottom: none;
 }
 
-/* checkbox 用 button 实现：方形圆角 + 优先级描边色 + hover 填色 */
+/* checkbox：方形圆角 + 优先级描边色 + hover 填充 + 勾选图标 */
 .check {
   width: 16px;
   height: 16px;
@@ -172,13 +241,30 @@ function parseLocalDate(raw: string): Date | null {
   cursor: pointer;
   flex-shrink: 0;
   padding: 0;
-  transition: background-color 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.15s ease, transform 0.1s ease;
 }
+
+.check-icon {
+  width: 10px;
+  height: 10px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  color: #fff;
+}
+
 .check:hover {
   background: currentColor;
 }
+
+.check:hover .check-icon {
+  opacity: 1;
+}
+
 .check:active {
-  transform: scale(0.92);
+  transform: scale(0.88);
 }
 
 .check.p-p0 {
@@ -194,8 +280,12 @@ function parseLocalDate(raw: string): Date | null {
   color: #94a3b8;
 }
 
-.pin {
-  font-size: 12px;
+.pin-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: var(--wc-text-muted);
+  opacity: 0.7;
 }
 
 .title {
@@ -207,6 +297,9 @@ function parseLocalDate(raw: string): Date | null {
 }
 
 .deadline {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
   font-size: 11px;
   color: var(--wc-text-muted);
   flex-shrink: 0;
@@ -217,10 +310,63 @@ function parseLocalDate(raw: string): Date | null {
   font-weight: 600;
 }
 
+.overdue-icon {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+}
+
 .empty {
-  margin: auto;
-  padding-bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 24px 12px;
   font-size: 13px;
   color: var(--wc-text-muted);
+  flex: 1;
+  min-height: 0;
+}
+
+.empty-icon {
+  width: 28px;
+  height: 28px;
+  opacity: 0.35;
+  color: var(--wc-text-muted);
+}
+
+.empty-action {
+  padding: 4px 12px;
+  border-radius: 5px;
+  background: var(--wc-block-bg);
+  border: 1px solid var(--wc-block-border);
+  color: var(--wc-text);
+  font-size: 12px;
+  cursor: pointer;
+  font-family: inherit;
+  margin-top: 4px;
+  transition: background-color 0.15s ease;
+}
+
+.empty-action:hover {
+  background: var(--wc-block-border);
+}
+
+.scroll-shadow {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 20px;
+  background: linear-gradient(to top, var(--wc-block-bg), transparent);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  border-radius: 0 0 12px 12px;
+}
+
+.scroll-shadow.is-bottom {
+  opacity: 1;
 }
 </style>

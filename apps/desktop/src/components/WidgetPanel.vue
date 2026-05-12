@@ -22,23 +22,23 @@
       </div>
 
       <div v-if="status?.privacyMaskActive" class="banner banner-warn">
-        <span>🔒 敏感模式已开启{{ privacyUntilLabel }}</span>
+        <span><el-icon class="banner-icon"><Lock /></el-icon> 敏感模式已开启{{ privacyUntilLabel }}</span>
         <el-button size="small" type="primary" link @click="onPrivacyOff">一键关闭</el-button>
       </div>
       <div v-if="status?.spotlightDetected" class="banner banner-warn">
-        <span>⚠ 检测到 Windows Spotlight 启用，可能影响桌面壁纸；不影响本工具挂件</span>
+        <span><el-icon class="banner-icon"><WarningFilled /></el-icon> 检测到 Windows Spotlight 启用，可能影响桌面壁纸；不影响本工具挂件</span>
       </div>
       <div v-if="status?.thirdPartyEngine" class="banner banner-warn">
-        <span>⚠ 检测到 {{ status.thirdPartyEngine }}，挂件不受影响但桌面壁纸可能被它改</span>
+        <span><el-icon class="banner-icon"><WarningFilled /></el-icon> 检测到 {{ status.thirdPartyEngine }}，挂件不受影响但桌面壁纸可能被它改</span>
       </div>
 
       <div v-if="status?.lastError" class="banner banner-error">
-        <span>⚠ {{ status.lastError }}</span>
+        <span><el-icon class="banner-icon"><CircleCloseFilled /></el-icon> {{ status.lastError }}</span>
         <el-button size="small" type="primary" link :loading="applying" @click="onApply">重试</el-button>
       </div>
 
       <div v-if="autoSkipBanner" class="banner banner-info">
-        <span>⏸ {{ autoSkipBanner }}</span>
+        <span><el-icon class="banner-icon"><VideoPause /></el-icon> {{ autoSkipBanner }}</span>
       </div>
 
       <div class="status-meta">
@@ -174,6 +174,7 @@
 <script setup lang="ts">
 import { onMounted, onBeforeUnmount, computed, ref } from "vue";
 import { ElMessage } from "element-plus";
+import { Lock, WarningFilled, CircleCloseFilled, VideoPause } from "@element-plus/icons-vue";
 import { invokeToolByChannel } from "../bridge/tauri";
 import type {
   WidgetConfig,
@@ -530,6 +531,11 @@ function defaultConfig(): WidgetConfig {
   border-radius: 8px;
   font-size: 13px;
   margin-bottom: 8px;
+}
+
+.banner-icon {
+  font-size: 14px;
+  vertical-align: -2px;
 }
 .banner-warn {
   background: #fef3c7;

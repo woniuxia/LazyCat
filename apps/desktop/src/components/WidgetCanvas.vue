@@ -1,9 +1,13 @@
 <template>
   <!-- LazyCat 桌面挂件 · 360×800 信息层 -->
-  <div class="widget-canvas" :class="`mode-${colorMode}`">
-    <!-- 顶部拖拽把手：仅 16px 高，CSS app-region: drag 让用户沿屏幕沿移动挂件 Y -->
+  <div class="widget-canvas" :class="glassTheme">
+    <!-- 顶部拖拽把手 -->
     <div class="drag-handle" data-tauri-drag-region>
-      <span class="grip">⋮⋮</span>
+      <svg class="grip-icon" viewBox="0 0 28 12" fill="none">
+        <circle cx="6" cy="6" r="1.2" fill="currentColor"/>
+        <circle cx="14" cy="6" r="1.2" fill="currentColor"/>
+        <circle cx="22" cy="6" r="1.2" fill="currentColor"/>
+      </svg>
     </div>
 
     <template v-if="data">
@@ -14,9 +18,13 @@
         @action="onCanvasAction"
       />
       <WidgetExtensionSlot :hot-tools="hotToolsForSlot" @action="onCanvasAction" />
-      <div v-if="showStaleHint" class="stale-hint">刷新中…</div>
+      <div v-if="showStaleHint" class="stale-hint">
+        <span class="stale-dot" />
+        <span>刷新中…</span>
+      </div>
     </template>
     <div v-else class="boot">
+      <div class="boot-spinner" />
       <span>加载中…</span>
     </div>
   </div>
@@ -40,6 +48,14 @@ const lastDataReceivedAt = ref(0);
 
 const unlisteners: UnlistenFn[] = [];
 let pingHandle: ReturnType<typeof setInterval> | null = null;
+
+/** 将后端 colorMode 映射为语义化 CSS class */
+const glassTheme = computed(() => {
+  // colorMode 表示文字颜色模式
+  // "light" = 浅色文字 = 深色壁纸上用深玻璃 → glass-on-dark
+  // "dark"  = 深色文字 = 浅色壁纸上用浅玻璃 → glass-on-light
+  return colorMode.value === "light" ? "glass-on-dark" : "glass-on-light";
+});
 
 /** 如果超过 60s 无数据，显示"刷新中…"提示 */
 const showStaleHint = computed(() => {
@@ -146,7 +162,8 @@ async function onCompleteItem(item: WidgetTodoItem) {
 <style scoped>
 /*
  * 360×800 挂件信息层。
- * 浅 / 深玻璃蒙层在 :class="mode-light/dark" 上切换 CSS 变量。
+ * glass-on-dark：深色壁纸上用深色玻璃 + 浅色文字
+ * glass-on-light：浅色壁纸上用浅色玻璃 + 深色文字
  */
 .widget-canvas {
   width: 360px;
@@ -159,9 +176,10 @@ async function onCompleteItem(item: WidgetTodoItem) {
   border-radius: 16px;
   font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
   backdrop-filter: blur(10px);
+  user-select: none;
 }
 
-/* 顶部 16px 拖拽把手；data-tauri-drag-region 让 Tauri 把鼠标拖动事件映射到窗口移动 */
+/* 顶部 16px 拖拽把手 */
 .drag-handle {
   height: 16px;
   margin: -16px -16px 0 -16px;
@@ -169,26 +187,27 @@ async function onCompleteItem(item: WidgetTodoItem) {
   align-items: center;
   justify-content: center;
   cursor: grab;
-  user-select: none;
   border-radius: 16px 16px 0 0;
   flex-shrink: 0;
 }
+
 .drag-handle:active {
   cursor: grabbing;
 }
-.grip {
-  font-size: 10px;
-  color: var(--wc-text-muted);
-  letter-spacing: 2px;
-  opacity: 0.5;
-  transition: opacity 0.15s ease;
-}
-.drag-handle:hover .grip {
-  opacity: 1;
+
+.grip-icon {
+  width: 28px;
+  height: 12px;
+  opacity: 0.35;
+  transition: opacity 0.2s ease;
 }
 
-/* mode-light：浅色文字 + 深玻璃蒙层（深色壁纸下用） */
-.widget-canvas.mode-light {
+.drag-handle:hover .grip-icon {
+  opacity: 0.7;
+}
+
+/* glass-on-dark：深色壁纸 → 深玻璃 + 浅色文字 */
+.widget-canvas.glass-on-dark {
   --wc-text: #ffffff;
   --wc-text-muted: rgba(255, 255, 255, 0.6);
   --wc-text-strong: #ffffff;
@@ -201,8 +220,8 @@ async function onCompleteItem(item: WidgetTodoItem) {
   color: var(--wc-text);
 }
 
-/* mode-dark：深色文字 + 浅玻璃蒙层（浅色壁纸下用） */
-.widget-canvas.mode-dark {
+/* glass-on-light：浅色壁纸 → 浅玻璃 + 深色文字 */
+.widget-canvas.glass-on-light {
   --wc-text: #1a1a1a;
   --wc-text-muted: rgba(26, 26, 26, 0.55);
   --wc-text-strong: #0f172a;
@@ -216,22 +235,51 @@ async function onCompleteItem(item: WidgetTodoItem) {
 }
 
 .stale-hint {
-  position: absolute;
-  bottom: 8px;
-  left: 50%;
-  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  justify-content: center;
   font-size: 11px;
   color: var(--wc-text-muted);
   opacity: 0.6;
   pointer-events: none;
+  padding: 4px 0;
+}
+
+.stale-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--wc-text-muted);
+  animation: pulse-dot 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
 }
 
 .boot {
   flex: 1;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 10px;
   font-size: 13px;
   color: var(--wc-text-muted);
+}
+
+.boot-spinner {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid var(--wc-bg-tertiary);
+  border-top-color: var(--wc-text-muted);
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 </style>
