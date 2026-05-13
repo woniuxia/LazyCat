@@ -847,8 +847,8 @@ fn cmd_delete_tag(payload: &Value) -> Result<Value, String> {
 }
 
 fn cmd_record_usage(payload: &Value) -> Result<Value, String> {
-    let key = get_session_key()?;
-    let id = payload["id"].as_u64().ok_or("id required")? as u32;
+    let _key = get_session_key()?;
+    let id = payload["id"].as_i64().ok_or("id required")?;
     let usage_type = payload["type"].as_str().ok_or("type required")?;
 
     let column = match usage_type {
@@ -857,7 +857,7 @@ fn cmd_record_usage(payload: &Value) -> Result<Value, String> {
         _ => return Err("type must be 'view' or 'copy'".to_string()),
     };
 
-    let conn = db_conn(&key)?;
+    let conn = db_conn()?;
     let sql = format!("UPDATE vault_entries SET {column} = {column} + 1 WHERE id = ?1");
     conn.execute(&sql, params![id])
         .map_err(|e| format!("record_usage: {e}"))?;
