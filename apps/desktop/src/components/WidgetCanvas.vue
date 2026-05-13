@@ -1,12 +1,12 @@
 <template>
   <!-- LazyCat 桌面挂件 · 360×800 信息层 -->
-  <div class="widget-canvas" :class="glassTheme">
+  <div class="widget-canvas">
     <!-- 顶部拖拽把手 -->
     <div class="drag-handle" data-tauri-drag-region>
       <svg class="grip-icon" viewBox="0 0 28 12" fill="none">
-        <circle cx="6" cy="6" r="1.2" fill="currentColor"/>
-        <circle cx="14" cy="6" r="1.2" fill="currentColor"/>
-        <circle cx="22" cy="6" r="1.2" fill="currentColor"/>
+        <circle cx="6" cy="6" r="1.4" fill="currentColor"/>
+        <circle cx="14" cy="6" r="1.4" fill="currentColor"/>
+        <circle cx="22" cy="6" r="1.4" fill="currentColor"/>
       </svg>
     </div>
 
@@ -43,23 +43,12 @@ import { getAllToolMap } from "../composables/toolCatalog";
 import WidgetTodoList from "./WidgetTodoList.vue";
 import WidgetExtensionSlot from "./WidgetExtensionSlot.vue";
 
-type ColorMode = "light" | "dark";
-
 const data = ref<WidgetDashboardData | null>(null);
-const colorMode = ref<ColorMode>("dark");
 const privacyMask = ref(false);
 const lastDataReceivedAt = ref(0);
 
 const unlisteners: UnlistenFn[] = [];
 let pingHandle: ReturnType<typeof setInterval> | null = null;
-
-/** 将后端 colorMode 映射为语义化 CSS class */
-const glassTheme = computed(() => {
-  // colorMode 表示文字颜色模式
-  // "light" = 浅色文字 = 深色壁纸上用深玻璃 → glass-on-dark
-  // "dark"  = 深色文字 = 浅色壁纸上用浅玻璃 → glass-on-light
-  return colorMode.value === "light" ? "glass-on-dark" : "glass-on-light";
-});
 
 /** 如果超过 60s 无数据，显示"刷新中…"提示 */
 const showStaleHint = computed(() => {
@@ -101,11 +90,6 @@ onMounted(async () => {
       data.value = e.payload;
       privacyMask.value = e.payload?.privacyMask === true;
       lastDataReceivedAt.value = Date.now();
-    }),
-  );
-  unlisteners.push(
-    await listen<ColorMode>("widget://color-mode", (e) => {
-      colorMode.value = e.payload;
     }),
   );
 
@@ -171,12 +155,22 @@ async function onCompleteItem(item: WidgetTodoItem) {
 </script>
 
 <style scoped>
-/*
- * 360×800 挂件信息层。
- * glass-on-dark：深色壁纸上用深色玻璃 + 浅色文字
- * glass-on-light：浅色壁纸上用浅色玻璃 + 深色文字
- */
+/* 360×800 挂件信息层 · 清新紫韵 */
 .widget-canvas {
+  --wc-text: #1e293b;
+  --wc-text-muted: #94a3b8;
+  --wc-text-strong: #0f172a;
+  --wc-glass: rgba(255, 255, 255, 0.75);
+  --wc-block-bg: rgba(0, 0, 0, 0.03);
+  --wc-block-border: rgba(0, 0, 0, 0.05);
+  --wc-divider: rgba(0, 0, 0, 0.04);
+  --wc-bg-tertiary: rgba(0, 0, 0, 0.08);
+  --wc-row-hover: rgba(99, 102, 241, 0.04);
+  --wc-rim-light: rgba(255, 255, 255, 0.5);
+  --wc-accent: #6366f1;
+  --wc-accent-purple: #9333ea;
+  --wc-accent-teal: #0d9488;
+
   width: 360px;
   height: 800px;
   padding: 16px;
@@ -184,10 +178,13 @@ async function onCompleteItem(item: WidgetTodoItem) {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  border-radius: 16px;
+  border-radius: 12px;
   font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
   backdrop-filter: blur(10px);
   user-select: none;
+  background: linear-gradient(135deg, rgba(248, 250, 252, 0.85), rgba(241, 245, 249, 0.85));
+  color: var(--wc-text);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04), inset 0 1px 0 var(--wc-rim-light);
 }
 
 /* 顶部 16px 拖拽把手 */
@@ -198,76 +195,54 @@ async function onCompleteItem(item: WidgetTodoItem) {
   align-items: center;
   justify-content: center;
   cursor: grab;
-  border-radius: 16px 16px 0 0;
+  border-radius: 12px 12px 0 0;
   flex-shrink: 0;
+  transition: background-color 0.2s ease;
+}
+
+.drag-handle:hover {
+  background: var(--wc-row-hover);
 }
 
 .drag-handle:active {
   cursor: grabbing;
+  background: var(--wc-block-border);
 }
 
 .grip-icon {
   width: 28px;
   height: 12px;
-  opacity: 0.35;
+  opacity: 0.3;
   transition: opacity 0.2s ease;
 }
 
 .drag-handle:hover .grip-icon {
-  opacity: 0.7;
-}
-
-/* glass-on-dark：深色壁纸 → 深玻璃 + 浅色文字 */
-.widget-canvas.glass-on-dark {
-  --wc-text: #ffffff;
-  --wc-text-muted: rgba(255, 255, 255, 0.6);
-  --wc-text-strong: #ffffff;
-  --wc-glass: rgba(15, 23, 42, 0.55);
-  --wc-block-bg: rgba(255, 255, 255, 0.06);
-  --wc-block-border: rgba(255, 255, 255, 0.1);
-  --wc-divider: rgba(255, 255, 255, 0.05);
-  --wc-bg-tertiary: rgba(255, 255, 255, 0.15);
-  background: var(--wc-glass);
-  color: var(--wc-text);
-}
-
-/* glass-on-light：浅色壁纸 → 浅玻璃 + 深色文字 */
-.widget-canvas.glass-on-light {
-  --wc-text: #1a1a1a;
-  --wc-text-muted: rgba(26, 26, 26, 0.55);
-  --wc-text-strong: #0f172a;
-  --wc-glass: rgba(255, 255, 255, 0.6);
-  --wc-block-bg: rgba(0, 0, 0, 0.04);
-  --wc-block-border: rgba(0, 0, 0, 0.08);
-  --wc-divider: rgba(0, 0, 0, 0.06);
-  --wc-bg-tertiary: rgba(0, 0, 0, 0.12);
-  background: var(--wc-glass);
-  color: var(--wc-text);
+  opacity: 0.65;
 }
 
 .stale-hint {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   justify-content: center;
   font-size: 11px;
   color: var(--wc-text-muted);
-  opacity: 0.6;
+  opacity: 0.5;
   pointer-events: none;
-  padding: 4px 0;
+  padding: 2px 0;
 }
 
 .stale-dot {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
   border-radius: 50%;
   background: var(--wc-text-muted);
-  animation: pulse-dot 1.2s ease-in-out infinite;
+  animation: pulse-dot 1.5s ease-in-out infinite;
 }
 
 @keyframes pulse-dot {
-  0%, 100% { opacity: 0.3; }
-  50% { opacity: 1; }
+  0%, 100% { opacity: 0.25; }
+  50% { opacity: 0.9; }
 }
 
 .boot {
@@ -276,14 +251,14 @@ async function onCompleteItem(item: WidgetTodoItem) {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 10px;
+  gap: 12px;
   font-size: 13px;
   color: var(--wc-text-muted);
 }
 
 .boot-spinner {
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
   border: 2px solid var(--wc-bg-tertiary);
   border-top-color: var(--wc-text-muted);

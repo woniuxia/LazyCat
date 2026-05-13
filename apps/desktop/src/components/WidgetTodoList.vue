@@ -5,12 +5,14 @@
       <span class="header-title">待办事项</span>
       <button class="header-add" title="新建待办" @click="$emit('action', { kind: 'open-todo-create' })">+ 新建</button>
     </div>
+    <div v-show="scrollable && showTopShadow" class="scroll-shadow scroll-shadow-top" />
     <div class="list-body" ref="listBodyRef" @scroll="onScroll">
       <div
-        v-for="item in items"
+        v-for="(item, idx) in items"
         :key="item.id"
         class="todo-row"
-        :class="`p-${item.priority.toLowerCase()}`"
+        :class="[`p-${item.priority.toLowerCase()}`, { 'is-overdue': isOverdue(item) }]"
+        :style="{ animationDelay: `${Math.min(idx * 30, 300)}ms` }"
       >
         <button
           class="check"
@@ -36,15 +38,18 @@
         </span>
       </div>
       <div v-if="items.length === 0" class="empty">
-        <svg class="empty-icon" viewBox="0 0 24 24" fill="none">
-          <path d="M9 11L12 14L22 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-          <path d="M21 12V19C21 19.5304 20.7893 20.0391 20.4142 20.4142C20.0391 20.7893 19.5304 21 19 21H5C4.46957 21 3.96086 20.7893 3.58579 20.4142C3.21071 20.0391 3 19.5304 3 19V5C3 4.46957 3.21071 3.96086 3.58579 3.58579C3.96086 3.21071 4.46957 3 5 3H16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-        <span>今日无待办</span>
+        <div class="empty-illustration">
+          <svg viewBox="0 0 48 48" fill="none">
+            <circle cx="24" cy="24" r="22" stroke="currentColor" stroke-width="1.2" opacity="0.25"/>
+            <path d="M16 22L21.5 27.5L32 16.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity="0.55"/>
+          </svg>
+        </div>
+        <span class="empty-title">今日无待办</span>
+        <span class="empty-desc">所有事项已处理完毕</span>
         <button class="empty-action" @click="$emit('action', { kind: 'open-todo-create' })">+ 新建待办</button>
       </div>
     </div>
-    <div v-if="scrollable" class="scroll-shadow" :class="{ 'is-bottom': showScrollShadow }" />
+    <div v-show="scrollable && showScrollShadow" class="scroll-shadow scroll-shadow-btm" />
   </section>
 </template>
 
@@ -65,6 +70,7 @@ const emit = defineEmits<{
 
 const listBodyRef = ref<HTMLElement | null>(null);
 const scrollable = ref(false);
+const showTopShadow = ref(false);
 const showScrollShadow = ref(false);
 
 let resizeObserver: ResizeObserver | null = null;
@@ -78,7 +84,9 @@ function checkScrollable() {
 function onScroll() {
   const el = listBodyRef.value;
   if (!el) return;
+  const atTop = el.scrollTop <= 1;
   const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 2;
+  showTopShadow.value = !atTop && scrollable.value;
   showScrollShadow.value = !atBottom && scrollable.value;
 }
 
@@ -175,17 +183,21 @@ function parseLocalDate(raw: string): Date | null {
 .header-add {
   padding: 4px 9px;
   border-radius: 5px;
-  background: var(--wc-block-bg);
+  background-color: var(--wc-block-bg);
+  background-image: linear-gradient(135deg, #6366f1, #a855f7);
+  -webkit-background-clip: text;
+  background-clip: text;
   border: 1px solid var(--wc-block-border);
-  color: var(--wc-text);
+  color: transparent;
   font-size: 11px;
+  font-weight: 500;
   cursor: pointer;
   font-family: inherit;
   transition: background-color 0.15s ease;
 }
 
 .header-add:hover {
-  background: var(--wc-block-border);
+  background-color: var(--wc-block-border);
 }
 
 .header-add:active {
@@ -220,11 +232,38 @@ function parseLocalDate(raw: string): Date | null {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 12px;
+  padding: 7px 10px;
   font-size: 13px;
   line-height: 28px;
   min-height: 44px;
   border-bottom: 1px solid var(--wc-divider);
+  border-left: 2.5px solid transparent;
+  transition: background-color 0.15s ease;
+  animation: row-enter 0.3s ease-out both;
+}
+
+.todo-row.is-overdue {
+  border-left-color: #ef4444;
+  background: rgba(239, 68, 68, 0.05);
+}
+
+.todo-row.is-overdue:hover {
+  background: rgba(239, 68, 68, 0.08);
+}
+
+@keyframes row-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.todo-row:hover {
+  background: var(--wc-row-hover);
 }
 
 .todo-row:last-of-type {
@@ -235,7 +274,7 @@ function parseLocalDate(raw: string): Date | null {
 .check {
   width: 16px;
   height: 16px;
-  border-radius: 4px;
+  border-radius: 50%;
   border: 2px solid currentColor;
   background: transparent;
   cursor: pointer;
@@ -244,14 +283,15 @@ function parseLocalDate(raw: string): Date | null {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background-color 0.15s ease, transform 0.1s ease;
+  transition: background-color 0.2s ease, transform 0.15s ease, border-color 0.2s ease;
 }
 
 .check-icon {
   width: 10px;
   height: 10px;
   opacity: 0;
-  transition: opacity 0.15s ease;
+  transform: scale(0.5);
+  transition: opacity 0.2s ease, transform 0.2s ease;
   color: #fff;
 }
 
@@ -261,10 +301,11 @@ function parseLocalDate(raw: string): Date | null {
 
 .check:hover .check-icon {
   opacity: 1;
+  transform: scale(1);
 }
 
 .check:active {
-  transform: scale(0.88);
+  transform: scale(0.85);
 }
 
 .check.p-p0 {
@@ -286,6 +327,15 @@ function parseLocalDate(raw: string): Date | null {
   flex-shrink: 0;
   color: var(--wc-text-muted);
   opacity: 0.7;
+}
+
+/* pinned items get a subtle warm tint */
+.todo-row:has(.pin-icon) {
+  background: var(--wc-pin-bg, rgba(251, 191, 36, 0.04));
+}
+
+.todo-row:has(.pin-icon):hover {
+  background: var(--wc-pin-bg-hover, rgba(251, 191, 36, 0.1));
 }
 
 .title {
@@ -321,52 +371,72 @@ function parseLocalDate(raw: string): Date | null {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  padding: 24px 12px;
-  font-size: 13px;
+  gap: 4px;
+  padding: 32px 12px;
   color: var(--wc-text-muted);
   flex: 1;
   min-height: 0;
 }
 
-.empty-icon {
-  width: 28px;
-  height: 28px;
-  opacity: 0.35;
+.empty-illustration {
+  width: 48px;
+  height: 48px;
+  margin-bottom: 8px;
   color: var(--wc-text-muted);
+  opacity: 0.5;
+}
+
+.empty-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--wc-text);
+}
+
+.empty-desc {
+  font-size: 12px;
+  color: var(--wc-text-muted);
+  margin-bottom: 8px;
 }
 
 .empty-action {
-  padding: 4px 12px;
-  border-radius: 5px;
-  background: var(--wc-block-bg);
-  border: 1px solid var(--wc-block-border);
-  color: var(--wc-text);
+  padding: 5px 16px;
+  border-radius: 14px;
+  background: rgba(99, 102, 241, 0.08);
+  border: 1px solid rgba(99, 102, 241, 0.12);
+  color: var(--wc-accent, #6366f1);
   font-size: 12px;
+  font-weight: 500;
   cursor: pointer;
   font-family: inherit;
-  margin-top: 4px;
-  transition: background-color 0.15s ease;
+  transition: background-color 0.15s ease, transform 0.1s ease;
 }
 
 .empty-action:hover {
-  background: var(--wc-block-border);
+  background: rgba(99, 102, 241, 0.14);
+}
+
+.empty-action:active {
+  transform: scale(0.96);
 }
 
 .scroll-shadow {
   position: absolute;
-  bottom: 0;
   left: 0;
   right: 0;
   height: 20px;
-  background: linear-gradient(to top, var(--wc-block-bg), transparent);
   pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.2s ease;
-  border-radius: 0 0 12px 12px;
+  z-index: 1;
 }
 
-.scroll-shadow.is-bottom {
-  opacity: 1;
+.scroll-shadow-top {
+  top: 0;
+  background: linear-gradient(to bottom, var(--wc-block-bg), transparent);
+  border-radius: 12px 12px 0 0;
+}
+
+.scroll-shadow-btm {
+  bottom: 0;
+  background: linear-gradient(to top, var(--wc-block-bg), transparent);
+  border-radius: 0 0 12px 12px;
 }
 </style>
