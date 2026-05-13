@@ -15,32 +15,58 @@
 <script setup lang="ts">
 import { computed } from "vue";
 
+interface ExtensionButton {
+  key: string;
+  label: string;
+  title: string;
+  payload: { kind: string; [key: string]: unknown };
+}
+
 const props = defineProps<{
   hotTools?: { id: string; label: string }[];
+  fixedToolIds?: string[];
 }>();
 
 defineEmits<{
   (e: "action", payload: { kind: string; [key: string]: unknown }): void;
 }>();
 
-const FIXED_IDS = new Set(["pm", "todo", "inbox"]);
+const fixedIds = computed(() => new Set(props.fixedToolIds ?? ["pm", "todo", "inbox"]));
 
-const fixedButtons = [
-  { key: "pm", label: "PM", title: "项目管理", payload: { kind: "open-tool", toolId: "pm" } },
-  { key: "todo", label: "待办", title: "新建待办", payload: { kind: "open-todo-create" } },
-  { key: "inbox", label: "Inbox", title: "收集箱", payload: { kind: "open-tool", toolId: "inbox" } },
-];
+const LABEL_MAP: Record<string, string> = {
+  pm: "PM",
+  todo: "待办",
+  inbox: "Inbox",
+};
+
+const TITLE_MAP: Record<string, string> = {
+  pm: "项目管理",
+  todo: "新建待办",
+  inbox: "收集箱",
+};
+
+const fixedButtons = computed<ExtensionButton[]>(() => {
+  return (props.fixedToolIds ?? ["pm", "todo", "inbox"]).map((id) => ({
+    key: id,
+    label: LABEL_MAP[id] ?? id,
+    title: TITLE_MAP[id] ?? id,
+    payload:
+      id === "todo"
+        ? { kind: "open-todo-create" }
+        : { kind: "open-tool", toolId: id },
+  }));
+});
 
 const allButtons = computed(() => {
   const dynamic = (props.hotTools ?? [])
-    .filter((t) => !FIXED_IDS.has(t.id))
+    .filter((t) => !fixedIds.value.has(t.id))
     .map((t) => ({
       key: `hot-${t.id}`,
       label: t.label,
       title: t.label,
       payload: { kind: "open-tool", toolId: t.id },
     }));
-  return [...fixedButtons, ...dynamic];
+  return [...fixedButtons.value, ...dynamic];
 });
 </script>
 

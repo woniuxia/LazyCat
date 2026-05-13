@@ -30,6 +30,10 @@ pub const KEY_WIDGET_Y: &str = "widget.widget_y";
 pub const KEY_EDGE: &str = "widget.edge";
 /// 挂件失去焦点后收缩延迟（毫秒）
 pub const KEY_COLLAPSE_DELAY_MS: &str = "widget.collapse_delay_ms";
+/// 拓展区固定工具按钮（JSON 数组，如 `["pm","todo","inbox"]`）
+pub const KEY_EXTENSION_FIXED_TOOLS: &str = "widget.extension_fixed_tools";
+/// 拓展区热门工具推荐数量上限（默认 3）
+pub const KEY_EXTENSION_HOT_TOOLS_LIMIT: &str = "widget.extension_hot_tools_limit";
 
 // ── 默认值 ────────────────────────────────────────
 
@@ -48,6 +52,14 @@ pub fn default_fullscreen_blacklist() -> Vec<String> {
     ]
 }
 
+/// 拓展区默认固定工具按钮顺序。
+pub fn default_extension_fixed_tools() -> Vec<String> {
+    vec!["pm".into(), "todo".into(), "inbox".into()]
+}
+
+/// 拓展区热门工具推荐数量默认值。
+pub const DEFAULT_EXTENSION_HOT_TOOLS_LIMIT: i64 = 3;
+
 // ── 配置结构体 ────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -65,6 +77,10 @@ pub struct WidgetConfig {
     pub edge: String,
     /// 失去焦点后收缩延迟（毫秒，默认 800）
     pub collapse_delay_ms: i64,
+    /// 拓展区固定工具按钮 ID 列表（默认 ["pm", "todo", "inbox"]）
+    pub extension_fixed_tools: Vec<String>,
+    /// 拓展区热门工具推荐数量上限（默认 3）
+    pub extension_hot_tools_limit: i64,
 }
 
 impl Default for WidgetConfig {
@@ -79,6 +95,8 @@ impl Default for WidgetConfig {
             widget_y: None,
             edge: "right".into(),
             collapse_delay_ms: DEFAULT_COLLAPSE_DELAY_MS,
+            extension_fixed_tools: default_extension_fixed_tools(),
+            extension_hot_tools_limit: DEFAULT_EXTENSION_HOT_TOOLS_LIMIT,
         }
     }
 }
@@ -125,6 +143,16 @@ pub fn read_config() -> WidgetConfig {
     if let Some(v) = read_string(&conn, KEY_COLLAPSE_DELAY_MS) {
         if let Ok(n) = v.parse::<i64>() {
             cfg.collapse_delay_ms = n.clamp(100, 5000);
+        }
+    }
+    if let Some(v) = read_string(&conn, KEY_EXTENSION_FIXED_TOOLS) {
+        if let Ok(list) = serde_json::from_str::<Vec<String>>(&v) {
+            cfg.extension_fixed_tools = list;
+        }
+    }
+    if let Some(v) = read_string(&conn, KEY_EXTENSION_HOT_TOOLS_LIMIT) {
+        if let Ok(n) = v.parse::<i64>() {
+            cfg.extension_hot_tools_limit = n.clamp(1, 20);
         }
     }
     cfg
@@ -199,6 +227,8 @@ pub fn set_config(payload: &Value) -> Result<Value, String> {
             "widgetY" => write_optional_i64(KEY_WIDGET_Y, val)?,
             "edge" => write_edge(val)?,
             "collapseDelayMs" => write_i64(KEY_COLLAPSE_DELAY_MS, val)?,
+            "extensionFixedTools" => write_string_array(KEY_EXTENSION_FIXED_TOOLS, val)?,
+            "extensionHotToolsLimit" => write_i64(KEY_EXTENSION_HOT_TOOLS_LIMIT, val)?,
             other => {
                 return Err(format!("unknown widget config key: {other}"));
             }
@@ -311,6 +341,8 @@ mod tests {
         assert!(cfg.widget_y.is_none());
         assert_eq!(cfg.edge, "right");
         assert_eq!(cfg.collapse_delay_ms, 800);
+        assert_eq!(cfg.extension_fixed_tools, vec!["pm", "todo", "inbox"]);
+        assert_eq!(cfg.extension_hot_tools_limit, 3);
     }
 
     #[test]

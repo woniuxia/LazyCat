@@ -55,7 +55,15 @@ pub fn apply_with_force(app: &AppHandle, force: bool) -> Result<Value, String> {
         .get("hotTools")
         .and_then(|v| v.as_array().cloned())
         .unwrap_or_default();
-    let input_hash = compute_input_hash(&todo_list_value, &hot_tools_value, privacy_mask);
+    let ext_fixed = dashboard
+        .get("extensionFixedTools")
+        .and_then(|v| v.as_array().cloned())
+        .unwrap_or_default();
+    let ext_limit = dashboard
+        .get("extensionHotToolsLimit")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(3);
+    let input_hash = compute_input_hash(&todo_list_value, &hot_tools_value, &ext_fixed, ext_limit, privacy_mask);
     let prev_hash = session::session().input_hash();
     if !force && input_hash != 0 && input_hash == prev_hash {
         eprintln!("[widget] apply: skipped (no-change, hash={input_hash:#x})");
@@ -132,9 +140,15 @@ fn resolve_privacy_mask(cfg: &config::WidgetConfig) -> bool {
     false
 }
 
-/// 内容哈希：dashboard（去掉 generatedAt 时间戳）+ hotTools + privacy_mask。
+/// 内容哈希：dashboard（去掉 generatedAt 时间戳）+ hotTools + extension 配置 + privacy_mask。
 /// 0 → 1 避免与 sentinel 冲突。
-fn compute_input_hash(todo_list: &[Value], hot_tools: &[Value], privacy_mask: bool) -> u64 {
+fn compute_input_hash(
+    todo_list: &[Value],
+    hot_tools: &[Value],
+    ext_fixed: &[Value],
+    ext_limit: i64,
+    privacy_mask: bool,
+) -> u64 {
     let dashboard_hex = dashboard_logic::compute_dashboard_hash(todo_list);
 
     let mut hasher = blake3::Hasher::new();
@@ -142,8 +156,11 @@ fn compute_input_hash(todo_list: &[Value], hot_tools: &[Value], privacy_mask: bo
     hasher.update(b"|");
     hasher.update(if privacy_mask { b"1" } else { b"0" });
     hasher.update(b"|");
-    // 序列化 hotTools 纳入 hash，确保工具推荐变化时能触发推送
     hasher.update(serde_json::to_string(hot_tools).unwrap_or_default().as_bytes());
+    hasher.update(b"|");
+    hasher.update(serde_json::to_string(ext_fixed).unwrap_or_default().as_bytes());
+    hasher.update(b"|");
+    hasher.update(ext_limit.to_string().as_bytes());
 
     let bytes = hasher.finalize();
     let mut buf = [0u8; 8];
@@ -164,35 +181,50 @@ mod tests {
     fn hash_stable_for_same_input() {
         let todos = vec![json!({ "id": "pm:1", "title": "x" })];
         let hot = vec![json!({ "id": "pm", "count": 3 })];
-        let a = compute_input_hash(&todos, &hot, false);
-        let b = compute_input_hash(&todos, &hot, false);
+        let ext = vec![json!("pm"), json!("todo")];
+        let a = compute_input_hash(&todos, &hot, &ext, 3, false);
+        let b = compute_input_hash(&todos, &hot, &ext, 3, false);
         assert_eq!(a, b);
     }
 
     #[test]
     fn hash_changes_with_todo_list() {
-        let h1 = compute_input_hash(&[json!({ "id": "a" })], &[], false);
-        let h2 = compute_input_hash(&[json!({ "id": "b" })], &[], false);
+        let h1 = compute_input_hash(&[json!({ "id": "a" })], &[], &[], 3, false);
+        let h2 = compute_input_hash(&[json!({ "id": "b" })], &[], &[], 3, false);
         assert_ne!(h1, h2);
     }
 
     #[test]
     fn hash_changes_with_privacy_mask() {
-        let h1 = compute_input_hash(&[], &[], false);
-        let h2 = compute_input_hash(&[], &[], true);
+        let h1 = compute_input_hash(&[], &[], &[], 3, false);
+        let h2 = compute_input_hash(&[], &[], &[], 3, true);
         assert_ne!(h1, h2);
     }
 
     #[test]
     fn hash_changes_with_hot_tools() {
-        let h1 = compute_input_hash(&[], &[json!({ "id": "pm" })], false);
-        let h2 = compute_input_hash(&[], &[json!({ "id": "inbox" })], false);
+        let h1 = compute_input_hash(&[], &[json!({ "id": "pm" })], &[], 3, false);
+        let h2 = compute_input_hash(&[], &[json!({ "id": "inbox" })], &[], 3, false);
+        assert_ne!(h1, h2);
+    }
+
+    #[test]
+    fn hash_changes_with_extension_fixed_tools() {
+        let h1 = compute_input_hash(&[], &[], &[json!("pm")], 3, false);
+        let h2 = compute_input_hash(&[], &[], &[json!("pm"), json!("todo")], 3, false);
+        assert_ne!(h1, h2);
+    }
+
+    #[test]
+    fn hash_changes_with_extension_hot_tools_limit() {
+        let h1 = compute_input_hash(&[], &[], &[], 3, false);
+        let h2 = compute_input_hash(&[], &[], &[], 5, false);
         assert_ne!(h1, h2);
     }
 
     #[test]
     fn hash_never_returns_sentinel_zero() {
-        let h = compute_input_hash(&[], &[], false);
+        let h = compute_input_hash(&[], &[], &[], 3, false);
         assert_ne!(h, 0);
     }
 }

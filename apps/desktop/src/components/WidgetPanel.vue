@@ -151,6 +151,41 @@
         </el-form>
       </el-tab-pane>
 
+      <el-tab-pane label="拓展区" name="extension">
+        <el-form label-width="120px" label-position="left">
+          <el-form-item label="固定按钮">
+            <el-select
+              :model-value="config.extensionFixedTools"
+              multiple
+              filterable
+              placeholder="选择固定按钮（按选择顺序展示）"
+              @update:model-value="onExtensionFixedToolsChange"
+            >
+              <el-option
+                v-for="tool in allToolOptions"
+                :key="tool.id"
+                :label="tool.name"
+                :value="tool.id"
+              />
+            </el-select>
+            <div class="hint">挂件拓展区固定显示的按钮，按选择顺序展示；"待办"有特殊快速创建入口</div>
+          </el-form-item>
+          <el-form-item label="推荐数量">
+            <el-radio-group
+              v-model="config.extensionHotToolsLimit"
+              @change="saveField('extensionHotToolsLimit')"
+            >
+              <el-radio-button :label="1">1</el-radio-button>
+              <el-radio-button :label="2">2</el-radio-button>
+              <el-radio-button :label="3">3</el-radio-button>
+              <el-radio-button :label="5">5</el-radio-button>
+              <el-radio-button :label="10">10</el-radio-button>
+            </el-radio-group>
+            <div class="hint">拓展区动态推荐工具的数量上限</div>
+          </el-form-item>
+        </el-form>
+      </el-tab-pane>
+
       <el-tab-pane label="诊断" name="diagnostics">
         <div v-if="diagnostics" class="diagnostics-pane">
           <div class="health-grid">
@@ -200,6 +235,7 @@ import { onMounted, onBeforeUnmount, computed, ref } from "vue";
 import { ElMessage } from "element-plus";
 import { Lock, WarningFilled, CircleCloseFilled, VideoPause } from "@element-plus/icons-vue";
 import { invokeToolByChannel } from "../bridge/tauri";
+import { getAllTools } from "../composables/toolCatalog";
 import type {
   WidgetConfig,
   WidgetHealth,
@@ -346,6 +382,15 @@ function onBlacklistInput(v: string) {
     .filter(Boolean);
 }
 
+const allToolOptions = computed(() => {
+  return getAllTools().filter((t) => t.id !== "widget" && t.id !== "home");
+});
+
+async function onExtensionFixedToolsChange(ids: string[]) {
+  config.value.extensionFixedTools = ids;
+  await saveField("extensionFixedTools");
+}
+
 function pauseReasonLabel(reason: WidgetPauseReason): string {
   switch (reason) {
     case "fullscreen":
@@ -459,6 +504,8 @@ function defaultConfig(): WidgetConfig {
     widgetY: null,
     edge: "right",
     collapseDelayMs: 800,
+    extensionFixedTools: ["pm", "todo", "inbox"],
+    extensionHotToolsLimit: 3,
   };
 }
 </script>

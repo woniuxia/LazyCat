@@ -1,14 +1,13 @@
-//! 仪表盘数据聚合（plan §1.1）
+//! 仪表盘数据聚合（design §1.1）
 //!
-//! 负责跨 PM / Todo 拉取今日相关数据，调用 `dashboard_logic` 完成合并、排序、
+//! 负责跨 PM / Todo 拉取未完成事项，调用 `dashboard_logic` 完成合并、排序、
 //! 聚合统计；最终输出对齐前端 `WidgetDashboardData` 类型。
 
-use chrono::{Local, NaiveDate, TimeZone, Utc};
+use chrono::{Local, Utc};
 use rusqlite::{params, Connection};
 use serde_json::{json, Value};
 
 use crate::tools::helpers::db_conn;
-use crate::tools::todo::is_open_status;
 use crate::tools::widget::config;
 use crate::tools::widget::dashboard_logic::{
     merge_and_dedup_items, sort_dashboard_items,
@@ -17,87 +16,49 @@ use crate::tools::widget::dashboard_logic::{
 /// `todoList` 截断上限（前端可滚动浏览全部）。
 const TODO_LIMIT: usize = 100;
 
-/// 动态推荐数量上限。
-const HOT_TOOLS_LIMIT: usize = 3;
-
 /// 仪表盘聚合主入口；通道 `tool:widget:dashboard_data` 直接调用。
 pub fn dashboard_data(_payload: &Value) -> Result<Value, String> {
     let now_local = Local::now();
     let today = now_local.date_naive();
     let today_str = today.format("%Y-%m-%d").to_string();
-    let (today_start_utc, today_end_utc) = today_bounds_utc(today)?;
 
     let conn = db_conn()?;
 
-    let pm_rows = load_pm_rows(&conn, &today_start_utc, &today_end_utc)?;
-    let todo_rows = load_todo_rows(&conn, &today_start_utc, &today_end_utc)?;
+    let pm_rows = load_pm_rows(&conn)?;
+    let todo_rows = load_todo_rows(&conn)?;
 
-    // 1. 仅取 open 项做合并 / 排序，再截断
-    let pm_open: Vec<Value> = pm_rows
-        .iter()
-        .filter(|r| !is_pm_done(r))
-        .cloned()
-        .collect();
-    let todo_open: Vec<Value> = todo_rows
-        .iter()
-        .filter(|r| is_open_status(r.get("status").and_then(Value::as_str).unwrap_or("")))
-        .cloned()
-        .collect();
-
-    let mut merged = merge_and_dedup_items(&pm_open, &todo_open, &today_str);
+    // SQL 已限定只加载未完成事项，无需二次过滤
+    let mut merged = merge_and_dedup_items(&pm_rows, &todo_rows, &today_str);
     sort_dashboard_items(&mut merged);
     if merged.len() > TODO_LIMIT {
         merged.truncate(TODO_LIMIT);
     }
 
-    let hot_tools = compute_hot_tools(&conn);
+    let cfg = config::read_config();
+    let hot_limit = cfg.extension_hot_tools_limit.max(1).min(20) as usize;
+    let hot_tools = compute_hot_tools(&conn, hot_limit);
 
     Ok(json!({
         "todoList": merged,
         "generatedAt": Utc::now().to_rfc3339(),
         "hotTools": hot_tools,
+        "extensionFixedTools": cfg.extension_fixed_tools,
+        "extensionHotToolsLimit": cfg.extension_hot_tools_limit,
     }))
-}
-
-fn is_pm_done(row: &Value) -> bool {
-    row.get("status").and_then(Value::as_str) == Some("done")
-}
-
-// ── 时区 / 范围 ────────────────────────────────
-
-fn today_bounds_utc(today: NaiveDate) -> Result<(String, String), String> {
-    let start_local = today.and_hms_opt(0, 0, 0).ok_or("invalid today start")?;
-    let end_local = today.and_hms_opt(23, 59, 59).ok_or("invalid today end")?;
-    let start_utc = Local
-        .from_local_datetime(&start_local)
-        .single()
-        .ok_or("today start tz conversion failed")?
-        .with_timezone(&Utc);
-    let end_utc = Local
-        .from_local_datetime(&end_local)
-        .single()
-        .ok_or("today end tz conversion failed")?
-        .with_timezone(&Utc);
-    Ok((start_utc.to_rfc3339(), end_utc.to_rfc3339()))
 }
 
 // ── SQL 装载 ──────────────────────────────────
 
-fn load_pm_rows(
-    conn: &Connection,
-    today_start_utc: &str,
-    today_end_utc: &str,
-) -> Result<Vec<Value>, String> {
+fn load_pm_rows(conn: &Connection) -> Result<Vec<Value>, String> {
     let mut stmt = conn
         .prepare(
             "SELECT id, title, priority, status, end_at, pinned, completed_at, created_at, started_at
              FROM pm_items
-             WHERE status != 'done'
-                OR (status = 'done' AND completed_at >= ?1 AND completed_at <= ?2)",
+             WHERE status != 'done'",
         )
         .map_err(|e| format!("prepare widget.pm sql: {e}"))?;
     let rows = stmt
-        .query_map(params![today_start_utc, today_end_utc], |r| {
+        .query_map([], |r| {
             let id: i64 = r.get(0)?;
             let title: String = r.get(1)?;
             let priority: String = r.get(2)?;
@@ -127,23 +88,18 @@ fn load_pm_rows(
     Ok(list)
 }
 
-fn load_todo_rows(
-    conn: &Connection,
-    today_start_utc: &str,
-    today_end_utc: &str,
-) -> Result<Vec<Value>, String> {
+fn load_todo_rows(conn: &Connection) -> Result<Vec<Value>, String> {
     let mut stmt = conn
         .prepare(
             "SELECT i.id, i.title, i.priority, i.status, i.event_at, i.pinned,
                     i.completed_at, i.created_at,
                     (SELECT pm_item_id FROM pm_item_todo_links WHERE todo_item_id = i.id LIMIT 1) AS pm_item_id
              FROM todo_items i
-             WHERE i.status IN ('pending', 'in_progress')
-                OR (i.status = 'completed' AND i.completed_at >= ?1 AND i.completed_at <= ?2)",
+             WHERE i.status IN ('pending', 'in_progress')",
         )
         .map_err(|e| format!("prepare widget.todo sql: {e}"))?;
     let rows = stmt
-        .query_map(params![today_start_utc, today_end_utc], |r| {
+        .query_map([], |r| {
             let id: i64 = r.get(0)?;
             let title: String = r.get(1)?;
             let priority: String = r.get(2)?;
@@ -177,7 +133,7 @@ fn load_todo_rows(
 
 /// 读取 `tool_clicks`，统计近 30 天每个工具的点击数，取 Top N。
 /// 排除 `todo`（挂件已有快捷入口）和 `widget`（挂件不应推荐自身）。
-fn compute_hot_tools(conn: &Connection) -> Vec<Value> {
+fn compute_hot_tools(conn: &Connection, limit: usize) -> Vec<Value> {
     let raw = match config::read_string(conn, "tool_clicks") {
         Some(s) => s,
         None => return Vec::new(),
@@ -204,7 +160,7 @@ fn compute_hot_tools(conn: &Connection) -> Vec<Value> {
         .collect();
 
     counts.sort_by(|a, b| b.1.cmp(&a.1));
-    counts.truncate(HOT_TOOLS_LIMIT);
+    counts.truncate(limit);
 
     counts
         .into_iter()
@@ -216,4 +172,3 @@ fn compute_hot_tools(conn: &Connection) -> Vec<Value> {
         })
         .collect()
 }
-

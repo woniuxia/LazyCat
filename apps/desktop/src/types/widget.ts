@@ -34,6 +34,10 @@ export interface WidgetDashboardData {
   privacyMask?: boolean;
   /** 动态工具推荐（id + count，name 由前端查 toolCatalog） */
   hotTools: WidgetHotTool[];
+  /** 拓展区固定工具按钮 ID 列表 */
+  extensionFixedTools?: string[];
+  /** 拓展区热门工具推荐数量上限 */
+  extensionHotToolsLimit?: number;
 }
 
 export interface WidgetStatus {
@@ -66,6 +70,10 @@ export interface WidgetConfig {
   edge: "left" | "right";
   /** 失去焦点后收缩延迟（毫秒，默认 800） */
   collapseDelayMs: number;
+  /** 拓展区固定工具按钮 ID 列表（默认 ["pm", "todo", "inbox"]） */
+  extensionFixedTools: string[];
+  /** 拓展区热门工具推荐数量上限（默认 3） */
+  extensionHotToolsLimit: number;
 }
 
 export interface WidgetHealth {

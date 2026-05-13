@@ -17,7 +17,11 @@
         @complete="onCompleteItem"
         @action="onCanvasAction"
       />
-      <WidgetExtensionSlot :hot-tools="hotToolsForSlot" @action="onCanvasAction" />
+      <WidgetExtensionSlot
+        :hot-tools="hotToolsForSlot"
+        :fixed-tool-ids="extensionFixedToolIds"
+        @action="onCanvasAction"
+      />
       <div v-if="showStaleHint" class="stale-hint">
         <span class="stale-dot" />
         <span>刷新中…</span>
@@ -63,12 +67,19 @@ const showStaleHint = computed(() => {
   return lastDataReceivedAt.value > 0 && Date.now() - lastDataReceivedAt.value > 60_000;
 });
 
+/** 拓展区固定工具 ID 列表，来自后端配置（dashboard data 同步下发）。 */
+const extensionFixedToolIds = computed(() => {
+  return data.value?.extensionFixedTools ?? ["pm", "todo", "inbox"];
+});
+
 /** 解析工具名后的热门工具列表，供 WidgetExtensionSlot 渲染。无点击数据时提供默认推荐。 */
 const hotToolsForSlot = computed(() => {
   const hotTools = data.value?.hotTools ?? [];
+  const limit = data.value?.extensionHotToolsLimit ?? 3;
   const map = getAllToolMap();
   if (hotTools.length > 0) {
     return hotTools
+      .slice(0, limit)
       .map((t: WidgetHotTool) => {
         const def = map.get(t.id);
         return def ? { id: t.id, label: def.name } : null;
