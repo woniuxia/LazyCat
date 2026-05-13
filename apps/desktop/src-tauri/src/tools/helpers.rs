@@ -221,6 +221,9 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
         );
         CREATE INDEX IF NOT EXISTS idx_vault_category ON vault_entries(category);
 
+        let _ = conn.execute_batch("ALTER TABLE vault_entries ADD COLUMN view_count INTEGER NOT NULL DEFAULT 0;");
+        let _ = conn.execute_batch("ALTER TABLE vault_entries ADD COLUMN copy_count INTEGER NOT NULL DEFAULT 0;");
+
         CREATE TABLE IF NOT EXISTS vault_entry_tags (
             entry_id INTEGER NOT NULL,
             tag TEXT NOT NULL,

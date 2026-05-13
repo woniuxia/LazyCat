@@ -1169,6 +1169,7 @@ async function onTogglePassword(entry: VaultListEntry) {
     const res = (await invokeToolByChannel("tool:vault:get", { id: entry.id })) as VaultDetail;
     const pw = String(res.fields?.password ?? "");
     revealedPasswords.set(entry.id, pw);
+    invokeToolByChannel("tool:vault:record-usage", { id: entry.id, type: "view" });
     recordVaultActivity();
   } catch (err) {
     handleVaultError(err);
@@ -1195,6 +1196,7 @@ async function onDirectCopyPassword(entry: VaultListEntry) {
       }
     }, 1500);
     ElMessage.success("密码已复制");
+    invokeToolByChannel("tool:vault:record-usage", { id: entry.id, type: "copy" });
     if (pwClipboardTimer) clearTimeout(pwClipboardTimer);
     pwClipboardTimer = setTimeout(async () => {
       try {

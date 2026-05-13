@@ -540,7 +540,7 @@ fn cmd_list(payload: &Value) -> Result<Value, String> {
         sql = tag_sql;
         param_values.push(Box::new(tag_filter.to_string()));
     }
-    sql.push_str(" ORDER BY updated_at DESC");
+    sql.push_str(" ORDER BY (view_count + copy_count) DESC, updated_at DESC");
 
     let params_refs: Vec<&dyn rusqlite::types::ToSql> =
         param_values.iter().map(|p| p.as_ref()).collect();
@@ -846,6 +846,25 @@ fn cmd_delete_tag(payload: &Value) -> Result<Value, String> {
     Ok(json!({ "deleted": deleted }))
 }
 
+fn cmd_record_usage(payload: &Value) -> Result<Value, String> {
+    let key = get_session_key()?;
+    let id = payload["id"].as_u64().ok_or("id required")? as u32;
+    let usage_type = payload["type"].as_str().ok_or("type required")?;
+
+    let column = match usage_type {
+        "view" => "view_count",
+        "copy" => "copy_count",
+        _ => return Err("type must be 'view' or 'copy'".to_string()),
+    };
+
+    let conn = db_conn(&key)?;
+    let sql = format!("UPDATE vault_entries SET {column} = {column} + 1 WHERE id = ?1");
+    conn.execute(&sql, params![id])
+        .map_err(|e| format!("record_usage: {e}"))?;
+
+    Ok(json!({ "success": true }))
+}
+
 fn cmd_open_url(payload: &Value) -> Result<Value, String> {
     let url = payload["url"].as_str().ok_or("url required")?;
     if url.is_empty() {
@@ -908,6 +927,7 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         "tag_stats" => cmd_tag_stats(payload),
         "rename_tag" => cmd_rename_tag(payload),
         "delete_tag" => cmd_delete_tag(payload),
+        "record_usage" => cmd_record_usage(payload),
         _ => Err(format!("vault: unsupported action '{action}'")),
     }
 }

@@ -188,6 +188,7 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:vault:tag-stats":       { domain: "vault", action: "tag_stats" },
   "tool:vault:rename-tag":      { domain: "vault", action: "rename_tag" },
   "tool:vault:delete-tag":      { domain: "vault", action: "delete_tag" },
+  "tool:vault:record-usage":    { domain: "vault", action: "record_usage" },
   "tool:launcher:scan":          { domain: "launcher", action: "scan" },
   "tool:launcher:list":          { domain: "launcher", action: "list" },
   "tool:launcher:add":           { domain: "launcher", action: "add" },
