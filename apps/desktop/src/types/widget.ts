@@ -64,6 +64,8 @@ export interface WidgetConfig {
   widgetY: number | null;
   /** 挂件停靠边："left" | "right" */
   edge: "left" | "right";
+  /** 失去焦点后收缩延迟（毫秒，默认 800） */
+  collapseDelayMs: number;
 }
 
 export interface WidgetHealth {

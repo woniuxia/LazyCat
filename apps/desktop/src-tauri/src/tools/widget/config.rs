@@ -28,11 +28,14 @@ pub const KEY_PRIVACY_MASK_UNTIL: &str = "widget.privacy_mask_until";
 pub const KEY_WIDGET_Y: &str = "widget.widget_y";
 /// 挂件停靠边："left" | "right"（默认 "right"）
 pub const KEY_EDGE: &str = "widget.edge";
+/// 挂件失去焦点后收缩延迟（毫秒）
+pub const KEY_COLLAPSE_DELAY_MS: &str = "widget.collapse_delay_ms";
 
 // ── 默认值 ────────────────────────────────────────
 
 pub const DEFAULT_STYLE: &str = "dashboard";
 pub const DEFAULT_REFRESH_INTERVAL_MIN: i64 = 15;
+pub const DEFAULT_COLLAPSE_DELAY_MS: i64 = 800;
 
 /// 默认仅纳入演示 / 录屏 / 会议软件，避免 chrome / vlc 长期误切净。
 pub fn default_fullscreen_blacklist() -> Vec<String> {
@@ -60,6 +63,8 @@ pub struct WidgetConfig {
     pub widget_y: Option<i64>,
     /// 挂件停靠边："left" | "right"
     pub edge: String,
+    /// 失去焦点后收缩延迟（毫秒，默认 800）
+    pub collapse_delay_ms: i64,
 }
 
 impl Default for WidgetConfig {
@@ -73,6 +78,7 @@ impl Default for WidgetConfig {
             privacy_mask_until: None,
             widget_y: None,
             edge: "right".into(),
+            collapse_delay_ms: DEFAULT_COLLAPSE_DELAY_MS,
         }
     }
 }
@@ -114,6 +120,11 @@ pub fn read_config() -> WidgetConfig {
         let trimmed = v.trim();
         if trimmed == "left" || trimmed == "right" {
             cfg.edge = trimmed.to_string();
+        }
+    }
+    if let Some(v) = read_string(&conn, KEY_COLLAPSE_DELAY_MS) {
+        if let Ok(n) = v.parse::<i64>() {
+            cfg.collapse_delay_ms = n.clamp(100, 5000);
         }
     }
     cfg
@@ -187,6 +198,7 @@ pub fn set_config(payload: &Value) -> Result<Value, String> {
             "privacyMaskUntil" => write_optional_string(KEY_PRIVACY_MASK_UNTIL, val)?,
             "widgetY" => write_optional_i64(KEY_WIDGET_Y, val)?,
             "edge" => write_edge(val)?,
+            "collapseDelayMs" => write_i64(KEY_COLLAPSE_DELAY_MS, val)?,
             other => {
                 return Err(format!("unknown widget config key: {other}"));
             }
@@ -298,6 +310,7 @@ mod tests {
         assert!(cfg.privacy_mask_until.is_none());
         assert!(cfg.widget_y.is_none());
         assert_eq!(cfg.edge, "right");
+        assert_eq!(cfg.collapse_delay_ms, 800);
     }
 
     #[test]

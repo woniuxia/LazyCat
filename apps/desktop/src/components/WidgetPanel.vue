@@ -102,6 +102,21 @@
               <el-radio-button label="left">左侧</el-radio-button>
             </el-radio-group>
           </el-form-item>
+          <el-form-item label="收起延迟">
+            <el-radio-group
+              v-model="config.collapseDelayMs"
+              @change="saveField('collapseDelayMs')"
+            >
+              <el-radio-button :label="200">0.2s</el-radio-button>
+              <el-radio-button :label="500">0.5s</el-radio-button>
+              <el-radio-button :label="800">0.8s</el-radio-button>
+              <el-radio-button :label="1200">1.2s</el-radio-button>
+              <el-radio-button :label="2000">2s</el-radio-button>
+            </el-radio-group>
+            <div class="hint">
+              鼠标离开挂件后自动收起的等待时间
+            </div>
+          </el-form-item>
         </el-form>
       </el-tab-pane>
 
@@ -443,6 +458,7 @@ function defaultConfig(): WidgetConfig {
     privacyMaskUntil: null,
     widgetY: null,
     edge: "right",
+    collapseDelayMs: 800,
   };
 }
 </script>

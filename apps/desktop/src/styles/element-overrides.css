@@ -194,6 +194,8 @@
 
 .el-radio-button__original-radio:checked + .el-radio-button__inner {
   color: #ffffff !important;
+  background: var(--lc-accent) !important;
+  border-color: var(--lc-accent) !important;
 }
 
 /* -- Button Group -- */

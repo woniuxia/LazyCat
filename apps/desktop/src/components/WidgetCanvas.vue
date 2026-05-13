@@ -142,7 +142,7 @@ async function onCompleteItem(item: WidgetTodoItem) {
     if (source === "pm") {
       await invokeToolByChannel("tool:pm:item-change-status", { id, status: "done" });
     } else if (source === "todo") {
-      await invokeToolByChannel("tool:todo:item-change-status", { id, status: "done" });
+      await invokeToolByChannel("tool:todo:item-change-status", { id, status: "completed" });
     } else {
       console.warn("[widget-canvas] unknown source", source);
       return;

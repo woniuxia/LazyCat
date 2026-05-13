@@ -34,7 +34,6 @@ const LOGICAL_W: f64 = 360.0;
 const LOGICAL_H: f64 = 800.0;
 const PEEK_WIDTH: f64 = 8.0;
 const HOVER_TRIGGER: f64 = 8.0;
-const COLLAPSE_DELAY_MS: u64 = 800;
 const CURSOR_POLL_MS: u64 = 80;
 const HOVER_TOLERANCE_PX: f64 = 16.0;
 /// DWM 窗口阴影宽度（逻辑像素），Peek 隐藏时额外偏移量
@@ -307,7 +306,9 @@ fn cursor_loop(app: AppHandle) {
 
             // 每次迭代刷新配置缓存（仅在 dirty 时才读 DB，通常只是读一次 boolean）
             s.refresh_config_if_dirty();
-            let edge = s.config().edge;
+            let cfg = s.config();
+            let edge = cfg.edge;
+            let collapse_delay_ms = cfg.collapse_delay_ms.max(100) as u64;
 
             // edge 改变时强制重定位（Peek→Peek 是 no-op，不会自动 reposition）
             if edge != last_edge {
@@ -367,7 +368,7 @@ fn cursor_loop(app: AppHandle) {
                         was_in_full = true;
                     } else if was_in_full
                         && last_in_widget.elapsed()
-                            >= Duration::from_millis(COLLAPSE_DELAY_MS)
+                            >= Duration::from_millis(collapse_delay_ms)
                     {
                         if s.generation() == gen {
                             let _ = s.transition(&app, VisualState::Peek);
