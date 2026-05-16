@@ -30,11 +30,12 @@ async function prefetchTools(): Promise<SpotlightItem[]> {
 
   const indexed = buildToolIndex(getSidebarItems(), metaMap);
 
-  return indexed.map<SpotlightItem>((entry) => {
+  const entries = indexed.map((entry, index) => {
     const id = entry.tool.id;
     const count = recentCount(clickHistory, id);
     const isFav = favoriteSet.has(id);
-    return {
+    const tier = isFav ? 0 : count > 0 ? 1 : 2;
+    const item: SpotlightItem = {
       providerId: "tool",
       itemId: id,
       title: entry.tool.name,
@@ -49,7 +50,16 @@ async function prefetchTools(): Promise<SpotlightItem[]> {
       weight: isFav ? 1.15 : count > 0 ? 1 + Math.min(count, 20) * 0.01 : 1,
       payload: { toolId: id },
     };
+    return { item, tier, count, index };
   });
+
+  entries.sort((a, b) => {
+    if (a.tier !== b.tier) return a.tier - b.tier;
+    if (a.tier === 1 && a.count !== b.count) return b.count - a.count;
+    return a.index - b.index;
+  });
+
+  return entries.map((entry) => entry.item);
 }
 
 async function defaultAction(

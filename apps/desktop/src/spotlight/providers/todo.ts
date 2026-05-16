@@ -49,9 +49,14 @@ async function prefetchTodo(): Promise<SpotlightItem[]> {
   try {
     const raw = (await invokeToolByChannel("tool:todo:item-list", {
       includeInactive: false,
-    })) as TodoListItem[];
-    list = Array.isArray(raw) ? raw : [];
-  } catch {
+    })) as { items?: TodoListItem[] } | TodoListItem[] | null;
+    if (Array.isArray(raw)) {
+      list = raw;
+    } else if (raw && Array.isArray(raw.items)) {
+      list = raw.items;
+    }
+  } catch (err) {
+    console.warn("[Spotlight] todo prefetch failed:", err);
     return [];
   }
 

@@ -1666,8 +1666,7 @@ fn item_create(payload: &Value) -> Result<Value, String> {
         .to_string();
     let kind = parse_item_kind(payload);
     let assignee_ids = parse_assignee_ids(payload);
-    let reminder_presets = parse_reminder_presets(payload)?
-        .unwrap_or_else(|| vec![REMINDER_PRESET_ON_TIME.to_string()]);
+    let reminder_presets = parse_reminder_presets(payload)?.unwrap_or_default();
 
     let mut conn = db_conn()?;
 

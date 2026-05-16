@@ -292,7 +292,31 @@ function cancelUnlock() {
   unlockResolver = null;
   unlockState.value = null;
   resolver?.(null);
-  nextTick(() => inputRef.value?.focus());
+  nextTick(() => focusInput());
+}
+
+function focusInput(retries = 3) {
+  if (unlockState.value) return;
+  if (actionMenuOpen.value) return;
+  const el = inputRef.value;
+  if (!el) {
+    if (retries > 0) setTimeout(() => focusInput(retries - 1), 16);
+    return;
+  }
+  el.focus();
+  if (document.activeElement !== el && retries > 0) {
+    setTimeout(() => focusInput(retries - 1), 16);
+    return;
+  }
+  try {
+    el.select();
+  } catch {
+    /* ignore */
+  }
+}
+
+function onWindowFocus() {
+  focusInput();
 }
 
 async function applyResult(result: SpotlightExecuteResult) {
@@ -352,7 +376,7 @@ function openActionMenu(item: SpotlightItem) {
 function closeActionMenu() {
   actionMenuOpen.value = false;
   actionMenuTargetItem.value = null;
-  nextTick(() => inputRef.value?.focus());
+  nextTick(() => focusInput());
 }
 
 async function onActionSelect(action: SpotlightAction) {
@@ -440,12 +464,6 @@ async function closeWindow() {
 }
 
 onMounted(async () => {
-  await nextTick();
-  inputRef.value?.focus();
-  inputRef.value?.select();
-  await prefetchAll();
-  void refreshClipboardSuggestion();
-
   try {
     unlistenReset = await listen("spotlight-reset", () => {
       query.value = "";
@@ -456,18 +474,23 @@ onMounted(async () => {
       actionMenuOpen.value = false;
       void prefetchAll();
       void refreshClipboardSuggestion();
-      nextTick(() => {
-        inputRef.value?.focus();
-        inputRef.value?.select();
-      });
+      nextTick(() => focusInput());
     });
   } catch {
     /* ignore */
   }
+
+  window.addEventListener("focus", onWindowFocus);
+
+  await nextTick();
+  focusInput();
+  await prefetchAll();
+  void refreshClipboardSuggestion();
 });
 
 onBeforeUnmount(() => {
   unlistenReset?.();
+  window.removeEventListener("focus", onWindowFocus);
 });
 </script>
 
