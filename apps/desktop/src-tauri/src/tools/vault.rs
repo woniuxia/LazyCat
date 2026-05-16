@@ -7,7 +7,7 @@ use rusqlite::{params, Connection};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::Mutex;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use zeroize::Zeroize;
 
 use super::helpers::db_conn;
@@ -881,6 +881,211 @@ fn cmd_open_url(payload: &Value) -> Result<Value, String> {
     Ok(json!({ "ok": true }))
 }
 
+// --- Spotlight 即时解锁支持 ---
+//
+// meta_list: 返回非加密元数据，不要求活跃会话；用于 Spotlight 在锁定状态下也能检索条目
+// reveal_one: 用传入主密码单条解密，不修改 VAULT_SESSION；不延长全局会话
+// 防爆破：每条目每分钟最多 5 次失败尝试
+
+const REVEAL_ATTEMPT_WINDOW: Duration = Duration::from_secs(60);
+const REVEAL_ATTEMPT_MAX: usize = 5;
+
+static REVEAL_ATTEMPTS: Mutex<Option<HashMap<i64, Vec<Instant>>>> = Mutex::new(None);
+
+fn reveal_throttle_check(entry_id: i64) -> Result<(), String> {
+    let mut guard = REVEAL_ATTEMPTS
+        .lock()
+        .map_err(|e| format!("reveal throttle lock: {e}"))?;
+    let map = guard.get_or_insert_with(HashMap::new);
+    let now = Instant::now();
+    let attempts = map.entry(entry_id).or_insert_with(Vec::new);
+    attempts.retain(|ts| now.duration_since(*ts) < REVEAL_ATTEMPT_WINDOW);
+    if attempts.len() >= REVEAL_ATTEMPT_MAX {
+        return Err("too_many_attempts".to_string());
+    }
+    Ok(())
+}
+
+fn reveal_throttle_record_failure(entry_id: i64) {
+    if let Ok(mut guard) = REVEAL_ATTEMPTS.lock() {
+        let map = guard.get_or_insert_with(HashMap::new);
+        let attempts = map.entry(entry_id).or_insert_with(Vec::new);
+        attempts.push(Instant::now());
+    }
+}
+
+fn reveal_throttle_clear(entry_id: i64) {
+    if let Ok(mut guard) = REVEAL_ATTEMPTS.lock() {
+        if let Some(map) = guard.as_mut() {
+            map.remove(&entry_id);
+        }
+    }
+}
+
+fn cmd_meta_list(payload: &Value) -> Result<Value, String> {
+    let conn = db_conn()?;
+    let category = payload["category"].as_str().unwrap_or("");
+    let keyword = payload["keyword"].as_str().unwrap_or("");
+
+    let mut sql = String::from(
+        "SELECT id, category, title, environment, view_count, copy_count, created_at, updated_at \
+         FROM vault_entries WHERE 1=1",
+    );
+    let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+
+    if !category.is_empty() {
+        sql.push_str(" AND category = ?");
+        param_values.push(Box::new(category.to_string()));
+    }
+    if !keyword.is_empty() {
+        sql.push_str(" AND title LIKE ?");
+        param_values.push(Box::new(format!("%{keyword}%")));
+    }
+    sql.push_str(" ORDER BY (view_count + copy_count) DESC, updated_at DESC");
+
+    let params_refs: Vec<&dyn rusqlite::types::ToSql> =
+        param_values.iter().map(|p| p.as_ref()).collect();
+
+    let mut stmt = conn.prepare(&sql).map_err(|e| format!("prepare: {e}"))?;
+    let rows = stmt
+        .query_map(params_refs.as_slice(), |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, i64>(4)?,
+                row.get::<_, i64>(5)?,
+                row.get::<_, String>(6)?,
+                row.get::<_, String>(7)?,
+            ))
+        })
+        .map_err(|e| format!("query: {e}"))?;
+
+    let mut entries: Vec<Value> = Vec::new();
+    let mut entry_ids: Vec<i64> = Vec::new();
+    for row in rows {
+        let (id, cat, title, environment, view_count, copy_count, created_at, updated_at) =
+            row.map_err(|e| format!("row: {e}"))?;
+
+        entry_ids.push(id);
+        entries.push(json!({
+            "id": id,
+            "category": cat,
+            "title": title,
+            "environment": environment,
+            "viewCount": view_count,
+            "copyCount": copy_count,
+            "tags": [],
+            "createdAt": created_at,
+            "updatedAt": updated_at,
+        }));
+    }
+
+    let tags_by_entry = get_entry_tags_map(&conn, &entry_ids)?;
+    for entry in &mut entries {
+        let Some(id) = entry["id"].as_i64() else {
+            continue;
+        };
+        let tags = tags_by_entry.get(&id).cloned().unwrap_or_default();
+        if let Some(obj) = entry.as_object_mut() {
+            obj.insert("tags".to_string(), json!(tags));
+        }
+    }
+    Ok(json!(entries))
+}
+
+fn cmd_reveal_one(payload: &Value) -> Result<Value, String> {
+    let id = payload["id"].as_i64().ok_or("id required")?;
+    let password = payload["masterPassword"]
+        .as_str()
+        .ok_or("masterPassword required")?;
+
+    reveal_throttle_check(id)?;
+
+    let conn = db_conn()?;
+
+    // Verify master password against canary first
+    let (canary_salt_b64, canary_iv_b64, canary_blob_b64): (String, String, String) = conn
+        .query_row(
+            "SELECT salt, iv, encrypted FROM vault_canary WHERE id = 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .map_err(|_| "vault not initialized".to_string())?;
+
+    let canary_salt = BASE64
+        .decode(&canary_salt_b64)
+        .map_err(|e| format!("invalid salt: {e}"))?;
+    let canary_iv = BASE64
+        .decode(&canary_iv_b64)
+        .map_err(|e| format!("invalid iv: {e}"))?;
+    let canary_blob = BASE64
+        .decode(&canary_blob_b64)
+        .map_err(|e| format!("invalid encrypted data: {e}"))?;
+
+    let mut key = derive_key(password, &canary_salt)?;
+    let canary_check = aes256_decrypt(&key, &canary_iv, &canary_blob);
+    let valid = match canary_check {
+        Ok(plain) => plain == CANARY_PLAINTEXT,
+        Err(_) => false,
+    };
+    if !valid {
+        key.zeroize();
+        reveal_throttle_record_failure(id);
+        return Err("bad_master_password".to_string());
+    }
+
+    // Decrypt the requested entry
+    let row = conn
+        .query_row(
+            "SELECT category, title, environment, iv, encrypted_blob, created_at, updated_at \
+             FROM vault_entries WHERE id = ?1",
+            params![id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, String>(6)?,
+                ))
+            },
+        );
+    let (category, title, environment, iv_b64, blob_b64, created_at, updated_at) = match row {
+        Ok(r) => r,
+        Err(_) => {
+            key.zeroize();
+            return Err("entry not found".to_string());
+        }
+    };
+
+    let iv = BASE64.decode(&iv_b64).map_err(|e| format!("iv: {e}"))?;
+    let blob = BASE64.decode(&blob_b64).map_err(|e| format!("blob: {e}"))?;
+    let plain_result = aes256_decrypt(&key, &iv, &blob);
+    key.zeroize();
+    let plain = plain_result.map_err(|e| format!("decrypt entry: {e}"))?;
+    let fields: Value =
+        serde_json::from_slice(&plain).map_err(|e| format!("parse fields: {e}"))?;
+
+    let tags = get_entry_tags(&conn, id).unwrap_or_default();
+
+    reveal_throttle_clear(id);
+
+    Ok(json!({
+        "id": id,
+        "category": category,
+        "title": title,
+        "environment": environment,
+        "fields": fields,
+        "tags": tags,
+        "createdAt": created_at,
+        "updatedAt": updated_at,
+    }))
+}
+
 fn build_fields(category: &str, payload: &Value) -> Value {
     match category {
         "app" => json!({
@@ -919,7 +1124,9 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         "lock" => cmd_lock(payload),
         "change_password" => cmd_change_password(payload),
         "list" => cmd_list(payload),
+        "meta_list" => cmd_meta_list(payload),
         "get" => cmd_get(payload),
+        "reveal_one" => cmd_reveal_one(payload),
         "create" => cmd_create(payload),
         "update" => cmd_update(payload),
         "delete" => cmd_delete(payload),
@@ -1044,5 +1251,36 @@ mod tests {
 
         assert_eq!(err, "vault_locked_timeout");
         assert!(guard.is_none());
+    }
+
+    #[test]
+    fn test_reveal_throttle_blocks_after_max_failures() {
+        // 用一个不太可能与真实条目冲突的 id
+        let entry_id: i64 = -424242;
+        reveal_throttle_clear(entry_id);
+
+        for _ in 0..REVEAL_ATTEMPT_MAX {
+            assert!(reveal_throttle_check(entry_id).is_ok());
+            reveal_throttle_record_failure(entry_id);
+        }
+
+        // 第 N+1 次应被拒
+        let err = reveal_throttle_check(entry_id).expect_err("should throttle");
+        assert_eq!(err, "too_many_attempts");
+
+        reveal_throttle_clear(entry_id);
+    }
+
+    #[test]
+    fn test_reveal_throttle_clears_on_success() {
+        let entry_id: i64 = -424243;
+        reveal_throttle_clear(entry_id);
+
+        reveal_throttle_record_failure(entry_id);
+        reveal_throttle_record_failure(entry_id);
+        reveal_throttle_clear(entry_id);
+
+        // 清理后又能尝试
+        assert!(reveal_throttle_check(entry_id).is_ok());
     }
 }
