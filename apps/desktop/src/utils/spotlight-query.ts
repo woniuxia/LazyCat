@@ -37,11 +37,21 @@ export interface QuickCommandTodoCreate {
   text: string;
 }
 
-export type QuickCommand = QuickCommandTodoCreate;
+export interface QuickCommandCalc {
+  kind: "calc";
+  text: string;
+}
+
+export type QuickCommand = QuickCommandTodoCreate | QuickCommandCalc;
 
 export function parseQuickCommand(raw: string): QuickCommand | null {
   const trimmedLeft = raw.replace(/^\s+/, "");
-  if (!trimmedLeft.startsWith("+ ")) return null;
-  const text = trimmedLeft.slice(2).trim();
-  return { kind: "todo-create", text };
+  if (trimmedLeft.startsWith("+ ")) {
+    return { kind: "todo-create", text: trimmedLeft.slice(2).trim() };
+  }
+  const calcMatch = /^calc\s([\s\S]*)$/i.exec(trimmedLeft);
+  if (calcMatch) {
+    return { kind: "calc", text: calcMatch[1].trim() };
+  }
+  return null;
 }

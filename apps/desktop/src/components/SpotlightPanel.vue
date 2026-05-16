@@ -97,6 +97,7 @@ import "../spotlight/providers/pm";
 import "../spotlight/providers/suggestion";
 
 import { parseSpotlightQuery, parseQuickCommand } from "../utils/spotlight-query";
+import { calculateExpression, getCalcPreview } from "../utils/calc";
 import { detectClipboardContent } from "../utils/clipboard-detect";
 import { isRealToolId } from "../composables/toolCatalog";
 import { initSettings, getSetting } from "../composables/useSettings";
@@ -202,7 +203,7 @@ const footerHint = computed(() => {
   if (unlockState.value) return "Enter 确认 · Esc 取消";
   if (actionMenuOpen.value) return "↑↓ 选择 · Enter 执行 · Esc 收起";
   if (errorMessage.value) return "Ctrl+R 重试 · Esc 关闭";
-  return "Enter 执行 · Tab 备选动作 · Esc 关闭";
+  return "Enter 执行 · Tab 备选动作 · Alt+1-9 直选 · Esc 关闭";
 });
 
 const results = computed(() => {
@@ -218,6 +219,64 @@ const results = computed(() => {
       payload: { quickCommand: "todo-create", text },
     };
     return [{ item, score: 0 }];
+  }
+  if (quickCommand.value?.kind === "calc") {
+    const text = quickCommand.value.text;
+    if (!text) {
+      const item: SpotlightItem = {
+        providerId: "tool",
+        itemId: "calc:empty",
+        title: "计算器",
+        subtitle: "输入表达式，支持 + - * / ( ) %、×÷ 与中英文标点",
+        badge: { short: "算", tone: "info" },
+        searchFields: [],
+        payload: { quickCommand: "calc", text: "" },
+      };
+      return [{ item, score: 0 }];
+    }
+    try {
+      const result = calculateExpression(text);
+      const item: SpotlightItem = {
+        providerId: "tool",
+        itemId: `calc:${text}`,
+        title: `${text} = ${result.displayValue}`,
+        subtitle: "Enter 复制结果到剪贴板",
+        badge: { short: "算", tone: "info" },
+        searchFields: [],
+        payload: {
+          quickCommand: "calc",
+          text,
+          raw: result.rawValue,
+          display: result.displayValue,
+        },
+      };
+      return [{ item, score: 0 }];
+    } catch (err) {
+      const preview = getCalcPreview(text);
+      if (preview) {
+        const item: SpotlightItem = {
+          providerId: "tool",
+          itemId: `calc:${text}:preview`,
+          title: `${text} ≈ ${preview}`,
+          subtitle: "公式未完成,继续输入或按 Enter 计算",
+          badge: { short: "算", tone: "muted" },
+          searchFields: [],
+          payload: { quickCommand: "calc", text },
+        };
+        return [{ item, score: 0 }];
+      }
+      const msg = err instanceof Error ? err.message : String(err);
+      const item: SpotlightItem = {
+        providerId: "tool",
+        itemId: `calc:${text}:error`,
+        title: text,
+        subtitle: msg,
+        badge: { short: "算", tone: "danger" },
+        searchFields: [],
+        payload: { quickCommand: "calc", text },
+      };
+      return [{ item, score: 0 }];
+    }
   }
   const text = parsed.value.query;
   if (!text.trim()) {
@@ -358,6 +417,23 @@ async function commitDefault(item: SpotlightItem) {
     await runWithRunner(() => createTodoDraft(text));
     return;
   }
+  if (item.payload?.quickCommand === "calc") {
+    const raw = String(item.payload?.raw ?? "");
+    const display = String(item.payload?.display ?? "");
+    if (!raw) return; // 空、预览或错误状态：不复制
+    await runWithRunner(async () => {
+      try {
+        await navigator.clipboard.writeText(raw);
+        return {
+          closeSpotlight: true,
+          toast: { message: `结果 ${display} 已复制到剪贴板`, type: "success" as const },
+        };
+      } catch {
+        return { errorMessage: "复制到剪贴板失败" };
+      }
+    });
+    return;
+  }
   const provider = listProviders().find((p) => p.id === item.providerId);
   if (!provider) return;
   await runWithRunner(() => provider.defaultAction(item, buildContext()));
@@ -444,14 +520,12 @@ function onKeydown(e: KeyboardEvent) {
     void retryLast();
     return;
   }
-  if (e.ctrlKey || e.metaKey || e.altKey) return;
-  if (e.key >= "1" && e.key <= "9") {
+  if (e.altKey && !e.ctrlKey && !e.metaKey && e.key >= "1" && e.key <= "9") {
+    e.preventDefault();
     const idx = parseInt(e.key, 10) - 1;
     const entry = results.value[idx];
-    if (entry) {
-      e.preventDefault();
-      void commitDefault(entry.item);
-    }
+    if (entry) void commitDefault(entry.item);
+    return;
   }
 }
 

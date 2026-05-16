@@ -83,4 +83,29 @@ describe("parseQuickCommand", () => {
   it("trims trailing whitespace in the text", () => {
     expect(parseQuickCommand("+ 周报   ")).toEqual({ kind: "todo-create", text: "周报" });
   });
+
+  it("recognizes calc + space + expression", () => {
+    expect(parseQuickCommand("calc 1+2")).toEqual({ kind: "calc", text: "1+2" });
+    expect(parseQuickCommand("calc 23.7%*100")).toEqual({ kind: "calc", text: "23.7%*100" });
+  });
+
+  it("accepts empty calc body", () => {
+    expect(parseQuickCommand("calc ")).toEqual({ kind: "calc", text: "" });
+    expect(parseQuickCommand("calc    ")).toEqual({ kind: "calc", text: "" });
+  });
+
+  it("requires whitespace after calc", () => {
+    expect(parseQuickCommand("calc")).toBeNull();
+    expect(parseQuickCommand("calculator")).toBeNull();
+    expect(parseQuickCommand("calc1+2")).toBeNull();
+  });
+
+  it("is case-insensitive on calc prefix", () => {
+    expect(parseQuickCommand("Calc 1+2")).toEqual({ kind: "calc", text: "1+2" });
+    expect(parseQuickCommand("CALC 1+2")).toEqual({ kind: "calc", text: "1+2" });
+  });
+
+  it("tolerates leading whitespace before calc", () => {
+    expect(parseQuickCommand("  calc 1+2")).toEqual({ kind: "calc", text: "1+2" });
+  });
 });

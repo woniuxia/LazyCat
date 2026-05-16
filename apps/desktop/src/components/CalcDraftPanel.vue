@@ -43,6 +43,7 @@ import { computed, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import type { CalcDraftEntry } from "../types";
 import { getSettingJson, setSettingJson } from "../composables/useSettings";
+import { calculateExpression, getCalcPreview } from "../utils/calc";
 
 const CALC_DRAFT_HISTORY_KEY = "calc_draft_history";
 const MAX_CALC_HISTORY = 200;
@@ -70,51 +71,6 @@ function loadCalcHistoryFromStorage(): CalcDraftEntry[] {
       );
     })
     .slice(-MAX_CALC_HISTORY);
-}
-
-function normalizeExpression(input: string) {
-  return input
-    .replace(/[，,]/g, "")
-    .replace(/、/g, "/")
-    .replace(/[×xX]/g, "*")
-    .replace(/÷/g, "/")
-    .replace(/（/g, "(")
-    .replace(/）/g, ")")
-    .replace(/\s+/g, "")
-    .replace(/(\d+(?:\.\d+)?)%/g, "($1/100)");
-}
-
-function formatCalcResult(value: number) {
-  return new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 15 }).format(value);
-}
-
-function calculateExpression(input: string): { rawValue: string; displayValue: string } {
-  const normalized = normalizeExpression(input);
-  if (!normalized) throw new Error("请输入计算公式");
-  if (!/^[0-9+\-*/().]+$/.test(normalized)) throw new Error("仅支持数字和 + - * / ( ) 运算符");
-  let result: unknown;
-  try {
-    result = Function(`"use strict"; return (${normalized});`)();
-  } catch {
-    throw new Error("公式格式不正确");
-  }
-  if (typeof result !== "number" || !Number.isFinite(result)) throw new Error("计算结果无效");
-  return { rawValue: result.toString(), displayValue: formatCalcResult(result) };
-}
-
-function getCalcPreview(input: string) {
-  const source = input.trim();
-  if (!source) return "";
-  try {
-    return calculateExpression(source).displayValue;
-  } catch { /* incomplete expression */ }
-  const fallbackSource = source.replace(/[+\-*/xX×÷、(]+$/, "").trim();
-  if (!fallbackSource) return "";
-  try {
-    return calculateExpression(fallbackSource).displayValue;
-  } catch {
-    return "";
-  }
 }
 
 async function copyTextToClipboard(value: string) {
