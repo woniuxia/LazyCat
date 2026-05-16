@@ -1,6 +1,6 @@
 import type { SearchField } from "../utils/fuzzy-match";
 
-export type SpotlightProviderId = "tool" | "vault" | "hosts" | "todo" | "pm";
+export type SpotlightProviderId = "tool" | "vault" | "hosts" | "todo" | "pm" | "suggestion";
 
 export type StatusTone = "danger" | "warn" | "info" | "success" | "muted" | "primary";
 

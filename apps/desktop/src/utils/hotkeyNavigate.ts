@@ -3,6 +3,8 @@ export interface HotkeyNavigatePayload {
   didMoveToCursorMonitor: boolean;
   wasWindowVisible: boolean;
   wasWindowFocused: boolean;
+  text?: string;
+  source?: string;
 }
 
 interface NamedHotkeyWindowState {

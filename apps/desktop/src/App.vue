@@ -64,7 +64,7 @@
 import { computed, onMounted, onBeforeUnmount, ref, provide } from "vue";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { ElMessageBox } from "element-plus";
+import { ElMessage, ElMessageBox } from "element-plus";
 import { Close, Plus } from "@element-plus/icons-vue";
 import type { SidebarItem } from "./types";
 import { useFavorites } from "./composables/useFavorites";
@@ -93,7 +93,7 @@ import {
   type HotkeyNavigatePayload,
 } from "./utils/hotkeyNavigate";
 
-const { ensureClipboardListener, showSuggestion } = useClipboardSuggestion();
+const { ensureClipboardListener, showSuggestion, setPendingToolInput } = useClipboardSuggestion();
 const appWindow = getCurrentWindow();
 
 const sidebarItems: SidebarItem[] = getSidebarItems();
@@ -367,7 +367,7 @@ onMounted(async () => {
   } catch { /* ignore in non-Tauri env */ }
   try {
     await listen<HotkeyNavigatePayload>("hotkey-navigate", async (event) => {
-      const { target } = event.payload;
+      const { target, text, source } = event.payload;
       if (shouldHideNamedHotkeyWindow(event.payload, {
         activeTool: activeTool.value,
       })) {
@@ -377,6 +377,19 @@ onMounted(async () => {
         } catch { /* ignore in non-Tauri env */ }
       }
       onSelect(target);
+      if (text && source) {
+        setPendingToolInput({
+          toolId: target,
+          text,
+          source: source === "clipboard-suggestion" ? "clipboard-suggestion" : "inbox",
+        });
+      }
+    });
+  } catch { /* ignore in non-Tauri env */ }
+  try {
+    await listen<{ name: string }>("hosts-applied", (event) => {
+      const name = event.payload?.name ?? "";
+      ElMessage.success(name ? `已应用 Hosts 配置：${name}` : "已应用 Hosts 配置");
     });
   } catch { /* ignore in non-Tauri env */ }
   window.addEventListener("keydown", onKeydown);

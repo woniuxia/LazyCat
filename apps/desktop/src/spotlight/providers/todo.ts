@@ -122,6 +122,21 @@ async function executeAction(
   return { errorMessage: `未知动作 ${actionId}` };
 }
 
+export async function createTodoDraft(text: string): Promise<SpotlightExecuteResult> {
+  const title = text.trim();
+  if (!title) return { errorMessage: "请输入要新建的任务标题" };
+  try {
+    await invokeToolByChannel("tool:todo:item-create", { title });
+    return {
+      closeSpotlight: true,
+      toast: { message: `已创建：${title}`, type: "success" },
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { errorMessage: msg };
+  }
+}
+
 export const todoProvider: SpotlightProvider = {
   id: "todo",
   scopeKeys: ["t", "todo"],

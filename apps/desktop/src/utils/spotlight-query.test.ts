@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseSpotlightQuery, dropScopePrefix } from "./spotlight-query";
+import { parseSpotlightQuery, dropScopePrefix, parseQuickCommand } from "./spotlight-query";
 
 describe("parseSpotlightQuery", () => {
   it("returns null scope for empty input", () => {
@@ -52,5 +52,35 @@ describe("dropScopePrefix", () => {
   it("returns original input when no scope is matched", () => {
     expect(dropScopePrefix("xyz hello")).toBe("xyz hello");
     expect(dropScopePrefix("vault")).toBe("vault");
+  });
+});
+
+describe("parseQuickCommand", () => {
+  it("recognizes the + prefix with text", () => {
+    expect(parseQuickCommand("+ 写周报")).toEqual({ kind: "todo-create", text: "写周报" });
+  });
+
+  it("returns empty text when + prefix is followed by only whitespace", () => {
+    expect(parseQuickCommand("+ ")).toEqual({ kind: "todo-create", text: "" });
+    expect(parseQuickCommand("+    ")).toEqual({ kind: "todo-create", text: "" });
+  });
+
+  it("requires a space after the plus sign", () => {
+    expect(parseQuickCommand("+1")).toBeNull();
+    expect(parseQuickCommand("+xxx")).toBeNull();
+  });
+
+  it("tolerates leading whitespace", () => {
+    expect(parseQuickCommand("  + 任务")).toEqual({ kind: "todo-create", text: "任务" });
+  });
+
+  it("returns null for non-matching inputs", () => {
+    expect(parseQuickCommand("hello")).toBeNull();
+    expect(parseQuickCommand("")).toBeNull();
+    expect(parseQuickCommand("t 任务")).toBeNull();
+  });
+
+  it("trims trailing whitespace in the text", () => {
+    expect(parseQuickCommand("+ 周报   ")).toEqual({ kind: "todo-create", text: "周报" });
   });
 });

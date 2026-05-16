@@ -94,8 +94,13 @@ import "../spotlight/providers/vault";
 import "../spotlight/providers/hosts";
 import "../spotlight/providers/todo";
 import "../spotlight/providers/pm";
+import "../spotlight/providers/suggestion";
 
-import { parseSpotlightQuery } from "../utils/spotlight-query";
+import { parseSpotlightQuery, parseQuickCommand } from "../utils/spotlight-query";
+import { detectClipboardContent } from "../utils/clipboard-detect";
+import { isRealToolId } from "../composables/toolCatalog";
+import { initSettings, getSetting } from "../composables/useSettings";
+import { createTodoDraft } from "../spotlight/providers/todo";
 import type {
   SpotlightAction,
   SpotlightExecuteContext,
@@ -137,8 +142,54 @@ let unlistenReset: UnlistenFn | null = null;
 
 const itemsByProvider = ref<ScopedItemsMap>(new Map());
 
+interface ClipboardSuggestion {
+  toolId: string;
+  toolName: string;
+  text: string;
+  preview: string;
+}
+const clipboardSuggestion = ref<ClipboardSuggestion | null>(null);
+
+async function refreshClipboardSuggestion() {
+  try {
+    await initSettings();
+  } catch {
+    /* ignore */
+  }
+  if (getSetting("clipboard_detection") === "false") {
+    clipboardSuggestion.value = null;
+    return;
+  }
+  let text: string;
+  try {
+    text = await navigator.clipboard.readText();
+  } catch {
+    clipboardSuggestion.value = null;
+    return;
+  }
+  if (!text) {
+    clipboardSuggestion.value = null;
+    return;
+  }
+  const detected = detectClipboardContent(text);
+  const toolAction = detected?.actions.find((a) => a.kind === "tool");
+  if (!toolAction || !isRealToolId(toolAction.toolId)) {
+    clipboardSuggestion.value = null;
+    return;
+  }
+  const oneLine = text.replace(/\n/g, " ").trim();
+  const preview = oneLine.length > 32 ? oneLine.slice(0, 32) + "…" : oneLine;
+  clipboardSuggestion.value = {
+    toolId: toolAction.toolId,
+    toolName: toolAction.toolName,
+    text,
+    preview,
+  };
+}
+
 const parsed = computed(() => parseSpotlightQuery(query.value));
-const scope = computed(() => parsed.value.scope);
+const quickCommand = computed(() => parseQuickCommand(query.value));
+const scope = computed(() => (quickCommand.value ? null : parsed.value.scope));
 const scopeLabel = computed(() => (scope.value ? SCOPE_LABEL[scope.value] : ""));
 
 const placeholder = computed(() =>
@@ -155,11 +206,36 @@ const footerHint = computed(() => {
 });
 
 const results = computed(() => {
+  if (quickCommand.value?.kind === "todo-create") {
+    const text = quickCommand.value.text;
+    const item: SpotlightItem = {
+      providerId: "todo",
+      itemId: text ? `todo-create:${text}` : "todo-create:empty",
+      title: text ? `+ 新建任务：${text}` : "+ 新建任务…",
+      subtitle: text ? "Enter 创建" : "输入要新建的任务标题",
+      badge: { short: "新建", tone: "success" },
+      searchFields: [],
+      payload: { quickCommand: "todo-create", text },
+    };
+    return [{ item, score: 0 }];
+  }
   const text = parsed.value.query;
   if (!text.trim()) {
     // 空查询：按 provider 权重展示前若干工具（沿用工具高频列表）
     const tool = itemsByProvider.value.get("tool") ?? [];
-    return tool.slice(0, RESULT_LIMIT).map((item) => ({ item, score: 0 }));
+    const baseEntries = tool.slice(0, RESULT_LIMIT).map((item) => ({ item, score: 0 }));
+    if (scope.value || !clipboardSuggestion.value) return baseEntries;
+    const s = clipboardSuggestion.value;
+    const suggestionItem: SpotlightItem = {
+      providerId: "suggestion",
+      itemId: `suggestion:${s.toolId}`,
+      title: `${s.toolName}（剪贴板：${s.preview}）`,
+      subtitle: "Enter 打开并预填剪贴板内容",
+      badge: { short: "建议", tone: "warn" },
+      searchFields: [],
+      payload: { toolId: s.toolId, text: s.text },
+    };
+    return [{ item: suggestionItem, score: 0 }, ...baseEntries].slice(0, RESULT_LIMIT);
   }
   return searchItems(text, itemsByProvider.value, {
     scope: scope.value,
@@ -252,6 +328,12 @@ async function runWithRunner(fn: () => Promise<SpotlightExecuteResult>) {
 }
 
 async function commitDefault(item: SpotlightItem) {
+  if (item.payload?.quickCommand === "todo-create") {
+    const text = String(item.payload?.text ?? "").trim();
+    if (!text) return;
+    await runWithRunner(() => createTodoDraft(text));
+    return;
+  }
   const provider = listProviders().find((p) => p.id === item.providerId);
   if (!provider) return;
   await runWithRunner(() => provider.defaultAction(item, buildContext()));
@@ -362,6 +444,7 @@ onMounted(async () => {
   inputRef.value?.focus();
   inputRef.value?.select();
   await prefetchAll();
+  void refreshClipboardSuggestion();
 
   try {
     unlistenReset = await listen("spotlight-reset", () => {
@@ -372,6 +455,7 @@ onMounted(async () => {
       unlockState.value = null;
       actionMenuOpen.value = false;
       void prefetchAll();
+      void refreshClipboardSuggestion();
       nextTick(() => {
         inputRef.value?.focus();
         inputRef.value?.select();

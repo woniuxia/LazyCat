@@ -632,6 +632,10 @@ struct HotkeyNavigatePayload {
     did_move_to_cursor_monitor: bool,
     was_window_visible: bool,
     was_window_focused: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -710,6 +714,8 @@ fn handle_main_window_shortcut(app: &tauri::AppHandle, shortcut_name: &str) {
                     did_move_to_cursor_monitor,
                     was_window_visible: visible,
                     was_window_focused: focused,
+                    text: None,
+                    source: None,
                 },
             );
         }
@@ -976,7 +982,12 @@ fn suppress_clipboard_capture(content: String) -> Result<Value, String> {
 }
 
 #[tauri::command]
-fn spotlight_pick(app: tauri::AppHandle, target: String) -> Result<(), String> {
+fn spotlight_pick(
+    app: tauri::AppHandle,
+    target: String,
+    text: Option<String>,
+    source: Option<String>,
+) -> Result<(), String> {
     if let Some(spot) = app.get_webview_window(SPOTLIGHT_LABEL) {
         let _ = spot.hide();
     }
@@ -996,6 +1007,8 @@ fn spotlight_pick(app: tauri::AppHandle, target: String) -> Result<(), String> {
             did_move_to_cursor_monitor,
             was_window_visible: visible,
             was_window_focused: focused,
+            text,
+            source,
         },
     );
     Ok(())
@@ -1474,6 +1487,8 @@ mod tests {
                 did_move_to_cursor_monitor: true,
                 was_window_visible: true,
                 was_window_focused: false,
+                text: None,
+                source: None,
             })
             .unwrap(),
             json!({
@@ -1481,6 +1496,29 @@ mod tests {
                 "didMoveToCursorMonitor": true,
                 "wasWindowVisible": true,
                 "wasWindowFocused": false,
+            })
+        );
+    }
+
+    #[test]
+    fn hotkey_navigate_payload_serializes_optional_text_and_source() {
+        assert_eq!(
+            serde_json::to_value(HotkeyNavigatePayload {
+                target: "json-formatter".to_string(),
+                did_move_to_cursor_monitor: false,
+                was_window_visible: false,
+                was_window_focused: false,
+                text: Some("{\"a\":1}".to_string()),
+                source: Some("clipboard-suggestion".to_string()),
+            })
+            .unwrap(),
+            json!({
+                "target": "json-formatter",
+                "didMoveToCursorMonitor": false,
+                "wasWindowVisible": false,
+                "wasWindowFocused": false,
+                "text": "{\"a\":1}",
+                "source": "clipboard-suggestion",
             })
         );
     }

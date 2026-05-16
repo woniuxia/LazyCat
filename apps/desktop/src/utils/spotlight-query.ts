@@ -31,3 +31,17 @@ export function dropScopePrefix(raw: string): string {
   const parsed = parseSpotlightQuery(raw);
   return parsed.scope ? parsed.query : raw;
 }
+
+export interface QuickCommandTodoCreate {
+  kind: "todo-create";
+  text: string;
+}
+
+export type QuickCommand = QuickCommandTodoCreate;
+
+export function parseQuickCommand(raw: string): QuickCommand | null {
+  const trimmedLeft = raw.replace(/^\s+/, "");
+  if (!trimmedLeft.startsWith("+ ")) return null;
+  const text = trimmedLeft.slice(2).trim();
+  return { kind: "todo-create", text };
+}

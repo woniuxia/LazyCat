@@ -1,4 +1,5 @@
 import { invokeToolByChannel } from "../../bridge/tauri";
+import { emit } from "@tauri-apps/api/event";
 import { toPinyinInitials } from "../../utils/fuzzy-match";
 import { registerProvider } from "../registry";
 import type {
@@ -74,6 +75,11 @@ async function defaultAction(
   if (!profileName) return { errorMessage: "无效 hosts profile" };
   try {
     await invokeToolByChannel("tool:hosts:activate", { profileName });
+    try {
+      await emit("hosts-applied", { name: profileName });
+    } catch {
+      /* event emit failure is non-fatal */
+    }
     return {
       closeSpotlight: true,
       toast: { message: `已切换到 ${profileName}`, type: "success" },
