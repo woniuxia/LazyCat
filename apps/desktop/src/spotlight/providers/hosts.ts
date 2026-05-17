@@ -82,7 +82,7 @@ async function defaultAction(
     }
     return {
       closeSpotlight: true,
-      toast: { message: `已切换到 ${profileName}`, type: "success" },
+      toast: { message: `已切换到 ${profileName}（可在 Hosts 工具撤销）`, type: "success" },
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

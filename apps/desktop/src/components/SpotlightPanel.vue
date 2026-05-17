@@ -69,6 +69,8 @@
       @dismiss="errorMessage = null"
     />
 
+    <SpotlightSuccessBar :message="successMessage" />
+
     <SpotlightActionMenu
       :open="actionMenuOpen"
       :actions="actionMenuActions"
@@ -86,6 +88,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 import SpotlightActionMenu from "./SpotlightActionMenu.vue";
 import SpotlightErrorBar from "./SpotlightErrorBar.vue";
+import SpotlightSuccessBar from "./SpotlightSuccessBar.vue";
 import SpotlightVaultUnlockInput from "./SpotlightVaultUnlockInput.vue";
 
 import { listProviders, getDescriptor, searchItems } from "../spotlight/registry";
@@ -126,6 +129,10 @@ const unlockRef = ref<InstanceType<typeof SpotlightVaultUnlockInput> | null>(nul
 
 const errorMessage = ref<string | null>(null);
 const lastFailed = ref<null | (() => Promise<void>)>(null);
+const successMessage = ref<string | null>(null);
+let successTimeoutId: number | null = null;
+// 当前 success bar 是否在等待自动关窗(由 timeout 触发 closeWindow)
+let pendingClose = false;
 
 const actionMenuOpen = ref(false);
 const actionMenuActions = ref<SpotlightAction[]>([]);
@@ -301,9 +308,33 @@ const results = computed(() => {
   }
   const text = parsed.value.query;
   if (!text.trim()) {
-    // 空查询：按 provider 权重展示前若干工具（沿用工具高频列表）
-    const tool = itemsByProvider.value.get("tool") ?? [];
-    const baseEntries = tool.slice(0, RESULT_LIMIT).map((item) => ({ item, score: 0 }));
+    // 空查询:合并多 provider 高频项作为首屏
+    // - tool 自身已按 收藏/高频/其他 排序,作为主干
+    // - 其它 provider 各取少量 top 项(按 prefetch 返回顺序,已排好)
+    // - 整体按 provider.weight * item.weight 倒序,让重度使用的 launcher/vault 也能上首屏
+    const SLOT_PER_OTHER = 2;
+    const SLOT_TOOL = 8;
+    const baseLimit =
+      clipboardSuggestion.value && !scope.value ? RESULT_LIMIT - 1 : RESULT_LIMIT;
+    const collected: { item: SpotlightItem; score: number }[] = [];
+    const seen = new Set<string>();
+    const providerWeight = (id: SpotlightProviderId) =>
+      view.value?.providers.find((p) => p.id === id)?.weight ??
+      getDescriptor(id)?.weight ??
+      1;
+    for (const [pid, items] of itemsByProvider.value) {
+      const slot = pid === "tool" ? SLOT_TOOL : SLOT_PER_OTHER;
+      const pw = providerWeight(pid);
+      const top = items.slice(0, slot);
+      for (const item of top) {
+        const key = item.providerId + ":" + item.itemId;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        collected.push({ item, score: pw * (item.weight ?? 1) });
+      }
+    }
+    collected.sort((a, b) => b.score - a.score);
+    const baseEntries = collected.slice(0, baseLimit);
     if (scope.value || !clipboardSuggestion.value) return baseEntries;
     const s = clipboardSuggestion.value;
     const suggestionItem: SpotlightItem = {
@@ -330,9 +361,23 @@ watch(results, () => {
   }
 });
 
+// 用户继续输入新查询时,清除遗留的错误条/成功条与失败重试,避免红条/绿条粘连
+// success bar 在等待自动关窗时被取消,意味着用户继续使用 spotlight,不再自动关
+watch(query, (next, prev) => {
+  if (next === prev) return;
+  if (errorMessage.value || lastFailed.value) {
+    errorMessage.value = null;
+    lastFailed.value = null;
+  }
+  if (successMessage.value) {
+    clearSuccessBar();
+  }
+});
+
 async function prefetchAll() {
-  loading.value = true;
-  const map: ScopedItemsMap = new Map();
+  // 保留 itemsByProvider 旧数据,渲染基于旧数据继续可用;只在首次加载时显示 loading
+  const hadAnyData = itemsByProvider.value.size > 0;
+  if (!hadAnyData) loading.value = true;
   const v = view.value;
   const providers = v
     ? v.providers.filter((p) => p.enabled)
@@ -341,14 +386,30 @@ async function prefetchAll() {
     providers.map(async (provider) => {
       try {
         const items = await provider.prefetch();
-        map.set(provider.id, items);
+        // 单 provider 完成后立即写回,渐进式更新而非等所有 provider
+        const next = new Map(itemsByProvider.value);
+        next.set(provider.id, items);
+        itemsByProvider.value = next;
       } catch (err) {
         console.warn(`[Spotlight] provider ${provider.id} prefetch failed:`, err);
-        map.set(provider.id, []);
+        // 失败时保留上一次该 provider 的数据,而不是覆盖为空
+        if (!itemsByProvider.value.has(provider.id)) {
+          const next = new Map(itemsByProvider.value);
+          next.set(provider.id, []);
+          itemsByProvider.value = next;
+        }
       }
     }),
   );
-  itemsByProvider.value = map;
+  // 清理已禁用的 provider 残留数据,避免空查询合并时露出
+  const enabledIds = new Set(providers.map((p) => p.id));
+  if ([...itemsByProvider.value.keys()].some((id) => !enabledIds.has(id))) {
+    const next = new Map<SpotlightProviderId, SpotlightItem[]>();
+    for (const [id, items] of itemsByProvider.value) {
+      if (enabledIds.has(id)) next.set(id, items);
+    }
+    itemsByProvider.value = next;
+  }
   loading.value = false;
 }
 
@@ -414,13 +475,40 @@ async function applyResult(result: SpotlightExecuteResult) {
   errorMessage.value = null;
   lastFailed.value = null;
   if (unlockState.value) unlockState.value = null;
-  if (result.toast) {
-    // 简化：使用 console；完整 toast 接入由 ElMessage / Notification 提供，但 Spotlight 在独立窗口内
-    console.info("[Spotlight]", result.toast.message);
+  const shouldClose = !!result.closeSpotlight;
+  if (result.toast?.message) {
+    showSuccessBar(result.toast.message, shouldClose);
+    return;
   }
-  if (result.closeSpotlight) {
+  if (shouldClose) {
     await closeWindow();
   }
+}
+
+const SUCCESS_BAR_CLOSE_DELAY_MS = 800;
+const SUCCESS_BAR_LINGER_MS = 1500;
+
+function clearSuccessBar() {
+  if (successTimeoutId != null) {
+    window.clearTimeout(successTimeoutId);
+    successTimeoutId = null;
+  }
+  pendingClose = false;
+  successMessage.value = null;
+}
+
+function showSuccessBar(message: string, willClose: boolean) {
+  if (successTimeoutId != null) window.clearTimeout(successTimeoutId);
+  successMessage.value = message;
+  pendingClose = willClose;
+  const delay = willClose ? SUCCESS_BAR_CLOSE_DELAY_MS : SUCCESS_BAR_LINGER_MS;
+  successTimeoutId = window.setTimeout(async () => {
+    const close = pendingClose;
+    successMessage.value = null;
+    successTimeoutId = null;
+    pendingClose = false;
+    if (close) await closeWindow();
+  }, delay);
 }
 
 async function runWithRunner(fn: () => Promise<SpotlightExecuteResult>) {
@@ -438,20 +526,36 @@ async function runWithRunner(fn: () => Promise<SpotlightExecuteResult>) {
 async function commitDefault(item: SpotlightItem) {
   if (item.payload?.quickCommand === "todo-create") {
     const text = String(item.payload?.text ?? "").trim();
-    if (!text) return;
+    if (!text) {
+      errorMessage.value = "请输入要新建的任务标题";
+      lastFailed.value = null;
+      return;
+    }
     await runWithRunner(() => createTodoDraft(text));
     return;
   }
   if (item.payload?.quickCommand === "calc") {
     const raw = String(item.payload?.raw ?? "");
     const display = String(item.payload?.display ?? "");
-    if (!raw) return; // 空、预览或错误状态：不复制
+    if (!raw) {
+      // 空、预览或错误状态：给出明确反馈
+      const text = String(item.payload?.text ?? "").trim();
+      errorMessage.value = text
+        ? "公式尚未完成,请继续输入"
+        : "请输入要计算的表达式";
+      lastFailed.value = null;
+      return;
+    }
     await runWithRunner(async () => {
       try {
         await navigator.clipboard.writeText(raw);
+        const message =
+          display && display !== raw
+            ? `已复制 ${raw}（显示 ${display}）`
+            : `已复制 ${raw}`;
         return {
           closeSpotlight: true,
-          toast: { message: `结果 ${display} 已复制到剪贴板`, type: "success" as const },
+          toast: { message, type: "success" as const },
         };
       } catch {
         return { errorMessage: "复制到剪贴板失败" };
@@ -569,6 +673,7 @@ onMounted(async () => {
       activeIndex.value = 0;
       errorMessage.value = null;
       lastFailed.value = null;
+      clearSuccessBar();
       unlockState.value = null;
       actionMenuOpen.value = false;
       // 窗口显示兜底:重新拉取配置,防止跨窗口广播丢失
@@ -614,6 +719,10 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   unlistenReset?.();
   unsubConfig?.();
+  if (successTimeoutId != null) {
+    window.clearTimeout(successTimeoutId);
+    successTimeoutId = null;
+  }
   window.removeEventListener("focus", onWindowFocus);
 });
 </script>

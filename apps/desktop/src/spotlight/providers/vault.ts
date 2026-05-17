@@ -132,22 +132,6 @@ function pickPassword(detail: VaultEntryDetail): string {
   return value;
 }
 
-const CLIPBOARD_CLEAR_DELAY_MS = 30_000;
-
-function scheduleClipboardClear(secret: string): void {
-  if (typeof window === "undefined") return;
-  window.setTimeout(async () => {
-    try {
-      const current = await navigator.clipboard.readText().catch(() => "");
-      if (current === secret) {
-        await navigator.clipboard.writeText("");
-      }
-    } catch {
-      // 忽略
-    }
-  }, CLIPBOARD_CLEAR_DELAY_MS);
-}
-
 async function copyPasswordFlow(
   item: SpotlightItem,
   ctx: SpotlightExecuteContext,
@@ -179,12 +163,11 @@ async function copyPasswordFlow(
   if (!secret) return { errorMessage: "该条目没有密码字段" };
 
   await writeClipboard(secret);
-  scheduleClipboardClear(secret);
   await recordCopy(entryId);
 
   return {
     closeSpotlight: true,
-    toast: { message: "密码已复制，30 秒后自动清空", type: "success" },
+    toast: { message: "密码已复制到剪贴板", type: "success" },
   };
 }
 

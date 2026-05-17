@@ -389,7 +389,11 @@ onMounted(async () => {
   try {
     await listen<{ name: string }>("hosts-applied", (event) => {
       const name = event.payload?.name ?? "";
-      ElMessage.success(name ? `已应用 Hosts 配置：${name}` : "已应用 Hosts 配置");
+      ElMessage.success(
+        name
+          ? `已应用 Hosts 配置：${name}（可在 Hosts 工具撤销）`
+          : "已应用 Hosts 配置（可在 Hosts 工具撤销）",
+      );
     });
   } catch { /* ignore in non-Tauri env */ }
   window.addEventListener("keydown", onKeydown);
