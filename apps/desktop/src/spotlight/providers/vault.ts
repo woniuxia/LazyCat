@@ -2,10 +2,10 @@ import { invokeToolByChannel } from "../../bridge/tauri";
 import { toPinyinInitials } from "../../utils/fuzzy-match";
 import { registerProvider } from "../registry";
 import type {
+  ProviderDescriptor,
   SpotlightExecuteContext,
   SpotlightExecuteResult,
   SpotlightItem,
-  SpotlightProvider,
 } from "../types";
 
 interface VaultMetaEntry {
@@ -226,12 +226,15 @@ async function executeAction(
   return { errorMessage: `未知动作 ${actionId}` };
 }
 
-export const vaultProvider: SpotlightProvider = {
+export const vaultProvider: ProviderDescriptor = {
   id: "vault",
-  scopeKeys: ["v", "vault"],
+  name: "凭据",
+  description: "密码库快速复制",
   badgeShort: "凭",
   badgeTone: "warn",
   weight: 0.9,
+  defaultAliases: ["v", "vault"],
+  defaultEnabled: true,
   prefetch: prefetchVault,
   defaultAction,
   buildActions,

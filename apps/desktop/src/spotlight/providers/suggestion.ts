@@ -1,10 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
 import { registerProvider } from "../registry";
 import type {
+  ProviderDescriptor,
   SpotlightExecuteContext,
   SpotlightExecuteResult,
   SpotlightItem,
-  SpotlightProvider,
 } from "../types";
 
 async function defaultAction(
@@ -22,12 +22,16 @@ async function defaultAction(
   return { closeSpotlight: true };
 }
 
-export const suggestionProvider: SpotlightProvider = {
+export const suggestionProvider: ProviderDescriptor = {
   id: "suggestion",
-  scopeKeys: [],
+  name: "剪贴板建议",
+  description: "剪贴板内容智能匹配",
   badgeShort: "建议",
   badgeTone: "warn",
   weight: 100,
+  defaultAliases: [],
+  defaultEnabled: true,
+  hiddenInSettings: true,
   prefetch: async () => [],
   defaultAction,
 };

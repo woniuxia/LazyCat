@@ -3,10 +3,10 @@ import { invokeToolByChannel } from "../../bridge/tauri";
 import { toPinyinInitials } from "../../utils/fuzzy-match";
 import { registerProvider } from "../registry";
 import type {
+  ProviderDescriptor,
   SpotlightExecuteContext,
   SpotlightExecuteResult,
   SpotlightItem,
-  SpotlightProvider,
   StatusTone,
 } from "../types";
 
@@ -138,12 +138,15 @@ async function executeAction(
   return { errorMessage: `未知动作 ${actionId}` };
 }
 
-export const pmProvider: SpotlightProvider = {
+export const pmProvider: ProviderDescriptor = {
   id: "pm",
-  scopeKeys: ["p", "pm"],
+  name: "项目",
+  description: "项目工作项检索",
   badgeShort: "项",
   badgeTone: "primary",
   weight: 0.75,
+  defaultAliases: ["p", "pm"],
+  defaultEnabled: true,
   prefetch: prefetchPm,
   defaultAction,
   buildActions,

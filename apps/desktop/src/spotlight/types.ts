@@ -1,6 +1,15 @@
 import type { SearchField } from "../utils/fuzzy-match";
 
-export type SpotlightProviderId = "tool" | "vault" | "hosts" | "todo" | "pm" | "suggestion";
+export type SpotlightProviderId =
+  | "tool"
+  | "vault"
+  | "hosts"
+  | "todo"
+  | "pm"
+  | "suggestion"
+  | "launcher";
+
+export type QuickCommandId = "todo-create" | "calc";
 
 export type StatusTone = "danger" | "warn" | "info" | "success" | "muted" | "primary";
 
@@ -47,12 +56,27 @@ export interface SpotlightExecuteContext {
   requestMasterPassword: (entryTitle: string) => Promise<string | null>;
 }
 
-export interface SpotlightProvider {
+export interface QuickCommandDescriptor {
+  id: QuickCommandId;
+  name: string;
+  description: string;
+  trigger:
+    | { type: "prefix"; value: string }
+    | { type: "keyword"; value: string };
+  defaultEnabled: boolean;
+}
+
+export interface ProviderDescriptor {
   id: SpotlightProviderId;
-  scopeKeys: string[];
+  name: string;
+  description: string;
   badgeShort: string;
   badgeTone: StatusTone;
   weight: number;
+  defaultAliases: string[];
+  defaultEnabled: boolean;
+  hiddenInSettings?: boolean;
+  quickCommands?: QuickCommandDescriptor[];
   prefetch: () => Promise<SpotlightItem[]>;
   defaultAction: (
     item: SpotlightItem,
@@ -64,6 +88,33 @@ export interface SpotlightProvider {
     actionId: string,
     ctx: SpotlightExecuteContext,
   ) => Promise<SpotlightExecuteResult>;
+}
+
+export interface SpotlightConfigProviderOverride {
+  enabled?: boolean;
+  aliases?: string[];
+}
+
+export interface SpotlightConfigQuickCommandOverride {
+  enabled?: boolean;
+}
+
+export interface SpotlightConfig {
+  version: 1;
+  providers: Partial<Record<SpotlightProviderId, SpotlightConfigProviderOverride>>;
+  quickCommands: Partial<Record<QuickCommandId, SpotlightConfigQuickCommandOverride>>;
+}
+
+export type ResolvedProvider = ProviderDescriptor & {
+  enabled: boolean;
+  aliases: string[];
+};
+
+export interface SpotlightView {
+  providers: ResolvedProvider[];
+  aliasMap: Map<string, SpotlightProviderId>;
+  enabledQuickCommands: Set<QuickCommandId>;
+  quickCommands: QuickCommandDescriptor[];
 }
 
 export interface ScopeParseResult {

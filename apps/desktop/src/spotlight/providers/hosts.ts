@@ -3,10 +3,10 @@ import { emit } from "@tauri-apps/api/event";
 import { toPinyinInitials } from "../../utils/fuzzy-match";
 import { registerProvider } from "../registry";
 import type {
+  ProviderDescriptor,
   SpotlightExecuteContext,
   SpotlightExecuteResult,
   SpotlightItem,
-  SpotlightProvider,
 } from "../types";
 
 interface HostsProfile {
@@ -117,12 +117,15 @@ async function executeAction(
   return { errorMessage: `未知动作 ${actionId}` };
 }
 
-export const hostsProvider: SpotlightProvider = {
+export const hostsProvider: ProviderDescriptor = {
   id: "hosts",
-  scopeKeys: ["h", "hosts"],
+  name: "Hosts",
+  description: "切换 hosts profile",
   badgeShort: "主",
   badgeTone: "info",
   weight: 0.75,
+  defaultAliases: ["h", "hosts"],
+  defaultEnabled: true,
   prefetch: prefetchHosts,
   defaultAction,
   buildActions,

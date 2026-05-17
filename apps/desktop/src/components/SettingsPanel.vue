@@ -190,6 +190,20 @@
         </div>
       </section>
 
+      <!-- Spotlight -->
+      <section class="settings-section">
+        <div class="section-header">
+          <div class="section-icon">🔍</div>
+          <div class="section-title">
+            <h3>Spotlight</h3>
+            <p>配置全局搜索面板的数据源、scope 别名与快速命令</p>
+          </div>
+        </div>
+        <div class="section-content">
+          <SpotlightSettings />
+        </div>
+      </section>
+
       <!-- 系统集成 -->
       <section class="settings-section">
         <div class="section-header">
@@ -427,6 +441,7 @@ import {
 import type { SidebarItem, ToolSearchMetaMap } from "../types";
 import MenuVisibilityDialog from "./MenuVisibilityDialog.vue";
 import ShortcutRecorder from "./ShortcutRecorder.vue";
+import SpotlightSettings from "./settings/SpotlightSettings.vue";
 
 const {
   autostartEnabled,

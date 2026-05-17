@@ -4,10 +4,10 @@ import { initSettings, getSettingJson } from "../../composables/useSettings";
 import { buildToolIndex } from "../../utils/search-index";
 import type { ToolClickHistory, ToolSearchMetaMap } from "../../types";
 import type {
+  ProviderDescriptor,
   SpotlightExecuteContext,
   SpotlightExecuteResult,
   SpotlightItem,
-  SpotlightProvider,
 } from "../types";
 
 const CLICK_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
@@ -71,12 +71,15 @@ async function defaultAction(
   return { closeSpotlight: true };
 }
 
-export const toolProvider: SpotlightProvider = {
+export const toolProvider: ProviderDescriptor = {
   id: "tool",
-  scopeKeys: [],
+  name: "工具",
+  description: "在所有内置工具中检索",
   badgeShort: "工具",
   badgeTone: "primary",
   weight: 1.0,
+  defaultAliases: [],
+  defaultEnabled: true,
   prefetch: prefetchTools,
   defaultAction,
 };

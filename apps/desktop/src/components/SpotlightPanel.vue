@@ -88,13 +88,15 @@ import SpotlightActionMenu from "./SpotlightActionMenu.vue";
 import SpotlightErrorBar from "./SpotlightErrorBar.vue";
 import SpotlightVaultUnlockInput from "./SpotlightVaultUnlockInput.vue";
 
-import { listProviders, searchItems } from "../spotlight/registry";
+import { listProviders, getDescriptor, searchItems } from "../spotlight/registry";
 import "../spotlight/providers/tool";
 import "../spotlight/providers/vault";
 import "../spotlight/providers/hosts";
 import "../spotlight/providers/todo";
 import "../spotlight/providers/pm";
 import "../spotlight/providers/suggestion";
+import "../spotlight/providers/launcher";
+import * as configStore from "../spotlight/config-store";
 
 import { parseSpotlightQuery, parseQuickCommand } from "../utils/spotlight-query";
 import { calculateExpression, getCalcPreview } from "../utils/calc";
@@ -108,18 +110,12 @@ import type {
   SpotlightExecuteResult,
   SpotlightItem,
   SpotlightProviderId,
+  SpotlightView,
 } from "../spotlight/types";
 
 type ScopedItemsMap = Map<SpotlightProviderId, SpotlightItem[]>;
 
 const RESULT_LIMIT = 12;
-const SCOPE_LABEL: Record<SpotlightProviderId, string> = {
-  tool: "工具",
-  vault: "凭据",
-  hosts: "Hosts",
-  todo: "任务",
-  pm: "项目",
-};
 
 const query = ref("");
 const activeIndex = ref(0);
@@ -140,8 +136,10 @@ let unlockResolver: ((value: string | null) => void) | null = null;
 const unlockState = ref<{ entryTitle: string } | null>(null);
 
 let unlistenReset: UnlistenFn | null = null;
+let unsubConfig: (() => void) | null = null;
 
 const itemsByProvider = ref<ScopedItemsMap>(new Map());
+const view = ref<SpotlightView | null>(null);
 
 interface ClipboardSuggestion {
   toolId: string;
@@ -188,16 +186,39 @@ async function refreshClipboardSuggestion() {
   };
 }
 
-const parsed = computed(() => parseSpotlightQuery(query.value));
-const quickCommand = computed(() => parseQuickCommand(query.value));
-const scope = computed(() => (quickCommand.value ? null : parsed.value.scope));
-const scopeLabel = computed(() => (scope.value ? SCOPE_LABEL[scope.value] : ""));
-
-const placeholder = computed(() =>
-  scope.value
-    ? `在 ${SCOPE_LABEL[scope.value]} 中搜索…`
-    : "搜索工具 / 凭据 / Hosts / 任务 / 项目（v / h / t / p 限定）",
+const parsed = computed(() =>
+  parseSpotlightQuery(query.value, view.value?.aliasMap),
 );
+const quickCommand = computed(() =>
+  parseQuickCommand(query.value, view.value?.enabledQuickCommands),
+);
+const scope = computed(() => (quickCommand.value ? null : parsed.value.scope));
+const scopeLabel = computed(() => {
+  if (!scope.value) return "";
+  const v = view.value;
+  if (v) return v.providers.find((p) => p.id === scope.value)?.name ?? "";
+  return getDescriptor(scope.value)?.name ?? "";
+});
+
+const enabledProviderIds = computed(() => {
+  const v = view.value;
+  if (!v) return null;
+  return new Set(v.providers.filter((p) => p.enabled).map((p) => p.id));
+});
+
+const placeholder = computed(() => {
+  if (scope.value) {
+    return `在 ${scopeLabel.value || "该类型"} 中搜索…`;
+  }
+  const v = view.value;
+  const enabledNames = v
+    ? v.providers.filter((p) => p.enabled && !p.hiddenInSettings).map((p) => p.name)
+    : [];
+  if (enabledNames.length === 0) {
+    return "所有数据源已禁用,前往设置启用";
+  }
+  return `搜索 ${enabledNames.join(" / ")}`;
+});
 
 const footerHint = computed(() => {
   if (unlockState.value) return "Enter 确认 · Esc 取消";
@@ -299,6 +320,7 @@ const results = computed(() => {
   return searchItems(text, itemsByProvider.value, {
     scope: scope.value,
     limit: RESULT_LIMIT,
+    enabledIds: enabledProviderIds.value ?? undefined,
   });
 });
 
@@ -311,7 +333,10 @@ watch(results, () => {
 async function prefetchAll() {
   loading.value = true;
   const map: ScopedItemsMap = new Map();
-  const providers = listProviders();
+  const v = view.value;
+  const providers = v
+    ? v.providers.filter((p) => p.enabled)
+    : listProviders();
   await Promise.allSettled(
     providers.map(async (provider) => {
       try {
@@ -546,8 +571,12 @@ onMounted(async () => {
       lastFailed.value = null;
       unlockState.value = null;
       actionMenuOpen.value = false;
-      void prefetchAll();
-      void refreshClipboardSuggestion();
+      // 窗口显示兜底:重新拉取配置,防止跨窗口广播丢失
+      void configStore.ensureLoaded(true).then((v) => {
+        view.value = v;
+        void prefetchAll();
+        void refreshClipboardSuggestion();
+      });
       nextTick(() => focusInput());
     });
   } catch {
@@ -558,12 +587,33 @@ onMounted(async () => {
 
   await nextTick();
   focusInput();
+  try {
+    view.value = await configStore.ensureLoaded();
+  } catch {
+    view.value = configStore.getView();
+  }
+  void configStore.startListening();
+  unsubConfig = configStore.subscribe(async (nextView) => {
+    const prevIds = new Set(
+      view.value?.providers.filter((p) => p.enabled).map((p) => p.id) ?? [],
+    );
+    const nextIds = new Set(nextView.providers.filter((p) => p.enabled).map((p) => p.id));
+    view.value = nextView;
+    const enabledChanged =
+      prevIds.size !== nextIds.size ||
+      [...prevIds].some((id) => !nextIds.has(id)) ||
+      [...nextIds].some((id) => !prevIds.has(id));
+    if (enabledChanged) {
+      await prefetchAll();
+    }
+  });
   await prefetchAll();
   void refreshClipboardSuggestion();
 });
 
 onBeforeUnmount(() => {
   unlistenReset?.();
+  unsubConfig?.();
   window.removeEventListener("focus", onWindowFocus);
 });
 </script>

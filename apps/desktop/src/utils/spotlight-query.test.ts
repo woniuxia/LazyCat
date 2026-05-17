@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { parseSpotlightQuery, dropScopePrefix, parseQuickCommand } from "./spotlight-query";
+import type { QuickCommandId, SpotlightProviderId } from "../spotlight/types";
+
+const ALL_QC: Set<QuickCommandId> = new Set(["todo-create", "calc"]);
 
 describe("parseSpotlightQuery", () => {
   it("returns null scope for empty input", () => {
@@ -107,5 +110,32 @@ describe("parseQuickCommand", () => {
 
   it("tolerates leading whitespace before calc", () => {
     expect(parseQuickCommand("  calc 1+2")).toEqual({ kind: "calc", text: "1+2" });
+  });
+});
+
+describe("parseSpotlightQuery with custom aliasMap", () => {
+  it("honors a custom alias", () => {
+    const map = new Map<string, SpotlightProviderId>([["q", "todo"]]);
+    expect(parseSpotlightQuery("q 周报", map)).toEqual({ scope: "todo", query: "周报" });
+  });
+
+  it("rejects default prefix when custom map omits it", () => {
+    const map = new Map<string, SpotlightProviderId>([["q", "todo"]]);
+    expect(parseSpotlightQuery("t 周报", map)).toEqual({ scope: null, query: "t 周报" });
+  });
+});
+
+describe("parseQuickCommand with enabledIds", () => {
+  it("disables todo-create when not in the set", () => {
+    expect(parseQuickCommand("+ 写周报", new Set<QuickCommandId>(["calc"]))).toBeNull();
+  });
+
+  it("disables calc when not in the set", () => {
+    expect(parseQuickCommand("calc 1+2", new Set<QuickCommandId>(["todo-create"]))).toBeNull();
+  });
+
+  it("allows both when fully enabled", () => {
+    expect(parseQuickCommand("+ x", ALL_QC)).toEqual({ kind: "todo-create", text: "x" });
+    expect(parseQuickCommand("calc 1", ALL_QC)).toEqual({ kind: "calc", text: "1" });
   });
 });

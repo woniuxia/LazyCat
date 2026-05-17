@@ -3,10 +3,10 @@ import { invokeToolByChannel } from "../../bridge/tauri";
 import { toPinyinInitials } from "../../utils/fuzzy-match";
 import { registerProvider } from "../registry";
 import type {
+  ProviderDescriptor,
   SpotlightExecuteContext,
   SpotlightExecuteResult,
   SpotlightItem,
-  SpotlightProvider,
   StatusTone,
 } from "../types";
 
@@ -142,12 +142,15 @@ export async function createTodoDraft(text: string): Promise<SpotlightExecuteRes
   }
 }
 
-export const todoProvider: SpotlightProvider = {
+export const todoProvider: ProviderDescriptor = {
   id: "todo",
-  scopeKeys: ["t", "todo"],
+  name: "任务",
+  description: "任务清单与速建",
   badgeShort: "待",
   badgeTone: "success",
   weight: 0.85,
+  defaultAliases: ["t", "todo"],
+  defaultEnabled: true,
   prefetch: prefetchTodo,
   defaultAction,
   buildActions,
