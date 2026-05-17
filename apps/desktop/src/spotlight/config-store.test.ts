@@ -17,6 +17,7 @@ import {
   normalizeAliases,
   saveConfig,
   sanitizeConfig,
+  subscribe,
   validateAliases,
   validateAliasesPure,
 } from "./config-store";
@@ -271,5 +272,50 @@ describe("config-store singleton", () => {
     // 任何注册 provider 的别名:vault 默认 "v"
     const r = validateAliases(["v"], "todo");
     expect(r.ok).toBe(false);
+  });
+
+  it("serializes concurrent saveConfig calls (mutate + write order matches call order)", async () => {
+    // 给 write 加可控延时,放大并发窗口;若不串行,第二次的 mutate/notify 会插在第一次写盘之前。
+    class SlowPersistence extends FakePersistence {
+      delays: number[] = [];
+      private idx = 0;
+      async write(key: string, value: string): Promise<void> {
+        const delay = this.delays[this.idx++] ?? 0;
+        if (delay > 0) await new Promise((r) => setTimeout(r, delay));
+        await super.write(key, value);
+      }
+    }
+    const fake = new SlowPersistence();
+    fake.delays = [30, 0]; // 第一次写慢,第二次写快
+    __setPersistenceForTests(fake);
+    await ensureLoaded(true);
+
+    const observed: Array<boolean | undefined> = [];
+    const unsub = subscribe((v) => {
+      observed.push(v.providers.find((p) => p.id === "todo")?.enabled);
+    });
+
+    const a: SpotlightConfig = JSON.parse(JSON.stringify(getConfig()));
+    a.providers.todo = { enabled: false };
+    const b: SpotlightConfig = JSON.parse(JSON.stringify(getConfig()));
+    b.providers.todo = { enabled: true };
+
+    // 不 await 第一个,立即排队第二个,模拟连续点击两次开关
+    const p1 = saveConfig(a);
+    const p2 = saveConfig(b);
+    await Promise.all([p1, p2]);
+
+    // 写盘顺序必须与调用顺序一致
+    expect(fake.writes.length).toBe(2);
+    expect(JSON.parse(fake.writes[0][1]).providers.todo.enabled).toBe(false);
+    expect(JSON.parse(fake.writes[1][1]).providers.todo.enabled).toBe(true);
+
+    // 订阅者观察到的状态序列也必须与调用顺序一致(先 false 后 true)
+    expect(observed).toEqual([false, true]);
+
+    // 最终态以最后一次调用为准
+    expect(getView().providers.find((p) => p.id === "todo")?.enabled).toBe(true);
+
+    unsub();
   });
 });

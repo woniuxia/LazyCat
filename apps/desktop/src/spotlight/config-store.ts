@@ -300,22 +300,25 @@ export function validateAliases(
 }
 
 export async function saveConfig(next: SpotlightConfig): Promise<void> {
-  if (inFlightSave) {
-    await inFlightSave;
-  }
-  const sanitized =
-    sanitizeConfig(next, descriptors(), QUICK_COMMAND_DESCRIPTORS) ?? buildDefaultConfig();
-  const prev = cachedConfig;
-  cachedConfig = sanitized;
-  recomputeView();
-  for (const cb of subscribers) {
-    try {
-      cb(currentView!);
-    } catch {
-      /* 订阅者异常隔离 */
-    }
-  }
+  // 整段 mutate + notify + write 都进 task 排队,前一次 task 完全结束才开始下一次,
+  // 避免并发调用时出现「cachedConfig 与订阅者通知顺序错乱、写盘乱序」。
+  const prevInFlight = inFlightSave;
   const task = (async () => {
+    if (prevInFlight) {
+      await prevInFlight;
+    }
+    const sanitized =
+      sanitizeConfig(next, descriptors(), QUICK_COMMAND_DESCRIPTORS) ?? buildDefaultConfig();
+    const prev = cachedConfig;
+    cachedConfig = sanitized;
+    recomputeView();
+    for (const cb of subscribers) {
+      try {
+        cb(currentView!);
+      } catch {
+        /* 订阅者异常隔离 */
+      }
+    }
     try {
       await persistence.write(STORAGE_KEY, JSON.stringify(sanitized));
       // 写盘成功后跨窗口广播;主窗口与 Spotlight 窗口都能监听
@@ -331,8 +334,7 @@ export async function saveConfig(next: SpotlightConfig): Promise<void> {
       throw err;
     }
   })();
-  // inFlightSave 仅用于串行化(下一次 saveConfig 等待它结束),
-  // 这里 swallow 拒绝避免产生未处理的 promise rejection;
+  // inFlightSave 用作下一次 saveConfig 的排队点;swallow 拒绝避免未处理的 promise rejection,
   // 真正的错误仍会通过 await task 抛给调用方。
   const guard = task.catch(() => undefined);
   inFlightSave = guard;
