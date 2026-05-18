@@ -2895,16 +2895,6 @@ onBeforeUnmount(() => {
   gap: 8px;
 }
 
-.toolbar-left .el-radio-group {
-  --el-radio-button-checked-bg-color: var(--el-color-primary-light-9);
-  --el-radio-button-checked-text-color: var(--el-color-primary);
-  --el-radio-button-checked-border-color: var(--el-color-primary-light-5);
-}
-
-.toolbar-left :deep(.el-radio-button__original-radio:checked + .el-radio-button__inner) {
-  color: var(--el-color-primary) !important;
-}
-
 </style>
 
 <style>
