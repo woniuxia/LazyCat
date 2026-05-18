@@ -561,6 +561,26 @@ onBeforeUnmount(() => {
   if (clickTimer) clearTimeout(clickTimer);
   clearGantt();
 });
+
+// 失败回滚场景：父组件在乐观更新失败后调用，强制按当前 props.items 重绘
+function forceRefresh() {
+  skipNextRefresh = false;
+  if (dragTimer) {
+    clearTimeout(dragTimer);
+    dragTimer = null;
+  }
+  isDragging = false;
+  nextTick(() => {
+    if (ganttInstance && ganttTasks.value.length > 0) {
+      ganttInstance.refresh(ganttTasks.value);
+      syncGanttDecorations();
+    } else {
+      renderGantt();
+    }
+  });
+}
+
+defineExpose({ forceRefresh });
 </script>
 
 <style scoped>

@@ -119,6 +119,7 @@ import { computed, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import type { PmItem } from "../types/pm";
 import { useToolInvoke } from "../composables/useToolInvoke";
+import { parsePmDateAtLocalStart } from "../utils/pmDate";
 import PmTodaySection from "./PmTodaySection.vue";
 
 interface TodayListResponse {
@@ -196,8 +197,9 @@ const overdueSubText = computed(() => {
   for (const item of overdue.value) {
     const end = (item.endAt ?? "").slice(0, 10);
     if (!end || end >= todayStr) continue;
-    const endDate = new Date(end + "T00:00:00");
-    const today = new Date(todayStr + "T00:00:00");
+    const endDate = parsePmDateAtLocalStart(end);
+    const today = parsePmDateAtLocalStart(todayStr);
+    if (!endDate || !today) continue;
     const diff = Math.round((today.getTime() - endDate.getTime()) / 86400000);
     if (diff > maxDays) maxDays = diff;
   }

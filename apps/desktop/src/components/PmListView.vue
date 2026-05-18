@@ -719,6 +719,14 @@
               </template>
             </el-table-column>
           </el-table>
+          <div
+            v-if="groupVirtualActive && (group.key === 'all' || isGroupOpen(group.key)) && windowedItemsOf(group).length < group.items.length"
+            class="pm-list-group-more"
+          >
+            已展示 {{ windowedItemsOf(group).length }} / {{ group.items.length }} 项
+            <el-button link size="small" @click="loadMoreInGroup(group.key, group.items.length)">显示更多</el-button>
+            <el-button link size="small" @click="showAllInGroup(group.key, group.items.length)">显示全部</el-button>
+          </div>
         </div>
         <div v-if="virtualActive && renderedTotal < filteredItems.length" class="pm-list-more-hint">
           已加载 {{ renderedTotal }} / {{ filteredItems.length }} 项，继续滚动加载更多
@@ -963,8 +971,12 @@ const sortState = ref<SortState>({ prop: null, order: null });
 const VIRTUAL_THRESHOLD = 500;
 const VIRTUAL_CHUNK = 200;
 const SCROLL_TRIGGER_PX = 240;
+const GROUP_INITIAL_LIMIT = 100;
+const GROUP_LOAD_MORE_CHUNK = 200;
 const scrollEl = ref<HTMLElement | null>(null);
 const renderLimit = ref(VIRTUAL_CHUNK);
+// 分组场景下,每个分组独立的渲染上限,初始为 GROUP_INITIAL_LIMIT
+const groupRenderLimits = ref<Record<string, number>>({});
 
 function statusMeta(status: PmItemStatus) {
   return PM_STATUS_COLUMNS.find((c) => c.key === status) ?? { label: status, color: "#909399" };
@@ -1193,10 +1205,39 @@ const virtualActive = computed(
   () => groupBy.value === "none" && filteredItems.value.length > VIRTUAL_THRESHOLD,
 );
 
+// 分组场景下,当总数超过阈值时,每组也启用渐进式渲染
+const groupVirtualActive = computed(
+  () => groupBy.value !== "none" && filteredItems.value.length > VIRTUAL_THRESHOLD,
+);
+
+function groupRenderLimitOf(key: string): number {
+  return groupRenderLimits.value[key] ?? GROUP_INITIAL_LIMIT;
+}
+
+function loadMoreInGroup(key: string, total: number) {
+  const current = groupRenderLimitOf(key);
+  groupRenderLimits.value = {
+    ...groupRenderLimits.value,
+    [key]: Math.min(current + GROUP_LOAD_MORE_CHUNK, total),
+  };
+}
+
+function showAllInGroup(key: string, total: number) {
+  groupRenderLimits.value = {
+    ...groupRenderLimits.value,
+    [key]: total,
+  };
+}
+
 function windowedItemsOf(group: GroupItem): PmItem[] {
   const sorted = sortedItemsOf(group.items);
-  if (!virtualActive.value) return sorted;
-  return sorted.slice(0, renderLimit.value);
+  if (virtualActive.value) return sorted.slice(0, renderLimit.value);
+  if (groupVirtualActive.value) {
+    const limit = groupRenderLimitOf(group.key);
+    if (sorted.length <= limit) return sorted;
+    return sorted.slice(0, limit);
+  }
+  return sorted;
 }
 
 const renderedTotal = computed<number>(() => {
@@ -1226,6 +1267,7 @@ watch(
   ],
   () => {
     renderLimit.value = VIRTUAL_CHUNK;
+    groupRenderLimits.value = {};
     nextTick(() => {
       scrollEl.value?.scrollTo({ top: 0 });
     });
@@ -1315,8 +1357,13 @@ const groups = computed<GroupItem[]>(() => {
 });
 
 // Keep selection stable across item refresh
+// 用 length + 首/中/末 id 作为变化指纹，避免大列表下 .map().join() 每次 5KB+ 字符串拼接
 watch(
-  () => props.items.map((i) => i.id).join(","),
+  () => {
+    const n = props.items.length;
+    if (n === 0) return "0";
+    return `${n}:${props.items[0].id}:${props.items[n >> 1].id}:${props.items[n - 1].id}`;
+  },
   () => {
     nextTick(() => {
       const ids = new Set(props.items.map((i) => i.id));
@@ -1756,6 +1803,16 @@ async function onBatchDelete() {
   font-size: 12px;
   color: var(--lc-text-muted);
   letter-spacing: 0.02em;
+}
+
+.pm-list-group-more {
+  padding: 6px 12px 10px;
+  font-size: 12px;
+  color: var(--lc-text-muted);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-end;
 }
 
 /* ---------- Group ---------- */

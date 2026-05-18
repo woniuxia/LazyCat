@@ -4,7 +4,9 @@
     :title="editingItem ? '编辑工作项' : '新建工作项'"
     width="860px"
     class="pm-item-edit-dialog"
-    @close="handleClose"
+    :close-on-click-modal="false"
+    :close-on-press-escape="false"
+    :before-close="handleBeforeClose"
   >
     <el-form :model="form" label-position="top" size="default" class="pm-item-dialog-form">
       <!-- 所属项目卡片 -->
@@ -221,14 +223,20 @@
       <slot name="todo-create-mode" />
     </el-form>
     <template #footer>
-      <el-button @click="handleClose">取消</el-button>
-      <el-button type="primary" @click="handleSubmit">确定</el-button>
+      <el-button :disabled="submitting" @click="handleCancel">取消</el-button>
+      <el-button
+        type="primary"
+        :loading="submitting"
+        :disabled="submitting"
+        @click="handleSubmit"
+      >确定</el-button>
     </template>
   </el-dialog>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onUnmounted } from "vue";
+import { ref, computed, watch, nextTick, onUnmounted } from "vue";
+import { ElMessageBox } from "element-plus";
 import type { PmProject, PmItem, PmItemType, PmPriority, PmItemStatus, PmSiyuanPageRef, PmSiyuanLocation } from "../types/pm";
 import { PM_STATUS_COLUMNS, PM_ITEM_TYPE_MAP, PM_PRIORITY_MAP } from "../types/pm";
 import { getPmDateRangeValue, normalizePmDateRangeForDraft } from "../utils/pmDate";
@@ -256,9 +264,12 @@ interface Props {
   extraPages: PmSiyuanPageRef[];
   globalSiyuanLocation: PmSiyuanLocation | null;
   siyuanConfigReady: boolean;
+  submitting?: boolean;
 }
 
-const props = defineProps<Props>();
+const props = withDefaults(defineProps<Props>(), {
+  submitting: false,
+});
 
 const emit = defineEmits<{
   "update:visible": [value: boolean];
@@ -428,6 +439,63 @@ function handleSubmit() {
   emit("submit", form.value);
 }
 
+// 表单初始快照,用于 dirty 检测
+const initialSnapshot = ref<string>("");
+
+function currentSnapshot(): string {
+  return JSON.stringify({
+    title: form.value.title,
+    refCode: form.value.refCode,
+    itemType: form.value.itemType,
+    priority: form.value.priority,
+    status: form.value.status,
+    startAt: form.value.startAt,
+    endAt: form.value.endAt,
+    linkUrl: form.value.linkUrl,
+    description: form.value.description,
+    startedAt: form.value.startedAt,
+    testingAt: form.value.testingAt,
+    completedAt: form.value.completedAt,
+    primaryPageId: props.primaryPage?.docId ?? null,
+    extraPagesIds: props.extraPages.map((p) => p.docId).sort(),
+    formProjectId: props.formProjectId,
+  });
+}
+
+function isDirty(): boolean {
+  return initialSnapshot.value !== "" && currentSnapshot() !== initialSnapshot.value;
+}
+
+async function confirmDiscardIfDirty(): Promise<boolean> {
+  if (!isDirty()) return true;
+  try {
+    await ElMessageBox.confirm(
+      "有未保存的修改，确定关闭？已编辑的内容将丢失。",
+      "未保存的修改",
+      {
+        confirmButtonText: "放弃修改",
+        cancelButtonText: "继续编辑",
+        type: "warning",
+      },
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function handleBeforeClose(done: () => void) {
+  if (props.submitting) return; // 保存中禁止关闭
+  const ok = await confirmDiscardIfDirty();
+  if (ok) done();
+}
+
+async function handleCancel() {
+  if (props.submitting) return;
+  const ok = await confirmDiscardIfDirty();
+  if (ok) emit("update:visible", false);
+}
+
 function onKeydown(e: KeyboardEvent) {
   if ((e.ctrlKey || e.metaKey) && e.key === "s") {
     e.preventDefault();
@@ -438,8 +506,13 @@ function onKeydown(e: KeyboardEvent) {
 watch(() => props.visible, (v) => {
   if (v) {
     window.addEventListener("keydown", onKeydown);
+    // 等下一帧让 form 和 props 都就绪，再记录 dirty 检测的初始快照
+    void nextTick(() => {
+      initialSnapshot.value = currentSnapshot();
+    });
   } else {
     window.removeEventListener("keydown", onKeydown);
+    initialSnapshot.value = "";
   }
 });
 

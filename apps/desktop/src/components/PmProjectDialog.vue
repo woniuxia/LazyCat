@@ -3,6 +3,9 @@
     v-model="dialogVisible"
     :title="editing ? '编辑项目' : '新建项目'"
     width="680px"
+    :close-on-click-modal="false"
+    :close-on-press-escape="false"
+    :before-close="handleBeforeClose"
     @close="onDialogClose"
   >
     <el-form :model="form" label-width="60px" size="default" @submit.prevent="submit">
@@ -42,14 +45,19 @@
       </el-form-item>
     </el-form>
     <template #footer>
-      <el-button @click="dialogVisible = false">取消</el-button>
-      <el-button type="primary" @click="submit">确定</el-button>
+      <el-button :disabled="submitting" @click="handleCancel">取消</el-button>
+      <el-button
+        type="primary"
+        :loading="submitting"
+        :disabled="submitting"
+        @click="submit"
+      >确定</el-button>
     </template>
   </el-dialog>
 </template>
 
 <script setup lang="ts">
-import { ref, inject } from "vue";
+import { ref, inject, watch, nextTick } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { useToolInvoke } from "../composables/useToolInvoke";
 import type { PmProject, PmSiyuanLocation } from "../types/pm";
@@ -80,6 +88,7 @@ const dialogVisible = ref(false);
 const editing = ref<PmProject | null>(null);
 const editorRef = ref<RichEditorExposed | null>(null);
 const submittedThisRound = ref(false);
+const submitting = ref(false);
 
 const lifecycle = useRichDescriptionLifecycle({
   ownerType: "pm_project",
@@ -135,6 +144,63 @@ function resetForm() {
   editing.value = null;
 }
 
+// ── Dirty 检测 ───────────────────────────────────────────
+const initialSnapshot = ref<string>("");
+
+function currentSnapshot(): string {
+  return JSON.stringify({
+    name: form.value.name,
+    description: form.value.description,
+    color: form.value.color,
+    useSiyuanOverride: form.value.useSiyuanOverride,
+    siyuanLocationOverride: form.value.siyuanLocationOverride,
+  });
+}
+
+function isDirty(): boolean {
+  return initialSnapshot.value !== "" && currentSnapshot() !== initialSnapshot.value;
+}
+
+async function confirmDiscardIfDirty(): Promise<boolean> {
+  if (!isDirty()) return true;
+  try {
+    await ElMessageBox.confirm(
+      "有未保存的修改，确定关闭？已编辑的内容将丢失。",
+      "未保存的修改",
+      {
+        confirmButtonText: "放弃修改",
+        cancelButtonText: "继续编辑",
+        type: "warning",
+      },
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function handleBeforeClose(done: () => void) {
+  if (submitting.value) return;
+  const ok = await confirmDiscardIfDirty();
+  if (ok) done();
+}
+
+async function handleCancel() {
+  if (submitting.value) return;
+  const ok = await confirmDiscardIfDirty();
+  if (ok) dialogVisible.value = false;
+}
+
+watch(dialogVisible, (v) => {
+  if (v) {
+    void nextTick(() => {
+      initialSnapshot.value = currentSnapshot();
+    });
+  } else {
+    initialSnapshot.value = "";
+  }
+});
+
 async function onDialogClose() {
   // 未提交关闭：清理新建场景残留的 tmp 附件
   if (!submittedThisRound.value) {
@@ -149,10 +215,12 @@ async function onDialogClose() {
 }
 
 async function submit() {
+  if (submitting.value) return;
   if (!form.value.name.trim()) {
     ElMessage.warning("请输入项目名称");
     return;
   }
+  submitting.value = true;
   try {
     const payload = {
       name: form.value.name,
@@ -183,6 +251,8 @@ async function submit() {
     }
   } catch (e) {
     ElMessage.error((e as Error).message);
+  } finally {
+    submitting.value = false;
   }
 }
 

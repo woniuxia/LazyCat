@@ -123,7 +123,7 @@
               <div class="pm-toolbar-filter-bar">
                 <div class="pm-toolbar-search-wrap">
                   <el-input
-                    v-model="searchText"
+                    v-model="searchInput"
                     class="pm-toolbar-search-input"
                     size="default"
                     placeholder="标题、描述、标签关键词..."
@@ -184,6 +184,7 @@
 
           <PmGanttView
             v-else-if="viewId === 'gantt'"
+            ref="ganttViewRef"
             :items="statusFilteredItems"
             :selected-item-id="selectedItemId"
             :show-project-meta="isOverview"
@@ -266,6 +267,7 @@
       :extra-pages="itemExtraPages"
       :global-siyuan-location="globalSiyuanLocation"
       :siyuan-config-ready="siyuanConfigReady"
+      :submitting="itemSubmitting"
       @submit="submitItem"
       @open-siyuan-link-picker="openSiyuanLinkPicker"
       @open-siyuan-page="openSiyuanPage"
@@ -408,7 +410,15 @@ const projectItemCounts = ref<Record<number, { total: number; done: number }>>({
 const selectedProjectId = ref<number | "overview" | null>(null);
 const selectedItemId = ref<number | null>(null);
 const initialLoading = ref(true);
-const searchText = ref("");
+const searchInput = ref(""); // 用户输入,实时同步到 input
+const searchText = ref(""); // 防抖后的值,用于过滤计算
+let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+watch(searchInput, (v) => {
+  if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
+  searchDebounceTimer = setTimeout(() => {
+    searchText.value = v;
+  }, 200);
+});
 const filterType = ref<PmItemType | "">("");
 const filterPriority = ref<PmPriority | "">("");
 const { currentView: viewId, setView } = usePmViewMemory(selectedProjectId);
@@ -417,6 +427,7 @@ const selectedStatuses = ref<PmItemStatus[]>(getPmDefaultSelectedStatuses());
 const todayBadgeCount = ref(0);
 const todayRefreshSignal = ref(0);
 const todayViewRef = ref<{ refresh: () => Promise<void> } | null>(null);
+const ganttViewRef = ref<{ forceRefresh: () => void } | null>(null);
 
 // Project dialog ref
 const projectDialogRef = ref<InstanceType<typeof PmProjectDialog> | null>(null);
@@ -428,6 +439,7 @@ const editingItem = ref<PmItem | null>(null);
 const itemFormProjectId = ref<number | null>(null);
 const itemPrimaryPage = ref<PmSiyuanPageRef | null>(null);
 const itemExtraPages = ref<PmSiyuanPageRef[]>([]);
+const itemSubmitting = ref(false);
 const itemDialogRef = ref<InstanceType<typeof PmItemDialog> | null>(null);
 const itemForm = computed(() => itemDialogRef.value?.form ?? {
   title: "",
@@ -466,7 +478,8 @@ async function onCreateModeSearchCandidates(keyword: string) {
       { projectId: itemDialogProjectId.value, keyword },
     );
     createModeCandidates.value = result.items ?? [];
-  } catch {
+  } catch (e) {
+    console.warn("[pm] todo candidates load failed:", e);
     createModeCandidates.value = [];
   } finally {
     createModeCandidatesLoading.value = false;
@@ -738,7 +751,8 @@ async function loadTodayCounts() {
       totalActive: 0,
     };
     todayBadgeCount.value = (counts.overdue ?? 0) + (counts.dueToday ?? 0) + (counts.inProgress ?? 0);
-  } catch {
+  } catch (e) {
+    console.warn("[pm] today counts load failed:", e);
     todayBadgeCount.value = 0;
   }
 }
@@ -762,8 +776,9 @@ async function loadItemCounts() {
       map[r.projectId] = { total: r.total, done: r.done };
     }
     projectItemCounts.value = map;
-  } catch {
-    // Non-critical, silently ignore
+  } catch (e) {
+    console.warn("[pm] project item counts load failed:", e);
+    // 项目计数失败不打断主流程，仅记录日志
   }
 }
 
@@ -861,10 +876,12 @@ async function submitItem(form: {
   testingAt?: string | null;
   completedAt?: string | null;
 }) {
+  if (itemSubmitting.value) return;
   if (!form.title.trim()) {
     ElMessage.warning("请输入标题");
     return;
   }
+  itemSubmitting.value = true;
   try {
     const normalizedDateRange = normalizePmDateRangeForDraft(form.startAt, form.endAt);
     const payload: Record<string, unknown> = {
@@ -918,17 +935,22 @@ async function submitItem(form: {
         projectId,
         ...payload,
       });
-      // 新建：把 tmp-<uuid> 下的附件 rebind 到 realId
-      try { await itemDialogRef.value?.runAfterSubmit?.(result.id); } catch {}
-      // Process pending todo data for newly created item
-      if (result.id && (pendingTodoCreates.value.length > 0 || pendingTodoLinkIds.value.length > 0)) {
-        const tempTodo = usePmTodoLinking(() => result.id);
-        for (const c of pendingTodoCreates.value) {
-          await tempTodo.quickCreate(c.title, c.priority, c.description);
+      try {
+        // 新建：把 tmp-<uuid> 下的附件 rebind 到 realId
+        try { await itemDialogRef.value?.runAfterSubmit?.(result.id); } catch {}
+        // Process pending todo data for newly created item
+        if (result.id && (pendingTodoCreates.value.length > 0 || pendingTodoLinkIds.value.length > 0)) {
+          const tempTodo = usePmTodoLinking(() => result.id);
+          for (const c of pendingTodoCreates.value) {
+            await tempTodo.quickCreate(c.title, c.priority, c.description);
+          }
+          if (pendingTodoLinkIds.value.length > 0) {
+            await tempTodo.linkBatch(pendingTodoLinkIds.value);
+          }
         }
-        if (pendingTodoLinkIds.value.length > 0) {
-          await tempTodo.linkBatch(pendingTodoLinkIds.value);
-        }
+      } finally {
+        // 无论 todo 子流程成败，都清空暂存，避免下次新建重复创建
+        resetPendingTodos();
       }
     }
     itemDialogVisible.value = false;
@@ -938,6 +960,8 @@ async function submitItem(form: {
     if (editingItem.value) {
       await loadItems();
     }
+  } finally {
+    itemSubmitting.value = false;
   }
 }
 
@@ -974,6 +998,8 @@ async function onGanttDateChange(item: PmItem, start: string, end: string) {
   const normalizedDateRange = normalizePmDateRangeForDraft(start, end);
   // 乐观更新本地数据，避免全量刷新导致甘特图重建
   const target = items.value.find((i) => i.id === item.id);
+  const oldStart = target?.startAt ?? null;
+  const oldEnd = target?.endAt ?? null;
   if (target) {
     target.startAt = normalizedDateRange.startAt;
     target.endAt = normalizedDateRange.endAt;
@@ -985,6 +1011,12 @@ async function onGanttDateChange(item: PmItem, start: string, end: string) {
       endAt: normalizedDateRange.endAt,
     });
   } catch (e) {
+    // 失败时还原乐观更新，并强制甘特图重渲染（绕过 skipNextRefresh 标志）
+    if (target) {
+      target.startAt = oldStart;
+      target.endAt = oldEnd;
+    }
+    ganttViewRef.value?.forceRefresh();
     await loadItems();
     ElMessage.error((e as Error).message);
   }
@@ -997,10 +1029,16 @@ function findNextStatus(item: PmItem): PmItemStatus | null {
 }
 
 async function toggleItemPinFor(item: PmItem) {
+  // 乐观更新本地数据，避免全量 loadItems 导致的闪烁与多次 IPC
+  const target = items.value.find((i) => i.id === item.id);
+  const previousPinned = target?.pinned ?? false;
+  if (target) target.pinned = !previousPinned;
   try {
     await invoke("tool:pm:item-toggle-pin", { id: item.id });
-    await loadItems();
+    // 计数受 pinned 影响较小,只刷一次 itemCounts(异步,不阻塞)
+    loadItemCounts();
   } catch (e) {
+    if (target) target.pinned = previousPinned;
     ElMessage.error((e as Error).message);
   }
 }
@@ -1008,10 +1046,31 @@ async function toggleItemPinFor(item: PmItem) {
 async function advanceItemStatusFor(item: PmItem) {
   const nextStatus = findNextStatus(item);
   if (!nextStatus) return;
+  // 乐观更新：直接修改本地数据并同步 updatedAt
+  const target = items.value.find((i) => i.id === item.id);
+  const previousStatus = target?.status;
+  const previousCompletedAt = target?.completedAt ?? null;
+  const previousUpdatedAt = target?.updatedAt;
+  if (target) {
+    target.status = nextStatus;
+    target.updatedAt = new Date().toISOString();
+    if (nextStatus === "done" && !target.completedAt) {
+      target.completedAt = target.updatedAt;
+    }
+  }
   try {
     await invoke("tool:pm:item-change-status", { id: item.id, status: nextStatus });
-    await loadItems();
+    // 状态变化会影响项目计数和今日 badge,异步刷新但不阻塞
+    loadItemCounts();
+    void loadTodayCounts();
+    todayRefreshSignal.value++;
   } catch (e) {
+    // 失败回滚
+    if (target && previousStatus) {
+      target.status = previousStatus;
+      target.completedAt = previousCompletedAt;
+      if (previousUpdatedAt) target.updatedAt = previousUpdatedAt;
+    }
     ElMessage.error((e as Error).message);
   }
 }

@@ -1207,10 +1207,17 @@ fn item_batch_update(payload: &Value) -> Result<Value, String> {
 
 fn item_delete(payload: &Value) -> Result<Value, String> {
     let id = parse_i64(payload, "id").ok_or("id is required")?;
-    let conn = db_conn()?;
-    conn.execute("DELETE FROM pm_items WHERE id = ?1", params![id])
+    let mut conn = db_conn()?;
+    let tx = conn
+        .transaction()
+        .map_err(|e| format!("item_delete begin: {e}"))?;
+    // 先清附件（在事务内），保证 DB 行与磁盘文件的一致性
+    super::attachments::delete_by_owner_internal(&tx, "pm_item", &id.to_string())?;
+    // 再删主行，FK CASCADE 会清掉 tags / todo_links / siyuan_links
+    tx.execute("DELETE FROM pm_items WHERE id = ?1", params![id])
         .map_err(|e| format!("item_delete: {e}"))?;
-    super::attachments::delete_by_owner_internal(&conn, "pm_item", &id.to_string())?;
+    tx.commit()
+        .map_err(|e| format!("item_delete commit: {e}"))?;
     Ok(json!({ "ok": true }))
 }
 

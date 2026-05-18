@@ -31,13 +31,15 @@ fn build_range_sql(project_id: Option<i64>) -> &'static str {
                    AND substr(i.end_at, 1, 10) > ?3)
            )"
     } else {
+        // 跨项目查询时过滤掉已归档项目，归档项目的工作项不应出现在日历视图
         "SELECT i.id, i.project_id, i.title, i.description, i.item_type, i.priority,
                 i.status, i.start_at, i.end_at, i.pinned, i.sort_order,
                 i.completed_at, i.created_at, i.updated_at, i.link_url,
                 p.name, p.color, i.started_at, i.testing_at
          FROM pm_items i
          LEFT JOIN pm_projects p ON i.project_id = p.id
-         WHERE (
+         WHERE p.status = 'active'
+           AND (
                  (i.end_at IS NOT NULL
                    AND substr(i.end_at, 1, 10) >= ?1
                    AND substr(i.end_at, 1, 10) <= ?2)

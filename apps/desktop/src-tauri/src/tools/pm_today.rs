@@ -102,13 +102,15 @@ fn candidate_sql(project_id: Option<i64>) -> &'static str {
          WHERE i.project_id = ?1
            AND (i.status != 'done' OR (i.completed_at >= ?2 AND i.completed_at <= ?3))"
     } else {
+        // 跨项目查询时过滤掉已归档项目，归档项目的工作项不应出现在今日视图
         "SELECT i.id, i.project_id, i.title, i.description, i.item_type, i.priority,
                 i.status, i.start_at, i.end_at, i.pinned, i.sort_order,
                 i.completed_at, i.created_at, i.updated_at, i.link_url,
                 p.name, p.color, i.started_at, i.testing_at
          FROM pm_items i
          LEFT JOIN pm_projects p ON i.project_id = p.id
-         WHERE (i.status != 'done' OR (i.completed_at >= ?1 AND i.completed_at <= ?2))"
+         WHERE p.status = 'active'
+           AND (i.status != 'done' OR (i.completed_at >= ?1 AND i.completed_at <= ?2))"
     }
 }
 

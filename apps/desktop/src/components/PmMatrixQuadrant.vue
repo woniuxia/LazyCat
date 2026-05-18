@@ -64,7 +64,7 @@
 import { computed } from "vue";
 import type { PmItem } from "../types/pm";
 import { PM_PRIORITY_MAP } from "../types/pm";
-import { isPmItemOverdue } from "../utils/pmDate";
+import { isPmItemOverdue, parsePmDateAtLocalStart } from "../utils/pmDate";
 
 const props = defineProps<{
   title: string;
@@ -99,7 +99,8 @@ function dueText(item: PmItem): string {
   if (!end) return "";
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const endDateObj = new Date(end + "T00:00:00");
+  const endDateObj = parsePmDateAtLocalStart(end);
+  if (!endDateObj) return "";
   const diff = Math.round((endDateObj.getTime() - today.getTime()) / 86400000);
   if (diff === 0) return "今天";
   if (diff === 1) return "明天";

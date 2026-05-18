@@ -251,10 +251,14 @@ function initSortable() {
         const newStatus = (evt.to as HTMLElement).dataset.status as PmItemStatus;
         if (!itemId || !newStatus) return;
 
+        const fromEl = evt.from as HTMLElement;
+        const toEl = evt.to as HTMLElement;
+        const oldStatus = fromEl.dataset.status;
+        const oldIndex = evt.oldIndex ?? 0;
+
         try {
-          const oldStatus = (evt.from as HTMLElement).dataset.status;
           const statusChanged = oldStatus !== newStatus;
-          const children = Array.from(evt.to.children) as HTMLElement[];
+          const children = Array.from(toEl.children) as HTMLElement[];
           const reorderItems = children
             .filter((c) => c.dataset.id)
             .map((child, idx) => {
@@ -272,6 +276,11 @@ function initSortable() {
             ElMessage.success({ message: `已移至「${label}」`, duration: 1500 });
           }
         } catch (e) {
+          // 失败时把 DOM 上的卡片回滚到原列原位,避免 UI 与服务器数据不一致
+          try {
+            const refNode = fromEl.children[oldIndex] ?? null;
+            fromEl.insertBefore(evt.item, refNode);
+          } catch {}
           ElMessage.error((e as Error).message);
           emit("items-changed");
         }

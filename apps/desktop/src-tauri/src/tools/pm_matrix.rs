@@ -71,6 +71,9 @@ fn build_sql(project_id: Option<i64>, hide_completed: bool) -> String {
     let mut clauses: Vec<String> = Vec::new();
     if project_id.is_some() {
         clauses.push("i.project_id = ?1".to_string());
+    } else {
+        // 跨项目查询时过滤掉已归档项目，归档项目的工作项不应出现在四象限
+        clauses.push("p.status = 'active'".to_string());
     }
     if hide_completed {
         clauses.push("i.status != 'done'".to_string());
@@ -306,7 +309,9 @@ mod tests {
         let sql = build_sql(Some(1), true);
         assert!(sql.contains("i.project_id = ?1"));
         assert!(sql.contains("i.status != 'done'"));
+        // 跨项目查询时必须过滤掉已归档项目
         let sql_open = build_sql(None, false);
-        assert!(!sql_open.contains("WHERE"));
+        assert!(sql_open.contains("p.status = 'active'"));
+        assert!(!sql_open.contains("i.project_id = ?1"));
     }
 }
