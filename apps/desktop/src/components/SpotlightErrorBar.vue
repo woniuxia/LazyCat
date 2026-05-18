@@ -1,7 +1,7 @@
 <template>
-  <div v-if="message" class="spotlight-error">
+  <div v-if="message" class="spotlight-error" role="alert">
     <span class="spotlight-error-icon">⚠</span>
-    <span class="spotlight-error-text">{{ message }}</span>
+    <span class="spotlight-error-text" :title="message">{{ message }}</span>
     <button v-if="canRetry" class="spotlight-error-btn" @click="$emit('retry')">
       重试 (Ctrl+R)
     </button>
@@ -39,9 +39,14 @@ defineEmits<{
 
 .spotlight-error-text {
   flex: 1;
-  white-space: nowrap;
+  min-width: 0;
+  white-space: normal;
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
+  line-height: 1.4;
 }
 
 .spotlight-error-btn {

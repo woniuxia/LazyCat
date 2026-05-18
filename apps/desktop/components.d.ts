@@ -138,6 +138,7 @@ declare module 'vue' {
     SpotlightErrorBar: typeof import('./src/components/SpotlightErrorBar.vue')['default']
     SpotlightPanel: typeof import('./src/components/SpotlightPanel.vue')['default']
     SpotlightSettings: typeof import('./src/components/settings/SpotlightSettings.vue')['default']
+    SpotlightSuccessBar: typeof import('./src/components/SpotlightSuccessBar.vue')['default']
     SpotlightVaultUnlockInput: typeof import('./src/components/SpotlightVaultUnlockInput.vue')['default']
     SqlEntityPanel: typeof import('./src/components/SqlEntityPanel.vue')['default']
     TabBar: typeof import('./src/components/TabBar.vue')['default']

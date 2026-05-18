@@ -52,10 +52,11 @@ export function parseQuickCommand(
     if (!enabled.has("todo-create")) return null;
     return { kind: "todo-create", text: trimmedLeft.slice(2).trim() };
   }
-  const calcMatch = /^calc\s([\s\S]*)$/i.exec(trimmedLeft);
+  // 允许 "calc"(进入空 calc 卡)或 "calc <expr>";"calcXXX" 等非词边界仍拒绝
+  const calcMatch = /^calc(?:\s([\s\S]*))?$/i.exec(trimmedLeft);
   if (calcMatch) {
     if (!enabled.has("calc")) return null;
-    return { kind: "calc", text: calcMatch[1].trim() };
+    return { kind: "calc", text: (calcMatch[1] ?? "").trim() };
   }
   return null;
 }

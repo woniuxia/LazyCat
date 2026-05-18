@@ -66,7 +66,7 @@
       :message="errorMessage"
       :can-retry="!!lastFailed"
       @retry="retryLast"
-      @dismiss="errorMessage = null"
+      @dismiss="dismissError"
     />
 
     <SpotlightSuccessBar :message="successMessage" />
@@ -118,7 +118,7 @@ import type {
 
 type ScopedItemsMap = Map<SpotlightProviderId, SpotlightItem[]>;
 
-const RESULT_LIMIT = 12;
+const RESULT_LIMIT = 9;
 
 const query = ref("");
 const activeIndex = ref(0);
@@ -357,7 +357,7 @@ const results = computed(() => {
 
 watch(results, () => {
   if (activeIndex.value >= results.value.length) {
-    activeIndex.value = results.value.length > 0 ? 0 : 0;
+    activeIndex.value = 0;
   }
 });
 
@@ -606,6 +606,11 @@ async function retryLast() {
   await runWithRunner(fn);
 }
 
+function dismissError() {
+  errorMessage.value = null;
+  lastFailed.value = null;
+}
+
 function onKeydown(e: KeyboardEvent) {
   if (unlockState.value) return; // 解锁条自管理键盘
   if (actionMenuOpen.value) return; // ActionMenu 自管理键盘
@@ -613,7 +618,7 @@ function onKeydown(e: KeyboardEvent) {
   if (e.key === "Escape") {
     e.preventDefault();
     if (errorMessage.value) {
-      errorMessage.value = null;
+      dismissError();
       return;
     }
     void closeWindow();

@@ -1,5 +1,9 @@
 import { invokeToolByChannel } from "../../bridge/tauri";
 import { toPinyinInitials } from "../../utils/fuzzy-match";
+import {
+  writeSecretToClipboard,
+  scheduleClipboardClear,
+} from "../../utils/vaultClipboard";
 import { registerProvider } from "../registry";
 import type {
   ProviderDescriptor,
@@ -116,7 +120,7 @@ async function prefetchVault(): Promise<SpotlightItem[]> {
 }
 
 async function writeClipboard(text: string): Promise<void> {
-  await navigator.clipboard.writeText(text);
+  await writeSecretToClipboard(text);
 }
 
 async function recordCopy(entryId: number): Promise<void> {
@@ -163,11 +167,12 @@ async function copyPasswordFlow(
   if (!secret) return { errorMessage: "该条目没有密码字段" };
 
   await writeClipboard(secret);
+  scheduleClipboardClear(secret);
   await recordCopy(entryId);
 
   return {
     closeSpotlight: true,
-    toast: { message: "密码已复制到剪贴板", type: "success" },
+    toast: { message: "密码已复制到剪贴板（30 秒后自动清空）", type: "success" },
   };
 }
 

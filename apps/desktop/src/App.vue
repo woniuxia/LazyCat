@@ -367,7 +367,7 @@ onMounted(async () => {
   } catch { /* ignore in non-Tauri env */ }
   try {
     await listen<HotkeyNavigatePayload>("hotkey-navigate", async (event) => {
-      const { target, text, source } = event.payload;
+      const { target, text, source, itemId, projectId, view } = event.payload;
       if (shouldHideNamedHotkeyWindow(event.payload, {
         activeTool: activeTool.value,
       })) {
@@ -375,6 +375,24 @@ onMounted(async () => {
           await appWindow.hide();
           return;
         } catch { /* ignore in non-Tauri env */ }
+      }
+      if (itemId) {
+        const parsedItem = Number(itemId);
+        if (Number.isFinite(parsedItem)) {
+          if (target === "pm") {
+            const { usePmNavigation } = await import("./composables/usePmNavigation");
+            const { hasView } = await import("./composables/pmViewRegistry");
+            const parsedProject = projectId ? Number(projectId) : null;
+            const projectIdValue = parsedProject != null && Number.isFinite(parsedProject)
+              ? parsedProject
+              : null;
+            const viewId = view && hasView(view) ? view : undefined;
+            usePmNavigation().requestFocus(parsedItem, projectIdValue, viewId);
+          } else if (target === "todo") {
+            const { useTodoNavigation } = await import("./composables/useTodoNavigation");
+            useTodoNavigation().requestFocus(parsedItem);
+          }
+        }
       }
       onSelect(target);
       if (text && source) {

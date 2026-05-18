@@ -97,8 +97,8 @@ describe("parseQuickCommand", () => {
     expect(parseQuickCommand("calc    ")).toEqual({ kind: "calc", text: "" });
   });
 
-  it("requires whitespace after calc", () => {
-    expect(parseQuickCommand("calc")).toBeNull();
+  it("requires whitespace or end-of-string after calc", () => {
+    expect(parseQuickCommand("calc")).toEqual({ kind: "calc", text: "" });
     expect(parseQuickCommand("calculator")).toBeNull();
     expect(parseQuickCommand("calc1+2")).toBeNull();
   });

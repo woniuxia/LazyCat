@@ -32,20 +32,33 @@ function makeField(text: string, weight: number) {
   return { text: cleaned, initials: toPinyinInitials(cleaned), weight };
 }
 
+function parseEndAtToLocalDate(raw: string): Date | null {
+  // 兼容 "YYYY-MM-DD" 与 ISO 时间串;前者必须按本地零点构造,避免 UTC 偏移
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
+  if (dateOnly) {
+    const y = Number(dateOnly[1]);
+    const m = Number(dateOnly[2]) - 1;
+    const d = Number(dateOnly[3]);
+    return new Date(y, m, d);
+  }
+  const dt = new Date(raw);
+  return Number.isNaN(dt.getTime()) ? null : dt;
+}
+
 function dueStatus(item: PmListItem): { text: string; tone: StatusTone } | undefined {
   if (item.status === "done" || item.status === "completed") {
     return { text: "已完成", tone: "muted" };
   }
   if (!item.endAt) return undefined;
-  const due = new Date(item.endAt);
-  if (Number.isNaN(due.getTime())) return undefined;
+  const due = parseEndAtToLocalDate(item.endAt);
+  if (!due) return undefined;
   const now = new Date();
-  if (due.getTime() < now.getTime()) return { text: "已逾期", tone: "danger" };
-  const startOfTomorrow = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate() + 1,
-  );
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfTomorrow = new Date(startOfToday.getTime() + 24 * 60 * 60 * 1000);
+  const onlyPending = item.status === "todo" || item.status === "in_progress" || item.status === "testing";
+  if (onlyPending && due.getTime() < startOfToday.getTime()) {
+    return { text: "已逾期", tone: "danger" };
+  }
   if (due.getTime() < startOfTomorrow.getTime()) return { text: "今日", tone: "warn" };
   return { text: due.toLocaleDateString(), tone: "info" };
 }
@@ -102,16 +115,23 @@ async function prefetchPm(): Promise<SpotlightItem[]> {
 
 async function jumpToPm(
   pmId: number,
+  projectId: number | null,
   pmView?: string,
 ): Promise<SpotlightExecuteResult> {
-  await invoke("spotlight_pick", { target: "pm", itemId: String(pmId), view: pmView });
+  await invoke("spotlight_pick", {
+    target: "pm",
+    itemId: String(pmId),
+    projectId: projectId != null ? String(projectId) : undefined,
+    view: pmView,
+  });
   return { closeSpotlight: true };
 }
 
 async function defaultAction(item: SpotlightItem): Promise<SpotlightExecuteResult> {
   const pmId = item.payload?.pmId as number | undefined;
   if (!pmId) return { errorMessage: "无效 PM 项" };
-  return jumpToPm(pmId);
+  const projectId = (item.payload?.projectId as number | undefined) ?? null;
+  return jumpToPm(pmId, projectId);
 }
 
 function buildActions() {
@@ -130,11 +150,12 @@ async function executeAction(
 ): Promise<SpotlightExecuteResult> {
   const pmId = item.payload?.pmId as number | undefined;
   if (!pmId) return { errorMessage: "无效 PM 项" };
-  if (actionId === "open_default") return jumpToPm(pmId);
-  if (actionId === "open_kanban") return jumpToPm(pmId, "kanban");
-  if (actionId === "open_today") return jumpToPm(pmId, "today");
-  if (actionId === "open_matrix") return jumpToPm(pmId, "matrix");
-  if (actionId === "open_list") return jumpToPm(pmId, "list");
+  const projectId = (item.payload?.projectId as number | undefined) ?? null;
+  if (actionId === "open_default") return jumpToPm(pmId, projectId);
+  if (actionId === "open_kanban") return jumpToPm(pmId, projectId, "kanban");
+  if (actionId === "open_today") return jumpToPm(pmId, projectId, "today");
+  if (actionId === "open_matrix") return jumpToPm(pmId, projectId, "matrix");
+  if (actionId === "open_list") return jumpToPm(pmId, projectId, "list");
   return { errorMessage: `未知动作 ${actionId}` };
 }
 

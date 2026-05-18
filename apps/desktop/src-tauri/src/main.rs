@@ -636,6 +636,12 @@ struct HotkeyNavigatePayload {
     text: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     source: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    item_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    project_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    view: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -716,6 +722,9 @@ fn handle_main_window_shortcut(app: &tauri::AppHandle, shortcut_name: &str) {
                     was_window_focused: focused,
                     text: None,
                     source: None,
+                    item_id: None,
+                    project_id: None,
+                    view: None,
                 },
             );
         }
@@ -987,6 +996,9 @@ fn spotlight_pick(
     target: String,
     text: Option<String>,
     source: Option<String>,
+    item_id: Option<String>,
+    project_id: Option<String>,
+    view: Option<String>,
 ) -> Result<(), String> {
     if let Some(spot) = app.get_webview_window(SPOTLIGHT_LABEL) {
         let _ = spot.hide();
@@ -1009,6 +1021,9 @@ fn spotlight_pick(
             was_window_focused: focused,
             text,
             source,
+            item_id,
+            project_id,
+            view,
         },
     );
     Ok(())
@@ -1489,6 +1504,9 @@ mod tests {
                 was_window_focused: false,
                 text: None,
                 source: None,
+                item_id: None,
+                project_id: None,
+                view: None,
             })
             .unwrap(),
             json!({
@@ -1510,6 +1528,9 @@ mod tests {
                 was_window_focused: false,
                 text: Some("{\"a\":1}".to_string()),
                 source: Some("clipboard-suggestion".to_string()),
+                item_id: None,
+                project_id: None,
+                view: None,
             })
             .unwrap(),
             json!({

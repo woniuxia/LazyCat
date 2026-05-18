@@ -5,6 +5,9 @@ export interface HotkeyNavigatePayload {
   wasWindowFocused: boolean;
   text?: string;
   source?: string;
+  itemId?: string;
+  projectId?: string;
+  view?: string;
 }
 
 interface NamedHotkeyWindowState {

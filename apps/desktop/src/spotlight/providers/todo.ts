@@ -28,9 +28,6 @@ function makeField(text: string, weight: number) {
 }
 
 function dueStatus(item: TodoListItem): { text: string; tone: StatusTone } | undefined {
-  if (item.status === "done" || item.status === "completed") {
-    return { text: "已完成", tone: "muted" };
-  }
   if (item.isOverdue) return { text: "已逾期", tone: "danger" };
 
   const at = item.eventAt ?? item.displayAt;
@@ -62,7 +59,6 @@ async function prefetchTodo(): Promise<SpotlightItem[]> {
 
   return list.map<SpotlightItem>((todo) => {
     const status = dueStatus(todo);
-    const isDone = todo.status === "done" || todo.status === "completed";
     return {
       providerId: "todo",
       itemId: String(todo.id),
@@ -71,12 +67,11 @@ async function prefetchTodo(): Promise<SpotlightItem[]> {
       badge: { short: "待", tone: "success" },
       status,
       searchFields: [makeField(todo.title, 1.2), makeField(todo.typeName ?? "", 0.6)],
-      weight: todo.pinned ? 1.2 : isDone ? 0.85 : 1,
+      weight: todo.pinned ? 1.2 : 1,
       payload: {
         todoId: todo.id,
         status: todo.status,
         title: todo.title,
-        isDone,
       },
     };
   });
@@ -94,7 +89,7 @@ async function defaultAction(item: SpotlightItem): Promise<SpotlightExecuteResul
 }
 
 function buildActions(item: SpotlightItem) {
-  const isDone = !!item.payload?.isDone;
+  const isDone = item.payload?.status === "done" || item.payload?.status === "completed";
   return [
     { id: "open_todo", label: "跳转到任务详情", icon: "external", shortcut: "Enter" },
     isDone

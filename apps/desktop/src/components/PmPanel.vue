@@ -1179,6 +1179,7 @@ onMounted(async () => {
   const focus = consumePmFocus();
   if (focus) {
     selectedProjectId.value = focus.projectId ?? "overview";
+    if (focus.view) setView(focus.view);
     await loadItems();
     const target = items.value.find((i) => i.id === focus.itemId);
     if (target) {

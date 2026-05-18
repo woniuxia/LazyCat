@@ -486,6 +486,7 @@ import { PM_STATUS_COLUMNS } from "../types/pm";
 import type { PmCandidateItem } from "../types/pm";
 import { useTabs } from "../composables/useTabs";
 import { usePmNavigation } from "../composables/usePmNavigation";
+import { useTodoNavigation } from "../composables/useTodoNavigation";
 import { groupTodoItemsByBucket } from "../utils/todoBuckets";
 import { formatTodoRelativeDateTimeLabel } from "../utils/todoRelativeDate";
 import {
@@ -575,6 +576,7 @@ let titleFocusTimer: ReturnType<typeof setTimeout> | null = null;
 const { watchPendingToolInput } = useClipboardSuggestion();
 const { openTab } = useTabs();
 const { requestFocus: requestPmFocus } = usePmNavigation();
+const { consumeFocus: consumeTodoFocus } = useTodoNavigation();
 
 // Drawer 相关状态
 
@@ -2114,6 +2116,15 @@ watch(pendingTodoCreate, (v) => {
 onMounted(async () => {
   await Promise.all([loadTypes(), loadAssignees(), loadItems(), loadProjects()]);
   initialLoading.value = false;
+  const focus = consumeTodoFocus();
+  if (focus) {
+    const target = items.value.find((i) => i.id === focus.itemId);
+    if (target) {
+      selectItem(target);
+    } else {
+      ElMessage.warning("未找到该任务，可能已被删除");
+    }
+  }
   try {
     reminderUnlisten = await listen("todo-reminder-fired", async () => {
       await loadItems();
