@@ -133,7 +133,7 @@
               <el-radio-button :label="0">直到手动关</el-radio-button>
             </el-radio-group>
             <div v-if="config.privacyMaskUntil" class="hint">
-              将于 {{ formatTime(config.privacyMaskUntil) }} 自动关闭
+              剩余 {{ privacyRemainingLabel }} 后自动关闭
             </div>
             <div v-else class="hint">开启后 todo 标题打码（▓▓▓）</div>
           </el-form-item>
@@ -142,11 +142,19 @@
               type="textarea"
               :rows="3"
               :model-value="config.fullscreenBlacklist.join('\n')"
-              placeholder="每行一个 .exe 名"
+              placeholder="每行一个 .exe 名，如 obs64.exe"
               @update:model-value="onBlacklistInput"
             />
-            <el-button class="mt" @click="saveField('fullscreenBlacklist')">保存</el-button>
-            <div class="hint">命中黑名单进程在前台时，挂件自动隐藏</div>
+            <div class="blacklist-actions">
+              <el-button link type="primary" @click="onResetBlacklist">恢复默认</el-button>
+              <span v-if="blacklistPendingSave" class="blacklist-saving">保存中…</span>
+              <span v-if="!config.fullscreenBlacklist.length" class="blacklist-empty">
+                当前名单为空，全屏判定仅依赖窗口尺寸与系统通知态
+              </span>
+            </div>
+            <div class="hint">
+              命中名单进程位于前台时挂件自动隐藏；默认含 obs / powerpnt / wpp / zoom
+            </div>
           </el-form-item>
         </el-form>
       </el-tab-pane>
@@ -168,7 +176,7 @@
                 :value="tool.id"
               />
             </el-select>
-            <div class="hint">挂件拓展区固定显示的按钮，按选择顺序展示；"待办"有特殊快速创建入口</div>
+            <div class="hint">挂件拓展区固定显示的按钮，按选择顺序展示</div>
           </el-form-item>
           <el-form-item label="推荐数量">
             <el-radio-group
@@ -252,13 +260,30 @@ const diagnostics = ref<{ health: WidgetHealth; events: WidgetEventEntry[] } | n
 const toggling = ref(false);
 const applying = ref(false);
 
+/** 启用时间戳；用于检测挂件是否已实际首次刷新（lastRenderedAt > enableAttemptAt）。 */
+const enableAttemptAt = ref<number | null>(null);
+/** 启用后短期内显示"启动中"。lastRenderedAt 更新或 10s 超时后清除。 */
+const isStarting = ref(false);
+/** 当前秒数 tick（用于倒计时响应式刷新） */
+const nowTick = ref(Date.now());
+
+/** 黑名单 debounce 保存计时器 + 是否处于待保存态。 */
+const blacklistPendingSave = ref(false);
+
 let pollHandle: number | null = null;
 let pollDiagnosticsHandle: number | null = null;
+let nowTicker: number | null = null;
+let blacklistSaveTimer: number | null = null;
+let startingTimeoutHandle: number | null = null;
 
 onMounted(async () => {
   await Promise.all([refreshStatus(), refreshConfig()]);
   pollHandle = window.setInterval(refreshStatus, 5000);
   pollDiagnosticsHandle = window.setInterval(refreshDiagnostics, 5000);
+  // 倒计时刷新（敏感模式 banner）
+  nowTicker = window.setInterval(() => {
+    nowTick.value = Date.now();
+  }, 1000);
 });
 
 onBeforeUnmount(() => {
@@ -270,17 +295,31 @@ onBeforeUnmount(() => {
     window.clearInterval(pollDiagnosticsHandle);
     pollDiagnosticsHandle = null;
   }
+  if (nowTicker !== null) {
+    window.clearInterval(nowTicker);
+    nowTicker = null;
+  }
+  if (blacklistSaveTimer !== null) {
+    window.clearTimeout(blacklistSaveTimer);
+    blacklistSaveTimer = null;
+  }
+  if (startingTimeoutHandle !== null) {
+    window.clearTimeout(startingTimeoutHandle);
+    startingTimeoutHandle = null;
+  }
 });
 
 const statusLabel = computed(() => {
   if (!status.value) return "加载中…";
   if (!config.value.enabled) return "未启用";
+  if (isStarting.value) return "启动中…";
   if (status.value.paused) return "已暂停";
   return "运行中";
 });
 
 const statusDotClass = computed(() => {
   if (!config.value.enabled) return "off";
+  if (isStarting.value) return "warn";
   if (status.value?.paused) return "warn";
   if (status.value?.lastError) return "error";
   return "ok";
@@ -288,16 +327,31 @@ const statusDotClass = computed(() => {
 
 async function refreshStatus() {
   try {
-    const v = (await invokeToolByChannel("tool:widget:status", {})) as WallpaperStatus;
+    const v = (await invokeToolByChannel("tool:widget:status", {})) as WidgetStatus;
     status.value = v;
+    // 启用后挂件首次渲染 → 清除"启动中"标记
+    if (isStarting.value && enableAttemptAt.value && v.lastRenderedAt) {
+      const renderedMs = new Date(v.lastRenderedAt).getTime();
+      if (Number.isFinite(renderedMs) && renderedMs >= enableAttemptAt.value) {
+        clearStarting();
+      }
+    }
   } catch (e) {
     console.warn("[widget] refresh status failed", e);
   }
 }
 
+function clearStarting() {
+  isStarting.value = false;
+  if (startingTimeoutHandle !== null) {
+    window.clearTimeout(startingTimeoutHandle);
+    startingTimeoutHandle = null;
+  }
+}
+
 async function refreshConfig() {
   try {
-    const v = (await invokeToolByChannel("tool:widget:get-config", {})) as WallpaperConfig;
+    const v = (await invokeToolByChannel("tool:widget:get-config", {})) as WidgetConfig;
     config.value = { ...defaultConfig(), ...v };
   } catch (e) {
     console.warn("[widget] read config failed", e);
@@ -308,20 +362,47 @@ async function onToggleEnabled(next: boolean) {
   toggling.value = true;
   try {
     if (next) {
+      enableAttemptAt.value = Date.now();
+      isStarting.value = true;
+      // 10s 兜底；超时后无论 lastRenderedAt 是否变化都退出"启动中"
+      if (startingTimeoutHandle !== null) {
+        window.clearTimeout(startingTimeoutHandle);
+      }
+      startingTimeoutHandle = window.setTimeout(() => {
+        clearStarting();
+      }, 10_000);
       await invokeToolByChannel("tool:widget:enable", {});
       config.value.enabled = true;
-      ElMessage.success("已启用挂件");
+      ElMessage.success("已启用，正在显示挂件…");
+      // 启用后短期密集轮询 status，便于尽快从"启动中"切到"运行中"
+      pollStartingStatus();
     } else {
+      enableAttemptAt.value = null;
+      clearStarting();
       await invokeToolByChannel("tool:widget:disable", {});
       config.value.enabled = false;
       ElMessage.success("已关闭挂件");
     }
     await Promise.all([refreshStatus(), refreshConfig()]);
   } catch (e) {
+    clearStarting();
     ElMessage.error(`切换失败：${formatError(e)}`);
   } finally {
     toggling.value = false;
   }
+}
+
+/** 启用后 8s 内每 800ms 拉一次 status，尽快感知 lastRenderedAt 更新。 */
+function pollStartingStatus() {
+  let attempts = 0;
+  const maxAttempts = 10;
+  const intervalId = window.setInterval(() => {
+    attempts += 1;
+    void refreshStatus();
+    if (!isStarting.value || attempts >= maxAttempts) {
+      window.clearInterval(intervalId);
+    }
+  }, 800);
 }
 
 async function onApply() {
@@ -358,14 +439,22 @@ async function onResume() {
 async function onResetPosition() {
   try {
     await invokeToolByChannel("tool:widget:set-config", { widgetY: null });
-    ElMessage.success("已重置挂件位置；下次启用或刷新后挂件回到屏幕居中");
-    await refreshConfig();
+    // 若挂件已启用且可见，链式触发立即重新定位（widget:reposition）
+    if (config.value.enabled && !status.value?.paused) {
+      try {
+        await invokeToolByChannel("tool:widget:reposition", {});
+      } catch (e) {
+        console.warn("[widget] reposition after reset failed", e);
+      }
+    }
+    ElMessage.success("已重置，挂件已回到屏幕居中");
+    await Promise.all([refreshStatus(), refreshConfig()]);
   } catch (e) {
     ElMessage.error(`重置失败：${formatError(e)}`);
   }
 }
 
-async function saveField(field: keyof WallpaperConfig) {
+async function saveField(field: keyof WidgetConfig) {
   const payload: Record<string, unknown> = { [field]: config.value[field] };
   try {
     await invokeToolByChannel("tool:widget:set-config", payload);
@@ -380,6 +469,42 @@ function onBlacklistInput(v: string) {
     .split("\n")
     .map((s) => s.trim())
     .filter(Boolean);
+  // 与其他字段保持一致：编辑即保存（debounce 600ms）
+  blacklistPendingSave.value = true;
+  if (blacklistSaveTimer !== null) {
+    window.clearTimeout(blacklistSaveTimer);
+  }
+  blacklistSaveTimer = window.setTimeout(() => {
+    blacklistSaveTimer = null;
+    void persistBlacklist();
+  }, 600);
+}
+
+async function persistBlacklist() {
+  try {
+    await invokeToolByChannel("tool:widget:set-config", {
+      fullscreenBlacklist: config.value.fullscreenBlacklist,
+    });
+  } catch (e) {
+    ElMessage.error(`黑名单保存失败：${formatError(e)}`);
+  } finally {
+    blacklistPendingSave.value = false;
+  }
+}
+
+// 与 Rust `default_fullscreen_blacklist()` 保持一致
+const DEFAULT_FULLSCREEN_BLACKLIST = [
+  "obs64.exe",
+  "obs32.exe",
+  "powerpnt.exe",
+  "wpp.exe",
+  "zoom.exe",
+];
+
+async function onResetBlacklist() {
+  config.value.fullscreenBlacklist = [...DEFAULT_FULLSCREEN_BLACKLIST];
+  blacklistPendingSave.value = true;
+  await persistBlacklist();
 }
 
 const allToolOptions = computed(() => {
@@ -451,9 +576,11 @@ async function onPrivacyChoiceChange(choice: string | number | boolean | undefin
 
 const privacyDurationChoice = computed<number>(() => {
   if (!config.value.privacyMaskUntil) return 0;
+  // 触发响应式刷新（每秒）；用 Date.now() 取实际当前时间
+  nowTick.value;
   const remainMs = new Date(config.value.privacyMaskUntil).getTime() - Date.now();
   if (remainMs <= 0) return 0;
-  const remainMin = Math.round(remainMs / 60000);
+  const remainMin = remainMs / 60000;
   if (remainMin <= 45) return 30;
   if (remainMin <= 180) return 120;
   return 0;
@@ -466,7 +593,25 @@ const privacyChoice = computed<"off" | number>(() => {
 
 const privacyUntilLabel = computed<string>(() => {
   if (!status.value?.privacyMaskUntil) return "（直到手动关）";
-  return `（将于 ${formatTime(status.value.privacyMaskUntil)} 自动关闭）`;
+  // 触发响应式刷新
+  nowTick.value;
+  const remainMs = new Date(status.value.privacyMaskUntil).getTime() - Date.now();
+  if (remainMs <= 0) return "（即将关闭）";
+  const totalSec = Math.floor(remainMs / 1000);
+  const min = Math.floor(totalSec / 60);
+  const sec = totalSec % 60;
+  return `（剩余 ${min}:${sec.toString().padStart(2, "0")}）`;
+});
+
+const privacyRemainingLabel = computed<string>(() => {
+  if (!config.value.privacyMaskUntil) return "";
+  nowTick.value;
+  const remainMs = new Date(config.value.privacyMaskUntil).getTime() - Date.now();
+  if (remainMs <= 0) return "0:00";
+  const totalSec = Math.floor(remainMs / 1000);
+  const min = Math.floor(totalSec / 60);
+  const sec = totalSec % 60;
+  return `${min}:${sec.toString().padStart(2, "0")}`;
 });
 
 const autoSkipBanner = computed<string>(() => {
@@ -475,8 +620,12 @@ const autoSkipBanner = computed<string>(() => {
   switch (status.value?.autoSkipReason) {
     case "lock":
       return "检测到锁屏 / 屏保，已暂停刷新（解锁后自动恢复）";
-    case "fullscreen":
-      return "检测到全屏应用，已暂停刷新（退出全屏后自动恢复）";
+    case "fullscreen": {
+      const app = status.value?.autoSkipApp?.trim();
+      return app
+        ? `检测到全屏应用「${app}」，已暂停刷新（退出全屏后自动恢复）`
+        : "检测到全屏应用，已暂停刷新（退出全屏后自动恢复）";
+    }
     default:
       return "";
   }
@@ -659,6 +808,24 @@ html[data-theme="dark"] .banner-info {
 
 .mt {
   margin-top: 8px;
+}
+
+.blacklist-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.blacklist-empty {
+  font-size: 12px;
+  color: var(--el-color-warning);
+}
+
+.blacklist-saving {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
 }
 
 .diagnostics-pane {

@@ -49,7 +49,7 @@ const LABEL_MAP: Record<string, string> = {
 
 const TITLE_MAP: Record<string, string> = {
   pm: "项目管理",
-  todo: "新建待办",
+  todo: "打开待办",
   inbox: "收集箱",
 };
 
@@ -58,10 +58,7 @@ const fixedButtons = computed<ExtensionButton[]>(() => {
     key: id,
     label: LABEL_MAP[id] ?? id,
     title: TITLE_MAP[id] ?? id,
-    payload:
-      id === "todo"
-        ? { kind: "open-todo-create" }
-        : { kind: "open-tool", toolId: id },
+    payload: { kind: "open-tool", toolId: id },
   }));
 });
 

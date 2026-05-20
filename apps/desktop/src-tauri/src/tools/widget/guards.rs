@@ -1,20 +1,30 @@
 //! 防护检测模块
 //!
 //! 合并 fullscreen.rs / lock.rs / idle.rs 三个模块。
-//! 提供三个公开函数：
-//! - `is_fullscreen_busy()` — 全屏切净检测（三层判定）
+//! 提供四个公开函数：
+//! - `fullscreen_busy_app()` — 全屏切净检测，返回触发的进程名/原因；None = 未触发
+//! - `is_fullscreen_busy()` — `fullscreen_busy_app().is_some()` 的快捷封装
 //! - `is_locked()` — 锁屏检测（OpenInputDesktop）
 //! - `seconds_idle()` — 用户空闲秒数（GetLastInputInfo）
 
 #![allow(dead_code)]
 
 #[cfg(windows)]
-pub use imp::is_fullscreen_busy;
+pub use imp::fullscreen_busy_app;
 #[cfg(windows)]
 pub use imp::is_locked;
 #[cfg(windows)]
 pub use imp::seconds_idle;
 
+#[cfg(windows)]
+pub fn is_fullscreen_busy() -> bool {
+    fullscreen_busy_app().is_some()
+}
+
+#[cfg(not(windows))]
+pub fn fullscreen_busy_app() -> Option<String> {
+    None
+}
 #[cfg(not(windows))]
 pub fn is_fullscreen_busy() -> bool {
     false
@@ -63,17 +73,25 @@ mod imp {
     // ── 全屏切净检测（原 fullscreen.rs） ──────────
 
     /// 三层判定：通知状态 / 前台窗口覆盖全屏 / 黑名单进程。
-    pub fn is_fullscreen_busy() -> bool {
+    /// 返回 `Some(进程名 或 原因标签)` 表示需要切净，`None` 表示无需切净。
+    pub fn fullscreen_busy_app() -> Option<String> {
+        // 通知状态：拿不到具体进程名，先取前台进程兜底；仍取不到则给标签。
         if check_notification_state() {
-            return true;
+            return Some(
+                foreground_process_name().unwrap_or_else(|| "系统通知态".into()),
+            );
         }
+        // 前台全屏窗口：拿前台进程名，取不到给标签。
         if check_foreground_full_screen() {
-            return true;
+            return Some(
+                foreground_process_name().unwrap_or_else(|| "前台全屏窗口".into()),
+            );
         }
-        if check_foreground_blacklisted() {
-            return true;
+        // 黑名单：直接拿前台进程名（命中时必然有值）。
+        if let Some(name) = check_foreground_blacklisted() {
+            return Some(name);
         }
-        false
+        None
     }
 
     fn check_notification_state() -> bool {
@@ -116,18 +134,22 @@ mod imp {
         }
     }
 
-    fn check_foreground_blacklisted() -> bool {
+    fn check_foreground_blacklisted() -> Option<String> {
         let cfg = config::read_config();
         if cfg.fullscreen_blacklist.is_empty() {
-            return false;
+            return None;
         }
-        let Some(name) = foreground_process_name() else {
-            return false;
-        };
+        let name = foreground_process_name()?;
         let lower = name.to_ascii_lowercase();
-        cfg.fullscreen_blacklist
+        if cfg
+            .fullscreen_blacklist
             .iter()
             .any(|raw| raw.to_ascii_lowercase() == lower)
+        {
+            Some(name)
+        } else {
+            None
+        }
     }
 
     fn foreground_process_name() -> Option<String> {

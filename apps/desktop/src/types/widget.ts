@@ -38,6 +38,10 @@ export interface WidgetDashboardData {
   extensionFixedTools?: string[];
   /** 拓展区热门工具推荐数量上限 */
   extensionHotToolsLimit?: number;
+  /** 截断前的总数（超过 100 条时使用） */
+  todoTotalCount?: number;
+  /** 是否被 100 条上限截断 */
+  todoTruncated?: boolean;
 }
 
 export interface WidgetStatus {
@@ -54,6 +58,8 @@ export interface WidgetStatus {
   privacyMaskUntil?: string | null;
   /** 调度上轮自动跳过原因（"lock" | "fullscreen"）；null = 未跳过 */
   autoSkipReason?: "lock" | "fullscreen" | null;
+  /** 触发自动跳过的应用名（fullscreen 时为前台进程名；lock 时为 null） */
+  autoSkipApp?: string | null;
 }
 
 export interface WidgetConfig {

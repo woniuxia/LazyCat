@@ -7,35 +7,43 @@
     </div>
     <div v-show="scrollable && showTopShadow" class="scroll-shadow scroll-shadow-top" />
     <div class="list-body" ref="listBodyRef" @scroll="onScroll">
-      <div
-        v-for="(item, idx) in items"
-        :key="item.id"
-        class="todo-row"
-        :class="[`p-${item.priority.toLowerCase()}`, { 'is-overdue': isOverdue(item) }]"
-        :style="{ animationDelay: `${Math.min(idx * 30, 300)}ms` }"
-      >
-        <button
-          class="check"
-          :class="`p-${item.priority.toLowerCase()}`"
-          :title="`完成 · ${displayTitle(item.title)}`"
-          @click="onComplete(item)"
+      <TransitionGroup name="todo-row" tag="div" class="todo-rows">
+        <div
+          v-for="(item, idx) in items"
+          :key="item.id"
+          class="todo-row"
+          :class="[`p-${item.priority.toLowerCase()}`, { 'is-overdue': isOverdue(item) }]"
+          :style="{ animationDelay: `${Math.min(idx * 30, 300)}ms` }"
         >
-          <svg class="check-icon" viewBox="0 0 12 12" fill="none">
-            <path d="M2.5 6L5 8.5L9.5 3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          <button
+            class="check"
+            :class="`p-${item.priority.toLowerCase()}`"
+            :title="`完成 · ${displayTitle(item.title)}`"
+            @click="onComplete(item)"
+          >
+            <svg class="check-icon" viewBox="0 0 12 12" fill="none">
+              <path d="M2.5 6L5 8.5L9.5 3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+          <svg v-if="item.pinned" class="pin-icon" viewBox="0 0 16 16" fill="none" aria-label="已置顶">
+            <path d="M9.5 2L10.5 3L10 3.5L9.5 3L7 5.5V9L10 12V14H6V12L9 9V5.5L6.5 3L6 3.5L5.5 3L6.5 2L8 3.5L9.5 2Z" fill="currentColor"/>
+            <line x1="10" y1="12" x2="10" y2="14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
           </svg>
+          <span class="title">{{ displayTitle(item.title) }}</span>
+          <span class="deadline" :class="{ overdue: isOverdue(item) }">
+            <svg v-if="isOverdue(item)" class="overdue-icon" viewBox="0 0 14 14" fill="none" aria-label="已逾期">
+              <circle cx="7" cy="7" r="5.5" stroke="currentColor" stroke-width="1.2"/>
+              <path d="M7 4V7.5L9 9" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            {{ formatDeadline(item.endAt) }}
+          </span>
+        </div>
+      </TransitionGroup>
+      <div v-if="truncated && items.length > 0" class="truncated-hint">
+        还有 {{ Math.max((totalCount ?? items.length) - items.length, 0) }} 条未显示，
+        <button class="truncated-link" type="button" @click="$emit('action', { kind: 'open-tool', toolId: 'todo' })">
+          去待办查看
         </button>
-        <svg v-if="item.pinned" class="pin-icon" viewBox="0 0 16 16" fill="none" aria-label="已置顶">
-          <path d="M9.5 2L10.5 3L10 3.5L9.5 3L7 5.5V9L10 12V14H6V12L9 9V5.5L6.5 3L6 3.5L5.5 3L6.5 2L8 3.5L9.5 2Z" fill="currentColor"/>
-          <line x1="10" y1="12" x2="10" y2="14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-        </svg>
-        <span class="title">{{ displayTitle(item.title) }}</span>
-        <span class="deadline" :class="{ overdue: isOverdue(item) }">
-          <svg v-if="isOverdue(item)" class="overdue-icon" viewBox="0 0 14 14" fill="none" aria-label="已逾期">
-            <circle cx="7" cy="7" r="5.5" stroke="currentColor" stroke-width="1.2"/>
-            <path d="M7 4V7.5L9 9" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-          {{ formatDeadline(item.endAt) }}
-        </span>
       </div>
       <div v-if="items.length === 0" class="empty">
         <div class="empty-illustration">
@@ -61,6 +69,10 @@ const props = defineProps<{
   items: WidgetTodoItem[];
   /** 开启敏感模式时把 title 替换为 ▓ */
   privacyMask?: boolean;
+  /** 是否被 100 条上限截断 */
+  truncated?: boolean;
+  /** 截断前的总数 */
+  totalCount?: number;
 }>();
 
 const emit = defineEmits<{
@@ -242,6 +254,28 @@ function parseLocalDate(raw: string): Date | null {
   animation: row-enter 0.3s ease-out both;
 }
 
+/* TransitionGroup leave 动画：勾选后向右淡出 */
+.todo-row-leave-active {
+  transition: opacity 0.22s ease, transform 0.22s ease, max-height 0.22s ease, padding 0.22s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.todo-row-leave-from {
+  opacity: 1;
+  transform: translateX(0);
+  max-height: 60px;
+}
+
+.todo-row-leave-to {
+  opacity: 0;
+  transform: translateX(24px);
+  max-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  border-bottom-width: 0;
+}
+
 .todo-row.is-overdue {
   border-left-color: #ef4444;
   background: rgba(239, 68, 68, 0.05);
@@ -417,6 +451,31 @@ function parseLocalDate(raw: string): Date | null {
 
 .empty-action:active {
   transform: scale(0.96);
+}
+
+.truncated-hint {
+  padding: 8px 12px;
+  font-size: 11px;
+  color: var(--wc-text-muted);
+  text-align: center;
+  border-top: 1px solid var(--wc-divider);
+  background: var(--wc-block-bg);
+}
+
+.truncated-link {
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--wc-accent);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+  text-decoration: underline;
+}
+
+.truncated-link:hover {
+  opacity: 0.85;
 }
 
 .scroll-shadow {

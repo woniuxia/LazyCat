@@ -4,7 +4,7 @@
 //! 聚合统计；最终输出对齐前端 `WidgetDashboardData` 类型。
 
 use chrono::{Local, Utc};
-use rusqlite::{params, Connection};
+use rusqlite::Connection;
 use serde_json::{json, Value};
 
 use crate::tools::helpers::db_conn;
@@ -30,7 +30,9 @@ pub fn dashboard_data(_payload: &Value) -> Result<Value, String> {
     // SQL 已限定只加载未完成事项，无需二次过滤
     let mut merged = merge_and_dedup_items(&pm_rows, &todo_rows, &today_str);
     sort_dashboard_items(&mut merged);
-    if merged.len() > TODO_LIMIT {
+    let total_count = merged.len();
+    let truncated = total_count > TODO_LIMIT;
+    if truncated {
         merged.truncate(TODO_LIMIT);
     }
 
@@ -40,6 +42,8 @@ pub fn dashboard_data(_payload: &Value) -> Result<Value, String> {
 
     Ok(json!({
         "todoList": merged,
+        "todoTotalCount": total_count,
+        "todoTruncated": truncated,
         "generatedAt": Utc::now().to_rfc3339(),
         "hotTools": hot_tools,
         "extensionFixedTools": cfg.extension_fixed_tools,

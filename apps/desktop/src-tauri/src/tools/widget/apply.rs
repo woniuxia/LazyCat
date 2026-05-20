@@ -63,7 +63,11 @@ pub fn apply_with_force(app: &AppHandle, force: bool) -> Result<Value, String> {
         .get("extensionHotToolsLimit")
         .and_then(|v| v.as_i64())
         .unwrap_or(3);
-    let input_hash = compute_input_hash(&todo_list_value, &hot_tools_value, &ext_fixed, ext_limit, privacy_mask);
+    let total_count = dashboard
+        .get("todoTotalCount")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(todo_list_value.len() as u64);
+    let input_hash = compute_input_hash(&todo_list_value, &hot_tools_value, &ext_fixed, ext_limit, privacy_mask, total_count);
     let prev_hash = session::session().input_hash();
     if !force && input_hash != 0 && input_hash == prev_hash {
         eprintln!("[widget] apply: skipped (no-change, hash={input_hash:#x})");
@@ -140,7 +144,7 @@ fn resolve_privacy_mask(cfg: &config::WidgetConfig) -> bool {
     false
 }
 
-/// 内容哈希：dashboard（去掉 generatedAt 时间戳）+ hotTools + extension 配置 + privacy_mask。
+/// 内容哈希：dashboard（去掉 generatedAt 时间戳）+ hotTools + extension 配置 + privacy_mask + total_count。
 /// 0 → 1 避免与 sentinel 冲突。
 fn compute_input_hash(
     todo_list: &[Value],
@@ -148,6 +152,7 @@ fn compute_input_hash(
     ext_fixed: &[Value],
     ext_limit: i64,
     privacy_mask: bool,
+    total_count: u64,
 ) -> u64 {
     let dashboard_hex = dashboard_logic::compute_dashboard_hash(todo_list);
 
@@ -161,6 +166,8 @@ fn compute_input_hash(
     hasher.update(serde_json::to_string(ext_fixed).unwrap_or_default().as_bytes());
     hasher.update(b"|");
     hasher.update(ext_limit.to_string().as_bytes());
+    hasher.update(b"|");
+    hasher.update(total_count.to_string().as_bytes());
 
     let bytes = hasher.finalize();
     let mut buf = [0u8; 8];
@@ -182,49 +189,57 @@ mod tests {
         let todos = vec![json!({ "id": "pm:1", "title": "x" })];
         let hot = vec![json!({ "id": "pm", "count": 3 })];
         let ext = vec![json!("pm"), json!("todo")];
-        let a = compute_input_hash(&todos, &hot, &ext, 3, false);
-        let b = compute_input_hash(&todos, &hot, &ext, 3, false);
+        let a = compute_input_hash(&todos, &hot, &ext, 3, false, 1);
+        let b = compute_input_hash(&todos, &hot, &ext, 3, false, 1);
         assert_eq!(a, b);
     }
 
     #[test]
     fn hash_changes_with_todo_list() {
-        let h1 = compute_input_hash(&[json!({ "id": "a" })], &[], &[], 3, false);
-        let h2 = compute_input_hash(&[json!({ "id": "b" })], &[], &[], 3, false);
+        let h1 = compute_input_hash(&[json!({ "id": "a" })], &[], &[], 3, false, 1);
+        let h2 = compute_input_hash(&[json!({ "id": "b" })], &[], &[], 3, false, 1);
         assert_ne!(h1, h2);
     }
 
     #[test]
     fn hash_changes_with_privacy_mask() {
-        let h1 = compute_input_hash(&[], &[], &[], 3, false);
-        let h2 = compute_input_hash(&[], &[], &[], 3, true);
+        let h1 = compute_input_hash(&[], &[], &[], 3, false, 0);
+        let h2 = compute_input_hash(&[], &[], &[], 3, true, 0);
         assert_ne!(h1, h2);
     }
 
     #[test]
     fn hash_changes_with_hot_tools() {
-        let h1 = compute_input_hash(&[], &[json!({ "id": "pm" })], &[], 3, false);
-        let h2 = compute_input_hash(&[], &[json!({ "id": "inbox" })], &[], 3, false);
+        let h1 = compute_input_hash(&[], &[json!({ "id": "pm" })], &[], 3, false, 0);
+        let h2 = compute_input_hash(&[], &[json!({ "id": "inbox" })], &[], 3, false, 0);
         assert_ne!(h1, h2);
     }
 
     #[test]
     fn hash_changes_with_extension_fixed_tools() {
-        let h1 = compute_input_hash(&[], &[], &[json!("pm")], 3, false);
-        let h2 = compute_input_hash(&[], &[], &[json!("pm"), json!("todo")], 3, false);
+        let h1 = compute_input_hash(&[], &[], &[json!("pm")], 3, false, 0);
+        let h2 = compute_input_hash(&[], &[], &[json!("pm"), json!("todo")], 3, false, 0);
         assert_ne!(h1, h2);
     }
 
     #[test]
     fn hash_changes_with_extension_hot_tools_limit() {
-        let h1 = compute_input_hash(&[], &[], &[], 3, false);
-        let h2 = compute_input_hash(&[], &[], &[], 5, false);
+        let h1 = compute_input_hash(&[], &[], &[], 3, false, 0);
+        let h2 = compute_input_hash(&[], &[], &[], 5, false, 0);
+        assert_ne!(h1, h2);
+    }
+
+    #[test]
+    fn hash_changes_with_total_count() {
+        let todos = vec![json!({ "id": "a" })];
+        let h1 = compute_input_hash(&todos, &[], &[], 3, false, 1);
+        let h2 = compute_input_hash(&todos, &[], &[], 3, false, 200);
         assert_ne!(h1, h2);
     }
 
     #[test]
     fn hash_never_returns_sentinel_zero() {
-        let h = compute_input_hash(&[], &[], &[], 3, false);
+        let h = compute_input_hash(&[], &[], &[], 3, false, 0);
         assert_ne!(h, 0);
     }
 }

@@ -14,6 +14,8 @@
       <WidgetTodoList
         :items="data.todoList"
         :privacy-mask="privacyMask"
+        :truncated="data.todoTruncated"
+        :total-count="data.todoTotalCount"
         @complete="onCompleteItem"
         @action="onCanvasAction"
       />
@@ -22,9 +24,15 @@
         :fixed-tool-ids="extensionFixedToolIds"
         @action="onCanvasAction"
       />
-      <div v-if="showStaleHint" class="stale-hint">
+      <div v-if="showStaleHint" class="stale-hint" :class="{ 'is-stale-long': isStaleLong }">
         <span class="stale-dot" />
-        <span>刷新中…</span>
+        <template v-if="!isStaleLong">
+          <span>刷新中…</span>
+        </template>
+        <template v-else>
+          <span>连接异常</span>
+          <button class="stale-retry" type="button" @click="onManualRefresh">重试</button>
+        </template>
       </div>
     </template>
     <div v-else class="boot">
@@ -46,14 +54,26 @@ import WidgetExtensionSlot from "./WidgetExtensionSlot.vue";
 const data = ref<WidgetDashboardData | null>(null);
 const privacyMask = ref(false);
 const lastDataReceivedAt = ref(0);
+/** 用于让 stale 状态判定每 5s 重新计算 */
+const stalenessTick = ref(0);
 
 const unlisteners: UnlistenFn[] = [];
 let pingHandle: ReturnType<typeof setInterval> | null = null;
+let stalenessHandle: ReturnType<typeof setInterval> | null = null;
 
 /** 如果超过 60s 无数据，显示"刷新中…"提示 */
 const showStaleHint = computed(() => {
+  // touch stalenessTick 让 computed 周期性重算
+  stalenessTick.value;
   if (!data.value) return false;
   return lastDataReceivedAt.value > 0 && Date.now() - lastDataReceivedAt.value > 60_000;
+});
+
+/** 超过 120s 视为连接异常，显示"重试"按钮 */
+const isStaleLong = computed(() => {
+  stalenessTick.value;
+  if (!data.value) return false;
+  return lastDataReceivedAt.value > 0 && Date.now() - lastDataReceivedAt.value > 120_000;
 });
 
 /** 拓展区固定工具 ID 列表，来自后端配置（dashboard data 同步下发）。 */
@@ -101,6 +121,11 @@ onMounted(async () => {
   pingHandle = setInterval(() => {
     void emit("widget://ping");
   }, 5000);
+
+  // 每 5s 触发一次 staleness 重新计算（Date.now 不响应式，需 tick）
+  stalenessHandle = setInterval(() => {
+    stalenessTick.value = Date.now();
+  }, 5000);
 });
 
 onBeforeUnmount(() => {
@@ -108,6 +133,10 @@ onBeforeUnmount(() => {
   if (pingHandle !== null) {
     clearInterval(pingHandle);
     pingHandle = null;
+  }
+  if (stalenessHandle !== null) {
+    clearInterval(stalenessHandle);
+    stalenessHandle = null;
   }
 });
 
@@ -129,8 +158,12 @@ async function onCompleteItem(item: WidgetTodoItem) {
     console.warn("[widget-canvas] invalid item id", item.id);
     return;
   }
+  // 记录原索引，失败时按原位置 splice 回去，避免顺序错乱
+  const originalIndex = data.value
+    ? data.value.todoList.findIndex((i) => i.id === item.id)
+    : -1;
   // 乐观更新：从本地列表移除，避免等待后端往返的卡顿
-  if (data.value) {
+  if (data.value && originalIndex >= 0) {
     data.value.todoList = data.value.todoList.filter((i) => i.id !== item.id);
   }
   try {
@@ -146,11 +179,22 @@ async function onCompleteItem(item: WidgetTodoItem) {
     void emit("widget://canvas-action", { kind: "todo-completed", id: item.id });
   } catch (e) {
     console.error("[widget-canvas] complete failed", e);
-    // 失败回滚：把项放回去（按原顺序难精确恢复，简单 unshift 到顶部）
-    if (data.value) {
-      data.value.todoList = [item, ...data.value.todoList];
+    // 失败回滚：按原位置插回
+    if (data.value && originalIndex >= 0) {
+      const list = [...data.value.todoList];
+      const insertAt = Math.min(originalIndex, list.length);
+      list.splice(insertAt, 0, item);
+      data.value.todoList = list;
     }
   }
+}
+
+/** stale 状态下用户手动重试：通知后端 invalidate + 立即推新数据 */
+function onManualRefresh() {
+  void emit("widget://canvas-action", { kind: "manual-refresh" });
+  // 重置时间戳避免按钮被反复点击；后端推送后会刷新这个时间
+  lastDataReceivedAt.value = Date.now();
+  stalenessTick.value = Date.now();
 }
 </script>
 
@@ -230,6 +274,35 @@ async function onCompleteItem(item: WidgetTodoItem) {
   opacity: 0.5;
   pointer-events: none;
   padding: 2px 0;
+}
+
+.stale-hint.is-stale-long {
+  color: #ef4444;
+  opacity: 1;
+  pointer-events: auto;
+  font-weight: 500;
+}
+
+.stale-retry {
+  margin-left: 4px;
+  padding: 2px 10px;
+  border-radius: 10px;
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  color: #ef4444;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background-color 0.15s ease, transform 0.1s ease;
+}
+
+.stale-retry:hover {
+  background: rgba(239, 68, 68, 0.16);
+}
+
+.stale-retry:active {
+  transform: scale(0.95);
 }
 
 .stale-dot {

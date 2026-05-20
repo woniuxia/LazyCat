@@ -33,6 +33,7 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         "enable" => Err(needs_app_handle("enable")),
         "disable" => Err(needs_app_handle("disable")),
         "resume" => Err(needs_app_handle("resume")),
+        "reposition" => Err(needs_app_handle("reposition")),
         "pause" => pause_widget(payload),
         "set_privacy_mask" => set_privacy_mask(payload),
         "diagnostics" => Ok(session::session().diagnostics_snapshot()),
@@ -46,6 +47,7 @@ pub fn execute_with_app(action: &str, payload: &Value, app: &AppHandle) -> Resul
         "enable" => enable_widget(app),
         "disable" => disable_widget(app),
         "resume" => resume_widget(app),
+        "reposition" => reposition_widget(app),
         _ => execute(action, payload),
     }
 }
@@ -84,6 +86,7 @@ fn enable_widget(app: &AppHandle) -> Result<Value, String> {
         s.pause_reason = None;
         s.last_error = None;
         s.auto_skip_reason = None;
+        s.auto_skip_app = None;
     });
     session::session().paused.store(false, std::sync::atomic::Ordering::SeqCst);
     session::session().invalidate_input_hash();
@@ -108,6 +111,7 @@ fn disable_widget(app: &AppHandle) -> Result<Value, String> {
         s.pause_reason = None;
         s.last_error = None;
         s.auto_skip_reason = None;
+        s.auto_skip_app = None;
     });
     session::session().paused.store(false, std::sync::atomic::Ordering::SeqCst);
     eprintln!("[widget] disable: done");
@@ -176,9 +180,27 @@ fn resume_widget(app: &AppHandle) -> Result<Value, String> {
     }
 }
 
-// ── 敏感模式 ──────────────────────────────────────
+/// 强制重新计算挂件位置（用于 widgetY 改动后立即生效）。
+///
+/// 仅在窗口存在且处于 Peek/Full 状态时执行；其他状态（Hidden/Windowless）下
+/// 位置变更会随下次显示自然生效。
+fn reposition_widget(app: &AppHandle) -> Result<Value, String> {
+    let s = session::session();
+    if !s.is_window_open() {
+        return Ok(json!({ "ok": true, "skipped": "no-window" }));
+    }
+    let cur = s.visual_state();
+    if !matches!(cur, widget::VisualState::Peek | widget::VisualState::Full) {
+        return Ok(json!({ "ok": true, "skipped": "not-visible" }));
+    }
+    let Some(win) = s.window_handle() else {
+        return Ok(json!({ "ok": true, "skipped": "no-handle" }));
+    };
+    widget::apply_position(app, &win, cur)?;
+    Ok(json!({ "ok": true }))
+}
 
-/// 设置敏感模式开关 + 自动到期时间。
+// ── 敏感模式 ──────────────────────────────────────/// 设置敏感模式开关 + 自动到期时间。
 fn set_privacy_mask(payload: &Value) -> Result<Value, String> {
     let enabled = payload
         .get("enabled")

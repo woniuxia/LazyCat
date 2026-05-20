@@ -83,6 +83,8 @@ pub(crate) struct SessionInner {
     pub(crate) last_rendered_at: Option<String>,
     pub(crate) last_error: Option<String>,
     pub(crate) auto_skip_reason: Option<String>,
+    /// 触发自动跳过的应用名（fullscreen 时为前台进程名；lock 时为 None）
+    pub(crate) auto_skip_app: Option<String>,
     pub(crate) spotlight_detected: bool,
     pub(crate) third_party_engine: Option<String>,
 
@@ -141,6 +143,7 @@ impl WidgetSession {
                 last_rendered_at: None,
                 last_error: None,
                 auto_skip_reason: None,
+                auto_skip_app: None,
                 spotlight_detected: false,
                 third_party_engine: None,
                 config_cache: config::WidgetConfig::default(),
@@ -316,18 +319,27 @@ impl WidgetSession {
 
         if guards::is_locked() {
             drop(inner);
-            self.write_inner(|s| s.auto_skip_reason = Some("lock".into()));
+            self.write_inner(|s| {
+                s.auto_skip_reason = Some("lock".into());
+                s.auto_skip_app = None;
+            });
             return true;
         }
 
-        if guards::is_fullscreen_busy() {
+        if let Some(app_name) = guards::fullscreen_busy_app() {
             drop(inner);
-            self.write_inner(|s| s.auto_skip_reason = Some("fullscreen".into()));
+            self.write_inner(|s| {
+                s.auto_skip_reason = Some("fullscreen".into());
+                s.auto_skip_app = Some(app_name);
+            });
             return true;
         }
 
         drop(inner);
-        self.write_inner(|s| s.auto_skip_reason = None);
+        self.write_inner(|s| {
+            s.auto_skip_reason = None;
+            s.auto_skip_app = None;
+        });
         false
     }
 
@@ -607,6 +619,7 @@ impl WidgetSession {
             "privacyMaskActive": mask_active,
             "privacyMaskUntil": inner.config_cache.privacy_mask_until,
             "autoSkipReason": inner.auto_skip_reason.as_deref(),
+            "autoSkipApp": inner.auto_skip_app.as_deref(),
         })
     }
 
@@ -852,6 +865,7 @@ mod tests {
         assert!(obj.contains_key("privacyMaskActive"));
         assert!(obj.contains_key("privacyMaskUntil"));
         assert!(obj.contains_key("autoSkipReason"));
+        assert!(obj.contains_key("autoSkipApp"));
     }
 
     #[test]
