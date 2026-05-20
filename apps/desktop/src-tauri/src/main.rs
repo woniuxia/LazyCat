@@ -340,13 +340,6 @@ const SPOTLIGHT_LABEL: &str = "spotlight";
 const SPOTLIGHT_TITLE: &str = "Spotlight";
 const SPOTLIGHT_WIDTH: i64 = 560;
 const SPOTLIGHT_HEIGHT: i64 = 420;
-const SPOTLIGHT_VIEW_SCRIPT: &str = r#"
-window.__LAZYCAT_VIEW__ = 'spotlight';
-if (!window.location.search.includes('view=spotlight')) {
-  const hash = window.location.hash || '';
-  window.history.replaceState(window.history.state, '', `${window.location.pathname}?view=spotlight${hash}`);
-}
-"#;
 
 fn expected_window_title(window_label: &str) -> Option<&'static str> {
     match window_label {
@@ -505,12 +498,12 @@ fn show_quick_capture(app: &AppHandle) {
 fn spotlight_url() -> WebviewUrl {
     if cfg!(debug_assertions) {
         WebviewUrl::External(
-            "http://localhost:5173/?view=spotlight"
+            "http://localhost:5173/spotlight.html"
                 .parse()
                 .expect("valid spotlight dev url"),
         )
     } else {
-        WebviewUrl::App("index.html".into())
+        WebviewUrl::App("spotlight.html".into())
     }
 }
 
@@ -537,6 +530,21 @@ fn position_spotlight(window: &WebviewWindow) {
     let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
 }
 
+fn build_spotlight_window(app: &AppHandle) -> Option<WebviewWindow> {
+    let builder = WebviewWindowBuilder::new(app, SPOTLIGHT_LABEL, spotlight_url())
+        .title(SPOTLIGHT_TITLE)
+        .inner_size(SPOTLIGHT_WIDTH as f64, SPOTLIGHT_HEIGHT as f64)
+        .decorations(false)
+        .always_on_top(true)
+        .resizable(false)
+        .skip_taskbar(true)
+        .focused(false)
+        .visible(false);
+    let window = builder.build().ok()?;
+    position_spotlight(&window);
+    Some(window)
+}
+
 fn show_spotlight(app: &AppHandle) {
     let app_handle = app.clone();
     let _ = app.run_on_main_thread(move || {
@@ -556,21 +564,9 @@ fn show_spotlight(app: &AppHandle) {
             return;
         }
 
-        let builder = WebviewWindowBuilder::new(&app_handle, SPOTLIGHT_LABEL, spotlight_url())
-            .title(SPOTLIGHT_TITLE)
-            .inner_size(SPOTLIGHT_WIDTH as f64, SPOTLIGHT_HEIGHT as f64)
-            .decorations(false)
-            .always_on_top(true)
-            .resizable(false)
-            .skip_taskbar(true)
-            .focused(true)
-            .visible(false)
-            .initialization_script(SPOTLIGHT_VIEW_SCRIPT);
-
-        let Ok(window) = builder.build() else {
+        let Some(window) = build_spotlight_window(&app_handle) else {
             return;
         };
-        position_spotlight(&window);
         let _ = window.show();
         let _ = window.set_focus();
         #[cfg(windows)]
@@ -1294,6 +1290,19 @@ fn main() {
 
             // 启动挂件统一脉冲调度（心跳 + 事件 debounce + 看门狗 + 跨日立刷）
             tools::widget::pulse::start(app.handle().clone());
+
+            // 延迟预创建 spotlight 隐藏窗口，首次呼出仅需 show/focus，避免 WebView 冷启动延迟
+            let app_for_preload = app.handle().clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(500));
+                let handle_inner = app_for_preload.clone();
+                let _ = app_for_preload.run_on_main_thread(move || {
+                    if handle_inner.get_webview_window(SPOTLIGHT_LABEL).is_some() {
+                        return;
+                    }
+                    let _ = build_spotlight_window(&handle_inner);
+                });
+            });
 
             Ok(())
         })

@@ -29,6 +29,10 @@ export default defineConfig({
   build: {
     outDir: "dist-renderer",
     rollupOptions: {
+      input: {
+        main: resolve(__dirname, "index.html"),
+        spotlight: resolve(__dirname, "spotlight.html"),
+      },
       output: {
         manualChunks: {
           "element-plus": ["element-plus"],
