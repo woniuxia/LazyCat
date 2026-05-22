@@ -6,6 +6,14 @@
       <span>当前非管理员模式。激活或恢复 hosts 时将弹出 UAC 提权确认窗口。</span>
     </div>
 
+    <!-- 系统 hosts 与激活 profile 不一致提示 -->
+    <div v-if="consistencyWarning" class="hosts-admin-banner is-warning">
+      <el-icon><WarningFilled /></el-icon>
+      <span>{{ consistencyWarning }}</span>
+      <el-button size="small" text type="primary" @click="reloadSystemHosts">读取系统 hosts</el-button>
+      <el-button size="small" text @click="dismissConsistencyWarning">忽略</el-button>
+    </div>
+
     <div class="hosts-layout">
       <!-- 左侧：配置列表 -->
       <aside class="hosts-sidebar">
@@ -33,7 +41,7 @@
           <span class="hosts-list-count">{{ filteredProfiles.length }} 个</span>
         </div>
 
-        <div ref="profileListRef" class="hosts-profile-list" :class="{ 'is-loading': listLoading }">
+        <div ref="profileListRef" class="hosts-profile-list" :class="{ 'is-loading': listLoading || reorderLoading }">
           <div
             v-for="(profile, index) in filteredProfiles"
             :key="profile.id"
@@ -132,15 +140,19 @@
               class="hosts-textarea"
               :class="{ 'has-errors': validationErrors.length > 0, 'is-readonly': isEditorReadonly }"
               :readonly="isEditorReadonly"
+              :title="isEditorReadonly ? '双击进入编辑模式' : ''"
               placeholder="# 示例 hosts 配置&#10;127.0.0.1  localhost&#10;192.168.1.100  myserver.local&#10;::1  localhost"
               @scroll="syncScroll"
+              @dblclick="onEditorDblClick"
             />
           </div>
 
           <div v-if="validationErrors.length > 0" class="hosts-validation-panel">
             <div class="hosts-validation-title">
               <el-icon><WarningFilled /></el-icon>
-              <span>发现 {{ validationErrors.length }} 个问题</span>
+              <span>
+                发现 {{ validationErrorTotal }} 个问题<template v-if="validationErrorTotal > validationErrors.length">（仅显示前 {{ validationErrors.length }} 个）</template>
+              </span>
             </div>
             <div class="hosts-validation-list">
               <div
@@ -206,7 +218,7 @@
               <el-table-column label="大小" width="80" align="right">
                 <template #default="{ row }">{{ formatSize(row.size) }}</template>
               </el-table-column>
-              <el-table-column label="操作" width="80" align="center">
+              <el-table-column label="操作" width="120" align="center">
                 <template #default="{ row }">
                   <el-button
                     size="small"
@@ -214,6 +226,12 @@
                     link
                     @click="restoreBackup(row.filename)"
                   >恢复</el-button>
+                  <el-button
+                    size="small"
+                    type="danger"
+                    link
+                    @click="deleteBackup(row.filename)"
+                  >删除</el-button>
                 </template>
               </el-table-column>
             </el-table>
@@ -299,6 +317,12 @@ const contextMenuPosition = ref<{ left: string; top: string; position: string }>
   position: "fixed",
 });
 const isEditorReadonly = ref(true);
+// 编辑器当前承载的 profile id；null 表示新建草稿
+const editingProfileId = ref<number | null>(null);
+// 系统 hosts 与激活 profile 不一致时显示的 banner 文案
+const consistencyWarning = ref("");
+// 拖拽中标志，避免重复触发
+const reorderLoading = ref(false);
 
 // --- loading flags ---
 const saving = ref(false);
@@ -321,15 +345,19 @@ const lineCount = computed(() => {
 });
 
 // --- hosts syntax validation ---
-const validationErrors = computed(() => {
+// 收集所有错误用于计数；前 MAX_DISPLAY 条返回给 UI 渲染，其余仅计入总数。
+const MAX_DISPLAY_ERRORS = 5;
+const allValidationErrors = computed(() => {
   const lines = hostsContent.value.split("\n");
   const errors: string[] = [];
-  const ipv4Re = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/;
-  const ipv6Re = /^[0-9a-fA-F:]+$/;
-  const hostnameRe = /^[a-zA-Z0-9._-]+$/;
+  // IPv4：四段 0-255
+  const ipv4Re = /^(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)){3}$/;
+  // IPv6：粗校验，允许压缩零段
+  const ipv6Re = /^(?:[0-9a-fA-F]{1,4}:){2,7}[0-9a-fA-F]{1,4}$|^::$|^::1$|^(?:[0-9a-fA-F]{1,4}:){1,7}:$|^:(?::[0-9a-fA-F]{1,4}){1,7}$|^(?:[0-9a-fA-F]{1,4}:){1,6}(?::[0-9a-fA-F]{1,4}){1,6}$/;
+  // 主机名 RFC 1123：字母数字开头/结尾，中间可有连字符
+  const hostnameLabelRe = /^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$/;
 
   for (let i = 0; i < lines.length; i++) {
-    if (errors.length >= 5) break;
     const raw = lines[i].trim();
     if (raw === "" || raw.startsWith("#")) continue;
 
@@ -348,19 +376,29 @@ const validationErrors = computed(() => {
       continue;
     }
 
+    let badHostname: string | null = null;
     for (let j = 1; j < parts.length; j++) {
-      if (!hostnameRe.test(parts[j])) {
-        errors.push(`第 ${i + 1} 行: "${parts[j]}" 不是有效的主机名`);
+      const host = parts[j];
+      const labels = host.split(".");
+      if (!labels.every((label) => hostnameLabelRe.test(label))) {
+        badHostname = host;
         break;
       }
+    }
+    if (badHostname) {
+      errors.push(`第 ${i + 1} 行: "${badHostname}" 不是有效的主机名`);
     }
   }
   return errors;
 });
 
+const validationErrors = computed(() => allValidationErrors.value.slice(0, MAX_DISPLAY_ERRORS));
+const validationErrorTotal = computed(() => allValidationErrors.value.length);
+
 const errorLines = computed(() => {
   const lines = new Set<number>();
-  validationErrors.value.forEach((err) => {
+  // 行号高亮覆盖所有错误，而非仅前 5 条，否则高亮会与文案不一致
+  allValidationErrors.value.forEach((err) => {
     const match = err.match(/第 (\d+) 行/);
     if (match) lines.add(parseInt(match[1]));
   });
@@ -410,7 +448,8 @@ function formatRelativeTime(raw: string): string {
   if (minutes < 60) return `${minutes} 分钟前`;
   if (hours < 24) return `${hours} 小时前`;
   if (days < 7) return `${days} 天前`;
-  return formatTime(raw);
+  // 超过 7 天的更新时间，列表里只展示日期；想看具体时间可以在备份表里查
+  return raw.split(/[T ]/)[0];
 }
 
 function formatSize(bytes: number): string {
@@ -467,6 +506,7 @@ async function loadBackupList() {
 function pickHosts(profile: HostsProfile) {
   hostsName.value = profile.name;
   hostsContent.value = profile.content;
+  editingProfileId.value = profile.id;
   isEditorReadonly.value = true;
 }
 
@@ -477,6 +517,28 @@ async function toggleEditorMode() {
     await nextTick();
     textareaRef.value?.focus();
   }
+}
+
+async function onEditorDblClick() {
+  if (!isEditorReadonly.value) return;
+  isEditorReadonly.value = false;
+  await nextTick();
+  textareaRef.value?.focus();
+}
+
+function generateUniqueName(baseName: string): string {
+  const existing = new Set(hostsProfiles.value.map((p) => p.name));
+  const base = `${baseName}-副本`;
+  if (!existing.has(base)) return base;
+  for (let i = 2; i < 1000; i++) {
+    const candidate = `${baseName}-副本${i}`;
+    if (!existing.has(candidate)) return candidate;
+  }
+  return `${baseName}-副本-${Date.now()}`;
+}
+
+function normalizeHostsContent(s: string): string {
+  return (s ?? "").replace(/\r/g, "").trim();
 }
 
 // --- context menu ---
@@ -510,71 +572,52 @@ function onCardContextMenu(e: MouseEvent, profile: HostsProfile) {
 
 async function activateContextProfile() {
   if (!contextMenuProfile.value || contextMenuProfile.value.enabled) return;
+  const target = contextMenuProfile.value;
   contextMenuVisible.value = false;
+  contextMenuProfile.value = null;
   activating.value = true;
   try {
     await invokeToolByChannel("tool:hosts:activate", {
-      profileName: contextMenuProfile.value.name,
-      content: contextMenuProfile.value.content,
+      profileName: target.name,
+      content: target.content,
     });
     await loadHostsProfiles();
-    ElMessage.success(`已将 "${contextMenuProfile.value.name}" 设为当前 hosts 配置`);
+    await verifyConsistency();
+    if (backupExpanded.value.length > 0) await loadBackupList();
+    ElMessage.success(`已将 "${target.name}" 设为当前 hosts 配置`);
   } catch (error) {
     ElMessage.error((error as Error).message);
   } finally {
     activating.value = false;
-    contextMenuProfile.value = null;
   }
 }
 
 async function cloneContextProfile() {
   if (!contextMenuProfile.value) return;
+  const source = contextMenuProfile.value;
   contextMenuVisible.value = false;
-  const newName = contextMenuProfile.value.name + "-副本";
+  contextMenuProfile.value = null;
+  const newName = generateUniqueName(source.name);
   try {
     await invokeToolByChannel("tool:hosts:save", {
       name: newName,
-      content: contextMenuProfile.value.content,
+      content: source.content,
+      mode: "create",
     });
     await loadHostsProfiles();
-    ElMessage.success(`已克隆配置 "${contextMenuProfile.value.name}"`);
+    ElMessage.success(`已克隆为 "${newName}"`);
   } catch (error) {
-    ElMessage.error((error as Error).message);
-  } finally {
-    contextMenuProfile.value = null;
+    const msg = (error as Error).message;
+    ElMessage.error(msg.includes("DUPLICATE_NAME") ? `配置 "${newName}" 已存在` : msg);
   }
 }
 
 async function deleteContextProfile() {
   if (!contextMenuProfile.value) return;
+  const name = contextMenuProfile.value.name;
   contextMenuVisible.value = false;
-  try {
-    await ElMessageBox.confirm(
-      `确定要删除配置 "${contextMenuProfile.value.name}" 吗？此操作不可撤销。`,
-      "删除确认",
-      { confirmButtonText: "删除", cancelButtonText: "取消", type: "warning" },
-    );
-  } catch {
-    contextMenuProfile.value = null;
-    return;
-  }
-  deleting.value = true;
-  try {
-    await invokeToolByChannel("tool:hosts:delete", { name: contextMenuProfile.value.name });
-    await loadHostsProfiles();
-    // 如果删除的是当前编辑器中的配置，清空编辑器
-    if (hostsName.value === contextMenuProfile.value.name) {
-      hostsName.value = "";
-      hostsContent.value = "";
-      isEditorReadonly.value = true;
-    }
-    ElMessage.success("hosts 配置已删除");
-  } catch (error) {
-    ElMessage.error((error as Error).message);
-  } finally {
-    deleting.value = false;
-    contextMenuProfile.value = null;
-  }
+  contextMenuProfile.value = null;
+  await deleteProfileByName(name);
 }
 
 function loadActiveProfileToEditor() {
@@ -586,6 +629,7 @@ function loadActiveProfileToEditor() {
 function createNewConfig() {
   hostsName.value = "";
   hostsContent.value = "# 新建 hosts 配置\n";
+  editingProfileId.value = null;
   isEditorReadonly.value = false;
 }
 
@@ -611,13 +655,39 @@ async function cloneConfig() {
     ElMessage.warning("请先选择一个配置或输入内容");
     return;
   }
-  const newName = hostsName.value + "-副本";
-  hostsName.value = newName;
-  await saveHosts();
+  const newName = generateUniqueName(hostsName.value.trim());
+  saving.value = true;
+  try {
+    await invokeToolByChannel("tool:hosts:save", {
+      name: newName,
+      content: hostsContent.value,
+      mode: "create",
+    });
+    await loadHostsProfiles();
+    const cloned = hostsProfiles.value.find((p) => p.name === newName);
+    if (cloned) pickHosts(cloned);
+    ElMessage.success(`已克隆为 "${newName}"`);
+  } catch (error) {
+    const msg = (error as Error).message;
+    ElMessage.error(msg.includes("DUPLICATE_NAME") ? `配置 "${newName}" 已存在` : msg);
+  } finally {
+    saving.value = false;
+  }
 }
 
+/**
+ * 保存逻辑（严格区分新建 / 更新，避免静默覆盖）：
+ *
+ * - 编辑器无 editing 上下文（新建草稿） → mode: "create"
+ *   - 命中已存在 name 时弹窗确认是否覆盖；确认后转为 update
+ * - 编辑器有 editing 上下文：
+ *   - name 未改 → mode: "update"
+ *   - name 改成了另一个已存在 profile 的 name → 弹窗确认会覆盖目标 profile；确认后 update 目标
+ *   - name 改成了完全新的名字 → mode: "create"（保留原 profile，等同另存为）
+ */
 async function saveHosts() {
-  if (!hostsName.value.trim()) {
+  const trimmedName = hostsName.value.trim();
+  if (!trimmedName) {
     ElMessage.warning("请输入配置名称");
     return;
   }
@@ -632,48 +702,125 @@ async function saveHosts() {
       return;
     }
   }
-  const existing = hostsProfiles.value.find(
-    (p) => p.name === hostsName.value.trim() && p.content === hostsContent.value,
-  );
-  if (existing) {
+
+  const editing = editingProfileId.value
+    ? hostsProfiles.value.find((p) => p.id === editingProfileId.value) ?? null
+    : null;
+  const existingByName = hostsProfiles.value.find((p) => p.name === trimmedName);
+
+  let mode: "create" | "update";
+  let targetName = trimmedName;
+
+  if (editing && editing.name === trimmedName) {
+    // 直接更新当前正在编辑的 profile
+    mode = "update";
+    if (editing.content === hostsContent.value) {
+      ElMessage.info("内容无变化");
+      return;
+    }
+  } else if (existingByName) {
+    // 新名字命中了另一个已存在的 profile：必须显式确认才覆盖
     try {
       await ElMessageBox.confirm(
-        "当前内容与已保存的配置相同，确定要覆盖吗？",
-        "重复内容",
-        { confirmButtonText: "确定覆盖", cancelButtonText: "取消", type: "info" },
+        `配置 "${trimmedName}" 已存在，将以当前编辑器内容覆盖它。是否继续？`,
+        "覆盖确认",
+        { confirmButtonText: "覆盖", cancelButtonText: "取消", type: "warning" },
       );
     } catch {
       return;
     }
+    mode = "update";
+    targetName = existingByName.name;
+  } else {
+    mode = "create";
   }
+
   saving.value = true;
   try {
     await invokeToolByChannel("tool:hosts:save", {
-      name: hostsName.value.trim(),
+      name: targetName,
       content: hostsContent.value,
+      mode,
     });
     await loadHostsProfiles();
+    const saved = hostsProfiles.value.find((p) => p.name === targetName);
+    if (saved) {
+      editingProfileId.value = saved.id;
+      hostsName.value = saved.name;
+    }
     ElMessage.success("hosts 配置已保存");
   } catch (error) {
-    ElMessage.error((error as Error).message);
+    const msg = (error as Error).message;
+    ElMessage.error(msg.includes("DUPLICATE_NAME") ? `配置 "${targetName}" 已存在` : msg);
   } finally {
     saving.value = false;
   }
 }
 
+/**
+ * 激活逻辑（带 dirty 检测）：
+ *
+ * 当编辑器内容与已保存版本不一致时，给用户三选一：
+ * - 保存后激活：先以 update 持久化编辑内容，再激活
+ * - 使用已保存版本激活：放弃编辑器内未保存修改
+ * - 取消
+ */
 async function activateHosts() {
-  if (!hostsName.value.trim()) {
+  const trimmedName = hostsName.value.trim();
+  if (!trimmedName) {
     ElMessage.warning("请先输入或选择一个配置");
     return;
   }
+
+  const target = hostsProfiles.value.find((p) => p.name === trimmedName);
+  let contentToActivate = hostsContent.value;
+
+  if (target && target.content !== hostsContent.value) {
+    let userChoice: "confirm" | "cancel" | "close" = "close";
+    try {
+      await ElMessageBox({
+        title: "未保存的修改",
+        message:
+          "编辑器内容与已保存的配置不一致。\n激活时如不先保存，写入系统的将是编辑器中的内容，但配置文件中的版本不会更新，可能导致下次启动后看到的与实际生效的不一致。",
+        showCancelButton: true,
+        confirmButtonText: "先保存再激活",
+        cancelButtonText: "用已保存版本激活",
+        distinguishCancelAndClose: true,
+        type: "warning",
+      });
+      userChoice = "confirm";
+    } catch (e) {
+      userChoice = e === "close" ? "close" : "cancel";
+    }
+    if (userChoice === "close") return;
+    if (userChoice === "confirm") {
+      try {
+        await invokeToolByChannel("tool:hosts:save", {
+          name: trimmedName,
+          content: hostsContent.value,
+          mode: "update",
+        });
+      } catch (error) {
+        ElMessage.error(`保存失败：${(error as Error).message}`);
+        return;
+      }
+    } else {
+      // 用已保存版本激活：把编辑器恢复为持久化内容
+      hostsContent.value = target.content;
+      contentToActivate = target.content;
+    }
+  }
+
   activating.value = true;
   try {
     await invokeToolByChannel("tool:hosts:activate", {
-      profileName: hostsName.value.trim(),
-      content: hostsContent.value,
+      profileName: trimmedName,
+      content: contentToActivate,
     });
     await loadHostsProfiles();
-    ElMessage.success(`已将 "${hostsName.value}" 设为当前 hosts 配置`);
+    await verifyConsistency();
+    if (backupExpanded.value.length > 0) await loadBackupList();
+    ElMessage.success(`已将 "${trimmedName}" 设为当前 hosts 配置`);
   } catch (error) {
     console.error("[HOSTS] activateHosts 失败:", error);
     ElMessage.error((error as Error).message);
@@ -683,13 +830,21 @@ async function activateHosts() {
 }
 
 async function deleteHosts() {
-  if (!hostsName.value.trim()) {
+  await deleteProfileByName(hostsName.value.trim());
+}
+
+/**
+ * 统一的删除入口：处理确认、清理编辑器、以及"删除了激活 profile 后系统 hosts
+ * 仍在生效"的二次提示（引导用户去备份列表恢复）。
+ */
+async function deleteProfileByName(name: string) {
+  if (!name) {
     ElMessage.warning("请先输入或选择要删除的配置");
     return;
   }
   try {
     await ElMessageBox.confirm(
-      `确定要删除配置 "${hostsName.value}" 吗？此操作不可撤销。`,
+      `确定要删除配置 "${name}" 吗？此操作不可撤销。`,
       "删除确认",
       { confirmButtonText: "删除", cancelButtonText: "取消", type: "warning" },
     );
@@ -698,12 +853,34 @@ async function deleteHosts() {
   }
   deleting.value = true;
   try {
-    await invokeToolByChannel("tool:hosts:delete", { name: hostsName.value.trim() });
+    const result = (await invokeToolByChannel("tool:hosts:delete", { name })) as {
+      wasActive?: boolean;
+      deleted?: boolean;
+    };
     await loadHostsProfiles();
-    hostsName.value = "";
-    hostsContent.value = "";
-    isEditorReadonly.value = true;
+    if (hostsName.value === name) {
+      hostsName.value = "";
+      hostsContent.value = "";
+      editingProfileId.value = null;
+      isEditorReadonly.value = true;
+    }
     ElMessage.success("hosts 配置已删除");
+
+    if (result?.wasActive) {
+      // 系统 hosts 仍是被删 profile 的内容；引导用户去备份历史恢复
+      try {
+        await ElMessageBox.confirm(
+          `刚删除的配置当前仍在系统 hosts 中生效。\n\n是否打开备份历史，恢复到此次激活前的状态？`,
+          "系统 hosts 未自动清理",
+          { confirmButtonText: "查看备份", cancelButtonText: "暂不处理", type: "warning" },
+        );
+        backupExpanded.value = ["backup"];
+        await loadBackupList();
+      } catch {
+        /* 用户暂不处理 */
+      }
+      await verifyConsistency();
+    }
   } catch (error) {
     ElMessage.error((error as Error).message);
   } finally {
@@ -718,6 +895,7 @@ async function readSystemHosts() {
     const activeProfile = hostsProfiles.value.find((p) => p.enabled);
     hostsName.value = activeProfile?.name ?? "";
     hostsContent.value = data?.content ?? "";
+    editingProfileId.value = activeProfile?.id ?? null;
     isEditorReadonly.value = true;
     ElMessage.success("已加载系统 hosts 文件内容");
   } catch (error) {
@@ -730,12 +908,13 @@ async function readSystemHosts() {
 function clearEditor() {
   hostsName.value = "";
   hostsContent.value = "";
+  editingProfileId.value = null;
 }
 
 async function restoreBackup(filename: string) {
   try {
     await ElMessageBox.confirm(
-      `确定要恢复备份 "${filename}" 吗？当前系统 hosts 将被覆盖（恢复前会自动备份）。`,
+      `确定要恢复备份 "${filename}" 吗？当前系统 hosts 将被覆盖（恢复前会自动备份），所有 profile 的激活标记会被清除。`,
       "恢复确认",
       { confirmButtonText: "恢复", cancelButtonText: "取消", type: "warning" },
     );
@@ -743,12 +922,68 @@ async function restoreBackup(filename: string) {
     return;
   }
   try {
-    const data = (await invokeToolByChannel("tool:hosts:backup-restore", { filename })) as { restoredFrom?: string };
+    const data = (await invokeToolByChannel("tool:hosts:backup-restore", { filename })) as {
+      restoredFrom?: string;
+    };
     ElMessage.success(`已从 "${data?.restoredFrom}" 恢复 hosts 文件`);
+    // 后端已清空 enabled，前端必须同步刷新列表与一致性 banner
+    await loadHostsProfiles();
+    await loadBackupList();
+    await verifyConsistency();
+  } catch (error) {
+    ElMessage.error((error as Error).message);
+  }
+}
+
+async function deleteBackup(filename: string) {
+  try {
+    await ElMessageBox.confirm(
+      `确定要删除备份 "${filename}" 吗？此操作不可撤销。`,
+      "删除备份",
+      { confirmButtonText: "删除", cancelButtonText: "取消", type: "warning" },
+    );
+  } catch {
+    return;
+  }
+  try {
+    await invokeToolByChannel("tool:hosts:backup-delete", { filename });
+    ElMessage.success("备份已删除");
     await loadBackupList();
   } catch (error) {
     ElMessage.error((error as Error).message);
   }
+}
+
+/**
+ * 校验系统 hosts 与激活 profile 内容是否一致。
+ * 不一致时（外部工具直接修改了 hosts、或激活后被还原）显示顶部 banner，
+ * 引导用户用"读取系统 hosts"或"重新激活"两种方式收敛状态。
+ */
+async function verifyConsistency() {
+  try {
+    const sys = (await invokeToolByChannel("tool:hosts:read-system", {})) as { content?: string };
+    const active = hostsProfiles.value.find((p) => p.enabled);
+    if (!active) {
+      consistencyWarning.value = "";
+      return;
+    }
+    if (normalizeHostsContent(active.content) === normalizeHostsContent(sys?.content ?? "")) {
+      consistencyWarning.value = "";
+    } else {
+      consistencyWarning.value = `当前激活的配置 "${active.name}" 与系统 hosts 文件不一致，可能被外部工具修改。`;
+    }
+  } catch {
+    consistencyWarning.value = "";
+  }
+}
+
+async function reloadSystemHosts() {
+  await readSystemHosts();
+  consistencyWarning.value = "";
+}
+
+function dismissConsistencyWarning() {
+  consistencyWarning.value = "";
 }
 
 // --- drag sort ---
@@ -772,11 +1007,14 @@ function initSortable(retries = 5) {
       const moved = hostsProfiles.value.splice(oldIndex, 1)[0];
       hostsProfiles.value.splice(newIndex, 0, moved);
       const ids = hostsProfiles.value.map((p) => p.id);
+      reorderLoading.value = true;
       try {
         await invokeToolByChannel("tool:hosts:reorder", { ids });
       } catch (error) {
-        ElMessage.error((error as Error).message);
+        ElMessage.error(`排序保存失败：${(error as Error).message}`);
         await loadHostsProfiles();
+      } finally {
+        reorderLoading.value = false;
       }
     },
   });
@@ -786,8 +1024,9 @@ function initSortable(retries = 5) {
 onMounted(async () => {
   await loadHostsProfiles();
   loadActiveProfileToEditor();
-  checkAdminAccess();
-  loadBackupList();
+  await checkAdminAccess();
+  await loadBackupList();
+  await verifyConsistency();
   await nextTick();
   initSortable();
 });
@@ -824,6 +1063,20 @@ onBeforeUnmount(() => {
 .hosts-admin-banner .el-icon {
   color: var(--lc-info);
   font-size: 16px;
+}
+
+.hosts-admin-banner span {
+  flex: 1;
+}
+
+.hosts-admin-banner.is-warning {
+  border-color: var(--lc-warning, #f59e0b);
+  background: rgba(245, 158, 11, 0.06);
+  color: var(--lc-text);
+}
+
+.hosts-admin-banner.is-warning .el-icon {
+  color: var(--lc-warning, #f59e0b);
 }
 
 /* Layout */
