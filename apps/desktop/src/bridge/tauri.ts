@@ -132,6 +132,7 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:hosts:admin-check": { domain: "hosts", action: "admin_check" },
   "tool:hosts:backup-list": { domain: "hosts", action: "backup_list" },
   "tool:hosts:backup-restore": { domain: "hosts", action: "backup_restore" },
+  "tool:hosts:backup-delete": { domain: "hosts", action: "backup_delete" },
   "tool:manuals:list": { domain: "manuals", action: "list" },
   "tool:settings:get": { domain: "settings", action: "get" },
   "tool:settings:set": { domain: "settings", action: "set" },
