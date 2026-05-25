@@ -1,11 +1,11 @@
 # Lazycat / 懒猫
 
-![Version](https://img.shields.io/badge/version-0.2.6-brightgreen.svg)
+![Version](https://img.shields.io/badge/version-0.5.3-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%2B-0078D4.svg)
 ![Stack](https://img.shields.io/badge/stack-Tauri%202%20%2B%20Vue%203-42b883.svg)
 
-> 面向开发者的离线效率工作台 -- 53 个常用工具 + 3 套离线手册，开箱即用、数据不出机。
+> 面向开发者的离线效率工作台 -- 53 个工具 + 3 套离线手册，配套 Spotlight 全局搜索、桌面挂件、项目管理、富文本笔记，开箱即用、数据不出机。
 
 ## 为什么是 Lazycat
 
@@ -14,6 +14,7 @@
 - **一站式集成**：覆盖编码、加密、转换、网络、文件、时间、离线手册等常见研发流程
 - **轻量桌面架构**：Tauri 2 + Rust 后端，启动快、占用低
 - **可定制工作台**：支持收藏、搜索、快捷启动、菜单显隐、快捷键等个性化配置
+- **效率增强**：Spotlight 全局搜索、桌面挂件、项目管理多视图、富文本笔记，把零散工具串成工作流
 
 项目完全开源，核心能力与数据流透明可审计，欢迎按自己的工作流扩展工具、面板或离线手册。
 
@@ -46,6 +47,39 @@
 | ![密码库](img/valut.png) | ![Hosts 管理](img/hosts.png) |
 | 按环境/分类管理敏感信息，本地存储 | 多配置切换 + 备份历史，适合联调场景 |
 
+## 工作流亮点
+
+将零散工具串成工作流的几个核心能力。
+
+### Spotlight 全局搜索
+
+类 macOS 风格的呼出面板，跨工具、代码片段、Todo、PM 工作项、Hosts 配置一次性搜索；
+支持 `calc` 直接计算并复制结果、速建 Todo、Hosts 一键切换等内联动作，剪贴板内容
+自动推荐目标工具。独立窗口预创建，首次呼出无冷启动延迟。
+
+> 截图位置：`img/spotlight.png`（待补）
+
+### 桌面挂件（Widget）
+
+常驻桌面的轻量小窗，显示今日 Todo 与 PM 仪表盘；支持左/右停靠、Peek 隐藏、扩展区
+按钮可配置；不占用任务栏与窗口列表，主窗口呼出可一键展开。
+
+> 截图位置：`img/widget.png`（待补）
+
+### 项目管理（PM）
+
+工作项跟踪模块，按上下文记忆切换 6 种视图：看板 / 今日 / 列表 / 甘特 / 日历 / 四象限。
+配套本周工作汇总、Todo 双向打通、思源笔记导入导出，描述区使用富文本编辑器。
+
+> 截图位置：`img/pm.png`（待补）
+
+### 富文本与附件
+
+PM、Todo 描述基于 TipTap，支持图片粘贴、附件引用、文件路径标签、双击图片预览。
+附件以内容寻址（hash 命名）方式本地存储，按引用计数清理孤儿文件，不污染目录。
+
+> 截图位置：`img/rich-editor.png`（待补）
+
 ## 工具一览
 
 ### 常用工具（5）
@@ -58,14 +92,17 @@
 | 文本对比 | 双栏文本差异对比 |
 | Markdown | Markdown 编辑与实时预览 |
 
-### 效率工具（4）
+### 更多工具（7）
 
 | 工具 | 说明 |
 |------|------|
 | 代码片段 | 代码片段收藏与管理 |
 | 快捷启动 | 常用程序快速启动与管理 |
 | 任务清单 | 任务与周期事件管理 |
+| 项目管理 | 工作项跟踪，看板/今日/列表/甘特/日历/四象限 6 种视图，PM-Todo 双向打通 |
+| 本周工作 | 按本周时间范围汇总工作项与小结 |
 | 收纳箱 | 后台剪贴板收件箱与历史整理 |
+| 桌面挂件 | 桌面常驻挂件，显示今日 Todo 与 PM 仪表盘 |
 
 ### 编解码（5）
 
@@ -152,15 +189,18 @@
 |------|------|
 | 框架 | Tauri 2（Rust backend + WebView frontend） |
 | 前端 | Vue 3 + Vite + Element Plus + TypeScript |
+| 富文本 | TipTap + ProseMirror（PM/Todo 描述、图片、附件、文件引用） |
 | 后端 | Rust + rusqlite（SQLite） |
+| 附件存储 | 内容寻址（hash 命名），按引用计数清理 |
 | 工程 | pnpm workspace（monorepo） |
 
 ## 目录结构
 
 ```text
 apps/desktop/              Tauri 桌面端
-  src/                     Vue 渲染层（49 个面板组件）
-  src-tauri/               Rust 后端（31 个工具域模块）
+  src/                     Vue 渲染层（54 个面板组件）
+    rich/                  TipTap 富文本支持层（extensions / legacy / data-dir）
+  src-tauri/               Rust 后端（42 个工具域模块）
 packages/formatters/       Prettier standalone 格式化
 resources/manuals/         离线手册（Vue 3、Element Plus、MDN JS）
 resources/regex-library/   内置正则模板
@@ -186,6 +226,7 @@ pnpm dev
 | `pnpm test:e2e` | 运行端到端测试 |
 | `pnpm build:win` | 构建 Windows NSIS 安装包 |
 | `pnpm build:portable` | 构建 Windows 便携版 |
+| `pnpm release:all:win -- -Tag vX.Y.Z` | 一键构建安装包/绿色包、生成 SHA256、推送 tag 并上传 GitHub Release |
 
 ## 参与贡献
 
