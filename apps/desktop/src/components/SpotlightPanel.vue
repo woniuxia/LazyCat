@@ -1,13 +1,12 @@
 <template>
   <div class="spotlight" @keydown="onKeydown">
-    <div v-if="unlockState" class="spotlight-input-wrap">
-      <SpotlightVaultUnlockInput
-        ref="unlockRef"
-        :entry-title="unlockState.entryTitle"
-        @submit="onUnlockSubmit"
-        @cancel="cancelUnlock"
-      />
-    </div>
+    <SpotlightVaultUnlockInput
+      v-if="unlockState"
+      ref="unlockRef"
+      :entry-title="unlockState.entryTitle"
+      @unlocked="onUnlocked"
+      @cancel="cancelUnlock"
+    />
     <div v-else class="spotlight-input-wrap">
       <input
         ref="inputRef"
@@ -147,7 +146,7 @@ const actionMenuActions = ref<SpotlightAction[]>([]);
 const actionMenuAnchor = ref<DOMRect | null>(null);
 const actionMenuTargetItem = ref<SpotlightItem | null>(null);
 
-let unlockResolver: ((value: string | null) => void) | null = null;
+let unlockResolver: ((value: boolean) => void) | null = null;
 const unlockState = ref<{ entryTitle: string } | null>(null);
 
 let unlistenReset: UnlistenFn | null = null;
@@ -299,7 +298,7 @@ const placeholder = computed(() => {
 });
 
 const footerHint = computed(() => {
-  if (unlockState.value) return "Enter 确认 · Esc 取消";
+  if (unlockState.value) return "输入主密码 · 正确即复制 · Esc 取消";
   if (actionMenuOpen.value) return "↑↓ 选择 · Enter 执行 · Esc 收起";
   if (errorMessage.value) return "Ctrl+R 重试 · Esc 关闭";
   return "Enter 执行 · Tab 备选动作 · Alt+1-9 直选 · Esc 关闭";
@@ -509,8 +508,8 @@ async function prefetchAll() {
 function buildContext(): SpotlightExecuteContext {
   return {
     query: parsed.value.query,
-    requestMasterPassword: (entryTitle: string) =>
-      new Promise<string | null>((resolve) => {
+    ensureVaultUnlocked: (entryTitle: string) =>
+      new Promise<boolean>((resolve) => {
         unlockState.value = { entryTitle };
         unlockResolver = resolve;
         // 子组件 onMounted 内会自动 focus，这里不再重复
@@ -518,18 +517,18 @@ function buildContext(): SpotlightExecuteContext {
   };
 }
 
-function onUnlockSubmit(password: string) {
+function onUnlocked() {
   const resolver = unlockResolver;
   unlockResolver = null;
-  // unlockState 暂保持，由调用方决定是否清空（成功后清空，失败后保留）
-  resolver?.(password);
+  unlockState.value = null;
+  resolver?.(true);
 }
 
 function cancelUnlock() {
   const resolver = unlockResolver;
   unlockResolver = null;
   unlockState.value = null;
-  resolver?.(null);
+  resolver?.(false);
   nextTick(() => focusInput());
 }
 

@@ -54,7 +54,7 @@ export interface SpotlightExecuteResult {
 
 export interface SpotlightExecuteContext {
   query: string;
-  requestMasterPassword: (entryTitle: string) => Promise<string | null>;
+  ensureVaultUnlocked: (entryTitle: string) => Promise<boolean>;
 }
 
 export interface QuickCommandDescriptor {

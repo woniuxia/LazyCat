@@ -549,21 +549,30 @@ async function copyVaultPasswordAction(
   payload: KeywordItemVaultEntry,
   ctx: SpotlightExecuteContext,
 ): Promise<SpotlightExecuteResult> {
-  const password = await ctx.requestMasterPassword(payload.title);
-  if (password == null) return { closeSpotlight: false };
+  // 复用 vault 主面板的解锁状态
+  let unlocked = false;
+  try {
+    const status =
+      ((await invokeToolByChannel("tool:vault:status", {})) as VaultStatus | null) ?? null;
+    unlocked = !!status?.unlocked;
+  } catch {
+    /* 视为未解锁 */
+  }
+
+  if (!unlocked) {
+    const ok = await ctx.ensureVaultUnlocked(payload.title);
+    if (!ok) return { closeSpotlight: false };
+  }
+
   let detail: VaultEntryDetail;
   try {
-    detail = (await invokeToolByChannel("tool:vault:reveal-one", {
+    detail = (await invokeToolByChannel("tool:vault:get", {
       id: payload.entryId,
-      masterPassword: password,
     })) as VaultEntryDetail;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    if (msg.includes("too_many_attempts")) {
-      return { errorMessage: "尝试次数过多,请稍后再试" };
-    }
-    if (msg.includes("bad_master_password")) {
-      return { errorMessage: "主密码错误" };
+    if (msg.includes("vault_locked")) {
+      return { errorMessage: "密码库已锁定,请重新尝试" };
     }
     return { errorMessage: msg };
   }

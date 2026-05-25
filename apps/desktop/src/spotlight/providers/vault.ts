@@ -143,22 +143,30 @@ async function copyPasswordFlow(
   const entryId = item.payload?.entryId as number | undefined;
   if (!entryId) return { errorMessage: "无效条目" };
 
-  const password = await ctx.requestMasterPassword(item.title);
-  if (password == null) return { closeSpotlight: false };
+  // 复用 vault 主面板的解锁状态：若全局 session 仍在有效期内，跳过主密码输入
+  let unlocked = false;
+  try {
+    const status = (await invokeToolByChannel("tool:vault:status", {})) as VaultStatus | null;
+    unlocked = !!status?.unlocked;
+  } catch {
+    /* 视为未解锁，走完整解锁流程 */
+  }
 
+  if (!unlocked) {
+    const ok = await ctx.ensureVaultUnlocked(item.title);
+    if (!ok) return { closeSpotlight: false };
+  }
+
+  // 此时 vault session 已解锁，使用 session key 直接解密
   let detail: VaultEntryDetail;
   try {
-    detail = (await invokeToolByChannel("tool:vault:reveal-one", {
+    detail = (await invokeToolByChannel("tool:vault:get", {
       id: entryId,
-      masterPassword: password,
     })) as VaultEntryDetail;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    if (msg.includes("too_many_attempts")) {
-      return { errorMessage: "尝试次数过多，请稍后再试" };
-    }
-    if (msg.includes("bad_master_password")) {
-      return { errorMessage: "主密码错误" };
+    if (msg.includes("vault_locked")) {
+      return { errorMessage: "密码库已锁定，请重新尝试" };
     }
     return { errorMessage: msg };
   }
