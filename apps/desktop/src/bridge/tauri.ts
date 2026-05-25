@@ -290,6 +290,7 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:system:open-local-path":       { domain: "system", action: "open_local_path" },
   "tool:system:reveal-in-folder":      { domain: "system", action: "reveal_in_folder" },
   "tool:system:check-paths-exist":     { domain: "system", action: "check_paths_exist" },
+  "tool:system:local-ips":             { domain: "system", action: "local_ips" },
   "tool:widget:dashboard-data":     { domain: "widget", action: "dashboard_data" },
   "tool:widget:apply":              { domain: "widget", action: "apply" },
   "tool:widget:pause":              { domain: "widget", action: "pause" },

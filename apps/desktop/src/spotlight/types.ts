@@ -7,7 +7,8 @@ export type SpotlightProviderId =
   | "todo"
   | "pm"
   | "suggestion"
-  | "launcher";
+  | "launcher"
+  | "__keyword__";
 
 export type QuickCommandId = "todo-create" | "calc";
 
@@ -103,6 +104,7 @@ export interface SpotlightConfig {
   version: 1;
   providers: Partial<Record<SpotlightProviderId, SpotlightConfigProviderOverride>>;
   quickCommands: Partial<Record<QuickCommandId, SpotlightConfigQuickCommandOverride>>;
+  keywordCommands?: SpotlightConfigKeywordCommands;
 }
 
 export type ResolvedProvider = ProviderDescriptor & {
@@ -115,6 +117,61 @@ export interface SpotlightView {
   aliasMap: Map<string, SpotlightProviderId>;
   enabledQuickCommands: Set<QuickCommandId>;
   quickCommands: QuickCommandDescriptor[];
+  keywordCommands: KeywordCommandDescriptor[];
+  keywordIndex: Map<string, KeywordCommandDescriptor>;
+}
+
+// ── KeywordCommand ─────────────────────────────────────────────────────
+//
+// `;<keyword> [args]` 触发的用户级命令。与 ScopeAlias (裸前缀+空格)
+// 和 QuickCommand (`+ ` / `calc`) 三条命名空间互不重叠。
+
+export type KeywordCommandKind = "open-tool" | "show-value" | "vault-tag" | "snippet-tag";
+
+export type KeywordValueProducerId =
+  | "local-ip"
+  | "uuid-v4"
+  | "timestamp-now"
+  | "hash-text";
+
+export interface KeywordCommandDescriptor {
+  id: string;
+  keyword: string;
+  name: string;
+  description: string;
+  kind: KeywordCommandKind;
+  origin: "builtin" | "custom";
+  // open-tool
+  toolId?: string;
+  forwardArgs?: boolean;
+  // vault-tag / snippet-tag
+  targetTag?: string;
+  // show-value(内置专用)
+  valueProducer?: KeywordValueProducerId;
+  defaultEnabled: boolean;
+}
+
+export interface KeywordCommandCustom {
+  id: string;
+  keyword: string;
+  name: string;
+  description: string;
+  kind: "open-tool" | "vault-tag" | "snippet-tag";
+  toolId?: string;
+  forwardArgs?: boolean;
+  targetTag?: string;
+  enabled: boolean;
+}
+
+export interface SpotlightConfigKeywordCommands {
+  builtins?: Partial<Record<string, { enabled: boolean }>>;
+  custom?: KeywordCommandCustom[];
+}
+
+export interface KeywordCommandInvocation {
+  kind: "keyword";
+  command: KeywordCommandDescriptor;
+  args: string;
 }
 
 export interface ScopeParseResult {

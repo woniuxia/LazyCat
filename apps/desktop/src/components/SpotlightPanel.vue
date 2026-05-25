@@ -21,7 +21,7 @@
     </div>
 
     <div class="spotlight-results">
-      <div v-if="loading && results.length === 0" class="spotlight-empty">加载中…</div>
+      <div v-if="isLoadingView && results.length === 0" class="spotlight-empty">加载中…</div>
       <div v-else-if="results.length === 0" class="spotlight-empty">
         {{ query.trim() ? "没有匹配的结果" : "输入关键词以搜索工具、凭据、Hosts、任务、项目" }}
       </div>
@@ -101,13 +101,21 @@ import "../spotlight/providers/suggestion";
 import "../spotlight/providers/launcher";
 import * as configStore from "../spotlight/config-store";
 
-import { parseSpotlightQuery, parseQuickCommand } from "../utils/spotlight-query";
+import { parseSpotlightQuery, parseQuickCommand, parseKeywordCommand } from "../utils/spotlight-query";
 import { calculateExpression, getCalcPreview } from "../utils/calc";
 import { detectClipboardContent } from "../utils/clipboard-detect";
 import { isRealToolId } from "../composables/toolCatalog";
 import { initSettings, getSetting } from "../composables/useSettings";
 import { createTodoDraft } from "../spotlight/providers/todo";
+import {
+  resolveKeywordInvocation,
+  executeKeywordItem,
+  executeKeywordItemAction,
+  buildKeywordItemActions,
+  isKeywordItem,
+} from "../spotlight/keyword-resolver";
 import type {
+  KeywordCommandInvocation,
   SpotlightAction,
   SpotlightExecuteContext,
   SpotlightExecuteResult,
@@ -196,10 +204,17 @@ async function refreshClipboardSuggestion() {
 const parsed = computed(() =>
   parseSpotlightQuery(query.value, view.value?.aliasMap),
 );
-const quickCommand = computed(() =>
-  parseQuickCommand(query.value, view.value?.enabledQuickCommands),
+const keywordInvocation = computed<KeywordCommandInvocation | null>(() =>
+  parseKeywordCommand(query.value, view.value?.keywordIndex),
 );
-const scope = computed(() => (quickCommand.value ? null : parsed.value.scope));
+const quickCommand = computed(() => {
+  if (keywordInvocation.value) return null;
+  return parseQuickCommand(query.value, view.value?.enabledQuickCommands);
+});
+const scope = computed(() => {
+  if (keywordInvocation.value || quickCommand.value) return null;
+  return parsed.value.scope;
+});
 const scopeLabel = computed(() => {
   if (!scope.value) return "";
   const v = view.value;
@@ -213,6 +228,62 @@ const enabledProviderIds = computed(() => {
   return new Set(v.providers.filter((p) => p.enabled).map((p) => p.id));
 });
 
+const isLoadingView = computed(() => loading.value || keywordLoading.value);
+
+// ── keyword 命令异步结果缓存 ─────────────────────────────────────────
+//
+// keyword 模式下结果可能依赖 IPC(local-ip / hash / vault-tag / snippet-tag)。
+// 使用 nonce 防止过期请求覆盖最新结果。同一 query 命中同一 keyword 时缓存复用,
+// 避免 ;uuid 这种"重新生成"的展示在每次渲染都变化。
+
+const keywordItems = ref<SpotlightItem[]>([]);
+const keywordLoading = ref(false);
+const keywordError = ref<string | null>(null);
+let keywordRequestNonce = 0;
+let lastKeywordSignature = "";
+
+function buildKeywordSignature(inv: KeywordCommandInvocation | null): string {
+  if (!inv) return "";
+  return `${inv.command.id}|${inv.args}`;
+}
+
+async function refreshKeywordItems(inv: KeywordCommandInvocation | null) {
+  const signature = buildKeywordSignature(inv);
+  if (!inv) {
+    keywordItems.value = [];
+    keywordLoading.value = false;
+    keywordError.value = null;
+    lastKeywordSignature = "";
+    return;
+  }
+  if (signature === lastKeywordSignature) return;
+  lastKeywordSignature = signature;
+  const nonce = ++keywordRequestNonce;
+  keywordLoading.value = true;
+  keywordError.value = null;
+  try {
+    const items = await resolveKeywordInvocation(inv);
+    if (nonce !== keywordRequestNonce) return;
+    keywordItems.value = items;
+  } catch (err) {
+    if (nonce !== keywordRequestNonce) return;
+    keywordError.value = err instanceof Error ? err.message : String(err);
+    keywordItems.value = [];
+  } finally {
+    if (nonce === keywordRequestNonce) {
+      keywordLoading.value = false;
+    }
+  }
+}
+
+watch(
+  keywordInvocation,
+  (next) => {
+    void refreshKeywordItems(next);
+  },
+  { immediate: false },
+);
+
 const placeholder = computed(() => {
   if (scope.value) {
     return `在 ${scopeLabel.value || "该类型"} 中搜索…`;
@@ -224,7 +295,7 @@ const placeholder = computed(() => {
   if (enabledNames.length === 0) {
     return "所有数据源已禁用,前往设置启用";
   }
-  return `搜索 ${enabledNames.join(" / ")}`;
+  return `搜索 ${enabledNames.join(" / ")} · 试试 ;ip ;uuid ;jwt`;
 });
 
 const footerHint = computed(() => {
@@ -235,6 +306,28 @@ const footerHint = computed(() => {
 });
 
 const results = computed(() => {
+  if (keywordInvocation.value) {
+    // keyword 命令模式:直接展示 resolver 返回的 items,跳过常规检索流
+    const items = keywordItems.value;
+    if (items.length === 0) {
+      if (keywordLoading.value) return [];
+      const hintItem: SpotlightItem = {
+        providerId: "__keyword__",
+        itemId: `kw-empty:${keywordInvocation.value.command.id}`,
+        title: keywordError.value
+          ? `加载失败:${keywordError.value}`
+          : `;${keywordInvocation.value.command.keyword}`,
+        subtitle: keywordError.value
+          ? "Esc 关闭或重试"
+          : "没有可用结果",
+        badge: { short: "提示", tone: "muted" },
+        searchFields: [],
+        payload: { __keyword: true, keywordItemKind: "hint" },
+      };
+      return [{ item: hintItem, score: 0 }];
+    }
+    return items.map((item) => ({ item, score: 0 }));
+  }
   if (quickCommand.value?.kind === "todo-create") {
     const text = quickCommand.value.text;
     const item: SpotlightItem = {
@@ -524,6 +617,10 @@ async function runWithRunner(fn: () => Promise<SpotlightExecuteResult>) {
 }
 
 async function commitDefault(item: SpotlightItem) {
+  if (isKeywordItem(item)) {
+    await runWithRunner(() => executeKeywordItem(item, buildContext()));
+    return;
+  }
   if (item.payload?.quickCommand === "todo-create") {
     const text = String(item.payload?.text ?? "").trim();
     if (!text) {
@@ -569,6 +666,16 @@ async function commitDefault(item: SpotlightItem) {
 }
 
 function openActionMenu(item: SpotlightItem) {
+  if (isKeywordItem(item)) {
+    const actions = buildKeywordItemActions(item);
+    if (actions.length === 0) return;
+    actionMenuActions.value = actions as SpotlightAction[];
+    actionMenuTargetItem.value = item;
+    const row = rowRefs.value[activeIndex.value];
+    actionMenuAnchor.value = row?.getBoundingClientRect() ?? null;
+    actionMenuOpen.value = true;
+    return;
+  }
   const provider = listProviders().find((p) => p.id === item.providerId);
   if (!provider || !provider.buildActions) return;
   actionMenuActions.value = provider.buildActions(item);
@@ -587,9 +694,13 @@ function closeActionMenu() {
 async function onActionSelect(action: SpotlightAction) {
   const item = actionMenuTargetItem.value;
   if (!item) return;
+  actionMenuOpen.value = false;
+  if (isKeywordItem(item)) {
+    await runWithRunner(() => executeKeywordItemAction(item, action.id, buildContext()));
+    return;
+  }
   const provider = listProviders().find((p) => p.id === item.providerId);
   if (!provider) return;
-  actionMenuOpen.value = false;
   await runWithRunner(async () => {
     const ctx = buildContext();
     if (provider.executeAction) {

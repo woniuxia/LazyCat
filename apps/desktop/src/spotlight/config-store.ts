@@ -1,12 +1,15 @@
 import { invokeToolByChannel } from "../bridge/tauri";
 import { listDescriptors } from "./registry";
 import { QUICK_COMMAND_DESCRIPTORS } from "./quick-commands";
+import { resolveKeywordCommands } from "./keyword-commands";
 import type {
+  KeywordCommandCustom,
   ProviderDescriptor,
   QuickCommandDescriptor,
   QuickCommandId,
   ResolvedProvider,
   SpotlightConfig,
+  SpotlightConfigKeywordCommands,
   SpotlightConfigProviderOverride,
   SpotlightConfigQuickCommandOverride,
   SpotlightProviderId,
@@ -123,7 +126,18 @@ export function mergeView(
     if (override.enabled ?? qc.defaultEnabled) enabledQuickCommands.add(qc.id);
   }
 
-  return { providers, aliasMap, enabledQuickCommands, quickCommands };
+  const { commands: keywordCommands, index: keywordIndex } = resolveKeywordCommands(
+    config.keywordCommands,
+  );
+
+  return {
+    providers,
+    aliasMap,
+    enabledQuickCommands,
+    quickCommands,
+    keywordCommands,
+    keywordIndex,
+  };
 }
 
 export function sanitizeConfig(
@@ -167,7 +181,76 @@ export function sanitizeConfig(
     qc[k as QuickCommandId] = override;
   }
 
-  return { version: 1, providers, quickCommands: qc };
+  const keywordCommands = sanitizeKeywordCommands(obj.keywordCommands);
+
+  return { version: 1, providers, quickCommands: qc, keywordCommands };
+}
+
+const KEYWORD_PATTERN_INTERNAL = /^[a-zA-Z0-9_-]{1,24}$/;
+const KEYWORD_CUSTOM_KIND_SET = new Set<KeywordCommandCustom["kind"]>([
+  "open-tool",
+  "vault-tag",
+  "snippet-tag",
+]);
+
+function sanitizeKeywordCommands(
+  raw: unknown,
+): SpotlightConfigKeywordCommands | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const obj = raw as Record<string, unknown>;
+
+  const builtins: Record<string, { enabled: boolean }> = {};
+  if (obj.builtins && typeof obj.builtins === "object") {
+    for (const [k, v] of Object.entries(obj.builtins as Record<string, unknown>)) {
+      if (!v || typeof v !== "object") continue;
+      const enabled = (v as Record<string, unknown>).enabled;
+      if (typeof enabled === "boolean") builtins[k] = { enabled };
+    }
+  }
+
+  const custom: KeywordCommandCustom[] = [];
+  if (Array.isArray(obj.custom)) {
+    const seenIds = new Set<string>();
+    const seenKeywords = new Set<string>();
+    for (const entry of obj.custom) {
+      if (!entry || typeof entry !== "object") continue;
+      const o = entry as Record<string, unknown>;
+      const id = typeof o.id === "string" ? o.id : "";
+      const keyword = typeof o.keyword === "string" ? o.keyword.trim().toLowerCase() : "";
+      const name = typeof o.name === "string" ? o.name : "";
+      const description = typeof o.description === "string" ? o.description : "";
+      const kind = o.kind as KeywordCommandCustom["kind"] | undefined;
+      const toolId = typeof o.toolId === "string" ? o.toolId : undefined;
+      const targetTag = typeof o.targetTag === "string" ? o.targetTag : undefined;
+      const forwardArgs =
+        typeof o.forwardArgs === "boolean" ? o.forwardArgs : undefined;
+      const enabled = typeof o.enabled === "boolean" ? o.enabled : true;
+      if (!id || seenIds.has(id)) continue;
+      if (!keyword || !KEYWORD_PATTERN_INTERNAL.test(keyword)) continue;
+      if (!kind || !KEYWORD_CUSTOM_KIND_SET.has(kind)) continue;
+      if (kind === "open-tool" && !toolId) continue;
+      if ((kind === "vault-tag" || kind === "snippet-tag") && !targetTag) continue;
+      if (enabled && seenKeywords.has(keyword)) continue;
+      seenIds.add(id);
+      if (enabled) seenKeywords.add(keyword);
+      custom.push({
+        id,
+        keyword,
+        name,
+        description,
+        kind,
+        toolId,
+        targetTag,
+        forwardArgs,
+        enabled,
+      });
+    }
+  }
+
+  if (Object.keys(builtins).length === 0 && custom.length === 0) {
+    return undefined;
+  }
+  return { builtins, custom };
 }
 
 /* ───────────────────────── 持久化(可注入,便于测试) ───────────────────────── */

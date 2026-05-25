@@ -26,6 +26,7 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         "open_local_path" => open_local_path(payload),
         "reveal_in_folder" => reveal_in_folder(payload),
         "check_paths_exist" => check_paths_exist(payload),
+        "local_ips" => local_ips(),
         _ => Err(format!("unsupported system action: {action}")),
     }
 }
@@ -244,4 +245,65 @@ fn read_clipboard_files() -> Result<Value, String> {
 fn read_clipboard_files() -> Result<Value, String> {
     // 非 Windows 平台：暂不实现剪贴板文件路径读取
     Ok(json!({ "paths": [] as [&str; 0] }))
+}
+
+// ── 网卡 IP 列表 ────────────────────────────────────────
+//
+// 用于 Spotlight `;ip` 关键字命令。聚合所有可用网卡的 IPv4 / IPv6 地址。
+// 同一个网卡的 IPv4 / IPv6 合并到一个对象,前端按行展示。
+//
+// 失败时返回空 interfaces 数组,不抛错,让前端给出友好降级。
+
+fn local_ips() -> Result<Value, String> {
+    use std::collections::BTreeMap;
+    use std::net::IpAddr;
+
+    let nics = match local_ip_address::list_afinet_netifas() {
+        Ok(v) => v,
+        Err(_) => {
+            let empty: Vec<Value> = Vec::new();
+            return Ok(json!({ "interfaces": empty }));
+        }
+    };
+
+    // 按网卡名分组,保留枚举顺序
+    let mut order: Vec<String> = Vec::new();
+    let mut grouped: BTreeMap<String, (Vec<String>, Vec<String>)> = BTreeMap::new();
+    for (name, ip) in nics {
+        if !grouped.contains_key(&name) {
+            order.push(name.clone());
+            grouped.insert(name.clone(), (Vec::new(), Vec::new()));
+        }
+        let entry = grouped.get_mut(&name).expect("just inserted");
+        match ip {
+            IpAddr::V4(v4) => {
+                let s = v4.to_string();
+                if !entry.0.contains(&s) {
+                    entry.0.push(s);
+                }
+            }
+            IpAddr::V6(v6) => {
+                let s = v6.to_string();
+                if !entry.1.contains(&s) {
+                    entry.1.push(s);
+                }
+            }
+        }
+    }
+
+    let mut interfaces: Vec<Value> = Vec::new();
+    for name in order {
+        let (v4, v6) = grouped.remove(&name).unwrap_or_default();
+        // 过滤掉完全无地址的网卡(理论上不会出现,防御性处理)
+        if v4.is_empty() && v6.is_empty() {
+            continue;
+        }
+        interfaces.push(json!({
+            "name": name,
+            "ipv4": v4,
+            "ipv6": v6,
+        }));
+    }
+
+    Ok(json!({ "interfaces": interfaces }))
 }

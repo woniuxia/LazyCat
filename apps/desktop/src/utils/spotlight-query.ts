@@ -1,4 +1,10 @@
-import type { QuickCommandId, ScopeParseResult, SpotlightProviderId } from "../spotlight/types";
+import type {
+  KeywordCommandDescriptor,
+  KeywordCommandInvocation,
+  QuickCommandId,
+  ScopeParseResult,
+  SpotlightProviderId,
+} from "../spotlight/types";
 
 export function parseSpotlightQuery(
   raw: string,
@@ -72,3 +78,34 @@ const DEFAULT_ALIAS_MAP = new Map<string, SpotlightProviderId>([
   ["p", "pm"],
   ["pm", "pm"],
 ]);
+
+// ── KeywordCommand 解析 ────────────────────────────────────────────────
+//
+// 触发语法:";<keyword> [args]"
+// - keyword 大小写不敏感,匹配时统一 toLowerCase
+// - args 保留原始大小写与内部空格,仅去首尾
+// - 必须 ";<keyword>" 之间紧贴,";<空格>..." 不解析
+// - keyword 字符集 [a-zA-Z0-9_-]+,最大 24
+
+const KEYWORD_PATTERN = /^[a-zA-Z0-9_-]{1,24}$/;
+
+export function parseKeywordCommand(
+  raw: string,
+  index?: Map<string, KeywordCommandDescriptor>,
+): KeywordCommandInvocation | null {
+  const trimmedLeft = raw.replace(/^\s+/, "");
+  if (!trimmedLeft.startsWith(";")) return null;
+  const body = trimmedLeft.slice(1);
+  // 空 keyword(单 ";" 或 ";<空格>...")不解析
+  if (!body || body.startsWith(" ")) return null;
+
+  const spaceIdx = body.indexOf(" ");
+  const keyword = (spaceIdx === -1 ? body : body.slice(0, spaceIdx)).toLowerCase();
+  if (!KEYWORD_PATTERN.test(keyword)) return null;
+  const args = spaceIdx === -1 ? "" : body.slice(spaceIdx + 1).trim();
+
+  if (!index) return null;
+  const command = index.get(keyword);
+  if (!command) return null;
+  return { kind: "keyword", command, args };
+}

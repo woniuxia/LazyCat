@@ -54,6 +54,7 @@ open = "5"
 url = "2"
 zeroize = "1"
 lnk = "0.5"
+local-ip-address = "0.6"
 pcap = { version = "2", optional = true }
 etherparse = { version = "0.16", optional = true }
 libc = { version = "0.2", optional = true }

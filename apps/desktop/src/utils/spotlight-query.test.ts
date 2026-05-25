@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { parseSpotlightQuery, dropScopePrefix, parseQuickCommand } from "./spotlight-query";
-import type { QuickCommandId, SpotlightProviderId } from "../spotlight/types";
+import {
+  parseSpotlightQuery,
+  dropScopePrefix,
+  parseQuickCommand,
+  parseKeywordCommand,
+} from "./spotlight-query";
+import type {
+  KeywordCommandDescriptor,
+  QuickCommandId,
+  SpotlightProviderId,
+} from "../spotlight/types";
 
 const ALL_QC: Set<QuickCommandId> = new Set(["todo-create", "calc"]);
 
@@ -137,5 +146,99 @@ describe("parseQuickCommand with enabledIds", () => {
   it("allows both when fully enabled", () => {
     expect(parseQuickCommand("+ x", ALL_QC)).toEqual({ kind: "todo-create", text: "x" });
     expect(parseQuickCommand("calc 1", ALL_QC)).toEqual({ kind: "calc", text: "1" });
+  });
+});
+
+describe("parseKeywordCommand", () => {
+  const ipCommand: KeywordCommandDescriptor = {
+    id: "ip",
+    keyword: "ip",
+    name: "本机 IP",
+    description: "",
+    kind: "show-value",
+    origin: "builtin",
+    valueProducer: "local-ip",
+    defaultEnabled: true,
+  };
+  const jwtCommand: KeywordCommandDescriptor = {
+    id: "jwt",
+    keyword: "jwt",
+    name: "JWT 解析",
+    description: "",
+    kind: "open-tool",
+    origin: "builtin",
+    toolId: "jwt",
+    forwardArgs: true,
+    defaultEnabled: true,
+  };
+  const index = new Map<string, KeywordCommandDescriptor>([
+    ["ip", ipCommand],
+    ["jwt", jwtCommand],
+  ]);
+
+  it("returns null when query does not start with ;", () => {
+    expect(parseKeywordCommand("ip", index)).toBeNull();
+    expect(parseKeywordCommand("", index)).toBeNull();
+    expect(parseKeywordCommand("foo", index)).toBeNull();
+  });
+
+  it("returns null for empty keyword after ;", () => {
+    expect(parseKeywordCommand(";", index)).toBeNull();
+    expect(parseKeywordCommand("; foo", index)).toBeNull();
+  });
+
+  it("matches a known keyword without args", () => {
+    const got = parseKeywordCommand(";ip", index);
+    expect(got).not.toBeNull();
+    expect(got?.command.id).toBe("ip");
+    expect(got?.args).toBe("");
+  });
+
+  it("matches a known keyword with args", () => {
+    const got = parseKeywordCommand(";jwt eyJhbGciOiJIUzI1NiJ9", index);
+    expect(got?.command.id).toBe("jwt");
+    expect(got?.args).toBe("eyJhbGciOiJIUzI1NiJ9");
+  });
+
+  it("preserves inner whitespace in args", () => {
+    const got = parseKeywordCommand(";jwt token with   spaces", index);
+    expect(got?.args).toBe("token with   spaces");
+  });
+
+  it("trims trailing whitespace in args", () => {
+    const got = parseKeywordCommand(";jwt token   ", index);
+    expect(got?.args).toBe("token");
+  });
+
+  it("is case-insensitive on the keyword", () => {
+    expect(parseKeywordCommand(";IP", index)?.command.id).toBe("ip");
+    expect(parseKeywordCommand(";Jwt token", index)?.command.id).toBe("jwt");
+  });
+
+  it("tolerates leading whitespace", () => {
+    expect(parseKeywordCommand("  ;ip", index)?.command.id).toBe("ip");
+  });
+
+  it("rejects unknown keywords", () => {
+    expect(parseKeywordCommand(";notexist", index)).toBeNull();
+    expect(parseKeywordCommand(";notexist value", index)).toBeNull();
+  });
+
+  it("rejects illegal keyword character sets", () => {
+    expect(parseKeywordCommand(";中文", index)).toBeNull();
+    expect(parseKeywordCommand(";a.b", index)).toBeNull();
+    expect(parseKeywordCommand(";a b c", index)?.command.id).toBe(undefined);
+  });
+
+  it("returns null when index is undefined", () => {
+    expect(parseKeywordCommand(";ip")).toBeNull();
+  });
+
+  it("does not collide with quick command + prefix", () => {
+    expect(parseKeywordCommand("+ 任务", index)).toBeNull();
+  });
+
+  it("does not collide with scope alias", () => {
+    expect(parseKeywordCommand("t 任务", index)).toBeNull();
   });
 });
