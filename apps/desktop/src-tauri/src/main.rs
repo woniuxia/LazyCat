@@ -813,38 +813,64 @@ fn unregister_named_hotkey(app: tauri::AppHandle, name: String) -> Result<(), St
 #[cfg(windows)]
 fn force_foreground(window: &tauri::WebviewWindow) {
     use windows_sys::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+        SendInput, INPUT, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP,
+    };
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         GetForegroundWindow, GetWindowThreadProcessId, IsIconic, SetForegroundWindow, ShowWindow,
         SW_RESTORE,
     };
 
-    let Ok(hwnd_raw) = window.hwnd() else { return };
+    let Ok(hwnd_raw) = window.hwnd() else {
+        return;
+    };
     let hwnd = hwnd_raw.0;
 
     unsafe {
-        // Restore if minimized
         if IsIconic(hwnd) != 0 {
             ShowWindow(hwnd, SW_RESTORE);
         }
 
         let foreground = GetForegroundWindow();
         if foreground.is_null() || foreground == hwnd {
-            // No foreground window or we are already it – just call directly
             SetForegroundWindow(hwnd);
-            return;
-        }
-
-        let fg_thread = GetWindowThreadProcessId(foreground, std::ptr::null_mut());
-        let our_thread = GetCurrentThreadId();
-
-        if fg_thread != our_thread && fg_thread != 0 {
-            // Attach our input queue to the foreground thread's
-            AttachThreadInput(our_thread, fg_thread, 1); // TRUE
-            SetForegroundWindow(hwnd);
-            AttachThreadInput(our_thread, fg_thread, 0); // FALSE – detach
         } else {
-            SetForegroundWindow(hwnd);
+            let fg_thread = GetWindowThreadProcessId(foreground, std::ptr::null_mut());
+            let our_thread = GetCurrentThreadId();
+            if fg_thread != our_thread && fg_thread != 0 {
+                AttachThreadInput(our_thread, fg_thread, 1);
+                SetForegroundWindow(hwnd);
+                AttachThreadInput(our_thread, fg_thread, 0);
+            } else {
+                SetForegroundWindow(hwnd);
+            }
         }
+
+        // 消化 Windows/WebView2 在窗口激活第一帧吞掉的首个 keystroke。
+        // 现象: 热键唤出 spotlight 后, 用户按下的第一个字符键被吞、第二个键才进 input;
+        // 鼠标点击之所以能立刻输入, 是因为 WM_LBUTTONDOWN 前 Windows 自动派发的
+        // WM_MOUSEACTIVATE 已经填占了那个被吞的位。这里注入一次 VK_NONAME (0xFC,
+        // 无字符映射、无副作用) 主动消化该位, 用户真实首键就能进 input。
+        let mut inp_down: INPUT = std::mem::zeroed();
+        inp_down.r#type = INPUT_KEYBOARD;
+        inp_down.Anonymous.ki = KEYBDINPUT {
+            wVk: 0xFC,
+            wScan: 0,
+            dwFlags: 0,
+            time: 0,
+            dwExtraInfo: 0,
+        };
+        let mut inp_up: INPUT = std::mem::zeroed();
+        inp_up.r#type = INPUT_KEYBOARD;
+        inp_up.Anonymous.ki = KEYBDINPUT {
+            wVk: 0xFC,
+            wScan: 0,
+            dwFlags: KEYEVENTF_KEYUP,
+            time: 0,
+            dwExtraInfo: 0,
+        };
+        let inputs = [inp_down, inp_up];
+        SendInput(2, inputs.as_ptr(), std::mem::size_of::<INPUT>() as i32);
     }
 }
 
