@@ -10,7 +10,7 @@ export type SpotlightProviderId =
   | "launcher"
   | "__keyword__";
 
-export type QuickCommandId = "todo-create" | "calc";
+export type QuickCommandId = "todo-create" | "calc" | "calc-eq";
 
 export type StatusTone = "danger" | "warn" | "info" | "success" | "muted" | "primary";
 

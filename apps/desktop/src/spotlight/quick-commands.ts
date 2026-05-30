@@ -15,4 +15,11 @@ export const QUICK_COMMAND_DESCRIPTORS: QuickCommandDescriptor[] = [
     trigger: { type: "keyword", value: "calc" },
     defaultEnabled: true,
   },
+  {
+    id: "calc-eq",
+    name: "= 直达计算",
+    description: '以 "=" 前缀直接计算表达式，无需空格分隔，例如 =1+1',
+    trigger: { type: "prefix", value: "=" },
+    defaultEnabled: true,
+  },
 ];

@@ -11,7 +11,7 @@ import type {
   SpotlightProviderId,
 } from "../spotlight/types";
 
-const ALL_QC: Set<QuickCommandId> = new Set(["todo-create", "calc"]);
+const ALL_QC: Set<QuickCommandId> = new Set(["todo-create", "calc", "calc-eq"]);
 
 describe("parseSpotlightQuery", () => {
   it("returns null scope for empty input", () => {
@@ -120,6 +120,37 @@ describe("parseQuickCommand", () => {
   it("tolerates leading whitespace before calc", () => {
     expect(parseQuickCommand("  calc 1+2")).toEqual({ kind: "calc", text: "1+2" });
   });
+
+  it("= 前缀直达计算,不需要空格", () => {
+    expect(parseQuickCommand("=1+1")).toEqual({ kind: "calc", text: "1+1" });
+  });
+
+  it("= 后允许空格,与 =<expr> 等价", () => {
+    expect(parseQuickCommand("= 1+1")).toEqual({ kind: "calc", text: "1+1" });
+  });
+
+  it("单独 = 等价于空 calc", () => {
+    expect(parseQuickCommand("=")).toEqual({ kind: "calc", text: "" });
+  });
+
+  it("= 前缀容忍前导空格", () => {
+    expect(parseQuickCommand("  =1+1")).toEqual({ kind: "calc", text: "1+1" });
+  });
+
+  it("= 非法表达式仍走 calc 分支,由渲染层报错", () => {
+    expect(parseQuickCommand("=abc")).toEqual({ kind: "calc", text: "abc" });
+  });
+
+  it("= 后接括号/小数等仍直达计算", () => {
+    expect(parseQuickCommand("=(2+3)*4")).toEqual({ kind: "calc", text: "(2+3)*4" });
+  });
+
+  it("== / === / => 不当作算式,回落搜索", () => {
+    expect(parseQuickCommand("==")).toBeNull();
+    expect(parseQuickCommand("===")).toBeNull();
+    expect(parseQuickCommand("=>")).toBeNull();
+    expect(parseQuickCommand("=> item")).toBeNull();
+  });
 });
 
 describe("parseSpotlightQuery with custom aliasMap", () => {
@@ -146,6 +177,17 @@ describe("parseQuickCommand with enabledIds", () => {
   it("allows both when fully enabled", () => {
     expect(parseQuickCommand("+ x", ALL_QC)).toEqual({ kind: "todo-create", text: "x" });
     expect(parseQuickCommand("calc 1", ALL_QC)).toEqual({ kind: "calc", text: "1" });
+  });
+
+  it("disables calc-eq when not in the set", () => {
+    const enabled = new Set<QuickCommandId>(["todo-create", "calc"]);
+    expect(parseQuickCommand("=1+1", enabled)).toBeNull();
+  });
+
+  it("calc-eq works independently of calc", () => {
+    const enabled = new Set<QuickCommandId>(["calc-eq"]);
+    expect(parseQuickCommand("=1+1", enabled)).toEqual({ kind: "calc", text: "1+1" });
+    expect(parseQuickCommand("calc 1+1", enabled)).toBeNull();
   });
 });
 

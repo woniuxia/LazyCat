@@ -46,7 +46,11 @@ export interface QuickCommandCalc {
 
 export type QuickCommand = QuickCommandTodoCreate | QuickCommandCalc;
 
-const DEFAULT_ENABLED_QUICK_COMMANDS = new Set<QuickCommandId>(["todo-create", "calc"]);
+const DEFAULT_ENABLED_QUICK_COMMANDS = new Set<QuickCommandId>([
+  "todo-create",
+  "calc",
+  "calc-eq",
+]);
 
 export function parseQuickCommand(
   raw: string,
@@ -57,6 +61,14 @@ export function parseQuickCommand(
   if (trimmedLeft.startsWith("+ ")) {
     if (!enabled.has("todo-create")) return null;
     return { kind: "todo-create", text: trimmedLeft.slice(2).trim() };
+  }
+  // = 直达计算:= 后无需空格,行为对齐 calc。但放行 == / === / => 等开发者搜索词
+  // (对 calc 无意义且高频):= 后紧跟 "=" 或 ">" 时不当作算式,回落普通搜索。
+  if (trimmedLeft.startsWith("=")) {
+    if (!enabled.has("calc-eq")) return null;
+    const rest = trimmedLeft.slice(1).trim();
+    if (rest.startsWith("=") || rest.startsWith(">")) return null;
+    return { kind: "calc", text: rest };
   }
   // 允许 "calc"(进入空 calc 卡)或 "calc <expr>";"calcXXX" 等非词边界仍拒绝
   const calcMatch = /^calc(?:\s([\s\S]*))?$/i.exec(trimmedLeft);

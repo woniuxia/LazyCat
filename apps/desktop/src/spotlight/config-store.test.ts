@@ -90,6 +90,7 @@ describe("mergeView", () => {
     expect(view.aliasMap.get("v")).toBe("vault");
     expect(view.enabledQuickCommands.has("todo-create")).toBe(true);
     expect(view.enabledQuickCommands.has("calc")).toBe(true);
+    expect(view.enabledQuickCommands.has("calc-eq")).toBe(true);
   });
 
   it("applies provider override and excludes disabled aliases from map", () => {
