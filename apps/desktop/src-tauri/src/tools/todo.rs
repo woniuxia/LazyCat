@@ -998,6 +998,17 @@ fn clear_item_reminder_snooze(conn: &Connection, item_id: i64) -> Result<(), Str
     Ok(())
 }
 
+fn mark_item_reminder_events_read(conn: &Connection, item_id: i64) -> Result<(), String> {
+    conn.execute(
+        "UPDATE todo_reminder_events
+         SET is_read=1, updated_at=CURRENT_TIMESTAMP
+         WHERE task_id=?1 AND is_read=0",
+        params![item_id],
+    )
+    .map_err(|e| format!("标记提醒事件已读失败: {e}"))?;
+    Ok(())
+}
+
 fn resolve_item_reminder_id_for_snooze(
     conn: &Connection,
     item_id: i64,
@@ -2098,6 +2109,7 @@ fn item_change_status(payload: &Value) -> Result<Value, String> {
 
     if next == STATUS_COMPLETED {
         clear_item_reminder_snooze(&conn, id)?;
+        mark_item_reminder_events_read(&conn, id)?;
     }
 
     // Recurring + completed → generate next
@@ -2758,7 +2770,8 @@ mod tests {
                 fire_at TEXT NOT NULL,
                 is_read INTEGER NOT NULL DEFAULT 0,
                 reminder_preset TEXT NOT NULL DEFAULT '',
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
             ",
         )
@@ -2962,6 +2975,45 @@ mod tests {
         assert_eq!(reminders.len(), 1);
         assert_eq!(reminders[0].priority, "P0");
         assert_eq!(reminders[0].body, "");
+    }
+
+    #[test]
+    fn mark_item_reminder_events_read_should_only_touch_target_item() {
+        let conn = create_test_conn();
+        conn.execute(
+            "INSERT INTO todo_items(id, title, priority, status, kind)
+             VALUES(1, '任务A', 'P2', 'pending', 'one_off'),
+                   (2, '任务B', 'P2', 'pending', 'one_off')",
+            [],
+        )
+        .expect("seed items");
+        conn.execute(
+            "INSERT INTO todo_reminder_events(task_id, title, body, fire_at, is_read)
+             VALUES(1, '任务A', '', '2026-03-08T09:00:00+00:00', 0),
+                   (1, '任务A', '', '2026-03-08T09:30:00+00:00', 1),
+                   (2, '任务B', '', '2026-03-08T09:00:00+00:00', 0)",
+            [],
+        )
+        .expect("seed events");
+
+        mark_item_reminder_events_read(&conn, 1).expect("mark read");
+
+        let unread_item1: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM todo_reminder_events WHERE task_id=1 AND is_read=0",
+                [],
+                |row| row.get(0),
+            )
+            .expect("count item1 unread");
+        let unread_item2: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM todo_reminder_events WHERE task_id=2 AND is_read=0",
+                [],
+                |row| row.get(0),
+            )
+            .expect("count item2 unread");
+        assert_eq!(unread_item1, 0);
+        assert_eq!(unread_item2, 1);
     }
 
     #[test]
