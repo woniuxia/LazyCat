@@ -12,13 +12,26 @@ import type {
   SpotlightItem,
 } from "../types";
 
-interface VaultMetaEntry {
+export interface VaultPlainFields {
+  account?: string;
+  url?: string;
+  address?: string;
+  port?: number;
+  serverType?: string;
+  dbType?: string;
+  dbName?: string;
+  schema?: string;
+  notes?: string;
+}
+
+export interface VaultMetaEntry {
   id: number;
   category: string;
   title: string;
   environment: string;
   viewCount: number;
   copyCount: number;
+  plainFields?: VaultPlainFields | null;
   tags: string[];
   createdAt: string;
   updatedAt: string;
@@ -62,12 +75,13 @@ async function loadMeta(): Promise<VaultMetaEntry[]> {
   }
 }
 
-function buildSubtitle(entry: VaultMetaEntry): string {
+export function buildSubtitle(entry: VaultMetaEntry): string {
   const parts: string[] = [];
   const label = CATEGORY_LABEL[entry.category] ?? entry.category;
   if (label) parts.push(label);
   if (entry.environment) parts.push(entry.environment);
-  if (entry.tags?.length) parts.push(entry.tags.map((t) => `#${t}`).join(" "));
+  const account = entry.plainFields?.account?.trim();
+  if (account) parts.push(account);
   return parts.join(" · ");
 }
 
@@ -80,11 +94,27 @@ function makeField(text: string, weight: number) {
   };
 }
 
-function buildItem(entry: VaultMetaEntry, unlocked: boolean): SpotlightItem {
+export function buildItem(entry: VaultMetaEntry, unlocked: boolean): SpotlightItem {
   const tagsField = entry.tags?.length ? entry.tags.join(" ") : "";
   const subtitle = buildSubtitle(entry);
   const usage = (entry.viewCount ?? 0) + (entry.copyCount ?? 0);
   const weight = 1 + Math.min(usage, 50) * 0.01;
+  const pf = entry.plainFields ?? undefined;
+  const account = pf?.account ?? "";
+  const searchFields = [
+    makeField(entry.title, 1.2),
+    makeField(account, 1.1),
+    makeField(tagsField, 1.0),
+    makeField(pf?.url ?? "", 0.8),
+    makeField(pf?.address ?? "", 0.8),
+    makeField(pf?.dbName ?? "", 0.8),
+    makeField(pf?.schema ?? "", 0.8),
+    makeField(entry.environment, 0.7),
+    makeField(CATEGORY_LABEL[entry.category] ?? entry.category, 0.6),
+    makeField(pf?.serverType ?? "", 0.6),
+    makeField(pf?.dbType ?? "", 0.6),
+    makeField(pf?.notes ?? "", 0.5),
+  ].filter((f) => f.text);
   return {
     providerId: "vault",
     itemId: String(entry.id),
@@ -95,17 +125,13 @@ function buildItem(entry: VaultMetaEntry, unlocked: boolean): SpotlightItem {
       text: unlocked ? "解锁" : "需主密码",
       tone: unlocked ? "success" : "muted",
     },
-    searchFields: [
-      makeField(entry.title, 1.2),
-      makeField(tagsField, 1.0),
-      makeField(CATEGORY_LABEL[entry.category] ?? entry.category, 0.6),
-      makeField(entry.environment, 0.7),
-    ],
+    searchFields,
     weight,
     payload: {
       entryId: entry.id,
       category: entry.category,
       title: entry.title,
+      account,
       unlocked,
     },
   };
@@ -201,11 +227,31 @@ function buildActions() {
       shortcut: "Enter",
     },
     {
+      id: "copy_account",
+      label: "复制账号",
+      icon: "copy",
+    },
+    {
       id: "open_vault",
       label: "跳转到凭据工具",
       icon: "external",
     },
   ];
+}
+
+async function copyAccountFlow(item: SpotlightItem): Promise<SpotlightExecuteResult> {
+  const entryId = item.payload?.entryId as number | undefined;
+  const account = typeof item.payload?.account === "string" ? item.payload.account : "";
+  if (!account) {
+    return { errorMessage: "该条目没有账号（旧条目需先解锁一次完成迁移）" };
+  }
+  // 账号为明文索引字段，不按密级处理：不调度剪贴板自动清空
+  await writeClipboard(account);
+  if (entryId) await recordCopy(entryId);
+  return {
+    closeSpotlight: true,
+    toast: { message: "账号已复制到剪贴板", type: "success" },
+  };
 }
 
 async function executeAction(
@@ -214,6 +260,7 @@ async function executeAction(
   ctx: SpotlightExecuteContext,
 ): Promise<SpotlightExecuteResult> {
   if (actionId === "copy_password") return copyPasswordFlow(item, ctx);
+  if (actionId === "copy_account") return copyAccountFlow(item);
   if (actionId === "open_vault") {
     const { invoke } = await import("@tauri-apps/api/core");
     await invoke("spotlight_pick", { target: "vault" });
