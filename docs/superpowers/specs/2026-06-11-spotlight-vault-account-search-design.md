@@ -27,6 +27,7 @@
 - 不支持「锁定时可搜但展示脱敏」的折中形态（用户已选择完整明文）。
 - 不新增设置项/开关：明文化是存储模型变更，不做按用户配置的双模式维护。
 - 端口（port）不参与搜索（纯数字匹配噪音大于价值），但随 `plain_fields` 存储。
+- vault-tag 关键字路径（`keyword-resolver.ts` 的 `produceVaultTag`，独立调用 `meta-list` 自建条目）本期不扩展账号搜索与账号展示，保持现状。
 
 ## 现状回顾
 
@@ -82,13 +83,14 @@ fn split_fields(fields: &Value) -> (Value, Value) {
 }
 
 /// 合成：明文列 + 解密后的 blob -> 完整字段 JSON
-/// 规则：以 plain_fields 解析结果为底（NULL/解析失败视为 {}），用 blob 的键覆盖。
-/// 旧格式：plain 为 {}，blob 含全部字段 -> 结果即 blob；
-/// 新格式：plain 含非密码字段，blob 仅 password -> 合并后完整。
+/// 规则：若 blob 含 password 以外的键（旧格式，含降级期间旧版写入）->
+///   直接以 blob 为准、忽略 plain_fields（避免并入陈旧明文键，如降级期变更分类后的残留字段）；
+/// 否则（新格式，blob 仅 password）->
+///   以 plain_fields 解析结果为底（NULL/解析失败视为 {}），加上 blob 的 password。
 fn merge_fields(plain_fields_text: Option<&str>, blob_fields: &Value) -> Value
 ```
 
-覆盖方向固定「blob 覆盖 plain」，两种格式共用一条读取路径，无需显式格式分支。
+两种格式共用一条读取路径；「旧格式以 blob 整体为准」使降级期间的任何旧版编辑（含变更分类）都不会被陈旧明文污染。
 
 ## 迁移设计（首次解锁静默回填）
 
@@ -98,12 +100,13 @@ fn merge_fields(plain_fields_text: Option<&str>, blob_fields: &Value) -> Value
 /// 扫描全部条目，逐行：解密 -> 若 blob 含 password 以外的键（旧格式写入）->
 /// split_fields -> 新 IV 重加密密码部分 -> UPDATE iv/encrypted_blob/plain_fields；
 /// blob 仅含 password 的行跳过（已是新格式）。
-/// 行级容错：单行失败跳过（下次解锁重试）；函数自身不返回 Err，不阻断解锁。
+/// 行级容错：单行失败跳过（下次解锁重试），并以 eprintln! 记录条目 id 便于诊断；
+/// 函数自身不返回 Err，不阻断解锁。
 /// UPDATE 不触碰 updated_at，避免迁移扰动「最近使用」排序。
 fn backfill_plain_fields(conn: &Connection, key: &[u8; KEY_LEN])
 ```
 
-- **触达路径 1**：`cmd_unlock` 在会话建立后同步调用（密钥为 `Copy` 数组，先回填再入会话均可）。条目量为个人凭据库规模（几十量级），逐行 AES 解密开销远小于解锁本身的 PBKDF2（60 万次迭代），同步执行无感知。
+- **触达路径 1**：`cmd_unlock` 在 canary 验证通过后调用，**先回填、再建立会话**（密钥为 `Copy` 数组，此顺序可关闭并发 IPC 在回填中途经 `list` 读到混合状态的理论窗口）。条目量为个人凭据库规模（几十量级），逐行 AES 解密开销远小于解锁本身的 PBKDF2（60 万次迭代），同步执行无感知。
 - **触达路径 2**：`cmd_change_password` 重加密循环顺手完成拆分——解密后若 blob 含非密码键则走 `split_fields`，重加密仅密码部分并写入 `plain_fields`；已是新格式的行按现状整体重加密。
 - `cmd_setup` 无需回填（新库无条目）。
 - **幂等与自愈**：判定条件是「blob 含非密码键」而非 `plain_fields IS NULL`——既覆盖首次迁移，也覆盖**降级期间旧版编辑**导致的「blob 为完整字段、`plain_fields` 陈旧」状态（旧版编辑会整体加密写回且不更新明文列），升级后首次解锁自动修复。
@@ -111,18 +114,20 @@ fn backfill_plain_fields(conn: &Connection, key: &[u8; KEY_LEN])
 ### 混合状态（升级后未解锁期间）
 
 - 未迁移行在 `meta_list` 中 `plainFields` 为 `null`，Spotlight 对该条目退化为现状搜索（标题/标签/分类/环境），副标题无账号段。
-- `get`/`list`/`reveal_one`/`change_password` 经 `merge_fields` 统一读取，新旧格式行为一致，现有功能全程可用。
+- `get` / `reveal_one` 经 `merge_fields` 统一读取，新旧格式行为一致；`list` 走明文列快路径（需会话，而回填在 `unlock` 中同步先行执行，正常流程不可达陈旧态；个别回填失败行退回解密路径）；`change_password` 按触达路径 2 处理。现有功能全程可用。
+- 已知残留窗口（三重罕见条件叠加，可接受）：已迁移行经降级期旧版编辑（`plain_fields` 陈旧非 NULL）、再升级后该行回填又恰好失败时，`list` 快路径会短暂展示陈旧的 account/summary，直至下次解锁回填成功；`get`/`reveal_one` 因「旧格式以 blob 为准」始终正确。
 
 ## 后端接口变更（均不改返回结构的既有键）
 
 | 命令 | 变更 |
 |---|---|
-| `meta_list`（:925） | SELECT 增加 `plain_fields`；返回项追加 `"plainFields": <解析后的 JSON 对象或 null>`；keyword 过滤从 `title LIKE ?` 扩展为 `(title LIKE ? OR IFNULL(plain_fields,'') LIKE ?)` |
+| `meta_list`（:925） | SELECT 增加 `plain_fields`；返回项追加 `"plainFields": <解析后的 JSON 对象，解析失败或未迁移均返回 null>`；keyword 过滤从 `title LIKE ?` 扩展为 `(title LIKE ? OR IFNULL(plain_fields,'') LIKE ?)`（口径一致性修补——当前所有调用方均不传 keyword） |
 | `create` / `update` | `build_fields()` 产物经 `split_fields` 拆两路：密码部分加密入 `encrypted_blob`，明文部分序列化入 `plain_fields`；INSERT/UPDATE 语句增加该列 |
 | `get` / `reveal_one` | 解密 blob 后经 `merge_fields` 合成完整 `fields` 返回，结构不变 |
 | `list`（:513） | 仍要求会话（鉴权语义不变）；`account`/`summary` 优先从 `plain_fields` 直接读取（省去逐行解密），`plain_fields IS NULL` 的行退回现状解密路径 |
 | `change_password` | 见迁移设计触达路径 2 |
 | `unlock` | 会话建立后调用 `backfill_plain_fields` |
+| `record_usage` | **取消活跃会话要求**（现要求会话，vault.rs:850）——它仅递增明文计数列 `view_count`/`copy_count`，与 `meta_list` 免会话口径一致；否则锁定态「复制账号」的计数会静默丢失 |
 
 `build_fields()` 本身不改（仍产出完整字段 JSON，拆分发生在其后），现有 `test_build_fields_*` 单测不受影响。
 
@@ -149,6 +154,8 @@ plainFields?: VaultPlainFields | null;
 `buildItem` 的 `payload` 追加 `account: string`（空串表示无账号/未迁移）。
 
 ### 搜索字段与权重（均经 `makeField` 生成拼音首字母；空串字段过滤不入索引）
+
+> 空串过滤对全部字段生效（含存量的标签/分类/环境字段——现状空串也会入索引），属顺带的轻微行为变更，无实际匹配影响，由单测锁定。
 
 | 字段 | 权重 | 说明 |
 |---|---|---|
@@ -177,7 +184,7 @@ plainFields?: VaultPlainFields | null;
 
 `executeAction` 增加 `copy_account` 分支：
 
-1. 从 `payload.account` 取账号；空串 → `{ errorMessage: "该条目没有账号" }`。
+1. 从 `payload.account` 取账号；空串 → `{ errorMessage: "该条目没有账号（旧条目需先解锁一次完成迁移）" }`（未迁移行与真无账号行同形，提示统一覆盖两种情况）。
 2. `writeSecretToClipboard(account)`（含 `suppressClipboardCapture`，与密码复制同路径、与 Vault 面板复制账号行为一致），**不**调度 30 秒清空。
 3. 复用 `recordCopy(entryId)` 记一次 copy 使用计数。
 4. 返回 `{ closeSpotlight: true, toast: { message: "账号已复制到剪贴板", type: "success" } }`。
@@ -187,8 +194,8 @@ Enter 默认动作（`copyPasswordFlow`）完全不动。
 ## 安全声明与权衡
 
 1. **明文化范围（用户已确认）**：除密码外的全部字段——账号、URL、地址、端口、服务器/数据库类型、库名、schema、**备注**——以明文存于 `plain_fields`。数据库文件（`lazycat.sqlite`）泄露时这些信息直接暴露，仅密码本身仍受主密码保护。备注中若存有其他密钥/临时密码将失去保护（设计阶段已单独向用户确认此点，用户选择备注明文可搜）。
-2. **降级后果**：迁移后回退旧版本，旧版会把 `{"password": ...}` 当作完整 fields——密码可正常复制，但账号等字段在旧版界面显示为空；不丢数据（明文仍在 `plain_fields` 列，旧版忽略未知列）。降级期间若旧版编辑了条目（整体加密写回），`merge_fields` 的「blob 覆盖 plain」规则保证读取正确，且再次升级后首次解锁由回填自愈（见迁移设计）。
-3. **账号复制计入 copy 计数**：与密码复制共用 `record-usage`，轻微影响使用频次排序；Vault 面板的账号复制目前不计数，此差异可接受（Spotlight 场景下复制账号同样代表「该条目高频」）。
+2. **降级后果**：迁移后回退旧版本，旧版会把 `{"password": ...}` 当作完整 fields——密码可正常复制，但账号等字段在旧版界面显示为空；不丢数据（明文仍在 `plain_fields` 列，旧版忽略未知列）。降级期间若旧版编辑了条目（整体加密写回），`merge_fields` 的「旧格式以 blob 为准」规则保证读取正确（即使分类被变更也无陈旧键污染），再次升级后首次解锁由回填自愈（见迁移设计）。
+3. **账号复制计入 copy 计数**：与密码复制共用 `record-usage`（本设计取消其会话要求，锁定态计数同样落库），轻微影响使用频次排序；Vault 面板的账号复制目前不计数，此差异可接受（Spotlight 场景下复制账号同样代表「该条目高频」）。
 4. **`meta_list` 不要求会话**：现状如此（Spotlight 锁定态检索的前提），`plainFields` 经此通道暴露是本设计的预期行为，非泄露。
 5. **性能**：`prefetch` 仍为单查询；逐行 JSON 解析开销可忽略；`list` 反而省去逐行 AES 解密。
 
@@ -205,8 +212,10 @@ test_merge_fields_new_format
   - plain_fields 文本 + {"password"} blob -> 完整字段
 test_merge_fields_legacy_format
   - plain_fields None + 完整 blob -> 等于 blob
+test_merge_fields_stale_plain
+  - blob 含非密码键且 plain_fields 非空（降级期编辑场景）-> 以 blob 为准，陈旧明文键不混入
 test_merge_fields_invalid_plain_text
-  - plain_fields 非法 JSON 按 {} 处理，blob 键覆盖
+  - 新格式 blob + plain_fields 非法 JSON -> 按 {} 处理，结果仅含 password
 ```
 
 迁移回填（依赖 DB 与会话）不写单测，列入人工验证清单。
@@ -218,7 +227,7 @@ test_merge_fields_invalid_plain_text
 ```text
 - plainFields.account 进入 searchFields（权重 1.1）且生成拼音首字母
 - url/address/dbName/schema/serverType/dbType/notes 按表中权重进入索引；空串字段被过滤
-- plainFields 为 null（未迁移）时 searchFields 与现状一致
+- plainFields 为 null（未迁移）时字段集合与权重与现状一致（空串字段被过滤除外）
 - 副标题 = 分类 · 环境 · 账号；账号为空时省略该段；不再含标签
 - payload.account 透传
 ```
@@ -244,7 +253,7 @@ test_merge_fields_invalid_plain_text
    - 旧库升级：解锁前 Spotlight 按标题可搜、按账号不可搜；主面板解锁一次后，锁定 vault，按账号可搜到条目且副标题显示账号
    - 新建/编辑条目后立即按账号可搜（无需重新解锁）
    - 锁定态 Enter 复制密码仍弹主密码输入条；解锁态直接复制并 30 秒清空
-   - Tab 菜单「复制账号」：锁定/解锁态均直接复制，无主密码提示；无账号条目报「该条目没有账号」
+   - Tab 菜单「复制账号」：锁定/解锁态均直接复制，无主密码提示；无账号条目报「该条目没有账号（旧条目需先解锁一次完成迁移）」
    - 改主密码后：所有条目密码可正常解密；未迁移行被顺手迁移
    - 降级冒烟（可选）：旧版本打开迁移后的库，密码复制正常、账号列为空
 
