@@ -339,6 +339,9 @@ fn cmd_unlock(payload: &Value) -> Result<Value, String> {
         return Err("wrong_password".to_string());
     }
 
+    // 先回填迁移、再建立会话：关闭并发 IPC 在回填中途经 list 读到混合状态的理论窗口
+    backfill_plain_fields(&conn, &key);
+
     let hard_lock_after_secs = load_hard_lock_after_secs(&conn);
 
     let mut guard = VAULT_SESSION
@@ -449,15 +452,32 @@ fn cmd_change_password(payload: &Value) -> Result<Value, String> {
         let plain = aes256_decrypt(&old_key, &entry_iv, &entry_blob)
             .map_err(|e| format!("decrypt entry {id}: {e}"))?;
 
-        // Re-encrypt with new key + new IV
         let new_iv = random_bytes(IV_LEN)?;
-        let new_blob = aes256_encrypt(&new_key, &new_iv, &plain)?;
-
-        tx.execute(
-            "UPDATE vault_entries SET iv = ?1, encrypted_blob = ?2, updated_at = CURRENT_TIMESTAMP WHERE id = ?3",
-            params![BASE64.encode(&new_iv), BASE64.encode(&new_blob), id],
-        )
-        .map_err(|e| format!("update entry {id}: {e}"))?;
+        match serde_json::from_slice::<Value>(&plain) {
+            Ok(fields) if blob_is_legacy(&fields) => {
+                // 旧格式：顺手完成拆分迁移（触达路径 2）
+                let (secret_fields, plain_fields) = split_fields(&fields);
+                let secret_bytes =
+                    serde_json::to_vec(&secret_fields).map_err(|e| format!("serialize: {e}"))?;
+                let plain_text = serde_json::to_string(&plain_fields)
+                    .map_err(|e| format!("serialize plain: {e}"))?;
+                let new_blob = aes256_encrypt(&new_key, &new_iv, &secret_bytes)?;
+                tx.execute(
+                    "UPDATE vault_entries SET iv = ?1, encrypted_blob = ?2, plain_fields = ?3, updated_at = CURRENT_TIMESTAMP WHERE id = ?4",
+                    params![BASE64.encode(&new_iv), BASE64.encode(&new_blob), plain_text, id],
+                )
+                .map_err(|e| format!("update entry {id}: {e}"))?;
+            }
+            _ => {
+                // 新格式（blob 仅含密码）：按现状整体重加密
+                let new_blob = aes256_encrypt(&new_key, &new_iv, &plain)?;
+                tx.execute(
+                    "UPDATE vault_entries SET iv = ?1, encrypted_blob = ?2, updated_at = CURRENT_TIMESTAMP WHERE id = ?3",
+                    params![BASE64.encode(&new_iv), BASE64.encode(&new_blob), id],
+                )
+                .map_err(|e| format!("update entry {id}: {e}"))?;
+            }
+        }
     }
 
     // Update canary
@@ -518,7 +538,7 @@ fn cmd_list(payload: &Value) -> Result<Value, String> {
     let tag_filter = payload["tag"].as_str().unwrap_or("");
 
     let mut sql = String::from(
-        "SELECT id, category, title, environment, iv, encrypted_blob, created_at, updated_at FROM vault_entries WHERE 1=1",
+        "SELECT id, category, title, environment, iv, encrypted_blob, plain_fields, created_at, updated_at FROM vault_entries WHERE 1=1",
     );
     let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
 
@@ -555,8 +575,9 @@ fn cmd_list(payload: &Value) -> Result<Value, String> {
                 row.get::<_, String>(3)?,
                 row.get::<_, String>(4)?,
                 row.get::<_, String>(5)?,
-                row.get::<_, String>(6)?,
+                row.get::<_, Option<String>>(6)?,
                 row.get::<_, String>(7)?,
+                row.get::<_, String>(8)?,
             ))
         })
         .map_err(|e| format!("query: {e}"))?;
@@ -564,20 +585,33 @@ fn cmd_list(payload: &Value) -> Result<Value, String> {
     let mut entries: Vec<Value> = Vec::new();
     let mut entry_ids: Vec<i64> = Vec::new();
     for row in rows {
-        let (id, cat, title, environment, iv_b64, blob_b64, created_at, updated_at) =
+        let (id, cat, title, environment, iv_b64, blob_b64, plain_text, created_at, updated_at) =
             row.map_err(|e| format!("row: {e}"))?;
 
-        let (account, summary) = match (BASE64.decode(&iv_b64), BASE64.decode(&blob_b64)) {
-            (Ok(iv), Ok(blob)) => match aes256_decrypt(&key, &iv, &blob) {
-                Ok(plain) => {
-                    let fields: Value = serde_json::from_slice(&plain).unwrap_or(json!({}));
-                    let acct = fields["account"].as_str().unwrap_or("").to_string();
-                    let summ = make_summary(&cat, &fields);
-                    (acct, summ)
-                }
-                Err(_) => (String::new(), String::new()),
+        // 快路径：明文列直接取账号与摘要，无需解密；未迁移行退回解密路径
+        let from_plain = plain_text
+            .as_deref()
+            .and_then(|text| serde_json::from_str::<Value>(text).ok())
+            .map(|pf| {
+                (
+                    pf["account"].as_str().unwrap_or("").to_string(),
+                    make_summary(&cat, &pf),
+                )
+            });
+        let (account, summary) = match from_plain {
+            Some(v) => v,
+            None => match (BASE64.decode(&iv_b64), BASE64.decode(&blob_b64)) {
+                (Ok(iv), Ok(blob)) => match aes256_decrypt(&key, &iv, &blob) {
+                    Ok(plain) => {
+                        let fields: Value = serde_json::from_slice(&plain).unwrap_or(json!({}));
+                        let acct = fields["account"].as_str().unwrap_or("").to_string();
+                        let summ = make_summary(&cat, &fields);
+                        (acct, summ)
+                    }
+                    Err(_) => (String::new(), String::new()),
+                },
+                _ => (String::new(), String::new()),
             },
-            _ => (String::new(), String::new()),
         };
 
         entry_ids.push(id);
@@ -612,15 +646,15 @@ fn cmd_get(payload: &Value) -> Result<Value, String> {
     let id = payload["id"].as_i64().ok_or("id required")?;
 
     let conn = db_conn()?;
-    let (category, title, environment, iv_b64, blob_b64, created_at, updated_at): (
-        String, String, String, String, String, String, String,
+    let (category, title, environment, iv_b64, blob_b64, plain_text, created_at, updated_at): (
+        String, String, String, String, String, Option<String>, String, String,
     ) = conn
         .query_row(
-            "SELECT category, title, environment, iv, encrypted_blob, created_at, updated_at FROM vault_entries WHERE id = ?1",
+            "SELECT category, title, environment, iv, encrypted_blob, plain_fields, created_at, updated_at FROM vault_entries WHERE id = ?1",
             params![id],
             |row| Ok((
                 row.get(0)?, row.get(1)?, row.get(2)?,
-                row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?,
+                row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?, row.get(7)?,
             )),
         )
         .map_err(|_| "entry not found".to_string())?;
@@ -628,7 +662,9 @@ fn cmd_get(payload: &Value) -> Result<Value, String> {
     let iv = BASE64.decode(&iv_b64).map_err(|e| format!("iv: {e}"))?;
     let blob = BASE64.decode(&blob_b64).map_err(|e| format!("blob: {e}"))?;
     let plain = aes256_decrypt(&key, &iv, &blob)?;
-    let fields: Value = serde_json::from_slice(&plain).map_err(|e| format!("parse fields: {e}"))?;
+    let blob_fields: Value =
+        serde_json::from_slice(&plain).map_err(|e| format!("parse fields: {e}"))?;
+    let fields = merge_fields(plain_text.as_deref(), &blob_fields);
 
     // Get tags
     let tags = get_entry_tags(&conn, id).unwrap_or_default();
@@ -665,22 +701,26 @@ fn cmd_create(payload: &Value) -> Result<Value, String> {
         })
         .unwrap_or_default();
 
-    // Build the encrypted fields JSON
+    // Build the fields JSON, split into encrypted (password) and plaintext parts
     let fields = build_fields(category, payload);
-    let plain = serde_json::to_vec(&fields).map_err(|e| format!("serialize: {e}"))?;
+    let (secret_fields, plain_fields) = split_fields(&fields);
+    let secret_bytes = serde_json::to_vec(&secret_fields).map_err(|e| format!("serialize: {e}"))?;
+    let plain_text =
+        serde_json::to_string(&plain_fields).map_err(|e| format!("serialize plain: {e}"))?;
 
     let iv = random_bytes(IV_LEN)?;
-    let encrypted = aes256_encrypt(&key, &iv, &plain)?;
+    let encrypted = aes256_encrypt(&key, &iv, &secret_bytes)?;
 
     let conn = db_conn()?;
     conn.execute(
-        "INSERT INTO vault_entries (category, title, environment, iv, encrypted_blob) VALUES (?1, ?2, ?3, ?4, ?5)",
+        "INSERT INTO vault_entries (category, title, environment, iv, encrypted_blob, plain_fields) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         params![
             category,
             title,
             environment,
             BASE64.encode(&iv),
             BASE64.encode(&encrypted),
+            plain_text,
         ],
     )
     .map_err(|e| format!("insert: {e}"))?;
@@ -728,19 +768,23 @@ fn cmd_update(payload: &Value) -> Result<Value, String> {
         .unwrap_or_default();
 
     let fields = build_fields(actual_category, payload);
-    let plain = serde_json::to_vec(&fields).map_err(|e| format!("serialize: {e}"))?;
+    let (secret_fields, plain_fields) = split_fields(&fields);
+    let secret_bytes = serde_json::to_vec(&secret_fields).map_err(|e| format!("serialize: {e}"))?;
+    let plain_text =
+        serde_json::to_string(&plain_fields).map_err(|e| format!("serialize plain: {e}"))?;
 
     let iv = random_bytes(IV_LEN)?;
-    let encrypted = aes256_encrypt(&key, &iv, &plain)?;
+    let encrypted = aes256_encrypt(&key, &iv, &secret_bytes)?;
 
     conn.execute(
-        "UPDATE vault_entries SET category = ?1, title = ?2, environment = ?3, iv = ?4, encrypted_blob = ?5, updated_at = CURRENT_TIMESTAMP WHERE id = ?6",
+        "UPDATE vault_entries SET category = ?1, title = ?2, environment = ?3, iv = ?4, encrypted_blob = ?5, plain_fields = ?6, updated_at = CURRENT_TIMESTAMP WHERE id = ?7",
         params![
             actual_category,
             title,
             environment,
             BASE64.encode(&iv),
             BASE64.encode(&encrypted),
+            plain_text,
             id,
         ],
     )
@@ -847,7 +891,7 @@ fn cmd_delete_tag(payload: &Value) -> Result<Value, String> {
 }
 
 fn cmd_record_usage(payload: &Value) -> Result<Value, String> {
-    let _key = get_session_key()?;
+    // 免会话：仅递增明文计数列，与 meta_list 免会话口径一致（锁定态复制账号也计数）
     let id = payload["id"].as_i64().ok_or("id required")?;
     let usage_type = payload["type"].as_str().ok_or("type required")?;
 
@@ -928,7 +972,7 @@ fn cmd_meta_list(payload: &Value) -> Result<Value, String> {
     let keyword = payload["keyword"].as_str().unwrap_or("");
 
     let mut sql = String::from(
-        "SELECT id, category, title, environment, view_count, copy_count, created_at, updated_at \
+        "SELECT id, category, title, environment, view_count, copy_count, plain_fields, created_at, updated_at \
          FROM vault_entries WHERE 1=1",
     );
     let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
@@ -938,7 +982,8 @@ fn cmd_meta_list(payload: &Value) -> Result<Value, String> {
         param_values.push(Box::new(category.to_string()));
     }
     if !keyword.is_empty() {
-        sql.push_str(" AND title LIKE ?");
+        sql.push_str(" AND (title LIKE ? OR IFNULL(plain_fields, '') LIKE ?)");
+        param_values.push(Box::new(format!("%{keyword}%")));
         param_values.push(Box::new(format!("%{keyword}%")));
     }
     sql.push_str(" ORDER BY (view_count + copy_count) DESC, updated_at DESC");
@@ -956,8 +1001,9 @@ fn cmd_meta_list(payload: &Value) -> Result<Value, String> {
                 row.get::<_, String>(3)?,
                 row.get::<_, i64>(4)?,
                 row.get::<_, i64>(5)?,
-                row.get::<_, String>(6)?,
+                row.get::<_, Option<String>>(6)?,
                 row.get::<_, String>(7)?,
+                row.get::<_, String>(8)?,
             ))
         })
         .map_err(|e| format!("query: {e}"))?;
@@ -965,8 +1011,23 @@ fn cmd_meta_list(payload: &Value) -> Result<Value, String> {
     let mut entries: Vec<Value> = Vec::new();
     let mut entry_ids: Vec<i64> = Vec::new();
     for row in rows {
-        let (id, cat, title, environment, view_count, copy_count, created_at, updated_at) =
-            row.map_err(|e| format!("row: {e}"))?;
+        let (
+            id,
+            cat,
+            title,
+            environment,
+            view_count,
+            copy_count,
+            plain_text,
+            created_at,
+            updated_at,
+        ) = row.map_err(|e| format!("row: {e}"))?;
+
+        // 解析失败或未迁移行统一返回 null，前端按现状行为退化
+        let plain_fields = plain_text
+            .as_deref()
+            .and_then(|text| serde_json::from_str::<Value>(text).ok())
+            .unwrap_or(Value::Null);
 
         entry_ids.push(id);
         entries.push(json!({
@@ -976,6 +1037,7 @@ fn cmd_meta_list(payload: &Value) -> Result<Value, String> {
             "environment": environment,
             "viewCount": view_count,
             "copyCount": copy_count,
+            "plainFields": plain_fields,
             "tags": [],
             "createdAt": created_at,
             "updatedAt": updated_at,
@@ -1039,7 +1101,7 @@ fn cmd_reveal_one(payload: &Value) -> Result<Value, String> {
     // Decrypt the requested entry
     let row = conn
         .query_row(
-            "SELECT category, title, environment, iv, encrypted_blob, created_at, updated_at \
+            "SELECT category, title, environment, iv, encrypted_blob, plain_fields, created_at, updated_at \
              FROM vault_entries WHERE id = ?1",
             params![id],
             |row| {
@@ -1049,26 +1111,29 @@ fn cmd_reveal_one(payload: &Value) -> Result<Value, String> {
                     row.get::<_, String>(2)?,
                     row.get::<_, String>(3)?,
                     row.get::<_, String>(4)?,
-                    row.get::<_, String>(5)?,
+                    row.get::<_, Option<String>>(5)?,
                     row.get::<_, String>(6)?,
+                    row.get::<_, String>(7)?,
                 ))
             },
         );
-    let (category, title, environment, iv_b64, blob_b64, created_at, updated_at) = match row {
-        Ok(r) => r,
-        Err(_) => {
-            key.zeroize();
-            return Err("entry not found".to_string());
-        }
-    };
+    let (category, title, environment, iv_b64, blob_b64, plain_text, created_at, updated_at) =
+        match row {
+            Ok(r) => r,
+            Err(_) => {
+                key.zeroize();
+                return Err("entry not found".to_string());
+            }
+        };
 
     let iv = BASE64.decode(&iv_b64).map_err(|e| format!("iv: {e}"))?;
     let blob = BASE64.decode(&blob_b64).map_err(|e| format!("blob: {e}"))?;
     let plain_result = aes256_decrypt(&key, &iv, &blob);
     key.zeroize();
     let plain = plain_result.map_err(|e| format!("decrypt entry: {e}"))?;
-    let fields: Value =
+    let blob_fields: Value =
         serde_json::from_slice(&plain).map_err(|e| format!("parse fields: {e}"))?;
+    let fields = merge_fields(plain_text.as_deref(), &blob_fields);
 
     let tags = get_entry_tags(&conn, id).unwrap_or_default();
 
@@ -1112,6 +1177,102 @@ fn build_fields(category: &str, payload: &Value) -> Value {
             "notes": payload["notes"].as_str().unwrap_or(""),
         }),
         _ => json!({}),
+    }
+}
+
+// --- 仅密码加密的存储模型 ---
+//
+// encrypted_blob 解密后仅含 {"password": ...}（新格式），其余字段明文存于 plain_fields 列。
+// 旧格式（迁移前/降级期间旧版写回）的 blob 含全部字段，由 blob_is_legacy 判定，
+// merge_fields 对旧格式直接以 blob 为准，避免陈旧明文键污染。
+
+const SECRET_FIELD_KEY: &str = "password";
+
+/// 完整字段 JSON -> (加密部分, 明文部分)：加密部分固定只含 password，其余键归明文部分。
+fn split_fields(fields: &Value) -> (Value, Value) {
+    let mut secret = serde_json::Map::new();
+    let mut plain = serde_json::Map::new();
+    if let Some(obj) = fields.as_object() {
+        for (k, v) in obj {
+            if k == SECRET_FIELD_KEY {
+                secret.insert(k.clone(), v.clone());
+            } else {
+                plain.insert(k.clone(), v.clone());
+            }
+        }
+    }
+    (Value::Object(secret), Value::Object(plain))
+}
+
+/// blob 是否旧格式（含 password 以外的键）。
+fn blob_is_legacy(blob_fields: &Value) -> bool {
+    blob_fields
+        .as_object()
+        .map(|obj| obj.keys().any(|k| k != SECRET_FIELD_KEY))
+        .unwrap_or(false)
+}
+
+/// 明文列 + 解密后的 blob -> 完整字段 JSON。
+/// 旧格式以 blob 为准（忽略 plain_fields）；
+/// 新格式以 plain_fields 为底（NULL/解析失败视为 {}），加上 blob 中的 password。
+fn merge_fields(plain_fields_text: Option<&str>, blob_fields: &Value) -> Value {
+    if blob_is_legacy(blob_fields) {
+        return blob_fields.clone();
+    }
+    let mut merged = plain_fields_text
+        .and_then(|text| serde_json::from_str::<Value>(text).ok())
+        .and_then(|v| v.as_object().cloned())
+        .unwrap_or_default();
+    if let Some(obj) = blob_fields.as_object() {
+        for (k, v) in obj {
+            merged.insert(k.clone(), v.clone());
+        }
+    }
+    Value::Object(merged)
+}
+
+/// 存量迁移：扫描全部条目，旧格式行（blob 含非密码键）拆分为「仅密码加密 + 明文列」。
+/// 判定条件同时覆盖首次迁移与降级期间旧版编辑产生的陈旧状态；新格式行跳过，天然幂等。
+/// 单行失败仅记录日志跳过（下次解锁重试），整体不阻断解锁；不触碰 updated_at 以免扰动排序。
+fn backfill_plain_fields(conn: &Connection, key: &[u8; KEY_LEN]) {
+    let rows: Vec<(i64, String, String)> = {
+        let Ok(mut stmt) = conn.prepare("SELECT id, iv, encrypted_blob FROM vault_entries") else {
+            return;
+        };
+        let Ok(mapped) = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+        else {
+            return;
+        };
+        mapped.filter_map(|r| r.ok()).collect()
+    };
+
+    for (id, iv_b64, blob_b64) in rows {
+        let result = (|| -> Result<(), String> {
+            let iv = BASE64.decode(&iv_b64).map_err(|e| format!("iv: {e}"))?;
+            let blob = BASE64.decode(&blob_b64).map_err(|e| format!("blob: {e}"))?;
+            let plain = aes256_decrypt(key, &iv, &blob)?;
+            let fields: Value =
+                serde_json::from_slice(&plain).map_err(|e| format!("parse fields: {e}"))?;
+            if !blob_is_legacy(&fields) {
+                return Ok(());
+            }
+            let (secret_fields, plain_fields) = split_fields(&fields);
+            let secret_bytes =
+                serde_json::to_vec(&secret_fields).map_err(|e| format!("serialize: {e}"))?;
+            let plain_text =
+                serde_json::to_string(&plain_fields).map_err(|e| format!("serialize plain: {e}"))?;
+            let new_iv = random_bytes(IV_LEN)?;
+            let new_blob = aes256_encrypt(key, &new_iv, &secret_bytes)?;
+            conn.execute(
+                "UPDATE vault_entries SET iv = ?1, encrypted_blob = ?2, plain_fields = ?3 WHERE id = ?4",
+                params![BASE64.encode(&new_iv), BASE64.encode(&new_blob), plain_text, id],
+            )
+            .map_err(|e| format!("update: {e}"))?;
+            Ok(())
+        })();
+        if let Err(e) = result {
+            eprintln!("[vault] plain_fields backfill skipped entry {id}: {e}");
+        }
     }
 }
 
@@ -1282,5 +1443,96 @@ mod tests {
 
         // 清理后又能尝试
         assert!(reveal_throttle_check(entry_id).is_ok());
+    }
+
+    #[test]
+    fn test_split_fields_app() {
+        let fields = build_fields(
+            "app",
+            &json!({ "url": "https://x.com", "account": "admin", "password": "123", "notes": "n" }),
+        );
+        let (secret, plain) = split_fields(&fields);
+        assert_eq!(secret, json!({ "password": "123" }));
+        assert_eq!(plain["url"], "https://x.com");
+        assert_eq!(plain["account"], "admin");
+        assert_eq!(plain["notes"], "n");
+        assert!(plain.get("password").is_none());
+    }
+
+    #[test]
+    fn test_split_fields_server() {
+        let fields = build_fields(
+            "server",
+            &json!({ "address": "10.0.0.1", "serverType": "Windows", "account": "root", "password": "p" }),
+        );
+        let (secret, plain) = split_fields(&fields);
+        assert_eq!(secret, json!({ "password": "p" }));
+        assert_eq!(plain["address"], "10.0.0.1");
+        assert_eq!(plain["serverType"], "Windows");
+        assert!(plain.get("password").is_none());
+    }
+
+    #[test]
+    fn test_split_fields_database() {
+        let fields = build_fields(
+            "database",
+            &json!({ "dbType": "PostgreSQL", "address": "localhost", "port": 5432, "account": "pg", "password": "p", "dbName": "mydb" }),
+        );
+        let (secret, plain) = split_fields(&fields);
+        assert_eq!(secret, json!({ "password": "p" }));
+        assert_eq!(plain["port"], 5432);
+        assert_eq!(plain["dbName"], "mydb");
+        assert!(plain.get("password").is_none());
+    }
+
+    #[test]
+    fn test_split_fields_empty_password() {
+        let fields = json!({ "account": "a", "password": "" });
+        let (secret, plain) = split_fields(&fields);
+        assert_eq!(secret, json!({ "password": "" }));
+        assert_eq!(plain, json!({ "account": "a" }));
+    }
+
+    #[test]
+    fn test_merge_fields_new_format() {
+        let plain_text = r#"{"url":"https://x.com","account":"admin","notes":"n"}"#;
+        let blob = json!({ "password": "123" });
+        let merged = merge_fields(Some(plain_text), &blob);
+        assert_eq!(merged["url"], "https://x.com");
+        assert_eq!(merged["account"], "admin");
+        assert_eq!(merged["notes"], "n");
+        assert_eq!(merged["password"], "123");
+    }
+
+    #[test]
+    fn test_merge_fields_legacy_format() {
+        let blob = json!({ "url": "https://x.com", "account": "admin", "password": "123", "notes": "n" });
+        let merged = merge_fields(None, &blob);
+        assert_eq!(merged, blob);
+    }
+
+    #[test]
+    fn test_merge_fields_stale_plain() {
+        // 降级期旧版编辑：blob 为完整字段（可能已变更分类），plain_fields 残留陈旧键
+        let stale_plain = r#"{"dbType":"MySQL","address":"old-host","account":"old"}"#;
+        let blob = json!({ "url": "https://new.com", "account": "new", "password": "p", "notes": "" });
+        let merged = merge_fields(Some(stale_plain), &blob);
+        assert_eq!(merged, blob);
+        assert!(merged.get("dbType").is_none());
+        assert!(merged.get("address").is_none());
+    }
+
+    #[test]
+    fn test_merge_fields_invalid_plain_text() {
+        let blob = json!({ "password": "123" });
+        let merged = merge_fields(Some("not-json{{"), &blob);
+        assert_eq!(merged, json!({ "password": "123" }));
+    }
+
+    #[test]
+    fn test_blob_is_legacy() {
+        assert!(blob_is_legacy(&json!({ "password": "p", "account": "a" })));
+        assert!(!blob_is_legacy(&json!({ "password": "p" })));
+        assert!(!blob_is_legacy(&json!({})));
     }
 }

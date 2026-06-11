@@ -485,6 +485,8 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
     let _ = conn.execute_batch(
         "ALTER TABLE vault_entries ADD COLUMN copy_count INTEGER NOT NULL DEFAULT 0;",
     );
+    let _ =
+        conn.execute_batch("ALTER TABLE vault_entries ADD COLUMN plain_fields TEXT DEFAULT NULL;");
 
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS pm_item_siyuan_links (
