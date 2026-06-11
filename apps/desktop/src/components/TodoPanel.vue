@@ -313,9 +313,9 @@
                     </span>
                   </div>
                   <div class="todo-card-meta">
-                    <span v-if="relativeTimeLabel(row)" class="meta-chip meta-time">
+                    <span v-if="relativeDoneTimeLabel(row)" class="meta-chip meta-time" title="完成时间">
                       <el-icon :size="12"><Calendar /></el-icon>
-                      {{ relativeTimeLabel(row) }}
+                      {{ relativeDoneTimeLabel(row) }}
                     </span>
                     <span v-if="row.typeName" class="meta-chip meta-type">
                       <span
