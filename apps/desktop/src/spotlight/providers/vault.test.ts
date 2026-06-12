@@ -82,6 +82,13 @@ describe("vault provider buildItem", () => {
     const without = buildItem(entry(), true);
     expect(without.payload?.account).toBe("");
   });
+
+  it("payload.isLegacy 标记未迁移条目（plainFields 为 null）", () => {
+    const legacy = buildItem(entry({ plainFields: null }), false);
+    expect(legacy.payload?.isLegacy).toBe(true);
+    const migrated = buildItem(entry({ plainFields: { account: "admin" } }), false);
+    expect(migrated.payload?.isLegacy).toBe(false);
+  });
 });
 
 describe("vault provider buildSubtitle", () => {

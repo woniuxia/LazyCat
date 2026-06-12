@@ -133,6 +133,7 @@ export function buildItem(entry: VaultMetaEntry, unlocked: boolean): SpotlightIt
       title: entry.title,
       account,
       unlocked,
+      isLegacy: entry.plainFields === null,
     },
   };
 }
@@ -243,7 +244,12 @@ async function copyAccountFlow(item: SpotlightItem): Promise<SpotlightExecuteRes
   const entryId = item.payload?.entryId as number | undefined;
   const account = typeof item.payload?.account === "string" ? item.payload.account : "";
   if (!account) {
-    return { errorMessage: "该条目没有账号（旧条目需先解锁一次完成迁移）" };
+    const isLegacy = item.payload?.isLegacy === true;
+    return {
+      errorMessage: isLegacy
+        ? "该条目需先解锁一次完成迁移后才能复制账号"
+        : "该条目没有填写账号信息",
+    };
   }
   // 账号为明文索引字段，不按密级处理：不调度剪贴板自动清空
   await writeClipboard(account);
