@@ -8,6 +8,40 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-06-12: Vault 存储重构为仅密码加密，Spotlight 支持按账号搜索
+
+**场景**: 用户要求 Spotlight 在密码库锁定状态下也能按账号等字段搜索凭据条目并复制密码/账号。账号原与密码一起加密在 `encrypted_blob` 中，锁定时不可搜，需把存储模型重构为「只有密码加密、其余字段明文」。完整走了 brainstorming → spec（3 轮子代理评审）→ plan → 实施流程。
+**问题**:
+1. 加密数据格式变更涉及存量迁移，且解密必须有主密码，迁移时机只能落在某次解锁会话中。
+2. 升级/降级共存期间存在混合格式：旧版编辑会整体加密写回，导致明文列陈旧（非 NULL），按 `plain_fields IS NULL` 判定回填会漏。
+3. `record_usage` 原要求活跃会话，锁定态「复制账号」的计数会静默丢失，spec 初稿声明与实际行为矛盾（评审子代理发现）。
+4. provider 模块顶层 import bridge/tauri 且注册副作用链经 registry 拖入重依赖，单测不可直接 import。
+**解决**:
+1. 纯函数三件套收口格式语义：`split_fields`（完整字段 → 加密部分/明文部分）、`blob_is_legacy`（blob 含非密码键即旧格式）、`merge_fields`（旧格式直接以 blob 为准、忽略陈旧明文；新格式 plain + password 合并），全部可无 DB 单测。
+2. 回填判定用「blob 含非密码键」而非「明文列为 NULL」，使迁移幂等且能自愈降级期编辑；`cmd_unlock` 中**先回填再建会话**，关闭并发 IPC 读到混合状态的窗口；`change_password` 重加密循环作为第二触达路径顺手拆分。
+3. 回填 UPDATE 不触碰 `updated_at`，避免迁移扰动「最近使用」排序；单行失败 eprintln 跳过，下次解锁重试，不阻断解锁。
+4. `record_usage` 取消会话要求（仅递增明文计数列，与 `meta_list` 免会话同口径）。
+5. 前端单测用 `vi.mock("../registry")` 斩断 registry → tool provider 的重依赖链，`buildItem`/`buildSubtitle` 加 export 直测。
+**关键点**:
+1. 加密数据格式演进的通用模式：「统一读取函数 + 格式判定谓词 + 解锁时机回填」，新旧格式共存期全功能可用，回退安全（新格式密码仍可被旧版解密）。
+2. 迁移幂等条件应基于「数据本身的格式特征」（blob 键集合）而不是「迁移标记列」，否则降级期写入会绕过标记产生陈旧状态。
+3. spec 子代理评审能抓住真实矛盾（如锁定态计数静默丢失、merge 语义被陈旧明文污染），3 轮迭代成本远低于实施后返工。
+**涉及文件**:
+- `apps/desktop/src-tauri/src/tools/vault.rs`
+- `apps/desktop/src-tauri/src/tools/helpers.rs`
+- `apps/desktop/src/spotlight/providers/vault.ts`
+- `apps/desktop/src/spotlight/providers/vault.test.ts`
+- `docs/superpowers/specs/2026-06-11-spotlight-vault-account-search-design.md`
+- `docs/superpowers/specs/2026-06-11-spotlight-vault-account-search-plan.md`
+
+**验证**:
+- `cargo test --bins`（296 passed，含 9 个新增拆分/合成单测）
+- `pnpm test`（245 passed，含 7 个新增 provider 单测）
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+
+**使用次数**: 0
+
 ## 2026-05-07: Living Wallpaper（合成壁纸）端到端落地
 
 **场景**: 实现 Living Wallpaper 全套：跨 PM/Todo 数据聚合 → hidden WebView 渲染信息层 → CapturePreview 抓 PNG → 与原壁纸合成 → IDesktopWallpaper 设回桌面 → 心跳/事件驱动调度 + 老板键 + 退出策略。Tauri 2.10 + Rust + Vue 3 + windows-rs 0.61，约 17 个 commit。
