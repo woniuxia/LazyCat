@@ -101,6 +101,7 @@ import "../spotlight/providers/launcher";
 import * as configStore from "../spotlight/config-store";
 
 import { parseSpotlightQuery, parseQuickCommand, parseKeywordCommand } from "../utils/spotlight-query";
+import { nextSpotlightActiveIndex } from "../utils/spotlight-active-index";
 import { calculateExpression, getCalcPreview } from "../utils/calc";
 import { detectClipboardContent } from "../utils/clipboard-detect";
 import { isRealToolId } from "../composables/toolCatalog";
@@ -448,15 +449,23 @@ const results = computed(() => {
 });
 
 watch(results, () => {
-  if (activeIndex.value >= results.value.length) {
-    activeIndex.value = 0;
-  }
+  activeIndex.value = nextSpotlightActiveIndex({
+    currentIndex: activeIndex.value,
+    resultCount: results.value.length,
+    queryChanged: false,
+  });
 });
 
 // 用户继续输入新查询时,清除遗留的错误条/成功条与失败重试,避免红条/绿条粘连
 // success bar 在等待自动关窗时被取消,意味着用户继续使用 spotlight,不再自动关
-watch(query, (next, prev) => {
-  if (next === prev) return;
+watch([query, scope], ([nextQuery, nextScope], [prevQuery, prevScope]) => {
+  const changed = nextQuery !== prevQuery || nextScope !== prevScope;
+  if (!changed) return;
+  activeIndex.value = nextSpotlightActiveIndex({
+    currentIndex: activeIndex.value,
+    resultCount: results.value.length,
+    queryChanged: true,
+  });
   if (errorMessage.value || lastFailed.value) {
     errorMessage.value = null;
     lastFailed.value = null;
