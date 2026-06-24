@@ -8,6 +8,33 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-06-24: Todo 详情编辑标题聚焦失效
+
+**场景**: 双击任务列表项进入右侧编辑页后，需要自动聚焦标题输入框；现有实现设置了 `nextTick + setTimeout`，但实际测试未生效。
+**问题**:
+1. `TodoDetailEdit.vue` 通过 `defineExpose({ titleInputRef })` 暴露内部 `ref`。
+2. `TodoPanel.vue` 按 `todoDetailEditRef.value?.titleInputRef.value?.focus()` 访问，依赖父组件看到的暴露值仍是 `Ref`。
+3. 同类问题也影响编辑时间快捷入口对 `scrollRef.value` / `scheduleRef.value` 的访问。
+4. Vue `<script setup>` 暴露给父组件的 ref 存在自动解包行为，父组件不应穿透子组件内部 ref 形态。
+**解决**:
+1. 在 `TodoDetailEdit.vue` 暴露明确方法 `focusTitleInput()`，由子组件内部访问 `titleInputRef.value?.focus()`。
+2. 同步暴露 `focusScheduleInput()`，把滚动到时间字段并聚焦首个可用输入框的逻辑留在子组件内部。
+3. `TodoPanel.vue` 只调用 `todoDetailEditRef.value?.focusTitleInput()` / `focusScheduleInput()`，保留创建/编辑模式校验和定时取消逻辑。
+4. 更新静态回归测试，防止再次回到 `.titleInputRef.value` / `.scheduleRef.value` 的脆弱访问。
+**关键点**:
+1. 跨组件操作 DOM / 组件实例时，优先暴露语义方法，不暴露内部 ref 结构。
+2. `defineExpose` 的 ref 解包细节不应成为父组件契约。
+**涉及文件**:
+- `apps/desktop/src/components/TodoDetailEdit.vue`
+- `apps/desktop/src/components/TodoPanel.vue`
+- `apps/desktop/src/components/TodoPanel.edit-focus.test.ts`
+
+**验证**:
+- `pnpm test src/components/TodoPanel.edit-focus.test.ts src/components/TodoPanel.title-enter.test.ts`
+- `pnpm typecheck`
+
+**使用次数**: 0
+
 ## 2026-06-12: Vault 存储重构为仅密码加密，Spotlight 支持按账号搜索
 
 **场景**: 用户要求 Spotlight 在密码库锁定状态下也能按账号等字段搜索凭据条目并复制密码/账号。账号原与密码一起加密在 `encrypted_blob` 中，锁定时不可搜，需把存储模型重构为「只有密码加密、其余字段明文」。完整走了 brainstorming → spec（3 轮子代理评审）→ plan → 实施流程。

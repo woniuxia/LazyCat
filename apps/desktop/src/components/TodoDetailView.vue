@@ -2,56 +2,56 @@
   <div class="detail-view" :key="item.id">
     <!-- Header -->
     <div class="detail-pane-header detail-pane-header--view">
-      <div class="detail-title-group">
+      <div class="detail-header-top">
         <div class="detail-eyebrow">事项详情</div>
-        <div class="detail-title-row">
-          <h3 class="detail-title detail-title--copyable" title="点击复制标题" @click="$emit('copyTitle', item.title)">{{ item.title }}</h3>
-          <div class="detail-badges">
-            <span
-              v-if="item.priority !== 'P2'"
-              class="detail-badge"
-              :class="'priority-' + item.priority.toLowerCase()"
-            >
-              <el-icon :size="12"><Flag /></el-icon>
-              {{ item.priority }} {{ priorityLabel(item.priority) }}
-            </span>
-            <span class="detail-badge pinned" v-if="item.pinned">
-              <el-icon :size="12"><Top /></el-icon> 置顶
-            </span>
-            <span class="detail-badge repeat" v-if="hasRepeatRule(item)">
-              <el-icon :size="12"><Refresh /></el-icon> 重复
-            </span>
-            <span class="detail-badge overdue" v-if="isItemOverdue(item)">
-              <el-icon :size="12"><AlarmClock /></el-icon> 逾期
-            </span>
-          </div>
+        <div class="detail-header-actions">
+          <el-button
+            size="small"
+            link
+            class="detail-edit-btn"
+            @click="$emit('edit', item)"
+          >编辑</el-button>
+          <el-button
+            v-if="canPinItem(item)"
+            size="small"
+            link
+            @click="$emit('togglePin', item.id)"
+          >
+            {{ item.pinned ? "取消置顶" : "置顶" }}
+          </el-button>
+          <el-button
+            size="small"
+            link
+            :type="isDoneItem(item) ? '' : 'success'"
+            @click="$emit('changeStatus', item.id, isDoneItem(item) ? 'pending' : 'completed')"
+          >
+            {{ isDoneItem(item) ? "恢复" : "完成" }}
+          </el-button>
+          <el-button size="small" link type="danger" @click="$emit('delete', item)"
+          >删除</el-button>
         </div>
       </div>
-      <div class="detail-header-actions">
-        <el-button
-          size="small"
-          link
-          class="detail-edit-btn"
-          @click="$emit('edit', item)"
-        >编辑</el-button>
-        <el-button
-          v-if="canPinItem(item)"
-          size="small"
-          link
-          @click="$emit('togglePin', item.id)"
+      <div class="detail-title-row">
+        <h3 class="detail-title detail-title--copyable" title="点击复制标题" @click="$emit('copyTitle', item.title)">{{ item.title }}</h3>
+      </div>
+      <div class="detail-badges">
+        <span
+          v-if="item.priority !== 'P2'"
+          class="detail-badge"
+          :class="'priority-' + item.priority.toLowerCase()"
         >
-          {{ item.pinned ? "取消置顶" : "置顶" }}
-        </el-button>
-        <el-button
-          size="small"
-          link
-          :type="isDoneItem(item) ? '' : 'success'"
-          @click="$emit('changeStatus', item.id, isDoneItem(item) ? 'pending' : 'completed')"
-        >
-          {{ isDoneItem(item) ? "恢复" : "完成" }}
-        </el-button>
-        <el-button size="small" link type="danger" @click="$emit('delete', item)"
-        >删除</el-button>
+          <el-icon :size="12"><Flag /></el-icon>
+          {{ item.priority }} {{ priorityLabel(item.priority) }}
+        </span>
+        <span class="detail-badge pinned" v-if="item.pinned">
+          <el-icon :size="12"><Top /></el-icon> 置顶
+        </span>
+        <span class="detail-badge repeat" v-if="hasRepeatRule(item)">
+          <el-icon :size="12"><Refresh /></el-icon> 重复
+        </span>
+        <span class="detail-badge overdue" v-if="isItemOverdue(item)">
+          <el-icon :size="12"><AlarmClock /></el-icon> 逾期
+        </span>
       </div>
     </div>
 
@@ -705,17 +705,22 @@ const infoCardTitle = computed(() => {
   flex-shrink: 0;
 }
 .detail-pane-header--view {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
   padding-bottom: 12px;
 }
-.detail-title-group {
+.detail-header-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   min-width: 0;
-  flex: 1;
 }
 .detail-title-row {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
+  align-items: flex-start;
+  min-width: 0;
 }
 .detail-eyebrow {
   font-size: 11px;
@@ -723,10 +728,11 @@ const infoCardTitle = computed(() => {
   text-transform: uppercase;
   letter-spacing: 0.8px;
   color: var(--lc-accent);
-  margin-bottom: 8px;
+  flex-shrink: 0;
 }
 .detail-title {
   margin: 0;
+  width: 100%;
   font-size: 20px;
   font-weight: 600;
   line-height: 1.3;
@@ -747,13 +753,16 @@ const infoCardTitle = computed(() => {
 .detail-badges {
   display: flex;
   gap: 6px;
-  flex-shrink: 0;
   flex-wrap: wrap;
 }
 .detail-header-actions {
   display: flex;
+  flex: 1;
+  flex-wrap: wrap;
   gap: 4px;
-  flex-shrink: 0;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
 }
 .detail-edit-btn {
   font-weight: 500;

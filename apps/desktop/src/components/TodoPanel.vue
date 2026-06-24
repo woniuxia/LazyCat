@@ -365,7 +365,7 @@
             :minute-options="minuteOptions"
             :time-hour="eventHour"
             :time-minute="eventMinute"
-            @title-enter="onCreateTitleEnter"
+            @title-enter="onTitleEnter"
             @toggle-more-fields="showMoreFields = !showMoreFields"
             @pm-select-change="handlePmSelectChange"
             @pm-project-change="handlePmProjectChange"
@@ -536,9 +536,8 @@ const filterProjectId = ref<number | string | null>(null);
 const showMoreFields = ref(false);
 const itemKeyword = ref("");
 const todoDetailEditRef = ref<{
-  titleInputRef: { value: { focus: () => void } | null };
-  scrollRef: { value: HTMLElement | null };
-  scheduleRef: { value: HTMLElement | null };
+  focusTitleInput: () => void;
+  focusScheduleInput: () => void;
   runAfterSubmit?: (realId: number) => Promise<void>;
   runBeforeSubmit?: () => Promise<void>;
   runOnCancel?: () => Promise<void>;
@@ -952,25 +951,11 @@ async function openTodoContextMenu(event: MouseEvent, item: TodoItem) {
 async function enterEditTimeMode(item?: TodoItem | null) {
   const target = item || selectedItem.value;
   if (!target) return;
-  await enterEditMode(target);
+  await enterEditMode(target, { focusTitle: false });
   if (selectedItemId.value !== target.id) return;
   showMoreFields.value = true;
   await nextTick();
-  const scheduleSection = todoDetailEditRef.value?.scheduleRef.value;
-  if (!scheduleSection) return;
-  const formScroll = todoDetailEditRef.value?.scrollRef.value;
-  if (formScroll) {
-    const scrollHostRect = formScroll.getBoundingClientRect();
-    const sectionRect = scheduleSection.getBoundingClientRect();
-    const nextScrollTop = formScroll.scrollTop + sectionRect.top - scrollHostRect.top - 16;
-    formScroll.scrollTo({ top: Math.max(0, nextScrollTop), behavior: "smooth" });
-  } else {
-    scheduleSection.scrollIntoView({ block: "start", behavior: "smooth" });
-  }
-  const firstInput = scheduleSection.querySelector(
-    "input:not([disabled])",
-  ) as HTMLInputElement | null;
-  firstInput?.focus();
+  todoDetailEditRef.value?.focusScheduleInput();
 }
 
 async function handleTodoContextMenuCommand(command: TodoContextMenuCommand) {
@@ -993,7 +978,10 @@ async function handleTodoContextMenuCommand(command: TodoContextMenuCommand) {
   }
 }
 
-async function focusCreateTitleInput() {
+async function focusTitleInputWhenActive(
+  expectedDetailMode: DetailMode,
+  expectedDialogMode: ItemDialogMode,
+) {
   if (titleFocusTimer) {
     clearTimeout(titleFocusTimer);
     titleFocusTimer = null;
@@ -1001,14 +989,20 @@ async function focusCreateTitleInput() {
   await nextTick();
   titleFocusTimer = setTimeout(() => {
     titleFocusTimer = null;
-    if (detailMode.value !== "create" || itemDialogMode.value !== "create") return;
-    todoDetailEditRef.value?.titleInputRef.value?.focus();
+    if (detailMode.value !== expectedDetailMode || itemDialogMode.value !== expectedDialogMode) return;
+    todoDetailEditRef.value?.focusTitleInput();
   }, 0);
 }
 
-function onCreateTitleEnter(event: KeyboardEvent) {
+async function focusCreateTitleInput() {
+  await focusTitleInputWhenActive("create", "create");
+}
+
+function onTitleEnter(event: KeyboardEvent) {
   if (event.isComposing) return;
-  if (detailMode.value !== "create" || itemDialogMode.value !== "create") return;
+  const isCreateForm = detailMode.value === "create" && itemDialogMode.value === "create";
+  const isEditForm = detailMode.value === "edit" && itemDialogMode.value === "edit_item";
+  if (!isCreateForm && !isEditForm) return;
   void saveItem();
 }
 
@@ -1716,7 +1710,7 @@ async function copyTitle(title: string) {
   ElMessage.success("标题已复制");
 }
 
-async function enterEditMode(item?: TodoItem | null) {
+async function enterEditMode(item?: TodoItem | null, options: { focusTitle?: boolean } = {}) {
   const target = item || selectedItem.value;
   if (!target) return;
   if (detailMode.value === "edit" && selectedItemId.value === target.id) return;
@@ -1733,6 +1727,9 @@ async function enterEditMode(item?: TodoItem | null) {
     effectiveReminderPresets(target.reminderPresets).length > 0 ||
     hasRepeatRule(target);
   markDraftBaseline();
+  if (options.focusTitle !== false) {
+    await focusTitleInputWhenActive("edit", "edit_item");
+  }
 }
 
 async function submitItemChanges(showSuccess = true) {

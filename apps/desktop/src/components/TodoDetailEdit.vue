@@ -506,6 +506,28 @@ const scrollRef = ref<HTMLElement | null>(null);
 const scheduleRef = ref<HTMLElement | null>(null);
 const submittedThisRound = ref(false);
 
+function focusTitleInput() {
+  titleInputRef.value?.focus();
+}
+
+function focusScheduleInput() {
+  const scheduleSection = scheduleRef.value;
+  if (!scheduleSection) return;
+  const formScroll = scrollRef.value;
+  if (formScroll) {
+    const scrollHostRect = formScroll.getBoundingClientRect();
+    const sectionRect = scheduleSection.getBoundingClientRect();
+    const nextScrollTop = formScroll.scrollTop + sectionRect.top - scrollHostRect.top - 16;
+    formScroll.scrollTo({ top: Math.max(0, nextScrollTop), behavior: "smooth" });
+  } else {
+    scheduleSection.scrollIntoView({ block: "start", behavior: "smooth" });
+  }
+  const firstInput = scheduleSection.querySelector(
+    "input:not([disabled])",
+  ) as HTMLInputElement | null;
+  firstInput?.focus();
+}
+
 const richLifecycle = useRichDescriptionLifecycle({
   ownerType: "todo",
   editorRef,
@@ -525,9 +547,8 @@ watch(
 );
 
 defineExpose({
-  titleInputRef,
-  scrollRef,
-  scheduleRef,
+  focusTitleInput,
+  focusScheduleInput,
   /** 新建 Todo 成功后：把 tmp-<uuid> 下附件 rebind 到 realId */
   async runAfterSubmit(realId: number) {
     submittedThisRound.value = true;
