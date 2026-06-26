@@ -56,12 +56,18 @@ describe("DataDictionaryPanel dictionary context menu", () => {
   });
 
   it("supports dragging dictionary items to persist sidebar order", () => {
-    expect(source).toContain(':draggable="!savingDictionaryOrder"');
-    expect(source).toContain('@dragstart="handleDictionaryDragStart(dictionary.id)"');
-    expect(source).toContain('@dragover.prevent="handleDictionaryDragOver(dictionary.id)"');
-    expect(source).toContain('@drop.prevent="handleDictionaryDrop(dictionary.id)"');
-    expect(source).toContain('@dragend="handleDictionaryDragEnd"');
+    expect(source).toContain('ref="dictionarySortListRef"');
+    expect(source).toContain('class="dd-dictionary-drag-handle"');
+    expect(source).toContain('import Sortable from "sortablejs"');
+    expect(source).toContain('Sortable.create(listEl');
+    expect(source).toContain('handle: ".dd-dictionary-drag-handle"');
+    expect(source).toContain('draggable: ".dd-dictionary-menu"');
+    expect(source).toContain("forceFallback: true");
+    expect(source).toContain("async function handleDictionarySortEnd");
     expect(source).toContain('"tool:data-dictionary:reorder"');
+    expect(source).not.toContain("@dragstart=");
+    expect(source).not.toContain("@dragover.prevent=");
+    expect(source).not.toContain("@drop.prevent=");
   });
 
   it("keeps the all-dictionaries option outside drag sorting", () => {

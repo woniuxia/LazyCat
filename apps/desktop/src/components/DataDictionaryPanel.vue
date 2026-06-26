@@ -22,44 +22,43 @@
           <span class="dd-dictionary-meta">{{ totalRecordCount }} 条</span>
         </button>
 
-        <el-dropdown
-          v-for="dictionary in dictionaries"
-          :key="dictionary.id"
-          class="dd-dictionary-menu"
-          :ref="(el) => setDictionaryMenuRef(dictionary.id, el)"
-          trigger="contextmenu"
-          @visible-change="(visible) => handleDictionaryMenuVisibleChange(visible, dictionary.id)"
-          @command="(command) => handleDictionaryCommand(command, dictionary)"
+        <div
+          ref="dictionarySortListRef"
+          class="dd-dictionary-sort-list"
+          :class="{ 'is-saving-order': savingDictionaryOrder }"
         >
-          <button
-            class="dd-dictionary-item"
-            :class="{
-              active: dictionary.id === selectedId,
-              'is-dragging': dictionary.id === draggingDictionaryId,
-              'is-drag-over': dictionary.id === dragOverDictionaryId,
-            }"
-            :draggable="!savingDictionaryOrder"
-            type="button"
-            title="拖拽排序，右键打开字典菜单"
-            @dragstart="handleDictionaryDragStart(dictionary.id)"
-            @dragover.prevent="handleDictionaryDragOver(dictionary.id)"
-            @dragleave="handleDictionaryDragLeave(dictionary.id)"
-            @drop.prevent="handleDictionaryDrop(dictionary.id)"
-            @dragend="handleDictionaryDragEnd"
-            @click="selectDictionary(dictionary.id)"
+          <el-dropdown
+            v-for="dictionary in dictionaries"
+            :key="dictionary.id"
+            class="dd-dictionary-menu"
+            :ref="(el) => setDictionaryMenuRef(dictionary.id, el)"
+            trigger="contextmenu"
+            @visible-change="(visible) => handleDictionaryMenuVisibleChange(visible, dictionary.id)"
+            @command="(command) => handleDictionaryCommand(command, dictionary)"
           >
-            <span class="dd-dictionary-name">{{ dictionary.name }}</span>
-            <span class="dd-dictionary-meta">{{ dictionary.recordCount }} 条</span>
-          </button>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item command="replace" :icon="Refresh">替换</el-dropdown-item>
-              <el-dropdown-item command="fields" :icon="Setting">字段</el-dropdown-item>
-              <el-dropdown-item command="rename" :icon="Edit">重命名</el-dropdown-item>
-              <el-dropdown-item command="delete" :icon="Delete" divided>删除</el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
+            <button
+              class="dd-dictionary-item"
+              :class="{ active: dictionary.id === selectedId }"
+              type="button"
+              title="点击选择，拖拽右侧手柄排序，右键打开字典菜单"
+              @click="selectDictionary(dictionary.id)"
+            >
+              <span class="dd-dictionary-name">{{ dictionary.name }}</span>
+              <span class="dd-dictionary-trailing">
+                <span class="dd-dictionary-meta">{{ dictionary.recordCount }} 条</span>
+                <el-icon class="dd-dictionary-drag-handle" title="拖拽排序"><Rank /></el-icon>
+              </span>
+            </button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="replace" :icon="Refresh">替换</el-dropdown-item>
+                <el-dropdown-item command="fields" :icon="Setting">字段</el-dropdown-item>
+                <el-dropdown-item command="rename" :icon="Edit">重命名</el-dropdown-item>
+                <el-dropdown-item command="delete" :icon="Delete" divided>删除</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+        </div>
       </div>
 
       <div v-if="!dictionaries.length" class="dd-empty">暂无字典</div>
@@ -246,17 +245,19 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import type { ComponentPublicInstance } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import {
   Delete,
   Edit,
   Plus,
+  Rank,
   Refresh,
   Search,
   Setting,
 } from "@element-plus/icons-vue";
+import Sortable from "sortablejs";
 import { invokeToolByChannel } from "../bridge/tauri";
 import type {
   DataDictionaryField,
@@ -302,18 +303,17 @@ const fieldDrafts = ref<DataDictionaryField[]>([]);
 const fieldSortPath = ref("");
 const fieldSortDirection = ref<DataDictionarySortDirection>("asc");
 const savingFields = ref(false);
-const draggingDictionaryId = ref<number | null>(null);
-const dragOverDictionaryId = ref<number | null>(null);
 const savingDictionaryOrder = ref(false);
+const dictionarySortListRef = ref<HTMLElement | null>(null);
 
 type DictionaryMenuInstance = ComponentPublicInstance & { handleClose?: () => void };
 
 const dictionaryMenuRefs = new Map<number, DictionaryMenuInstance>();
+let dictionarySortableInstance: Sortable | null = null;
 
 let searchTimer: ReturnType<typeof setTimeout> | null = null;
 let dictionaryRequestSeq = 0;
 let searchRequestSeq = 0;
-let dictionaryOrderBeforeDrag: DataDictionarySummary[] | null = null;
 
 const totalRecordCount = computed(() =>
   dictionaries.value.reduce((total, dictionary) => total + dictionary.recordCount, 0),
@@ -370,6 +370,8 @@ async function loadDictionaries(preferredId?: number) {
   } else {
     await selectAllDictionaries();
   }
+  await nextTick();
+  initDictionarySortable();
 }
 
 async function selectDictionary(id: number) {
@@ -493,61 +495,40 @@ async function copySummaryValue(value: string) {
   }
 }
 
-function handleDictionaryDragStart(id: number) {
-  if (savingDictionaryOrder.value) return;
-  dictionaryOrderBeforeDrag = dictionaries.value.slice();
-  draggingDictionaryId.value = id;
-  dragOverDictionaryId.value = null;
-  closeOtherDictionaryMenus(id);
+function initDictionarySortable() {
+  if (dictionarySortableInstance) return;
+  const listEl = dictionarySortListRef.value;
+  if (!listEl) return;
+
+  dictionarySortableInstance = Sortable.create(listEl, {
+    animation: 150,
+    handle: ".dd-dictionary-drag-handle",
+    draggable: ".dd-dictionary-menu",
+    ghostClass: "dd-sortable-ghost",
+    forceFallback: true,
+    disabled: savingDictionaryOrder.value,
+    onEnd: (event) => {
+      void handleDictionarySortEnd(event);
+    },
+  });
 }
 
-function handleDictionaryDragOver(id: number) {
-  if (!draggingDictionaryId.value || draggingDictionaryId.value === id) {
-    dragOverDictionaryId.value = null;
-    return;
-  }
-  dragOverDictionaryId.value = id;
+function destroyDictionarySortable() {
+  dictionarySortableInstance?.destroy();
+  dictionarySortableInstance = null;
 }
 
-function handleDictionaryDragLeave(id: number) {
-  if (dragOverDictionaryId.value === id) {
-    dragOverDictionaryId.value = null;
-  }
-}
+async function handleDictionarySortEnd(event: Sortable.SortableEvent) {
+  const { oldIndex, newIndex } = event;
+  if (oldIndex == null || newIndex == null || oldIndex === newIndex) return;
 
-function handleDictionaryDrop(id: number) {
-  const draggingId = draggingDictionaryId.value;
-  const previousOrder = dictionaryOrderBeforeDrag?.slice() ?? dictionaries.value.slice();
-  if (!draggingId || draggingId === id) {
-    handleDictionaryDragEnd();
-    return;
-  }
-
-  const changed = moveDictionaryToTarget(draggingId, id);
-  handleDictionaryDragEnd();
-  if (changed) {
-    void saveDictionaryOrder(previousOrder);
-  }
-}
-
-function handleDictionaryDragEnd() {
-  draggingDictionaryId.value = null;
-  dragOverDictionaryId.value = null;
-  dictionaryOrderBeforeDrag = null;
-}
-
-function moveDictionaryToTarget(sourceId: number, targetId: number) {
-  const sourceIndex = dictionaries.value.findIndex((dictionary) => dictionary.id === sourceId);
-  const targetIndex = dictionaries.value.findIndex((dictionary) => dictionary.id === targetId);
-  if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) return false;
-
+  const previousOrder = dictionaries.value.slice();
   const next = dictionaries.value.slice();
-  const [source] = next.splice(sourceIndex, 1);
-  const nextTargetIndex = next.findIndex((dictionary) => dictionary.id === targetId);
-  const insertIndex = sourceIndex < targetIndex ? nextTargetIndex + 1 : nextTargetIndex;
-  next.splice(insertIndex, 0, source);
+  const [moved] = next.splice(oldIndex, 1);
+  if (!moved) return;
+  next.splice(newIndex, 0, moved);
   dictionaries.value = next;
-  return true;
+  await saveDictionaryOrder(previousOrder);
 }
 
 async function saveDictionaryOrder(previousOrder: DataDictionarySummary[]) {
@@ -816,6 +797,11 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   if (searchTimer) clearTimeout(searchTimer);
+  destroyDictionarySortable();
+});
+
+watch(savingDictionaryOrder, (disabled) => {
+  dictionarySortableInstance?.option("disabled", disabled);
 });
 </script>
 
@@ -880,6 +866,16 @@ onBeforeUnmount(() => {
   overflow: auto;
 }
 
+.dd-dictionary-sort-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.dd-dictionary-sort-list.is-saving-order {
+  opacity: 0.72;
+}
+
 .dd-dictionary-menu {
   display: block;
   width: 100%;
@@ -913,20 +909,41 @@ onBeforeUnmount(() => {
   background: #f4f7ff;
 }
 
-.dd-dictionary-item.is-dragging {
-  opacity: 0.55;
-}
-
-.dd-dictionary-item.is-drag-over {
-  border-color: #6f95ff;
-  background: #eef4ff;
-}
-
 .dd-dictionary-name {
+  min-width: 0;
   overflow: hidden;
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.dd-dictionary-trailing {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  margin-left: 8px;
+}
+
+.dd-dictionary-drag-handle {
+  color: #697386;
+  cursor: grab;
+  font-size: 16px;
+  opacity: 0.45;
+  transition: opacity 0.16s ease;
+}
+
+.dd-dictionary-item:hover .dd-dictionary-drag-handle {
+  opacity: 1;
+}
+
+.dd-dictionary-drag-handle:active {
+  cursor: grabbing;
+}
+
+:deep(.dd-sortable-ghost) .dd-dictionary-item {
+  border-color: #6f95ff;
+  background: #eef4ff;
 }
 
 .dd-results {
