@@ -58,6 +58,15 @@ describe("DataDictionaryPanel dictionary context menu", () => {
     expect(source).toContain("titleFieldPath");
   });
 
+  it("uses a responsive field configuration drawer with a compact summary panel", () => {
+    expect(source).toContain(':size="fieldDrawerSize"');
+    expect(source).toContain('class="dd-field-drawer"');
+    expect(source).toContain("const fieldDrawerSize = computed");
+    expect(source).toContain('class="dd-field-config-panel"');
+    expect(source).toContain('class="dd-field-config-summary"');
+    expect(source).toContain("min(1040px, calc(100vw - 48px))");
+  });
+
   it("supports dragging dictionary items to persist sidebar order", () => {
     expect(source).toContain('ref="dictionarySortListRef"');
     expect(source).toContain('class="dd-dictionary-drag-handle"');
@@ -78,10 +87,11 @@ describe("DataDictionaryPanel dictionary context menu", () => {
     expect(source).not.toContain('@dragstart="handleDictionaryDragStart(null)"');
   });
 
-  it("uses the configured title field in result headings", () => {
+  it("uses source labels as fallback titles without rendering a separate source marker", () => {
     expect(source).toContain("buildResultTitle");
     expect(source).toContain("resultTitle(item)");
-    expect(source).toContain("dd-result-source");
+    expect(source).toContain("dictionarySourceLabel(selectedItem)");
+    expect(source).not.toContain("dd-result-source");
   });
 
   it("renders visible and hidden field configuration lists separately", () => {

@@ -91,12 +91,6 @@
           <div class="dd-result-head">
             <span class="dd-result-title">
               <span class="dd-result-title-text">{{ resultTitle(item) }}</span>
-              <span
-                v-if="resultTitle(item) !== dictionarySourceLabel(item)"
-                class="dd-result-source"
-              >
-                {{ dictionarySourceLabel(item) }}
-              </span>
             </span>
             <el-tag v-if="item.matches.length" size="small" effect="plain">
               {{ item.matches.length }} 命中
@@ -193,54 +187,67 @@
     <el-drawer
       v-model="fieldDrawerVisible"
       :title="fieldDrawerTitle"
-      size="720px"
+      :size="fieldDrawerSize"
+      class="dd-field-drawer"
       @opened="initFieldSortable"
       @closed="handleFieldDrawerClosed"
     >
-      <div class="dd-field-sort-config">
-        <el-form-item label="标题字段">
-          <el-select
-            v-model="fieldTitlePath"
-            clearable
-            filterable
-            placeholder="默认字典来源"
-            size="small"
-          >
-            <el-option
-              v-for="option in fieldSortOptions"
-              :key="option.value"
-              :label="option.label"
-              :value="option.value"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="排序字段">
-          <el-select
-            v-model="fieldSortPath"
-            clearable
-            filterable
-            placeholder="原始顺序"
-            size="small"
-          >
-            <el-option
-              v-for="option in fieldSortOptions"
-              :key="option.value"
-              :label="option.label"
-              :value="option.value"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="排序方向">
-          <el-radio-group v-model="fieldSortDirection" :disabled="!fieldSortPath" size="small">
-            <el-radio-button
-              v-for="option in sortDirectionOptions"
-              :key="option.value"
-              :label="option.value"
+      <div class="dd-field-config-panel">
+        <div class="dd-field-config-summary">
+          <span>
+            <b>{{ visibleFieldDrafts.length }}</b>
+            展示字段
+          </span>
+          <span>
+            <b>{{ hiddenFieldDrafts.length }}</b>
+            非展示字段
+          </span>
+        </div>
+        <div class="dd-field-sort-config">
+          <el-form-item label="标题字段">
+            <el-select
+              v-model="fieldTitlePath"
+              clearable
+              filterable
+              placeholder="默认字典来源"
+              size="small"
             >
-              {{ option.label }}
-            </el-radio-button>
-          </el-radio-group>
-        </el-form-item>
+              <el-option
+                v-for="option in fieldSortOptions"
+                :key="option.value"
+                :label="option.label"
+                :value="option.value"
+              />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="排序字段">
+            <el-select
+              v-model="fieldSortPath"
+              clearable
+              filterable
+              placeholder="原始顺序"
+              size="small"
+            >
+              <el-option
+                v-for="option in fieldSortOptions"
+                :key="option.value"
+                :label="option.label"
+                :value="option.value"
+              />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="排序方向">
+            <el-radio-group v-model="fieldSortDirection" :disabled="!fieldSortPath" size="small">
+              <el-radio-button
+                v-for="option in sortDirectionOptions"
+                :key="option.value"
+                :label="option.value"
+              >
+                {{ option.label }}
+              </el-radio-button>
+            </el-radio-group>
+          </el-form-item>
+        </div>
       </div>
 
       <div class="dd-field-sections">
@@ -254,22 +261,22 @@
             :data="visibleFieldDrafts"
             row-key="fieldPath"
             class="dd-visible-field-list"
-            height="calc(50vh - 170px)"
+            height="clamp(220px, calc((100vh - 360px) / 2), 360px)"
             empty-text="暂无展示字段"
             size="small"
           >
-            <el-table-column width="42" align="center">
+            <el-table-column width="44" align="center" class-name="dd-field-handle-cell">
               <template #default>
                 <el-icon class="dd-field-drag-handle" title="拖拽排序"><Rank /></el-icon>
               </template>
             </el-table-column>
-            <el-table-column prop="fieldPath" label="字段" min-width="160" show-overflow-tooltip />
-            <el-table-column label="显示名" min-width="150">
+            <el-table-column prop="fieldPath" label="字段" min-width="190" show-overflow-tooltip />
+            <el-table-column label="显示名" min-width="160">
               <template #default="{ row }">
                 <el-input v-model="row.displayName" size="small" />
               </template>
             </el-table-column>
-            <el-table-column label="含义" min-width="220">
+            <el-table-column label="含义" min-width="260">
               <template #default="{ row }">
                 <el-input v-model="row.meaning" size="small" />
               </template>
@@ -300,17 +307,17 @@
             :data="hiddenFieldDrafts"
             row-key="fieldPath"
             class="dd-hidden-field-list"
-            height="calc(50vh - 170px)"
+            height="clamp(220px, calc((100vh - 360px) / 2), 360px)"
             empty-text="暂无非展示字段"
             size="small"
           >
-            <el-table-column prop="fieldPath" label="字段" min-width="180" show-overflow-tooltip />
-            <el-table-column label="显示名" min-width="150">
+            <el-table-column prop="fieldPath" label="字段" min-width="220" show-overflow-tooltip />
+            <el-table-column label="显示名" min-width="160">
               <template #default="{ row }">
                 <el-input v-model="row.displayName" size="small" />
               </template>
             </el-table-column>
-            <el-table-column label="含义" min-width="220">
+            <el-table-column label="含义" min-width="260">
               <template #default="{ row }">
                 <el-input v-model="row.meaning" size="small" />
               </template>
@@ -441,6 +448,8 @@ const canSaveImport = computed(
 const fieldDrawerTitle = computed(() =>
   fieldTarget.value ? `字段配置 - ${fieldTarget.value.name}` : "字段配置",
 );
+
+const fieldDrawerSize = computed(() => "min(1040px, calc(100vw - 48px))");
 
 const fieldSortOptions = computed(() =>
   fieldDrafts.value.map((field) => ({
@@ -1164,17 +1173,10 @@ watch(savingDictionaryOrder, (disabled) => {
   gap: 2px;
 }
 
-.dd-result-title-text,
-.dd-result-source {
+.dd-result-title-text {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.dd-result-source {
-  color: #788397;
-  font-size: 12px;
-  font-weight: 400;
 }
 
 .dd-summary-line {
@@ -1278,11 +1280,58 @@ watch(savingDictionaryOrder, (disabled) => {
   font-size: 13px;
 }
 
+.dd-field-drawer :deep(.el-drawer__body) {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  padding: 14px 16px 12px;
+  background: #f7f9fc;
+}
+
+.dd-field-drawer :deep(.el-drawer__footer) {
+  padding: 12px 16px;
+  border-top: 1px solid #e5e9f2;
+  background: #ffffff;
+}
+
+.dd-field-config-panel {
+  margin-bottom: 12px;
+  padding: 12px;
+  border: 1px solid #dde5f3;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.dd-field-config-summary {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.dd-field-config-summary span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 4px 8px;
+  border: 1px solid #e2e8f4;
+  border-radius: 999px;
+  background: #f8fafc;
+  color: #52637a;
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.dd-field-config-summary b {
+  color: #1f3f8f;
+  font-size: 13px;
+}
+
 .dd-field-sort-config {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 180px;
-  gap: 12px;
-  margin-bottom: 12px;
+  grid-template-columns: minmax(220px, 1fr) minmax(220px, 1fr) 180px;
+  gap: 10px;
 }
 
 .dd-field-sort-config :deep(.el-form-item) {
@@ -1296,6 +1345,7 @@ watch(savingDictionaryOrder, (disabled) => {
 
 .dd-field-sections {
   display: flex;
+  flex: 1;
   flex-direction: column;
   gap: 12px;
   min-height: 0;
@@ -1303,10 +1353,10 @@ watch(savingDictionaryOrder, (disabled) => {
 
 .dd-field-section {
   min-height: 0;
-  padding: 10px;
-  border: 1px solid #e7eaf1;
+  overflow: hidden;
+  border: 1px solid #dde5f3;
   border-radius: 8px;
-  background: #fbfcff;
+  background: #ffffff;
 }
 
 .dd-field-section-head {
@@ -1314,7 +1364,9 @@ watch(savingDictionaryOrder, (disabled) => {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  margin-bottom: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid #edf1f7;
+  background: #fbfcff;
 }
 
 .dd-field-section-head h4 {
@@ -1329,15 +1381,45 @@ watch(savingDictionaryOrder, (disabled) => {
   font-size: 12px;
 }
 
+.dd-field-section :deep(.el-table) {
+  --el-table-border-color: #edf1f7;
+  --el-table-header-bg-color: #f8fafc;
+  --el-table-row-hover-bg-color: #f4f7ff;
+  color: #263247;
+}
+
+.dd-field-section :deep(.el-table th.el-table__cell) {
+  color: #52637a;
+  font-weight: 600;
+}
+
+.dd-field-section :deep(.el-table .cell) {
+  line-height: 1.35;
+}
+
+.dd-field-section :deep(.el-input__wrapper) {
+  background: #ffffff;
+  box-shadow: 0 0 0 1px #dbe3f0 inset;
+}
+
+.dd-field-section :deep(.el-input__wrapper:hover) {
+  box-shadow: 0 0 0 1px #b9c8e3 inset;
+}
+
+:deep(.dd-field-handle-cell) {
+  background: #fbfcff;
+}
+
 .dd-field-drag-handle {
   color: #697386;
   cursor: grab;
-  font-size: 16px;
-  opacity: 0.45;
-  transition: opacity 0.16s ease;
+  font-size: 17px;
+  opacity: 0.52;
+  transition: color 0.16s ease, opacity 0.16s ease;
 }
 
 :deep(.el-table__row:hover) .dd-field-drag-handle {
+  color: #1e40af;
   opacity: 1;
 }
 
@@ -1353,6 +1435,20 @@ watch(savingDictionaryOrder, (disabled) => {
   .dd-detail {
     grid-column: 1 / -1;
     min-height: 320px;
+  }
+}
+
+@media (max-width: 760px) {
+  .dd-field-drawer :deep(.el-drawer__body) {
+    padding: 12px;
+  }
+
+  .dd-field-sort-config {
+    grid-template-columns: 1fr;
+  }
+
+  .dd-field-config-summary {
+    justify-content: flex-start;
   }
 }
 </style>
