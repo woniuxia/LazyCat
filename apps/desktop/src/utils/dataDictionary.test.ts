@@ -146,6 +146,36 @@ describe("dataDictionary utils", () => {
     ]);
   });
 
+  it("includes every visible summary field by default", () => {
+    const visibleFields = Array.from({ length: 5 }, (_, index) => ({
+      fieldPath: `field${index + 1}`,
+      displayName: `字段${index + 1}`,
+      meaning: "",
+      searchable: true,
+      visible: true,
+      sortOrder: index,
+      typeHint: "string",
+      sampleValue: `value${index + 1}`,
+      presentCount: 1,
+    }));
+
+    expect(
+      buildResultSummary(
+        {
+          ...item,
+          rawJson: {
+            field1: "value1",
+            field2: "value2",
+            field3: "value3",
+            field4: "value4",
+            field5: "value5",
+          },
+        },
+        visibleFields,
+      ).map((part) => part.fieldPath),
+    ).toEqual(["field1", "field2", "field3", "field4", "field5"]);
+  });
+
   it("labels global search result source", () => {
     expect(dictionarySourceLabel(item)).toBe("用户字典 #1");
   });
@@ -165,7 +195,7 @@ describe("dataDictionary utils", () => {
   });
 
   it("can omit the title field from visible summary parts", () => {
-    expect(buildResultSummary({ ...item, titleFieldPath: "user.name" }, fields, 4, "user.name")).toEqual([
+    expect(buildResultSummary({ ...item, titleFieldPath: "user.name" }, fields, "user.name")).toEqual([
       { fieldPath: "id", label: "编号", value: "1001" },
     ]);
   });

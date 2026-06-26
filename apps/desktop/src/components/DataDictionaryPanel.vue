@@ -592,7 +592,6 @@ function resultSummary(item: DataDictionarySearchItem) {
   return buildResultSummary(
     item,
     fieldCache.value[item.dictionaryId] ?? [],
-    4,
     item.titleFieldPath,
   );
 }

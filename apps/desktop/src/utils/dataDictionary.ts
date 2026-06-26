@@ -30,7 +30,6 @@ export function formatJsonValue(value: unknown): string {
 export function buildResultSummary(
   item: DataDictionarySearchItem,
   fields: DataDictionaryField[],
-  maxFields = 4,
   excludedFieldPath?: string | null,
 ): DataDictionarySummaryPart[] {
   return fields
@@ -46,7 +45,6 @@ export function buildResultSummary(
       };
     })
     .filter((part) => part.value !== "undefined" && part.value !== "")
-    .slice(0, maxFields);
 }
 
 export function buildResultTitle(item: DataDictionarySearchItem): string {
