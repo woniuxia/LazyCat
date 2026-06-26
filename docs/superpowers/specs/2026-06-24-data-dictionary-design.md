@@ -2,7 +2,7 @@
 
 ## 概述
 
-新增独立工具「数据字典」，用于导入一段 JSON array，每个元素必须是 JSON object。用户可以为 object 字段配置显示名和字段含义，并在多个字典之间切换检索。检索输入命中任一参与检索字段后，返回整条 JSON object。
+新增独立工具「数据字典」，用于导入一段 JSON array，每个元素必须是 JSON object。用户可以为 object 字段配置显示名和字段含义，并在多个字典之间切换检索，也可以执行跨字典全局检索。检索输入命中任一参与检索字段后，返回整条 JSON object。
 
 第一版采用 SQLite 持久化，保留原始 JSON object 作为唯一事实源，字段配置和检索文本作为派生数据维护。嵌套对象支持点路径，例如 `user.name`、`department.code`。SQLite FTS5 可用时参与检索，`LIKE` 始终兜底，保证“输入一段内容后做包含匹配”的直觉语义。
 
@@ -15,16 +15,16 @@
 3. 自动推断字段路径，支持嵌套 object 点路径。
 4. 支持配置字段显示名、字段含义、是否参与检索、是否在结果表展示。
 5. 支持在当前字典内输入关键字检索，匹配各字段值后返回完整 JSON object。
-6. 支持查看命中字段和完整格式化 JSON。
-7. 离线运行，不新增运行时公网依赖。
+6. 支持跨字典全局检索，结果返回来源字典、命中字段和完整 JSON object。
+7. 支持查看命中字段和完整格式化 JSON。
+8. 离线运行，不新增运行时公网依赖。
 
 ### 非目标
 
-1. 第一版不做跨字典全局检索。
-2. 第一版不支持数组索引路径或通配路径，例如 `items.0.name`、`items.*.name`。
-3. 第一版不把字段含义、字段显示名纳入数据检索，检索只匹配记录字段值。
-4. 第一版不做复杂查询语言，不支持 `field:value`、布尔表达式、范围查询。
-5. 第一版不引入 Tantivy 等额外全文检索引擎。
+1. 第一版不支持数组索引路径或通配路径，例如 `items.0.name`、`items.*.name`。
+2. 第一版不把字段含义、字段显示名纳入数据检索，检索只匹配记录字段值。
+3. 第一版不做复杂查询语言，不支持 `field:value`、布尔表达式、范围查询。
+4. 第一版不引入 Tantivy 等额外全文检索引擎。
 
 ## 用户流程
 
@@ -34,7 +34,8 @@
 4. 预览解析字段路径、样例值、记录数；用户确认后保存。
 5. 字典详情页显示字段配置表，用户填写字段含义、调整是否检索和是否展示。
 6. 用户在搜索框输入关键字，结果区展示匹配记录摘要。
-7. 点击结果后，右侧展示完整 JSON object 和命中字段。
+7. 用户可切换“当前字典 / 全部字典”检索范围。
+8. 点击结果后，右侧展示完整 JSON object、来源字典和命中字段。
 
 ## 前端接入
 
@@ -91,7 +92,7 @@
 | `tool:data-dictionary:rename` | `rename` | 重命名字典 |
 | `tool:data-dictionary:replace-records` | `replace_records` | 替换某字典的全部记录 |
 | `tool:data-dictionary:update-fields` | `update_fields` | 保存字段配置 |
-| `tool:data-dictionary:search` | `search` | 当前字典内检索 |
+| `tool:data-dictionary:search` | `search` | 当前字典或全部字典检索 |
 | `tool:data-dictionary:delete` | `delete` | 删除字典 |
 
 ## 数据模型
@@ -222,7 +223,8 @@ tags
 
 ```ts
 interface DataDictionarySearchRequest {
-  dictionaryId: number;
+  dictionaryId?: number;
+  scope?: "current" | "all";
   keyword: string;
   limit?: number;
 }
@@ -230,12 +232,14 @@ interface DataDictionarySearchRequest {
 
 语义：
 
-1. 空 keyword 返回当前字典前 `limit` 条记录，按 `row_index ASC`。
-2. 非空 keyword 在当前字典内搜索。
+1. `scope = "current"` 时必须传 `dictionaryId`；`scope = "all"` 时忽略 `dictionaryId`。
+2. 空 keyword 在当前字典返回该字典前 `limit` 条记录，在全部字典返回所有字典按更新时间倒序的前 `limit` 条记录。
+3. 非空 keyword 按检索范围搜索。
 3. `normalized_search_text LIKE %normalizedKeyword% ESCAPE '\'` 始终执行，保证包含匹配。
 4. FTS5 表存在且 keyword 能构造安全 MATCH query 时，追加 FTS 候选。
 5. 最终结果去重，优先展示 LIKE 命中，再展示 FTS 命中，默认 limit 100。
-6. 对返回候选逐条解析 `raw_json`，按字段配置重新计算命中字段，返回 `matches`。
+6. 对返回候选逐条解析 `raw_json`，按对应字典的字段配置重新计算命中字段，返回 `matches`。
+7. 返回结果必须包含 `dictionaryId` 和 `dictionaryName`，便于全局结果区展示来源。
 
 ### 为什么不用 Tantivy
 
@@ -243,10 +247,10 @@ Tantivy 是 Rust 生态成熟的嵌入式全文检索引擎，但第一版不引
 
 1. 会新增索引目录、同步、重建、备份和清理逻辑。
 2. 打包体积和测试面增加。
-3. 当前需求是字段值包含匹配，不需要复杂排名、分词器、查询语法或跨字典大规模搜索。
+3. 当前需求是字段值包含匹配，即使全局搜索也不需要复杂排名、分词器或查询语法。
 4. SQLite 已在本项目中承担持久化和 FTS5 能力，维护成本更低。
 
-后续如果出现十万级以上记录、跨字典检索、复杂排序或高亮排名，再评估 Tantivy。
+后续如果出现十万级以上记录、复杂排序或高亮排名，再评估 Tantivy。
 
 ## 字段配置与导入替换
 

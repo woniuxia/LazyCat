@@ -8,6 +8,164 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-06-26: 数据字典左侧导航排序独立持久化
+
+**场景**: 数据字典左侧导航支持拖拽排序。
+**问题**:
+1. 字典列表原先按 `updated_at DESC` 返回；如果直接复用更新时间表达导航顺序，会把“内容最近更新”和“用户手动排序”混成一个状态。
+2. 前端本地拖拽排序如果不落库，刷新后会丢失；如果只提交移动项和目标项，后端还要推断当前完整列表状态。
+3. “全部”是固定全局搜索入口，不应参与具体字典排序。
+**解决**:
+1. 在 `data_dictionaries` 增加 `nav_order`，`list` 按 `nav_order ASC, updated_at DESC, id DESC` 返回；新建字典使用 `MAX(nav_order)+1` 放到末尾。
+2. 新增 `reorder` action，前端 drop 后提交完整字典 id 顺序，后端事务内批量写入 gapless `nav_order`，并校验空数组、非数字、非正数和不存在字典。
+3. 前端左侧具体字典项使用原生 HTML5 drag/drop；“全部”按钮固定顶部不设置拖拽事件；保存失败时恢复本地顺序并重新加载列表。
+**关键点**:
+1. 用户导航顺序应是独立模型，不能复用更新时间、名称或字段排序配置。
+2. 排序保存优先提交完整顺序，后端只负责校验和持久化，避免双方各自推断产生双重真值。
+3. 固定入口与可排序实体要在交互层分开，否则全局入口会被误持久化成业务数据顺序。
+
+**涉及文件**:
+- `apps/desktop/src/components/DataDictionaryPanel.vue`
+- `apps/desktop/src/components/DataDictionaryPanel.context-menu.test.ts`
+- `apps/desktop/src/types/data-dictionary.ts`
+- `apps/desktop/src/bridge/tauri.ts`
+- `apps/desktop/src-tauri/src/tools/data_dictionary.rs`
+- `apps/desktop/src-tauri/src/tools/helpers.rs`
+
+**验证**:
+- `cargo test data_dictionary -- --nocapture`
+- `pnpm test src/components/DataDictionaryPanel.context-menu.test.ts`
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+
+**使用次数**: 0
+
+## 2026-06-25: 数据字典排序配置应作为字典级单一真值
+
+**场景**: 字段配置中新增排序配置，支持指定排序字段和升降序。
+**问题**:
+1. 字段配置表已有 `sort_order`，语义是字段展示顺序；如果复用它表达记录排序，会让“字段顺序”和“记录顺序”混成一个状态。
+2. 每个字段都保存是否排序会产生多个字段同时声明排序的双重真值，保存和查询都要额外仲裁。
+3. 记录排序必须在截断 100 条前完成；先查 100 条再在前端排序会导致大数据字典排序结果不完整。
+**解决**:
+1. 在 `data_dictionaries` 上新增 `sort_field_path` / `sort_direction`，字典级保存单一排序配置；`data_dictionary_fields.sort_order` 继续只表示字段展示顺序。
+2. `update_fields` 同时保存字段配置和排序配置，并校验 `sortFieldPath` 必须存在于提交字段中。
+3. 当前字典搜索在后端按配置解析 `raw_json` 排序后再截断，数字按数值比较，缺失值升序/降序都排最后；无排序配置时保持原始行序。
+**关键点**:
+1. 同一个页面上的“字段排序”和“记录排序”要分开建模，避免一列多义。
+2. JSON 字段排序优先复用已存在的转义点路径解析规则，不能用简单 `split('.')` 破坏含点字段名。
+3. 排序、分页和截断同时存在时，排序必须发生在截断之前。
+
+**涉及文件**:
+- `apps/desktop/src/components/DataDictionaryPanel.vue`
+- `apps/desktop/src/types/data-dictionary.ts`
+- `apps/desktop/src-tauri/src/tools/data_dictionary.rs`
+- `apps/desktop/src-tauri/src/tools/helpers.rs`
+- `apps/desktop/src/components/DataDictionaryPanel.context-menu.test.ts`
+
+**验证**:
+- `cargo test data_dictionary -- --nocapture`
+- `cargo check`
+- `pnpm test src/utils/dataDictionary.test.ts src/components/DataDictionaryPanel.context-menu.test.ts`
+- `pnpm typecheck`
+
+**使用次数**: 0
+
+## 2026-06-25: 数据字典异步 IPC 结果必须绑定当前意图
+
+**场景**: 修复数据字典快速切换字典、快速搜索和导入替换时的状态不一致问题。
+**问题**:
+1. 侧栏选中态由 `selectedId` 驱动，但详情和动作按钮依赖异步 `get` 返回的 `currentDictionary`，旧响应晚到会让高亮字典与实际操作目标不一致。
+2. 搜索参数变化后，旧搜索响应仍可能覆盖新结果；同时限制 100 条时缺少截断提示。
+3. 导入预览成功后继续编辑 JSON，保存会提交新输入但界面仍展示旧预览；替换写入前也缺少目标和覆盖范围确认。
+**解决**:
+1. 字典选择用请求序号校验，切换后先清空当前动作目标，旧 `get` 响应直接丢弃。
+2. 搜索用请求序号加参数快照校验，只允许与当前 `scope / dictionaryId / keyword` 完全一致的响应写回；后端多取一条返回 `hasMore`，前端展示截断提示。
+3. 导入预览记录输入快照，当前输入与预览不一致时禁用保存；替换模式保存前弹窗确认目标字典、旧记录数和新记录数。
+**关键点**:
+1. IPC 请求结果写 UI 状态时，必须校验“响应对应的用户意图仍是当前意图”，不能只靠 await 顺序。
+2. destructive / replacement 类操作应绑定打开弹窗时的目标对象，并在提交前二次确认影响范围。
+
+**涉及文件**:
+- `apps/desktop/src/components/DataDictionaryPanel.vue`
+- `apps/desktop/src/types/data-dictionary.ts`
+- `apps/desktop/src-tauri/src/tools/data_dictionary.rs`
+
+**验证**:
+- `cargo test data_dictionary -- --nocapture`
+- `pnpm --filter @lazycat/desktop test src/utils/dataDictionary.test.ts`
+- `pnpm --filter @lazycat/desktop typecheck`
+
+**使用次数**: 0
+
+## 2026-06-25: Element Plus 右键菜单本地弹层与函数 ref 时序
+
+**场景**: 数据字典列表项使用 `el-dropdown trigger="contextmenu"` 承载管理菜单，用户反馈菜单中的“替换”和“字段”点击后无法稳定打开本地 `el-dialog` / `el-drawer`，随后又出现 `Maximum recursive updates exceeded in component <DataDictionaryPanel>`。
+**问题**:
+1. Element Plus `el-dropdown-item` 点击时会先执行 `hideOnClick` 关闭 Popper，再触发父级 `command`。
+2. “重命名/删除”走 `ElMessageBox` 服务式弹窗，不依赖当前组件内状态；“替换/字段”直接修改组件内弹层状态，容易和 Dropdown 的关闭点击栈冲突。
+3. 模板函数 ref 会在渲染期间执行；如果 `setDictionaryMenuRef` 写入响应式 `ref`，就会在渲染期间再次触发组件更新，形成递归更新。
+4. 只用源码字符串测试无法覆盖命令执行时序和响应式写入风险，容易漏掉这种交互回归。
+**解决**:
+1. 抽出 `dispatchDictionaryMenuCommand`，集中分发字典菜单命令。
+2. 对会打开本地弹层的 `replace/fields` 使用 `setTimeout(..., 0)` 延后到下一个 macrotask；`rename/delete` 保持立即执行。
+3. 菜单实例缓存改为普通 `Map<number, DictionaryMenuInstance>`，不参与 Vue 响应式系统；函数 ref 只 `set/delete` 这个 Map。
+4. 新增 `dataDictionaryMenu.test.ts` 覆盖延后执行、立即执行和未知命令忽略三类行为，并在组件菜单测试中约束函数 ref 缓存不得使用响应式 `ref`。
+**关键点**:
+1. Dropdown 菜单项里打开组件内 Dialog / Drawer 时，优先让 Dropdown 的关闭流程先结束。
+2. 服务式 MessageBox 和组件内受控弹层是两种不同模型，不能只因为都“打开弹窗”就按同一时序处理。
+3. 模板函数 ref 只适合写非响应式外部缓存；不要在函数 ref 里替换 reactive/ref 对象。
+4. 对交互命令分发，优先测可执行 helper；对 `.vue` 内响应式约束，可用源码测试兜住高风险结构。
+**涉及文件**:
+- `apps/desktop/src/components/DataDictionaryPanel.vue`
+- `apps/desktop/src/components/DataDictionaryPanel.context-menu.test.ts`
+- `apps/desktop/src/utils/dataDictionaryMenu.ts`
+- `apps/desktop/src/utils/dataDictionaryMenu.test.ts`
+
+**验证**:
+- `pnpm test src/components/DataDictionaryPanel.context-menu.test.ts src/utils/dataDictionary.test.ts src/utils/dataDictionaryMenu.test.ts`
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+
+**使用次数**: 0
+
+## 2026-06-24: 数据字典工具采用原始 JSON + 派生检索文本模型
+
+**场景**: 新增数据字典工具，支持导入 JSON array、为嵌套字段维护字段含义，并提供当前字典和跨字典全局搜索。
+**问题**:
+1. JSON object 字段不固定，不能为每个字段动态建列，否则多字典、字段变化和嵌套路径会导致 schema 膨胀。
+2. 用户期望“输入一段内容就匹配字段值”，SQLite FTS5 的 token 匹配不能完全替代包含匹配，尤其是中文、编号片段和短字符串。
+3. 跨字典搜索需要结果携带来源字典，同时每个字典的字段配置仍需隔离。
+**解决**:
+1. SQLite 中保留 `raw_json` 作为唯一事实源，字段配置写入 `data_dictionary_fields`，记录检索文本写入 `data_dictionary_records.search_text / normalized_search_text`。
+2. 嵌套 object 展开为点路径；原始 key 中的 `.` 和 `\` 在路径段内转义，数组和复杂对象作为叶子值序列化为紧凑 JSON 字符串。
+3. 搜索始终执行 `normalized_search_text LIKE ... ESCAPE '\'` 保证包含匹配；FTS5 表 `data_dictionary_fts` 作为可用时的补充候选，创建或写入失败不阻断主流程。
+4. `search` action 使用 `scope: "current" | "all"`，全局搜索返回 `dictionaryId / dictionaryName / rowIndex / rawJson / matches`，前端用字典来源标签区分结果。
+**关键点**:
+1. 动态 JSON 数据优先“原始值 + 派生索引”，不要把不稳定字段提升为数据库列。
+2. FTS5 适合加速词项检索，但产品语义是“包含匹配”时必须保留 LIKE 或等价兜底。
+3. 跨字典能力只要表结构从一开始带 `dictionary_id`，后续主要是查询范围和 UI 来源展示，不需要重做存储模型。
+**涉及文件**:
+- `apps/desktop/src-tauri/src/tools/data_dictionary.rs`
+- `apps/desktop/src-tauri/src/tools/helpers.rs`
+- `apps/desktop/src/components/DataDictionaryPanel.vue`
+- `apps/desktop/src/utils/dataDictionary.ts`
+- `apps/desktop/src/utils/dataDictionary.test.ts`
+- `apps/desktop/src/types/data-dictionary.ts`
+- `apps/desktop/src/bridge/tauri.ts`
+- `apps/desktop/src/composables/toolCatalog.ts`
+- `apps/desktop/src/tool-registry.ts`
+- `docs/superpowers/specs/2026-06-24-data-dictionary-design.md`
+- `docs/plans/2026-06-24-data-dictionary.md`
+
+**验证**:
+- `cargo test data_dictionary`
+- `pnpm test src/utils/dataDictionary.test.ts`
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+
+**使用次数**: 0
+
 ## 2026-06-24: Todo 详情编辑标题聚焦失效
 
 **场景**: 双击任务列表项进入右侧编辑页后，需要自动聚焦标题输入框；现有实现设置了 `nextTick + setTimeout`，但实际测试未生效。

@@ -2,6 +2,7 @@ pub mod capture;
 pub mod convert;
 pub mod cron;
 pub mod crypto;
+pub mod data_dictionary;
 pub mod dns;
 pub mod encode;
 pub mod env;
@@ -62,6 +63,7 @@ fn dispatch_tool(domain: &str, action: &str, payload: &Value) -> Result<Value, S
         "regex" => regex::execute(action, payload),
         "cron" => cron::execute(action, payload),
         "crypto" => crypto::execute(action, payload),
+        "data_dictionary" => data_dictionary::execute(action, payload),
         "format" => format::execute(action, payload),
         "network" => network::execute(action, payload),
         "dns" => dns::execute(action, payload),

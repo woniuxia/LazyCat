@@ -67,6 +67,7 @@ const SIDEBAR_ITEMS: SidebarItem[] = [
       tools: [
         { id: "json-process", name: "JSON 处理", desc: "JSON 格式化/压缩/XML/YAML 互转" },
         { id: "json-schema", name: "JSON Schema", desc: "JSON Schema 校验与样例生成" },
+        { id: "data-dictionary", name: "数据字典", desc: "JSON 数组字段释义与数据检索" },
         { id: "csv-json", name: "CSV/JSON", desc: "CSV 转 JSON" },
         { id: "java-bean-js", name: "JavaBean 转 JS", desc: "Java Bean 转 JSON 与 JS Object" },
         { id: "mybatis-helper", name: "MyBatis 助手", desc: "动态 SQL 渲染与占位符展开" },

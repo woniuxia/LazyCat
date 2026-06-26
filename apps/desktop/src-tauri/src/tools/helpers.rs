@@ -96,6 +96,12 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
     // 前置修补：为 schema 26 旧数据库补齐 completed_at 列。
     // ALTER TABLE ADD COLUMN 无 IF NOT EXISTS 语法，表不存在或列已存在均会报错，直接忽略。
     let _ = conn.execute_batch("ALTER TABLE todo_items ADD COLUMN completed_at TEXT DEFAULT NULL;");
+    let _ =
+        conn.execute_batch("ALTER TABLE data_dictionaries ADD COLUMN sort_field_path TEXT DEFAULT NULL;");
+    let _ =
+        conn.execute_batch("ALTER TABLE data_dictionaries ADD COLUMN sort_direction TEXT NOT NULL DEFAULT 'asc';");
+    let _ =
+        conn.execute_batch("ALTER TABLE data_dictionaries ADD COLUMN nav_order INTEGER NOT NULL DEFAULT 0;");
 
     // Phase 2: Add project_id to todo_items
     let _ =
@@ -154,6 +160,55 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
             value TEXT NOT NULL,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
+
+        CREATE TABLE IF NOT EXISTS data_dictionaries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            record_count INTEGER NOT NULL DEFAULT 0,
+            sort_field_path TEXT DEFAULT NULL,
+            sort_direction TEXT NOT NULL DEFAULT 'asc',
+            nav_order INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_data_dictionaries_nav_order
+            ON data_dictionaries(nav_order ASC, updated_at DESC, id DESC);
+        CREATE INDEX IF NOT EXISTS idx_data_dictionaries_updated_at
+            ON data_dictionaries(updated_at DESC);
+
+        CREATE TABLE IF NOT EXISTS data_dictionary_fields (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            dictionary_id INTEGER NOT NULL,
+            field_path TEXT NOT NULL,
+            display_name TEXT NOT NULL DEFAULT '',
+            meaning TEXT NOT NULL DEFAULT '',
+            searchable INTEGER NOT NULL DEFAULT 1,
+            visible INTEGER NOT NULL DEFAULT 1,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            type_hint TEXT NOT NULL DEFAULT 'unknown',
+            sample_value TEXT NOT NULL DEFAULT '',
+            present_count INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(dictionary_id, field_path),
+            FOREIGN KEY (dictionary_id) REFERENCES data_dictionaries(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_data_dictionary_fields_dictionary_sort
+            ON data_dictionary_fields(dictionary_id, sort_order, field_path);
+
+        CREATE TABLE IF NOT EXISTS data_dictionary_records (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            dictionary_id INTEGER NOT NULL,
+            row_index INTEGER NOT NULL,
+            raw_json TEXT NOT NULL,
+            search_text TEXT NOT NULL,
+            normalized_search_text TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (dictionary_id) REFERENCES data_dictionaries(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_data_dictionary_records_dictionary
+            ON data_dictionary_records(dictionary_id, row_index);
 
         CREATE TABLE IF NOT EXISTS snippet_folders_v2 (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -553,6 +608,13 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
             code_text
         );
 
+        CREATE VIRTUAL TABLE IF NOT EXISTS data_dictionary_fts USING fts5(
+            record_id UNINDEXED,
+            dictionary_id UNINDEXED,
+            search_text,
+            tokenize='unicode61 remove_diacritics 2'
+        );
+
         CREATE VIRTUAL TABLE IF NOT EXISTS inbox_fts USING fts5(
             title,
             preview,
@@ -585,7 +647,8 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
             "DROP TRIGGER IF EXISTS inbox_fts_insert;
              DROP TRIGGER IF EXISTS inbox_fts_update;
              DROP TRIGGER IF EXISTS inbox_fts_delete;
-             DROP TABLE IF EXISTS inbox_fts;",
+             DROP TABLE IF EXISTS inbox_fts;
+             DROP TABLE IF EXISTS data_dictionary_fts;",
         );
     }
 

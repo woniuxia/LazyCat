@@ -81,3 +81,12 @@ export type {
   InboxListResult,
   InboxCaptureStatus,
 } from "./inbox";
+export type {
+  DataDictionarySummary,
+  DataDictionaryField,
+  DataDictionaryImportPreview,
+  DataDictionaryMatch,
+  DataDictionarySearchItem,
+  DataDictionarySearchResult,
+  DataDictionarySearchScope,
+} from "./data-dictionary";
