@@ -89,7 +89,15 @@
           @click="selectedItem = item"
         >
           <div class="dd-result-head">
-            <span>{{ dictionarySourceLabel(item) }}</span>
+            <span class="dd-result-title">
+              <span class="dd-result-title-text">{{ resultTitle(item) }}</span>
+              <span
+                v-if="resultTitle(item) !== dictionarySourceLabel(item)"
+                class="dd-result-source"
+              >
+                {{ dictionarySourceLabel(item) }}
+              </span>
+            </span>
             <el-tag v-if="item.matches.length" size="small" effect="plain">
               {{ item.matches.length }} 命中
             </el-tag>
@@ -182,8 +190,30 @@
       </template>
     </el-dialog>
 
-    <el-drawer v-model="fieldDrawerVisible" :title="fieldDrawerTitle" size="720px">
+    <el-drawer
+      v-model="fieldDrawerVisible"
+      :title="fieldDrawerTitle"
+      size="720px"
+      @opened="initFieldSortable"
+      @closed="handleFieldDrawerClosed"
+    >
       <div class="dd-field-sort-config">
+        <el-form-item label="标题字段">
+          <el-select
+            v-model="fieldTitlePath"
+            clearable
+            filterable
+            placeholder="默认字典来源"
+            size="small"
+          >
+            <el-option
+              v-for="option in fieldSortOptions"
+              :key="option.value"
+              :label="option.label"
+              :value="option.value"
+            />
+          </el-select>
+        </el-form-item>
         <el-form-item label="排序字段">
           <el-select
             v-model="fieldSortPath"
@@ -213,29 +243,95 @@
         </el-form-item>
       </div>
 
-      <el-table :data="fieldDrafts" height="calc(100vh - 230px)" size="small">
-        <el-table-column prop="fieldPath" label="字段" min-width="160" show-overflow-tooltip />
-        <el-table-column label="显示名" min-width="150">
-          <template #default="{ row }">
-            <el-input v-model="row.displayName" size="small" />
-          </template>
-        </el-table-column>
-        <el-table-column label="含义" min-width="220">
-          <template #default="{ row }">
-            <el-input v-model="row.meaning" size="small" />
-          </template>
-        </el-table-column>
-        <el-table-column label="检索" width="72" align="center">
-          <template #default="{ row }">
-            <el-switch v-model="row.searchable" size="small" />
-          </template>
-        </el-table-column>
-        <el-table-column label="展示" width="72" align="center">
-          <template #default="{ row }">
-            <el-switch v-model="row.visible" size="small" />
-          </template>
-        </el-table-column>
-      </el-table>
+      <div class="dd-field-sections">
+        <section class="dd-field-section">
+          <div class="dd-field-section-head">
+            <h4>展示字段</h4>
+            <span>{{ visibleFieldDrafts.length }} 个</span>
+          </div>
+          <el-table
+            ref="visibleFieldTableRef"
+            :data="visibleFieldDrafts"
+            row-key="fieldPath"
+            class="dd-visible-field-list"
+            height="calc(50vh - 170px)"
+            empty-text="暂无展示字段"
+            size="small"
+          >
+            <el-table-column width="42" align="center">
+              <template #default>
+                <el-icon class="dd-field-drag-handle" title="拖拽排序"><Rank /></el-icon>
+              </template>
+            </el-table-column>
+            <el-table-column prop="fieldPath" label="字段" min-width="160" show-overflow-tooltip />
+            <el-table-column label="显示名" min-width="150">
+              <template #default="{ row }">
+                <el-input v-model="row.displayName" size="small" />
+              </template>
+            </el-table-column>
+            <el-table-column label="含义" min-width="220">
+              <template #default="{ row }">
+                <el-input v-model="row.meaning" size="small" />
+              </template>
+            </el-table-column>
+            <el-table-column label="检索" width="72" align="center">
+              <template #default="{ row }">
+                <el-switch v-model="row.searchable" size="small" />
+              </template>
+            </el-table-column>
+            <el-table-column label="展示" width="72" align="center">
+              <template #default="{ row }">
+                <el-switch
+                  :model-value="row.visible"
+                  size="small"
+                  @update:model-value="(visible) => setFieldVisible(row.fieldPath, Boolean(visible))"
+                />
+              </template>
+            </el-table-column>
+          </el-table>
+        </section>
+
+        <section class="dd-field-section">
+          <div class="dd-field-section-head">
+            <h4>非展示字段</h4>
+            <span>{{ hiddenFieldDrafts.length }} 个</span>
+          </div>
+          <el-table
+            :data="hiddenFieldDrafts"
+            row-key="fieldPath"
+            class="dd-hidden-field-list"
+            height="calc(50vh - 170px)"
+            empty-text="暂无非展示字段"
+            size="small"
+          >
+            <el-table-column prop="fieldPath" label="字段" min-width="180" show-overflow-tooltip />
+            <el-table-column label="显示名" min-width="150">
+              <template #default="{ row }">
+                <el-input v-model="row.displayName" size="small" />
+              </template>
+            </el-table-column>
+            <el-table-column label="含义" min-width="220">
+              <template #default="{ row }">
+                <el-input v-model="row.meaning" size="small" />
+              </template>
+            </el-table-column>
+            <el-table-column label="检索" width="72" align="center">
+              <template #default="{ row }">
+                <el-switch v-model="row.searchable" size="small" />
+              </template>
+            </el-table-column>
+            <el-table-column label="展示" width="72" align="center">
+              <template #default="{ row }">
+                <el-switch
+                  :model-value="row.visible"
+                  size="small"
+                  @update:model-value="(visible) => setFieldVisible(row.fieldPath, Boolean(visible))"
+                />
+              </template>
+            </el-table-column>
+          </el-table>
+        </section>
+      </div>
       <template #footer>
         <el-button @click="fieldDrawerVisible = false">取消</el-button>
         <el-button type="primary" :loading="savingFields" @click="saveFields">保存</el-button>
@@ -270,9 +366,13 @@ import type {
 } from "../types/data-dictionary";
 import {
   buildMatchLabels,
+  buildResultTitle,
   buildResultSummary,
   dictionarySourceLabel,
   formatJsonDocument,
+  moveDataDictionaryFieldDraft,
+  orderDataDictionaryFieldDrafts,
+  setDataDictionaryFieldVisibility,
 } from "../utils/dataDictionary";
 import { dispatchDictionaryMenuCommand } from "../utils/dataDictionaryMenu";
 
@@ -300,16 +400,19 @@ const savingImport = ref(false);
 const fieldDrawerVisible = ref(false);
 const fieldTarget = ref<DataDictionarySummary | null>(null);
 const fieldDrafts = ref<DataDictionaryField[]>([]);
+const fieldTitlePath = ref("");
 const fieldSortPath = ref("");
 const fieldSortDirection = ref<DataDictionarySortDirection>("asc");
 const savingFields = ref(false);
 const savingDictionaryOrder = ref(false);
 const dictionarySortListRef = ref<HTMLElement | null>(null);
+const visibleFieldTableRef = ref<ComponentPublicInstance | null>(null);
 
 type DictionaryMenuInstance = ComponentPublicInstance & { handleClose?: () => void };
 
 const dictionaryMenuRefs = new Map<number, DictionaryMenuInstance>();
 let dictionarySortableInstance: Sortable | null = null;
+let fieldSortableInstance: Sortable | null = null;
 
 let searchTimer: ReturnType<typeof setTimeout> | null = null;
 let dictionaryRequestSeq = 0;
@@ -347,6 +450,9 @@ const fieldSortOptions = computed(() =>
     value: field.fieldPath,
   })),
 );
+
+const visibleFieldDrafts = computed(() => fieldDrafts.value.filter((field) => field.visible));
+const hiddenFieldDrafts = computed(() => fieldDrafts.value.filter((field) => !field.visible));
 
 const sortDirectionOptions = [
   { label: "升序", value: "asc" },
@@ -483,7 +589,16 @@ async function ensureFieldCache(items: DataDictionarySearchItem[]) {
 }
 
 function resultSummary(item: DataDictionarySearchItem) {
-  return buildResultSummary(item, fieldCache.value[item.dictionaryId] ?? []);
+  return buildResultSummary(
+    item,
+    fieldCache.value[item.dictionaryId] ?? [],
+    4,
+    item.titleFieldPath,
+  );
+}
+
+function resultTitle(item: DataDictionarySearchItem) {
+  return buildResultTitle(item);
 }
 
 async function copySummaryValue(value: string) {
@@ -516,6 +631,53 @@ function initDictionarySortable() {
 function destroyDictionarySortable() {
   dictionarySortableInstance?.destroy();
   dictionarySortableInstance = null;
+}
+
+function initFieldSortable(retries = 5) {
+  if (fieldSortableInstance) return;
+  const tableEl = visibleFieldTableRef.value?.$el as HTMLElement | undefined;
+  const bodyEl = tableEl?.querySelector(".el-table__body-wrapper tbody") as HTMLElement | null;
+  if (!bodyEl || bodyEl.children.length === 0) {
+    if (visibleFieldDrafts.value.length === 0) return;
+    if (fieldDrawerVisible.value && retries > 0) {
+      setTimeout(() => initFieldSortable(retries - 1), 120);
+    }
+    return;
+  }
+
+  fieldSortableInstance = Sortable.create(bodyEl, {
+    animation: 150,
+    handle: ".dd-field-drag-handle",
+    draggable: "tr",
+    ghostClass: "dd-sortable-ghost",
+    forceFallback: true,
+    onEnd: (event) => {
+      void handleFieldSortEnd(event);
+    },
+  });
+}
+
+function destroyFieldSortable() {
+  fieldSortableInstance?.destroy();
+  fieldSortableInstance = null;
+}
+
+async function handleFieldSortEnd(event: Sortable.SortableEvent) {
+  const { oldIndex, newIndex } = event;
+  if (oldIndex == null || newIndex == null) return;
+  fieldDrafts.value = moveDataDictionaryFieldDraft(fieldDrafts.value, oldIndex, newIndex);
+  await nextTick();
+}
+
+async function setFieldVisible(fieldPath: string, visible: boolean) {
+  fieldDrafts.value = setDataDictionaryFieldVisibility(
+    fieldDrafts.value,
+    fieldPath,
+    visible,
+  );
+  await nextTick();
+  destroyFieldSortable();
+  initFieldSortable();
 }
 
 async function handleDictionarySortEnd(event: Sortable.SortableEvent) {
@@ -697,17 +859,22 @@ async function loadFieldsForDictionary(id: number): Promise<DataDictionaryField[
 }
 
 async function openFieldDrawer(target: DataDictionarySummary) {
+  destroyFieldSortable();
   fieldTarget.value = target;
   fieldDrafts.value = [];
+  fieldTitlePath.value = target.titleFieldPath ?? "";
   fieldSortPath.value = target.sortFieldPath ?? "";
   fieldSortDirection.value = target.sortDirection === "desc" ? "desc" : "asc";
   fieldDrawerVisible.value = true;
   try {
     const targetFields = await loadFieldsForDictionary(target.id);
-    fieldDrafts.value = targetFields.map((field) => ({ ...field }));
+    fieldDrafts.value = orderDataDictionaryFieldDrafts(targetFields);
     const sortSource = currentDictionary.value?.id === target.id ? currentDictionary.value : target;
+    fieldTitlePath.value = sortSource.titleFieldPath ?? "";
     fieldSortPath.value = sortSource.sortFieldPath ?? "";
     fieldSortDirection.value = sortSource.sortDirection === "desc" ? "desc" : "asc";
+    await nextTick();
+    initFieldSortable();
   } catch (error) {
     fieldDrawerVisible.value = false;
     fieldTarget.value = null;
@@ -720,9 +887,11 @@ async function saveFields() {
   if (!target) return;
   savingFields.value = true;
   try {
+    const fieldsToSave = orderDataDictionaryFieldDrafts(fieldDrafts.value);
     await ipc("tool:data-dictionary:update-fields", {
       dictionaryId: target.id,
-      fields: fieldDrafts.value,
+      fields: fieldsToSave,
+      titleFieldPath: fieldTitlePath.value || null,
       sortFieldPath: fieldSortPath.value || null,
       sortDirection: fieldSortDirection.value,
     });
@@ -747,6 +916,10 @@ async function saveFields() {
   } finally {
     savingFields.value = false;
   }
+}
+
+function handleFieldDrawerClosed() {
+  destroyFieldSortable();
 }
 
 async function renameDictionary(target: DataDictionarySummary) {
@@ -798,6 +971,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   if (searchTimer) clearTimeout(searchTimer);
   destroyDictionarySortable();
+  destroyFieldSortable();
 });
 
 watch(savingDictionaryOrder, (disabled) => {
@@ -984,6 +1158,26 @@ watch(savingDictionaryOrder, (disabled) => {
   font-weight: 600;
 }
 
+.dd-result-title {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dd-result-title-text,
+.dd-result-source {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dd-result-source {
+  color: #788397;
+  font-size: 12px;
+  font-weight: 400;
+}
+
 .dd-summary-line {
   display: flex;
   flex-wrap: wrap;
@@ -1087,7 +1281,7 @@ watch(savingDictionaryOrder, (disabled) => {
 
 .dd-field-sort-config {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 180px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 180px;
   gap: 12px;
   margin-bottom: 12px;
 }
@@ -1099,6 +1293,57 @@ watch(savingDictionaryOrder, (disabled) => {
 .dd-field-sort-config :deep(.el-select),
 .dd-field-sort-config :deep(.el-radio-group) {
   width: 100%;
+}
+
+.dd-field-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+}
+
+.dd-field-section {
+  min-height: 0;
+  padding: 10px;
+  border: 1px solid #e7eaf1;
+  border-radius: 8px;
+  background: #fbfcff;
+}
+
+.dd-field-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.dd-field-section-head h4 {
+  margin: 0;
+  color: #1f2a44;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.dd-field-section-head span {
+  color: #697386;
+  font-size: 12px;
+}
+
+.dd-field-drag-handle {
+  color: #697386;
+  cursor: grab;
+  font-size: 16px;
+  opacity: 0.45;
+  transition: opacity 0.16s ease;
+}
+
+:deep(.el-table__row:hover) .dd-field-drag-handle {
+  opacity: 1;
+}
+
+.dd-field-drag-handle:active {
+  cursor: grabbing;
 }
 
 @media (max-width: 1180px) {

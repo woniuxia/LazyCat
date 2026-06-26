@@ -3,6 +3,7 @@ export interface DataDictionarySummary {
   name: string;
   description: string;
   recordCount: number;
+  titleFieldPath: string | null;
   sortFieldPath: string | null;
   sortDirection: DataDictionarySortDirection;
   navOrder: number;
@@ -45,6 +46,7 @@ export interface DataDictionarySearchItem {
   id: number;
   dictionaryId: number;
   dictionaryName: string;
+  titleFieldPath: string | null;
   rowIndex: number;
   rawJson: unknown;
   matches: DataDictionaryMatch[];

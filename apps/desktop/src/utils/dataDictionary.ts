@@ -10,6 +10,11 @@ export interface DataDictionarySummaryPart {
   value: string;
 }
 
+export interface DataDictionaryFieldDraftGroups {
+  visibleFields: DataDictionaryField[];
+  hiddenFields: DataDictionaryField[];
+}
+
 export function formatJsonValue(value: unknown): string {
   if (typeof value === "string") return value;
   if (typeof value === "number" || typeof value === "boolean" || value === null) {
@@ -26,9 +31,10 @@ export function buildResultSummary(
   item: DataDictionarySearchItem,
   fields: DataDictionaryField[],
   maxFields = 4,
+  excludedFieldPath?: string | null,
 ): DataDictionarySummaryPart[] {
   return fields
-    .filter((field) => field.visible)
+    .filter((field) => field.visible && field.fieldPath !== excludedFieldPath)
     .sort((a, b) => a.sortOrder - b.sortOrder || a.fieldPath.localeCompare(b.fieldPath))
     .flatMap((field) => {
       const value = getValueByFieldPath(item.rawJson, field.fieldPath);
@@ -41,6 +47,16 @@ export function buildResultSummary(
     })
     .filter((part) => part.value !== "undefined" && part.value !== "")
     .slice(0, maxFields);
+}
+
+export function buildResultTitle(item: DataDictionarySearchItem): string {
+  const titlePath = item.titleFieldPath?.trim();
+  if (titlePath) {
+    const value = getValueByFieldPath(item.rawJson, titlePath);
+    const title = value === undefined ? "" : formatJsonValue(value).trim();
+    if (title) return title;
+  }
+  return dictionarySourceLabel(item);
 }
 
 export function buildMatchLabels(
@@ -60,6 +76,87 @@ export function buildMatchLabels(
 
 export function dictionarySourceLabel(item: DataDictionarySearchItem): string {
   return `${item.dictionaryName} #${item.rowIndex + 1}`;
+}
+
+export function orderDataDictionaryFieldDrafts(
+  fields: DataDictionaryField[],
+): DataDictionaryField[] {
+  return reindexDataDictionaryFieldDrafts(
+    fields
+      .slice()
+      .sort(
+        (a, b) =>
+          Number(b.visible) - Number(a.visible) ||
+          a.sortOrder - b.sortOrder ||
+          a.fieldPath.localeCompare(b.fieldPath),
+      ),
+  );
+}
+
+export function splitDataDictionaryFieldDrafts(
+  fields: DataDictionaryField[],
+): DataDictionaryFieldDraftGroups {
+  const ordered = orderDataDictionaryFieldDrafts(fields);
+  return {
+    visibleFields: ordered.filter((field) => field.visible),
+    hiddenFields: ordered.filter((field) => !field.visible),
+  };
+}
+
+export function moveDataDictionaryFieldDraft(
+  fields: DataDictionaryField[],
+  oldIndex: number,
+  newIndex: number,
+): DataDictionaryField[] {
+  const grouped = splitDataDictionaryFieldDrafts(fields);
+  if (
+    oldIndex < 0 ||
+    newIndex < 0 ||
+    oldIndex >= grouped.visibleFields.length ||
+    newIndex >= grouped.visibleFields.length ||
+    oldIndex === newIndex
+  ) {
+    return reindexDataDictionaryFieldDrafts([
+      ...grouped.visibleFields,
+      ...grouped.hiddenFields,
+    ]);
+  }
+  const nextVisible = grouped.visibleFields.slice();
+  const [moved] = nextVisible.splice(oldIndex, 1);
+  if (!moved) {
+    return reindexDataDictionaryFieldDrafts([
+      ...grouped.visibleFields,
+      ...grouped.hiddenFields,
+    ]);
+  }
+  nextVisible.splice(newIndex, 0, moved);
+  return reindexDataDictionaryFieldDrafts([...nextVisible, ...grouped.hiddenFields]);
+}
+
+export function setDataDictionaryFieldVisibility(
+  fields: DataDictionaryField[],
+  fieldPath: string,
+  visible: boolean,
+): DataDictionaryField[] {
+  const ordered = orderDataDictionaryFieldDrafts(fields);
+  const target = ordered.find((field) => field.fieldPath === fieldPath);
+  if (!target || target.visible === visible) return ordered;
+
+  const withoutTarget = ordered.filter((field) => field.fieldPath !== fieldPath);
+  const visibleFields = withoutTarget.filter((field) => field.visible);
+  const hiddenFields = withoutTarget.filter((field) => !field.visible);
+  const updatedTarget = { ...target, visible };
+  return reindexDataDictionaryFieldDrafts(
+    visible
+      ? [...visibleFields, updatedTarget, ...hiddenFields]
+      : [...visibleFields, ...hiddenFields, updatedTarget],
+  );
+}
+
+export function reindexDataDictionaryFieldDrafts(
+  fields: DataDictionaryField[],
+): DataDictionaryField[] {
+  return fields.map((field, index) => ({ ...field, sortOrder: index }));
 }
 
 export function formatJsonDocument(value: unknown): string {

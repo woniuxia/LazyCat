@@ -49,10 +49,13 @@ describe("DataDictionaryPanel dictionary context menu", () => {
   it("renders dictionary sort controls inside field configuration", () => {
     expect(source).toContain("排序字段");
     expect(source).toContain("排序方向");
+    expect(source).toContain("标题字段");
     expect(source).toContain("fieldSortPath");
     expect(source).toContain("fieldSortDirection");
+    expect(source).toContain("fieldTitlePath");
     expect(source).toContain("sortFieldPath");
     expect(source).toContain("sortDirection");
+    expect(source).toContain("titleFieldPath");
   });
 
   it("supports dragging dictionary items to persist sidebar order", () => {
@@ -73,6 +76,44 @@ describe("DataDictionaryPanel dictionary context menu", () => {
   it("keeps the all-dictionaries option outside drag sorting", () => {
     expect(source).not.toContain('dd-dictionary-all"\n          :draggable');
     expect(source).not.toContain('@dragstart="handleDictionaryDragStart(null)"');
+  });
+
+  it("uses the configured title field in result headings", () => {
+    expect(source).toContain("buildResultTitle");
+    expect(source).toContain("resultTitle(item)");
+    expect(source).toContain("dd-result-source");
+  });
+
+  it("renders visible and hidden field configuration lists separately", () => {
+    expect(source).toContain("展示字段");
+    expect(source).toContain("非展示字段");
+    expect(source).toContain("visibleFieldDrafts");
+    expect(source).toContain("hiddenFieldDrafts");
+    expect(source).toContain('class="dd-visible-field-list"');
+    expect(source).toContain('class="dd-hidden-field-list"');
+    expect(source).toContain("setFieldVisible");
+    expect(source).toContain("setDataDictionaryFieldVisibility");
+
+    const hiddenListStart = source.indexOf('class="dd-hidden-field-list"');
+    const hiddenListEnd = source.indexOf("<template #footer>", hiddenListStart);
+    expect(source.slice(hiddenListStart, hiddenListEnd)).not.toContain("dd-field-drag-handle");
+  });
+
+  it("supports dragging visible field rows to persist display order", () => {
+    expect(source).toContain('@opened="initFieldSortable"');
+    expect(source).toContain('ref="visibleFieldTableRef"');
+    expect(source).toContain('row-key="fieldPath"');
+    expect(source).toContain('class="dd-field-drag-handle"');
+    expect(source).toContain("initFieldSortable");
+    expect(source).toContain("handleFieldSortEnd");
+    expect(source).toContain('handle: ".dd-field-drag-handle"');
+    expect(source).toContain("moveDataDictionaryFieldDraft");
+  });
+
+  it("retries field drag initialization until table rows are rendered", () => {
+    expect(source).toContain("function initFieldSortable(retries = 5)");
+    expect(source).toContain("bodyEl.children.length === 0");
+    expect(source).toContain("setTimeout(() => initFieldSortable(retries - 1), 120)");
   });
 
   it("copies summary part values without selecting the parent result", () => {

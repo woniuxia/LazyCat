@@ -96,12 +96,18 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
     // 前置修补：为 schema 26 旧数据库补齐 completed_at 列。
     // ALTER TABLE ADD COLUMN 无 IF NOT EXISTS 语法，表不存在或列已存在均会报错，直接忽略。
     let _ = conn.execute_batch("ALTER TABLE todo_items ADD COLUMN completed_at TEXT DEFAULT NULL;");
-    let _ =
-        conn.execute_batch("ALTER TABLE data_dictionaries ADD COLUMN sort_field_path TEXT DEFAULT NULL;");
-    let _ =
-        conn.execute_batch("ALTER TABLE data_dictionaries ADD COLUMN sort_direction TEXT NOT NULL DEFAULT 'asc';");
-    let _ =
-        conn.execute_batch("ALTER TABLE data_dictionaries ADD COLUMN nav_order INTEGER NOT NULL DEFAULT 0;");
+    let _ = conn.execute_batch(
+        "ALTER TABLE data_dictionaries ADD COLUMN sort_field_path TEXT DEFAULT NULL;",
+    );
+    let _ = conn.execute_batch(
+        "ALTER TABLE data_dictionaries ADD COLUMN title_field_path TEXT DEFAULT NULL;",
+    );
+    let _ = conn.execute_batch(
+        "ALTER TABLE data_dictionaries ADD COLUMN sort_direction TEXT NOT NULL DEFAULT 'asc';",
+    );
+    let _ = conn.execute_batch(
+        "ALTER TABLE data_dictionaries ADD COLUMN nav_order INTEGER NOT NULL DEFAULT 0;",
+    );
 
     // Phase 2: Add project_id to todo_items
     let _ =
@@ -166,6 +172,7 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
             name TEXT NOT NULL,
             description TEXT NOT NULL DEFAULT '',
             record_count INTEGER NOT NULL DEFAULT 0,
+            title_field_path TEXT DEFAULT NULL,
             sort_field_path TEXT DEFAULT NULL,
             sort_direction TEXT NOT NULL DEFAULT 'asc',
             nav_order INTEGER NOT NULL DEFAULT 0,

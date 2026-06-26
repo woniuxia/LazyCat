@@ -8,6 +8,44 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-06-26: 数据字典字段标题与字段配置排序
+
+**场景**: 数据字典字段配置支持指定列表标题字段，并支持展示字段拖拽排序、展示/非展示字段分组管理。
+**使用次数**: 0
+**问题**:
+1. 字段已有 `display_name` 作为字段标签，如果复用它表达“列表标题字段”，会把字段显示名和记录标题来源混成一个状态。
+2. 记录排序配置已在字典级 `sort_field_path`，字段展示顺序已在 `data_dictionary_fields.sort_order`；新增标题字段也应是字典级单一选择。
+3. Element Plus 表格不直接暴露行拖拽，需要在表格 body 上挂 Sortable，并在保存前重新写回 gapless `sortOrder`。
+4. `el-drawer` 动画期间表格 body 可能尚未渲染，过早初始化 Sortable 会静默失败；如果每次打开都按可见性重排，也会覆盖用户已保存的手动排序。
+5. 如果展示字段和非展示字段混在一张表内排序，隐藏字段会参与拖拽索引，用户拖动展示字段后容易出现顺序不符合预期。
+**解决**:
+1. 在 `data_dictionaries` 新增 `title_field_path`，`list/get/search` 都返回 `titleFieldPath`；搜索结果可直接根据原始 JSON 计算列表标题。
+2. `update_fields` 同时保存 `titleFieldPath` / `sortFieldPath`，统一校验配置字段必须存在于本次提交字段集合中，空值回退默认来源标题。
+3. 前端抽出 `buildResultTitle`、`orderDataDictionaryFieldDrafts`、`moveDataDictionaryFieldDraft`、`setDataDictionaryFieldVisibility`，字段抽屉打开和保存时统一把展示字段排在非展示字段前并重新编号。
+4. 字段表格增加 `row-key="fieldPath"`，在 Drawer `opened` 后只对展示字段表初始化 Sortable；表格行未渲染时短暂重试。
+5. 字段配置 UI 拆成“展示字段”和“非展示字段”两张列表；拖拽只影响展示字段，展示开关负责在两组之间移动字段，避免隐藏字段参与排序。
+**关键点**:
+1. “字段标签”“记录标题字段”“记录排序字段”“字段展示顺序”是四个独立模型，不能复用同一字段表达多种语义。
+2. 可配置字段路径必须走后端校验，避免保存已不存在字段后前端只能静默回退。
+3. 表格行拖拽保存完整字段顺序即可，后端只负责持久化 `sort_order`，避免前后端各自推断顺序。
+4. Teleport / Drawer / Table 组合里做 DOM 级增强时，初始化时机必须绑定可见生命周期并允许条件重试。
+5. 当用户只需要排序展示字段时，优先从交互结构上拆分展示/非展示集合，不要靠一张表里的复杂索引规则补救。
+
+**涉及文件**:
+- `apps/desktop/src/components/DataDictionaryPanel.vue`
+- `apps/desktop/src/components/DataDictionaryPanel.context-menu.test.ts`
+- `apps/desktop/src/utils/dataDictionary.ts`
+- `apps/desktop/src/utils/dataDictionary.test.ts`
+- `apps/desktop/src/types/data-dictionary.ts`
+- `apps/desktop/src-tauri/src/tools/data_dictionary.rs`
+- `apps/desktop/src-tauri/src/tools/helpers.rs`
+
+**验证**:
+- `pnpm test src/utils/dataDictionary.test.ts src/components/DataDictionaryPanel.context-menu.test.ts`
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+- `cargo test data_dictionary -- --nocapture`
+
 ## 2026-06-26: 数据字典左侧导航排序独立持久化
 
 **场景**: 数据字典左侧导航支持拖拽排序。

@@ -1,9 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildResultTitle,
   buildMatchLabels,
   buildResultSummary,
   dictionarySourceLabel,
   formatJsonValue,
+  moveDataDictionaryFieldDraft,
+  orderDataDictionaryFieldDrafts,
+  setDataDictionaryFieldVisibility,
+  splitDataDictionaryFieldDrafts,
 } from "./dataDictionary";
 import type { DataDictionaryField, DataDictionarySearchItem } from "../types/data-dictionary";
 
@@ -54,6 +59,7 @@ const item: DataDictionarySearchItem = {
     secret: "hidden",
   },
   matches: [{ fieldPath: "user.name", value: "张三" }],
+  titleFieldPath: null,
 };
 
 describe("dataDictionary utils", () => {
@@ -150,8 +156,110 @@ describe("dataDictionary utils", () => {
     ]);
   });
 
+  it("uses the configured title field as the result heading", () => {
+    expect(buildResultTitle({ ...item, titleFieldPath: "user.name" })).toBe("张三");
+  });
+
+  it("falls back to dictionary source when the configured title field is missing", () => {
+    expect(buildResultTitle({ ...item, titleFieldPath: "user.email" })).toBe("用户字典 #1");
+  });
+
+  it("can omit the title field from visible summary parts", () => {
+    expect(buildResultSummary({ ...item, titleFieldPath: "user.name" }, fields, 4, "user.name")).toEqual([
+      { fieldPath: "id", label: "编号", value: "1001" },
+    ]);
+  });
+
   it("formats nested json values compactly", () => {
     expect(formatJsonValue(["A", "B"])).toBe("[\"A\",\"B\"]");
     expect(formatJsonValue(null)).toBe("null");
+  });
+
+  it("orders visible field drafts before hidden drafts when no explicit order exists", () => {
+    expect(
+      orderDataDictionaryFieldDrafts([
+        { ...fields[2], visible: false, sortOrder: 0 },
+        { ...fields[1], visible: true, sortOrder: 0 },
+        { ...fields[0], visible: true, sortOrder: 0 },
+      ]).map((field) => [field.fieldPath, field.sortOrder]),
+    ).toEqual([
+      ["id", 0],
+      ["user.name", 1],
+      ["secret", 2],
+    ]);
+  });
+
+  it("groups visible field drafts before hidden drafts even when persisted order is interleaved", () => {
+    expect(
+      orderDataDictionaryFieldDrafts([
+        { ...fields[2], visible: false, sortOrder: 0 },
+        { ...fields[0], visible: true, sortOrder: 1 },
+        { ...fields[1], visible: true, sortOrder: 2 },
+      ]).map((field) => [field.fieldPath, field.sortOrder]),
+    ).toEqual([
+      ["id", 0],
+      ["user.name", 1],
+      ["secret", 2],
+    ]);
+  });
+
+  it("splits field drafts into visible and hidden lists after ordering", () => {
+    const grouped = splitDataDictionaryFieldDrafts([
+      { ...fields[2], visible: false, sortOrder: 0 },
+      { ...fields[1], visible: true, sortOrder: 2 },
+      { ...fields[0], visible: true, sortOrder: 1 },
+    ]);
+
+    expect(grouped.visibleFields.map((field) => [field.fieldPath, field.sortOrder])).toEqual([
+      ["id", 0],
+      ["user.name", 1],
+    ]);
+    expect(grouped.hiddenFields.map((field) => [field.fieldPath, field.sortOrder])).toEqual([
+      ["secret", 2],
+    ]);
+  });
+
+  it("reindexes visible field drafts after manual drag sorting without moving hidden drafts", () => {
+    expect(
+      moveDataDictionaryFieldDraft(
+        [
+          { ...fields[2], visible: false, sortOrder: 0 },
+          { ...fields[0], visible: true, sortOrder: 1 },
+          { ...fields[1], visible: true, sortOrder: 2 },
+        ],
+        1,
+        0,
+      ).map((field) => [field.fieldPath, field.sortOrder]),
+    ).toEqual([
+      ["user.name", 0],
+      ["id", 1],
+      ["secret", 2],
+    ]);
+  });
+
+  it("moves fields between visible and hidden lists when visibility changes", () => {
+    expect(
+      setDataDictionaryFieldVisibility(fields, "secret", true).map((field) => [
+        field.fieldPath,
+        field.visible,
+        field.sortOrder,
+      ]),
+    ).toEqual([
+      ["id", true, 0],
+      ["user.name", true, 1],
+      ["secret", true, 2],
+    ]);
+
+    expect(
+      setDataDictionaryFieldVisibility(fields, "id", false).map((field) => [
+        field.fieldPath,
+        field.visible,
+        field.sortOrder,
+      ]),
+    ).toEqual([
+      ["user.name", true, 0],
+      ["secret", false, 1],
+      ["id", false, 2],
+    ]);
   });
 });

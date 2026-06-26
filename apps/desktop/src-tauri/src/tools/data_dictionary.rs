@@ -52,6 +52,7 @@ struct RecordRow {
     id: i64,
     dictionary_id: i64,
     dictionary_name: String,
+    title_field_path: Option<String>,
     row_index: i64,
     raw_json: String,
 }
@@ -77,7 +78,7 @@ fn action_list() -> Result<Value, String> {
     let mut stmt = conn
         .prepare(
             "SELECT id, name, description, record_count, created_at, updated_at
-             , sort_field_path, sort_direction, nav_order
+             , title_field_path, sort_field_path, sort_direction, nav_order
              FROM data_dictionaries
              ORDER BY nav_order ASC, updated_at DESC, id DESC",
         )
@@ -99,7 +100,7 @@ fn action_get(payload: &Value) -> Result<Value, String> {
     let dictionary = conn
         .query_row(
             "SELECT id, name, description, record_count, created_at, updated_at
-             , sort_field_path, sort_direction, nav_order
+             , title_field_path, sort_field_path, sort_direction, nav_order
              FROM data_dictionaries
              WHERE id = ?1",
             params![id],
@@ -304,11 +305,6 @@ fn action_update_fields(payload: &Value) -> Result<Value, String> {
         .as_array()
         .ok_or("fields is required")?;
     let mut seen = HashSet::new();
-    let sort_field_path = payload["sortFieldPath"]
-        .as_str()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string);
     let sort_direction = parse_sort_direction(payload["sortDirection"].as_str())?;
     let mut conn = db_conn()?;
     ensure_dictionary_exists(&conn, dictionary_id)?;
@@ -346,16 +342,14 @@ fn action_update_fields(payload: &Value) -> Result<Value, String> {
         )
         .map_err(|e| format!("update data dictionary field failed: {e}"))?;
     }
-    if let Some(path) = sort_field_path.as_deref() {
-        if !seen.contains(path) {
-            return Err(format!("sortFieldPath not found: {path}"));
-        }
-    }
+    let title_field_path = parse_configured_field_path(payload, "titleFieldPath", &seen)?;
+    let sort_field_path = parse_configured_field_path(payload, "sortFieldPath", &seen)?;
     tx.execute(
         "UPDATE data_dictionaries
-         SET sort_field_path = ?1, sort_direction = ?2, updated_at = CURRENT_TIMESTAMP
-         WHERE id = ?3",
+         SET title_field_path = ?1, sort_field_path = ?2, sort_direction = ?3, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?4",
         params![
+            title_field_path,
             sort_field_path,
             sort_direction.as_str(),
             dictionary_id,
@@ -683,6 +677,24 @@ fn parse_reorder_dictionary_ids(payload: &Value) -> Result<Vec<(i64, i64)>, Stri
     Ok(updates)
 }
 
+fn parse_configured_field_path(
+    payload: &Value,
+    key: &str,
+    seen: &HashSet<String>,
+) -> Result<Option<String>, String> {
+    let path = payload[key]
+        .as_str()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    if let Some(path) = path.as_deref() {
+        if !seen.contains(path) {
+            return Err(format!("{key} not found: {path}"));
+        }
+    }
+    Ok(path)
+}
+
 fn parse_sort_direction(value: Option<&str>) -> Result<SortDirection, String> {
     match value.unwrap_or("asc") {
         "asc" => Ok(SortDirection::Asc),
@@ -835,6 +847,7 @@ fn query_records(
     }
     let mut sql = String::from(
         "SELECT r.id, r.dictionary_id, d.name, r.row_index, r.raw_json
+         , d.title_field_path
          FROM data_dictionary_records r
          JOIN data_dictionaries d ON d.id = r.dictionary_id",
     );
@@ -983,6 +996,7 @@ fn rows_to_search_items(
             "id": row.id,
             "dictionaryId": row.dictionary_id,
             "dictionaryName": row.dictionary_name,
+            "titleFieldPath": row.title_field_path,
             "rowIndex": row.row_index,
             "rawJson": record,
             "matches": compute_matches(&record, &paths, keyword),
@@ -1164,9 +1178,10 @@ fn dictionary_row_to_json(row: &Row<'_>) -> rusqlite::Result<Value> {
         "recordCount": row.get::<_, i64>(3)?,
         "createdAt": row.get::<_, String>(4)?,
         "updatedAt": row.get::<_, String>(5)?,
-        "sortFieldPath": row.get::<_, Option<String>>(6)?,
-        "sortDirection": row.get::<_, String>(7)?,
-        "navOrder": row.get::<_, i64>(8)?,
+        "titleFieldPath": row.get::<_, Option<String>>(6)?,
+        "sortFieldPath": row.get::<_, Option<String>>(7)?,
+        "sortDirection": row.get::<_, String>(8)?,
+        "navOrder": row.get::<_, i64>(9)?,
     }))
 }
 
@@ -1191,6 +1206,7 @@ fn record_row(row: &Row<'_>) -> rusqlite::Result<RecordRow> {
         dictionary_name: row.get(2)?,
         row_index: row.get(3)?,
         raw_json: row.get(4)?,
+        title_field_path: row.get(5)?,
     })
 }
 
@@ -1344,6 +1360,7 @@ mod tests {
                 id: idx + 1,
                 dictionary_id: 1,
                 dictionary_name: "测试字典".to_string(),
+                title_field_path: None,
                 row_index: idx,
                 raw_json: "{}".to_string(),
             })
@@ -1418,11 +1435,50 @@ mod tests {
         assert!(parse_reorder_dictionary_ids(&json!({ "ids": [1, "2"] })).is_err());
     }
 
+    #[test]
+    fn parse_configured_field_path_accepts_known_field_and_blank_default() {
+        let seen = HashSet::from(["name".to_string(), "code".to_string()]);
+
+        assert_eq!(
+            parse_configured_field_path(
+                &json!({ "titleFieldPath": " name " }),
+                "titleFieldPath",
+                &seen,
+            )
+            .unwrap(),
+            Some("name".to_string())
+        );
+        assert_eq!(
+            parse_configured_field_path(
+                &json!({ "titleFieldPath": "" }),
+                "titleFieldPath",
+                &seen,
+            )
+            .unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn parse_configured_field_path_rejects_unknown_field() {
+        let seen = HashSet::from(["name".to_string()]);
+
+        let err = parse_configured_field_path(
+            &json!({ "titleFieldPath": "missing" }),
+            "titleFieldPath",
+            &seen,
+        )
+        .expect_err("unknown configured field must fail");
+
+        assert_eq!(err, "titleFieldPath not found: missing");
+    }
+
     fn test_record_row(id: i64, row_index: i64, raw_json: Value) -> RecordRow {
         RecordRow {
             id,
             dictionary_id: 1,
             dictionary_name: "测试字典".to_string(),
+            title_field_path: None,
             row_index,
             raw_json: serde_json::to_string(&raw_json).unwrap(),
         }
