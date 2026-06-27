@@ -42,6 +42,7 @@
 - 要看项目背景、目录或命令：看 `03`
 - 要理解调用链路、前后端边界或新增工具入口：看 `04`
 - 要改富文本编辑器或附件相关：看 `04.8`
+- 要改数据字典工具、动态 JSON 检索、关系或排序：看 `04.9`
 - 要改 Element Plus 样式：看 `05.1`
 - 要处理中文乱码、编码或写文件问题：看 `05.2`
 - 要查数据目录、迁移与备份策略：看 `05.3`
@@ -221,6 +222,26 @@ PM 域：
 - 附件生命周期由 `useRichDescriptionLifecycle` 管理：创建后重新绑定临时 ID、取消时清理孤儿、保存前整理未引用附件。
 - 后端存储由 `attachments.rs` 提供，内容寻址（hash 命名），通道为 `tool:attachments:*`。
 - 消费方：`PmItemDialog`、`PmProjectDialog`、`TodoDetailEdit`（编辑器），`PmDetailPanel`、`TodoDetailView`（只读渲染器）。
+
+### 04.9 数据字典工具
+
+- 前端主面板：`DataDictionaryPanel.vue`；类型集中在 `types/data-dictionary.ts`；高风险纯函数优先放到 `utils/dataDictionary*.ts` 并配套测试。
+- 后端主模块：`src-tauri/src/tools/data_dictionary.rs`；表结构和兼容迁移在 `helpers.rs`；通道统一走 `tool:data-dictionary:*` -> `data_dictionary`。
+- 当前 action：`list`、`get`、`import_preview`、`create`、`rename`、`replace_records`、`update_fields`、`reorder`、`search`、`record_detail`、`rebuild_indexes`、`delete`。
+- 存储模型以 `data_dictionary_records.raw_json` 为唯一事实源；`search_text`、`normalized_search_text`、`sort_key`、`data_dictionary_record_values`、`data_dictionary_fts` 都是可重建派生索引，不是业务事实源。
+- 字典级配置保存在 `data_dictionaries`：`primary_field_path`、`title_field_path`、`sort_field_path`、`sort_direction`、`nav_order`、`field_value_indexed_at`。不要把字段展示顺序、记录标题、记录排序、主键关系复用成同一个字段语义。
+- 字段配置保存在 `data_dictionary_fields`：`display_name`、`meaning`、`searchable`、`visible`、`sort_order`、`type_hint`、`sample_value`、`present_count`。字段路径使用既有转义点路径规则，不要用简单 `split('.')` 解析。
+- 关系查询依赖 `data_dictionary_record_values`，必须保留 `value_type` 区分 JSON 类型（例如 `null` 与 `"null"`）。详情页或关系查询遇到字段值索引未就绪时，应显式提示重建索引，不能静默表现为“无关联记录”。
+- 导入、替换记录、字段配置保存、重建索引和历史数据回填路径必须同步维护字段值索引、搜索文本和 `sort_key`；派生索引失败时业务数据要保持一致，FTS 仍按既有降级策略处理。
+- 搜索支持 `scope: "current" | "all"`，结果截断前必须先按后端排序；跨字典搜索按 `nav_order ASC` 再按记录 `sort_key`，单字典搜索只按 `sort_key`。`hasMore` 使用多取一条判断。
+- 记录排序使用记录级派生 `sort_key`，查询始终 `ORDER BY sort_key COLLATE BINARY ASC`。降序只反转业务值编码段，不能反转缺失值 bucket 或 `row_index` 兜底段；未配置或缺失排序字段时用 `row_index` 保持稳定顺序。
+- 大 JSON 导入优先传 `inputPath` 让后端读文件，避免把 10MB 级内容塞进前端文本框和通用 IPC payload；导入预览必须绑定当前输入来源，保存前确认预览与提交来源一致。
+- 左侧“全部”是固定全局搜索入口，不参与字典拖拽排序；字典排序保存提交完整 id 顺序，由后端事务内写入 gapless `nav_order`。
+- 字段配置 UI 中“字段标签”“记录标题字段”“记录排序字段”“字段展示顺序”“主键字段”“关系配置”是独立模型。展示字段拖拽只作用于可见字段集合，隐藏字段不要混入拖拽索引。
+- 数据字典面板内异步搜索、字典详情和记录详情必须用请求序号或参数快照绑定当前用户意图，旧响应不能覆盖当前选中态或详情态。
+- 右键菜单中打开组件内 `Dialog` / `Drawer` 时，先让 Dropdown 关闭流程结束；模板函数 ref 只写非响应式缓存（如普通 `Map`），避免渲染期写响应式状态导致递归更新。
+- 替换记录、删除字典、重建索引等影响范围较大的动作必须在前端二次确认目标对象和影响数量；重建索引说明其不会修改原始记录、字段配置和关系配置。
+- 修改数据字典后优先验证：`cargo test data_dictionary -- --nocapture`、`pnpm test src/components/DataDictionaryPanel.context-menu.test.ts src/utils/dataDictionary.test.ts src/utils/dataDictionaryRelations.test.ts src/utils/dataDictionaryMenu.test.ts`，再按影响面执行 `pnpm typecheck` 和 `pnpm --filter @lazycat/desktop build:web`。
 
 ## 05. 高频注意事项
 
