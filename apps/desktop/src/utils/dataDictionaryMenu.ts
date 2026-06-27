@@ -1,8 +1,9 @@
-export type DictionaryMenuCommand = "replace" | "fields" | "rename" | "delete";
+export type DictionaryMenuCommand = "replace" | "fields" | "rebuild" | "rename" | "delete";
 
 export interface DictionaryMenuHandlers {
   replace: () => void | Promise<void>;
   fields: () => void | Promise<void>;
+  rebuild: () => void | Promise<void>;
   rename: () => void | Promise<void>;
   remove: () => void | Promise<void>;
 }
@@ -17,6 +18,7 @@ export function isDictionaryMenuCommand(command: unknown): command is Dictionary
   return (
     command === "replace" ||
     command === "fields" ||
+    command === "rebuild" ||
     command === "rename" ||
     command === "delete"
   );
@@ -36,6 +38,10 @@ export function dispatchDictionaryMenuCommand(
     }
     if (command === "fields") {
       void handlers.fields();
+      return;
+    }
+    if (command === "rebuild") {
+      void handlers.rebuild();
       return;
     }
     if (command === "rename") {

@@ -23,6 +23,57 @@ struct FieldStat {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+struct RecordValue {
+    record_id: i64,
+    dictionary_id: i64,
+    field_path: String,
+    value_type: String,
+    value_text: String,
+    normalized_value: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct IndexedRecord {
+    source_row_index: i64,
+    value: Value,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct PrimaryPartition {
+    accepted_records: Vec<IndexedRecord>,
+    skipped_invalid_count: usize,
+    skipped_duplicate_count: usize,
+}
+
+impl PrimaryPartition {
+    fn skipped_record_count(&self) -> usize {
+        self.skipped_invalid_count + self.skipped_duplicate_count
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RebuildStats {
+    record_count: usize,
+    value_count: usize,
+    skipped_invalid_count: usize,
+    skipped_duplicate_count: usize,
+}
+
+impl RebuildStats {
+    fn skipped_record_count(&self) -> usize {
+        self.skipped_invalid_count + self.skipped_duplicate_count
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RelationDraft {
+    source_field_path: String,
+    target_dictionary_id: i64,
+    relation_name: String,
+    reverse_name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct FieldConfig {
     field_path: String,
     display_name: String,
@@ -47,7 +98,7 @@ enum SortDirection {
     Desc,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct RecordRow {
     id: i64,
     dictionary_id: i64,
@@ -55,6 +106,17 @@ struct RecordRow {
     title_field_path: Option<String>,
     row_index: i64,
     raw_json: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RelationConfig {
+    id: i64,
+    source_dictionary_id: i64,
+    source_field_path: String,
+    target_dictionary_id: i64,
+    target_primary_field_path: Option<String>,
+    relation_name: String,
+    reverse_name: String,
 }
 
 pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
@@ -68,6 +130,8 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         "update_fields" => action_update_fields(payload),
         "reorder" => action_reorder(payload),
         "search" => action_search(payload),
+        "record_detail" => action_record_detail(payload),
+        "rebuild_indexes" => action_rebuild_indexes(payload),
         "delete" => action_delete(payload),
         _ => Err(format!("unsupported data dictionary action: {action}")),
     }
@@ -78,7 +142,7 @@ fn action_list() -> Result<Value, String> {
     let mut stmt = conn
         .prepare(
             "SELECT id, name, description, record_count, created_at, updated_at
-             , title_field_path, sort_field_path, sort_direction, nav_order
+             , primary_field_path, title_field_path, sort_field_path, sort_direction, nav_order
              FROM data_dictionaries
              ORDER BY nav_order ASC, updated_at DESC, id DESC",
         )
@@ -100,7 +164,7 @@ fn action_get(payload: &Value) -> Result<Value, String> {
     let dictionary = conn
         .query_row(
             "SELECT id, name, description, record_count, created_at, updated_at
-             , title_field_path, sort_field_path, sort_direction, nav_order
+             , primary_field_path, title_field_path, sort_field_path, sort_direction, nav_order
              FROM data_dictionaries
              WHERE id = ?1",
             params![id],
@@ -110,9 +174,11 @@ fn action_get(payload: &Value) -> Result<Value, String> {
         .map_err(|e| format!("get data dictionary failed: {e}"))?
         .ok_or("dictionary not found")?;
     let fields = load_field_configs(&conn, id)?;
+    let relations = load_relation_jsons(&conn, id)?;
     Ok(json!({
         "dictionary": dictionary,
         "fields": fields.iter().map(field_config_to_json).collect::<Vec<_>>(),
+        "relations": relations,
     }))
 }
 
@@ -134,8 +200,8 @@ fn action_create(payload: &Value) -> Result<Value, String> {
         .ok_or("name is required")?;
     let description = payload["description"].as_str().unwrap_or("").trim();
     let input = payload["input"].as_str().unwrap_or_default();
-    let records = parse_import_array(input)?;
-    let stats = collect_field_stats(&records);
+    let records = indexed_records_from_values(parse_import_array(input)?);
+    let stats = collect_field_stats_from_indexed(&records);
     let searchable_paths: Vec<String> = stats.iter().map(|stat| stat.path.clone()).collect();
 
     let mut conn = db_conn()?;
@@ -177,11 +243,19 @@ fn action_create(payload: &Value) -> Result<Value, String> {
     }
 
     insert_records(&tx, dictionary_id, &records, &searchable_paths)?;
+    mark_field_value_index_ready(&tx, dictionary_id)?;
     tx.commit()
         .map_err(|e| format!("commit create dictionary failed: {e}"))?;
     rebuild_fts_for_dictionary(&conn, dictionary_id);
 
-    Ok(json!({ "ok": true, "id": dictionary_id }))
+    Ok(json!({
+        "ok": true,
+        "id": dictionary_id,
+        "recordCount": records.len(),
+        "skippedPrimaryRecordCount": 0,
+        "skippedPrimaryInvalidCount": 0,
+        "skippedPrimaryDuplicateCount": 0,
+    }))
 }
 
 fn action_rename(payload: &Value) -> Result<Value, String> {
@@ -216,11 +290,19 @@ fn action_replace_records(payload: &Value) -> Result<Value, String> {
         .as_i64()
         .ok_or("dictionaryId is required")?;
     let input = payload["input"].as_str().unwrap_or_default();
-    let records = parse_import_array(input)?;
-    let stats = collect_field_stats(&records);
-
     let mut conn = db_conn()?;
     ensure_dictionary_exists(&conn, dictionary_id)?;
+    let primary_field_path = load_dictionary_primary_field_path(&conn, dictionary_id)?;
+    let partition = partition_records_by_primary(
+        indexed_records_from_values(parse_import_array(input)?),
+        primary_field_path.as_deref(),
+    )?;
+    let skipped_invalid_count = partition.skipped_invalid_count;
+    let skipped_duplicate_count = partition.skipped_duplicate_count;
+    let skipped_record_count = partition.skipped_record_count();
+    let records = partition.accepted_records;
+    let stats = collect_field_stats_from_indexed(&records);
+
     let old_configs = load_field_config_map(&conn, dictionary_id)?;
     let new_paths: HashSet<String> = stats.iter().map(|stat| stat.path.clone()).collect();
     let mut searchable_paths = Vec::new();
@@ -291,10 +373,17 @@ fn action_replace_records(payload: &Value) -> Result<Value, String> {
         params![records.len() as i64, dictionary_id],
     )
     .map_err(|e| format!("update replacement count failed: {e}"))?;
+    mark_field_value_index_ready(&tx, dictionary_id)?;
     tx.commit()
         .map_err(|e| format!("commit replace records failed: {e}"))?;
     rebuild_fts_for_dictionary(&conn, dictionary_id);
-    Ok(json!({ "ok": true, "recordCount": records.len() }))
+    Ok(json!({
+        "ok": true,
+        "recordCount": records.len(),
+        "skippedPrimaryRecordCount": skipped_record_count,
+        "skippedPrimaryInvalidCount": skipped_invalid_count,
+        "skippedPrimaryDuplicateCount": skipped_duplicate_count,
+    }))
 }
 
 fn action_update_fields(payload: &Value) -> Result<Value, String> {
@@ -342,25 +431,93 @@ fn action_update_fields(payload: &Value) -> Result<Value, String> {
         )
         .map_err(|e| format!("update data dictionary field failed: {e}"))?;
     }
+    let primary_field_path = parse_configured_field_path(payload, "primaryFieldPath", &seen)?;
     let title_field_path = parse_configured_field_path(payload, "titleFieldPath", &seen)?;
     let sort_field_path = parse_configured_field_path(payload, "sortFieldPath", &seen)?;
+    let relations = parse_relation_drafts(
+        &tx,
+        dictionary_id,
+        &seen,
+        primary_field_path.as_deref(),
+        payload.get("relations").and_then(Value::as_array),
+    )?;
     tx.execute(
         "UPDATE data_dictionaries
-         SET title_field_path = ?1, sort_field_path = ?2, sort_direction = ?3, updated_at = CURRENT_TIMESTAMP
-         WHERE id = ?4",
+         SET primary_field_path = ?1, title_field_path = ?2, sort_field_path = ?3,
+             sort_direction = ?4, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?5",
         params![
-            title_field_path,
-            sort_field_path,
+            primary_field_path.as_deref(),
+            title_field_path.as_deref(),
+            sort_field_path.as_deref(),
             sort_direction.as_str(),
             dictionary_id,
         ],
     )
     .map_err(|e| format!("update data dictionary sort config failed: {e}"))?;
+    tx.execute(
+        "DELETE FROM data_dictionary_relations WHERE source_dictionary_id = ?1",
+        params![dictionary_id],
+    )
+    .map_err(|e| format!("delete old data dictionary relations failed: {e}"))?;
+    for relation in relations {
+        tx.execute(
+            "INSERT INTO data_dictionary_relations
+             (source_dictionary_id, source_field_path, target_dictionary_id, relation_name, reverse_name)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                dictionary_id,
+                relation.source_field_path,
+                relation.target_dictionary_id,
+                relation.relation_name,
+                relation.reverse_name,
+            ],
+        )
+        .map_err(|e| format!("insert data dictionary relation failed: {e}"))?;
+    }
+    let (record_count, skipped_invalid_count, skipped_duplicate_count) =
+        if let Some(primary_field_path) = primary_field_path.as_deref() {
+            let existing_records = load_indexed_records_for_dictionary(&tx, dictionary_id)?;
+            let partition =
+                partition_records_by_primary(existing_records, Some(primary_field_path))?;
+            let skipped_invalid_count = partition.skipped_invalid_count;
+            let skipped_duplicate_count = partition.skipped_duplicate_count;
+            let accepted_records = partition.accepted_records;
+            let searchable_paths = load_searchable_paths(&tx, dictionary_id)?;
+            tx.execute(
+                "DELETE FROM data_dictionary_records WHERE dictionary_id = ?1",
+                params![dictionary_id],
+            )
+            .map_err(|e| format!("delete invalid primary records failed: {e}"))?;
+            delete_fts_for_dictionary(&tx, dictionary_id);
+            insert_records(&tx, dictionary_id, &accepted_records, &searchable_paths)?;
+            mark_field_value_index_ready(&tx, dictionary_id)?;
+            (
+                accepted_records.len(),
+                skipped_invalid_count,
+                skipped_duplicate_count,
+            )
+        } else {
+            let stats = rebuild_dictionary_indexes(&tx, dictionary_id)?;
+            (stats.record_count, 0, 0)
+        };
+    tx.execute(
+        "UPDATE data_dictionaries
+         SET record_count = ?1, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?2",
+        params![record_count as i64, dictionary_id],
+    )
+    .map_err(|e| format!("update data dictionary record count failed: {e}"))?;
     tx.commit()
         .map_err(|e| format!("commit update fields failed: {e}"))?;
-    rebuild_record_search_text(&conn, dictionary_id)?;
     rebuild_fts_for_dictionary(&conn, dictionary_id);
-    Ok(json!({ "ok": true }))
+    Ok(json!({
+        "ok": true,
+        "recordCount": record_count,
+        "skippedPrimaryRecordCount": skipped_invalid_count + skipped_duplicate_count,
+        "skippedPrimaryInvalidCount": skipped_invalid_count,
+        "skippedPrimaryDuplicateCount": skipped_duplicate_count,
+    }))
 }
 
 fn action_reorder(payload: &Value) -> Result<Value, String> {
@@ -436,6 +593,118 @@ fn action_search(payload: &Value) -> Result<Value, String> {
     Ok(json!({ "items": items, "hasMore": has_more }))
 }
 
+fn action_rebuild_indexes(payload: &Value) -> Result<Value, String> {
+    let dictionary_id = payload["dictionaryId"]
+        .as_i64()
+        .ok_or("dictionaryId is required")?;
+    let mut conn = db_conn()?;
+    ensure_dictionary_exists(&conn, dictionary_id)?;
+    let tx = conn
+        .transaction()
+        .map_err(|e| format!("rebuild dictionary indexes transaction failed: {e}"))?;
+    let stats = rebuild_dictionary_indexes(&tx, dictionary_id)?;
+    tx.commit()
+        .map_err(|e| format!("commit rebuild dictionary indexes failed: {e}"))?;
+    rebuild_fts_for_dictionary(&conn, dictionary_id);
+    Ok(json!({
+        "recordCount": stats.record_count,
+        "valueCount": stats.value_count,
+        "skippedPrimaryRecordCount": stats.skipped_record_count(),
+        "skippedPrimaryInvalidCount": stats.skipped_invalid_count,
+        "skippedPrimaryDuplicateCount": stats.skipped_duplicate_count,
+    }))
+}
+
+fn action_record_detail(payload: &Value) -> Result<Value, String> {
+    let record_id = payload["recordId"].as_i64().ok_or("recordId is required")?;
+    let conn = db_conn()?;
+    let row = load_record_row_by_id(&conn, record_id)?;
+    ensure_field_value_index_ready(&conn, row.dictionary_id)?;
+    let fields = load_field_configs(&conn, row.dictionary_id)?;
+    let raw_json = serde_json::from_str::<Value>(&row.raw_json)
+        .map_err(|e| format!("parse data dictionary record {} failed: {e}", row.id))?;
+    let mut record = record_row_to_brief_json(row.clone(), &fields)?;
+    if let Some(object) = record.as_object_mut() {
+        object.insert("rawJson".to_string(), raw_json);
+    }
+
+    let forward_relations = load_relation_configs(&conn, row.dictionary_id, false)?;
+    let reverse_relations = load_relation_configs(&conn, row.dictionary_id, true)?;
+    let mut forward_groups = Vec::new();
+    for relation in forward_relations {
+        let target_primary = relation
+            .target_primary_field_path
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or("target dictionary primary field is required")?;
+        ensure_field_value_index_ready(&conn, relation.target_dictionary_id)?;
+        let seed = load_relation_seed_value(
+            &conn,
+            row.id,
+            row.dictionary_id,
+            &relation.source_field_path,
+        )?;
+        let items = if let Some(seed) = seed {
+            load_related_record_briefs(
+                &conn,
+                relation.target_dictionary_id,
+                target_primary,
+                &seed,
+            )?
+        } else {
+            Vec::new()
+        };
+        forward_groups.push(json!({
+            "relationId": relation.id,
+            "name": relation.relation_name,
+            "direction": "forward",
+            "sourceDictionaryId": relation.source_dictionary_id,
+            "targetDictionaryId": relation.target_dictionary_id,
+            "itemCount": items.len(),
+            "items": items,
+        }));
+    }
+
+    let mut reverse_groups = Vec::new();
+    for relation in reverse_relations {
+        let target_primary = relation
+            .target_primary_field_path
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or("target dictionary primary field is required")?;
+        ensure_field_value_index_ready(&conn, relation.source_dictionary_id)?;
+        let seed = load_relation_seed_value(&conn, row.id, row.dictionary_id, target_primary)?;
+        let items = if let Some(seed) = seed {
+            load_related_record_briefs(
+                &conn,
+                relation.source_dictionary_id,
+                &relation.source_field_path,
+                &seed,
+            )?
+        } else {
+            Vec::new()
+        };
+        reverse_groups.push(json!({
+            "relationId": relation.id,
+            "name": relation.reverse_name,
+            "direction": "reverse",
+            "sourceDictionaryId": relation.source_dictionary_id,
+            "targetDictionaryId": relation.target_dictionary_id,
+            "itemCount": items.len(),
+            "items": items,
+        }));
+    }
+
+    Ok(json!({
+        "record": record,
+        "fields": fields.iter().map(field_config_to_json).collect::<Vec<_>>(),
+        "forwardRelations": forward_groups,
+        "reverseRelations": reverse_groups,
+    }))
+}
+
 fn action_delete(payload: &Value) -> Result<Value, String> {
     let id = payload["id"].as_i64().ok_or("id is required")?;
     let conn = db_conn()?;
@@ -489,6 +758,14 @@ fn collect_field_stats(records: &[Value]) -> Vec<FieldStat> {
         .collect()
 }
 
+fn collect_field_stats_from_indexed(records: &[IndexedRecord]) -> Vec<FieldStat> {
+    let values = records
+        .iter()
+        .map(|record| record.value.clone())
+        .collect::<Vec<_>>();
+    collect_field_stats(&values)
+}
+
 fn flatten_record(record: &Value) -> Vec<FlattenedField> {
     let mut fields = Vec::new();
     if let Value::Object(map) = record {
@@ -496,6 +773,93 @@ fn flatten_record(record: &Value) -> Vec<FlattenedField> {
     }
     fields.sort_by(|a, b| a.path.cmp(&b.path));
     fields
+}
+
+fn build_record_values(
+    record_id: i64,
+    dictionary_id: i64,
+    raw_json: &str,
+) -> Result<Vec<RecordValue>, String> {
+    let record = serde_json::from_str::<Value>(raw_json)
+        .map_err(|e| format!("parse data dictionary record {record_id} failed: {e}"))?;
+    Ok(flatten_record(&record)
+        .into_iter()
+        .map(|field| RecordValue {
+            record_id,
+            dictionary_id,
+            field_path: field.path,
+            value_type: field.type_hint,
+            normalized_value: normalize_search_text(&field.value_text),
+            value_text: field.value_text,
+        })
+        .collect())
+}
+
+fn indexed_records_from_values(records: Vec<Value>) -> Vec<IndexedRecord> {
+    records
+        .into_iter()
+        .enumerate()
+        .map(|(idx, value)| IndexedRecord {
+            source_row_index: idx as i64,
+            value,
+        })
+        .collect()
+}
+
+fn partition_records_by_primary(
+    records: Vec<IndexedRecord>,
+    primary_field_path: Option<&str>,
+) -> Result<PrimaryPartition, String> {
+    let Some(primary_field_path) = primary_field_path
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return Ok(PrimaryPartition {
+            accepted_records: records,
+            skipped_invalid_count: 0,
+            skipped_duplicate_count: 0,
+        });
+    };
+
+    let mut seen = HashSet::new();
+    let mut accepted_records = Vec::new();
+    let mut skipped_invalid_count = 0;
+    let mut skipped_duplicate_count = 0;
+    for record in records {
+        let Some(primary_value) = get_value_by_field_path(&record.value, primary_field_path) else {
+            skipped_invalid_count += 1;
+            continue;
+        };
+        let Some(normalized) = normalized_primary_key(primary_value) else {
+            skipped_invalid_count += 1;
+            continue;
+        };
+        if !seen.insert(normalized) {
+            skipped_duplicate_count += 1;
+            continue;
+        }
+        accepted_records.push(record);
+    }
+
+    Ok(PrimaryPartition {
+        accepted_records,
+        skipped_invalid_count,
+        skipped_duplicate_count,
+    })
+}
+
+fn normalized_primary_key(value: &Value) -> Option<String> {
+    match value {
+        Value::String(_) | Value::Number(_) | Value::Bool(_) => {
+            let normalized = normalize_search_text(&value_to_search_text(value));
+            if normalized.is_empty() {
+                None
+            } else {
+                Some(normalized)
+            }
+        }
+        Value::Null | Value::Array(_) | Value::Object(_) => None,
+    }
 }
 
 fn flatten_object(map: &serde_json::Map<String, Value>, prefix: &str, fields: &mut Vec<FlattenedField>) {
@@ -695,6 +1059,106 @@ fn parse_configured_field_path(
     Ok(path)
 }
 
+fn parse_relation_drafts(
+    conn: &Connection,
+    source_dictionary_id: i64,
+    field_paths: &HashSet<String>,
+    current_primary_field_path: Option<&str>,
+    relations: Option<&Vec<Value>>,
+) -> Result<Vec<RelationDraft>, String> {
+    let Some(relations) = relations else {
+        return Ok(Vec::new());
+    };
+    let mut seen = HashSet::new();
+    let mut out = Vec::new();
+    for relation in relations {
+        let source_field_path = relation["sourceFieldPath"]
+            .as_str()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or("relation sourceFieldPath is required")?;
+        if !field_paths.contains(source_field_path) {
+            return Err(format!("relation source field not found: {source_field_path}"));
+        }
+        if field_has_non_scalar_values(conn, source_dictionary_id, source_field_path)? {
+            return Err(format!(
+                "relation source field must be scalar: {source_field_path}"
+            ));
+        }
+        let target_dictionary_id = relation["targetDictionaryId"]
+            .as_i64()
+            .filter(|id| *id > 0)
+            .ok_or("relation targetDictionaryId is required")?;
+        let target_primary_field_path = if target_dictionary_id == source_dictionary_id {
+            current_primary_field_path.map(str::to_string)
+        } else {
+            load_dictionary_primary_field_path(conn, target_dictionary_id)?
+        }
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .ok_or("target dictionary primary field is required")?;
+        if target_dictionary_id == source_dictionary_id
+            && source_field_path == target_primary_field_path
+        {
+            return Err("self relation source field must differ from primary field".to_string());
+        }
+        let relation_name = relation["relationName"]
+            .as_str()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or("relationName is required")?;
+        let reverse_name = relation["reverseName"]
+            .as_str()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or("reverseName is required")?;
+        let key = (source_field_path.to_string(), target_dictionary_id);
+        if !seen.insert(key) {
+            return Err(format!(
+                "duplicate relation: {source_field_path} -> {target_dictionary_id}"
+            ));
+        }
+        out.push(RelationDraft {
+            source_field_path: source_field_path.to_string(),
+            target_dictionary_id,
+            relation_name: relation_name.to_string(),
+            reverse_name: reverse_name.to_string(),
+        });
+    }
+    Ok(out)
+}
+
+fn field_has_non_scalar_values(
+    conn: &Connection,
+    dictionary_id: i64,
+    field_path: &str,
+) -> Result<bool, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, raw_json
+             FROM data_dictionary_records
+             WHERE dictionary_id = ?1",
+        )
+        .map_err(|e| format!("prepare relation source field scan failed: {e}"))?;
+    let rows = stmt
+        .query_map(params![dictionary_id], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(|e| format!("query relation source field scan failed: {e}"))?;
+    for row in rows {
+        let (record_id, raw_json) = row.map_err(|e| e.to_string())?;
+        let record = serde_json::from_str::<Value>(&raw_json)
+            .map_err(|e| format!("parse data dictionary record {record_id} failed: {e}"))?;
+        if matches!(
+            get_value_by_field_path(&record, field_path),
+            Some(Value::Array(_) | Value::Object(_))
+        ) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 fn parse_sort_direction(value: Option<&str>) -> Result<SortDirection, String> {
     match value.unwrap_or("asc") {
         "asc" => Ok(SortDirection::Asc),
@@ -733,59 +1197,65 @@ fn parse_limit(payload: &Value) -> i64 {
 fn insert_records(
     conn: &Connection,
     dictionary_id: i64,
-    records: &[Value],
+    records: &[IndexedRecord],
     searchable_paths: &[String],
 ) -> Result<(), String> {
-    for (idx, record) in records.iter().enumerate() {
-        let fields = flatten_record(record);
+    for record in records {
+        let fields = flatten_record(&record.value);
         let search_text = build_search_text(&fields, searchable_paths);
         let normalized = normalize_search_text(&search_text);
-        let raw_json = serde_json::to_string(record)
+        let raw_json = serde_json::to_string(&record.value)
             .map_err(|e| format!("serialize data dictionary record failed: {e}"))?;
         conn.execute(
             "INSERT INTO data_dictionary_records
              (dictionary_id, row_index, raw_json, search_text, normalized_search_text)
              VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![dictionary_id, idx as i64, raw_json, search_text, normalized],
+            params![
+                dictionary_id,
+                record.source_row_index,
+                raw_json,
+                search_text,
+                normalized
+            ],
         )
         .map_err(|e| format!("insert data dictionary record failed: {e}"))?;
+        let record_id = conn.last_insert_rowid();
+        insert_record_values(
+            conn,
+            build_record_values(record_id, dictionary_id, &raw_json)?,
+            None,
+        )?;
     }
     Ok(())
 }
 
-fn rebuild_record_search_text(conn: &Connection, dictionary_id: i64) -> Result<(), String> {
-    let searchable_paths = load_searchable_paths(conn, dictionary_id)?;
-    let mut stmt = conn
-        .prepare(
-            "SELECT id, raw_json
-             FROM data_dictionary_records
-             WHERE dictionary_id = ?1",
-        )
-        .map_err(|e| format!("prepare rebuild search text failed: {e}"))?;
-    let rows = stmt
-        .query_map(params![dictionary_id], |row| {
-            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
-        })
-        .map_err(|e| format!("query rebuild search text failed: {e}"))?;
-    let mut updates = Vec::new();
-    for row in rows {
-        let (id, raw_json) = row.map_err(|e| e.to_string())?;
-        let record = serde_json::from_str::<Value>(&raw_json).unwrap_or(Value::Null);
-        let fields = flatten_record(&record);
-        let search_text = build_search_text(&fields, &searchable_paths);
-        let normalized = normalize_search_text(&search_text);
-        updates.push((id, search_text, normalized));
-    }
-    for (id, search_text, normalized) in updates {
+fn insert_record_values(
+    conn: &Connection,
+    values: Vec<RecordValue>,
+    excluded_field_path: Option<&str>,
+) -> Result<usize, String> {
+    let mut count = 0;
+    for value in values {
+        if excluded_field_path == Some(value.field_path.as_str()) {
+            continue;
+        }
         conn.execute(
-            "UPDATE data_dictionary_records
-             SET search_text = ?1, normalized_search_text = ?2
-             WHERE id = ?3",
-            params![search_text, normalized, id],
+            "INSERT INTO data_dictionary_record_values
+             (record_id, dictionary_id, field_path, value_type, value_text, normalized_value)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                value.record_id,
+                value.dictionary_id,
+                value.field_path,
+                value.value_type,
+                value.value_text,
+                value.normalized_value,
+            ],
         )
-        .map_err(|e| format!("update rebuilt search text failed: {e}"))?;
+        .map_err(|e| format!("insert data dictionary record value failed: {e}"))?;
+        count += 1;
     }
-    Ok(())
+    Ok(count)
 }
 
 fn query_empty_records(
@@ -880,6 +1350,136 @@ fn query_records(
         out.push(row.map_err(|e| e.to_string())?);
     }
     Ok(out)
+}
+
+fn load_record_row_by_id(conn: &Connection, record_id: i64) -> Result<RecordRow, String> {
+    conn.query_row(
+        "SELECT r.id, r.dictionary_id, d.name, r.row_index, r.raw_json,
+                d.title_field_path
+         FROM data_dictionary_records r
+         JOIN data_dictionaries d ON d.id = r.dictionary_id
+         WHERE r.id = ?1",
+        params![record_id],
+        record_row,
+    )
+    .optional()
+    .map_err(|e| format!("load data dictionary record detail failed: {e}"))?
+    .ok_or("record not found".to_string())
+}
+
+fn load_relation_configs(
+    conn: &Connection,
+    dictionary_id: i64,
+    reverse: bool,
+) -> Result<Vec<RelationConfig>, String> {
+    let (sql, param_id) = if reverse {
+        (
+            "SELECT r.id, r.source_dictionary_id, r.source_field_path,
+                    r.target_dictionary_id, d.primary_field_path,
+                    r.relation_name, r.reverse_name
+             FROM data_dictionary_relations r
+             JOIN data_dictionaries d ON d.id = r.target_dictionary_id
+             WHERE r.target_dictionary_id = ?1
+             ORDER BY r.id ASC",
+            dictionary_id,
+        )
+    } else {
+        (
+            "SELECT r.id, r.source_dictionary_id, r.source_field_path,
+                    r.target_dictionary_id, d.primary_field_path,
+                    r.relation_name, r.reverse_name
+             FROM data_dictionary_relations r
+             JOIN data_dictionaries d ON d.id = r.target_dictionary_id
+             WHERE r.source_dictionary_id = ?1
+             ORDER BY r.id ASC",
+            dictionary_id,
+        )
+    };
+    let mut stmt = conn
+        .prepare(sql)
+        .map_err(|e| format!("prepare data dictionary relation configs failed: {e}"))?;
+    let rows = stmt
+        .query_map(params![param_id], |row| {
+            Ok(RelationConfig {
+                id: row.get(0)?,
+                source_dictionary_id: row.get(1)?,
+                source_field_path: row.get(2)?,
+                target_dictionary_id: row.get(3)?,
+                target_primary_field_path: row.get(4)?,
+                relation_name: row.get(5)?,
+                reverse_name: row.get(6)?,
+            })
+        })
+        .map_err(|e| format!("query data dictionary relation configs failed: {e}"))?;
+    let mut out = Vec::new();
+    for row in rows {
+        out.push(row.map_err(|e| e.to_string())?);
+    }
+    Ok(out)
+}
+
+fn load_relation_seed_value(
+    conn: &Connection,
+    record_id: i64,
+    dictionary_id: i64,
+    field_path: &str,
+) -> Result<Option<String>, String> {
+    let row = conn
+        .query_row(
+            "SELECT value_type, normalized_value
+             FROM data_dictionary_record_values
+             WHERE record_id = ?1 AND dictionary_id = ?2 AND field_path = ?3",
+            params![record_id, dictionary_id, field_path],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        )
+        .optional()
+        .map_err(|e| format!("load relation seed value failed: {e}"))?;
+    Ok(row.and_then(|(value_type, normalized_value)| {
+        if is_relation_value_usable(&value_type, &normalized_value) {
+            Some(normalized_value)
+        } else {
+            None
+        }
+    }))
+}
+
+fn load_related_record_briefs(
+    conn: &Connection,
+    dictionary_id: i64,
+    field_path: &str,
+    normalized_value: &str,
+) -> Result<Vec<Value>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT r.id, r.dictionary_id, d.name, r.row_index, r.raw_json,
+                    d.title_field_path
+             FROM data_dictionary_record_values v
+             JOIN data_dictionary_records r ON r.id = v.record_id
+             JOIN data_dictionaries d ON d.id = r.dictionary_id
+             WHERE v.dictionary_id = ?1
+               AND v.field_path = ?2
+               AND v.normalized_value = ?3
+               AND v.value_type IN ('string', 'number', 'boolean')",
+        )
+        .map_err(|e| format!("prepare related data dictionary records failed: {e}"))?;
+    let rows = stmt
+        .query_map(params![dictionary_id, field_path, normalized_value], record_row)
+        .map_err(|e| format!("query related data dictionary records failed: {e}"))?;
+    let mut record_rows = Vec::new();
+    for row in rows {
+        record_rows.push(row.map_err(|e| e.to_string())?);
+    }
+    let sort_config = load_dictionary_sort_config(conn, dictionary_id)?;
+    if let Some((path, direction)) = sort_config.as_ref() {
+        sort_record_rows(&mut record_rows, Some((path.as_str(), *direction)));
+    } else {
+        sort_record_rows(&mut record_rows, None);
+    }
+    let fields = load_field_configs(conn, dictionary_id)?;
+    record_rows
+        .into_iter()
+        .map(|row| record_row_to_brief_json(row, &fields))
+        .collect()
 }
 
 fn sort_record_rows(rows: &mut [RecordRow], sort_config: Option<(&str, SortDirection)>) {
@@ -1005,6 +1605,92 @@ fn rows_to_search_items(
     Ok(out)
 }
 
+fn record_row_to_brief_json(row: RecordRow, fields: &[FieldConfig]) -> Result<Value, String> {
+    let record = serde_json::from_str::<Value>(&row.raw_json)
+        .map_err(|e| format!("parse data dictionary record {} failed: {e}", row.id))?;
+    let title = build_record_title(
+        &record,
+        row.title_field_path.as_deref(),
+        &row.dictionary_name,
+        row.row_index,
+    );
+    let summary = build_record_summary(&record, fields, row.title_field_path.as_deref());
+    Ok(json!({
+        "id": row.id,
+        "dictionaryId": row.dictionary_id,
+        "dictionaryName": row.dictionary_name,
+        "title": title,
+        "rowIndex": row.row_index,
+        "summary": summary,
+    }))
+}
+
+fn build_record_title(
+    record: &Value,
+    title_field_path: Option<&str>,
+    dictionary_name: &str,
+    row_index: i64,
+) -> String {
+    if let Some(title_field_path) = title_field_path
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        if let Some(value) = get_value_by_field_path(record, title_field_path) {
+            let title = value_to_search_text(value).trim().to_string();
+            if !title.is_empty() {
+                return title;
+            }
+        }
+    }
+    format!("{dictionary_name} #{}", row_index + 1)
+}
+
+fn build_record_summary(
+    record: &Value,
+    fields: &[FieldConfig],
+    excluded_field_path: Option<&str>,
+) -> Vec<Value> {
+    let mut visible_fields = fields
+        .iter()
+        .filter(|field| field.visible)
+        .filter(|field| Some(field.field_path.as_str()) != excluded_field_path)
+        .collect::<Vec<_>>();
+    visible_fields.sort_by(|a, b| {
+        a.sort_order
+            .cmp(&b.sort_order)
+            .then_with(|| a.field_path.cmp(&b.field_path))
+    });
+    visible_fields
+        .into_iter()
+        .filter_map(|field| {
+            let value = get_value_by_field_path(record, &field.field_path)?;
+            let text = value_to_search_text(value);
+            if text.is_empty() {
+                return None;
+            }
+            Some(json!({
+                "fieldPath": field.field_path,
+                "label": summary_field_label(field),
+                "value": text,
+            }))
+        })
+        .collect()
+}
+
+fn summary_field_label(field: &FieldConfig) -> String {
+    if !field.display_name.trim().is_empty() {
+        return field.display_name.trim().to_string();
+    }
+    if !field.meaning.trim().is_empty() {
+        return field.meaning.trim().to_string();
+    }
+    field.field_path.clone()
+}
+
+fn is_relation_value_usable(value_type: &str, normalized_value: &str) -> bool {
+    matches!(value_type, "string" | "number" | "boolean") && !normalized_value.trim().is_empty()
+}
+
 fn split_limited_rows(mut rows: Vec<RecordRow>, limit: usize) -> (Vec<RecordRow>, bool) {
     if rows.len() > limit {
         rows.truncate(limit);
@@ -1047,6 +1733,40 @@ fn load_searchable_paths(conn: &Connection, dictionary_id: i64) -> Result<Vec<St
     Ok(out)
 }
 
+fn load_indexed_records_for_dictionary(
+    conn: &Connection,
+    dictionary_id: i64,
+) -> Result<Vec<IndexedRecord>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, row_index, raw_json
+             FROM data_dictionary_records
+             WHERE dictionary_id = ?1
+             ORDER BY row_index ASC, id ASC",
+        )
+        .map_err(|e| format!("prepare dictionary records load failed: {e}"))?;
+    let rows = stmt
+        .query_map(params![dictionary_id], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })
+        .map_err(|e| format!("query dictionary records load failed: {e}"))?;
+    let mut out = Vec::new();
+    for row in rows {
+        let (record_id, row_index, raw_json) = row.map_err(|e| e.to_string())?;
+        let value = serde_json::from_str::<Value>(&raw_json)
+            .map_err(|e| format!("parse data dictionary record {record_id} failed: {e}"))?;
+        out.push(IndexedRecord {
+            source_row_index: row_index,
+            value,
+        });
+    }
+    Ok(out)
+}
+
 fn load_field_configs(conn: &Connection, dictionary_id: i64) -> Result<Vec<FieldConfig>, String> {
     let mut stmt = conn
         .prepare(
@@ -1059,6 +1779,39 @@ fn load_field_configs(conn: &Connection, dictionary_id: i64) -> Result<Vec<Field
     let rows = stmt
         .query_map(params![dictionary_id], field_config_row)
         .map_err(|e| format!("query field configs failed: {e}"))?;
+    let mut out = Vec::new();
+    for row in rows {
+        out.push(row.map_err(|e| e.to_string())?);
+    }
+    Ok(out)
+}
+
+fn load_relation_jsons(conn: &Connection, source_dictionary_id: i64) -> Result<Vec<Value>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT r.id, r.source_dictionary_id, r.source_field_path,
+                    r.target_dictionary_id, d.name, d.primary_field_path,
+                    r.relation_name, r.reverse_name
+             FROM data_dictionary_relations r
+             JOIN data_dictionaries d ON d.id = r.target_dictionary_id
+             WHERE r.source_dictionary_id = ?1
+             ORDER BY r.id ASC",
+        )
+        .map_err(|e| format!("prepare data dictionary relations failed: {e}"))?;
+    let rows = stmt
+        .query_map(params![source_dictionary_id], |row| {
+            Ok(json!({
+                "id": row.get::<_, i64>(0)?,
+                "sourceDictionaryId": row.get::<_, i64>(1)?,
+                "sourceFieldPath": row.get::<_, String>(2)?,
+                "targetDictionaryId": row.get::<_, i64>(3)?,
+                "targetDictionaryName": row.get::<_, String>(4)?,
+                "targetPrimaryFieldPath": row.get::<_, Option<String>>(5)?,
+                "relationName": row.get::<_, String>(6)?,
+                "reverseName": row.get::<_, String>(7)?,
+            }))
+        })
+        .map_err(|e| format!("query data dictionary relations failed: {e}"))?;
     let mut out = Vec::new();
     for row in rows {
         out.push(row.map_err(|e| e.to_string())?);
@@ -1095,6 +1848,138 @@ fn load_dictionary_sort_config(
         return Ok(None);
     };
     Ok(Some((path, parse_sort_direction(Some(row.1.as_str()))?)))
+}
+
+fn load_dictionary_primary_field_path(
+    conn: &Connection,
+    dictionary_id: i64,
+) -> Result<Option<String>, String> {
+    conn.query_row(
+        "SELECT primary_field_path
+         FROM data_dictionaries
+         WHERE id = ?1",
+        params![dictionary_id],
+        |row| row.get::<_, Option<String>>(0),
+    )
+    .optional()
+    .map_err(|e| format!("load dictionary primary field failed: {e}"))?
+    .ok_or("dictionary not found".to_string())
+}
+
+fn mark_field_value_index_ready(conn: &Connection, dictionary_id: i64) -> Result<(), String> {
+    conn.execute(
+        "UPDATE data_dictionaries
+         SET field_value_indexed_at = CURRENT_TIMESTAMP
+         WHERE id = ?1",
+        params![dictionary_id],
+    )
+    .map_err(|e| format!("mark data dictionary value index ready failed: {e}"))?;
+    Ok(())
+}
+
+fn ensure_field_value_index_ready(conn: &Connection, dictionary_id: i64) -> Result<(), String> {
+    let row = conn
+        .query_row(
+            "SELECT name, field_value_indexed_at
+             FROM data_dictionaries
+             WHERE id = ?1",
+            params![dictionary_id],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
+        )
+        .optional()
+        .map_err(|e| format!("check data dictionary value index failed: {e}"))?
+        .ok_or("dictionary not found".to_string())?;
+    if row.1.is_none() {
+        return Err(format!("字段值索引缺失，请先对“{}”执行重建索引", row.0));
+    }
+    Ok(())
+}
+
+fn rebuild_dictionary_indexes(
+    conn: &Connection,
+    dictionary_id: i64,
+) -> Result<RebuildStats, String> {
+    let primary_field_path = load_dictionary_primary_field_path(conn, dictionary_id)?;
+    let searchable_paths = load_searchable_paths(conn, dictionary_id)?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, row_index, raw_json
+             FROM data_dictionary_records
+             WHERE dictionary_id = ?1
+             ORDER BY row_index ASC, id ASC",
+        )
+        .map_err(|e| format!("prepare rebuild dictionary indexes failed: {e}"))?;
+    let rows = stmt
+        .query_map(params![dictionary_id], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })
+        .map_err(|e| format!("query rebuild dictionary indexes failed: {e}"))?;
+
+    let mut records = Vec::new();
+    for row in rows {
+        let (record_id, row_index, raw_json) = row.map_err(|e| e.to_string())?;
+        let value = serde_json::from_str::<Value>(&raw_json)
+            .map_err(|e| format!("parse data dictionary record {record_id} failed: {e}"))?;
+        records.push((record_id, row_index, raw_json, value));
+    }
+
+    conn.execute(
+        "DELETE FROM data_dictionary_record_values WHERE dictionary_id = ?1",
+        params![dictionary_id],
+    )
+    .map_err(|e| format!("delete old data dictionary record values failed: {e}"))?;
+
+    let mut seen_primary_values = HashSet::new();
+    let mut skipped_invalid_count = 0;
+    let mut skipped_duplicate_count = 0;
+    let mut value_count = 0;
+    for (record_id, _row_index, raw_json, value) in &records {
+        let fields = flatten_record(value);
+        let search_text = build_search_text(&fields, &searchable_paths);
+        let normalized = normalize_search_text(&search_text);
+        conn.execute(
+            "UPDATE data_dictionary_records
+             SET search_text = ?1, normalized_search_text = ?2
+             WHERE id = ?3",
+            params![search_text, normalized, record_id],
+        )
+        .map_err(|e| format!("update rebuilt search text failed: {e}"))?;
+
+        let mut excluded_primary = false;
+        if let Some(primary_field_path) = primary_field_path.as_deref() {
+            let primary_value = get_value_by_field_path(value, primary_field_path);
+            if let Some(normalized_primary) = primary_value.and_then(normalized_primary_key) {
+                if !seen_primary_values.insert(normalized_primary) {
+                    skipped_duplicate_count += 1;
+                    excluded_primary = true;
+                }
+            } else {
+                skipped_invalid_count += 1;
+                excluded_primary = true;
+            }
+        }
+        value_count += insert_record_values(
+            conn,
+            build_record_values(*record_id, dictionary_id, raw_json)?,
+            if excluded_primary {
+                primary_field_path.as_deref()
+            } else {
+                None
+            },
+        )?;
+    }
+    mark_field_value_index_ready(conn, dictionary_id)?;
+
+    Ok(RebuildStats {
+        record_count: records.len(),
+        value_count,
+        skipped_invalid_count,
+        skipped_duplicate_count,
+    })
 }
 
 fn ensure_dictionary_exists(conn: &Connection, dictionary_id: i64) -> Result<(), String> {
@@ -1178,10 +2063,11 @@ fn dictionary_row_to_json(row: &Row<'_>) -> rusqlite::Result<Value> {
         "recordCount": row.get::<_, i64>(3)?,
         "createdAt": row.get::<_, String>(4)?,
         "updatedAt": row.get::<_, String>(5)?,
-        "titleFieldPath": row.get::<_, Option<String>>(6)?,
-        "sortFieldPath": row.get::<_, Option<String>>(7)?,
-        "sortDirection": row.get::<_, String>(8)?,
-        "navOrder": row.get::<_, i64>(9)?,
+        "primaryFieldPath": row.get::<_, Option<String>>(6)?,
+        "titleFieldPath": row.get::<_, Option<String>>(7)?,
+        "sortFieldPath": row.get::<_, Option<String>>(8)?,
+        "sortDirection": row.get::<_, String>(9)?,
+        "navOrder": row.get::<_, i64>(10)?,
     }))
 }
 
@@ -1302,6 +2188,67 @@ mod tests {
     }
 
     #[test]
+    fn record_values_persists_value_type_for_null_vs_string_null() {
+        let values =
+            build_record_values(11, 7, r#"{"empty":null,"text":"null","count":3}"#).unwrap();
+
+        let pairs = values
+            .into_iter()
+            .map(|value| (value.field_path, value.value_type, value.normalized_value))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            pairs,
+            vec![
+                ("count".to_string(), "number".to_string(), "3".to_string()),
+                ("empty".to_string(), "null".to_string(), "null".to_string()),
+                ("text".to_string(), "string".to_string(), "null".to_string()),
+            ],
+        );
+    }
+
+    #[test]
+    fn partition_records_by_primary_skips_invalid_and_duplicate_values() {
+        let partition = partition_records_by_primary(
+            vec![
+                IndexedRecord {
+                    source_row_index: 0,
+                    value: json!({ "employeeNo": "" }),
+                },
+                IndexedRecord {
+                    source_row_index: 1,
+                    value: json!({ "name": "missing" }),
+                },
+                IndexedRecord {
+                    source_row_index: 2,
+                    value: json!({ "employeeNo": "A001" }),
+                },
+                IndexedRecord {
+                    source_row_index: 3,
+                    value: json!({ "employeeNo": " A001 " }),
+                },
+                IndexedRecord {
+                    source_row_index: 4,
+                    value: json!({ "employeeNo": "A002" }),
+                },
+            ],
+            Some("employeeNo"),
+        )
+        .unwrap();
+
+        assert_eq!(partition.skipped_invalid_count, 2);
+        assert_eq!(partition.skipped_duplicate_count, 1);
+        assert_eq!(
+            partition
+                .accepted_records
+                .iter()
+                .map(|record| record.source_row_index)
+                .collect::<Vec<_>>(),
+            vec![2, 4],
+        );
+    }
+
+    #[test]
     fn build_search_text_uses_only_searchable_fields() {
         let fields = vec![
             FlattenedField {
@@ -1351,6 +2298,37 @@ mod tests {
         );
 
         assert_eq!(matches, vec![json!({ "fieldPath": "user.name", "value": "张三" })]);
+    }
+
+    #[test]
+    fn record_brief_uses_title_field_and_visible_summary() {
+        let mut row = test_record_row(
+            9,
+            4,
+            json!({ "name": "张三", "dept": "研发", "secret": "hidden" }),
+        );
+        row.title_field_path = Some("name".to_string());
+        let fields = vec![
+            test_field_config("name", "姓名", true, 0),
+            test_field_config("dept", "部门", true, 1),
+            test_field_config("secret", "密钥", false, 2),
+        ];
+
+        let brief = record_row_to_brief_json(row, &fields).unwrap();
+
+        assert_eq!(brief["title"], "张三");
+        assert_eq!(brief["summary"], json!([
+            { "fieldPath": "dept", "label": "部门", "value": "研发" }
+        ]));
+    }
+
+    #[test]
+    fn relation_value_filter_ignores_null_and_blank_values() {
+        assert!(is_relation_value_usable("string", "a001"));
+        assert!(is_relation_value_usable("number", "100"));
+        assert!(!is_relation_value_usable("string", ""));
+        assert!(!is_relation_value_usable("null", "null"));
+        assert!(!is_relation_value_usable("array", "[\"A\"]"));
     }
 
     #[test]
@@ -1481,6 +2459,25 @@ mod tests {
             title_field_path: None,
             row_index,
             raw_json: serde_json::to_string(&raw_json).unwrap(),
+        }
+    }
+
+    fn test_field_config(
+        field_path: &str,
+        display_name: &str,
+        visible: bool,
+        sort_order: i64,
+    ) -> FieldConfig {
+        FieldConfig {
+            field_path: field_path.to_string(),
+            display_name: display_name.to_string(),
+            meaning: String::new(),
+            searchable: true,
+            visible,
+            sort_order,
+            type_hint: "string".to_string(),
+            sample_value: String::new(),
+            present_count: 1,
         }
     }
 }

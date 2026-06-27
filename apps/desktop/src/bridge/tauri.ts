@@ -157,6 +157,8 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:data-dictionary:update-fields": { domain: "data_dictionary", action: "update_fields" },
   "tool:data-dictionary:reorder": { domain: "data_dictionary", action: "reorder" },
   "tool:data-dictionary:search": { domain: "data_dictionary", action: "search" },
+  "tool:data-dictionary:record-detail": { domain: "data_dictionary", action: "record_detail" },
+  "tool:data-dictionary:rebuild-indexes": { domain: "data_dictionary", action: "rebuild_indexes" },
   "tool:data-dictionary:delete": { domain: "data_dictionary", action: "delete" },
   "tool:hotkey:check": { domain: "hotkey", action: "check" },
   "tool:hotkey:scan": { domain: "hotkey", action: "scan" },

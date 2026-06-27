@@ -108,6 +108,12 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
     let _ = conn.execute_batch(
         "ALTER TABLE data_dictionaries ADD COLUMN nav_order INTEGER NOT NULL DEFAULT 0;",
     );
+    let _ = conn.execute_batch(
+        "ALTER TABLE data_dictionaries ADD COLUMN primary_field_path TEXT DEFAULT NULL;",
+    );
+    let _ = conn.execute_batch(
+        "ALTER TABLE data_dictionaries ADD COLUMN field_value_indexed_at TEXT DEFAULT NULL;",
+    );
 
     // Phase 2: Add project_id to todo_items
     let _ =
@@ -172,6 +178,8 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
             name TEXT NOT NULL,
             description TEXT NOT NULL DEFAULT '',
             record_count INTEGER NOT NULL DEFAULT 0,
+            primary_field_path TEXT DEFAULT NULL,
+            field_value_indexed_at TEXT DEFAULT NULL,
             title_field_path TEXT DEFAULT NULL,
             sort_field_path TEXT DEFAULT NULL,
             sort_direction TEXT NOT NULL DEFAULT 'asc',
@@ -216,6 +224,41 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
         );
         CREATE INDEX IF NOT EXISTS idx_data_dictionary_records_dictionary
             ON data_dictionary_records(dictionary_id, row_index);
+
+        CREATE TABLE IF NOT EXISTS data_dictionary_relations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_dictionary_id INTEGER NOT NULL,
+            source_field_path TEXT NOT NULL,
+            target_dictionary_id INTEGER NOT NULL,
+            relation_name TEXT NOT NULL,
+            reverse_name TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(source_dictionary_id, source_field_path, target_dictionary_id),
+            FOREIGN KEY(source_dictionary_id) REFERENCES data_dictionaries(id) ON DELETE CASCADE,
+            FOREIGN KEY(target_dictionary_id) REFERENCES data_dictionaries(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_data_dictionary_relations_source
+            ON data_dictionary_relations(source_dictionary_id);
+        CREATE INDEX IF NOT EXISTS idx_data_dictionary_relations_target
+            ON data_dictionary_relations(target_dictionary_id);
+
+        CREATE TABLE IF NOT EXISTS data_dictionary_record_values (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            record_id INTEGER NOT NULL,
+            dictionary_id INTEGER NOT NULL,
+            field_path TEXT NOT NULL,
+            value_type TEXT NOT NULL,
+            value_text TEXT NOT NULL,
+            normalized_value TEXT NOT NULL,
+            UNIQUE(record_id, field_path),
+            FOREIGN KEY(record_id) REFERENCES data_dictionary_records(id) ON DELETE CASCADE,
+            FOREIGN KEY(dictionary_id) REFERENCES data_dictionaries(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_data_dictionary_record_values_lookup
+            ON data_dictionary_record_values(dictionary_id, field_path, normalized_value, value_type);
+        CREATE INDEX IF NOT EXISTS idx_data_dictionary_record_values_record
+            ON data_dictionary_record_values(record_id);
 
         CREATE TABLE IF NOT EXISTS snippet_folders_v2 (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

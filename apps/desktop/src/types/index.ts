@@ -89,4 +89,13 @@ export type {
   DataDictionarySearchItem,
   DataDictionarySearchResult,
   DataDictionarySearchScope,
+  DataDictionaryRelation,
+  DataDictionaryRelationDraft,
+  DataDictionaryRecordSummaryPart,
+  DataDictionaryRecordBrief,
+  DataDictionaryRecordFull,
+  DataDictionaryRelationGroup,
+  DataDictionaryRecordDetail,
+  DataDictionaryImportWriteResult,
+  RebuildDataDictionaryIndexesResult,
 } from "./data-dictionary";

@@ -24,8 +24,10 @@ describe("DataDictionaryPanel dictionary context menu", () => {
     expect(source).toContain('@command="(command) => handleDictionaryCommand(command, dictionary)"');
     expect(source).toContain('command="replace"');
     expect(source).toContain('command="fields"');
+    expect(source).toContain('command="rebuild"');
     expect(source).toContain('command="rename"');
     expect(source).toContain('command="delete"');
+    expect(source).not.toContain('command="relations"');
   });
 
   it("does not render a separate dictionary actions area", () => {
@@ -49,13 +51,29 @@ describe("DataDictionaryPanel dictionary context menu", () => {
   it("renders dictionary sort controls inside field configuration", () => {
     expect(source).toContain("排序字段");
     expect(source).toContain("排序方向");
+    expect(source).toContain("主键字段");
     expect(source).toContain("标题字段");
+    expect(source).toContain("fieldPrimaryPath");
     expect(source).toContain("fieldSortPath");
     expect(source).toContain("fieldSortDirection");
     expect(source).toContain("fieldTitlePath");
     expect(source).toContain("sortFieldPath");
     expect(source).toContain("sortDirection");
     expect(source).toContain("titleFieldPath");
+  });
+
+  it("renders relation configuration before the field lists", () => {
+    expect(source).toContain("关系配置");
+    expect(source).toContain("fieldRelationDrafts");
+    expect(source).toContain("relationTargetPrimaryLabel");
+    expect(source).toContain("duplicateRelationKeys");
+    expect(source).toContain('"tool:data-dictionary:record-detail"');
+
+    const relationIndex = source.indexOf('class="dd-relation-editor"');
+    const fieldListIndex = source.indexOf('class="dd-field-sections"');
+    expect(relationIndex).toBeGreaterThan(-1);
+    expect(fieldListIndex).toBeGreaterThan(-1);
+    expect(relationIndex).toBeLessThan(fieldListIndex);
   });
 
   it("uses a responsive field configuration drawer with a compact summary panel", () => {

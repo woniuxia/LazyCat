@@ -16,6 +16,9 @@ describe("dispatchDictionaryMenuCommand", () => {
         fields: () => {
           calls.push("fields");
         },
+        rebuild: () => {
+          calls.push("rebuild");
+        },
         rename: () => {
           calls.push("rename");
         },
@@ -47,6 +50,9 @@ describe("dispatchDictionaryMenuCommand", () => {
         fields: () => {
           calls.push("fields");
         },
+        rebuild: () => {
+          calls.push("rebuild");
+        },
         rename: () => {
           calls.push("rename");
         },
@@ -62,6 +68,37 @@ describe("dispatchDictionaryMenuCommand", () => {
     expect(scheduled).toEqual([]);
   });
 
+  it("runs rebuild immediately", () => {
+    const calls: string[] = [];
+    const scheduled: Array<() => void> = [];
+
+    const handled = dispatchDictionaryMenuCommand(
+      "rebuild",
+      {
+        replace: () => {
+          calls.push("replace");
+        },
+        fields: () => {
+          calls.push("fields");
+        },
+        rebuild: () => {
+          calls.push("rebuild");
+        },
+        rename: () => {
+          calls.push("rename");
+        },
+        remove: () => {
+          calls.push("delete");
+        },
+      },
+      (task) => scheduled.push(task),
+    );
+
+    expect(handled).toBe(true);
+    expect(calls).toEqual(["rebuild"]);
+    expect(scheduled).toEqual([]);
+  });
+
   it("ignores unknown dropdown commands", () => {
     const calls: string[] = [];
 
@@ -71,6 +108,9 @@ describe("dispatchDictionaryMenuCommand", () => {
       },
       fields: () => {
         calls.push("fields");
+      },
+      rebuild: () => {
+        calls.push("rebuild");
       },
       rename: () => {
         calls.push("rename");

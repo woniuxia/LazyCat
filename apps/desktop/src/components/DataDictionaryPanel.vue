@@ -53,6 +53,7 @@
               <el-dropdown-menu>
                 <el-dropdown-item command="replace" :icon="Refresh">替换</el-dropdown-item>
                 <el-dropdown-item command="fields" :icon="Setting">字段</el-dropdown-item>
+                <el-dropdown-item command="rebuild" :icon="Refresh">重建索引</el-dropdown-item>
                 <el-dropdown-item command="rename" :icon="Edit">重命名</el-dropdown-item>
                 <el-dropdown-item command="delete" :icon="Delete" divided>删除</el-dropdown-item>
               </el-dropdown-menu>
@@ -86,7 +87,7 @@
           :key="item.id"
           class="dd-result-item"
           :class="{ active: selectedItem?.id === item.id }"
-          @click="selectedItem = item"
+          @click="selectSearchItem(item)"
         >
           <div class="dd-result-head">
             <span class="dd-result-title">
@@ -116,23 +117,63 @@
       </div>
     </main>
 
-    <section class="dd-detail">
+    <section class="dd-detail" v-loading="detailLoading">
       <div class="dd-detail-head">
         <div>
-          <h3>{{ selectedItem ? dictionarySourceLabel(selectedItem) : "未选择记录" }}</h3>
-          <span v-if="selectedItem">{{ selectedItem.dictionaryName }}</span>
+          <h3>{{ recordDetail?.record.title ?? (selectedItem ? dictionarySourceLabel(selectedItem) : "未选择记录") }}</h3>
+          <span v-if="recordDetail">{{ recordDetail.record.dictionaryName }} #{{ recordDetail.record.rowIndex + 1 }}</span>
+          <span v-else-if="selectedItem">{{ selectedItem.dictionaryName }}</span>
         </div>
+        <el-button v-if="detailError && selectedItem" size="small" @click="loadRecordDetail(selectedItem)">
+          重试
+        </el-button>
       </div>
 
-      <div v-if="selectedItem" class="dd-match-list">
+      <el-alert
+        v-if="detailError"
+        class="dd-detail-error"
+        :title="detailError"
+        type="error"
+        :closable="false"
+        show-icon
+      />
+
+      <div v-if="recordDetail" class="dd-match-list">
         <el-tag
-          v-for="match in selectedMatchLabels"
-          :key="match.fieldPath"
+          v-for="part in recordDetail.record.summary"
+          :key="part.fieldPath"
           effect="plain"
           class="dd-match-tag"
         >
-          {{ match.label }}: {{ match.value }}
+          {{ part.label }}: {{ part.value }}
         </el-tag>
+      </div>
+
+      <div v-if="recordDetail" class="dd-relation-groups">
+        <section
+          v-for="group in relationGroups"
+          :key="`${group.direction}-${group.relationId}`"
+          class="dd-relation-group"
+        >
+          <div class="dd-relation-group-head">
+            <h4>{{ group.name }}</h4>
+            <span>{{ group.itemCount }} 条</span>
+          </div>
+          <button
+            v-for="item in group.items"
+            :key="item.id"
+            class="dd-related-record"
+            type="button"
+            @click="loadRelatedRecord(item.id)"
+          >
+            <strong>{{ item.title }}</strong>
+            <span>{{ item.dictionaryName }} #{{ item.rowIndex + 1 }}</span>
+            <small v-for="part in item.summary" :key="part.fieldPath">
+              {{ part.label }}: {{ part.value }}
+            </small>
+          </button>
+          <div v-if="!group.items.length" class="dd-empty dd-relation-empty">无关联记录</div>
+        </section>
       </div>
 
       <pre class="dd-json-view">{{ selectedJson }}</pre>
@@ -204,6 +245,22 @@
           </span>
         </div>
         <div class="dd-field-sort-config">
+          <el-form-item label="主键字段">
+            <el-select
+              v-model="fieldPrimaryPath"
+              clearable
+              filterable
+              placeholder="未配置"
+              size="small"
+            >
+              <el-option
+                v-for="option in fieldSortOptions"
+                :key="option.value"
+                :label="option.label"
+                :value="option.value"
+              />
+            </el-select>
+          </el-form-item>
           <el-form-item label="标题字段">
             <el-select
               v-model="fieldTitlePath"
@@ -249,6 +306,58 @@
           </el-form-item>
         </div>
       </div>
+
+      <section class="dd-relation-editor">
+        <div class="dd-field-section-head">
+          <h4>关系配置</h4>
+          <el-button size="small" @click="addRelationDraft">添加关系</el-button>
+        </div>
+        <div v-if="!fieldRelationDrafts.length" class="dd-empty dd-relation-empty">
+          暂无关系
+        </div>
+        <div
+          v-for="(relation, index) in fieldRelationDrafts"
+          :key="index"
+          class="dd-relation-row"
+        >
+          <el-select
+            v-model="relation.sourceFieldPath"
+            filterable
+            placeholder="源字段"
+            size="small"
+          >
+            <el-option
+              v-for="option in fieldSortOptions"
+              :key="option.value"
+              :label="option.label"
+              :value="option.value"
+            />
+          </el-select>
+          <el-input v-model="relation.relationName" placeholder="关系名" size="small" />
+          <div class="dd-relation-target">
+            <el-select
+              v-model="relation.targetDictionaryId"
+              filterable
+              placeholder="目标字典"
+              size="small"
+            >
+              <el-option
+                v-for="dictionary in dictionaries"
+                :key="dictionary.id"
+                :label="dictionary.name"
+                :value="dictionary.id"
+              />
+            </el-select>
+            <span :class="{ 'is-error': hasInvalidRelationTarget(relation, dictionaries) }">
+              {{ relationTargetPrimaryLabel(relation.targetDictionaryId, dictionaries) }}
+            </span>
+          </div>
+          <el-input v-model="relation.reverseName" placeholder="反向关系名" size="small" />
+          <el-button size="small" text type="danger" @click="removeRelationDraft(index)">
+            删除
+          </el-button>
+        </div>
+      </section>
 
       <div class="dd-field-sections">
         <section class="dd-field-section">
@@ -364,15 +473,19 @@ import Sortable from "sortablejs";
 import { invokeToolByChannel } from "../bridge/tauri";
 import type {
   DataDictionaryField,
+  DataDictionaryImportWriteResult,
   DataDictionaryImportPreview,
+  DataDictionaryRecordDetail,
+  DataDictionaryRelation,
+  DataDictionaryRelationDraft,
   DataDictionarySearchItem,
   DataDictionarySearchResult,
   DataDictionarySearchScope,
   DataDictionarySortDirection,
   DataDictionarySummary,
+  RebuildDataDictionaryIndexesResult,
 } from "../types/data-dictionary";
 import {
-  buildMatchLabels,
   buildResultTitle,
   buildResultSummary,
   dictionarySourceLabel,
@@ -382,6 +495,18 @@ import {
   setDataDictionaryFieldVisibility,
 } from "../utils/dataDictionary";
 import { dispatchDictionaryMenuCommand } from "../utils/dataDictionaryMenu";
+import {
+  duplicateRelationKeys,
+  hasInvalidRelationTarget,
+  relationTargetPrimaryLabel,
+  toRelationDrafts,
+} from "../utils/dataDictionaryRelations";
+
+interface DataDictionaryGetResponse {
+  dictionary: DataDictionarySummary;
+  fields: DataDictionaryField[];
+  relations: DataDictionaryRelation[];
+}
 
 const dictionaries = ref<DataDictionarySummary[]>([]);
 const selectedId = ref<number | null>(null);
@@ -392,6 +517,9 @@ const searchScope = ref<DataDictionarySearchScope>("all");
 const keyword = ref("");
 const searchItems = ref<DataDictionarySearchItem[]>([]);
 const selectedItem = ref<DataDictionarySearchItem | null>(null);
+const recordDetail = ref<DataDictionaryRecordDetail | null>(null);
+const detailLoading = ref(false);
+const detailError = ref("");
 const searching = ref(false);
 const searchHasMore = ref(false);
 
@@ -407,6 +535,8 @@ const savingImport = ref(false);
 const fieldDrawerVisible = ref(false);
 const fieldTarget = ref<DataDictionarySummary | null>(null);
 const fieldDrafts = ref<DataDictionaryField[]>([]);
+const fieldRelationDrafts = ref<DataDictionaryRelationDraft[]>([]);
+const fieldPrimaryPath = ref("");
 const fieldTitlePath = ref("");
 const fieldSortPath = ref("");
 const fieldSortDirection = ref<DataDictionarySortDirection>("asc");
@@ -424,22 +554,21 @@ let fieldSortableInstance: Sortable | null = null;
 let searchTimer: ReturnType<typeof setTimeout> | null = null;
 let dictionaryRequestSeq = 0;
 let searchRequestSeq = 0;
+let detailRequestSeq = 0;
 
 const totalRecordCount = computed(() =>
   dictionaries.value.reduce((total, dictionary) => total + dictionary.recordCount, 0),
 );
 
 const selectedJson = computed(() =>
-  selectedItem.value ? formatJsonDocument(selectedItem.value.rawJson) : "",
+  recordDetail.value ? formatJsonDocument(recordDetail.value.record.rawJson) : "",
 );
 
-const selectedMatchLabels = computed(() => {
-  if (!selectedItem.value) return [];
-  return buildMatchLabels(
-    selectedItem.value.matches,
-    fieldCache.value[selectedItem.value.dictionaryId] ?? [],
-  );
-});
+const relationGroups = computed(() =>
+  recordDetail.value
+    ? [...recordDetail.value.forwardRelations, ...recordDetail.value.reverseRelations]
+    : [],
+);
 
 const canSaveImport = computed(
   () => Boolean(preview.value) && previewInput.value === importForm.value.input,
@@ -497,8 +626,9 @@ async function selectDictionary(id: number) {
   fields.value = [];
   searchItems.value = [];
   selectedItem.value = null;
+  resetRecordDetail();
   searchHasMore.value = false;
-  const result = await ipc<{ dictionary: DataDictionarySummary; fields: DataDictionaryField[] }>(
+  const result = await ipc<DataDictionaryGetResponse>(
     "tool:data-dictionary:get",
     { id },
   );
@@ -519,6 +649,7 @@ async function selectAllDictionaries() {
   fields.value = [];
   searchItems.value = [];
   selectedItem.value = null;
+  resetRecordDetail();
   searchHasMore.value = false;
   await runSearch();
 }
@@ -542,6 +673,7 @@ async function runSearch() {
   if (searchScope.value === "current" && !selectedId.value) {
     searchItems.value = [];
     selectedItem.value = null;
+    resetRecordDetail();
     searchHasMore.value = false;
     return;
   }
@@ -557,8 +689,13 @@ async function runSearch() {
     await ensureFieldCache(result.items);
     if (!isCurrentSearchRequest(requestId, scope, dictionaryId, searchKeyword)) return;
     searchItems.value = result.items;
-    selectedItem.value = result.items[0] ?? null;
     searchHasMore.value = result.hasMore;
+    if (result.items[0]) {
+      await selectSearchItem(result.items[0]);
+    } else {
+      selectedItem.value = null;
+      resetRecordDetail();
+    }
   } catch (error) {
     if (isCurrentSearchRequest(requestId, scope, dictionaryId, searchKeyword)) {
       ElMessage.error((error as Error).message || "搜索失败");
@@ -566,6 +703,48 @@ async function runSearch() {
   } finally {
     if (requestId === searchRequestSeq) {
       searching.value = false;
+    }
+  }
+}
+
+function resetRecordDetail() {
+  detailRequestSeq += 1;
+  recordDetail.value = null;
+  detailError.value = "";
+  detailLoading.value = false;
+}
+
+async function selectSearchItem(item: DataDictionarySearchItem) {
+  selectedItem.value = item;
+  await loadRecordDetail(item);
+}
+
+async function loadRelatedRecord(recordId: number) {
+  await loadRecordDetailById(recordId);
+}
+
+async function loadRecordDetail(item: DataDictionarySearchItem) {
+  await loadRecordDetailById(item.id);
+}
+
+async function loadRecordDetailById(recordId: number) {
+  const requestId = ++detailRequestSeq;
+  detailLoading.value = true;
+  detailError.value = "";
+  try {
+    const result = await ipc<DataDictionaryRecordDetail>("tool:data-dictionary:record-detail", {
+      recordId,
+    });
+    if (requestId !== detailRequestSeq) return;
+    recordDetail.value = result;
+  } catch (error) {
+    if (requestId === detailRequestSeq) {
+      recordDetail.value = null;
+      detailError.value = (error as Error).message || "加载详情失败";
+    }
+  } finally {
+    if (requestId === detailRequestSeq) {
+      detailLoading.value = false;
     }
   }
 }
@@ -589,7 +768,7 @@ async function ensureFieldCache(items: DataDictionarySearchItem[]) {
     new Set(items.map((item) => item.dictionaryId).filter((id) => !fieldCache.value[id])),
   );
   for (const id of missing) {
-    const result = await ipc<{ dictionary: DataDictionarySummary; fields: DataDictionaryField[] }>(
+    const result = await ipc<DataDictionaryGetResponse>(
       "tool:data-dictionary:get",
       { id },
     );
@@ -688,6 +867,39 @@ async function setFieldVisible(fieldPath: string, visible: boolean) {
   initFieldSortable();
 }
 
+function addRelationDraft() {
+  fieldRelationDrafts.value.push({
+    sourceFieldPath: "",
+    targetDictionaryId: null,
+    relationName: "",
+    reverseName: "",
+  });
+}
+
+function removeRelationDraft(index: number) {
+  fieldRelationDrafts.value.splice(index, 1);
+}
+
+function validateRelationDrafts(): string {
+  for (const relation of fieldRelationDrafts.value) {
+    if (!relation.sourceFieldPath) return "请选择关系源字段";
+    if (!relation.relationName.trim()) return "请输入关系名";
+    if (!relation.targetDictionaryId) return "请选择目标字典";
+    if (hasInvalidRelationTarget(relation, dictionaries.value)) return "目标字典未配置主键";
+    if (!relation.reverseName.trim()) return "请输入反向关系名";
+    if (
+      relation.targetDictionaryId === fieldTarget.value?.id &&
+      relation.sourceFieldPath === fieldPrimaryPath.value
+    ) {
+      return "自引用关系的源字段不能等于主键字段";
+    }
+  }
+  if (duplicateRelationKeys(fieldRelationDrafts.value).length > 0) {
+    return "同一源字段和目标字典不能重复配置关系";
+  }
+  return "";
+}
+
 async function handleDictionarySortEnd(event: Sortable.SortableEvent) {
   const { oldIndex, newIndex } = event;
   if (oldIndex == null || newIndex == null || oldIndex === newIndex) return;
@@ -752,6 +964,7 @@ function handleDictionaryCommand(
   dispatchDictionaryMenuCommand(command, {
     replace: () => openReplaceDialog(dictionary),
     fields: () => openFieldDrawer(dictionary),
+    rebuild: () => rebuildDictionaryIndexes(dictionary),
     rename: () => renameDictionary(dictionary),
     remove: () => deleteDictionary(dictionary),
   });
@@ -826,23 +1039,24 @@ async function saveImport() {
   savingImport.value = true;
   try {
     if (importMode.value === "create") {
-      const created = await ipc<{ id: number }>("tool:data-dictionary:create", {
+      const created = await ipc<DataDictionaryImportWriteResult>("tool:data-dictionary:create", {
         name: importForm.value.name,
         description: importForm.value.description,
         input: importForm.value.input,
       });
       importDialogVisible.value = false;
       await loadDictionaries(created.id);
+      ElMessage.success(importWriteMessage("已导入", created));
     } else if (target) {
-      await ipc("tool:data-dictionary:replace-records", {
+      const replaced = await ipc<DataDictionaryImportWriteResult>("tool:data-dictionary:replace-records", {
         dictionaryId: target.id,
         input: importForm.value.input,
       });
       importDialogVisible.value = false;
       await loadDictionaries(target.id);
+      ElMessage.success(importWriteMessage("已替换", replaced));
     }
     await runSearch();
-    ElMessage.success("已保存");
   } catch (error) {
     ElMessage.error((error as Error).message || "保存失败");
   } finally {
@@ -850,37 +1064,38 @@ async function saveImport() {
   }
 }
 
-async function loadFieldsForDictionary(id: number): Promise<DataDictionaryField[]> {
-  if (currentDictionary.value?.id === id) return fields.value;
-  const cached = fieldCache.value[id];
-  if (cached) return cached;
-  const result = await ipc<{ dictionary: DataDictionarySummary; fields: DataDictionaryField[] }>(
-    "tool:data-dictionary:get",
-    { id },
-  );
-  fieldCache.value = { ...fieldCache.value, [id]: result.fields };
-  if (selectedId.value === id) {
-    currentDictionary.value = result.dictionary;
-    fields.value = result.fields;
+function importWriteMessage(prefix: string, result: DataDictionaryImportWriteResult): string {
+  if (result.skippedPrimaryRecordCount > 0) {
+    return `${prefix} ${result.recordCount} 条记录，${result.skippedPrimaryRecordCount} 条主键异常记录未导入`;
   }
-  return result.fields;
+  return `${prefix} ${result.recordCount} 条记录`;
 }
 
 async function openFieldDrawer(target: DataDictionarySummary) {
   destroyFieldSortable();
   fieldTarget.value = target;
   fieldDrafts.value = [];
+  fieldRelationDrafts.value = [];
+  fieldPrimaryPath.value = target.primaryFieldPath ?? "";
   fieldTitlePath.value = target.titleFieldPath ?? "";
   fieldSortPath.value = target.sortFieldPath ?? "";
   fieldSortDirection.value = target.sortDirection === "desc" ? "desc" : "asc";
   fieldDrawerVisible.value = true;
   try {
-    const targetFields = await loadFieldsForDictionary(target.id);
-    fieldDrafts.value = orderDataDictionaryFieldDrafts(targetFields);
-    const sortSource = currentDictionary.value?.id === target.id ? currentDictionary.value : target;
-    fieldTitlePath.value = sortSource.titleFieldPath ?? "";
-    fieldSortPath.value = sortSource.sortFieldPath ?? "";
-    fieldSortDirection.value = sortSource.sortDirection === "desc" ? "desc" : "asc";
+    const result = await ipc<DataDictionaryGetResponse>("tool:data-dictionary:get", {
+      id: target.id,
+    });
+    fieldCache.value = { ...fieldCache.value, [target.id]: result.fields };
+    if (selectedId.value === target.id) {
+      currentDictionary.value = result.dictionary;
+      fields.value = result.fields;
+    }
+    fieldDrafts.value = orderDataDictionaryFieldDrafts(result.fields);
+    fieldRelationDrafts.value = toRelationDrafts(result.relations);
+    fieldPrimaryPath.value = result.dictionary.primaryFieldPath ?? "";
+    fieldTitlePath.value = result.dictionary.titleFieldPath ?? "";
+    fieldSortPath.value = result.dictionary.sortFieldPath ?? "";
+    fieldSortDirection.value = result.dictionary.sortDirection === "desc" ? "desc" : "asc";
     await nextTick();
     initFieldSortable();
   } catch (error) {
@@ -893,18 +1108,30 @@ async function openFieldDrawer(target: DataDictionarySummary) {
 async function saveFields() {
   const target = fieldTarget.value;
   if (!target) return;
+  const relationError = validateRelationDrafts();
+  if (relationError) {
+    ElMessage.warning(relationError);
+    return;
+  }
   savingFields.value = true;
   try {
     const fieldsToSave = orderDataDictionaryFieldDrafts(fieldDrafts.value);
-    await ipc("tool:data-dictionary:update-fields", {
+    const result = await ipc<DataDictionaryImportWriteResult>("tool:data-dictionary:update-fields", {
       dictionaryId: target.id,
       fields: fieldsToSave,
+      primaryFieldPath: fieldPrimaryPath.value || null,
       titleFieldPath: fieldTitlePath.value || null,
       sortFieldPath: fieldSortPath.value || null,
       sortDirection: fieldSortDirection.value,
+      relations: fieldRelationDrafts.value.map((relation) => ({
+        sourceFieldPath: relation.sourceFieldPath,
+        targetDictionaryId: relation.targetDictionaryId,
+        relationName: relation.relationName,
+        reverseName: relation.reverseName,
+      })),
     });
     fieldDrawerVisible.value = false;
-    const refreshed = await ipc<{ dictionary: DataDictionarySummary; fields: DataDictionaryField[] }>(
+    const refreshed = await ipc<DataDictionaryGetResponse>(
       "tool:data-dictionary:get",
       { id: target.id },
     );
@@ -918,7 +1145,11 @@ async function saveFields() {
       fields.value = refreshed.fields;
     }
     await runSearch();
-    ElMessage.success("字段配置已保存");
+    ElMessage.success(
+      result.skippedPrimaryRecordCount > 0
+        ? `字段配置已保存，${result.skippedPrimaryRecordCount} 条主键异常记录未纳入字典`
+        : "字段配置已保存",
+    );
   } catch (error) {
     ElMessage.error((error as Error).message || "保存字段失败");
   } finally {
@@ -928,6 +1159,36 @@ async function saveFields() {
 
 function handleFieldDrawerClosed() {
   destroyFieldSortable();
+}
+
+async function rebuildDictionaryIndexes(target: DataDictionarySummary) {
+  try {
+    await ElMessageBox.confirm(
+      `将使用「${target.name}」的原始 JSON 重建字段值索引和搜索索引。\n不会修改原始记录、字段配置和关系配置。`,
+      "重建索引",
+      {
+        type: "warning",
+        confirmButtonText: "重建",
+        cancelButtonText: "取消",
+      },
+    );
+    const result = await ipc<RebuildDataDictionaryIndexesResult>(
+      "tool:data-dictionary:rebuild-indexes",
+      { dictionaryId: target.id },
+    );
+    const suffix =
+      result.skippedPrimaryRecordCount > 0
+        ? `。${result.skippedPrimaryRecordCount} 条主键异常记录不会参与关系匹配`
+        : "";
+    ElMessage.success(
+      `已重建索引：${result.recordCount} 条记录，${result.valueCount} 个字段值${suffix}`,
+    );
+    await runSearch();
+  } catch (error) {
+    if ((error as string) !== "cancel") {
+      ElMessage.error((error as Error).message || "重建索引失败");
+    }
+  }
 }
 
 async function renameDictionary(target: DataDictionarySummary) {
@@ -1231,6 +1492,77 @@ watch(savingDictionaryOrder, (disabled) => {
   max-width: 100%;
 }
 
+.dd-detail-error {
+  margin-bottom: 10px;
+}
+
+.dd-relation-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 38%;
+  min-height: 0;
+  margin-bottom: 10px;
+  overflow: auto;
+}
+
+.dd-relation-group {
+  border: 1px solid #e2e8f4;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.dd-relation-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid #edf1f7;
+  background: #fbfcff;
+}
+
+.dd-relation-group-head h4 {
+  margin: 0;
+  font-size: 13px;
+}
+
+.dd-relation-group-head span {
+  color: #697386;
+  font-size: 12px;
+}
+
+.dd-related-record {
+  display: grid;
+  width: 100%;
+  gap: 3px;
+  padding: 9px 10px;
+  border: 0;
+  border-bottom: 1px solid #f0f3f8;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.dd-related-record:hover {
+  background: #f4f7ff;
+}
+
+.dd-related-record strong,
+.dd-related-record span,
+.dd-related-record small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dd-related-record span,
+.dd-related-record small {
+  color: #697386;
+  font-size: 12px;
+}
+
 .dd-json-view {
   flex: 1;
   min-height: 0;
@@ -1330,7 +1662,7 @@ watch(savingDictionaryOrder, (disabled) => {
 
 .dd-field-sort-config {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) minmax(220px, 1fr) 180px;
+  grid-template-columns: repeat(3, minmax(180px, 1fr)) 160px;
   gap: 10px;
 }
 
@@ -1341,6 +1673,42 @@ watch(savingDictionaryOrder, (disabled) => {
 .dd-field-sort-config :deep(.el-select),
 .dd-field-sort-config :deep(.el-radio-group) {
   width: 100%;
+}
+
+.dd-relation-editor {
+  margin-bottom: 12px;
+  overflow: hidden;
+  border: 1px solid #dde5f3;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.dd-relation-row {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) minmax(140px, 0.8fr) minmax(180px, 1fr) minmax(140px, 0.8fr) auto;
+  gap: 8px;
+  align-items: start;
+  padding: 10px 12px;
+  border-top: 1px solid #edf1f7;
+}
+
+.dd-relation-target {
+  display: grid;
+  gap: 4px;
+}
+
+.dd-relation-target span {
+  color: #697386;
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.dd-relation-target span.is-error {
+  color: #b42318;
+}
+
+.dd-relation-empty {
+  min-height: 52px;
 }
 
 .dd-field-sections {
@@ -1444,6 +1812,10 @@ watch(savingDictionaryOrder, (disabled) => {
   }
 
   .dd-field-sort-config {
+    grid-template-columns: 1fr;
+  }
+
+  .dd-relation-row {
     grid-template-columns: 1fr;
   }
 

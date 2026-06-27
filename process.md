@@ -8,6 +8,40 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-06-27: 数据字典关系查询使用字段值派生索引
+
+**场景**: 数据字典支持主键字段、字典间关系、详情页正向/反向关联和单字典索引重建。
+**使用次数**: 0
+**问题**:
+1. 关系查询如果每次解析所有 `raw_json`，会把详情页加载变成跨字典全表扫描。
+2. 仅靠 `normalized_value` 会把 JSON `null` 和字符串 `"null"` 混在一起，关系匹配语义不清。
+3. 历史字典升级后没有字段值索引，不能把“索引未建”静默表现成“没有关联结果”。
+4. 主键字段是业务唯一键；缺失、空值、非标量和重复主键不能继续作为合法关系目标。
+**解决**:
+1. 新增 `data_dictionary_record_values` 派生索引，按 `record_id + field_path` 存储 `value_type / value_text / normalized_value`，关系查询只走索引。
+2. 在 `data_dictionaries` 增加 `primary_field_path` 和 `field_value_indexed_at`；详情查询遇到索引未就绪时返回可操作错误，提示单字典重建索引。
+3. 导入、替换、字段配置保存和重建索引统一维护字段值索引；字段值索引失败回滚强一致数据，FTS 仍按既有降级策略处理。
+4. 主键异常记录在导入/替换/保存主键配置时跳过并返回拆分统计；重建索引不删除历史原始记录，但异常主键不参与关系匹配。
+**关键点**:
+1. 动态 JSON 关系能力仍应保持 `raw_json` 为唯一事实源，字段值表只是可重建索引。
+2. 索引表需要显式记录值类型，避免通过字符串归一化丢掉 JSON 类型语义。
+3. 字段配置抽屉同时保存字典级配置、字段配置和关系配置，后端必须作为最终校验来源。
+4. 详情页异步加载必须绑定请求序号，快速切换搜索结果时旧响应不能覆盖当前记录。
+
+**涉及文件**:
+- `apps/desktop/src-tauri/src/tools/data_dictionary.rs`
+- `apps/desktop/src-tauri/src/tools/helpers.rs`
+- `apps/desktop/src/components/DataDictionaryPanel.vue`
+- `apps/desktop/src/utils/dataDictionaryRelations.ts`
+- `apps/desktop/src/types/data-dictionary.ts`
+- `apps/desktop/src/bridge/tauri.ts`
+
+**验证**:
+- `cargo test data_dictionary -- --nocapture`
+- `pnpm exec vitest run src/utils/dataDictionary.test.ts src/utils/dataDictionaryRelations.test.ts src/components/DataDictionaryPanel.context-menu.test.ts src/utils/dataDictionaryMenu.test.ts`
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+
 ## 2026-06-26: 数据字典字段标题与字段配置排序
 
 **场景**: 数据字典字段配置支持指定列表标题字段，并支持展示字段拖拽排序、展示/非展示字段分组管理。
