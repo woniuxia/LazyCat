@@ -234,76 +234,98 @@
       @closed="handleFieldDrawerClosed"
     >
       <div class="dd-field-config-panel">
-        <div class="dd-field-config-summary">
-          <span>
-            <b>{{ visibleFieldDrafts.length }}</b>
-            展示字段
-          </span>
-          <span>
-            <b>{{ hiddenFieldDrafts.length }}</b>
-            非展示字段
-          </span>
+        <div class="dd-field-config-head">
+          <div class="dd-field-config-title">
+            <h4>字段基础配置</h4>
+            <p>设置记录识别、列表标题和默认排序方式</p>
+          </div>
+          <div class="dd-field-config-summary">
+            <span>
+              <small>展示字段</small>
+              <b>{{ visibleFieldDrafts.length }}</b>
+            </span>
+            <span>
+              <small>非展示字段</small>
+              <b>{{ hiddenFieldDrafts.length }}</b>
+            </span>
+          </div>
         </div>
-        <div class="dd-field-sort-config">
-          <el-form-item label="主键字段">
-            <el-select
-              v-model="fieldPrimaryPath"
-              clearable
-              filterable
-              placeholder="未配置"
-              size="small"
-            >
-              <el-option
-                v-for="option in fieldSortOptions"
-                :key="option.value"
-                :label="option.label"
-                :value="option.value"
-              />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="标题字段">
-            <el-select
-              v-model="fieldTitlePath"
-              clearable
-              filterable
-              placeholder="默认字典来源"
-              size="small"
-            >
-              <el-option
-                v-for="option in fieldSortOptions"
-                :key="option.value"
-                :label="option.label"
-                :value="option.value"
-              />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="排序字段">
-            <el-select
-              v-model="fieldSortPath"
-              clearable
-              filterable
-              placeholder="原始顺序"
-              size="small"
-            >
-              <el-option
-                v-for="option in fieldSortOptions"
-                :key="option.value"
-                :label="option.label"
-                :value="option.value"
-              />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="排序方向">
-            <el-radio-group v-model="fieldSortDirection" :disabled="!fieldSortPath" size="small">
-              <el-radio-button
-                v-for="option in sortDirectionOptions"
-                :key="option.value"
-                :label="option.value"
-              >
-                {{ option.label }}
-              </el-radio-button>
-            </el-radio-group>
-          </el-form-item>
+        <div class="dd-field-config-body">
+          <section class="dd-field-config-group">
+            <div class="dd-field-config-group-head">
+              <span>记录识别</span>
+              <small>影响详情标题和关系匹配</small>
+            </div>
+            <div class="dd-field-sort-config dd-field-sort-config--identity">
+              <el-form-item label="主键字段">
+                <el-select
+                  v-model="fieldPrimaryPath"
+                  clearable
+                  filterable
+                  placeholder="未配置"
+                  size="small"
+                >
+                  <el-option
+                    v-for="option in fieldSortOptions"
+                    :key="option.value"
+                    :label="option.label"
+                    :value="option.value"
+                  />
+                </el-select>
+              </el-form-item>
+              <el-form-item label="标题字段">
+                <el-select
+                  v-model="fieldTitlePath"
+                  clearable
+                  filterable
+                  placeholder="默认字典来源"
+                  size="small"
+                >
+                  <el-option
+                    v-for="option in fieldSortOptions"
+                    :key="option.value"
+                    :label="option.label"
+                    :value="option.value"
+                  />
+                </el-select>
+              </el-form-item>
+            </div>
+          </section>
+          <section class="dd-field-config-group">
+            <div class="dd-field-config-group-head">
+              <span>列表排序</span>
+              <small>搜索结果按该字段稳定排列</small>
+            </div>
+            <div class="dd-field-sort-config dd-field-sort-config--sort">
+              <el-form-item label="排序字段">
+                <el-select
+                  v-model="fieldSortPath"
+                  clearable
+                  filterable
+                  placeholder="原始顺序"
+                  size="small"
+                >
+                  <el-option
+                    v-for="option in fieldSortOptions"
+                    :key="option.value"
+                    :label="option.label"
+                    :value="option.value"
+                  />
+                </el-select>
+              </el-form-item>
+              <el-form-item label="排序方向">
+                <el-radio-group v-model="fieldSortDirection" :disabled="!fieldSortPath" size="small">
+                  <el-radio-button
+                    v-for="option in sortDirectionOptions"
+                    :key="option.value"
+                    :label="option.value"
+                  >
+                    {{ option.label }}
+                  </el-radio-button>
+                </el-radio-group>
+              </el-form-item>
+            </div>
+          </section>
         </div>
       </div>
 
@@ -1627,52 +1649,150 @@ watch(savingDictionaryOrder, (disabled) => {
 }
 
 .dd-field-config-panel {
+  overflow: hidden;
   margin-bottom: 12px;
-  padding: 12px;
   border: 1px solid #dde5f3;
   border-radius: 8px;
   background: #ffffff;
 }
 
+.dd-field-config-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  padding: 12px 14px;
+  border-bottom: 1px solid #edf1f7;
+  background: #fbfcff;
+}
+
+.dd-field-config-title h4 {
+  margin: 0;
+  color: #1f2a44;
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.dd-field-config-title p {
+  margin: 4px 0 0;
+  color: #697386;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 .dd-field-config-summary {
   display: flex;
   flex-wrap: wrap;
-  justify-content: flex-end;
   gap: 8px;
-  margin-bottom: 10px;
 }
 
 .dd-field-config-summary span {
   display: inline-flex;
-  align-items: baseline;
-  gap: 4px;
-  padding: 4px 8px;
+  min-width: 92px;
+  flex-direction: column;
+  gap: 3px;
+  padding: 7px 10px;
   border: 1px solid #e2e8f4;
-  border-radius: 999px;
+  border-radius: 7px;
   background: #f8fafc;
   color: #52637a;
   font-size: 12px;
   line-height: 1.2;
 }
 
+.dd-field-config-summary small {
+  color: #697386;
+  font-size: 12px;
+}
+
 .dd-field-config-summary b {
   color: #1f3f8f;
-  font-size: 13px;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.dd-field-config-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.dd-field-config-group {
+  display: grid;
+  grid-template-rows: 18px auto;
+  row-gap: 10px;
+  padding: 12px 14px 14px;
+}
+
+.dd-field-config-group + .dd-field-config-group {
+  border-left: 1px solid #edf1f7;
+}
+
+.dd-field-config-group-head {
+  display: flex;
+  min-height: 18px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.dd-field-config-group-head span {
+  color: #1f2a44;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.dd-field-config-group-head small {
+  color: #697386;
+  font-size: 12px;
+  line-height: 1.35;
+  text-align: right;
 }
 
 .dd-field-sort-config {
   display: grid;
-  grid-template-columns: repeat(3, minmax(180px, 1fr)) 160px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: center;
   gap: 10px;
 }
 
+.dd-field-sort-config--sort {
+  grid-template-columns: minmax(0, 1fr) 220px;
+}
+
 .dd-field-sort-config :deep(.el-form-item) {
+  display: grid;
+  min-height: 24px;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
   margin-bottom: 0;
+}
+
+.dd-field-sort-config :deep(.el-form-item__label) {
+  justify-content: flex-end;
+  align-items: center;
+  height: 24px;
+  padding: 0;
+  color: #52637a;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.dd-field-sort-config :deep(.el-form-item__content) {
+  align-items: center;
+  min-width: 0;
 }
 
 .dd-field-sort-config :deep(.el-select),
 .dd-field-sort-config :deep(.el-radio-group) {
   width: 100%;
+}
+
+.dd-field-sort-config :deep(.el-radio-group) {
+  flex-wrap: nowrap;
+  white-space: nowrap;
 }
 
 .dd-relation-editor {
@@ -1811,8 +1931,45 @@ watch(savingDictionaryOrder, (disabled) => {
     padding: 12px;
   }
 
+  .dd-field-config-head {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .dd-field-config-body {
+    grid-template-columns: 1fr;
+  }
+
+  .dd-field-config-group + .dd-field-config-group {
+    border-top: 1px solid #edf1f7;
+    border-left: 0;
+  }
+
+  .dd-field-config-group {
+    grid-template-rows: auto auto;
+  }
+
+  .dd-field-config-group-head {
+    flex-direction: column;
+    gap: 3px;
+    align-items: flex-start;
+    min-height: 0;
+  }
+
+  .dd-field-config-group-head small {
+    text-align: left;
+  }
+
   .dd-field-sort-config {
     grid-template-columns: 1fr;
+  }
+
+  .dd-field-sort-config--sort {
+    grid-template-columns: 1fr;
+  }
+
+  .dd-field-sort-config :deep(.el-form-item) {
+    grid-template-columns: 64px minmax(0, 1fr);
   }
 
   .dd-relation-row {
