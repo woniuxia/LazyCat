@@ -27,6 +27,7 @@ import "./providers/vault";
 import "./providers/hosts";
 import "./providers/todo";
 import "./providers/pm";
+import "./providers/data-dictionary";
 import "./providers/suggestion";
 import "./providers/launcher";
 import type { ProviderDescriptor, SpotlightConfig } from "./types";

@@ -163,6 +163,21 @@ describe("parseSpotlightQuery with custom aliasMap", () => {
     const map = new Map<string, SpotlightProviderId>([["q", "todo"]]);
     expect(parseSpotlightQuery("t 周报", map)).toEqual({ scope: null, query: "t 周报" });
   });
+
+  it("recognizes data dictionary aliases when provided by config", () => {
+    const map = new Map<string, SpotlightProviderId>([
+      ["dd", "data-dictionary"],
+      ["dict", "data-dictionary"],
+    ]);
+    expect(parseSpotlightQuery("dd 张三", map)).toEqual({
+      scope: "data-dictionary",
+      query: "张三",
+    });
+    expect(parseSpotlightQuery("dict 1001", map)).toEqual({
+      scope: "data-dictionary",
+      query: "1001",
+    });
+  });
 });
 
 describe("parseQuickCommand with enabledIds", () => {
