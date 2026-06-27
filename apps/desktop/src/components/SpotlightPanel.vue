@@ -96,9 +96,15 @@ import "../spotlight/providers/vault";
 import "../spotlight/providers/hosts";
 import "../spotlight/providers/todo";
 import "../spotlight/providers/pm";
+import "../spotlight/providers/data-dictionary";
 import "../spotlight/providers/suggestion";
 import "../spotlight/providers/launcher";
 import * as configStore from "../spotlight/config-store";
+import {
+  createQueryTimeResultGuard,
+  mergeSpotlightProviderItems,
+  shouldRunQueryProvider,
+} from "../spotlight/search";
 
 import { parseSpotlightQuery, parseQuickCommand, parseKeywordCommand } from "../utils/spotlight-query";
 import { nextSpotlightActiveIndex } from "../utils/spotlight-active-index";
@@ -154,6 +160,9 @@ let unlistenReset: UnlistenFn | null = null;
 let unsubConfig: (() => void) | null = null;
 
 const itemsByProvider = ref<ScopedItemsMap>(new Map());
+const queryItemsByProvider = ref<ScopedItemsMap>(new Map());
+const queryLoading = ref(false);
+const queryGuard = createQueryTimeResultGuard();
 const view = ref<SpotlightView | null>(null);
 
 interface ClipboardSuggestion {
@@ -228,7 +237,11 @@ const enabledProviderIds = computed(() => {
   return new Set(v.providers.filter((p) => p.enabled).map((p) => p.id));
 });
 
-const isLoadingView = computed(() => loading.value || keywordLoading.value);
+const searchableItemsByProvider = computed(() =>
+  mergeSpotlightProviderItems(itemsByProvider.value, queryItemsByProvider.value),
+);
+
+const isLoadingView = computed(() => loading.value || keywordLoading.value || queryLoading.value);
 
 // ── keyword 命令异步结果缓存 ─────────────────────────────────────────
 //
@@ -415,7 +428,7 @@ const results = computed(() => {
       view.value?.providers.find((p) => p.id === id)?.weight ??
       getDescriptor(id)?.weight ??
       1;
-    for (const [pid, items] of itemsByProvider.value) {
+    for (const [pid, items] of searchableItemsByProvider.value) {
       const slot = pid === "tool" ? SLOT_TOOL : SLOT_PER_OTHER;
       const pw = providerWeight(pid);
       const top = items.slice(0, slot);
@@ -441,7 +454,7 @@ const results = computed(() => {
     };
     return [{ item: suggestionItem, score: 0 }, ...baseEntries].slice(0, RESULT_LIMIT);
   }
-  return searchItems(text, itemsByProvider.value, {
+  return searchItems(text, searchableItemsByProvider.value, {
     scope: scope.value,
     limit: RESULT_LIMIT,
     enabledIds: enabledProviderIds.value ?? undefined,
@@ -455,6 +468,14 @@ watch(results, () => {
     queryChanged: false,
   });
 });
+
+watch(
+  [() => parsed.value.query, scope, view, keywordInvocation, quickCommand],
+  () => {
+    void refreshQueryProviders();
+  },
+  { immediate: false },
+);
 
 // 用户继续输入新查询时,清除遗留的错误条/成功条与失败重试,避免红条/绿条粘连
 // success bar 在等待自动关窗时被取消,意味着用户继续使用 spotlight,不再自动关
@@ -512,6 +533,50 @@ async function prefetchAll() {
     itemsByProvider.value = next;
   }
   loading.value = false;
+}
+
+async function refreshQueryProviders() {
+  if (keywordInvocation.value || quickCommand.value) {
+    queryItemsByProvider.value = new Map();
+    queryLoading.value = false;
+    return;
+  }
+
+  const text = parsed.value.query;
+  const currentScope = scope.value;
+  const requestSeq = queryGuard.next(text, currentScope);
+  const baseProviders = view.value
+    ? view.value.providers.filter((provider) => provider.enabled)
+    : listProviders();
+  const providers = baseProviders.filter((provider) => {
+    if (!provider.search) return false;
+    if (currentScope && provider.id !== currentScope) return false;
+    return shouldRunQueryProvider(text, currentScope, provider.id);
+  });
+
+  if (providers.length === 0) {
+    queryItemsByProvider.value = new Map();
+    queryLoading.value = false;
+    return;
+  }
+
+  queryLoading.value = true;
+  const next = new Map<SpotlightProviderId, SpotlightItem[]>();
+  await Promise.allSettled(
+    providers.map(async (provider) => {
+      try {
+        const items = await provider.search!(text, { scope: currentScope });
+        next.set(provider.id, items);
+      } catch (err) {
+        console.warn(`[Spotlight] provider ${provider.id} query search failed:`, err);
+        next.set(provider.id, []);
+      }
+    }),
+  );
+
+  if (!queryGuard.isCurrent(requestSeq, text, currentScope)) return;
+  queryItemsByProvider.value = next;
+  queryLoading.value = false;
 }
 
 function buildContext(): SpotlightExecuteContext {
@@ -800,10 +865,13 @@ onMounted(async () => {
       clearSuccessBar();
       unlockState.value = null;
       actionMenuOpen.value = false;
+      queryItemsByProvider.value = new Map();
+      queryLoading.value = false;
       // 窗口显示兜底:重新拉取配置,防止跨窗口广播丢失
       void configStore.ensureLoaded(true).then((v) => {
         view.value = v;
         void prefetchAll();
+        void refreshQueryProviders();
         void refreshClipboardSuggestion();
       });
       nextTick(() => focusInput());
@@ -835,8 +903,10 @@ onMounted(async () => {
     if (enabledChanged) {
       await prefetchAll();
     }
+    void refreshQueryProviders();
   });
   await prefetchAll();
+  void refreshQueryProviders();
   void refreshClipboardSuggestion();
 });
 

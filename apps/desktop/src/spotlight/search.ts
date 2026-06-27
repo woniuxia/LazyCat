@@ -37,3 +37,25 @@ export function mergeSpotlightProviderItems(
 
   return merged;
 }
+
+export function createQueryTimeResultGuard() {
+  let seq = 0;
+  let latestQuery = "";
+  let latestScope: SpotlightProviderId | null = null;
+  return {
+    next(query: string, scope: SpotlightProviderId | null): number {
+      seq += 1;
+      latestQuery = query;
+      latestScope = scope;
+      return seq;
+    },
+    isCurrent(
+      requestSeq: number,
+      query: string,
+      scope: SpotlightProviderId | null,
+    ): boolean {
+      if (requestSeq !== seq) return false;
+      return query === latestQuery && scope === latestScope;
+    },
+  };
+}

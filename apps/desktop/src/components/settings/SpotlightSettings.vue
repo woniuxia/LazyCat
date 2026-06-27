@@ -136,6 +136,7 @@ import "../../spotlight/providers/vault";
 import "../../spotlight/providers/hosts";
 import "../../spotlight/providers/todo";
 import "../../spotlight/providers/pm";
+import "../../spotlight/providers/data-dictionary";
 import "../../spotlight/providers/suggestion";
 import "../../spotlight/providers/launcher";
 import type {
