@@ -573,41 +573,29 @@ fn action_search(payload: &Value) -> Result<Value, String> {
     if let SearchScope::Current(id) = scope {
         ensure_dictionary_exists(&conn, id)?;
     }
-    let sort_config = match scope {
-        SearchScope::Current(id) => load_dictionary_sort_config(&conn, id)?,
-        SearchScope::All => None,
-    };
-    let query_limit = if sort_config.is_some() {
-        None
-    } else {
-        Some(fetch_limit)
-    };
+    ensure_scope_sort_keys_ready(&conn, &scope)?;
 
     let mut rows = if keyword.is_empty() {
-        query_empty_records(&conn, &scope, query_limit)?
+        query_empty_records(&conn, &scope, Some(fetch_limit))?
     } else {
-        query_like_records(&conn, &scope, keyword, query_limit)?
+        query_like_records(&conn, &scope, keyword, Some(fetch_limit))?
     };
 
     if !keyword.is_empty() && rows.len() < fetch_limit as usize && data_dictionary_has_fts(&conn) {
         if let Some(fts_keyword) = build_fts_keyword(keyword) {
-            if let Ok(fts_rows) = query_fts_records(&conn, &scope, &fts_keyword, query_limit) {
+            if let Ok(fts_rows) = query_fts_records(&conn, &scope, &fts_keyword, Some(fetch_limit))
+            {
                 let mut seen: HashSet<i64> = rows.iter().map(|row| row.id).collect();
                 for row in fts_rows {
                     if seen.insert(row.id) {
                         rows.push(row);
-                        if rows.len() >= fetch_limit as usize {
-                            break;
-                        }
                     }
                 }
+                rows = order_rows_after_fts_merge(&conn, &scope, rows)?;
             }
         }
     }
 
-    if let Some((path, direction)) = sort_config.as_ref() {
-        sort_record_rows(&mut rows, Some((path.as_str(), *direction)));
-    }
     let (rows, has_more) = split_limited_rows(rows, limit as usize);
     let items = rows_to_search_items(&conn, rows, keyword)?;
     Ok(json!({ "items": items, "hasMore": has_more }))
@@ -1412,6 +1400,38 @@ fn load_record_row_by_id(conn: &Connection, record_id: i64) -> Result<RecordRow,
     .ok_or("record not found".to_string())
 }
 
+fn order_rows_after_fts_merge(
+    conn: &Connection,
+    scope: &SearchScope,
+    rows: Vec<RecordRow>,
+) -> Result<Vec<RecordRow>, String> {
+    if rows.len() <= 1 {
+        return Ok(rows);
+    }
+    let ids = rows.iter().map(|row| row.id).collect::<Vec<_>>();
+    query_records_by_ids_in_sort_order(conn, scope, &ids)
+}
+
+fn query_records_by_ids_in_sort_order(
+    conn: &Connection,
+    scope: &SearchScope,
+    ids: &[i64],
+) -> Result<Vec<RecordRow>, String> {
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let placeholders = std::iter::repeat("?")
+        .take(ids.len())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let conditions = vec![format!("r.id IN ({placeholders})")];
+    let params_list = ids
+        .iter()
+        .map(|id| Box::new(*id) as SqlParam)
+        .collect::<Vec<_>>();
+    query_records(conn, scope, conditions, params_list, None, false)
+}
+
 fn load_relation_configs(
     conn: &Connection,
     dictionary_id: i64,
@@ -2037,6 +2057,95 @@ fn ensure_field_value_index_ready(conn: &Connection, dictionary_id: i64) -> Resu
     Ok(())
 }
 
+fn ensure_scope_sort_keys_ready(conn: &Connection, scope: &SearchScope) -> Result<(), String> {
+    let dictionary_ids = load_dictionaries_with_empty_sort_keys(conn, scope)?;
+    for dictionary_id in dictionary_ids {
+        let sort_config = load_dictionary_sort_config(conn, dictionary_id)?;
+        let sort_config_ref = sort_config
+            .as_ref()
+            .map(|(path, direction)| (path.as_str(), *direction));
+        refresh_dictionary_sort_keys(conn, dictionary_id, sort_config_ref)?;
+    }
+    Ok(())
+}
+
+fn load_dictionaries_with_empty_sort_keys(
+    conn: &Connection,
+    scope: &SearchScope,
+) -> Result<Vec<i64>, String> {
+    let (sql, params_list): (&str, Vec<SqlParam>) = match scope {
+        SearchScope::Current(dictionary_id) => (
+            "SELECT DISTINCT dictionary_id
+             FROM data_dictionary_records
+             WHERE dictionary_id = ?1 AND sort_key = ''
+             ORDER BY dictionary_id ASC",
+            vec![Box::new(*dictionary_id)],
+        ),
+        SearchScope::All => (
+            "SELECT DISTINCT dictionary_id
+             FROM data_dictionary_records
+             WHERE sort_key = ''
+             ORDER BY dictionary_id ASC",
+            Vec::new(),
+        ),
+    };
+    let refs: Vec<&dyn ToSql> = params_list.iter().map(|param| param.as_ref()).collect();
+    let mut stmt = conn
+        .prepare(sql)
+        .map_err(|e| format!("prepare empty sort key scan failed: {e}"))?;
+    let rows = stmt
+        .query_map(refs.as_slice(), |row| row.get::<_, i64>(0))
+        .map_err(|e| format!("query empty sort key scan failed: {e}"))?;
+    let mut out = Vec::new();
+    for row in rows {
+        out.push(row.map_err(|e| e.to_string())?);
+    }
+    Ok(out)
+}
+
+fn refresh_dictionary_sort_keys(
+    conn: &Connection,
+    dictionary_id: i64,
+    sort_config: Option<(&str, SortDirection)>,
+) -> Result<(), String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, row_index, raw_json
+             FROM data_dictionary_records
+             WHERE dictionary_id = ?1
+             ORDER BY row_index ASC, id ASC",
+        )
+        .map_err(|e| format!("prepare dictionary sort key refresh failed: {e}"))?;
+    let rows = stmt
+        .query_map(params![dictionary_id], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })
+        .map_err(|e| format!("query dictionary sort key refresh failed: {e}"))?;
+
+    let mut updates = Vec::new();
+    for row in rows {
+        let (record_id, row_index, raw_json) = row.map_err(|e| e.to_string())?;
+        let record = serde_json::from_str::<Value>(&raw_json)
+            .map_err(|e| format!("parse data dictionary record {record_id} failed: {e}"))?;
+        let sort_key = build_record_sort_key(&record, row_index, sort_config)?;
+        updates.push((record_id, sort_key));
+    }
+    drop(stmt);
+
+    for (record_id, sort_key) in updates {
+        conn.execute(
+            "UPDATE data_dictionary_records SET sort_key = ?1 WHERE id = ?2",
+            params![sort_key, record_id],
+        )
+        .map_err(|e| format!("update data dictionary sort key failed: {e}"))?;
+    }
+    Ok(())
+}
+
 fn rebuild_dictionary_indexes(
     conn: &Connection,
     dictionary_id: i64,
@@ -2611,6 +2720,57 @@ mod tests {
         ));
         assert!(!sql.contains("ORDER BY d.updated_at DESC"));
         assert!(!sql.contains("ORDER BY r.row_index ASC"));
+    }
+
+    #[test]
+    fn query_records_sql_current_uses_sort_key_without_nav_order() {
+        let conditions = vec!["r.dictionary_id = ?".to_string()];
+        let sql = build_record_query_sql(&SearchScope::Current(7), &conditions, Some(101));
+
+        assert!(sql.contains("ORDER BY r.sort_key COLLATE BINARY ASC, r.id ASC"));
+        assert!(!sql.contains("d.nav_order ASC"));
+        assert!(sql.ends_with(" LIMIT ?"));
+    }
+
+    #[test]
+    fn parse_limit_keeps_existing_search_limit_bounds() {
+        assert_eq!(parse_limit(&json!({ "limit": 0 })), 1);
+        assert_eq!(parse_limit(&json!({ "limit": 100 })), 100);
+        assert_eq!(parse_limit(&json!({ "limit": 1000 })), 500);
+    }
+
+    #[test]
+    fn load_dictionaries_with_empty_sort_keys_filters_scope() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "
+            CREATE TABLE data_dictionary_records (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                dictionary_id INTEGER NOT NULL,
+                row_index INTEGER NOT NULL,
+                raw_json TEXT NOT NULL,
+                search_text TEXT NOT NULL,
+                normalized_search_text TEXT NOT NULL,
+                sort_key TEXT NOT NULL DEFAULT ''
+            );
+            INSERT INTO data_dictionary_records
+                (dictionary_id, row_index, raw_json, search_text, normalized_search_text, sort_key)
+            VALUES
+                (1, 0, '{}', '', '', ''),
+                (2, 0, '{}', '', '', '1!0000000000000000'),
+                (3, 0, '{}', '', '', '');
+            ",
+        )
+        .unwrap();
+
+        assert_eq!(
+            load_dictionaries_with_empty_sort_keys(&conn, &SearchScope::All).unwrap(),
+            vec![1, 3]
+        );
+        assert_eq!(
+            load_dictionaries_with_empty_sort_keys(&conn, &SearchScope::Current(3)).unwrap(),
+            vec![3]
+        );
     }
 
     #[test]
