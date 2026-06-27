@@ -243,7 +243,7 @@ fn action_create(payload: &Value) -> Result<Value, String> {
         .map_err(|e| format!("insert data dictionary field failed: {e}"))?;
     }
 
-    insert_records(&tx, dictionary_id, &records, &searchable_paths)?;
+    insert_records(&tx, dictionary_id, &records, &searchable_paths, None)?;
     mark_field_value_index_ready(&tx, dictionary_id)?;
     tx.commit()
         .map_err(|e| format!("commit create dictionary failed: {e}"))?;
@@ -305,6 +305,10 @@ fn action_replace_records(payload: &Value) -> Result<Value, String> {
     let stats = collect_field_stats_from_indexed(&records);
 
     let old_configs = load_field_config_map(&conn, dictionary_id)?;
+    let sort_config = load_dictionary_sort_config(&conn, dictionary_id)?;
+    let sort_config_ref = sort_config
+        .as_ref()
+        .map(|(path, direction)| (path.as_str(), *direction));
     let new_paths: HashSet<String> = stats.iter().map(|stat| stat.path.clone()).collect();
     let mut searchable_paths = Vec::new();
 
@@ -366,7 +370,13 @@ fn action_replace_records(payload: &Value) -> Result<Value, String> {
         .map_err(|e| format!("mark missing replacement field failed: {e}"))?;
     }
 
-    insert_records(&tx, dictionary_id, &records, &searchable_paths)?;
+    insert_records(
+        &tx,
+        dictionary_id,
+        &records,
+        &searchable_paths,
+        sort_config_ref,
+    )?;
     tx.execute(
         "UPDATE data_dictionaries
          SET record_count = ?1, updated_at = CURRENT_TIMESTAMP
@@ -435,6 +445,9 @@ fn action_update_fields(payload: &Value) -> Result<Value, String> {
     let primary_field_path = parse_configured_field_path(payload, "primaryFieldPath", &seen)?;
     let title_field_path = parse_configured_field_path(payload, "titleFieldPath", &seen)?;
     let sort_field_path = parse_configured_field_path(payload, "sortFieldPath", &seen)?;
+    let new_sort_config = sort_field_path
+        .as_deref()
+        .map(|path| (path, sort_direction));
     let relations = parse_relation_drafts(
         &tx,
         dictionary_id,
@@ -491,7 +504,13 @@ fn action_update_fields(payload: &Value) -> Result<Value, String> {
             )
             .map_err(|e| format!("delete invalid primary records failed: {e}"))?;
             delete_fts_for_dictionary(&tx, dictionary_id);
-            insert_records(&tx, dictionary_id, &accepted_records, &searchable_paths)?;
+            insert_records(
+                &tx,
+                dictionary_id,
+                &accepted_records,
+                &searchable_paths,
+                new_sort_config,
+            )?;
             mark_field_value_index_ready(&tx, dictionary_id)?;
             (
                 accepted_records.len(),
@@ -1211,6 +1230,7 @@ fn insert_records(
     dictionary_id: i64,
     records: &[IndexedRecord],
     searchable_paths: &[String],
+    sort_config: Option<(&str, SortDirection)>,
 ) -> Result<(), String> {
     for record in records {
         let fields = flatten_record(&record.value);
@@ -1218,16 +1238,18 @@ fn insert_records(
         let normalized = normalize_search_text(&search_text);
         let raw_json = serde_json::to_string(&record.value)
             .map_err(|e| format!("serialize data dictionary record failed: {e}"))?;
+        let sort_key = build_record_sort_key(&record.value, record.source_row_index, sort_config)?;
         conn.execute(
             "INSERT INTO data_dictionary_records
-             (dictionary_id, row_index, raw_json, search_text, normalized_search_text)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
+             (dictionary_id, row_index, raw_json, search_text, normalized_search_text, sort_key)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![
                 dictionary_id,
                 record.source_row_index,
                 raw_json,
                 search_text,
-                normalized
+                normalized,
+                sort_key,
             ],
         )
         .map_err(|e| format!("insert data dictionary record failed: {e}"))?;
@@ -2021,6 +2043,10 @@ fn rebuild_dictionary_indexes(
 ) -> Result<RebuildStats, String> {
     let primary_field_path = load_dictionary_primary_field_path(conn, dictionary_id)?;
     let searchable_paths = load_searchable_paths(conn, dictionary_id)?;
+    let sort_config = load_dictionary_sort_config(conn, dictionary_id)?;
+    let sort_config_ref = sort_config
+        .as_ref()
+        .map(|(path, direction)| (path.as_str(), *direction));
     let mut stmt = conn
         .prepare(
             "SELECT id, row_index, raw_json
@@ -2057,15 +2083,16 @@ fn rebuild_dictionary_indexes(
     let mut skipped_invalid_count = 0;
     let mut skipped_duplicate_count = 0;
     let mut value_count = 0;
-    for (record_id, _row_index, raw_json, value) in &records {
+    for (record_id, row_index, raw_json, value) in &records {
         let fields = flatten_record(value);
         let search_text = build_search_text(&fields, &searchable_paths);
         let normalized = normalize_search_text(&search_text);
+        let sort_key = build_record_sort_key(value, *row_index, sort_config_ref)?;
         conn.execute(
             "UPDATE data_dictionary_records
-             SET search_text = ?1, normalized_search_text = ?2
-             WHERE id = ?3",
-            params![search_text, normalized, record_id],
+             SET search_text = ?1, normalized_search_text = ?2, sort_key = ?3
+             WHERE id = ?4",
+            params![search_text, normalized, sort_key, record_id],
         )
         .map_err(|e| format!("update rebuilt search text failed: {e}"))?;
 
@@ -2584,6 +2611,96 @@ mod tests {
         ));
         assert!(!sql.contains("ORDER BY d.updated_at DESC"));
         assert!(!sql.contains("ORDER BY r.row_index ASC"));
+    }
+
+    #[test]
+    fn insert_records_persists_row_index_sort_key_without_sort_config() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "
+            CREATE TABLE data_dictionary_records (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                dictionary_id INTEGER NOT NULL,
+                row_index INTEGER NOT NULL,
+                raw_json TEXT NOT NULL,
+                search_text TEXT NOT NULL,
+                normalized_search_text TEXT NOT NULL,
+                sort_key TEXT NOT NULL DEFAULT ''
+            );
+            CREATE TABLE data_dictionary_record_values (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                record_id INTEGER NOT NULL,
+                dictionary_id INTEGER NOT NULL,
+                field_path TEXT NOT NULL,
+                value_type TEXT NOT NULL,
+                value_text TEXT NOT NULL,
+                normalized_value TEXT NOT NULL,
+                UNIQUE(record_id, field_path)
+            );
+            ",
+        )
+        .unwrap();
+        let records = vec![
+            IndexedRecord {
+                source_row_index: 0,
+                value: json!({ "score": 100 }),
+            },
+            IndexedRecord {
+                source_row_index: 1,
+                value: json!({ "score": 1 }),
+            },
+        ];
+
+        insert_records(&conn, 1, &records, &["score".to_string()], None).unwrap();
+
+        let mut stmt = conn
+            .prepare("SELECT sort_key FROM data_dictionary_records ORDER BY row_index ASC")
+            .unwrap();
+        let keys = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+
+        assert_eq!(keys.len(), 2);
+        assert!(keys.iter().all(|key| !key.is_empty()));
+        assert!(keys[0] < keys[1]);
+    }
+
+    #[test]
+    fn build_record_sort_key_desc_keeps_equal_values_in_row_order() {
+        let first = build_record_sort_key(
+            &json!({ "score": 100 }),
+            0,
+            Some(("score", SortDirection::Desc)),
+        )
+        .unwrap();
+        let second = build_record_sort_key(
+            &json!({ "score": 100 }),
+            1,
+            Some(("score", SortDirection::Desc)),
+        )
+        .unwrap();
+
+        assert!(first < second);
+    }
+
+    #[test]
+    fn build_record_sort_key_handles_nested_field_paths() {
+        let first = build_record_sort_key(
+            &json!({ "user": { "name": "Ada" } }),
+            0,
+            Some(("user.name", SortDirection::Asc)),
+        )
+        .unwrap();
+        let second = build_record_sort_key(
+            &json!({ "user": { "name": "Bob" } }),
+            1,
+            Some(("user.name", SortDirection::Asc)),
+        )
+        .unwrap();
+
+        assert!(first < second);
     }
 
     #[test]
