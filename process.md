@@ -8,6 +8,34 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-06-27: 数据字典大 JSON 导入绕开 IPC 文本负载
+
+**场景**: 数据字典导入 10MB 级 JSON 文件，用户反馈超过约 5MB 后内容被截断或无法完整导入。
+**使用次数**: 0
+**问题**:
+1. 原导入流程只支持在前端文本框中粘贴 JSON，并把完整文本放进通用 `tool_execute` IPC payload。
+2. Rust 端 `serde_json` 解析和 SQLite 存储没有 5MB 业务限制；风险集中在前端文本输入和 IPC 大字符串传输边界。
+3. 继续提升文本框或 IPC 负载阈值会扩大通用通道风险，也不能解决超大文件导入的内存与交互体验问题。
+**解决**:
+1. 前端导入弹窗新增“选择 JSON 文件”，选中文件后预览/保存只传 `inputPath`，文本框保留给小数据粘贴。
+2. 后端新增 `read_import_input`，`import_preview` / `create` / `replace_records` 统一支持 `inputPath` 或原有 `input`。
+3. 新增 10MB+ JSON 文件路径预览测试，锁住大文件不经 IPC 文本传输也能完整解析的行为。
+**关键点**:
+1. 大文件导入优先传路径让后端读文件，避免把大内容塞进通用 IPC payload。
+2. 文本输入和文件路径是两个互斥来源，预览快照要绑定“当前来源”，否则保存可能提交和预览不一致的数据。
+3. 模板里的复杂 JSON 示例不要直接写在绑定表达式中，容易被 Vue 模板解析截断；用 computed 字符串承载。
+
+**涉及文件**:
+- `apps/desktop/src/components/DataDictionaryPanel.vue`
+- `apps/desktop/src/components/DataDictionaryPanel.context-menu.test.ts`
+- `apps/desktop/src-tauri/src/tools/data_dictionary.rs`
+
+**验证**:
+- `cargo test data_dictionary -- --nocapture`
+- `pnpm test src/components/DataDictionaryPanel.context-menu.test.ts`
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+
 ## 2026-06-27: 数据字典关系查询使用字段值派生索引
 
 **场景**: 数据字典支持主键字段、字典间关系、详情页正向/反向关联和单字典索引重建。

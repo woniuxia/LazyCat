@@ -87,7 +87,9 @@ describe("DataDictionaryPanel dictionary context menu", () => {
 
   it("supports dragging dictionary items to persist sidebar order", () => {
     expect(source).toContain('ref="dictionarySortListRef"');
-    expect(source).toContain('class="dd-dictionary-drag-handle"');
+    expect(source).toContain('class="dd-dictionary-meta dd-dictionary-count dd-dictionary-drag-handle"');
+    expect(source).toContain("拖拽右侧条数排序");
+    expect(source).not.toContain('<el-icon class="dd-dictionary-drag-handle"');
     expect(source).toContain('import Sortable from "sortablejs"');
     expect(source).toContain('Sortable.create(listEl');
     expect(source).toContain('handle: ".dd-dictionary-drag-handle"');
@@ -103,6 +105,13 @@ describe("DataDictionaryPanel dictionary context menu", () => {
   it("keeps the all-dictionaries option outside drag sorting", () => {
     expect(source).not.toContain('dd-dictionary-all"\n          :draggable');
     expect(source).not.toContain('@dragstart="handleDictionaryDragStart(null)"');
+  });
+
+  it("supports importing large data dictionary JSON by file path", () => {
+    expect(source).toContain('import { open } from "@tauri-apps/plugin-dialog"');
+    expect(source).toContain("async function selectImportFile()");
+    expect(source).toContain("inputPath");
+    expect(source).toContain("buildImportPayload()");
   });
 
   it("uses source labels as fallback titles without rendering a separate source marker", () => {

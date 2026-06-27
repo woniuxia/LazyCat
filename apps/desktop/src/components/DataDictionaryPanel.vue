@@ -19,7 +19,7 @@
           @click="selectAllDictionaries"
         >
           <span class="dd-dictionary-name">全部</span>
-          <span class="dd-dictionary-meta">{{ totalRecordCount }} 条</span>
+          <span class="dd-dictionary-meta dd-dictionary-count">{{ totalRecordCount }} 条</span>
         </button>
 
         <div
@@ -40,13 +40,17 @@
               class="dd-dictionary-item"
               :class="{ active: dictionary.id === selectedId }"
               type="button"
-              title="点击选择，拖拽右侧手柄排序，右键打开字典菜单"
+              title="点击选择，拖拽右侧条数排序，右键打开字典菜单"
               @click="selectDictionary(dictionary.id)"
             >
               <span class="dd-dictionary-name">{{ dictionary.name }}</span>
               <span class="dd-dictionary-trailing">
-                <span class="dd-dictionary-meta">{{ dictionary.recordCount }} 条</span>
-                <el-icon class="dd-dictionary-drag-handle" title="拖拽排序"><Rank /></el-icon>
+                <span
+                  class="dd-dictionary-meta dd-dictionary-count dd-dictionary-drag-handle"
+                  title="拖拽排序"
+                >
+                  {{ dictionary.recordCount }} 条
+                </span>
               </span>
             </button>
             <template #dropdown>
@@ -196,13 +200,29 @@
           v-model="importForm.description"
           placeholder="描述"
         />
+        <div class="dd-import-file-row">
+          <el-button :icon="Upload" @click="selectImportFile">选择 JSON 文件</el-button>
+          <div v-if="importForm.inputPath" class="dd-import-file">
+            <span>{{ importFileName }}</span>
+            <small>{{ importForm.inputPath }}</small>
+          </div>
+          <el-button
+            v-if="importForm.inputPath"
+            :icon="Delete"
+            text
+            @click="clearImportFile"
+          >
+            清除
+          </el-button>
+        </div>
         <el-input
           v-model="importForm.input"
           type="textarea"
           :rows="12"
           resize="none"
-          placeholder='[{"id":1,"user":{"name":"张三"}}]'
-          @input="invalidateImportPreview"
+          :disabled="Boolean(importForm.inputPath)"
+          :placeholder="importInputPlaceholder"
+          @input="handleImportTextInput"
         />
 
         <div v-if="preview" class="dd-preview">
@@ -490,8 +510,10 @@ import {
   Refresh,
   Search,
   Setting,
+  Upload,
 } from "@element-plus/icons-vue";
 import Sortable from "sortablejs";
+import { open } from "@tauri-apps/plugin-dialog";
 import { invokeToolByChannel } from "../bridge/tauri";
 import type {
   DataDictionaryField,
@@ -547,9 +569,9 @@ const searchHasMore = ref(false);
 
 const importDialogVisible = ref(false);
 const importMode = ref<"create" | "replace">("create");
-const importForm = ref({ name: "", description: "", input: "" });
+const importForm = ref({ name: "", description: "", input: "", inputPath: "" });
 const preview = ref<DataDictionaryImportPreview | null>(null);
-const previewInput = ref("");
+const previewSource = ref("");
 const replaceTarget = ref<DataDictionarySummary | null>(null);
 const previewing = ref(false);
 const savingImport = ref(false);
@@ -593,7 +615,16 @@ const relationGroups = computed(() =>
 );
 
 const canSaveImport = computed(
-  () => Boolean(preview.value) && previewInput.value === importForm.value.input,
+  () => Boolean(preview.value) && previewSource.value === currentImportSourceKey(),
+);
+
+const importFileName = computed(() => {
+  const path = importForm.value.inputPath;
+  return path ? path.split(/[\\/]/).pop() || path : "";
+});
+
+const importInputPlaceholder = computed(() =>
+  importForm.value.inputPath ? "将直接读取已选择的 JSON 文件" : '[{"id":1,"user":{"name":"张三"}}]',
 );
 
 const fieldDrawerTitle = computed(() =>
@@ -994,39 +1025,87 @@ function handleDictionaryCommand(
 
 function openCreateDialog() {
   importMode.value = "create";
-  importForm.value = { name: "", description: "", input: "" };
+  importForm.value = { name: "", description: "", input: "", inputPath: "" };
   preview.value = null;
-  previewInput.value = "";
+  previewSource.value = "";
   replaceTarget.value = null;
   importDialogVisible.value = true;
 }
 
 function openReplaceDialog(target: DataDictionarySummary) {
   importMode.value = "replace";
-  importForm.value = { name: target.name, description: "", input: "" };
+  importForm.value = { name: target.name, description: "", input: "", inputPath: "" };
   preview.value = null;
-  previewInput.value = "";
+  previewSource.value = "";
   replaceTarget.value = target;
   importDialogVisible.value = true;
 }
 
 function invalidateImportPreview() {
-  if (preview.value && previewInput.value !== importForm.value.input) {
+  if (preview.value && previewSource.value !== currentImportSourceKey()) {
     preview.value = null;
-    previewInput.value = "";
+    previewSource.value = "";
   }
+}
+
+function handleImportTextInput() {
+  importForm.value.inputPath = "";
+  invalidateImportPreview();
+}
+
+async function selectImportFile() {
+  try {
+    const selected = await open({
+      multiple: false,
+      filters: [{ name: "JSON", extensions: ["json", "txt"] }],
+    });
+    const path = normalizeDialogPath(selected);
+    if (!path) return;
+    importForm.value.inputPath = path;
+    importForm.value.input = "";
+    invalidateImportPreview();
+  } catch (error) {
+    ElMessage.error((error as Error).message || "选择文件失败");
+  }
+}
+
+function clearImportFile() {
+  importForm.value.inputPath = "";
+  invalidateImportPreview();
+}
+
+function normalizeDialogPath(selected: Awaited<ReturnType<typeof open>>): string {
+  if (!selected) return "";
+  if (typeof selected === "string") return selected;
+  if (Array.isArray(selected)) {
+    const first = selected[0];
+    return typeof first === "string" ? first : first?.path ?? "";
+  }
+  return selected.path ?? "";
+}
+
+function currentImportSourceKey(): string {
+  return importForm.value.inputPath
+    ? `file:${importForm.value.inputPath}`
+    : `text:${importForm.value.input}`;
+}
+
+function buildImportPayload(): { input?: string; inputPath?: string } {
+  return importForm.value.inputPath
+    ? { inputPath: importForm.value.inputPath }
+    : { input: importForm.value.input };
 }
 
 async function previewImport() {
   previewing.value = true;
   try {
     preview.value = await ipc<DataDictionaryImportPreview>("tool:data-dictionary:import-preview", {
-      input: importForm.value.input,
+      ...buildImportPayload(),
     });
-    previewInput.value = importForm.value.input;
+    previewSource.value = currentImportSourceKey();
   } catch (error) {
     preview.value = null;
-    previewInput.value = "";
+    previewSource.value = "";
     ElMessage.error((error as Error).message || "预览失败");
   } finally {
     previewing.value = false;
@@ -1064,7 +1143,7 @@ async function saveImport() {
       const created = await ipc<DataDictionaryImportWriteResult>("tool:data-dictionary:create", {
         name: importForm.value.name,
         description: importForm.value.description,
-        input: importForm.value.input,
+        ...buildImportPayload(),
       });
       importDialogVisible.value = false;
       await loadDictionaries(created.id);
@@ -1072,7 +1151,7 @@ async function saveImport() {
     } else if (target) {
       const replaced = await ipc<DataDictionaryImportWriteResult>("tool:data-dictionary:replace-records", {
         dictionaryId: target.id,
-        input: importForm.value.input,
+        ...buildImportPayload(),
       });
       importDialogVisible.value = false;
       await loadDictionaries(target.id);
@@ -1386,20 +1465,46 @@ watch(savingDictionaryOrder, (disabled) => {
   display: inline-flex;
   flex-shrink: 0;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   margin-left: 8px;
 }
 
-.dd-dictionary-drag-handle {
-  color: #697386;
-  cursor: grab;
-  font-size: 16px;
-  opacity: 0.45;
-  transition: opacity 0.16s ease;
+.dd-dictionary-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  min-height: 24px;
+  padding: 0 8px;
+  border: 1px solid #e2e8f4;
+  border-radius: 6px;
+  background: #f8fafc;
+  color: #52637a;
+  line-height: 1;
+  user-select: none;
+  white-space: nowrap;
 }
 
-.dd-dictionary-item:hover .dd-dictionary-drag-handle {
-  opacity: 1;
+.dd-dictionary-item:hover .dd-dictionary-count,
+.dd-dictionary-item.active .dd-dictionary-count {
+  border-color: #bfd0ff;
+  background: #ffffff;
+  color: #1f3f8f;
+}
+
+.dd-dictionary-drag-handle {
+  cursor: grab;
+  transition:
+    background-color 0.16s ease,
+    border-color 0.16s ease,
+    color 0.16s ease,
+    box-shadow 0.16s ease;
+}
+
+.dd-dictionary-drag-handle:hover {
+  border-color: #8fb2ff;
+  background: #eef4ff;
+  box-shadow: 0 0 0 2px rgb(111 149 255 / 12%);
 }
 
 .dd-dictionary-drag-handle:active {
@@ -1625,6 +1730,33 @@ watch(savingDictionaryOrder, (disabled) => {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.dd-import-file-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.dd-import-file {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+  color: #435066;
+  font-size: 13px;
+}
+
+.dd-import-file span,
+.dd-import-file small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dd-import-file small {
+  color: #8a94a6;
+  font-size: 12px;
 }
 
 .dd-preview {

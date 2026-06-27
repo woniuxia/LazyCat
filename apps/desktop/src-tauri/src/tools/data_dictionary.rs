@@ -3,6 +3,7 @@ use rusqlite::{params, Connection, OptionalExtension, Row, ToSql};
 use serde_json::{json, Value};
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::fs;
 
 type SqlParam = Box<dyn ToSql>;
 
@@ -183,8 +184,8 @@ fn action_get(payload: &Value) -> Result<Value, String> {
 }
 
 fn action_import_preview(payload: &Value) -> Result<Value, String> {
-    let input = payload["input"].as_str().unwrap_or_default();
-    let records = parse_import_array(input)?;
+    let input = read_import_input(payload)?;
+    let records = parse_import_array(&input)?;
     let stats = collect_field_stats(&records);
     Ok(json!({
         "recordCount": records.len(),
@@ -199,8 +200,8 @@ fn action_create(payload: &Value) -> Result<Value, String> {
         .filter(|value| !value.is_empty())
         .ok_or("name is required")?;
     let description = payload["description"].as_str().unwrap_or("").trim();
-    let input = payload["input"].as_str().unwrap_or_default();
-    let records = indexed_records_from_values(parse_import_array(input)?);
+    let input = read_import_input(payload)?;
+    let records = indexed_records_from_values(parse_import_array(&input)?);
     let stats = collect_field_stats_from_indexed(&records);
     let searchable_paths: Vec<String> = stats.iter().map(|stat| stat.path.clone()).collect();
 
@@ -289,12 +290,12 @@ fn action_replace_records(payload: &Value) -> Result<Value, String> {
     let dictionary_id = payload["dictionaryId"]
         .as_i64()
         .ok_or("dictionaryId is required")?;
-    let input = payload["input"].as_str().unwrap_or_default();
+    let input = read_import_input(payload)?;
     let mut conn = db_conn()?;
     ensure_dictionary_exists(&conn, dictionary_id)?;
     let primary_field_path = load_dictionary_primary_field_path(&conn, dictionary_id)?;
     let partition = partition_records_by_primary(
-        indexed_records_from_values(parse_import_array(input)?),
+        indexed_records_from_values(parse_import_array(&input)?),
         primary_field_path.as_deref(),
     )?;
     let skipped_invalid_count = partition.skipped_invalid_count;
@@ -712,6 +713,17 @@ fn action_delete(payload: &Value) -> Result<Value, String> {
     conn.execute("DELETE FROM data_dictionaries WHERE id = ?1", params![id])
         .map_err(|e| format!("delete data dictionary failed: {e}"))?;
     Ok(json!({ "ok": true }))
+}
+
+fn read_import_input(payload: &Value) -> Result<String, String> {
+    if let Some(path) = payload["inputPath"]
+        .as_str()
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+    {
+        return fs::read_to_string(path).map_err(|e| format!("读取导入文件失败: {e}"));
+    }
+    Ok(payload["input"].as_str().unwrap_or_default().to_string())
 }
 
 fn parse_import_array(input: &str) -> Result<Vec<Value>, String> {
@@ -2146,6 +2158,28 @@ mod tests {
     fn parse_import_payload_requires_object_items() {
         let err = parse_import_array(r#"[{"id":1}, 2]"#).expect_err("scalar item must fail");
         assert!(err.contains("第 2 行"));
+    }
+
+    #[test]
+    fn import_preview_reads_large_json_from_file_path() {
+        let large_value = "x".repeat(1024);
+        let items = (0..10_000)
+            .map(|idx| format!(r#"{{"id":{idx},"name":"item-{idx}","payload":"{large_value}"}}"#))
+            .collect::<Vec<_>>();
+        let input = format!("[{}]", items.join(","));
+        assert!(input.len() > 10 * 1024 * 1024);
+
+        let path = std::env::temp_dir().join(format!(
+            "lazycat-data-dictionary-large-import-{}.json",
+            std::process::id()
+        ));
+        std::fs::write(&path, &input).expect("write large import payload");
+
+        let out = action_import_preview(&json!({ "inputPath": path.to_string_lossy() }))
+            .expect("preview large file import");
+        let _ = std::fs::remove_file(path);
+
+        assert_eq!(out["recordCount"], json!(10_000));
     }
 
     #[test]
