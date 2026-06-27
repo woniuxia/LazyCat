@@ -114,6 +114,9 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
     let _ = conn.execute_batch(
         "ALTER TABLE data_dictionaries ADD COLUMN field_value_indexed_at TEXT DEFAULT NULL;",
     );
+    let _ = conn.execute_batch(
+        "ALTER TABLE data_dictionary_records ADD COLUMN sort_key TEXT NOT NULL DEFAULT '';",
+    );
 
     // Phase 2: Add project_id to todo_items
     let _ =
@@ -219,11 +222,14 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
             raw_json TEXT NOT NULL,
             search_text TEXT NOT NULL,
             normalized_search_text TEXT NOT NULL,
+            sort_key TEXT NOT NULL DEFAULT '',
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (dictionary_id) REFERENCES data_dictionaries(id) ON DELETE CASCADE
         );
         CREATE INDEX IF NOT EXISTS idx_data_dictionary_records_dictionary
             ON data_dictionary_records(dictionary_id, row_index);
+        CREATE INDEX IF NOT EXISTS idx_data_dictionary_records_dictionary_sort
+            ON data_dictionary_records(dictionary_id, sort_key, id);
 
         CREATE TABLE IF NOT EXISTS data_dictionary_relations (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

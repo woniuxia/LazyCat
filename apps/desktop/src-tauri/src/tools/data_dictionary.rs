@@ -1321,32 +1321,14 @@ fn query_records(
     mut conditions: Vec<String>,
     mut params_list: Vec<SqlParam>,
     limit: Option<i64>,
-    empty_keyword: bool,
+    _empty_keyword: bool,
 ) -> Result<Vec<RecordRow>, String> {
     if let SearchScope::Current(dictionary_id) = scope {
         conditions.insert(0, "r.dictionary_id = ?".to_string());
         params_list.insert(0, Box::new(*dictionary_id));
     }
-    let mut sql = String::from(
-        "SELECT r.id, r.dictionary_id, d.name, r.row_index, r.raw_json
-         , d.title_field_path
-         FROM data_dictionary_records r
-         JOIN data_dictionaries d ON d.id = r.dictionary_id",
-    );
-    if !conditions.is_empty() {
-        sql.push_str(" WHERE ");
-        sql.push_str(&conditions.join(" AND "));
-    }
-    if empty_keyword {
-        match scope {
-            SearchScope::Current(_) => sql.push_str(" ORDER BY r.row_index ASC"),
-            SearchScope::All => sql.push_str(" ORDER BY d.updated_at DESC, r.row_index ASC"),
-        }
-    } else {
-        sql.push_str(" ORDER BY d.updated_at DESC, r.row_index ASC");
-    }
+    let sql = build_record_query_sql(scope, &conditions, limit);
     if let Some(limit) = limit {
-        sql.push_str(" LIMIT ?");
         params_list.push(Box::new(limit));
     }
 
@@ -1362,6 +1344,35 @@ fn query_records(
         out.push(row.map_err(|e| e.to_string())?);
     }
     Ok(out)
+}
+
+fn build_record_query_sql(
+    scope: &SearchScope,
+    conditions: &[String],
+    limit: Option<i64>,
+) -> String {
+    let mut sql = String::from(
+        "SELECT r.id, r.dictionary_id, d.name, r.row_index, r.raw_json
+         , d.title_field_path
+         FROM data_dictionary_records r
+         JOIN data_dictionaries d ON d.id = r.dictionary_id",
+    );
+    if !conditions.is_empty() {
+        sql.push_str(" WHERE ");
+        sql.push_str(&conditions.join(" AND "));
+    }
+    match scope {
+        SearchScope::Current(_) => {
+            sql.push_str(" ORDER BY r.sort_key COLLATE BINARY ASC, r.id ASC");
+        }
+        SearchScope::All => {
+            sql.push_str(" ORDER BY d.nav_order ASC, r.sort_key COLLATE BINARY ASC, r.id ASC");
+        }
+    }
+    if limit.is_some() {
+        sql.push_str(" LIMIT ?");
+    }
+    sql
 }
 
 fn load_record_row_by_id(conn: &Connection, record_id: i64) -> Result<RecordRow, String> {
@@ -2562,6 +2573,17 @@ mod tests {
                 .unwrap();
 
         assert!(short < long);
+    }
+
+    #[test]
+    fn query_records_sql_orders_by_sort_key_not_updated_at() {
+        let sql = build_record_query_sql(&SearchScope::All, &[], Some(100));
+
+        assert!(sql.contains(
+            "ORDER BY d.nav_order ASC, r.sort_key COLLATE BINARY ASC, r.id ASC"
+        ));
+        assert!(!sql.contains("ORDER BY d.updated_at DESC"));
+        assert!(!sql.contains("ORDER BY r.row_index ASC"));
     }
 
     #[test]
