@@ -117,8 +117,39 @@ describe("DataDictionaryPanel dictionary context menu", () => {
   it("uses source labels as fallback titles without rendering a separate source marker", () => {
     expect(source).toContain("buildResultTitle");
     expect(source).toContain("resultTitle(item)");
-    expect(source).toContain("dictionarySourceLabel(selectedItem)");
+    expect(source).toContain("const detailTitle = computed");
     expect(source).not.toContain("dd-result-source");
+  });
+
+  it("renders the record detail header as one computed title without a source subtitle", () => {
+    expect(source).toContain("<h3>{{ detailTitle }}</h3>");
+    expect(source).toContain("const detailTitle = computed");
+    expect(source).toContain("return recordDetail.value.record.title;");
+    expect(source).toContain('return selectedItem.value ? resultTitle(selectedItem.value) : "未选择记录";');
+    expect(source).not.toContain("recordDetail.record.dictionaryName }} #");
+    expect(source).not.toContain('v-else-if="selectedItem">{{ selectedItem.dictionaryName }}</span>');
+  });
+
+  it("shows a hover copy action for the raw JSON detail", () => {
+    expect(source).toContain('class="dd-json-shell"');
+    expect(source).toContain('class="dd-json-copy-btn"');
+    expect(source).toContain(':icon="CopyDocument"');
+    expect(source).toContain('@click="copySelectedJson"');
+    expect(source).toContain("async function copySelectedJson()");
+    expect(source).toContain("await navigator.clipboard.writeText(selectedJson.value)");
+    expect(source).toContain('ElMessage.error("复制失败")');
+  });
+
+  it("renders relation groups below the raw JSON detail", () => {
+    const detailStart = source.indexOf('class="dd-detail"');
+    const detailEnd = source.indexOf("<el-dialog", detailStart);
+    const detailSource = source.slice(detailStart, detailEnd);
+
+    const jsonIndex = detailSource.indexOf('class="dd-json-shell"');
+    const relationIndex = detailSource.indexOf('class="dd-relation-groups"');
+    expect(jsonIndex).toBeGreaterThan(-1);
+    expect(relationIndex).toBeGreaterThan(-1);
+    expect(jsonIndex).toBeLessThan(relationIndex);
   });
 
   it("renders visible and hidden field configuration lists separately", () => {
@@ -158,5 +189,27 @@ describe("DataDictionaryPanel dictionary context menu", () => {
     expect(source).toContain("async function copySummaryValue(value: string)");
     expect(source).toContain("await navigator.clipboard.writeText(value)");
     expect(source).toContain('ElMessage.error("复制失败")');
+  });
+
+  it("copies detail summary values from the match list", () => {
+    const matchListStart = source.indexOf('class="dd-match-list"');
+    const matchListEnd = source.indexOf('class="dd-relation-groups"', matchListStart);
+    const matchListSource = source.slice(matchListStart, matchListEnd);
+
+    expect(matchListSource).toContain('v-for="part in recordDetail.record.summary"');
+    expect(matchListSource).toContain('title="点击复制"');
+    expect(matchListSource).toContain('@click.stop="copySummaryValue(part.value)"');
+    expect(source).toContain(".dd-match-tag:hover");
+  });
+
+  it("renders related record titles as one title without an extra source subtitle", () => {
+    const relatedStart = source.indexOf('class="dd-related-record"');
+    const relatedEnd = source.indexOf('<div v-if="!group.items.length"', relatedStart);
+    const relatedSource = source.slice(relatedStart, relatedEnd);
+
+    expect(relatedSource).toContain("<strong>{{ item.title }}</strong>");
+    expect(relatedSource).not.toContain("{{ item.dictionaryName }} #{{ item.rowIndex + 1 }}");
+    expect(relatedSource).not.toContain("<span>");
+    expect(source).not.toContain(".dd-related-record span");
   });
 });

@@ -123,11 +123,7 @@
 
     <section class="dd-detail" v-loading="detailLoading">
       <div class="dd-detail-head">
-        <div>
-          <h3>{{ recordDetail?.record.title ?? (selectedItem ? dictionarySourceLabel(selectedItem) : "未选择记录") }}</h3>
-          <span v-if="recordDetail">{{ recordDetail.record.dictionaryName }} #{{ recordDetail.record.rowIndex + 1 }}</span>
-          <span v-else-if="selectedItem">{{ selectedItem.dictionaryName }}</span>
-        </div>
+        <h3>{{ detailTitle }}</h3>
         <el-button v-if="detailError && selectedItem" size="small" @click="loadRecordDetail(selectedItem)">
           重试
         </el-button>
@@ -148,9 +144,25 @@
           :key="part.fieldPath"
           effect="plain"
           class="dd-match-tag"
+          title="点击复制"
+          @click.stop="copySummaryValue(part.value)"
         >
           {{ part.label }}: {{ part.value }}
         </el-tag>
+      </div>
+
+      <div class="dd-json-shell">
+        <el-button
+          v-if="selectedJson"
+          class="dd-json-copy-btn"
+          :icon="CopyDocument"
+          circle
+          size="small"
+          aria-label="复制 JSON"
+          title="复制 JSON"
+          @click="copySelectedJson"
+        />
+        <pre class="dd-json-view">{{ selectedJson }}</pre>
       </div>
 
       <div v-if="recordDetail" class="dd-relation-groups">
@@ -171,7 +183,6 @@
             @click="loadRelatedRecord(item.id)"
           >
             <strong>{{ item.title }}</strong>
-            <span>{{ item.dictionaryName }} #{{ item.rowIndex + 1 }}</span>
             <small v-for="part in item.summary" :key="part.fieldPath">
               {{ part.label }}: {{ part.value }}
             </small>
@@ -179,8 +190,6 @@
           <div v-if="!group.items.length" class="dd-empty dd-relation-empty">无关联记录</div>
         </section>
       </div>
-
-      <pre class="dd-json-view">{{ selectedJson }}</pre>
     </section>
 
     <el-dialog
@@ -503,6 +512,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import type { ComponentPublicInstance } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import {
+  CopyDocument,
   Delete,
   Edit,
   Plus,
@@ -532,7 +542,6 @@ import type {
 import {
   buildResultTitle,
   buildResultSummary,
-  dictionarySourceLabel,
   formatJsonDocument,
   moveDataDictionaryFieldDraft,
   orderDataDictionaryFieldDrafts,
@@ -607,6 +616,13 @@ const totalRecordCount = computed(() =>
 const selectedJson = computed(() =>
   recordDetail.value ? formatJsonDocument(recordDetail.value.record.rawJson) : "",
 );
+
+const detailTitle = computed(() => {
+  if (recordDetail.value) {
+    return recordDetail.value.record.title;
+  }
+  return selectedItem.value ? resultTitle(selectedItem.value) : "未选择记录";
+});
 
 const relationGroups = computed(() =>
   recordDetail.value
@@ -844,6 +860,16 @@ function resultTitle(item: DataDictionarySearchItem) {
 async function copySummaryValue(value: string) {
   try {
     await navigator.clipboard.writeText(value);
+    ElMessage.success("已复制");
+  } catch {
+    ElMessage.error("复制失败");
+  }
+}
+
+async function copySelectedJson() {
+  if (!selectedJson.value) return;
+  try {
+    await navigator.clipboard.writeText(selectedJson.value);
     ElMessage.success("已复制");
   } catch {
     ElMessage.error("复制失败");
@@ -1394,8 +1420,15 @@ watch(savingDictionaryOrder, (disabled) => {
   line-height: 1.4;
 }
 
+.dd-detail-head h3 {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .dd-sidebar-head span,
-.dd-detail-head span,
 .dd-dictionary-meta {
   color: #697386;
   font-size: 12px;
@@ -1617,6 +1650,14 @@ watch(savingDictionaryOrder, (disabled) => {
 
 .dd-match-tag {
   max-width: 100%;
+  cursor: pointer;
+  transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+}
+
+.dd-match-tag:hover {
+  border-color: #b8c7e8;
+  background: #eaf0ff;
+  color: #1f3f8f;
 }
 
 .dd-detail-error {
@@ -1629,7 +1670,7 @@ watch(savingDictionaryOrder, (disabled) => {
   gap: 10px;
   max-height: 38%;
   min-height: 0;
-  margin-bottom: 10px;
+  margin-top: 10px;
   overflow: auto;
 }
 
@@ -1677,22 +1718,53 @@ watch(savingDictionaryOrder, (disabled) => {
 }
 
 .dd-related-record strong,
-.dd-related-record span,
 .dd-related-record small {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.dd-related-record span,
 .dd-related-record small {
   color: #697386;
   font-size: 12px;
 }
 
-.dd-json-view {
+.dd-json-shell {
+  position: relative;
   flex: 1;
   min-height: 0;
+}
+
+.dd-json-copy-btn {
+  position: absolute;
+  z-index: 1;
+  top: 8px;
+  right: 8px;
+  border-color: #d7deeb;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 6px 16px rgba(31, 42, 68, 0.14);
+  color: #435066;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-2px);
+  transition: opacity 0.16s ease, transform 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+}
+
+.dd-json-shell:hover .dd-json-copy-btn,
+.dd-json-shell:focus-within .dd-json-copy-btn {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.dd-json-copy-btn:hover {
+  border-color: #9fb1d1;
+  background: #ffffff;
+  color: #1f3f8f;
+}
+
+.dd-json-view {
+  height: 100%;
   margin: 0;
   overflow: auto;
   padding: 12px;
