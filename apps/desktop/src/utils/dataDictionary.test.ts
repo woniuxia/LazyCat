@@ -60,6 +60,8 @@ const item: DataDictionarySearchItem = {
   },
   matches: [{ fieldPath: "user.name", value: "张三" }],
   titleFieldPath: null,
+  title: "用户字典 #1",
+  summary: [],
 };
 
 describe("dataDictionary utils", () => {

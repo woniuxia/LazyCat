@@ -43,14 +43,22 @@ export interface DataDictionaryMatch {
   value: string;
 }
 
+export interface DataDictionaryRecordSummaryPart {
+  fieldPath: string;
+  label: string;
+  value: string;
+}
+
 export interface DataDictionarySearchItem {
   id: number;
   dictionaryId: number;
   dictionaryName: string;
   titleFieldPath: string | null;
   rowIndex: number;
-  rawJson: unknown;
+  rawJson?: unknown;
   matches: DataDictionaryMatch[];
+  title: string;
+  summary: DataDictionaryRecordSummaryPart[];
 }
 
 export interface DataDictionarySearchResult {
@@ -59,6 +67,14 @@ export interface DataDictionarySearchResult {
 }
 
 export type DataDictionarySearchScope = "current" | "all";
+
+export interface DataDictionarySearchRequest {
+  scope: DataDictionarySearchScope;
+  dictionaryId?: number;
+  keyword?: string;
+  limit?: number;
+  includeRawJson?: boolean;
+}
 
 export interface DataDictionaryRelation {
   id: number;
@@ -76,12 +92,6 @@ export interface DataDictionaryRelationDraft {
   targetDictionaryId: number | null;
   relationName: string;
   reverseName: string;
-}
-
-export interface DataDictionaryRecordSummaryPart {
-  fieldPath: string;
-  label: string;
-  value: string;
 }
 
 export interface DataDictionaryRecordBrief {

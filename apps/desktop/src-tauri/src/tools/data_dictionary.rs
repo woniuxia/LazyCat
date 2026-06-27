@@ -568,6 +568,7 @@ fn action_search(payload: &Value) -> Result<Value, String> {
     let scope = parse_search_scope(payload)?;
     let keyword = payload["keyword"].as_str().unwrap_or("").trim();
     let limit = parse_limit(payload);
+    let include_raw_json = payload["includeRawJson"].as_bool().unwrap_or(true);
     let fetch_limit = limit + 1;
     let conn = db_conn()?;
     if let SearchScope::Current(id) = scope {
@@ -597,7 +598,7 @@ fn action_search(payload: &Value) -> Result<Value, String> {
     }
 
     let (rows, has_more) = split_limited_rows(rows, limit as usize);
-    let items = rows_to_search_items(&conn, rows, keyword)?;
+    let items = rows_to_search_items(&conn, rows, keyword, include_raw_json)?;
     Ok(json!({ "items": items, "hasMore": has_more }))
 }
 
@@ -1742,11 +1743,12 @@ fn rows_to_search_items(
     conn: &Connection,
     rows: Vec<RecordRow>,
     keyword: &str,
+    include_raw_json: bool,
 ) -> Result<Vec<Value>, String> {
     let mut searchable_cache: HashMap<i64, Vec<String>> = HashMap::new();
+    let mut field_cache: HashMap<i64, Vec<FieldConfig>> = HashMap::new();
     let mut out = Vec::with_capacity(rows.len());
     for row in rows {
-        let record = serde_json::from_str::<Value>(&row.raw_json).unwrap_or(Value::Null);
         let paths = if let Some(paths) = searchable_cache.get(&row.dictionary_id) {
             paths.clone()
         } else {
@@ -1754,17 +1756,56 @@ fn rows_to_search_items(
             searchable_cache.insert(row.dictionary_id, paths.clone());
             paths
         };
-        out.push(json!({
-            "id": row.id,
-            "dictionaryId": row.dictionary_id,
-            "dictionaryName": row.dictionary_name,
-            "titleFieldPath": row.title_field_path,
-            "rowIndex": row.row_index,
-            "rawJson": record,
-            "matches": compute_matches(&record, &paths, keyword),
-        }));
+        let fields = if let Some(fields) = field_cache.get(&row.dictionary_id) {
+            fields.clone()
+        } else {
+            let fields = load_field_configs(conn, row.dictionary_id)?;
+            field_cache.insert(row.dictionary_id, fields.clone());
+            fields
+        };
+        out.push(record_row_to_search_item_json(
+            row,
+            &paths,
+            &fields,
+            keyword,
+            include_raw_json,
+        )?);
     }
     Ok(out)
+}
+
+fn record_row_to_search_item_json(
+    row: RecordRow,
+    searchable_paths: &[String],
+    fields: &[FieldConfig],
+    keyword: &str,
+    include_raw_json: bool,
+) -> Result<Value, String> {
+    let record = serde_json::from_str::<Value>(&row.raw_json)
+        .map_err(|e| format!("parse data dictionary record {} failed: {e}", row.id))?;
+    let title = build_record_title(
+        &record,
+        row.title_field_path.as_deref(),
+        &row.dictionary_name,
+        row.row_index,
+    );
+    let summary = build_record_summary(&record, fields, row.title_field_path.as_deref());
+    let mut item = json!({
+        "id": row.id,
+        "dictionaryId": row.dictionary_id,
+        "dictionaryName": row.dictionary_name,
+        "titleFieldPath": row.title_field_path,
+        "rowIndex": row.row_index,
+        "matches": compute_matches(&record, searchable_paths, keyword),
+        "title": title,
+        "summary": summary,
+    });
+    if include_raw_json {
+        if let Some(object) = item.as_object_mut() {
+            object.insert("rawJson".to_string(), record);
+        }
+    }
+    Ok(item)
 }
 
 fn record_row_to_brief_json(row: RecordRow, fields: &[FieldConfig]) -> Result<Value, String> {
@@ -2598,6 +2639,70 @@ mod tests {
         assert_eq!(brief["summary"], json!([
             { "fieldPath": "dept", "label": "部门", "value": "研发" }
         ]));
+    }
+
+    #[test]
+    fn search_item_includes_title_summary_and_can_omit_raw_json() {
+        let row = test_record_row(
+            10,
+            2,
+            json!({ "id": 1001, "name": "张三", "dept": "研发", "secret": "hidden" }),
+        );
+        let fields = vec![
+            test_field_config("id", "编号", true, 0),
+            test_field_config("name", "姓名", true, 1),
+            test_field_config("dept", "部门", true, 2),
+            test_field_config("secret", "密钥", false, 3),
+        ];
+
+        let item = record_row_to_search_item_json(
+            row,
+            &["name".to_string(), "dept".to_string()],
+            &fields,
+            "张",
+            false,
+        )
+        .unwrap();
+
+        assert_eq!(item["title"], "测试字典 #3");
+        assert_eq!(item["summary"], json!([
+            { "fieldPath": "id", "label": "编号", "value": "1001" },
+            { "fieldPath": "name", "label": "姓名", "value": "张三" },
+            { "fieldPath": "dept", "label": "部门", "value": "研发" }
+        ]));
+        assert_eq!(item["matches"], json!([
+            { "fieldPath": "name", "value": "张三" }
+        ]));
+        assert!(item.get("rawJson").is_none());
+    }
+
+    #[test]
+    fn search_item_keeps_raw_json_by_default_shape() {
+        let mut row = test_record_row(5, 0, json!({ "name": "张三" }));
+        row.title_field_path = Some("name".to_string());
+        let fields = vec![test_field_config("name", "姓名", true, 0)];
+
+        let item = record_row_to_search_item_json(
+            row,
+            &["name".to_string()],
+            &fields,
+            "",
+            true,
+        )
+        .unwrap();
+
+        assert_eq!(item["title"], "张三");
+        assert_eq!(item["rawJson"], json!({ "name": "张三" }));
+        assert_eq!(item["summary"], json!([]));
+    }
+
+    #[test]
+    fn search_item_returns_parse_error_for_invalid_raw_json() {
+        let mut row = test_record_row(8, 0, json!({ "name": "valid" }));
+        row.raw_json = "{ invalid json".to_string();
+        let err = record_row_to_search_item_json(row, &[], &[], "", false).unwrap_err();
+
+        assert!(err.contains("parse data dictionary record 8 failed"));
     }
 
     #[test]
