@@ -1494,6 +1494,103 @@ fn load_related_record_briefs(
         .collect()
 }
 
+fn build_record_sort_key(
+    record: &Value,
+    row_index: i64,
+    sort_config: Option<(&str, SortDirection)>,
+) -> Result<String, String> {
+    let row_key = encode_row_index_sort_part(row_index)?;
+    let Some((field_path, direction)) = sort_config else {
+        return Ok(format!("1!{row_key}"));
+    };
+    let Some(value) = get_value_by_field_path(record, field_path) else {
+        return Ok(format!("2!{row_key}"));
+    };
+    let value_bytes = encode_present_sort_value(value, direction)?;
+    Ok(format!("0!{}!{row_key}", hex_encode_upper(&value_bytes)))
+}
+
+fn encode_present_sort_value(value: &Value, direction: SortDirection) -> Result<Vec<u8>, String> {
+    let mut out = Vec::new();
+    match value {
+        Value::Number(number) => {
+            let value = number
+                .as_f64()
+                .filter(|value| value.is_finite())
+                .ok_or_else(|| "sort number is not representable as finite f64".to_string())?;
+            out.push(1);
+            let mut payload = ordered_f64_bytes(value).to_vec();
+            if direction == SortDirection::Desc {
+                invert_bytes_in_place(&mut payload);
+            }
+            out.extend(payload);
+        }
+        Value::String(text) => {
+            out.push(2);
+            let mut payload = text.as_bytes().to_vec();
+            payload.push(0);
+            if direction == SortDirection::Desc {
+                invert_bytes_in_place(&mut payload);
+            }
+            out.extend(payload);
+        }
+        Value::Bool(flag) => {
+            out.push(3);
+            let mut payload = vec![if *flag { 1 } else { 0 }];
+            if direction == SortDirection::Desc {
+                invert_bytes_in_place(&mut payload);
+            }
+            out.extend(payload);
+        }
+        Value::Null => {
+            out.push(4);
+        }
+        Value::Array(_) | Value::Object(_) => {
+            out.push(5);
+            let mut payload = value_to_search_text(value).into_bytes();
+            payload.push(0);
+            if direction == SortDirection::Desc {
+                invert_bytes_in_place(&mut payload);
+            }
+            out.extend(payload);
+        }
+    }
+    Ok(out)
+}
+
+fn ordered_f64_bytes(value: f64) -> [u8; 8] {
+    let bits = value.to_bits();
+    let ordered = if bits & (1_u64 << 63) == 0 {
+        bits ^ (1_u64 << 63)
+    } else {
+        !bits
+    };
+    ordered.to_be_bytes()
+}
+
+fn encode_row_index_sort_part(row_index: i64) -> Result<String, String> {
+    if row_index < 0 {
+        return Err(format!("row_index must not be negative: {row_index}"));
+    }
+    Ok(format!("{:016X}", row_index as u64))
+}
+
+fn invert_bytes_in_place(bytes: &mut [u8]) {
+    for byte in bytes {
+        *byte = 255_u8 - *byte;
+    }
+}
+
+fn hex_encode_upper(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789ABCDEF";
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        out.push(HEX[(byte >> 4) as usize] as char);
+        out.push(HEX[(byte & 0x0F) as usize] as char);
+    }
+    out
+}
+
 fn sort_record_rows(rows: &mut [RecordRow], sort_config: Option<(&str, SortDirection)>) {
     let Some((field_path, direction)) = sort_config else {
         rows.sort_by(|a, b| {
@@ -2383,6 +2480,88 @@ mod tests {
         assert!(has_more);
         assert_eq!(limited.len(), 2);
         assert_eq!(limited[1].row_index, 1);
+    }
+
+    #[test]
+    fn build_record_sort_key_orders_numbers_numerically() {
+        let small =
+            build_record_sort_key(&json!({ "score": 2 }), 0, Some(("score", SortDirection::Asc)))
+                .unwrap();
+        let large = build_record_sort_key(
+            &json!({ "score": 10 }),
+            1,
+            Some(("score", SortDirection::Asc)),
+        )
+        .unwrap();
+
+        assert!(small < large);
+    }
+
+    #[test]
+    fn build_record_sort_key_supports_desc_without_moving_missing_values_first() {
+        let high = build_record_sort_key(
+            &json!({ "score": 100 }),
+            0,
+            Some(("score", SortDirection::Desc)),
+        )
+        .unwrap();
+        let low = build_record_sort_key(
+            &json!({ "score": 90 }),
+            1,
+            Some(("score", SortDirection::Desc)),
+        )
+        .unwrap();
+        let missing = build_record_sort_key(
+            &json!({ "name": "missing" }),
+            2,
+            Some(("score", SortDirection::Desc)),
+        )
+        .unwrap();
+
+        assert!(high < low);
+        assert!(low < missing);
+    }
+
+    #[test]
+    fn build_record_sort_key_uses_row_index_when_sort_field_is_not_configured() {
+        let first = build_record_sort_key(&json!({ "score": 100 }), 0, None).unwrap();
+        let second = build_record_sort_key(&json!({ "score": 1 }), 1, None).unwrap();
+
+        assert!(first < second);
+    }
+
+    #[test]
+    fn build_record_sort_key_uses_missing_bucket_and_row_index_when_sort_field_is_missing() {
+        let present =
+            build_record_sort_key(&json!({ "score": 1 }), 9, Some(("score", SortDirection::Asc)))
+                .unwrap();
+        let missing_first = build_record_sort_key(
+            &json!({ "name": "a" }),
+            0,
+            Some(("score", SortDirection::Asc)),
+        )
+        .unwrap();
+        let missing_second = build_record_sort_key(
+            &json!({ "name": "b" }),
+            1,
+            Some(("score", SortDirection::Asc)),
+        )
+        .unwrap();
+
+        assert!(present < missing_first);
+        assert!(missing_first < missing_second);
+    }
+
+    #[test]
+    fn build_record_sort_key_orders_strings_by_prefix_before_longer_value() {
+        let short =
+            build_record_sort_key(&json!({ "name": "a" }), 0, Some(("name", SortDirection::Asc)))
+                .unwrap();
+        let long =
+            build_record_sort_key(&json!({ "name": "aa" }), 1, Some(("name", SortDirection::Asc)))
+                .unwrap();
+
+        assert!(short < long);
     }
 
     #[test]
