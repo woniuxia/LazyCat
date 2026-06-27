@@ -44,6 +44,7 @@ function makeDescriptor(over: Partial<ProviderDescriptor> & { id: ProviderDescri
     hiddenInSettings: over.hiddenInSettings,
     quickCommands: over.quickCommands,
     prefetch: over.prefetch ?? (async () => []),
+    search: over.search,
     defaultAction: over.defaultAction ?? (async () => ({})),
     buildActions: over.buildActions,
     executeAction: over.executeAction,

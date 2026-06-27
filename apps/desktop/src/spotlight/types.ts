@@ -6,6 +6,7 @@ export type SpotlightProviderId =
   | "hosts"
   | "todo"
   | "pm"
+  | "data-dictionary"
   | "suggestion"
   | "launcher"
   | "__keyword__";
@@ -57,6 +58,10 @@ export interface SpotlightExecuteContext {
   ensureVaultUnlocked: (entryTitle: string) => Promise<boolean>;
 }
 
+export interface SpotlightSearchContext {
+  scope: SpotlightProviderId | null;
+}
+
 export interface QuickCommandDescriptor {
   id: QuickCommandId;
   name: string;
@@ -79,6 +84,10 @@ export interface ProviderDescriptor {
   hiddenInSettings?: boolean;
   quickCommands?: QuickCommandDescriptor[];
   prefetch: () => Promise<SpotlightItem[]>;
+  search?: (
+    query: string,
+    ctx: SpotlightSearchContext,
+  ) => Promise<SpotlightItem[]>;
   defaultAction: (
     item: SpotlightItem,
     ctx: SpotlightExecuteContext,
