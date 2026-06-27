@@ -8,6 +8,38 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-06-27: Spotlight 数据字典接入使用 query-time provider
+
+**场景**: Spotlight 需要搜索数据字典记录，并支持打开定位、复制显示字段和懒加载复制完整 JSON。
+**使用次数**: 0
+**问题**:
+1. 数据字典记录数量和单条 JSON 体积不可控，不适合在 Spotlight 空输入时预取。
+2. Spotlight 前端不应重复实现数据字典字段路径解析、标题字段和显示字段摘要规则。
+3. 异步 query-time provider 可能出现旧响应覆盖新查询结果。
+**解决**:
+1. 扩展数据字典 `search` 返回 `title` 和 `summary`，并用 `includeRawJson: false` 支持轻量候选。
+2. Spotlight provider 增加可选 `search(query, ctx)`，数据字典只在有效关键词下按需请求。
+3. Spotlight 查询结果用请求序号绑定当前 query 和 scope，旧响应直接丢弃。
+4. 完整 JSON 复制通过 `record-detail` 懒加载，候选 payload 不保存 `rawJson`。
+**关键点**:
+1. 大数据源优先 query-time 搜索，不要塞进通用预取集合。
+2. 动态 JSON 展示规则由数据字典后端单一维护，Spotlight 只做展示映射和动作编排。
+3. `providerId:itemId` 去重时要合并预取和 query-time 结果，避免重复行。
+**涉及文件**:
+- `apps/desktop/src-tauri/src/tools/data_dictionary.rs`
+- `apps/desktop/src/types/data-dictionary.ts`
+- `apps/desktop/src/spotlight/types.ts`
+- `apps/desktop/src/spotlight/search.ts`
+- `apps/desktop/src/spotlight/providers/data-dictionary.ts`
+- `apps/desktop/src/components/SpotlightPanel.vue`
+- `apps/desktop/src/components/DataDictionaryPanel.vue`
+- `apps/desktop/src/App.vue`
+**验证**:
+- `cargo test data_dictionary -- --nocapture`
+- `pnpm test src/spotlight/providers/data-dictionary.test.ts src/spotlight/search.test.ts src/spotlight/config-store.test.ts src/utils/spotlight-query.test.ts src/components/DataDictionaryPanel.context-menu.test.ts`
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+
 ## 2026-06-27: 数据字典查询排序使用记录级派生 sort_key
 
 **场景**: 数据字典“全部”查询需要先按左侧字典顺序，再按每个字典自己的记录排序配置返回结果。
