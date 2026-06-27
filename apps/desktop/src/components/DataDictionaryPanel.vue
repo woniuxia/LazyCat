@@ -525,6 +525,7 @@ import {
 import Sortable from "sortablejs";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invokeToolByChannel } from "../bridge/tauri";
+import { useDataDictionaryNavigation } from "../composables/useDataDictionaryNavigation";
 import type {
   DataDictionaryField,
   DataDictionaryImportWriteResult,
@@ -597,6 +598,7 @@ const savingFields = ref(false);
 const savingDictionaryOrder = ref(false);
 const dictionarySortListRef = ref<HTMLElement | null>(null);
 const visibleFieldTableRef = ref<ComponentPublicInstance | null>(null);
+const { consumeFocus: consumeDataDictionaryFocus } = useDataDictionaryNavigation();
 
 type DictionaryMenuInstance = ComponentPublicInstance & { handleClose?: () => void };
 
@@ -815,6 +817,23 @@ async function loadRecordDetailById(recordId: number) {
     if (requestId === detailRequestSeq) {
       detailLoading.value = false;
     }
+  }
+}
+
+async function focusDataDictionaryRecord(recordId: number) {
+  searchScope.value = "all";
+  selectedId.value = null;
+  currentDictionary.value = null;
+  fields.value = [];
+  const existing = searchItems.value.find((item) => item.id === recordId);
+  if (existing) {
+    await selectSearchItem(existing);
+    return;
+  }
+  selectedItem.value = null;
+  await loadRecordDetailById(recordId);
+  if (!recordDetail.value) {
+    ElMessage.warning("未找到该数据字典记录，可能已被删除");
   }
 }
 
@@ -1361,7 +1380,12 @@ async function deleteDictionary(target: DataDictionarySummary) {
 }
 
 onMounted(() => {
-  void loadDictionaries();
+  void loadDictionaries().then(async () => {
+    const focus = consumeDataDictionaryFocus();
+    if (focus) {
+      await focusDataDictionaryRecord(focus.recordId);
+    }
+  });
 });
 
 onBeforeUnmount(() => {

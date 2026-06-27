@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const source = readFileSync(new URL("./DataDictionaryPanel.vue", import.meta.url), "utf8");
+const appSource = readFileSync(new URL("../App.vue", import.meta.url), "utf8");
 
 describe("DataDictionaryPanel dictionary context menu", () => {
   it("uses a pinned all option in the dictionary list for global search", () => {
@@ -200,6 +201,19 @@ describe("DataDictionaryPanel dictionary context menu", () => {
     expect(matchListSource).toContain('title="点击复制"');
     expect(matchListSource).toContain('@click.stop="copySummaryValue(part.value)"');
     expect(source).toContain(".dd-match-tag:hover");
+  });
+
+  it("consumes Spotlight focus requests without mutating the search keyword", () => {
+    expect(source).toContain("useDataDictionaryNavigation");
+    expect(source).toContain("consumeDataDictionaryFocus");
+    expect(source).toContain("focusDataDictionaryRecord");
+    expect(source).not.toContain("keyword.value = String(focus.recordId)");
+  });
+
+  it("routes hotkey navigation to data dictionary focus requests", () => {
+    expect(appSource).toContain('target === "data-dictionary"');
+    expect(appSource).toContain("useDataDictionaryNavigation");
+    expect(appSource).toContain("requestFocus(parsedItem)");
   });
 
   it("renders related record titles as one title without an extra source subtitle", () => {

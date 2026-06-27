@@ -391,6 +391,9 @@ onMounted(async () => {
           } else if (target === "todo") {
             const { useTodoNavigation } = await import("./composables/useTodoNavigation");
             useTodoNavigation().requestFocus(parsedItem);
+          } else if (target === "data-dictionary") {
+            const { useDataDictionaryNavigation } = await import("./composables/useDataDictionaryNavigation");
+            useDataDictionaryNavigation().requestFocus(parsedItem);
           }
         }
       }
