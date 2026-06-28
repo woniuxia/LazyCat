@@ -10,7 +10,7 @@
 
 1. 新建字典必须配置主键字段，主键校验通过后才能保存。
 2. 历史无主键字典进入受限状态，引导用户先配置主键。
-3. 常用记录使用 `dictionaryId + normalizedValue` 定位，不使用数据库行 ID 作为长期引用。
+3. 常用记录在数据库中使用 `dictionary_id + normalized_value` 定位，不使用数据库行 ID 作为长期引用。
 4. 记录详情有效展示后累计使用次数和最后使用时间。
 5. 空关键词时展示常用记录，按使用次数和最近使用时间排序。
 6. 输入关键词后沿用现有搜索排序，不让常用度干扰搜索可信度。
@@ -58,23 +58,21 @@
 
 常用记录本质是访问索引，不是纯最近查看列表。
 
-记录维度：
+数据库记录维度：
 
-```ts
-interface DataDictionaryRecordUsage {
-  dictionaryId: number;
-  recordId: string;
-  normalizedValue: string;
-  usedCount: number;
-  lastUsedAt: string;
-}
-```
+- `dictionary_id`：字典 ID。
+- `record_id`：记录自身的业务主键值，来自当前字典 `primary_field_path` 对应字段。
+- `normalized_value`：业务主键值按字段值索引口径归一化后的查找值。
+- `used_count`：成功查看记录详情的累计次数。
+- `last_used_at`：最近一次成功查看详情的时间。
+
+这里的字段调整只作用于新增的 `data_dictionary_record_usage` 表。现有 `data_dictionary_records.id` 仍是数据库行 ID，继续用于详情加载、关系查询和内部 join。
 
 行为规则：
 
 1. 只有记录详情成功加载，并且该详情响应仍对应当前用户选择时，才累计使用次数。
 2. 计数使用显式 API，不在 `record-detail` 内隐式写入，避免快速切换时旧详情响应误计数。
-3. 对同一 `(dictionaryId, normalizedValue)` 执行 upsert：首次写入 `usedCount = 1`，后续 `usedCount + 1` 并更新 `lastUsedAt`。
+3. 对同一 `(dictionary_id, normalized_value)` 执行 upsert：首次写入 `used_count = 1`，后续 `used_count + 1` 并更新 `last_used_at`。
 4. 空关键词时展示常用记录分区，排序为 `usedCount DESC, lastUsedAt DESC`。
 5. 关键词非空时隐藏常用记录分区，搜索结果排序完全沿用现有 `search`。
 6. 常用记录最多展示 10 条。
@@ -108,6 +106,7 @@ CREATE INDEX IF NOT EXISTS idx_data_dictionary_record_usage_global_order
 - `normalized_value`：按现有字段值索引归一化口径得到的查找值，用于匹配当前记录。
 - `used_count`：成功查看记录详情的累计次数。
 - `last_used_at`：最近一次成功查看详情的时间。
+- 该表不新增 `primary_value` 字段；原本容易误解的 `primaryValue` 概念统一落到数据库字段 `normalized_value`。
 
 不保存：
 
