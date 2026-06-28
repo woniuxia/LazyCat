@@ -10,7 +10,7 @@
 
 1. 新建字典必须配置主键字段，主键校验通过后才能保存。
 2. 历史无主键字典进入受限状态，引导用户先配置主键。
-3. 常用记录使用 `dictionaryId + primaryValue` 定位，不使用 `recordId` 作为长期引用。
+3. 常用记录使用 `dictionaryId + normalizedValue` 定位，不使用数据库行 ID 作为长期引用。
 4. 记录详情有效展示后累计使用次数和最后使用时间。
 5. 空关键词时展示常用记录，按使用次数和最近使用时间排序。
 6. 输入关键词后沿用现有搜索排序，不让常用度干扰搜索可信度。
@@ -22,7 +22,7 @@
 2. 不新增固定记录、收藏记录或手动分组。
 3. 不新增复杂查询语言、字段筛选 DSL、多跳关系或关系图。
 4. 不支持无主键字典写入常用记录。
-5. 不保存标题、摘要、字段值等展示快照。
+5. 不保存标题、摘要、字段值等展示快照；只保存业务主键值和归一化查找值。
 6. 不迁移主键字段变更前的常用记录。
 
 ## 产品规则
@@ -38,7 +38,7 @@
 3. 未选择主键字段时禁用保存。
 4. 保存时把 `primaryFieldPath` 传给后端。
 5. 后端校验主键值必须是可用标量，且在字典内非空、非 `null`、不重复。
-6. 主键异常记录沿用现有策略不写入，并返回跳过数量供前端提示。
+6. 主键异常记录沿用现有策略不写入，并返回跳过数量供前端提示；前端必须明确展示跳过数量，不能静默成功。
 
 历史字典流程：
 
@@ -51,7 +51,8 @@
 
 1. 字段配置中允许更换主键，但不允许清空主键。
 2. 后端按新主键重新校验记录。
-3. 已有常用记录不做迁移；后续读取常用记录时，无法命中的条目自动清理。
+3. 如果主键变更会剔除现有记录，后端先返回明确错误和跳过统计；前端二次确认后带确认标记重试。
+4. 已有常用记录不做迁移；后续读取常用记录时，无法命中的条目自动清理。
 
 ### 常用记录规则
 
@@ -62,7 +63,8 @@
 ```ts
 interface DataDictionaryRecordUsage {
   dictionaryId: number;
-  primaryValue: string;
+  recordId: string;
+  normalizedValue: string;
   usedCount: number;
   lastUsedAt: string;
 }
@@ -72,7 +74,7 @@ interface DataDictionaryRecordUsage {
 
 1. 只有记录详情成功加载，并且该详情响应仍对应当前用户选择时，才累计使用次数。
 2. 计数使用显式 API，不在 `record-detail` 内隐式写入，避免快速切换时旧详情响应误计数。
-3. 对同一 `(dictionaryId, primaryValue)` 执行 upsert：首次写入 `usedCount = 1`，后续 `usedCount + 1` 并更新 `lastUsedAt`。
+3. 对同一 `(dictionaryId, normalizedValue)` 执行 upsert：首次写入 `usedCount = 1`，后续 `usedCount + 1` 并更新 `lastUsedAt`。
 4. 空关键词时展示常用记录分区，排序为 `usedCount DESC, lastUsedAt DESC`。
 5. 关键词非空时隐藏常用记录分区，搜索结果排序完全沿用现有 `search`。
 6. 常用记录最多展示 10 条。
@@ -84,10 +86,11 @@ interface DataDictionaryRecordUsage {
 ```sql
 CREATE TABLE IF NOT EXISTS data_dictionary_record_usage (
   dictionary_id INTEGER NOT NULL,
-  primary_value TEXT NOT NULL,
+  record_id TEXT NOT NULL,
+  normalized_value TEXT NOT NULL,
   used_count INTEGER NOT NULL DEFAULT 1,
   last_used_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY(dictionary_id, primary_value),
+  PRIMARY KEY(dictionary_id, normalized_value),
   FOREIGN KEY(dictionary_id) REFERENCES data_dictionaries(id) ON DELETE CASCADE
 );
 
@@ -101,13 +104,14 @@ CREATE INDEX IF NOT EXISTS idx_data_dictionary_record_usage_global_order
 字段语义：
 
 - `dictionary_id`：字典 ID。
-- `primary_value`：按现有字段值索引归一化口径得到的业务主键值。
+- `record_id`：当前记录主键字段的业务值，用作对外记录标识；它不是 `data_dictionary_records.id`。
+- `normalized_value`：按现有字段值索引归一化口径得到的查找值，用于匹配当前记录。
 - `used_count`：成功查看记录详情的累计次数。
 - `last_used_at`：最近一次成功查看详情的时间。
 
 不保存：
 
-- 不保存 `record_id`，因为替换数据后数据库行 ID 会变化。
+- 不保存数据库行 ID，因为替换数据后数据库行 ID 会变化。
 - 不保存标题或摘要快照，避免展示旧信息。
 - 不保存原始主键字段路径，读取时始终使用当前字典的 `primary_field_path`。
 
@@ -141,8 +145,10 @@ interface CreateDataDictionaryRequest {
 
 1. `primaryFieldPath` 必填，不接受 `null` 或空字符串。
 2. 主键字段必须存在于本次提交字段集合。
-3. 如果主键变更，按现有主键校验路径重新过滤异常记录并重建索引。
-4. 不主动清理 usage；读取常用记录时按实时命中结果清理。
+3. 如果主键变更，按现有主键校验路径预检查异常记录。
+4. 如果预检查发现会剔除记录，且请求未带确认标记，返回错误和跳过统计，不修改数据。
+5. 前端二次确认后带确认标记重试，后端重新过滤异常记录并重建索引。
+6. 不主动清理 usage；读取常用记录时按实时命中结果清理。
 
 ### `popular_records`
 
@@ -155,13 +161,14 @@ interface DataDictionaryPopularRecordsRequest {
 }
 
 interface DataDictionaryPopularRecord {
-  recordId: number;
+  id: number;
+  recordId: string;
   dictionaryId: number;
   dictionaryName: string;
   title: string;
   rowIndex: number;
   summary: DataDictionaryRecordSummaryPart[];
-  primaryValue: string;
+  normalizedValue: string;
   usedCount: number;
   lastUsedAt: string;
 }
@@ -173,13 +180,15 @@ interface DataDictionaryPopularRecordsResult {
 
 行为：
 
-1. `dictionaryId` 为空时返回跨字典常用记录；有值时只返回当前字典。
-2. 默认 `limit = 10`，最大不超过 50。
-3. 只返回有主键的字典。
-4. 按 `used_count DESC, last_used_at DESC` 读取 usage 候选。
-5. 对每条候选，使用当前字典 `primary_field_path` 和 `primary_value` 到 `data_dictionary_record_values` 查当前记录。
-6. 命中后用现有标题和摘要构造逻辑返回轻量记录。
-7. 未命中的 usage 行立即删除。
+1. `id` 是当前 `data_dictionary_records.id`，只用于加载详情；`recordId` 是数据主键字段的业务值。
+2. `dictionaryId` 为空时返回跨字典常用记录；有值时只返回当前字典。
+3. 默认 `limit = 10`，最大不超过 50。
+4. 只返回有主键的字典。
+5. 按 `used_count DESC, last_used_at DESC` 读取 usage 候选。
+6. 对每条候选，使用当前字典 `primary_field_path` 和 `normalized_value` 到 `data_dictionary_record_values` 查当前记录，且只匹配 `value_type IN ('string', 'number', 'boolean')`。
+7. 命中后用现有标题和摘要构造逻辑返回轻量记录。
+8. 未命中的 usage 行立即删除。
+9. 删除失效 usage 后不循环补齐；本次有几条有效常用记录就返回几条。
 
 ### `mark_record_used`
 
@@ -187,7 +196,7 @@ interface DataDictionaryPopularRecordsResult {
 
 ```ts
 interface MarkDataDictionaryRecordUsedRequest {
-  recordId: number;
+  id: number;
 }
 
 interface MarkDataDictionaryRecordUsedResult {
@@ -197,12 +206,13 @@ interface MarkDataDictionaryRecordUsedResult {
 
 行为：
 
-1. 通过 `recordId` 加载当前记录和字典。
+1. 通过当前 `data_dictionary_records.id` 加载当前记录和字典。
 2. 字典必须已配置 `primary_field_path`。
 3. 从字段值索引读取该记录主键字段的值。
 4. 主键值必须满足关系匹配可用条件：`string | number | boolean`，且归一化后非空。
-5. 对 `(dictionary_id, primary_value)` 执行 upsert。
-6. 如果记录不存在、字典无主键或主键值不可用，返回明确错误；前端可以静默忽略或提示。
+5. 将主键字段业务值写入 `record_id`，将字段值索引中的 `normalized_value` 写入 `normalized_value`。
+6. 对 `(dictionary_id, normalized_value)` 执行 upsert。
+7. 如果记录不存在、字典无主键或主键值不可用，返回明确错误；前端可以静默忽略或提示。
 
 ### `record_detail`
 
@@ -232,7 +242,7 @@ interface MarkDataDictionaryRecordUsedResult {
 
 1. 主键字段不再允许清空。
 2. 历史无主键字典打开抽屉时，主键字段为空但保存前必须选择。
-3. 保存时如果后端因主键异常剔除记录，沿用现有提示。
+3. 保存时如果后端提示主键变更会剔除记录，弹出二次确认，用户确认后带确认标记重试。
 
 ### 当前字典受限状态
 
@@ -253,6 +263,8 @@ interface MarkDataDictionaryRecordUsedResult {
 3. 常用记录展示在现有结果列表顶部。
 4. 卡片复用现有结果项结构，增加 `使用 N 次` 状态。
 5. 常用记录下面继续显示现有默认搜索结果，避免空关键词只剩历史访问入口。
+6. 默认选中第一条常用记录；没有常用记录时才选中默认搜索结果第一条。
+7. 同一记录同时出现在常用记录和默认搜索结果时，只在常用记录分区展示一次。
 
 关键词非空时：
 
@@ -278,8 +290,9 @@ interface MarkDataDictionaryRecordUsedResult {
 3. 主键值缺失、空值、`null`、数组、对象或重复：按现有主键异常策略跳过记录并返回统计。
 4. 历史字典无主键：当前字典模式展示配置引导，不写 usage。
 5. 常用记录解析不到当前记录：后端删除 usage 行，不返回给前端。
-6. `mark_record_used` 失败：不阻断详情展示。
-7. 删除字典：usage 通过外键级联或显式删除清理。
+6. 主键变更会剔除记录：首次保存返回错误和跳过统计，前端确认后才允许继续。
+7. `mark_record_used` 失败：不阻断详情展示。
+8. 删除字典：usage 通过外键级联或显式删除清理。
 
 ## 测试计划
 
@@ -294,6 +307,7 @@ Rust 单测：
 7. `popular_records` 实时解析标题和摘要，不依赖快照。
 8. 替换字典后，同主键 usage 仍能命中当前记录。
 9. 删除记录或主键变更后，`popular_records` 清理失效 usage。
+10. 主键变更会剔除记录且缺少确认标记时，`update_fields` 拒绝修改并返回跳过统计。
 
 前端测试：
 
@@ -304,6 +318,8 @@ Rust 单测：
 5. 关键词非空时隐藏常用记录分区。
 6. 详情响应仍有效后才调用 `mark-record-used`。
 7. `mark-record-used` 失败不清空详情。
+8. 主键变更会剔除记录时，字段配置抽屉展示二次确认并带确认标记重试。
+9. 空关键词下常用记录与默认搜索结果重复时只展示一次，并优先选中常用记录。
 
 验证命令：
 
