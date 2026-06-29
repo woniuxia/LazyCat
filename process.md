@@ -8,6 +8,29 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-06-29: 接口调试工具按后端单一真源实现
+
+**场景**: 新增接口调试工具，支持集合、环境变量、请求发送、历史和 Markdown 导出。
+**使用次数**: 0
+**问题**:
+1. Markdown 模板如果前后端各实现一份，会形成双重真值。
+2. `BASE_URL` 同时允许全局和环境级会产生遮蔽歧义。
+3. 接口调试工具需要展示原始 3xx，不能让 HTTP 客户端默认跟随重定向。
+**解决**:
+1. Markdown 导出固定由 Rust 后端生成，前端只触发导出。
+2. `BASE_URL` 固定为环境级变量，全局变量保存时拒绝该名称。
+3. `ureq::AgentBuilder` 显式设置 `redirects(0)`，3xx 原样返回响应头和响应体。
+**涉及文件**:
+- `apps/desktop/src-tauri/src/tools/api_workbench.rs`
+- `apps/desktop/src-tauri/src/tools/helpers.rs`
+- `apps/desktop/src/components/ApiWorkbenchPanel.vue`
+- `apps/desktop/src/utils/apiWorkbench.ts`
+**验证**:
+- `cargo test api_workbench -- --nocapture`
+- `pnpm test src/utils/apiWorkbench.test.ts`
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+
 ## 2026-06-28: 数据字典体验状态优先显式建模
 
 **场景**: 数据字典主面板需要优化字段配置加载、搜索失败和空态体验，避免用户误操作或误判当前结果。
