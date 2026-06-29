@@ -4,7 +4,7 @@
 
 新增独立工具「接口调试」，内部工具 ID 为 `api-workbench`。该工具面向个人和小团队在完全离线的内网环境中临时调试 HTTP 接口、保存接口集合，并从集合生成离线 Markdown 文档。
 
-第一版集成在 LazyCat 内，不做独立应用。请求执行放在 Rust 后端，避免浏览器 CORS 限制，并复用现有桌面应用的数据目录、SQLite、设置、打包和离线交付能力。前端负责请求编辑、集合管理、环境切换、响应展示和文档导出。
+第一版集成在 LazyCat 内，不做独立应用。请求执行放在 Rust 后端，避免浏览器 CORS 限制，并复用现有桌面应用的数据目录、SQLite、设置、打包和离线交付能力。前端负责请求编辑、集合管理、环境切换、响应展示和触发文档导出；Markdown 内容由后端统一生成。
 
 工具定位是「接口调试」，不是 Postman / Apifox 替代品。第一版只覆盖高频个人调试工作流，不引入导入、脚本、版本管理、团队协作或批量测试平台能力。
 
@@ -34,6 +34,7 @@
 6. 第一版不做 Mock Server。
 7. 第一版不做 multipart 文件上传；后续按实际需求扩展。
 8. 第一版不做复杂变量作用域，只支持全局变量和当前集合环境变量。
+9. 第一版不实现跟随重定向执行能力；界面只预留禁用态开关占位。
 
 ## 用户流程
 
@@ -62,6 +63,7 @@
 3. 每个环境默认包含 `BASE_URL` 变量，用户填写对应服务地址。
 4. 用户可新增普通变量，例如 `TOKEN`、`ORG_ID`。
 5. 切换环境后，同一接口使用当前环境变量重新解析。
+6. 用户显式切换当前环境时，后端保存该集合的 `active_environment_id`。
 
 ### 生成文档
 
@@ -84,11 +86,14 @@
 1. 集合是接口、文件夹和环境的归属边界。
 2. 每个集合可有多个环境。
 3. 同一集合内环境名唯一。
-4. 每个集合必须有一个当前默认环境；创建集合时自动创建一个「开发」环境。
-5. 每个环境自动具备 `BASE_URL` 变量。
-6. `BASE_URL` 可以为空，但当请求 URL 是相对路径时必须有值。
-7. 环境变量名大小写敏感，`BASE_URL` 为保留名，不能删除。
-8. 环境变量值第一版按明文存储；文档导出时默认隐藏值。后续可接 Vault 或加密存储。
+4. 每个集合必须有一个当前环境；创建集合时自动创建一个「开发」环境，并写入 `active_environment_id`。
+5. 用户切换当前环境必须走后端 action，后端校验环境属于当前集合后再保存。
+6. 每个环境自动具备 `BASE_URL` 变量。
+7. `BASE_URL` 可以为空，但当请求 URL 是相对路径时必须有值。
+8. 环境变量名大小写敏感，`BASE_URL` 为环境级保留名，不能删除。
+9. 全局变量不允许使用 `BASE_URL` 作为变量名；`BASE_URL` 只存在于当前集合环境，避免全局值和环境值产生遮蔽歧义。
+10. 删除环境时，后端拒绝删除集合内最后一个环境；如果删除的是当前环境，删除成功后自动切换到同集合内 `sort_order ASC, id ASC` 的第一个剩余环境。
+11. 环境变量值第一版按明文存储；文档导出时默认隐藏值。后续可接 Vault 或加密存储。
 
 ### URL 与 `BASE_URL`
 
@@ -146,6 +151,7 @@ final    = http://127.0.0.1:8080/api/users
 3. 变量解析只做字符串替换，不执行表达式。
 4. 请求发送前后端重新解析并校验，前端预览仅用于提示。
 5. 文档导出默认保留 `{{name}}`，不替换为真实变量值。
+6. 保存全局变量时，如果变量名为 `BASE_URL`，后端直接拒绝。
 
 ### 请求编辑
 
@@ -181,6 +187,7 @@ interface ApiWorkbenchRequestDraft {
 3. Body 类型为 `form-urlencoded` 时，以启用的表单行编码为 `application/x-www-form-urlencoded`。
 4. 若用户未手动设置 `Content-Type`，根据 Body 类型自动补默认值。
 5. Timeout 第一版范围为 100ms 到 120000ms，默认 10000ms。
+6. 请求编辑区预留「跟随重定向」开关占位，第一版禁用态展示，不写入请求草稿、不发送后端、不影响请求执行。
 
 ### 响应展示
 
@@ -210,6 +217,7 @@ interface ApiWorkbenchSendResult {
 3. JSON 响应自动格式化；格式化失败时展示原文。
 4. 响应体保存和展示设置最大字节数，第一版建议 2MB；超出后截断并提示。
 5. 二进制响应第一版不做专门预览，仅展示大小、类型和截断说明。
+6. 第一版明确不自动跟随重定向；3xx 响应按原始响应展示 `Location` 等响应头。界面中的「跟随重定向」开关只是禁用态占位。
 
 ## 前端接入
 
@@ -252,9 +260,8 @@ interface ApiWorkbenchSendResult {
 1. 变量名校验。
 2. `{{name}}` 变量提取与解析。
 3. `BASE_URL` 与相对 URL 拼接。
-4. Header 敏感字段脱敏。
-5. Markdown 文档生成。
-6. 请求草稿归一化。
+4. 请求草稿归一化。
+5. 响应内容类型与 JSON 格式化展示判断。
 
 ## 后端接入
 
@@ -277,6 +284,7 @@ interface ApiWorkbenchSendResult {
 | `tool:api-workbench:list` | `list` | 获取集合树、环境摘要和最近历史 |
 | `tool:api-workbench:collection-create` | `collection_create` | 创建集合并初始化默认环境 |
 | `tool:api-workbench:collection-update` | `collection_update` | 更新集合名称和描述 |
+| `tool:api-workbench:collection-set-active-environment` | `collection_set_active_environment` | 设置集合当前环境 |
 | `tool:api-workbench:collection-delete` | `collection_delete` | 删除集合 |
 | `tool:api-workbench:folder-create` | `folder_create` | 创建文件夹 |
 | `tool:api-workbench:folder-update` | `folder_update` | 更新文件夹 |
@@ -287,6 +295,7 @@ interface ApiWorkbenchSendResult {
 | `tool:api-workbench:environment-list` | `environment_list` | 获取集合环境和变量 |
 | `tool:api-workbench:environment-save` | `environment_save` | 新建或更新环境 |
 | `tool:api-workbench:environment-delete` | `environment_delete` | 删除环境 |
+| `tool:api-workbench:global-variables-list` | `global_variables_list` | 获取全局变量 |
 | `tool:api-workbench:global-variables-save` | `global_variables_save` | 保存全局变量 |
 | `tool:api-workbench:send` | `send` | 解析变量并执行请求 |
 | `tool:api-workbench:history-list` | `history_list` | 获取请求历史 |
@@ -302,6 +311,7 @@ interface ApiWorkbenchSendResult {
 5. 后端用 HTTP 客户端执行请求。
 6. 后端限制响应体读取大小，返回截断标记。
 7. 后端写入历史摘要。
+8. 第一版后端显式关闭自动跟随重定向，确保 3xx 作为原始 HTTP 响应返回。后续启用「跟随重定向」时再扩展请求草稿、存储字段和执行策略。
 
 第一版优先使用现有 `ureq`：
 
@@ -323,8 +333,12 @@ CREATE TABLE IF NOT EXISTS api_workbench_collections (
   active_environment_id INTEGER,
   sort_order INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY(active_environment_id) REFERENCES api_workbench_environments(id) ON DELETE SET NULL
 );
+
+CREATE INDEX IF NOT EXISTS idx_api_workbench_collections_sort
+  ON api_workbench_collections(sort_order, id);
 ```
 
 ### `api_workbench_folders`
@@ -416,6 +430,8 @@ CREATE INDEX IF NOT EXISTS idx_api_workbench_env_vars_environment
 
 创建环境时必须写入 `BASE_URL` 变量。删除变量时后端拒绝删除 `BASE_URL`。
 
+删除环境时必须在事务中处理当前环境指针：拒绝删除集合内最后一个环境；删除当前环境后，将集合的 `active_environment_id` 切换到同集合内 `sort_order ASC, id ASC` 的第一个剩余环境。
+
 ### `api_workbench_global_variables`
 
 ```sql
@@ -468,6 +484,8 @@ CREATE INDEX IF NOT EXISTS idx_api_workbench_history_created
 
 Markdown 文档由纯函数生成，输入为集合、文件夹、接口定义和环境变量名。
 
+生成职责固定在 Rust 后端：`export_markdown` 读取集合数据后调用后端纯函数返回 Markdown 字符串和建议文件名。前端不重复实现 Markdown 模板，只负责触发导出、展示确认提示和保存 / 复制结果。
+
 默认包含：
 
 1. 集合名称和描述。
@@ -494,6 +512,8 @@ Markdown 文档由纯函数生成，输入为集合、文件夹、接口定义�
 5. JSON Body 格式错误：阻断。
 6. 请求超时：返回超时错误和耗时。
 7. 响应体超限：返回截断标记，不视为请求失败。
+8. 设置当前环境时，如果环境不存在或不属于当前集合，返回明确错误。
+9. 保存全局变量时，如果包含 `BASE_URL`，返回明确错误。
 
 ## 安全与隐私
 
@@ -513,11 +533,13 @@ Markdown 文档由纯函数生成，输入为集合、文件夹、接口定义�
 2. 完整 URL 不追加 `BASE_URL`。
 3. 非 HTTP/HTTPS 协议拒绝。
 4. 变量解析、未解析变量报错、环境变量优先级。
-5. JSON Body 校验。
-6. form-urlencoded 编码。
-7. 历史记录数量和响应预览截断。
-8. Markdown 导出脱敏规则。
-9. 本地 HTTP server 请求执行成功、HTTP 4xx/5xx 仍返回响应。
+5. 全局变量拒绝 `BASE_URL`。
+6. 当前环境设置校验、删除当前环境后的自动切换、删除最后环境拒绝。
+7. JSON Body 校验。
+8. form-urlencoded 编码。
+9. 历史记录数量和响应预览截断。
+10. Markdown 导出脱敏规则。
+11. 本地 HTTP server 请求执行成功、HTTP 3xx/4xx/5xx 仍返回原始响应。
 
 建议命令：
 
@@ -531,9 +553,8 @@ cargo test api_workbench -- --nocapture
 
 1. 变量提取和解析。
 2. URL 拼接。
-3. Header 脱敏。
-4. Markdown 生成。
-5. 请求草稿归一化。
+3. 请求草稿归一化。
+4. 响应内容类型与 JSON 格式化展示判断。
 
 建议命令：
 
@@ -561,3 +582,4 @@ pnpm --filter @lazycat/desktop build:web
 5. 代理、自签证书、客户端证书。
 6. 接入 Vault 管理敏感变量。
 7. 接口版本管理和变更对比。
+8. 启用「跟随重定向」开关，并补齐请求草稿、存储字段和后端执行策略。
