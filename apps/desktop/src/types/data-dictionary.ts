@@ -66,6 +66,30 @@ export interface DataDictionarySearchResult {
   hasMore: boolean;
 }
 
+export interface DataDictionaryPopularRecord extends DataDictionarySearchItem {
+  recordId: string;
+  normalizedValue: string;
+  usedCount: number;
+  lastUsedAt: string;
+}
+
+export interface DataDictionaryPopularRecordsRequest {
+  dictionaryId?: number;
+  limit?: number;
+}
+
+export interface DataDictionaryPopularRecordsResult {
+  items: DataDictionaryPopularRecord[];
+}
+
+export interface MarkDataDictionaryRecordUsedRequest {
+  id: number;
+}
+
+export interface MarkDataDictionaryRecordUsedResult {
+  ok: true;
+}
+
 export type DataDictionarySearchScope = "current" | "all";
 
 export interface DataDictionarySearchRequest {

@@ -1,6 +1,7 @@
 import type {
   DataDictionaryField,
   DataDictionaryMatch,
+  DataDictionaryPopularRecord,
   DataDictionarySearchItem,
 } from "../types/data-dictionary";
 
@@ -155,6 +156,24 @@ export function reindexDataDictionaryFieldDrafts(
   fields: DataDictionaryField[],
 ): DataDictionaryField[] {
   return fields.map((field, index) => ({ ...field, sortOrder: index }));
+}
+
+export function mergePopularAndSearchItems(
+  popularItems: DataDictionaryPopularRecord[],
+  searchItems: DataDictionarySearchItem[],
+): Array<DataDictionaryPopularRecord | DataDictionarySearchItem> {
+  const popularIds = new Set(popularItems.map((item) => item.id));
+  return [
+    ...popularItems,
+    ...searchItems.filter((item) => !popularIds.has(item.id)),
+  ];
+}
+
+export function pickInitialRecordItem(
+  popularItems: DataDictionaryPopularRecord[],
+  searchItems: DataDictionarySearchItem[],
+): DataDictionaryPopularRecord | DataDictionarySearchItem | null {
+  return popularItems[0] ?? searchItems[0] ?? null;
 }
 
 export function formatJsonDocument(value: unknown): string {

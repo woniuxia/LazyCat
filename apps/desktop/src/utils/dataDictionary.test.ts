@@ -5,12 +5,18 @@ import {
   buildResultSummary,
   dictionarySourceLabel,
   formatJsonValue,
+  mergePopularAndSearchItems,
   moveDataDictionaryFieldDraft,
   orderDataDictionaryFieldDrafts,
+  pickInitialRecordItem,
   setDataDictionaryFieldVisibility,
   splitDataDictionaryFieldDrafts,
 } from "./dataDictionary";
-import type { DataDictionaryField, DataDictionarySearchItem } from "../types/data-dictionary";
+import type {
+  DataDictionaryField,
+  DataDictionaryPopularRecord,
+  DataDictionarySearchItem,
+} from "../types/data-dictionary";
 
 const fields: DataDictionaryField[] = [
   {
@@ -63,6 +69,29 @@ const item: DataDictionarySearchItem = {
   title: "用户字典 #1",
   summary: [],
 };
+
+function searchItem(id: number, title: string): DataDictionarySearchItem {
+  return {
+    id,
+    dictionaryId: 1,
+    dictionaryName: "Users",
+    titleFieldPath: "name",
+    rowIndex: id,
+    matches: [],
+    title,
+    summary: [],
+  };
+}
+
+function popularItem(id: number, title: string): DataDictionaryPopularRecord {
+  return {
+    ...searchItem(id, title),
+    recordId: `u${id}`,
+    normalizedValue: `u${id}`,
+    usedCount: 3,
+    lastUsedAt: "2026-06-28 10:00:00",
+  };
+}
 
 describe("dataDictionary utils", () => {
   it("uses display names before meanings for visible summary labels", () => {
@@ -293,5 +322,28 @@ describe("dataDictionary utils", () => {
       ["secret", false, 1],
       ["id", false, 2],
     ]);
+  });
+
+  it("keeps popular records first and removes duplicate search items", () => {
+    const result = mergePopularAndSearchItems([popularItem(1, "Alice")], [
+      searchItem(1, "Alice"),
+      searchItem(2, "Bob"),
+    ]);
+
+    expect(result.map((entry) => entry.id)).toEqual([1, 2]);
+  });
+
+  it("picks first popular record before default search result", () => {
+    const picked = pickInitialRecordItem([popularItem(1, "Alice")], [
+      searchItem(2, "Bob"),
+    ]);
+
+    expect(picked?.id).toBe(1);
+  });
+
+  it("picks first search result when popular records are empty", () => {
+    const picked = pickInitialRecordItem([], [searchItem(2, "Bob")]);
+
+    expect(picked?.id).toBe(2);
   });
 });

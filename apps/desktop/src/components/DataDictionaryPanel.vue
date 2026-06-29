@@ -86,8 +86,23 @@
       </div>
 
       <div class="dd-result-list" v-loading="searching">
+        <el-empty
+          v-if="currentDictionaryRequiresPrimary"
+          class="dd-empty dd-empty-panel"
+          description="请先配置主键字段"
+        >
+          <el-button type="primary" @click="openCurrentFieldConfig">配置主键</el-button>
+        </el-empty>
+
+        <div
+          v-if="!currentDictionaryRequiresPrimary && !keyword.trim() && popularItems.length"
+          class="dd-popular-head"
+        >
+          常用记录
+        </div>
+
         <button
-          v-for="item in searchItems"
+          v-for="item in displayedSearchItems"
           :key="item.id"
           class="dd-result-item"
           :class="{ active: selectedItem?.id === item.id }"
@@ -99,6 +114,9 @@
             </span>
             <el-tag v-if="item.matches.length" size="small" effect="plain">
               {{ item.matches.length }} 命中
+            </el-tag>
+            <el-tag v-if="isPopularItem(item)" size="small" effect="plain" type="success">
+              使用 {{ item.usedCount }} 次
             </el-tag>
           </div>
           <div class="dd-summary-line">
@@ -114,10 +132,38 @@
           </div>
         </button>
 
-        <div v-if="searchHasMore" class="dd-limit-hint">
+        <el-alert
+          v-if="searchError"
+          class="dd-result-error"
+          title="搜索失败"
+          type="error"
+          :description="searchError"
+          :closable="false"
+          show-icon
+        >
+          <template #default>
+            <el-button size="small" @click="runSearch">重试</el-button>
+          </template>
+        </el-alert>
+
+        <div v-if="!searchError && searchHasMore" class="dd-limit-hint">
           仅显示前 100 条结果，请缩小关键词继续检索
         </div>
-        <div v-if="!searchItems.length" class="dd-empty">无结果</div>
+        <div
+          v-if="!searchError && !currentDictionaryRequiresPrimary && !displayedSearchItems.length"
+          class="dd-empty dd-empty-panel"
+        >
+          <strong>{{ resultEmptyTitle }}</strong>
+          <span>{{ resultEmptyDescription }}</span>
+          <el-button
+            v-if="resultEmptyActionText"
+            size="small"
+            type="primary"
+            @click="openContextualEmptyAction"
+          >
+            {{ resultEmptyActionText }}
+          </el-button>
+        </div>
       </div>
     </main>
 
@@ -238,6 +284,16 @@
           <span>{{ preview.recordCount }} 条记录</span>
           <span>{{ preview.fields.length }} 个字段</span>
         </div>
+        <el-form-item v-if="preview && importMode === 'create'" label="主键字段" required>
+          <el-select v-model="importPrimaryPath" placeholder="选择用于唯一定位记录的字段" filterable>
+            <el-option
+              v-for="field in preview.fields"
+              :key="field.fieldPath"
+              :label="field.displayName || field.fieldPath"
+              :value="field.fieldPath"
+            />
+          </el-select>
+        </el-form-item>
         <el-table v-if="preview" :data="preview.fields" height="220" size="small">
           <el-table-column prop="fieldPath" label="字段" min-width="180" />
           <el-table-column prop="typeHint" label="类型" width="90" />
@@ -262,246 +318,254 @@
       @opened="initFieldSortable"
       @closed="handleFieldDrawerClosed"
     >
-      <div class="dd-field-config-panel">
-        <div class="dd-field-config-head">
-          <div class="dd-field-config-title">
-            <h4>字段基础配置</h4>
-            <p>设置记录识别、列表标题和默认排序方式</p>
+      <div class="dd-field-drawer-body" v-loading="fieldLoading">
+        <div class="dd-field-config-panel">
+          <div class="dd-field-config-head">
+            <div class="dd-field-config-title">
+              <h4>字段基础配置</h4>
+              <p>设置记录识别、列表标题和默认排序方式</p>
+            </div>
+            <div class="dd-field-config-summary">
+              <span>
+                <small>展示字段</small>
+                <b>{{ visibleFieldDrafts.length }}</b>
+              </span>
+              <span>
+                <small>非展示字段</small>
+                <b>{{ hiddenFieldDrafts.length }}</b>
+              </span>
+            </div>
           </div>
-          <div class="dd-field-config-summary">
-            <span>
-              <small>展示字段</small>
-              <b>{{ visibleFieldDrafts.length }}</b>
-            </span>
-            <span>
-              <small>非展示字段</small>
-              <b>{{ hiddenFieldDrafts.length }}</b>
-            </span>
-          </div>
-        </div>
-        <div class="dd-field-config-body">
-          <section class="dd-field-config-group">
-            <div class="dd-field-config-group-head">
-              <span>记录识别</span>
-              <small>影响详情标题和关系匹配</small>
-            </div>
-            <div class="dd-field-sort-config dd-field-sort-config--identity">
-              <el-form-item label="主键字段">
-                <el-select
-                  v-model="fieldPrimaryPath"
-                  clearable
+          <div class="dd-field-config-body">
+            <section class="dd-field-config-group">
+              <div class="dd-field-config-group-head">
+                <span>记录识别</span>
+                <small>影响详情标题和关系匹配</small>
+              </div>
+              <div class="dd-field-sort-config dd-field-sort-config--identity">
+                <el-form-item label="主键字段">
+                  <el-select
+                    v-model="fieldPrimaryPath"
                   filterable
-                  placeholder="未配置"
-                  size="small"
-                >
-                  <el-option
-                    v-for="option in fieldSortOptions"
-                    :key="option.value"
-                    :label="option.label"
-                    :value="option.value"
-                  />
-                </el-select>
-              </el-form-item>
-              <el-form-item label="标题字段">
-                <el-select
-                  v-model="fieldTitlePath"
-                  clearable
-                  filterable
-                  placeholder="默认字典来源"
-                  size="small"
-                >
-                  <el-option
-                    v-for="option in fieldSortOptions"
-                    :key="option.value"
-                    :label="option.label"
-                    :value="option.value"
-                  />
-                </el-select>
-              </el-form-item>
-            </div>
-          </section>
-          <section class="dd-field-config-group">
-            <div class="dd-field-config-group-head">
-              <span>列表排序</span>
-              <small>搜索结果按该字段稳定排列</small>
-            </div>
-            <div class="dd-field-sort-config dd-field-sort-config--sort">
-              <el-form-item label="排序字段">
-                <el-select
-                  v-model="fieldSortPath"
-                  clearable
-                  filterable
-                  placeholder="原始顺序"
-                  size="small"
-                >
-                  <el-option
-                    v-for="option in fieldSortOptions"
-                    :key="option.value"
-                    :label="option.label"
-                    :value="option.value"
-                  />
-                </el-select>
-              </el-form-item>
-              <el-form-item label="排序方向">
-                <el-radio-group v-model="fieldSortDirection" :disabled="!fieldSortPath" size="small">
-                  <el-radio-button
-                    v-for="option in sortDirectionOptions"
-                    :key="option.value"
-                    :label="option.value"
+                  placeholder="请选择主键字段"
+                    size="small"
                   >
-                    {{ option.label }}
-                  </el-radio-button>
-                </el-radio-group>
-              </el-form-item>
-            </div>
-          </section>
+                    <el-option
+                      v-for="option in fieldSortOptions"
+                      :key="option.value"
+                      :label="option.label"
+                      :value="option.value"
+                    />
+                  </el-select>
+                </el-form-item>
+                <el-form-item label="标题字段">
+                  <el-select
+                    v-model="fieldTitlePath"
+                    clearable
+                    filterable
+                    placeholder="默认字典来源"
+                    size="small"
+                  >
+                    <el-option
+                      v-for="option in fieldSortOptions"
+                      :key="option.value"
+                      :label="option.label"
+                      :value="option.value"
+                    />
+                  </el-select>
+                </el-form-item>
+              </div>
+            </section>
+            <section class="dd-field-config-group">
+              <div class="dd-field-config-group-head">
+                <span>列表排序</span>
+                <small>搜索结果按该字段稳定排列</small>
+              </div>
+              <div class="dd-field-sort-config dd-field-sort-config--sort">
+                <el-form-item label="排序字段">
+                  <el-select
+                    v-model="fieldSortPath"
+                    clearable
+                    filterable
+                    placeholder="原始顺序"
+                    size="small"
+                  >
+                    <el-option
+                      v-for="option in fieldSortOptions"
+                      :key="option.value"
+                      :label="option.label"
+                      :value="option.value"
+                    />
+                  </el-select>
+                </el-form-item>
+                <el-form-item label="排序方向">
+                  <el-radio-group v-model="fieldSortDirection" :disabled="!fieldSortPath" size="small">
+                    <el-radio-button
+                      v-for="option in sortDirectionOptions"
+                      :key="option.value"
+                      :label="option.value"
+                    >
+                      {{ option.label }}
+                    </el-radio-button>
+                  </el-radio-group>
+                </el-form-item>
+              </div>
+            </section>
+          </div>
         </div>
-      </div>
 
-      <section class="dd-relation-editor">
-        <div class="dd-field-section-head">
-          <h4>关系配置</h4>
-          <el-button size="small" @click="addRelationDraft">添加关系</el-button>
-        </div>
-        <div v-if="!fieldRelationDrafts.length" class="dd-empty dd-relation-empty">
-          暂无关系
-        </div>
-        <div
-          v-for="(relation, index) in fieldRelationDrafts"
-          :key="index"
-          class="dd-relation-row"
-        >
-          <el-select
-            v-model="relation.sourceFieldPath"
-            filterable
-            placeholder="源字段"
-            size="small"
+        <section class="dd-relation-editor">
+          <div class="dd-field-section-head">
+            <h4>关系配置</h4>
+            <el-button size="small" @click="addRelationDraft">添加关系</el-button>
+          </div>
+          <div v-if="!fieldRelationDrafts.length" class="dd-empty dd-relation-empty">
+            暂无关系
+          </div>
+          <div
+            v-for="(relation, index) in fieldRelationDrafts"
+            :key="index"
+            class="dd-relation-row"
           >
-            <el-option
-              v-for="option in fieldSortOptions"
-              :key="option.value"
-              :label="option.label"
-              :value="option.value"
-            />
-          </el-select>
-          <el-input v-model="relation.relationName" placeholder="关系名" size="small" />
-          <div class="dd-relation-target">
             <el-select
-              v-model="relation.targetDictionaryId"
+              v-model="relation.sourceFieldPath"
               filterable
-              placeholder="目标字典"
+              placeholder="源字段"
               size="small"
             >
               <el-option
-                v-for="dictionary in dictionaries"
-                :key="dictionary.id"
-                :label="dictionary.name"
-                :value="dictionary.id"
+                v-for="option in fieldSortOptions"
+                :key="option.value"
+                :label="option.label"
+                :value="option.value"
               />
             </el-select>
-            <span :class="{ 'is-error': hasInvalidRelationTarget(relation, dictionaries) }">
-              {{ relationTargetPrimaryLabel(relation.targetDictionaryId, dictionaries) }}
-            </span>
+            <el-input v-model="relation.relationName" placeholder="关系名" size="small" />
+            <div class="dd-relation-target">
+              <el-select
+                v-model="relation.targetDictionaryId"
+                filterable
+                placeholder="目标字典"
+                size="small"
+              >
+                <el-option
+                  v-for="dictionary in dictionaries"
+                  :key="dictionary.id"
+                  :label="dictionary.name"
+                  :value="dictionary.id"
+                />
+              </el-select>
+              <span :class="{ 'is-error': hasInvalidRelationTarget(relation, dictionaries) }">
+                {{ relationTargetPrimaryLabel(relation.targetDictionaryId, dictionaries) }}
+              </span>
+            </div>
+            <el-input v-model="relation.reverseName" placeholder="反向关系名" size="small" />
+            <el-button size="small" text type="danger" @click="removeRelationDraft(index)">
+              删除
+            </el-button>
           </div>
-          <el-input v-model="relation.reverseName" placeholder="反向关系名" size="small" />
-          <el-button size="small" text type="danger" @click="removeRelationDraft(index)">
-            删除
-          </el-button>
+        </section>
+
+        <div class="dd-field-sections">
+          <section class="dd-field-section">
+            <div class="dd-field-section-head">
+              <h4>展示字段</h4>
+              <span>{{ visibleFieldDrafts.length }} 个</span>
+            </div>
+            <el-table
+              ref="visibleFieldTableRef"
+              :data="visibleFieldDrafts"
+              row-key="fieldPath"
+              class="dd-visible-field-list"
+              height="clamp(220px, calc((100vh - 360px) / 2), 360px)"
+              empty-text="暂无展示字段"
+              size="small"
+            >
+              <el-table-column width="44" align="center" class-name="dd-field-handle-cell">
+                <template #default>
+                  <el-icon class="dd-field-drag-handle" title="拖拽排序"><Rank /></el-icon>
+                </template>
+              </el-table-column>
+              <el-table-column prop="fieldPath" label="字段" min-width="190" show-overflow-tooltip />
+              <el-table-column label="显示名" min-width="160">
+                <template #default="{ row }">
+                  <el-input v-model="row.displayName" size="small" />
+                </template>
+              </el-table-column>
+              <el-table-column label="含义" min-width="260">
+                <template #default="{ row }">
+                  <el-input v-model="row.meaning" size="small" />
+                </template>
+              </el-table-column>
+              <el-table-column label="检索" width="72" align="center">
+                <template #default="{ row }">
+                  <el-switch v-model="row.searchable" size="small" />
+                </template>
+              </el-table-column>
+              <el-table-column label="展示" width="72" align="center">
+                <template #default="{ row }">
+                  <el-switch
+                    :model-value="row.visible"
+                    size="small"
+                    @update:model-value="(visible) => setFieldVisible(row.fieldPath, Boolean(visible))"
+                  />
+                </template>
+              </el-table-column>
+            </el-table>
+          </section>
+
+          <section class="dd-field-section">
+            <div class="dd-field-section-head">
+              <h4>非展示字段</h4>
+              <span>{{ hiddenFieldDrafts.length }} 个</span>
+            </div>
+            <el-table
+              :data="hiddenFieldDrafts"
+              row-key="fieldPath"
+              class="dd-hidden-field-list"
+              height="clamp(220px, calc((100vh - 360px) / 2), 360px)"
+              empty-text="暂无非展示字段"
+              size="small"
+            >
+              <el-table-column prop="fieldPath" label="字段" min-width="220" show-overflow-tooltip />
+              <el-table-column label="显示名" min-width="160">
+                <template #default="{ row }">
+                  <el-input v-model="row.displayName" size="small" />
+                </template>
+              </el-table-column>
+              <el-table-column label="含义" min-width="260">
+                <template #default="{ row }">
+                  <el-input v-model="row.meaning" size="small" />
+                </template>
+              </el-table-column>
+              <el-table-column label="检索" width="72" align="center">
+                <template #default="{ row }">
+                  <el-switch v-model="row.searchable" size="small" />
+                </template>
+              </el-table-column>
+              <el-table-column label="展示" width="72" align="center">
+                <template #default="{ row }">
+                  <el-switch
+                    :model-value="row.visible"
+                    size="small"
+                    @update:model-value="(visible) => setFieldVisible(row.fieldPath, Boolean(visible))"
+                  />
+                </template>
+              </el-table-column>
+            </el-table>
+          </section>
         </div>
-      </section>
-
-      <div class="dd-field-sections">
-        <section class="dd-field-section">
-          <div class="dd-field-section-head">
-            <h4>展示字段</h4>
-            <span>{{ visibleFieldDrafts.length }} 个</span>
-          </div>
-          <el-table
-            ref="visibleFieldTableRef"
-            :data="visibleFieldDrafts"
-            row-key="fieldPath"
-            class="dd-visible-field-list"
-            height="clamp(220px, calc((100vh - 360px) / 2), 360px)"
-            empty-text="暂无展示字段"
-            size="small"
-          >
-            <el-table-column width="44" align="center" class-name="dd-field-handle-cell">
-              <template #default>
-                <el-icon class="dd-field-drag-handle" title="拖拽排序"><Rank /></el-icon>
-              </template>
-            </el-table-column>
-            <el-table-column prop="fieldPath" label="字段" min-width="190" show-overflow-tooltip />
-            <el-table-column label="显示名" min-width="160">
-              <template #default="{ row }">
-                <el-input v-model="row.displayName" size="small" />
-              </template>
-            </el-table-column>
-            <el-table-column label="含义" min-width="260">
-              <template #default="{ row }">
-                <el-input v-model="row.meaning" size="small" />
-              </template>
-            </el-table-column>
-            <el-table-column label="检索" width="72" align="center">
-              <template #default="{ row }">
-                <el-switch v-model="row.searchable" size="small" />
-              </template>
-            </el-table-column>
-            <el-table-column label="展示" width="72" align="center">
-              <template #default="{ row }">
-                <el-switch
-                  :model-value="row.visible"
-                  size="small"
-                  @update:model-value="(visible) => setFieldVisible(row.fieldPath, Boolean(visible))"
-                />
-              </template>
-            </el-table-column>
-          </el-table>
-        </section>
-
-        <section class="dd-field-section">
-          <div class="dd-field-section-head">
-            <h4>非展示字段</h4>
-            <span>{{ hiddenFieldDrafts.length }} 个</span>
-          </div>
-          <el-table
-            :data="hiddenFieldDrafts"
-            row-key="fieldPath"
-            class="dd-hidden-field-list"
-            height="clamp(220px, calc((100vh - 360px) / 2), 360px)"
-            empty-text="暂无非展示字段"
-            size="small"
-          >
-            <el-table-column prop="fieldPath" label="字段" min-width="220" show-overflow-tooltip />
-            <el-table-column label="显示名" min-width="160">
-              <template #default="{ row }">
-                <el-input v-model="row.displayName" size="small" />
-              </template>
-            </el-table-column>
-            <el-table-column label="含义" min-width="260">
-              <template #default="{ row }">
-                <el-input v-model="row.meaning" size="small" />
-              </template>
-            </el-table-column>
-            <el-table-column label="检索" width="72" align="center">
-              <template #default="{ row }">
-                <el-switch v-model="row.searchable" size="small" />
-              </template>
-            </el-table-column>
-            <el-table-column label="展示" width="72" align="center">
-              <template #default="{ row }">
-                <el-switch
-                  :model-value="row.visible"
-                  size="small"
-                  @update:model-value="(visible) => setFieldVisible(row.fieldPath, Boolean(visible))"
-                />
-              </template>
-            </el-table-column>
-          </el-table>
-        </section>
       </div>
       <template #footer>
         <el-button @click="fieldDrawerVisible = false">取消</el-button>
-        <el-button type="primary" :loading="savingFields" @click="saveFields">保存</el-button>
+        <el-button
+          type="primary"
+          :loading="savingFields"
+          :disabled="fieldLoading || !fieldDrafts.length"
+          @click="saveFields"
+        >
+          保存
+        </el-button>
       </template>
     </el-drawer>
   </div>
@@ -530,6 +594,8 @@ import type {
   DataDictionaryField,
   DataDictionaryImportWriteResult,
   DataDictionaryImportPreview,
+  DataDictionaryPopularRecord,
+  DataDictionaryPopularRecordsResult,
   DataDictionaryRecordDetail,
   DataDictionaryRelation,
   DataDictionaryRelationDraft,
@@ -538,14 +604,17 @@ import type {
   DataDictionarySearchScope,
   DataDictionarySortDirection,
   DataDictionarySummary,
+  MarkDataDictionaryRecordUsedResult,
   RebuildDataDictionaryIndexesResult,
 } from "../types/data-dictionary";
 import {
   buildResultTitle,
   buildResultSummary,
   formatJsonDocument,
+  mergePopularAndSearchItems,
   moveDataDictionaryFieldDraft,
   orderDataDictionaryFieldDrafts,
+  pickInitialRecordItem,
   setDataDictionaryFieldVisibility,
 } from "../utils/dataDictionary";
 import { dispatchDictionaryMenuCommand } from "../utils/dataDictionaryMenu";
@@ -570,11 +639,13 @@ const fieldCache = ref<Record<number, DataDictionaryField[]>>({});
 const searchScope = ref<DataDictionarySearchScope>("all");
 const keyword = ref("");
 const searchItems = ref<DataDictionarySearchItem[]>([]);
+const popularItems = ref<DataDictionaryPopularRecord[]>([]);
 const selectedItem = ref<DataDictionarySearchItem | null>(null);
 const recordDetail = ref<DataDictionaryRecordDetail | null>(null);
 const detailLoading = ref(false);
 const detailError = ref("");
 const searching = ref(false);
+const searchError = ref("");
 const searchHasMore = ref(false);
 
 const importDialogVisible = ref(false);
@@ -582,6 +653,7 @@ const importMode = ref<"create" | "replace">("create");
 const importForm = ref({ name: "", description: "", input: "", inputPath: "" });
 const preview = ref<DataDictionaryImportPreview | null>(null);
 const previewSource = ref("");
+const importPrimaryPath = ref("");
 const replaceTarget = ref<DataDictionarySummary | null>(null);
 const previewing = ref(false);
 const savingImport = ref(false);
@@ -594,6 +666,7 @@ const fieldPrimaryPath = ref("");
 const fieldTitlePath = ref("");
 const fieldSortPath = ref("");
 const fieldSortDirection = ref<DataDictionarySortDirection>("asc");
+const fieldLoading = ref(false);
 const savingFields = ref(false);
 const savingDictionaryOrder = ref(false);
 const dictionarySortListRef = ref<HTMLElement | null>(null);
@@ -609,6 +682,7 @@ let fieldSortableInstance: Sortable | null = null;
 let searchTimer: ReturnType<typeof setTimeout> | null = null;
 let dictionaryRequestSeq = 0;
 let searchRequestSeq = 0;
+let popularRequestSeq = 0;
 let detailRequestSeq = 0;
 
 const totalRecordCount = computed(() =>
@@ -633,7 +707,10 @@ const relationGroups = computed(() =>
 );
 
 const canSaveImport = computed(
-  () => Boolean(preview.value) && previewSource.value === currentImportSourceKey(),
+  () =>
+    Boolean(preview.value) &&
+    previewSource.value === currentImportSourceKey() &&
+    (importMode.value !== "create" || Boolean(importPrimaryPath.value.trim())),
 );
 
 const importFileName = computed(() => {
@@ -662,6 +739,50 @@ const fieldSortOptions = computed(() =>
 
 const visibleFieldDrafts = computed(() => fieldDrafts.value.filter((field) => field.visible));
 const hiddenFieldDrafts = computed(() => fieldDrafts.value.filter((field) => !field.visible));
+
+const currentDictionaryRequiresPrimary = computed(
+  () =>
+    searchScope.value === "current" &&
+    Boolean(currentDictionary.value) &&
+    !currentDictionary.value?.primaryFieldPath,
+);
+
+const displayedSearchItems = computed(() =>
+  keyword.value.trim()
+    ? searchItems.value
+    : mergePopularAndSearchItems(popularItems.value, searchItems.value),
+);
+
+const resultEmptyTitle = computed(() => {
+  if (!dictionaries.value.length) return "暂无字典";
+  if (currentDictionaryRequiresPrimary.value) return "请先配置主键字段";
+  if (searchScope.value === "current" && currentDictionary.value?.recordCount === 0) {
+    return "当前字典没有记录";
+  }
+  if (keyword.value.trim()) return "未找到匹配记录";
+  return "暂无记录";
+});
+
+const resultEmptyDescription = computed(() => {
+  if (!dictionaries.value.length) return "导入一个 JSON 数组后即可开始检索字段值。";
+  if (currentDictionaryRequiresPrimary.value) return "配置主键后才能记录常用记录和进入当前字典模式。";
+  if (searchScope.value === "current" && currentDictionary.value?.recordCount === 0) {
+    return "可以通过替换字典数据写入记录。";
+  }
+  if (keyword.value.trim()) return "可以调整关键词，或在字段配置中确认目标字段已开启检索。";
+  return searchScope.value === "all"
+    ? "所有字典当前都没有可展示记录。"
+    : "当前筛选下没有可展示记录。";
+});
+
+const resultEmptyActionText = computed(() => {
+  if (!dictionaries.value.length) return "导入数据字典";
+  if (currentDictionaryRequiresPrimary.value) return "配置主键";
+  if (searchScope.value === "current" && currentDictionary.value?.recordCount === 0) {
+    return "替换字典数据";
+  }
+  return "";
+});
 
 const sortDirectionOptions = [
   { label: "升序", value: "asc" },
@@ -696,9 +817,11 @@ async function selectDictionary(id: number) {
   currentDictionary.value = null;
   fields.value = [];
   searchItems.value = [];
+  popularItems.value = [];
   selectedItem.value = null;
   resetRecordDetail();
   searchHasMore.value = false;
+  searchError.value = "";
   const result = await ipc<DataDictionaryGetResponse>(
     "tool:data-dictionary:get",
     { id },
@@ -719,9 +842,11 @@ async function selectAllDictionaries() {
   currentDictionary.value = null;
   fields.value = [];
   searchItems.value = [];
+  popularItems.value = [];
   selectedItem.value = null;
   resetRecordDetail();
   searchHasMore.value = false;
+  searchError.value = "";
   await runSearch();
 }
 
@@ -743,12 +868,24 @@ async function runSearch() {
   const searchKeyword = keyword.value;
   if (searchScope.value === "current" && !selectedId.value) {
     searchItems.value = [];
+    popularItems.value = [];
     selectedItem.value = null;
     resetRecordDetail();
     searchHasMore.value = false;
+    searchError.value = "";
+    return;
+  }
+  if (currentDictionaryRequiresPrimary.value) {
+    searchItems.value = [];
+    popularItems.value = [];
+    selectedItem.value = null;
+    resetRecordDetail();
+    searchHasMore.value = false;
+    searchError.value = "";
     return;
   }
   searching.value = true;
+  searchError.value = "";
   try {
     const result = await ipc<DataDictionarySearchResult>("tool:data-dictionary:search", {
       scope,
@@ -761,19 +898,77 @@ async function runSearch() {
     if (!isCurrentSearchRequest(requestId, scope, dictionaryId, searchKeyword)) return;
     searchItems.value = result.items;
     searchHasMore.value = result.hasMore;
-    if (result.items[0]) {
-      await selectSearchItem(result.items[0]);
+    searchError.value = "";
+    if (!searchKeyword.trim()) {
+      await loadPopularRecords(requestId, scope, dictionaryId, searchKeyword);
+      if (!isCurrentSearchRequest(requestId, scope, dictionaryId, searchKeyword)) return;
+    } else {
+      popularItems.value = [];
+    }
+    const initialItem = pickInitialRecordItem(popularItems.value, result.items);
+    if (initialItem) {
+      await selectSearchItem(initialItem, { markUsed: false });
     } else {
       selectedItem.value = null;
       resetRecordDetail();
     }
   } catch (error) {
     if (isCurrentSearchRequest(requestId, scope, dictionaryId, searchKeyword)) {
-      ElMessage.error((error as Error).message || "搜索失败");
+      searchItems.value = [];
+      popularItems.value = [];
+      selectedItem.value = null;
+      resetRecordDetail();
+      searchHasMore.value = false;
+      searchError.value = (error as Error).message || "搜索失败";
     }
   } finally {
     if (requestId === searchRequestSeq) {
       searching.value = false;
+    }
+  }
+}
+
+async function loadPopularRecords(
+  requestId = searchRequestSeq,
+  scope = searchScope.value,
+  dictionaryId = selectedId.value,
+  searchKeyword = keyword.value,
+) {
+  const popularRequestId = ++popularRequestSeq;
+  if (searchKeyword.trim()) {
+    popularItems.value = [];
+    return;
+  }
+  if (scope === "current" && !dictionaryId) {
+    popularItems.value = [];
+    return;
+  }
+  if (scope === "current" && currentDictionary.value && !currentDictionary.value.primaryFieldPath) {
+    popularItems.value = [];
+    return;
+  }
+
+  try {
+    const result = await ipc<DataDictionaryPopularRecordsResult>(
+      "tool:data-dictionary:popular-records",
+      {
+        dictionaryId: scope === "current" ? dictionaryId ?? undefined : undefined,
+        limit: 10,
+      },
+    );
+    if (
+      popularRequestId !== popularRequestSeq ||
+      !isCurrentSearchRequest(requestId, scope, dictionaryId, searchKeyword)
+    ) {
+      return;
+    }
+    popularItems.value = result.items;
+  } catch {
+    if (
+      popularRequestId === popularRequestSeq &&
+      isCurrentSearchRequest(requestId, scope, dictionaryId, searchKeyword)
+    ) {
+      popularItems.value = [];
     }
   }
 }
@@ -785,20 +980,29 @@ function resetRecordDetail() {
   detailLoading.value = false;
 }
 
-async function selectSearchItem(item: DataDictionarySearchItem) {
+async function selectSearchItem(
+  item: DataDictionarySearchItem,
+  options: { markUsed?: boolean } = {},
+) {
   selectedItem.value = item;
-  await loadRecordDetail(item);
+  await loadRecordDetail(item, options);
 }
 
 async function loadRelatedRecord(recordId: number) {
   await loadRecordDetailById(recordId);
 }
 
-async function loadRecordDetail(item: DataDictionarySearchItem) {
-  await loadRecordDetailById(item.id);
+async function loadRecordDetail(
+  item: DataDictionarySearchItem,
+  options: { markUsed?: boolean } = {},
+) {
+  await loadRecordDetailById(item.id, options);
 }
 
-async function loadRecordDetailById(recordId: number) {
+async function loadRecordDetailById(
+  recordId: number,
+  options: { markUsed?: boolean } = {},
+) {
   const requestId = ++detailRequestSeq;
   detailLoading.value = true;
   detailError.value = "";
@@ -808,6 +1012,9 @@ async function loadRecordDetailById(recordId: number) {
     });
     if (requestId !== detailRequestSeq) return;
     recordDetail.value = result;
+    if (options.markUsed !== false) {
+      void markRecordUsed(result.record.id);
+    }
   } catch (error) {
     if (requestId === detailRequestSeq) {
       recordDetail.value = null;
@@ -817,6 +1024,24 @@ async function loadRecordDetailById(recordId: number) {
     if (requestId === detailRequestSeq) {
       detailLoading.value = false;
     }
+  }
+}
+
+async function markRecordUsed(id: number) {
+  if (!recordDetail.value || recordDetail.value.record.id !== id) return;
+  const dictionary = dictionaries.value.find(
+    (item) => item.id === recordDetail.value?.record.dictionaryId,
+  );
+  if (!dictionary?.primaryFieldPath) return;
+  try {
+    await ipc<MarkDataDictionaryRecordUsedResult>("tool:data-dictionary:mark-record-used", {
+      id,
+    });
+    if (!keyword.value.trim()) {
+      await loadPopularRecords();
+    }
+  } catch {
+    // Usage tracking must not block record detail display.
   }
 }
 
@@ -865,15 +1090,22 @@ async function ensureFieldCache(items: DataDictionarySearchItem[]) {
 }
 
 function resultSummary(item: DataDictionarySearchItem) {
-  return buildResultSummary(
+  const summary = buildResultSummary(
     item,
     fieldCache.value[item.dictionaryId] ?? [],
     item.titleFieldPath,
   );
+  return summary.length ? summary : item.summary;
 }
 
 function resultTitle(item: DataDictionarySearchItem) {
   return buildResultTitle(item);
+}
+
+function isPopularItem(
+  item: DataDictionarySearchItem | DataDictionaryPopularRecord,
+): item is DataDictionaryPopularRecord {
+  return "usedCount" in item;
 }
 
 async function copySummaryValue(value: string) {
@@ -1073,8 +1305,29 @@ function openCreateDialog() {
   importForm.value = { name: "", description: "", input: "", inputPath: "" };
   preview.value = null;
   previewSource.value = "";
+  importPrimaryPath.value = "";
   replaceTarget.value = null;
   importDialogVisible.value = true;
+}
+
+function openContextualEmptyAction() {
+  if (!dictionaries.value.length) {
+    openCreateDialog();
+    return;
+  }
+  if (currentDictionaryRequiresPrimary.value) {
+    openCurrentFieldConfig();
+    return;
+  }
+  if (searchScope.value === "current" && currentDictionary.value?.recordCount === 0) {
+    openReplaceDialog(currentDictionary.value);
+  }
+}
+
+function openCurrentFieldConfig() {
+  if (currentDictionary.value) {
+    openFieldDrawer(currentDictionary.value);
+  }
 }
 
 function openReplaceDialog(target: DataDictionarySummary) {
@@ -1082,6 +1335,7 @@ function openReplaceDialog(target: DataDictionarySummary) {
   importForm.value = { name: target.name, description: "", input: "", inputPath: "" };
   preview.value = null;
   previewSource.value = "";
+  importPrimaryPath.value = "";
   replaceTarget.value = target;
   importDialogVisible.value = true;
 }
@@ -1090,6 +1344,7 @@ function invalidateImportPreview() {
   if (preview.value && previewSource.value !== currentImportSourceKey()) {
     preview.value = null;
     previewSource.value = "";
+    importPrimaryPath.value = "";
   }
 }
 
@@ -1147,10 +1402,17 @@ async function previewImport() {
     preview.value = await ipc<DataDictionaryImportPreview>("tool:data-dictionary:import-preview", {
       ...buildImportPayload(),
     });
+    if (
+      importMode.value === "create" &&
+      !preview.value.fields.some((field) => field.fieldPath === importPrimaryPath.value)
+    ) {
+      importPrimaryPath.value = "";
+    }
     previewSource.value = currentImportSourceKey();
   } catch (error) {
     preview.value = null;
     previewSource.value = "";
+    importPrimaryPath.value = "";
     ElMessage.error((error as Error).message || "预览失败");
   } finally {
     previewing.value = false;
@@ -1188,6 +1450,7 @@ async function saveImport() {
       const created = await ipc<DataDictionaryImportWriteResult>("tool:data-dictionary:create", {
         name: importForm.value.name,
         description: importForm.value.description,
+        primaryFieldPath: importPrimaryPath.value,
         ...buildImportPayload(),
       });
       importDialogVisible.value = false;
@@ -1226,6 +1489,7 @@ async function openFieldDrawer(target: DataDictionarySummary) {
   fieldTitlePath.value = target.titleFieldPath ?? "";
   fieldSortPath.value = target.sortFieldPath ?? "";
   fieldSortDirection.value = target.sortDirection === "desc" ? "desc" : "asc";
+  fieldLoading.value = true;
   fieldDrawerVisible.value = true;
   try {
     const result = await ipc<DataDictionaryGetResponse>("tool:data-dictionary:get", {
@@ -1248,12 +1512,26 @@ async function openFieldDrawer(target: DataDictionarySummary) {
     fieldDrawerVisible.value = false;
     fieldTarget.value = null;
     ElMessage.error((error as Error).message || "加载字段失败");
+  } finally {
+    fieldLoading.value = false;
   }
 }
 
 async function saveFields() {
   const target = fieldTarget.value;
   if (!target) return;
+  if (fieldLoading.value) {
+    ElMessage.warning("字段还在加载，请稍后保存");
+    return;
+  }
+  if (!fieldDrafts.value.length) {
+    ElMessage.warning("字段配置为空，无法保存");
+    return;
+  }
+  if (!fieldPrimaryPath.value.trim()) {
+    ElMessage.warning("请选择主键字段");
+    return;
+  }
   const relationError = validateRelationDrafts();
   if (relationError) {
     ElMessage.warning(relationError);
@@ -1262,45 +1540,97 @@ async function saveFields() {
   savingFields.value = true;
   try {
     const fieldsToSave = orderDataDictionaryFieldDrafts(fieldDrafts.value);
-    const result = await ipc<DataDictionaryImportWriteResult>("tool:data-dictionary:update-fields", {
-      dictionaryId: target.id,
-      fields: fieldsToSave,
-      primaryFieldPath: fieldPrimaryPath.value || null,
-      titleFieldPath: fieldTitlePath.value || null,
-      sortFieldPath: fieldSortPath.value || null,
-      sortDirection: fieldSortDirection.value,
-      relations: fieldRelationDrafts.value.map((relation) => ({
-        sourceFieldPath: relation.sourceFieldPath,
-        targetDictionaryId: relation.targetDictionaryId,
-        relationName: relation.relationName,
-        reverseName: relation.reverseName,
-      })),
-    });
-    fieldDrawerVisible.value = false;
-    const refreshed = await ipc<DataDictionaryGetResponse>(
-      "tool:data-dictionary:get",
-      { id: target.id },
-    );
-    fieldCache.value = { ...fieldCache.value, [target.id]: refreshed.fields };
-    dictionaries.value = dictionaries.value.map((dictionary) =>
-      dictionary.id === target.id ? refreshed.dictionary : dictionary,
-    );
-    fieldTarget.value = refreshed.dictionary;
-    if (selectedId.value === target.id) {
-      currentDictionary.value = refreshed.dictionary;
-      fields.value = refreshed.fields;
+    let result: DataDictionaryImportWriteResult;
+    try {
+      result = await saveFieldConfigWithConfirmation(target, fieldsToSave);
+    } catch (error) {
+      const primaryPruneError = parsePrimaryPruneError(error);
+      if (!primaryPruneError) throw error;
+      await ElMessageBox.confirm(
+        `更换主键会剔除 ${primaryPruneError.skippedPrimaryRecordCount} 条主键异常记录，确认继续？`,
+        "确认更换主键",
+        {
+          type: "warning",
+          confirmButtonText: "继续保存",
+          cancelButtonText: "取消",
+        },
+      );
+      result = await saveFieldConfigWithConfirmation(target, fieldsToSave, true);
     }
-    await runSearch();
-    ElMessage.success(
-      result.skippedPrimaryRecordCount > 0
-        ? `字段配置已保存，${result.skippedPrimaryRecordCount} 条主键异常记录未纳入字典`
-        : "字段配置已保存",
-    );
+    await finishFieldSave(target, result);
   } catch (error) {
-    ElMessage.error((error as Error).message || "保存字段失败");
+    if ((error as string) !== "cancel") {
+      ElMessage.error((error as Error).message || "保存字段失败");
+    }
   } finally {
     savingFields.value = false;
   }
+}
+
+function fieldRelationPayload() {
+  return fieldRelationDrafts.value.map((relation) => ({
+    sourceFieldPath: relation.sourceFieldPath,
+    targetDictionaryId: relation.targetDictionaryId,
+    relationName: relation.relationName,
+    reverseName: relation.reverseName,
+  }));
+}
+
+async function saveFieldConfigWithConfirmation(
+  target: DataDictionarySummary,
+  fieldsToSave: DataDictionaryField[],
+  confirmPrimaryPrune = false,
+) {
+  return ipc<DataDictionaryImportWriteResult>("tool:data-dictionary:update-fields", {
+    dictionaryId: target.id,
+    fields: fieldsToSave,
+    primaryFieldPath: fieldPrimaryPath.value,
+    titleFieldPath: fieldTitlePath.value || null,
+    sortFieldPath: fieldSortPath.value || null,
+    sortDirection: fieldSortDirection.value,
+    relations: fieldRelationPayload(),
+    confirmPrimaryPrune,
+  });
+}
+
+function parsePrimaryPruneError(error: unknown):
+  | {
+      code: string;
+      skippedPrimaryRecordCount: number;
+    }
+  | null {
+  const message = (error as Error).message || String(error);
+  try {
+    const parsed = JSON.parse(message);
+    return parsed?.code === "PRIMARY_PRUNE_CONFIRMATION_REQUIRED" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+async function finishFieldSave(
+  target: DataDictionarySummary,
+  result: DataDictionaryImportWriteResult,
+) {
+  fieldDrawerVisible.value = false;
+  const refreshed = await ipc<DataDictionaryGetResponse>("tool:data-dictionary:get", {
+    id: target.id,
+  });
+  fieldCache.value = { ...fieldCache.value, [target.id]: refreshed.fields };
+  dictionaries.value = dictionaries.value.map((dictionary) =>
+    dictionary.id === target.id ? refreshed.dictionary : dictionary,
+  );
+  fieldTarget.value = refreshed.dictionary;
+  if (selectedId.value === target.id) {
+    currentDictionary.value = refreshed.dictionary;
+    fields.value = refreshed.fields;
+  }
+  await runSearch();
+  ElMessage.success(
+    result.skippedPrimaryRecordCount > 0
+      ? `字段配置已保存，${result.skippedPrimaryRecordCount} 条主键异常记录未纳入字典`
+      : "字段配置已保存",
+  );
 }
 
 function handleFieldDrawerClosed() {
@@ -1508,6 +1838,13 @@ watch(savingDictionaryOrder, (disabled) => {
 .dd-result-item.active {
   border-color: #c8d8ff;
   background: #f4f7ff;
+}
+
+.dd-popular-head {
+  padding: 2px 4px;
+  color: #687386;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .dd-dictionary-name {

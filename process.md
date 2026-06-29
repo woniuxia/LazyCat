@@ -8,6 +8,32 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-06-28: 数据字典体验状态优先显式建模
+
+**场景**: 数据字典主面板需要优化字段配置加载、搜索失败和空态体验，避免用户误操作或误判当前结果。
+**使用次数**: 0
+**问题**:
+1. 字段配置抽屉先清空本地草稿再异步加载字段，若加载中允许保存，可能提交空字段配置并影响关系配置。
+2. 搜索失败只弹 toast 且保留旧结果，用户容易把旧结果误认为当前关键词命中。
+3. “无结果”空态没有区分无字典、无记录、无匹配和失败状态，不能指导用户下一步。
+**解决**:
+1. 为字段配置抽屉增加独立 `fieldLoading`，加载期间禁用保存，并在保存入口二次提示；后端 `update_fields` 同步拒绝空字段数组。
+2. 为搜索增加 `searchError`，失败时清空当前结果和详情，在结果区展示错误与重试入口。
+3. 用 computed 拆分结果区空态标题、说明和动作，分别覆盖导入字典、替换空字典数据和调整关键词/字段检索配置。
+**关键点**:
+1. 对会写入配置或重建索引的面板，加载态必须参与保存按钮禁用和保存函数早返回。
+2. 异步搜索失败不要只依赖 toast；结果容器需要显式错误态，避免旧数据伪装成当前结果。
+3. 空态不是单一文案，应根据数据规模、搜索范围、关键词和失败状态给出可执行下一步。
+**涉及文件**:
+- `apps/desktop/src/components/DataDictionaryPanel.vue`
+- `apps/desktop/src/components/DataDictionaryPanel.context-menu.test.ts`
+- `apps/desktop/src-tauri/src/tools/data_dictionary.rs`
+**验证**:
+- `pnpm test src/components/DataDictionaryPanel.context-menu.test.ts`
+- `pnpm typecheck`
+- `cargo test data_dictionary -- --nocapture`
+- `pnpm --filter @lazycat/desktop build:web`
+
 ## 2026-06-27: Spotlight 数据字典接入使用 query-time provider
 
 **场景**: Spotlight 需要搜索数据字典记录，并支持打开定位、复制显示字段和懒加载复制完整 JSON。

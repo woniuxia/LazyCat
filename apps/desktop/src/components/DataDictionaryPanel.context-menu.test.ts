@@ -185,6 +185,60 @@ describe("DataDictionaryPanel dictionary context menu", () => {
     expect(source).toContain("setTimeout(() => initFieldSortable(retries - 1), 120)");
   });
 
+  it("blocks field configuration save until fields finish loading", () => {
+    expect(source).toContain("const fieldLoading = ref(false)");
+    expect(source).toContain('v-loading="fieldLoading"');
+    expect(source).toContain(':disabled="fieldLoading || !fieldDrafts.length"');
+    expect(source).toContain("fieldLoading.value = true");
+    expect(source).toContain("fieldLoading.value = false");
+    expect(source).toContain('ElMessage.warning("字段还在加载，请稍后保存")');
+  });
+
+  it("renders search failures as a retryable result panel state", () => {
+    expect(source).toContain("const searchError = ref(\"\")");
+    expect(source).toContain('v-if="searchError"');
+    expect(source).toContain("搜索失败");
+    expect(source).toContain('@click="runSearch"');
+    expect(source).toContain("searchError.value = (error as Error).message || \"搜索失败\"");
+    expect(source).toContain("searchItems.value = []");
+  });
+
+  it("uses contextual empty states for dictionary and result states", () => {
+    expect(source).toContain("const resultEmptyTitle = computed");
+    expect(source).toContain("const resultEmptyDescription = computed");
+    expect(source).toContain("const resultEmptyActionText = computed");
+    expect(source).toContain("openContextualEmptyAction");
+    expect(source).toContain("暂无字典");
+    expect(source).toContain("当前字典没有记录");
+    expect(source).toContain("未找到匹配记录");
+  });
+
+  it("requires primary field selection when creating a dictionary", () => {
+    expect(source).toContain("const importPrimaryPath = ref(\"\")");
+    expect(source).toContain("primaryFieldPath: importPrimaryPath.value");
+    expect(source).toContain("v-model=\"importPrimaryPath\"");
+    expect(source).toContain("选择用于唯一定位记录的字段");
+  });
+
+  it("loads popular records separately from keyword search", () => {
+    expect(source).toContain("tool:data-dictionary:popular-records");
+    expect(source).toContain("tool:data-dictionary:mark-record-used");
+    expect(source).toContain("mergePopularAndSearchItems");
+    expect(source).toContain("pickInitialRecordItem");
+  });
+
+  it("does not mark the auto-selected first record as used", () => {
+    expect(source).toContain("selectSearchItem(initialItem, { markUsed: false })");
+    expect(source).toContain("options: { markUsed?: boolean } = {}");
+    expect(source).toContain("if (options.markUsed !== false)");
+  });
+
+  it("guards primary key pruning with explicit confirmation", () => {
+    expect(source).toContain("confirmPrimaryPrune");
+    expect(source).toContain("PRIMARY_PRUNE_CONFIRMATION_REQUIRED");
+    expect(source).toContain("确认更换主键");
+  });
+
   it("copies summary part values without selecting the parent result", () => {
     expect(source).toContain('@click.stop="copySummaryValue(part.value)"');
     expect(source).toContain("async function copySummaryValue(value: string)");
