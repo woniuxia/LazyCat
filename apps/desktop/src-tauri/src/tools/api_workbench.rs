@@ -1,3 +1,5 @@
+use super::helpers::db_conn;
+use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
@@ -314,9 +316,263 @@ fn clamp_timeout_ms(value: u64) -> u64 {
     value.clamp(MIN_TIMEOUT_MS, MAX_TIMEOUT_MS)
 }
 
-pub fn execute(action: &str, _payload: &Value) -> Result<Value, String> {
+fn parse_i64(payload: &Value, key: &str) -> Result<i64, String> {
+    payload[key]
+        .as_i64()
+        .ok_or_else(|| format!("{key} must be an integer"))
+}
+
+fn parse_name(payload: &Value, key: &str) -> Result<String, String> {
+    let value = payload[key].as_str().unwrap_or_default().trim().to_string();
+    if value.is_empty() {
+        return Err(format!("{key} 不能为空"));
+    }
+    Ok(value)
+}
+
+fn collection_create_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
+    let name = parse_name(payload, "name")?;
+    let description = payload["description"].as_str().unwrap_or_default().trim();
+    let next_order: i64 = conn
+        .query_row(
+            "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM api_workbench_collections",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(0);
+    conn.execute(
+        "INSERT INTO api_workbench_collections(name, description, sort_order)
+         VALUES(?1, ?2, ?3)",
+        params![name, description, next_order],
+    )
+    .map_err(|e| format!("create api collection failed: {e}"))?;
+    let collection_id = conn.last_insert_rowid();
+    let env = environment_save_with_conn(
+        conn,
+        &json!({
+            "collectionId": collection_id,
+            "name": "开发",
+            "variables": [{ "name": "BASE_URL", "value": "", "isSecret": false }]
+        }),
+    )?;
+    let active_environment_id = env["id"].as_i64().ok_or("environment id missing")?;
+    conn.execute(
+        "UPDATE api_workbench_collections
+         SET active_environment_id=?1, updated_at=CURRENT_TIMESTAMP
+         WHERE id=?2",
+        params![active_environment_id, collection_id],
+    )
+    .map_err(|e| format!("set active environment failed: {e}"))?;
+    Ok(json!({
+        "id": collection_id,
+        "name": name,
+        "description": description,
+        "activeEnvironmentId": active_environment_id,
+        "sortOrder": next_order
+    }))
+}
+
+fn collection_set_active_environment_with_conn(
+    conn: &Connection,
+    payload: &Value,
+) -> Result<Value, String> {
+    let collection_id = parse_i64(payload, "collectionId")?;
+    let environment_id = parse_i64(payload, "environmentId")?;
+    let owner: i64 = conn
+        .query_row(
+            "SELECT collection_id FROM api_workbench_environments WHERE id=?1",
+            [environment_id],
+            |row| row.get(0),
+        )
+        .map_err(|_| "环境不存在".to_string())?;
+    if owner != collection_id {
+        return Err("环境不属于当前集合".to_string());
+    }
+    let affected = conn
+        .execute(
+            "UPDATE api_workbench_collections
+             SET active_environment_id=?1, updated_at=CURRENT_TIMESTAMP
+             WHERE id=?2",
+            params![environment_id, collection_id],
+        )
+        .map_err(|e| format!("set active environment failed: {e}"))?;
+    if affected == 0 {
+        return Err("集合不存在".to_string());
+    }
+    Ok(json!({ "ok": true, "activeEnvironmentId": environment_id }))
+}
+
+fn parse_variable_rows(payload: &Value) -> Result<Vec<KeyValueRow>, String> {
+    let rows = payload["variables"].as_array().cloned().unwrap_or_default();
+    let mut out = Vec::new();
+    for item in rows {
+        let name = item["name"].as_str().unwrap_or_default().trim();
+        if !validate_variable_name(name) {
+            return Err(format!("变量名无效: {name}"));
+        }
+        out.push(KeyValueRow {
+            enabled: true,
+            key: name.to_string(),
+            value: item["value"].as_str().unwrap_or_default().to_string(),
+        });
+    }
+    Ok(out)
+}
+
+fn environment_save_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
+    let collection_id = parse_i64(payload, "collectionId")?;
+    let name = parse_name(payload, "name")?;
+    let id = payload["id"].as_i64();
+    let env_id = if let Some(id) = id {
+        let affected = conn
+            .execute(
+                "UPDATE api_workbench_environments
+                 SET name=?1, updated_at=CURRENT_TIMESTAMP
+                 WHERE id=?2 AND collection_id=?3",
+                params![name, id, collection_id],
+            )
+            .map_err(|e| format!("update environment failed: {e}"))?;
+        if affected == 0 {
+            return Err("环境不存在".to_string());
+        }
+        id
+    } else {
+        let next_order: i64 = conn
+            .query_row(
+                "SELECT COALESCE(MAX(sort_order), -1) + 1
+                 FROM api_workbench_environments WHERE collection_id=?1",
+                [collection_id],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+        conn.execute(
+            "INSERT INTO api_workbench_environments(collection_id, name, sort_order)
+             VALUES(?1, ?2, ?3)",
+            params![collection_id, name, next_order],
+        )
+        .map_err(|e| format!("create environment failed: {e}"))?;
+        conn.last_insert_rowid()
+    };
+
+    let mut rows = parse_variable_rows(payload)?;
+    if !rows.iter().any(|row| row.key == "BASE_URL") {
+        rows.insert(
+            0,
+            KeyValueRow {
+                enabled: true,
+                key: "BASE_URL".into(),
+                value: "".into(),
+            },
+        );
+    }
+    conn.execute(
+        "DELETE FROM api_workbench_environment_variables WHERE environment_id=?1",
+        [env_id],
+    )
+    .map_err(|e| format!("replace environment variables failed: {e}"))?;
+    for (idx, row) in rows.iter().enumerate() {
+        conn.execute(
+            "INSERT INTO api_workbench_environment_variables(environment_id, name, value, is_secret, sort_order)
+             VALUES(?1, ?2, ?3, 0, ?4)",
+            params![env_id, row.key, row.value, idx as i64],
+        )
+        .map_err(|e| format!("save environment variable failed: {e}"))?;
+    }
+    Ok(json!({ "id": env_id, "collectionId": collection_id, "name": name }))
+}
+
+fn environment_delete_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
+    let id = parse_i64(payload, "id")?;
+    let collection_id: i64 = conn
+        .query_row(
+            "SELECT collection_id FROM api_workbench_environments WHERE id=?1",
+            [id],
+            |row| row.get(0),
+        )
+        .map_err(|_| "环境不存在".to_string())?;
+    let count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM api_workbench_environments WHERE collection_id=?1",
+            [collection_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| format!("count environments failed: {e}"))?;
+    if count <= 1 {
+        return Err("不能删除集合内最后一个环境".to_string());
+    }
+    conn.execute("DELETE FROM api_workbench_environments WHERE id=?1", [id])
+        .map_err(|e| format!("delete environment failed: {e}"))?;
+    let next_active: i64 = conn
+        .query_row(
+            "SELECT id FROM api_workbench_environments
+             WHERE collection_id=?1 ORDER BY sort_order ASC, id ASC LIMIT 1",
+            [collection_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| format!("pick active environment failed: {e}"))?;
+    conn.execute(
+        "UPDATE api_workbench_collections
+         SET active_environment_id=?1, updated_at=CURRENT_TIMESTAMP
+         WHERE id=?2 AND (active_environment_id IS NULL OR active_environment_id=?3)",
+        params![next_active, collection_id, id],
+    )
+    .map_err(|e| format!("switch active environment failed: {e}"))?;
+    Ok(json!({ "ok": true, "activeEnvironmentId": next_active }))
+}
+
+fn global_variables_save_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
+    let rows = parse_variable_rows(payload)?;
+    if rows.iter().any(|row| row.key == "BASE_URL") {
+        return Err("全局变量不能使用 BASE_URL".to_string());
+    }
+    conn.execute("DELETE FROM api_workbench_global_variables", [])
+        .map_err(|e| format!("clear global variables failed: {e}"))?;
+    for (idx, row) in rows.iter().enumerate() {
+        conn.execute(
+            "INSERT INTO api_workbench_global_variables(name, value, is_secret, sort_order)
+             VALUES(?1, ?2, 0, ?3)",
+            params![row.key, row.value, idx as i64],
+        )
+        .map_err(|e| format!("save global variable failed: {e}"))?;
+    }
+    Ok(json!({ "ok": true }))
+}
+
+fn action_list_with_conn(_conn: &Connection) -> Result<Value, String> {
+    Ok(json!({ "collections": [], "history": [] }))
+}
+
+fn collection_update_with_conn(_conn: &Connection, _payload: &Value) -> Result<Value, String> {
+    Ok(json!({ "ok": true }))
+}
+
+fn collection_delete_with_conn(_conn: &Connection, _payload: &Value) -> Result<Value, String> {
+    Ok(json!({ "ok": true }))
+}
+
+fn environment_list_with_conn(_conn: &Connection, _payload: &Value) -> Result<Value, String> {
+    Ok(json!({ "items": [] }))
+}
+
+fn global_variables_list_with_conn(_conn: &Connection) -> Result<Value, String> {
+    Ok(json!({ "items": [] }))
+}
+
+pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
+    let conn = db_conn()?;
     match action {
-        "list" => Ok(json!({ "collections": [], "history": [] })),
+        "list" => action_list_with_conn(&conn),
+        "collection_create" => collection_create_with_conn(&conn, payload),
+        "collection_update" => collection_update_with_conn(&conn, payload),
+        "collection_set_active_environment" => {
+            collection_set_active_environment_with_conn(&conn, payload)
+        }
+        "collection_delete" => collection_delete_with_conn(&conn, payload),
+        "environment_list" => environment_list_with_conn(&conn, payload),
+        "environment_save" => environment_save_with_conn(&conn, payload),
+        "environment_delete" => environment_delete_with_conn(&conn, payload),
+        "global_variables_list" => global_variables_list_with_conn(&conn),
+        "global_variables_save" => global_variables_save_with_conn(&conn, payload),
         _ => Err(format!("unsupported api_workbench action: {action}")),
     }
 }
@@ -443,5 +699,84 @@ mod tests {
 
         let err = prepare_request_body("json", "{", &[], &[]).expect_err("bad json");
         assert!(err.contains("JSON"));
+    }
+
+    #[test]
+    fn collection_create_initializes_default_environment_and_base_url() {
+        let conn = test_conn();
+        let result = collection_create_with_conn(
+            &conn,
+            &json!({ "name": "Demo", "description": "desc" }),
+        )
+        .expect("create");
+        let collection_id = result["id"].as_i64().expect("collection id");
+        let active_environment_id = result["activeEnvironmentId"].as_i64().expect("env id");
+        assert!(collection_id > 0);
+        assert!(active_environment_id > 0);
+
+        let base_url_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*)
+                 FROM api_workbench_environment_variables
+                 WHERE environment_id=?1 AND name='BASE_URL'",
+                [active_environment_id],
+                |row| row.get(0),
+            )
+            .expect("base url count");
+        assert_eq!(base_url_count, 1);
+    }
+
+    #[test]
+    fn collection_set_active_environment_requires_same_collection() {
+        let conn = test_conn();
+        let a = collection_create_with_conn(&conn, &json!({ "name": "A" })).expect("a");
+        let b = collection_create_with_conn(&conn, &json!({ "name": "B" })).expect("b");
+        let a_id = a["id"].as_i64().unwrap();
+        let b_env_id = b["activeEnvironmentId"].as_i64().unwrap();
+        let err = collection_set_active_environment_with_conn(
+            &conn,
+            &json!({ "collectionId": a_id, "environmentId": b_env_id }),
+        )
+        .expect_err("must reject");
+        assert!(err.contains("不属于当前集合"));
+    }
+
+    #[test]
+    fn environment_delete_switches_active_environment_and_rejects_last_one() {
+        let conn = test_conn();
+        let c = collection_create_with_conn(&conn, &json!({ "name": "Demo" })).expect("create");
+        let collection_id = c["id"].as_i64().unwrap();
+        let first_env_id = c["activeEnvironmentId"].as_i64().unwrap();
+        let second = environment_save_with_conn(
+            &conn,
+            &json!({ "collectionId": collection_id, "name": "Test", "variables": [] }),
+        )
+        .expect("second env");
+        let second_env_id = second["id"].as_i64().unwrap();
+
+        environment_delete_with_conn(&conn, &json!({ "id": first_env_id })).expect("delete first");
+        let active: i64 = conn
+            .query_row(
+                "SELECT active_environment_id FROM api_workbench_collections WHERE id=?1",
+                [collection_id],
+                |row| row.get(0),
+            )
+            .expect("active");
+        assert_eq!(active, second_env_id);
+
+        let err = environment_delete_with_conn(&conn, &json!({ "id": second_env_id }))
+            .expect_err("reject last");
+        assert!(err.contains("最后一个环境"));
+    }
+
+    #[test]
+    fn global_variables_reject_base_url() {
+        let conn = test_conn();
+        let err = global_variables_save_with_conn(
+            &conn,
+            &json!({ "variables": [{ "name": "BASE_URL", "value": "http://x", "isSecret": false }] }),
+        )
+        .expect_err("reject");
+        assert!(err.contains("BASE_URL"));
     }
 }
