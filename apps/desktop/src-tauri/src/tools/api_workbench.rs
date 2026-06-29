@@ -867,6 +867,343 @@ fn action_list_with_conn(conn: &Connection) -> Result<Value, String> {
     Ok(json!({ "collections": collections, "history": [] }))
 }
 
+fn load_variables(
+    conn: &Connection,
+    environment_id: i64,
+) -> Result<(HashMap<String, String>, String), String> {
+    let mut vars = HashMap::new();
+    let mut stmt = conn
+        .prepare("SELECT name, value FROM api_workbench_global_variables ORDER BY sort_order ASC")
+        .map_err(|e| format!("prepare global variables failed: {e}"))?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(|e| format!("query global variables failed: {e}"))?;
+    for row in rows {
+        let (name, value) = row.map_err(|e| e.to_string())?;
+        vars.insert(name, value);
+    }
+
+    let mut base_url = String::new();
+    let mut env_stmt = conn
+        .prepare(
+            "SELECT name, value FROM api_workbench_environment_variables
+             WHERE environment_id=?1 ORDER BY sort_order ASC",
+        )
+        .map_err(|e| format!("prepare environment variables failed: {e}"))?;
+    let env_rows = env_stmt
+        .query_map([environment_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(|e| format!("query environment variables failed: {e}"))?;
+    for row in env_rows {
+        let (name, value) = row.map_err(|e| e.to_string())?;
+        if name == "BASE_URL" {
+            base_url = value.clone();
+        }
+        vars.insert(name, value);
+    }
+    Ok((vars, base_url))
+}
+
+fn resolve_rows(
+    rows: &[KeyValueRow],
+    vars: &HashMap<String, String>,
+) -> Result<Vec<KeyValueRow>, String> {
+    let mut out = Vec::new();
+    for row in rows {
+        if !row.enabled {
+            continue;
+        }
+        out.push(KeyValueRow {
+            enabled: true,
+            key: resolve_template(&row.key, vars)?,
+            value: resolve_template(&row.value, vars)?,
+        });
+    }
+    Ok(out)
+}
+
+fn execute_http_request(
+    draft: &RequestDraft,
+    final_url: &str,
+    headers: &[KeyValueRow],
+    prepared: PreparedBody,
+) -> Result<Value, String> {
+    let started = Instant::now();
+    let agent = ureq::AgentBuilder::new()
+        .timeout(Duration::from_millis(clamp_timeout_ms(draft.timeout_ms)))
+        .redirects(0)
+        .build();
+    let method = draft.method.to_ascii_uppercase();
+    let mut request = match method.as_str() {
+        "GET" => agent.get(final_url),
+        "POST" => agent.post(final_url),
+        "PUT" => agent.put(final_url),
+        "PATCH" => agent.request("PATCH", final_url),
+        "DELETE" => agent.delete(final_url),
+        "HEAD" => agent.head(final_url),
+        "OPTIONS" => agent.request("OPTIONS", final_url),
+        _ => return Err(format!("unsupported method: {method}")),
+    };
+    let mut request_headers = headers.to_vec();
+    for row in headers {
+        if row.enabled && !row.key.trim().is_empty() {
+            request = request.set(row.key.trim(), row.value.as_str());
+        }
+    }
+    if let Some(content_type) = prepared.content_type.as_deref() {
+        request = request.set("Content-Type", content_type);
+        request_headers.push(KeyValueRow {
+            enabled: true,
+            key: "Content-Type".to_string(),
+            value: content_type.to_string(),
+        });
+    }
+
+    let result = if let Some(body) = prepared.body {
+        request.send_bytes(&body)
+    } else {
+        request.call()
+    };
+    let duration_ms = started.elapsed().as_millis() as u64;
+    match result {
+        Ok(resp) => response_to_json(final_url, duration_ms, resp, None, &request_headers),
+        Err(ureq::Error::Status(_, resp)) => {
+            response_to_json(final_url, duration_ms, resp, None, &request_headers)
+        }
+        Err(err) => Ok(json!({
+            "finalUrl": final_url,
+            "status": null,
+            "statusText": "",
+            "ok": false,
+            "durationMs": duration_ms,
+            "requestHeaders": request_headers,
+            "responseHeaders": [],
+            "bodyText": "",
+            "bodySize": 0,
+            "bodyTruncated": false,
+            "contentType": "",
+            "error": err.to_string()
+        })),
+    }
+}
+
+fn response_to_json(
+    final_url: &str,
+    duration_ms: u64,
+    resp: ureq::Response,
+    forced_error: Option<String>,
+    request_headers: &[KeyValueRow],
+) -> Result<Value, String> {
+    let status = resp.status();
+    let status_text = resp.status_text().to_string();
+    let content_type = resp.header("Content-Type").unwrap_or("").to_string();
+    let response_headers: Vec<Value> = resp
+        .headers_names()
+        .into_iter()
+        .map(|key| {
+            let value = resp.header(&key).unwrap_or("").to_string();
+            json!({ "enabled": true, "key": key, "value": value })
+        })
+        .collect();
+    let mut reader = resp.into_reader().take((MAX_RESPONSE_BODY_BYTES + 1) as u64);
+    let mut bytes = Vec::new();
+    reader
+        .read_to_end(&mut bytes)
+        .map_err(|e| format!("read response body failed: {e}"))?;
+    let body_truncated = bytes.len() > MAX_RESPONSE_BODY_BYTES;
+    if body_truncated {
+        bytes.truncate(MAX_RESPONSE_BODY_BYTES);
+    }
+    let body_size = bytes.len();
+    let body_text = String::from_utf8_lossy(&bytes).to_string();
+    Ok(json!({
+        "finalUrl": final_url,
+        "status": status,
+        "statusText": status_text,
+        "ok": (200..300).contains(&status),
+        "durationMs": duration_ms,
+        "requestHeaders": request_headers,
+        "responseHeaders": response_headers,
+        "bodyText": body_text,
+        "bodySize": body_size,
+        "bodyTruncated": body_truncated,
+        "contentType": content_type,
+        "error": forced_error
+    }))
+}
+
+struct HistoryInsert {
+    collection_id: Option<i64>,
+    environment_id: Option<i64>,
+    request_id: Option<i64>,
+    name: String,
+    method: String,
+    url: String,
+    final_url: String,
+    status: Option<i64>,
+    duration_ms: u64,
+    ok: bool,
+    error: Option<String>,
+    response_content_type: String,
+    response_size: usize,
+    response_body_preview: String,
+    response_body_truncated: bool,
+}
+
+fn truncate_to_max_bytes(input: &str, max: usize) -> String {
+    if input.len() <= max {
+        return input.to_string();
+    }
+    let mut end = 0;
+    for (idx, _) in input.char_indices() {
+        if idx > max {
+            break;
+        }
+        end = idx;
+    }
+    input[..end].to_string()
+}
+
+fn insert_history_with_conn(conn: &Connection, item: &HistoryInsert) -> Result<(), String> {
+    let preview_too_large = item.response_body_preview.len() > MAX_HISTORY_BODY_PREVIEW_BYTES;
+    let preview = truncate_to_max_bytes(
+        &item.response_body_preview,
+        MAX_HISTORY_BODY_PREVIEW_BYTES,
+    );
+    conn.execute(
+        "INSERT INTO api_workbench_history(
+            collection_id, environment_id, request_id, name, method, url, final_url,
+            status, duration_ms, ok, error, response_content_type, response_size,
+            response_body_preview, response_body_truncated
+         )
+         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+        params![
+            item.collection_id,
+            item.environment_id,
+            item.request_id,
+            item.name,
+            item.method,
+            item.url,
+            item.final_url,
+            item.status,
+            item.duration_ms as i64,
+            if item.ok { 1 } else { 0 },
+            item.error,
+            item.response_content_type,
+            item.response_size as i64,
+            preview,
+            if item.response_body_truncated || preview_too_large { 1 } else { 0 }
+        ],
+    )
+    .map_err(|e| format!("insert history failed: {e}"))?;
+    conn.execute(
+        "DELETE FROM api_workbench_history
+         WHERE id NOT IN (
+            SELECT id FROM api_workbench_history ORDER BY created_at DESC, id DESC LIMIT ?1
+         )",
+        [MAX_HISTORY_ROWS],
+    )
+    .map_err(|e| format!("trim history failed: {e}"))?;
+    Ok(())
+}
+
+fn send_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
+    let collection_id = payload["collectionId"].as_i64();
+    let environment_id = parse_i64(payload, "environmentId")?;
+    let request_id = payload["requestId"].as_i64();
+    let draft: RequestDraft = serde_json::from_value(payload["draft"].clone())
+        .map_err(|e| format!("请求草稿格式错误: {e}"))?;
+    let (vars, base_url) = load_variables(conn, environment_id)?;
+    let resolved_url = resolve_template(&draft.url, &vars)?;
+    let resolved_query = resolve_rows(&draft.query, &vars)?;
+    let resolved_headers = resolve_rows(&draft.headers, &vars)?;
+    let resolved_body = resolve_template(&draft.body, &vars)?;
+    let resolved_form = resolve_rows(&draft.form, &vars)?;
+    let final_url = build_final_url(&base_url, &resolved_url, &resolved_query)?;
+    let prepared = prepare_request_body(
+        &draft.body_type,
+        &resolved_body,
+        &resolved_form,
+        &resolved_headers,
+    )?;
+    let result = execute_http_request(&draft, &final_url, &resolved_headers, prepared)?;
+    insert_history_with_conn(
+        conn,
+        &HistoryInsert {
+            collection_id,
+            environment_id: Some(environment_id),
+            request_id,
+            name: payload["name"].as_str().unwrap_or_default().to_string(),
+            method: draft.method.clone(),
+            url: draft.url.clone(),
+            final_url: final_url.clone(),
+            status: result["status"].as_i64(),
+            duration_ms: result["durationMs"].as_u64().unwrap_or(0),
+            ok: result["ok"].as_bool().unwrap_or(false),
+            error: result["error"].as_str().map(|s| s.to_string()),
+            response_content_type: result["contentType"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string(),
+            response_size: result["bodySize"].as_u64().unwrap_or(0) as usize,
+            response_body_preview: result["bodyText"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string(),
+            response_body_truncated: result["bodyTruncated"].as_bool().unwrap_or(false),
+        },
+    )?;
+    Ok(result)
+}
+
+fn history_list_with_conn(conn: &Connection) -> Result<Value, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, collection_id, environment_id, request_id, name, method, url, final_url,
+                    status, duration_ms, ok, error, response_content_type, response_size,
+                    response_body_preview, response_body_truncated, created_at
+             FROM api_workbench_history ORDER BY created_at DESC, id DESC LIMIT ?1",
+        )
+        .map_err(|e| format!("prepare history failed: {e}"))?;
+    let rows = stmt
+        .query_map([MAX_HISTORY_ROWS], |row| {
+            Ok(json!({
+                "id": row.get::<_, i64>(0)?,
+                "collectionId": row.get::<_, Option<i64>>(1)?,
+                "environmentId": row.get::<_, Option<i64>>(2)?,
+                "requestId": row.get::<_, Option<i64>>(3)?,
+                "name": row.get::<_, String>(4)?,
+                "method": row.get::<_, String>(5)?,
+                "url": row.get::<_, String>(6)?,
+                "finalUrl": row.get::<_, String>(7)?,
+                "status": row.get::<_, Option<i64>>(8)?,
+                "durationMs": row.get::<_, i64>(9)?,
+                "ok": row.get::<_, i64>(10)? == 1,
+                "error": row.get::<_, Option<String>>(11)?,
+                "contentType": row.get::<_, String>(12)?,
+                "bodySize": row.get::<_, i64>(13)?,
+                "bodyPreview": row.get::<_, String>(14)?,
+                "bodyTruncated": row.get::<_, i64>(15)? == 1,
+                "createdAt": row.get::<_, String>(16)?
+            }))
+        })
+        .map_err(|e| format!("query history failed: {e}"))?;
+    let mut items = Vec::new();
+    for row in rows {
+        items.push(row.map_err(|e| e.to_string())?);
+    }
+    Ok(json!({ "items": items }))
+}
+
+fn history_clear_with_conn(conn: &Connection) -> Result<Value, String> {
+    conn.execute("DELETE FROM api_workbench_history", [])
+        .map_err(|e| format!("clear history failed: {e}"))?;
+    Ok(json!({ "ok": true }))
+}
+
 pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
     let conn = db_conn()?;
     match action {
@@ -883,6 +1220,9 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         "request_get" => request_get_with_conn(&conn, payload),
         "request_save" => request_save_with_conn(&conn, payload),
         "request_delete" => request_delete_with_conn(&conn, payload),
+        "send" => send_with_conn(&conn, payload),
+        "history_list" => history_list_with_conn(&conn),
+        "history_clear" => history_clear_with_conn(&conn),
         "environment_list" => environment_list_with_conn(&conn, payload),
         "environment_save" => environment_save_with_conn(&conn, payload),
         "environment_delete" => environment_delete_with_conn(&conn, payload),
@@ -1161,5 +1501,97 @@ mod tests {
         assert_eq!(list["collections"][0]["name"], "Demo");
         assert_eq!(list["collections"][0]["folders"][0]["name"], "Users");
         assert_eq!(list["collections"][0]["requests"][0]["name"], "List users");
+    }
+
+    #[test]
+    fn send_returns_http_302_without_following_redirect() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+        use std::thread;
+
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let port = listener.local_addr().unwrap().port();
+        thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut buf = [0u8; 1024];
+                let _ = stream.read(&mut buf);
+                let _ = stream.write_all(
+                    b"HTTP/1.1 302 Found\r\nLocation: /next\r\nContent-Length: 8\r\n\r\nredirect",
+                );
+            }
+        });
+
+        let conn = test_conn();
+        let c = collection_create_with_conn(&conn, &json!({ "name": "Demo" })).expect("create");
+        let collection_id = c["id"].as_i64().unwrap();
+        let environment_id = c["activeEnvironmentId"].as_i64().unwrap();
+        environment_save_with_conn(
+            &conn,
+            &json!({
+                "id": environment_id,
+                "collectionId": collection_id,
+                "name": "开发",
+                "variables": [{ "name": "BASE_URL", "value": format!("http://127.0.0.1:{port}"), "isSecret": false }]
+            }),
+        )
+        .expect("env");
+
+        let result = send_with_conn(
+            &conn,
+            &json!({
+                "collectionId": collection_id,
+                "environmentId": environment_id,
+                "draft": {
+                    "method": "GET",
+                    "url": "/redirect",
+                    "query": [],
+                    "headers": [],
+                    "bodyType": "none",
+                    "body": "",
+                    "form": [],
+                    "timeoutMs": 10000
+                }
+            }),
+        )
+        .expect("send");
+        assert_eq!(result["status"], 302);
+        assert_eq!(result["ok"], false);
+        assert_eq!(result["bodyText"], "redirect");
+        assert_eq!(result["responseHeaders"][0]["key"].is_string(), true);
+    }
+
+    #[test]
+    fn send_writes_history_and_trims_to_limit() {
+        let conn = test_conn();
+        let c = collection_create_with_conn(&conn, &json!({ "name": "Demo" })).expect("create");
+        let collection_id = c["id"].as_i64().unwrap();
+        let environment_id = c["activeEnvironmentId"].as_i64().unwrap();
+        insert_history_with_conn(
+            &conn,
+            &HistoryInsert {
+                collection_id: Some(collection_id),
+                environment_id: Some(environment_id),
+                request_id: None,
+                name: "x".into(),
+                method: "GET".into(),
+                url: "/x".into(),
+                final_url: "http://127.0.0.1/x".into(),
+                status: Some(200),
+                duration_ms: 1,
+                ok: true,
+                error: None,
+                response_content_type: "text/plain".into(),
+                response_size: 2,
+                response_body_preview: "ok".into(),
+                response_body_truncated: false,
+            },
+        )
+        .expect("history");
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM api_workbench_history", [], |row| {
+                row.get(0)
+            })
+            .expect("count");
+        assert_eq!(count, 1);
     }
 }
