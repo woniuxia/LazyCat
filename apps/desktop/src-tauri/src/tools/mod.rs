@@ -1,3 +1,4 @@
+pub mod api_workbench;
 pub mod capture;
 pub mod convert;
 pub mod cron;
@@ -55,6 +56,7 @@ pub fn execute_tool(domain: &str, action: &str, payload: &Value) -> Result<Value
 
 fn dispatch_tool(domain: &str, action: &str, payload: &Value) -> Result<Value, String> {
     match domain {
+        "api_workbench" => api_workbench::execute(action, payload),
         "encode" => encode::execute(action, payload),
         "convert" => convert::execute(action, payload),
         "text" => text::execute(action, payload),

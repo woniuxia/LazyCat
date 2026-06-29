@@ -167,6 +167,10 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
     let _ = conn.execute_batch("ALTER TABLE pm_items ADD COLUMN link_url TEXT DEFAULT NULL;");
     let _ = conn.execute_batch("ALTER TABLE pm_items ADD COLUMN ref_code TEXT DEFAULT NULL;");
 
+    conn
+        .execute_batch(super::api_workbench::API_WORKBENCH_SCHEMA_SQL)
+        .map_err(|e| format!("create api workbench schema failed: {e}"))?;
+
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS hosts_profiles (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
