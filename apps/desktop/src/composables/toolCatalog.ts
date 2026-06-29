@@ -89,6 +89,7 @@ const SIDEBAR_ITEMS: SidebarItem[] = [
       name: "网络与系统",
       tools: [
         { id: "network", name: "IP/端口连通", desc: "TCP 与 HTTP 连通性测试" },
+        { id: "api-workbench", name: "接口调试", desc: "离线 HTTP 接口调试与文档生成" },
         { id: "dns", name: "DNS 查询", desc: "域名解析与记录查询" },
         { id: "capture", name: "抓包工具", desc: "数据包捕获与协议分析" },
         { id: "hosts", name: "Hosts 管理", desc: "多配置保存与切换" },
