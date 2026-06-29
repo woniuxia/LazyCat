@@ -538,24 +538,333 @@ fn global_variables_save_with_conn(conn: &Connection, payload: &Value) -> Result
     Ok(json!({ "ok": true }))
 }
 
-fn action_list_with_conn(_conn: &Connection) -> Result<Value, String> {
-    Ok(json!({ "collections": [], "history": [] }))
+fn folder_create_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
+    let collection_id = parse_i64(payload, "collectionId")?;
+    let name = parse_name(payload, "name")?;
+    let parent_id = payload["parentId"].as_i64();
+    let next_order: i64 = conn
+        .query_row(
+            "SELECT COALESCE(MAX(sort_order), -1) + 1
+             FROM api_workbench_folders
+             WHERE collection_id=?1 AND parent_id IS ?2",
+            params![collection_id, parent_id],
+            |row| row.get(0),
+        )
+        .unwrap_or(0);
+    conn.execute(
+        "INSERT INTO api_workbench_folders(collection_id, parent_id, name, sort_order)
+         VALUES(?1, ?2, ?3, ?4)",
+        params![collection_id, parent_id, name, next_order],
+    )
+    .map_err(|e| format!("create folder failed: {e}"))?;
+    Ok(json!({
+        "id": conn.last_insert_rowid(),
+        "collectionId": collection_id,
+        "parentId": parent_id,
+        "name": name
+    }))
 }
 
-fn collection_update_with_conn(_conn: &Connection, _payload: &Value) -> Result<Value, String> {
+fn folder_update_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
+    let id = parse_i64(payload, "id")?;
+    let name = parse_name(payload, "name")?;
+    let affected = conn
+        .execute(
+            "UPDATE api_workbench_folders SET name=?1, updated_at=CURRENT_TIMESTAMP WHERE id=?2",
+            params![name, id],
+        )
+        .map_err(|e| format!("update folder failed: {e}"))?;
+    if affected == 0 {
+        return Err("文件夹不存在".to_string());
+    }
     Ok(json!({ "ok": true }))
 }
 
-fn collection_delete_with_conn(_conn: &Connection, _payload: &Value) -> Result<Value, String> {
+fn folder_delete_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
+    let id = parse_i64(payload, "id")?;
+    conn.execute("DELETE FROM api_workbench_folders WHERE id=?1", [id])
+        .map_err(|e| format!("delete folder failed: {e}"))?;
     Ok(json!({ "ok": true }))
 }
 
-fn environment_list_with_conn(_conn: &Connection, _payload: &Value) -> Result<Value, String> {
-    Ok(json!({ "items": [] }))
+fn parse_draft(payload: &Value) -> Result<RequestDraft, String> {
+    serde_json::from_value(payload["draft"].clone()).map_err(|e| format!("请求草稿格式错误: {e}"))
 }
 
-fn global_variables_list_with_conn(_conn: &Connection) -> Result<Value, String> {
-    Ok(json!({ "items": [] }))
+fn request_save_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
+    let collection_id = parse_i64(payload, "collectionId")?;
+    let folder_id = payload["folderId"].as_i64();
+    let name = parse_name(payload, "name")?;
+    let description = payload["description"].as_str().unwrap_or_default().trim();
+    let draft = parse_draft(payload)?;
+    let query_json = serde_json::to_string(&draft.query).map_err(|e| e.to_string())?;
+    let headers_json = serde_json::to_string(&draft.headers).map_err(|e| e.to_string())?;
+    let form_json = serde_json::to_string(&draft.form).map_err(|e| e.to_string())?;
+    let id = payload["id"].as_i64();
+    if let Some(id) = id {
+        let affected = conn
+            .execute(
+                "UPDATE api_workbench_requests
+                 SET folder_id=?1, name=?2, description=?3, method=?4, url=?5,
+                     query_json=?6, headers_json=?7, body_type=?8, body_text=?9,
+                     form_json=?10, timeout_ms=?11, updated_at=CURRENT_TIMESTAMP
+                 WHERE id=?12 AND collection_id=?13",
+                params![
+                    folder_id,
+                    name,
+                    description,
+                    draft.method,
+                    draft.url,
+                    query_json,
+                    headers_json,
+                    draft.body_type,
+                    draft.body,
+                    form_json,
+                    clamp_timeout_ms(draft.timeout_ms) as i64,
+                    id,
+                    collection_id
+                ],
+            )
+            .map_err(|e| format!("update request failed: {e}"))?;
+        if affected == 0 {
+            return Err("接口不存在".to_string());
+        }
+        Ok(json!({ "id": id, "ok": true }))
+    } else {
+        let next_order: i64 = conn
+            .query_row(
+                "SELECT COALESCE(MAX(sort_order), -1) + 1
+                 FROM api_workbench_requests
+                 WHERE collection_id=?1 AND folder_id IS ?2",
+                params![collection_id, folder_id],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+        conn.execute(
+            "INSERT INTO api_workbench_requests(
+                collection_id, folder_id, name, description, method, url,
+                query_json, headers_json, body_type, body_text, form_json,
+                timeout_ms, sort_order
+             )
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+            params![
+                collection_id,
+                folder_id,
+                name,
+                description,
+                draft.method,
+                draft.url,
+                query_json,
+                headers_json,
+                draft.body_type,
+                draft.body,
+                form_json,
+                clamp_timeout_ms(draft.timeout_ms) as i64,
+                next_order
+            ],
+        )
+        .map_err(|e| format!("create request failed: {e}"))?;
+        Ok(json!({ "id": conn.last_insert_rowid(), "ok": true }))
+    }
+}
+
+fn request_get_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
+    let id = parse_i64(payload, "id")?;
+    conn.query_row(
+        "SELECT id, collection_id, folder_id, name, description, method, url,
+                query_json, headers_json, body_type, body_text, form_json, timeout_ms,
+                example_response_json, sort_order, created_at, updated_at
+         FROM api_workbench_requests WHERE id=?1",
+        [id],
+        |row| {
+            let query_json: String = row.get(7)?;
+            let headers_json: String = row.get(8)?;
+            let form_json: String = row.get(11)?;
+            Ok(json!({
+                "id": row.get::<_, i64>(0)?,
+                "collectionId": row.get::<_, i64>(1)?,
+                "folderId": row.get::<_, Option<i64>>(2)?,
+                "name": row.get::<_, String>(3)?,
+                "description": row.get::<_, String>(4)?,
+                "draft": {
+                    "method": row.get::<_, String>(5)?,
+                    "url": row.get::<_, String>(6)?,
+                    "query": serde_json::from_str::<Value>(&query_json).unwrap_or_else(|_| json!([])),
+                    "headers": serde_json::from_str::<Value>(&headers_json).unwrap_or_else(|_| json!([])),
+                    "bodyType": row.get::<_, String>(9)?,
+                    "body": row.get::<_, String>(10)?,
+                    "form": serde_json::from_str::<Value>(&form_json).unwrap_or_else(|_| json!([])),
+                    "timeoutMs": row.get::<_, i64>(12)?
+                },
+                "exampleResponse": row.get::<_, Option<String>>(13)?,
+                "sortOrder": row.get::<_, i64>(14)?,
+                "createdAt": row.get::<_, String>(15)?,
+                "updatedAt": row.get::<_, String>(16)?
+            }))
+        },
+    )
+    .map_err(|_| "接口不存在".to_string())
+}
+
+fn request_delete_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
+    let id = parse_i64(payload, "id")?;
+    conn.execute("DELETE FROM api_workbench_requests WHERE id=?1", [id])
+        .map_err(|e| format!("delete request failed: {e}"))?;
+    Ok(json!({ "ok": true }))
+}
+
+fn collection_update_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
+    let id = parse_i64(payload, "id")?;
+    let name = parse_name(payload, "name")?;
+    let description = payload["description"].as_str().unwrap_or_default().trim();
+    let affected = conn
+        .execute(
+            "UPDATE api_workbench_collections
+             SET name=?1, description=?2, updated_at=CURRENT_TIMESTAMP WHERE id=?3",
+            params![name, description, id],
+        )
+        .map_err(|e| format!("update collection failed: {e}"))?;
+    if affected == 0 {
+        return Err("集合不存在".to_string());
+    }
+    Ok(json!({ "ok": true }))
+}
+
+fn collection_delete_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
+    let id = parse_i64(payload, "id")?;
+    conn.execute("DELETE FROM api_workbench_collections WHERE id=?1", [id])
+        .map_err(|e| format!("delete collection failed: {e}"))?;
+    Ok(json!({ "ok": true }))
+}
+
+fn environment_list_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
+    let collection_id = parse_i64(payload, "collectionId")?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, collection_id, name, sort_order, created_at, updated_at
+             FROM api_workbench_environments
+             WHERE collection_id=?1 ORDER BY sort_order ASC, id ASC",
+        )
+        .map_err(|e| format!("prepare environment list failed: {e}"))?;
+    let items = stmt
+        .query_map([collection_id], |row| {
+            let env_id = row.get::<_, i64>(0)?;
+            let mut var_stmt = conn.prepare(
+                "SELECT name, value, is_secret, sort_order
+                 FROM api_workbench_environment_variables
+                 WHERE environment_id=?1 ORDER BY sort_order ASC, id ASC",
+            )?;
+            let variables = var_stmt
+                .query_map([env_id], |var_row| {
+                    Ok(json!({
+                        "name": var_row.get::<_, String>(0)?,
+                        "value": var_row.get::<_, String>(1)?,
+                        "isSecret": var_row.get::<_, i64>(2)? != 0,
+                        "sortOrder": var_row.get::<_, i64>(3)?
+                    }))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(json!({
+                "id": env_id,
+                "collectionId": row.get::<_, i64>(1)?,
+                "name": row.get::<_, String>(2)?,
+                "sortOrder": row.get::<_, i64>(3)?,
+                "createdAt": row.get::<_, String>(4)?,
+                "updatedAt": row.get::<_, String>(5)?,
+                "variables": variables
+            }))
+        })
+        .map_err(|e| format!("list environments failed: {e}"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("read environments failed: {e}"))?;
+    Ok(json!({ "items": items }))
+}
+
+fn global_variables_list_with_conn(conn: &Connection) -> Result<Value, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT name, value, is_secret, sort_order
+             FROM api_workbench_global_variables ORDER BY sort_order ASC, name ASC",
+        )
+        .map_err(|e| format!("prepare global variables failed: {e}"))?;
+    let items = stmt
+        .query_map([], |row| {
+            Ok(json!({
+                "name": row.get::<_, String>(0)?,
+                "value": row.get::<_, String>(1)?,
+                "isSecret": row.get::<_, i64>(2)? != 0,
+                "sortOrder": row.get::<_, i64>(3)?
+            }))
+        })
+        .map_err(|e| format!("list global variables failed: {e}"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("read global variables failed: {e}"))?;
+    Ok(json!({ "items": items }))
+}
+
+fn action_list_with_conn(conn: &Connection) -> Result<Value, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, name, description, active_environment_id, sort_order, created_at, updated_at
+             FROM api_workbench_collections ORDER BY sort_order ASC, id ASC",
+        )
+        .map_err(|e| format!("prepare collection list failed: {e}"))?;
+    let collections = stmt
+        .query_map([], |row| {
+            let collection_id = row.get::<_, i64>(0)?;
+
+            let mut folder_stmt = conn.prepare(
+                "SELECT id, collection_id, parent_id, name, sort_order
+                 FROM api_workbench_folders
+                 WHERE collection_id=?1 ORDER BY parent_id ASC, sort_order ASC, id ASC",
+            )?;
+            let folders = folder_stmt
+                .query_map([collection_id], |folder_row| {
+                    Ok(json!({
+                        "id": folder_row.get::<_, i64>(0)?,
+                        "collectionId": folder_row.get::<_, i64>(1)?,
+                        "parentId": folder_row.get::<_, Option<i64>>(2)?,
+                        "name": folder_row.get::<_, String>(3)?,
+                        "sortOrder": folder_row.get::<_, i64>(4)?
+                    }))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+
+            let mut request_stmt = conn.prepare(
+                "SELECT id, collection_id, folder_id, name, method, url, sort_order
+                 FROM api_workbench_requests
+                 WHERE collection_id=?1 ORDER BY folder_id ASC, sort_order ASC, id ASC",
+            )?;
+            let requests = request_stmt
+                .query_map([collection_id], |request_row| {
+                    Ok(json!({
+                        "id": request_row.get::<_, i64>(0)?,
+                        "collectionId": request_row.get::<_, i64>(1)?,
+                        "folderId": request_row.get::<_, Option<i64>>(2)?,
+                        "name": request_row.get::<_, String>(3)?,
+                        "method": request_row.get::<_, String>(4)?,
+                        "url": request_row.get::<_, String>(5)?,
+                        "sortOrder": request_row.get::<_, i64>(6)?
+                    }))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+
+            Ok(json!({
+                "id": collection_id,
+                "name": row.get::<_, String>(1)?,
+                "description": row.get::<_, String>(2)?,
+                "activeEnvironmentId": row.get::<_, Option<i64>>(3)?,
+                "sortOrder": row.get::<_, i64>(4)?,
+                "createdAt": row.get::<_, String>(5)?,
+                "updatedAt": row.get::<_, String>(6)?,
+                "folders": folders,
+                "requests": requests
+            }))
+        })
+        .map_err(|e| format!("list collections failed: {e}"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("read collections failed: {e}"))?;
+    Ok(json!({ "collections": collections, "history": [] }))
 }
 
 pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
@@ -568,6 +877,12 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
             collection_set_active_environment_with_conn(&conn, payload)
         }
         "collection_delete" => collection_delete_with_conn(&conn, payload),
+        "folder_create" => folder_create_with_conn(&conn, payload),
+        "folder_update" => folder_update_with_conn(&conn, payload),
+        "folder_delete" => folder_delete_with_conn(&conn, payload),
+        "request_get" => request_get_with_conn(&conn, payload),
+        "request_save" => request_save_with_conn(&conn, payload),
+        "request_delete" => request_delete_with_conn(&conn, payload),
         "environment_list" => environment_list_with_conn(&conn, payload),
         "environment_save" => environment_save_with_conn(&conn, payload),
         "environment_delete" => environment_delete_with_conn(&conn, payload),
@@ -778,5 +1093,73 @@ mod tests {
         )
         .expect_err("reject");
         assert!(err.contains("BASE_URL"));
+    }
+
+    #[test]
+    fn request_save_and_get_round_trips_draft_json() {
+        let conn = test_conn();
+        let c = collection_create_with_conn(&conn, &json!({ "name": "Demo" })).expect("create");
+        let collection_id = c["id"].as_i64().unwrap();
+        let saved = request_save_with_conn(
+            &conn,
+            &json!({
+                "collectionId": collection_id,
+                "folderId": null,
+                "name": "List users",
+                "description": "Fetch users",
+                "draft": {
+                    "method": "GET",
+                    "url": "/api/users",
+                    "query": [{ "enabled": true, "key": "page", "value": "1" }],
+                    "headers": [],
+                    "bodyType": "none",
+                    "body": "",
+                    "form": [],
+                    "timeoutMs": 10000
+                }
+            }),
+        )
+        .expect("save");
+        let request_id = saved["id"].as_i64().unwrap();
+        let detail = request_get_with_conn(&conn, &json!({ "id": request_id })).expect("get");
+        assert_eq!(detail["name"], "List users");
+        assert_eq!(detail["draft"]["url"], "/api/users");
+        assert_eq!(detail["draft"]["query"][0]["key"], "page");
+    }
+
+    #[test]
+    fn action_list_returns_collections_with_folders_and_requests() {
+        let conn = test_conn();
+        let c = collection_create_with_conn(&conn, &json!({ "name": "Demo" })).expect("create");
+        let collection_id = c["id"].as_i64().unwrap();
+        let folder = folder_create_with_conn(
+            &conn,
+            &json!({ "collectionId": collection_id, "name": "Users" }),
+        )
+        .expect("folder");
+        request_save_with_conn(
+            &conn,
+            &json!({
+                "collectionId": collection_id,
+                "folderId": folder["id"].as_i64().unwrap(),
+                "name": "List users",
+                "draft": {
+                    "method": "GET",
+                    "url": "/api/users",
+                    "query": [],
+                    "headers": [],
+                    "bodyType": "none",
+                    "body": "",
+                    "form": [],
+                    "timeoutMs": 10000
+                }
+            }),
+        )
+        .expect("request");
+
+        let list = action_list_with_conn(&conn).expect("list");
+        assert_eq!(list["collections"][0]["name"], "Demo");
+        assert_eq!(list["collections"][0]["folders"][0]["name"], "Users");
+        assert_eq!(list["collections"][0]["requests"][0]["name"], "List users");
     }
 }
