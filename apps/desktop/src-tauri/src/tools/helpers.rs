@@ -117,6 +117,15 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
     let _ = conn.execute_batch(
         "ALTER TABLE data_dictionary_records ADD COLUMN sort_key TEXT NOT NULL DEFAULT '';",
     );
+    let _ = conn.execute_batch(
+        "ALTER TABLE data_dictionary_record_usage ADD COLUMN primary_value_text TEXT DEFAULT NULL;",
+    );
+    let _ = conn.execute_batch(
+        "UPDATE data_dictionary_record_usage
+         SET primary_value_text = record_id
+         WHERE primary_value_text IS NULL OR primary_value_text = '';",
+    );
+    let _ = conn.execute_batch("DROP TABLE IF EXISTS data_dictionary_fts;");
 
     // Phase 2: Add project_id to todo_items
     let _ =
@@ -265,6 +274,20 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
             ON data_dictionary_record_values(dictionary_id, field_path, normalized_value, value_type);
         CREATE INDEX IF NOT EXISTS idx_data_dictionary_record_values_record
             ON data_dictionary_record_values(record_id);
+
+        CREATE TABLE IF NOT EXISTS data_dictionary_record_usage (
+            dictionary_id INTEGER NOT NULL,
+            primary_value_text TEXT NOT NULL,
+            normalized_value TEXT NOT NULL,
+            used_count INTEGER NOT NULL DEFAULT 1,
+            last_used_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY(dictionary_id, normalized_value),
+            FOREIGN KEY(dictionary_id) REFERENCES data_dictionaries(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_data_dictionary_record_usage_order
+            ON data_dictionary_record_usage(dictionary_id, used_count DESC, last_used_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_data_dictionary_record_usage_global_order
+            ON data_dictionary_record_usage(used_count DESC, last_used_at DESC);
 
         CREATE TABLE IF NOT EXISTS snippet_folders_v2 (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -664,13 +687,6 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
             code_text
         );
 
-        CREATE VIRTUAL TABLE IF NOT EXISTS data_dictionary_fts USING fts5(
-            record_id UNINDEXED,
-            dictionary_id UNINDEXED,
-            search_text,
-            tokenize='unicode61 remove_diacritics 2'
-        );
-
         CREATE VIRTUAL TABLE IF NOT EXISTS inbox_fts USING fts5(
             title,
             preview,
@@ -703,8 +719,7 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
             "DROP TRIGGER IF EXISTS inbox_fts_insert;
              DROP TRIGGER IF EXISTS inbox_fts_update;
              DROP TRIGGER IF EXISTS inbox_fts_delete;
-             DROP TABLE IF EXISTS inbox_fts;
-             DROP TABLE IF EXISTS data_dictionary_fts;",
+             DROP TABLE IF EXISTS inbox_fts;",
         );
     }
 

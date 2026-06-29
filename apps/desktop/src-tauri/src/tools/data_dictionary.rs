@@ -131,6 +131,8 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         "update_fields" => action_update_fields(payload),
         "reorder" => action_reorder(payload),
         "search" => action_search(payload),
+        "popular_records" => action_popular_records(payload),
+        "mark_record_used" => action_mark_record_used(payload),
         "record_detail" => action_record_detail(payload),
         "rebuild_indexes" => action_rebuild_indexes(payload),
         "delete" => action_delete(payload),
@@ -200,8 +202,21 @@ fn action_create(payload: &Value) -> Result<Value, String> {
         .filter(|value| !value.is_empty())
         .ok_or("name is required")?;
     let description = payload["description"].as_str().unwrap_or("").trim();
+    let primary_field_path = parse_required_field_path(payload, "primaryFieldPath")?;
     let input = read_import_input(payload)?;
-    let records = indexed_records_from_values(parse_import_array(&input)?);
+    let raw_records = indexed_records_from_values(parse_import_array(&input)?);
+    let raw_stats = collect_field_stats_from_indexed(&raw_records);
+    let field_paths: HashSet<String> = raw_stats.iter().map(|stat| stat.path.clone()).collect();
+    if !field_paths.contains(&primary_field_path) {
+        return Err(format!(
+            "primaryFieldPath does not exist: {primary_field_path}"
+        ));
+    }
+    let partition = partition_records_by_primary(raw_records, Some(primary_field_path.as_str()))?;
+    let skipped_invalid_count = partition.skipped_invalid_count;
+    let skipped_duplicate_count = partition.skipped_duplicate_count;
+    let skipped_record_count = partition.skipped_record_count();
+    let records = partition.accepted_records;
     let stats = collect_field_stats_from_indexed(&records);
     let searchable_paths: Vec<String> = stats.iter().map(|stat| stat.path.clone()).collect();
 
@@ -217,9 +232,15 @@ fn action_create(payload: &Value) -> Result<Value, String> {
         .transaction()
         .map_err(|e| format!("create dictionary transaction failed: {e}"))?;
     tx.execute(
-        "INSERT INTO data_dictionaries (name, description, record_count, nav_order)
-         VALUES (?1, ?2, ?3, ?4)",
-        params![name, description, records.len() as i64, nav_order],
+        "INSERT INTO data_dictionaries (name, description, record_count, primary_field_path, nav_order)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![
+            name,
+            description,
+            records.len() as i64,
+            primary_field_path,
+            nav_order
+        ],
     )
     .map_err(|e| format!("insert data dictionary failed: {e}"))?;
     let dictionary_id = tx.last_insert_rowid();
@@ -247,15 +268,14 @@ fn action_create(payload: &Value) -> Result<Value, String> {
     mark_field_value_index_ready(&tx, dictionary_id)?;
     tx.commit()
         .map_err(|e| format!("commit create dictionary failed: {e}"))?;
-    rebuild_fts_for_dictionary(&conn, dictionary_id);
 
     Ok(json!({
         "ok": true,
         "id": dictionary_id,
         "recordCount": records.len(),
-        "skippedPrimaryRecordCount": 0,
-        "skippedPrimaryInvalidCount": 0,
-        "skippedPrimaryDuplicateCount": 0,
+        "skippedPrimaryRecordCount": skipped_record_count,
+        "skippedPrimaryInvalidCount": skipped_invalid_count,
+        "skippedPrimaryDuplicateCount": skipped_duplicate_count,
     }))
 }
 
@@ -320,7 +340,6 @@ fn action_replace_records(payload: &Value) -> Result<Value, String> {
         params![dictionary_id],
     )
     .map_err(|e| format!("delete old dictionary records failed: {e}"))?;
-    delete_fts_for_dictionary(&tx, dictionary_id);
 
     for stat in &stats {
         if let Some(existing) = old_configs.get(&stat.path) {
@@ -387,7 +406,6 @@ fn action_replace_records(payload: &Value) -> Result<Value, String> {
     mark_field_value_index_ready(&tx, dictionary_id)?;
     tx.commit()
         .map_err(|e| format!("commit replace records failed: {e}"))?;
-    rebuild_fts_for_dictionary(&conn, dictionary_id);
     Ok(json!({
         "ok": true,
         "recordCount": records.len(),
@@ -404,6 +422,7 @@ fn action_update_fields(payload: &Value) -> Result<Value, String> {
     let fields = payload["fields"]
         .as_array()
         .ok_or("fields is required")?;
+    require_non_empty_field_payload(fields)?;
     let mut seen = HashSet::new();
     let sort_direction = parse_sort_direction(payload["sortDirection"].as_str())?;
     let mut conn = db_conn()?;
@@ -442,17 +461,21 @@ fn action_update_fields(payload: &Value) -> Result<Value, String> {
         )
         .map_err(|e| format!("update data dictionary field failed: {e}"))?;
     }
-    let primary_field_path = parse_configured_field_path(payload, "primaryFieldPath", &seen)?;
+    let primary_field_path = parse_configured_field_path(payload, "primaryFieldPath", &seen)?
+        .ok_or_else(|| "primaryFieldPath is required".to_string())?;
     let title_field_path = parse_configured_field_path(payload, "titleFieldPath", &seen)?;
     let sort_field_path = parse_configured_field_path(payload, "sortFieldPath", &seen)?;
     let new_sort_config = sort_field_path
         .as_deref()
         .map(|path| (path, sort_direction));
+    let old_primary_field_path = load_dictionary_primary_field_path(&tx, dictionary_id)?;
+    let primary_changed = old_primary_field_path.as_deref() != Some(primary_field_path.as_str());
+    let confirm_primary_prune = payload["confirmPrimaryPrune"].as_bool().unwrap_or(false);
     let relations = parse_relation_drafts(
         &tx,
         dictionary_id,
         &seen,
-        primary_field_path.as_deref(),
+        Some(primary_field_path.as_str()),
         payload.get("relations").and_then(Value::as_array),
     )?;
     tx.execute(
@@ -461,7 +484,7 @@ fn action_update_fields(payload: &Value) -> Result<Value, String> {
              sort_direction = ?4, updated_at = CURRENT_TIMESTAMP
         WHERE id = ?5",
         params![
-            primary_field_path.as_deref(),
+            primary_field_path.as_str(),
             title_field_path.as_deref(),
             sort_field_path.as_deref(),
             sort_direction.as_str(),
@@ -489,38 +512,38 @@ fn action_update_fields(payload: &Value) -> Result<Value, String> {
         )
         .map_err(|e| format!("insert data dictionary relation failed: {e}"))?;
     }
-    let (record_count, skipped_invalid_count, skipped_duplicate_count) =
-        if let Some(primary_field_path) = primary_field_path.as_deref() {
-            let existing_records = load_indexed_records_for_dictionary(&tx, dictionary_id)?;
-            let partition =
-                partition_records_by_primary(existing_records, Some(primary_field_path))?;
-            let skipped_invalid_count = partition.skipped_invalid_count;
-            let skipped_duplicate_count = partition.skipped_duplicate_count;
-            let accepted_records = partition.accepted_records;
-            let searchable_paths = load_searchable_paths(&tx, dictionary_id)?;
-            tx.execute(
-                "DELETE FROM data_dictionary_records WHERE dictionary_id = ?1",
-                params![dictionary_id],
-            )
-            .map_err(|e| format!("delete invalid primary records failed: {e}"))?;
-            delete_fts_for_dictionary(&tx, dictionary_id);
-            insert_records(
-                &tx,
-                dictionary_id,
-                &accepted_records,
-                &searchable_paths,
-                new_sort_config,
-            )?;
-            mark_field_value_index_ready(&tx, dictionary_id)?;
-            (
-                accepted_records.len(),
-                skipped_invalid_count,
-                skipped_duplicate_count,
-            )
-        } else {
-            let stats = rebuild_dictionary_indexes(&tx, dictionary_id)?;
-            (stats.record_count, 0, 0)
-        };
+    let existing_records = load_indexed_records_for_dictionary(&tx, dictionary_id)?;
+    let partition =
+        partition_records_by_primary(existing_records, Some(primary_field_path.as_str()))?;
+    let skipped_invalid_count = partition.skipped_invalid_count;
+    let skipped_duplicate_count = partition.skipped_duplicate_count;
+    let skipped_record_count = partition.skipped_record_count();
+    if primary_changed && skipped_record_count > 0 && !confirm_primary_prune {
+        return Err(json!({
+            "code": "PRIMARY_PRUNE_CONFIRMATION_REQUIRED",
+            "message": "primary key change requires confirmation",
+            "skippedPrimaryRecordCount": skipped_record_count,
+            "skippedPrimaryInvalidCount": skipped_invalid_count,
+            "skippedPrimaryDuplicateCount": skipped_duplicate_count
+        })
+        .to_string());
+    }
+    let accepted_records = partition.accepted_records;
+    let searchable_paths = load_searchable_paths(&tx, dictionary_id)?;
+    tx.execute(
+        "DELETE FROM data_dictionary_records WHERE dictionary_id = ?1",
+        params![dictionary_id],
+    )
+    .map_err(|e| format!("delete invalid primary records failed: {e}"))?;
+    insert_records(
+        &tx,
+        dictionary_id,
+        &accepted_records,
+        &searchable_paths,
+        new_sort_config,
+    )?;
+    mark_field_value_index_ready(&tx, dictionary_id)?;
+    let record_count = accepted_records.len();
     tx.execute(
         "UPDATE data_dictionaries
          SET record_count = ?1, updated_at = CURRENT_TIMESTAMP
@@ -530,7 +553,6 @@ fn action_update_fields(payload: &Value) -> Result<Value, String> {
     .map_err(|e| format!("update data dictionary record count failed: {e}"))?;
     tx.commit()
         .map_err(|e| format!("commit update fields failed: {e}"))?;
-    rebuild_fts_for_dictionary(&conn, dictionary_id);
     Ok(json!({
         "ok": true,
         "recordCount": record_count,
@@ -576,30 +598,130 @@ fn action_search(payload: &Value) -> Result<Value, String> {
     }
     ensure_scope_sort_keys_ready(&conn, &scope)?;
 
-    let mut rows = if keyword.is_empty() {
+    let rows = if keyword.is_empty() {
         query_empty_records(&conn, &scope, Some(fetch_limit))?
     } else {
         query_like_records(&conn, &scope, keyword, Some(fetch_limit))?
     };
 
-    if !keyword.is_empty() && rows.len() < fetch_limit as usize && data_dictionary_has_fts(&conn) {
-        if let Some(fts_keyword) = build_fts_keyword(keyword) {
-            if let Ok(fts_rows) = query_fts_records(&conn, &scope, &fts_keyword, Some(fetch_limit))
-            {
-                let mut seen: HashSet<i64> = rows.iter().map(|row| row.id).collect();
-                for row in fts_rows {
-                    if seen.insert(row.id) {
-                        rows.push(row);
-                    }
-                }
-                rows = order_rows_after_fts_merge(&conn, &scope, rows)?;
-            }
-        }
-    }
-
     let (rows, has_more) = split_limited_rows(rows, limit as usize);
     let items = rows_to_search_items(&conn, rows, keyword, include_raw_json)?;
     Ok(json!({ "items": items, "hasMore": has_more }))
+}
+
+fn action_popular_records(payload: &Value) -> Result<Value, String> {
+    let dictionary_id = payload["dictionaryId"].as_i64();
+    let limit = payload["limit"].as_i64().unwrap_or(10).clamp(1, 50);
+    let conn = db_conn()?;
+
+    let mut params_list: Vec<SqlParam> = Vec::new();
+    let mut where_clause = String::from(
+        "WHERE d.primary_field_path IS NOT NULL AND trim(d.primary_field_path) <> ''",
+    );
+    if let Some(dictionary_id) = dictionary_id {
+        ensure_dictionary_exists(&conn, dictionary_id)?;
+        where_clause.push_str(" AND u.dictionary_id = ?");
+        params_list.push(Box::new(dictionary_id));
+    }
+    params_list.push(Box::new(limit));
+
+    let sql = build_popular_records_query(&where_clause);
+    let refs: Vec<&dyn ToSql> = params_list.iter().map(|param| param.as_ref()).collect();
+    let mut stmt = conn
+        .prepare(&sql)
+        .map_err(|e| format!("prepare popular data dictionary records failed: {e}"))?;
+    let rows = stmt
+        .query_map(refs.as_slice(), |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, i64>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, String>(5)?,
+            ))
+        })
+        .map_err(|e| format!("query popular data dictionary records failed: {e}"))?;
+
+    let mut candidates = Vec::new();
+    for row in rows {
+        candidates.push(row.map_err(|e| e.to_string())?);
+    }
+    drop(stmt);
+
+    let mut items = Vec::new();
+    let mut stale = Vec::new();
+    for (
+        dictionary_id,
+        business_record_id,
+        normalized_value,
+        used_count,
+        last_used_at,
+        primary_field_path,
+    ) in candidates
+    {
+        match load_record_row_by_primary_value(
+            &conn,
+            dictionary_id,
+            &primary_field_path,
+            &normalized_value,
+        )? {
+            Some(record) => {
+                let searchable_paths = load_searchable_paths(&conn, record.dictionary_id)?;
+                let fields = load_field_configs(&conn, record.dictionary_id)?;
+                let mut value =
+                    record_row_to_search_item_json(record, &searchable_paths, &fields, "", false)?;
+                if let Some(object) = value.as_object_mut() {
+                    object.insert("recordId".to_string(), json!(business_record_id));
+                    object.insert("normalizedValue".to_string(), json!(normalized_value));
+                    object.insert("usedCount".to_string(), json!(used_count));
+                    object.insert("lastUsedAt".to_string(), json!(last_used_at));
+                }
+                items.push(value);
+            }
+            None => stale.push((dictionary_id, normalized_value)),
+        }
+    }
+
+    for (dictionary_id, normalized_value) in stale {
+        conn.execute(
+            "DELETE FROM data_dictionary_record_usage
+             WHERE dictionary_id = ?1 AND normalized_value = ?2",
+            params![dictionary_id, normalized_value],
+        )
+        .map_err(|e| format!("delete stale data dictionary usage failed: {e}"))?;
+    }
+
+    Ok(json!({ "items": items }))
+}
+
+fn action_mark_record_used(payload: &Value) -> Result<Value, String> {
+    let row_id = payload["id"].as_i64().ok_or("id is required")?;
+    let conn = db_conn()?;
+    let record = load_record_row_by_id(&conn, row_id)?;
+    let primary_field_path = load_dictionary_primary_field_path(&conn, record.dictionary_id)?
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| "dictionary primaryFieldPath is required".to_string())?;
+    let (business_record_id, normalized_value) = load_record_primary_usage_value(
+        &conn,
+        record.id,
+        record.dictionary_id,
+        &primary_field_path,
+    )?;
+
+    conn.execute(
+        "INSERT INTO data_dictionary_record_usage
+         (dictionary_id, primary_value_text, normalized_value, used_count, last_used_at)
+         VALUES (?1, ?2, ?3, 1, CURRENT_TIMESTAMP)
+         ON CONFLICT(dictionary_id, normalized_value) DO UPDATE SET
+           primary_value_text = excluded.primary_value_text,
+           used_count = data_dictionary_record_usage.used_count + 1,
+           last_used_at = CURRENT_TIMESTAMP",
+        params![record.dictionary_id, business_record_id, normalized_value],
+    )
+    .map_err(|e| format!("mark data dictionary record used failed: {e}"))?;
+
+    Ok(json!({ "ok": true }))
 }
 
 fn action_rebuild_indexes(payload: &Value) -> Result<Value, String> {
@@ -614,7 +736,6 @@ fn action_rebuild_indexes(payload: &Value) -> Result<Value, String> {
     let stats = rebuild_dictionary_indexes(&tx, dictionary_id)?;
     tx.commit()
         .map_err(|e| format!("commit rebuild dictionary indexes failed: {e}"))?;
-    rebuild_fts_for_dictionary(&conn, dictionary_id);
     Ok(json!({
         "recordCount": stats.record_count,
         "valueCount": stats.value_count,
@@ -717,7 +838,6 @@ fn action_record_detail(payload: &Value) -> Result<Value, String> {
 fn action_delete(payload: &Value) -> Result<Value, String> {
     let id = payload["id"].as_i64().ok_or("id is required")?;
     let conn = db_conn()?;
-    delete_fts_for_dictionary(&conn, id);
     conn.execute("DELETE FROM data_dictionaries WHERE id = ?1", params![id])
         .map_err(|e| format!("delete data dictionary failed: {e}"))?;
     Ok(json!({ "ok": true }))
@@ -1061,6 +1181,15 @@ fn parse_reorder_dictionary_ids(payload: &Value) -> Result<Vec<(i64, i64)>, Stri
     Ok(updates)
 }
 
+fn parse_required_field_path(payload: &Value, key: &str) -> Result<String, String> {
+    payload[key]
+        .as_str()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| format!("{key} is required"))
+}
+
 fn parse_configured_field_path(
     payload: &Value,
     key: &str,
@@ -1146,6 +1275,13 @@ fn parse_relation_drafts(
         });
     }
     Ok(out)
+}
+
+fn require_non_empty_field_payload(fields: &[Value]) -> Result<(), String> {
+    if fields.is_empty() {
+        return Err("fields must not be empty".to_string());
+    }
+    Ok(())
 }
 
 fn field_has_non_scalar_values(
@@ -1295,34 +1431,35 @@ fn query_like_records(
     keyword: &str,
     limit: Option<i64>,
 ) -> Result<Vec<RecordRow>, String> {
-    let normalized = normalize_search_text(keyword);
-    let pattern = format!("%{}%", escape_like_pattern(&normalized));
+    let (condition, pattern) = build_keyword_search_condition(keyword);
     query_records(
         conn,
         scope,
-        vec!["r.normalized_search_text LIKE ? ESCAPE '\\'".to_string()],
+        vec![condition],
         vec![Box::new(pattern)],
         limit,
         false,
     )
 }
 
-fn query_fts_records(
-    conn: &Connection,
-    scope: &SearchScope,
-    fts_keyword: &str,
-    limit: Option<i64>,
-) -> Result<Vec<RecordRow>, String> {
-    query_records(
-        conn,
-        scope,
-        vec![
-            "r.id IN (SELECT record_id FROM data_dictionary_fts WHERE data_dictionary_fts MATCH ?)"
-                .to_string(),
-        ],
-        vec![Box::new(fts_keyword.to_string())],
-        limit,
-        false,
+fn build_keyword_search_condition(keyword: &str) -> (String, String) {
+    let normalized = normalize_search_text(keyword);
+    let pattern = format!("%{}%", escape_like_pattern(&normalized));
+    (
+        "r.normalized_search_text LIKE ? ESCAPE '\\'".to_string(),
+        pattern,
+    )
+}
+
+fn build_popular_records_query(where_clause: &str) -> String {
+    format!(
+        "SELECT u.dictionary_id, u.primary_value_text, u.normalized_value, u.used_count, u.last_used_at,
+                d.primary_field_path
+         FROM data_dictionary_record_usage u
+         JOIN data_dictionaries d ON d.id = u.dictionary_id
+         {where_clause}
+         ORDER BY u.used_count DESC, u.last_used_at DESC
+         LIMIT ?"
     )
 }
 
@@ -1401,38 +1538,6 @@ fn load_record_row_by_id(conn: &Connection, record_id: i64) -> Result<RecordRow,
     .ok_or("record not found".to_string())
 }
 
-fn order_rows_after_fts_merge(
-    conn: &Connection,
-    scope: &SearchScope,
-    rows: Vec<RecordRow>,
-) -> Result<Vec<RecordRow>, String> {
-    if rows.len() <= 1 {
-        return Ok(rows);
-    }
-    let ids = rows.iter().map(|row| row.id).collect::<Vec<_>>();
-    query_records_by_ids_in_sort_order(conn, scope, &ids)
-}
-
-fn query_records_by_ids_in_sort_order(
-    conn: &Connection,
-    scope: &SearchScope,
-    ids: &[i64],
-) -> Result<Vec<RecordRow>, String> {
-    if ids.is_empty() {
-        return Ok(Vec::new());
-    }
-    let placeholders = std::iter::repeat("?")
-        .take(ids.len())
-        .collect::<Vec<_>>()
-        .join(", ");
-    let conditions = vec![format!("r.id IN ({placeholders})")];
-    let params_list = ids
-        .iter()
-        .map(|id| Box::new(*id) as SqlParam)
-        .collect::<Vec<_>>();
-    query_records(conn, scope, conditions, params_list, None, false)
-}
-
 fn load_relation_configs(
     conn: &Connection,
     dictionary_id: i64,
@@ -1507,6 +1612,63 @@ fn load_relation_seed_value(
             None
         }
     }))
+}
+
+fn load_record_primary_usage_value(
+    conn: &Connection,
+    record_id: i64,
+    dictionary_id: i64,
+    primary_field_path: &str,
+) -> Result<(String, String), String> {
+    let row = conn
+        .query_row(
+            "SELECT value_type, value_text, normalized_value
+             FROM data_dictionary_record_values
+             WHERE record_id = ?1 AND dictionary_id = ?2 AND field_path = ?3",
+            params![record_id, dictionary_id, primary_field_path],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            },
+        )
+        .optional()
+        .map_err(|e| format!("load record primary usage value failed: {e}"))?;
+
+    let Some((value_type, value_text, normalized_value)) = row else {
+        return Err("record primary value not found".to_string());
+    };
+    if !is_relation_value_usable(&value_type, &normalized_value) {
+        return Err("record primary value is not usable".to_string());
+    }
+    Ok((value_text, normalized_value))
+}
+
+fn load_record_row_by_primary_value(
+    conn: &Connection,
+    dictionary_id: i64,
+    primary_field_path: &str,
+    normalized_value: &str,
+) -> Result<Option<RecordRow>, String> {
+    conn.query_row(
+        "SELECT r.id, r.dictionary_id, d.name, r.row_index, r.raw_json,
+                d.title_field_path
+         FROM data_dictionary_record_values v
+         JOIN data_dictionary_records r ON r.id = v.record_id
+         JOIN data_dictionaries d ON d.id = r.dictionary_id
+         WHERE v.dictionary_id = ?1
+           AND v.field_path = ?2
+           AND v.normalized_value = ?3
+           AND v.value_type IN ('string', 'number', 'boolean')
+         ORDER BY r.sort_key COLLATE BINARY ASC, r.id ASC
+         LIMIT 1",
+        params![dictionary_id, primary_field_path, normalized_value],
+        record_row,
+    )
+    .optional()
+    .map_err(|e| format!("load data dictionary record by primary value failed: {e}"))
 }
 
 fn load_related_record_briefs(
@@ -1903,20 +2065,6 @@ fn split_limited_rows(mut rows: Vec<RecordRow>, limit: usize) -> (Vec<RecordRow>
     }
 }
 
-fn build_fts_keyword(keyword: &str) -> Option<String> {
-    let parts = keyword
-        .split_whitespace()
-        .map(|part| part.trim_matches('"').replace('"', ""))
-        .filter(|part| !part.is_empty())
-        .map(|part| format!("\"{part}\""))
-        .collect::<Vec<_>>();
-    if parts.is_empty() {
-        None
-    } else {
-        Some(parts.join(" "))
-    }
-}
-
 fn load_searchable_paths(conn: &Connection, dictionary_id: i64) -> Result<Vec<String>, String> {
     let mut stmt = conn
         .prepare(
@@ -2291,64 +2439,6 @@ fn ensure_dictionary_exists(conn: &Connection, dictionary_id: i64) -> Result<(),
         Ok(())
     } else {
         Err("dictionary not found".to_string())
-    }
-}
-
-fn data_dictionary_has_fts(conn: &Connection) -> bool {
-    conn.query_row(
-        "SELECT count(*) > 0 FROM sqlite_master WHERE type='table' AND name='data_dictionary_fts'",
-        [],
-        |row| row.get::<_, bool>(0),
-    )
-    .unwrap_or(false)
-}
-
-fn rebuild_fts_for_dictionary(conn: &Connection, dictionary_id: i64) {
-    if !data_dictionary_has_fts(conn) {
-        return;
-    }
-    delete_fts_for_dictionary(conn, dictionary_id);
-    let mut stmt = match conn.prepare(
-        "SELECT id, search_text
-         FROM data_dictionary_records
-         WHERE dictionary_id = ?1",
-    ) {
-        Ok(stmt) => stmt,
-        Err(err) => {
-            eprintln!("prepare data dictionary fts rebuild failed: {err}");
-            return;
-        }
-    };
-    let rows = match stmt.query_map(params![dictionary_id], |row| {
-        Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
-    }) {
-        Ok(rows) => rows,
-        Err(err) => {
-            eprintln!("query data dictionary fts rebuild failed: {err}");
-            return;
-        }
-    };
-    for row in rows {
-        let Ok((record_id, search_text)) = row else {
-            continue;
-        };
-        if let Err(err) = conn.execute(
-            "INSERT INTO data_dictionary_fts(record_id, dictionary_id, search_text)
-             VALUES (?1, ?2, ?3)",
-            params![record_id, dictionary_id, search_text],
-        ) {
-            eprintln!("insert data dictionary fts row failed: {err}");
-            return;
-        }
-    }
-}
-
-fn delete_fts_for_dictionary(conn: &Connection, dictionary_id: i64) {
-    if data_dictionary_has_fts(conn) {
-        let _ = conn.execute(
-            "DELETE FROM data_dictionary_fts WHERE dictionary_id = ?1",
-            params![dictionary_id],
-        );
     }
 }
 
@@ -2838,6 +2928,25 @@ mod tests {
     }
 
     #[test]
+    fn keyword_search_condition_uses_like_without_fts() {
+        let (condition, pattern) = build_keyword_search_condition("  Foo\tBAR  ");
+
+        assert_eq!(condition, "r.normalized_search_text LIKE ? ESCAPE '\\'");
+        assert_eq!(pattern, "%foo bar%");
+        assert!(!condition.contains("data_dictionary_fts"));
+        assert!(!condition.contains("MATCH"));
+    }
+
+    #[test]
+    fn popular_records_query_uses_primary_value_text_name() {
+        let sql = build_popular_records_query("WHERE 1 = 1");
+
+        assert!(sql.contains("u.primary_value_text"));
+        assert!(!sql.contains("u.record_id"));
+        assert!(!sql.contains(" record_id"));
+    }
+
+    #[test]
     fn parse_limit_keeps_existing_search_limit_bounds() {
         assert_eq!(parse_limit(&json!({ "limit": 0 })), 1);
         assert_eq!(parse_limit(&json!({ "limit": 100 })), 100);
@@ -3031,6 +3140,16 @@ mod tests {
     }
 
     #[test]
+    fn require_non_empty_field_payload_rejects_empty_fields() {
+        let fields: Vec<Value> = Vec::new();
+
+        let err = require_non_empty_field_payload(&fields)
+            .expect_err("empty field configuration payload must fail");
+
+        assert_eq!(err, "fields must not be empty");
+    }
+
+    #[test]
     fn parse_configured_field_path_accepts_known_field_and_blank_default() {
         let seen = HashSet::from(["name".to_string(), "code".to_string()]);
 
@@ -3066,6 +3185,106 @@ mod tests {
         .expect_err("unknown configured field must fail");
 
         assert_eq!(err, "titleFieldPath not found: missing");
+    }
+
+    #[test]
+    fn parse_required_field_path_rejects_blank_values() {
+        assert_eq!(
+            parse_required_field_path(&json!({ "primaryFieldPath": " id " }), "primaryFieldPath")
+                .unwrap(),
+            "id"
+        );
+
+        let err = parse_required_field_path(
+            &json!({ "primaryFieldPath": "   " }),
+            "primaryFieldPath",
+        )
+        .expect_err("blank primary field path must fail");
+
+        assert_eq!(err, "primaryFieldPath is required");
+    }
+
+    #[test]
+    fn load_record_primary_usage_value_returns_business_and_normalized_values() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "
+            CREATE TABLE data_dictionary_record_values (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                record_id INTEGER NOT NULL,
+                dictionary_id INTEGER NOT NULL,
+                field_path TEXT NOT NULL,
+                value_type TEXT NOT NULL,
+                value_text TEXT NOT NULL,
+                normalized_value TEXT NOT NULL
+            );
+            INSERT INTO data_dictionary_record_values
+                (record_id, dictionary_id, field_path, value_type, value_text, normalized_value)
+            VALUES
+                (10, 1, 'id', 'string', ' U-001 ', 'u-001'),
+                (11, 1, 'id', 'null', 'null', 'null');
+            ",
+        )
+        .unwrap();
+
+        assert_eq!(
+            load_record_primary_usage_value(&conn, 10, 1, "id").unwrap(),
+            (" U-001 ".to_string(), "u-001".to_string())
+        );
+        assert!(load_record_primary_usage_value(&conn, 11, 1, "id").is_err());
+    }
+
+    #[test]
+    fn load_record_row_by_primary_value_uses_normalized_value_not_row_id() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "
+            CREATE TABLE data_dictionaries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                title_field_path TEXT DEFAULT NULL
+            );
+            CREATE TABLE data_dictionary_records (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                dictionary_id INTEGER NOT NULL,
+                row_index INTEGER NOT NULL,
+                raw_json TEXT NOT NULL,
+                search_text TEXT NOT NULL,
+                normalized_search_text TEXT NOT NULL,
+                sort_key TEXT NOT NULL DEFAULT ''
+            );
+            CREATE TABLE data_dictionary_record_values (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                record_id INTEGER NOT NULL,
+                dictionary_id INTEGER NOT NULL,
+                field_path TEXT NOT NULL,
+                value_type TEXT NOT NULL,
+                value_text TEXT NOT NULL,
+                normalized_value TEXT NOT NULL
+            );
+            INSERT INTO data_dictionaries (id, name, title_field_path)
+            VALUES (1, 'Users', 'name');
+            INSERT INTO data_dictionary_records
+                (id, dictionary_id, row_index, raw_json, search_text, normalized_search_text, sort_key)
+            VALUES
+                (100, 1, 0, '{\"id\":\"u1\",\"name\":\"Old\"}', '', '', '1!0000000000000000'),
+                (200, 1, 1, '{\"id\":\"u2\",\"name\":\"Current\"}', '', '', '1!0000000000000001');
+            INSERT INTO data_dictionary_record_values
+                (record_id, dictionary_id, field_path, value_type, value_text, normalized_value)
+            VALUES
+                (100, 1, 'id', 'string', 'u1', 'u1'),
+                (200, 1, 'id', 'string', 'u2', 'u2');
+            ",
+        )
+        .unwrap();
+
+        let row = load_record_row_by_primary_value(&conn, 1, "id", "u2")
+            .unwrap()
+            .expect("record by normalized primary value");
+
+        assert_eq!(row.id, 200);
+        assert_eq!(row.dictionary_name, "Users");
+        assert_eq!(row.title_field_path, Some("name".to_string()));
     }
 
     fn test_record_row(id: i64, row_index: i64, raw_json: Value) -> RecordRow {
