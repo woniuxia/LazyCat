@@ -12,6 +12,7 @@ export {}
 declare module 'vue' {
   export interface GlobalComponents {
     AesPanel: typeof import('./src/components/AesPanel.vue')['default']
+    ApiWorkbenchPanel: typeof import('./src/components/ApiWorkbenchPanel.vue')['default']
     BaseConverterPanel: typeof import('./src/components/BaseConverterPanel.vue')['default']
     BcryptPanel: typeof import('./src/components/BcryptPanel.vue')['default']
     CalcDraftPanel: typeof import('./src/components/CalcDraftPanel.vue')['default']
