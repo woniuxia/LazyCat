@@ -1204,6 +1204,127 @@ fn history_clear_with_conn(conn: &Connection) -> Result<Value, String> {
     Ok(json!({ "ok": true }))
 }
 
+fn is_sensitive_header(name: &str) -> bool {
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        "authorization" | "cookie" | "x-api-key" | "x-auth-token"
+    )
+}
+
+fn markdown_escape(text: &str) -> String {
+    text.replace('|', "\\|")
+}
+
+fn render_header_lines(headers: &[KeyValueRow]) -> String {
+    let mut lines = Vec::new();
+    for header in headers
+        .iter()
+        .filter(|row| row.enabled && !row.key.trim().is_empty())
+    {
+        let value = if is_sensitive_header(&header.key) {
+            "******".to_string()
+        } else {
+            header.value.clone()
+        };
+        lines.push(format!(
+            "- {}: {}",
+            markdown_escape(&header.key),
+            markdown_escape(&value)
+        ));
+    }
+    if lines.is_empty() {
+        "- 无".to_string()
+    } else {
+        lines.join("\n")
+    }
+}
+
+fn render_request_markdown(item: &Value) -> String {
+    let name = item["name"].as_str().unwrap_or("未命名接口");
+    let description = item["description"].as_str().unwrap_or("");
+    let draft = &item["draft"];
+    let method = draft["method"].as_str().unwrap_or("GET");
+    let url = draft["url"].as_str().unwrap_or("");
+    let headers: Vec<KeyValueRow> =
+        serde_json::from_value(draft["headers"].clone()).unwrap_or_default();
+    let body_type = draft["bodyType"].as_str().unwrap_or("none");
+    let body = draft["body"].as_str().unwrap_or("");
+    let mut out = String::new();
+    out.push_str(&format!("### {name}\n\n"));
+    if !description.is_empty() {
+        out.push_str(description);
+        out.push_str("\n\n");
+    }
+    out.push_str(&format!("`{method} {url}`\n\n"));
+    out.push_str("#### Headers\n\n");
+    out.push_str(&render_header_lines(&headers));
+    out.push_str("\n\n");
+    out.push_str("#### Body\n\n");
+    if body_type == "none" || body.trim().is_empty() {
+        out.push_str("无\n\n");
+    } else {
+        out.push_str(&format!("```{body_type}\n{body}\n```\n\n"));
+    }
+    out
+}
+
+fn export_markdown_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
+    let collection_id = parse_i64(payload, "collectionId")?;
+    let collection = conn
+        .query_row(
+            "SELECT name, description FROM api_workbench_collections WHERE id=?1",
+            [collection_id],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        )
+        .map_err(|_| "集合不存在".to_string())?;
+    let mut markdown = String::new();
+    markdown.push_str(&format!("# {}\n\n", collection.0));
+    if !collection.1.is_empty() {
+        markdown.push_str(&collection.1);
+        markdown.push_str("\n\n");
+    }
+
+    markdown.push_str("## 环境变量\n\n");
+    let mut var_stmt = conn
+        .prepare(
+            "SELECT e.name, v.name
+             FROM api_workbench_environments e
+             LEFT JOIN api_workbench_environment_variables v ON v.environment_id=e.id
+             WHERE e.collection_id=?1
+             ORDER BY e.sort_order ASC, e.id ASC, v.sort_order ASC",
+        )
+        .map_err(|e| format!("prepare vars failed: {e}"))?;
+    let var_rows = var_stmt
+        .query_map([collection_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+        })
+        .map_err(|e| format!("query vars failed: {e}"))?;
+    for row in var_rows {
+        let (env_name, var_name) = row.map_err(|e| e.to_string())?;
+        if let Some(var_name) = var_name {
+            markdown.push_str(&format!("- {}: `{}`\n", env_name, var_name));
+        }
+    }
+    markdown.push_str("\n## 接口\n\n");
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT id FROM api_workbench_requests
+             WHERE collection_id=?1 ORDER BY folder_id IS NOT NULL, folder_id, sort_order, id",
+        )
+        .map_err(|e| format!("prepare requests failed: {e}"))?;
+    let ids = stmt
+        .query_map([collection_id], |row| row.get::<_, i64>(0))
+        .map_err(|e| format!("query requests failed: {e}"))?;
+    for id in ids {
+        let request = request_get_with_conn(conn, &json!({ "id": id.map_err(|e| e.to_string())? }))?;
+        markdown.push_str(&render_request_markdown(&request));
+    }
+
+    let file_name = format!("{}-api.md", collection.0.trim().replace(' ', "-"));
+    Ok(json!({ "fileName": file_name, "markdown": markdown }))
+}
+
 pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
     let conn = db_conn()?;
     match action {
@@ -1223,6 +1344,7 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         "send" => send_with_conn(&conn, payload),
         "history_list" => history_list_with_conn(&conn),
         "history_clear" => history_clear_with_conn(&conn),
+        "export_markdown" => export_markdown_with_conn(&conn, payload),
         "environment_list" => environment_list_with_conn(&conn, payload),
         "environment_save" => environment_save_with_conn(&conn, payload),
         "environment_delete" => environment_delete_with_conn(&conn, payload),
@@ -1593,5 +1715,45 @@ mod tests {
             })
             .expect("count");
         assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn export_markdown_redacts_sensitive_headers_and_hides_variable_values() {
+        let conn = test_conn();
+        let c = collection_create_with_conn(
+            &conn,
+            &json!({ "name": "Demo", "description": "API docs" }),
+        )
+        .expect("create");
+        let collection_id = c["id"].as_i64().unwrap();
+        request_save_with_conn(
+            &conn,
+            &json!({
+                "collectionId": collection_id,
+                "folderId": null,
+                "name": "Auth",
+                "description": "Login",
+                "draft": {
+                    "method": "POST",
+                    "url": "/api/login",
+                    "query": [],
+                    "headers": [{ "enabled": true, "key": "Authorization", "value": "Bearer secret" }],
+                    "bodyType": "json",
+                    "body": "{\"name\":\"demo\"}",
+                    "form": [],
+                    "timeoutMs": 10000
+                }
+            }),
+        )
+        .expect("request");
+        let result =
+            export_markdown_with_conn(&conn, &json!({ "collectionId": collection_id }))
+                .expect("export");
+        let markdown = result["markdown"].as_str().unwrap();
+        assert!(markdown.contains("# Demo"));
+        assert!(markdown.contains("POST /api/login"));
+        assert!(markdown.contains("Authorization: ******"));
+        assert!(!markdown.contains("Bearer secret"));
+        assert!(markdown.contains("BASE_URL"));
     }
 }
