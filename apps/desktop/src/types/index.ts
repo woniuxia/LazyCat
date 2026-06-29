@@ -99,3 +99,18 @@ export type {
   DataDictionaryImportWriteResult,
   RebuildDataDictionaryIndexesResult,
 } from "./data-dictionary";
+export type {
+  ApiWorkbenchBodyType,
+  ApiWorkbenchMethod,
+  ApiWorkbenchKeyValueRow,
+  ApiWorkbenchRequestDraft,
+  ApiWorkbenchCollection,
+  ApiWorkbenchFolder,
+  ApiWorkbenchRequestSummary,
+  ApiWorkbenchRequestDetail,
+  ApiWorkbenchVariable,
+  ApiWorkbenchEnvironment,
+  ApiWorkbenchSendResult,
+  ApiWorkbenchHistoryItem,
+  ApiWorkbenchListResult,
+} from "./api-workbench";
