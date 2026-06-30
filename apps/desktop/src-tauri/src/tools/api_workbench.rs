@@ -2178,7 +2178,46 @@ fn export_markdown_with_conn(conn: &Connection, payload: &Value) -> Result<Value
     Ok(json!({ "fileName": file_name, "markdown": markdown }))
 }
 
+fn is_supported_api_workbench_action(action: &str) -> bool {
+    matches!(
+        action,
+        "list"
+            | "collection_create"
+            | "collection_update"
+            | "collection_set_active_environment"
+            | "collection_delete"
+            | "folder_create"
+            | "folder_update"
+            | "folder_delete"
+            | "folder_move"
+            | "folder_reorder"
+            | "request_get"
+            | "request_save"
+            | "request_delete"
+            | "request_move"
+            | "request_reorder"
+            | "send"
+            | "export_curl"
+            | "history_save_request"
+            | "request_save_example_response"
+            | "history_list"
+            | "history_get"
+            | "history_replay"
+            | "history_update"
+            | "history_clear"
+            | "export_markdown"
+            | "environment_list"
+            | "environment_save"
+            | "environment_delete"
+            | "global_variables_list"
+            | "global_variables_save"
+    )
+}
+
 pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
+    if !is_supported_api_workbench_action(action) {
+        return Err(format!("unsupported api_workbench action: {action}"));
+    }
     let conn = db_conn()?;
     ensure_api_workbench_history_columns(&conn)?;
     match action {
@@ -2214,7 +2253,7 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         "environment_delete" => environment_delete_with_conn(&conn, payload),
         "global_variables_list" => global_variables_list_with_conn(&conn),
         "global_variables_save" => global_variables_save_with_conn(&conn, payload),
-        _ => Err(format!("unsupported api_workbench action: {action}")),
+        _ => unreachable!("api workbench action checked before dispatch"),
     }
 }
 
