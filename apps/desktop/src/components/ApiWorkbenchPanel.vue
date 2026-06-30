@@ -155,18 +155,47 @@
           <pre class="headers-view">{{ responseHeadersText }}</pre>
         </el-tab-pane>
         <el-tab-pane label="历史" name="history">
-          <div
-            v-for="item in history"
-            :key="item.id"
-            class="history-item"
-            @click="reuseHistory(item)"
-          >
-            <div class="history-main">
-              <strong>{{ item.method }}</strong>
-              <span>{{ item.finalUrl }}</span>
-              <small>{{ item.status ?? "ERR" }} · {{ item.durationMs }}ms</small>
+          <div class="history-toolbar">
+            <el-input
+              v-model="historyQuery"
+              size="small"
+              clearable
+              placeholder="搜索历史"
+              @keyup.enter="loadHistory"
+              @clear="loadHistory"
+            />
+            <el-radio-group v-model="historyPinnedOnly" size="small" @change="loadHistory">
+              <el-radio-button :label="false">全部</el-radio-button>
+              <el-radio-button :label="true">标星</el-radio-button>
+            </el-radio-group>
+            <el-button size="small" :disabled="!history.length" @click="clearHistory">清理</el-button>
+          </div>
+          <div class="history-list" v-loading="historyLoading">
+            <div
+              v-for="item in history"
+              :key="item.id"
+              class="history-item"
+            >
+              <div class="history-main" @click="loadHistoryIntoTemporaryEditor(item)">
+                <strong>{{ item.method }}</strong>
+                <span>{{ defaultApiWorkbenchHistoryDisplayName(item) }}</span>
+                <small>{{ item.status ?? "ERR" }} · {{ item.durationMs }}ms · {{ item.hasRequestSnapshot ? "完整快照" : "摘要历史" }}</small>
+              </div>
+              <el-button size="small" text @click.stop="toggleHistoryPinned(item)">
+                {{ item.pinned ? "取消标星" : "标星" }}
+              </el-button>
+              <el-button
+                size="small"
+                :loading="replayingHistoryId === item.id"
+                :disabled="!canReplayApiWorkbenchHistory(item)"
+                @click.stop="replayHistory(item)"
+              >
+                重放
+              </el-button>
+              <el-button size="small" @click.stop="loadHistoryIntoTemporaryEditor(item)">载入</el-button>
+              <el-button size="small" @click.stop="saveHistoryAsRequest(item)">保存为接口</el-button>
+              <el-button size="small" @click.stop="editHistoryMeta(item)">备注</el-button>
             </div>
-            <el-button size="small" @click.stop="saveHistoryAsRequest(item)">保存为接口</el-button>
           </div>
         </el-tab-pane>
       </el-tabs>
@@ -204,6 +233,7 @@ import ApiWorkbenchSidebar from "./ApiWorkbenchSidebar.vue";
 import type {
   ApiWorkbenchCollection,
   ApiWorkbenchEnvironment,
+  ApiWorkbenchHistoryDetail,
   ApiWorkbenchHistoryItem,
   ApiWorkbenchKeyValueRow,
   ApiWorkbenchListResult,
@@ -225,6 +255,11 @@ import {
   normalizeApiWorkbenchDraft,
   serializeApiWorkbenchEnvironmentRows,
 } from "../utils/apiWorkbench";
+import {
+  buildApiWorkbenchDraftFromHistory,
+  canReplayApiWorkbenchHistory,
+  defaultApiWorkbenchHistoryDisplayName,
+} from "../utils/apiWorkbenchHistory";
 import { parseApiWorkbenchCurl } from "../utils/apiWorkbenchCurl";
 import {
   summarizeApiWorkbenchVariables,
@@ -295,6 +330,11 @@ const collections = ref<ApiWorkbenchCollection[]>([]);
 const environments = ref<ApiWorkbenchEnvironment[]>([]);
 const globalVariables = ref<ApiWorkbenchKeyValueRow[]>([]);
 const history = ref<ApiWorkbenchHistoryItem[]>([]);
+const sourceHistoryId = ref<number | null>(null);
+const historyQuery = ref("");
+const historyPinnedOnly = ref(false);
+const historyLoading = ref(false);
+const replayingHistoryId = ref<number | null>(null);
 const selectedCollectionId = ref<number | null>(null);
 const selectedEnvironmentId = ref<number | null>(null);
 const selectedRequestId = ref<number | null>(null);
@@ -355,6 +395,7 @@ const responseHeadersText = computed(
 function resetRequestState() {
   selectedRequestId.value = null;
   selectedRequestFolderId.value = null;
+  sourceHistoryId.value = null;
   requestName.value = "";
   requestDescription.value = "";
   draft.value = normalizeApiWorkbenchDraft({});
@@ -369,6 +410,7 @@ function startNewRequest(folderId: number | null) {
   const next = buildApiWorkbenchNewRequestState({ folderId });
   selectedRequestId.value = next.selectedRequestId;
   selectedRequestFolderId.value = next.selectedRequestFolderId;
+  sourceHistoryId.value = null;
   requestName.value = next.requestName;
   requestDescription.value = next.requestDescription;
   draft.value = next.draft;
@@ -408,16 +450,6 @@ function moveTargetKey(folderId: number | null): string {
 
 function keyToMoveTarget(key: string): number | null {
   return key === "__null__" ? null : Number(key);
-}
-
-function historyDefaultName(item: ApiWorkbenchHistoryItem): string {
-  if (item.name.trim()) return item.name.trim();
-  try {
-    const url = new URL(item.url, "http://lazycat.local");
-    return `${item.method} ${url.pathname || item.url}`;
-  } catch {
-    return `${item.method} ${item.url}`;
-  }
 }
 
 function curlPreviewText(nextDraft: ApiWorkbenchRequestDraft): string {
@@ -508,6 +540,20 @@ async function loadAll() {
   }
 }
 
+async function loadHistory() {
+  historyLoading.value = true;
+  try {
+    const result = (await invokeToolByChannel("tool:api-workbench:history-list", {
+      query: historyQuery.value,
+      pinnedOnly: historyPinnedOnly.value,
+      limit: 200,
+    })) as { items: ApiWorkbenchHistoryItem[] };
+    history.value = result.items ?? [];
+  } finally {
+    historyLoading.value = false;
+  }
+}
+
 async function selectCollection(id: number) {
   if (selectedCollectionId.value === id) return;
   const collection = collections.value.find((item) => item.id === id);
@@ -518,6 +564,7 @@ async function selectCollection(id: number) {
   selectedEnvironmentId.value = nextState.selectedEnvironmentId;
   selectedRequestId.value = nextState.selectedRequestId;
   selectedRequestFolderId.value = null;
+  sourceHistoryId.value = null;
   requestName.value = nextState.requestName;
   requestDescription.value = "";
   draft.value = nextState.draft;
@@ -1057,7 +1104,7 @@ async function saveHistoryAsRequest(item: ApiWorkbenchHistoryItem) {
     historyId: item.id,
     collectionId,
     folderId,
-    name: historyDefaultName(item),
+    name: defaultApiWorkbenchHistoryDisplayName(item),
   })) as { id: number };
   await loadAll();
   if (selectedCollectionId.value !== collectionId) {
@@ -1087,10 +1134,7 @@ async function sendRequest() {
       draft: normalized,
     })) as ApiWorkbenchSendResult;
     responseBodyMode.value = "pretty";
-    const historyResult = (await invokeToolByChannel("tool:api-workbench:history-list", {})) as {
-      items: ApiWorkbenchHistoryItem[];
-    };
-    history.value = historyResult.items ?? [];
+    await loadHistory();
   } finally {
     sending.value = false;
   }
@@ -1114,6 +1158,7 @@ async function saveRequest() {
     draft: normalizeApiWorkbenchDraft(draft.value),
   })) as { id: number };
   selectedRequestId.value = saved.id;
+  sourceHistoryId.value = null;
   await loadAll();
   ElMessage.success("已保存接口");
 }
@@ -1124,6 +1169,7 @@ async function loadRequest(id: number) {
   })) as ApiWorkbenchRequestDetail;
   selectedRequestId.value = detail.id;
   selectedRequestFolderId.value = detail.folderId;
+  sourceHistoryId.value = null;
   requestName.value = detail.name;
   requestDescription.value = detail.description;
   draft.value = normalizeApiWorkbenchDraft(detail.draft);
@@ -1146,13 +1192,94 @@ async function exportMarkdown() {
   await exportMarkdownForCollection(selectedCollectionId.value);
 }
 
-function reuseHistory(item: ApiWorkbenchHistoryItem) {
-  draft.value = normalizeApiWorkbenchDraft({
-    ...draft.value,
-    method: item.method,
-    url: item.url,
-  });
+async function loadHistoryIntoTemporaryEditor(item: ApiWorkbenchHistoryItem) {
+  const detail = (await invokeToolByChannel("tool:api-workbench:history-get", {
+    historyId: item.id,
+  })) as ApiWorkbenchHistoryDetail;
+  const { draft: nextDraft, degraded } = buildApiWorkbenchDraftFromHistory(detail);
+  if (sourceHistoryId.value !== null) {
+    await ElMessageBox.confirm("当前临时接口草稿会被历史记录覆盖，是否继续？", "载入历史", {
+      type: "warning",
+    });
+  }
+  selectedRequestId.value = null;
+  selectedRequestFolderId.value =
+    detail.collectionId === selectedCollectionId.value ? selectedRequestFolderId.value : null;
+  sourceHistoryId.value = detail.id;
+  requestName.value = defaultApiWorkbenchHistoryDisplayName(detail);
+  requestDescription.value = "";
+  draft.value = nextDraft;
+  response.value = null;
   responseTab.value = "response";
+  if (degraded) {
+    ElMessage.warning("旧历史仅包含摘要，已恢复 Method 和 URL");
+  }
+}
+
+async function replayHistory(item: ApiWorkbenchHistoryItem) {
+  if (!canReplayApiWorkbenchHistory(item)) {
+    ElMessage.warning("旧历史缺少执行快照，请载入后手动发送");
+    return;
+  }
+  replayingHistoryId.value = item.id;
+  try {
+    response.value = (await invokeToolByChannel("tool:api-workbench:history-replay", {
+      historyId: item.id,
+    })) as ApiWorkbenchSendResult;
+    responseBodyMode.value = "pretty";
+    responseTab.value = "response";
+    await loadHistory();
+  } finally {
+    replayingHistoryId.value = null;
+  }
+}
+
+async function toggleHistoryPinned(item: ApiWorkbenchHistoryItem) {
+  await invokeToolByChannel("tool:api-workbench:history-update", {
+    id: item.id,
+    name: item.name,
+    note: item.note,
+    pinned: !item.pinned,
+  });
+  await loadHistory();
+}
+
+async function editHistoryMeta(item: ApiWorkbenchHistoryItem) {
+  const nameResult = await ElMessageBox.prompt("历史名称可留空，留空时按 Method 和路径展示", "编辑历史名称", {
+    inputValue: item.name,
+    inputPlaceholder: defaultApiWorkbenchHistoryDisplayName(item),
+  });
+  const noteResult = await ElMessageBox.prompt("备注最多 2000 字", "编辑历史备注", {
+    inputValue: item.note,
+    inputType: "textarea",
+  });
+  await invokeToolByChannel("tool:api-workbench:history-update", {
+    id: item.id,
+    name: String(nameResult.value ?? ""),
+    note: String(noteResult.value ?? ""),
+    pinned: item.pinned,
+  });
+  await loadHistory();
+}
+
+async function clearHistory() {
+  const includePinned = await ElMessageBox.confirm(
+    "默认只清空非标星历史。是否同时清空标星历史？",
+    "清空历史",
+    {
+      confirmButtonText: "清空全部",
+      cancelButtonText: "仅清空非标星",
+      distinguishCancelAndClose: true,
+      type: "warning",
+    },
+  )
+    .then(() => true)
+    .catch((action) => {
+      if (action === "cancel") return false;
+      throw action;
+    });
+  await invokeToolByChannel("tool:api-workbench:history-clear", { includePinned });
+  await loadHistory();
 }
 
 onMounted(() => {
@@ -1280,9 +1407,21 @@ onBeforeUnmount(() => {
   font-size: 12px;
 }
 
+.history-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.history-list {
+  min-height: 120px;
+}
+
 .history-item {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) repeat(5, auto);
   gap: 6px;
   align-items: center;
   padding: 8px;
@@ -1295,6 +1434,7 @@ onBeforeUnmount(() => {
   grid-template-columns: 64px 1fr;
   gap: 6px;
   min-width: 0;
+  cursor: pointer;
 }
 
 .history-main span,
