@@ -45,6 +45,41 @@ export interface ApiWorkbenchRequestSummary {
   sortOrder: number;
 }
 
+export interface ApiWorkbenchTreeRequestNode extends ApiWorkbenchRequestSummary {}
+
+export interface ApiWorkbenchTreeFolderNode extends ApiWorkbenchFolder {
+  children: ApiWorkbenchTreeFolderNode[];
+  requests: ApiWorkbenchTreeRequestNode[];
+}
+
+export interface ApiWorkbenchTree {
+  collectionId: number;
+  roots: ApiWorkbenchTreeFolderNode[];
+  unassigned: {
+    folderId: null;
+    name: string;
+    requests: ApiWorkbenchTreeRequestNode[];
+  };
+  foldersById: Map<number, ApiWorkbenchTreeFolderNode>;
+  requestsById: Map<number, ApiWorkbenchTreeRequestNode>;
+}
+
+export interface ApiWorkbenchMoveTarget {
+  folderId: number | null;
+  label: string;
+  depth: number;
+}
+
+export type ApiWorkbenchOrderDirection = "up" | "down";
+
+export interface ApiWorkbenchMenuItem {
+  key: string;
+  label: string;
+  danger?: boolean;
+  disabled?: boolean;
+  divider?: boolean;
+}
+
 export interface ApiWorkbenchRequestDetail extends ApiWorkbenchRequestSummary {
   description: string;
   draft: ApiWorkbenchRequestDraft;
