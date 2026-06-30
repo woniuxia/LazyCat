@@ -36,8 +36,8 @@ export function buildApiWorkbenchTree(collection: ApiWorkbenchCollection): ApiWo
     else roots.push(folder);
   }
 
-  const unassigned = {
-    folderId: null as const,
+  const unassigned: ApiWorkbenchTree["unassigned"] = {
+    folderId: null,
     name: "未分组",
     requests: [] as ApiWorkbenchTreeRequestNode[],
   };

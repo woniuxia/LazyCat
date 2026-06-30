@@ -333,6 +333,24 @@ fn parse_i64(payload: &Value, key: &str) -> Result<i64, String> {
         .ok_or_else(|| format!("{key} must be an integer"))
 }
 
+fn parse_ordered_ids(payload: &Value) -> Result<Vec<i64>, String> {
+    let arr = payload["orderedIds"]
+        .as_array()
+        .ok_or_else(|| "orderedIds must be an array".to_string())?;
+    let mut ids = Vec::with_capacity(arr.len());
+    let mut seen = HashSet::new();
+    for item in arr {
+        let id = item
+            .as_i64()
+            .ok_or_else(|| "orderedIds must contain integers".to_string())?;
+        if !seen.insert(id) {
+            return Err("排序列表包含重复项".to_string());
+        }
+        ids.push(id);
+    }
+    Ok(ids)
+}
+
 fn parse_name(payload: &Value, key: &str) -> Result<String, String> {
     let value = payload[key].as_str().unwrap_or_default().trim().to_string();
     if value.is_empty() {
@@ -876,6 +894,86 @@ fn request_move_with_conn(conn: &Connection, payload: &Value) -> Result<Value, S
         params![target_folder_id, next_order, id],
     )
     .map_err(|e| format!("move request failed: {e}"))?;
+    Ok(json!({ "ok": true }))
+}
+
+fn folder_reorder_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
+    let collection_id = parse_i64(payload, "collectionId")?;
+    let parent_id = payload["parentId"].as_i64();
+    let ordered_ids = parse_ordered_ids(payload)?;
+    let existing: Vec<i64> = {
+        let mut stmt = conn
+            .prepare(
+                "SELECT id FROM api_workbench_folders
+                 WHERE collection_id=?1 AND parent_id IS ?2
+                 ORDER BY sort_order ASC, id ASC",
+            )
+            .map_err(|e| format!("prepare folder reorder failed: {e}"))?;
+        let rows = stmt
+            .query_map(params![collection_id, parent_id], |row| row.get(0))
+            .map_err(|e| format!("query folder reorder failed: {e}"))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("collect folder reorder failed: {e}"))?;
+        rows
+    };
+    let expected: HashSet<i64> = existing.iter().copied().collect();
+    let actual: HashSet<i64> = ordered_ids.iter().copied().collect();
+    if expected != actual || existing.len() != ordered_ids.len() {
+        return Err("排序列表不完整".to_string());
+    }
+
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| format!("folder reorder begin: {e}"))?;
+    for (idx, id) in ordered_ids.iter().enumerate() {
+        tx.execute(
+            "UPDATE api_workbench_folders SET sort_order=?1, updated_at=CURRENT_TIMESTAMP WHERE id=?2",
+            params![idx as i64, id],
+        )
+        .map_err(|e| format!("update folder order failed: {e}"))?;
+    }
+    tx.commit()
+        .map_err(|e| format!("folder reorder commit: {e}"))?;
+    Ok(json!({ "ok": true }))
+}
+
+fn request_reorder_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
+    let collection_id = parse_i64(payload, "collectionId")?;
+    let folder_id = payload["folderId"].as_i64();
+    let ordered_ids = parse_ordered_ids(payload)?;
+    let existing: Vec<i64> = {
+        let mut stmt = conn
+            .prepare(
+                "SELECT id FROM api_workbench_requests
+                 WHERE collection_id=?1 AND folder_id IS ?2
+                 ORDER BY sort_order ASC, id ASC",
+            )
+            .map_err(|e| format!("prepare request reorder failed: {e}"))?;
+        let rows = stmt
+            .query_map(params![collection_id, folder_id], |row| row.get(0))
+            .map_err(|e| format!("query request reorder failed: {e}"))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("collect request reorder failed: {e}"))?;
+        rows
+    };
+    let expected: HashSet<i64> = existing.iter().copied().collect();
+    let actual: HashSet<i64> = ordered_ids.iter().copied().collect();
+    if expected != actual || existing.len() != ordered_ids.len() {
+        return Err("排序列表不完整".to_string());
+    }
+
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| format!("request reorder begin: {e}"))?;
+    for (idx, id) in ordered_ids.iter().enumerate() {
+        tx.execute(
+            "UPDATE api_workbench_requests SET sort_order=?1, updated_at=CURRENT_TIMESTAMP WHERE id=?2",
+            params![idx as i64, id],
+        )
+        .map_err(|e| format!("update request order failed: {e}"))?;
+    }
+    tx.commit()
+        .map_err(|e| format!("request reorder commit: {e}"))?;
     Ok(json!({ "ok": true }))
 }
 
@@ -1540,10 +1638,12 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         "folder_update" => folder_update_with_conn(&conn, payload),
         "folder_delete" => folder_delete_with_conn(&conn, payload),
         "folder_move" => folder_move_with_conn(&conn, payload),
+        "folder_reorder" => folder_reorder_with_conn(&conn, payload),
         "request_get" => request_get_with_conn(&conn, payload),
         "request_save" => request_save_with_conn(&conn, payload),
         "request_delete" => request_delete_with_conn(&conn, payload),
         "request_move" => request_move_with_conn(&conn, payload),
+        "request_reorder" => request_reorder_with_conn(&conn, payload),
         "send" => send_with_conn(&conn, payload),
         "history_list" => history_list_with_conn(&conn),
         "history_clear" => history_clear_with_conn(&conn),
@@ -2048,6 +2148,86 @@ mod tests {
             folder_move_with_conn(&conn, &json!({ "id": parent_id, "targetParentId": child_id }))
                 .expect_err("descendant");
         assert!(err.contains("子文件夹"));
+    }
+
+    #[test]
+    fn folder_reorder_requires_complete_sibling_ids() {
+        let conn = test_conn();
+        let c = collection_create_with_conn(&conn, &json!({ "name": "Demo" })).expect("create");
+        let collection_id = c["id"].as_i64().unwrap();
+        let a = folder_create_with_conn(&conn, &json!({ "collectionId": collection_id, "name": "A" }))
+            .expect("a");
+        let b = folder_create_with_conn(&conn, &json!({ "collectionId": collection_id, "name": "B" }))
+            .expect("b");
+        let a_id = a["id"].as_i64().unwrap();
+        let b_id = b["id"].as_i64().unwrap();
+
+        let err = folder_reorder_with_conn(
+            &conn,
+            &json!({ "collectionId": collection_id, "parentId": null, "orderedIds": [b_id] }),
+        )
+        .expect_err("incomplete");
+        assert!(err.contains("不完整"));
+
+        folder_reorder_with_conn(
+            &conn,
+            &json!({ "collectionId": collection_id, "parentId": null, "orderedIds": [b_id, a_id] }),
+        )
+        .expect("reorder");
+        let names: Vec<String> = {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT name FROM api_workbench_folders WHERE collection_id=?1 AND parent_id IS NULL ORDER BY sort_order ASC",
+                )
+                .unwrap();
+            stmt.query_map([collection_id], |row| row.get(0))
+                .unwrap()
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap()
+        };
+        assert_eq!(names, vec!["B", "A"]);
+    }
+
+    #[test]
+    fn request_reorder_rejects_duplicate_ids() {
+        let conn = test_conn();
+        let c = collection_create_with_conn(&conn, &json!({ "name": "Demo" })).expect("create");
+        let collection_id = c["id"].as_i64().unwrap();
+        let first = request_save_with_conn(
+            &conn,
+            &json!({
+                "collectionId": collection_id,
+                "folderId": null,
+                "name": "First",
+                "draft": { "method": "GET", "url": "/1", "query": [], "headers": [], "bodyType": "none", "body": "", "form": [], "timeoutMs": 10000 }
+            }),
+        )
+        .expect("first");
+        let second = request_save_with_conn(
+            &conn,
+            &json!({
+                "collectionId": collection_id,
+                "folderId": null,
+                "name": "Second",
+                "draft": { "method": "GET", "url": "/2", "query": [], "headers": [], "bodyType": "none", "body": "", "form": [], "timeoutMs": 10000 }
+            }),
+        )
+        .expect("second");
+        let first_id = first["id"].as_i64().unwrap();
+        let second_id = second["id"].as_i64().unwrap();
+
+        let err = request_reorder_with_conn(
+            &conn,
+            &json!({ "collectionId": collection_id, "folderId": null, "orderedIds": [first_id, first_id] }),
+        )
+        .expect_err("duplicate");
+        assert!(err.contains("重复"));
+
+        request_reorder_with_conn(
+            &conn,
+            &json!({ "collectionId": collection_id, "folderId": null, "orderedIds": [second_id, first_id] }),
+        )
+        .expect("reorder");
     }
 
     #[test]
