@@ -1,35 +1,15 @@
 <template>
   <div class="api-workbench-panel">
-    <aside class="api-workbench-sidebar">
-      <div class="api-workbench-toolbar">
-        <strong>接口集合</strong>
-        <el-button size="small" type="primary" @click="createCollection">新建</el-button>
-      </div>
-      <el-empty v-if="!loading && collections.length === 0" description="暂无接口集合" />
-      <div v-else class="api-workbench-tree">
-        <button
-          v-for="collection in collections"
-          :key="collection.id"
-          class="api-workbench-collection"
-          :class="{ active: selectedCollectionId === collection.id }"
-          @click="selectCollection(collection.id)"
-        >
-          <span>{{ collection.name }}</span>
-          <small>{{ collection.requests.length }} 个接口</small>
-        </button>
-      </div>
-      <div v-if="selectedCollection" class="request-list">
-        <button
-          v-for="request in selectedCollection.requests"
-          :key="request.id"
-          class="request-list-item"
-          @click="loadRequest(request.id)"
-        >
-          <strong>{{ request.method }}</strong>
-          <span>{{ request.name }}</span>
-        </button>
-      </div>
-    </aside>
+    <ApiWorkbenchSidebar
+      ref="sidebarRef"
+      :collections="collections"
+      :selected-collection-id="selectedCollectionId"
+      :selected-request-id="selectedRequestId"
+      :loading="loading"
+      @select-collection="selectCollection"
+      @open-request="loadRequest"
+      @command="handleSidebarCommand"
+    />
 
     <main class="api-workbench-editor">
       <div class="api-workbench-request-bar">
@@ -142,6 +122,28 @@
         </el-tab-pane>
       </el-tabs>
     </section>
+
+    <el-dialog
+      v-model="moveDialogVisible"
+      :title="moveDialogTitle"
+      width="360px"
+      append-to-body
+      @close="cancelMoveDialog"
+    >
+      <el-radio-group v-model="moveDialogSelectedKey" class="api-workbench-move-options">
+        <el-radio
+          v-for="target in moveDialogTargets"
+          :key="moveTargetKey(target.folderId)"
+          :label="moveTargetKey(target.folderId)"
+        >
+          <span :style="{ paddingLeft: target.depth * 12 + 'px' }">{{ target.label.trim() }}</span>
+        </el-radio>
+      </el-radio-group>
+      <template #footer>
+        <el-button @click="cancelMoveDialog">取消</el-button>
+        <el-button type="primary" @click="confirmMoveDialog">移动</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -149,12 +151,17 @@
 import { computed, defineComponent, h, onMounted, ref } from "vue";
 import { ElButton, ElInput, ElMessage, ElMessageBox, ElSwitch } from "element-plus";
 import { invokeToolByChannel } from "../bridge/tauri";
+import ApiWorkbenchSidebar from "./ApiWorkbenchSidebar.vue";
 import type {
   ApiWorkbenchCollection,
   ApiWorkbenchEnvironment,
   ApiWorkbenchHistoryItem,
   ApiWorkbenchKeyValueRow,
   ApiWorkbenchListResult,
+  ApiWorkbenchMoveTarget,
+  ApiWorkbenchNavCommand,
+  ApiWorkbenchNavTarget,
+  ApiWorkbenchOrderDirection,
   ApiWorkbenchRequestDetail,
   ApiWorkbenchSendResult,
 } from "../types/api-workbench";
@@ -167,6 +174,16 @@ import {
   normalizeApiWorkbenchDraft,
   serializeApiWorkbenchEnvironmentRows,
 } from "../utils/apiWorkbench";
+import {
+  buildApiWorkbenchFolderMoveTargets,
+  buildApiWorkbenchRequestMoveTargets,
+  getApiWorkbenchFolderAncestorIds,
+  moveApiWorkbenchOrderedId,
+} from "../utils/apiWorkbenchTree";
+
+type ApiWorkbenchSidebarExpose = {
+  expandFolder(folderId: number | null): void;
+};
 
 const KeyValueEditor = defineComponent({
   props: {
@@ -214,6 +231,7 @@ const KeyValueEditor = defineComponent({
 });
 
 const methods = API_WORKBENCH_METHODS;
+const sidebarRef = ref<ApiWorkbenchSidebarExpose | null>(null);
 const loading = ref(false);
 const sending = ref(false);
 const savingEnvironment = ref(false);
@@ -223,12 +241,19 @@ const history = ref<ApiWorkbenchHistoryItem[]>([]);
 const selectedCollectionId = ref<number | null>(null);
 const selectedEnvironmentId = ref<number | null>(null);
 const selectedRequestId = ref<number | null>(null);
+const selectedRequestFolderId = ref<number | null>(null);
 const requestName = ref("");
+const requestDescription = ref("");
 const draft = ref({ ...DEFAULT_API_WORKBENCH_DRAFT });
 const environmentRows = ref<ApiWorkbenchKeyValueRow[]>([]);
 const response = ref<ApiWorkbenchSendResult | null>(null);
 const editorTab = ref("query");
 const responseTab = ref("response");
+const moveDialogVisible = ref(false);
+const moveDialogTitle = ref("");
+const moveDialogTargets = ref<ApiWorkbenchMoveTarget[]>([]);
+const moveDialogSelectedKey = ref("__null__");
+let moveDialogResolver: ((value: number | null | undefined) => void) | null = null;
 
 const selectedCollection = computed(
   () => collections.value.find((item) => item.id === selectedCollectionId.value) ?? null,
@@ -252,6 +277,67 @@ const formattedResponseBody = computed(() =>
 const responseHeadersText = computed(
   () => response.value?.responseHeaders.map((row) => `${row.key}: ${row.value}`).join("\n") ?? "",
 );
+
+function resetRequestState() {
+  selectedRequestId.value = null;
+  selectedRequestFolderId.value = null;
+  requestName.value = "";
+  requestDescription.value = "";
+  draft.value = normalizeApiWorkbenchDraft({});
+  response.value = null;
+}
+
+function isMessageBoxCancel(error: unknown): boolean {
+  return error === "cancel" || error === "close";
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  return "操作失败";
+}
+
+function bySortThenId<T extends { sortOrder: number; id: number }>(a: T, b: T): number {
+  return a.sortOrder - b.sortOrder || a.id - b.id;
+}
+
+function moveTargetKey(folderId: number | null): string {
+  return folderId === null ? "__null__" : String(folderId);
+}
+
+function keyToMoveTarget(key: string): number | null {
+  return key === "__null__" ? null : Number(key);
+}
+
+function chooseMoveTarget(
+  title: string,
+  targets: ApiWorkbenchMoveTarget[],
+): Promise<number | null | undefined> {
+  if (targets.length === 0) return Promise.resolve(undefined);
+  moveDialogTitle.value = title;
+  moveDialogTargets.value = targets;
+  moveDialogSelectedKey.value = moveTargetKey(targets[0].folderId);
+  moveDialogVisible.value = true;
+  return new Promise((resolve) => {
+    moveDialogResolver = resolve;
+  });
+}
+
+function settleMoveDialog(value: number | null | undefined) {
+  const resolve = moveDialogResolver;
+  moveDialogResolver = null;
+  moveDialogVisible.value = false;
+  if (resolve) resolve(value);
+}
+
+function confirmMoveDialog() {
+  settleMoveDialog(keyToMoveTarget(moveDialogSelectedKey.value));
+}
+
+function cancelMoveDialog() {
+  if (!moveDialogResolver) return;
+  settleMoveDialog(undefined);
+}
 
 async function loadAll() {
   loading.value = true;
@@ -279,7 +365,9 @@ async function selectCollection(id: number) {
   selectedCollectionId.value = nextState.selectedCollectionId;
   selectedEnvironmentId.value = nextState.selectedEnvironmentId;
   selectedRequestId.value = nextState.selectedRequestId;
+  selectedRequestFolderId.value = null;
   requestName.value = nextState.requestName;
+  requestDescription.value = "";
   draft.value = nextState.draft;
   response.value = nextState.response;
   const result = (await invokeToolByChannel("tool:api-workbench:environment-list", {
@@ -301,6 +389,249 @@ async function createCollection() {
   })) as { id: number; activeEnvironmentId: number };
   await loadAll();
   await selectCollection(created.id);
+}
+
+async function promptName(title: string, inputValue: string): Promise<string> {
+  const { value } = await ElMessageBox.prompt("名称", title, {
+    inputValue,
+    confirmButtonText: "确定",
+    cancelButtonText: "取消",
+    inputValidator: (input: string) => (input.trim() ? true : "名称不能为空"),
+  });
+  return value.trim();
+}
+
+function currentCollection(): ApiWorkbenchCollection | null {
+  return selectedCollection.value;
+}
+
+async function createFolder(parentId: number | null) {
+  if (!selectedCollectionId.value) {
+    ElMessage.warning("请先选择集合");
+    return;
+  }
+  const name = await promptName(parentId === null ? "新建根文件夹" : "新建子文件夹", "新建文件夹");
+  await invokeToolByChannel("tool:api-workbench:folder-create", {
+    collectionId: selectedCollectionId.value,
+    parentId,
+    name,
+  });
+  await loadAll();
+  if (parentId !== null) sidebarRef.value?.expandFolder(parentId);
+  ElMessage.success("文件夹已创建");
+}
+
+async function renameCollection(collectionId: number) {
+  const collection = collections.value.find((item) => item.id === collectionId);
+  if (!collection) {
+    ElMessage.warning("集合不存在");
+    return;
+  }
+  const name = await promptName("重命名集合", collection.name);
+  await invokeToolByChannel("tool:api-workbench:collection-update", {
+    id: collectionId,
+    name,
+    description: collection.description,
+  });
+  await loadAll();
+  ElMessage.success("集合已重命名");
+}
+
+async function deleteCollection(collectionId: number) {
+  const collection = collections.value.find((item) => item.id === collectionId);
+  if (!collection) {
+    ElMessage.warning("集合不存在");
+    return;
+  }
+  await ElMessageBox.confirm(
+    `确定删除集合「${collection.name}」？集合内接口、文件夹和环境会一起删除。`,
+    "删除集合",
+    { type: "warning", confirmButtonText: "删除", cancelButtonText: "取消" },
+  );
+  const wasSelected = selectedCollectionId.value === collectionId;
+  await invokeToolByChannel("tool:api-workbench:collection-delete", { id: collectionId });
+  if (wasSelected) {
+    selectedCollectionId.value = null;
+    selectedEnvironmentId.value = null;
+    environments.value = [];
+    resetRequestState();
+  }
+  await loadAll();
+  ElMessage.success("集合已删除");
+}
+
+async function renameFolder(folderId: number) {
+  const collection = currentCollection();
+  const folder = collection?.folders.find((item) => item.id === folderId);
+  if (!folder) {
+    ElMessage.warning("文件夹不存在");
+    return;
+  }
+  const name = await promptName("重命名文件夹", folder.name);
+  await invokeToolByChannel("tool:api-workbench:folder-update", { id: folderId, name });
+  await loadAll();
+  ElMessage.success("文件夹已重命名");
+}
+
+async function deleteFolder(folderId: number) {
+  const collection = currentCollection();
+  const folder = collection?.folders.find((item) => item.id === folderId);
+  if (!collection || !folder) {
+    ElMessage.warning("文件夹不存在");
+    return;
+  }
+  await ElMessageBox.confirm(
+    `确定删除文件夹「${folder.name}」？内部接口会移动到未分组，子文件夹会删除。`,
+    "删除文件夹",
+    { type: "warning", confirmButtonText: "删除", cancelButtonText: "取消" },
+  );
+  const openFolderId = selectedRequestFolderId.value;
+  const openRequestInsideDeletedFolder =
+    openFolderId !== null &&
+    (openFolderId === folderId ||
+      getApiWorkbenchFolderAncestorIds(collection.folders, openFolderId).includes(folderId));
+  await invokeToolByChannel("tool:api-workbench:folder-delete", { id: folderId });
+  if (openRequestInsideDeletedFolder) selectedRequestFolderId.value = null;
+  await loadAll();
+  ElMessage.success("文件夹已删除，接口已移动到未分组");
+}
+
+async function loadRequestDetail(requestId: number): Promise<ApiWorkbenchRequestDetail> {
+  return (await invokeToolByChannel("tool:api-workbench:request-get", {
+    id: requestId,
+  })) as ApiWorkbenchRequestDetail;
+}
+
+async function renameRequest(requestId: number) {
+  const isCurrentOpen = selectedRequestId.value === requestId && selectedCollectionId.value !== null;
+  const detail = isCurrentOpen ? null : await loadRequestDetail(requestId);
+  const name = await promptName("重命名接口", isCurrentOpen ? requestName.value : detail?.name ?? "");
+  await invokeToolByChannel("tool:api-workbench:request-save", {
+    id: requestId,
+    collectionId: isCurrentOpen ? selectedCollectionId.value : detail?.collectionId,
+    folderId: isCurrentOpen ? selectedRequestFolderId.value : detail?.folderId,
+    name,
+    description: isCurrentOpen ? requestDescription.value : detail?.description ?? "",
+    draft: isCurrentOpen
+      ? normalizeApiWorkbenchDraft(draft.value)
+      : normalizeApiWorkbenchDraft(detail?.draft),
+  });
+  if (isCurrentOpen) requestName.value = name;
+  await loadAll();
+  ElMessage.success("接口已重命名");
+}
+
+async function deleteRequest(requestId: number) {
+  const summary = currentCollection()?.requests.find((item) => item.id === requestId);
+  const name = summary?.name ?? (await loadRequestDetail(requestId)).name;
+  await ElMessageBox.confirm(`确定删除接口「${name}」？历史记录不会删除。`, "删除接口", {
+    type: "warning",
+    confirmButtonText: "删除",
+    cancelButtonText: "取消",
+  });
+  await invokeToolByChannel("tool:api-workbench:request-delete", { id: requestId });
+  if (selectedRequestId.value === requestId) resetRequestState();
+  await loadAll();
+  ElMessage.success("接口已删除");
+}
+
+async function moveFolder(folderId: number) {
+  const collection = currentCollection();
+  if (!collection) return;
+  const targetParentId = await chooseMoveTarget(
+    "移动文件夹到",
+    buildApiWorkbenchFolderMoveTargets(collection, folderId),
+  );
+  if (targetParentId === undefined) return;
+  await invokeToolByChannel("tool:api-workbench:folder-move", { id: folderId, targetParentId });
+  await loadAll();
+  if (targetParentId !== null) sidebarRef.value?.expandFolder(targetParentId);
+  ElMessage.success("文件夹已移动");
+}
+
+async function moveRequest(requestId: number) {
+  const collection = currentCollection();
+  if (!collection) return;
+  const targetFolderId = await chooseMoveTarget(
+    "移动接口到",
+    buildApiWorkbenchRequestMoveTargets(collection),
+  );
+  if (targetFolderId === undefined) return;
+  await invokeToolByChannel("tool:api-workbench:request-move", { id: requestId, targetFolderId });
+  if (selectedRequestId.value === requestId) selectedRequestFolderId.value = targetFolderId;
+  await loadAll();
+  sidebarRef.value?.expandFolder(targetFolderId);
+  ElMessage.success("接口已移动");
+}
+
+async function reorderFolder(folderId: number, direction: ApiWorkbenchOrderDirection) {
+  const collection = currentCollection();
+  const folder = collection?.folders.find((item) => item.id === folderId);
+  if (!collection || !folder) return;
+  const orderedIds = collection.folders
+    .filter((item) => item.parentId === folder.parentId)
+    .sort(bySortThenId)
+    .map((item) => item.id);
+  const next = moveApiWorkbenchOrderedId(orderedIds, folderId, direction);
+  if (next.join(",") === orderedIds.join(",")) return;
+  await invokeToolByChannel("tool:api-workbench:folder-reorder", {
+    collectionId: collection.id,
+    parentId: folder.parentId,
+    orderedIds: next,
+  });
+  await loadAll();
+  ElMessage.success("文件夹顺序已更新");
+}
+
+async function reorderRequest(requestId: number, direction: ApiWorkbenchOrderDirection) {
+  const collection = currentCollection();
+  const request = collection?.requests.find((item) => item.id === requestId);
+  if (!collection || !request) return;
+  const orderedIds = collection.requests
+    .filter((item) => item.folderId === request.folderId)
+    .sort(bySortThenId)
+    .map((item) => item.id);
+  const next = moveApiWorkbenchOrderedId(orderedIds, requestId, direction);
+  if (next.join(",") === orderedIds.join(",")) return;
+  await invokeToolByChannel("tool:api-workbench:request-reorder", {
+    collectionId: collection.id,
+    folderId: request.folderId,
+    orderedIds: next,
+  });
+  await loadAll();
+  ElMessage.success("接口顺序已更新");
+}
+
+async function handleSidebarCommand(command: ApiWorkbenchNavCommand, target: ApiWorkbenchNavTarget) {
+  try {
+    if (command === "collection:create") return await createCollection();
+    if (command === "folder:create-root") return await createFolder(null);
+    if (target.type === "collection") {
+      if (command === "collection:select") return await selectCollection(target.collectionId);
+      if (command === "collection:rename") return await renameCollection(target.collectionId);
+      if (command === "collection:delete") return await deleteCollection(target.collectionId);
+      if (command === "collection:export") return await exportMarkdownForCollection(target.collectionId);
+    }
+    if (target.type === "folder") {
+      if (command === "folder:create-child") return await createFolder(target.folderId);
+      if (command === "folder:rename") return await renameFolder(target.folderId);
+      if (command === "folder:delete") return await deleteFolder(target.folderId);
+      if (command === "folder:move") return await moveFolder(target.folderId);
+      if (command === "folder:up") return await reorderFolder(target.folderId, "up");
+      if (command === "folder:down") return await reorderFolder(target.folderId, "down");
+    }
+    if (target.type === "request") {
+      if (command === "request:open") return await loadRequest(target.requestId);
+      if (command === "request:rename") return await renameRequest(target.requestId);
+      if (command === "request:delete") return await deleteRequest(target.requestId);
+      if (command === "request:move") return await moveRequest(target.requestId);
+      if (command === "request:up") return await reorderRequest(target.requestId, "up");
+      if (command === "request:down") return await reorderRequest(target.requestId, "down");
+    }
+  } catch (error) {
+    if (isMessageBoxCancel(error)) return;
+    ElMessage.error(errorMessage(error));
+  }
 }
 
 function syncEnvironmentRows() {
@@ -386,9 +717,9 @@ async function saveRequest() {
   const saved = (await invokeToolByChannel("tool:api-workbench:request-save", {
     id: selectedRequestId.value,
     collectionId: selectedCollectionId.value,
-    folderId: null,
+    folderId: selectedRequestFolderId.value,
     name: requestName.value.trim(),
-    description: "",
+    description: requestDescription.value,
     draft: normalizeApiWorkbenchDraft(draft.value),
   })) as { id: number };
   selectedRequestId.value = saved.id;
@@ -401,8 +732,19 @@ async function loadRequest(id: number) {
     id,
   })) as ApiWorkbenchRequestDetail;
   selectedRequestId.value = detail.id;
+  selectedRequestFolderId.value = detail.folderId;
   requestName.value = detail.name;
+  requestDescription.value = detail.description;
   draft.value = normalizeApiWorkbenchDraft(detail.draft);
+  sidebarRef.value?.expandFolder(detail.folderId);
+}
+
+async function exportMarkdownForCollection(collectionId: number) {
+  const result = (await invokeToolByChannel("tool:api-workbench:export-markdown", {
+    collectionId,
+  })) as { fileName: string; markdown: string };
+  await navigator.clipboard.writeText(result.markdown);
+  ElMessage.success(`Markdown 已复制：${result.fileName}`);
 }
 
 async function exportMarkdown() {
@@ -410,11 +752,7 @@ async function exportMarkdown() {
     ElMessage.warning("请先选择集合");
     return;
   }
-  const result = (await invokeToolByChannel("tool:api-workbench:export-markdown", {
-    collectionId: selectedCollectionId.value,
-  })) as { fileName: string; markdown: string };
-  await navigator.clipboard.writeText(result.markdown);
-  ElMessage.success(`Markdown 已复制：${result.fileName}`);
+  await exportMarkdownForCollection(selectedCollectionId.value);
 }
 
 function reuseHistory(item: ApiWorkbenchHistoryItem) {
@@ -440,7 +778,6 @@ onMounted(loadAll);
   background: var(--el-bg-color-page);
 }
 
-.api-workbench-sidebar,
 .api-workbench-editor,
 .api-workbench-response {
   min-height: 0;
@@ -451,7 +788,6 @@ onMounted(loadAll);
   padding: 12px;
 }
 
-.api-workbench-toolbar,
 .api-workbench-request-bar,
 .api-workbench-actions,
 .body-toolbar,
@@ -464,35 +800,6 @@ onMounted(loadAll);
 .environment-toolbar {
   justify-content: space-between;
   margin-bottom: 8px;
-}
-
-.api-workbench-toolbar {
-  justify-content: space-between;
-  margin-bottom: 12px;
-}
-
-.api-workbench-tree {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.api-workbench-collection {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  width: 100%;
-  border: 1px solid var(--el-border-color-lighter);
-  border-radius: 6px;
-  background: var(--el-fill-color-blank);
-  color: var(--el-text-color-primary);
-  padding: 8px;
-  cursor: pointer;
-}
-
-.api-workbench-collection.active {
-  border-color: var(--el-color-primary);
-  background: var(--el-color-primary-light-9);
 }
 
 .method-select {
@@ -550,29 +857,19 @@ onMounted(loadAll);
   white-space: nowrap;
 }
 
-.request-list {
+:global(.api-workbench-move-options) {
   display: flex;
+  max-height: 320px;
   flex-direction: column;
-  gap: 4px;
-  margin-top: 12px;
-}
-
-.request-list-item {
-  display: grid;
-  grid-template-columns: 56px 1fr;
+  align-items: stretch;
   gap: 6px;
-  align-items: center;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--el-text-color-primary);
-  padding: 6px 8px;
-  text-align: left;
-  cursor: pointer;
+  overflow: auto;
 }
 
-.request-list-item:hover {
-  background: var(--el-fill-color-light);
+:global(.api-workbench-move-options .el-radio) {
+  height: auto;
+  min-height: 30px;
+  margin-right: 0;
 }
 
 @media (max-width: 1180px) {
