@@ -14,6 +14,7 @@ declare module 'vue' {
     AesPanel: typeof import('./src/components/AesPanel.vue')['default']
     ApiWorkbenchContextMenu: typeof import('./src/components/ApiWorkbenchContextMenu.vue')['default']
     ApiWorkbenchPanel: typeof import('./src/components/ApiWorkbenchPanel.vue')['default']
+    ApiWorkbenchSidebar: typeof import('./src/components/ApiWorkbenchSidebar.vue')['default']
     BaseConverterPanel: typeof import('./src/components/BaseConverterPanel.vue')['default']
     BcryptPanel: typeof import('./src/components/BcryptPanel.vue')['default']
     CalcDraftPanel: typeof import('./src/components/CalcDraftPanel.vue')['default']

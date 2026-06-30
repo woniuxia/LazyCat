@@ -80,6 +80,32 @@ export interface ApiWorkbenchMenuItem {
   divider?: boolean;
 }
 
+export type ApiWorkbenchNavTarget =
+  | { type: "blank" }
+  | { type: "collection"; collectionId: number }
+  | { type: "folder"; collectionId: number; folderId: number }
+  | { type: "request"; collectionId: number; requestId: number; folderId: number | null };
+
+export type ApiWorkbenchNavCommand =
+  | "collection:create"
+  | "collection:select"
+  | "collection:rename"
+  | "collection:delete"
+  | "collection:export"
+  | "folder:create-root"
+  | "folder:create-child"
+  | "folder:rename"
+  | "folder:delete"
+  | "folder:move"
+  | "folder:up"
+  | "folder:down"
+  | "request:open"
+  | "request:rename"
+  | "request:delete"
+  | "request:move"
+  | "request:up"
+  | "request:down";
+
 export interface ApiWorkbenchRequestDetail extends ApiWorkbenchRequestSummary {
   description: string;
   draft: ApiWorkbenchRequestDraft;
