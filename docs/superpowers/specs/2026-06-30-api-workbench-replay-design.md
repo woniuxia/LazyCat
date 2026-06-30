@@ -4,16 +4,16 @@
 
 本次迭代继续完善「接口调试」工具，目标是让个人离线开发中“刚刚调通的一次请求”可以被完整复现、重新发送、沉淀为接口，并能在历史中快速找回。
 
-现有版本已经具备集合、文件夹、接口树、环境变量、请求发送、cURL 导入导出、历史记录、示例响应和 Markdown 导出。但当前历史记录只保存请求摘要和响应预览，缺少完整请求头、请求体、表单、查询参数和环境变量快照。因此历史复用和历史保存为接口只能恢复 `method/url`，会丢失关键上下文。
+现有版本已经具备集合、文件夹、接口树、环境变量、请求发送、cURL 导入导出、历史记录、示例响应和 Markdown 导出。但当前历史记录只保存请求摘要和响应预览，缺少完整请求头、请求体、表单、查询参数和已解析执行请求。因此历史复用和历史保存为接口只能恢复 `method/url`，会丢失关键上下文。
 
-本版以“历史请求快照”为核心补齐复现链路。请求发送后，后端保存当次发送使用的完整请求草稿和环境变量快照；历史项可以一键重放、载入编辑器、保存为完整接口，并支持标星、命名、备注和搜索。
+本版以“历史请求快照 + 已解析执行快照”为核心补齐复现链路。请求发送后，后端保存当次发送使用的完整请求草稿和已经解析完成的实际请求；历史项可以一键重放、载入临时接口编辑器、保存为完整接口，并支持标星、命名、备注和搜索。
 
 ## 目标
 
 1. 每次发送请求后，历史记录保存完整请求快照。
-2. 历史记录保存发送时的环境快照，便于解释当时变量解析来源。
+2. 历史记录保存发送时的已解析执行快照，便于不依赖变量环境直接重放。
 3. 支持从历史记录一键重放请求。
-4. 支持把历史记录载入当前编辑器，不立即发送。
+4. 支持把历史记录载入临时接口编辑器，不立即发送。
 5. 支持把带快照的历史记录保存为完整接口定义。
 6. 支持历史记录标星、重命名和备注。
 7. 支持历史列表按关键词搜索和按标星筛选。
@@ -42,8 +42,8 @@
 4. 后端执行请求并返回响应。
 5. 后端写入历史记录，同时保存：
    - 发送前的规范化请求草稿。
+   - 发送时已经解析完成的实际请求快照。
    - 发送时选中的集合、环境和接口引用。
-   - 发送时的环境变量快照。
    - 最终 URL、响应摘要、响应体预览和错误信息。
 6. 前端刷新历史列表，最新记录可立即重放或保存为接口。
 
@@ -51,18 +51,20 @@
 
 1. 用户在历史列表点击「重放」。
 2. 前端调用后端 `history_replay`。
-3. 后端读取历史中的请求快照和环境快照。
-4. 后端使用快照执行请求，不依赖当前编辑器草稿。
+3. 后端读取历史中的已解析执行快照。
+4. 后端使用执行快照直接发送请求，不重新解析变量，也不依赖当前编辑器草稿。
 5. 重放结果写入一条新的历史记录，来源指向原历史。
 6. 前端展示新的响应，并把响应页签切到「响应」。
 
 ### 载入历史到编辑器
 
 1. 用户在历史列表点击「载入」。
-2. 如果历史存在请求快照，前端用快照覆盖当前请求草稿。
-3. 如果历史没有请求快照，前端只恢复 `method/url`，并提示“旧历史仅包含摘要”。
-4. 载入不会立即发送，也不会自动保存接口。
-5. 当前集合和环境不自动切换；如果历史关联的集合或环境仍存在，前端可以提示用户切换。
+2. 前端打开临时接口编辑态，`requestId = null`，并记录 `sourceHistoryId`。
+3. 如果历史存在请求快照，前端用快照填充临时接口草稿。
+4. 如果历史没有请求快照，前端只恢复 `method/url`，并提示“旧历史仅包含摘要”。
+5. 载入不会覆盖当前正式接口，不会立即发送，也不会自动保存接口。
+6. 当前集合和环境不自动切换；如果历史关联的集合或环境仍存在，前端可以提示用户切换。
+7. 临时接口发送时走普通 `send` 路径，使用当前选择的环境变量。
 
 ### 历史保存为接口
 
@@ -104,35 +106,34 @@ interface ApiWorkbenchHistoryRequestSnapshot {
 1. 快照保存的是发送前用户输入的请求草稿，不保存变量解析后的替换结果。
 2. `query`、`headers` 和 `form` 保留 enabled 状态。
 3. 发送时未参与的 Body 分支仍按草稿保存，便于载入后继续编辑。
-4. 重放时只使用当前 `bodyType` 对应的 Body 或 Form，保持与现有发送路径一致。
+4. 请求快照只服务“载入临时接口编辑态”和“保存为接口”，不作为重放执行依据。
 5. `request_snapshot_json` 序列化后最大 2MB，超过时阻断发送并返回明确错误，不写入不完整历史。
 
-### 环境快照
+### 已解析执行快照
 
-环境快照用于复现发送时的变量值：
+已解析执行快照保存发送时真正发出的请求，用于历史重放：
 
 ```ts
-interface ApiWorkbenchHistoryEnvironmentSnapshot {
-  environmentId: number | null;
-  environmentName: string;
-  variables: Array<{
-    name: string;
-    value: string;
-    isSecret: boolean;
-    source: "environment" | "global";
-  }>;
+interface ApiWorkbenchExecutedRequestSnapshot {
+  method: ApiWorkbenchMethod;
+  finalUrl: string;
+  headers: ApiWorkbenchKeyValueRow[];
+  bodyType: ApiWorkbenchBodyType;
+  body: string;
+  form: ApiWorkbenchKeyValueRow[];
+  timeoutMs: number;
 }
 ```
 
 规则：
 
-1. 快照只保存发送路径可见的变量集合，包括当前环境变量和全局变量。
-2. 当前环境变量优先于全局变量；被遮蔽的全局同名变量不进入有效快照。
-3. `BASE_URL` 只来自当前环境，保持既有规则。
-4. 本版沿用现有明文变量存储策略，不新增加密层。
-5. Markdown 导出仍不输出变量真实值。
-6. 历史列表默认不直接展示敏感变量值，只在用户明确查看快照详情时显示，并沿用现有敏感标记。
-7. `environment_snapshot_json` 序列化后最大 256KB，超过时阻断发送并提示用户减少环境变量体积。
+1. 执行快照保存变量解析后的实际值，不保存变量名、变量来源或作用域。
+2. `finalUrl` 已包含 `BASE_URL`、原始 URL 和 Query 参数解析后的结果。
+3. `headers` 保存最终参与发送的请求头；自动补充的 `Content-Type` 也应进入快照。
+4. `bodyType = "json" | "text"` 时保存解析后的 `body`。
+5. `bodyType = "form-urlencoded"` 时保存解析后的 `form`。
+6. 重放时不再解析 `{{变量}}`，不读取当前环境表，也不要求原环境仍存在。
+7. `executed_request_snapshot_json` 序列化后最大 2MB，超过时阻断发送并返回明确错误，不写入不完整历史。
 
 ### 重放语义
 
@@ -140,9 +141,9 @@ interface ApiWorkbenchHistoryEnvironmentSnapshot {
 
 规则：
 
-1. `history_replay` 必须使用历史中的请求快照和环境快照。
-2. 如果历史没有请求快照，后端拒绝重放并提示“旧历史缺少请求快照，请载入后手动发送”。
-3. 如果环境快照缺失，后端拒绝重放，不回退到当前环境。
+1. `history_replay` 必须使用历史中的已解析执行快照。
+2. 如果历史没有执行快照，后端拒绝重放并提示“旧历史缺少执行快照，请载入后手动发送”。
+3. 后端不回退到当前环境变量，也不重新解析请求快照中的变量占位符。
 4. 重放产生的新历史记录保存自己的新响应，同时记录 `replayed_from_history_id`。
 5. 重放不修改当前接口定义，不修改当前环境变量。
 6. 重放不要求原集合、原环境或原接口仍然存在。
@@ -153,11 +154,12 @@ interface ApiWorkbenchHistoryEnvironmentSnapshot {
 
 规则：
 
-1. 载入快照只更新前端草稿、请求名称建议和当前响应状态。
+1. 载入快照打开临时接口编辑态，只更新临时草稿、请求名称建议和当前响应状态。
 2. 载入不会自动发送请求。
 3. 载入不会写数据库。
 4. 载入旧历史时只恢复 `method/url`，Headers、Query、Body 保持空值。
-5. 如果当前草稿有未保存修改，前端必须二次确认。
+5. 载入不会覆盖当前已保存接口的 `requestId` 或草稿状态。
+6. 如果当前临时草稿有未保存修改，前端必须二次确认。
 
 ### 历史保存为接口
 
@@ -189,7 +191,7 @@ interface ApiWorkbenchHistoryEnvironmentSnapshot {
 1. 请求编辑、发送、保存和响应展示。
 2. 历史列表状态、搜索条件和标星筛选。
 3. 调用历史重放、历史更新、历史保存为接口等 action。
-4. 处理“载入历史覆盖未保存草稿”的确认。
+4. 处理“载入历史打开临时接口编辑态”的确认。
 
 本次不整体拆分面板，避免扩大改动面。历史列表内部复杂逻辑优先抽到纯函数。
 
@@ -217,7 +219,7 @@ interface ApiWorkbenchHistoryEnvironmentSnapshot {
 function canReplayApiWorkbenchHistory(item: ApiWorkbenchHistoryItem): boolean;
 
 function buildApiWorkbenchDraftFromHistory(
-  item: ApiWorkbenchHistoryItem,
+  item: ApiWorkbenchHistoryDetail,
 ): {
   draft: ApiWorkbenchRequestDraft;
   degraded: boolean;
@@ -229,7 +231,7 @@ function defaultApiWorkbenchHistoryDisplayName(item: ApiWorkbenchHistoryItem): s
 职责：
 
 1. 判断历史是否可重放。
-2. 从历史快照构造请求草稿。
+2. 从单条历史详情的请求快照构造请求草稿。
 3. 对旧历史执行 `method/url` 降级恢复。
 4. 生成稳定展示名称。
 
@@ -258,9 +260,13 @@ export interface ApiWorkbenchHistoryItem {
   bodySize: number;
   bodyPreview: string;
   bodyTruncated: boolean;
-  requestSnapshot: ApiWorkbenchHistoryRequestSnapshot | null;
-  environmentSnapshot: ApiWorkbenchHistoryEnvironmentSnapshot | null;
+  hasRequestSnapshot: boolean;
+  hasExecutedRequestSnapshot: boolean;
   createdAt: string;
+}
+
+export interface ApiWorkbenchHistoryDetail extends ApiWorkbenchHistoryItem {
+  requestSnapshot: ApiWorkbenchHistoryRequestSnapshot | null;
 }
 ```
 
@@ -272,15 +278,16 @@ export interface ApiWorkbenchHistoryItem {
 
 | Channel | Action | 说明 |
 |---|---|---|
-| `tool:api-workbench:history-replay` | `history_replay` | 使用历史快照重放请求 |
+| `tool:api-workbench:history-get` | `history_get` | 读取单条历史和请求快照，用于载入临时接口编辑器 |
+| `tool:api-workbench:history-replay` | `history_replay` | 使用历史执行快照重放请求 |
 | `tool:api-workbench:history-update` | `history_update` | 更新历史名称、备注、标星 |
 
 ### 调整 action
 
 | Channel | Action | 调整 |
 |---|---|---|
-| `tool:api-workbench:send` | `send` | 写历史时保存请求快照和环境快照 |
-| `tool:api-workbench:history-list` | `history_list` | 返回快照存在状态、标星、备注和快照 JSON |
+| `tool:api-workbench:send` | `send` | 写历史时保存请求快照和已解析执行快照 |
+| `tool:api-workbench:history-list` | `history_list` | 返回快照存在状态、标星和备注 |
 | `tool:api-workbench:history-clear` | `history_clear` | 默认只清空非标星历史，可显式清空全部 |
 | `tool:api-workbench:history-save-request` | `history_save_request` | 优先用请求快照创建完整接口 |
 
@@ -304,6 +311,24 @@ Payload：
 4. 搜索在 SQLite 中用普通 `LIKE` 完成。
 5. 搜索匹配字段固定为：名称、备注、Method、原始 URL、最终 URL、状态码、错误信息、Content-Type。
 6. 结果始终按 `created_at DESC, id DESC` 返回，不因为搜索改变排序。
+7. 列表只返回 `hasRequestSnapshot` 和 `hasExecutedRequestSnapshot`，不返回完整快照 JSON。
+
+### `history_get`
+
+Payload：
+
+```json
+{
+  "historyId": 10
+}
+```
+
+规则：
+
+1. 历史必须存在。
+2. 返回历史摘要字段和 `requestSnapshot`。
+3. 不返回 `executedRequestSnapshot`，避免前端列表和编辑态携带不需要的执行细节。
+4. 如果 `request_snapshot_json` 为空，`requestSnapshot` 返回 `null`，前端按旧历史降级载入。
 
 ### `history_replay`
 
@@ -338,11 +363,10 @@ Response：
 规则：
 
 1. 历史必须存在。
-2. 历史必须有 `request_snapshot_json`。
-3. 历史必须有 `environment_snapshot_json`。
-4. 后端用快照构造变量映射，不读取当前环境表。
-5. 后端复用发送路径的 URL 构造、Body 准备和 HTTP 执行逻辑。
-6. 重放后插入新历史，`replayed_from_history_id` 指向原历史。
+2. 历史必须有 `executed_request_snapshot_json`。
+3. 后端直接使用执行快照，不读取当前环境表。
+4. 后端复用发送路径中的 HTTP 执行逻辑，但不再执行 URL、变量和 Body 解析。
+5. 重放后插入新历史，`replayed_from_history_id` 指向原历史。
 
 ### `history_update`
 
@@ -399,7 +423,7 @@ ALTER TABLE api_workbench_history
   ADD COLUMN request_snapshot_json TEXT;
 
 ALTER TABLE api_workbench_history
-  ADD COLUMN environment_snapshot_json TEXT;
+  ADD COLUMN executed_request_snapshot_json TEXT;
 
 ALTER TABLE api_workbench_history
   ADD COLUMN replayed_from_history_id INTEGER;
@@ -440,30 +464,31 @@ CREATE INDEX IF NOT EXISTS idx_api_workbench_history_pinned_created
 为避免双重真值，后端需要把现有发送逻辑拆出内部 helper：
 
 ```rust
-fn execute_prepared_api_workbench_request(
+fn prepare_api_workbench_request(
     draft: &RequestDraft,
     vars: &HashMap<String, String>,
     base_url: &str,
+) -> Result<ExecutedRequestSnapshot, String>;
+
+fn execute_api_workbench_request(
+    snapshot: &ExecutedRequestSnapshot,
 ) -> Result<Value, String>;
 ```
 
 职责：
 
-1. 解析 URL、Query、Headers、Body 和 Form。
-2. 构造最终 URL。
-3. 准备请求体和 Content-Type。
-4. 调用 HTTP 客户端执行请求。
+1. `prepare_api_workbench_request` 解析 URL、Query、Headers、Body 和 Form，生成已解析执行快照。
+2. `execute_api_workbench_request` 只按执行快照发送 HTTP 请求。
+3. `send` 调用两个 helper，并同时保存原始请求快照和执行快照。
+4. `history_replay` 只读取历史执行快照并调用 `execute_api_workbench_request`。
 
-`send` 和 `history_replay` 都调用该 helper。差异只在变量来源：
-
-1. `send` 从当前环境和全局变量加载，并保存快照。
-2. `history_replay` 从历史环境快照加载，不读取当前环境表。
+这样可以保持发送准备逻辑单一真源，同时避免重放重新解释变量占位符。
 
 ## 错误处理
 
 1. 历史不存在：提示“历史记录不存在”。
-2. 旧历史没有请求快照：重放按钮禁用；后端仍防御性返回“旧历史缺少请求快照”。
-3. 历史没有环境快照：重放按钮禁用；后端返回“历史缺少环境快照”。
+2. 旧历史没有执行快照：重放按钮禁用；后端仍防御性返回“旧历史缺少执行快照”。
+3. 旧历史没有请求快照：载入时按 `method/url` 降级恢复并提示。
 4. 快照 JSON 解析失败：返回“历史快照已损坏”，不尝试猜测恢复。
 5. 历史保存为接口时目标集合不存在：提示刷新后重试。
 6. 历史保存为接口时目标文件夹不属于集合：返回明确错误。
@@ -480,9 +505,9 @@ cargo test api_workbench -- --nocapture
 
 重点覆盖：
 
-1. `send` 写入请求快照和环境快照。
-2. `history_replay` 使用快照重放，不读取当前环境变量。
-3. 旧历史没有快照时拒绝重放。
+1. `send` 写入请求快照和已解析执行快照。
+2. `history_replay` 使用执行快照重放，不读取当前环境变量。
+3. 旧历史没有执行快照时拒绝重放。
 4. 带快照历史保存为接口时保留 Headers、Query、Body 和 Timeout。
 5. 无快照历史保存为接口时保持降级行为。
 6. 标星历史不被自动清理。
@@ -497,8 +522,8 @@ pnpm test src/utils/apiWorkbench.test.ts src/utils/apiWorkbenchTree.test.ts src/
 
 重点覆盖：
 
-1. 有快照历史可重放。
-2. 无快照历史不可重放。
+1. 有执行快照历史可重放。
+2. 无执行快照历史不可重放。
 3. 从快照构造完整请求草稿。
 4. 从旧历史降级构造 `method/url` 草稿。
 5. 默认历史展示名称稳定。
@@ -520,8 +545,8 @@ pnpm --filter @lazycat/desktop build:web
 ### 阶段 1：历史快照落库
 
 1. 数据库迁移新增历史快照和标星字段。
-2. `send` 写入请求快照和环境快照。
-3. `history_list` 返回快照字段。
+2. `send` 写入请求快照和已解析执行快照。
+3. `history_list` 返回快照存在状态。
 4. 保持现有 UI 行为不变。
 
 ### 阶段 2：重放和载入
@@ -542,8 +567,8 @@ pnpm --filter @lazycat/desktop build:web
 
 ## 风险与取舍
 
-1. 保存环境变量快照会增加历史中敏感信息留存。本版沿用现有明文策略，但 UI 默认不直接展示敏感值，后续可接 Vault 或加密存储。
+1. 执行快照保存的是变量解析后的实际请求值，不保存变量名、来源或作用域；代价是无法解释当时变量来自哪里。
 2. 不对旧历史回填伪快照，避免制造看似完整但实际缺字段的接口定义。
-3. 重放使用历史环境快照，而不是当前环境，能最大化复现能力；代价是无法自动使用最新 token。用户需要最新变量时，应载入到编辑器后手动发送。
+3. 重放使用历史执行快照，而不是当前环境，能最大化复现能力；代价是无法自动使用最新 token。用户需要最新变量时，应载入临时接口编辑态后手动发送。
 4. 标星历史不自动清理，便于保留关键调试记录；代价是长期使用后可能占用更多本地 SQLite 空间。
 5. 本版先用普通 `LIKE` 做历史搜索，不引入 FTS，避免为最多数百条历史增加额外索引和维护成本。
