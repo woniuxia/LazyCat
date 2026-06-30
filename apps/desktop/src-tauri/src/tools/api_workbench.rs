@@ -627,6 +627,98 @@ fn folder_delete_with_conn(conn: &Connection, payload: &Value) -> Result<Value, 
     Ok(json!({ "ok": true }))
 }
 
+fn next_folder_sort_order(
+    conn: &Connection,
+    collection_id: i64,
+    parent_id: Option<i64>,
+) -> Result<i64, String> {
+    conn.query_row(
+        "SELECT COALESCE(MAX(sort_order), -1) + 1
+         FROM api_workbench_folders
+         WHERE collection_id=?1 AND parent_id IS ?2",
+        params![collection_id, parent_id],
+        |row| row.get(0),
+    )
+    .map_err(|e| format!("query next folder order failed: {e}"))
+}
+
+fn next_request_sort_order(
+    conn: &Connection,
+    collection_id: i64,
+    folder_id: Option<i64>,
+) -> Result<i64, String> {
+    conn.query_row(
+        "SELECT COALESCE(MAX(sort_order), -1) + 1
+         FROM api_workbench_requests
+         WHERE collection_id=?1 AND folder_id IS ?2",
+        params![collection_id, folder_id],
+        |row| row.get(0),
+    )
+    .map_err(|e| format!("query next request order failed: {e}"))
+}
+
+fn folder_is_descendant(
+    conn: &Connection,
+    folder_id: i64,
+    possible_descendant_id: i64,
+) -> Result<bool, String> {
+    let count: i64 = conn
+        .query_row(
+            "WITH RECURSIVE descendants(id) AS (
+                SELECT id FROM api_workbench_folders WHERE parent_id=?1
+                UNION ALL
+                SELECT f.id FROM api_workbench_folders f
+                JOIN descendants d ON f.parent_id=d.id
+            )
+            SELECT COUNT(*) FROM descendants WHERE id=?2",
+            params![folder_id, possible_descendant_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| format!("check descendants failed: {e}"))?;
+    Ok(count > 0)
+}
+
+fn folder_move_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
+    let id = parse_i64(payload, "id")?;
+    let target_parent_id = payload["targetParentId"].as_i64();
+    if target_parent_id == Some(id) {
+        return Err("不能移动到自己".to_string());
+    }
+
+    let collection_id: i64 = conn
+        .query_row(
+            "SELECT collection_id FROM api_workbench_folders WHERE id=?1",
+            [id],
+            |row| row.get(0),
+        )
+        .map_err(|_| "文件夹不存在".to_string())?;
+    if let Some(parent_id) = target_parent_id {
+        let owner: i64 = conn
+            .query_row(
+                "SELECT collection_id FROM api_workbench_folders WHERE id=?1",
+                [parent_id],
+                |row| row.get(0),
+            )
+            .map_err(|_| "目标文件夹不存在".to_string())?;
+        if owner != collection_id {
+            return Err("目标文件夹不属于当前集合".to_string());
+        }
+        if folder_is_descendant(conn, id, parent_id)? {
+            return Err("不能移动到自己的子文件夹".to_string());
+        }
+    }
+
+    let next_order = next_folder_sort_order(conn, collection_id, target_parent_id)?;
+    conn.execute(
+        "UPDATE api_workbench_folders
+         SET parent_id=?1, sort_order=?2, updated_at=CURRENT_TIMESTAMP
+         WHERE id=?3",
+        params![target_parent_id, next_order, id],
+    )
+    .map_err(|e| format!("move folder failed: {e}"))?;
+    Ok(json!({ "ok": true }))
+}
+
 fn parse_draft(payload: &Value) -> Result<RequestDraft, String> {
     serde_json::from_value(payload["draft"].clone()).map_err(|e| format!("请求草稿格式错误: {e}"))
 }
@@ -750,6 +842,40 @@ fn request_delete_with_conn(conn: &Connection, payload: &Value) -> Result<Value,
     let id = parse_i64(payload, "id")?;
     conn.execute("DELETE FROM api_workbench_requests WHERE id=?1", [id])
         .map_err(|e| format!("delete request failed: {e}"))?;
+    Ok(json!({ "ok": true }))
+}
+
+fn request_move_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
+    let id = parse_i64(payload, "id")?;
+    let target_folder_id = payload["targetFolderId"].as_i64();
+    let collection_id: i64 = conn
+        .query_row(
+            "SELECT collection_id FROM api_workbench_requests WHERE id=?1",
+            [id],
+            |row| row.get(0),
+        )
+        .map_err(|_| "接口不存在".to_string())?;
+    if let Some(folder_id) = target_folder_id {
+        let owner: i64 = conn
+            .query_row(
+                "SELECT collection_id FROM api_workbench_folders WHERE id=?1",
+                [folder_id],
+                |row| row.get(0),
+            )
+            .map_err(|_| "目标文件夹不存在".to_string())?;
+        if owner != collection_id {
+            return Err("目标文件夹不属于当前集合".to_string());
+        }
+    }
+
+    let next_order = next_request_sort_order(conn, collection_id, target_folder_id)?;
+    conn.execute(
+        "UPDATE api_workbench_requests
+         SET folder_id=?1, sort_order=?2, updated_at=CURRENT_TIMESTAMP
+         WHERE id=?3",
+        params![target_folder_id, next_order, id],
+    )
+    .map_err(|e| format!("move request failed: {e}"))?;
     Ok(json!({ "ok": true }))
 }
 
@@ -1413,9 +1539,11 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         "folder_create" => folder_create_with_conn(&conn, payload),
         "folder_update" => folder_update_with_conn(&conn, payload),
         "folder_delete" => folder_delete_with_conn(&conn, payload),
+        "folder_move" => folder_move_with_conn(&conn, payload),
         "request_get" => request_get_with_conn(&conn, payload),
         "request_save" => request_save_with_conn(&conn, payload),
         "request_delete" => request_delete_with_conn(&conn, payload),
+        "request_move" => request_move_with_conn(&conn, payload),
         "send" => send_with_conn(&conn, payload),
         "history_list" => history_list_with_conn(&conn),
         "history_clear" => history_clear_with_conn(&conn),
@@ -1836,6 +1964,90 @@ mod tests {
         let conn = test_conn();
         let err = folder_delete_with_conn(&conn, &json!({ "id": 999 })).expect_err("missing");
         assert!(err.contains("文件夹不存在"));
+    }
+
+    #[test]
+    fn request_move_moves_between_folder_and_unassigned() {
+        let conn = test_conn();
+        let c = collection_create_with_conn(&conn, &json!({ "name": "Demo" })).expect("create");
+        let collection_id = c["id"].as_i64().unwrap();
+        let folder = folder_create_with_conn(
+            &conn,
+            &json!({ "collectionId": collection_id, "name": "Users" }),
+        )
+        .expect("folder");
+        let folder_id = folder["id"].as_i64().unwrap();
+        let saved = request_save_with_conn(
+            &conn,
+            &json!({
+                "collectionId": collection_id,
+                "folderId": null,
+                "name": "Health",
+                "draft": {
+                    "method": "GET",
+                    "url": "/health",
+                    "query": [],
+                    "headers": [],
+                    "bodyType": "none",
+                    "body": "",
+                    "form": [],
+                    "timeoutMs": 10000
+                }
+            }),
+        )
+        .expect("request");
+        let request_id = saved["id"].as_i64().unwrap();
+
+        request_move_with_conn(&conn, &json!({ "id": request_id, "targetFolderId": folder_id }))
+            .expect("move to folder");
+        let in_folder: Option<i64> = conn
+            .query_row(
+                "SELECT folder_id FROM api_workbench_requests WHERE id=?1",
+                [request_id],
+                |row| row.get(0),
+            )
+            .expect("folder id");
+        assert_eq!(in_folder, Some(folder_id));
+
+        request_move_with_conn(&conn, &json!({ "id": request_id, "targetFolderId": null }))
+            .expect("move to unassigned");
+        let unassigned: Option<i64> = conn
+            .query_row(
+                "SELECT folder_id FROM api_workbench_requests WHERE id=?1",
+                [request_id],
+                |row| row.get(0),
+            )
+            .expect("folder id");
+        assert_eq!(unassigned, None);
+    }
+
+    #[test]
+    fn folder_move_rejects_self_and_descendant_targets() {
+        let conn = test_conn();
+        let c = collection_create_with_conn(&conn, &json!({ "name": "Demo" })).expect("create");
+        let collection_id = c["id"].as_i64().unwrap();
+        let parent = folder_create_with_conn(
+            &conn,
+            &json!({ "collectionId": collection_id, "name": "Parent" }),
+        )
+        .expect("parent");
+        let parent_id = parent["id"].as_i64().unwrap();
+        let child = folder_create_with_conn(
+            &conn,
+            &json!({ "collectionId": collection_id, "parentId": parent_id, "name": "Child" }),
+        )
+        .expect("child");
+        let child_id = child["id"].as_i64().unwrap();
+
+        let err =
+            folder_move_with_conn(&conn, &json!({ "id": parent_id, "targetParentId": parent_id }))
+                .expect_err("self");
+        assert!(err.contains("自己"));
+
+        let err =
+            folder_move_with_conn(&conn, &json!({ "id": parent_id, "targetParentId": child_id }))
+                .expect_err("descendant");
+        assert!(err.contains("子文件夹"));
     }
 
     #[test]
