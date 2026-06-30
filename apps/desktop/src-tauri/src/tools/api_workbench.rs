@@ -1182,7 +1182,7 @@ fn action_list_with_conn(conn: &Connection) -> Result<Value, String> {
         .map_err(|e| format!("list collections failed: {e}"))?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| format!("read collections failed: {e}"))?;
-    let history = history_list_with_conn(conn)?["items"].clone();
+    let history = history_list_with_conn(conn, &json!({}))?["items"].clone();
     Ok(json!({ "collections": collections, "history": history }))
 }
 
@@ -1942,19 +1942,54 @@ fn history_replay_with_conn(conn: &Connection, payload: &Value) -> Result<Value,
     Ok(out)
 }
 
-fn history_list_with_conn(conn: &Connection) -> Result<Value, String> {
+fn history_list_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
+    let query = payload["query"].as_str().unwrap_or_default().trim().to_string();
+    let pinned_only = payload["pinnedOnly"].as_bool().unwrap_or(false);
+    let limit = payload["limit"]
+        .as_i64()
+        .unwrap_or(MAX_HISTORY_ROWS)
+        .clamp(1, MAX_HISTORY_ROWS);
+    let pattern = format!(
+        "%{}%",
+        query
+            .replace('\\', "\\\\")
+            .replace('%', "\\%")
+            .replace('_', "\\_")
+    );
+    let sql = r#"
+SELECT id, collection_id, environment_id, request_id, name, method, url, final_url,
+       status, duration_ms, ok, error, response_content_type, response_size,
+       response_body_preview, response_body_truncated, created_at,
+       request_snapshot_json, executed_request_snapshot_json, replayed_from_history_id,
+       note, pinned
+FROM api_workbench_history
+WHERE (?1 = 0 OR pinned = 1)
+  AND (
+    ?2 = ''
+    OR name LIKE ?3 ESCAPE '\'
+    OR note LIKE ?3 ESCAPE '\'
+    OR method LIKE ?3 ESCAPE '\'
+    OR url LIKE ?3 ESCAPE '\'
+    OR final_url LIKE ?3 ESCAPE '\'
+    OR CAST(status AS TEXT) LIKE ?3 ESCAPE '\'
+    OR COALESCE(error, '') LIKE ?3 ESCAPE '\'
+    OR response_content_type LIKE ?3 ESCAPE '\'
+  )
+ORDER BY created_at DESC, id DESC
+LIMIT ?4"#;
     let mut stmt = conn
-        .prepare(
-            "SELECT id, collection_id, environment_id, request_id, name, method, url, final_url,
-                    status, duration_ms, ok, error, response_content_type, response_size,
-                    response_body_preview, response_body_truncated, created_at,
-                    request_snapshot_json, executed_request_snapshot_json, replayed_from_history_id,
-                    note, pinned
-             FROM api_workbench_history ORDER BY created_at DESC, id DESC LIMIT ?1",
-        )
+        .prepare(sql)
         .map_err(|e| format!("prepare history failed: {e}"))?;
     let rows = stmt
-        .query_map([MAX_HISTORY_ROWS], |row| history_row_json(row, false))
+        .query_map(
+            params![
+                if pinned_only { 1 } else { 0 },
+                query,
+                pattern,
+                limit
+            ],
+            |row| history_row_json(row, false),
+        )
         .map_err(|e| format!("query history failed: {e}"))?;
     let mut items = Vec::new();
     for row in rows {
@@ -1963,8 +1998,36 @@ fn history_list_with_conn(conn: &Connection) -> Result<Value, String> {
     Ok(json!({ "items": items }))
 }
 
-fn history_clear_with_conn(conn: &Connection) -> Result<Value, String> {
-    conn.execute("DELETE FROM api_workbench_history", [])
+fn history_update_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
+    let id = parse_i64(payload, "id")?;
+    let name = payload["name"].as_str().unwrap_or_default().trim().to_string();
+    let note = payload["note"].as_str().unwrap_or_default().trim().to_string();
+    if note.chars().count() > MAX_HISTORY_NOTE_CHARS {
+        return Err("历史备注超过 2000 字符".to_string());
+    }
+    let pinned = payload["pinned"]
+        .as_bool()
+        .ok_or_else(|| "pinned must be a boolean".to_string())?;
+    let changed = conn
+        .execute(
+            "UPDATE api_workbench_history SET name=?1, note=?2, pinned=?3 WHERE id=?4",
+            params![name, note, if pinned { 1 } else { 0 }, id],
+        )
+        .map_err(|e| format!("update history failed: {e}"))?;
+    if changed == 0 {
+        return Err("历史记录不存在".to_string());
+    }
+    Ok(json!({ "ok": true }))
+}
+
+fn history_clear_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
+    let include_pinned = payload["includePinned"].as_bool().unwrap_or(false);
+    let sql = if include_pinned {
+        "DELETE FROM api_workbench_history"
+    } else {
+        "DELETE FROM api_workbench_history WHERE pinned=0"
+    };
+    conn.execute(sql, [])
         .map_err(|e| format!("clear history failed: {e}"))?;
     Ok(json!({ "ok": true }))
 }
@@ -2140,10 +2203,11 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         "export_curl" => export_curl_with_conn(&conn, payload),
         "history_save_request" => history_save_request_with_conn(&conn, payload),
         "request_save_example_response" => request_save_example_response_with_conn(&conn, payload),
-        "history_list" => history_list_with_conn(&conn),
+        "history_list" => history_list_with_conn(&conn, payload),
         "history_get" => history_get_with_conn(&conn, payload),
         "history_replay" => history_replay_with_conn(&conn, payload),
-        "history_clear" => history_clear_with_conn(&conn),
+        "history_update" => history_update_with_conn(&conn, payload),
+        "history_clear" => history_clear_with_conn(&conn, payload),
         "export_markdown" => export_markdown_with_conn(&conn, payload),
         "environment_list" => environment_list_with_conn(&conn, payload),
         "environment_save" => environment_save_with_conn(&conn, payload),
@@ -2611,6 +2675,182 @@ mod tests {
         assert_eq!(detail["draft"]["method"], "PATCH");
         assert_eq!(detail["draft"]["headers"][0]["value"], "{{TOKEN}}");
         assert_eq!(detail["draft"]["timeoutMs"], 12000);
+    }
+
+    #[test]
+    fn history_update_allows_empty_name_and_validates_note_length() {
+        let conn = test_conn();
+        insert_history_with_conn(
+            &conn,
+            &HistoryInsert {
+                collection_id: None,
+                environment_id: None,
+                request_id: None,
+                name: "Old".into(),
+                method: "GET".into(),
+                url: "/x".into(),
+                final_url: "/x".into(),
+                status: Some(200),
+                duration_ms: 1,
+                ok: true,
+                error: None,
+                response_content_type: String::new(),
+                response_size: 0,
+                response_body_preview: String::new(),
+                response_body_truncated: false,
+                request_snapshot_json: None,
+                executed_request_snapshot_json: None,
+                replayed_from_history_id: None,
+                pinned: false,
+                note: String::new(),
+            },
+        )
+        .expect("history");
+        let id: i64 = conn
+            .query_row("SELECT id FROM api_workbench_history", [], |row| row.get(0))
+            .unwrap();
+
+        history_update_with_conn(
+            &conn,
+            &json!({ "id": id, "name": "", "note": "keep", "pinned": true }),
+        )
+        .expect("update");
+        let (name, note, pinned): (String, String, i64) = conn
+            .query_row(
+                "SELECT name, note, pinned FROM api_workbench_history WHERE id=?1",
+                [id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(name, "");
+        assert_eq!(note, "keep");
+        assert_eq!(pinned, 1);
+
+        let long_note = "x".repeat(MAX_HISTORY_NOTE_CHARS + 1);
+        let err = history_update_with_conn(
+            &conn,
+            &json!({ "id": id, "name": "", "note": long_note, "pinned": true }),
+        )
+        .expect_err("long note");
+        assert!(err.contains("备注"));
+    }
+
+    #[test]
+    fn history_clear_preserves_pinned_by_default() {
+        let conn = test_conn();
+        for (name, pinned) in [("keep", true), ("drop", false)] {
+            insert_history_with_conn(
+                &conn,
+                &HistoryInsert {
+                    collection_id: None,
+                    environment_id: None,
+                    request_id: None,
+                    name: name.into(),
+                    method: "GET".into(),
+                    url: format!("/{name}"),
+                    final_url: format!("/{name}"),
+                    status: Some(200),
+                    duration_ms: 1,
+                    ok: true,
+                    error: None,
+                    response_content_type: String::new(),
+                    response_size: 0,
+                    response_body_preview: String::new(),
+                    response_body_truncated: false,
+                    request_snapshot_json: None,
+                    executed_request_snapshot_json: None,
+                    replayed_from_history_id: None,
+                    pinned,
+                    note: String::new(),
+                },
+            )
+            .expect("history");
+        }
+
+        history_clear_with_conn(&conn, &json!({ "includePinned": false })).expect("clear");
+        let names: Vec<String> = conn
+            .prepare("SELECT name FROM api_workbench_history ORDER BY name")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(names, vec!["keep"]);
+
+        history_clear_with_conn(&conn, &json!({ "includePinned": true })).expect("clear all");
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM api_workbench_history", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn history_list_filters_search_and_pinned() {
+        let conn = test_conn();
+        insert_history_with_conn(
+            &conn,
+            &HistoryInsert {
+                collection_id: None,
+                environment_id: None,
+                request_id: None,
+                name: "Login ok".into(),
+                method: "POST".into(),
+                url: "/login".into(),
+                final_url: "http://127.0.0.1/login".into(),
+                status: Some(200),
+                duration_ms: 1,
+                ok: true,
+                error: None,
+                response_content_type: "application/json".into(),
+                response_size: 2,
+                response_body_preview: "{}".into(),
+                response_body_truncated: false,
+                request_snapshot_json: Some("{} ".trim().to_string()),
+                executed_request_snapshot_json: Some("{} ".trim().to_string()),
+                replayed_from_history_id: None,
+                pinned: true,
+                note: "admin token".into(),
+            },
+        )
+        .expect("history");
+        insert_history_with_conn(
+            &conn,
+            &HistoryInsert {
+                collection_id: None,
+                environment_id: None,
+                request_id: None,
+                name: "Health".into(),
+                method: "GET".into(),
+                url: "/health".into(),
+                final_url: "http://127.0.0.1/health".into(),
+                status: Some(500),
+                duration_ms: 1,
+                ok: false,
+                error: Some("boom".into()),
+                response_content_type: "text/plain".into(),
+                response_size: 4,
+                response_body_preview: "fail".into(),
+                response_body_truncated: false,
+                request_snapshot_json: None,
+                executed_request_snapshot_json: None,
+                replayed_from_history_id: None,
+                pinned: false,
+                note: String::new(),
+            },
+        )
+        .expect("history");
+
+        let pinned = history_list_with_conn(
+            &conn,
+            &json!({ "query": "token", "pinnedOnly": true, "limit": 200 }),
+        )
+        .expect("list");
+        assert_eq!(pinned["items"].as_array().unwrap().len(), 1);
+        assert_eq!(pinned["items"][0]["name"], "Login ok");
+        assert_eq!(pinned["items"][0]["hasRequestSnapshot"], true);
+        assert_eq!(pinned["items"][0]["hasExecutedRequestSnapshot"], true);
     }
 
     #[test]
