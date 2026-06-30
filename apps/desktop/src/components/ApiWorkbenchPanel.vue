@@ -81,6 +81,7 @@
 
       <div class="api-workbench-actions">
         <el-input v-model="requestName" placeholder="接口名称" />
+        <el-button @click="startNewRequest(null)">新建接口</el-button>
         <el-button @click="saveRequest">保存接口</el-button>
         <el-button @click="exportMarkdown">导出 Markdown</el-button>
       </div>
@@ -168,6 +169,7 @@ import type {
 import {
   API_WORKBENCH_METHODS,
   DEFAULT_API_WORKBENCH_DRAFT,
+  buildApiWorkbenchNewRequestState,
   buildApiWorkbenchSelectionState,
   draftApiWorkbenchEnvironmentRows,
   formatApiWorkbenchResponseBody,
@@ -285,6 +287,22 @@ function resetRequestState() {
   requestDescription.value = "";
   draft.value = normalizeApiWorkbenchDraft({});
   response.value = null;
+}
+
+function startNewRequest(folderId: number | null) {
+  if (!selectedCollectionId.value) {
+    ElMessage.warning("请先选择集合");
+    return;
+  }
+  const next = buildApiWorkbenchNewRequestState({ folderId });
+  selectedRequestId.value = next.selectedRequestId;
+  selectedRequestFolderId.value = next.selectedRequestFolderId;
+  requestName.value = next.requestName;
+  requestDescription.value = next.requestDescription;
+  draft.value = next.draft;
+  response.value = next.response;
+  editorTab.value = "query";
+  if (folderId !== null) sidebarRef.value?.expandFolder(folderId);
 }
 
 function isMessageBoxCancel(error: unknown): boolean {
@@ -605,14 +623,22 @@ async function reorderRequest(requestId: number, direction: ApiWorkbenchOrderDir
 async function handleSidebarCommand(command: ApiWorkbenchNavCommand, target: ApiWorkbenchNavTarget) {
   try {
     if (command === "collection:create") return await createCollection();
+    if (command === "request:create" && target.type === "blank") return startNewRequest(null);
     if (command === "folder:create-root") return await createFolder(null);
     if (target.type === "collection") {
       if (command === "collection:select") return await selectCollection(target.collectionId);
+      if (command === "request:create") {
+        if (selectedCollectionId.value !== target.collectionId) {
+          await selectCollection(target.collectionId);
+        }
+        return startNewRequest(null);
+      }
       if (command === "collection:rename") return await renameCollection(target.collectionId);
       if (command === "collection:delete") return await deleteCollection(target.collectionId);
       if (command === "collection:export") return await exportMarkdownForCollection(target.collectionId);
     }
     if (target.type === "folder") {
+      if (command === "request:create") return startNewRequest(target.folderId);
       if (command === "folder:create-child") return await createFolder(target.folderId);
       if (command === "folder:rename") return await renameFolder(target.folderId);
       if (command === "folder:delete") return await deleteFolder(target.folderId);

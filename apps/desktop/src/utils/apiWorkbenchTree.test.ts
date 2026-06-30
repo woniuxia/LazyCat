@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ApiWorkbenchCollection } from "../types/api-workbench";
 import {
+  buildApiWorkbenchNavMenuItems,
   buildApiWorkbenchFolderMoveTargets,
   buildApiWorkbenchRequestMoveTargets,
   buildApiWorkbenchTree,
@@ -54,5 +55,19 @@ describe("apiWorkbenchTree", () => {
     expect(moveApiWorkbenchOrderedId([1, 2, 3], 2, "up")).toEqual([2, 1, 3]);
     expect(moveApiWorkbenchOrderedId([1, 2, 3], 2, "down")).toEqual([1, 3, 2]);
     expect(moveApiWorkbenchOrderedId([1, 2, 3], 1, "up")).toEqual([1, 2, 3]);
+  });
+
+  it("offers create request actions from blank and folder menus", () => {
+    expect(
+      buildApiWorkbenchNavMenuItems({ type: "blank" }, { hasSelectedCollection: true }).map(
+        (item) => item.key,
+      ),
+    ).toContain("request:create");
+    expect(
+      buildApiWorkbenchNavMenuItems(
+        { type: "folder", collectionId: 1, folderId: 1 },
+        { hasSelectedCollection: true },
+      ).map((item) => item.key),
+    ).toContain("request:create");
   });
 });

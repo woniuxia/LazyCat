@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildApiWorkbenchPreviewUrl,
+  buildApiWorkbenchNewRequestState,
   buildApiWorkbenchSelectionState,
   draftApiWorkbenchEnvironmentRows,
   extractApiWorkbenchVariables,
@@ -71,6 +72,17 @@ describe("apiWorkbench utils", () => {
     expect(state.selectedEnvironmentId).toBe(20);
     expect(state.selectedRequestId).toBeNull();
     expect(state.requestName).toBe("");
+    expect(state.response).toBeNull();
+    expect(state.draft).toEqual(normalizeApiWorkbenchDraft({}));
+  });
+
+  it("creates a blank request draft for the target folder", () => {
+    const state = buildApiWorkbenchNewRequestState({ folderId: 12 });
+
+    expect(state.selectedRequestId).toBeNull();
+    expect(state.selectedRequestFolderId).toBe(12);
+    expect(state.requestName).toBe("");
+    expect(state.requestDescription).toBe("");
     expect(state.response).toBeNull();
     expect(state.draft).toEqual(normalizeApiWorkbenchDraft({}));
   });

@@ -136,6 +136,24 @@ export function buildApiWorkbenchSelectionState(input: {
   };
 }
 
+export function buildApiWorkbenchNewRequestState(input: { folderId: number | null }): {
+  selectedRequestId: number | null;
+  selectedRequestFolderId: number | null;
+  requestName: string;
+  requestDescription: string;
+  draft: ApiWorkbenchRequestDraft;
+  response: ApiWorkbenchSendResult | null;
+} {
+  return {
+    selectedRequestId: null,
+    selectedRequestFolderId: input.folderId,
+    requestName: "",
+    requestDescription: "",
+    draft: createApiWorkbenchBlankDraft(),
+    response: null,
+  };
+}
+
 export function draftApiWorkbenchEnvironmentRows(
   variables: ApiWorkbenchVariable[],
 ): ApiWorkbenchKeyValueRow[] {

@@ -132,6 +132,7 @@ import type {
   ApiWorkbenchTreeRequestNode,
 } from "../types/api-workbench";
 import {
+  buildApiWorkbenchNavMenuItems,
   buildApiWorkbenchTree,
   getApiWorkbenchFolderAncestorIds,
 } from "../utils/apiWorkbenchTree";
@@ -223,45 +224,11 @@ function toggleFolder(folderId: number) {
   expandedFolderKeys.value = next;
 }
 
-function menuItemsForTarget(target: ApiWorkbenchNavTarget): ApiWorkbenchMenuItem[] {
-  if (target.type === "blank") {
-    return [
-      { key: "collection:create", label: "新建集合" },
-      { key: "folder:create-root", label: "新建根文件夹", disabled: !selectedCollection.value },
-    ];
-  }
-  if (target.type === "collection") {
-    return [
-      { key: "collection:select", label: "选择集合" },
-      { key: "folder:create-root", label: "新建文件夹" },
-      { key: "collection:rename", label: "重命名" },
-      { key: "collection:export", label: "导出 Markdown" },
-      { key: "collection:delete", label: "删除", danger: true },
-    ];
-  }
-  if (target.type === "folder") {
-    return [
-      { key: "folder:create-child", label: "新建子文件夹" },
-      { key: "folder:rename", label: "重命名" },
-      { key: "folder:move", label: "移动到" },
-      { key: "folder:up", label: "上移" },
-      { key: "folder:down", label: "下移" },
-      { key: "folder:delete", label: "删除", danger: true },
-    ];
-  }
-  return [
-    { key: "request:open", label: "打开" },
-    { key: "request:rename", label: "重命名" },
-    { key: "request:move", label: "移动到" },
-    { key: "request:up", label: "上移" },
-    { key: "request:down", label: "下移" },
-    { key: "request:delete", label: "删除", danger: true },
-  ];
-}
-
 function openMenu(event: MouseEvent, target: ApiWorkbenchNavTarget) {
   menuTarget.value = target;
-  menuItems.value = menuItemsForTarget(target);
+  menuItems.value = buildApiWorkbenchNavMenuItems(target, {
+    hasSelectedCollection: selectedCollection.value !== null,
+  });
   menuX.value = event.clientX;
   menuY.value = event.clientY;
   menuVisible.value = true;
