@@ -8,6 +8,30 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-06-30: 接口调试历史复现以执行快照为重放真源
+
+**场景**: 为 API Workbench 增加历史复现闭环，支持发送时保存草稿快照和执行快照、历史详情载入、执行快照重放、标星、搜索、备注和默认保留标星清理。
+**使用次数**: 0
+**问题**:
+1. 仅依赖历史摘要无法恢复 headers/body/form，也不能保证重放不受当前环境变量变化影响。
+2. 历史 schema 迁移如果放在 action 分发前，会让未知 action 测试先失败在迁移路径，掩盖真实错误。
+3. 前端直接从历史摘要恢复请求会形成降级路径和完整快照路径混杂在组件里。
+**解决**:
+1. 后端发送路径拆分为请求准备和 HTTP 执行，历史同时保存 `request_snapshot_json` 与 `executed_request_snapshot_json`；重放只使用执行快照，不读环境变量。
+2. `execute` 先校验 action 是否支持，再执行历史列兼容迁移，保持未知 action 的错误语义稳定。
+3. 前端新增 `apiWorkbenchHistory` 纯函数，统一判断可重放、从历史详情构造草稿和生成默认展示名；组件只负责状态编排和调用后端 action。
+**涉及文件**:
+- `apps/desktop/src-tauri/src/tools/api_workbench.rs`
+- `apps/desktop/src/components/ApiWorkbenchPanel.vue`
+- `apps/desktop/src/bridge/tauri.ts`
+- `apps/desktop/src/types/api-workbench.ts`
+- `apps/desktop/src/utils/apiWorkbenchHistory.ts`
+**验证**:
+- `cargo test api_workbench -- --nocapture`
+- `pnpm test src/utils/apiWorkbench.test.ts src/utils/apiWorkbenchTree.test.ts src/utils/apiWorkbenchHistory.test.ts`
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+
 ## 2026-06-30: 接口调试个人闭环继续保持发送路径单一真源
 
 **场景**: 完善接口调试个人高频链路，补 cURL 导入导出、历史沉淀、示例响应、搜索、变量提示和环境管理。
