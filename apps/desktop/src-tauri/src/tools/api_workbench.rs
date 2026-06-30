@@ -121,8 +121,6 @@ CREATE TABLE IF NOT EXISTS api_workbench_history (
 );
 CREATE INDEX IF NOT EXISTS idx_api_workbench_history_created
   ON api_workbench_history(created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_api_workbench_history_pinned_created
-  ON api_workbench_history(pinned, created_at DESC, id DESC);
 "#;
 
 const MAX_TIMEOUT_MS: u64 = 120_000;
@@ -2291,6 +2289,36 @@ mod tests {
             )
             .expect("table count");
         assert_eq!(count, 7);
+    }
+
+    #[test]
+    fn api_workbench_schema_handles_existing_history_without_pinned_column() {
+        let conn = Connection::open_in_memory().expect("open memory db");
+        conn.execute_batch(
+            "CREATE TABLE api_workbench_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                collection_id INTEGER,
+                environment_id INTEGER,
+                request_id INTEGER,
+                name TEXT NOT NULL DEFAULT '',
+                method TEXT NOT NULL,
+                url TEXT NOT NULL,
+                final_url TEXT NOT NULL,
+                status INTEGER,
+                duration_ms INTEGER NOT NULL,
+                ok INTEGER NOT NULL,
+                error TEXT,
+                response_content_type TEXT NOT NULL DEFAULT '',
+                response_size INTEGER NOT NULL DEFAULT 0,
+                response_body_preview TEXT NOT NULL DEFAULT '',
+                response_body_truncated INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );",
+        )
+        .expect("old api history schema");
+
+        conn.execute_batch(API_WORKBENCH_SCHEMA_SQL)
+            .expect("api workbench schema should allow old history table");
     }
 
     #[test]
