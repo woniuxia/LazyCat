@@ -593,8 +593,37 @@ fn folder_update_with_conn(conn: &Connection, payload: &Value) -> Result<Value, 
 
 fn folder_delete_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
     let id = parse_i64(payload, "id")?;
-    conn.execute("DELETE FROM api_workbench_folders WHERE id=?1", [id])
+    let exists: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM api_workbench_folders WHERE id=?1",
+            [id],
+            |row| row.get(0),
+        )
+        .map_err(|e| format!("check folder failed: {e}"))?;
+    if exists == 0 {
+        return Err("文件夹不存在".to_string());
+    }
+
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| format!("delete folder begin: {e}"))?;
+    tx.execute(
+        "WITH RECURSIVE descendants(id) AS (
+            SELECT id FROM api_workbench_folders WHERE id=?1
+            UNION ALL
+            SELECT f.id FROM api_workbench_folders f
+            JOIN descendants d ON f.parent_id=d.id
+        )
+        UPDATE api_workbench_requests
+        SET folder_id=NULL, updated_at=CURRENT_TIMESTAMP
+        WHERE folder_id IN (SELECT id FROM descendants)",
+        [id],
+    )
+    .map_err(|e| format!("unassign folder requests failed: {e}"))?;
+    tx.execute("DELETE FROM api_workbench_folders WHERE id=?1", [id])
         .map_err(|e| format!("delete folder failed: {e}"))?;
+    tx.commit()
+        .map_err(|e| format!("delete folder commit: {e}"))?;
     Ok(json!({ "ok": true }))
 }
 
@@ -1749,6 +1778,64 @@ mod tests {
         assert_eq!(list["collections"][0]["name"], "Demo");
         assert_eq!(list["collections"][0]["folders"][0]["name"], "Users");
         assert_eq!(list["collections"][0]["requests"][0]["name"], "List users");
+    }
+
+    #[test]
+    fn folder_delete_preserves_descendant_requests_as_unassigned() {
+        let conn = test_conn();
+        let c = collection_create_with_conn(&conn, &json!({ "name": "Demo" })).expect("create");
+        let collection_id = c["id"].as_i64().unwrap();
+        let parent = folder_create_with_conn(
+            &conn,
+            &json!({ "collectionId": collection_id, "name": "Parent" }),
+        )
+        .expect("parent");
+        let parent_id = parent["id"].as_i64().unwrap();
+        let child = folder_create_with_conn(
+            &conn,
+            &json!({ "collectionId": collection_id, "parentId": parent_id, "name": "Child" }),
+        )
+        .expect("child");
+        let child_id = child["id"].as_i64().unwrap();
+
+        let saved = request_save_with_conn(
+            &conn,
+            &json!({
+                "collectionId": collection_id,
+                "folderId": child_id,
+                "name": "Child request",
+                "draft": {
+                    "method": "GET",
+                    "url": "/x",
+                    "query": [],
+                    "headers": [],
+                    "bodyType": "none",
+                    "body": "",
+                    "form": [],
+                    "timeoutMs": 10000
+                }
+            }),
+        )
+        .expect("request");
+        let request_id = saved["id"].as_i64().unwrap();
+
+        folder_delete_with_conn(&conn, &json!({ "id": parent_id })).expect("delete");
+
+        let folder_id: Option<i64> = conn
+            .query_row(
+                "SELECT folder_id FROM api_workbench_requests WHERE id=?1",
+                [request_id],
+                |row| row.get(0),
+            )
+            .expect("request remains");
+        assert_eq!(folder_id, None);
+    }
+
+    #[test]
+    fn folder_delete_reports_missing_folder() {
+        let conn = test_conn();
+        let err = folder_delete_with_conn(&conn, &json!({ "id": 999 })).expect_err("missing");
+        assert!(err.contains("文件夹不存在"));
     }
 
     #[test]
