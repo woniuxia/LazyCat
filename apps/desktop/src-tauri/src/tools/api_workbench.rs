@@ -109,6 +109,11 @@ CREATE TABLE IF NOT EXISTS api_workbench_history (
   response_size INTEGER NOT NULL DEFAULT 0,
   response_body_preview TEXT NOT NULL DEFAULT '',
   response_body_truncated INTEGER NOT NULL DEFAULT 0,
+  request_snapshot_json TEXT,
+  executed_request_snapshot_json TEXT,
+  replayed_from_history_id INTEGER,
+  pinned INTEGER NOT NULL DEFAULT 0,
+  note TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY(collection_id) REFERENCES api_workbench_collections(id) ON DELETE SET NULL,
   FOREIGN KEY(environment_id) REFERENCES api_workbench_environments(id) ON DELETE SET NULL,
@@ -116,6 +121,8 @@ CREATE TABLE IF NOT EXISTS api_workbench_history (
 );
 CREATE INDEX IF NOT EXISTS idx_api_workbench_history_created
   ON api_workbench_history(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_api_workbench_history_pinned_created
+  ON api_workbench_history(pinned, created_at DESC, id DESC);
 "#;
 
 const MAX_TIMEOUT_MS: u64 = 120_000;
@@ -123,6 +130,8 @@ const MIN_TIMEOUT_MS: u64 = 100;
 const MAX_RESPONSE_BODY_BYTES: usize = 2 * 1024 * 1024;
 const MAX_HISTORY_BODY_PREVIEW_BYTES: usize = 64 * 1024;
 const MAX_HISTORY_ROWS: i64 = 200;
+const MAX_HISTORY_SNAPSHOT_BYTES: usize = 2 * 1024 * 1024;
+const MAX_HISTORY_NOTE_CHARS: usize = 2000;
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -132,7 +141,7 @@ struct KeyValueRow {
     value: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct RequestDraft {
     method: String,
@@ -145,10 +154,55 @@ struct RequestDraft {
     timeout_ms: u64,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ExecutedRequestSnapshot {
+    method: String,
+    final_url: String,
+    headers: Vec<KeyValueRow>,
+    body_type: String,
+    body: String,
+    form: Vec<KeyValueRow>,
+    timeout_ms: u64,
+}
+
 #[derive(Debug, Clone)]
 struct PreparedBody {
     body: Option<Vec<u8>>,
     content_type: Option<String>,
+}
+
+fn ensure_api_workbench_history_columns(conn: &Connection) -> Result<(), String> {
+    let columns = [
+        ("request_snapshot_json", "TEXT"),
+        ("executed_request_snapshot_json", "TEXT"),
+        ("replayed_from_history_id", "INTEGER"),
+        ("pinned", "INTEGER NOT NULL DEFAULT 0"),
+        ("note", "TEXT NOT NULL DEFAULT ''"),
+    ];
+    for (name, ty) in columns {
+        let exists: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('api_workbench_history') WHERE name=?1",
+                [name],
+                |row| row.get(0),
+            )
+            .map_err(|e| format!("inspect api history schema failed: {e}"))?;
+        if exists == 0 {
+            conn.execute(
+                &format!("ALTER TABLE api_workbench_history ADD COLUMN {name} {ty}"),
+                [],
+            )
+            .map_err(|e| format!("migrate api history column {name} failed: {e}"))?;
+        }
+    }
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_api_workbench_history_pinned_created
+         ON api_workbench_history(pinned, created_at DESC, id DESC)",
+        [],
+    )
+    .map_err(|e| format!("create api history pinned index failed: {e}"))?;
+    Ok(())
 }
 
 fn validate_variable_name(name: &str) -> bool {
@@ -1190,6 +1244,87 @@ fn resolve_rows(
     Ok(out)
 }
 
+fn prepare_api_workbench_request(
+    draft: &RequestDraft,
+    vars: &HashMap<String, String>,
+    base_url: &str,
+) -> Result<ExecutedRequestSnapshot, String> {
+    let resolved_url = resolve_template(&draft.url, vars)?;
+    let resolved_query = resolve_rows(&draft.query, vars)?;
+    let mut resolved_headers = resolve_rows(&draft.headers, vars)?;
+    let resolved_body = if matches!(draft.body_type.as_str(), "json" | "text") {
+        resolve_template(&draft.body, vars)?
+    } else {
+        String::new()
+    };
+    let resolved_form = if draft.body_type == "form-urlencoded" {
+        resolve_rows(&draft.form, vars)?
+    } else {
+        Vec::new()
+    };
+    let final_url = build_final_url(base_url, &resolved_url, &resolved_query)?;
+    let prepared = prepare_request_body(
+        &draft.body_type,
+        &resolved_body,
+        &resolved_form,
+        &resolved_headers,
+    )?;
+    if let Some(content_type) = prepared.content_type {
+        resolved_headers.push(KeyValueRow {
+            enabled: true,
+            key: "Content-Type".to_string(),
+            value: content_type,
+        });
+    }
+    Ok(ExecutedRequestSnapshot {
+        method: draft.method.clone(),
+        final_url,
+        headers: resolved_headers,
+        body_type: draft.body_type.clone(),
+        body: resolved_body,
+        form: resolved_form,
+        timeout_ms: clamp_timeout_ms(draft.timeout_ms),
+    })
+}
+
+fn execute_api_workbench_request(snapshot: &ExecutedRequestSnapshot) -> Result<Value, String> {
+    let prepared = prepare_request_body(
+        &snapshot.body_type,
+        &snapshot.body,
+        &snapshot.form,
+        &snapshot.headers,
+    )?;
+    let draft_for_timeout = RequestDraft {
+        method: snapshot.method.clone(),
+        url: snapshot.final_url.clone(),
+        query: Vec::new(),
+        headers: snapshot.headers.clone(),
+        body_type: snapshot.body_type.clone(),
+        body: snapshot.body.clone(),
+        form: snapshot.form.clone(),
+        timeout_ms: snapshot.timeout_ms,
+    };
+    execute_http_request(
+        &draft_for_timeout,
+        &snapshot.final_url,
+        &snapshot.headers,
+        prepared,
+    )
+}
+
+fn serialize_limited_json<T: Serialize>(
+    value: &T,
+    max_bytes: usize,
+    message: &str,
+) -> Result<String, String> {
+    let serialized =
+        serde_json::to_string(value).map_err(|e| format!("serialize snapshot failed: {e}"))?;
+    if serialized.len() > max_bytes {
+        return Err(message.to_string());
+    }
+    Ok(serialized)
+}
+
 fn execute_http_request(
     draft: &RequestDraft,
     final_url: &str,
@@ -1316,6 +1451,11 @@ struct HistoryInsert {
     response_size: usize,
     response_body_preview: String,
     response_body_truncated: bool,
+    request_snapshot_json: Option<String>,
+    executed_request_snapshot_json: Option<String>,
+    replayed_from_history_id: Option<i64>,
+    pinned: bool,
+    note: String,
 }
 
 fn truncate_to_max_bytes(input: &str, max: usize) -> String {
@@ -1342,9 +1482,10 @@ fn insert_history_with_conn(conn: &Connection, item: &HistoryInsert) -> Result<(
         "INSERT INTO api_workbench_history(
             collection_id, environment_id, request_id, name, method, url, final_url,
             status, duration_ms, ok, error, response_content_type, response_size,
-            response_body_preview, response_body_truncated
+            response_body_preview, response_body_truncated, request_snapshot_json,
+            executed_request_snapshot_json, replayed_from_history_id, pinned, note
          )
-         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
         params![
             item.collection_id,
             item.environment_id,
@@ -1360,14 +1501,23 @@ fn insert_history_with_conn(conn: &Connection, item: &HistoryInsert) -> Result<(
             item.response_content_type,
             item.response_size as i64,
             preview,
-            if item.response_body_truncated || preview_too_large { 1 } else { 0 }
+            if item.response_body_truncated || preview_too_large { 1 } else { 0 },
+            item.request_snapshot_json,
+            item.executed_request_snapshot_json,
+            item.replayed_from_history_id,
+            if item.pinned { 1 } else { 0 },
+            item.note
         ],
     )
     .map_err(|e| format!("insert history failed: {e}"))?;
     conn.execute(
         "DELETE FROM api_workbench_history
-         WHERE id NOT IN (
-            SELECT id FROM api_workbench_history ORDER BY created_at DESC, id DESC LIMIT ?1
+         WHERE pinned=0
+           AND id NOT IN (
+            SELECT id FROM api_workbench_history
+            WHERE pinned=0
+            ORDER BY created_at DESC, id DESC
+            LIMIT ?1
          )",
         [MAX_HISTORY_ROWS],
     )
@@ -1408,27 +1558,15 @@ fn send_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
     }
 
     let (vars, base_url) = load_variables(conn, environment_id)?;
-    let resolved_url = resolve_template(&draft.url, &vars)?;
-    let resolved_query = resolve_rows(&draft.query, &vars)?;
-    let resolved_headers = resolve_rows(&draft.headers, &vars)?;
-    let resolved_body = if matches!(draft.body_type.as_str(), "json" | "text") {
-        resolve_template(&draft.body, &vars)?
-    } else {
-        String::new()
-    };
-    let resolved_form = if draft.body_type == "form-urlencoded" {
-        resolve_rows(&draft.form, &vars)?
-    } else {
-        Vec::new()
-    };
-    let final_url = build_final_url(&base_url, &resolved_url, &resolved_query)?;
-    let prepared = prepare_request_body(
-        &draft.body_type,
-        &resolved_body,
-        &resolved_form,
-        &resolved_headers,
+    let executed_snapshot = prepare_api_workbench_request(&draft, &vars, &base_url)?;
+    let result = execute_api_workbench_request(&executed_snapshot)?;
+    let request_snapshot_json =
+        serialize_limited_json(&draft, MAX_HISTORY_SNAPSHOT_BYTES, "请求快照体积超过限制")?;
+    let executed_snapshot_json = serialize_limited_json(
+        &executed_snapshot,
+        MAX_HISTORY_SNAPSHOT_BYTES,
+        "执行快照体积超过限制",
     )?;
-    let result = execute_http_request(&draft, &final_url, &resolved_headers, prepared)?;
     insert_history_with_conn(
         conn,
         &HistoryInsert {
@@ -1438,7 +1576,7 @@ fn send_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
             name: payload["name"].as_str().unwrap_or_default().to_string(),
             method: draft.method.clone(),
             url: draft.url.clone(),
-            final_url: final_url.clone(),
+            final_url: executed_snapshot.final_url.clone(),
             status: result["status"].as_i64(),
             duration_ms: result["durationMs"].as_u64().unwrap_or(0),
             ok: result["ok"].as_bool().unwrap_or(false),
@@ -1453,6 +1591,11 @@ fn send_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
                 .unwrap_or_default()
                 .to_string(),
             response_body_truncated: result["bodyTruncated"].as_bool().unwrap_or(false),
+            request_snapshot_json: Some(request_snapshot_json),
+            executed_request_snapshot_json: Some(executed_snapshot_json),
+            replayed_from_history_id: None,
+            pinned: false,
+            note: String::new(),
         },
     )?;
     Ok(result)
@@ -1858,6 +2001,7 @@ fn export_markdown_with_conn(conn: &Connection, payload: &Value) -> Result<Value
 
 pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
     let conn = db_conn()?;
+    ensure_api_workbench_history_columns(&conn)?;
     match action {
         "list" => action_list_with_conn(&conn),
         "collection_create" => collection_create_with_conn(&conn, payload),
@@ -2136,6 +2280,11 @@ mod tests {
                 response_size: 11,
                 response_body_preview: "{\"ok\":true}".into(),
                 response_body_truncated: false,
+                request_snapshot_json: None,
+                executed_request_snapshot_json: None,
+                replayed_from_history_id: None,
+                pinned: false,
+                note: String::new(),
             },
         )
         .expect("history");
@@ -2690,6 +2839,11 @@ mod tests {
                 response_size: 2,
                 response_body_preview: "ok".into(),
                 response_body_truncated: false,
+                request_snapshot_json: None,
+                executed_request_snapshot_json: None,
+                replayed_from_history_id: None,
+                pinned: false,
+                note: String::new(),
             },
         )
         .expect("history");
@@ -2798,6 +2952,86 @@ mod tests {
     }
 
     #[test]
+    fn send_writes_request_and_executed_snapshots() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+        use std::thread;
+
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let port = listener.local_addr().unwrap().port();
+        thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut buf = [0u8; 2048];
+                let _ = stream.read(&mut buf);
+                let _ = stream.write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 2\r\n\r\nok",
+                );
+            }
+        });
+
+        let conn = test_conn();
+        let c = collection_create_with_conn(&conn, &json!({ "name": "Demo" })).expect("create");
+        let collection_id = c["id"].as_i64().unwrap();
+        let environment_id = c["activeEnvironmentId"].as_i64().unwrap();
+        environment_save_with_conn(
+            &conn,
+            &json!({
+                "id": environment_id,
+                "collectionId": collection_id,
+                "name": "开发",
+                "variables": [
+                    { "name": "BASE_URL", "value": format!("http://127.0.0.1:{port}"), "isSecret": false },
+                    { "name": "TOKEN", "value": "abc", "isSecret": false }
+                ]
+            }),
+        )
+        .expect("env");
+
+        send_with_conn(
+            &conn,
+            &json!({
+                "collectionId": collection_id,
+                "environmentId": environment_id,
+                "name": "Login",
+                "draft": {
+                    "method": "POST",
+                    "url": "/login",
+                    "query": [{ "enabled": true, "key": "token", "value": "{{TOKEN}}" }],
+                    "headers": [{ "enabled": true, "key": "X-Token", "value": "{{TOKEN}}" }],
+                    "bodyType": "json",
+                    "body": "{\"token\":\"{{TOKEN}}\"}",
+                    "form": [{ "enabled": true, "key": "unused", "value": "{{TOKEN}}" }],
+                    "timeoutMs": 10000
+                }
+            }),
+        )
+        .expect("send");
+
+        let (request_snapshot, executed_snapshot): (String, String) = conn
+            .query_row(
+                "SELECT request_snapshot_json, executed_request_snapshot_json FROM api_workbench_history ORDER BY id DESC LIMIT 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("history snapshots");
+        let request: Value =
+            serde_json::from_str(&request_snapshot).expect("request snapshot json");
+        let executed: Value =
+            serde_json::from_str(&executed_snapshot).expect("executed snapshot json");
+
+        assert_eq!(request["url"], "/login");
+        assert_eq!(request["headers"][0]["value"], "{{TOKEN}}");
+        assert_eq!(request["form"][0]["value"], "{{TOKEN}}");
+        assert!(executed["finalUrl"]
+            .as_str()
+            .unwrap()
+            .contains("/login?token=abc"));
+        assert_eq!(executed["headers"][0]["value"], "abc");
+        assert_eq!(executed["body"], "{\"token\":\"abc\"}");
+        assert_eq!(executed["form"].as_array().unwrap().len(), 0);
+    }
+
+    #[test]
     fn send_writes_history_and_trims_to_limit() {
         let conn = test_conn();
         let c = collection_create_with_conn(&conn, &json!({ "name": "Demo" })).expect("create");
@@ -2821,6 +3055,11 @@ mod tests {
                 response_size: 2,
                 response_body_preview: "ok".into(),
                 response_body_truncated: false,
+                request_snapshot_json: None,
+                executed_request_snapshot_json: None,
+                replayed_from_history_id: None,
+                pinned: false,
+                note: String::new(),
             },
         )
         .expect("history");
