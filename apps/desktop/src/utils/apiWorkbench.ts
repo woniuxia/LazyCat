@@ -25,6 +25,9 @@ export const API_WORKBENCH_BODY_TYPES: ApiWorkbenchBodyType[] = [
   "form-urlencoded",
 ];
 
+export const API_WORKBENCH_ENVIRONMENT_MANAGER_VALUE =
+  "__api_workbench_environment_manager__";
+
 export const DEFAULT_API_WORKBENCH_DRAFT: ApiWorkbenchRequestDraft = {
   method: "GET",
   url: "",
@@ -115,6 +118,21 @@ export function createApiWorkbenchBlankDraft(): ApiWorkbenchRequestDraft {
   return normalizeApiWorkbenchDraft({});
 }
 
+export function resolveApiWorkbenchEnvironmentSelect(
+  value: unknown,
+  currentEnvironmentId: number | null,
+):
+  | { kind: "environment"; environmentId: number | null }
+  | { kind: "manage"; environmentId: number | null } {
+  if (value === API_WORKBENCH_ENVIRONMENT_MANAGER_VALUE) {
+    return { kind: "manage", environmentId: currentEnvironmentId };
+  }
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return { kind: "environment", environmentId: value };
+  }
+  return { kind: "environment", environmentId: currentEnvironmentId };
+}
+
 export function buildApiWorkbenchSelectionState(input: {
   nextCollection: Pick<ApiWorkbenchCollection, "id" | "activeEnvironmentId"> | null;
 }): {
@@ -178,6 +196,28 @@ export function serializeApiWorkbenchEnvironmentRows(
       value: row.value,
       isSecret: false,
     }));
+}
+
+export function findDuplicateApiWorkbenchEnvironmentVariableNames(
+  rows: ApiWorkbenchKeyValueRow[],
+): string[] {
+  const seen = new Set<string>();
+  const duplicateSet = new Set<string>();
+  const duplicates: string[] = [];
+  for (const row of rows) {
+    if (!row.enabled) continue;
+    const name = row.key.trim();
+    if (!name) continue;
+    if (seen.has(name)) {
+      if (!duplicateSet.has(name)) {
+        duplicateSet.add(name);
+        duplicates.push(name);
+      }
+      continue;
+    }
+    seen.add(name);
+  }
+  return duplicates;
 }
 
 export function formatApiWorkbenchResponseBody(body: string, contentType: string): string {

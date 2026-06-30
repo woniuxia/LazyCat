@@ -147,6 +147,13 @@ export function buildApiWorkbenchNavMenuItems(
         label: "新建根文件夹",
         disabled: !options.hasSelectedCollection,
       },
+      { divider: true, key: "blank:tools", label: "" },
+      { key: "request:import-curl", label: "导入 cURL" },
+      {
+        key: "collection:export",
+        label: "导出 Markdown",
+        disabled: !options.hasSelectedCollection,
+      },
     ];
   }
   if (target.type === "collection") {
@@ -154,8 +161,11 @@ export function buildApiWorkbenchNavMenuItems(
       { key: "collection:select", label: "选择集合" },
       { key: "request:create", label: "新建接口" },
       { key: "folder:create-root", label: "新建文件夹" },
-      { key: "collection:rename", label: "重命名" },
+      { divider: true, key: "collection:tools", label: "" },
+      { key: "request:import-curl", label: "导入 cURL" },
       { key: "collection:export", label: "导出 Markdown" },
+      { divider: true, key: "collection:manage", label: "" },
+      { key: "collection:rename", label: "重命名" },
       { key: "collection:delete", label: "删除", danger: true },
     ];
   }
@@ -163,6 +173,10 @@ export function buildApiWorkbenchNavMenuItems(
     return [
       { key: "request:create", label: "新建接口" },
       { key: "folder:create-child", label: "新建子文件夹" },
+      { divider: true, key: "folder:tools", label: "" },
+      { key: "request:import-curl", label: "导入 cURL" },
+      { key: "collection:export", label: "导出 Markdown" },
+      { divider: true, key: "folder:manage", label: "" },
       { key: "folder:rename", label: "重命名" },
       { key: "folder:move", label: "移动到" },
       { key: "folder:up", label: "上移" },
@@ -172,6 +186,9 @@ export function buildApiWorkbenchNavMenuItems(
   }
   return [
     { key: "request:open", label: "打开" },
+    { key: "request:import-curl", label: "导入 cURL" },
+    { key: "collection:export", label: "导出 Markdown" },
+    { divider: true, key: "request:manage", label: "" },
     { key: "request:rename", label: "重命名" },
     { key: "request:move", label: "移动到" },
     { key: "request:up", label: "上移" },

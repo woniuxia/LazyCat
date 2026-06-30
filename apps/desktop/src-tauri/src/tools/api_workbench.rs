@@ -486,10 +486,14 @@ fn collection_set_active_environment_with_conn(
 fn parse_variable_rows(payload: &Value) -> Result<Vec<KeyValueRow>, String> {
     let rows = payload["variables"].as_array().cloned().unwrap_or_default();
     let mut out = Vec::new();
+    let mut seen_names = HashSet::new();
     for item in rows {
         let name = item["name"].as_str().unwrap_or_default().trim();
         if !validate_variable_name(name) {
             return Err(format!("变量名无效: {name}"));
+        }
+        if !seen_names.insert(name.to_string()) {
+            return Err(format!("变量名重复: {name}"));
         }
         out.push(KeyValueRow {
             enabled: true,
@@ -3122,6 +3126,31 @@ mod tests {
         let err = environment_delete_with_conn(&conn, &json!({ "id": second_env_id }))
             .expect_err("reject last");
         assert!(err.contains("最后一个环境"));
+    }
+
+    #[test]
+    fn environment_save_rejects_duplicate_variable_names() {
+        let conn = test_conn();
+        let c = collection_create_with_conn(&conn, &json!({ "name": "Demo" })).expect("create");
+        let collection_id = c["id"].as_i64().unwrap();
+        let environment_id = c["activeEnvironmentId"].as_i64().unwrap();
+
+        let err = environment_save_with_conn(
+            &conn,
+            &json!({
+                "id": environment_id,
+                "collectionId": collection_id,
+                "name": "开发",
+                "variables": [
+                    { "name": "TOKEN", "value": "a", "isSecret": false },
+                    { "name": " TOKEN ", "value": "b", "isSecret": false }
+                ]
+            }),
+        )
+        .expect_err("duplicate variable");
+
+        assert!(err.contains("变量名重复: TOKEN"));
+        assert!(!err.contains("UNIQUE constraint"));
     }
 
     #[test]

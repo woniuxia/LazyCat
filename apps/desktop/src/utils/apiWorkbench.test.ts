@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
+  API_WORKBENCH_ENVIRONMENT_MANAGER_VALUE,
   buildApiWorkbenchPreviewUrl,
   buildApiWorkbenchNewRequestState,
   buildApiWorkbenchSelectionState,
   draftApiWorkbenchEnvironmentRows,
   extractApiWorkbenchVariables,
+  findDuplicateApiWorkbenchEnvironmentVariableNames,
   formatApiWorkbenchResponseBody,
   normalizeApiWorkbenchDraft,
+  resolveApiWorkbenchEnvironmentSelect,
   serializeApiWorkbenchEnvironmentRows,
   validateApiWorkbenchVariableName,
 } from "./apiWorkbench";
@@ -101,5 +104,29 @@ describe("apiWorkbench utils", () => {
       { name: "BASE_URL", value: "http://127.0.0.1:8080", isSecret: false },
       { name: "TOKEN", value: "abc", isSecret: false },
     ]);
+  });
+
+  it("finds duplicate enabled environment variable names after trimming", () => {
+    expect(
+      findDuplicateApiWorkbenchEnvironmentVariableNames([
+        { enabled: true, key: "TOKEN", value: "1" },
+        { enabled: true, key: " TOKEN ", value: "2" },
+        { enabled: false, key: "TOKEN", value: "ignored" },
+        { enabled: true, key: "", value: "ignored" },
+      ]),
+    ).toEqual(["TOKEN"]);
+  });
+
+  it("resolves environment selector values without storing the manage option", () => {
+    expect(resolveApiWorkbenchEnvironmentSelect(12, 5)).toEqual({
+      kind: "environment",
+      environmentId: 12,
+    });
+    expect(
+      resolveApiWorkbenchEnvironmentSelect(API_WORKBENCH_ENVIRONMENT_MANAGER_VALUE, 5),
+    ).toEqual({
+      kind: "manage",
+      environmentId: 5,
+    });
   });
 });

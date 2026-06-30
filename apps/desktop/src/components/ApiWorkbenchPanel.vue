@@ -12,22 +12,76 @@
     />
 
     <main class="api-workbench-editor">
-      <div class="api-workbench-request-bar">
-        <el-select v-model="draft.method" class="method-select">
-          <el-option v-for="method in methods" :key="method" :label="method" :value="method" />
-        </el-select>
-        <el-input v-model="draft.url" placeholder="https://example.com/api 或 /api/users" />
-        <el-select
-          v-model="selectedEnvironmentId"
-          class="environment-select"
-          placeholder="环境"
-          @change="handleEnvironmentChange"
-        >
-          <el-option v-for="env in environments" :key="env.id" :label="env.name" :value="env.id" />
-        </el-select>
-        <el-button @click="importCurl">导入 cURL</el-button>
-        <el-button @click="copyCurrentCurl">复制 cURL</el-button>
-        <el-button type="primary" :loading="sending" @click="sendRequest">发送</el-button>
+      <div class="api-workbench-compose">
+        <div class="api-workbench-meta-row">
+          <el-input v-model="requestName" class="request-name-input" placeholder="接口名称" />
+          <div class="api-workbench-primary-actions">
+            <el-select
+              :model-value="selectedEnvironmentSelectValue"
+              class="environment-select meta-environment-select"
+              placeholder="环境"
+              @update:model-value="handleEnvironmentSelect"
+            >
+              <el-option v-for="env in environments" :key="env.id" :label="env.name" :value="env.id" />
+              <el-option
+                class="api-workbench-environment-manage-option"
+                :value="API_WORKBENCH_ENVIRONMENT_MANAGER_VALUE"
+                label="环境管理"
+              >
+                <div class="environment-manage-option">
+                  <el-icon><Setting /></el-icon>
+                  <span>环境管理</span>
+                </div>
+              </el-option>
+            </el-select>
+          </div>
+        </div>
+
+        <div class="api-workbench-request-bar">
+          <el-select v-model="draft.method" class="method-select">
+            <el-option v-for="method in methods" :key="method" :label="method" :value="method" />
+          </el-select>
+          <el-input
+            v-model="draft.url"
+            class="request-url-input"
+            placeholder="https://example.com/api 或 /api/users"
+          />
+          <el-button
+            class="save-request-button"
+            :icon="DocumentChecked"
+            title="保存接口"
+            aria-label="保存接口"
+            @click="saveRequest"
+          />
+          <el-button
+            class="send-button"
+            type="primary"
+            :icon="Promotion"
+            :loading="sending"
+            @click="sendRequest"
+          >
+            发送
+          </el-button>
+        </div>
+
+        <div class="api-workbench-utility-row">
+          <div v-if="variableUsages.length > 0 || baseUrlEffectText" class="variable-summary">
+            <span v-if="baseUrlEffectText" class="variable-summary-base">
+              {{ baseUrlEffectText }}
+            </span>
+            <el-tag
+              v-for="usage in variableUsages"
+              :key="usage.name"
+              size="small"
+              :type="usage.source === 'missing' ? 'warning' : usage.source === 'environment' ? 'success' : 'info'"
+            >
+              {{ usage.name }} · {{ variableSourceLabel(usage.source) }}
+            </el-tag>
+          </div>
+          <div class="curl-actions">
+            <el-button :icon="CopyDocument" @click="copyCurrentCurl">复制 cURL</el-button>
+          </div>
+        </div>
       </div>
 
       <el-alert
@@ -37,19 +91,8 @@
         show-icon
         :closable="false"
       />
-      <div v-if="variableUsages.length > 0 || baseUrlEffectText" class="variable-summary">
-        <span v-if="baseUrlEffectText" class="variable-summary-base">{{ baseUrlEffectText }}</span>
-        <el-tag
-          v-for="usage in variableUsages"
-          :key="usage.name"
-          size="small"
-          :type="usage.source === 'missing' ? 'warning' : usage.source === 'environment' ? 'success' : 'info'"
-        >
-          {{ usage.name }} · {{ variableSourceLabel(usage.source) }}
-        </el-tag>
-      </div>
 
-      <el-tabs v-model="editorTab">
+      <el-tabs v-model="editorTab" class="api-workbench-editor-tabs">
         <el-tab-pane label="Query" name="query">
           <KeyValueEditor v-model="draft.query" />
         </el-tab-pane>
@@ -75,70 +118,47 @@
           />
           <el-empty v-else description="无请求体" />
         </el-tab-pane>
-        <el-tab-pane label="环境" name="environment">
-          <div class="environment-toolbar">
-            <strong>{{ selectedEnvironment?.name ?? "未选择环境" }}</strong>
-            <div class="environment-actions">
-              <el-button size="small" :disabled="!selectedCollectionId" @click="createEnvironment">
-                新增
-              </el-button>
-              <el-button size="small" :disabled="!selectedEnvironment" @click="copyEnvironment">
-                复制
-              </el-button>
-              <el-button size="small" :disabled="!selectedEnvironment" @click="renameEnvironment">
-                重命名
-              </el-button>
-              <el-button size="small" :disabled="!selectedEnvironment" @click="deleteEnvironment">
-                删除
-              </el-button>
-              <el-button
-                size="small"
-                type="primary"
-                :loading="savingEnvironment"
-                :disabled="!selectedEnvironment"
-                @click="saveCurrentEnvironment"
-              >
-                保存环境
-              </el-button>
-            </div>
-          </div>
-          <KeyValueEditor v-model="environmentRows" />
-        </el-tab-pane>
       </el-tabs>
-
-      <div class="api-workbench-actions">
-        <el-input v-model="requestName" placeholder="接口名称" />
-        <el-button @click="startNewRequest(null)">新建接口</el-button>
-        <el-button @click="saveRequest">保存接口</el-button>
-        <el-button @click="exportMarkdown">导出 Markdown</el-button>
-      </div>
     </main>
 
     <section class="api-workbench-response">
-      <el-tabs v-model="responseTab">
+      <div class="response-panel-heading">
+        <strong>调试结果</strong>
+        <div v-if="response" class="response-summary">
+          <el-tag :type="response.ok ? 'success' : 'warning'">
+            {{ response.status ?? "ERR" }}
+          </el-tag>
+          <span>{{ response.durationMs }}ms</span>
+          <span>{{ response.bodySize }} bytes</span>
+        </div>
+        <span v-else class="response-empty-status">未发送</span>
+      </div>
+
+      <el-tabs v-model="responseTab" class="api-workbench-response-tabs">
         <el-tab-pane label="响应" name="response">
           <div v-if="response" class="response-toolbar">
-            <div class="response-summary">
-              <el-tag :type="response.ok ? 'success' : 'warning'">
-                {{ response.status ?? "ERR" }}
-              </el-tag>
-              <span>{{ response.durationMs }}ms</span>
-              <span>{{ response.bodySize }} bytes</span>
-            </div>
             <div class="response-actions">
               <el-radio-group v-model="responseBodyMode" size="small">
                 <el-radio-button label="pretty">美化</el-radio-button>
                 <el-radio-button label="raw">原文</el-radio-button>
               </el-radio-group>
-              <el-button size="small" @click="copyResponseBody">复制响应体</el-button>
-              <el-button size="small" @click="copyFinalUrl">复制 URL</el-button>
-              <el-button size="small" type="primary" @click="saveCurrentResponseAsExample">
+              <el-button size="small" :icon="CopyDocument" @click="copyResponseBody">
+                复制响应体
+              </el-button>
+              <el-button size="small" :icon="CopyDocument" @click="copyFinalUrl">复制 URL</el-button>
+              <el-button
+                size="small"
+                type="primary"
+                :icon="DocumentChecked"
+                @click="saveCurrentResponseAsExample"
+              >
                 保存为示例
               </el-button>
             </div>
           </div>
           <el-input
             v-if="response"
+            class="response-body-input"
             :model-value="formattedResponseBody"
             type="textarea"
             :rows="18"
@@ -148,7 +168,12 @@
         </el-tab-pane>
         <el-tab-pane label="响应头" name="headers">
           <div class="response-actions response-actions-header">
-            <el-button size="small" :disabled="!response" @click="copyResponseHeaders">
+            <el-button
+              size="small"
+              :icon="CopyDocument"
+              :disabled="!response"
+              @click="copyResponseHeaders"
+            >
               复制响应头
             </el-button>
           </div>
@@ -181,25 +206,75 @@
                 <span>{{ defaultApiWorkbenchHistoryDisplayName(item) }}</span>
                 <small>{{ item.status ?? "ERR" }} · {{ item.durationMs }}ms · {{ item.hasRequestSnapshot ? "完整快照" : "摘要历史" }}</small>
               </div>
-              <el-button size="small" text @click.stop="toggleHistoryPinned(item)">
-                {{ item.pinned ? "取消标星" : "标星" }}
-              </el-button>
-              <el-button
-                size="small"
-                :loading="replayingHistoryId === item.id"
-                :disabled="!canReplayApiWorkbenchHistory(item)"
-                @click.stop="replayHistory(item)"
-              >
-                重放
-              </el-button>
-              <el-button size="small" @click.stop="loadHistoryIntoTemporaryEditor(item)">载入</el-button>
-              <el-button size="small" @click.stop="saveHistoryAsRequest(item)">保存为接口</el-button>
-              <el-button size="small" @click.stop="editHistoryMeta(item)">备注</el-button>
+              <div class="history-actions">
+                <el-button size="small" text :icon="Star" @click.stop="toggleHistoryPinned(item)">
+                  {{ item.pinned ? "取消标星" : "标星" }}
+                </el-button>
+                <el-button
+                  size="small"
+                  :icon="Refresh"
+                  :loading="replayingHistoryId === item.id"
+                  :disabled="!canReplayApiWorkbenchHistory(item)"
+                  @click.stop="replayHistory(item)"
+                >
+                  重放
+                </el-button>
+                <el-button size="small" @click.stop="loadHistoryIntoTemporaryEditor(item)">
+                  载入
+                </el-button>
+                <el-button size="small" @click.stop="saveHistoryAsRequest(item)">
+                  保存为接口
+                </el-button>
+                <el-button size="small" @click.stop="editHistoryMeta(item)">备注</el-button>
+              </div>
             </div>
           </div>
         </el-tab-pane>
       </el-tabs>
     </section>
+
+    <el-dialog
+      v-model="environmentDialogVisible"
+      title="环境管理"
+      width="720px"
+      append-to-body
+    >
+      <div v-if="selectedCollectionId" class="environment-dialog-body">
+        <div class="environment-toolbar">
+          <div class="environment-current">
+            <span>当前环境</span>
+            <strong>{{ selectedEnvironment?.name ?? "未选择环境" }}</strong>
+          </div>
+          <div class="environment-actions">
+            <el-button size="small" :disabled="!selectedCollectionId" @click="createEnvironment">
+              新增
+            </el-button>
+            <el-button size="small" :disabled="!selectedEnvironment" @click="copyEnvironment">
+              复制
+            </el-button>
+            <el-button size="small" :disabled="!selectedEnvironment" @click="renameEnvironment">
+              重命名
+            </el-button>
+            <el-button size="small" :disabled="!selectedEnvironment" @click="deleteEnvironment">
+              删除
+            </el-button>
+          </div>
+        </div>
+        <KeyValueEditor v-model="environmentRows" />
+      </div>
+      <el-empty v-else description="请先选择集合" />
+      <template #footer>
+        <el-button @click="environmentDialogVisible = false">关闭</el-button>
+        <el-button
+          type="primary"
+          :loading="savingEnvironment"
+          :disabled="!selectedEnvironment"
+          @click="saveCurrentEnvironment"
+        >
+          保存环境
+        </el-button>
+      </template>
+    </el-dialog>
 
     <el-dialog
       v-model="moveDialogVisible"
@@ -227,6 +302,14 @@
 
 <script setup lang="ts">
 import { computed, defineComponent, h, onBeforeUnmount, onMounted, ref } from "vue";
+import {
+  CopyDocument,
+  DocumentChecked,
+  Promotion,
+  Refresh,
+  Setting,
+  Star,
+} from "@element-plus/icons-vue";
 import { ElButton, ElInput, ElMessage, ElMessageBox, ElSwitch } from "element-plus";
 import { invokeToolByChannel } from "../bridge/tauri";
 import ApiWorkbenchSidebar from "./ApiWorkbenchSidebar.vue";
@@ -246,13 +329,16 @@ import type {
   ApiWorkbenchSendResult,
 } from "../types/api-workbench";
 import {
+  API_WORKBENCH_ENVIRONMENT_MANAGER_VALUE,
   API_WORKBENCH_METHODS,
   DEFAULT_API_WORKBENCH_DRAFT,
   buildApiWorkbenchNewRequestState,
   buildApiWorkbenchSelectionState,
   draftApiWorkbenchEnvironmentRows,
+  findDuplicateApiWorkbenchEnvironmentVariableNames,
   formatApiWorkbenchResponseBody,
   normalizeApiWorkbenchDraft,
+  resolveApiWorkbenchEnvironmentSelect,
   serializeApiWorkbenchEnvironmentRows,
 } from "../utils/apiWorkbench";
 import {
@@ -347,6 +433,7 @@ const response = ref<ApiWorkbenchSendResult | null>(null);
 const responseBodyMode = ref<"pretty" | "raw">("pretty");
 const editorTab = ref("query");
 const responseTab = ref("response");
+const environmentDialogVisible = ref(false);
 const moveDialogVisible = ref(false);
 const moveDialogTitle = ref("");
 const moveDialogTargets = ref<ApiWorkbenchMoveTarget[]>([]);
@@ -359,6 +446,7 @@ const selectedCollection = computed(
 const selectedEnvironment = computed(
   () => environments.value.find((item) => item.id === selectedEnvironmentId.value) ?? null,
 );
+const selectedEnvironmentSelectValue = computed(() => selectedEnvironmentId.value);
 const baseUrl = computed(
   () => selectedEnvironment.value?.variables.find((item) => item.name === "BASE_URL")?.value ?? "",
 );
@@ -424,8 +512,15 @@ function isMessageBoxCancel(error: unknown): boolean {
 }
 
 function errorMessage(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  if (typeof error === "string") return error;
+  const message = error instanceof Error ? error.message : typeof error === "string" ? error : "";
+  if (
+    message.includes(
+      "UNIQUE constraint failed: api_workbench_environment_variables.environment_id, api_workbench_environment_variables.name",
+    )
+  ) {
+    return "环境变量名称不能重复";
+  }
+  if (message) return message;
   return "操作失败";
 }
 
@@ -802,6 +897,15 @@ async function handleSidebarCommand(command: ApiWorkbenchNavCommand, target: Api
     if (command === "collection:create") return await createCollection();
     if (command === "request:create" && target.type === "blank") return startNewRequest(null);
     if (command === "folder:create-root") return await createFolder(null);
+    if (command === "request:import-curl") return await importCurl();
+    if (command === "collection:export") {
+      const collectionId = target.type === "blank" ? selectedCollectionId.value : target.collectionId;
+      if (!collectionId) {
+        ElMessage.warning("请先选择集合");
+        return;
+      }
+      return await exportMarkdownForCollection(collectionId);
+    }
     if (target.type === "collection") {
       if (command === "collection:select") return await selectCollection(target.collectionId);
       if (command === "request:create") {
@@ -812,7 +916,6 @@ async function handleSidebarCommand(command: ApiWorkbenchNavCommand, target: Api
       }
       if (command === "collection:rename") return await renameCollection(target.collectionId);
       if (command === "collection:delete") return await deleteCollection(target.collectionId);
-      if (command === "collection:export") return await exportMarkdownForCollection(target.collectionId);
     }
     if (target.type === "folder") {
       if (command === "request:create") return startNewRequest(target.folderId);
@@ -843,6 +946,15 @@ function syncEnvironmentRows() {
   );
 }
 
+function serializeEnvironmentRowsForSave() {
+  const duplicateNames = findDuplicateApiWorkbenchEnvironmentVariableNames(environmentRows.value);
+  if (duplicateNames.length > 0) {
+    ElMessage.warning(`环境变量名称重复：${duplicateNames.join("、")}`);
+    return null;
+  }
+  return serializeApiWorkbenchEnvironmentRows(environmentRows.value);
+}
+
 async function refreshEnvironments(collectionId: number) {
   const result = (await invokeToolByChannel("tool:api-workbench:environment-list", {
     collectionId,
@@ -862,6 +974,17 @@ async function handleEnvironmentChange() {
   syncEnvironmentRows();
 }
 
+async function handleEnvironmentSelect(value: string | number | null) {
+  const next = resolveApiWorkbenchEnvironmentSelect(value, selectedEnvironmentId.value);
+  if (next.kind === "manage") {
+    environmentDialogVisible.value = true;
+    syncEnvironmentRows();
+    return;
+  }
+  selectedEnvironmentId.value = next.environmentId;
+  await handleEnvironmentChange();
+}
+
 async function persistActiveEnvironment() {
   if (!selectedCollectionId.value || !selectedEnvironmentId.value) return;
   await invokeToolByChannel("tool:api-workbench:collection-set-active-environment", {
@@ -875,13 +998,15 @@ async function saveCurrentEnvironment() {
     ElMessage.warning("请先选择环境");
     return;
   }
+  const variables = serializeEnvironmentRowsForSave();
+  if (!variables) return;
   savingEnvironment.value = true;
   try {
     await invokeToolByChannel("tool:api-workbench:environment-save", {
       id: selectedEnvironment.value.id,
       collectionId: selectedCollectionId.value,
       name: selectedEnvironment.value.name,
-      variables: serializeApiWorkbenchEnvironmentRows(environmentRows.value),
+      variables,
     });
     const result = (await invokeToolByChannel("tool:api-workbench:environment-list", {
       collectionId: selectedCollectionId.value,
@@ -889,6 +1014,8 @@ async function saveCurrentEnvironment() {
     environments.value = result.items ?? [];
     syncEnvironmentRows();
     ElMessage.success("环境已保存");
+  } catch (error) {
+    ElMessage.error(errorMessage(error));
   } finally {
     savingEnvironment.value = false;
   }
@@ -899,6 +1026,8 @@ async function createEnvironment() {
     ElMessage.warning("请先选择集合");
     return;
   }
+  const variables = serializeEnvironmentRowsForSave();
+  if (!variables) return;
   try {
     const { value } = await ElMessageBox.prompt("环境名称", "新增环境", {
       inputValue: "新环境",
@@ -909,7 +1038,7 @@ async function createEnvironment() {
     const created = (await invokeToolByChannel("tool:api-workbench:environment-save", {
       collectionId: selectedCollectionId.value,
       name: value.trim(),
-      variables: serializeApiWorkbenchEnvironmentRows(environmentRows.value),
+      variables,
     })) as { id: number };
     selectedEnvironmentId.value = created.id;
     await persistActiveEnvironment();
@@ -923,6 +1052,8 @@ async function createEnvironment() {
 
 async function copyEnvironment() {
   if (!selectedCollectionId.value || !selectedEnvironment.value) return;
+  const variables = serializeEnvironmentRowsForSave();
+  if (!variables) return;
   try {
     const { value } = await ElMessageBox.prompt("环境名称", "复制环境", {
       inputValue: `${selectedEnvironment.value.name} 副本`,
@@ -933,7 +1064,7 @@ async function copyEnvironment() {
     const created = (await invokeToolByChannel("tool:api-workbench:environment-save", {
       collectionId: selectedCollectionId.value,
       name: value.trim(),
-      variables: serializeApiWorkbenchEnvironmentRows(environmentRows.value),
+      variables,
     })) as { id: number };
     selectedEnvironmentId.value = created.id;
     await persistActiveEnvironment();
@@ -947,6 +1078,8 @@ async function copyEnvironment() {
 
 async function renameEnvironment() {
   if (!selectedCollectionId.value || !selectedEnvironment.value) return;
+  const variables = serializeEnvironmentRowsForSave();
+  if (!variables) return;
   try {
     const { value } = await ElMessageBox.prompt("环境名称", "重命名环境", {
       inputValue: selectedEnvironment.value.name,
@@ -958,7 +1091,7 @@ async function renameEnvironment() {
       id: selectedEnvironment.value.id,
       collectionId: selectedCollectionId.value,
       name: value.trim(),
-      variables: serializeApiWorkbenchEnvironmentRows(environmentRows.value),
+      variables,
     });
     await refreshEnvironments(selectedCollectionId.value);
     ElMessage.success("环境已重命名");
@@ -1184,14 +1317,6 @@ async function exportMarkdownForCollection(collectionId: number) {
   ElMessage.success(`Markdown 已复制：${result.fileName}`);
 }
 
-async function exportMarkdown() {
-  if (!selectedCollectionId.value) {
-    ElMessage.warning("请先选择集合");
-    return;
-  }
-  await exportMarkdownForCollection(selectedCollectionId.value);
-}
-
 async function loadHistoryIntoTemporaryEditor(item: ApiWorkbenchHistoryItem) {
   const detail = (await invokeToolByChannel("tool:api-workbench:history-get", {
     historyId: item.id,
@@ -1295,8 +1420,8 @@ onBeforeUnmount(() => {
 <style scoped>
 .api-workbench-panel {
   display: grid;
-  grid-template-columns: 260px minmax(420px, 1fr) minmax(320px, 42%);
-  gap: 12px;
+  grid-template-columns: 272px minmax(460px, 1fr) minmax(360px, 40%);
+  gap: 14px;
   height: 100%;
   min-height: 0;
   padding: 12px;
@@ -1305,16 +1430,35 @@ onBeforeUnmount(() => {
 
 .api-workbench-editor,
 .api-workbench-response {
+  display: flex;
+  flex-direction: column;
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
   border: 1px solid var(--el-border-color-lighter);
   border-radius: 8px;
   background: var(--el-bg-color);
   padding: 12px;
 }
 
+.api-workbench-editor {
+  gap: 12px;
+}
+
+.api-workbench-compose {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.api-workbench-meta-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
 .api-workbench-request-bar,
-.api-workbench-actions,
 .body-toolbar,
 .environment-toolbar,
 .environment-actions {
@@ -1323,9 +1467,58 @@ onBeforeUnmount(() => {
   gap: 8px;
 }
 
+.api-workbench-request-bar {
+  display: grid;
+  grid-template-columns: 104px minmax(240px, 1fr) 32px auto;
+}
+
+.api-workbench-primary-actions,
+.curl-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.api-workbench-utility-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 32px;
+}
+
 .environment-toolbar {
   justify-content: space-between;
   margin-bottom: 8px;
+}
+
+.environment-dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.environment-current {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.environment-current span {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+
+.environment-current strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--el-text-color-primary);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .environment-actions {
@@ -1333,16 +1526,29 @@ onBeforeUnmount(() => {
   justify-content: flex-end;
 }
 
+:global(.api-workbench-environment-manage-option) {
+  margin-top: 4px;
+  border-top: 1px solid var(--el-border-color-lighter);
+}
+
+:global(.api-workbench-environment-manage-option .environment-manage-option) {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--el-color-primary);
+}
+
 .variable-summary {
   display: flex;
+  min-width: 0;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  min-height: 28px;
+  padding-top: 2px;
 }
 
 .variable-summary-base {
-  max-width: 100%;
+  max-width: min(100%, 480px);
   overflow: hidden;
   color: var(--el-text-color-secondary);
   font-size: 12px;
@@ -1356,8 +1562,62 @@ onBeforeUnmount(() => {
 }
 
 .environment-select {
-  width: 140px;
+  width: 100%;
   flex: none;
+}
+
+.meta-environment-select {
+  width: 180px;
+}
+
+.request-name-input,
+.request-url-input {
+  min-width: 0;
+}
+
+.send-button {
+  min-width: 92px;
+}
+
+.save-request-button {
+  width: 32px;
+  padding-right: 0;
+  padding-left: 0;
+}
+
+.api-workbench-editor-tabs,
+.api-workbench-response-tabs {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.api-workbench-editor-tabs :deep(.el-tabs__content),
+.api-workbench-response-tabs :deep(.el-tabs__content) {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+}
+
+.api-workbench-editor-tabs :deep(.el-tab-pane),
+.api-workbench-response-tabs :deep(.el-tab-pane) {
+  min-height: 100%;
+}
+
+.api-workbench-editor-tabs :deep(.el-tabs__header),
+.api-workbench-response-tabs :deep(.el-tabs__header) {
+  flex: none;
+  margin-bottom: 10px;
+}
+
+.body-toolbar {
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.body-toolbar :deep(.el-radio-group) {
+  flex-wrap: wrap;
 }
 
 .kv-editor {
@@ -1368,21 +1628,45 @@ onBeforeUnmount(() => {
 
 .kv-row {
   display: grid;
-  grid-template-columns: 52px minmax(120px, 1fr) minmax(160px, 1.4fr) 72px;
+  grid-template-columns: 48px minmax(120px, 1fr) minmax(160px, 1.4fr) 68px;
   gap: 8px;
   align-items: center;
 }
 
+.response-panel-heading {
+  display: flex;
+  min-height: 32px;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.response-panel-heading strong {
+  color: var(--el-text-color-primary);
+  font-weight: 600;
+}
+
 .response-summary {
   display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+
+.response-empty-status {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
 }
 
 .response-toolbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 8px;
   margin-bottom: 8px;
 }
@@ -1400,11 +1684,25 @@ onBeforeUnmount(() => {
 }
 
 .headers-view {
-  white-space: pre-wrap;
-  word-break: break-word;
+  min-height: 180px;
   margin: 0;
+  overflow: auto;
+  border: 1px solid var(--el-border-color-extra-light);
+  border-radius: 6px;
+  background: var(--el-fill-color-blank);
   font-family: var(--lc-font-mono);
   font-size: 12px;
+  line-height: 1.55;
+  padding: 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.response-body-input :deep(.el-textarea__inner) {
+  min-height: 360px;
+  font-family: var(--lc-font-mono);
+  font-size: 12px;
+  line-height: 1.55;
 }
 
 .history-toolbar {
@@ -1421,8 +1719,8 @@ onBeforeUnmount(() => {
 
 .history-item {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) repeat(5, auto);
-  gap: 6px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
   align-items: center;
   padding: 8px;
   border-bottom: 1px solid var(--el-border-color-lighter);
@@ -1445,6 +1743,18 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 
+.history-main small {
+  grid-column: 2;
+  color: var(--el-text-color-secondary);
+}
+
+.history-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
 :global(.api-workbench-move-options) {
   display: flex;
   max-height: 320px;
@@ -1460,6 +1770,16 @@ onBeforeUnmount(() => {
   margin-right: 0;
 }
 
+@media (max-width: 1380px) {
+  .api-workbench-panel {
+    grid-template-columns: 260px minmax(420px, 1fr) minmax(340px, 38%);
+  }
+
+  .api-workbench-request-bar {
+    grid-template-columns: 104px minmax(220px, 1fr) 32px auto;
+  }
+}
+
 @media (max-width: 1180px) {
   .api-workbench-panel {
     grid-template-columns: 240px 1fr;
@@ -1467,6 +1787,57 @@ onBeforeUnmount(() => {
 
   .api-workbench-response {
     grid-column: 1 / -1;
+    min-height: 360px;
+  }
+
+  .api-workbench-request-bar,
+  .api-workbench-meta-row {
+    grid-template-columns: 1fr;
+  }
+
+  .api-workbench-primary-actions,
+  .curl-actions,
+  .response-actions {
+    justify-content: flex-start;
+  }
+
+  .meta-environment-select {
+    width: 100%;
+  }
+}
+
+@media (max-width: 820px) {
+  .api-workbench-panel {
+    grid-template-columns: 1fr;
+    overflow: auto;
+  }
+
+  .api-workbench-editor,
+  .api-workbench-response {
+    min-height: 360px;
+  }
+
+  .kv-row {
+    grid-template-columns: 48px minmax(0, 1fr);
+  }
+
+  .kv-row > :nth-child(3),
+  .kv-row > :nth-child(4) {
+    grid-column: 2;
+  }
+
+  .history-toolbar,
+  .history-item,
+  .history-main {
+    grid-template-columns: 1fr;
+  }
+
+  .history-main small {
+    grid-column: 1;
+  }
+
+  .history-actions {
+    justify-content: flex-start;
   }
 }
 </style>

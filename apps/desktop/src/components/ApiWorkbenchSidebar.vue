@@ -281,7 +281,7 @@ defineExpose({
   min-height: 0;
   flex-direction: column;
   gap: 12px;
-  overflow: auto;
+  overflow: hidden;
   border: 1px solid var(--el-border-color-lighter);
   border-radius: 8px;
   background: var(--el-bg-color);
@@ -302,6 +302,13 @@ defineExpose({
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+
+.api-workbench-collection-list {
+  max-height: 176px;
+  flex: none;
+  overflow: auto;
+  padding-right: 2px;
 }
 
 .api-workbench-collection {
@@ -356,6 +363,13 @@ defineExpose({
   font-weight: 600;
 }
 
+.api-workbench-nav-tree {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  padding-right: 2px;
+}
+
 .api-workbench-nav-group {
   min-height: 28px;
   border-radius: 6px;
@@ -368,7 +382,7 @@ defineExpose({
 .api-workbench-request-row {
   display: grid;
   width: 100%;
-  min-height: 32px;
+  min-height: 34px;
   align-items: center;
   border: 0;
   border-radius: 6px;
@@ -390,6 +404,10 @@ defineExpose({
   background: var(--el-fill-color-light);
 }
 
+.api-workbench-request-row.active {
+  color: var(--el-color-primary);
+}
+
 .api-workbench-folder-arrow {
   color: var(--el-text-color-secondary);
   font-family: var(--lc-font-mono);
@@ -397,7 +415,7 @@ defineExpose({
 }
 
 .api-workbench-request-row {
-  grid-template-columns: 48px minmax(0, 1fr);
+  grid-template-columns: 52px minmax(0, 1fr);
   gap: 6px;
 }
 

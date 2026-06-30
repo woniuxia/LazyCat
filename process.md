@@ -8,6 +8,50 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-06-30: 接口调试环境变量重复名要在提交前和后端同时校验
+
+**场景**: 修复 API Workbench 环境管理中保存重复变量名时直接暴露 SQLite `UNIQUE constraint` 且 `saveCurrentEnvironment` 未捕获 Promise 异常的问题。
+**使用次数**: 0
+**问题**:
+1. 前端环境变量行序列化时只过滤启用和非空 key，没有检测 trim 后重复变量名。
+2. 后端 `environment_save` 只校验变量名格式，重复名最终落到数据库唯一约束，错误不可读。
+3. 保存当前环境路径只有 `try/finally`，没有 `catch`，导致后端错误变成未处理 Promise。
+**解决**:
+1. 前端抽出重复变量名检测函数，保存、新增、复制、重命名前先提示 `环境变量名称重复：xxx`。
+2. 后端 `parse_variable_rows` 增加同一 payload 内重复名校验，返回 `变量名重复: xxx`。
+3. `saveCurrentEnvironment` 补 `catch`，并对遗留唯一约束错误做兜底友好文案映射。
+**涉及文件**:
+- `apps/desktop/src/components/ApiWorkbenchPanel.vue`
+- `apps/desktop/src/utils/apiWorkbench.ts`
+- `apps/desktop/src/utils/apiWorkbench.test.ts`
+- `apps/desktop/src-tauri/src/tools/api_workbench.rs`
+**验证**:
+- `pnpm test src/utils/apiWorkbench.test.ts`
+- `cargo test api_workbench -- --nocapture`
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+
+## 2026-06-30: 接口调试环境编辑入口收敛到管理弹窗
+
+**场景**: 将 API Workbench 主编辑区的环境页签迁移到环境切换下拉框底部的“环境管理”弹窗，减少主请求编辑区干扰。
+**使用次数**: 0
+**问题**:
+1. 环境切换下拉框如果直接 `v-model` 到数字 ID，新增管理入口的字符串值会污染当前环境状态。
+2. 环境变量编辑放在请求参数页签内，会和 Query / Headers / Body 的请求编辑任务混在一起。
+3. Element Plus Select 下拉层会脱离组件局部结构，管理入口分隔样式需要按全局下拉项处理。
+**解决**:
+1. 新增环境选择解析纯函数，用 sentinel 区分“切换环境”和“打开管理”，管理项只打开弹窗并保留当前环境 ID。
+2. 删除主编辑区“环境”页签，把新增、复制、重命名、删除和保存环境变量迁移到 `el-dialog`。
+3. 下拉框改为受控 `:model-value` + `@update:model-value`，避免管理项进入 `selectedEnvironmentId`。
+**涉及文件**:
+- `apps/desktop/src/components/ApiWorkbenchPanel.vue`
+- `apps/desktop/src/utils/apiWorkbench.ts`
+- `apps/desktop/src/utils/apiWorkbench.test.ts`
+**验证**:
+- `pnpm test src/utils/apiWorkbench.test.ts`
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+
 ## 2026-06-30: 接口调试历史复现以执行快照为重放真源
 
 **场景**: 为 API Workbench 增加历史复现闭环，支持发送时保存草稿快照和执行快照、历史详情载入、执行快照重放、标星、搜索、备注和默认保留标星清理。

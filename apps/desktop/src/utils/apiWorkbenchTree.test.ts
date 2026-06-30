@@ -70,4 +70,30 @@ describe("apiWorkbenchTree", () => {
       ).map((item) => item.key),
     ).toContain("request:create");
   });
+
+  it("offers curl import and markdown export from sidebar context menus", () => {
+    const blankItems = buildApiWorkbenchNavMenuItems(
+      { type: "blank" },
+      { hasSelectedCollection: true },
+    );
+    expect(blankItems.map((item) => item.key)).toEqual(
+      expect.arrayContaining(["request:import-curl", "collection:export"]),
+    );
+
+    const disabledExport = buildApiWorkbenchNavMenuItems(
+      { type: "blank" },
+      { hasSelectedCollection: false },
+    ).find((item) => item.key === "collection:export");
+    expect(disabledExport?.disabled).toBe(true);
+
+    for (const target of [
+      { type: "collection" as const, collectionId: 1 },
+      { type: "folder" as const, collectionId: 1, folderId: 1 },
+      { type: "request" as const, collectionId: 1, requestId: 10, folderId: null },
+    ]) {
+      expect(buildApiWorkbenchNavMenuItems(target, { hasSelectedCollection: true }).map((item) => item.key)).toEqual(
+        expect.arrayContaining(["request:import-curl", "collection:export"]),
+      );
+    }
+  });
 });

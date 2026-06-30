@@ -99,6 +99,7 @@ export type ApiWorkbenchNavCommand =
   | "folder:move"
   | "folder:up"
   | "folder:down"
+  | "request:import-curl"
   | "request:create"
   | "request:open"
   | "request:rename"
