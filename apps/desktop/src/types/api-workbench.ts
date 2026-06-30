@@ -141,12 +141,27 @@ export interface ApiWorkbenchSendResult {
   error: string | null;
 }
 
+export interface ApiWorkbenchHistoryRequestSnapshot extends ApiWorkbenchRequestDraft {}
+
+export interface ApiWorkbenchExecutedRequestSnapshot {
+  method: ApiWorkbenchMethod;
+  finalUrl: string;
+  headers: ApiWorkbenchKeyValueRow[];
+  bodyType: ApiWorkbenchBodyType;
+  body: string;
+  form: ApiWorkbenchKeyValueRow[];
+  timeoutMs: number;
+}
+
 export interface ApiWorkbenchHistoryItem {
   id: number;
   collectionId: number | null;
   environmentId: number | null;
   requestId: number | null;
+  replayedFromHistoryId: number | null;
   name: string;
+  note: string;
+  pinned: boolean;
   method: ApiWorkbenchMethod;
   url: string;
   finalUrl: string;
@@ -158,7 +173,13 @@ export interface ApiWorkbenchHistoryItem {
   bodySize: number;
   bodyPreview: string;
   bodyTruncated: boolean;
+  hasRequestSnapshot: boolean;
+  hasExecutedRequestSnapshot: boolean;
   createdAt: string;
+}
+
+export interface ApiWorkbenchHistoryDetail extends ApiWorkbenchHistoryItem {
+  requestSnapshot: ApiWorkbenchHistoryRequestSnapshot | null;
 }
 
 export interface ApiWorkbenchListResult {

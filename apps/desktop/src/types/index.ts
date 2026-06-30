@@ -111,6 +111,9 @@ export type {
   ApiWorkbenchVariable,
   ApiWorkbenchEnvironment,
   ApiWorkbenchSendResult,
+  ApiWorkbenchHistoryRequestSnapshot,
+  ApiWorkbenchExecutedRequestSnapshot,
   ApiWorkbenchHistoryItem,
+  ApiWorkbenchHistoryDetail,
   ApiWorkbenchListResult,
 } from "./api-workbench";
