@@ -8,6 +8,32 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-06-30: 接口调试个人闭环继续保持发送路径单一真源
+
+**场景**: 完善接口调试个人高频链路，补 cURL 导入导出、历史沉淀、示例响应、搜索、变量提示和环境管理。
+**使用次数**: 0
+**问题**:
+1. cURL 导出如果前端生成，会重复实现变量解析、URL 拼接和 Body 准备逻辑。
+2. 历史表只有请求摘要和响应预览，历史转接口不能伪造缺失的 Headers / Body。
+3. 搜索和变量提示属于前端体验，但不能反写排序、展开态或发送校验真源。
+**解决**:
+1. cURL 导出放在 Rust 后端，复用发送前的变量解析、URL 构造和 Body 准备，只额外做目标 Shell 引号转义。
+2. 历史保存为接口只写历史中已有的 method/url 和来源说明，headers/body 保持空。
+3. 搜索和变量摘要抽成纯函数配套单测，组件只负责展示；发送和导出继续以后端校验为准。
+**涉及文件**:
+- `apps/desktop/src-tauri/src/tools/api_workbench.rs`
+- `apps/desktop/src/bridge/tauri.ts`
+- `apps/desktop/src/components/ApiWorkbenchPanel.vue`
+- `apps/desktop/src/components/ApiWorkbenchSidebar.vue`
+- `apps/desktop/src/utils/apiWorkbenchCurl.ts`
+- `apps/desktop/src/utils/apiWorkbenchSearch.ts`
+- `apps/desktop/src/utils/apiWorkbenchVariables.ts`
+**验证**:
+- `cargo test api_workbench -- --nocapture`
+- `pnpm test src/utils/apiWorkbench.test.ts src/utils/apiWorkbenchTree.test.ts src/utils/apiWorkbenchCurl.test.ts src/utils/apiWorkbenchSearch.test.ts src/utils/apiWorkbenchVariables.test.ts`
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+
 ## 2026-06-30: 接口调试导航树管理要以后端排序为真源
 
 **场景**: 完善接口调试左侧集合、文件夹和接口树管理，支持右键菜单、移动和排序。

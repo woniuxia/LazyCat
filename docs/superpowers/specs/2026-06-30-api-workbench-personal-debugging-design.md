@@ -19,7 +19,7 @@
 4. 支持响应体、响应头、最终 URL 和请求 cURL 的快速复制。
 5. 支持响应体 JSON 美化 / 原文展示切换。
 6. 支持把当前响应保存为接口的示例响应。
-7. 支持集合内接口搜索，按名称、Method 和 URL 过滤左侧接口树。
+7. 支持集合内接口搜索，按接口名称、Method、URL 和文件夹名称过滤左侧接口树。
 8. 支持常用快捷键：`Ctrl+Enter` 发送、`Ctrl+S` 保存接口、`Esc` 关闭浮层。
 9. 补齐环境管理入口：新增、重命名、复制、删除环境。
 10. 展示当前请求引用的变量、缺失变量和变量来源，减少发送前的不确定性。
@@ -78,8 +78,8 @@
 
 1. 左侧接口树上方增加搜索框。
 2. 输入关键词后，只过滤当前集合内接口。
-3. 搜索匹配字段：接口名称、Method、URL。
-4. 文件夹只在自身或后代接口命中时显示。
+3. 搜索匹配字段：接口名称、Method、URL、文件夹名称。
+4. 文件夹在自身命中或后代接口命中时显示；文件夹名称命中时显示该文件夹下的完整直接结构。
 5. 搜索不改变后端排序，不写入数据库。
 6. 清空搜索后恢复原树和原展开态。
 
@@ -114,7 +114,8 @@ curl 'http://127.0.0.1:8080/api/users?page=1' -H 'Authorization: Bearer token'
 7. URL 中已有 query string 时，解析为 `draft.query`，URL 本体保留不带 query 的地址。
 8. `-G` 表示 data 作为 query 参数追加，不作为 Body。
 9. 不执行 shell 命令，不展开环境变量，不读取本地文件。
-10. 遇到不支持的复杂参数时返回明确提示，用户可手动调整后再导入。
+10. `--data` / `--data-binary` 的值以 `@` 开头时按文件引用处理并返回解析错误，提示第一版不读取本地文件内容；`--data-raw` 中的 `@` 保持字面量。
+11. 遇到不支持的复杂参数时返回明确提示，用户可手动调整后再导入。
 
 ### cURL 导出范围
 
@@ -127,8 +128,11 @@ curl 'http://127.0.0.1:8080/api/users?page=1' -H 'Authorization: Bearer token'
 3. `bodyType = none` 时不输出 data 参数。
 4. `bodyType = json` 或 `text` 时输出 `--data-raw`。
 5. `bodyType = form-urlencoded` 时输出编码后的 `--data-raw` 并补 `Content-Type`。
-6. URL、Header 和 Body 使用可复制到 PowerShell / Bash 的安全引号策略。
-7. 3xx 跟随策略保持现状，不输出 `-L`。
+6. Payload 显式传入目标 Shell：`targetShell = "powershell" | "bash"`，第一版默认 `powershell`。
+7. 后端按目标 Shell 生成对应转义；不承诺同一条命令同时兼容 PowerShell 和 Bash。
+8. PowerShell 使用单引号并把 `'` 转义为 `''`；Bash 使用单引号并用 `'\''` 处理内部单引号。
+9. Header 或 Body 含换行时返回明确错误，提示用户改用手动粘贴 Body，避免生成跨 Shell 不稳定命令。
+10. 3xx 跟随策略保持现状，不输出 `-L`。
 
 ### 历史转接口
 
@@ -202,7 +206,7 @@ interface ApiWorkbenchExampleResponse {
 
 1. 请求编辑、发送、保存和响应展示。
 2. 当前集合、环境、请求状态。
-3. 调用 cURL 导入、cURL 导出、保存示例响应、历史保存为接口和环境创建 action。
+3. 调用 cURL 导入、cURL 导出、保存示例响应、历史保存为接口和环境保存 action。
 4. 管理快捷键绑定和浮层关闭。
 
 本次不把整个面板重构拆分，避免扩大改动面。只把新增的复杂纯逻辑放入 `utils`，把新增弹窗控制留在面板内。
@@ -289,7 +293,8 @@ function summarizeApiWorkbenchVariables(input: {
 | `tool:api-workbench:export-curl` | `export_curl` | 根据当前草稿和环境生成 cURL |
 | `tool:api-workbench:history-save-request` | `history_save_request` | 将历史记录保存为接口 |
 | `tool:api-workbench:request-save-example-response` | `request_save_example_response` | 保存当前响应为接口示例响应 |
-| `tool:api-workbench:environment-create` | `environment_create` | 新增或复制环境 |
+
+环境新增、重命名和复制复用既有 `tool:api-workbench:environment-save` / `environment_save`，避免新增重复入口。
 
 ### `export_curl`
 
@@ -299,6 +304,7 @@ Payload：
 {
   "collectionId": 1,
   "environmentId": 2,
+  "targetShell": "powershell",
   "draft": {
     "method": "POST",
     "url": "/api/users",
@@ -316,6 +322,7 @@ Response：
 
 ```json
 {
+  "shell": "powershell",
   "command": "curl -X POST 'http://127.0.0.1:8080/api/users' -H 'Content-Type: application/json' --data-raw '{\"name\":\"Tom\"}'"
 }
 ```
@@ -385,9 +392,11 @@ Response：
 2. 后端限制示例响应 JSON 最大保存体积，沿用当前响应体限制。
 3. 保存后更新请求 `updated_at`。
 
-### `environment_create`
+### `environment_save`
 
-Payload：
+环境新增、重命名和复制继续复用既有 `environment_save`。
+
+新增 / 复制 Payload：
 
 ```json
 {
@@ -399,11 +408,26 @@ Payload：
 }
 ```
 
+重命名 / 更新 Payload：
+
+```json
+{
+  "id": 5,
+  "collectionId": 1,
+  "name": "本地",
+  "variables": [
+    { "name": "BASE_URL", "value": "http://127.0.0.1:8080", "isSecret": false }
+  ]
+}
+```
+
 Response：
 
 ```json
 {
-  "id": 5
+  "id": 5,
+  "collectionId": 1,
+  "name": "本地"
 }
 ```
 

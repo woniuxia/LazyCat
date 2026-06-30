@@ -1458,6 +1458,213 @@ fn send_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
     Ok(result)
 }
 
+fn parse_export_shell(payload: &Value) -> Result<&'static str, String> {
+    match payload["targetShell"].as_str().unwrap_or("powershell") {
+        "powershell" => Ok("powershell"),
+        "bash" => Ok("bash"),
+        other => Err(format!("unsupported shell: {other}")),
+    }
+}
+
+fn quote_curl_arg(shell: &str, value: &str) -> Result<String, String> {
+    if value.contains('\n') || value.contains('\r') {
+        return Err("cURL 导出暂不支持包含换行的 Header 或 Body".to_string());
+    }
+    match shell {
+        "powershell" => Ok(format!("'{}'", value.replace('\'', "''"))),
+        "bash" => Ok(format!("'{}'", value.replace('\'', "'\\''"))),
+        _ => Err(format!("unsupported shell: {shell}")),
+    }
+}
+
+fn export_curl_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
+    let collection_id = parse_i64(payload, "collectionId")?;
+    let environment_id = parse_i64(payload, "environmentId")?;
+    let shell = parse_export_shell(payload)?;
+    let draft: RequestDraft = serde_json::from_value(payload["draft"].clone())
+        .map_err(|e| format!("请求草稿格式错误: {e}"))?;
+
+    let env_owner: i64 = conn
+        .query_row(
+            "SELECT collection_id FROM api_workbench_environments WHERE id=?1",
+            [environment_id],
+            |row| row.get(0),
+        )
+        .map_err(|_| "环境不存在".to_string())?;
+    if env_owner != collection_id {
+        return Err("环境不属于当前集合".to_string());
+    }
+
+    let (vars, base_url) = load_variables(conn, environment_id)?;
+    let resolved_url = resolve_template(&draft.url, &vars)?;
+    let resolved_query = resolve_rows(&draft.query, &vars)?;
+    let resolved_headers = resolve_rows(&draft.headers, &vars)?;
+    let resolved_body = if matches!(draft.body_type.as_str(), "json" | "text") {
+        resolve_template(&draft.body, &vars)?
+    } else {
+        String::new()
+    };
+    let resolved_form = if draft.body_type == "form-urlencoded" {
+        resolve_rows(&draft.form, &vars)?
+    } else {
+        Vec::new()
+    };
+    let final_url = build_final_url(&base_url, &resolved_url, &resolved_query)?;
+    let prepared = prepare_request_body(
+        &draft.body_type,
+        &resolved_body,
+        &resolved_form,
+        &resolved_headers,
+    )?;
+
+    let method = draft.method.to_ascii_uppercase();
+    let mut parts = vec![
+        "curl".to_string(),
+        "-X".to_string(),
+        method,
+        quote_curl_arg(shell, &final_url)?,
+    ];
+    for header in resolved_headers
+        .iter()
+        .filter(|row| row.enabled && !row.key.trim().is_empty())
+    {
+        parts.push("-H".to_string());
+        parts.push(quote_curl_arg(
+            shell,
+            &format!("{}: {}", header.key.trim(), header.value),
+        )?);
+    }
+    if let Some(content_type) = prepared.content_type.as_deref() {
+        parts.push("-H".to_string());
+        parts.push(quote_curl_arg(shell, &format!("Content-Type: {content_type}"))?);
+    }
+    if let Some(body) = prepared.body {
+        if !body.is_empty() {
+            let body_text = String::from_utf8_lossy(&body);
+            parts.push("--data-raw".to_string());
+            parts.push(quote_curl_arg(shell, &body_text)?);
+        }
+    }
+
+    Ok(json!({ "shell": shell, "command": parts.join(" ") }))
+}
+
+fn history_save_request_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
+    let history_id = parse_i64(payload, "historyId")?;
+    let collection_id = parse_i64(payload, "collectionId")?;
+    let folder_id = payload["folderId"].as_i64();
+    let name = parse_name(payload, "name")?;
+
+    conn.query_row(
+        "SELECT id FROM api_workbench_collections WHERE id=?1",
+        [collection_id],
+        |row| row.get::<_, i64>(0),
+    )
+    .map_err(|_| "集合不存在".to_string())?;
+    if let Some(folder_id) = folder_id {
+        let owner: i64 = conn
+            .query_row(
+                "SELECT collection_id FROM api_workbench_folders WHERE id=?1",
+                [folder_id],
+                |row| row.get(0),
+            )
+            .map_err(|_| "目标文件夹不存在".to_string())?;
+        if owner != collection_id {
+            return Err("目标文件夹不属于当前集合".to_string());
+        }
+    }
+
+    let history = conn
+        .query_row(
+            "SELECT method, url, final_url, status, duration_ms, created_at
+             FROM api_workbench_history WHERE id=?1",
+            [history_id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<i64>>(3)?,
+                    row.get::<_, i64>(4)?,
+                    row.get::<_, String>(5)?,
+                ))
+            },
+        )
+        .map_err(|_| "历史记录不存在".to_string())?;
+
+    let description = format!(
+        "来源历史记录：状态 {}，耗时 {}ms，最终 URL：{}，创建时间：{}",
+        history
+            .3
+            .map(|status| status.to_string())
+            .unwrap_or_else(|| "ERR".to_string()),
+        history.4,
+        history.2,
+        history.5
+    );
+    let next_order: i64 = conn
+        .query_row(
+            "SELECT COALESCE(MAX(sort_order), -1) + 1
+             FROM api_workbench_requests
+             WHERE collection_id=?1 AND folder_id IS ?2",
+            params![collection_id, folder_id],
+            |row| row.get(0),
+        )
+        .unwrap_or(0);
+    conn.execute(
+        "INSERT INTO api_workbench_requests(
+            collection_id, folder_id, name, description, method, url,
+            query_json, headers_json, body_type, body_text, form_json,
+            timeout_ms, sort_order
+         )
+         VALUES(?1, ?2, ?3, ?4, ?5, ?6, '[]', '[]', 'none', '', '[]', 10000, ?7)",
+        params![
+            collection_id,
+            folder_id,
+            name,
+            description,
+            history.0,
+            history.1,
+            next_order
+        ],
+    )
+    .map_err(|e| format!("save history as request failed: {e}"))?;
+    Ok(json!({ "id": conn.last_insert_rowid() }))
+}
+
+fn request_save_example_response_with_conn(
+    conn: &Connection,
+    payload: &Value,
+) -> Result<Value, String> {
+    let request_id = parse_i64(payload, "requestId")?;
+    let collection_id = parse_i64(payload, "collectionId")?;
+    let owner: i64 = conn
+        .query_row(
+            "SELECT collection_id FROM api_workbench_requests WHERE id=?1",
+            [request_id],
+            |row| row.get(0),
+        )
+        .map_err(|_| "接口不存在".to_string())?;
+    if owner != collection_id {
+        return Err("接口不属于当前集合".to_string());
+    }
+    let response = payload
+        .get("response")
+        .ok_or_else(|| "response is required".to_string())?;
+    let serialized = serde_json::to_string(response).map_err(|e| format!("示例响应格式错误: {e}"))?;
+    if serialized.len() > MAX_RESPONSE_BODY_BYTES {
+        return Err("示例响应体积超过限制".to_string());
+    }
+    conn.execute(
+        "UPDATE api_workbench_requests
+         SET example_response_json=?1, updated_at=CURRENT_TIMESTAMP
+         WHERE id=?2 AND collection_id=?3",
+        params![serialized, request_id, collection_id],
+    )
+    .map_err(|e| format!("save example response failed: {e}"))?;
+    Ok(json!({ "ok": true }))
+}
+
 fn history_list_with_conn(conn: &Connection) -> Result<Value, String> {
     let mut stmt = conn
         .prepare(
@@ -1564,6 +1771,31 @@ fn render_request_markdown(item: &Value) -> String {
     } else {
         out.push_str(&format!("```{body_type}\n{body}\n```\n\n"));
     }
+    if let Some(example) = item["exampleResponse"].as_str() {
+        if let Ok(example) = serde_json::from_str::<Value>(example) {
+            out.push_str("#### 示例响应\n\n");
+            let status = example["status"]
+                .as_i64()
+                .map(|value| value.to_string())
+                .unwrap_or_else(|| "ERR".to_string());
+            let status_text = example["statusText"].as_str().unwrap_or_default();
+            let content_type = example["contentType"].as_str().unwrap_or_default();
+            let body_text = example["bodyText"].as_str().unwrap_or_default();
+            let truncated = example["bodyTruncated"].as_bool().unwrap_or(false);
+            out.push_str(&format!("`{status} {status_text}`\n\n"));
+            if !content_type.is_empty() {
+                out.push_str(&format!("- Content-Type: `{}`\n\n", markdown_escape(content_type)));
+            }
+            if body_text.trim().is_empty() {
+                out.push_str("无响应体\n\n");
+            } else {
+                out.push_str(&format!("```text\n{body_text}\n```\n\n"));
+            }
+            if truncated {
+                out.push_str("> 响应体已截断。\n\n");
+            }
+        }
+    }
     out
 }
 
@@ -1645,6 +1877,9 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         "request_move" => request_move_with_conn(&conn, payload),
         "request_reorder" => request_reorder_with_conn(&conn, payload),
         "send" => send_with_conn(&conn, payload),
+        "export_curl" => export_curl_with_conn(&conn, payload),
+        "history_save_request" => history_save_request_with_conn(&conn, payload),
+        "request_save_example_response" => request_save_example_response_with_conn(&conn, payload),
         "history_list" => history_list_with_conn(&conn),
         "history_clear" => history_clear_with_conn(&conn),
         "export_markdown" => export_markdown_with_conn(&conn, payload),
@@ -1787,6 +2022,210 @@ mod tests {
 
         let err = prepare_request_body("json", "{", &[], &[]).expect_err("bad json");
         assert!(err.contains("JSON"));
+    }
+
+    #[test]
+    fn export_curl_resolves_variables_and_quotes_for_powershell() {
+        let conn = test_conn();
+        let collection = collection_create_with_conn(
+            &conn,
+            &json!({ "name": "Demo", "description": "" }),
+        )
+        .expect("collection");
+        let collection_id = collection["id"].as_i64().unwrap();
+        let environment_id = collection["activeEnvironmentId"].as_i64().unwrap();
+        environment_save_with_conn(
+            &conn,
+            &json!({
+                "id": environment_id,
+                "collectionId": collection_id,
+                "name": "开发",
+                "variables": [
+                    { "name": "BASE_URL", "value": "http://127.0.0.1:8080", "isSecret": false },
+                    { "name": "TOKEN", "value": "abc'123", "isSecret": false }
+                ]
+            }),
+        )
+        .expect("environment");
+
+        let exported = export_curl_with_conn(
+            &conn,
+            &json!({
+                "collectionId": collection_id,
+                "environmentId": environment_id,
+                "targetShell": "powershell",
+                "draft": {
+                    "method": "POST",
+                    "url": "/api/users",
+                    "query": [{ "enabled": true, "key": "page", "value": "1" }],
+                    "headers": [{ "enabled": true, "key": "Authorization", "value": "Bearer {{ TOKEN }}" }],
+                    "bodyType": "json",
+                    "body": "{\"name\":\"Tom\"}",
+                    "form": [],
+                    "timeoutMs": 10000
+                }
+            }),
+        )
+        .expect("export");
+
+        assert_eq!(exported["shell"], "powershell");
+        let command = exported["command"].as_str().unwrap();
+        assert!(command.contains("curl -X POST 'http://127.0.0.1:8080/api/users?page=1'"));
+        assert!(command.contains("-H 'Authorization: Bearer abc''123'"));
+        assert!(command.contains("--data-raw '{\"name\":\"Tom\"}'"));
+    }
+
+    #[test]
+    fn export_curl_rejects_multiline_values() {
+        let conn = test_conn();
+        let collection = collection_create_with_conn(
+            &conn,
+            &json!({ "name": "Demo", "description": "" }),
+        )
+        .expect("collection");
+        let collection_id = collection["id"].as_i64().unwrap();
+        let environment_id = collection["activeEnvironmentId"].as_i64().unwrap();
+
+        let err = export_curl_with_conn(
+            &conn,
+            &json!({
+                "collectionId": collection_id,
+                "environmentId": environment_id,
+                "targetShell": "powershell",
+                "draft": {
+                    "method": "POST",
+                    "url": "http://127.0.0.1:8080/api/users",
+                    "query": [],
+                    "headers": [],
+                    "bodyType": "text",
+                    "body": "line1\nline2",
+                    "form": [],
+                    "timeoutMs": 10000
+                }
+            }),
+        )
+        .expect_err("newline");
+
+        assert!(err.contains("换行"));
+    }
+
+    #[test]
+    fn history_save_request_creates_request_from_available_history_fields() {
+        let conn = test_conn();
+        let collection = collection_create_with_conn(
+            &conn,
+            &json!({ "name": "Demo", "description": "" }),
+        )
+        .expect("collection");
+        let collection_id = collection["id"].as_i64().unwrap();
+        insert_history_with_conn(
+            &conn,
+            &HistoryInsert {
+                collection_id: Some(collection_id),
+                environment_id: None,
+                request_id: None,
+                name: "".into(),
+                method: "POST".into(),
+                url: "/api/users".into(),
+                final_url: "http://127.0.0.1:8080/api/users".into(),
+                status: Some(201),
+                duration_ms: 23,
+                ok: true,
+                error: None,
+                response_content_type: "application/json".into(),
+                response_size: 11,
+                response_body_preview: "{\"ok\":true}".into(),
+                response_body_truncated: false,
+            },
+        )
+        .expect("history");
+
+        let saved = history_save_request_with_conn(
+            &conn,
+            &json!({
+                "historyId": 1,
+                "collectionId": collection_id,
+                "folderId": null,
+                "name": "POST /api/users"
+            }),
+        )
+        .expect("save request");
+        let detail = request_get_with_conn(&conn, &json!({ "id": saved["id"] })).expect("detail");
+
+        assert_eq!(detail["name"], "POST /api/users");
+        assert_eq!(detail["draft"]["method"], "POST");
+        assert_eq!(detail["draft"]["url"], "/api/users");
+        assert_eq!(detail["draft"]["headers"], json!([]));
+        assert_eq!(detail["draft"]["bodyType"], "none");
+        assert!(detail["description"].as_str().unwrap().contains("201"));
+        assert!(detail["description"]
+            .as_str()
+            .unwrap()
+            .contains("http://127.0.0.1:8080/api/users"));
+    }
+
+    #[test]
+    fn request_save_example_response_updates_request_and_markdown() {
+        let conn = test_conn();
+        let collection = collection_create_with_conn(
+            &conn,
+            &json!({ "name": "Demo", "description": "" }),
+        )
+        .expect("collection");
+        let collection_id = collection["id"].as_i64().unwrap();
+        let saved = request_save_with_conn(
+            &conn,
+            &json!({
+                "collectionId": collection_id,
+                "folderId": null,
+                "name": "Health",
+                "description": "",
+                "draft": {
+                    "method": "GET",
+                    "url": "/health",
+                    "query": [],
+                    "headers": [],
+                    "bodyType": "none",
+                    "body": "",
+                    "form": [],
+                    "timeoutMs": 10000
+                }
+            }),
+        )
+        .expect("request");
+        let request_id = saved["id"].as_i64().unwrap();
+
+        request_save_example_response_with_conn(
+            &conn,
+            &json!({
+                "requestId": request_id,
+                "collectionId": collection_id,
+                "response": {
+                    "status": 200,
+                    "statusText": "OK",
+                    "contentType": "application/json",
+                    "headers": [{ "enabled": true, "key": "Content-Type", "value": "application/json" }],
+                    "bodyText": "{\"ok\":true}",
+                    "bodySize": 11,
+                    "bodyTruncated": false,
+                    "savedAt": "2026-06-30T10:00:00+08:00"
+                }
+            }),
+        )
+        .expect("example");
+
+        let detail = request_get_with_conn(&conn, &json!({ "id": request_id })).expect("detail");
+        assert!(detail["exampleResponse"]
+            .as_str()
+            .unwrap()
+            .contains("\"status\":200"));
+        let markdown =
+            export_markdown_with_conn(&conn, &json!({ "collectionId": collection_id }))
+                .expect("markdown");
+        let markdown = markdown["markdown"].as_str().unwrap();
+        assert!(markdown.contains("#### 示例响应"));
+        assert!(markdown.contains("`200 OK`"));
+        assert!(markdown.contains("{\"ok\":true}"));
     }
 
     #[test]

@@ -28,6 +28,13 @@
         <span>接口树</span>
         <small v-if="selectedCollection">{{ selectedCollection.requests.length }} 个接口</small>
       </div>
+      <el-input
+        v-if="selectedCollection"
+        v-model="searchQuery"
+        size="small"
+        clearable
+        placeholder="搜索接口、Method、URL、文件夹"
+      />
 
       <div v-if="selectedCollection && tree" class="api-workbench-nav-tree">
         <div
@@ -101,8 +108,8 @@
         </template>
 
         <el-empty
-          v-if="selectedCollection.folders.length === 0 && selectedCollection.requests.length === 0"
-          description="暂无接口"
+          v-if="visibleCollection && visibleCollection.folders.length === 0 && visibleCollection.requests.length === 0"
+          :description="searchQuery.trim() ? '当前集合无匹配接口' : '暂无接口'"
         />
       </div>
 
@@ -136,6 +143,7 @@ import {
   buildApiWorkbenchTree,
   getApiWorkbenchFolderAncestorIds,
 } from "../utils/apiWorkbenchTree";
+import { filterApiWorkbenchCollection } from "../utils/apiWorkbenchSearch";
 
 type ApiWorkbenchSidebarRow =
   | {
@@ -172,12 +180,19 @@ const menuX = ref(0);
 const menuY = ref(0);
 const menuItems = ref<ApiWorkbenchMenuItem[]>([]);
 const menuTarget = ref<ApiWorkbenchNavTarget>({ type: "blank" });
+const searchQuery = ref("");
 
 const selectedCollection = computed(
   () => props.collections.find((item) => item.id === props.selectedCollectionId) ?? null,
 );
+const visibleCollection = computed(() =>
+  selectedCollection.value
+    ? filterApiWorkbenchCollection(selectedCollection.value, searchQuery.value)
+    : null,
+);
+const searchActive = computed(() => searchQuery.value.trim().length > 0);
 const tree = computed(() =>
-  selectedCollection.value ? buildApiWorkbenchTree(selectedCollection.value) : null,
+  visibleCollection.value ? buildApiWorkbenchTree(visibleCollection.value) : null,
 );
 
 const visibleRows = computed(() => {
@@ -198,7 +213,7 @@ function collectVisibleRows(
   rows: ApiWorkbenchSidebarRow[],
 ) {
   const key = folderKey(folder.collectionId, folder.id);
-  const expanded = expandedFolderKeys.value.has(key);
+  const expanded = searchActive.value || expandedFolderKeys.value.has(key);
   rows.push({
     kind: "folder",
     key,
