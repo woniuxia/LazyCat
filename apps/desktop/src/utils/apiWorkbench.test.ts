@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   buildApiWorkbenchPreviewUrl,
+  buildApiWorkbenchSelectionState,
+  draftApiWorkbenchEnvironmentRows,
   extractApiWorkbenchVariables,
   formatApiWorkbenchResponseBody,
   normalizeApiWorkbenchDraft,
+  serializeApiWorkbenchEnvironmentRows,
   validateApiWorkbenchVariableName,
 } from "./apiWorkbench";
 
@@ -54,5 +57,37 @@ describe("apiWorkbench utils", () => {
       "{\n  \"ok\": true\n}",
     );
     expect(formatApiWorkbenchResponseBody("plain", "text/plain")).toBe("plain");
+  });
+
+  it("resets editor state when switching collections", () => {
+    const state = buildApiWorkbenchSelectionState({
+      nextCollection: {
+        id: 2,
+        activeEnvironmentId: 20,
+      },
+    });
+
+    expect(state.selectedCollectionId).toBe(2);
+    expect(state.selectedEnvironmentId).toBe(20);
+    expect(state.selectedRequestId).toBeNull();
+    expect(state.requestName).toBe("");
+    expect(state.response).toBeNull();
+    expect(state.draft).toEqual(normalizeApiWorkbenchDraft({}));
+  });
+
+  it("converts environment variables to editable rows and back", () => {
+    const rows = draftApiWorkbenchEnvironmentRows([
+      { name: "BASE_URL", value: "http://127.0.0.1:8080", isSecret: false },
+      { name: "TOKEN", value: "abc", isSecret: true },
+    ]);
+
+    expect(rows).toEqual([
+      { enabled: true, key: "BASE_URL", value: "http://127.0.0.1:8080" },
+      { enabled: true, key: "TOKEN", value: "abc" },
+    ]);
+    expect(serializeApiWorkbenchEnvironmentRows(rows)).toEqual([
+      { name: "BASE_URL", value: "http://127.0.0.1:8080", isSecret: false },
+      { name: "TOKEN", value: "abc", isSecret: false },
+    ]);
   });
 });

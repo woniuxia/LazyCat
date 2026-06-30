@@ -41,7 +41,7 @@
           v-model="selectedEnvironmentId"
           class="environment-select"
           placeholder="环境"
-          @change="persistActiveEnvironment"
+          @change="handleEnvironmentChange"
         >
           <el-option v-for="env in environments" :key="env.id" :label="env.name" :value="env.id" />
         </el-select>
@@ -81,6 +81,21 @@
             :rows="12"
           />
           <el-empty v-else description="无请求体" />
+        </el-tab-pane>
+        <el-tab-pane label="环境" name="environment">
+          <div class="environment-toolbar">
+            <strong>{{ selectedEnvironment?.name ?? "未选择环境" }}</strong>
+            <el-button
+              size="small"
+              type="primary"
+              :loading="savingEnvironment"
+              :disabled="!selectedEnvironment"
+              @click="saveCurrentEnvironment"
+            >
+              保存环境
+            </el-button>
+          </div>
+          <KeyValueEditor v-model="environmentRows" />
         </el-tab-pane>
       </el-tabs>
 
@@ -146,8 +161,11 @@ import type {
 import {
   API_WORKBENCH_METHODS,
   DEFAULT_API_WORKBENCH_DRAFT,
+  buildApiWorkbenchSelectionState,
+  draftApiWorkbenchEnvironmentRows,
   formatApiWorkbenchResponseBody,
   normalizeApiWorkbenchDraft,
+  serializeApiWorkbenchEnvironmentRows,
 } from "../utils/apiWorkbench";
 
 const KeyValueEditor = defineComponent({
@@ -198,6 +216,7 @@ const KeyValueEditor = defineComponent({
 const methods = API_WORKBENCH_METHODS;
 const loading = ref(false);
 const sending = ref(false);
+const savingEnvironment = ref(false);
 const collections = ref<ApiWorkbenchCollection[]>([]);
 const environments = ref<ApiWorkbenchEnvironment[]>([]);
 const history = ref<ApiWorkbenchHistoryItem[]>([]);
@@ -206,6 +225,7 @@ const selectedEnvironmentId = ref<number | null>(null);
 const selectedRequestId = ref<number | null>(null);
 const requestName = ref("");
 const draft = ref({ ...DEFAULT_API_WORKBENCH_DRAFT });
+const environmentRows = ref<ApiWorkbenchKeyValueRow[]>([]);
 const response = ref<ApiWorkbenchSendResult | null>(null);
 const editorTab = ref("query");
 const responseTab = ref("response");
@@ -251,13 +271,22 @@ async function loadAll() {
 }
 
 async function selectCollection(id: number) {
-  selectedCollectionId.value = id;
+  if (selectedCollectionId.value === id) return;
   const collection = collections.value.find((item) => item.id === id);
-  selectedEnvironmentId.value = collection?.activeEnvironmentId ?? null;
+  const nextState = buildApiWorkbenchSelectionState({
+    nextCollection: collection ?? null,
+  });
+  selectedCollectionId.value = nextState.selectedCollectionId;
+  selectedEnvironmentId.value = nextState.selectedEnvironmentId;
+  selectedRequestId.value = nextState.selectedRequestId;
+  requestName.value = nextState.requestName;
+  draft.value = nextState.draft;
+  response.value = nextState.response;
   const result = (await invokeToolByChannel("tool:api-workbench:environment-list", {
     collectionId: id,
   })) as { items: ApiWorkbenchEnvironment[] };
   environments.value = result.items ?? [];
+  syncEnvironmentRows();
 }
 
 async function createCollection() {
@@ -274,12 +303,47 @@ async function createCollection() {
   await selectCollection(created.id);
 }
 
+function syncEnvironmentRows() {
+  environmentRows.value = draftApiWorkbenchEnvironmentRows(
+    selectedEnvironment.value?.variables ?? [],
+  );
+}
+
+async function handleEnvironmentChange() {
+  await persistActiveEnvironment();
+  syncEnvironmentRows();
+}
+
 async function persistActiveEnvironment() {
   if (!selectedCollectionId.value || !selectedEnvironmentId.value) return;
   await invokeToolByChannel("tool:api-workbench:collection-set-active-environment", {
     collectionId: selectedCollectionId.value,
     environmentId: selectedEnvironmentId.value,
   });
+}
+
+async function saveCurrentEnvironment() {
+  if (!selectedCollectionId.value || !selectedEnvironment.value) {
+    ElMessage.warning("请先选择环境");
+    return;
+  }
+  savingEnvironment.value = true;
+  try {
+    await invokeToolByChannel("tool:api-workbench:environment-save", {
+      id: selectedEnvironment.value.id,
+      collectionId: selectedCollectionId.value,
+      name: selectedEnvironment.value.name,
+      variables: serializeApiWorkbenchEnvironmentRows(environmentRows.value),
+    });
+    const result = (await invokeToolByChannel("tool:api-workbench:environment-list", {
+      collectionId: selectedCollectionId.value,
+    })) as { items: ApiWorkbenchEnvironment[] };
+    environments.value = result.items ?? [];
+    syncEnvironmentRows();
+    ElMessage.success("环境已保存");
+  } finally {
+    savingEnvironment.value = false;
+  }
 }
 
 async function sendRequest() {
@@ -390,10 +454,16 @@ onMounted(loadAll);
 .api-workbench-toolbar,
 .api-workbench-request-bar,
 .api-workbench-actions,
-.body-toolbar {
+.body-toolbar,
+.environment-toolbar {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.environment-toolbar {
+  justify-content: space-between;
+  margin-bottom: 8px;
 }
 
 .api-workbench-toolbar {

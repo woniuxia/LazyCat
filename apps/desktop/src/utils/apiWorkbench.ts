@@ -1,8 +1,11 @@
 import type {
   ApiWorkbenchBodyType,
+  ApiWorkbenchCollection,
   ApiWorkbenchKeyValueRow,
   ApiWorkbenchMethod,
   ApiWorkbenchRequestDraft,
+  ApiWorkbenchSendResult,
+  ApiWorkbenchVariable,
 } from "../types/api-workbench";
 
 export const API_WORKBENCH_METHODS: ApiWorkbenchMethod[] = [
@@ -106,6 +109,57 @@ export function normalizeApiWorkbenchDraft(input: DraftInput): ApiWorkbenchReque
     form: normalizeRows(input.form),
     timeoutMs,
   };
+}
+
+export function createApiWorkbenchBlankDraft(): ApiWorkbenchRequestDraft {
+  return normalizeApiWorkbenchDraft({});
+}
+
+export function buildApiWorkbenchSelectionState(input: {
+  nextCollection: Pick<ApiWorkbenchCollection, "id" | "activeEnvironmentId"> | null;
+}): {
+  selectedCollectionId: number | null;
+  selectedEnvironmentId: number | null;
+  selectedRequestId: number | null;
+  requestName: string;
+  draft: ApiWorkbenchRequestDraft;
+  response: ApiWorkbenchSendResult | null;
+} {
+  const nextCollectionId = input.nextCollection?.id ?? null;
+  return {
+    selectedCollectionId: nextCollectionId,
+    selectedEnvironmentId: input.nextCollection?.activeEnvironmentId ?? null,
+    selectedRequestId: null,
+    requestName: "",
+    draft: createApiWorkbenchBlankDraft(),
+    response: null,
+  };
+}
+
+export function draftApiWorkbenchEnvironmentRows(
+  variables: ApiWorkbenchVariable[],
+): ApiWorkbenchKeyValueRow[] {
+  const rows = variables.map((item) => ({
+    enabled: true,
+    key: item.name,
+    value: item.value,
+  }));
+  if (!rows.some((row) => row.key === "BASE_URL")) {
+    rows.unshift({ enabled: true, key: "BASE_URL", value: "" });
+  }
+  return rows;
+}
+
+export function serializeApiWorkbenchEnvironmentRows(
+  rows: ApiWorkbenchKeyValueRow[],
+): ApiWorkbenchVariable[] {
+  return rows
+    .filter((row) => row.enabled && row.key.trim())
+    .map((row) => ({
+      name: row.key.trim(),
+      value: row.value,
+      isSecret: false,
+    }));
 }
 
 export function formatApiWorkbenchResponseBody(body: string, contentType: string): string {

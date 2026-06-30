@@ -8,6 +8,36 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-06-30: 接口调试状态切换和变量解析要按实际执行路径验证
+
+**场景**: 修复接口调试工具审查发现的问题，覆盖集合切换、环境变量编辑、历史初始化、模板变量替换和发送归属校验。
+**使用次数**: 0
+**问题**:
+1. 面板支持相对 URL，但没有环境变量编辑入口，用户无法配置 `BASE_URL`。
+2. 切换集合时保留旧请求草稿和 `requestId`，会把新集合环境与旧集合请求混用。
+3. 后端模板变量提取会 trim，但替换只匹配无空格写法，`{{ TOKEN }}` 校验通过后仍未替换。
+4. 发送请求无条件解析隐藏 body/form 字段，旧隐藏字段里的缺失变量会阻断当前请求。
+**解决**:
+1. 在接口调试面板增加当前环境变量编辑页签，保存走既有 `environment_save`。
+2. 抽出集合选择状态纯函数，切换集合时重置请求 ID、名称、草稿和响应。
+3. 后端 `resolve_template` 改为扫描替换原始占位符，同时保持变量名 trim 后校验。
+4. `send` 按 `bodyType` 只解析实际会发送的 body/form，并校验 collection/environment/request 归属一致。
+**关键点**:
+1. 支持相对 URL 时，`BASE_URL` 不能只存在于后端模型，前端必须提供可达编辑路径。
+2. 会写历史或发网络请求的功能不能只信前端状态，后端也要校验跨集合归属。
+3. 模板变量的“提取”和“替换”必须共享语义，尤其是空白容忍规则。
+4. 隐藏表单字段不应参与当前请求校验，避免历史草稿状态污染实际发送。
+**涉及文件**:
+- `apps/desktop/src-tauri/src/tools/api_workbench.rs`
+- `apps/desktop/src/components/ApiWorkbenchPanel.vue`
+- `apps/desktop/src/utils/apiWorkbench.ts`
+- `apps/desktop/src/utils/apiWorkbench.test.ts`
+**验证**:
+- `cargo test api_workbench -- --nocapture`
+- `pnpm test src/utils/apiWorkbench.test.ts`
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+
 ## 2026-06-29: 接口调试工具按后端单一真源实现
 
 **场景**: 新增接口调试工具，支持集合、环境变量、请求发送、历史和 Markdown 导出。

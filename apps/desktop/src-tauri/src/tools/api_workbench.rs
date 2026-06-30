@@ -120,7 +120,6 @@ CREATE INDEX IF NOT EXISTS idx_api_workbench_history_created
 
 const MAX_TIMEOUT_MS: u64 = 120_000;
 const MIN_TIMEOUT_MS: u64 = 100;
-const DEFAULT_TIMEOUT_MS: u64 = 10_000;
 const MAX_RESPONSE_BODY_BYTES: usize = 2 * 1024 * 1024;
 const MAX_HISTORY_BODY_PREVIEW_BYTES: usize = 64 * 1024;
 const MAX_HISTORY_ROWS: i64 = 200;
@@ -193,12 +192,24 @@ fn resolve_template(input: &str, vars: &HashMap<String, String>) -> Result<Strin
         missing.dedup();
         return Err(format!("未解析变量: {}", missing.join(", ")));
     }
-    let mut output = input.to_string();
-    for name in names {
-        if let Some(value) = vars.get(&name) {
-            output = output.replace(&format!("{{{{{name}}}}}"), value);
+
+    let mut output = String::with_capacity(input.len());
+    let mut rest = input;
+    while let Some(start) = rest.find("{{") {
+        output.push_str(&rest[..start]);
+        let after_start = &rest[start + 2..];
+        if let Some(end) = after_start.find("}}") {
+            let name = after_start[..end].trim();
+            if let Some(value) = vars.get(name) {
+                output.push_str(value);
+            }
+            rest = &after_start[end + 2..];
+        } else {
+            output.push_str(&rest[start..]);
+            rest = "";
         }
     }
+    output.push_str(rest);
     Ok(output)
 }
 
@@ -864,7 +875,8 @@ fn action_list_with_conn(conn: &Connection) -> Result<Value, String> {
         .map_err(|e| format!("list collections failed: {e}"))?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| format!("read collections failed: {e}"))?;
-    Ok(json!({ "collections": collections, "history": [] }))
+    let history = history_list_with_conn(conn)?["items"].clone();
+    Ok(json!({ "collections": collections, "history": history }))
 }
 
 fn load_variables(
@@ -1116,12 +1128,46 @@ fn send_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
     let request_id = payload["requestId"].as_i64();
     let draft: RequestDraft = serde_json::from_value(payload["draft"].clone())
         .map_err(|e| format!("请求草稿格式错误: {e}"))?;
+
+    if let Some(collection_id) = collection_id {
+        let env_owner: i64 = conn
+            .query_row(
+                "SELECT collection_id FROM api_workbench_environments WHERE id=?1",
+                [environment_id],
+                |row| row.get(0),
+            )
+            .map_err(|_| "环境不存在".to_string())?;
+        if env_owner != collection_id {
+            return Err("环境不属于当前集合".to_string());
+        }
+        if let Some(request_id) = request_id {
+            let request_owner: i64 = conn
+                .query_row(
+                    "SELECT collection_id FROM api_workbench_requests WHERE id=?1",
+                    [request_id],
+                    |row| row.get(0),
+                )
+                .map_err(|_| "接口不存在".to_string())?;
+            if request_owner != collection_id {
+                return Err("接口不属于当前集合".to_string());
+            }
+        }
+    }
+
     let (vars, base_url) = load_variables(conn, environment_id)?;
     let resolved_url = resolve_template(&draft.url, &vars)?;
     let resolved_query = resolve_rows(&draft.query, &vars)?;
     let resolved_headers = resolve_rows(&draft.headers, &vars)?;
-    let resolved_body = resolve_template(&draft.body, &vars)?;
-    let resolved_form = resolve_rows(&draft.form, &vars)?;
+    let resolved_body = if matches!(draft.body_type.as_str(), "json" | "text") {
+        resolve_template(&draft.body, &vars)?
+    } else {
+        String::new()
+    };
+    let resolved_form = if draft.body_type == "form-urlencoded" {
+        resolve_rows(&draft.form, &vars)?
+    } else {
+        Vec::new()
+    };
     let final_url = build_final_url(&base_url, &resolved_url, &resolved_query)?;
     let prepared = prepare_request_body(
         &draft.body_type,
@@ -1415,6 +1461,14 @@ mod tests {
     }
 
     #[test]
+    fn resolve_template_replaces_variables_with_inner_whitespace() {
+        let mut vars = std::collections::HashMap::new();
+        vars.insert("TOKEN".to_string(), "abc".to_string());
+        let resolved = resolve_template("Bearer {{ TOKEN }}", &vars).expect("resolve");
+        assert_eq!(resolved, "Bearer abc");
+    }
+
+    #[test]
     fn build_final_url_joins_base_url_and_query_rows() {
         let query = vec![
             KeyValueRow {
@@ -1516,6 +1570,78 @@ mod tests {
         )
         .expect_err("must reject");
         assert!(err.contains("不属于当前集合"));
+    }
+
+    #[test]
+    fn send_requires_environment_and_request_to_match_collection() {
+        let conn = test_conn();
+        let a = collection_create_with_conn(&conn, &json!({ "name": "A" })).expect("a");
+        let b = collection_create_with_conn(&conn, &json!({ "name": "B" })).expect("b");
+        let a_id = a["id"].as_i64().unwrap();
+        let b_id = b["id"].as_i64().unwrap();
+        let b_env_id = b["activeEnvironmentId"].as_i64().unwrap();
+        let saved = request_save_with_conn(
+            &conn,
+            &json!({
+                "collectionId": a_id,
+                "folderId": null,
+                "name": "A request",
+                "draft": {
+                    "method": "GET",
+                    "url": "http://127.0.0.1",
+                    "query": [],
+                    "headers": [],
+                    "bodyType": "none",
+                    "body": "",
+                    "form": [],
+                    "timeoutMs": 10000
+                }
+            }),
+        )
+        .expect("request");
+        let request_id = saved["id"].as_i64().unwrap();
+
+        let err = send_with_conn(
+            &conn,
+            &json!({
+                "collectionId": a_id,
+                "environmentId": b_env_id,
+                "requestId": request_id,
+                "draft": {
+                    "method": "GET",
+                    "url": "http://127.0.0.1",
+                    "query": [],
+                    "headers": [],
+                    "bodyType": "none",
+                    "body": "",
+                    "form": [],
+                    "timeoutMs": 100
+                }
+            }),
+        )
+        .expect_err("environment must match");
+        assert!(err.contains("环境不属于当前集合"));
+
+        let err = send_with_conn(
+            &conn,
+            &json!({
+                "collectionId": b_id,
+                "environmentId": b_env_id,
+                "requestId": request_id,
+                "draft": {
+                    "method": "GET",
+                    "url": "http://127.0.0.1",
+                    "query": [],
+                    "headers": [],
+                    "bodyType": "none",
+                    "body": "",
+                    "form": [],
+                    "timeoutMs": 100
+                }
+            }),
+        )
+        .expect_err("request must match");
+        assert!(err.contains("接口不属于当前集合"));
     }
 
     #[test]
@@ -1626,6 +1752,35 @@ mod tests {
     }
 
     #[test]
+    fn action_list_includes_recent_history() {
+        let conn = test_conn();
+        insert_history_with_conn(
+            &conn,
+            &HistoryInsert {
+                collection_id: None,
+                environment_id: None,
+                request_id: None,
+                name: "history".into(),
+                method: "GET".into(),
+                url: "http://127.0.0.1".into(),
+                final_url: "http://127.0.0.1".into(),
+                status: Some(200),
+                duration_ms: 1,
+                ok: true,
+                error: None,
+                response_content_type: "text/plain".into(),
+                response_size: 2,
+                response_body_preview: "ok".into(),
+                response_body_truncated: false,
+            },
+        )
+        .expect("history");
+
+        let list = action_list_with_conn(&conn).expect("list");
+        assert_eq!(list["history"][0]["name"], "history");
+    }
+
+    #[test]
     fn send_returns_http_302_without_following_redirect() {
         use std::io::{Read, Write};
         use std::net::TcpListener;
@@ -1680,6 +1835,48 @@ mod tests {
         assert_eq!(result["ok"], false);
         assert_eq!(result["bodyText"], "redirect");
         assert_eq!(result["responseHeaders"][0]["key"].is_string(), true);
+    }
+
+    #[test]
+    fn send_ignores_inactive_body_fields_when_resolving_variables() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+        use std::thread;
+
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let port = listener.local_addr().unwrap().port();
+        thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut buf = [0u8; 1024];
+                let _ = stream.read(&mut buf);
+                let _ = stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok");
+            }
+        });
+
+        let conn = test_conn();
+        let c = collection_create_with_conn(&conn, &json!({ "name": "Demo" })).expect("create");
+        let collection_id = c["id"].as_i64().unwrap();
+        let environment_id = c["activeEnvironmentId"].as_i64().unwrap();
+
+        let result = send_with_conn(
+            &conn,
+            &json!({
+                "collectionId": collection_id,
+                "environmentId": environment_id,
+                "draft": {
+                    "method": "GET",
+                    "url": format!("http://127.0.0.1:{port}"),
+                    "query": [],
+                    "headers": [],
+                    "bodyType": "none",
+                    "body": "{{MISSING_BODY_VAR}}",
+                    "form": [{ "enabled": true, "key": "unused", "value": "{{MISSING_FORM_VAR}}" }],
+                    "timeoutMs": 10000
+                }
+            }),
+        )
+        .expect("send");
+        assert_eq!(result["status"], 200);
     }
 
     #[test]
