@@ -139,6 +139,12 @@ export interface ApiWorkbenchSendResult {
   bodySize: number;
   bodyTruncated: boolean;
   contentType: string;
+  bodyStorage: "text" | "file" | "empty" | "truncated-binary";
+  bodyFilePath: string;
+  bodyFileName: string;
+  bodyExtension: string;
+  bodyHash: string;
+  bodyPreviewError: string | null;
   error: string | null;
 }
 
@@ -174,6 +180,12 @@ export interface ApiWorkbenchHistoryItem {
   bodySize: number;
   bodyPreview: string;
   bodyTruncated: boolean;
+  bodyStorage: "text" | "file" | "empty" | "truncated-binary";
+  bodyFilePath: string;
+  bodyFileName: string;
+  bodyExtension: string;
+  bodyHash: string;
+  bodyPreviewError: string | null;
   hasRequestSnapshot: boolean;
   hasExecutedRequestSnapshot: boolean;
   createdAt: string;

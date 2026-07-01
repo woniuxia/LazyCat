@@ -8,6 +8,36 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-07-01: 接口调试响应预览要分离文本与二进制存储
+
+**场景**: 为 API Workbench 增加 JSON/HTML/图片/PDF/文本/未知二进制兜底、历史重新预览、响应缓存清理和 Office 基础预览。
+**使用次数**: 0
+**问题**:
+1. 发送路径如果把所有响应字节统一 `String::from_utf8_lossy`，会损坏图片、PDF、Office 等二进制响应。
+2. 二进制历史如果只保存摘要，历史详情无法重新预览；如果缓存清理只删数据库，会留下孤儿缓存文件。
+3. Office 预览如果读取任意前端传入路径，会扩大本地文件读取风险。
+**解决**:
+1. 后端发送路径先按 MIME/扩展名/字节特征分类，文本返回 `bodyText`，完整二进制写入 `<dataDir>/api-workbench/response-cache/`，截断二进制不写缓存。
+2. 历史表保存 `bodyStorage/bodyFilePath/bodyFileName/bodyExtension/bodyHash/bodyPreviewError`；清空、清理未标星和自动裁剪历史时按剩余引用计数删除不再使用的缓存文件。
+3. Office 基础预览走 API Workbench 专用 action，先校验 `filePath` canonicalize 后仍位于响应缓存目录内，再解析 CSV/Excel 或 docx/pptx 的 OpenXML 文本。
+**关键点**:
+1. 二进制示例响应首版只保存元信息摘要，不能保存历史缓存路径或 hash，避免历史清理后示例悬空。
+2. 前端预览分类、历史响应重建和示例摘要应放在纯函数中测试，面板只负责状态编排。
+3. 缓存写入失败时仍返回 HTTP 状态和响应头，前端走二进制元信息兜底并展示预览错误。
+**涉及文件**:
+- `apps/desktop/src-tauri/src/tools/api_workbench.rs`
+- `apps/desktop/src-tauri/Cargo.toml`
+- `apps/desktop/src/components/ApiWorkbenchPanel.vue`
+- `apps/desktop/src/components/ApiWorkbenchResponseViewer.vue`
+- `apps/desktop/src/types/api-workbench.ts`
+- `apps/desktop/src/utils/apiWorkbenchResponsePreview.ts`
+- `apps/desktop/src/utils/apiWorkbenchResponsePreview.test.ts`
+**验证**:
+- `cargo test api_workbench -- --nocapture`
+- `pnpm test src/utils/apiWorkbench.test.ts src/utils/apiWorkbenchResponsePreview.test.ts`
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+
 ## 2026-06-30: 接口调试环境变量重复名要在提交前和后端同时校验
 
 **场景**: 修复 API Workbench 环境管理中保存重复变量名时直接暴露 SQLite `UNIQUE constraint` 且 `saveCurrentEnvironment` 未捕获 Promise 异常的问题。

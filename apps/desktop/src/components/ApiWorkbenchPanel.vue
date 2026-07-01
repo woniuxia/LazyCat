@@ -136,33 +136,12 @@
 
       <el-tabs v-model="responseTab" class="api-workbench-response-tabs">
         <el-tab-pane label="响应" name="response">
-          <div v-if="response" class="response-toolbar">
-            <div class="response-actions">
-              <el-radio-group v-model="responseBodyMode" size="small">
-                <el-radio-button label="pretty">美化</el-radio-button>
-                <el-radio-button label="raw">原文</el-radio-button>
-              </el-radio-group>
-              <el-button size="small" :icon="CopyDocument" @click="copyResponseBody">
-                复制响应体
-              </el-button>
-              <el-button size="small" :icon="CopyDocument" @click="copyFinalUrl">复制 URL</el-button>
-              <el-button
-                size="small"
-                type="primary"
-                :icon="DocumentChecked"
-                @click="saveCurrentResponseAsExample"
-              >
-                保存为示例
-              </el-button>
-            </div>
-          </div>
-          <el-input
+          <ApiWorkbenchResponseViewer
             v-if="response"
-            class="response-body-input"
-            :model-value="formattedResponseBody"
-            type="textarea"
-            :rows="18"
-            readonly
+            :response="response"
+            @copy-body="copyResponseBody"
+            @copy-url="copyFinalUrl"
+            @save-example="saveCurrentResponseAsExample"
           />
           <el-empty v-else description="发送请求后查看响应" />
         </el-tab-pane>
@@ -312,6 +291,7 @@ import {
 } from "@element-plus/icons-vue";
 import { ElButton, ElInput, ElMessage, ElMessageBox, ElSwitch } from "element-plus";
 import { invokeToolByChannel } from "../bridge/tauri";
+import ApiWorkbenchResponseViewer from "./ApiWorkbenchResponseViewer.vue";
 import ApiWorkbenchSidebar from "./ApiWorkbenchSidebar.vue";
 import type {
   ApiWorkbenchCollection,
@@ -336,11 +316,15 @@ import {
   buildApiWorkbenchSelectionState,
   draftApiWorkbenchEnvironmentRows,
   findDuplicateApiWorkbenchEnvironmentVariableNames,
-  formatApiWorkbenchResponseBody,
   normalizeApiWorkbenchDraft,
   resolveApiWorkbenchEnvironmentSelect,
   serializeApiWorkbenchEnvironmentRows,
 } from "../utils/apiWorkbench";
+import {
+  buildApiWorkbenchExampleResponse,
+  buildApiWorkbenchResponseFromHistory,
+  formatApiWorkbenchPreviewBody,
+} from "../utils/apiWorkbenchResponsePreview";
 import {
   buildApiWorkbenchDraftFromHistory,
   canReplayApiWorkbenchHistory,
@@ -430,7 +414,6 @@ const requestDescription = ref("");
 const draft = ref({ ...DEFAULT_API_WORKBENCH_DRAFT });
 const environmentRows = ref<ApiWorkbenchKeyValueRow[]>([]);
 const response = ref<ApiWorkbenchSendResult | null>(null);
-const responseBodyMode = ref<"pretty" | "raw">("pretty");
 const editorTab = ref("query");
 const responseTab = ref("response");
 const environmentDialogVisible = ref(false);
@@ -471,11 +454,6 @@ const baseUrlEffectText = computed(() => {
   if (!draft.value.url.trim()) return "";
   return baseUrl.value.trim() ? `相对 URL 将使用 BASE_URL：${baseUrl.value.trim()}` : "";
 });
-const formattedResponseBody = computed(() =>
-  response.value && responseBodyMode.value === "pretty"
-    ? formatApiWorkbenchResponseBody(response.value.bodyText, response.value.contentType)
-    : response.value?.bodyText ?? "",
-);
 const responseHeadersText = computed(
   () => response.value?.responseHeaders.map((row) => `${row.key}: ${row.value}`).join("\n") ?? "",
 );
@@ -1138,7 +1116,6 @@ async function importCurl() {
     });
     draft.value = result.draft;
     response.value = null;
-    responseBodyMode.value = "pretty";
     if (result.warnings.length > 0) {
       ElMessage.warning(result.warnings.join("；"));
     } else {
@@ -1170,7 +1147,7 @@ async function copyCurrentCurl() {
 
 async function copyResponseBody() {
   if (!response.value) return;
-  await copyText(formattedResponseBody.value, "响应体已复制");
+  await copyText(formatApiWorkbenchPreviewBody(response.value), "响应体已复制");
 }
 
 async function copyResponseHeaders() {
@@ -1197,18 +1174,7 @@ async function saveCurrentResponseAsExample() {
       requestId: selectedRequestId.value,
       collectionId: selectedCollectionId.value,
       response: {
-        status: response.value.status,
-        statusText: response.value.statusText,
-        contentType: response.value.contentType,
-        headers: response.value.responseHeaders.map((row) => ({
-          enabled: true,
-          key: row.key,
-          value: row.value,
-        })),
-        bodyText: response.value.bodyText,
-        bodySize: response.value.bodySize,
-        bodyTruncated: response.value.bodyTruncated,
-        savedAt: new Date().toISOString(),
+        ...buildApiWorkbenchExampleResponse(response.value),
       },
     });
     ElMessage.success("示例响应已保存");
@@ -1266,7 +1232,6 @@ async function sendRequest() {
       name: requestName.value,
       draft: normalized,
     })) as ApiWorkbenchSendResult;
-    responseBodyMode.value = "pretty";
     await loadHistory();
   } finally {
     sending.value = false;
@@ -1334,7 +1299,7 @@ async function loadHistoryIntoTemporaryEditor(item: ApiWorkbenchHistoryItem) {
   requestName.value = defaultApiWorkbenchHistoryDisplayName(detail);
   requestDescription.value = "";
   draft.value = nextDraft;
-  response.value = null;
+  response.value = buildApiWorkbenchResponseFromHistory(detail);
   responseTab.value = "response";
   if (degraded) {
     ElMessage.warning("旧历史仅包含摘要，已恢复 Method 和 URL");
@@ -1351,7 +1316,6 @@ async function replayHistory(item: ApiWorkbenchHistoryItem) {
     response.value = (await invokeToolByChannel("tool:api-workbench:history-replay", {
       historyId: item.id,
     })) as ApiWorkbenchSendResult;
-    responseBodyMode.value = "pretty";
     responseTab.value = "response";
     await loadHistory();
   } finally {

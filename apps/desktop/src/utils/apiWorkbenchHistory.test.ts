@@ -7,7 +7,7 @@ import {
 } from "./apiWorkbenchHistory";
 
 function history(overrides: Partial<ApiWorkbenchHistoryItem> = {}): ApiWorkbenchHistoryItem {
-  return {
+  const base: ApiWorkbenchHistoryItem = {
     id: 1,
     collectionId: null,
     environmentId: null,
@@ -27,11 +27,20 @@ function history(overrides: Partial<ApiWorkbenchHistoryItem> = {}): ApiWorkbench
     bodySize: 2,
     bodyPreview: "{}",
     bodyTruncated: false,
+    bodyStorage: "text",
+    bodyFilePath: "",
+    bodyFileName: "",
+    bodyExtension: "",
+    bodyHash: "",
+    bodyPreviewError: null,
     hasRequestSnapshot: false,
     hasExecutedRequestSnapshot: false,
     createdAt: "2026-06-30 10:00:00",
-    ...overrides,
   };
+  return {
+    ...base,
+    ...overrides,
+  } as ApiWorkbenchHistoryItem;
 }
 
 describe("apiWorkbenchHistory utils", () => {
