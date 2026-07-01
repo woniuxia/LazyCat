@@ -22,6 +22,23 @@
 5. 删除单条历史、清空历史、清理未收藏历史时，同时删除被清理历史引用且不再被其他历史引用的缓存文件。
 6. 不引入 `open-file-viewer` 等大文件预览 SDK。前端采用自研轻量 Viewer；Office 只做基础内容提取和展示。
 
+## 可行性结论
+
+该功能在当前项目架构下可行，但需要明确几个实现边界：
+
+- 现有发送路径已经能拿到原始响应字节，只是当前在 `response_to_json` 中统一通过 `String::from_utf8_lossy` 转成字符串。实现时应把“读取字节、判断存储类型、生成响应 JSON”拆开，避免二进制被提前损坏。
+- 数据目录能力已经存在，响应缓存可以复用 `get_data_dir()`，落到 `<dataDir>/api-workbench/response-cache/`。
+- 图片和 PDF 预览可以复用前端 `convertFileSrc()`。
+- Excel 基础预览可以复用后端已有 `calamine` 依赖；CSV 可以复用现有 `csv` 依赖或前端轻量解析。
+- Word / PowerPoint 的 `docx/pptx` 是 OpenXML zip 包。当前项目已有 `quick-xml`，但没有通用 zip 解包依赖；首版若要支持 `docx/pptx` 基础提取，需要新增轻量 `zip` crate。该依赖只用于解压 OpenXML 文本，不属于大型预览 SDK。
+- 旧版 `doc/ppt` 二进制格式不适合作为首版重点。若无法可靠提取，直接回退到文件信息和打开文件。
+
+首版推荐实现范围：
+
+- 完整支持 JSON、HTML、图片、PDF、文本和未知二进制兜底。
+- 表格类优先支持 `xlsx/xls/ods/csv` 基础表格预览。
+- 文档和演示类优先支持 `docx/pptx` 的基础文本提取；`doc/ppt/rtf/odt/odp` 能提取则展示，不能提取则明确提示不支持高保真预览。
+
 ## 非目标
 
 - 不实现高保真 Office 渲染。
@@ -39,6 +56,13 @@
 - 文本类响应继续返回 `bodyText`。
 - 二进制类响应写入缓存目录，并返回缓存文件元信息。
 - 历史记录保存响应元信息和缓存文件引用。
+
+发送路径改造建议拆成 4 个小函数，避免继续膨胀主流程：
+
+- `read_response_body(resp)`：读取最多 `MAX_RESPONSE_BODY_BYTES + 1` 字节，返回 `bytes`、`bodySize`、`bodyTruncated`。
+- `classify_response_body(headers, finalUrl, bytes)`：判断 `text` / `file` / `empty` / `truncated-binary`，并推导 MIME、扩展名和展示类型线索。
+- `persist_response_cache(bytes, meta)`：只在完整二进制响应时写入缓存目录。
+- `build_send_result(...)`：统一组装前端和历史使用的响应 JSON。
 
 前端新增响应预览分类层和响应 Viewer 组件：
 
@@ -85,6 +109,15 @@ interface ApiWorkbenchSendResult {
 
 现有 `bodyText/bodySize/bodyTruncated/contentType` 保留，降低前端和历史兼容成本。
 
+字段语义补充：
+
+- `bodySize` 表示本次实际读取到的响应体字节数；如果超过读取上限，则为截断后的读取大小，`bodyTruncated=true`。首版不尝试从 `Content-Length` 推断完整远端大小。
+- `bodyHash` 使用读取到的完整二进制内容计算。截断二进制不生成 hash，避免半截内容参与引用去重。
+- `bodyFilePath` 使用绝对路径，便于 `convertFileSrc()` 和本地文件操作；所有后端 action 必须再次校验该路径位于响应缓存目录下。
+- `bodyFileName` 是展示名，优先来自 `Content-Disposition`，其次 URL 文件名，最后由时间戳和扩展名生成。
+- `bodyPreviewError` 只描述“缓存或预览准备失败”，不覆盖 HTTP 请求错误；HTTP 请求错误仍使用 `error`。
+- `contentType` 保留响应头原值；分类时应先解析出不带参数的小写 MIME，例如 `text/html; charset=utf-8` 归一为 `text/html`。
+
 ## 缓存目录
 
 缓存目录位于数据目录下：
@@ -114,6 +147,14 @@ interface ApiWorkbenchSendResult {
 - 对文本响应不写缓存文件。
 - 对截断二进制不写预览文件，避免用户误以为文件完整。
 
+路径安全规则：
+
+- 后端提供 `get_api_workbench_response_cache_dir()` 类似 helper，集中创建和返回缓存目录。
+- 所有接收 `filePath` 的 API Workbench action 都必须执行 `canonicalize` 后的目录前缀校验。
+- 不允许通过 `..`、相对路径、设备命名空间或符号链接跳出响应缓存目录。
+- 前端可以展示和复制缓存路径，但不能把用户可编辑路径直接传给 Office 解析或删除接口。
+- 打开缓存文件和定位缓存文件应使用 API Workbench 专用受限 action，或在复用 `system.open_local_path` / `system.reveal_in_folder` 前先由 API Workbench 后端校验路径归属。
+
 ## 历史表扩展
 
 在 API Workbench 历史表中增加缓存引用字段，保持兼容迁移：
@@ -140,6 +181,16 @@ interface ApiWorkbenchSendResult {
 - 删除缓存前检查是否仍有其他历史记录引用同一路径或同一 hash。仍被引用时不删除。
 - 缓存文件不存在时，历史删除仍成功。
 - 缓存删除失败不应导致历史删除回滚；返回或记录警告即可。
+
+当前代码已有 `history_clear`，但没有单条历史删除 action。若前端要提供单条删除入口，应新增 `history_delete`，并复用同一套缓存引用清理函数。
+
+自动裁剪规则：
+
+- 当前 `insert_history_with_conn` 会按 `MAX_HISTORY_ROWS` 裁剪未标星历史。新增缓存后，裁剪不能只执行 `DELETE`。
+- 裁剪前先查询将被删除历史的缓存引用，删除历史记录后再按引用计数清理缓存文件。
+- 引用计数应基于数据库中剩余历史记录的 `response_body_file_path` 或 `response_body_hash` 判断。
+- 裁剪缓存失败不回滚新历史写入，但返回值中可带 `cacheWarnings`，前端可在需要时提示。
+- 标星历史不参与自动裁剪，因此其缓存文件也应保留。
 
 ## 内容类型映射
 
@@ -193,7 +244,12 @@ interface ApiWorkbenchSendResult {
 - 打开缓存文件。
 - 保存为示例响应。
 
-二进制响应保存为示例时只保存元信息和缓存引用，不把文件内容写入接口定义。
+示例响应保存规则：
+
+- 文本、JSON、HTML 等文本类响应继续按现有方式保存响应体示例。
+- 二进制响应首版只保存元信息摘要，不直接保存历史缓存文件引用。
+- 原因是历史缓存会随历史清理被删除；如果接口示例直接引用历史缓存，会产生悬空引用。
+- 后续若要支持二进制示例可重新预览，应单独设计 request-owned 示例缓存目录，并把请求删除、示例覆盖和缓存清理纳入引用计数。
 
 ## 各类型渲染策略
 
@@ -228,7 +284,8 @@ interface ApiWorkbenchSendResult {
 
 首版优先支持 `docx`：
 
-- 读取缓存文件或由后端解析。
+- 后端校验缓存路径后读取文件。
+- 使用轻量 `zip` crate 解包 OpenXML，复用现有 `quick-xml` 提取文本。
 - 提取正文段落、标题、表格文本和图片引用信息。
 - 渲染为可读文档流。
 
@@ -252,7 +309,8 @@ CSV 可以作为文本 / 表格两种方式预览；默认走表格预览。
 
 首版支持 `pptx` 基础内容提取：
 
-- 解压 OpenXML。
+- 后端校验缓存路径后读取文件。
+- 使用轻量 `zip` crate 解包 OpenXML，复用现有 `quick-xml` 提取文本。
 - 提取幻灯片标题、正文文本、备注文本、图片数量。
 - 按幻灯片卡片展示。
 
@@ -268,13 +326,24 @@ CSV 可以作为文本 / 表格两种方式预览；默认走表格预览。
 建议新增 action：
 
 - `response_preview_office`
+- `response_cache_open`
+- `response_cache_reveal`
+- `history_delete`（仅当本次提供单条历史删除入口时需要）
 
-输入：
+Office 解析输入：
 
 ```json
 {
   "filePath": "...",
   "kind": "word|sheet|slides"
+}
+```
+
+缓存文件操作输入：
+
+```json
+{
+  "filePath": "..."
 }
 ```
 
@@ -286,14 +355,24 @@ CSV 可以作为文本 / 表格两种方式预览；默认走表格预览。
 
 后端必须校验 `filePath` 位于 API Workbench 响应缓存目录下，禁止读取任意路径。
 
+分页和窗口规则：
+
+- Sheet 默认返回第一个工作表的前 200 行、前 50 列。
+- Sheet 支持 `sheetName`、`offset`、`limit` 参数，避免一次性把大表格推到前端。
+- Word 默认限制段落和表格文本总字符数，例如 200KB；超过后返回 `truncated=true`。
+- Slides 默认限制幻灯片数量，例如前 100 页；超过后返回 `truncated=true`。
+- 解析失败只影响预览，不影响缓存文件打开、定位和历史查看。
+
 ## 安全边界
 
 - HTML 预览不执行脚本。
 - SVG 不直接作为可执行 HTML 注入。
 - Office 解析只读取缓存目录内文件。
-- 打开缓存文件走明确用户动作，不自动打开外部程序。
+- 打开或定位缓存文件走明确用户动作，不自动打开外部程序。
 - 不把响应体中的远程资源当作可信应用资源。
 - 所有缓存路径操作都要校验位于数据目录下的响应缓存目录。
+- `docx/pptx` 解析只读取必要 XML 和媒体计数，不展开任意路径，不执行宏，不解析外部关系目标。
+- HTML `iframe sandbox` 不加 `allow-scripts`，也不加 `allow-same-origin`，除非后续有明确安全评估。
 
 ## 错误处理
 
@@ -304,6 +383,7 @@ CSV 可以作为文本 / 表格两种方式预览；默认走表格预览。
 - 缓存写入失败：响应状态和响应头仍展示；二进制预览显示缓存失败。
 - 缓存文件丢失：历史详情显示元信息，并提示缓存文件不存在。
 - 历史清理中的缓存删除失败：历史清理继续完成，返回警告。
+- Office 依赖缺失或格式暂不支持：显示“该格式暂不支持基础预览”，不要伪装为空文档。
 
 ## 影响文件
 
@@ -318,8 +398,15 @@ CSV 可以作为文本 / 表格两种方式预览；默认走表格预览。
 - `apps/desktop/src/utils/apiWorkbenchResponsePreview.ts`
 - `apps/desktop/src/utils/apiWorkbenchResponsePreview.test.ts`
 - `apps/desktop/src/utils/apiWorkbench.test.ts`
+- `apps/desktop/src-tauri/Cargo.toml`（如支持 `docx/pptx`，新增轻量 `zip` crate）
 
 如果实现中发现 Office 解析逻辑较大，应拆到 Rust 子模块或前端独立工具文件，避免继续膨胀 `ApiWorkbenchPanel.vue`。
+
+建议拆分：
+
+- Rust：若 Office 或缓存逻辑超过小型 helper 范围，拆到 `api_workbench_response.rs` 或 `api_workbench_preview.rs`，`api_workbench.rs` 只保留 action 分发和主业务编排。
+- 前端：`ApiWorkbenchPanel.vue` 只持有 `response`、`responseTab`、历史载入和操作回调；展示判断、模式选择和预览错误态放入 `ApiWorkbenchResponseViewer.vue`。
+- 纯函数：内容类型到 Viewer 的映射、默认模式选择、文件操作按钮可用性放入 `apiWorkbenchResponsePreview.ts` 并配套测试。
 
 ## 验证计划
 
@@ -340,8 +427,11 @@ CSV 可以作为文本 / 表格两种方式预览；默认走表格预览。
 - 删除单条历史清理缓存。
 - 清空历史清理缓存。
 - 清理未收藏历史只清理对应缓存。
+- 自动裁剪历史时清理被裁剪历史的缓存。
 - 多历史共享同一缓存时不误删仍被引用文件。
 - 缓存路径校验拒绝缓存目录外文件。
+- Office 解析 action 拒绝缓存目录外路径。
+- `xlsx/csv/docx/pptx` 基础解析样例。
 
 命令：
 
