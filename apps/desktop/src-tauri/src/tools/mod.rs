@@ -30,6 +30,7 @@ pub mod pm_siyuan;
 pub mod pm_today;
 pub mod pm_weekly;
 pub mod pm_todo_link;
+pub mod pomodoro;
 pub mod port;
 pub mod regex;
 pub mod schema;
@@ -87,6 +88,7 @@ fn dispatch_tool(domain: &str, action: &str, payload: &Value) -> Result<Value, S
         "launcher" => launcher::execute(action, payload),
         "todo" => todo::execute(action, payload),
         "pm" => pm::execute(action, payload),
+        "pomodoro" => pomodoro::execute(action, payload),
         "maven" => maven::execute(action, payload),
         "inbox" => inbox::execute(action, payload),
         "attachments" => attachments::execute(action, payload),

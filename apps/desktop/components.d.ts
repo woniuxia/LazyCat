@@ -125,6 +125,8 @@ declare module 'vue' {
     PmTodaySection: typeof import('./src/components/PmTodaySection.vue')['default']
     PmTodayView: typeof import('./src/components/PmTodayView.vue')['default']
     PmViewSwitcher: typeof import('./src/components/PmViewSwitcher.vue')['default']
+    PomodoroPanel: typeof import('./src/components/PomodoroPanel.vue')['default']
+    PomodoroPrompt: typeof import('./src/components/PomodoroPrompt.vue')['default']
     PortsPanel: typeof import('./src/components/PortsPanel.vue')['default']
     QuickCapture: typeof import('./src/components/QuickCapture.vue')['default']
     RegexPanel: typeof import('./src/components/RegexPanel.vue')['default']

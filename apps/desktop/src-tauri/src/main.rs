@@ -324,6 +324,18 @@ if (!window.location.search.includes('view=reminder-popup')) {
 }
 "#;
 
+const POMODORO_PROMPT_LABEL: &str = "pomodoro-prompt";
+const POMODORO_PROMPT_TITLE: &str = "番茄钟";
+const POMODORO_PROMPT_WIDTH: i64 = 420;
+const POMODORO_PROMPT_HEIGHT: i64 = 260;
+const POMODORO_PROMPT_VIEW_SCRIPT: &str = r#"
+window.__LAZYCAT_VIEW__ = 'pomodoro-prompt';
+if (!window.location.search.includes('view=pomodoro-prompt')) {
+  const hash = window.location.hash || '';
+  window.history.replaceState(window.history.state, '', `${window.location.pathname}?view=pomodoro-prompt${hash}`);
+}
+"#;
+
 const QUICK_CAPTURE_LABEL: &str = "quick-capture";
 const QUICK_CAPTURE_TITLE: &str = "快速捕获";
 const QUICK_CAPTURE_WIDTH: i64 = 520;
@@ -345,6 +357,7 @@ fn expected_window_title(window_label: &str) -> Option<&'static str> {
     match window_label {
         MAIN_WINDOW_LABEL => Some(MAIN_WINDOW_TITLE),
         REMINDER_POPUP_LABEL => Some(REMINDER_POPUP_TITLE),
+        POMODORO_PROMPT_LABEL => Some(POMODORO_PROMPT_TITLE),
         QUICK_CAPTURE_LABEL => Some(QUICK_CAPTURE_TITLE),
         SPOTLIGHT_LABEL => Some(SPOTLIGHT_TITLE),
         _ => None,
@@ -430,6 +443,71 @@ fn show_reminder_popup(app: &AppHandle, reminders: Vec<tools::todo::ReminderDisp
         };
 
         position_reminder_popup(&window);
+        let _ = window.show();
+        let _ = window.set_focus();
+        #[cfg(windows)]
+        force_foreground(&window);
+    });
+}
+
+fn pomodoro_prompt_url() -> WebviewUrl {
+    if cfg!(debug_assertions) {
+        WebviewUrl::External(
+            "http://localhost:5173/?view=pomodoro-prompt"
+                .parse()
+                .expect("valid pomodoro prompt dev url"),
+        )
+    } else {
+        WebviewUrl::App("index.html".into())
+    }
+}
+
+fn position_pomodoro_prompt(window: &WebviewWindow) {
+    let Ok(Some(monitor)) = window.primary_monitor() else {
+        return;
+    };
+
+    let work_area = monitor.work_area();
+    let relative_x =
+        (work_area.size.width as i64 - POMODORO_PROMPT_WIDTH - REMINDER_POPUP_MARGIN).max(0);
+    let relative_y =
+        (work_area.size.height as i64 - POMODORO_PROMPT_HEIGHT - REMINDER_POPUP_MARGIN).max(0);
+    let x = clamp_i64_to_i32(work_area.position.x as i64 + relative_x);
+    let y = clamp_i64_to_i32(work_area.position.y as i64 + relative_y);
+    let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
+}
+
+fn show_pomodoro_prompt(app: &AppHandle) {
+    let app_handle = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        if let Some(window) = app_handle.get_webview_window(POMODORO_PROMPT_LABEL) {
+            position_pomodoro_prompt(&window);
+            let _ = window.show();
+            let _ = window.set_focus();
+            #[cfg(windows)]
+            force_foreground(&window);
+            let _ = window.emit("pomodoro-prompt-refresh", json!({}));
+            return;
+        }
+
+        let builder =
+            WebviewWindowBuilder::new(&app_handle, POMODORO_PROMPT_LABEL, pomodoro_prompt_url())
+                .title(POMODORO_PROMPT_TITLE)
+                .inner_size(POMODORO_PROMPT_WIDTH as f64, POMODORO_PROMPT_HEIGHT as f64)
+                .decorations(false)
+                .always_on_top(true)
+                .resizable(false)
+                .skip_taskbar(true)
+                .focused(true)
+                .transparent(false)
+                .visible(false)
+                .initialization_script(POMODORO_PROMPT_VIEW_SCRIPT);
+
+        let Ok(window) = builder.build() else {
+            return;
+        };
+
+        position_pomodoro_prompt(&window);
         let _ = window.show();
         let _ = window.set_focus();
         #[cfg(windows)]
@@ -1082,6 +1160,29 @@ fn start_todo_scheduler(app: tauri::AppHandle) {
     });
 }
 
+fn emit_pomodoro_refresh_event(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.emit("pomodoro-state-changed", json!({ "refresh": true }));
+    }
+}
+
+fn start_pomodoro_scheduler(app: tauri::AppHandle) {
+    std::thread::spawn(move || loop {
+        match tools::pomodoro::scheduler_tick(chrono::Local::now()) {
+            Ok(Some(_prompt)) => {
+                show_pomodoro_prompt(&app);
+                emit_pomodoro_refresh_event(&app);
+            }
+            Ok(None) => {}
+            Err(_) => {
+                // 番茄钟调度失败不影响主流程，等待下一轮重试
+            }
+        }
+
+        std::thread::sleep(Duration::from_secs(30));
+    });
+}
+
 fn start_clipboard_monitor(app: tauri::AppHandle) {
     if CLIPBOARD_MONITOR_RUNNING.swap(true, Ordering::SeqCst) {
         return;
@@ -1312,6 +1413,7 @@ fn main() {
 
             // 启动待办调度线程（周期实例生成 + 到期提醒派发）
             start_todo_scheduler(app.handle().clone());
+            start_pomodoro_scheduler(app.handle().clone());
             start_clipboard_monitor(app.handle().clone());
 
             // 启动挂件统一脉冲调度（心跳 + 事件 debounce + 看门狗 + 跨日立刷）

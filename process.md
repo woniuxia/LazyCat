@@ -8,6 +8,34 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-07-01: 番茄钟后台触发与前端倒计时分离
+
+**场景**: 新增工作日番茄钟，支持 08:00 弹窗确认、默认 25/5 循环、12:00-13:30 午休跳过、17:00 结束。
+**使用次数**: 0
+**问题**:
+1. 如果前后端都各自维护倒计时，午休跳过、跨窗口刷新和下班结束会形成双重真值。
+2. 如果用前端定时器触发每日 08:00 弹窗，主窗口隐藏或未打开时会漏提醒。
+3. 第一版若直接建业务表，会给后续自定义配置带来不必要迁移成本。
+**解决**:
+1. 后端只负责每日提示、今日会话状态和持久化；前端用纯函数根据配置、开始时间和当前时间推导阶段。
+2. 主进程启动独立番茄钟调度线程，满足条件时创建 `pomodoro-prompt` 独立 WebView。
+3. 配置和当日会话先存 `user_settings` JSON，默认配置保留可扩展字段。
+**关键点**:
+1. 午休跳过必须按有效工作时长计算，不能把 12:00-13:30 算进番茄周期。
+2. 每日提示一旦展示就写入 `prompted`，避免用户关闭弹窗后每 30 秒重复打扰。
+3. 弹窗动作走统一 `tool:pomodoro:*` 通道，并广播 `pomodoro-state-changed` 刷新主面板。
+**涉及文件**:
+- `apps/desktop/src-tauri/src/tools/pomodoro.rs`
+- `apps/desktop/src-tauri/src/main.rs`
+- `apps/desktop/src/components/PomodoroPanel.vue`
+- `apps/desktop/src/components/PomodoroPrompt.vue`
+- `apps/desktop/src/utils/pomodoroSchedule.ts`
+**验证**:
+- `pnpm test src/utils/pomodoroSchedule.test.ts`
+- `pnpm typecheck`
+- `cargo test pomodoro`
+- `pnpm --filter @lazycat/desktop build:web`
+
 ## 2026-07-01: 接口调试响应预览要分离文本与二进制存储
 
 **场景**: 为 API Workbench 增加 JSON/HTML/图片/PDF/文本/未知二进制兜底、历史重新预览、响应缓存清理和 Office 基础预览。

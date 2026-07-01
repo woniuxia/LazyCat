@@ -14,6 +14,8 @@ const currentView = params.get("view") ?? window.__LAZYCAT_VIEW__;
 
 if (currentView === "reminder-popup") {
   import("./ReminderPopupApp").then(({ default: mount }) => mount());
+} else if (currentView === "pomodoro-prompt") {
+  import("./PomodoroPromptApp").then(({ default: mount }) => mount());
 } else if (currentView === "quick-capture") {
   import("./QuickCaptureApp").then(({ default: mount }) => mount());
 } else if (currentView === "widget-canvas") {

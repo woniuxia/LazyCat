@@ -53,6 +53,7 @@ const toolRegistry: Record<string, Component> = {
   vault: defineAsyncComponent(() => import("./components/VaultPanel.vue")),
   launcher: defineAsyncComponent(() => import("./components/LauncherPanel.vue")),
   todo: defineAsyncComponent(() => import("./components/TodoPanel.vue")),
+  pomodoro: defineAsyncComponent(() => import("./components/PomodoroPanel.vue")),
   pm: defineAsyncComponent(() => import("./components/PmPanel.vue")),
   "weekly-work": defineAsyncComponent(() => import("./components/WeeklyWorkPanel.vue")),
   inbox: defineAsyncComponent(() => import("./components/InboxPanel.vue")),
