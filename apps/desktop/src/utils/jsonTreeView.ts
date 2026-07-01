@@ -63,8 +63,14 @@ export function formatJsonPrimitive(value: unknown, valueType = getValueType(val
 }
 
 export function summarizeJsonNode(node: JsonTreeNode): string {
-  if (node.valueType === "object") return `object · ${node.childCount}`;
-  if (node.valueType === "array") return `array · ${node.childCount}`;
+  if (node.valueType === "object") {
+    if (node.childCount === 0) return "empty object";
+    return `${node.childCount} ${node.childCount === 1 ? "field" : "fields"}`;
+  }
+  if (node.valueType === "array") {
+    if (node.childCount === 0) return "empty array";
+    return `${node.childCount} ${node.childCount === 1 ? "item" : "items"}`;
+  }
   return formatJsonPrimitive(node.value, node.valueType);
 }
 

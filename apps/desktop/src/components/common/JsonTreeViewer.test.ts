@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 const source = readFileSync(new URL("./JsonTreeViewer.vue", import.meta.url), "utf8");
 const nodePath = new URL("./JsonTreeNode.vue", import.meta.url);
+const nodeSource = readFileSync(nodePath, "utf8");
 
 describe("JsonTreeViewer source structure", () => {
   it("keeps JSON traversal in shared pure utilities", () => {
@@ -33,5 +34,14 @@ describe("JsonTreeViewer source structure", () => {
     expect(source).toContain("<JsonTreeNode");
     expect(source).not.toContain("defineComponent");
     expect(source).not.toContain('h("div"');
+  });
+
+  it("keeps object and array metadata after the bracket token", () => {
+    const bracketIndex = nodeSource.indexOf('class="json-tree-bracket"');
+    const summaryIndex = nodeSource.indexOf('class="json-tree-summary"');
+
+    expect(bracketIndex).toBeGreaterThan(-1);
+    expect(summaryIndex).toBeGreaterThan(-1);
+    expect(bracketIndex).toBeLessThan(summaryIndex);
   });
 });

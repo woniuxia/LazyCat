@@ -26,7 +26,7 @@ describe("jsonTreeView", () => {
     expect(root.path).toEqual([]);
     expect(root.valueType).toBe("object");
     expect(root.childCount).toBe(4);
-    expect(root.summary).toBe("object · 4");
+    expect(root.summary).toBe("4 fields");
     expect(root.children.map((child) => child.label)).toEqual([
       '"user"',
       '"roles"',
@@ -36,7 +36,7 @@ describe("jsonTreeView", () => {
 
     const roles = root.children.find((child) => child.label === '"roles"');
     expect(roles?.valueType).toBe("array");
-    expect(roles?.summary).toBe("array · 1");
+    expect(roles?.summary).toBe("1 item");
     expect(roles?.children[0].label).toBe("[0]");
     expect(roles?.children[0].summary).toBe('"admin"');
 
@@ -90,6 +90,8 @@ describe("jsonTreeView", () => {
     expect(isJsonTreeExpandable(root)).toBe(true);
     expect(isJsonTreeExpandable(emptyObject)).toBe(false);
     expect(isJsonTreeExpandable(emptyArray)).toBe(false);
+    expect(emptyObject.summary).toBe("empty object");
+    expect(emptyArray.summary).toBe("empty array");
 
     expect(collectExpandableKeys(root)).toEqual(new Set([root.key, user.key, profile.key, roles.key]));
     expect(collectExpandedKeysByDepth(root, "all")).toEqual(collectExpandableKeys(root));

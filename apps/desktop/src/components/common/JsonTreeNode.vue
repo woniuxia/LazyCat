@@ -20,8 +20,8 @@
       <span v-if="node.label" class="json-tree-separator">:</span>
 
       <template v-if="isObjectLike">
-        <span class="json-tree-summary">{{ node.summary }}</span>
         <span class="json-tree-bracket">{{ expanded ? openToken : collapsedToken }}</span>
+        <span class="json-tree-summary">{{ node.summary }}</span>
       </template>
       <span v-else class="json-tree-value" :class="`is-${node.valueType}`">
         {{ node.summary }}
@@ -136,7 +136,17 @@ const collapsedToken = computed(() => {
 }
 
 .json-tree-summary {
-  color: #5e6c81;
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  margin-left: 2px;
+  padding: 0 6px;
+  border: 1px solid #e3e8f1;
+  border-radius: 999px;
+  background: #f5f7fb;
+  color: #6c778a;
+  font-size: 11px;
+  line-height: 1;
 }
 
 .json-tree-value.is-string {
