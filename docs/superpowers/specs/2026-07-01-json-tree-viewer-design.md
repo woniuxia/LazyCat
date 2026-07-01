@@ -172,10 +172,11 @@ interface JsonTreeNode {
 
 ## 错误与边界
 
-1. `formatJsonForCopy` 如果无法序列化，返回空字符串或可读错误文本；复制失败时组件通过 Element Plus message 或父层可感知失败提示处理。
-2. 循环引用理论上不来自 JSON，但通用组件需要避免递归爆栈：树构建时记录访问对象，遇到循环显示 `[Circular]` 并停止展开。
-3. 过深 JSON 需要递归保护；首版可设置内部最大深度保护并显示 `[Max depth reached]`，避免异常输入拖垮界面。
-4. 超大 JSON 的虚拟滚动不在本轮范围；后续如 API 响应预览接入大响应，再单独设计性能策略。
+1. `formatJsonForCopy` 使用安全序列化：标准 JSON 正常格式化；循环引用替换为字符串 `"[Circular]"`；函数、Symbol、`undefined` 等非 JSON 值替换为 `String(value)`。
+2. 复制动作由 `JsonTreeViewer` 内部处理。复制成功显示轻量成功提示；`navigator.clipboard.writeText` 失败时显示 `复制失败`，不静默吞错。
+3. 循环引用理论上不来自数据字典，但通用组件需要避免递归爆栈：树构建时记录访问对象，遇到循环显示 `[Circular]` 并停止展开。
+4. 树构建设置内部最大深度 `100`。超过后显示 `[Max depth reached]` 节点并停止递归，避免异常输入拖垮界面。
+5. 超大 JSON 的虚拟滚动不在本轮范围；后续如 API 响应预览接入大响应，再单独设计性能策略。
 
 ## 验证
 
@@ -194,6 +195,8 @@ pnpm test src/utils/jsonTreeView.test.ts
 5. 深度展开只包含目标层级内节点。
 6. 空对象和空数组不可展开。
 7. 循环引用不会递归崩溃。
+8. 超过最大深度时生成 `[Max depth reached]` 保护节点。
+9. 安全复制文本能处理循环引用和非 JSON 标准值。
 
 数据字典相关回归：
 
