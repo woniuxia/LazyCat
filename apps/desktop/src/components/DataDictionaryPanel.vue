@@ -198,17 +198,13 @@
       </div>
 
       <div class="dd-json-shell">
-        <el-button
-          v-if="selectedJson"
-          class="dd-json-copy-btn"
-          :icon="CopyDocument"
-          circle
-          size="small"
-          aria-label="复制 JSON"
-          title="复制 JSON"
-          @click="copySelectedJson"
+        <JsonTreeViewer
+          v-if="recordDetail"
+          class="dd-json-view"
+          :value="recordDetail.record.rawJson"
+          :copy-text="selectedJson"
+          default-expand-depth="all"
         />
-        <pre class="dd-json-view">{{ selectedJson }}</pre>
       </div>
 
       <div v-if="recordDetail" class="dd-relation-groups">
@@ -576,7 +572,6 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import type { ComponentPublicInstance } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import {
-  CopyDocument,
   Delete,
   Edit,
   Plus,
@@ -588,6 +583,7 @@ import {
 } from "@element-plus/icons-vue";
 import Sortable from "sortablejs";
 import { open } from "@tauri-apps/plugin-dialog";
+import JsonTreeViewer from "./common/JsonTreeViewer.vue";
 import { invokeToolByChannel } from "../bridge/tauri";
 import { useDataDictionaryNavigation } from "../composables/useDataDictionaryNavigation";
 import type {
@@ -1111,16 +1107,6 @@ function isPopularItem(
 async function copySummaryValue(value: string) {
   try {
     await navigator.clipboard.writeText(value);
-    ElMessage.success("已复制");
-  } catch {
-    ElMessage.error("复制失败");
-  }
-}
-
-async function copySelectedJson() {
-  if (!selectedJson.value) return;
-  try {
-    await navigator.clipboard.writeText(selectedJson.value);
     ElMessage.success("已复制");
   } catch {
     ElMessage.error("复制失败");
@@ -2096,48 +2082,10 @@ watch(savingDictionaryOrder, (disabled) => {
   min-height: 0;
 }
 
-.dd-json-copy-btn {
-  position: absolute;
-  z-index: 1;
-  top: 8px;
-  right: 8px;
-  border-color: #d7deeb;
-  background: rgba(255, 255, 255, 0.94);
-  box-shadow: 0 6px 16px rgba(31, 42, 68, 0.14);
-  color: #435066;
-  opacity: 0;
-  pointer-events: none;
-  transform: translateY(-2px);
-  transition: opacity 0.16s ease, transform 0.16s ease, border-color 0.16s ease, color 0.16s ease;
-}
-
-.dd-json-shell:hover .dd-json-copy-btn,
-.dd-json-shell:focus-within .dd-json-copy-btn {
-  opacity: 1;
-  pointer-events: auto;
-  transform: translateY(0);
-}
-
-.dd-json-copy-btn:hover {
-  border-color: #9fb1d1;
-  background: #ffffff;
-  color: #1f3f8f;
-}
-
 .dd-json-view {
   height: 100%;
-  margin: 0;
-  overflow: auto;
-  padding: 12px;
-  border: 1px solid #e7eaf1;
-  border-radius: 8px;
-  background: #fbfcff;
-  color: #263247;
-  font-family: "Cascadia Mono", Consolas, monospace;
-  font-size: 12px;
-  line-height: 1.6;
-  white-space: pre-wrap;
-  word-break: break-word;
+  min-height: 0;
+  width: 100%;
 }
 
 .dd-empty {

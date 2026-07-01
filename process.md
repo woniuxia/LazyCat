@@ -8,6 +8,33 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-07-01: 通用 JSON 树视图要把遍历规则留在纯函数层
+
+**场景**: 为数据字典详情区把原始 JSON `<pre>` 替换成可折叠的通用只读 JSON 树视图。
+**使用次数**: 0
+**问题**:
+1. 如果在业务面板里递归遍历 JSON，会把展开状态、路径编码、循环引用和复制格式化逻辑混进数据字典组件。
+2. 直接用路径字符串拼接做节点 key，字段名包含点号、反斜杠或数组样式字符时容易冲突。
+3. 从 hover-only 复制按钮改成显式工具栏时，源码结构测试会继续约束旧 DOM 和旧函数。
+**解决**:
+1. 新增 `jsonTreeView.ts` 纯函数，集中处理树构建、摘要、展开 key 收集、最大深度保护和安全复制格式化。
+2. 通用 `JsonTreeViewer.vue` 只负责渲染、实例内展开集合和工具栏动作；数据字典只传 `rawJson` 和既有 `selectedJson`。
+3. 同步更新数据字典源码结构测试，断言 `JsonTreeViewer` 接入、`copy-text` 传参和关系分组仍位于 JSON 区之后。
+**关键点**:
+1. `collectExpandedKeysByDepth(root, 2)` 的语义应固定为展开根节点和第一层可展开子节点。
+2. 树构建和复制格式化都要处理循环引用，避免只保护渲染路径但复制路径仍可能崩溃。
+3. 业务组件不应重复维护 JSON 复制按钮；复制成功/失败反馈由通用组件封装。
+**涉及文件**:
+- `apps/desktop/src/utils/jsonTreeView.ts`
+- `apps/desktop/src/components/common/JsonTreeViewer.vue`
+- `apps/desktop/src/components/DataDictionaryPanel.vue`
+- `apps/desktop/src/components/DataDictionaryPanel.context-menu.test.ts`
+**验证**:
+- `pnpm test src/utils/jsonTreeView.test.ts src/components/common/JsonTreeViewer.test.ts src/components/DataDictionaryPanel.context-menu.test.ts`
+- `pnpm test src/utils/dataDictionary.test.ts`
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+
 ## 2026-07-01: 番茄钟后台触发与前端倒计时分离
 
 **场景**: 新增工作日番茄钟，支持 08:00 弹窗确认、默认 25/5 循环、12:00-13:30 午休跳过、17:00 结束。

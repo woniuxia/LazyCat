@@ -91,6 +91,8 @@ declare module 'vue' {
     JavaBeanJsPanel: typeof import('./src/components/JavaBeanJsPanel.vue')['default']
     JsonProcessPanel: typeof import('./src/components/JsonProcessPanel.vue')['default']
     JsonSchemaPanel: typeof import('./src/components/JsonSchemaPanel.vue')['default']
+    JsonTreeNode: typeof import('./src/components/common/JsonTreeNode.vue')['default']
+    JsonTreeViewer: typeof import('./src/components/common/JsonTreeViewer.vue')['default']
     JwtPanel: typeof import('./src/components/JwtPanel.vue')['default']
     KeywordCommandEditor: typeof import('./src/components/settings/KeywordCommandEditor.vue')['default']
     LauncherPanel: typeof import('./src/components/LauncherPanel.vue')['default']

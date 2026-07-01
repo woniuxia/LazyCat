@@ -131,14 +131,17 @@ describe("DataDictionaryPanel dictionary context menu", () => {
     expect(source).not.toContain('v-else-if="selectedItem">{{ selectedItem.dictionaryName }}</span>');
   });
 
-  it("shows a hover copy action for the raw JSON detail", () => {
+  it("uses JsonTreeViewer for the raw JSON detail copy and folding actions", () => {
+    expect(source).toContain('import JsonTreeViewer from "./common/JsonTreeViewer.vue"');
     expect(source).toContain('class="dd-json-shell"');
-    expect(source).toContain('class="dd-json-copy-btn"');
-    expect(source).toContain(':icon="CopyDocument"');
-    expect(source).toContain('@click="copySelectedJson"');
-    expect(source).toContain("async function copySelectedJson()");
-    expect(source).toContain("await navigator.clipboard.writeText(selectedJson.value)");
-    expect(source).toContain('ElMessage.error("复制失败")');
+    expect(source).toContain("<JsonTreeViewer");
+    expect(source).toContain('class="dd-json-view"');
+    expect(source).toContain(':value="recordDetail.record.rawJson"');
+    expect(source).toContain(':copy-text="selectedJson"');
+    expect(source).toContain('default-expand-depth="all"');
+    expect(source).not.toContain('class="dd-json-copy-btn"');
+    expect(source).not.toContain('@click="copySelectedJson"');
+    expect(source).not.toContain("async function copySelectedJson()");
   });
 
   it("renders relation groups below the raw JSON detail", () => {
