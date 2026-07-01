@@ -215,43 +215,120 @@
     <el-dialog
       v-model="environmentDialogVisible"
       title="环境管理"
-      width="720px"
+      width="min(880px, calc(100vw - 32px))"
+      class="api-workbench-environment-dialog"
       append-to-body
     >
       <div v-if="selectedCollectionId" class="environment-dialog-body">
-        <div class="environment-toolbar">
+        <header class="environment-dialog-overview">
           <div class="environment-current">
-            <span>当前环境</span>
-            <strong>{{ selectedEnvironment?.name ?? "未选择环境" }}</strong>
+            <span>当前集合</span>
+            <strong>{{ selectedCollection?.name ?? "未选择集合" }}</strong>
           </div>
-          <div class="environment-actions">
-            <el-button size="small" :disabled="!selectedCollectionId" @click="createEnvironment">
-              新增
-            </el-button>
-            <el-button size="small" :disabled="!selectedEnvironment" @click="copyEnvironment">
-              复制
-            </el-button>
-            <el-button size="small" :disabled="!selectedEnvironment" @click="renameEnvironment">
-              重命名
-            </el-button>
-            <el-button size="small" :disabled="!selectedEnvironment" @click="deleteEnvironment">
-              删除
-            </el-button>
+          <div class="environment-overview-stats">
+            <el-tag size="small" effect="plain">{{ environments.length }} 个环境</el-tag>
+            <el-tag size="small" effect="plain">{{ environmentDraftSummary.variableCount }} 个变量</el-tag>
+            <el-tag
+              size="small"
+              effect="plain"
+              :type="environmentDraftSummary.hasBaseUrl ? 'success' : 'warning'"
+            >
+              BASE_URL {{ environmentDraftSummary.hasBaseUrl ? "已配置" : "未配置" }}
+            </el-tag>
+            <el-tag
+              size="small"
+              effect="plain"
+              :type="environmentRowsDirty ? 'warning' : 'success'"
+            >
+              {{ environmentRowsDirty ? "有未保存修改" : "已保存" }}
+            </el-tag>
           </div>
+        </header>
+
+        <div class="environment-manager-layout">
+          <aside class="environment-list-panel" aria-label="环境列表">
+            <div class="environment-list-heading">
+              <span>环境</span>
+              <el-button
+                size="small"
+                type="primary"
+                plain
+                :icon="Plus"
+                :disabled="!selectedCollectionId"
+                @click="createEnvironment"
+              >
+                新增
+              </el-button>
+            </div>
+            <button
+              v-for="env in environments"
+              :key="env.id"
+              type="button"
+              class="environment-list-item"
+              :class="{ active: env.id === selectedEnvironmentId }"
+              @click="selectEnvironmentInDialog(env.id)"
+            >
+              <span class="environment-list-name">{{ env.name }}</span>
+              <span class="environment-list-meta">{{ env.variables.length }} 个变量</span>
+              <span v-if="env.id === selectedEnvironmentId" class="environment-list-badge">当前</span>
+            </button>
+          </aside>
+
+          <section class="environment-editor-panel" aria-label="环境变量编辑">
+            <div class="environment-editor-heading">
+              <div class="environment-current">
+                <span>当前环境</span>
+                <strong>{{ selectedEnvironment?.name ?? "未选择环境" }}</strong>
+              </div>
+              <div class="environment-actions">
+                <el-button
+                  size="small"
+                  :icon="CopyDocument"
+                  :disabled="!selectedEnvironment"
+                  @click="copyEnvironment"
+                >
+                  复制
+                </el-button>
+                <el-button
+                  size="small"
+                  :icon="EditPen"
+                  :disabled="!selectedEnvironment"
+                  @click="renameEnvironment"
+                >
+                  重命名
+                </el-button>
+                <el-button
+                  size="small"
+                  :icon="Delete"
+                  :disabled="!selectedEnvironment"
+                  @click="deleteEnvironment"
+                >
+                  删除
+                </el-button>
+              </div>
+            </div>
+            <KeyValueEditor v-model="environmentRows" />
+          </section>
         </div>
-        <KeyValueEditor v-model="environmentRows" />
       </div>
       <el-empty v-else description="请先选择集合" />
       <template #footer>
-        <el-button @click="environmentDialogVisible = false">关闭</el-button>
-        <el-button
-          type="primary"
-          :loading="savingEnvironment"
-          :disabled="!selectedEnvironment"
-          @click="saveCurrentEnvironment"
-        >
-          保存环境
-        </el-button>
+        <div class="environment-dialog-footer">
+          <span class="environment-save-status" :class="{ warning: environmentRowsDirty || environmentDraftSummary.duplicateNames.length }">
+            {{ environmentSaveStatusText }}
+          </span>
+          <div class="environment-footer-actions">
+            <el-button @click="environmentDialogVisible = false">关闭</el-button>
+            <el-button
+              type="primary"
+              :loading="savingEnvironment"
+              :disabled="!selectedEnvironment || !environmentRowsDirty || environmentDraftSummary.duplicateNames.length > 0"
+              @click="saveCurrentEnvironment"
+            >
+              保存环境
+            </el-button>
+          </div>
+        </div>
       </template>
     </el-dialog>
 
@@ -283,7 +360,10 @@
 import { computed, defineComponent, h, onBeforeUnmount, onMounted, ref } from "vue";
 import {
   CopyDocument,
+  Delete,
   DocumentChecked,
+  EditPen,
+  Plus,
   Promotion,
   Refresh,
   Setting,
@@ -312,6 +392,7 @@ import {
   API_WORKBENCH_ENVIRONMENT_MANAGER_VALUE,
   API_WORKBENCH_METHODS,
   DEFAULT_API_WORKBENCH_DRAFT,
+  buildApiWorkbenchEnvironmentDraftSummary,
   buildApiWorkbenchNewRequestState,
   buildApiWorkbenchSelectionState,
   draftApiWorkbenchEnvironmentRows,
@@ -366,9 +447,15 @@ const KeyValueEditor = defineComponent({
       );
     }
     return () =>
-      h("div", { class: "kv-editor" }, [
+      h("div", { class: "api-workbench-kv-editor" }, [
+        h("div", { class: "api-workbench-kv-header" }, [
+          h("span", "启用"),
+          h("span", "键名（Key）"),
+          h("span", "值（Value）"),
+          h("span", "操作"),
+        ]),
         ...props.modelValue.map((row, index) =>
-          h("div", { class: "kv-row", key: index }, [
+          h("div", { class: "api-workbench-kv-row", key: index }, [
             h(ElSwitch, {
               modelValue: row.enabled,
               "onUpdate:modelValue": (value: boolean) => update(index, { enabled: value }),
@@ -430,6 +517,19 @@ const selectedEnvironment = computed(
   () => environments.value.find((item) => item.id === selectedEnvironmentId.value) ?? null,
 );
 const selectedEnvironmentSelectValue = computed(() => selectedEnvironmentId.value);
+const environmentDraftSummary = computed(() =>
+  buildApiWorkbenchEnvironmentDraftSummary(
+    environmentRows.value,
+    selectedEnvironment.value?.variables ?? [],
+  ),
+);
+const environmentRowsDirty = computed(() => environmentDraftSummary.value.changed);
+const environmentSaveStatusText = computed(() => {
+  if (environmentDraftSummary.value.duplicateNames.length > 0) {
+    return `变量名重复：${environmentDraftSummary.value.duplicateNames.join("、")}`;
+  }
+  return environmentRowsDirty.value ? "当前环境有未保存修改" : "当前环境已保存";
+});
 const baseUrl = computed(
   () => selectedEnvironment.value?.variables.find((item) => item.name === "BASE_URL")?.value ?? "",
 );
@@ -963,6 +1063,40 @@ async function handleEnvironmentSelect(value: string | number | null) {
   await handleEnvironmentChange();
 }
 
+async function confirmDiscardEnvironmentDraft() {
+  if (!environmentRowsDirty.value) return true;
+  try {
+    await ElMessageBox.confirm(
+      "当前环境有未保存修改，切换后会丢弃这些修改。",
+      "切换环境",
+      { type: "warning", confirmButtonText: "继续切换", cancelButtonText: "取消" },
+    );
+    return true;
+  } catch (error) {
+    if (isMessageBoxCancel(error)) return false;
+    throw error;
+  }
+}
+
+async function selectEnvironmentInDialog(environmentId: number) {
+  if (environmentId === selectedEnvironmentId.value) return;
+  try {
+    const shouldSwitch = await confirmDiscardEnvironmentDraft();
+    if (!shouldSwitch) return;
+    const previousEnvironmentId = selectedEnvironmentId.value;
+    selectedEnvironmentId.value = environmentId;
+    try {
+      await handleEnvironmentChange();
+    } catch (error) {
+      selectedEnvironmentId.value = previousEnvironmentId;
+      syncEnvironmentRows();
+      throw error;
+    }
+  } catch (error) {
+    ElMessage.error(errorMessage(error));
+  }
+}
+
 async function persistActiveEnvironment() {
   if (!selectedCollectionId.value || !selectedEnvironmentId.value) return;
   await invokeToolByChannel("tool:api-workbench:collection-set-active-environment", {
@@ -1424,8 +1558,11 @@ onBeforeUnmount(() => {
 
 .api-workbench-request-bar,
 .body-toolbar,
-.environment-toolbar,
-.environment-actions {
+.environment-actions,
+.environment-dialog-footer,
+.environment-editor-heading,
+.environment-footer-actions,
+.environment-overview-stats {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1453,14 +1590,140 @@ onBeforeUnmount(() => {
   min-height: 32px;
 }
 
-.environment-toolbar {
-  justify-content: space-between;
-  margin-bottom: 8px;
-}
-
 .environment-dialog-body {
   display: flex;
   flex-direction: column;
+  gap: 12px;
+}
+
+.environment-dialog-overview {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+  background: var(--el-fill-color-extra-light);
+}
+
+.environment-overview-stats {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.environment-manager-layout {
+  display: grid;
+  min-height: 360px;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 12px;
+}
+
+.environment-list-panel,
+.environment-editor-panel {
+  min-width: 0;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+  background: var(--el-bg-color);
+}
+
+.environment-list-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  background: var(--el-fill-color-extra-light);
+}
+
+.environment-list-heading {
+  display: flex;
+  min-height: 32px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.environment-list-heading span {
+  color: var(--el-text-color-primary);
+  font-weight: 600;
+}
+
+.environment-list-item {
+  display: grid;
+  width: 100%;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 8px;
+  align-items: center;
+  padding: 9px 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--el-text-color-primary);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  transition:
+    border-color 0.18s ease,
+    background-color 0.18s ease,
+    color 0.18s ease;
+}
+
+.environment-list-item:hover {
+  border-color: var(--el-border-color);
+  background: var(--el-bg-color);
+}
+
+.environment-list-item:focus-visible {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: 2px;
+}
+
+.environment-list-item.active {
+  border-color: var(--el-color-primary-light-5);
+  background: var(--el-color-primary-light-9);
+  color: var(--el-color-primary);
+}
+
+.environment-list-name {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.environment-list-meta {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.environment-list-item.active .environment-list-meta {
+  color: var(--el-color-primary);
+}
+
+.environment-list-badge {
+  grid-row: 1 / span 2;
+  grid-column: 2;
+  color: var(--el-color-primary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.environment-editor-panel {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+}
+
+.environment-editor-heading {
+  align-items: flex-start;
+  justify-content: space-between;
   gap: 10px;
 }
 
@@ -1487,6 +1750,31 @@ onBeforeUnmount(() => {
 
 .environment-actions {
   flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.environment-dialog-footer {
+  width: 100%;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.environment-save-status {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.environment-save-status.warning {
+  color: var(--el-color-warning);
+}
+
+.environment-footer-actions {
+  flex: none;
   justify-content: flex-end;
 }
 
@@ -1584,17 +1872,37 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
 }
 
-.kv-editor {
+:global(.api-workbench-kv-editor) {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.kv-row {
+:global(.api-workbench-kv-header),
+:global(.api-workbench-kv-row) {
   display: grid;
-  grid-template-columns: 48px minmax(120px, 1fr) minmax(160px, 1.4fr) 68px;
+  grid-template-columns: 48px minmax(0, 1fr) minmax(0, 1.35fr) 68px;
   gap: 8px;
   align-items: center;
+}
+
+:global(.api-workbench-kv-header) {
+  min-height: 24px;
+  padding: 0 4px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+:global(.api-workbench-kv-header span) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+:global(.api-workbench-kv-row > .el-input) {
+  min-width: 0;
 }
 
 .response-panel-heading {
@@ -1781,13 +2089,31 @@ onBeforeUnmount(() => {
     min-height: 360px;
   }
 
-  .kv-row {
-    grid-template-columns: 48px minmax(0, 1fr);
+  .environment-dialog-overview,
+  .environment-dialog-footer,
+  .environment-editor-heading {
+    flex-direction: column;
+    align-items: stretch;
   }
 
-  .kv-row > :nth-child(3),
-  .kv-row > :nth-child(4) {
-    grid-column: 2;
+  .environment-manager-layout {
+    min-height: 0;
+    grid-template-columns: 1fr;
+  }
+
+  .environment-list-panel {
+    max-height: 220px;
+    overflow: auto;
+  }
+
+  .environment-actions,
+  .environment-footer-actions,
+  .environment-overview-stats {
+    justify-content: flex-start;
+  }
+
+  .environment-save-status {
+    white-space: normal;
   }
 
   .history-toolbar,

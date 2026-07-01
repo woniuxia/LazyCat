@@ -8,6 +8,31 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-07-01: API Workbench 环境管理弹窗用两栏结构承载多环境编辑
+
+**场景**: 优化接口调试的环境管理弹窗，降低多环境切换、变量状态判断和保存反馈成本。
+**使用次数**: 0
+**问题**:
+1. 旧弹窗只有当前环境标题、操作按钮和变量表，用户切换环境仍要回到下拉框，管理多个环境时上下文弱。
+2. 变量数、BASE_URL 配置状态和未保存修改只隐含在表单内容里，保存按钮反馈不足。
+3. 如果在弹窗内直接切换环境而不处理草稿状态，容易丢失未保存变量修改。
+**解决**:
+1. 弹窗改成左侧环境列表、右侧变量编辑区，顶部展示集合、环境数、变量数、BASE_URL 状态和保存状态。
+2. 抽出 `buildApiWorkbenchEnvironmentDraftSummary` 纯函数，统一计算变量数、重复名、BASE_URL 和脏状态，并配套单测。
+3. 弹窗内环境列表切换前检测未保存修改，需确认后才丢弃草稿并切换。
+**关键点**:
+1. 环境管理 UI 可以重排，但保存协议仍保持 `environment-save` 的变量数组为单一写入入口。
+2. 脏状态比较只看变量 `name/value`，不把历史 `isSecret` 差异误判成用户修改。
+3. 弹窗两栏布局要在小窗口退化为单栏，列表项使用真实 button，hover/active 只改变颜色和边框，避免布局跳动。
+**涉及文件**:
+- `apps/desktop/src/components/ApiWorkbenchPanel.vue`
+- `apps/desktop/src/utils/apiWorkbench.ts`
+- `apps/desktop/src/utils/apiWorkbench.test.ts`
+**验证**:
+- `pnpm test src/utils/apiWorkbench.test.ts`
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+
 ## 2026-07-01: 通用 JSON 树视图要把遍历规则留在纯函数层
 
 **场景**: 为数据字典详情区把原始 JSON `<pre>` 替换成可折叠的通用只读 JSON 树视图。

@@ -220,6 +220,28 @@ export function findDuplicateApiWorkbenchEnvironmentVariableNames(
   return duplicates;
 }
 
+export function buildApiWorkbenchEnvironmentDraftSummary(
+  rows: ApiWorkbenchKeyValueRow[],
+  savedVariables: ApiWorkbenchVariable[],
+): {
+  variableCount: number;
+  hasBaseUrl: boolean;
+  duplicateNames: string[];
+  changed: boolean;
+} {
+  const variables = serializeApiWorkbenchEnvironmentRows(rows);
+  const savedPairs = savedVariables.map((item) => ({
+    name: item.name,
+    value: item.value,
+  }));
+  return {
+    variableCount: variables.length,
+    hasBaseUrl: variables.some((item) => item.name === "BASE_URL" && item.value.trim()),
+    duplicateNames: findDuplicateApiWorkbenchEnvironmentVariableNames(rows),
+    changed: JSON.stringify(variables.map(({ name, value }) => ({ name, value }))) !== JSON.stringify(savedPairs),
+  };
+}
+
 export function formatApiWorkbenchResponseBody(body: string, contentType: string): string {
   if (!/json/i.test(contentType)) return body;
   try {

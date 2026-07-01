@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   API_WORKBENCH_ENVIRONMENT_MANAGER_VALUE,
+  buildApiWorkbenchEnvironmentDraftSummary,
   buildApiWorkbenchPreviewUrl,
   buildApiWorkbenchNewRequestState,
   buildApiWorkbenchSelectionState,
@@ -115,6 +116,44 @@ describe("apiWorkbench utils", () => {
         { enabled: true, key: "", value: "ignored" },
       ]),
     ).toEqual(["TOKEN"]);
+  });
+
+  it("summarizes environment draft status for management UI", () => {
+    expect(
+      buildApiWorkbenchEnvironmentDraftSummary(
+        [
+          { enabled: true, key: "BASE_URL", value: "http://127.0.0.1:8080" },
+          { enabled: true, key: "TOKEN", value: "abc" },
+          { enabled: false, key: "IGNORED", value: "x" },
+          { enabled: true, key: "", value: "empty" },
+        ],
+        [
+          { name: "BASE_URL", value: "http://127.0.0.1:8080", isSecret: false },
+          { name: "TOKEN", value: "abc", isSecret: true },
+        ],
+      ),
+    ).toEqual({
+      variableCount: 2,
+      hasBaseUrl: true,
+      duplicateNames: [],
+      changed: false,
+    });
+
+    expect(
+      buildApiWorkbenchEnvironmentDraftSummary(
+        [
+          { enabled: true, key: "BASE_URL", value: "" },
+          { enabled: true, key: "TOKEN", value: "next" },
+          { enabled: true, key: " TOKEN ", value: "duplicate" },
+        ],
+        [{ name: "TOKEN", value: "abc", isSecret: false }],
+      ),
+    ).toEqual({
+      variableCount: 3,
+      hasBaseUrl: false,
+      duplicateNames: ["TOKEN"],
+      changed: true,
+    });
   });
 
   it("resolves environment selector values without storing the manage option", () => {
