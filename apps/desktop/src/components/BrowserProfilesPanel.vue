@@ -14,8 +14,7 @@
 
       <div class="browser-profiles-actions">
         <span class="browser-profiles-count">
-          {{ groupedProfiles.visible.length }} 个常用
-          <template v-if="groupedProfiles.hidden.length"> / {{ groupedProfiles.hidden.length }} 个隐藏</template>
+          {{ profileCountText }}
         </span>
         <el-button :icon="Refresh" :loading="loading" @click="loadProfiles">刷新</el-button>
         <el-button
@@ -43,9 +42,21 @@
       </div>
     </section>
 
+    <section v-if="totalProfileCount > 0" class="browser-profiles-filter">
+      <el-input
+        v-model="searchQuery"
+        clearable
+        :prefix-icon="Search"
+        placeholder="搜索别名、Edge 名、Profile 目录或拼音首字母"
+      />
+    </section>
+
     <main class="browser-profiles-content" v-loading="loading">
       <div v-if="!loading && sortedProfiles.length === 0" class="browser-profiles-empty">
         未发现 Edge Profile
+      </div>
+      <div v-else-if="!loading && filteredProfiles.length === 0" class="browser-profiles-empty">
+        没有匹配的浏览器身份
       </div>
 
       <template v-else>
@@ -88,12 +99,16 @@
         </section>
 
         <section v-if="groupedProfiles.hidden.length" class="browser-profiles-hidden">
-          <button class="browser-profiles-hidden-toggle" @click="hiddenExpanded = !hiddenExpanded">
-            <span>已隐藏 Profile</span>
+          <button
+            class="browser-profiles-hidden-toggle"
+            :class="{ 'is-searching': hasSearchQuery }"
+            @click="toggleHiddenProfiles"
+          >
+            <span>{{ hasSearchQuery ? "隐藏身份匹配" : "已隐藏 Profile" }}</span>
             <span>{{ groupedProfiles.hidden.length }}</span>
           </button>
 
-          <div v-if="hiddenExpanded" class="browser-profiles-list">
+          <div v-if="hiddenListVisible" class="browser-profiles-list">
             <div
               v-for="profile in groupedProfiles.hidden"
               :key="profileKey(profile)"
@@ -135,6 +150,7 @@ import {
   FolderOpened,
   Hide,
   Refresh,
+  Search,
   VideoPlay,
   View,
   WarningFilled,
@@ -146,6 +162,7 @@ import type {
   BrowserProfilesListResponse,
 } from "../types/browser-profiles";
 import {
+  filterBrowserProfiles,
   formatBrowserProfileLastLaunchedAt,
   getBrowserProfileDisplayName,
   sortBrowserProfiles,
@@ -157,11 +174,27 @@ const launchingKey = ref("");
 const response = ref<BrowserProfilesListResponse | null>(null);
 const errorMessage = ref("");
 const hiddenExpanded = ref(false);
+const searchQuery = ref("");
 let requestSeq = 0;
 
 const sortedProfiles = computed(() => sortBrowserProfiles(response.value?.profiles ?? []));
-const groupedProfiles = computed(() => splitBrowserProfilesByHidden(sortedProfiles.value));
+const filteredProfiles = computed(() =>
+  filterBrowserProfiles(sortedProfiles.value, searchQuery.value),
+);
+const groupedProfiles = computed(() => splitBrowserProfilesByHidden(filteredProfiles.value));
 const responseWarnings = computed(() => response.value?.warnings ?? []);
+const hasSearchQuery = computed(() => searchQuery.value.trim().length > 0);
+const hiddenListVisible = computed(() => hiddenExpanded.value || hasSearchQuery.value);
+const totalProfileCount = computed(() => response.value?.profiles.length ?? 0);
+const profileCountText = computed(() => {
+  if (hasSearchQuery.value) {
+    return `${filteredProfiles.value.length} / ${totalProfileCount.value} 个匹配`;
+  }
+  const hiddenCount = groupedProfiles.value.hidden.length;
+  return hiddenCount
+    ? `${groupedProfiles.value.visible.length} 个常用 / ${hiddenCount} 个隐藏`
+    : `${groupedProfiles.value.visible.length} 个常用`;
+});
 const edgeStatusText = computed(() => {
   if (!response.value) return "正在检测 Edge";
   return response.value.edgeFound ? "已找到 Edge" : "未找到 Edge";
@@ -258,6 +291,11 @@ async function chooseEdgePath() {
     if (isCancel(err)) return;
     ElMessage.error(`保存 Edge 路径失败：${messageOf(err)}`);
   }
+}
+
+function toggleHiddenProfiles() {
+  if (hasSearchQuery.value) return;
+  hiddenExpanded.value = !hiddenExpanded.value;
 }
 
 function profileKey(profile: BrowserProfileItem): string {
@@ -380,6 +418,16 @@ onMounted(() => {
   word-break: break-all;
 }
 
+.browser-profiles-filter {
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--lc-border-subtle);
+  background: var(--lc-surface-0);
+}
+
+.browser-profiles-filter :deep(.el-input) {
+  max-width: 520px;
+}
+
 .browser-profiles-content {
   flex: 1;
   min-height: 0;
@@ -484,6 +532,15 @@ onMounted(() => {
   border-color: var(--lc-border);
 }
 
+.browser-profiles-hidden-toggle.is-searching {
+  cursor: default;
+}
+
+.browser-profiles-hidden-toggle.is-searching:hover {
+  color: var(--lc-text-secondary);
+  border-color: var(--lc-border-subtle);
+}
+
 @media (max-width: 900px) {
   .browser-profiles-toolbar {
     align-items: flex-start;
@@ -493,6 +550,10 @@ onMounted(() => {
   .browser-profiles-actions {
     width: 100%;
     flex-wrap: wrap;
+  }
+
+  .browser-profiles-filter :deep(.el-input) {
+    max-width: none;
   }
 
   .browser-profile-row {

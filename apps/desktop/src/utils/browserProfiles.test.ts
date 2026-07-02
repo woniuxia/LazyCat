@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildBrowserProfileSearchFields,
+  filterBrowserProfiles,
   formatBrowserProfileLastLaunchedAt,
   getBrowserProfileDisplayName,
   getBrowserProfileSpotlightWeight,
@@ -109,6 +110,36 @@ describe("browserProfiles utils", () => {
       "Profile 2",
     ]);
     expect(fields[0].weight).toBeGreaterThan(fields[1].weight);
+  });
+
+  it("filters profiles by alias, Edge display name, profile dir and pinyin initials", () => {
+    const input = [
+      profile({
+        profileDir: "Default",
+        alias: "管理员",
+        edgeDisplayName: "个人",
+      }),
+      profile({
+        profileDir: "Profile 2",
+        alias: "",
+        edgeDisplayName: "测试账号",
+      }),
+      profile({
+        profileDir: "Profile 9",
+        alias: "运维",
+        edgeDisplayName: "Ops",
+      }),
+    ];
+
+    expect(filterBrowserProfiles(input, "gly").map((item) => item.profileDir)).toEqual([
+      "Default",
+    ]);
+    expect(filterBrowserProfiles(input, "测试").map((item) => item.profileDir)).toEqual([
+      "Profile 2",
+    ]);
+    expect(
+      filterBrowserProfiles(input, "profile 9").map((item) => item.profileDir),
+    ).toEqual(["Profile 9"]);
   });
 
   it("increases Spotlight item weight with launch count but caps growth", () => {

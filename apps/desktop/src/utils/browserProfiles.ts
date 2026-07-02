@@ -1,6 +1,6 @@
 import type { BrowserProfileItem } from "../types/browser-profiles";
 import type { SearchField } from "./fuzzy-match";
-import { toPinyinInitials } from "./fuzzy-match";
+import { matchScore, toPinyinInitials } from "./fuzzy-match";
 
 export interface BrowserProfileGroups {
   visible: BrowserProfileItem[];
@@ -48,6 +48,24 @@ export function splitBrowserProfilesByHidden(
     visible: profiles.filter((profile) => !profile.hidden),
     hidden: profiles.filter((profile) => profile.hidden),
   };
+}
+
+export function filterBrowserProfiles(
+  profiles: readonly BrowserProfileItem[],
+  queryRaw: string,
+): BrowserProfileItem[] {
+  const query = queryRaw.trim();
+  if (!query) return [...profiles];
+
+  return profiles
+    .map((profile, index) => ({
+      profile,
+      index,
+      score: matchScore(query, buildBrowserProfileSearchFields(profile)),
+    }))
+    .filter((item) => item.score > 0)
+    .sort((left, right) => right.score - left.score || left.index - right.index)
+    .map((item) => item.profile);
 }
 
 export function formatBrowserProfileLastLaunchedAt(value: string | null): string {

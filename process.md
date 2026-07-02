@@ -8,6 +8,28 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-07-02: 浏览器身份搜索体验保持纯函数复用
+
+**场景**: 优化浏览器身份面板，多 Edge Profile 场景下用户需要快速按别名、Edge 显示名或 Profile 目录定位身份。
+**使用次数**: 0
+**问题**:
+1. 面板只有平铺列表，身份数量增加后用户需要逐行查找。
+2. Spotlight 已有搜索字段构建逻辑，面板若另写字符串匹配会形成双重规则。
+3. 隐藏身份如果搜索命中仍折叠，用户会误以为没有结果。
+**解决**:
+1. 在 `browserProfiles.ts` 增加 `filterBrowserProfiles`，复用 `buildBrowserProfileSearchFields` 和 `matchScore`，支持别名、Edge 名、Profile 目录和中文拼音首字母。
+2. `BrowserProfilesPanel.vue` 只维护 `searchQuery` 和展示状态，先排序再过滤再分隐藏组。
+3. 搜索态下隐藏身份自动展开，并把计数从“常用/隐藏”切换为“匹配/总数”。
+**涉及文件**:
+- `apps/desktop/src/utils/browserProfiles.ts`
+- `apps/desktop/src/utils/browserProfiles.test.ts`
+- `apps/desktop/src/components/BrowserProfilesPanel.vue`
+**验证**:
+- `pnpm test src/utils/browserProfiles.test.ts src/spotlight/providers/browser-profiles.test.ts src/spotlight/config-store.test.ts`
+- `cargo test browser_profiles -- --nocapture`
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+
 ## 2026-07-02: 浏览器身份启动器避免复用通用参数拆分
 
 **场景**: 新增 Edge Profile 启动器，按 Profile 目录名发现、展示、别名管理和 Spotlight 启动。
