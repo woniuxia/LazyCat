@@ -32,12 +32,12 @@
 4. 一期不支持达梦 DM、Oracle、SQL Server。
 5. 不做数据库用户/权限管理。
 6. 不把连接凭据绑定 vault 主密码解锁流程。
-7. Redis 不做集群模式（cluster）支持，一期仅单机/哨兵直连单节点。
+7. Redis 首版（二期）仅支持单机直连单节点，不支持 cluster 与哨兵拓扑发现。
 8. 不做表结构变更（ALTER 可视化设计器），DDL 通过 SQL 页签手写执行。
 
 ## 与既有能力的关系
 
-- 加密：复用 `vault.rs` 的 AES-256-CBC 加密函数，密钥独立（见「密码加密」节）。
+- 加密：复用 `vault.rs` 的 AES-256-CBC 加密函数（实施时提为共享 helper），密钥独立（见「密码加密」节）。
 - 异步运行时：复用 `dns.rs` 确立的静态 `OnceLock<tokio::runtime::Runtime>` + `block_on` 模式。
 - 面板内多视图：复用 PM 面板 `pmViewRegistry` 的视图注册与 `<component :is>` 分流模式。
 - 多页签：复用 `useTabs` 的页签管理模式。
@@ -129,7 +129,7 @@ CREATE TABLE db_query_history (
 );
 ```
 
-- 执行历史环形保留最近 500 条，写入时裁剪。
+- 执行历史全局环形保留最近 500 条，写入时裁剪；`executed_at` 建索引支撑倒序分页。
 - 密码只存密文；`connection_list` 返回时不带密文，编辑对话框回显用占位符，仅在用户重新输入时更新。
 
 ## 密码加密
@@ -146,6 +146,7 @@ CREATE TABLE db_query_history (
 - `connection_list` / `connection_save` / `connection_delete`
 - `connection_test`：用传入配置试连，不落库
 - `connection_open`：建池，返回引擎版本与库列表；`connection_close`：关池
+- 密码提交语义：编辑对话框密码框回显固定占位符；占位符未改动则保持原密文，用户显式清空则置空
 
 结构浏览：
 
@@ -155,11 +156,18 @@ CREATE TABLE db_query_history (
 
 查询与编辑：
 
-- `query_execute`：{ connectionId, database, sql, maxRows? } -> 多语句逐条结果（列元数据、行数据、影响行数、耗时）
-- `query_cancel`：{ connectionId, queryId }，MySQL 走 KILL QUERY，KingbaseES 走 pg_cancel_backend
+- `query_execute`：{ connectionId, database, sql, queryId, maxRows?, confirmed? } -> 多语句逐条结果（列元数据、行数据、影响行数、耗时）
+  - `queryId` 由前端生成（uuid）随请求传入；后端开始执行时将该 queryId 与引擎侧会话标识（MySQL processlist id / KB backend pid）登记到运行中查询表，结束后注销
+  - `confirmed` 用于二次确认握手，见「安全阀」节
+- `query_cancel`：{ connectionId, queryId }，按登记信息另开连接执行 MySQL `KILL QUERY` / KingbaseES `pg_cancel_backend`
 - `table_data_page`：{ connectionId, database, table, page, pageSize, orderBy?, filters? }，返回数据页 + 主键列信息
-- `table_apply_changes`：{ connectionId, database, table, changes[] }，单事务执行，返回逐条影响行数
-- `result_export`：{ connectionId, database, sql, format, outputPath }，后端流式查询直写文件
+- `table_apply_changes`：{ connectionId, database, table, changes[], confirmed? }，单事务执行，返回逐条影响行数；UPDATE/DELETE 影响行数为 0 视为并发冲突（行已被他人修改或删除），按失败处理：整体回滚并标出冲突行
+- `result_export`：{ connectionId, database, sql, format, outputPath }，后端流式查询直写文件；仅接受只读语句（防止 DML 被二次执行）；导出会重新执行查询，结果可能与屏幕上已加载的快照存在差异，UI 需说明
+
+事务语义：
+
+- 单次 `query_execute` 内的多语句保证在同一物理连接上顺序执行，事务块（BEGIN…COMMIT）写在同一次执行内有效。
+- 跨多次调用的交互式事务不支持（池化下会落在不同物理连接上）；前端检测到孤立 BEGIN/COMMIT 时提示用户将完整事务块放入一次执行。
 
 收藏与历史：
 
@@ -202,10 +210,12 @@ Redis（二期）：
 
 ### 安全阀（后端强制）
 
-- 只读连接：拒绝一切非 SELECT/SHOW/EXPLAIN 语句。
-- prod 环境标签：执行 DML/DDL 前二次确认。
-- UPDATE/DELETE 无 WHERE：执行前警告确认。
-- 查询超时默认 30 秒；行数上限默认 1000；均可按连接调整。
+只读判定口径两端统一：`utils/dbSqlClassify.ts`（前端提示用）与后端拦截（强制用）共用同一份分类规则——只读形态包括 SELECT、WITH…SELECT、VALUES、SHOW、EXPLAIN、DESC/DESCRIBE 及括号包裹的 SELECT；后端始终自行分类，不信任前端结论。
+
+- **只读连接**：非只读形态语句无条件拒绝，不提供确认放行通道。
+- **需确认类操作**（两段式握手）：prod 环境标签连接上的 DML/DDL、无 WHERE 的 UPDATE/DELETE。`query_execute` / `table_apply_changes` 未携带 `confirmed: true` 时，后端不执行，返回结构化 `needsConfirmation` 响应（含触发原因列表）；前端据此弹窗确认，用户确认后携带 `confirmed: true` 原样重发。
+- 查询超时默认 30 秒；行数上限默认 1000（表数据浏览分页除外）；均可按连接调整。
+- 取消执行：见 IPC actions 节的 queryId 登记机制。
 
 ## Redis 浏览器（二期）
 
@@ -213,7 +223,7 @@ Redis（二期）：
 - key 浏览：SCAN 游标分批加载（禁止 KEYS *），pattern 过滤，key 按 `:` 聚合成树，节点显示子 key 数量。
 - 值查看：类型感知（string 尝试 JSON 美化、hash 字段表格、list/set 成员列表、zset 成员+score），显示 TTL、编码、内存估计。
 - 编辑：set 值、删除、改 TTL、重命名、集合类型字段级增删改；只读连接下后端全部拒绝。
-- 命令控制台：单条命令执行，FLUSHALL/FLUSHDB/CONFIG/SHUTDOWN 等黑名单命令需在弹窗中手动输入命令名确认才放行。
+- 命令控制台：单条命令执行，默认 10 秒超时。两类拦截：FLUSHALL/FLUSHDB/CONFIG/SHUTDOWN 等破坏性命令需在弹窗中手动输入命令名确认才放行；SUBSCRIBE/PSUBSCRIBE/MONITOR/BLPOP/BRPOP/WAIT 等阻塞与订阅类命令直接拒绝（控制台不支持长连接语义）。
 
 ## 错误处理
 
