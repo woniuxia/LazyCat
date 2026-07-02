@@ -8,6 +8,29 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-07-02: 浏览器身份启动器避免复用通用参数拆分
+
+**场景**: 新增 Edge Profile 启动器，按 Profile 目录名发现、展示、别名管理和 Spotlight 启动。
+**使用次数**: 0
+**问题**:
+1. Launcher 的通用参数启动会用空白拆分，`--profile-directory=Profile 2` 会被拆坏。
+2. Edge Profile 显示名可变且可能重复，不能作为稳定 key。
+3. 面板和 Spotlight 都需要展示名、排序和权重，若各自实现会形成双重规则。
+**解决**:
+1. 后端独立 `browser_profiles` 模块启动 Edge，并把 profile 参数作为单个 `Command` arg。
+2. 稳定 key 固定使用目录名，扫描结果为事实源，`user_settings` 只做覆盖层。
+3. 前端抽 `browserProfiles.ts` 纯函数，面板和 Spotlight 共用展示名、排序和权重。
+**涉及文件**:
+- `apps/desktop/src-tauri/src/tools/browser_profiles.rs`
+- `apps/desktop/src/components/BrowserProfilesPanel.vue`
+- `apps/desktop/src/utils/browserProfiles.ts`
+- `apps/desktop/src/spotlight/providers/browser-profiles.ts`
+**验证**:
+- `cargo test browser_profiles -- --nocapture`
+- `pnpm test src/utils/browserProfiles.test.ts src/spotlight/providers/browser-profiles.test.ts src/spotlight/config-store.test.ts`
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+
 ## 2026-07-02: API Mock 运行态与持久配置分离
 
 **场景**: 新增 API Mock 工具，支持多个项目持久化配置、每项目手动启动本地 HTTP 服务、文件响应副本和运行期最近请求日志。
