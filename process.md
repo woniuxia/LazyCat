@@ -8,6 +8,31 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-07-02: API Mock 运行服务生命周期与用户反馈要闭环
+
+**场景**: 复查 API Mock 实现逻辑并从用户使用角度优化启动、重启、文件响应和 CORS 预检体验。
+**使用次数**: 0
+**问题**:
+1. 删除运行中的 Mock 项目只删除数据库配置，进程内服务仍可能继续监听端口，用户在界面上已看不到该服务。
+2. 同一路径存在多 Method 路由时，CORS 预检只按路径选路由，可能返回错误的 `Access-Control-Allow-Methods`。
+3. 文件响应沿用默认 JSON Content-Type，用户导入图片、PDF 等文件后容易得到错误响应类型；运行中保存配置只有“需重启”标签，缺少直接动作。
+4. 重复导入同一文件会共享磁盘副本，按 `file_id` 清理可能误删仍被其他文件记录引用的副本；更新不存在的路由会伪成功。
+**解决**:
+1. `project_delete` 先停止对应运行服务，再删除配置和清理文件副本。
+2. OPTIONS 预检读取 `Access-Control-Request-Method`，有目标 Method 时按该 Method 和路径共同选择 CORS 路由。
+3. 前端抽出 API Mock 纯函数处理运行态动作、0.0.0.0 可访问 URL、文件 Content-Type 推断和文件大小展示；面板补空态、禁用路由标识、一键“重启生效”和明确错误提示。
+4. 文件副本清理按 `stored_path` 检查其他仍被路由引用的文件记录；路由更新检查受影响行数，缺失时显式报错。
+**涉及文件**:
+- `apps/desktop/src-tauri/src/tools/api_mock.rs`
+- `apps/desktop/src/components/ApiMockPanel.vue`
+- `apps/desktop/src/utils/apiMock.ts`
+- `apps/desktop/src/utils/apiMock.test.ts`
+**验证**:
+- `cargo test api_mock -- --nocapture`
+- `pnpm test src/utils/apiMock.test.ts`
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+
 ## 2026-07-02: 浏览器身份搜索体验保持纯函数复用
 
 **场景**: 优化浏览器身份面板，多 Edge Profile 场景下用户需要快速按别名、Edge 显示名或 Profile 目录定位身份。

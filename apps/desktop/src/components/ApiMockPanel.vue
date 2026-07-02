@@ -9,6 +9,10 @@
         <el-button :icon="Plus" size="small" @click="createProjectDraft">项目</el-button>
       </div>
 
+      <div v-if="projects.length === 0" class="api-mock-empty">
+        暂无 Mock 项目。先新建项目，再添加路由并启动本地服务。
+      </div>
+
       <button
         v-for="project in projects"
         :key="project.id"
@@ -37,49 +41,76 @@
       </div>
 
       <div v-if="!selectedProject" class="api-mock-empty">选择或新建一个 Mock 项目。</div>
-      <button
-        v-for="route in routes"
-        v-else
-        :key="route.id"
-        class="api-mock-route"
-        :class="{ active: route.id === selectedRouteId }"
-        type="button"
-        @click="selectRoute(route.id)"
-      >
-        <span class="method">{{ route.method }}</span>
-        <span class="route-path">{{ route.pathPattern }}</span>
-        <span class="route-meta">{{ route.statusCode }} · {{ route.responseKind === "file" ? "文件" : "文本" }}</span>
-      </button>
+      <template v-else>
+        <div v-if="routes.length === 0" class="api-mock-empty">暂无路由。添加第一条路由后即可启动服务。</div>
+        <button
+          v-for="route in routes"
+          :key="route.id"
+          class="api-mock-route"
+          :class="{ active: route.id === selectedRouteId, disabled: !route.enabled }"
+          type="button"
+          @click="selectRoute(route.id)"
+        >
+          <span class="method">{{ route.method }}</span>
+          <span class="route-path">{{ route.pathPattern }}</span>
+          <span class="route-meta">
+            {{ route.statusCode }} · {{ route.responseKind === "file" ? "文件" : "文本" }}
+            <span v-if="!route.enabled"> · 已禁用</span>
+          </span>
+        </button>
+      </template>
     </section>
 
     <main class="api-mock-detail">
       <div class="api-mock-actions">
         <div>
           <h2>{{ selectedProject?.name || "项目配置" }}</h2>
-          <span v-if="selectedProject">http://{{ selectedProject.host }}:{{ selectedProject.port }}</span>
+          <span v-if="selectedProject" class="endpoint-line">
+            <span>{{ selectedProjectAccessUrl }}</span>
+            <small v-if="selectedProject.host === '0.0.0.0'">监听 {{ selectedProject.host }}:{{ selectedProject.port }}</small>
+          </span>
         </div>
         <div class="action-buttons">
           <el-button :icon="Refresh" size="small" :disabled="!selectedProject" @click="refreshAll">刷新</el-button>
           <el-button
-            v-if="selectedProject && !selectedProject.runtime.running"
-            :icon="VideoPlay"
+            v-if="selectedProjectRuntimeAction === 'restart'"
+            :icon="Refresh"
             size="small"
             type="primary"
-            @click="startProject"
+            :disabled="selectedProject?.enabledRouteCount === 0"
+            @click="restartProject"
           >
-            启动
+            重启生效
           </el-button>
           <el-button
-            v-else
+            v-if="selectedProject && selectedProject.runtime.running"
             :icon="VideoPause"
             size="small"
             type="warning"
-            :disabled="!selectedProject"
             @click="stopProject"
           >
             停止
           </el-button>
+          <el-button
+            v-else-if="selectedProject"
+            :icon="VideoPlay"
+            size="small"
+            type="primary"
+            :disabled="selectedProject.enabledRouteCount === 0"
+            @click="startProject"
+          >
+            启动
+          </el-button>
         </div>
+      </div>
+      <div v-if="selectedProject && selectedProject.enabledRouteCount === 0" class="api-mock-notice">
+        没有启用路由，启动或重启服务前至少启用一条路由。
+      </div>
+      <div v-else-if="selectedProjectRuntimeAction === 'restart'" class="api-mock-notice">
+        运行中的服务仍使用旧配置，重启后本次修改才会生效。
+      </div>
+      <div v-else-if="selectedProject?.runtime.lastError && !selectedProject.runtime.running" class="api-mock-notice error">
+        上次启动失败：{{ selectedProject.runtime.lastError }}
       </div>
 
       <el-tabs v-model="activeTab" class="api-mock-tabs">
@@ -118,13 +149,13 @@
               <el-form-item label="名称">
                 <el-input v-model="routeForm.name" />
               </el-form-item>
-              <el-form-item label="Method">
+              <el-form-item label="方法">
                 <el-select v-model="routeForm.method">
                   <el-option v-for="method in API_MOCK_METHODS" :key="method" :label="method" :value="method" />
                 </el-select>
               </el-form-item>
-              <el-form-item label="Path Pattern">
-                <el-input v-model="routeForm.pathPattern" placeholder="/api/users/:id" />
+              <el-form-item label="路径匹配">
+                <el-input v-model="routeForm.pathPattern" placeholder="/api/users/:id 或 /files/*" />
               </el-form-item>
               <el-form-item label="状态码">
                 <el-input-number v-model="routeForm.statusCode" :min="100" :max="599" controls-position="right" />
@@ -148,14 +179,16 @@
               </el-form-item>
             </div>
 
-            <el-form-item v-if="routeForm.responseKind === 'static_body'" label="Body">
+            <el-form-item v-if="routeForm.responseKind === 'static_body'" label="响应 Body">
               <el-input v-model="routeForm.bodyText" type="textarea" :rows="10" spellcheck="false" />
             </el-form-item>
 
             <div v-else class="file-box">
               <div>
                 <strong>{{ routeFile?.originalName || "未选择文件" }}</strong>
-                <span v-if="routeFile">{{ routeFile.contentType || "application/octet-stream" }} · {{ routeFile.size }} bytes</span>
+                <span v-if="routeFile">
+                  {{ routeFile.contentType || "application/octet-stream" }} · {{ formatMockFileSize(routeFile.size) }}
+                </span>
               </div>
               <el-button :icon="Upload" @click="pickFile">导入文件</el-button>
             </div>
@@ -245,10 +278,15 @@ import type {
 } from "../types/api-mock";
 import {
   API_MOCK_METHODS,
+  DEFAULT_API_MOCK_CONTENT_TYPE,
   DEFAULT_API_MOCK_CORS,
   deriveMockProjectRuntimeState,
+  formatMockFileSize,
+  getMockProjectAccessUrl,
+  getMockProjectRuntimeAction,
   getMockRouteSpecificityLabel,
   normalizeMockHeaderRows,
+  resolveMockFileContentType,
   validateMockCorsConfig,
   validateMockPathPattern,
 } from "../utils/apiMock";
@@ -300,7 +338,7 @@ const routeForm = reactive<RouteForm>({
   pathPattern: "/api/demo",
   statusCode: 200,
   responseKind: "static_body",
-  contentType: "application/json; charset=utf-8",
+  contentType: DEFAULT_API_MOCK_CONTENT_TYPE,
   headers: [],
   bodyText: "{\n  \"ok\": true\n}",
   enabled: true,
@@ -308,6 +346,12 @@ const routeForm = reactive<RouteForm>({
 });
 
 const selectedProject = computed(() => projects.value.find((item) => item.id === selectedProjectId.value) ?? null);
+const selectedProjectAccessUrl = computed(() => {
+  return selectedProject.value ? getMockProjectAccessUrl(selectedProject.value) : "";
+});
+const selectedProjectRuntimeAction = computed(() => {
+  return selectedProject.value ? getMockProjectRuntimeAction(selectedProject.value) : "start";
+});
 const pathError = computed(() => {
   const result = validateMockPathPattern(routeForm.pathPattern);
   return result.ok ? "" : result.message;
@@ -333,12 +377,26 @@ function assignRouteForm(route: ApiMockRouteDetail | null) {
   routeForm.pathPattern = route?.pathPattern ?? "/api/demo";
   routeForm.statusCode = route?.statusCode ?? 200;
   routeForm.responseKind = route?.responseKind ?? "static_body";
-  routeForm.contentType = route?.contentType ?? "application/json; charset=utf-8";
+  routeForm.contentType = route?.contentType ?? DEFAULT_API_MOCK_CONTENT_TYPE;
   routeForm.headers = route?.headers ? [...route.headers] : [];
   routeForm.bodyText = route?.bodyText ?? "{\n  \"ok\": true\n}";
   routeForm.enabled = route?.enabled ?? true;
   routeForm.cors = route?.cors ? { ...route.cors } : { ...DEFAULT_API_MOCK_CORS };
   routeFile.value = route?.file ?? null;
+}
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === "string" && error) return error;
+  return fallback;
+}
+
+function showSaveResult(subject: string) {
+  if (selectedProject.value && deriveMockProjectRuntimeState(selectedProject.value) === "restart-required") {
+    ElMessage.warning(`${subject}已保存，重启 Mock 服务后生效`);
+    return;
+  }
+  ElMessage.success(`${subject}已保存`);
 }
 
 async function refreshProjects() {
@@ -410,29 +468,46 @@ function createRouteDraft() {
 }
 
 async function saveProject() {
+  if (!projectForm.name.trim()) {
+    ElMessage.error("项目名称不能为空");
+    return;
+  }
   const payload = {
     id: projectForm.id ?? undefined,
-    name: projectForm.name,
+    name: projectForm.name.trim(),
     description: projectForm.description,
     host: projectForm.host,
     port: projectForm.port,
     enabledCorsDefault: projectForm.enabledCorsDefault,
   };
-  const channel = projectForm.id ? "tool:api-mock:project-update" : "tool:api-mock:project-create";
-  const result = (await invokeToolByChannel(channel, payload)) as { id: number };
-  selectedProjectId.value = result.id;
-  await refreshProjects();
-  await refreshRoutes();
-  ElMessage.success("项目已保存");
+  try {
+    const channel = projectForm.id ? "tool:api-mock:project-update" : "tool:api-mock:project-create";
+    const result = (await invokeToolByChannel(channel, payload)) as { id: number };
+    selectedProjectId.value = result.id;
+    await refreshProjects();
+    await refreshRoutes();
+    showSaveResult("项目");
+  } catch (error) {
+    ElMessage.error(getErrorMessage(error, "保存项目失败"));
+  }
 }
 
 async function deleteProject() {
   if (!selectedProjectId.value) return;
-  await ElMessageBox.confirm("删除该 Mock 项目及其路由配置？", "删除项目", { type: "warning" });
-  await invokeToolByChannel("tool:api-mock:project-delete", { id: selectedProjectId.value });
-  selectedProjectId.value = null;
-  selectedRouteId.value = null;
-  await refreshAll();
+  try {
+    await ElMessageBox.confirm("删除该 Mock 项目及其路由配置？运行中的服务会同时停止。", "删除项目", { type: "warning" });
+  } catch {
+    return;
+  }
+  try {
+    await invokeToolByChannel("tool:api-mock:project-delete", { id: selectedProjectId.value });
+    selectedProjectId.value = null;
+    selectedRouteId.value = null;
+    await refreshAll();
+    ElMessage.success("项目已删除");
+  } catch (error) {
+    ElMessage.error(getErrorMessage(error, "删除项目失败"));
+  }
 }
 
 async function saveRoute() {
@@ -449,58 +524,102 @@ async function saveRoute() {
     ElMessage.error("文件响应需要先导入文件");
     return;
   }
-  const result = (await invokeToolByChannel("tool:api-mock:route-save", {
-    id: routeForm.id ?? undefined,
-    projectId: selectedProjectId.value,
-    name: routeForm.name || `${routeForm.method} ${routeForm.pathPattern}`,
-    method: routeForm.method,
-    pathPattern: routeForm.pathPattern,
-    statusCode: routeForm.statusCode,
-    responseKind: routeForm.responseKind,
-    contentType: routeForm.contentType,
-    headers: normalizeMockHeaderRows(routeForm.headers),
-    bodyText: routeForm.bodyText,
-    fileId: routeFile.value?.id,
-    cors: routeForm.cors,
-    enabled: routeForm.enabled,
-  })) as { id: number };
-  selectedRouteId.value = result.id;
-  await refreshProjects();
-  await refreshRoutes();
-  await selectRoute(result.id);
-  ElMessage.success("路由已保存");
+  try {
+    const result = (await invokeToolByChannel("tool:api-mock:route-save", {
+      id: routeForm.id ?? undefined,
+      projectId: selectedProjectId.value,
+      name: routeForm.name.trim() || `${routeForm.method} ${routeForm.pathPattern}`,
+      method: routeForm.method,
+      pathPattern: routeForm.pathPattern,
+      statusCode: routeForm.statusCode,
+      responseKind: routeForm.responseKind,
+      contentType: routeForm.contentType,
+      headers: normalizeMockHeaderRows(routeForm.headers),
+      bodyText: routeForm.bodyText,
+      fileId: routeFile.value?.id,
+      cors: routeForm.cors,
+      enabled: routeForm.enabled,
+    })) as { id: number };
+    selectedRouteId.value = result.id;
+    await refreshProjects();
+    await refreshRoutes();
+    await selectRoute(result.id);
+    showSaveResult("路由");
+  } catch (error) {
+    ElMessage.error(getErrorMessage(error, "保存路由失败"));
+  }
 }
 
 async function deleteRoute() {
   if (!selectedRouteId.value) return;
-  await ElMessageBox.confirm("删除该 Mock 路由？", "删除路由", { type: "warning" });
-  await invokeToolByChannel("tool:api-mock:route-delete", { id: selectedRouteId.value });
-  selectedRouteId.value = null;
-  assignRouteForm(null);
-  await refreshProjects();
-  await refreshRoutes();
+  try {
+    await ElMessageBox.confirm("删除该 Mock 路由？运行中的服务需要重启后才会移除该路由。", "删除路由", { type: "warning" });
+  } catch {
+    return;
+  }
+  try {
+    await invokeToolByChannel("tool:api-mock:route-delete", { id: selectedRouteId.value });
+    selectedRouteId.value = null;
+    assignRouteForm(null);
+    await refreshProjects();
+    await refreshRoutes();
+    ElMessage.success("路由已删除");
+  } catch (error) {
+    ElMessage.error(getErrorMessage(error, "删除路由失败"));
+  }
 }
 
 async function pickFile() {
   const selected = await open({ multiple: false });
   if (!selected || Array.isArray(selected)) return;
-  const result = (await invokeToolByChannel("tool:api-mock:file-import", {
-    path: selected,
-    contentType: routeForm.contentType,
-  })) as { file: ApiMockFileInfo };
-  routeFile.value = result.file;
+  const contentType = resolveMockFileContentType(routeForm.contentType, selected);
+  try {
+    const result = (await invokeToolByChannel("tool:api-mock:file-import", {
+      path: selected,
+      contentType,
+    })) as { file: ApiMockFileInfo };
+    routeForm.contentType = contentType;
+    routeFile.value = result.file;
+  } catch (error) {
+    ElMessage.error(getErrorMessage(error, "导入文件失败"));
+  }
 }
 
 async function startProject() {
   if (!selectedProjectId.value) return;
-  await invokeToolByChannel("tool:api-mock:service-start", { projectId: selectedProjectId.value });
-  await refreshAll();
+  try {
+    await invokeToolByChannel("tool:api-mock:service-start", { projectId: selectedProjectId.value });
+    await refreshAll();
+    ElMessage.success("Mock 服务已启动");
+  } catch (error) {
+    await refreshAll().catch(() => undefined);
+    ElMessage.error(getErrorMessage(error, "启动 Mock 服务失败"));
+  }
 }
 
 async function stopProject() {
   if (!selectedProjectId.value) return;
-  await invokeToolByChannel("tool:api-mock:service-stop", { projectId: selectedProjectId.value });
-  await refreshAll();
+  try {
+    await invokeToolByChannel("tool:api-mock:service-stop", { projectId: selectedProjectId.value });
+    await refreshAll();
+    ElMessage.success("Mock 服务已停止");
+  } catch (error) {
+    await refreshAll().catch(() => undefined);
+    ElMessage.error(getErrorMessage(error, "停止 Mock 服务失败"));
+  }
+}
+
+async function restartProject() {
+  if (!selectedProjectId.value) return;
+  try {
+    await invokeToolByChannel("tool:api-mock:service-stop", { projectId: selectedProjectId.value });
+    await invokeToolByChannel("tool:api-mock:service-start", { projectId: selectedProjectId.value });
+    await refreshAll();
+    ElMessage.success("Mock 服务已重启");
+  } catch (error) {
+    await refreshAll().catch(() => undefined);
+    ElMessage.error(getErrorMessage(error, "重启 Mock 服务失败"));
+  }
 }
 
 function addHeader() {
@@ -587,6 +706,17 @@ onMounted(refreshAll);
   color: #64748b;
 }
 
+.endpoint-line {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.endpoint-line small {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
 .api-mock-project,
 .api-mock-route {
   width: 100%;
@@ -610,6 +740,15 @@ onMounted(refreshAll);
 .api-mock-route.active {
   border-color: #2563eb;
   background: #eff6ff;
+}
+
+.api-mock-route.disabled {
+  background: #f8fafc;
+  color: #94a3b8;
+}
+
+.api-mock-route.disabled .method {
+  color: #64748b;
 }
 
 .project-main {
@@ -653,7 +792,23 @@ onMounted(refreshAll);
 
 .action-buttons {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
+  justify-content: flex-end;
+}
+
+.api-mock-notice {
+  padding: 9px 16px;
+  border-bottom: 1px solid #fed7aa;
+  background: #fff7ed;
+  color: #9a3412;
+  font-size: 13px;
+}
+
+.api-mock-notice.error {
+  border-bottom-color: #fecaca;
+  background: #fef2f2;
+  color: #991b1b;
 }
 
 .api-mock-tabs {
@@ -718,6 +873,7 @@ onMounted(refreshAll);
 .api-mock-empty {
   padding: 20px 10px;
   font-size: 13px;
+  line-height: 1.6;
   color: #64748b;
 }
 

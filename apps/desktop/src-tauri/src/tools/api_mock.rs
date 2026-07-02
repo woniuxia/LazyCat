@@ -396,6 +396,17 @@ fn header_value(headers: &[HeaderRow], key: &str) -> Option<String> {
         .map(|row| row.value.clone())
 }
 
+fn request_header_value(request: &str, key: &str) -> Option<String> {
+    request.lines().skip(1).find_map(|line| {
+        let (name, value) = line.split_once(':')?;
+        if name.trim().eq_ignore_ascii_case(key) {
+            Some(value.trim().to_string())
+        } else {
+            None
+        }
+    })
+}
+
 fn parse_headers(value: &Value) -> Result<Vec<HeaderRow>, String> {
     if value.is_null() {
         return Ok(Vec::new());
@@ -675,9 +686,19 @@ fn cleanup_file_ids(conn: &Connection, file_ids: &[i64]) -> Vec<String> {
             .optional()
             .unwrap_or(None);
         if let Some(stored_path) = stored_path {
+            let path_ref_count = conn
+                .query_row(
+                    "SELECT COUNT(*)
+                     FROM api_mock_routes r
+                     INNER JOIN api_mock_files f ON f.id=r.file_id
+                     WHERE f.stored_path=?1 AND f.id<>?2",
+                    params![stored_path, file_id],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap_or(0);
             match validate_stored_file_path(&stored_path) {
                 Ok(path) => {
-                    if path.exists() {
+                    if path_ref_count == 0 && path.exists() {
                         if let Err(err) = fs::remove_file(&path) {
                             warnings.push(format!("delete file copy failed: {err}"));
                         }
@@ -695,6 +716,7 @@ fn cleanup_file_ids(conn: &Connection, file_ids: &[i64]) -> Vec<String> {
 
 fn project_delete_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
     let id = parse_required_i64(payload, "id")?;
+    stop_runtime_service(id)?;
     let file_ids = collect_project_file_ids(conn, id)?;
     conn.execute("DELETE FROM api_mock_projects WHERE id=?1", [id])
         .map_err(|e| format!("delete api mock project failed: {e}"))?;
@@ -813,7 +835,7 @@ fn route_save_with_conn(conn: &Connection, payload: &Value) -> Result<Value, Str
         None
     };
     let route_id = if let Some(id) = id {
-        conn.execute(
+        let affected = conn.execute(
             "UPDATE api_mock_routes
              SET project_id=?1, name=?2, method=?3, path_pattern=?4, status_code=?5,
                  response_kind=?6, content_type=?7, headers_json=?8, body_text=?9,
@@ -836,6 +858,9 @@ fn route_save_with_conn(conn: &Connection, payload: &Value) -> Result<Value, Str
             ],
         )
         .map_err(|e| format!("update api mock route failed: {e}"))?;
+        if affected == 0 {
+            return Err("api mock route not found".into());
+        }
         id
     } else {
         let sort_order: i64 = conn
@@ -1158,12 +1183,14 @@ fn handle_http_stream(
     let method = parts.next().unwrap_or("").to_string();
     let raw_path = parts.next().unwrap_or("/");
     let path = raw_path.split('?').next().unwrap_or("/").to_string();
+    let preflight_method = request_header_value(&request, "Access-Control-Request-Method")
+        .map(|value| value.to_ascii_uppercase());
     let mut route_id = None;
     let mut route_name = None;
     let mut error = None;
 
     let response = if method == "OPTIONS" {
-        if let Some(route) = select_preflight_route(routes, &path) {
+        if let Some(route) = select_preflight_route(routes, &path, preflight_method.as_deref()) {
             route_id = Some(route.id);
             route_name = Some(route.name.clone());
             build_response(204, route.headers.clone(), build_cors_headers(&route.cors, &route.method), Vec::new(), false)
@@ -1214,17 +1241,22 @@ fn handle_http_stream(
     Ok(())
 }
 
-fn select_preflight_route<'a>(routes: &'a [MockRouteSnapshot], path: &str) -> Option<&'a MockRouteSnapshot> {
-    routes
+fn select_preflight_route<'a>(
+    routes: &'a [MockRouteSnapshot],
+    path: &str,
+    request_method: Option<&str>,
+) -> Option<&'a MockRouteSnapshot> {
+    let candidates = routes
         .iter()
         .filter(|route| route.cors.enabled && path_matches(&route.path_pattern, path))
-        .max_by_key(|route| {
-            (
-                route_specificity(&route.path_pattern),
-                std::cmp::Reverse(route.sort_order),
-                std::cmp::Reverse(route.id),
-            )
-        })
+        .filter(|route| request_method.map(|method| route.method == method).unwrap_or(true));
+    candidates.max_by_key(|route| {
+        (
+            route_specificity(&route.path_pattern),
+            std::cmp::Reverse(route.sort_order),
+            std::cmp::Reverse(route.id),
+        )
+    })
 }
 
 struct HttpResponse {
@@ -1682,6 +1714,25 @@ mod tests {
         assert_eq!(detail["route"]["name"], "User detail");
         assert_eq!(detail["route"]["enabled"], false);
 
+        let missing_update = route_save_with_conn(
+            &conn,
+            &json!({
+                "id": 999_999,
+                "projectId": project_id,
+                "name": "Missing",
+                "method": "GET",
+                "pathPattern": "/missing",
+                "statusCode": 200,
+                "responseKind": "static_body",
+                "contentType": "application/json",
+                "headers": [],
+                "bodyText": "{}",
+                "cors": default_cors_config()
+            }),
+        )
+        .expect_err("missing route update");
+        assert!(missing_update.contains("route not found"));
+
         route_delete_with_conn(&conn, &json!({ "id": second["id"] })).expect("delete route");
         let routes = route_list_with_conn(&conn, &json!({ "projectId": project_id })).expect("list after delete");
         assert_eq!(routes["routes"].as_array().unwrap().len(), 1);
@@ -1749,6 +1800,69 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM api_mock_files WHERE id=?1", [file_id], |row| row.get(0))
             .expect("file count after cleanup");
         assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn api_mock_file_cleanup_keeps_duplicate_file_copy_until_all_records_unreferenced() {
+        let conn = test_conn();
+        let project = project_create_with_conn(&conn, &json!({ "name": "Demo", "port": 18080 }))
+            .expect("project");
+        let project_id = project["id"].as_i64().unwrap();
+        let source_dir = std::env::temp_dir().join("lazycat-api-mock-duplicate-file-cleanup");
+        fs::create_dir_all(&source_dir).expect("source dir");
+        let source = source_dir.join("shared.txt");
+        fs::write(&source, b"shared").expect("source");
+        let source_path = source.to_string_lossy().to_string();
+        let first_import =
+            file_import_with_conn(&conn, &json!({ "path": source_path.clone(), "contentType": "text/plain" }))
+                .expect("first import");
+        let second_import =
+            file_import_with_conn(&conn, &json!({ "path": source_path, "contentType": "text/plain" }))
+                .expect("second import");
+        let first_file_id = first_import["file"]["id"].as_i64().unwrap();
+        let second_file_id = second_import["file"]["id"].as_i64().unwrap();
+        let stored_path = first_import["file"]["storedPath"].as_str().unwrap().to_string();
+        assert_ne!(first_file_id, second_file_id);
+        assert_eq!(stored_path, second_import["file"]["storedPath"].as_str().unwrap());
+
+        let route_a = route_save_with_conn(
+            &conn,
+            &json!({
+                "projectId": project_id,
+                "name": "A",
+                "method": "GET",
+                "pathPattern": "/a",
+                "statusCode": 200,
+                "responseKind": "file",
+                "contentType": "text/plain",
+                "headers": [],
+                "fileId": first_file_id,
+                "cors": default_cors_config()
+            }),
+        )
+        .expect("route a");
+        let route_b = route_save_with_conn(
+            &conn,
+            &json!({
+                "projectId": project_id,
+                "name": "B",
+                "method": "GET",
+                "pathPattern": "/b",
+                "statusCode": 200,
+                "responseKind": "file",
+                "contentType": "text/plain",
+                "headers": [],
+                "fileId": second_file_id,
+                "cors": default_cors_config()
+            }),
+        )
+        .expect("route b");
+
+        route_delete_with_conn(&conn, &json!({ "id": route_a["id"] })).expect("delete a");
+        assert!(fs::metadata(&stored_path).is_ok());
+
+        route_delete_with_conn(&conn, &json!({ "id": route_b["id"] })).expect("delete b");
+        assert!(fs::metadata(&stored_path).is_err());
     }
 
     #[test]
@@ -1833,6 +1947,39 @@ mod tests {
         assert_eq!(logs["logs"][0]["path"], "/ping");
         assert_eq!(logs["logs"][0]["status"], 201);
         service_stop_with_conn(&conn, &json!({ "projectId": project_id })).expect("stop");
+    }
+
+    #[test]
+    fn api_mock_project_delete_stops_running_service() {
+        let conn = test_conn();
+        let port = free_port();
+        let project = project_create_with_conn(&conn, &json!({ "name": "Demo", "port": port }))
+            .expect("project");
+        let project_id = project["id"].as_i64().unwrap();
+        route_save_with_conn(
+            &conn,
+            &json!({
+                "projectId": project_id,
+                "name": "Ping",
+                "method": "GET",
+                "pathPattern": "/ping",
+                "statusCode": 200,
+                "responseKind": "static_body",
+                "contentType": "text/plain",
+                "headers": [],
+                "bodyText": "pong",
+                "cors": default_cors_config()
+            }),
+        )
+        .expect("route");
+
+        service_start_with_conn(&conn, &json!({ "projectId": project_id })).expect("start");
+        project_delete_with_conn(&conn, &json!({ "id": project_id })).expect("delete");
+        let status = runtime_summary_json(project_id, None);
+        let running = status["running"].as_bool().unwrap();
+        let _ = stop_runtime_service(project_id);
+
+        assert!(!running);
     }
 
     #[test]
@@ -1924,6 +2071,57 @@ mod tests {
         assert!(response.contains("Access-Control-Allow-Origin: http://localhost:5173"));
         assert!(response.contains("Access-Control-Allow-Methods: PATCH"));
         service_stop_with_conn(&conn, &json!({ "projectId": project_id })).expect("stop");
+    }
+
+    #[test]
+    fn api_mock_service_preflight_uses_requested_method_when_paths_overlap() {
+        let conn = test_conn();
+        let port = free_port();
+        let project = project_create_with_conn(&conn, &json!({ "name": "Demo", "port": port }))
+            .expect("project");
+        let project_id = project["id"].as_i64().unwrap();
+        route_save_with_conn(
+            &conn,
+            &json!({
+                "projectId": project_id,
+                "name": "Read user",
+                "method": "GET",
+                "pathPattern": "/users/:id",
+                "statusCode": 200,
+                "responseKind": "static_body",
+                "contentType": "application/json",
+                "headers": [],
+                "bodyText": "{}",
+                "cors": default_cors_config()
+            }),
+        )
+        .expect("get route");
+        route_save_with_conn(
+            &conn,
+            &json!({
+                "projectId": project_id,
+                "name": "Update user",
+                "method": "POST",
+                "pathPattern": "/users/:id",
+                "statusCode": 200,
+                "responseKind": "static_body",
+                "contentType": "application/json",
+                "headers": [],
+                "bodyText": "{}",
+                "cors": default_cors_config()
+            }),
+        )
+        .expect("post route");
+
+        service_start_with_conn(&conn, &json!({ "projectId": project_id })).expect("start");
+        let response = http_request(
+            port,
+            "OPTIONS /users/42 HTTP/1.1\r\nHost: 127.0.0.1\r\nAccess-Control-Request-Method: POST\r\nConnection: close\r\n\r\n",
+        );
+        service_stop_with_conn(&conn, &json!({ "projectId": project_id })).expect("stop");
+
+        assert!(response.starts_with("HTTP/1.1 204"));
+        assert!(response.contains("Access-Control-Allow-Methods: POST"));
     }
 
     #[test]

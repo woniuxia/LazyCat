@@ -18,6 +18,8 @@ export const API_MOCK_METHODS: ApiMockMethod[] = [
   "OPTIONS",
 ];
 
+export const DEFAULT_API_MOCK_CONTENT_TYPE = "application/json; charset=utf-8";
+
 export const DEFAULT_API_MOCK_CORS: ApiMockCorsConfig = {
   enabled: true,
   allowOrigin: "*",
@@ -29,6 +31,7 @@ export const DEFAULT_API_MOCK_CORS: ApiMockCorsConfig = {
 };
 
 export type ApiMockValidationResult = { ok: true; message: "" } | { ok: false; message: string };
+export type ApiMockRuntimeAction = "start" | "stop" | "restart";
 
 function ok(): ApiMockValidationResult {
   return { ok: true, message: "" };
@@ -114,6 +117,19 @@ export function deriveMockProjectRuntimeState(project: ApiMockProjectSummary): A
   return "stopped";
 }
 
+export function getMockProjectRuntimeAction(project: ApiMockProjectSummary): ApiMockRuntimeAction {
+  return deriveMockProjectRuntimeState(project) === "restart-required"
+    ? "restart"
+    : project.runtime.running
+      ? "stop"
+      : "start";
+}
+
+export function getMockProjectAccessUrl(project: Pick<ApiMockProjectSummary, "host" | "port">): string {
+  const host = project.host === "0.0.0.0" ? "127.0.0.1" : project.host;
+  return `http://${host}:${project.port}`;
+}
+
 export function isMockProjectRestartRequired(
   running: ApiMockRuntimeSnapshot | null,
   current: ApiMockRuntimeSnapshot,
@@ -130,4 +146,50 @@ export function getMockRouteSpecificityLabel(pattern: string): "精确" | "参�
   if (pattern.split("/").includes("*")) return "通配";
   if (pattern.split("/").some((segment) => segment.startsWith(":"))) return "参数";
   return "精确";
+}
+
+export function resolveMockFileContentType(currentContentType: string, fileName: string): string {
+  const current = currentContentType.trim();
+  const inferred = inferMockContentTypeFromFileName(fileName);
+  if (current && current !== DEFAULT_API_MOCK_CONTENT_TYPE && current !== "application/octet-stream") {
+    return current;
+  }
+  return inferred || current || "application/octet-stream";
+}
+
+export function inferMockContentTypeFromFileName(fileName: string): string {
+  const extension = fileName.split(/[\\/]/).pop()?.split(".").pop()?.toLowerCase() ?? "";
+  const types: Record<string, string> = {
+    json: "application/json",
+    txt: "text/plain; charset=utf-8",
+    html: "text/html; charset=utf-8",
+    htm: "text/html; charset=utf-8",
+    css: "text/css; charset=utf-8",
+    js: "text/javascript; charset=utf-8",
+    xml: "application/xml",
+    csv: "text/csv; charset=utf-8",
+    png: "image/png",
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    gif: "image/gif",
+    webp: "image/webp",
+    svg: "image/svg+xml",
+    pdf: "application/pdf",
+    zip: "application/zip",
+    wasm: "application/wasm",
+  };
+  return types[extension] ?? "";
+}
+
+export function formatMockFileSize(size: number): string {
+  if (!Number.isFinite(size) || size <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB"];
+  let value = size;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+  const formatted = Number.isInteger(value) ? String(value) : value.toFixed(1).replace(/\.0$/, "");
+  return `${formatted} ${units[unitIndex]}`;
 }
