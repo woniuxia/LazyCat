@@ -1,5 +1,40 @@
 <template>
   <div class="network-panel">
+    <!-- 收藏夹 -->
+    <div class="favorites-panel">
+      <div class="favorites-header">
+        <div class="favorites-title">
+          <span class="favorites-icon">★</span>
+          <span>常用目标</span>
+          <span class="favorites-count">({{ networkFavorites.length }})</span>
+        </div>
+      </div>
+      <div v-if="networkFavorites.length > 0" class="favorite-list">
+        <div
+          v-for="item in networkFavorites"
+          :key="item.id"
+          class="favorite-card"
+          role="button"
+          tabindex="0"
+          @click="applyFavorite(item)"
+          @keyup.enter="applyFavorite(item)"
+        >
+          <div class="favorite-info">
+            <span class="favorite-name">{{ item.name }}</span>
+            <span class="favorite-target">{{ favoriteTargetText(item) }}</span>
+          </div>
+          <button
+            class="favorite-delete-btn"
+            title="删除收藏"
+            @click.stop="removeFavorite(item.id)"
+          >
+            删除
+          </button>
+        </div>
+      </div>
+      <div v-else class="favorites-empty">暂无收藏，可从最近测试记录中保存常用目标</div>
+    </div>
+
     <!-- 主控制台区域 -->
     <div class="network-console">
       <div class="console-header">
@@ -125,10 +160,7 @@
 
     <!-- 结果展示区域 -->
     <Transition v-else-if="result" name="result-slide">
-      <div
-        class="result-panel"
-        :class="result.reachable ? 'result-success' : 'result-failed'"
-      >
+      <div class="result-panel" :class="result.reachable ? 'result-success' : 'result-failed'">
         <div class="result-glow" />
         <div class="result-content">
           <div class="result-main">
@@ -163,9 +195,7 @@
             </div>
           </div>
 
-          <div class="result-time">
-            测试于 {{ formatTime(lastCheckedAt) }}
-          </div>
+          <div class="result-time">测试于 {{ formatTime(lastCheckedAt) }}</div>
         </div>
       </div>
     </Transition>
@@ -260,11 +290,22 @@
               <span class="metric-latency" :class="latencyClass(item.latencyMs)">
                 {{ item.latencyMs }}ms
               </span>
-              <span v-if="item.statusCode" class="metric-status" :class="'status-' + statusCategory(item.statusCode)">
+              <span
+                v-if="item.statusCode"
+                class="metric-status"
+                :class="'status-' + statusCategory(item.statusCode)"
+              >
                 {{ item.statusCode }}
               </span>
             </div>
             <div class="card-actions" @click.stop>
+              <button
+                class="action-btn favorite"
+                :disabled="isHistoryFavoriteSaved(item)"
+                @click="saveHistoryFavorite(item)"
+              >
+                {{ isHistoryFavoriteSaved(item) ? "已收藏" : "收藏当前" }}
+              </button>
               <button class="action-btn retry" @click="retryHistory(item)">复测</button>
               <button class="action-btn delete" @click="removeHistory(item.id)">删除</button>
             </div>
@@ -286,9 +327,18 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import { ElMessage } from "element-plus";
+import { ElMessage, ElMessageBox } from "element-plus";
 import { invokeToolByChannel } from "../bridge/tauri";
 import { getSettingJson, setSettingJson } from "../composables/useSettings";
+import {
+  addNetworkFavorite,
+  buildNetworkFavoriteFromHistory,
+  favoriteToNetworkForm,
+  getNetworkFavoriteLabel,
+  hasNetworkFavorite,
+  normalizeNetworkFavorites,
+  type NetworkFavoriteItem,
+} from "../utils/networkFavorites";
 
 type Protocol = "tcp" | "udp" | "ping";
 
@@ -315,12 +365,13 @@ interface NetworkHistoryItem {
 }
 
 const NETWORK_HISTORY_KEY = "network_test_history";
+const NETWORK_FAVORITES_KEY = "network_test_favorites";
 const MAX_HISTORY = 50;
 
 const protocols = [
   { value: "ping" as Protocol, label: "PING" },
   { value: "tcp" as Protocol, label: "TCP" },
-  { value: "udp" as Protocol, label: "UDP" }
+  { value: "udp" as Protocol, label: "UDP" },
 ];
 
 const quickPorts = [
@@ -329,7 +380,7 @@ const quickPorts = [
   { host: "127.0.0.1", port: 443, name: "HTTPS" },
   { host: "127.0.0.1", port: 3306, name: "MySQL" },
   { host: "127.0.0.1", port: 6379, name: "Redis" },
-  { host: "127.0.0.1", port: 8080, name: "Dev" }
+  { host: "127.0.0.1", port: 8080, name: "Dev" },
 ];
 
 const protocol = ref<Protocol>("ping");
@@ -344,6 +395,7 @@ const history = ref<NetworkHistoryItem[]>(loadHistory());
 const historyProtocolFilter = ref<"all" | Protocol>("all");
 const historyResultFilter = ref<"all" | "success" | "failed">("all");
 const historyKeyword = ref("");
+const networkFavorites = ref<NetworkFavoriteItem[]>(loadFavorites());
 
 // 测试时的目标（测试开始时固定，不受输入框变化影响）
 const testTarget = ref("");
@@ -373,7 +425,9 @@ const filteredHistory = computed(() => {
   });
 });
 
-const filteredFailedHistory = computed(() => filteredHistory.value.filter((item) => !item.reachable));
+const filteredFailedHistory = computed(() =>
+  filteredHistory.value.filter((item) => !item.reachable),
+);
 
 const historyStats = computed(() => {
   const total = history.value.length;
@@ -420,15 +474,23 @@ function loadHistory(): NetworkHistoryItem[] {
   return rows.slice(0, MAX_HISTORY);
 }
 
+function loadFavorites(): NetworkFavoriteItem[] {
+  return normalizeNetworkFavorites(getSettingJson<unknown[]>(NETWORK_FAVORITES_KEY, []));
+}
+
 function persistHistory() {
   setSettingJson(NETWORK_HISTORY_KEY, history.value);
+}
+
+function persistFavorites() {
+  setSettingJson(NETWORK_FAVORITES_KEY, networkFavorites.value);
 }
 
 function appendHistory(item: Omit<NetworkHistoryItem, "id" | "checkedAt">) {
   const entry: NetworkHistoryItem = {
     id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
     checkedAt: Date.now(),
-    ...item
+    ...item,
   };
   history.value = [entry, ...history.value].slice(0, MAX_HISTORY);
   persistHistory();
@@ -490,6 +552,78 @@ function applyQuickTarget(nextHost: string, nextPort: number) {
   port.value = nextPort;
 }
 
+function favoriteTargetText(item: NetworkFavoriteItem): string {
+  return getNetworkFavoriteLabel(favoriteToNetworkForm(item));
+}
+
+function isHistoryFavoriteSaved(item: NetworkHistoryItem): boolean {
+  try {
+    return hasNetworkFavorite(networkFavorites.value, {
+      protocol: item.protocol,
+      target: item.target,
+      timeoutMs: item.timeoutMs,
+    });
+  } catch {
+    return false;
+  }
+}
+
+async function saveHistoryFavorite(item: NetworkHistoryItem) {
+  if (isHistoryFavoriteSaved(item)) return;
+
+  let draft: NetworkFavoriteItem;
+  try {
+    draft = buildNetworkFavoriteFromHistory(
+      {
+        protocol: item.protocol,
+        target: item.target,
+        timeoutMs: item.timeoutMs,
+      },
+      "",
+    );
+  } catch (e) {
+    ElMessage.warning((e as Error).message);
+    return;
+  }
+
+  try {
+    const { value } = await ElMessageBox.prompt("为这个联通目标命名", "添加收藏", {
+      confirmButtonText: "保存",
+      cancelButtonText: "取消",
+      inputValue: draft.name,
+      inputPlaceholder: "例如 生产 Redis",
+      inputValidator: (value: string) => value.trim().length > 0 || "请输入收藏名称",
+    });
+    const favorite = buildNetworkFavoriteFromHistory(
+      {
+        protocol: item.protocol,
+        target: item.target,
+        timeoutMs: item.timeoutMs,
+      },
+      value,
+    );
+    networkFavorites.value = addNetworkFavorite(networkFavorites.value, favorite);
+    persistFavorites();
+    ElMessage.success("已加入收藏");
+  } catch (e) {
+    if (e === "cancel" || e === "close") return;
+    ElMessage.error((e as Error).message);
+  }
+}
+
+function applyFavorite(item: NetworkFavoriteItem) {
+  const form = favoriteToNetworkForm(item);
+  protocol.value = form.protocol;
+  host.value = form.host;
+  port.value = form.port;
+  timeoutMs.value = form.timeoutMs;
+}
+
+function removeFavorite(id: string) {
+  networkFavorites.value = networkFavorites.value.filter((item) => item.id !== id);
+  persistFavorites();
+}
+
 async function runTest() {
   if (loading.value) return;
 
@@ -518,14 +652,14 @@ async function runTest() {
       const data = await invokeToolByChannel("tool:network:tcp-test", {
         host: host.value.trim(),
         port: port.value,
-        timeoutMs: timeoutMs.value
+        timeoutMs: timeoutMs.value,
       });
       nextResult = data as TestResult;
     } else if (currentProtocol === "udp") {
       const data = await invokeToolByChannel("tool:network:udp-test", {
         host: host.value.trim(),
         port: port.value,
-        timeoutMs: timeoutMs.value
+        timeoutMs: timeoutMs.value,
       });
       nextResult = data as TestResult;
     } else {
@@ -533,7 +667,7 @@ async function runTest() {
       const data = await invokeToolByChannel("tool:network:ping-test", {
         host: host.value.trim(),
         timeoutMs: timeoutMs.value,
-        count: 3
+        count: 3,
       });
       nextResult = data as TestResult;
     }
@@ -547,14 +681,14 @@ async function runTest() {
       reachable: nextResult.reachable,
       latencyMs: Number(nextResult.latencyMs ?? 0),
       statusCode: nextResult.statusCode ?? null,
-      error: nextResult.error ?? null
+      error: nextResult.error ?? null,
     });
   } catch (e) {
     const message = (e as Error).message;
     const failedResult: TestResult = {
       reachable: false,
       latencyMs: 0,
-      error: message
+      error: message,
     };
     result.value = failedResult;
     lastCheckedAt.value = Date.now();
@@ -566,7 +700,7 @@ async function runTest() {
       reachable: false,
       latencyMs: 0,
       statusCode: null,
-      error: message
+      error: message,
     });
   } finally {
     loading.value = false;
@@ -836,6 +970,128 @@ function formatTime(timestamp: number): string {
   color: var(--el-text-color-secondary);
 }
 
+/* 收藏夹 */
+.favorites-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 16px;
+  padding: 12px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 10px;
+  background: var(--el-fill-color-extra-light);
+}
+
+.favorites-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.favorites-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+
+.favorites-icon {
+  color: #e6a23c;
+  font-size: 13px;
+}
+
+.favorites-count {
+  color: var(--el-text-color-secondary);
+  font-weight: 400;
+}
+
+.favorite-delete-btn {
+  flex-shrink: 0;
+  border: 1px solid var(--el-border-color);
+  border-radius: 6px;
+  background: var(--el-bg-color);
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.favorite-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 8px;
+}
+
+.favorite-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+  background: var(--el-bg-color);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.favorite-card:hover,
+.favorite-card:focus-visible {
+  border-color: var(--el-color-primary);
+  box-shadow: 0 2px 8px rgba(64, 158, 255, 0.12);
+  outline: none;
+}
+
+.favorite-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.favorite-name {
+  overflow: hidden;
+  color: var(--el-text-color-primary);
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.favorite-target {
+  overflow: hidden;
+  color: var(--el-text-color-secondary);
+  font-family: var(--lc-font-mono);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.favorite-delete-btn {
+  padding: 4px 8px;
+  opacity: 0;
+}
+
+.favorite-card:hover .favorite-delete-btn,
+.favorite-card:focus-within .favorite-delete-btn {
+  opacity: 1;
+}
+
+.favorite-delete-btn:hover {
+  border-color: var(--el-color-danger);
+  color: var(--el-color-danger);
+}
+
+.favorites-empty {
+  color: var(--el-text-color-placeholder);
+  font-size: 12px;
+}
+
 /* 测试按钮 */
 .test-button {
   display: flex;
@@ -846,7 +1102,11 @@ function formatTime(timestamp: number): string {
   padding: 16px 24px;
   border: none;
   border-radius: 12px;
-  background: linear-gradient(135deg, var(--el-color-primary) 0%, var(--el-color-primary-light-3) 100%);
+  background: linear-gradient(
+    135deg,
+    var(--el-color-primary) 0%,
+    var(--el-color-primary-light-3) 100%
+  );
   color: white;
   font-size: 16px;
   font-weight: 600;
@@ -874,7 +1134,8 @@ function formatTime(timestamp: number): string {
 }
 
 @keyframes pulse {
-  0%, 100% {
+  0%,
+  100% {
     box-shadow: 0 4px 14px rgba(64, 158, 255, 0.35);
   }
   50% {
@@ -944,7 +1205,8 @@ function formatTime(timestamp: number): string {
 }
 
 @keyframes glow-success {
-  0%, 100% {
+  0%,
+  100% {
     opacity: 0.3;
     transform: translate(-50%, -50%) scale(1);
   }
@@ -955,7 +1217,8 @@ function formatTime(timestamp: number): string {
 }
 
 @keyframes glow-failed {
-  0%, 100% {
+  0%,
+  100% {
     opacity: 0.3;
     transform: translate(-50%, -50%) scale(1);
   }
@@ -1002,7 +1265,8 @@ function formatTime(timestamp: number): string {
 }
 
 @keyframes dot-pulse {
-  0%, 100% {
+  0%,
+  100% {
     box-shadow: 0 0 0 0 currentColor;
   }
   50% {
@@ -1170,7 +1434,7 @@ function formatTime(timestamp: number): string {
 }
 
 .result-loading::before {
-  content: '';
+  content: "";
   position: absolute;
   inset: 0;
   background: radial-gradient(circle at 50% 40%, rgba(64, 158, 255, 0.04) 0%, transparent 60%);
@@ -1203,13 +1467,18 @@ function formatTime(timestamp: number): string {
 }
 
 @keyframes core-pulse {
-  0%, 100% {
+  0%,
+  100% {
     transform: translate(-50%, -50%) scale(1);
-    box-shadow: 0 0 12px var(--el-color-primary), 0 0 24px rgba(64, 158, 255, 0.4);
+    box-shadow:
+      0 0 12px var(--el-color-primary),
+      0 0 24px rgba(64, 158, 255, 0.4);
   }
   50% {
     transform: translate(-50%, -50%) scale(1.15);
-    box-shadow: 0 0 16px var(--el-color-primary), 0 0 32px rgba(64, 158, 255, 0.5);
+    box-shadow:
+      0 0 16px var(--el-color-primary),
+      0 0 32px rgba(64, 158, 255, 0.5);
   }
 }
 
@@ -1336,8 +1605,13 @@ function formatTime(timestamp: number): string {
 }
 
 @keyframes status-blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
 }
 
 .loading-target {
@@ -1363,7 +1637,7 @@ function formatTime(timestamp: number): string {
 }
 
 .loading-protocol::before {
-  content: '';
+  content: "";
   width: 5px;
   height: 5px;
   border-radius: 50%;
@@ -1372,8 +1646,12 @@ function formatTime(timestamp: number): string {
 }
 
 @keyframes protocol-dot {
-  from { opacity: 0.4; }
-  to { opacity: 1; }
+  from {
+    opacity: 0.4;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 /* 历史记录面板 */
@@ -1699,12 +1977,7 @@ function formatTime(timestamp: number): string {
 .card-actions {
   display: flex;
   gap: 6px;
-  opacity: 0;
   transition: opacity 0.2s ease;
-}
-
-.history-card:hover .card-actions {
-  opacity: 1;
 }
 
 .action-btn {
@@ -1721,6 +1994,24 @@ function formatTime(timestamp: number): string {
 .action-btn:hover {
   border-color: var(--el-color-primary);
   color: var(--el-color-primary);
+}
+
+.action-btn.favorite {
+  border-color: var(--el-color-warning-light-5);
+  color: var(--el-color-warning);
+}
+
+.action-btn.favorite:hover:not(:disabled) {
+  border-color: var(--el-color-warning);
+  color: var(--el-color-warning);
+  background: var(--el-color-warning-light-9);
+}
+
+.action-btn:disabled {
+  border-color: var(--el-border-color-lighter);
+  background: var(--el-fill-color-light);
+  color: var(--el-text-color-placeholder);
+  cursor: not-allowed;
 }
 
 .action-btn.delete:hover {

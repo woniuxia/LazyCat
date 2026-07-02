@@ -8,6 +8,27 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-07-02: 连通性测试收藏夹用 settings JSON 做轻量持久化
+
+**场景**: 为 IP/端口联通工具增加常用目标收藏、收藏命名和点击回填能力。
+**使用次数**: 0
+**问题**:
+1. 收藏项只是用户偏好，不应新增业务表或后端通道扩大维护面。
+2. 面板已有历史记录，但历史数据包含结果状态，不能直接复用为“用户命名收藏”的事实源。
+3. 收藏清洗、默认名称、重复目标去重和回填规则如果写在 Vue 组件里，后续容易和 UI 状态混在一起。
+**解决**:
+1. 收藏项存入 `user_settings` 的 `network_test_favorites` JSON，字段只包含名称、协议、主机、端口、超时和创建时间。
+2. 新增 `networkFavorites.ts` 纯函数，集中处理收藏构造、持久化数据清洗、重复目标置顶替换和回填表单值。
+3. `NetworkPanel.vue` 只负责命名弹窗、列表展示、持久化调用和点击回填。
+**涉及文件**:
+- `apps/desktop/src/components/NetworkPanel.vue`
+- `apps/desktop/src/utils/networkFavorites.ts`
+- `apps/desktop/src/utils/networkFavorites.test.ts`
+**验证**:
+- `pnpm test src/utils/networkFavorites.test.ts`
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+
 ## 2026-07-02: API Mock 运行服务生命周期与用户反馈要闭环
 
 **场景**: 复查 API Mock 实现逻辑并从用户使用角度优化启动、重启、文件响应和 CORS 预检体验。
