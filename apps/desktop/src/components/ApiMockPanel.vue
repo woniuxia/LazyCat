@@ -172,7 +172,27 @@
                 </el-radio-group>
               </el-form-item>
               <el-form-item label="Content-Type">
-                <el-input v-model="routeForm.contentType" placeholder="application/json; charset=utf-8" />
+                <el-select
+                  v-model="routeForm.contentType"
+                  filterable
+                  allow-create
+                  clearable
+                  default-first-option
+                  :value-on-clear="''"
+                  placeholder="application/json; charset=utf-8"
+                >
+                  <el-option
+                    v-for="preset in API_MOCK_CONTENT_TYPE_PRESETS"
+                    :key="preset.value"
+                    :label="preset.value"
+                    :value="preset.value"
+                  >
+                    <div class="content-type-option">
+                      <span>{{ preset.label }}</span>
+                      <small>{{ preset.value }}</small>
+                    </div>
+                  </el-option>
+                </el-select>
               </el-form-item>
               <el-form-item label="启用">
                 <el-switch v-model="routeForm.enabled" />
@@ -277,6 +297,7 @@ import type {
   ApiMockRouteSummary,
 } from "../types/api-mock";
 import {
+  API_MOCK_CONTENT_TYPE_PRESETS,
   API_MOCK_METHODS,
   DEFAULT_API_MOCK_CONTENT_TYPE,
   DEFAULT_API_MOCK_CORS,
@@ -615,6 +636,13 @@ async function pickFile() {
     })) as { file: ApiMockFileInfo };
     routeForm.contentType = contentType;
     routeFile.value = result.file;
+    const fileContentTypeWarning = getMockFileContentTypeWarning({
+      contentType,
+      fileName: selected,
+    });
+    if (fileContentTypeWarning) {
+      ElMessage.warning(fileContentTypeWarning);
+    }
   } catch (error) {
     ElMessage.error(getErrorMessage(error, "导入文件失败"));
   }
@@ -864,6 +892,30 @@ onMounted(refreshAll);
 
 .route-grid {
   grid-template-columns: minmax(140px, 1fr) 120px minmax(220px, 1.3fr) 120px;
+}
+
+.content-type-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-width: 0;
+}
+
+.content-type-option span,
+.content-type-option small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.content-type-option span {
+  font-weight: 600;
+  color: #172033;
+}
+
+.content-type-option small {
+  color: #64748b;
 }
 
 .header-rows {
