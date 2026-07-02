@@ -1,10 +1,13 @@
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 
+use rusqlite::params;
+use serde_json::json;
 use serde_json::{Map, Value};
 
-#[allow(dead_code)]
 const CONFIG_KEY: &str = "browser_profiles_config_v1";
 const BROWSER_EDGE: &str = "edge";
 
@@ -50,6 +53,17 @@ struct BrowserProfileItem {
     hidden: bool,
     launch_count: i64,
     last_launched_at: Option<String>,
+}
+
+pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
+    match action {
+        "list" => list_profiles(),
+        "save_alias" => save_alias(payload),
+        "set_hidden" => set_hidden(payload),
+        "set_edge_path" => set_edge_path(payload),
+        "launch" => launch_profile(payload),
+        _ => Err(format!("unsupported browser_profiles action: {action}")),
+    }
 }
 
 fn parse_local_state_profile_names(
@@ -168,7 +182,6 @@ fn build_edge_profile_arg(profile_dir: &str) -> String {
     format!("--profile-directory={profile_dir}")
 }
 
-#[allow(dead_code)]
 fn validate_edge_exe_path(path: &Path) -> Result<(), String> {
     if !path.exists() {
         return Err("Edge 可执行文件不存在".into());
@@ -186,6 +199,331 @@ fn validate_edge_exe_path(path: &Path) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+fn candidate_edge_paths(config_edge_path: Option<&str>) -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    if let Some(path) = config_edge_path
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+    {
+        push_unique_path(&mut paths, PathBuf::from(path));
+    }
+
+    if let Ok(program_files_x86) = std::env::var("ProgramFiles(x86)") {
+        push_unique_path(
+            &mut paths,
+            PathBuf::from(program_files_x86)
+                .join("Microsoft")
+                .join("Edge")
+                .join("Application")
+                .join("msedge.exe"),
+        );
+    }
+    if let Ok(program_files) = std::env::var("ProgramFiles") {
+        push_unique_path(
+            &mut paths,
+            PathBuf::from(program_files)
+                .join("Microsoft")
+                .join("Edge")
+                .join("Application")
+                .join("msedge.exe"),
+        );
+    }
+    if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
+        push_unique_path(
+            &mut paths,
+            PathBuf::from(local_app_data)
+                .join("Microsoft")
+                .join("Edge")
+                .join("Application")
+                .join("msedge.exe"),
+        );
+    }
+
+    paths
+}
+
+fn find_edge_path(config_edge_path: Option<&str>) -> (Option<PathBuf>, Vec<PathBuf>) {
+    let paths = candidate_edge_paths(config_edge_path);
+    let found = paths
+        .iter()
+        .find(|path| validate_edge_exe_path(path).is_ok())
+        .cloned();
+    (found, paths)
+}
+
+fn edge_user_data_dir() -> PathBuf {
+    std::env::var("LOCALAPPDATA")
+        .map(PathBuf::from)
+        .unwrap_or_default()
+        .join("Microsoft")
+        .join("Edge")
+        .join("User Data")
+}
+
+fn scan_edge_profiles(user_data_dir: &Path) -> (Vec<DiscoveredProfile>, Vec<String>) {
+    let mut warnings = Vec::new();
+    let mut edge_names = BTreeMap::new();
+    let local_state_path = user_data_dir.join("Local State");
+
+    if user_data_dir.is_dir() {
+        match fs::read_to_string(&local_state_path) {
+            Ok(content) => match parse_local_state_profile_names(&content) {
+                Ok((names, local_warnings)) => {
+                    edge_names = names;
+                    warnings.extend(local_warnings);
+                }
+                Err(err) => warnings.push(format!("Local State 解析失败: {err}")),
+            },
+            Err(err) if local_state_path.exists() => {
+                warnings.push(format!("读取 Local State 失败: {err}"));
+            }
+            Err(_) => {
+                warnings.push(format!(
+                    "未找到 Edge Local State: {}",
+                    local_state_path.to_string_lossy()
+                ));
+            }
+        }
+    } else {
+        warnings.push(format!(
+            "未找到 Edge User Data: {}",
+            user_data_dir.to_string_lossy()
+        ));
+        return (Vec::new(), warnings);
+    }
+
+    let mut names = edge_names.keys().cloned().collect::<BTreeSet<_>>();
+    match fs::read_dir(user_data_dir) {
+        Ok(entries) => {
+            for entry in entries.flatten() {
+                let Ok(file_type) = entry.file_type() else {
+                    continue;
+                };
+                if !file_type.is_dir() {
+                    continue;
+                }
+                if let Some(name) = entry.file_name().to_str() {
+                    names.insert(name.to_string());
+                }
+            }
+        }
+        Err(err) => warnings.push(format!("读取 Edge User Data 失败: {err}")),
+    }
+
+    let name_refs = names.iter().map(String::as_str).collect::<Vec<_>>();
+    let profiles = collect_profile_dirs_from_names(&name_refs)
+        .into_iter()
+        .map(|profile_dir| DiscoveredProfile {
+            edge_display_name: edge_names.get(&profile_dir).cloned().unwrap_or_default(),
+            profile_dir,
+        })
+        .collect();
+
+    (profiles, warnings)
+}
+
+fn load_config_from_settings(
+    conn: &rusqlite::Connection,
+    warnings: &mut Vec<String>,
+) -> BrowserProfilesConfig {
+    let raw: Option<String> = conn
+        .query_row(
+            "SELECT value FROM user_settings WHERE key = ?1",
+            params![CONFIG_KEY],
+            |row| row.get(0),
+        )
+        .ok();
+    parse_config_json(raw.as_deref(), warnings)
+}
+
+fn save_config_to_settings(
+    conn: &rusqlite::Connection,
+    config: &BrowserProfilesConfig,
+) -> Result<(), String> {
+    let value =
+        serde_json::to_string(config).map_err(|err| format!("serialize config failed: {err}"))?;
+    conn.execute(
+        "INSERT INTO user_settings(key, value, updated_at) VALUES(?1, ?2, CURRENT_TIMESTAMP)
+         ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP",
+        params![CONFIG_KEY, value],
+    )
+    .map_err(|err| format!("save browser profiles config failed: {err}"))?;
+    Ok(())
+}
+
+fn mutate_config<F>(f: F) -> Result<BrowserProfilesConfig, String>
+where
+    F: FnOnce(&mut BrowserProfilesConfig) -> Result<(), String>,
+{
+    let conn = super::helpers::db_conn()?;
+    let mut warnings = Vec::new();
+    let mut config = load_config_from_settings(&conn, &mut warnings);
+    f(&mut config)?;
+    save_config_to_settings(&conn, &config)?;
+    Ok(config)
+}
+
+fn list_profiles() -> Result<Value, String> {
+    let mut warnings = Vec::new();
+    let config = {
+        let conn = super::helpers::db_conn()?;
+        load_config_from_settings(&conn, &mut warnings)
+    };
+    let (edge_path, probed_paths) = find_edge_path(config.edge_path.as_deref());
+    let user_data_dir = edge_user_data_dir();
+    let (discovered, scan_warnings) = scan_edge_profiles(&user_data_dir);
+    warnings.extend(scan_warnings);
+
+    let mut profiles = merge_profiles(discovered, &config);
+    sort_profiles(&mut profiles);
+
+    Ok(json!({
+        "edgeFound": edge_path.is_some(),
+        "edgePath": edge_path.map(|path| path.to_string_lossy().to_string()),
+        "userDataDir": user_data_dir.to_string_lossy().to_string(),
+        "probedEdgePaths": probed_paths
+            .into_iter()
+            .map(|path| path.to_string_lossy().to_string())
+            .collect::<Vec<_>>(),
+        "warnings": warnings,
+        "profiles": profiles,
+    }))
+}
+
+fn save_alias(payload: &Value) -> Result<Value, String> {
+    require_edge_browser(payload)?;
+    let profile_dir = require_profile_dir(payload)?;
+    ensure_profile_exists(&profile_dir)?;
+    let alias = payload["alias"].as_str().unwrap_or_default();
+    mutate_config(|config| {
+        save_alias_in_config(config, &profile_dir, alias);
+        Ok(())
+    })?;
+    Ok(json!({ "ok": true }))
+}
+
+fn set_hidden(payload: &Value) -> Result<Value, String> {
+    require_edge_browser(payload)?;
+    let profile_dir = require_profile_dir(payload)?;
+    ensure_profile_exists(&profile_dir)?;
+    let hidden = payload["hidden"]
+        .as_bool()
+        .ok_or_else(|| "hidden is required".to_string())?;
+    mutate_config(|config| {
+        let entry = config.edge.entry(profile_dir.clone()).or_default();
+        entry.hidden = Some(hidden);
+        Ok(())
+    })?;
+    Ok(json!({ "ok": true }))
+}
+
+fn set_edge_path(payload: &Value) -> Result<Value, String> {
+    let edge_path = payload["edgePath"]
+        .as_str()
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+        .ok_or_else(|| "edgePath is required".to_string())?;
+    validate_edge_exe_path(Path::new(edge_path))?;
+    mutate_config(|config| {
+        config.edge_path = Some(edge_path.to_string());
+        Ok(())
+    })?;
+    Ok(json!({ "ok": true }))
+}
+
+fn launch_profile(payload: &Value) -> Result<Value, String> {
+    require_edge_browser(payload)?;
+    let profile_dir = require_profile_dir(payload)?;
+    let mut warnings = Vec::new();
+    let config = {
+        let conn = super::helpers::db_conn()?;
+        load_config_from_settings(&conn, &mut warnings)
+    };
+    let (edge_path, _) = find_edge_path(config.edge_path.as_deref());
+    let edge_path = edge_path.ok_or_else(|| "未找到 msedge.exe".to_string())?;
+    ensure_profile_exists(&profile_dir)?;
+
+    Command::new(&edge_path)
+        .arg(build_edge_profile_arg(&profile_dir))
+        .spawn()
+        .map_err(|err| format!("launch failed: {err}"))?;
+
+    let now = chrono::Local::now().to_rfc3339();
+    let stats_result = mutate_config(|config| {
+        update_launch_stats_in_config(config, &profile_dir, &now);
+        Ok(())
+    });
+    let launch_count = match stats_result {
+        Ok(config) => config
+            .edge
+            .get(&profile_dir)
+            .and_then(|entry| entry.launch_count)
+            .unwrap_or_default(),
+        Err(err) => {
+            warnings.push(format!("启动成功，但使用统计保存失败：{err}"));
+            config
+                .edge
+                .get(&profile_dir)
+                .and_then(|entry| entry.launch_count)
+                .unwrap_or_default()
+                + 1
+        }
+    };
+
+    Ok(json!({
+        "ok": true,
+        "launchCount": launch_count,
+        "lastLaunchedAt": now,
+        "warnings": warnings,
+    }))
+}
+
+fn require_edge_browser(payload: &Value) -> Result<(), String> {
+    match payload["browser"].as_str() {
+        Some(BROWSER_EDGE) => Ok(()),
+        _ => Err("首版只支持 Edge".into()),
+    }
+}
+
+fn require_profile_dir(payload: &Value) -> Result<String, String> {
+    payload["profileDir"]
+        .as_str()
+        .map(str::trim)
+        .filter(|profile_dir| !profile_dir.is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| "profileDir is required".to_string())
+}
+
+fn ensure_profile_exists(profile_dir: &str) -> Result<(), String> {
+    let user_data_dir = edge_user_data_dir();
+    let (profiles, _) = scan_edge_profiles(&user_data_dir);
+    if profiles
+        .iter()
+        .any(|profile| profile.profile_dir == profile_dir)
+    {
+        Ok(())
+    } else {
+        Err(format!("Profile 已不存在: {profile_dir}"))
+    }
+}
+
+fn save_alias_in_config(config: &mut BrowserProfilesConfig, profile_dir: &str, alias: &str) {
+    let entry = config.edge.entry(profile_dir.to_string()).or_default();
+    entry.alias = Some(alias.trim().to_string());
+}
+
+fn update_launch_stats_in_config(config: &mut BrowserProfilesConfig, profile_dir: &str, now: &str) {
+    let entry = config.edge.entry(profile_dir.to_string()).or_default();
+    entry.launch_count = Some(entry.launch_count.unwrap_or_default() + 1);
+    entry.last_launched_at = Some(now.to_string());
+}
+
+fn push_unique_path(paths: &mut Vec<PathBuf>, path: PathBuf) {
+    if !paths.iter().any(|existing| existing == &path) {
+        paths.push(path);
+    }
 }
 
 fn compare_optional_desc(left: &Option<String>, right: &Option<String>) -> Ordering {
@@ -228,6 +566,7 @@ fn profile_dir_sort_key(name: &str) -> (u8, u64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     fn item(
         profile_dir: &str,
@@ -264,20 +603,13 @@ mod tests {
 
         assert!(warnings.is_empty());
         assert_eq!(names.get("Default").map(String::as_str), Some("个人"));
-        assert_eq!(
-            names.get("Profile 2").map(String::as_str),
-            Some("测试账号")
-        );
-        assert_eq!(
-            names.get("Guest Profile").map(String::as_str),
-            Some("访客")
-        );
+        assert_eq!(names.get("Profile 2").map(String::as_str), Some("测试账号"));
+        assert_eq!(names.get("Guest Profile").map(String::as_str), Some("访客"));
     }
 
     #[test]
     fn invalid_local_state_returns_warning_and_empty_names() {
-        let (names, warnings) =
-            parse_local_state_profile_names("{not json").expect("soft parse");
+        let (names, warnings) = parse_local_state_profile_names("{not json").expect("soft parse");
         assert!(names.is_empty());
         assert!(warnings.iter().any(|w| w.contains("Local State")));
     }
@@ -394,6 +726,71 @@ mod tests {
         assert_eq!(
             build_edge_profile_arg("Profile 2"),
             "--profile-directory=Profile 2"
+        );
+    }
+
+    #[test]
+    fn rejects_non_edge_browser_payload() {
+        let err =
+            require_edge_browser(&json!({ "browser": "chrome" })).expect_err("chrome unsupported");
+        assert!(err.contains("只支持 Edge") || err.contains("edge"));
+    }
+
+    #[test]
+    fn trims_alias_before_writing_config_entry() {
+        let mut config = BrowserProfilesConfig::default();
+        save_alias_in_config(&mut config, "Profile 2", "  普通用户  ");
+        assert_eq!(
+            config
+                .edge
+                .get("Profile 2")
+                .and_then(|e| e.alias.as_deref()),
+            Some("普通用户")
+        );
+    }
+
+    #[test]
+    fn empty_alias_clears_alias_but_preserves_entry_stats() {
+        let mut config = BrowserProfilesConfig::default();
+        config.edge.insert(
+            "Profile 2".into(),
+            BrowserProfileConfigEntry {
+                alias: Some("旧名".into()),
+                launch_count: Some(7),
+                ..Default::default()
+            },
+        );
+
+        save_alias_in_config(&mut config, "Profile 2", " ");
+
+        let entry = config.edge.get("Profile 2").expect("entry");
+        assert_eq!(entry.alias.as_deref(), Some(""));
+        assert_eq!(entry.launch_count, Some(7));
+    }
+
+    #[test]
+    fn launch_stats_increment_preserves_alias_and_hidden() {
+        let mut config = BrowserProfilesConfig::default();
+        config.edge.insert(
+            "Profile 2".into(),
+            BrowserProfileConfigEntry {
+                alias: Some("普通用户".into()),
+                hidden: Some(true),
+                launch_count: Some(8),
+                last_launched_at: Some("2026-07-01T09:00:00+08:00".into()),
+                extra: Default::default(),
+            },
+        );
+
+        update_launch_stats_in_config(&mut config, "Profile 2", "2026-07-02T10:30:00+08:00");
+
+        let entry = config.edge.get("Profile 2").expect("entry");
+        assert_eq!(entry.alias.as_deref(), Some("普通用户"));
+        assert_eq!(entry.hidden, Some(true));
+        assert_eq!(entry.launch_count, Some(9));
+        assert_eq!(
+            entry.last_launched_at.as_deref(),
+            Some("2026-07-02T10:30:00+08:00")
         );
     }
 }

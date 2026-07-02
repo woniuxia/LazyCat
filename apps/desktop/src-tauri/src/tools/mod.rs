@@ -61,6 +61,7 @@ fn dispatch_tool(domain: &str, action: &str, payload: &Value) -> Result<Value, S
     match domain {
         "api_mock" => api_mock::execute(action, payload),
         "api_workbench" => api_workbench::execute(action, payload),
+        "browser_profiles" => browser_profiles::execute(action, payload),
         "encode" => encode::execute(action, payload),
         "convert" => convert::execute(action, payload),
         "text" => text::execute(action, payload),
