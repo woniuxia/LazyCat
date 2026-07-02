@@ -136,3 +136,9 @@ export type {
   ApiMockRouteDetail,
   ApiMockRequestLog,
 } from "./api-mock";
+export type {
+  BrowserProfileBrowser,
+  BrowserProfileItem,
+  BrowserProfilesListResponse,
+  BrowserProfilesLaunchResponse,
+} from "./browser-profiles";
