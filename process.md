@@ -8,6 +8,27 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-07-02: API Mock Content-Type 选择与响应内容校验前端闭环
+
+**场景**: 优化 API Mock 路由表单的 `Content-Type` 配置，支持常见类型选择、自定义 MIME，并提醒用户填写或上传匹配的响应内容。
+**使用次数**: 0
+**问题**:
+1. `Content-Type` 原来是普通文本输入，常见类型需要手写，容易出现拼写错误或前后空白。
+2. JSON、XML、HTML、表单类响应内容的可判断错误和不确定风险如果直接写在组件里，会和保存流程耦合。
+3. 文件响应只能按扩展名推断，不能强阻断，但需要在用户选择的类型明显不一致时提醒。
+**解决**:
+1. 在 `apiMock.ts` 集中维护常见 `Content-Type` 预设、trim、MIME 归一化、Header 基本形态校验和响应内容检查。
+2. `ApiMockPanel.vue` 使用 `filterable + allow-create + clearable` 的 `el-select`，保存前只阻断明确错误，warning 继续保存。
+3. 文件导入和文件响应保存时复用同一个不匹配提醒函数，`application/octet-stream` 作为通用二进制不提示。
+**涉及文件**:
+- `apps/desktop/src/components/ApiMockPanel.vue`
+- `apps/desktop/src/utils/apiMock.ts`
+- `apps/desktop/src/utils/apiMock.test.ts`
+**验证**:
+- `pnpm test src/utils/apiMock.test.ts`
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+
 ## 2026-07-02: 连通性测试收藏夹用 settings JSON 做轻量持久化
 
 **场景**: 为 IP/端口联通工具增加常用目标收藏、收藏命名和点击回填能力。
