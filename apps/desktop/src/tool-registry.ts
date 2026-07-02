@@ -53,6 +53,7 @@ const toolRegistry: Record<string, Component> = {
   snippets: defineAsyncComponent(() => import("./components/SnippetPanel.vue")),
   vault: defineAsyncComponent(() => import("./components/VaultPanel.vue")),
   launcher: defineAsyncComponent(() => import("./components/LauncherPanel.vue")),
+  "browser-profiles": defineAsyncComponent(() => import("./components/BrowserProfilesPanel.vue")),
   todo: defineAsyncComponent(() => import("./components/TodoPanel.vue")),
   pomodoro: defineAsyncComponent(() => import("./components/PomodoroPanel.vue")),
   pm: defineAsyncComponent(() => import("./components/PmPanel.vue")),
