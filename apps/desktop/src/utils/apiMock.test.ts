@@ -1,17 +1,23 @@
 import { describe, expect, it } from "vitest";
 import type { ApiMockProjectSummary } from "../types/api-mock";
 import {
+  API_MOCK_CONTENT_TYPE_PRESETS,
   buildMockRouteSummary,
   deriveMockProjectRuntimeState,
   formatMockFileSize,
+  getMockFileContentTypeWarning,
   getMockProjectAccessUrl,
   getMockProjectRuntimeAction,
   getMockRouteSpecificityLabel,
-  resolveMockFileContentType,
   isMockProjectRestartRequired,
+  normalizeMockContentType,
+  resolveMockFileContentType,
+  trimMockContentType,
   normalizeMockHeaderRows,
+  validateMockContentTypeHeader,
   validateMockCorsConfig,
   validateMockPathPattern,
+  validateMockStaticResponseContent,
 } from "./apiMock";
 
 describe("apiMock utils", () => {
@@ -152,6 +158,130 @@ describe("apiMock utils", () => {
     expect(resolveMockFileContentType("application/json; charset=utf-8", "avatar.png")).toBe("image/png");
     expect(resolveMockFileContentType("application/vnd.custom", "avatar.png")).toBe("application/vnd.custom");
     expect(resolveMockFileContentType("", "archive.unknown")).toBe("application/octet-stream");
+  });
+
+  it("exposes common content type presets", () => {
+    const values = API_MOCK_CONTENT_TYPE_PRESETS.map((item) => item.value);
+
+    expect(values).toEqual(
+      expect.arrayContaining([
+        "application/json; charset=utf-8",
+        "application/json",
+        "text/plain; charset=utf-8",
+        "text/html; charset=utf-8",
+        "application/xml",
+        "text/xml; charset=utf-8",
+        "text/csv; charset=utf-8",
+        "application/x-www-form-urlencoded",
+        "multipart/form-data",
+        "image/png",
+        "image/jpeg",
+        "image/svg+xml",
+        "image/webp",
+        "image/gif",
+        "application/pdf",
+        "application/zip",
+        "application/wasm",
+        "application/octet-stream",
+        "text/css; charset=utf-8",
+        "text/javascript; charset=utf-8",
+      ]),
+    );
+    expect(new Set(values).size).toBe(values.length);
+  });
+
+  it("normalizes content type MIME without parameters", () => {
+    expect(normalizeMockContentType(" Application/JSON; Charset=UTF-8 ")).toBe("application/json");
+    expect(normalizeMockContentType("application/vnd.lazycat.mock+json; version=1")).toBe(
+      "application/vnd.lazycat.mock+json",
+    );
+    expect(normalizeMockContentType("")).toBe("");
+  });
+
+  it("trims content type before saving", () => {
+    expect(trimMockContentType("  application/json; charset=utf-8  ")).toBe("application/json; charset=utf-8");
+  });
+
+  it("rejects unsafe or malformed content type values", () => {
+    expect(validateMockContentTypeHeader("").ok).toBe(true);
+    expect(validateMockContentTypeHeader(" application/vnd.lazycat.mock+json; version=1 ").ok).toBe(true);
+    expect(validateMockContentTypeHeader("application/json\r\nX-Bad: 1")).toEqual({
+      ok: false,
+      message: "Content-Type 不能包含换行符",
+    });
+    expect(validateMockContentTypeHeader("json")).toEqual({
+      ok: false,
+      message: "Content-Type 必须是 type/subtype 格式",
+    });
+  });
+
+  it("blocks invalid JSON when the response content type is JSON", () => {
+    expect(
+      validateMockStaticResponseContent({
+        contentType: "application/json; charset=utf-8",
+        bodyText: "{ bad json",
+      }),
+    ).toEqual({
+      level: "error",
+      message: "当前 Content-Type 是 JSON，但响应 Body 不是合法 JSON",
+    });
+    expect(
+      validateMockStaticResponseContent({
+        contentType: "application/json",
+        bodyText: '{ "ok": true }',
+      }),
+    ).toBeNull();
+  });
+
+  it("warns for response content types that need user confirmation", () => {
+    expect(
+      validateMockStaticResponseContent({
+        contentType: "application/xml",
+        bodyText: "<root>",
+      }),
+    ).toEqual({
+      level: "warning",
+      message: "当前 Content-Type 是 XML，请确认响应 Body 是正确的 XML 内容",
+    });
+    expect(
+      validateMockStaticResponseContent({
+        contentType: "text/html; charset=utf-8",
+        bodyText: "<main>",
+      }),
+    ).toEqual({
+      level: "warning",
+      message: "当前 Content-Type 是 HTML，请确认响应 Body 是 HTML 内容",
+    });
+    expect(
+      validateMockStaticResponseContent({
+        contentType: "multipart/form-data",
+        bodyText: "",
+      }),
+    ).toEqual({
+      level: "warning",
+      message: "multipart/form-data 通常用于请求体，作为响应 Content-Type 时请确认是否符合预期",
+    });
+    expect(
+      validateMockStaticResponseContent({
+        contentType: "application/x-www-form-urlencoded",
+        bodyText: "ok=true",
+      }),
+    ).toEqual({
+      level: "warning",
+      message: "application/x-www-form-urlencoded 通常用于请求体，作为响应 Content-Type 时请确认是否符合预期",
+    });
+  });
+
+  it("warns when selected content type and imported file extension disagree", () => {
+    expect(getMockFileContentTypeWarning({ contentType: "application/pdf", fileName: "avatar.png" })).toBe(
+      "上传文件看起来是 image/png，当前 Content-Type 是 application/pdf，请确认是否正确。",
+    );
+    expect(
+      getMockFileContentTypeWarning({ contentType: "text/plain; charset=utf-8", fileName: "readme.txt" }),
+    ).toBe("");
+    expect(getMockFileContentTypeWarning({ contentType: "application/octet-stream", fileName: "avatar.png" })).toBe(
+      "",
+    );
   });
 
   it("formats mock file sizes for compact display", () => {

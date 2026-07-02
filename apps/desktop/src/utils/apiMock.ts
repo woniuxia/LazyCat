@@ -20,6 +20,39 @@ export const API_MOCK_METHODS: ApiMockMethod[] = [
 
 export const DEFAULT_API_MOCK_CONTENT_TYPE = "application/json; charset=utf-8";
 
+export interface ApiMockContentTypePreset {
+  label: string;
+  value: string;
+}
+
+export type ApiMockContentValidationNotice = {
+  level: "error" | "warning";
+  message: string;
+};
+
+export const API_MOCK_CONTENT_TYPE_PRESETS: ApiMockContentTypePreset[] = [
+  { label: "JSON UTF-8", value: "application/json; charset=utf-8" },
+  { label: "JSON", value: "application/json" },
+  { label: "Plain Text", value: "text/plain; charset=utf-8" },
+  { label: "HTML", value: "text/html; charset=utf-8" },
+  { label: "XML", value: "application/xml" },
+  { label: "XML Text", value: "text/xml; charset=utf-8" },
+  { label: "CSV", value: "text/csv; charset=utf-8" },
+  { label: "Form URL Encoded", value: "application/x-www-form-urlencoded" },
+  { label: "Multipart Form", value: "multipart/form-data" },
+  { label: "PNG", value: "image/png" },
+  { label: "JPEG", value: "image/jpeg" },
+  { label: "SVG", value: "image/svg+xml" },
+  { label: "WebP", value: "image/webp" },
+  { label: "GIF", value: "image/gif" },
+  { label: "PDF", value: "application/pdf" },
+  { label: "ZIP", value: "application/zip" },
+  { label: "WASM", value: "application/wasm" },
+  { label: "Binary", value: "application/octet-stream" },
+  { label: "CSS", value: "text/css; charset=utf-8" },
+  { label: "JavaScript", value: "text/javascript; charset=utf-8" },
+];
+
 export const DEFAULT_API_MOCK_CORS: ApiMockCorsConfig = {
   enabled: true,
   allowOrigin: "*",
@@ -146,6 +179,81 @@ export function getMockRouteSpecificityLabel(pattern: string): "精确" | "参�
   if (pattern.split("/").includes("*")) return "通配";
   if (pattern.split("/").some((segment) => segment.startsWith(":"))) return "参数";
   return "精确";
+}
+
+export function trimMockContentType(contentType: string): string {
+  return contentType.trim();
+}
+
+export function normalizeMockContentType(contentType: string): string {
+  return trimMockContentType(contentType).split(";")[0]?.trim().toLowerCase() ?? "";
+}
+
+export function validateMockContentTypeHeader(contentType: string): ApiMockValidationResult {
+  const value = trimMockContentType(contentType);
+  if (!value) return ok();
+  if (/[\r\n]/.test(value)) return fail("Content-Type 不能包含换行符");
+
+  const mime = value.split(";")[0]?.trim() ?? "";
+  if (!/^[A-Za-z0-9!#$&^_.+-]+\/[A-Za-z0-9!#$&^_.+-]+$/.test(mime)) {
+    return fail("Content-Type 必须是 type/subtype 格式");
+  }
+
+  return ok();
+}
+
+export function validateMockStaticResponseContent(input: {
+  contentType: string;
+  bodyText: string;
+}): ApiMockContentValidationNotice | null {
+  const mime = normalizeMockContentType(input.contentType);
+  if (!mime) return null;
+
+  if (mime === "application/json") {
+    try {
+      JSON.parse(input.bodyText);
+      return null;
+    } catch {
+      return {
+        level: "error",
+        message: "当前 Content-Type 是 JSON，但响应 Body 不是合法 JSON",
+      };
+    }
+  }
+
+  if (mime === "application/xml" || mime === "text/xml") {
+    return {
+      level: "warning",
+      message: "当前 Content-Type 是 XML，请确认响应 Body 是正确的 XML 内容",
+    };
+  }
+  if (mime === "text/html") {
+    return {
+      level: "warning",
+      message: "当前 Content-Type 是 HTML，请确认响应 Body 是 HTML 内容",
+    };
+  }
+  if (mime === "application/x-www-form-urlencoded") {
+    return {
+      level: "warning",
+      message: "application/x-www-form-urlencoded 通常用于请求体，作为响应 Content-Type 时请确认是否符合预期",
+    };
+  }
+  if (mime === "multipart/form-data") {
+    return {
+      level: "warning",
+      message: "multipart/form-data 通常用于请求体，作为响应 Content-Type 时请确认是否符合预期",
+    };
+  }
+
+  return null;
+}
+
+export function getMockFileContentTypeWarning(input: { contentType: string; fileName: string }): string {
+  const current = normalizeMockContentType(input.contentType);
+  const inferred = normalizeMockContentType(inferMockContentTypeFromFileName(input.fileName));
+  if (!current || !inferred || current === "application/octet-stream" || current === inferred) return "";
+  return `上传文件看起来是 ${inferred}，当前 Content-Type 是 ${current}，请确认是否正确。`;
 }
 
 export function resolveMockFileContentType(currentContentType: string, fileName: string): string {
