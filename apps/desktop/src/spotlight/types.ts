@@ -7,6 +7,7 @@ export type SpotlightProviderId =
   | "todo"
   | "pm"
   | "data-dictionary"
+  | "browser-profiles"
   | "suggestion"
   | "launcher"
   | "__keyword__";
