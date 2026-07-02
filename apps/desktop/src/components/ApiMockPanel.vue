@@ -282,13 +282,17 @@ import {
   DEFAULT_API_MOCK_CORS,
   deriveMockProjectRuntimeState,
   formatMockFileSize,
+  getMockFileContentTypeWarning,
   getMockProjectAccessUrl,
   getMockProjectRuntimeAction,
   getMockRouteSpecificityLabel,
   normalizeMockHeaderRows,
   resolveMockFileContentType,
+  trimMockContentType,
+  validateMockContentTypeHeader,
   validateMockCorsConfig,
   validateMockPathPattern,
+  validateMockStaticResponseContent,
 } from "../utils/apiMock";
 
 interface ProjectForm {
@@ -520,6 +524,37 @@ async function saveRoute() {
     ElMessage.error(corsError.value);
     return;
   }
+
+  const contentType = trimMockContentType(routeForm.contentType);
+  const contentTypeResult = validateMockContentTypeHeader(contentType);
+  if (!contentTypeResult.ok) {
+    ElMessage.error(contentTypeResult.message);
+    return;
+  }
+
+  const staticContentNotice =
+    routeForm.responseKind === "static_body"
+      ? validateMockStaticResponseContent({ contentType, bodyText: routeForm.bodyText })
+      : null;
+  if (staticContentNotice?.level === "error") {
+    ElMessage.error(staticContentNotice.message);
+    return;
+  }
+  if (staticContentNotice?.level === "warning") {
+    ElMessage.warning(staticContentNotice.message);
+  }
+
+  if (routeForm.responseKind === "file" && routeFile.value) {
+    const fileContentTypeWarning = getMockFileContentTypeWarning({
+      contentType,
+      fileName: routeFile.value.originalName,
+    });
+    if (fileContentTypeWarning) {
+      ElMessage.warning(fileContentTypeWarning);
+    }
+  }
+  routeForm.contentType = contentType;
+
   if (routeForm.responseKind === "file" && !routeFile.value) {
     ElMessage.error("文件响应需要先导入文件");
     return;
@@ -533,7 +568,7 @@ async function saveRoute() {
       pathPattern: routeForm.pathPattern,
       statusCode: routeForm.statusCode,
       responseKind: routeForm.responseKind,
-      contentType: routeForm.contentType,
+      contentType,
       headers: normalizeMockHeaderRows(routeForm.headers),
       bodyText: routeForm.bodyText,
       fileId: routeFile.value?.id,
