@@ -122,3 +122,17 @@ export type {
   ApiWorkbenchHistoryDetail,
   ApiWorkbenchListResult,
 } from "./api-workbench";
+export type {
+  ApiMockMethod,
+  ApiMockResponseKind,
+  ApiMockRuntimeState,
+  ApiMockHeaderRow,
+  ApiMockCorsConfig,
+  ApiMockRuntimeSummary,
+  ApiMockRuntimeSnapshot,
+  ApiMockProjectSummary,
+  ApiMockFileInfo,
+  ApiMockRouteSummary,
+  ApiMockRouteDetail,
+  ApiMockRequestLog,
+} from "./api-mock";

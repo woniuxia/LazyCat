@@ -170,6 +170,9 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
     conn
         .execute_batch(super::api_workbench::API_WORKBENCH_SCHEMA_SQL)
         .map_err(|e| format!("create api workbench schema failed: {e}"))?;
+    conn
+        .execute_batch(super::api_mock::API_MOCK_SCHEMA_SQL)
+        .map_err(|e| format!("create api mock schema failed: {e}"))?;
 
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS hosts_profiles (

@@ -8,6 +8,33 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-07-02: API Mock 运行态与持久配置分离
+
+**场景**: 新增 API Mock 工具，支持多个项目持久化配置、每项目手动启动本地 HTTP 服务、文件响应副本和运行期最近请求日志。
+**使用次数**: 0
+**问题**:
+1. Mock 项目/路由需要持久化，但服务线程、停止信号和请求日志不能写入数据库，否则应用重启会产生“看似运行”的伪状态。
+2. 本地 HTTP 服务测试如果固定端口或共用自增项目 ID，Rust 并行测试会互相抢端口或污染全局运行态注册表。
+3. 文件响应如果直接保存用户原始路径，会扩大运行时本地文件读取范围。
+**解决**:
+1. SQLite 只保存项目、路由和受控文件副本元信息；运行服务放在进程内 registry，项目列表通过当前配置签名与启动快照签名判断“需重启”。
+2. Rust 冒烟测试使用 `127.0.0.1:0` 获取空闲端口，并给每个内存库设置不同 `api_mock_projects` 自增区间，避免并行测试 project_id 冲突。
+3. 文件导入统一复制到 `<dataDir>/api-mock/files/`，请求返回前 canonicalize 并校验仍位于受控目录内；路由只引用 `file_id`。
+**关键点**:
+1. 本地服务启动前先读取不可变路由快照；首版不热更新，配置变化只提示重启。
+2. 请求日志只记录时间、方法、路径、状态、命中路由、耗时和错误摘要，不保存完整请求头/请求体。
+3. 删除路由或项目后按引用计数清理文件副本；磁盘清理失败只返回 warning，不回滚已完成的配置删除。
+**涉及文件**:
+- `apps/desktop/src-tauri/src/tools/api_mock.rs`
+- `apps/desktop/src/components/ApiMockPanel.vue`
+- `apps/desktop/src/utils/apiMock.ts`
+- `apps/desktop/src/types/api-mock.ts`
+**验证**:
+- `cargo test api_mock -- --nocapture`
+- `pnpm test src/utils/apiMock.test.ts`
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+
 ## 2026-07-01: API Workbench 环境管理弹窗用两栏结构承载多环境编辑
 
 **场景**: 优化接口调试的环境管理弹窗，降低多环境切换、变量状态判断和保存反馈成本。

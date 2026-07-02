@@ -30,6 +30,7 @@ const toolRegistry: Record<string, Component> = {
   regex: defineAsyncComponent(() => import("./components/RegexPanel.vue")),
   network: defineAsyncComponent(() => import("./components/NetworkPanel.vue")),
   "api-workbench": defineAsyncComponent(() => import("./components/ApiWorkbenchPanel.vue")),
+  "api-mock": defineAsyncComponent(() => import("./components/ApiMockPanel.vue")),
   hosts: defineAsyncComponent(() => import("./components/HostsPanel.vue")),
   ports: defineAsyncComponent(() => import("./components/PortsPanel.vue")),
   dns: defineAsyncComponent(() => import("./components/DnsPanel.vue")),
