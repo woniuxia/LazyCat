@@ -81,6 +81,65 @@ export function formatBrowserProfileLastLaunchedAt(value: string | null): string
   });
 }
 
+export function formatBrowserProfileLastLaunchedAtCompact(
+  value: string | null,
+  now: Date = new Date(),
+): string {
+  if (!value) return "未启动过";
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) return "未启动过";
+
+  const time = new Date(timestamp);
+  const dayStart = (date: Date) =>
+    new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  const dayDiff = Math.round((dayStart(now) - dayStart(time)) / 86_400_000);
+  const clock = `${String(time.getHours()).padStart(2, "0")}:${String(
+    time.getMinutes(),
+  ).padStart(2, "0")}`;
+
+  if (dayDiff === 0) return `今天 ${clock}`;
+  if (dayDiff === 1) return `昨天 ${clock}`;
+  if (time.getFullYear() === now.getFullYear() && dayDiff > 0) {
+    return `${time.getMonth() + 1}月${time.getDate()}日`;
+  }
+  return `${time.getFullYear()}/${time.getMonth() + 1}/${time.getDate()}`;
+}
+
+export const BROWSER_PROFILE_BADGE_COLOR_COUNT = 8;
+
+export function getBrowserProfileBadgeInitial(profile: BrowserProfileItem): string {
+  const name = getBrowserProfileDisplayName(profile);
+  const first = [...name][0];
+  if (!first) return "?";
+  return first.toLocaleUpperCase("zh-CN");
+}
+
+export function getBrowserProfileBadgeColorIndex(profile: BrowserProfileItem): number {
+  const key = `${profile.browser}:${profile.profileDir}`;
+  let hash = 5381;
+  for (let index = 0; index < key.length; index++) {
+    hash = ((hash << 5) + hash + key.charCodeAt(index)) >>> 0;
+  }
+  return hash % BROWSER_PROFILE_BADGE_COLOR_COUNT;
+}
+
+export function buildBrowserProfileMetaSegments(
+  profile: BrowserProfileItem,
+  now: Date = new Date(),
+): string[] {
+  const segments: string[] = [];
+  const displayName = getBrowserProfileDisplayName(profile);
+  const profileDir = profile.profileDir.trim();
+  if (profileDir && profileDir !== displayName) segments.push(profileDir);
+
+  const edgeName = profile.edgeDisplayName.trim();
+  if (edgeName && edgeName !== displayName) segments.push(`Edge：${edgeName}`);
+
+  if (profile.launchCount > 0) segments.push(`${profile.launchCount} 次`);
+  segments.push(formatBrowserProfileLastLaunchedAtCompact(profile.lastLaunchedAt, now));
+  return segments;
+}
+
 export function buildBrowserProfileSearchFields(profile: BrowserProfileItem): SearchField[] {
   const fields: SearchField[] = [];
   const seen = new Set<string>();

@@ -12,6 +12,15 @@
         </div>
       </div>
 
+      <div v-if="totalProfileCount > 0" class="browser-profiles-search">
+        <el-input
+          v-model="searchQuery"
+          clearable
+          :prefix-icon="Search"
+          placeholder="搜索别名、Edge 名、目录或拼音首字母"
+        />
+      </div>
+
       <div class="browser-profiles-actions">
         <span class="browser-profiles-count">
           {{ profileCountText }}
@@ -42,15 +51,6 @@
       </div>
     </section>
 
-    <section v-if="totalProfileCount > 0" class="browser-profiles-filter">
-      <el-input
-        v-model="searchQuery"
-        clearable
-        :prefix-icon="Search"
-        placeholder="搜索别名、Edge 名、Profile 目录或拼音首字母"
-      />
-    </section>
-
     <main class="browser-profiles-content" v-loading="loading">
       <div v-if="!loading && sortedProfiles.length === 0" class="browser-profiles-empty">
         未发现 Edge Profile
@@ -60,40 +60,68 @@
       </div>
 
       <template v-else>
-        <section class="browser-profiles-list">
+        <section class="browser-profiles-grid">
           <div
             v-for="profile in groupedProfiles.visible"
             :key="profileKey(profile)"
-            class="browser-profile-row"
+            class="browser-profile-card"
+            :class="{
+              'is-launching': launchingKey === profileKey(profile),
+              'is-disabled': edgeMissing,
+            }"
+            role="button"
+            :tabindex="edgeMissing ? -1 : 0"
+            :aria-disabled="edgeMissing || undefined"
+            :aria-label="`启动 ${getBrowserProfileDisplayName(profile)}`"
+            :title="profileTooltip(profile)"
+            @click="launchProfile(profile)"
+            @keydown.enter="onCardKeydown(profile, $event)"
+            @keydown.space="onCardKeydown(profile, $event)"
           >
-            <div class="browser-profile-main">
-              <div class="browser-profile-name" :title="getBrowserProfileDisplayName(profile)">
-                {{ getBrowserProfileDisplayName(profile) }}
-              </div>
-              <div class="browser-profile-meta">
-                <span v-if="profile.edgeDisplayName && profile.edgeDisplayName !== getBrowserProfileDisplayName(profile)">
-                  Edge：{{ profile.edgeDisplayName }}
-                </span>
-                <span>{{ profile.profileDir }}</span>
-              </div>
-            </div>
-            <div class="browser-profile-stats">
-              <span>{{ profile.launchCount }} 次</span>
-              <span>{{ formatBrowserProfileLastLaunchedAt(profile.lastLaunchedAt) }}</span>
-            </div>
-            <div class="browser-profile-actions">
-              <el-button
-                type="primary"
-                size="small"
-                :icon="VideoPlay"
-                :loading="launchingKey === profileKey(profile)"
-                :disabled="response?.edgeFound === false"
-                @click="launchProfile(profile)"
+            <div
+              class="browser-profile-badge"
+              :class="`is-color-${getBrowserProfileBadgeColorIndex(profile)}`"
+            >
+              <span class="browser-profile-badge-initial">
+                {{ getBrowserProfileBadgeInitial(profile) }}
+              </span>
+              <el-icon
+                v-if="launchingKey === profileKey(profile)"
+                class="browser-profile-badge-loading is-loading"
               >
-                启动
-              </el-button>
-              <el-button size="small" :icon="EditPen" @click="editAlias(profile)">别名</el-button>
-              <el-button size="small" :icon="Hide" @click="setHidden(profile, true)">隐藏</el-button>
+                <Loading />
+              </el-icon>
+              <el-icon v-else class="browser-profile-badge-play">
+                <VideoPlay />
+              </el-icon>
+            </div>
+            <div class="browser-profile-info">
+              <div class="browser-profile-title-row">
+                <span class="browser-profile-name">
+                  {{ getBrowserProfileDisplayName(profile) }}
+                </span>
+                <div class="browser-profile-card-actions">
+                  <button
+                    type="button"
+                    class="browser-profile-icon-btn"
+                    title="编辑别名"
+                    aria-label="编辑别名"
+                    @click.stop="editAlias(profile)"
+                  >
+                    <el-icon><EditPen /></el-icon>
+                  </button>
+                  <button
+                    type="button"
+                    class="browser-profile-icon-btn"
+                    title="隐藏"
+                    aria-label="隐藏"
+                    @click.stop="setHidden(profile, true)"
+                  >
+                    <el-icon><Hide /></el-icon>
+                  </button>
+                </div>
+              </div>
+              <div class="browser-profile-meta">{{ profileMetaText(profile) }}</div>
             </div>
           </div>
         </section>
@@ -108,30 +136,48 @@
             <span>{{ groupedProfiles.hidden.length }}</span>
           </button>
 
-          <div v-if="hiddenListVisible" class="browser-profiles-list">
+          <div v-if="hiddenListVisible" class="browser-profiles-grid">
             <div
               v-for="profile in groupedProfiles.hidden"
               :key="profileKey(profile)"
-              class="browser-profile-row is-hidden"
+              class="browser-profile-card is-hidden"
+              :title="profileTooltip(profile)"
             >
-              <div class="browser-profile-main">
-                <div class="browser-profile-name" :title="getBrowserProfileDisplayName(profile)">
-                  {{ getBrowserProfileDisplayName(profile) }}
-                </div>
-                <div class="browser-profile-meta">
-                  <span v-if="profile.edgeDisplayName && profile.edgeDisplayName !== getBrowserProfileDisplayName(profile)">
-                    Edge：{{ profile.edgeDisplayName }}
+              <div
+                class="browser-profile-badge"
+                :class="`is-color-${getBrowserProfileBadgeColorIndex(profile)}`"
+              >
+                <span class="browser-profile-badge-initial">
+                  {{ getBrowserProfileBadgeInitial(profile) }}
+                </span>
+              </div>
+              <div class="browser-profile-info">
+                <div class="browser-profile-title-row">
+                  <span class="browser-profile-name">
+                    {{ getBrowserProfileDisplayName(profile) }}
                   </span>
-                  <span>{{ profile.profileDir }}</span>
+                  <div class="browser-profile-card-actions">
+                    <button
+                      type="button"
+                      class="browser-profile-icon-btn"
+                      title="恢复显示"
+                      aria-label="恢复显示"
+                      @click.stop="setHidden(profile, false)"
+                    >
+                      <el-icon><View /></el-icon>
+                    </button>
+                    <button
+                      type="button"
+                      class="browser-profile-icon-btn"
+                      title="编辑别名"
+                      aria-label="编辑别名"
+                      @click.stop="editAlias(profile)"
+                    >
+                      <el-icon><EditPen /></el-icon>
+                    </button>
+                  </div>
                 </div>
-              </div>
-              <div class="browser-profile-stats">
-                <span>{{ profile.launchCount }} 次</span>
-                <span>{{ formatBrowserProfileLastLaunchedAt(profile.lastLaunchedAt) }}</span>
-              </div>
-              <div class="browser-profile-actions">
-                <el-button size="small" :icon="View" @click="setHidden(profile, false)">恢复</el-button>
-                <el-button size="small" :icon="EditPen" @click="editAlias(profile)">别名</el-button>
+                <div class="browser-profile-meta">{{ profileMetaText(profile) }}</div>
               </div>
             </div>
           </div>
@@ -149,6 +195,7 @@ import {
   EditPen,
   FolderOpened,
   Hide,
+  Loading,
   Refresh,
   Search,
   VideoPlay,
@@ -162,8 +209,11 @@ import type {
   BrowserProfilesListResponse,
 } from "../types/browser-profiles";
 import {
+  buildBrowserProfileMetaSegments,
   filterBrowserProfiles,
   formatBrowserProfileLastLaunchedAt,
+  getBrowserProfileBadgeColorIndex,
+  getBrowserProfileBadgeInitial,
   getBrowserProfileDisplayName,
   sortBrowserProfiles,
   splitBrowserProfilesByHidden,
@@ -175,6 +225,7 @@ const response = ref<BrowserProfilesListResponse | null>(null);
 const errorMessage = ref("");
 const hiddenExpanded = ref(false);
 const searchQuery = ref("");
+const metaNow = ref(new Date());
 let requestSeq = 0;
 
 const sortedProfiles = computed(() => sortBrowserProfiles(response.value?.profiles ?? []));
@@ -186,6 +237,7 @@ const responseWarnings = computed(() => response.value?.warnings ?? []);
 const hasSearchQuery = computed(() => searchQuery.value.trim().length > 0);
 const hiddenListVisible = computed(() => hiddenExpanded.value || hasSearchQuery.value);
 const totalProfileCount = computed(() => response.value?.profiles.length ?? 0);
+const edgeMissing = computed(() => response.value?.edgeFound === false);
 const profileCountText = computed(() => {
   if (hasSearchQuery.value) {
     return `${filteredProfiles.value.length} / ${totalProfileCount.value} 个匹配`;
@@ -200,6 +252,21 @@ const edgeStatusText = computed(() => {
   return response.value.edgeFound ? "已找到 Edge" : "未找到 Edge";
 });
 
+function profileMetaText(profile: BrowserProfileItem): string {
+  return buildBrowserProfileMetaSegments(profile, metaNow.value).join(" · ");
+}
+
+function profileTooltip(profile: BrowserProfileItem): string {
+  const displayName = getBrowserProfileDisplayName(profile);
+  const lines = [displayName];
+  const edgeName = profile.edgeDisplayName.trim();
+  if (edgeName && edgeName !== displayName) lines.push(`Edge 名称：${edgeName}`);
+  lines.push(`目录：${profile.profileDir}`);
+  lines.push(`启动次数：${profile.launchCount}`);
+  lines.push(`最近启动：${formatBrowserProfileLastLaunchedAt(profile.lastLaunchedAt)}`);
+  return lines.join("\n");
+}
+
 async function loadProfiles() {
   const seq = ++requestSeq;
   loading.value = true;
@@ -211,6 +278,7 @@ async function loadProfiles() {
     )) as BrowserProfilesListResponse;
     if (seq !== requestSeq) return;
     response.value = result;
+    metaNow.value = new Date();
   } catch (err) {
     if (seq !== requestSeq) return;
     errorMessage.value = err instanceof Error ? err.message : String(err);
@@ -219,8 +287,19 @@ async function loadProfiles() {
   }
 }
 
+function onCardKeydown(profile: BrowserProfileItem, event: KeyboardEvent) {
+  if (event.target !== event.currentTarget) return;
+  event.preventDefault();
+  launchProfile(profile);
+}
+
 async function launchProfile(profile: BrowserProfileItem) {
+  if (edgeMissing.value) {
+    ElMessage.warning("未找到 Edge，请先选择 msedge.exe");
+    return;
+  }
   const key = profileKey(profile);
+  if (launchingKey.value === key) return;
   launchingKey.value = key;
   try {
     await invokeToolByChannel("tool:browser-profiles:launch", {
@@ -328,9 +407,8 @@ onMounted(() => {
 .browser-profiles-toolbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 16px 20px;
+  gap: 12px;
+  padding: 12px 20px;
   border-bottom: 1px solid var(--lc-border-subtle);
   background: var(--lc-surface-0);
 }
@@ -338,8 +416,9 @@ onMounted(() => {
 .browser-profiles-title {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
   min-width: 0;
+  flex-shrink: 0;
 }
 
 .browser-profiles-title h2 {
@@ -368,11 +447,18 @@ onMounted(() => {
   color: var(--lc-success, #22c55e);
 }
 
+.browser-profiles-search {
+  flex: 1;
+  min-width: 180px;
+  max-width: 400px;
+}
+
 .browser-profiles-actions {
   display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
+  margin-left: auto;
 }
 
 .browser-profiles-count {
@@ -418,21 +504,11 @@ onMounted(() => {
   word-break: break-all;
 }
 
-.browser-profiles-filter {
-  padding: 12px 20px;
-  border-bottom: 1px solid var(--lc-border-subtle);
-  background: var(--lc-surface-0);
-}
-
-.browser-profiles-filter :deep(.el-input) {
-  max-width: 520px;
-}
-
 .browser-profiles-content {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 16px 20px 24px;
+  padding: 14px 20px 24px;
 }
 
 .browser-profiles-empty {
@@ -444,71 +520,192 @@ onMounted(() => {
   font-size: 14px;
 }
 
-.browser-profiles-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+.browser-profiles-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 10px;
 }
 
-.browser-profile-row {
-  display: grid;
-  grid-template-columns: minmax(180px, 1fr) 190px auto;
+.browser-profile-card {
+  display: flex;
   align-items: center;
-  gap: 14px;
-  min-height: 68px;
-  padding: 12px 14px;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px 12px;
   border: 1px solid var(--lc-border-subtle);
   border-radius: var(--lc-radius-md);
   background: var(--lc-surface-1);
+  cursor: pointer;
+  user-select: none;
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s, transform 0.1s;
 }
 
-.browser-profile-row.is-hidden {
-  opacity: 0.78;
+.browser-profile-card:hover {
+  border-color: var(--lc-border-hover);
+  background: var(--lc-accent-glow);
+  box-shadow: var(--lc-shadow-sm);
 }
 
-.browser-profile-main {
+.browser-profile-card:active {
+  transform: scale(0.99);
+}
+
+.browser-profile-card:focus-visible {
+  outline: 2px solid var(--lc-accent);
+  outline-offset: 1px;
+}
+
+.browser-profile-card.is-disabled {
+  cursor: not-allowed;
+}
+
+.browser-profile-card.is-disabled:hover {
+  border-color: var(--lc-border-subtle);
+  background: var(--lc-surface-1);
+  box-shadow: none;
+}
+
+.browser-profile-card.is-disabled:active,
+.browser-profile-card.is-hidden:active {
+  transform: none;
+}
+
+.browser-profile-card.is-hidden {
+  opacity: 0.72;
+  cursor: default;
+}
+
+.browser-profile-card.is-hidden:hover {
+  border-color: var(--lc-border);
+  background: var(--lc-surface-1);
+  box-shadow: none;
+  opacity: 1;
+}
+
+.browser-profile-badge {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.browser-profile-badge-initial {
+  transition: opacity 0.15s;
+}
+
+.browser-profile-badge .el-icon {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  font-size: 17px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.browser-profile-card:not(.is-disabled):not(.is-hidden):hover .browser-profile-badge-initial,
+.browser-profile-card.is-launching .browser-profile-badge-initial {
+  opacity: 0;
+}
+
+.browser-profile-card:not(.is-disabled):hover .browser-profile-badge-play,
+.browser-profile-card.is-launching .browser-profile-badge-loading {
+  opacity: 1;
+}
+
+.browser-profile-badge.is-color-0 { color: #0284c7; background: rgba(14, 165, 233, 0.14); }
+.browser-profile-badge.is-color-1 { color: #7c3aed; background: rgba(139, 92, 246, 0.14); }
+.browser-profile-badge.is-color-2 { color: #b45309; background: rgba(245, 158, 11, 0.16); }
+.browser-profile-badge.is-color-3 { color: #047857; background: rgba(16, 185, 129, 0.14); }
+.browser-profile-badge.is-color-4 { color: #dc2626; background: rgba(239, 68, 68, 0.12); }
+.browser-profile-badge.is-color-5 { color: #db2777; background: rgba(236, 72, 153, 0.12); }
+.browser-profile-badge.is-color-6 { color: #4f46e5; background: rgba(99, 102, 241, 0.14); }
+.browser-profile-badge.is-color-7 { color: #0f766e; background: rgba(20, 184, 166, 0.14); }
+
+.browser-profile-info {
+  flex: 1;
   min-width: 0;
 }
 
+.browser-profile-title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .browser-profile-name {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   color: var(--lc-text);
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 600;
-  line-height: 1.35;
+  line-height: 1.4;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.browser-profile-meta {
+.browser-profile-card-actions {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px 10px;
-  margin-top: 5px;
+  gap: 2px;
+  flex-shrink: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
+}
+
+.browser-profile-card:hover .browser-profile-card-actions,
+.browser-profile-card:focus-within .browser-profile-card-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.browser-profile-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--lc-text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  transition: background 0.15s, color 0.15s;
+}
+
+.browser-profile-icon-btn:hover {
+  background: var(--lc-accent-dim);
+  color: var(--lc-text);
+}
+
+.browser-profile-icon-btn:focus-visible {
+  outline: 2px solid var(--lc-accent);
+  outline-offset: 1px;
+}
+
+.browser-profile-meta {
+  margin-top: 2px;
+  overflow: hidden;
   color: var(--lc-text-secondary);
   font-size: 12px;
   line-height: 1.4;
-}
-
-.browser-profile-stats {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  color: var(--lc-text-secondary);
-  font-size: 12px;
-  text-align: right;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.browser-profile-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 6px;
-  min-width: 0;
-}
-
 .browser-profiles-hidden {
-  margin-top: 18px;
+  margin-top: 16px;
 }
 
 .browser-profiles-hidden-toggle {
@@ -516,7 +713,7 @@ onMounted(() => {
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  height: 36px;
+  height: 32px;
   margin-bottom: 8px;
   padding: 0 12px;
   border: 1px solid var(--lc-border-subtle);
@@ -543,31 +740,16 @@ onMounted(() => {
 
 @media (max-width: 900px) {
   .browser-profiles-toolbar {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .browser-profiles-actions {
-    width: 100%;
     flex-wrap: wrap;
   }
 
-  .browser-profiles-filter :deep(.el-input) {
+  .browser-profiles-search {
+    order: 3;
+    flex-basis: 100%;
     max-width: none;
   }
 
-  .browser-profile-row {
-    grid-template-columns: 1fr;
-    align-items: stretch;
-  }
-
-  .browser-profile-stats {
-    flex-direction: row;
-    text-align: left;
-  }
-
-  .browser-profile-actions {
-    justify-content: flex-start;
+  .browser-profiles-actions {
     flex-wrap: wrap;
   }
 }
