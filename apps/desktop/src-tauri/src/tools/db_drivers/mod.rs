@@ -6,6 +6,7 @@
 
 pub mod kingbase;
 pub mod mysql;
+pub mod redis;
 pub mod sql_text;
 
 use serde::Serialize;

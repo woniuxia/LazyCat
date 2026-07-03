@@ -14,6 +14,7 @@
         <el-radio-group v-model="form.engine" :disabled="isEdit" @change="onEngineChange">
           <el-radio-button value="mysql">MySQL</el-radio-button>
           <el-radio-button value="kingbase">KingbaseES</el-radio-button>
+          <el-radio-button value="redis">Redis</el-radio-button>
         </el-radio-group>
       </el-form-item>
       <el-form-item label="主机" required>
@@ -30,7 +31,10 @@
         </div>
       </el-form-item>
       <el-form-item label="用户名">
-        <el-input v-model="form.username" placeholder="数据库用户名" />
+        <el-input
+          v-model="form.username"
+          :placeholder="form.engine === 'redis' ? '可选（Redis 6+ ACL 用户）' : '数据库用户名'"
+        />
       </el-form-item>
       <el-form-item label="密码">
         <el-input
@@ -44,10 +48,10 @@
           已保存密码，留空保持不变；输入新值覆盖，清空后保存即删除密码
         </div>
       </el-form-item>
-      <el-form-item :label="form.engine === 'kingbase' ? '默认数据库' : '默认库'" :required="form.engine === 'kingbase'">
+      <el-form-item :label="databaseLabel" :required="form.engine === 'kingbase'">
         <el-input
           v-model="form.defaultDatabase"
-          :placeholder="form.engine === 'kingbase' ? 'KingbaseES 必填，例如 test' : '可选'"
+          :placeholder="databasePlaceholder"
         />
       </el-form-item>
       <el-form-item label="环境标签">
@@ -143,6 +147,16 @@ const hasPassword = computed(() => props.connection?.hasPassword ?? false);
 const passwordPlaceholder = computed(() =>
   isEdit.value && hasPassword.value ? "已保存（留空保持不变）" : "可选"
 );
+const databaseLabel = computed(() => {
+  if (form.engine === "redis") return "db 编号";
+  if (form.engine === "kingbase") return "默认数据库";
+  return "默认库";
+});
+const databasePlaceholder = computed(() => {
+  if (form.engine === "redis") return "0-15，默认 0";
+  if (form.engine === "kingbase") return "KingbaseES 必填，例如 test";
+  return "可选";
+});
 
 watch(
   () => props.visible,
@@ -193,6 +207,9 @@ function validate(): string | null {
   if (!form.host.trim()) return "请填写主机地址";
   if (form.engine === "kingbase" && !form.defaultDatabase.trim()) {
     return "KingbaseES 连接必须填写默认数据库";
+  }
+  if (form.engine === "redis" && form.defaultDatabase.trim() && !/^\d+$/.test(form.defaultDatabase.trim())) {
+    return "Redis 的 db 编号必须是数字";
   }
   return null;
 }

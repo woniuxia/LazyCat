@@ -29,6 +29,8 @@ static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
 static POOLS: OnceLock<Mutex<HashMap<String, DbPool>>> = OnceLock::new();
 static RUNNING: OnceLock<Mutex<HashMap<String, RunningQuery>>> = OnceLock::new();
 static DB_KEY: OnceLock<[u8; vault::KEY_LEN]> = OnceLock::new();
+static REDIS_CONNS: OnceLock<Mutex<HashMap<String, redis::aio::MultiplexedConnection>>> =
+    OnceLock::new();
 
 struct RunningQuery {
     connection_id: String,
@@ -46,6 +48,10 @@ fn pools() -> &'static Mutex<HashMap<String, DbPool>> {
 
 fn running() -> &'static Mutex<HashMap<String, RunningQuery>> {
     RUNNING.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn redis_conns() -> &'static Mutex<HashMap<String, redis::aio::MultiplexedConnection>> {
+    REDIS_CONNS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
@@ -69,6 +75,10 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         "saved_query_delete" => saved_query_delete(payload),
         "history_list" => history_list(payload),
         "history_clear" => history_clear(payload),
+        "redis_scan" => redis_scan(payload),
+        "redis_key_detail" => redis_key_detail(payload),
+        "redis_key_write" => redis_key_write(payload),
+        "redis_command" => redis_command(payload),
         _ => Err(format!("unsupported db action: {action}")),
     }
 }
@@ -253,7 +263,7 @@ fn connection_save(payload: &Value) -> Result<Value, String> {
     let name = payload["name"].as_str().map(str::trim).filter(|s| !s.is_empty())
         .ok_or("连接名称不能为空")?;
     let engine = payload["engine"].as_str().ok_or("engine required")?;
-    if !matches!(engine, "mysql" | "kingbase") {
+    if !matches!(engine, "mysql" | "kingbase" | "redis") {
         return Err(format!("暂不支持的引擎: {engine}"));
     }
     let host = payload["host"].as_str().map(str::trim).filter(|s| !s.is_empty())
@@ -380,6 +390,16 @@ fn connection_test(payload: &Value) -> Result<Value, String> {
         connect_timeout_secs: DEFAULT_CONNECT_TIMEOUT_SECS,
     };
     runtime().block_on(async move {
+        if cfg.engine == "redis" {
+            let db_index = cfg
+                .database
+                .as_deref()
+                .and_then(|s| s.parse::<i64>().ok())
+                .unwrap_or(0);
+            let mut conn = db_drivers::redis::connect(&cfg, db_index).await?;
+            let version = db_drivers::redis::server_version(&mut conn).await?;
+            return Ok(json!({ "ok": true, "serverVersion": version }));
+        }
         let pool = db_drivers::make_pool(&cfg).await?;
         let version = pool.server_version().await?;
         pool.close().await;
@@ -409,6 +429,10 @@ fn close_pools_of(connection_id: &str) {
             }
         });
     }
+    redis_conns()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .retain(|k, _| !k.starts_with(&prefix));
     running()
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -437,12 +461,22 @@ fn get_pool(record: &ConnRecord, database: Option<&str>) -> Result<DbPool, Strin
 fn connection_open(payload: &Value) -> Result<Value, String> {
     let id = payload["connectionId"].as_str().ok_or("connectionId required")?;
     let record = load_connection(id)?;
-    let pool = get_pool(&record, None)?;
-    let (version, databases) = runtime().block_on(async {
-        let version = pool.server_version().await?;
-        let databases = pool.list_databases().await?;
-        Ok::<_, String>((version, databases))
-    })?;
+    let (version, databases) = if record.engine == "redis" {
+        let mut conn = redis_conn_for(&record, redis_db_index(&record, payload))?;
+        runtime().block_on(async {
+            let version = super::db_drivers::redis::server_version(&mut conn).await?;
+            let count = super::db_drivers::redis::database_count(&mut conn).await;
+            let databases: Vec<String> = (0..count).map(|i| i.to_string()).collect();
+            Ok::<_, String>((version, databases))
+        })?
+    } else {
+        let pool = get_pool(&record, None)?;
+        runtime().block_on(async {
+            let version = pool.server_version().await?;
+            let databases = pool.list_databases().await?;
+            Ok::<_, String>((version, databases))
+        })?
+    };
     let conn = db_conn()?;
     let _ = conn.execute(
         "UPDATE db_connections SET last_used_at = ?1 WHERE id = ?2",
@@ -1018,6 +1052,133 @@ fn history_clear(payload: &Value) -> Result<Value, String> {
             .map_err(|e| format!("清空历史失败: {e}"))?,
     };
     Ok(json!({ "cleared": n }))
+}
+
+// ---------- Redis（二期） ----------
+
+use super::db_drivers::redis as redis_driver;
+
+fn redis_db_index(record: &ConnRecord, payload: &Value) -> i64 {
+    payload["db"]
+        .as_i64()
+        .or_else(|| payload["db"].as_str().and_then(|s| s.parse().ok()))
+        .or_else(|| record.default_database.as_deref().and_then(|s| s.parse().ok()))
+        .unwrap_or(0)
+}
+
+/// 取或建 Redis 连接（MultiplexedConnection 可 Clone，按 connectionId+db 缓存）。
+fn redis_conn_for(
+    record: &ConnRecord,
+    db_index: i64,
+) -> Result<redis::aio::MultiplexedConnection, String> {
+    if record.engine != "redis" {
+        return Err("该连接不是 Redis 引擎".into());
+    }
+    let key = pool_key(&record.id, &db_index.to_string());
+    if let Some(conn) = redis_conns().lock().unwrap_or_else(|e| e.into_inner()).get(&key) {
+        return Ok(conn.clone());
+    }
+    let cfg = record.connect_config(Some(&db_index.to_string()))?;
+    let conn = runtime().block_on(async { redis_driver::connect(&cfg, db_index).await })?;
+    redis_conns()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(key, conn.clone());
+    Ok(conn)
+}
+
+fn redis_scan(payload: &Value) -> Result<Value, String> {
+    let id = payload["connectionId"].as_str().ok_or("connectionId required")?;
+    let record = load_connection(id)?;
+    let cursor = payload["cursor"].as_u64().unwrap_or(0);
+    let pattern = payload["pattern"].as_str().unwrap_or("").to_string();
+    let count = payload["count"].as_u64().unwrap_or(200).clamp(10, 1000) as usize;
+    let mut conn = redis_conn_for(&record, redis_db_index(&record, payload))?;
+    let (next, keys) = runtime()
+        .block_on(async { redis_driver::scan_keys(&mut conn, cursor, &pattern, count).await })?;
+    let items: Vec<Value> = keys
+        .into_iter()
+        .map(|(key, key_type)| json!({ "key": key, "type": key_type }))
+        .collect();
+    Ok(json!({ "cursor": next, "done": next == 0, "keys": items }))
+}
+
+fn redis_key_detail(payload: &Value) -> Result<Value, String> {
+    let id = payload["connectionId"].as_str().ok_or("connectionId required")?;
+    let key = payload["key"].as_str().ok_or("key required")?;
+    let record = load_connection(id)?;
+    let mut conn = redis_conn_for(&record, redis_db_index(&record, payload))?;
+    runtime().block_on(async { redis_driver::key_detail(&mut conn, key).await })
+}
+
+fn redis_key_write(payload: &Value) -> Result<Value, String> {
+    let id = payload["connectionId"].as_str().ok_or("connectionId required")?;
+    let action = payload["writeAction"].as_str().ok_or("writeAction required")?;
+    let key = payload["key"].as_str().ok_or("key required")?;
+    let record = load_connection(id)?;
+    if record.read_only {
+        return Err("只读连接不允许修改数据（如需修改请在连接设置中关闭只读保护）".into());
+    }
+    let mut conn = redis_conn_for(&record, redis_db_index(&record, payload))?;
+    runtime().block_on(async { redis_driver::key_write(&mut conn, action, key, payload).await })
+}
+
+fn redis_command(payload: &Value) -> Result<Value, String> {
+    let id = payload["connectionId"].as_str().ok_or("connectionId required")?;
+    let command = payload["command"].as_str().ok_or("command required")?;
+    let confirmed = payload["confirmed"].as_bool().unwrap_or(false);
+    let record = load_connection(id)?;
+
+    let args = redis_driver::parse_command_line(command)?;
+    let class = redis_driver::classify_command(&args[0]);
+    match class {
+        redis_driver::CommandClass::Blocking => {
+            return Err(format!(
+                "命令 {} 属于阻塞/订阅类，控制台不支持长连接语义",
+                args[0].to_ascii_uppercase()
+            ));
+        }
+        redis_driver::CommandClass::Dangerous => {
+            if record.read_only {
+                return Err("只读连接已拦截该命令".into());
+            }
+            if !confirmed {
+                return Ok(json!({
+                    "needsConfirmation": true,
+                    "reasons": [{
+                        "kind": "dangerousCommand",
+                        "statementIndex": 0,
+                        "verb": args[0].to_ascii_uppercase(),
+                        "preview": preview(command),
+                    }],
+                }));
+            }
+        }
+        redis_driver::CommandClass::Write => {
+            if record.read_only {
+                return Err(format!(
+                    "只读连接已拦截写命令 {}（如需执行请关闭只读保护）",
+                    args[0].to_ascii_uppercase()
+                ));
+            }
+        }
+        redis_driver::CommandClass::Readonly => {}
+    }
+
+    let mut conn = redis_conn_for(&record, redis_db_index(&record, payload))?;
+    let started = std::time::Instant::now();
+    let result = runtime().block_on(async { redis_driver::run_command(&mut conn, &args).await });
+    let duration = started.elapsed().as_millis() as u64;
+    match result {
+        Ok(value) => {
+            record_history(&record.id, &format!("-- redis: {}", preview(command)), duration, "ok", 0);
+            Ok(json!({ "result": value, "durationMs": duration }))
+        }
+        Err(e) => {
+            record_history(&record.id, &format!("-- redis: {}", preview(command)), duration, "error", 0);
+            Err(e)
+        }
+    }
 }
 
 #[cfg(test)]

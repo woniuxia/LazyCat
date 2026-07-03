@@ -90,7 +90,7 @@ const SIDEBAR_ITEMS: SidebarItem[] = [
       id: "database",
       name: "数据库",
       tools: [
-        { id: "db-workbench", name: "数据库工作台", desc: "MySQL/KingbaseES 连接管理、查询与表数据编辑" },
+        { id: "db-workbench", name: "数据库工作台", desc: "MySQL/KingbaseES/Redis 连接管理、查询与数据编辑" },
       ],
     },
   },

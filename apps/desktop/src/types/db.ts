@@ -1,6 +1,6 @@
 /** 数据库工作台类型定义 */
 
-export type DbEngine = "mysql" | "kingbase";
+export type DbEngine = "mysql" | "kingbase" | "redis";
 
 export type DbEnvTag = "dev" | "test" | "prod" | "other";
 
@@ -173,14 +173,58 @@ export interface DbHistoryEntry {
   rowCount: number | null;
 }
 
+// ---------- Redis（二期） ----------
+
+export type RedisKeyType = "string" | "hash" | "list" | "set" | "zset" | "stream" | string;
+
+export interface RedisScanItem {
+  key: string;
+  type: RedisKeyType;
+}
+
+export interface RedisScanResponse {
+  cursor: number;
+  done: boolean;
+  keys: RedisScanItem[];
+}
+
+export interface RedisHashEntry {
+  field: string;
+  value: string;
+}
+
+export interface RedisZsetEntry {
+  member: string;
+  score: number;
+}
+
+export interface RedisKeyDetail {
+  key: string;
+  type: RedisKeyType;
+  /** 秒；-1 永不过期，-2 不存在 */
+  ttl: number;
+  encoding: string;
+  memory: number | null;
+  value: string | string[] | RedisHashEntry[] | RedisZsetEntry[];
+  total: number;
+  truncated: boolean;
+}
+
+export interface RedisCommandResponse {
+  result: unknown;
+  durationMs: number;
+}
+
 export const DB_ENGINE_LABELS: Record<DbEngine, string> = {
   mysql: "MySQL",
   kingbase: "KingbaseES",
+  redis: "Redis",
 };
 
 export const DB_ENGINE_DEFAULT_PORTS: Record<DbEngine, number> = {
   mysql: 3306,
   kingbase: 54321,
+  redis: 6379,
 };
 
 export const DB_ENV_LABELS: Record<DbEnvTag, string> = {

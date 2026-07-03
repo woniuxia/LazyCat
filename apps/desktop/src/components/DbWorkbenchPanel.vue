@@ -16,7 +16,7 @@
             @dblclick="openConnection(c)"
             @click="focusConnection(c)"
           >
-            <span class="engine-badge" :class="c.engine">{{ c.engine === "mysql" ? "My" : "KB" }}</span>
+            <span class="engine-badge" :class="c.engine">{{ engineBadge(c.engine) }}</span>
             <span class="conn-name" :title="`${c.host}:${c.port}`">{{ c.name }}</span>
             <span class="env-dot" :style="{ background: DB_ENV_COLORS[c.envTag] }" :title="DB_ENV_LABELS[c.envTag]" />
             <el-icon v-if="c.readOnly" class="lock-icon" title="只读保护"><Lock /></el-icon>
@@ -55,12 +55,20 @@
           :key="state.connectionId"
           class="workspace-holder"
         >
-          <DbSqlWorkspace
-            v-if="connectionOf(state.connectionId)"
-            :connection="connectionOf(state.connectionId)!"
-            :opened="state"
-            @database-change="(db) => setActiveDatabase(state.connectionId, db)"
-          />
+          <template v-if="connectionOf(state.connectionId)">
+            <DbRedisBrowser
+              v-if="connectionOf(state.connectionId)!.engine === 'redis'"
+              :connection="connectionOf(state.connectionId)!"
+              :opened="state"
+              @database-change="(db) => setActiveDatabase(state.connectionId, db)"
+            />
+            <DbSqlWorkspace
+              v-else
+              :connection="connectionOf(state.connectionId)!"
+              :opened="state"
+              @database-change="(db) => setActiveDatabase(state.connectionId, db)"
+            />
+          </template>
         </div>
         <div v-if="!activeOpened" class="main-empty">
           <p>双击左侧连接打开工作台</p>
@@ -68,7 +76,7 @@
       </template>
       <div v-else class="main-empty">
         <h3>数据库工作台</h3>
-        <p>管理 MySQL / KingbaseES 连接，浏览库表结构，执行 SQL 与编辑表数据。</p>
+        <p>管理 MySQL / KingbaseES / Redis 连接，浏览数据结构，执行查询与编辑数据。</p>
         <p class="hint">双击左侧连接打开工作台；连接密码使用本地密钥加密存储。</p>
       </div>
     </main>
@@ -86,6 +94,7 @@ import { computed, onMounted, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { Lock, MoreFilled } from "@element-plus/icons-vue";
 import DbConnectionDialog from "./db/DbConnectionDialog.vue";
+import DbRedisBrowser from "./db/DbRedisBrowser.vue";
 import DbSqlWorkspace from "./db/DbSqlWorkspace.vue";
 import { useDbConnections } from "../composables/useDbConnections";
 import {
@@ -93,6 +102,7 @@ import {
   DB_ENV_LABELS,
   type DbConnection,
   type DbConnectionDraft,
+  type DbEngine,
 } from "../types/db";
 
 const {
@@ -126,6 +136,12 @@ const groupedConnections = computed(() => {
 
 function connectionOf(id: string): DbConnection | undefined {
   return connections.value.find((c) => c.id === id);
+}
+
+function engineBadge(engine: DbEngine): string {
+  if (engine === "mysql") return "My";
+  if (engine === "kingbase") return "KB";
+  return "Rd";
 }
 
 function focusConnection(c: DbConnection): void {
@@ -285,6 +301,9 @@ onMounted(refresh);
 }
 .engine-badge.kingbase {
   background: #c04851;
+}
+.engine-badge.redis {
+  background: #d82c20;
 }
 .conn-name {
   flex: 1;

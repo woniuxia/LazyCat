@@ -31,6 +31,7 @@ declare module 'vue' {
     DataDictionaryPanel: typeof import('./src/components/DataDictionaryPanel.vue')['default']
     DateCalcPanel: typeof import('./src/components/DateCalcPanel.vue')['default']
     DbConnectionDialog: typeof import('./src/components/db/DbConnectionDialog.vue')['default']
+    DbRedisBrowser: typeof import('./src/components/db/DbRedisBrowser.vue')['default']
     DbResultGrid: typeof import('./src/components/db/DbResultGrid.vue')['default']
     DbSqlEditor: typeof import('./src/components/db/DbSqlEditor.vue')['default']
     DbSqlWorkspace: typeof import('./src/components/db/DbSqlWorkspace.vue')['default']
