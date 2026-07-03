@@ -45,6 +45,8 @@ pub mod vault;
 pub mod attachments;
 pub mod system;
 pub mod widget;
+pub mod db;
+pub mod db_drivers;
 
 use serde_json::Value;
 
@@ -71,6 +73,7 @@ fn dispatch_tool(domain: &str, action: &str, payload: &Value) -> Result<Value, S
         "cron" => cron::execute(action, payload),
         "crypto" => crypto::execute(action, payload),
         "data_dictionary" => data_dictionary::execute(action, payload),
+        "db" => db::execute(action, payload),
         "format" => format::execute(action, payload),
         "network" => network::execute(action, payload),
         "dns" => dns::execute(action, payload),

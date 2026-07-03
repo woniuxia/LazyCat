@@ -262,6 +262,13 @@ fn action_set_data_dir(payload: &Value) -> Result<Value, String> {
         copy_dir_recursive(&current_attachments, &target_attachments)?;
     }
 
+    // Copy db-key（数据库工作台连接密码的本地加密密钥，缺失会导致已存密码无法解密）
+    let current_db_key = current_dir.join("db-key");
+    if current_db_key.is_file() {
+        fs::copy(&current_db_key, target_path.join("db-key"))
+            .map_err(|e| format!("copy db-key failed: {e}"))?;
+    }
+
     // 4. Update config.json
     let config_path = get_config_path()?;
     let config = json!({ "data_dir": target });
