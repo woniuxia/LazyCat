@@ -2837,3 +2837,39 @@ Cron 工具原先仅提供基础 6 字段输入与简单预览，缺少规范化
 - `pnpm --filter @lazycat/desktop build:web`
 
 **使用次数**: 0
+
+## 2026-07-03: 数据库工作台（MySQL/KingbaseES/Redis）两期落地
+
+**场景**: 新增深度工具 db-workbench：一期 MySQL + KingbaseES 的 SQL 工作台（连接管理、结构浏览、查询、表数据网格编辑、导出、收藏历史、安全阀），二期 Redis key 浏览器与命令控制台。
+**问题**:
+1. `execute_tool` 是同步分发，而 sqlx/redis 都是异步驱动。
+2. 任意 SQL 的只读/危险分类需要前后端口径一致，且 PG 系与 MySQL 语法细节冲突（`#` 在 MySQL 是注释、在 PG 是 JSONB 操作符；PG 有美元引用与写 CTE）。
+3. PG 强类型下字符串参数写回会因类型推断失败报错；PG 族连接与库绑定，不能像 MySQL 一样单池跨库。
+4. 取消执行需要拿到引擎侧会话标识，而一次性 IPC 响应模型里前端无执行句柄。
+5. 新增 21 个 Rust 测试后，api_mock 两个文件清理测试开始稳定互相冲突。
+**解决**:
+1. 复用 dns.rs 的静态 `OnceLock<Runtime>` + `block_on` 模式；连接池与运行中查询放静态 `Mutex<HashMap>`，池 key 为 `connectionId\u{1}database`。
+2. 语句拆分/分类做成方言参数化纯函数（Rust `sql_text.rs` 与 TS `dbSqlClassify.ts` 同规则同测试向量）；只读判定后端权威，前端仅提示。WITH 语句按“顶层（括号深度 0）是否出现写动词”判定写 CTE。
+3. KB/PG 写回与筛选统一 `CAST($n AS 列类型)`（类型来自 pg_attribute 的 format_type），LIKE 则把列 `::text`；每 (连接, 库) 一个池。
+4. queryId 由前端生成随请求传入，后端执行前在同一连接上查 `CONNECTION_ID()` / `pg_backend_pid()` 登记，取消时另取连接发 `KILL QUERY` / `pg_cancel_backend`；超时后连接 detach 销毁不回池。
+5. 二次确认走结构化握手：后端返回 `needsConfirmation + reasons`，前端弹窗后携带 `confirmed: true` 原样重发；只读连接无确认通道直接拒绝。
+6. api_mock 竞态根因是两个测试写入相同内容、内容寻址存储共享同一物理文件而 SQLite 各自独立，改成不同内容即修复。
+**关键点**:
+1. 内容寻址 + 共享物理目录的测试必须保证测试间内容互异，否则并行必然互删。
+2. sqlx 用 `raw_sql` + `fetch_many` 能同时拿行流和 rows_affected，并兼容 SHOW/USE 等不可预编译语句；行数截断后继续消费流丢弃剩余行，保证连接干净。
+3. 结果单元格全部字符串化（string|null）+ 列 kind 标记，避免 BIGINT/DECIMAL 前端精度丢失。
+4. 表数据网格编辑的唯一入口是"表数据浏览"页签（后端已知表名与主键），任意 SELECT 结果一律只读，规避解析任意 SQL 推断来源表。
+**涉及文件**:
+- `apps/desktop/src-tauri/src/tools/db.rs`、`db_drivers/{mod,sql_text,mysql,kingbase,redis}.rs`
+- `apps/desktop/src/components/DbWorkbenchPanel.vue`、`components/db/*`（6 个组件）
+- `apps/desktop/src/utils/dbSqlClassify.ts`、`dbGridChanges.ts`、`dbRedisKeyTree.ts` 及配套测试
+- `apps/desktop/src/composables/useDbConnections.ts`、`types/db.ts`、`bridge/tauri.ts`、`tool-registry.ts`、`composables/toolCatalog.ts`
+- `apps/desktop/src-tauri/src/tools/{helpers,vault,settings,mod}.rs`（表结构/加密提权/迁移复制 db-key/注册）
+
+**验证**:
+- `cargo test`（449 通过，含 sql_text/mysql/kingbase/redis/db 单测）
+- `pnpm test`（433 通过）
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+
+**使用次数**: 0
