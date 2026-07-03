@@ -87,6 +87,16 @@ const SIDEBAR_ITEMS: SidebarItem[] = [
   {
     kind: "group",
     group: {
+      id: "database",
+      name: "数据库",
+      tools: [
+        { id: "db-workbench", name: "数据库工作台", desc: "MySQL/KingbaseES 连接管理、查询与表数据编辑" },
+      ],
+    },
+  },
+  {
+    kind: "group",
+    group: {
       id: "network",
       name: "网络与系统",
       tools: [

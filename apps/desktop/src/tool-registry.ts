@@ -16,6 +16,7 @@ const toolRegistry: Record<string, Component> = {
   "json-process": defineAsyncComponent(() => import("./components/JsonProcessPanel.vue")),
   "json-schema": defineAsyncComponent(() => import("./components/JsonSchemaPanel.vue")),
   "data-dictionary": defineAsyncComponent(() => import("./components/DataDictionaryPanel.vue")),
+  "db-workbench": defineAsyncComponent(() => import("./components/DbWorkbenchPanel.vue")),
   "csv-json": defineAsyncComponent(() => import("./components/CsvJsonPanel.vue")),
   "java-bean-js": defineAsyncComponent(() => import("./components/JavaBeanJsPanel.vue")),
   "mybatis-helper": defineAsyncComponent(() => import("./components/MybatisPanel.vue")),
