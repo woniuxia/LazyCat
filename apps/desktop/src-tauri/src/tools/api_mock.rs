@@ -1811,7 +1811,9 @@ mod tests {
         let source_dir = std::env::temp_dir().join("lazycat-api-mock-duplicate-file-cleanup");
         fs::create_dir_all(&source_dir).expect("source dir");
         let source = source_dir.join("shared.txt");
-        fs::write(&source, b"shared").expect("source");
+        // 内容需与 keeps_shared_file 测试不同：物理存储按内容寻址且目录共享，
+        // 两个测试若同内容会并行互删对方的存储文件
+        fs::write(&source, b"shared-duplicate").expect("source");
         let source_path = source.to_string_lossy().to_string();
         let first_import =
             file_import_with_conn(&conn, &json!({ "path": source_path.clone(), "contentType": "text/plain" }))

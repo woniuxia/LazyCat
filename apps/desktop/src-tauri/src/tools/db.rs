@@ -128,7 +128,6 @@ fn decrypt_password(cipher_text: &str) -> Result<String, String> {
 #[derive(Debug, Clone)]
 struct ConnRecord {
     id: String,
-    name: String,
     engine: String,
     host: String,
     port: u16,
@@ -137,8 +136,6 @@ struct ConnRecord {
     default_database: Option<String>,
     env_tag: String,
     read_only: bool,
-    group_name: Option<String>,
-    sort_order: i64,
     options: Value,
 }
 
@@ -185,26 +182,23 @@ impl ConnRecord {
 fn load_connection(id: &str) -> Result<ConnRecord, String> {
     let conn = db_conn()?;
     conn.query_row(
-        "SELECT id, name, engine, host, port, username, password_cipher, default_database, \
-                env_tag, read_only, group_name, sort_order, options_json \
+        "SELECT id, engine, host, port, username, password_cipher, default_database, \
+                env_tag, read_only, options_json \
          FROM db_connections WHERE id = ?1",
         params![id],
         |row| {
             Ok(ConnRecord {
                 id: row.get(0)?,
-                name: row.get(1)?,
-                engine: row.get(2)?,
-                host: row.get(3)?,
-                port: row.get::<_, i64>(4)? as u16,
-                username: row.get::<_, Option<String>>(5)?.unwrap_or_default(),
-                password_cipher: row.get(6)?,
-                default_database: row.get(7)?,
-                env_tag: row.get(8)?,
-                read_only: row.get::<_, i64>(9)? != 0,
-                group_name: row.get(10)?,
-                sort_order: row.get(11)?,
+                engine: row.get(1)?,
+                host: row.get(2)?,
+                port: row.get::<_, i64>(3)? as u16,
+                username: row.get::<_, Option<String>>(4)?.unwrap_or_default(),
+                password_cipher: row.get(5)?,
+                default_database: row.get(6)?,
+                env_tag: row.get(7)?,
+                read_only: row.get::<_, i64>(8)? != 0,
                 options: row
-                    .get::<_, Option<String>>(12)?
+                    .get::<_, Option<String>>(9)?
                     .and_then(|s| serde_json::from_str(&s).ok())
                     .unwrap_or_else(|| json!({})),
             })
@@ -1050,7 +1044,6 @@ mod tests {
     fn policy_readonly_blocks_writes() {
         let record = ConnRecord {
             id: "c1".into(),
-            name: "t".into(),
             engine: "mysql".into(),
             host: "h".into(),
             port: 3306,
@@ -1059,8 +1052,6 @@ mod tests {
             default_database: None,
             env_tag: "dev".into(),
             read_only: true,
-            group_name: None,
-            sort_order: 0,
             options: json!({}),
         };
         let dialect = sql_text::SqlDialect::MySql;
@@ -1081,7 +1072,6 @@ mod tests {
     fn policy_prod_and_missing_where_need_confirmation() {
         let mut record = ConnRecord {
             id: "c1".into(),
-            name: "t".into(),
             engine: "mysql".into(),
             host: "h".into(),
             port: 3306,
@@ -1090,8 +1080,6 @@ mod tests {
             default_database: None,
             env_tag: "prod".into(),
             read_only: false,
-            group_name: None,
-            sort_order: 0,
             options: json!({}),
         };
         let dialect = sql_text::SqlDialect::MySql;

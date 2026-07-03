@@ -13,8 +13,6 @@ use serde_json::Value;
 use sqlx::pool::PoolConnection;
 use sqlx::{MySql, MySqlPool, PgPool, Postgres};
 
-use sql_text::SqlDialect;
-
 /// 连接配置（已解密密码），由 db.rs 从 SQLite 行构造。
 #[derive(Debug, Clone)]
 pub struct ConnectConfig {
@@ -124,13 +122,6 @@ pub enum DbConn {
 }
 
 impl DbPool {
-    pub fn dialect(&self) -> SqlDialect {
-        match self {
-            DbPool::MySql(_) => SqlDialect::MySql,
-            DbPool::Pg(_) => SqlDialect::Pg,
-        }
-    }
-
     pub async fn acquire(&self) -> Result<DbConn, String> {
         match self {
             DbPool::MySql(p) => Ok(DbConn::MySql(
