@@ -144,8 +144,9 @@ CREATE TABLE db_query_history (
 连接管理：
 
 - `connection_list` / `connection_save` / `connection_delete`
-- `connection_test`：用传入配置试连，不落库
+- `connection_test`：用传入配置试连，不落库；编辑既有连接且密码占位符未改动时，携带 `connectionId` 由后端回退已存密文
 - `connection_open`：建池，返回引擎版本与库列表；`connection_close`：关池
+- `connection_delete`：级联清理——该连接的执行历史同删，连接级 SQL 收藏转为全局收藏（connection_id 置空）
 - 密码提交语义：编辑对话框密码框回显固定占位符；占位符未改动则保持原密文，用户显式清空则置空
 
 结构浏览：
@@ -162,7 +163,7 @@ CREATE TABLE db_query_history (
 - `query_cancel`：{ connectionId, queryId }，按登记信息另开连接执行 MySQL `KILL QUERY` / KingbaseES `pg_cancel_backend`
 - `table_data_page`：{ connectionId, database, table, page, pageSize, orderBy?, filters? }，返回数据页 + 主键列信息
 - `table_apply_changes`：{ connectionId, database, table, changes[], confirmed? }，单事务执行，返回逐条影响行数；UPDATE/DELETE 影响行数为 0 视为并发冲突（行已被他人修改或删除），按失败处理：整体回滚并标出冲突行
-- `result_export`：{ connectionId, database, sql, format, outputPath }，后端流式查询直写文件；仅接受只读语句（防止 DML 被二次执行）；导出会重新执行查询，结果可能与屏幕上已加载的快照存在差异，UI 需说明
+- `result_export`：{ connectionId, database, sql, format, outputPath, queryId }，后端流式查询直写文件；仅接受只读语句（防止 DML 被二次执行）；同样走 queryId 登记支持取消；导出会重新执行查询，结果可能与屏幕上已加载的快照存在差异，UI 需说明
 
 事务语义：
 
@@ -191,9 +192,9 @@ Redis（二期）：
 
 - 多页签，每页签一个 Monaco 编辑器 + 结果区。
 - 执行规则：有选中执行选中文本，无选中执行光标所在语句；多语句按分号顺序执行、逐条返回。
-- 结果区默认 500 行/页，后端强制行数上限（默认 1000，连接选项可调）；状态栏显示耗时与影响行数。
-- 导出当前结果为 CSV / JSON / INSERT；「导出全部」走 `result_export` 后端流式写文件。
-- SQL 收藏与历史在侧抽屉，双击回填编辑器。
+- 结果区默认 500 行/页，后端强制行数上限（默认 1000，连接选项可调）；命中上限时结果元数据带 `truncated` 标记，状态栏提示"已截断至 N 行"；状态栏显示耗时与影响行数。
+- 导出当前结果为 CSV / JSON / INSERT；导出 INSERT 时弹窗确认目标表名（默认从 SQL 中提取，可改）。「导出全部」走 `result_export` 后端流式写文件，同样携带 queryId 登记，可取消。
+- 执行历史按逐条语句记录（多语句一次执行产生多条历史）。SQL 收藏与历史在侧抽屉，双击回填编辑器。
 
 ### 网格编辑
 
