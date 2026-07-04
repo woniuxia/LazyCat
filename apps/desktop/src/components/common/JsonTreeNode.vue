@@ -198,12 +198,17 @@ watch(
   { immediate: true },
 );
 
-/** 函数 ref 仅做聚焦副作用,不写任何响应式状态。 */
+// 已聚焦的编辑输入框(非响应式缓存):函数 ref 在每次 patch 都会重调,
+// 若重复 select() 会在每次输入后全选内容,导致下一个字符覆盖全文
+let lastFocusedEditInput: HTMLInputElement | null = null;
+
+/** 函数 ref 仅在元素首次出现时聚焦全选,不写任何响应式状态。 */
 function focusEditInput(el: unknown) {
-  if (el instanceof HTMLInputElement) {
-    el.focus();
-    el.select();
-  }
+  if (!(el instanceof HTMLInputElement)) return;
+  if (el === lastFocusedEditInput) return;
+  lastFocusedEditInput = el;
+  el.focus();
+  el.select();
 }
 
 function submitEdit() {

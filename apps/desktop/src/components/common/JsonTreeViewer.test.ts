@@ -100,6 +100,22 @@ describe("JsonTreeViewer source structure", () => {
     expect(source).toMatch(/watch\(tree, \(\) => \{\s*if \(menuVisible\.value\) closeNodeMenu\(\);/);
   });
 
+  it("declares state touched by the immediate onValueChange watch before that watch", () => {
+    // setup 期 immediate watch 同步触发 handleExternalDocument(搜索清空 + closeNodeMenu),
+    // 其触达的 const 若声明在 watch 之后会在挂载时抛 TDZ ReferenceError
+    const immediateWatchIndex = source.indexOf(
+      "watch(() => props.value, onValueChange, { immediate: true })",
+    );
+    const menuStateIndex = source.indexOf("const menuVisible = ref(false)");
+    const searchStateIndex = source.indexOf("useJsonTreeSearch(tree)");
+
+    expect(immediateWatchIndex).toBeGreaterThan(-1);
+    expect(menuStateIndex).toBeGreaterThan(-1);
+    expect(searchStateIndex).toBeGreaterThan(-1);
+    expect(menuStateIndex).toBeLessThan(immediateWatchIndex);
+    expect(searchStateIndex).toBeLessThan(immediateWatchIndex);
+  });
+
   it("keeps editing opt-in with a declared update:value contract", () => {
     expect(source).toContain("editable?: boolean");
     expect(source).toContain("editable: false");
@@ -128,6 +144,14 @@ describe("JsonTreeViewer source structure", () => {
     expect(nodeSource).toContain('@blur="cancelEdit"');
     expect(source).toContain("parseLooseJsonInput");
     expect(nodeSource).toContain("isEditingThisNode.value) return {}");
+  });
+
+  it("selects the inline editor content only when its element first appears", () => {
+    // 函数 ref 每次 patch 都会重调;无去重时每输入一个字符就重新全选,
+    // 下一个字符会覆盖全部内容
+    expect(nodeSource).toContain("lastFocusedEditInput");
+    expect(nodeSource).toMatch(/if \(el === lastFocusedEditInput\) return;/);
+    expect(nodeSource).toContain("el.select()");
   });
 
   it("extends the node menu with editable-only actions", () => {

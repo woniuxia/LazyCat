@@ -183,6 +183,32 @@ const {
   goPrev: searchGoPrev,
 } = useJsonTreeSearch(tree);
 
+// 菜单状态必须在下方 immediate watch 之前初始化:
+// onValueChange 首次触发即调用 handleExternalDocument -> closeNodeMenu,声明靠后会命中 TDZ
+const menuVisible = ref(false);
+const menuX = ref(0);
+const menuY = ref(0);
+// 菜单目标节点:关闭时保留引用给离场动画,下次打开覆盖
+const menuNode = shallowRef<JsonTreeNodeModel | null>(null);
+const menuParent = shallowRef<JsonTreeNodeModel | null>(null);
+
+function openNodeMenu(target: JsonTreeNodeMenuTarget) {
+  menuNode.value = target.node;
+  menuParent.value = findJsonTreeParentNode(tree.value, target.node.path);
+  menuX.value = target.x;
+  menuY.value = target.y;
+  menuVisible.value = true;
+}
+
+function closeNodeMenu() {
+  menuVisible.value = false;
+}
+
+// 菜单打开期间文档变化:目标节点已失效,关闭菜单丢弃交互
+watch(tree, () => {
+  if (menuVisible.value) closeNodeMenu();
+});
+
 const {
   editing: editingState,
   canUndo,
@@ -254,30 +280,6 @@ function revealActiveMatch() {
 
 watch(searchActiveKey, (key) => {
   if (key) revealActiveMatch();
-});
-
-const menuVisible = ref(false);
-const menuX = ref(0);
-const menuY = ref(0);
-// 菜单目标节点:关闭时保留引用给离场动画,下次打开覆盖
-const menuNode = shallowRef<JsonTreeNodeModel | null>(null);
-const menuParent = shallowRef<JsonTreeNodeModel | null>(null);
-
-function openNodeMenu(target: JsonTreeNodeMenuTarget) {
-  menuNode.value = target.node;
-  menuParent.value = findJsonTreeParentNode(tree.value, target.node.path);
-  menuX.value = target.x;
-  menuY.value = target.y;
-  menuVisible.value = true;
-}
-
-function closeNodeMenu() {
-  menuVisible.value = false;
-}
-
-// 菜单打开期间文档变化:目标节点已失效,关闭菜单丢弃交互
-watch(tree, () => {
-  if (menuVisible.value) closeNodeMenu();
 });
 
 /** 切换编辑目标前先结算当前编辑(空 key 插入取消即回滚)。 */
