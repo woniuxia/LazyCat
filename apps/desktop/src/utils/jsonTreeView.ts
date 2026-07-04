@@ -187,6 +187,24 @@ export function isJsonTreeExpandable(node: JsonTreeNode): boolean {
   return (node.valueType === "object" || node.valueType === "array") && node.childCount > 0;
 }
 
+/** 按路径定位目标节点的父节点;根节点或路径失配返回 null。 */
+export function findJsonTreeParentNode(
+  root: JsonTreeNode,
+  path: JsonTreePath,
+): JsonTreeNode | null {
+  if (!path.length) return null;
+  let current = root;
+  for (let index = 0; index < path.length - 1; index += 1) {
+    const segment = path[index];
+    const child = current.children.find(
+      (candidate) => candidate.path[candidate.path.length - 1] === segment,
+    );
+    if (!child) return null;
+    current = child;
+  }
+  return current;
+}
+
 export function collectExpandableKeys(root: JsonTreeNode): Set<string> {
   const keys = new Set<string>();
   const visit = (node: JsonTreeNode) => {

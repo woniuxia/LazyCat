@@ -31,6 +31,15 @@ export function defaultJsonValueForType(type: JsonTreeSwitchableType): unknown {
   }
 }
 
+/** 行内值输入宽松解析:严格 JSON.parse 成功用结果,失败整段按字符串。 */
+export function parseLooseJsonInput(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
+}
+
 type JsonContainer = Record<string, unknown> | unknown[];
 
 interface PathStep {

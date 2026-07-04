@@ -16,19 +16,57 @@
       </button>
       <span v-else class="json-tree-toggle-spacer" aria-hidden="true" />
 
-      <span v-if="node.label" class="json-tree-label" :class="labelHighlightClass">{{
-        node.label
-      }}</span>
-      <span v-if="node.label" class="json-tree-separator">:</span>
+      <template v-if="isEditingName">
+        <input
+          :ref="focusEditInput"
+          v-model="editDraft"
+          class="json-tree-edit-input is-name"
+          type="text"
+          spellcheck="false"
+          placeholder="字段名"
+          aria-label="编辑字段名"
+          @keydown.enter.prevent="submitEdit"
+          @keydown.esc.prevent="cancelEdit"
+          @blur="cancelEdit"
+          @click.stop
+          @dblclick.stop
+        />
+        <span class="json-tree-separator">:</span>
+      </template>
+      <template v-else>
+        <span
+          v-if="node.label"
+          class="json-tree-label"
+          :class="labelHighlightClass"
+          @dblclick.stop="onLabelDblclick"
+          >{{ node.label }}</span
+        >
+        <span v-if="node.label" class="json-tree-separator">:</span>
+      </template>
 
       <template v-if="isObjectLike">
         <span class="json-tree-bracket">{{ expanded ? openToken : collapsedToken }}</span>
         <span class="json-tree-summary">{{ node.summary }}</span>
       </template>
+      <input
+        v-else-if="isEditingValue"
+        :ref="focusEditInput"
+        v-model="editDraft"
+        class="json-tree-edit-input"
+        type="text"
+        spellcheck="false"
+        aria-label="编辑值"
+        @keydown.enter.prevent="submitEdit"
+        @keydown.esc.prevent="cancelEdit"
+        @blur="cancelEdit"
+        @click.stop
+        @dblclick.stop
+      />
       <span
         v-else
         class="json-tree-value"
         :class="[`is-${node.valueType}`, valueHighlightClass]"
+        @dblclick.stop="onValueDblclick"
       >
         {{ node.summary }}
       </span>
@@ -53,8 +91,13 @@
           :expanded-keys="expandedKeys"
           :matched-keys="matchedKeys"
           :active-match-key="activeMatchKey"
+          :editable="editable"
+          :editing-state="editingState"
           @toggle="$emit('toggle', $event)"
           @open-menu="$emit('open-menu', $event)"
+          @request-edit="$emit('request-edit', $event)"
+          @edit-submit="$emit('edit-submit', $event)"
+          @edit-cancel="$emit('edit-cancel')"
         />
       </div>
       <div class="json-tree-line json-tree-close-line">
@@ -66,12 +109,17 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref, watch } from "vue";
 import { CaretBottom, CaretRight } from "@element-plus/icons-vue";
-import { isJsonTreeExpandable } from "../../utils/jsonTreeView";
+import { formatJsonPrimitive, isJsonTreeExpandable } from "../../utils/jsonTreeView";
 import type { JsonTreeNode as JsonTreeNodeModel } from "../../utils/jsonTreeView";
 import { jsonTreeSearchMatchId } from "../../utils/jsonTreeSearch";
-import type { JsonTreeNodeMenuTarget } from "../../types/json-tree";
+import type {
+  JsonTreeNodeEditRequest,
+  JsonTreeNodeEditSubmit,
+  JsonTreeNodeMenuTarget,
+} from "../../types/json-tree";
+import type { JsonTreeEditingState } from "../../composables/useJsonTreeEditing";
 
 defineOptions({ name: "JsonTreeNode" });
 
@@ -83,16 +131,24 @@ const props = withDefaults(
     matchedKeys?: Set<string>;
     /** 当前命中的标识,展示更强高亮。 */
     activeMatchKey?: string | null;
+    editable?: boolean;
+    /** 当前行内编辑态(整树唯一),key 命中本节点时渲染行内输入。 */
+    editingState?: JsonTreeEditingState | null;
   }>(),
   {
     matchedKeys: () => new Set<string>(),
     activeMatchKey: null,
+    editable: false,
+    editingState: null,
   },
 );
 
 const emit = defineEmits<{
   toggle: [key: string];
   "open-menu": [target: JsonTreeNodeMenuTarget];
+  "request-edit": [request: JsonTreeNodeEditRequest];
+  "edit-submit": [payload: JsonTreeNodeEditSubmit];
+  "edit-cancel": [];
 }>();
 
 function onContextMenu(event: MouseEvent) {
@@ -117,18 +173,80 @@ const collapsedToken = computed(() => {
   return isArray.value ? "[...]" : "{...}";
 });
 
+const isEditingThisNode = computed(() => props.editingState?.key === props.node.key);
+const isEditingValue = computed(
+  () => isEditingThisNode.value && props.editingState?.mode === "value",
+);
+const isEditingName = computed(
+  () =>
+    isEditingThisNode.value &&
+    (props.editingState?.mode === "rename" || props.editingState?.mode === "insert-key"),
+);
+
+const editDraft = ref("");
+
+watch(
+  [isEditingValue, isEditingName],
+  ([valueEditing, nameEditing]) => {
+    if (valueEditing) {
+      editDraft.value = formatJsonPrimitive(props.node.value, props.node.valueType);
+    } else if (nameEditing) {
+      const lastSegment = props.node.path[props.node.path.length - 1];
+      editDraft.value = typeof lastSegment === "string" ? lastSegment : "";
+    }
+  },
+  { immediate: true },
+);
+
+/** 函数 ref 仅做聚焦副作用,不写任何响应式状态。 */
+function focusEditInput(el: unknown) {
+  if (el instanceof HTMLInputElement) {
+    el.focus();
+    el.select();
+  }
+}
+
+function submitEdit() {
+  const mode = props.editingState?.mode;
+  if (!mode) return;
+  emit("edit-submit", { node: props.node, mode, text: editDraft.value });
+}
+
+function cancelEdit() {
+  emit("edit-cancel");
+}
+
+function onValueDblclick() {
+  if (!props.editable || isObjectLike.value) return;
+  emit("request-edit", { node: props.node, mode: "value" });
+}
+
+function onLabelDblclick() {
+  if (!props.editable) return;
+  const lastSegment = props.node.path[props.node.path.length - 1];
+  if (typeof lastSegment !== "string") return;
+  emit("request-edit", { node: props.node, mode: "rename" });
+}
+
 const labelMatchId = computed(() => jsonTreeSearchMatchId({ field: "key", key: props.node.key }));
 const valueMatchId = computed(() =>
   jsonTreeSearchMatchId({ field: "value", key: props.node.key }),
 );
-const labelHighlightClass = computed(() => ({
-  "json-tree-match": props.matchedKeys.has(labelMatchId.value),
-  "json-tree-match-active": props.activeMatchKey === labelMatchId.value,
-}));
-const valueHighlightClass = computed(() => ({
-  "json-tree-match": props.matchedKeys.has(valueMatchId.value),
-  "json-tree-match-active": props.activeMatchKey === valueMatchId.value,
-}));
+// 编辑中的行不显示命中高亮,结算后重算
+const labelHighlightClass = computed(() => {
+  if (isEditingThisNode.value) return {};
+  return {
+    "json-tree-match": props.matchedKeys.has(labelMatchId.value),
+    "json-tree-match-active": props.activeMatchKey === labelMatchId.value,
+  };
+});
+const valueHighlightClass = computed(() => {
+  if (isEditingThisNode.value) return {};
+  return {
+    "json-tree-match": props.matchedKeys.has(valueMatchId.value),
+    "json-tree-match-active": props.activeMatchKey === valueMatchId.value,
+  };
+});
 </script>
 
 <style scoped>
@@ -218,6 +336,32 @@ const valueHighlightClass = computed(() => ({
 
 .json-tree-value.is-unknown {
   color: #b45309;
+}
+
+.json-tree-edit-input {
+  min-width: 120px;
+  max-width: 360px;
+  height: 20px;
+  padding: 0 6px;
+  border: 1px solid #8ca6d8;
+  border-radius: 4px;
+  background: #ffffff;
+  color: #263247;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  outline: none;
+}
+
+.json-tree-edit-input.is-name {
+  min-width: 90px;
+  max-width: 220px;
+  color: #7b3f10;
+}
+
+.json-tree-edit-input:focus {
+  border-color: #1f4e9e;
+  box-shadow: 0 0 0 2px rgba(31, 78, 158, 0.12);
 }
 
 .json-tree-more {

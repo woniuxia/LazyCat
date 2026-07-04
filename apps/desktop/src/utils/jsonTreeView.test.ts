@@ -3,6 +3,7 @@ import {
   buildJsonTree,
   collectExpandableKeys,
   collectExpandedKeysByDepth,
+  findJsonTreeParentNode,
   formatJsonForCopy,
   isJsonTreeExpandable,
   summarizeJsonNode,
@@ -154,5 +155,17 @@ describe("jsonTreeView", () => {
     expect(toJsonPath(["0abc"])).toBe('$["0abc"]');
     expect(toJsonPath([""])).toBe('$[""]');
     expect(toJsonPath(["中文键", 2])).toBe('$["中文键"][2]');
+  });
+
+  it("locates the parent node by path", () => {
+    const root = buildJsonTree({ user: { tags: ["a", "b"] } });
+    const user = root.children[0];
+    const tags = user.children[0];
+
+    expect(findJsonTreeParentNode(root, [])).toBeNull();
+    expect(findJsonTreeParentNode(root, ["user"])).toBe(root);
+    expect(findJsonTreeParentNode(root, ["user", "tags"])).toBe(user);
+    expect(findJsonTreeParentNode(root, ["user", "tags", 1])).toBe(tags);
+    expect(findJsonTreeParentNode(root, ["missing", "x"])).toBeNull();
   });
 });

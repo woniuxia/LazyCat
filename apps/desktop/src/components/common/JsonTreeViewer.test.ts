@@ -99,4 +99,49 @@ describe("JsonTreeViewer source structure", () => {
     expect(source).toContain("closeNodeMenu");
     expect(source).toMatch(/watch\(tree, \(\) => \{\s*if \(menuVisible\.value\) closeNodeMenu\(\);/);
   });
+
+  it("keeps editing opt-in with a declared update:value contract", () => {
+    expect(source).toContain("editable?: boolean");
+    expect(source).toContain("editable: false");
+    expect(source).toContain('"update:value": [value: unknown]');
+    expect(source).toContain("useJsonTreeEditing");
+    expect(source).toContain("shallowRef 持有文档");
+    expect(nodeSource).toContain("if (!props.editable");
+    expect(menuSource).toContain('v-if="editable"');
+  });
+
+  it("wires undo and redo through the toolbar and container shortcuts", () => {
+    expect(source).toContain("撤销");
+    expect(source).toContain("重做");
+    expect(source).toContain("canUndo");
+    expect(source).toContain("canRedo");
+    expect(source).toContain("onRootKeydown");
+    expect(source).toContain("event.shiftKey");
+    expect(source).toMatch(/ctrlKey \|\| event\.metaKey/);
+    expect(source).toContain("HTMLInputElement");
+  });
+
+  it("provides inline editors with loose parsing and cancel semantics", () => {
+    expect(nodeSource).toContain("@dblclick.stop");
+    expect(nodeSource).toContain('@keydown.enter.prevent="submitEdit"');
+    expect(nodeSource).toContain('@keydown.esc.prevent="cancelEdit"');
+    expect(nodeSource).toContain('@blur="cancelEdit"');
+    expect(source).toContain("parseLooseJsonInput");
+    expect(nodeSource).toContain("isEditingThisNode.value) return {}");
+  });
+
+  it("extends the node menu with editable-only actions", () => {
+    expect(menuSource).toContain("编辑值");
+    expect(menuSource).toContain("重命名 key");
+    expect(menuSource).toContain("添加子字段");
+    expect(menuSource).toContain("在此前插入");
+    expect(menuSource).toContain("在此后插入");
+    expect(menuSource).toContain("类型切换");
+    expect(menuSource).toContain("上移");
+    expect(menuSource).toContain("下移");
+    expect(menuSource).toContain("删除");
+    expect(menuSource).toContain(':disabled="isRoot"');
+    expect(menuSource).toContain(':disabled="!canMoveUp"');
+    expect(menuSource).toContain(':disabled="!canMoveDown"');
+  });
 });

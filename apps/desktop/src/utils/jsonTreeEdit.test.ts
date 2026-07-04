@@ -4,6 +4,7 @@ import {
   applyJsonTreeEdit,
   defaultJsonValueForType,
   migrateExpandedKeys,
+  parseLooseJsonInput,
 } from "./jsonTreeEdit";
 import type { JsonTreeEditOp } from "./jsonTreeEdit";
 
@@ -211,6 +212,19 @@ describe("defaultJsonValueForType", () => {
     expect(defaultJsonValueForType("array")).toEqual([]);
     expect(defaultJsonValueForType("object")).not.toBe(defaultJsonValueForType("object"));
     expect(defaultJsonValueForType("array")).not.toBe(defaultJsonValueForType("array"));
+  });
+});
+
+describe("parseLooseJsonInput", () => {
+  it("uses strict JSON when parseable and falls back to the raw string", () => {
+    expect(parseLooseJsonInput("42")).toBe(42);
+    expect(parseLooseJsonInput('"42"')).toBe("42");
+    expect(parseLooseJsonInput("true")).toBe(true);
+    expect(parseLooseJsonInput("null")).toBeNull();
+    expect(parseLooseJsonInput('{"a":1}')).toEqual({ a: 1 });
+    expect(parseLooseJsonInput("[1,2]")).toEqual([1, 2]);
+    expect(parseLooseJsonInput("hello world")).toBe("hello world");
+    expect(parseLooseJsonInput("")).toBe("");
   });
 });
 
