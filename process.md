@@ -8,6 +8,35 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-07-04: 任务清单快速添加栏（输入行 + 日期/优先级内联速选）
+
+**场景**: 按 `docs/superpowers/plans/2026-07-04-todo-quick-add-plan.md` 4 阶段 TDD 实施：列表视图工具栏下方常驻快速添加栏，回车即建、焦点保留连续录入，继承筛选上下文（分类/项目/优先级默认值），后端零改动复用 `tool:todo:item-create`。
+**使用次数**: 0
+**问题**:
+1. plan 描述的组件行为测试（mock bridge + 触发回车）在本项目不可执行：无 `@vue/test-utils`、无 DOM 环境、vitest 配置未挂 vue 插件（.vue 文件无法在测试中 import）。
+2. "今天"取下一个 5 分钟刻度需要日期进位（23:58 → 次日 00:00），但既有 `getCreateDraftDefaultDateTime` 的 `% 1440` 分钟回绕不带日期进位（其日期恒为"明天"故无此问题），不能直接复用取整段。
+3. 优先级速选需要"未手动选择时跟随筛选默认值、手动选择后不再跟随"，两者若共用一个状态，筛选变化会覆盖用户手动值。
+4. 新任务可能被关键词搜索或手动覆盖的优先级筛选排除在可见列表外，高亮会静默失效让用户以为没建上。
+5. "选日期…"从 el-dropdown 菜单项触发 el-date-picker 弹层，dropdown 关闭与 picker 打开有时序竞争。
+**解决**:
+1. 遵循项目既有约定：组件/面板测试用源码断言式（readFileSync + 断言关键守卫存在，plan 引用的 `TodoPanel.edit-focus.test.ts` 正是此模式），行为级覆盖全部下沉到纯函数 `buildQuickAddPayload` 的 11 个真实单测（时间取整、午夜/跨月进位、继承降级、字段裁剪、5 分钟对齐）。
+2. "今天"用 `new Date(y, m, d, h, floor(min/5)*5 + 5)` 构造，分钟溢出由 Date 构造器自动进位跨日；"明天"/指定日期走 `combineLocalDateTime(date, DEFAULT_TIME)`（`DEFAULT_TIME` 从 todoSchedule 做最小导出）。
+3. `priorityOverride`（手动值）与 `context.priorityDefault`（自动默认）独立建模：显示用 `priorityOverride ?? priorityDefault`，无任何 watch 反写，仅 Esc/手动清除置 null；着色区分（灰=默认跟随，彩=显式指定）。
+4. 创建成功后 `await loadItems()` 再按最终渲染口径 `displayActiveItems`（关键词过滤 → 分桶 → 优先级/分类筛选之后）判可见性：可见则卡片高亮 1.5s 渐隐（连续录入后一次 clearTimeout 覆盖前一次），不可见则 `ElMessage.info` 兜底提示。
+5. 隐藏 el-date-picker 放 0 尺寸锚点容器，dropdown command 里 `nextTick(() => datePickerRef.handleOpen())` 等关闭流程结束再开弹层（同数据字典 Dropdown→Dialog 时序经验）。
+**关键点**:
+1. in-flight 守卫直接复用 `useToolInvoke().loading`（`if (loading.value) return`），不另设 submitting 标志；失败提示由 `invokeWithLoading` 内置 `ElMessage.error` 承担，组件不重复 toast、不清空输入。
+2. IME 守卫沿用面板模式：`@keydown.enter.exact.prevent` + `if (event.isComposing) return`。
+3. 成功路径只清标题（保留日期/优先级选值便于连续录入同类任务），`focus()` 保持焦点；Esc 才全量重置——"清空"与"重置"是两个语义。
+4. 卡片高亮用 `animation ... both` 会覆盖 `.todo-card` 原有 slideIn 入场动画，属预期（高亮即入场反馈）；定时器在 `onBeforeUnmount` 清理。
+**涉及文件**:
+- `apps/desktop/src/utils/todoQuickAdd.ts`（新增）+ `todoQuickAdd.test.ts`；`todoSchedule.ts`（DEFAULT_TIME 导出）
+- `apps/desktop/src/components/TodoQuickAddBar.vue`（新增）+ `TodoQuickAddBar.test.ts`
+- `apps/desktop/src/components/TodoPanel.vue`（挂载/上下文/反馈/高亮样式）+ `TodoPanel.quick-add.test.ts`
+**验证**:
+- `pnpm test`（574 个，全部通过）
+- `pnpm typecheck`、`pnpm --filter @lazycat/desktop build:web`
+
 ## 2026-07-04: JsonTreeViewer 查看+编辑扩展（搜索定位/复制菜单/树内编辑/撤销重做/三消费方接入）
 
 **场景**: 按 `docs/superpowers/specs/2026-07-04-json-tree-viewer-extensions-plan.md` 把只读 JSON 树升级为通用查看+编辑组件,并接入 JSON 处理面板（文本/树双模式编辑）、JWT 解码、CSV 输出三个消费方;数据字典零改动获得查看增强。
