@@ -140,15 +140,21 @@
               <el-radio-button label="text">text</el-radio-button>
               <el-radio-button label="form-urlencoded">form</el-radio-button>
             </el-radio-group>
-            <el-switch disabled inactive-text="跟随重定向" />
+            <div class="body-toolbar-actions">
+              <template v-if="draft.bodyType === 'json'">
+                <el-button size="small" @click="formatBodyJson">格式化</el-button>
+                <el-button size="small" @click="minifyBodyJson">压缩</el-button>
+              </template>
+              <el-switch disabled inactive-text="跟随重定向" />
+            </div>
           </div>
           <ApiWorkbenchKeyValueEditor v-if="draft.bodyType === 'form-urlencoded'" v-model="draft.form" variant="form" />
-          <el-input
-            v-else-if="draft.bodyType !== 'none'"
-            v-model="draft.body"
-            type="textarea"
-            :rows="12"
-          />
+          <div v-else-if="draft.bodyType !== 'none'" class="body-monaco">
+            <MonacoPane
+              v-model="draft.body"
+              :language="draft.bodyType === 'json' ? 'json' : 'plaintext'"
+            />
+          </div>
           <el-empty v-else description="无请求体" />
         </el-tab-pane>
       </el-tabs>
@@ -407,6 +413,7 @@ import { invokeToolByChannel } from "../bridge/tauri";
 import ApiWorkbenchKeyValueEditor from "./ApiWorkbenchKeyValueEditor.vue";
 import ApiWorkbenchResponseViewer from "./ApiWorkbenchResponseViewer.vue";
 import ApiWorkbenchSidebar from "./ApiWorkbenchSidebar.vue";
+import MonacoPane from "./MonacoPane.vue";
 import type {
   ApiWorkbenchCollection,
   ApiWorkbenchEnvironment,
@@ -676,6 +683,22 @@ function cancelMoveDialog() {
 async function copyFinalUrlPreview() {
   if (!finalUrlPreview.value) return;
   await copyText(finalUrlPreview.value.text, "最终 URL 已复制");
+}
+
+function formatBodyJson() {
+  try {
+    draft.value.body = JSON.stringify(JSON.parse(draft.value.body), null, 2);
+  } catch (error) {
+    ElMessage.error(`JSON 格式化失败：${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+function minifyBodyJson() {
+  try {
+    draft.value.body = JSON.stringify(JSON.parse(draft.value.body));
+  } catch (error) {
+    ElMessage.error(`JSON 压缩失败：${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 function applyUrlQuerySplit() {
@@ -1941,6 +1964,18 @@ onBeforeUnmount(() => {
 .body-toolbar {
   justify-content: space-between;
   margin-bottom: 8px;
+}
+
+.body-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.body-monaco {
+  height: 280px;
+  min-height: 280px;
+  flex: none;
 }
 
 .body-toolbar :deep(.el-radio-group) {
