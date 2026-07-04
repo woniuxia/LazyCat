@@ -47,7 +47,7 @@ export const TODO_WEEKDAY_OPTIONS = [
   { label: "周日", value: 7 },
 ];
 
-const DEFAULT_TIME = "09:00";
+export const DEFAULT_TIME = "09:00";
 const WORKDAY_WEEKDAYS = [1, 2, 3, 4, 5];
 
 function pad(value: number) {
