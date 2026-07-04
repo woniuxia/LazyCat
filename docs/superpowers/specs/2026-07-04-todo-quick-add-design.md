@@ -52,6 +52,7 @@
 - 当前筛选了具体项目（`filterProjectId` 为 number）→ 新任务归入该项目；为 `"none"` 或 null 时不设项目。
 - 优先级控件的初始默认值（`priorityDefault`）跟随优先级筛选（无筛选时为 P2），用户可手动覆盖。
 - 用户手动指定优先级后，控件不再自动跟随优先级筛选的变化（手动值与自动默认值是两个独立模型，符合项目“独立模型/受控组件”约定），直至 Esc 重置或用户清除手动值。
+- 边界：筛选“未分类”（`typeName` 为空的兜底名，分类列表中无对应 typeId）时自然降级为 `typeId = null`，新任务同样落在“未分类”筛选下，仍可见。
 - 设计目的：新任务不会“建完就被当前筛选条件藏起来”。
 
 ### 2.6 创建反馈
@@ -65,18 +66,18 @@
 ### 3.1 组件
 
 - 新增 `apps/desktop/src/components/TodoQuickAddBar.vue`（延续 TodoPanel 已有的子组件拆分模式）：
-  - 内部状态仅三个：标题、日期选值、优先级选值。
+  - 内部状态仅三个：标题、日期选值、优先级选值；in-flight/pending 态直接复用 `useToolInvoke` 的 loading，不另设 submitting 标志。
   - Props：`context: { typeId: number | null; projectId: number | null; priorityDefault: TodoPriority }`。
   - Emits：`created(id: number)`。
 - `TodoPanel.vue` 变更：
   - 由筛选状态计算 `context`（`filterType` 存的是分类名，用面板已加载的分类列表解析为 typeId；`filterProjectId` 为具体 id 时才继承）。
-  - 监听 `created` → `loadItems()` → 若新 id 在当前可见列表（既有 `filteredItems` 口径）中则高亮约 1.5 秒，否则按 2.6 给轻量不可见提示。
+  - 监听 `created` → `loadItems()` → 按最终渲染口径判断可见性：`filteredItems`（关键词过滤）再经 `applyDisplayFilter`（优先级/分类筛选）产出的 display* 列表，新建任务必为 `pending`、落在 `displayActiveItems` 分区。可见则高亮约 1.5 秒，不可见则按 2.6 给轻量提示；判定建议抽为 `isItemVisibleInList(id)` 一类的小函数。
   - 仅在列表视图模板中挂载快速添加栏。
 
 ### 3.2 纯函数 util
 
 - 新增 `apps/desktop/src/utils/todoQuickAdd.ts`：`buildQuickAddPayload(input, context, now)` 合成 item-create payload（时间取整、继承规则、字段裁剪）。
-- 复用 `todoSchedule.ts` 已有的 5 分钟刻度处理与 `combineLocalDateTime`；如需使用其内部 `DEFAULT_TIME`，做最小导出调整。
+- 复用 `todoSchedule.ts` 已有的 5 分钟刻度处理与 `combineLocalDateTime`；如需使用其内部 `DEFAULT_TIME`，做最小导出调整。注意：现有取整逻辑（`getCreateDraftDefaultDateTime`）仅归一分钟、不做日期进位（其日期恒为“明天”故无此问题），“今天”场景的 23:58 → 次日 00:00 进位需由 `buildQuickAddPayload` 自行处理。
 - 配套 `todoQuickAdd.test.ts` 单测。
 
 ### 3.3 调用链
@@ -99,6 +100,7 @@
 
 ## 5. 测试与验证
 
-- `todoQuickAdd.test.ts`：时间取整（含午夜回绕边界）、筛选继承规则、空标题、payload 形状。
+- `todoQuickAdd.test.ts`：时间取整（含午夜回绕与日期进位边界）、筛选继承规则（含“未分类”降级为 `typeId = null`）、空标题、payload 形状。
 - `TodoQuickAddBar` 组件测试（参照既有 `TodoPanel.*.test.ts` 模式）：回车创建、空标题忽略、IME 组合态回车不创建、in-flight 期间回车忽略、Esc 重置、创建成功后清空且焦点保留。
+- 面板侧可见性判定测试：新任务不在最终渲染列表时给轻量提示而非高亮（覆盖关键词搜索与手动覆盖优先级两种隐藏场景）。
 - 基线验证：相关单测 + `pnpm typecheck` + `pnpm --filter @lazycat/desktop build:web`。
