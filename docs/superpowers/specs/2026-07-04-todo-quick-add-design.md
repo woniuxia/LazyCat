@@ -58,7 +58,7 @@
 ### 2.6 创建反馈
 
 - 成功：输入框边框绿色一闪；新任务按现有排序插入列表并高亮约 1.5 秒渐隐；不自动滚动（避免连续录入时视口跳动）。
-- 可见性兜底：分类与项目通过继承保证匹配筛选，但新任务仍可能被标题关键词搜索（`itemKeyword`）或手动覆盖后的优先级筛选排除在可见列表外。创建成功刷新后若新任务不在当前可见列表中，高亮自然失效，改为一次轻量 info 提示（如“已添加，当前筛选/搜索条件下不可见”）。
+- 可见性兜底：分类与项目通过继承保证匹配筛选，但新任务仍可能被关键词搜索（`itemKeyword`，匹配标题与描述）或手动覆盖后的优先级筛选排除在可见列表外。创建成功刷新后若新任务不在当前可见列表中，高亮自然失效，改为一次轻量 info 提示（如“已添加，当前筛选/搜索条件下不可见”）。
 - 失败：红色提示展示后端错误信息；标题与控件值原样保留，不丢用户输入。
 
 ## 3. 技术设计
@@ -71,7 +71,7 @@
   - Emits：`created(id: number)`。
 - `TodoPanel.vue` 变更：
   - 由筛选状态计算 `context`（`filterType` 存的是分类名，用面板已加载的分类列表解析为 typeId；`filterProjectId` 为具体 id 时才继承）。
-  - 监听 `created` → `loadItems()` → 按最终渲染口径判断可见性：`filteredItems`（关键词过滤）再经 `applyDisplayFilter`（优先级/分类筛选）产出的 display* 列表，新建任务必为 `pending`、落在 `displayActiveItems` 分区。可见则高亮约 1.5 秒，不可见则按 2.6 给轻量提示；判定建议抽为 `isItemVisibleInList(id)` 一类的小函数。
+  - 监听 `created` → `loadItems()` → 按最终渲染口径判断可见性：`filteredItems`（关键词过滤）经 `groupTodoItemsByBucket` 分桶产出 `activeItems`，再经 `applyDisplayFilter`（优先级/分类筛选）产出 `displayActiveItems`；新建任务必为 `pending`、落在该分区。可见则高亮约 1.5 秒，不可见则按 2.6 给轻量提示；判定建议抽为 `isItemVisibleInList(id)` 一类的小函数。
   - 仅在列表视图模板中挂载快速添加栏。
 
 ### 3.2 纯函数 util
@@ -94,7 +94,7 @@
 
 ## 4. 错误处理
 
-- 创建失败：`ElMessage.error` 展示后端错误信息；输入不清空。
+- 创建失败：错误提示由 `useToolInvoke` 内置的 `ElMessage.error` 承担，组件内不重复 toast；输入不清空。
 - `reminderPresets=["none"]` 保证不会触发后端“设置提醒前需要先提供事件时间或周期规则”校验。
 - 5 分钟对齐由前端合成逻辑保证，`todoQuickAdd.ts` 单测覆盖。
 
