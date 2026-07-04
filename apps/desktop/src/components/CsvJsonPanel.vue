@@ -6,7 +6,33 @@
       <span v-if="filePath" style="font-size:13px;color:var(--el-text-color-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ filePath }}</span>
     </div>
     <el-input v-model="csvInput" type="textarea" :rows="10" placeholder="输入 CSV 或通过上方按钮选择文件" />
-    <el-input :model-value="jsonOutput" type="textarea" :rows="10" readonly placeholder="JSON 结果" />
+    <div class="csv-output-wrap">
+      <el-input
+        v-if="outputMode === 'text' || !outputTreeAvailable"
+        :model-value="jsonOutput"
+        type="textarea"
+        :rows="10"
+        readonly
+        placeholder="JSON 结果"
+      />
+      <JsonTreeViewer
+        v-else
+        class="csv-output-tree"
+        :value="outputTreeValue"
+        :default-expand-depth="2"
+        :copy-text="jsonOutput"
+        aria-label="JSON 结果树形查看"
+      />
+      <el-segmented
+        v-if="outputTreeAvailable"
+        class="csv-output-switch"
+        :model-value="outputMode"
+        :options="OUTPUT_MODE_OPTIONS"
+        size="small"
+        aria-label="输出模式"
+        @update:model-value="outputMode = $event as OutputMode"
+      />
+    </div>
 
     <!-- Options row -->
     <div class="panel-grid-full" style="display:flex;flex-wrap:wrap;gap:16px;align-items:center;">
@@ -61,6 +87,15 @@ import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invokeToolByChannel } from "../bridge/tauri";
+import JsonTreeViewer from "./common/JsonTreeViewer.vue";
+import { canEnterJsonTree } from "../utils/jsonProcessTree";
+
+type OutputMode = "text" | "tree";
+
+const OUTPUT_MODE_OPTIONS = [
+  { label: "文本", value: "text" },
+  { label: "树形", value: "tree" },
+];
 
 const csvInput = ref(csvJsonState.csvInput);
 const jsonOutput = ref(csvJsonState.jsonOutput);
@@ -70,6 +105,18 @@ const filePath = ref(csvJsonState.filePath);
 const customHeaders = ref<string[]>([]);
 const selectedColumnIndices = ref<number[]>([]);
 const detectedHeaders = ref<string[]>([]);
+
+// 树形只读切换:默认文本;文件读入的输出可能远超 1MB 阈值,超限或非法 JSON 不显示
+const outputMode = ref<OutputMode>("text");
+const outputTreeGate = computed(() => (jsonOutput.value ? canEnterJsonTree(jsonOutput.value) : null));
+const outputTreeAvailable = computed(() => outputTreeGate.value?.ok === true);
+const outputTreeValue = computed(() =>
+  outputTreeGate.value?.ok ? outputTreeGate.value.value : null,
+);
+
+watch(jsonOutput, () => {
+  outputMode.value = "text";
+});
 
 const columnCount = computed(() => {
   const firstLine = csvInput.value.split(/\r?\n/).find((l) => l.trim());
@@ -184,3 +231,31 @@ onBeforeUnmount(() => {
   csvJsonState.filePath = filePath.value;
 });
 </script>
+
+<style scoped>
+.csv-output-wrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.csv-output-wrap :deep(.el-textarea),
+.csv-output-wrap :deep(.el-textarea__inner) {
+  height: 100%;
+}
+
+.csv-output-tree {
+  min-height: 230px;
+  max-height: 480px;
+  flex: 1 1 auto;
+}
+
+.csv-output-switch {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  z-index: 1;
+  opacity: 0.85;
+}
+</style>
