@@ -44,4 +44,33 @@ describe("JsonTreeViewer source structure", () => {
     expect(summaryIndex).toBeGreaterThan(-1);
     expect(bracketIndex).toBeLessThan(summaryIndex);
   });
+
+  it("wires the toolbar search region behind the showSearch prop", () => {
+    expect(source).toContain("showSearch?: boolean");
+    expect(source).toContain("showSearch: true");
+    expect(source).toContain('class="json-tree-search"');
+    expect(source).toContain("useJsonTreeSearch");
+    expect(source).toContain("无匹配");
+    expect(source).toContain("@keydown.enter.exact.prevent");
+    expect(source).toContain("@keydown.shift.enter.prevent");
+    expect(source).toContain("上一处");
+    expect(source).toContain("下一处");
+  });
+
+  it("reveals ancestors and scrolls to the active match row", () => {
+    expect(source).toContain("revealKeys");
+    expect(source).toContain("scrollIntoView");
+    expect(source).toContain(':matched-keys="searchMatchedIds"');
+    expect(source).toContain(':active-match-key="searchActiveMatchId"');
+    expect(nodeSource).toContain(':data-key="node.key"');
+  });
+
+  it("highlights matched labels and values with dedicated classes", () => {
+    expect(nodeSource).toContain("matchedKeys");
+    expect(nodeSource).toContain("activeMatchKey");
+    expect(nodeSource).toContain("json-tree-match");
+    expect(nodeSource).toContain("json-tree-match-active");
+    expect(nodeSource).toContain('jsonTreeSearchMatchId({ field: "key"');
+    expect(nodeSource).toContain('jsonTreeSearchMatchId({ field: "value"');
+  });
 });

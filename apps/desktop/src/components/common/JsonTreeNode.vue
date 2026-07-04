@@ -1,6 +1,6 @@
 <template>
   <div class="json-tree-node" role="treeitem">
-    <div class="json-tree-line">
+    <div class="json-tree-line" :data-key="node.key">
       <button
         v-if="expandable"
         class="json-tree-toggle"
@@ -16,14 +16,20 @@
       </button>
       <span v-else class="json-tree-toggle-spacer" aria-hidden="true" />
 
-      <span v-if="node.label" class="json-tree-label">{{ node.label }}</span>
+      <span v-if="node.label" class="json-tree-label" :class="labelHighlightClass">{{
+        node.label
+      }}</span>
       <span v-if="node.label" class="json-tree-separator">:</span>
 
       <template v-if="isObjectLike">
         <span class="json-tree-bracket">{{ expanded ? openToken : collapsedToken }}</span>
         <span class="json-tree-summary">{{ node.summary }}</span>
       </template>
-      <span v-else class="json-tree-value" :class="`is-${node.valueType}`">
+      <span
+        v-else
+        class="json-tree-value"
+        :class="[`is-${node.valueType}`, valueHighlightClass]"
+      >
         {{ node.summary }}
       </span>
     </div>
@@ -35,6 +41,8 @@
           :key="child.key"
           :node="child"
           :expanded-keys="expandedKeys"
+          :matched-keys="matchedKeys"
+          :active-match-key="activeMatchKey"
           @toggle="$emit('toggle', $event)"
         />
       </div>
@@ -51,13 +59,24 @@ import { computed } from "vue";
 import { CaretBottom, CaretRight } from "@element-plus/icons-vue";
 import { isJsonTreeExpandable } from "../../utils/jsonTreeView";
 import type { JsonTreeNode as JsonTreeNodeModel } from "../../utils/jsonTreeView";
+import { jsonTreeSearchMatchId } from "../../utils/jsonTreeSearch";
 
 defineOptions({ name: "JsonTreeNode" });
 
-const props = defineProps<{
-  node: JsonTreeNodeModel;
-  expandedKeys: Set<string>;
-}>();
+const props = withDefaults(
+  defineProps<{
+    node: JsonTreeNodeModel;
+    expandedKeys: Set<string>;
+    /** 命中标识集合(jsonTreeSearchMatchId 产物),区分 key/value 命中。 */
+    matchedKeys?: Set<string>;
+    /** 当前命中的标识,展示更强高亮。 */
+    activeMatchKey?: string | null;
+  }>(),
+  {
+    matchedKeys: () => new Set<string>(),
+    activeMatchKey: null,
+  },
+);
 
 defineEmits<{
   toggle: [key: string];
@@ -75,6 +94,19 @@ const collapsedToken = computed(() => {
   if (!props.node.childCount) return `${openToken.value}${closeToken.value}`;
   return isArray.value ? "[...]" : "{...}";
 });
+
+const labelMatchId = computed(() => jsonTreeSearchMatchId({ field: "key", key: props.node.key }));
+const valueMatchId = computed(() =>
+  jsonTreeSearchMatchId({ field: "value", key: props.node.key }),
+);
+const labelHighlightClass = computed(() => ({
+  "json-tree-match": props.matchedKeys.has(labelMatchId.value),
+  "json-tree-match-active": props.activeMatchKey === labelMatchId.value,
+}));
+const valueHighlightClass = computed(() => ({
+  "json-tree-match": props.matchedKeys.has(valueMatchId.value),
+  "json-tree-match-active": props.activeMatchKey === valueMatchId.value,
+}));
 </script>
 
 <style scoped>
@@ -164,6 +196,18 @@ const collapsedToken = computed(() => {
 
 .json-tree-value.is-unknown {
   color: #b45309;
+}
+
+.json-tree-match {
+  border-radius: 4px;
+  background: #fdf0c7;
+  box-shadow: 0 0 0 1px #f3dda0;
+}
+
+.json-tree-match-active {
+  background: #fbca4e;
+  box-shadow: 0 0 0 1px #d9990a;
+  color: #52340a;
 }
 
 .json-tree-close-line {

@@ -7,6 +7,11 @@ export interface JsonTreeSearchMatch {
   field: "key" | "value";
 }
 
+/** 命中标识:区分同一节点上 key 命中与 value 命中,供高亮与导航定位使用。 */
+export function jsonTreeSearchMatchId(match: Pick<JsonTreeSearchMatch, "field" | "key">): string {
+  return `${match.field}:${match.key}`;
+}
+
 export function collectJsonTreeSearchMatches(
   root: JsonTreeNode,
   query: string,

@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { buildJsonTree, encodeJsonTreePath } from "./jsonTreeView";
-import { collectJsonTreeAncestorKeys, collectJsonTreeSearchMatches } from "./jsonTreeSearch";
+import {
+  collectJsonTreeAncestorKeys,
+  collectJsonTreeSearchMatches,
+  jsonTreeSearchMatchId,
+} from "./jsonTreeSearch";
 
 describe("collectJsonTreeSearchMatches", () => {
   it("matches keys and scalar values case-insensitively in DFS document order", () => {
@@ -72,6 +76,13 @@ describe("collectJsonTreeSearchMatches", () => {
     const root = buildJsonTree({ user: "admin" });
 
     expect(collectJsonTreeSearchMatches(root, "")).toEqual([]);
+  });
+});
+
+describe("jsonTreeSearchMatchId", () => {
+  it("distinguishes key and value hits on the same node", () => {
+    expect(jsonTreeSearchMatchId({ field: "key", key: "$" })).toBe("key:$");
+    expect(jsonTreeSearchMatchId({ field: "value", key: "$/k:1:a" })).toBe("value:$/k:1:a");
   });
 });
 

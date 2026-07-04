@@ -136,16 +136,16 @@ describe("useJsonTreeSearch", () => {
     expect(search.activeIndex.value).toBe(-1);
   });
 
-  it("exposes matched keys and ancestor reveal keys for the active match", () => {
+  it("exposes matched ids and ancestor reveal keys for the active match", () => {
     const tree = ref(buildJsonTree({ user: { profile: { city: "Paris" } } }));
     const search = useJsonTreeSearch(tree);
 
     search.query.value = "paris";
     vi.advanceTimersByTime(JSON_TREE_SEARCH_DEBOUNCE_MS);
 
-    expect(search.matchedKeys.value).toEqual(
-      new Set([encodeJsonTreePath(["user", "profile", "city"])]),
-    );
+    const cityKey = encodeJsonTreePath(["user", "profile", "city"]);
+    expect(search.matchedIds.value).toEqual(new Set([`value:${cityKey}`]));
+    expect(search.activeMatchId.value).toBe(`value:${cityKey}`);
     expect(search.revealKeys.value).toEqual(
       new Set([
         encodeJsonTreePath([]),
@@ -155,7 +155,8 @@ describe("useJsonTreeSearch", () => {
     );
 
     search.query.value = "";
-    expect(search.matchedKeys.value).toEqual(new Set());
+    expect(search.matchedIds.value).toEqual(new Set());
+    expect(search.activeMatchId.value).toBeNull();
     expect(search.revealKeys.value).toEqual(new Set());
   });
 });
