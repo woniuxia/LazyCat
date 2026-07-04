@@ -200,7 +200,7 @@ URL 输入框与 KV value 列输入 `{{` 时，弹出轻量候选浮层（统一
 
 ### 纯函数（配单测）
 
-- `utils/apiWorkbenchTabs.ts`：脏比较、恢复归一化与降级（requestId 失效转 temp）、关闭邻接选择、聚焦查找。
+- `utils/apiWorkbenchTabs.ts`：脏比较、恢复归一化与降级（requestId 失效转 temp）、关闭邻接选择、聚焦查找、树数据 → 标签 folderId 回填。
 - `utils/apiWorkbenchKvPaste.ts`：粘贴文本三形态解析。
 - `utils/apiWorkbench.ts` 增补：`splitApiWorkbenchUrlQuery`、认证头生成、页签计数、状态码色阶映射。
 - `utils/format.ts`（新）：`formatByteSize`（上提自 apiMock）、`formatDurationMs`、`formatRelativeTime`。
