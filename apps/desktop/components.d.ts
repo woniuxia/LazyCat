@@ -178,6 +178,7 @@ declare module 'vue' {
     TodoDetailView: typeof import('./src/components/TodoDetailView.vue')['default']
     TodoEmptyState: typeof import('./src/components/TodoEmptyState.vue')['default']
     TodoPanel: typeof import('./src/components/TodoPanel.vue')['default']
+    TodoQuickAddBar: typeof import('./src/components/TodoQuickAddBar.vue')['default']
     TodoSidebar: typeof import('./src/components/TodoSidebar.vue')['default']
     TopBar: typeof import('./src/components/TopBar.vue')['default']
     UuidPanel: typeof import('./src/components/UuidPanel.vue')['default']
