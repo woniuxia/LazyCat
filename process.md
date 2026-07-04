@@ -8,6 +8,39 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-07-04: JsonTreeViewer 查看+编辑扩展（搜索定位/复制菜单/树内编辑/撤销重做/三消费方接入）
+
+**场景**: 按 `docs/superpowers/specs/2026-07-04-json-tree-viewer-extensions-plan.md` 把只读 JSON 树升级为通用查看+编辑组件,并接入 JSON 处理面板（文本/树双模式编辑）、JWT 解码、CSV 输出三个消费方;数据字典零改动获得查看增强。
+**使用次数**: 0
+**问题**:
+1. 受控组件的"编辑回流"与"外部换文档"如何区分:消费方以 `ref` 持有文档时回传的 `value` 是 reactive Proxy,直接 `===` 比较最近 emit 的根会把每次编辑误判为换文档,展开状态与 undo 栈每次编辑后被清空。
+2. 撤销/重做需要同时恢复文档与展开状态,且展开 key 在数组 insert/remove/move、rename 后会整体位移。
+3. 同一节点 key 与 value 可各自命中搜索,高亮不能只按节点 key 粒度做(key 命中会连带值一起高亮)。
+4. JSON 处理面板经 `<component :is>` 切换即卸载(无 keep-alive),树内编辑不能等切回文本才序列化,否则丢编辑。
+5. 面板 `watchPendingInput` 剪贴板注入会在树模式下外部覆写 `input`,需要与自身回写区分。
+**解决**:
+1. `useJsonTreeEditing` 记录 `lastEmittedRaw`,`onValueChange` 用 `toRaw(newValue)` 与之比较——相等为编辑回流(保持展开/undo/搜索),不等为外部换文档(清双栈、取消编辑态、回调组件重置展开+清搜索)。组件内部树构建/patch 一律基于 `toRaw(props.value)`,避免 raw/proxy 混合子树破坏结构共享。
+2. 历史栈直接存快照 `{ value, expandedKeys }`(不可变 patch 引擎产出新根、旧根结构共享,快照零拷贝成本),undo/redo 恢复快照不再做迁移;展开迁移 `migrateExpandedKeys` 只在 op 成功时执行一次,对 encode 后的 key 字符串做前缀替换/索引平移(`i:` 段只动 base 直属子层)。空 key 插入取消=弹出 past 栈顶且不入 future(被弃状态不产生 redo 项)。
+3. 命中标识用 `${field}:${nodeKey}`(`jsonTreeSearchMatchId`)贯穿 composable → viewer → node,label 与 value 各自独立高亮;编辑中的行抑制高亮。
+4. 树内每次 `update:value` 立即 `JSON.stringify(v, null, 2)` 回写 `input`,文本任何时刻都是事实源;文本类操作(格式化/转换)执行前仅切回文本模式、不再重写。
+5. 记录最近回写文本 `lastWrittenBack`,`watch(input)` 中不相符的变化按换文档处理:重过闸门(`canEnterJsonTree`,先查 1MB 体积再 parse),成功刷新树、失败退回文本模式并提示。
+**关键点**:
+1. Vue 受控组件回流判定必须 `toRaw` 比较,消费方文档建议 `shallowRef` 持有(组件文档注释写明契约:原样回写、不得 clone)。
+2. 结构共享的不可变更新使快照式 undo 可行:只沿目标路径浅克隆祖先,历史栈存整根引用,无需逆操作模型。
+3. 行内编辑"Enter 提交、Esc/失焦取消"配合编辑态单一来源(`editingState.key`):成功才 `endEdit`,失败(如重名)保留编辑态让用户修正;浏览器移除聚焦元素不派发 blur,残余 blur 由 `cancelEditing` 的 null 守卫兜底。
+4. 值输入宽松解析:先严格 `JSON.parse`,失败整段按字符串——初始草稿必须用 JSON 字面量文本(`formatJsonPrimitive`,字符串带引号),否则字符串 `"123"` 无操作提交会变 number。
+5. `el-segmented` 用 `:model-value` + `@update:model-value` 受控写法,切树失败(闸门拒绝)可停留文本不回弹;新增 Element Plus 组件后 `components.d.ts` 由 build 再生成,需一并提交。
+**涉及文件**:
+- `apps/desktop/src/utils/jsonTreeSearch.ts`、`jsonTreeEdit.ts`、`jsonProcessTree.ts` 及配套测试;`jsonTreeView.ts`(+`toJsonPath`/`findJsonTreeParentNode`/`JsonTreePath`)
+- `apps/desktop/src/composables/useJsonTreeSearch.ts`、`useJsonTreeEditing.ts` 及配套测试
+- `apps/desktop/src/components/common/JsonTreeViewer.vue`、`JsonTreeNode.vue`、`JsonTreeNodeMenu.vue`(新增)、`JsonTreeViewer.test.ts`
+- `apps/desktop/src/components/JsonProcessPanel.vue`、`JwtPanel.vue`、`CsvJsonPanel.vue` 及三个新增结构断言测试
+- `apps/desktop/src/types/json-tree.ts`(新增)
+**验证**:
+- `pnpm test`(544 个,全部通过)
+- `pnpm typecheck`、`pnpm --filter @lazycat/desktop build:web`
+- 数据字典右键菜单与既有 JsonTreeViewer 结构断言回归通过
+
 ## 2026-07-04: API Mock 细节交互优化（组件拆分/未保存拦截/延迟模拟/并发改造）
 
 **场景**: 按 `docs/superpowers/specs/2026-07-04-api-mock-ux-design.md` 实施 API Mock 联调反馈闭环与编辑效率优化，含路由级延迟模拟。
