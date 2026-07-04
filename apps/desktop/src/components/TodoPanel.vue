@@ -47,6 +47,12 @@
             <el-button type="primary" @click="startCreate">新增事项</el-button>
           </div>
         </div>
+        <TodoQuickAddBar
+          v-if="viewMode === 'list'"
+          class="todo-quick-add-bar"
+          :context="quickAddContext"
+          @created="onQuickAddCreated"
+        />
         <div
           v-if="viewMode === 'list'"
           class="todo-list-scroll"
@@ -116,6 +122,7 @@
                     'is-pinned': row.pinned,
                     'is-overdue-card': isItemOverdue(row),
                     'is-selected': selectedItemId === row.id,
+                    'is-quick-add-highlight': quickAddHighlightId === row.id,
                   },
                 ]"
                 :style="{ '--item-index': index }"
@@ -488,6 +495,7 @@ import { useTabs } from "../composables/useTabs";
 import { usePmNavigation } from "../composables/usePmNavigation";
 import { useTodoNavigation } from "../composables/useTodoNavigation";
 import { groupTodoItemsByBucket } from "../utils/todoBuckets";
+import type { QuickAddContext } from "../utils/todoQuickAdd";
 import { formatTodoRelativeDateTimeLabel } from "../utils/todoRelativeDate";
 import {
   prevMonth as calPrevMonth,
@@ -501,6 +509,7 @@ import TodoContextMenu from "./TodoContextMenu.vue";
 import type { TodoContextMenuCommand } from "./TodoContextMenu.vue";
 import TodoBasicsDialog from "./TodoBasicsDialog.vue";
 import TodoSidebar from "./TodoSidebar.vue";
+import TodoQuickAddBar from "./TodoQuickAddBar.vue";
 import TodoEmptyState from "./TodoEmptyState.vue";
 import {
   TODO_REPEAT_PRESET_OPTIONS,
@@ -840,6 +849,36 @@ const overdueCount = computed(() => {
 function clearAllFilters() {
   filterType.value = null;
   filterPriority.value = null;
+}
+
+const quickAddContext = computed<QuickAddContext>(() => ({
+  typeId:
+    filterType.value === null
+      ? null
+      : types.value.find((t) => t.name === filterType.value)?.id ?? null,
+  projectId: typeof filterProjectId.value === "number" ? filterProjectId.value : null,
+  priorityDefault: filterPriority.value ?? "P2",
+}));
+
+const quickAddHighlightId = ref<number | null>(null);
+let quickAddHighlightTimer: ReturnType<typeof setTimeout> | null = null;
+
+function isItemVisibleInList(id: number) {
+  return displayActiveItems.value.some((row) => row.id === id);
+}
+
+async function onQuickAddCreated(id: number) {
+  await loadItems();
+  if (!isItemVisibleInList(id)) {
+    ElMessage.info("已添加，当前筛选/搜索条件下不可见");
+    return;
+  }
+  quickAddHighlightId.value = id;
+  if (quickAddHighlightTimer) clearTimeout(quickAddHighlightTimer);
+  quickAddHighlightTimer = setTimeout(() => {
+    quickAddHighlightId.value = null;
+    quickAddHighlightTimer = null;
+  }, 1500);
 }
 
 function normalizeDraftTypeValue(value: SelectTypeValue) {
@@ -2139,6 +2178,10 @@ onBeforeUnmount(() => {
     clearTimeout(titleFocusTimer);
     titleFocusTimer = null;
   }
+  if (quickAddHighlightTimer) {
+    clearTimeout(quickAddHighlightTimer);
+    quickAddHighlightTimer = null;
+  }
 });
 </script>
 
@@ -2159,6 +2202,22 @@ onBeforeUnmount(() => {
   display: flex;
   gap: 10px;
   align-items: center;
+}
+/* --- Quick add bar --- */
+.todo-quick-add-bar {
+  margin-bottom: 12px;
+}
+.todo-card.is-quick-add-highlight {
+  animation: quickAddHighlightFade 1.5s var(--lc-ease-out) both;
+}
+@keyframes quickAddHighlightFade {
+  0% {
+    background: rgba(52, 211, 153, 0.16);
+    border-color: var(--lc-success);
+  }
+  60% {
+    background: rgba(52, 211, 153, 0.08);
+  }
 }
 /* --- Section headers --- */
 .item-section {
