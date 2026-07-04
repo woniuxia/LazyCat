@@ -25,8 +25,8 @@
 其他事实：
 
 - e2e 冒烟自 2026-03-07 起必挂：`App.vue:97` 顶层 `const appWindow = getCurrentWindow()` 在纯 web 环境抛错，App 不挂载（引入提交 dada6c8）。所有重构当前无端到端回归保护。
-- `components/` 根下约 124 个文件基本平铺（含 colocated `*.test.ts`），但已有分域先例：`api-mock/`、`db/`、`common/`、`settings/`。域聚类明显：Pm* 18 个、Todo* 9 个（含 TodoQuickAddBar）、Api* 6 个、Spotlight* 5 个。
-- Rust 侧有成熟拆分先例：pm.rs 拆为 pm / pm_today / pm_calendar / pm_matrix / pm_weekly / pm_siyuan / pm_todo_link 共 7 个模块；子目录先例 `db_drivers/`。
+- `components/` 根下约 125 个文件基本平铺（含 colocated `*.test.ts`），但已有分域先例：`api-mock/`、`db/`、`common/`、`settings/`。域聚类明显：Pm* 18 个、Todo* 9 个（含 TodoQuickAddBar）、Api* 6 个、Spotlight* 5 个。
+- Rust 侧有成熟拆分先例：pm.rs 拆为 pm / pm_today / pm_calendar / pm_matrix / pm_weekly / pm_siyuan / pm_todo_link 共 7 个模块；子目录先例 `db_drivers/`、`widget/`。
 
 ## 2. 目标与非目标
 
@@ -118,9 +118,9 @@ tools/api_workbench/
   response.rs   响应缓存 2 action（cache_open / cache_reveal）+ response_preview_office
 ```
 
-共 **33 个 action**（以 `is_supported_api_workbench_action` 为对账基准）：32 个按上表迁移进子模块，`list` 保留在 mod.rs；与现有 match 分发点（原文件 3131 行起）一一对应。
+共 **33 个 action**（以 `is_supported_api_workbench_action` 为对账基准）：32 个按上表迁移进子模块，`list` 保留在 mod.rs（`action_list_with_conn` 是跨 collection/folder/request 的聚合树查询，不归属单一子模块）；与现有 match 分发点（原文件 3131 行起）一一对应。
 
-原文件含两个 `#[cfg(test)]` 模块（1363 行、3171 行至文件尾，合计约 2400 行、占全文件约 40%）：**内嵌测试随被测函数迁移至对应子模块**，迁移前后 `cargo test` 用例数必须一致。
+原文件含一个 `#[cfg(test)] mod tests`（3171 行至文件尾，约 2080 行、占全文件约 40%）：**内嵌测试随被测函数迁移至对应子模块**。另有一对 `#[cfg(test)]` / `#[cfg(not(test))]` 版本的 `get_api_workbench_response_cache_dir`（1363-1378 行，测试态重定向缓存目录到临时目录）：**迁移时必须成对搬至缓存目录逻辑所在子模块**，拆散会导致测试构建失败或测试写入真实数据目录。迁移前后 `cargo test` 用例数必须一致。
 
 ### 实施顺序
 
@@ -174,4 +174,4 @@ tools/api_workbench/
 | 拆分深度 | 行为保持机械拆分 | 顺手改良被否：无 e2e 保护期风险高、批次周期变长 |
 | TodoPanel 顺序 | 快速添加栏 plan 先行 | 拆分先行会作废已三审定稿的 plan；该 plan 已于 2026-07-04 实施完成，前置条件现已满足 |
 | 目录策略 | 渐进分域（方案 B） | 一次性大搬家（方案 A）与 3 个待实施 plan 路径引用全面冲突；双线并行（方案 C）回归定位难 |
-| Rust 拆分形态 | 目录化 `tools/api_workbench/` | 平铺 `api_workbench_*.rs` 会加剧 tools/ 根下 48 个 .rs 的膨胀；db_drivers/ 已有子目录先例 |
+| Rust 拆分形态 | 目录化 `tools/api_workbench/` | 平铺 `api_workbench_*.rs` 会加剧 tools/ 根下 48 个 .rs 的膨胀；`db_drivers/`、`widget/` 已有子目录先例 |
