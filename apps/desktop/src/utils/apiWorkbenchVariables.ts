@@ -50,3 +50,28 @@ export function summarizeApiWorkbenchVariables(input: {
     source: environmentNames.has(name) ? "environment" : globalNames.has(name) ? "global" : "missing",
   }));
 }
+
+/** variables 优先级从高到低（如 [环境, 全局]）；缺失变量保留 {{NAME}} 原文 */
+export function resolveApiWorkbenchTemplate(
+  text: string,
+  variables: ApiWorkbenchVariable[][],
+): { text: string; missing: string[] } {
+  const lookup = new Map<string, string>();
+  for (const group of variables) {
+    for (const item of group) {
+      if (!lookup.has(item.name)) lookup.set(item.name, item.value);
+    }
+  }
+  const missing: string[] = [];
+  const missingSeen = new Set<string>();
+  const resolved = text.replace(/\{\{\s*([^{}]+?)\s*\}\}/g, (raw, rawName: string) => {
+    const name = rawName.trim();
+    if (lookup.has(name)) return lookup.get(name) as string;
+    if (!missingSeen.has(name)) {
+      missingSeen.add(name);
+      missing.push(name);
+    }
+    return raw;
+  });
+  return { text: resolved, missing };
+}

@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { summarizeApiWorkbenchVariables } from "./apiWorkbenchVariables";
+import {
+  resolveApiWorkbenchTemplate,
+  summarizeApiWorkbenchVariables,
+} from "./apiWorkbenchVariables";
 
 describe("apiWorkbenchVariables", () => {
   it("summarizes variables from actual send path with source precedence", () => {
@@ -30,5 +33,39 @@ describe("apiWorkbenchVariables", () => {
       { name: "TOKEN", source: "environment" },
       { name: "ORG_ID", source: "global" },
     ]);
+  });
+
+  it("resolves templates with environment variables", () => {
+    expect(
+      resolveApiWorkbenchTemplate("{{BASE_URL}}/users", [
+        [{ name: "BASE_URL", value: "http://a" }],
+        [],
+      ]),
+    ).toEqual({ text: "http://a/users", missing: [] });
+  });
+
+  it("prefers higher priority variable groups", () => {
+    expect(
+      resolveApiWorkbenchTemplate("{{TOKEN}}", [
+        [{ name: "TOKEN", value: "env" }],
+        [{ name: "TOKEN", value: "global" }],
+      ]),
+    ).toEqual({ text: "env", missing: [] });
+    expect(
+      resolveApiWorkbenchTemplate("{{TOKEN}}", [[], [{ name: "TOKEN", value: "global" }]]),
+    ).toEqual({ text: "global", missing: [] });
+  });
+
+  it("keeps missing variables verbatim and reports them once", () => {
+    expect(
+      resolveApiWorkbenchTemplate("/a/{{MISSING}}/b/{{ MISSING }}", [[], []]),
+    ).toEqual({ text: "/a/{{MISSING}}/b/{{ MISSING }}", missing: ["MISSING"] });
+  });
+
+  it("returns text without variables as-is", () => {
+    expect(resolveApiWorkbenchTemplate("/plain/path", [[], []])).toEqual({
+      text: "/plain/path",
+      missing: [],
+    });
   });
 });

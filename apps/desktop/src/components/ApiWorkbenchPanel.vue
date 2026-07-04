@@ -67,18 +67,34 @@
         </div>
 
         <div class="api-workbench-utility-row">
-          <div v-if="variableUsages.length > 0 || baseUrlEffectText" class="variable-summary">
-            <span v-if="baseUrlEffectText" class="variable-summary-base">
-              {{ baseUrlEffectText }}
-            </span>
-            <el-tag
-              v-for="usage in variableUsages"
-              :key="usage.name"
-              size="small"
-              :type="usage.source === 'missing' ? 'warning' : usage.source === 'environment' ? 'success' : 'info'"
+          <div class="utility-main">
+            <button
+              type="button"
+              class="final-url-preview"
+              :class="{ 'is-clickable': finalUrlPreview !== null }"
+              :title="finalUrlPreview ? '点击复制最终 URL' : ''"
+              @click="copyFinalUrlPreview"
             >
-              {{ usage.name }} · {{ variableSourceLabel(usage.source) }}
-            </el-tag>
+              <span class="final-url-label">最终 URL</span>
+              <template v-if="finalUrlPreview">
+                <span
+                  v-for="(segment, index) in finalUrlPreview.segments"
+                  :key="index"
+                  :class="{ 'final-url-missing': segment.missing }"
+                >{{ segment.text }}</span>
+              </template>
+              <span v-else class="final-url-placeholder">填写 URL 后显示最终请求地址</span>
+            </button>
+            <div v-if="variableUsages.length > 0" class="variable-summary">
+              <el-tag
+                v-for="usage in variableUsages"
+                :key="usage.name"
+                size="small"
+                :type="usage.source === 'missing' ? 'warning' : usage.source === 'environment' ? 'success' : 'info'"
+              >
+                {{ usage.name }} · {{ variableSourceLabel(usage.source) }}
+              </el-tag>
+            </div>
           </div>
           <div class="curl-actions">
             <el-button :icon="CopyDocument" @click="copyCurrentCurl">复制 cURL</el-button>
@@ -397,6 +413,7 @@ import {
   DEFAULT_API_WORKBENCH_DRAFT,
   buildApiWorkbenchEnvironmentDraftSummary,
   buildApiWorkbenchNewRequestState,
+  buildApiWorkbenchPreviewUrl,
   buildApiWorkbenchSelectionState,
   draftApiWorkbenchEnvironmentRows,
   findDuplicateApiWorkbenchEnvironmentVariableNames,
@@ -417,6 +434,7 @@ import {
 } from "../utils/apiWorkbenchHistory";
 import { parseApiWorkbenchCurl } from "../utils/apiWorkbenchCurl";
 import {
+  resolveApiWorkbenchTemplate,
   summarizeApiWorkbenchVariables,
   type ApiWorkbenchVariableUsage,
 } from "../utils/apiWorkbenchVariables";
@@ -502,10 +520,21 @@ const variableUsages = computed(() =>
     })),
   }),
 );
-const baseUrlEffectText = computed(() => {
-  if (/^https?:\/\//i.test(draft.value.url.trim())) return "";
-  if (!draft.value.url.trim()) return "";
-  return baseUrl.value.trim() ? `相对 URL 将使用 BASE_URL：${baseUrl.value.trim()}` : "";
+const finalUrlPreview = computed<{
+  text: string;
+  segments: Array<{ text: string; missing: boolean }>;
+} | null>(() => {
+  if (!draft.value.url.trim()) return null;
+  const joined = buildApiWorkbenchPreviewUrl(baseUrl.value, draft.value.url, draft.value.query);
+  const resolved = resolveApiWorkbenchTemplate(joined, [
+    selectedEnvironment.value?.variables ?? [],
+    globalVariables.value.map((row) => ({ name: row.key, value: row.value })),
+  ]);
+  const segments = resolved.text
+    .split(/(\{\{\s*[^{}]+?\s*\}\})/g)
+    .filter((part) => part !== "")
+    .map((part) => ({ text: part, missing: /^\{\{[\s\S]*\}\}$/.test(part) }));
+  return { text: resolved.text, segments };
 });
 const responseHeadersText = computed(
   () => response.value?.responseHeaders.map((row) => `${row.key}: ${row.value}`).join("\n") ?? "",
@@ -622,6 +651,11 @@ function confirmMoveDialog() {
 function cancelMoveDialog() {
   if (!moveDialogResolver) return;
   settleMoveDialog(undefined);
+}
+
+async function copyFinalUrlPreview() {
+  if (!finalUrlPreview.value) return;
+  await copyText(finalUrlPreview.value.text, "最终 URL 已复制");
 }
 
 function applyUrlQuerySplit() {
@@ -1764,13 +1798,54 @@ onBeforeUnmount(() => {
   padding-top: 2px;
 }
 
-.variable-summary-base {
-  max-width: min(100%, 480px);
+.utility-main {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.final-url-preview {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
   overflow: hidden;
+  padding: 0;
+  border: none;
+  background: transparent;
   color: var(--el-text-color-secondary);
+  cursor: default;
+  font-family: var(--lc-font-mono);
   font-size: 12px;
+  line-height: 1.6;
+  text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.final-url-preview.is-clickable {
+  cursor: pointer;
+}
+
+.final-url-preview.is-clickable:hover {
+  color: var(--el-text-color-primary);
+}
+
+.final-url-label {
+  margin-right: 6px;
+  color: var(--el-text-color-placeholder);
+  font-family: inherit;
+  font-weight: 600;
+}
+
+.final-url-missing {
+  color: var(--el-color-warning);
+  font-weight: 600;
+}
+
+.final-url-placeholder {
+  color: var(--el-text-color-placeholder);
 }
 
 .method-select {
