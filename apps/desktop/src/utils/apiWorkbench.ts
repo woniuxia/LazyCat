@@ -125,6 +125,16 @@ export interface ApiWorkbenchUrlSplitResult {
   rows: ApiWorkbenchKeyValueRow[];
 }
 
+export function countApiWorkbenchActiveRows(rows: ApiWorkbenchKeyValueRow[]): number {
+  return rows.filter((row) => row.enabled && row.key.trim() !== "").length;
+}
+
+export function hasApiWorkbenchBody(draft: ApiWorkbenchRequestDraft): boolean {
+  if (draft.bodyType === "none") return false;
+  if (draft.bodyType === "form-urlencoded") return countApiWorkbenchActiveRows(draft.form) > 0;
+  return draft.body.trim() !== "";
+}
+
 /** 无 ? 或 ? 后为空时返回 null；不做 URL 解码 */
 export function splitApiWorkbenchUrlQuery(rawUrl: string): ApiWorkbenchUrlSplitResult | null {
   const questionIndex = rawUrl.indexOf("?");

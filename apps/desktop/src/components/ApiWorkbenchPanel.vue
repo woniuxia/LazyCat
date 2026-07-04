@@ -111,13 +111,28 @@
       />
 
       <el-tabs v-model="editorTab" class="api-workbench-editor-tabs">
-        <el-tab-pane label="Query" name="query">
+        <el-tab-pane name="query">
+          <template #label>
+            <span class="editor-tab-label">
+              Query<span v-if="queryRowCount > 0" class="editor-tab-badge">({{ queryRowCount }})</span>
+            </span>
+          </template>
           <ApiWorkbenchKeyValueEditor v-model="draft.query" variant="query" />
         </el-tab-pane>
-        <el-tab-pane label="Headers" name="headers">
+        <el-tab-pane name="headers">
+          <template #label>
+            <span class="editor-tab-label">
+              Headers<span v-if="headerRowCount > 0" class="editor-tab-badge">({{ headerRowCount }})</span>
+            </span>
+          </template>
           <ApiWorkbenchKeyValueEditor v-model="draft.headers" variant="headers" />
         </el-tab-pane>
-        <el-tab-pane label="Body" name="body">
+        <el-tab-pane name="body">
+          <template #label>
+            <span class="editor-tab-label">
+              Body<span v-if="bodyHasContent" class="editor-tab-badge">(·)</span>
+            </span>
+          </template>
           <div class="body-toolbar">
             <el-radio-group v-model="draft.bodyType">
               <el-radio-button label="none">none</el-radio-button>
@@ -415,8 +430,10 @@ import {
   buildApiWorkbenchNewRequestState,
   buildApiWorkbenchPreviewUrl,
   buildApiWorkbenchSelectionState,
+  countApiWorkbenchActiveRows,
   draftApiWorkbenchEnvironmentRows,
   findDuplicateApiWorkbenchEnvironmentVariableNames,
+  hasApiWorkbenchBody,
   normalizeApiWorkbenchDraft,
   resolveApiWorkbenchEnvironmentSelect,
   serializeApiWorkbenchEnvironmentRows,
@@ -539,6 +556,9 @@ const finalUrlPreview = computed<{
 const responseHeadersText = computed(
   () => response.value?.responseHeaders.map((row) => `${row.key}: ${row.value}`).join("\n") ?? "",
 );
+const queryRowCount = computed(() => countApiWorkbenchActiveRows(draft.value.query));
+const headerRowCount = computed(() => countApiWorkbenchActiveRows(draft.value.headers));
+const bodyHasContent = computed(() => hasApiWorkbenchBody(draft.value));
 
 function resetRequestState() {
   selectedRequestId.value = null;
@@ -1901,6 +1921,21 @@ onBeforeUnmount(() => {
 .api-workbench-response-tabs :deep(.el-tabs__header) {
   flex: none;
   margin-bottom: 10px;
+}
+
+.editor-tab-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.editor-tab-badge {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+
+.el-tabs__item.is-active .editor-tab-badge {
+  color: inherit;
 }
 
 .body-toolbar {

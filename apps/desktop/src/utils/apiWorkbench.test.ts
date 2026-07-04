@@ -5,10 +5,12 @@ import {
   buildApiWorkbenchPreviewUrl,
   buildApiWorkbenchNewRequestState,
   buildApiWorkbenchSelectionState,
+  countApiWorkbenchActiveRows,
   draftApiWorkbenchEnvironmentRows,
   extractApiWorkbenchVariables,
   findDuplicateApiWorkbenchEnvironmentVariableNames,
   formatApiWorkbenchResponseBody,
+  hasApiWorkbenchBody,
   normalizeApiWorkbenchDraft,
   resolveApiWorkbenchEnvironmentSelect,
   serializeApiWorkbenchEnvironmentRows,
@@ -108,6 +110,41 @@ describe("apiWorkbench utils", () => {
     expect(splitApiWorkbenchUrlQuery("/p?")).toBeNull();
     expect(splitApiWorkbenchUrlQuery("/p")).toBeNull();
     expect(splitApiWorkbenchUrlQuery("")).toBeNull();
+  });
+
+  it("counts enabled rows with non-empty keys", () => {
+    expect(countApiWorkbenchActiveRows([])).toBe(0);
+    expect(
+      countApiWorkbenchActiveRows([
+        { enabled: true, key: "a", value: "1" },
+        { enabled: true, key: "  ", value: "1" },
+        { enabled: false, key: "b", value: "1" },
+        { enabled: true, key: "c", value: "" },
+      ]),
+    ).toBe(2);
+  });
+
+  it("detects whether draft carries a body", () => {
+    const blank = normalizeApiWorkbenchDraft({});
+    expect(hasApiWorkbenchBody(blank)).toBe(false);
+    expect(hasApiWorkbenchBody({ ...blank, bodyType: "json", body: "  " })).toBe(false);
+    expect(hasApiWorkbenchBody({ ...blank, bodyType: "json", body: "{}" })).toBe(true);
+    expect(hasApiWorkbenchBody({ ...blank, bodyType: "text", body: "x" })).toBe(true);
+    expect(
+      hasApiWorkbenchBody({
+        ...blank,
+        bodyType: "form-urlencoded",
+        form: [{ enabled: true, key: "a", value: "1" }],
+      }),
+    ).toBe(true);
+    expect(
+      hasApiWorkbenchBody({
+        ...blank,
+        bodyType: "form-urlencoded",
+        form: [{ enabled: false, key: "a", value: "1" }],
+      }),
+    ).toBe(false);
+    expect(hasApiWorkbenchBody({ ...blank, bodyType: "none", body: "ignored" })).toBe(false);
   });
 
   it("resets editor state when switching collections", () => {
