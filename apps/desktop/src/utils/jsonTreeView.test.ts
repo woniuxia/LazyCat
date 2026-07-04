@@ -6,6 +6,7 @@ import {
   formatJsonForCopy,
   isJsonTreeExpandable,
   summarizeJsonNode,
+  toJsonPath,
 } from "./jsonTreeView";
 
 function collectSummaries(node: ReturnType<typeof buildJsonTree>): string[] {
@@ -138,5 +139,20 @@ describe("jsonTreeView", () => {
     expect(parsed.missing).toBe("undefined");
     expect(parsed.nan).toBe("NaN");
     expect(parsed.symbol).toBe("Symbol(id)");
+  });
+
+  it("renders JSONPath with dot access for identifier-safe field names", () => {
+    expect(toJsonPath([])).toBe("$");
+    expect(toJsonPath(["a", 0, "b"])).toBe("$.a[0].b");
+    expect(toJsonPath(["$var", "_x", "y9"])).toBe("$.$var._x.y9");
+  });
+
+  it("renders JSONPath with escaped bracket access for unsafe field names", () => {
+    expect(toJsonPath(["a.b"])).toBe('$["a.b"]');
+    expect(toJsonPath(['he"llo'])).toBe('$["he\\"llo"]');
+    expect(toJsonPath(["a\\b"])).toBe('$["a\\\\b"]');
+    expect(toJsonPath(["0abc"])).toBe('$["0abc"]');
+    expect(toJsonPath([""])).toBe('$[""]');
+    expect(toJsonPath(["中文键", 2])).toBe('$["中文键"][2]');
   });
 });

@@ -7,9 +7,11 @@ export type JsonTreeValueType =
   | "null"
   | "unknown";
 
+export type JsonTreePath = Array<string | number>;
+
 export interface JsonTreeNode {
   key: string;
-  path: Array<string | number>;
+  path: JsonTreePath;
   depth: number;
   label: string;
   value: unknown;
@@ -36,7 +38,7 @@ function getValueType(value: unknown): JsonTreeValueType {
   return "unknown";
 }
 
-export function encodeJsonTreePath(path: Array<string | number>): string {
+export function encodeJsonTreePath(path: JsonTreePath): string {
   if (!path.length) return ROOT_KEY;
   return `${ROOT_KEY}/${path
     .map((segment) => {
@@ -44,6 +46,18 @@ export function encodeJsonTreePath(path: Array<string | number>): string {
       return `k:${segment.length}:${segment}`;
     })
     .join("/")}`;
+}
+
+const JSON_PATH_IDENTIFIER_PATTERN = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
+
+export function toJsonPath(path: JsonTreePath): string {
+  let result = ROOT_KEY;
+  for (const segment of path) {
+    if (typeof segment === "number") result += `[${segment}]`;
+    else if (JSON_PATH_IDENTIFIER_PATTERN.test(segment)) result += `.${segment}`;
+    else result += `[${JSON.stringify(segment)}]`;
+  }
+  return result;
 }
 
 function safeString(value: unknown): string {
