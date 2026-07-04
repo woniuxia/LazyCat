@@ -78,11 +78,13 @@ components/api-mock/
 - 拦截点四处：切换路由、切换项目、新建路由草稿、新建项目草稿。点击日志行跳转路由、复制路由载入草稿同样经过拦截。
 - dirty 时弹 `ElMessageBox`（`distinguishCancelAndClose: true`）：确认按钮「保存并切换」、取消按钮「放弃修改」、关闭（X / Esc）为留在当前。
 - 「保存并切换」复用现有保存流程；校验失败时留在原地并展示错误，不切换。
+- 切换项目会同时重置项目表单和路由表单：任一表单 dirty 即拦截；「保存并切换」按先项目、后路由的顺序依次保存所有 dirty 表单，任一保存失败则留在原地不切换（已保存成功的表单基线更新、不回滚）；「放弃修改」丢弃所有 dirty 表单。「新建项目草稿」同样会重置两个表单，按此规则拦截。
 - 项目 tab 与路由 tab 之间的切换不拦截：两个表单状态独立共存，切 tab 不重置表单。
 
 ### 路由列表
 
 - 行内启停：行右侧 `el-switch`，`click.stop` 防止触发行选中；调用新增 `route_toggle`；成功后刷新项目摘要（启用计数、需重启状态联动）。失败时 toast 错误并刷新列表，开关不留假态。
+- 启停与表单同步：行内启停成功后，若目标路由正是当前表单加载的路由，则同步更新表单和 dirty 基线中的 `enabled` 字段（其他字段的 dirty 状态不受影响），避免后续保存表单时用过期 `enabled` 静默覆盖启停结果。表单内保留启用开关（新建草稿仍需要它设置初始状态）。
 - 复制路由：行 hover 显示复制图标，点击后将该路由完整配置载入表单并转为草稿（id 置空、名称加「副本」后缀），提示「已创建副本，保存后生效」。
 - 拖拽排序：sortablejs 整行拖拽，`filter` 排除开关和按钮元素；落点后提交完整 id 顺序到 `route_reorder`；失败刷新列表恢复真实顺序。列表底部固定说明：「同等级路由按列表顺序优先匹配」。
 - 运行中拖拽/启停触发「需重启」提示由现有 signature 机制自动覆盖（signature 已含 `sort_order`，启停改变启用路由集合）。
@@ -123,7 +125,7 @@ components/api-mock/
 
 | Channel | Action | 入参 | 行为 |
 |---|---|---|---|
-| `tool:api-mock:route-toggle` | `route_toggle` | `{id, enabled}` | 单条 UPDATE `enabled` 与 `updated_at`，返回 `{ok: true}` |
+| `tool:api-mock:route-toggle` | `route_toggle` | `{id, enabled}` | 单条 UPDATE `enabled` 与 `updated_at`；id 不存在时报错（循 `route_save` 的 `affected == 0` 先例）；成功返回 `{ok: true}` |
 | `tool:api-mock:request-logs-clear` | `request_logs_clear` | `{projectId}` | 清空运行态内存日志队列；服务未运行时也返回成功 |
 
 `bridge/tauri.ts` 的 `CHANNEL_MAP` 同步登记两个通道。
@@ -140,7 +142,7 @@ components/api-mock/
 现状：accept 循环内串行调用 `handle_http_stream`，一条延迟路由会让同项目其他请求排队，`service_stop` 的 join 也会被 sleep 卡住。改造为：
 
 1. 每个连接 `thread::spawn` 处理：`route_snapshot` 传入服务线程的副本从 `Vec` 改为 `Arc<Vec<MockRouteSnapshot>>`；logs、stop、last_error 本就是 `Arc`。
-2. 并发上限 64：原子计数器守卫；超限直接返回 `503` 并写请求日志（本地开发工具，触顶即异常信号）。
+2. 并发上限 64：原子计数器守卫，用 RAII guard 保证连接处理结束（含错误路径）时计数递减；超限判定与 503 响应在连接自身线程内执行（先 spawn，线程内守卫失败后仍读取并解析请求行以便日志记录 method/path，再返回 `503`），避免慢客户端在超限场景下阻塞 accept 循环；503 请求日志的 `error` 摘要固定为「并发超限」。`status_reason` 需补 `503 => "Service Unavailable"` 分支（现状 fallback 到 "OK"）。
 3. 延迟 sleep 按 100ms 分片，每片检查 stop 信号；服务停止时中断响应、直接断开连接，不再返回旧配置的响应。
 4. `service_stop` 仍只 join accept 线程；连接线程通过 stop 分片检查自行退出，停止延迟上界约一个分片周期。
 
@@ -164,13 +166,15 @@ components/api-mock/
 4. signature：`delay_ms` 变化导致 signature 变化。
 5. 延迟冒烟：命中延迟路由的请求耗时 ≥ delay。
 6. 并发冒烟：延迟请求进行中，并行快速请求立即返回。
-7. 停止及时性：延迟请求进行中执行 stop，服务在分片周期内停止。
-8. 既有 api_mock 测试全量保持通过。
+7. 超限 503：占满并发上限后新请求收到 503，日志含 method/path 与「并发超限」摘要。
+8. 停止及时性：延迟请求进行中执行 stop，`service_stop` 调用耗时远小于路由延迟值（证明 join 未被 sleep 卡住），且延迟中的连接被断开（客户端读到连接关闭而非完整旧响应）。
+9. 既有 api_mock 测试全量保持通过。
 
 ### 前端（`pnpm test`）
 
 1. 新增纯函数单测：dirty 比较、language 映射、端口冲突、日志行视觉态。
-2. 既有 `utils/apiMock.test.ts` 全量保持通过。
+2. 行内启停与表单同步：启停当前表单加载的路由后，表单 `enabled` 与基线同步更新，后续保存不回滚启停结果；其他字段的 dirty 状态不受影响。
+3. 既有 `utils/apiMock.test.ts` 全量保持通过。
 
 ### 集成
 
