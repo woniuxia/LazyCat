@@ -11,11 +11,23 @@
     <div v-if="decoded" class="panel-grid-full jwt-sections">
       <div class="jwt-section">
         <div class="jwt-section-label" style="color: var(--el-color-primary)">Header</div>
-        <pre class="jwt-section-content jwt-header">{{ decoded.header }}</pre>
+        <JsonTreeViewer
+          class="jwt-tree"
+          :value="decoded.headerValue"
+          :copy-text="decoded.header"
+          :show-search="false"
+          aria-label="JWT Header"
+        />
       </div>
       <div class="jwt-section">
         <div class="jwt-section-label" style="color: var(--el-color-success)">Payload</div>
-        <pre class="jwt-section-content jwt-payload">{{ decoded.payload }}</pre>
+        <JsonTreeViewer
+          class="jwt-tree"
+          :value="decoded.payloadValue"
+          :copy-text="decoded.payload"
+          :show-search="false"
+          aria-label="JWT Payload"
+        />
         <div v-if="decoded.expInfo" style="margin-top: 8px">
           <el-tag :type="decoded.expired ? 'danger' : 'success'" size="small">
             {{ decoded.expired ? "已过期" : "未过期" }}
@@ -44,11 +56,14 @@ const jwtState = { token: "" };
 import { onBeforeUnmount, ref, watch } from "vue";
 import { invokeToolByChannel } from "../bridge/tauri";
 import { useClipboardSuggestion } from "../composables/useClipboardSuggestion";
+import JsonTreeViewer from "./common/JsonTreeViewer.vue";
 
 const token = ref(jwtState.token);
 const decoded = ref<{
   header: string;
   payload: string;
+  headerValue: unknown;
+  payloadValue: unknown;
   signature: string;
   expInfo?: string;
   expired?: boolean;
@@ -71,6 +86,8 @@ watch(token, (val) => {
       decoded.value = {
         header: JSON.stringify(data.header, null, 2),
         payload: JSON.stringify(data.payload, null, 2),
+        headerValue: data.header,
+        payloadValue: data.payload,
         signature: data.signature as string,
         expInfo: data.exp_readable as string | undefined,
         expired: data.expired as boolean | undefined,
@@ -121,7 +138,9 @@ onBeforeUnmount(() => {
   word-break: break-all;
 }
 
-.jwt-header { color: var(--el-color-primary); }
-.jwt-payload { color: var(--el-color-success); }
+.jwt-tree {
+  max-height: 360px;
+}
+
 .jwt-signature { color: var(--el-color-danger); }
 </style>
