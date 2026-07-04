@@ -94,10 +94,10 @@
 
       <el-tabs v-model="editorTab" class="api-workbench-editor-tabs">
         <el-tab-pane label="Query" name="query">
-          <KeyValueEditor v-model="draft.query" />
+          <ApiWorkbenchKeyValueEditor v-model="draft.query" variant="query" />
         </el-tab-pane>
         <el-tab-pane label="Headers" name="headers">
-          <KeyValueEditor v-model="draft.headers" />
+          <ApiWorkbenchKeyValueEditor v-model="draft.headers" variant="headers" />
         </el-tab-pane>
         <el-tab-pane label="Body" name="body">
           <div class="body-toolbar">
@@ -109,7 +109,7 @@
             </el-radio-group>
             <el-switch disabled inactive-text="跟随重定向" />
           </div>
-          <KeyValueEditor v-if="draft.bodyType === 'form-urlencoded'" v-model="draft.form" />
+          <ApiWorkbenchKeyValueEditor v-if="draft.bodyType === 'form-urlencoded'" v-model="draft.form" variant="form" />
           <el-input
             v-else-if="draft.bodyType !== 'none'"
             v-model="draft.body"
@@ -307,7 +307,7 @@
                 </el-button>
               </div>
             </div>
-            <KeyValueEditor v-model="environmentRows" />
+            <ApiWorkbenchKeyValueEditor v-model="environmentRows" variant="env" />
           </section>
         </div>
       </div>
@@ -357,7 +357,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, defineComponent, h, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import {
   CopyDocument,
   Delete,
@@ -369,8 +369,9 @@ import {
   Setting,
   Star,
 } from "@element-plus/icons-vue";
-import { ElButton, ElInput, ElMessage, ElMessageBox, ElSwitch } from "element-plus";
+import { ElMessage, ElMessageBox } from "element-plus";
 import { invokeToolByChannel } from "../bridge/tauri";
+import ApiWorkbenchKeyValueEditor from "./ApiWorkbenchKeyValueEditor.vue";
 import ApiWorkbenchResponseViewer from "./ApiWorkbenchResponseViewer.vue";
 import ApiWorkbenchSidebar from "./ApiWorkbenchSidebar.vue";
 import type {
@@ -426,57 +427,6 @@ import {
 type ApiWorkbenchSidebarExpose = {
   expandFolder(folderId: number | null): void;
 };
-
-const KeyValueEditor = defineComponent({
-  props: {
-    modelValue: { type: Array as () => ApiWorkbenchKeyValueRow[], required: true },
-  },
-  emits: ["update:modelValue"],
-  setup(props, { emit }) {
-    function update(index: number, patch: Partial<ApiWorkbenchKeyValueRow>) {
-      const next = props.modelValue.map((row, i) => (i === index ? { ...row, ...patch } : row));
-      emit("update:modelValue", next);
-    }
-    function addRow() {
-      emit("update:modelValue", [...props.modelValue, { enabled: true, key: "", value: "" }]);
-    }
-    function removeRow(index: number) {
-      emit(
-        "update:modelValue",
-        props.modelValue.filter((_, i) => i !== index),
-      );
-    }
-    return () =>
-      h("div", { class: "api-workbench-kv-editor" }, [
-        h("div", { class: "api-workbench-kv-header" }, [
-          h("span", "启用"),
-          h("span", "键名（Key）"),
-          h("span", "值（Value）"),
-          h("span", "操作"),
-        ]),
-        ...props.modelValue.map((row, index) =>
-          h("div", { class: "api-workbench-kv-row", key: index }, [
-            h(ElSwitch, {
-              modelValue: row.enabled,
-              "onUpdate:modelValue": (value: boolean) => update(index, { enabled: value }),
-            }),
-            h(ElInput, {
-              modelValue: row.key,
-              placeholder: "Key",
-              "onUpdate:modelValue": (value: string) => update(index, { key: value }),
-            }),
-            h(ElInput, {
-              modelValue: row.value,
-              placeholder: "Value",
-              "onUpdate:modelValue": (value: string) => update(index, { value }),
-            }),
-            h(ElButton, { onClick: () => removeRow(index) }, () => "删除"),
-          ]),
-        ),
-        h(ElButton, { onClick: addRow }, () => "添加一行"),
-      ]);
-  },
-});
 
 const methods = API_WORKBENCH_METHODS;
 const sidebarRef = ref<ApiWorkbenchSidebarExpose | null>(null);
@@ -1870,39 +1820,6 @@ onBeforeUnmount(() => {
 
 .body-toolbar :deep(.el-radio-group) {
   flex-wrap: wrap;
-}
-
-:global(.api-workbench-kv-editor) {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-:global(.api-workbench-kv-header),
-:global(.api-workbench-kv-row) {
-  display: grid;
-  grid-template-columns: 48px minmax(0, 1fr) minmax(0, 1.35fr) 68px;
-  gap: 8px;
-  align-items: center;
-}
-
-:global(.api-workbench-kv-header) {
-  min-height: 24px;
-  padding: 0 4px;
-  color: var(--el-text-color-secondary);
-  font-size: 12px;
-  font-weight: 600;
-}
-
-:global(.api-workbench-kv-header span) {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-:global(.api-workbench-kv-row > .el-input) {
-  min-width: 0;
 }
 
 .response-panel-heading {
