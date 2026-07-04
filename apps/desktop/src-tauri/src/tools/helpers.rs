@@ -120,6 +120,10 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
     let _ = conn.execute_batch(
         "ALTER TABLE data_dictionary_record_usage ADD COLUMN primary_value_text TEXT DEFAULT NULL;",
     );
+    // API Mock：为旧库路由表补齐延迟字段。
+    let _ = conn.execute_batch(
+        "ALTER TABLE api_mock_routes ADD COLUMN delay_ms INTEGER NOT NULL DEFAULT 0;",
+    );
     let _ = conn.execute_batch(
         "UPDATE data_dictionary_record_usage
          SET primary_value_text = record_id

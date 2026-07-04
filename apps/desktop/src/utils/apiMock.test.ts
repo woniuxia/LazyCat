@@ -3,15 +3,21 @@ import type { ApiMockProjectSummary } from "../types/api-mock";
 import {
   API_MOCK_CONTENT_TYPE_PRESETS,
   buildMockRouteSummary,
+  buildMockRouteUrl,
   deriveMockProjectRuntimeState,
+  findMockPortConflict,
   formatMockFileSize,
+  getMockBodyEditorLanguage,
   getMockFileContentTypeWarning,
+  getMockLogRowTone,
   getMockProjectAccessUrl,
   getMockProjectRuntimeAction,
   getMockRouteSpecificityLabel,
   isMockProjectRestartRequired,
   normalizeMockContentType,
   resolveMockFileContentType,
+  serializeMockProjectForm,
+  serializeMockRouteForm,
   trimMockContentType,
   normalizeMockHeaderRows,
   validateMockContentTypeHeader,
@@ -19,6 +25,7 @@ import {
   validateMockPathPattern,
   validateMockStaticResponseContent,
 } from "./apiMock";
+import type { ApiMockRouteFormSnapshot } from "./apiMock";
 
 describe("apiMock utils", () => {
   it("validates supported path patterns", () => {
@@ -310,5 +317,99 @@ describe("apiMock utils", () => {
     expect(getMockRouteSpecificityLabel("/api/users")).toBe("精确");
     expect(getMockRouteSpecificityLabel("/api/users/:id")).toBe("参数");
     expect(getMockRouteSpecificityLabel("/files/*")).toBe("通配");
+  });
+
+  it("serializes project forms so dirty detection ignores nothing and matches identical state", () => {
+    const form = {
+      name: "Demo",
+      description: "",
+      host: "127.0.0.1",
+      port: 18080,
+      enabledCorsDefault: true,
+    };
+    const baseline = serializeMockProjectForm(form);
+
+    expect(serializeMockProjectForm({ ...form })).toBe(baseline);
+    expect(serializeMockProjectForm({ ...form, port: 18081 })).not.toBe(baseline);
+    expect(serializeMockProjectForm({ ...form, description: "x" })).not.toBe(baseline);
+  });
+
+  it("serializes route forms including headers, delay, file and cors", () => {
+    const form: ApiMockRouteFormSnapshot = {
+      name: "User",
+      method: "GET",
+      pathPattern: "/api/users/:id",
+      statusCode: 200,
+      responseKind: "static_body",
+      contentType: "application/json; charset=utf-8",
+      headers: [{ enabled: true, key: "X-Trace", value: "abc" }],
+      bodyText: "{}",
+      enabled: true,
+      delayMs: 0,
+      fileId: null,
+      cors: {
+        enabled: true,
+        allowOrigin: "*",
+        allowMethods: [],
+        allowHeaders: "*",
+        exposeHeaders: "",
+        allowCredentials: false,
+        maxAgeSeconds: 600,
+      },
+    };
+    const baseline = serializeMockRouteForm(form);
+
+    expect(serializeMockRouteForm({ ...form, headers: [{ enabled: true, key: "X-Trace", value: "abc" }] })).toBe(
+      baseline,
+    );
+    expect(serializeMockRouteForm({ ...form, delayMs: 300 })).not.toBe(baseline);
+    expect(serializeMockRouteForm({ ...form, enabled: false })).not.toBe(baseline);
+    expect(serializeMockRouteForm({ ...form, fileId: 3 })).not.toBe(baseline);
+    expect(
+      serializeMockRouteForm({ ...form, headers: [{ enabled: false, key: "X-Trace", value: "abc" }] }),
+    ).not.toBe(baseline);
+    expect(
+      serializeMockRouteForm({ ...form, cors: { ...form.cors, allowOrigin: "http://localhost:5173" } }),
+    ).not.toBe(baseline);
+  });
+
+  it("maps content types to monaco editor languages", () => {
+    expect(getMockBodyEditorLanguage("application/json; charset=utf-8")).toBe("json");
+    expect(getMockBodyEditorLanguage("application/vnd.custom+json")).toBe("json");
+    expect(getMockBodyEditorLanguage("text/html; charset=utf-8")).toBe("html");
+    expect(getMockBodyEditorLanguage("application/xml")).toBe("xml");
+    expect(getMockBodyEditorLanguage("text/xml; charset=utf-8")).toBe("xml");
+    expect(getMockBodyEditorLanguage("image/svg+xml")).toBe("xml");
+    expect(getMockBodyEditorLanguage("text/css")).toBe("css");
+    expect(getMockBodyEditorLanguage("text/javascript; charset=utf-8")).toBe("javascript");
+    expect(getMockBodyEditorLanguage("text/plain")).toBe("plaintext");
+    expect(getMockBodyEditorLanguage("")).toBe("plaintext");
+  });
+
+  it("finds port conflicts among other projects only", () => {
+    const projects = [
+      { id: 1, name: "A", port: 18080 },
+      { id: 2, name: "B", port: 18081 },
+    ];
+
+    expect(findMockPortConflict(projects, 1, 18080)).toBeNull();
+    expect(findMockPortConflict(projects, 1, 18081)).toEqual({ id: 2, name: "B", port: 18081 });
+    expect(findMockPortConflict(projects, null, 18080)).toEqual({ id: 1, name: "A", port: 18080 });
+    expect(findMockPortConflict(projects, null, 18999)).toBeNull();
+  });
+
+  it("derives alert tone for missed or failed log rows", () => {
+    expect(getMockLogRowTone({ routeId: null, error: null })).toBe("alert");
+    expect(getMockLogRowTone({ routeId: 1, error: "file missing" })).toBe("alert");
+    expect(getMockLogRowTone({ routeId: null, error: "并发超限" })).toBe("alert");
+    expect(getMockLogRowTone({ routeId: 1, error: null })).toBe("normal");
+    expect(getMockLogRowTone({ routeId: 1, error: "" })).toBe("normal");
+  });
+
+  it("builds full route URLs from the access URL and path pattern", () => {
+    expect(buildMockRouteUrl({ host: "127.0.0.1", port: 18080 }, "/api/users/:id")).toBe(
+      "http://127.0.0.1:18080/api/users/:id",
+    );
+    expect(buildMockRouteUrl({ host: "0.0.0.0", port: 8080 }, "/files/*")).toBe("http://127.0.0.1:8080/files/*");
   });
 });

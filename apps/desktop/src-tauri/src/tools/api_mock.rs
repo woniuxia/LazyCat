@@ -9,7 +9,7 @@ use std::fs;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS api_mock_routes (
   file_id INTEGER,
   cors_json TEXT NOT NULL DEFAULT '{}',
   enabled INTEGER NOT NULL DEFAULT 1,
+  delay_ms INTEGER NOT NULL DEFAULT 0,
   sort_order INTEGER NOT NULL DEFAULT 0,
   source_request_id INTEGER,
   source_snapshot_json TEXT,
@@ -110,6 +111,7 @@ struct MockRouteSnapshot {
     body_text: String,
     file: Option<MockFileSnapshot>,
     cors: CorsConfig,
+    delay_ms: i64,
     sort_order: i64,
 }
 
@@ -142,7 +144,7 @@ struct RunningMockService {
     started_at: String,
     stop: Arc<AtomicBool>,
     handle: Option<JoinHandle<()>>,
-    route_snapshot: Vec<MockRouteSnapshot>,
+    route_snapshot: Arc<Vec<MockRouteSnapshot>>,
     logs: Arc<Mutex<VecDeque<RequestLogEntry>>>,
     last_error: Arc<Mutex<Option<String>>>,
 }
@@ -226,6 +228,59 @@ fn validate_response_kind(kind: &str) -> Result<(), String> {
         "static_body" | "file" => Ok(()),
         _ => Err(format!("unsupported response kind: {kind}")),
     }
+}
+
+const MAX_MOCK_DELAY_MS: i64 = 60_000;
+const MAX_CONCURRENT_MOCK_CONNECTIONS: usize = 64;
+const MOCK_DELAY_SLICE_MS: u64 = 100;
+const OVER_LIMIT_LOG_ERROR: &str = "并发超限";
+
+fn validate_delay_ms(delay_ms: i64) -> Result<i64, String> {
+    if (0..=MAX_MOCK_DELAY_MS).contains(&delay_ms) {
+        Ok(delay_ms)
+    } else {
+        Err(format!("delayMs must be between 0 and {MAX_MOCK_DELAY_MS}"))
+    }
+}
+
+/// RAII 计数守卫：连接线程无论正常返回还是提前 return，计数都会递减。
+struct ConnectionGuard {
+    counter: Arc<AtomicUsize>,
+    count: usize,
+}
+
+impl ConnectionGuard {
+    fn acquire(counter: &Arc<AtomicUsize>) -> Self {
+        let count = counter.fetch_add(1, Ordering::AcqRel) + 1;
+        Self {
+            counter: Arc::clone(counter),
+            count,
+        }
+    }
+
+    fn over_limit(&self) -> bool {
+        self.count > MAX_CONCURRENT_MOCK_CONNECTIONS
+    }
+}
+
+impl Drop for ConnectionGuard {
+    fn drop(&mut self) {
+        self.counter.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+/// 分片 sleep，每片检查 stop 信号；返回 false 表示服务正在停止，应放弃响应。
+fn sleep_with_stop(total_ms: u64, stop: &AtomicBool) -> bool {
+    let mut remaining = total_ms;
+    while remaining > 0 {
+        if stop.load(Ordering::Acquire) {
+            return false;
+        }
+        let slice = remaining.min(MOCK_DELAY_SLICE_MS);
+        thread::sleep(Duration::from_millis(slice));
+        remaining -= slice;
+    }
+    !stop.load(Ordering::Acquire)
 }
 
 fn validate_path_pattern(pattern: &str) -> Result<(), String> {
@@ -728,7 +783,8 @@ fn route_select_sql(where_sql: &str) -> String {
         "SELECT r.id, r.project_id, r.name, r.method, r.path_pattern, r.status_code,
                 r.response_kind, r.content_type, r.headers_json, r.body_text, r.cors_json,
                 r.enabled, r.sort_order,
-                f.id, f.original_name, f.content_type, f.size, f.hash, f.created_at
+                f.id, f.original_name, f.content_type, f.size, f.hash, f.created_at,
+                r.delay_ms
          FROM api_mock_routes r
          LEFT JOIN api_mock_files f ON f.id=r.file_id
          {where_sql}"
@@ -762,6 +818,7 @@ fn route_row_to_json(row: &rusqlite::Row<'_>, include_detail: bool) -> rusqlite:
         "contentType": row.get::<_, String>(7)?,
         "enabled": row.get::<_, i64>(11)? != 0,
         "sortOrder": row.get::<_, i64>(12)?,
+        "delayMs": row.get::<_, i64>(19)?,
         "file": file_json
     });
     if include_detail {
@@ -819,6 +876,7 @@ fn route_save_with_conn(conn: &Connection, payload: &Value) -> Result<Value, Str
     let cors = parse_cors_config(&payload["cors"])?;
     let cors_json = serde_json::to_string(&cors).map_err(|e| format!("serialize cors failed: {e}"))?;
     let enabled = payload["enabled"].as_bool().unwrap_or(true);
+    let delay_ms = validate_delay_ms(payload["delayMs"].as_i64().unwrap_or(0))?;
     let file_id = parse_optional_i64(payload, "fileId");
     if response_kind == "file" {
         let file_id = file_id.ok_or("fileId is required for file response")?;
@@ -839,8 +897,8 @@ fn route_save_with_conn(conn: &Connection, payload: &Value) -> Result<Value, Str
             "UPDATE api_mock_routes
              SET project_id=?1, name=?2, method=?3, path_pattern=?4, status_code=?5,
                  response_kind=?6, content_type=?7, headers_json=?8, body_text=?9,
-                 file_id=?10, cors_json=?11, enabled=?12, updated_at=CURRENT_TIMESTAMP
-             WHERE id=?13",
+                 file_id=?10, cors_json=?11, enabled=?12, delay_ms=?13, updated_at=CURRENT_TIMESTAMP
+             WHERE id=?14",
             params![
                 project_id,
                 name,
@@ -854,6 +912,7 @@ fn route_save_with_conn(conn: &Connection, payload: &Value) -> Result<Value, Str
                 file_id,
                 cors_json,
                 enabled as i64,
+                delay_ms,
                 id
             ],
         )
@@ -873,8 +932,8 @@ fn route_save_with_conn(conn: &Connection, payload: &Value) -> Result<Value, Str
         conn.execute(
             "INSERT INTO api_mock_routes(
                 project_id, name, method, path_pattern, status_code, response_kind, content_type,
-                headers_json, body_text, file_id, cors_json, enabled, sort_order
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                headers_json, body_text, file_id, cors_json, enabled, delay_ms, sort_order
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
             params![
                 project_id,
                 name,
@@ -888,6 +947,7 @@ fn route_save_with_conn(conn: &Connection, payload: &Value) -> Result<Value, Str
                 file_id,
                 cors_json,
                 enabled as i64,
+                delay_ms,
                 sort_order
             ],
         )
@@ -918,6 +978,21 @@ fn route_reorder_with_conn(conn: &Connection, payload: &Value) -> Result<Value, 
     }
     tx.commit()
         .map_err(|e| format!("commit api mock route reorder failed: {e}"))?;
+    Ok(json!({ "ok": true }))
+}
+
+fn route_toggle_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
+    let id = parse_required_i64(payload, "id")?;
+    let enabled = payload["enabled"].as_bool().ok_or("enabled is required")?;
+    let affected = conn
+        .execute(
+            "UPDATE api_mock_routes SET enabled=?1, updated_at=CURRENT_TIMESTAMP WHERE id=?2",
+            params![enabled as i64, id],
+        )
+        .map_err(|e| format!("toggle api mock route failed: {e}"))?;
+    if affected == 0 {
+        return Err("api mock route not found".into());
+    }
     Ok(json!({ "ok": true }))
 }
 
@@ -970,7 +1045,7 @@ fn build_route_signature(routes: &[MockRouteSnapshot]) -> String {
             let file_hash = route.file.as_ref().map(|file| file.hash.as_str()).unwrap_or("");
             let body_hash = blake3::hash(route.body_text.as_bytes()).to_hex().to_string();
             format!(
-                "{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}",
+                "{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}",
                 route.id,
                 route.method,
                 route.path_pattern,
@@ -981,6 +1056,7 @@ fn build_route_signature(routes: &[MockRouteSnapshot]) -> String {
                 cors,
                 file_hash,
                 body_hash,
+                route.delay_ms,
                 route.sort_order,
             )
         })
@@ -994,7 +1070,8 @@ fn load_enabled_route_snapshots(conn: &Connection, project_id: i64) -> Result<Ve
         .prepare(
             "SELECT r.id, r.name, r.method, r.path_pattern, r.status_code, r.response_kind,
                     r.content_type, r.headers_json, r.body_text, r.cors_json, r.sort_order,
-                    f.id, f.original_name, f.stored_path, f.content_type, f.size, f.hash
+                    f.id, f.original_name, f.stored_path, f.content_type, f.size, f.hash,
+                    r.delay_ms
              FROM api_mock_routes r
              LEFT JOIN api_mock_files f ON f.id=r.file_id
              WHERE r.project_id=?1 AND r.enabled=1
@@ -1028,6 +1105,7 @@ fn load_enabled_route_snapshots(conn: &Connection, project_id: i64) -> Result<Ve
                 body_text: row.get(8)?,
                 file,
                 cors,
+                delay_ms: row.get(17)?,
                 sort_order: row.get(10)?,
             })
         })
@@ -1074,10 +1152,11 @@ fn service_start_with_conn(conn: &Connection, payload: &Value) -> Result<Value, 
     let stop = Arc::new(AtomicBool::new(false));
     let logs = Arc::new(Mutex::new(VecDeque::new()));
     let last_error = Arc::new(Mutex::new(None));
+    let routes = Arc::new(routes);
     let thread_stop = Arc::clone(&stop);
     let thread_logs = Arc::clone(&logs);
     let thread_error = Arc::clone(&last_error);
-    let thread_routes = routes.clone();
+    let thread_routes = Arc::clone(&routes);
     let handle = thread::spawn(move || {
         run_http_service(listener, thread_routes, thread_stop, thread_logs, thread_error);
     });
@@ -1137,23 +1216,50 @@ fn request_logs_with_conn(_conn: &Connection, payload: &Value) -> Result<Value, 
     Ok(json!({ "logs": logs }))
 }
 
+fn request_logs_clear_with_conn(_conn: &Connection, payload: &Value) -> Result<Value, String> {
+    let project_id = parse_required_i64(payload, "projectId")?;
+    let services = running_services()
+        .lock()
+        .map_err(|e| format!("runtime registry lock failed: {e}"))?;
+    if let Some(service) = services.get(&project_id) {
+        if let Ok(mut logs) = service.logs.lock() {
+            logs.clear();
+        }
+    }
+    Ok(json!({ "ok": true }))
+}
+
 fn run_http_service(
     listener: TcpListener,
-    routes: Vec<MockRouteSnapshot>,
+    routes: Arc<Vec<MockRouteSnapshot>>,
     stop: Arc<AtomicBool>,
     logs: Arc<Mutex<VecDeque<RequestLogEntry>>>,
     last_error: Arc<Mutex<Option<String>>>,
 ) {
+    let active_connections = Arc::new(AtomicUsize::new(0));
     let mut log_id: u64 = 0;
     while !stop.load(Ordering::Acquire) {
         match listener.accept() {
             Ok((stream, _)) => {
                 log_id = log_id.saturating_add(1);
-                if let Err(err) = handle_http_stream(stream, &routes, &logs, log_id) {
-                    if let Ok(mut last_error) = last_error.lock() {
-                        *last_error = Some(err);
+                let conn_routes = Arc::clone(&routes);
+                let conn_stop = Arc::clone(&stop);
+                let conn_logs = Arc::clone(&logs);
+                let conn_error = Arc::clone(&last_error);
+                let conn_active = Arc::clone(&active_connections);
+                let conn_log_id = log_id;
+                // 每连接一线程：延迟路由不阻塞其他请求，也不阻塞 stop 的 join。
+                thread::spawn(move || {
+                    let guard = ConnectionGuard::acquire(&conn_active);
+                    if let Err(err) =
+                        handle_http_stream(stream, &conn_routes, &conn_logs, conn_log_id, &conn_stop, guard.over_limit())
+                    {
+                        if let Ok(mut last_error) = conn_error.lock() {
+                            *last_error = Some(err);
+                        }
                     }
-                }
+                    drop(guard);
+                });
             }
             Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
                 thread::sleep(Duration::from_millis(20));
@@ -1173,8 +1279,13 @@ fn handle_http_stream(
     routes: &[MockRouteSnapshot],
     logs: &Arc<Mutex<VecDeque<RequestLogEntry>>>,
     log_id: u64,
+    stop: &AtomicBool,
+    over_limit: bool,
 ) -> Result<(), String> {
     let start = Instant::now();
+    // Windows 下 accept 出的 socket 继承监听端非阻塞模式，连接线程内改回阻塞读并限时。
+    let _ = stream.set_nonblocking(false);
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
     let mut buffer = [0_u8; 8192];
     let size = stream.read(&mut buffer).map_err(|e| format!("read request failed: {e}"))?;
     let request = String::from_utf8_lossy(&buffer[..size]);
@@ -1183,20 +1294,47 @@ fn handle_http_stream(
     let method = parts.next().unwrap_or("").to_string();
     let raw_path = parts.next().unwrap_or("/");
     let path = raw_path.split('?').next().unwrap_or("/").to_string();
+
+    if over_limit {
+        let response = build_response(503, Vec::new(), Vec::new(), b"Service Unavailable".to_vec(), false);
+        let bytes = response.into_bytes();
+        stream
+            .write_all(&bytes)
+            .map_err(|e| format!("write response failed: {e}"))?;
+        push_log(
+            logs,
+            RequestLogEntry {
+                id: log_id,
+                time: chrono::Utc::now().to_rfc3339(),
+                method,
+                path,
+                status: 503,
+                route_id: None,
+                route_name: None,
+                duration_ms: start.elapsed().as_millis(),
+                error: Some(OVER_LIMIT_LOG_ERROR.to_string()),
+            },
+        );
+        return Ok(());
+    }
+
     let preflight_method = request_header_value(&request, "Access-Control-Request-Method")
         .map(|value| value.to_ascii_uppercase());
     let mut route_id = None;
     let mut route_name = None;
     let mut error = None;
+    let mut delay_ms: u64 = 0;
 
     let response = if method == "OPTIONS" {
         if let Some(route) = select_preflight_route(routes, &path, preflight_method.as_deref()) {
+            // CORS 预检不套用路由延迟，避免浏览器场景下预检 + 实际请求双重延迟。
             route_id = Some(route.id);
             route_name = Some(route.name.clone());
             build_response(204, route.headers.clone(), build_cors_headers(&route.cors, &route.method), Vec::new(), false)
         } else if let Some(route) = select_route(routes, "OPTIONS", &path) {
             route_id = Some(route.id);
             route_name = Some(route.name.clone());
+            delay_ms = route.delay_ms.max(0) as u64;
             match build_route_response(route, method == "HEAD") {
                 Ok(response) => response,
                 Err(err) => {
@@ -1210,6 +1348,7 @@ fn handle_http_stream(
     } else if let Some(route) = select_route(routes, &method, &path) {
         route_id = Some(route.id);
         route_name = Some(route.name.clone());
+        delay_ms = route.delay_ms.max(0) as u64;
         match build_route_response(route, method == "HEAD") {
             Ok(response) => response,
             Err(err) => {
@@ -1220,6 +1359,11 @@ fn handle_http_stream(
     } else {
         build_response(404, Vec::new(), Vec::new(), b"Not Found".to_vec(), false)
     };
+
+    if delay_ms > 0 && !sleep_with_stop(delay_ms, stop) {
+        // 服务停止中：直接断开，不返回旧配置的响应。
+        return Ok(());
+    }
 
     let status = response.status;
     let bytes = response.into_bytes();
@@ -1331,6 +1475,7 @@ fn status_reason(status: u16) -> &'static str {
         400 => "Bad Request",
         404 => "Not Found",
         500 => "Internal Server Error",
+        503 => "Service Unavailable",
         _ => "OK",
     }
 }
@@ -1355,6 +1500,7 @@ fn is_supported_api_mock_action(action: &str) -> bool {
             | "route_list"
             | "route_get"
             | "route_save"
+            | "route_toggle"
             | "route_delete"
             | "route_reorder"
             | "file_import"
@@ -1362,6 +1508,7 @@ fn is_supported_api_mock_action(action: &str) -> bool {
             | "service_stop"
             | "service_status"
             | "request_logs"
+            | "request_logs_clear"
     )
 }
 
@@ -1379,6 +1526,7 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         "route_list" => route_list_with_conn(&conn, payload),
         "route_get" => route_get_with_conn(&conn, payload),
         "route_save" => route_save_with_conn(&conn, payload),
+        "route_toggle" => route_toggle_with_conn(&conn, payload),
         "route_delete" => route_delete_with_conn(&conn, payload),
         "route_reorder" => route_reorder_with_conn(&conn, payload),
         "file_import" => file_import_with_conn(&conn, payload),
@@ -1386,6 +1534,7 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         "service_stop" => service_stop_with_conn(&conn, payload),
         "service_status" => service_status_with_conn(&conn, payload),
         "request_logs" => request_logs_with_conn(&conn, payload),
+        "request_logs_clear" => request_logs_clear_with_conn(&conn, payload),
         _ => unreachable!(),
     }
 }
@@ -1435,6 +1584,7 @@ mod tests {
             body_text: format!("body-{id}"),
             file: None,
             cors: default_cors_config(),
+            delay_ms: 0,
             sort_order,
         }
     }
@@ -2185,5 +2335,260 @@ mod tests {
 
         service_stop_with_conn(&conn, &json!({ "projectId": first["id"] })).expect("stop first");
         service_stop_with_conn(&conn, &json!({ "projectId": second["id"] })).expect("stop second");
+    }
+
+    fn save_delay_route(
+        conn: &Connection,
+        project_id: i64,
+        pattern: &str,
+        delay_ms: i64,
+    ) -> Value {
+        route_save_with_conn(
+            conn,
+            &json!({
+                "projectId": project_id,
+                "name": format!("route {pattern}"),
+                "method": "GET",
+                "pathPattern": pattern,
+                "statusCode": 200,
+                "responseKind": "static_body",
+                "contentType": "text/plain",
+                "headers": [],
+                "bodyText": "ok",
+                "delayMs": delay_ms,
+                "cors": default_cors_config()
+            }),
+        )
+        .expect("save delay route")
+    }
+
+    #[test]
+    fn api_mock_route_toggle_updates_enabled_and_rejects_missing_id() {
+        let conn = test_conn();
+        let project = project_create_with_conn(&conn, &json!({ "name": "Demo", "port": 18080 }))
+            .expect("project");
+        let project_id = project["id"].as_i64().unwrap();
+        let route = save_delay_route(&conn, project_id, "/toggle", 0);
+
+        route_toggle_with_conn(&conn, &json!({ "id": route["id"], "enabled": false }))
+            .expect("disable");
+        let detail = route_get_with_conn(&conn, &json!({ "id": route["id"] })).expect("get");
+        assert_eq!(detail["route"]["enabled"], false);
+
+        route_toggle_with_conn(&conn, &json!({ "id": route["id"], "enabled": true }))
+            .expect("enable");
+        let detail = route_get_with_conn(&conn, &json!({ "id": route["id"] })).expect("get");
+        assert_eq!(detail["route"]["enabled"], true);
+
+        let missing = route_toggle_with_conn(&conn, &json!({ "id": 999_999, "enabled": true }))
+            .expect_err("missing route");
+        assert!(missing.contains("route not found"));
+
+        let no_flag = route_toggle_with_conn(&conn, &json!({ "id": route["id"] }))
+            .expect_err("missing enabled");
+        assert!(no_flag.contains("enabled is required"));
+    }
+
+    #[test]
+    fn api_mock_route_save_validates_and_persists_delay() {
+        let conn = test_conn();
+        let project = project_create_with_conn(&conn, &json!({ "name": "Demo", "port": 18080 }))
+            .expect("project");
+        let project_id = project["id"].as_i64().unwrap();
+
+        let route = save_delay_route(&conn, project_id, "/delayed", 1500);
+        let detail = route_get_with_conn(&conn, &json!({ "id": route["id"] })).expect("get");
+        assert_eq!(detail["route"]["delayMs"], 1500);
+
+        let default_route = route_save_with_conn(
+            &conn,
+            &json!({
+                "projectId": project_id,
+                "name": "Default",
+                "method": "GET",
+                "pathPattern": "/default",
+                "statusCode": 200,
+                "responseKind": "static_body",
+                "contentType": "text/plain",
+                "headers": [],
+                "bodyText": "ok",
+                "cors": default_cors_config()
+            }),
+        )
+        .expect("save without delay");
+        let detail = route_get_with_conn(&conn, &json!({ "id": default_route["id"] })).expect("get");
+        assert_eq!(detail["route"]["delayMs"], 0);
+
+        let list = route_list_with_conn(&conn, &json!({ "projectId": project_id })).expect("list");
+        assert_eq!(list["routes"][0]["delayMs"], 1500);
+
+        for invalid in [-1_i64, MAX_MOCK_DELAY_MS + 1] {
+            let err = route_save_with_conn(
+                &conn,
+                &json!({
+                    "projectId": project_id,
+                    "name": "Bad",
+                    "method": "GET",
+                    "pathPattern": "/bad",
+                    "statusCode": 200,
+                    "responseKind": "static_body",
+                    "contentType": "text/plain",
+                    "headers": [],
+                    "bodyText": "ok",
+                    "delayMs": invalid,
+                    "cors": default_cors_config()
+                }),
+            )
+            .expect_err("invalid delay");
+            assert!(err.contains("delayMs"));
+        }
+    }
+
+    #[test]
+    fn api_mock_signature_changes_when_delay_changes() {
+        let base = route(1, "GET", "/api/demo", 0, 200);
+        let mut delayed = base.clone();
+        delayed.delay_ms = 500;
+        assert_ne!(
+            build_route_signature(&[base]),
+            build_route_signature(&[delayed])
+        );
+    }
+
+    #[test]
+    fn api_mock_request_logs_clear_removes_runtime_logs() {
+        let conn = test_conn();
+        let port = free_port();
+        let project = project_create_with_conn(&conn, &json!({ "name": "Demo", "port": port }))
+            .expect("project");
+        let project_id = project["id"].as_i64().unwrap();
+        save_delay_route(&conn, project_id, "/ping", 0);
+
+        request_logs_clear_with_conn(&conn, &json!({ "projectId": project_id }))
+            .expect("clear before start is ok");
+
+        service_start_with_conn(&conn, &json!({ "projectId": project_id })).expect("start");
+        http_request(port, "GET /ping HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n");
+        let logs = request_logs_with_conn(&conn, &json!({ "projectId": project_id })).expect("logs");
+        assert_eq!(logs["logs"].as_array().unwrap().len(), 1);
+
+        request_logs_clear_with_conn(&conn, &json!({ "projectId": project_id })).expect("clear");
+        let logs = request_logs_with_conn(&conn, &json!({ "projectId": project_id })).expect("logs");
+        assert_eq!(logs["logs"].as_array().unwrap().len(), 0);
+        service_stop_with_conn(&conn, &json!({ "projectId": project_id })).expect("stop");
+    }
+
+    #[test]
+    fn api_mock_service_applies_route_delay() {
+        let conn = test_conn();
+        let port = free_port();
+        let project = project_create_with_conn(&conn, &json!({ "name": "Demo", "port": port }))
+            .expect("project");
+        let project_id = project["id"].as_i64().unwrap();
+        save_delay_route(&conn, project_id, "/slow", 400);
+
+        service_start_with_conn(&conn, &json!({ "projectId": project_id })).expect("start");
+        let started = std::time::Instant::now();
+        let response = http_request(port, "GET /slow HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n");
+        let elapsed = started.elapsed();
+        assert!(response.starts_with("HTTP/1.1 200"));
+        assert!(elapsed >= Duration::from_millis(380), "elapsed {elapsed:?}");
+        service_stop_with_conn(&conn, &json!({ "projectId": project_id })).expect("stop");
+    }
+
+    #[test]
+    fn api_mock_service_delay_does_not_block_parallel_requests() {
+        let conn = test_conn();
+        let port = free_port();
+        let project = project_create_with_conn(&conn, &json!({ "name": "Demo", "port": port }))
+            .expect("project");
+        let project_id = project["id"].as_i64().unwrap();
+        save_delay_route(&conn, project_id, "/slow", 1500);
+        save_delay_route(&conn, project_id, "/fast", 0);
+
+        service_start_with_conn(&conn, &json!({ "projectId": project_id })).expect("start");
+        // 预热：确认服务已可接受连接，让后续计时不含连接重试。
+        http_request(port, "GET /fast HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n");
+
+        let slow = thread::spawn(move || {
+            http_request(port, "GET /slow HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+        });
+        thread::sleep(Duration::from_millis(150));
+
+        let started = std::time::Instant::now();
+        let fast = http_request(port, "GET /fast HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n");
+        let fast_elapsed = started.elapsed();
+        assert!(fast.starts_with("HTTP/1.1 200"));
+        assert!(
+            fast_elapsed < Duration::from_millis(1000),
+            "fast request blocked by slow route: {fast_elapsed:?}"
+        );
+
+        let slow_response = slow.join().expect("slow thread");
+        assert!(slow_response.starts_with("HTTP/1.1 200"));
+        service_stop_with_conn(&conn, &json!({ "projectId": project_id })).expect("stop");
+    }
+
+    #[test]
+    fn api_mock_service_over_limit_returns_503() {
+        let conn = test_conn();
+        let port = free_port();
+        let project = project_create_with_conn(&conn, &json!({ "name": "Demo", "port": port }))
+            .expect("project");
+        let project_id = project["id"].as_i64().unwrap();
+        save_delay_route(&conn, project_id, "/slow", 3000);
+
+        service_start_with_conn(&conn, &json!({ "projectId": project_id })).expect("start");
+        let holders: Vec<_> = (0..MAX_CONCURRENT_MOCK_CONNECTIONS)
+            .map(|_| {
+                thread::spawn(move || {
+                    http_request(port, "GET /slow HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+                })
+            })
+            .collect();
+        thread::sleep(Duration::from_millis(500));
+
+        let overflow = http_request(port, "GET /slow HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n");
+        assert!(overflow.starts_with("HTTP/1.1 503"), "overflow response: {overflow}");
+
+        let logs = request_logs_with_conn(&conn, &json!({ "projectId": project_id })).expect("logs");
+        assert_eq!(logs["logs"][0]["status"], 503);
+        assert_eq!(logs["logs"][0]["path"], "/slow");
+        assert_eq!(logs["logs"][0]["error"], OVER_LIMIT_LOG_ERROR);
+
+        service_stop_with_conn(&conn, &json!({ "projectId": project_id })).expect("stop");
+        for holder in holders {
+            let _ = holder.join();
+        }
+    }
+
+    #[test]
+    fn api_mock_service_stop_interrupts_delayed_request() {
+        let conn = test_conn();
+        let port = free_port();
+        let project = project_create_with_conn(&conn, &json!({ "name": "Demo", "port": port }))
+            .expect("project");
+        let project_id = project["id"].as_i64().unwrap();
+        save_delay_route(&conn, project_id, "/slow", 5000);
+
+        service_start_with_conn(&conn, &json!({ "projectId": project_id })).expect("start");
+        let pending = thread::spawn(move || {
+            http_request(port, "GET /slow HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+        });
+        thread::sleep(Duration::from_millis(300));
+
+        let started = std::time::Instant::now();
+        service_stop_with_conn(&conn, &json!({ "projectId": project_id })).expect("stop");
+        let stop_elapsed = started.elapsed();
+        assert!(
+            stop_elapsed < Duration::from_millis(2500),
+            "stop blocked by delayed request: {stop_elapsed:?}"
+        );
+
+        let response = pending.join().expect("pending thread");
+        assert!(
+            !response.contains("HTTP/1.1 200"),
+            "delayed request should be dropped without full response: {response}"
+        );
     }
 }

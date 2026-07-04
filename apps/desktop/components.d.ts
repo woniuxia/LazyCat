@@ -12,7 +12,11 @@ export {}
 declare module 'vue' {
   export interface GlobalComponents {
     AesPanel: typeof import('./src/components/AesPanel.vue')['default']
+    ApiMockLogList: typeof import('./src/components/api-mock/ApiMockLogList.vue')['default']
     ApiMockPanel: typeof import('./src/components/ApiMockPanel.vue')['default']
+    ApiMockProjectList: typeof import('./src/components/api-mock/ApiMockProjectList.vue')['default']
+    ApiMockRouteForm: typeof import('./src/components/api-mock/ApiMockRouteForm.vue')['default']
+    ApiMockRouteList: typeof import('./src/components/api-mock/ApiMockRouteList.vue')['default']
     ApiWorkbenchContextMenu: typeof import('./src/components/ApiWorkbenchContextMenu.vue')['default']
     ApiWorkbenchPanel: typeof import('./src/components/ApiWorkbenchPanel.vue')['default']
     ApiWorkbenchResponseViewer: typeof import('./src/components/ApiWorkbenchResponseViewer.vue')['default']

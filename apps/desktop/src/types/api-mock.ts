@@ -65,6 +65,7 @@ export interface ApiMockRouteSummary {
   responseKind: ApiMockResponseKind;
   contentType: string;
   enabled: boolean;
+  delayMs: number;
   sortOrder: number;
   file: ApiMockFileInfo | null;
 }
@@ -85,4 +86,28 @@ export interface ApiMockRequestLog {
   routeName: string | null;
   durationMs: number;
   error: string | null;
+}
+
+export interface ApiMockProjectFormModel {
+  id: number | null;
+  name: string;
+  description: string;
+  host: "127.0.0.1" | "0.0.0.0";
+  port: number;
+  enabledCorsDefault: boolean;
+}
+
+export interface ApiMockRouteFormModel {
+  id: number | null;
+  name: string;
+  method: ApiMockMethod;
+  pathPattern: string;
+  statusCode: number;
+  responseKind: ApiMockResponseKind;
+  contentType: string;
+  headers: ApiMockHeaderRow[];
+  bodyText: string;
+  enabled: boolean;
+  delayMs: number;
+  cors: ApiMockCorsConfig;
 }

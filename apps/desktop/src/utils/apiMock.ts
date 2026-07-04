@@ -301,3 +301,98 @@ export function formatMockFileSize(size: number): string {
   const formatted = Number.isInteger(value) ? String(value) : value.toFixed(1).replace(/\.0$/, "");
   return `${formatted} ${units[unitIndex]}`;
 }
+
+export const MAX_API_MOCK_DELAY_MS = 60000;
+
+export interface ApiMockProjectFormSnapshot {
+  name: string;
+  description: string;
+  host: string;
+  port: number;
+  enabledCorsDefault: boolean;
+}
+
+export interface ApiMockRouteFormSnapshot {
+  name: string;
+  method: ApiMockMethod;
+  pathPattern: string;
+  statusCode: number;
+  responseKind: ApiMockResponseKind;
+  contentType: string;
+  headers: ApiMockHeaderRow[];
+  bodyText: string;
+  enabled: boolean;
+  delayMs: number;
+  fileId: number | null;
+  cors: ApiMockCorsConfig;
+}
+
+export function serializeMockProjectForm(form: ApiMockProjectFormSnapshot): string {
+  return JSON.stringify({
+    name: form.name,
+    description: form.description,
+    host: form.host,
+    port: form.port,
+    enabledCorsDefault: form.enabledCorsDefault,
+  });
+}
+
+export function serializeMockRouteForm(form: ApiMockRouteFormSnapshot): string {
+  return JSON.stringify({
+    name: form.name,
+    method: form.method,
+    pathPattern: form.pathPattern,
+    statusCode: form.statusCode,
+    responseKind: form.responseKind,
+    contentType: form.contentType,
+    headers: form.headers.map((row) => ({ enabled: row.enabled, key: row.key, value: row.value })),
+    bodyText: form.bodyText,
+    enabled: form.enabled,
+    delayMs: form.delayMs,
+    fileId: form.fileId,
+    cors: {
+      enabled: form.cors.enabled,
+      allowOrigin: form.cors.allowOrigin,
+      allowMethods: [...form.cors.allowMethods],
+      allowHeaders: form.cors.allowHeaders,
+      exposeHeaders: form.cors.exposeHeaders,
+      allowCredentials: form.cors.allowCredentials,
+      maxAgeSeconds: form.cors.maxAgeSeconds,
+    },
+  });
+}
+
+export function getMockBodyEditorLanguage(contentType: string): string {
+  const mime = normalizeMockContentType(contentType);
+  if (!mime) return "plaintext";
+  if (mime === "application/json" || mime.endsWith("+json")) return "json";
+  if (mime === "text/html") return "html";
+  if (mime === "application/xml" || mime === "text/xml" || mime.endsWith("+xml")) return "xml";
+  if (mime === "text/css") return "css";
+  if (mime === "text/javascript" || mime === "application/javascript") return "javascript";
+  return "plaintext";
+}
+
+export function findMockPortConflict(
+  projects: Array<Pick<ApiMockProjectSummary, "id" | "name" | "port">>,
+  currentId: number | null,
+  port: number,
+): Pick<ApiMockProjectSummary, "id" | "name" | "port"> | null {
+  return projects.find((project) => project.id !== currentId && project.port === port) ?? null;
+}
+
+export type ApiMockLogRowTone = "alert" | "normal";
+
+export function getMockLogRowTone(log: { routeId: number | null; error: string | null }): ApiMockLogRowTone {
+  if (log.routeId === null || (log.error !== null && log.error !== "")) return "alert";
+  return "normal";
+}
+
+export function buildMockRouteUrl(
+  project: Pick<ApiMockProjectSummary, "host" | "port">,
+  pathPattern: string,
+): string {
+  const base = getMockProjectAccessUrl(project);
+  const path = pathPattern.startsWith("/") ? pathPattern : `/${pathPattern}`;
+  return `${base}${path}`;
+}

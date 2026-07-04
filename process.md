@@ -8,6 +8,32 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-07-04: API Mock 细节交互优化（组件拆分/未保存拦截/延迟模拟/并发改造）
+
+**场景**: 按 `docs/superpowers/specs/2026-07-04-api-mock-ux-design.md` 实施 API Mock 联调反馈闭环与编辑效率优化，含路由级延迟模拟。
+**使用次数**: 0
+**问题**:
+1. 单线程 accept 循环内串行处理请求，路由延迟会队头阻塞其他请求，且 `service_stop` 的 join 会被 sleep 卡住。
+2. 行内启停开关与路由表单的 `enabled` 字段是两份状态，启停后表单里过期值会在下次保存时静默覆盖启停结果。
+3. 表单未保存拦截需要区分"切换路由"（只涉及路由表单）和"切换项目/新建项目草稿"（同时重置两个表单）两种作用域。
+4. `refreshRoutes` 自动选中首条路由会在保存项目等刷新路径上静默覆盖用户正在编辑的路由草稿。
+**解决**:
+1. 每连接 `thread::spawn`（快照 `Arc<Vec<_>>`），RAII 计数守卫限并发 64、超限 503；延迟 sleep 按 100ms 分片检查 stop，停止时直接断开不吐旧响应；`service_stop` 仍只 join accept 线程。Windows 下 accept 出的 socket 继承非阻塞模式，连接线程内先 `set_nonblocking(false)` 并加读超时。
+2. 行内启停成功后，若目标路由正是表单加载对象，同步更新表单和 dirty 基线中的 `enabled`（解析基线 JSON 打补丁），其他字段 dirty 状态不受影响。
+3. dirty 判断用"赋值时序列化基线快照 + 比较"实现（`serializeMockRouteForm`/`serializeMockProjectForm` 纯函数），`fileId` 从独立的 `routeFile` ref 并入快照；拦截弹窗用 `ElMessageBox` `distinguishCancelAndClose` 做三选（保存并切换/放弃/留下），保存顺序先项目后路由，任一失败留在原地。
+4. 自动选中首条路由增加 `!isRouteDirty` 条件；保存路由成功后立即重建基线再触发刷新，避免刷新路径把刚保存的表单又判为 dirty。
+5. 拖拽排序沿用数据字典模式：`Sortable.create`（forceFallback + filter 交互元素），onEnd 由子组件算出完整 id 顺序 emit，父级乐观更新数组 + 后端事务提交 + 失败刷新回滚。
+**涉及文件**:
+- `apps/desktop/src-tauri/src/tools/api_mock.rs`
+- `apps/desktop/src-tauri/src/tools/helpers.rs`
+- `apps/desktop/src/components/ApiMockPanel.vue`
+- `apps/desktop/src/components/api-mock/`（ProjectList / RouteList / RouteForm / LogList）
+- `apps/desktop/src/utils/apiMock.ts` + `.test.ts`
+- `apps/desktop/src/types/api-mock.ts`、`apps/desktop/src/bridge/tauri.ts`
+**验证**:
+- `cargo test api_mock -- --nocapture`（27 个）与全量 `cargo test`（457 个）
+- `pnpm test`（443 个）、`pnpm typecheck`、`pnpm --filter @lazycat/desktop build:web`
+
 ## 2026-07-02: API Mock Content-Type 选择与响应内容校验前端闭环
 
 **场景**: 优化 API Mock 路由表单的 `Content-Type` 配置，支持常见类型选择、自定义 MIME，并提醒用户填写或上传匹配的响应内容。
