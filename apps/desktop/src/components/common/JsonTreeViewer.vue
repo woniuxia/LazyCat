@@ -51,24 +51,40 @@
         :matched-keys="searchMatchedIds"
         :active-match-key="searchActiveMatchId"
         @toggle="toggleNode"
+        @open-menu="openNodeMenu"
       />
     </div>
+
+    <JsonTreeNodeMenu
+      :visible="menuVisible"
+      :x="menuX"
+      :y="menuY"
+      @close="closeNodeMenu"
+      @action="onMenuAction"
+    />
   </section>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from "vue";
+import { computed, nextTick, ref, shallowRef, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { ArrowDown, ArrowUp, CopyDocument, Expand, Fold } from "@element-plus/icons-vue";
 import JsonTreeNode from "./JsonTreeNode.vue";
+import JsonTreeNodeMenu from "./JsonTreeNodeMenu.vue";
 import { useJsonTreeSearch } from "../../composables/useJsonTreeSearch";
+import type {
+  JsonTreeNodeMenuAction,
+  JsonTreeNodeMenuTarget,
+} from "../../types/json-tree";
 import {
   buildJsonTree,
   collectExpandableKeys,
   collectExpandedKeysByDepth,
   formatJsonForCopy,
   isJsonTreeExpandable,
+  toJsonPath,
 } from "../../utils/jsonTreeView";
+import type { JsonTreeNode as JsonTreeNodeModel } from "../../utils/jsonTreeView";
 
 interface JsonTreeViewerProps {
   value: unknown;
@@ -149,6 +165,48 @@ watch(searchActiveKey, (key) => {
   if (key) revealActiveMatch();
 });
 
+const menuVisible = ref(false);
+const menuX = ref(0);
+const menuY = ref(0);
+// 菜单目标节点:关闭时保留引用给离场动画,下次打开覆盖
+const menuNode = shallowRef<JsonTreeNodeModel | null>(null);
+
+function openNodeMenu(target: JsonTreeNodeMenuTarget) {
+  menuNode.value = target.node;
+  menuX.value = target.x;
+  menuY.value = target.y;
+  menuVisible.value = true;
+}
+
+function closeNodeMenu() {
+  menuVisible.value = false;
+}
+
+// 菜单打开期间文档变化:目标节点已失效,关闭菜单丢弃交互
+watch(tree, () => {
+  if (menuVisible.value) closeNodeMenu();
+});
+
+async function onMenuAction(action: JsonTreeNodeMenuAction) {
+  const node = menuNode.value;
+  closeNodeMenu();
+  if (!node) return;
+  if (action.kind === "copy-path") {
+    await copyToClipboard(toJsonPath(node.path));
+  } else if (action.kind === "copy-value") {
+    await copyToClipboard(formatJsonForCopy(node.value));
+  }
+}
+
+async function copyToClipboard(text: string) {
+  try {
+    await navigator.clipboard.writeText(text);
+    ElMessage.success("已复制");
+  } catch {
+    ElMessage.error("复制失败");
+  }
+}
+
 function toggleNode(key: string) {
   const next = new Set(expandedKeys.value);
   if (next.has(key)) next.delete(key);
@@ -171,12 +229,7 @@ function foldToTwoLevels() {
 }
 
 async function copyJson() {
-  try {
-    await navigator.clipboard.writeText(props.copyText ?? formatJsonForCopy(props.value));
-    ElMessage.success("已复制");
-  } catch {
-    ElMessage.error("复制失败");
-  }
+  await copyToClipboard(props.copyText ?? formatJsonForCopy(props.value));
 }
 </script>
 

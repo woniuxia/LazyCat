@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 const source = readFileSync(new URL("./JsonTreeViewer.vue", import.meta.url), "utf8");
 const nodePath = new URL("./JsonTreeNode.vue", import.meta.url);
 const nodeSource = readFileSync(nodePath, "utf8");
+const menuPath = new URL("./JsonTreeNodeMenu.vue", import.meta.url);
+const menuSource = readFileSync(menuPath, "utf8");
 
 describe("JsonTreeViewer source structure", () => {
   it("keeps JSON traversal in shared pure utilities", () => {
@@ -72,5 +74,29 @@ describe("JsonTreeViewer source structure", () => {
     expect(nodeSource).toContain("json-tree-match-active");
     expect(nodeSource).toContain('jsonTreeSearchMatchId({ field: "key"');
     expect(nodeSource).toContain('jsonTreeSearchMatchId({ field: "value"');
+  });
+
+  it("opens one shared node menu from both context click and the row more button", () => {
+    expect(existsSync(menuPath)).toBe(true);
+    expect(nodeSource).toContain("@contextmenu.prevent.stop");
+    expect(nodeSource).toContain("json-tree-more");
+    expect(nodeSource).toContain("open-menu");
+    expect(source).toContain('import JsonTreeNodeMenu from "./JsonTreeNodeMenu.vue"');
+    expect(source).toContain("@open-menu=");
+  });
+
+  it("copies JSONPath and formatted subtree values from the node menu", () => {
+    expect(menuSource).toContain("复制路径");
+    expect(menuSource).toContain("复制值");
+    expect(source).toContain("toJsonPath(node.path)");
+    expect(source).toContain("formatJsonForCopy(node.value)");
+  });
+
+  it("teleports the menu to body with global styles and closes it on document change", () => {
+    expect(menuSource).toContain('<Teleport to="body">');
+    expect(menuSource).toContain("clampContextMenuPosition");
+    expect(menuSource).not.toContain("<style scoped>");
+    expect(source).toContain("closeNodeMenu");
+    expect(source).toMatch(/watch\(tree, \(\) => \{\s*if \(menuVisible\.value\) closeNodeMenu\(\);/);
   });
 });

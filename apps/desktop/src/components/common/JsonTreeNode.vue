@@ -1,6 +1,6 @@
 <template>
   <div class="json-tree-node" role="treeitem">
-    <div class="json-tree-line" :data-key="node.key">
+    <div class="json-tree-line" :data-key="node.key" @contextmenu.prevent.stop="onContextMenu">
       <button
         v-if="expandable"
         class="json-tree-toggle"
@@ -32,6 +32,16 @@
       >
         {{ node.summary }}
       </span>
+
+      <button
+        type="button"
+        class="json-tree-more"
+        aria-label="节点菜单"
+        title="节点菜单"
+        @click.stop="onMoreClick"
+      >
+        ⋯
+      </button>
     </div>
 
     <template v-if="isObjectLike && expanded && expandable">
@@ -44,6 +54,7 @@
           :matched-keys="matchedKeys"
           :active-match-key="activeMatchKey"
           @toggle="$emit('toggle', $event)"
+          @open-menu="$emit('open-menu', $event)"
         />
       </div>
       <div class="json-tree-line json-tree-close-line">
@@ -60,6 +71,7 @@ import { CaretBottom, CaretRight } from "@element-plus/icons-vue";
 import { isJsonTreeExpandable } from "../../utils/jsonTreeView";
 import type { JsonTreeNode as JsonTreeNodeModel } from "../../utils/jsonTreeView";
 import { jsonTreeSearchMatchId } from "../../utils/jsonTreeSearch";
+import type { JsonTreeNodeMenuTarget } from "../../types/json-tree";
 
 defineOptions({ name: "JsonTreeNode" });
 
@@ -78,9 +90,19 @@ const props = withDefaults(
   },
 );
 
-defineEmits<{
+const emit = defineEmits<{
   toggle: [key: string];
+  "open-menu": [target: JsonTreeNodeMenuTarget];
 }>();
+
+function onContextMenu(event: MouseEvent) {
+  emit("open-menu", { node: props.node, x: event.clientX, y: event.clientY });
+}
+
+function onMoreClick(event: MouseEvent) {
+  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+  emit("open-menu", { node: props.node, x: rect.left, y: rect.bottom + 2 });
+}
 
 const isObjectLike = computed(
   () => props.node.valueType === "object" || props.node.valueType === "array",
@@ -196,6 +218,40 @@ const valueHighlightClass = computed(() => ({
 
 .json-tree-value.is-unknown {
   color: #b45309;
+}
+
+.json-tree-more {
+  display: inline-grid;
+  width: 20px;
+  height: 17px;
+  flex: 0 0 auto;
+  place-items: center;
+  margin-left: 2px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: #536176;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  opacity: 0;
+  transition:
+    opacity 0.12s ease,
+    border-color 0.14s ease,
+    background-color 0.14s ease,
+    color 0.14s ease;
+}
+
+.json-tree-line:hover .json-tree-more,
+.json-tree-more:focus-visible {
+  opacity: 1;
+}
+
+.json-tree-more:hover {
+  border-color: #8ca6d8;
+  background: #eef4ff;
+  color: #1f4e9e;
 }
 
 .json-tree-match {
