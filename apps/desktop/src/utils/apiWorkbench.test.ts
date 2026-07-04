@@ -57,6 +57,27 @@ describe("apiWorkbench utils", () => {
     expect(draft.query[0].key).toBe("q");
   });
 
+  it("filters fully empty key-value rows while keeping partial rows", () => {
+    const draft = normalizeApiWorkbenchDraft({
+      query: [
+        { enabled: true, key: "", value: "" },
+        { enabled: true, key: "  ", value: "  " },
+        { enabled: true, key: "", value: "v" },
+        { enabled: true, key: "k", value: "" },
+        { enabled: false, key: "off", value: "1" },
+      ],
+      headers: [{ enabled: true, key: "", value: "" }],
+      form: [{ enabled: true, key: " ", value: "" }],
+    });
+    expect(draft.query).toEqual([
+      { enabled: true, key: "", value: "v" },
+      { enabled: true, key: "k", value: "" },
+      { enabled: false, key: "off", value: "1" },
+    ]);
+    expect(draft.headers).toEqual([]);
+    expect(draft.form).toEqual([]);
+  });
+
   it("formats json response bodies", () => {
     expect(formatApiWorkbenchResponseBody("{\"ok\":true}", "application/json")).toBe(
       "{\n  \"ok\": true\n}",

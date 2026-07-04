@@ -89,7 +89,8 @@ function normalizeRows(rows: unknown): ApiWorkbenchKeyValueRow[] {
       enabled: row.enabled !== false,
       key: String(row.key ?? "").trim(),
       value: String(row.value ?? ""),
-    }));
+    }))
+    .filter((row) => row.key.trim() !== "" || row.value.trim() !== "");
 }
 
 type DraftInput = Partial<Record<keyof ApiWorkbenchRequestDraft, unknown>>;
