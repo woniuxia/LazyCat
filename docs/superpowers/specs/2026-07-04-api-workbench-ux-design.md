@@ -48,7 +48,7 @@ interface ApiWorkbenchTab {
   id: number;                     // 本地自增，会话内唯一
   kind: "request" | "temp";       // 已保存接口 / 临时草稿
   requestId: number | null;        // kind=request 时非空
-  collectionId: number;            // 归属集合
+  collectionId: number | null;     // 归属集合；仅集合全删的兜底场景为 null
   folderId: number | null;
   name: string;
   draft: ApiWorkbenchRequestDraft;
@@ -71,12 +71,12 @@ interface ApiWorkbenchTab {
 - 关闭：`×`、中键、右键菜单（关闭、关闭其他、关闭左侧、关闭右侧）。关闭脏标签逐个 `ElMessageBox` 确认；批量关闭遇脏标签跳过并提示数量。
 - 保存：`request-save` 成功后更新 `savedSnapshot` 清脏；`temp` 标签保存后转为 `request` 标签。
 - 侧栏删除接口：其标签若脏则转 `temp` 保留内容（防误删丢工作），干净则直接关闭。
-- 删除集合：该集合的干净标签关闭，脏标签转 `temp` 并归属当前选中集合。
+- 删除集合：该集合的干净标签关闭，脏标签转 `temp` 并归属删除后新选中的集合；若已无任何集合，脏标签保留且 `collectionId` 置空（发送前按既有「请先选择环境」路径拦截），用户新建或选中集合后自动归属之。
 - 标签上限 20 个，超出时提示先关闭部分标签。
 
 ### 集合与环境归属
 
-保持「单一当前集合」心智：切换到某标签时，若其 `collectionId` 与当前选中集合不同，侧栏与环境下拉自动跟随切换。发送时使用标签自己的 `collectionId` 与该集合当前激活环境。`temp` 标签归属创建时的当前集合。
+保持「单一当前集合」心智：切换到某标签时，若其 `collectionId` 与当前选中集合不同，侧栏与环境下拉自动跟随切换。发送时使用标签自己的 `collectionId` 与该集合当前激活环境。`temp` 标签归属创建时的当前集合；仅在集合全部被删除的兜底场景下 `collectionId` 允许为 null（类型放宽为 `number | null`）。
 
 ### 持久化与恢复
 
@@ -94,7 +94,7 @@ interface ApiWorkbenchTab {
 
 把面板内运行时 `defineComponent` 的 KeyValueEditor 抽为正式组件 `ApiWorkbenchKeyValueEditor.vue`：
 
-- 末行任一输入框有内容时自动追加空行；空行由既有 `normalizeRows` 过滤，不影响发送与保存。
+- 末行任一输入框有内容时自动追加空行；`normalizeApiWorkbenchDraft` 的行归一化增强为过滤「key 与 value 均为空串」的行（现有 `normalizeRows` 不过滤空行，必须补上），该函数同时服务保存、发送与脏比较，一处修改三处受益——自动追加的空行因此不会污染保存数据，也不会让未修改的标签误报脏。UI 草稿状态保留空行用于展示。
 - 删除改为行悬停显示的图标按钮；启用开关保留。
 - 批量粘贴：在 Key 列粘贴的文本包含换行、`&` 或 `:` 时，按纯函数 `parseApiWorkbenchKvPaste` 拆分为多行（支持 `a=1&b=2` query-string、逐行 `key: value`、逐行 `key=value` 三种形态；不做 URL 解码，保持字符原样），拆分后 `ElMessage` 提示行数；Value 列粘贴不拆分。
 - Query / Headers / 环境变量 / form 四处共用该组件。
@@ -154,7 +154,7 @@ URL 输入框与 KV value 列输入 `{{` 时，弹出轻量候选浮层（统一
 
 ### 接口复制
 
-侧栏接口右键菜单增加「复制接口」：前端组合 `request-get` + `request-save`（id 传空、名称「原名 副本」、同文件夹末尾），无新后端 action；成功后在新标签打开副本。
+侧栏接口右键菜单增加「复制接口」：前端组合 `request-get` + `request-save`（id 传空、名称「原名 副本」、同文件夹末尾），无新后端 action；成功后在新标签打开副本。边界：副本只含请求定义，不携带示例响应与历史记录。
 
 ### Method 色板
 
@@ -162,7 +162,7 @@ URL 输入框与 KV value 列输入 `{{` 时，弹出轻量候选浮层（统一
 
 ### 树内拖拽
 
-侧栏树原生 HTML5 drag（参照 `DataDictionaryPanel` 既有模式，不引依赖）：
+侧栏树原生 HTML5 drag（参照 `LauncherPanel.vue` / `PmCalendarView.vue` 既有原生拖拽模式，不引依赖；注意 `DataDictionaryPanel` 用的是 SortableJS，不适合树形「拖到目标上 vs 拖到间隙」的双落点语义，不作参照）：
 
 - 接口拖到文件夹（或「未分组」）上高亮 → 调 `request-move`；拖到同层行间隙 → 生成新顺序调 `request-reorder`。
 - 文件夹拖到文件夹上 → `folder-move`（复用 `buildApiWorkbenchFolderMoveTargets` 的合法性校验，禁止拖入自身后代）；同层间隙 → `folder-reorder`。
@@ -210,16 +210,15 @@ URL 输入框与 KV value 列输入 `{{` 时，弹出轻量候选浮层（统一
 - `common/JsonTreeViewer.vue`（JSON 响应预览）
 - `buildApiWorkbenchPreviewUrl`、`normalizeApiWorkbenchDraft`、`parseApiWorkbenchCurl`、`summarizeApiWorkbenchVariables`、`moveApiWorkbenchOrderedId`
 - 既有通道：`request-move` / `request-reorder` / `folder-move` / `folder-reorder`（拖拽落点复用，无新通道）
-- `DataDictionaryPanel` 拖拽事件处理模式、应用级 `useTabs` 的关闭邻接语义（参考实现，不直接复用）
-
+- `LauncherPanel.vue` / `PmCalendarView.vue` 原生拖拽事件处理模式、应用级 `useTabs` 的关闭邻接语义（参考实现，不直接复用）
 ## 后端改动
 
 仅一处行为扩展，无新 action：
 
-1. `api_workbench_requests` 建表语句与兼容迁移增加列 `follow_redirects INTEGER NOT NULL DEFAULT 0`（参照既有 ALTER 兼容模式）。
-2. 请求草稿 serde 结构体增加 `follow_redirects: bool`，`#[serde(default)]` 兼容旧数据与旧历史快照。
-3. `send` 路径：`follow_redirects = true` 时 reqwest 客户端配 `redirect::Policy::limited(10)`，`finalUrl` 取跳转后最终地址；`false` 保持现状（不跟随，展示原始 3xx）。超过跳转上限时错误按既有 `error` 字段透出。
-4. `request-save` / `request-get` / 历史快照序列化链路带上新字段。
+1. `api_workbench_requests` 建表语句与兼容迁移增加列 `follow_redirects INTEGER NOT NULL DEFAULT 0`（参照 `ensure_api_workbench_history_columns` 的既有 ALTER 兼容模式）。
+2. 请求草稿 serde 结构体增加 `follow_redirects: bool`，`#[serde(default)]` 兼容旧数据与旧历史快照。前端同步三处：`types/api-workbench.ts` 的 `ApiWorkbenchRequestDraft`、`DEFAULT_API_WORKBENCH_DRAFT`、`normalizeApiWorkbenchDraft`（该函数按白名单字段重建对象，漏加会静默丢字段并使脏比较对此开关失明）。
+3. `send` 路径：后端 HTTP 客户端为 **ureq**（现状 `AgentBuilder::new().redirects(0)`）。`follow_redirects = true` 时改配 `.redirects(10)`，最终地址经 `Response::get_url()` 写入 `finalUrl`；`false` 保持现状（不跟随，展示原始 3xx）。采用并明示 ureq 2.x 重定向语义：301/302/303 按 HTTP 标准将 POST 转为 GET 跟随；307/308 因请求体无法重发不跟随，此时按未跟随返回原始 3xx 响应。超过跳转上限按既有 `error` 字段透出。
+4. `request-save` / `request-get` / 历史快照序列化链路带上新字段（`ApiWorkbenchHistoryRequestSnapshot` 继承自 draft 类型，自然携带）。
 
 ## 错误处理
 
@@ -238,7 +237,7 @@ URL 输入框与 KV value 列输入 `{{` 时，弹出轻量候选浮层（统一
 | 1 编辑区细节 | KV 组件化+粘贴+Header 补全、URL 拆分、最终 URL 预览、页签徽标、Body Monaco | 无 |
 | 2 响应区 | JSON 树+Monaco 双模式、状态行色阶与格式化、响应头表格（含 `utils/format.ts` 上提） | 无 |
 | 3 工作流小项 | Method 色板、复制接口、cURL 弹窗、历史收敛、空状态、请求设置（含后端重定向）、认证辅助、变量补全 | 无 |
-| 4 压轴 | 多标签重构（脏保护并入）、树内拖拽 | 批次 1-3 交互落点稳定后进行 |
+| 4 压轴 | 多标签重构（脏保护并入）、树内拖拽 | 批次 1-3 交互落点稳定后进行；两项互不依赖，各自独立提交，降低回滚粒度 |
 
 每批独立验证、独立提交。批次 3 中 cURL 弹窗与历史载入的「进入新临时标签」行为在批次 4 前先落为「替换当前草稿（带确认）」，批次 4 切换为开新标签。
 
@@ -251,7 +250,7 @@ URL 输入框与 KV value 列输入 `{{` 时，弹出轻量候选浮层（统一
 
 ### Rust（`cargo test api_workbench -- --nocapture`）
 
-- `follow_redirects` 默认值与显式开启的 send 分支、旧数据反序列化兼容、建表迁移幂等。
+- `follow_redirects` 默认值与显式开启的 send 分支、301/302/303 跟随（POST 转 GET）与 307/308 带 body 不跟随的语义、旧数据反序列化兼容、建表迁移幂等。
 
 ### 构建
 
