@@ -18,6 +18,7 @@ declare module 'vue' {
     ApiMockRouteForm: typeof import('./src/components/api-mock/ApiMockRouteForm.vue')['default']
     ApiMockRouteList: typeof import('./src/components/api-mock/ApiMockRouteList.vue')['default']
     ApiWorkbenchContextMenu: typeof import('./src/components/ApiWorkbenchContextMenu.vue')['default']
+    ApiWorkbenchKeyValueEditor: typeof import('./src/components/ApiWorkbenchKeyValueEditor.vue')['default']
     ApiWorkbenchPanel: typeof import('./src/components/ApiWorkbenchPanel.vue')['default']
     ApiWorkbenchResponseViewer: typeof import('./src/components/ApiWorkbenchResponseViewer.vue')['default']
     ApiWorkbenchSidebar: typeof import('./src/components/ApiWorkbenchSidebar.vue')['default']
