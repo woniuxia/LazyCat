@@ -23,8 +23,8 @@ function splitLineBySeparator(line: string): ApiWorkbenchKeyValueRow {
   };
 }
 
-function splitQueryString(line: string): ApiWorkbenchKeyValueRow[] {
-  return line
+export function splitApiWorkbenchQueryPairs(text: string): ApiWorkbenchKeyValueRow[] {
+  return text
     .split("&")
     .filter((segment) => segment.trim() !== "")
     .map((segment) => {
@@ -50,7 +50,7 @@ export function parseApiWorkbenchKvPaste(text: string): ApiWorkbenchKvPasteResul
   if (lines.length === 1) {
     const line = lines[0];
     if (line.includes("&")) {
-      const rows = splitQueryString(line);
+      const rows = splitApiWorkbenchQueryPairs(line);
       return rows.length > 0 ? { rows } : null;
     }
     if (!line.includes("=") && !line.includes(":")) return null;

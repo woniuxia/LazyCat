@@ -12,6 +12,7 @@ import {
   normalizeApiWorkbenchDraft,
   resolveApiWorkbenchEnvironmentSelect,
   serializeApiWorkbenchEnvironmentRows,
+  splitApiWorkbenchUrlQuery,
   validateApiWorkbenchVariableName,
 } from "./apiWorkbench";
 
@@ -83,6 +84,30 @@ describe("apiWorkbench utils", () => {
       "{\n  \"ok\": true\n}",
     );
     expect(formatApiWorkbenchResponseBody("plain", "text/plain")).toBe("plain");
+  });
+
+  it("splits url query string into rows without url decoding", () => {
+    expect(splitApiWorkbenchUrlQuery("/api?a=1&b=%20x")).toEqual({
+      url: "/api",
+      rows: [
+        { enabled: true, key: "a", value: "1" },
+        { enabled: true, key: "b", value: "%20x" },
+      ],
+    });
+    expect(splitApiWorkbenchUrlQuery("https://x.com/p?a={{ID}}")).toEqual({
+      url: "https://x.com/p",
+      rows: [{ enabled: true, key: "a", value: "{{ID}}" }],
+    });
+    expect(splitApiWorkbenchUrlQuery("/p?flag")).toEqual({
+      url: "/p",
+      rows: [{ enabled: true, key: "flag", value: "" }],
+    });
+  });
+
+  it("returns null when url has no splittable query", () => {
+    expect(splitApiWorkbenchUrlQuery("/p?")).toBeNull();
+    expect(splitApiWorkbenchUrlQuery("/p")).toBeNull();
+    expect(splitApiWorkbenchUrlQuery("")).toBeNull();
   });
 
   it("resets editor state when switching collections", () => {

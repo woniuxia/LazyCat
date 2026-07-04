@@ -45,6 +45,8 @@
             v-model="draft.url"
             class="request-url-input"
             placeholder="https://example.com/api 或 /api/users"
+            @blur="applyUrlQuerySplit"
+            @paste="handleUrlPaste"
           />
           <el-button
             class="save-request-button"
@@ -357,7 +359,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import {
   CopyDocument,
   Delete,
@@ -401,6 +403,7 @@ import {
   normalizeApiWorkbenchDraft,
   resolveApiWorkbenchEnvironmentSelect,
   serializeApiWorkbenchEnvironmentRows,
+  splitApiWorkbenchUrlQuery,
 } from "../utils/apiWorkbench";
 import {
   buildApiWorkbenchExampleResponse,
@@ -619,6 +622,18 @@ function confirmMoveDialog() {
 function cancelMoveDialog() {
   if (!moveDialogResolver) return;
   settleMoveDialog(undefined);
+}
+
+function applyUrlQuerySplit() {
+  const result = splitApiWorkbenchUrlQuery(draft.value.url);
+  if (!result) return;
+  draft.value.url = result.url;
+  draft.value.query.push(...result.rows);
+  ElMessage.success(`已拆分 ${result.rows.length} 个参数到 Query`);
+}
+
+function handleUrlPaste() {
+  void nextTick().then(applyUrlQuerySplit);
 }
 
 function handleWorkbenchKeydown(event: KeyboardEvent) {

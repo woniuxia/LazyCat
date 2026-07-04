@@ -7,6 +7,7 @@ import type {
   ApiWorkbenchSendResult,
   ApiWorkbenchVariable,
 } from "../types/api-workbench";
+import { splitApiWorkbenchQueryPairs } from "./apiWorkbenchKvPaste";
 
 export const API_WORKBENCH_METHODS: ApiWorkbenchMethod[] = [
   "GET",
@@ -117,6 +118,22 @@ export function normalizeApiWorkbenchDraft(input: DraftInput): ApiWorkbenchReque
 
 export function createApiWorkbenchBlankDraft(): ApiWorkbenchRequestDraft {
   return normalizeApiWorkbenchDraft({});
+}
+
+export interface ApiWorkbenchUrlSplitResult {
+  url: string;
+  rows: ApiWorkbenchKeyValueRow[];
+}
+
+/** 无 ? 或 ? 后为空时返回 null；不做 URL 解码 */
+export function splitApiWorkbenchUrlQuery(rawUrl: string): ApiWorkbenchUrlSplitResult | null {
+  const questionIndex = rawUrl.indexOf("?");
+  if (questionIndex < 0) return null;
+  const queryText = rawUrl.slice(questionIndex + 1);
+  if (queryText.trim() === "") return null;
+  const rows = splitApiWorkbenchQueryPairs(queryText);
+  if (rows.length === 0) return null;
+  return { url: rawUrl.slice(0, questionIndex), rows };
 }
 
 export function resolveApiWorkbenchEnvironmentSelect(
