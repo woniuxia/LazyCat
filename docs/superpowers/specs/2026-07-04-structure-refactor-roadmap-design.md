@@ -120,7 +120,7 @@ tools/api_workbench/
 
 共 **33 个 action**（以 `is_supported_api_workbench_action` 为对账基准）：32 个按上表迁移进子模块，`list` 保留在 mod.rs（`action_list_with_conn` 是跨 collection/folder/request 的聚合树查询，不归属单一子模块）；与现有 match 分发点（原文件 3131 行起）一一对应。
 
-原文件含一个 `#[cfg(test)] mod tests`（3171 行至文件尾，约 2080 行、占全文件约 40%）：**内嵌测试随被测函数迁移至对应子模块**。另有一对 `#[cfg(test)]` / `#[cfg(not(test))]` 版本的 `get_api_workbench_response_cache_dir`（1363-1378 行，测试态重定向缓存目录到临时目录）：**迁移时必须成对搬至缓存目录逻辑所在子模块**，拆散会导致测试构建失败或测试写入真实数据目录。迁移前后 `cargo test` 用例数必须一致。
+原文件含一个 `#[cfg(test)] mod tests`（3171 行至文件尾，约 2080 行、占全文件约 40%）：**内嵌测试随被测函数迁移至对应子模块**。另有一对 `#[cfg(test)]` / `#[cfg(not(test))]` 版本的 `get_api_workbench_response_cache_dir`（1363-1378 行，测试态重定向缓存目录到临时目录）及文件头部配套的 `#[cfg(not(test))] use super::helpers::get_data_dir;` 导入：**迁移时必须成对（连同该导入）搬至缓存目录逻辑所在子模块**，拆散会导致测试构建失败或测试写入真实数据目录。迁移前后 `cargo test` 用例数必须一致。
 
 ### 实施顺序
 
