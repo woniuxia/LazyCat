@@ -71,6 +71,7 @@ interface ApiWorkbenchTab {
 - 关闭：`×`、中键、右键菜单（关闭、关闭其他、关闭左侧、关闭右侧）。关闭脏标签逐个 `ElMessageBox` 确认；批量关闭遇脏标签跳过并提示数量。
 - 保存：`request-save` 成功后更新 `savedSnapshot` 清脏；`temp` 标签保存后转为 `request` 标签。
 - 侧栏删除接口：其标签若脏则转 `temp` 保留内容（防误删丢工作），干净则直接关闭。
+- `folderId` 同步：`request-move` / 拖拽 / `folder-delete` 等结构变更成功后的 `loadAll` 刷新时，以最新树数据回填所有 `request` 标签的 `folderId`，树中已不存在者置 null；标签跨集合重归属（转 `temp`）时 `folderId` 一并置 null。否则长寿命后台标签持过期 `folderId`，保存时 `request_save` 会无条件回写 `folder_id`，把接口拖回旧文件夹甚至写入悬空引用。
 - 删除集合：该集合的干净标签关闭，脏标签转 `temp` 并归属删除后新选中的集合；若已无任何集合，脏标签保留且 `collectionId` 置空（发送前按既有「请先选择环境」路径拦截），用户新建或选中集合后自动归属之。
 - 标签上限 20 个，超出时提示先关闭部分标签。
 
@@ -81,7 +82,7 @@ interface ApiWorkbenchTab {
 ### 持久化与恢复
 
 - `user_settings` key：`api-workbench:tabs`，JSON：`{ version: 1, activeTabId, tabs: [...] }`；每个标签存 `kind`、`requestId`、`collectionId`、`folderId`、`name`、完整 `draft`、`savedSnapshot`、脏标记。`response` 不持久化（体积大，历史可查），恢复后响应区为空态。
-- 恢复时逐个校验：JSON 解析失败或版本不符 → 放弃恢复从空白开始；`requestId` 已不存在 → 转 `temp` 标签；集合已不存在 → 转 `temp` 归属当前集合。恢复上限 20 个。
+- 恢复时逐个校验：JSON 解析失败或版本不符 → 放弃恢复从空白开始；`requestId` 已不存在 → 转 `temp` 标签；集合已不存在 → 转 `temp` 归属当前集合（folderId 置 null；恢复时已无任何集合则 `collectionId` 置 null，后续自动归属）。恢复上限 20 个。
 - 保存时机：标签集合变化（开/关/切换/改名/保存）时防抖写入。
 
 ### 标签条 UI
@@ -125,7 +126,7 @@ Headers 模式下 Key 列换用 `el-autocomplete`，候选来自常用头名常�
 
 ### 认证辅助
 
-Headers 页签工具条「快速认证」按钮弹 popover：Bearer（token 输入）/ Basic（用户名 + 密码，前端 base64）两种，确认后生成或更新 `Authorization` 行。纯前端实现，生成逻辑入纯函数。
+Headers 页签工具条「快速认证」按钮弹 popover：Bearer（token 输入）/ Basic（用户名 + 密码，前端先 UTF-8 编码再 base64，避免 `btoa` 遇非 Latin-1 字符抛异常）两种，确认后生成或更新 `Authorization` 行。纯前端实现，生成逻辑入纯函数。
 
 ### 变量自动补全
 
@@ -216,8 +217,8 @@ URL 输入框与 KV value 列输入 `{{` 时，弹出轻量候选浮层（统一
 仅一处行为扩展，无新 action：
 
 1. `api_workbench_requests` 建表语句与兼容迁移增加列 `follow_redirects INTEGER NOT NULL DEFAULT 0`（参照 `ensure_api_workbench_history_columns` 的既有 ALTER 兼容模式）。
-2. 请求草稿 serde 结构体增加 `follow_redirects: bool`，`#[serde(default)]` 兼容旧数据与旧历史快照。前端同步三处：`types/api-workbench.ts` 的 `ApiWorkbenchRequestDraft`、`DEFAULT_API_WORKBENCH_DRAFT`、`normalizeApiWorkbenchDraft`（该函数按白名单字段重建对象，漏加会静默丢字段并使脏比较对此开关失明）。
-3. `send` 路径：后端 HTTP 客户端为 **ureq**（现状 `AgentBuilder::new().redirects(0)`）。`follow_redirects = true` 时改配 `.redirects(10)`，最终地址经 `Response::get_url()` 写入 `finalUrl`；`false` 保持现状（不跟随，展示原始 3xx）。采用并明示 ureq 2.x 重定向语义：301/302/303 按 HTTP 标准将 POST 转为 GET 跟随；307/308 因请求体无法重发不跟随，此时按未跟随返回原始 3xx 响应。超过跳转上限按既有 `error` 字段透出。
+2. 请求草稿 serde 结构体增加 `follow_redirects: bool`，`#[serde(default)]` 兼容旧数据与旧历史快照。前端同步三处：`types/api-workbench.ts` 的 `ApiWorkbenchRequestDraft`、`utils/apiWorkbench.ts` 的 `DEFAULT_API_WORKBENCH_DRAFT` 与 `normalizeApiWorkbenchDraft`（后者按白名单字段重建对象，漏加会静默丢字段并使脏比较对此开关失明）。
+3. `send` 路径：后端 HTTP 客户端为 **ureq**（现状 `AgentBuilder::new().redirects(0)`）。`follow_redirects = true` 时改配 `.redirects(10)`，最终地址经 `Response::get_url()` 写入 `finalUrl`；`false` 保持现状（不跟随，展示原始 3xx）。采用并明示 ureq 2.x 重定向语义：301/302/303 非 GET/HEAD 方法按标准转 GET 跟随；307/308 仅 GET/HEAD/OPTIONS/TRACE 跟随，带体方法与 DELETE 不跟随、返回原始 3xx。超过跳转上限按既有 `error` 字段透出。
 4. `request-save` / `request-get` / 历史快照序列化链路带上新字段（`ApiWorkbenchHistoryRequestSnapshot` 继承自 draft 类型，自然携带）。
 
 ## 错误处理
@@ -245,12 +246,12 @@ URL 输入框与 KV value 列输入 `{{` 时，弹出轻量候选浮层（统一
 
 ### 前端（`pnpm test`）
 
-- 新增纯函数单测：`apiWorkbenchTabs`（脏比较/恢复降级/邻接选择）、`apiWorkbenchKvPaste` 三形态、`splitApiWorkbenchUrlQuery`（含 `{{var}}`、无值参数）、认证头生成、状态码色阶、`format.ts` 三个函数（含边界 0/负值/超大）。
+- 新增纯函数单测：`apiWorkbenchTabs`（脏比较/恢复降级/邻接选择/folderId 回填）、`apiWorkbenchKvPaste` 三形态、`splitApiWorkbenchUrlQuery`（含 `{{var}}`、无值参数）、认证头生成（含非 ASCII 密码用例）、状态码色阶、`format.ts` 三个函数（含边界 0/负值/超大）。
 - 既有 `apiWorkbench*.test.ts` 全部保持通过；`formatMockFileSize` 转调后 apiMock 测试不回归。
 
 ### Rust（`cargo test api_workbench -- --nocapture`）
 
-- `follow_redirects` 默认值与显式开启的 send 分支、301/302/303 跟随（POST 转 GET）与 307/308 带 body 不跟随的语义、旧数据反序列化兼容、建表迁移幂等。
+- `follow_redirects` 默认值与显式开启的 send 分支、301/302/303 跟随（POST 转 GET）与 307/308 带 body 不跟随的语义、旧数据反序列化兼容、建表迁移幂等。重定向用例需本地 HTTP stub（std `TcpListener` 实现，无新依赖）；现有 `api_workbench` 测试均为 DB 级，此为新增测试基建，规划时预留工作量。
 
 ### 构建
 
