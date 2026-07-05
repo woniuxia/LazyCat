@@ -101,27 +101,38 @@ SnippetPanel、LauncherPanel、HostsPanel、DnsPanel 四面板的全部 IPC 调�
 
 ## 7. X4 详设：列表搜索防抖统一（约 1.5 天）
 
-### 7.1 `composables/useListSearch.ts`
+### 7.1 `composables/useListSearch.ts`（修订 2026-07-05：分层双 API，适配本地过滤与后端搜索两种形态）
 
 ```ts
+// 基础层：关键字 + 防抖（后端搜索面板直接用它，watch debouncedKeyword 触发重查）
+function useDebouncedKeyword(options?: { debounceMs?: number }): {  // 默认 300
+  keyword: Ref<string>;              // 绑定输入框
+  debouncedKeyword: Readonly<Ref<string>>;  // 已 trim
+}
+
+// 过滤层：在基础层之上叠加本地过滤（本地过滤面板用）
 function useListSearch<T>(
   source: () => readonly T[],
   matcher: (item: T, keyword: string) => boolean,
-  options?: { debounceMs?: number }  // 默认 300
+  options?: { debounceMs?: number }
 ): {
-  keyword: Ref<string>;              // 绑定输入框
+  keyword: Ref<string>;
   debouncedKeyword: Readonly<Ref<string>>;
   filtered: ComputedRef<T[]>;        // 空关键字返回全量
 }
 ```
 
+- 两个 API 同文件导出，`useListSearch` 内部复用 `useDebouncedKeyword`，防抖逻辑只有一份。
 - composable 内做 trim 与防抖；大小写归一等匹配细节由 matcher 纯函数负责（可沉淀到 `utils/` 并单测）。
 - 对齐 CLAUDE.md 05.5 分层筛选模式：composable 只管关键字层，面板在 `filtered` 之上叠加类型/状态等专用筛选层。
 - 配套 fake-timer 单测（防抖时序、trim、空关键字、卸载清理）。
 
-### 7.2 试点改造
+### 7.2 试点改造（修订 2026-07-05：按各面板实际搜索形态对号入座）
 
-与 X3 同一批 4 个面板，**每个面板一次提交同时落 X3 + X4**（共 4 个提交），避免反复动同一文件。HostsPanel 由无防抖变 300ms 防抖属本 spec 允许的行为微变，写入该批行为清单并冒烟确认搜索体感。
+- **LauncherPanel、HostsPanel**（本地过滤）：接 `useListSearch`。HostsPanel 由无防抖 computed 变 300ms 防抖，属本 spec 允许的行为微变，写入行为清单并冒烟确认搜索体感。
+- **SnippetPanel**（后端搜索：防抖后重新 `loadSnippets()`）：接 `useDebouncedKeyword` + watch，替换手写 `searchTimer`（260ms → 300ms，行为微变入清单）。
+- **DnsPanel**：经核实无搜索框，不参与 X4，仅参与 X3。
+- 与 X3 同批：每个面板一次提交同时落 X3 + X4（共 4 个提交），避免反复动同一文件。
 
 **验收**：同 X3，另加 useListSearch 单测。
 
@@ -152,3 +163,4 @@ function useListSearch<T>(
 | 试点面板 | Snippet / Launcher / Hosts / Dns | 与路线图批次、候选池、待实施 spec 零交集；VaultPanel（2542 行）体量过大不适合试点 |
 | typeshare / Zod / DAO / 迁移框架 / 外键级联 / 双体系统一 | 均不做 | 单人维护的离线桌面应用，工具链与框架的持续成本大于收益；对账测试 + 手工纪律已覆盖主要风险面；外键级联动用户数据结构，风险大于孤儿记录实际痛感 |
 | 错误反馈改造范围 | 仅 4 试点 + 规范 | 全量 310 处一次性改造会大面积触碰路线图待拆文件，混批风险高 |
+| X4 API 形态 | useDebouncedKeyword + useListSearch 分层双 API（2026-07-05 修订） | 单一 useListSearch 被否：写计划时核实 SnippetPanel 为后端搜索（防抖后重查 IPC），matcher 形态不适配；DnsPanel 无搜索框，仅参与 X3 |
