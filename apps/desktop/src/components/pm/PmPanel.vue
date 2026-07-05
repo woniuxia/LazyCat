@@ -356,7 +356,6 @@ import type {
   PmSiyuanDirectoryResult,
   PmSiyuanSearchResult,
   PmSiyuanTreeNode,
-  CtxMenuAction,
   PmTodoCandidateItem,
 } from "../../types/pm";
 import { PM_STATUS_COLUMNS, PM_ITEM_TYPE_MAP, PM_PRIORITY_MAP } from "../../types/pm";
@@ -395,6 +394,7 @@ import {
 import { usePmTodoLinking } from "../../composables/usePmTodoLinking";
 import { usePmViewMemory } from "../../composables/usePmViewMemory";
 import { usePmNavigation } from "../../composables/usePmNavigation";
+import { usePmContextMenu } from "../../composables/usePmContextMenu";
 import { PM_KANBAN_DRAG_KEY } from "../../composables/pmKanbanDragKey";
 
 const { invoke } = useToolInvoke();
@@ -568,10 +568,24 @@ provide(PM_KANBAN_DRAG_KEY, {
 });
 
 // Context menu (reactive)
-const ctxMenuVisible = ref(false);
-const ctxMenuX = ref(0);
-const ctxMenuY = ref(0);
-const ctxMenuActions = ref<CtxMenuAction[]>([]);
+const {
+  ctxMenuVisible,
+  ctxMenuX,
+  ctxMenuY,
+  ctxMenuActions,
+  openItemContextMenu,
+  openItemContextMenuAt,
+  openCtxMenu,
+  closeCtxMenu,
+} = usePmContextMenu({
+  editItem,
+  openItemLink,
+  openSiyuanPage,
+  toggleItemPinFor,
+  findNextStatus,
+  advanceItemStatusFor,
+  deleteItemRecord,
+});
 
 const PM_ITEM_STATUS_ORDER: PmItemStatus[] = ["todo", "in_progress", "testing", "done"];
 
@@ -1090,60 +1104,6 @@ async function deleteItemRecord(item: PmItem) {
   }
 }
 
-function buildItemContextActions(item: PmItem): CtxMenuAction[] {
-  const actions: CtxMenuAction[] = [{ label: "编辑", action: () => editItem(item) }];
-
-  if (item.linkUrl) {
-    actions.push({
-      label: "打开链接",
-      action: () => void openItemLink(item.linkUrl),
-    });
-  }
-
-  if (item.siyuanPrimaryPage) {
-    actions.push({
-      label: "打开思源主页面",
-      action: () => void openSiyuanPage(item.siyuanPrimaryPage),
-    });
-  }
-
-  actions.push({
-    label: item.pinned ? "取消置顶" : "置顶",
-    action: () => void toggleItemPinFor(item),
-  });
-
-  const nextStatus = findNextStatus(item);
-  if (nextStatus) {
-    const nextLabel = PM_STATUS_COLUMNS.find((entry) => entry.key === nextStatus)?.label ?? nextStatus;
-    actions.push({
-      label: `推进到「${nextLabel}」`,
-      action: () => void advanceItemStatusFor(item),
-    });
-  }
-
-  actions.push(
-    { divider: true, label: "", action: () => {} },
-    {
-      label: "删除",
-      danger: true,
-      action: () => void deleteItemRecord(item),
-    },
-  );
-
-  return actions;
-}
-
-function openItemContextMenu(event: MouseEvent, item: PmItem) {
-  openItemContextMenuAt(item, event.clientX, event.clientY);
-}
-
-function openItemContextMenuAt(item: PmItem, anchorX: number, anchorY: number) {
-  ctxMenuActions.value = buildItemContextActions(item);
-  ctxMenuX.value = anchorX;
-  ctxMenuY.value = anchorY;
-  ctxMenuVisible.value = true;
-}
-
 // ── View change side-effects ───────────────────────────
 
 watch(
@@ -1191,19 +1151,6 @@ function onProjectDrop(p: PmProject) {
       ElMessage.error((e as Error).message);
       loadItems();
     });
-}
-
-// ── Context menu (delegated to PmContextMenu) ───────────
-
-function openCtxMenu(event: MouseEvent, actions: CtxMenuAction[]) {
-  ctxMenuActions.value = actions;
-  ctxMenuX.value = event.clientX;
-  ctxMenuY.value = event.clientY;
-  ctxMenuVisible.value = true;
-}
-
-function closeCtxMenu() {
-  ctxMenuVisible.value = false;
 }
 
 // ── Lifecycle ────────────────────────────────────────────
