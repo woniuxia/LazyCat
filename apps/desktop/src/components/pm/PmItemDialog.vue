@@ -237,16 +237,16 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onUnmounted } from "vue";
 import { ElMessageBox } from "element-plus";
-import type { PmProject, PmItem, PmItemType, PmPriority, PmItemStatus, PmSiyuanPageRef, PmSiyuanLocation } from "../types/pm";
-import { PM_STATUS_COLUMNS, PM_ITEM_TYPE_MAP, PM_PRIORITY_MAP } from "../types/pm";
-import { getPmDateRangeValue, normalizePmDateRangeForDraft } from "../utils/pmDate";
-import { formatPmSiyuanLocationLabel, resolvePmSiyuanEffectiveLocation } from "../utils/pmSiyuan";
-import RichDescriptionEditor from "./RichDescriptionEditor.vue";
-import { ensureDataDir } from "../rich/data-dir";
+import type { PmProject, PmItem, PmItemType, PmPriority, PmItemStatus, PmSiyuanPageRef, PmSiyuanLocation } from "../../types/pm";
+import { PM_STATUS_COLUMNS, PM_ITEM_TYPE_MAP, PM_PRIORITY_MAP } from "../../types/pm";
+import { getPmDateRangeValue, normalizePmDateRangeForDraft } from "../../utils/pmDate";
+import { formatPmSiyuanLocationLabel, resolvePmSiyuanEffectiveLocation } from "../../utils/pmSiyuan";
+import RichDescriptionEditor from "../RichDescriptionEditor.vue";
+import { ensureDataDir } from "../../rich/data-dir";
 import {
   useRichDescriptionLifecycle,
   type RichEditorExposed,
-} from "../composables/useRichDescriptionLifecycle";
+} from "../../composables/useRichDescriptionLifecycle";
 
 interface ItemSiyuanLinkedRow {
   page: PmSiyuanPageRef;

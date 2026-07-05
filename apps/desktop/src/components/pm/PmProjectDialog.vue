@@ -59,15 +59,15 @@
 <script setup lang="ts">
 import { ref, inject, watch, nextTick } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
-import { useToolInvoke } from "../composables/useToolInvoke";
-import type { PmProject, PmSiyuanLocation } from "../types/pm";
-import { formatPmSiyuanLocationLabel } from "../utils/pmSiyuan";
-import { PM_SIYUAN_KEY } from "../composables/pmSiyuanKey";
-import RichDescriptionEditor from "./RichDescriptionEditor.vue";
+import { useToolInvoke } from "../../composables/useToolInvoke";
+import type { PmProject, PmSiyuanLocation } from "../../types/pm";
+import { formatPmSiyuanLocationLabel } from "../../utils/pmSiyuan";
+import { PM_SIYUAN_KEY } from "../../composables/pmSiyuanKey";
+import RichDescriptionEditor from "../RichDescriptionEditor.vue";
 import {
   useRichDescriptionLifecycle,
   type RichEditorExposed,
-} from "../composables/useRichDescriptionLifecycle";
+} from "../../composables/useRichDescriptionLifecycle";
 
 interface ProjectForm {
   name: string;

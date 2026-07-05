@@ -114,17 +114,17 @@ import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } fr
 import { ElMessage } from "element-plus";
 import { Top, CaretRight, AlarmClock } from "@element-plus/icons-vue";
 import Sortable from "sortablejs";
-import type { PmItem, PmItemStatus } from "../types/pm";
-import { PM_STATUS_COLUMNS, PM_ITEM_TYPE_MAP, PM_PRIORITY_MAP } from "../types/pm";
+import type { PmItem, PmItemStatus } from "../../types/pm";
+import { PM_STATUS_COLUMNS, PM_ITEM_TYPE_MAP, PM_PRIORITY_MAP } from "../../types/pm";
 import {
   formatPmDateRangeForDisplay,
   hasPmDateSchedule,
   isPmItemOverdue,
-} from "../utils/pmDate";
-import { summarizePmItemTags } from "../utils/pmVisual";
-import { getVisiblePmStatusColumns } from "../utils/pmStatusFilter";
-import { useToolInvoke } from "../composables/useToolInvoke";
-import { PM_KANBAN_DRAG_KEY } from "../composables/pmKanbanDragKey";
+} from "../../utils/pmDate";
+import { summarizePmItemTags } from "../../utils/pmVisual";
+import { getVisiblePmStatusColumns } from "../../utils/pmStatusFilter";
+import { useToolInvoke } from "../../composables/useToolInvoke";
+import { PM_KANBAN_DRAG_KEY } from "../../composables/pmKanbanDragKey";
 
 const props = defineProps<{
   items: PmItem[];

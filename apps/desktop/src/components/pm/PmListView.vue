@@ -851,23 +851,23 @@
 import { computed, ref, watch, nextTick } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { CaretBottom, CaretRight, Edit, Grid } from "@element-plus/icons-vue";
-import type { PmItem, PmItemStatus, PmPriority, PmProject } from "../types/pm";
+import type { PmItem, PmItemStatus, PmPriority, PmProject } from "../../types/pm";
 import {
   PM_ITEM_TYPE_MAP,
   PM_PRIORITY_MAP,
   PM_STATUS_COLUMNS,
-} from "../types/pm";
-import { useToolInvoke } from "../composables/useToolInvoke";
-import { formatPmDateForDisplay } from "../utils/pmDate";
-import { isPmItemOverdue } from "../utils/pmDate";
+} from "../../types/pm";
+import { useToolInvoke } from "../../composables/useToolInvoke";
+import { formatPmDateForDisplay } from "../../utils/pmDate";
+import { isPmItemOverdue } from "../../utils/pmDate";
 import {
   usePmListPrefs,
   ALL_LIST_COLS,
   COL_LABELS,
   type PmListColId,
   type PmListGroupBy,
-} from "../composables/usePmListPrefs";
-import type { PmContextId } from "../composables/usePmViewMemory";
+} from "../../composables/usePmListPrefs";
+import type { PmContextId } from "../../composables/usePmViewMemory";
 
 interface SortState {
   prop: string | null;

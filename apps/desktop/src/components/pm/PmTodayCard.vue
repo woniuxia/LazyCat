@@ -70,12 +70,12 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
-import { PM_PRIORITY_MAP, type PmItem } from "../types/pm";
+import { PM_PRIORITY_MAP, type PmItem } from "../../types/pm";
 import {
   formatPmDateRangeForDisplay,
   hasPmDateSchedule,
   isPmItemOverdue,
-} from "../utils/pmDate";
+} from "../../utils/pmDate";
 
 const props = defineProps<{
   item: PmItem;

@@ -31,7 +31,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import Gantt from "frappe-gantt";
 import "frappe-gantt/dist/frappe-gantt.css";
 
-import type { PmItem } from "../types/pm";
+import type { PmItem } from "../../types/pm";
 import {
   buildPmGanttPopupHtml,
   buildPmGanttTasks,
@@ -39,8 +39,8 @@ import {
   computePmGanttInitialScrollLeft,
   countPmGanttUnscheduledItems,
   shouldHighlightPmGanttWeekendLabel,
-} from "../utils/pmGantt";
-import type { PmGanttTask } from "../utils/pmGantt";
+} from "../../utils/pmGantt";
+import type { PmGanttTask } from "../../utils/pmGantt";
 
 const props = withDefaults(defineProps<{
   items: PmItem[];

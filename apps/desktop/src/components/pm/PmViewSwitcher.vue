@@ -28,7 +28,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from "vue";
 import { ElTooltip } from "element-plus";
-import { PM_VIEWS, type ViewId } from "../composables/pmViewRegistry";
+import { PM_VIEWS, type ViewId } from "../../composables/pmViewRegistry";
 
 defineProps<{ modelValue: ViewId }>();
 defineEmits<{ (e: "update:modelValue", value: ViewId): void }>();

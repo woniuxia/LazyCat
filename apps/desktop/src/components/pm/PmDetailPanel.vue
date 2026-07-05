@@ -175,15 +175,15 @@
 import { computed, reactive, watch, inject } from "vue";
 import { ElMessage } from "element-plus";
 import { Close } from "@element-plus/icons-vue";
-import { useToolInvoke } from "../composables/useToolInvoke";
-import type { PmProject, PmItem } from "../types/pm";
-import { PM_STATUS_COLUMNS, PM_ITEM_TYPE_MAP, PM_PRIORITY_MAP } from "../types/pm";
-import { isPmItemOverdue } from "../utils/pmDate";
-import { formatPmDateRangeForDisplay } from "../utils/pmDate";
-import InlineTodoList from "./InlineTodoList.vue";
-import { usePmTodoLinking } from "../composables/usePmTodoLinking";
-import { PM_SIYUAN_KEY } from "../composables/pmSiyuanKey";
-import RichDescriptionViewer from "./RichDescriptionViewer.vue";
+import { useToolInvoke } from "../../composables/useToolInvoke";
+import type { PmProject, PmItem } from "../../types/pm";
+import { PM_STATUS_COLUMNS, PM_ITEM_TYPE_MAP, PM_PRIORITY_MAP } from "../../types/pm";
+import { isPmItemOverdue } from "../../utils/pmDate";
+import { formatPmDateRangeForDisplay } from "../../utils/pmDate";
+import InlineTodoList from "../InlineTodoList.vue";
+import { usePmTodoLinking } from "../../composables/usePmTodoLinking";
+import { PM_SIYUAN_KEY } from "../../composables/pmSiyuanKey";
+import RichDescriptionViewer from "../RichDescriptionViewer.vue";
 
 const props = defineProps<{
   project: PmProject | null;

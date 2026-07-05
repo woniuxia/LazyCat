@@ -361,17 +361,17 @@ import { ref, computed, inject } from "vue";
 import { open } from "@tauri-apps/plugin-dialog";
 import { ElMessage } from "element-plus";
 import { Delete } from "@element-plus/icons-vue";
-import { invokeToolByChannel } from "../bridge/tauri";
-import { getSettingJson, setSettingJson } from "../composables/useSettings";
-import { formatPmSiyuanLocationLabel, isPmSiyuanNotebookDirectory } from "../utils/pmSiyuan";
-import { PM_SIYUAN_KEY } from "../composables/pmSiyuanKey";
+import { invokeToolByChannel } from "../../bridge/tauri";
+import { getSettingJson, setSettingJson } from "../../composables/useSettings";
+import { formatPmSiyuanLocationLabel, isPmSiyuanNotebookDirectory } from "../../utils/pmSiyuan";
+import { PM_SIYUAN_KEY } from "../../composables/pmSiyuanKey";
 import type {
   PmImportMapping,
   PmImportFilterRule,
   PmImportTemplate,
   PmImportPreview,
   PmImportResult,
-} from "../types/pm";
+} from "../../types/pm";
 
 defineOptions({ name: "PmSettingsDrawer" });
 

@@ -164,15 +164,15 @@ import { ref, computed } from "vue";
 import { open } from "@tauri-apps/plugin-dialog";
 import { ElMessage } from "element-plus";
 import { Delete } from "@element-plus/icons-vue";
-import { invokeToolByChannel } from "../bridge/tauri";
-import { getSettingJson, setSettingJson } from "../composables/useSettings";
+import { invokeToolByChannel } from "../../bridge/tauri";
+import { getSettingJson, setSettingJson } from "../../composables/useSettings";
 import type {
   PmImportMapping,
   PmImportFilterRule,
   PmImportTemplate,
   PmImportPreview,
   PmImportResult,
-} from "../types/pm";
+} from "../../types/pm";
 
 defineOptions({ name: "PmImportDialog" });
 

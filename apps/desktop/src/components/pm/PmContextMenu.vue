@@ -26,8 +26,8 @@
 
 <script setup lang="ts">
 import { ref, watch, nextTick, onBeforeUnmount } from "vue";
-import { clampContextMenuPosition } from "../utils/contextMenu";
-import type { CtxMenuAction } from "../types/pm";
+import { clampContextMenuPosition } from "../../utils/contextMenu";
+import type { CtxMenuAction } from "../../types/pm";
 
 const MENU_WIDTH = 168;
 const ITEM_HEIGHT = 34;

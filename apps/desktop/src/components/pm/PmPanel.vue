@@ -342,8 +342,8 @@ import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount, reactive, p
 import { ElMessage, ElMessageBox } from "element-plus";
 import zhCn from "element-plus/es/locale/lang/zh-cn";
 import { Plus, Close, Search, Setting } from "@element-plus/icons-vue";
-import { useToolInvoke } from "../composables/useToolInvoke";
-import { getSetting, getSettingJson, setSetting, setSettingJson } from "../composables/useSettings";
+import { useToolInvoke } from "../../composables/useToolInvoke";
+import { getSetting, getSettingJson, setSetting, setSettingJson } from "../../composables/useSettings";
 import type {
   PmProject,
   PmItem,
@@ -358,13 +358,13 @@ import type {
   PmSiyuanTreeNode,
   CtxMenuAction,
   PmTodoCandidateItem,
-} from "../types/pm";
-import { PM_STATUS_COLUMNS, PM_ITEM_TYPE_MAP, PM_PRIORITY_MAP } from "../types/pm";
+} from "../../types/pm";
+import { PM_STATUS_COLUMNS, PM_ITEM_TYPE_MAP, PM_PRIORITY_MAP } from "../../types/pm";
 import PmGanttView from "./PmGanttView.vue";
 import PmItemDialog from "./PmItemDialog.vue";
 import PmDetailPanel from "./PmDetailPanel.vue";
 import PmProjectDialog from "./PmProjectDialog.vue";
-import InlineTodoList from "./InlineTodoList.vue";
+import InlineTodoList from "../InlineTodoList.vue";
 import PmContextMenu from "./PmContextMenu.vue";
 import PmViewSwitcher from "./PmViewSwitcher.vue";
 import PmKanbanView from "./PmKanbanView.vue";
@@ -374,28 +374,28 @@ import PmCalendarView from "./PmCalendarView.vue";
 import PmMatrixView from "./PmMatrixView.vue";
 import PmSettingsDrawer from "./PmSettingsDrawer.vue";
 import PmSiyuanDrawer from "./PmSiyuanDrawer.vue";
-import { usePmSiyuan } from "../composables/usePmSiyuan";
-import { PM_SIYUAN_KEY } from "../composables/pmSiyuanKey";
-import type { ItemSiyuanLinkedRow } from "../composables/usePmSiyuan";
+import { usePmSiyuan } from "../../composables/usePmSiyuan";
+import { PM_SIYUAN_KEY } from "../../composables/pmSiyuanKey";
+import type { ItemSiyuanLinkedRow } from "../../composables/usePmSiyuan";
 import {
   formatPmSiyuanLocationLabel,
   isPmSiyuanNotebookDirectory,
-} from "../utils/pmSiyuan";
+} from "../../utils/pmSiyuan";
 import {
   normalizePmDateRangeForDraft,
-} from "../utils/pmDate";
-import { ensureDataDir } from "../rich/data-dir";
+} from "../../utils/pmDate";
+import { ensureDataDir } from "../../rich/data-dir";
 import {
   sortPmProjectsForSidebar,
-} from "../utils/pmVisual";
+} from "../../utils/pmVisual";
 import {
   filterPmItemsBySelectedStatuses,
   getPmDefaultSelectedStatuses,
-} from "../utils/pmStatusFilter";
-import { usePmTodoLinking } from "../composables/usePmTodoLinking";
-import { usePmViewMemory } from "../composables/usePmViewMemory";
-import { usePmNavigation } from "../composables/usePmNavigation";
-import { PM_KANBAN_DRAG_KEY } from "../composables/pmKanbanDragKey";
+} from "../../utils/pmStatusFilter";
+import { usePmTodoLinking } from "../../composables/usePmTodoLinking";
+import { usePmViewMemory } from "../../composables/usePmViewMemory";
+import { usePmNavigation } from "../../composables/usePmNavigation";
+import { PM_KANBAN_DRAG_KEY } from "../../composables/pmKanbanDragKey";
 
 const { invoke } = useToolInvoke();
 

@@ -93,9 +93,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
-import type { PmItem } from "../types/pm";
-import { useToolInvoke } from "../composables/useToolInvoke";
-import { getSetting, setSetting } from "../composables/useSettings";
+import type { PmItem } from "../../types/pm";
+import { useToolInvoke } from "../../composables/useToolInvoke";
+import { getSetting, setSetting } from "../../composables/useSettings";
 import MatrixQuadrant from "./PmMatrixQuadrant.vue";
 
 const THRESHOLD_OPTIONS = [3, 7, 14];

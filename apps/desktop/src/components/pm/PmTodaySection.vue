@@ -35,7 +35,7 @@
 
 <script setup lang="ts">
 import { ref } from "vue";
-import type { PmItem } from "../types/pm";
+import type { PmItem } from "../../types/pm";
 import PmTodayCard from "./PmTodayCard.vue";
 
 const props = defineProps<{

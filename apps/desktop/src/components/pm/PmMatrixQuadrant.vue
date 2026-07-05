@@ -62,9 +62,9 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
-import type { PmItem } from "../types/pm";
-import { PM_PRIORITY_MAP } from "../types/pm";
-import { isPmItemOverdue, parsePmDateAtLocalStart } from "../utils/pmDate";
+import type { PmItem } from "../../types/pm";
+import { PM_PRIORITY_MAP } from "../../types/pm";
+import { isPmItemOverdue, parsePmDateAtLocalStart } from "../../utils/pmDate";
 
 const props = defineProps<{
   title: string;

@@ -286,8 +286,8 @@
 
 <script setup lang="ts">
 import { inject } from "vue";
-import { formatPmSiyuanLocationLabel, isPmSiyuanNotebookDirectory } from "../utils/pmSiyuan";
-import { PM_SIYUAN_KEY } from "../composables/pmSiyuanKey";
+import { formatPmSiyuanLocationLabel, isPmSiyuanNotebookDirectory } from "../../utils/pmSiyuan";
+import { PM_SIYUAN_KEY } from "../../composables/pmSiyuanKey";
 
 const siyuan = inject(PM_SIYUAN_KEY)!;
 </script>

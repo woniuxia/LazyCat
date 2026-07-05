@@ -14,37 +14,37 @@ export const PM_VIEWS: ViewDefinition[] = [
     id: "kanban",
     label: "看板",
     icon: "▦",
-    component: defineAsyncComponent(() => import("../components/PmKanbanView.vue")),
+    component: defineAsyncComponent(() => import("../components/pm/PmKanbanView.vue")),
   },
   {
     id: "gantt",
     label: "甘特",
     icon: "▤",
-    component: defineAsyncComponent(() => import("../components/PmGanttView.vue")),
+    component: defineAsyncComponent(() => import("../components/pm/PmGanttView.vue")),
   },
   {
     id: "today",
     label: "今日",
     icon: "◷",
-    component: defineAsyncComponent(() => import("../components/PmTodayView.vue")),
+    component: defineAsyncComponent(() => import("../components/pm/PmTodayView.vue")),
   },
   {
     id: "list",
     label: "列表",
     icon: "≡",
-    component: defineAsyncComponent(() => import("../components/PmListView.vue")),
+    component: defineAsyncComponent(() => import("../components/pm/PmListView.vue")),
   },
   {
     id: "calendar",
     label: "日历",
     icon: "▥",
-    component: defineAsyncComponent(() => import("../components/PmCalendarView.vue")),
+    component: defineAsyncComponent(() => import("../components/pm/PmCalendarView.vue")),
   },
   {
     id: "matrix",
     label: "四象限",
     icon: "⊞",
-    component: defineAsyncComponent(() => import("../components/PmMatrixView.vue")),
+    component: defineAsyncComponent(() => import("../components/pm/PmMatrixView.vue")),
   },
 ];
 
