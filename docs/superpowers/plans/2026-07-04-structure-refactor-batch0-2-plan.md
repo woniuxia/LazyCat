@@ -24,6 +24,7 @@
 - `App.vue:97`：`const appWindow = getCurrentWindow();`（setup 顶层，纯 web 环境抛 TypeError，App 不挂载，e2e 两个冒烟用例全挂）。
 - 唯一运行时调用点：`App.vue:375` hotkey-navigate 监听器内 `await appWindow.hide()`（外层已有 try/catch）。
 - vault 失焦锁定在 `VaultPanel.vue`（`listen("tauri://blur")`），不经 App.vue，本阶段不动。
+- 范围注记（已核实）：`PomodoroPrompt.vue:41`、`ReminderPopup.vue:104` 也有 setup 顶层 `getCurrentWindow()`，但两者经 `main.ts` 分支只挂载在独立弹窗窗口入口（`PomodoroPromptApp` / `ReminderPopupApp`），不在主 App 渲染路径，e2e 主页面冒烟不受影响，**本阶段不改**（它们始终运行于 Tauri 窗口）。若修复后 e2e 仍报 `__TAURI_INTERNALS__` 类错误，先确认报错组件来源再决定是否扩大范围。
 
 ### 0.2 改法
 
@@ -55,7 +56,7 @@ PmCalendarView / PmContextMenu / PmDetailPanel / PmGanttView / PmImportDialog / 
 - `tool-registry.ts:60`：`./components/PmPanel.vue` → `./components/pm/PmPanel.vue`
 - `composables/pmViewRegistry.ts`：6 处 `../components/PmXxxView.vue` → `../components/pm/PmXxxView.vue`（17/23/29/35/41/47 行）
 - 移动集合**内部**的 `./Pm*` 相对引用随整体平移继续有效，不用改。
-- 移动文件对**集合外**的相对引用统一加一级：`./InlineTodoList.vue` → `../InlineTodoList.vue`、`./common/...` → `../common/...`、`../composables|utils|types|bridge|rich/...` → `../../...`。以 typecheck + build:web 全量捕获漏网。
+- 移动文件对**集合外**的相对引用统一加一级：`./InlineTodoList.vue` / `./RichDescriptionEditor.vue` / `./RichDescriptionViewer.vue` → `../Xxx.vue`、`./common/...` → `../common/...`、`../composables|utils|types|bridge|rich/...` → `../../...`。以 typecheck + build:web 全量捕获漏网。
 - `components.d.ts` 自动生成，不手改。
 
 ### 1a.3 验证与提交
