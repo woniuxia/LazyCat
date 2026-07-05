@@ -388,13 +388,13 @@ import {
   sortPmProjectsForSidebar,
 } from "../../utils/pmVisual";
 import {
-  filterPmItemsBySelectedStatuses,
   getPmDefaultSelectedStatuses,
 } from "../../utils/pmStatusFilter";
 import { usePmTodoLinking } from "../../composables/usePmTodoLinking";
 import { usePmViewMemory } from "../../composables/usePmViewMemory";
 import { usePmNavigation } from "../../composables/usePmNavigation";
 import { usePmContextMenu } from "../../composables/usePmContextMenu";
+import { usePmItemFilters } from "../../composables/usePmItemFilters";
 import { PM_KANBAN_DRAG_KEY } from "../../composables/pmKanbanDragKey";
 
 const { invoke } = useToolInvoke();
@@ -410,20 +410,17 @@ const projectItemCounts = ref<Record<number, { total: number; done: number }>>({
 const selectedProjectId = ref<number | "overview" | null>(null);
 const selectedItemId = ref<number | null>(null);
 const initialLoading = ref(true);
-const searchInput = ref(""); // 用户输入,实时同步到 input
-const searchText = ref(""); // 防抖后的值,用于过滤计算
-let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
-watch(searchInput, (v) => {
-  if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
-  searchDebounceTimer = setTimeout(() => {
-    searchText.value = v;
-  }, 200);
-});
 const filterType = ref<PmItemType | "">("");
 const filterPriority = ref<PmPriority | "">("");
 const { currentView: viewId, setView } = usePmViewMemory(selectedProjectId);
 const { consumeFocus: consumePmFocus } = usePmNavigation();
 const selectedStatuses = ref<PmItemStatus[]>(getPmDefaultSelectedStatuses());
+const { searchInput, statusFilteredItems } = usePmItemFilters({
+  items,
+  filterType,
+  filterPriority,
+  selectedStatuses,
+});
 const todayBadgeCount = ref(0);
 const todayRefreshSignal = ref(0);
 const todayViewRef = ref<{ refresh: () => Promise<void> } | null>(null);
@@ -638,30 +635,6 @@ const createItemBlockedReason = computed(() => {
   }
   return "";
 });
-
-const baseFilteredItems = computed(() => {
-  let result = items.value;
-  if (searchText.value) {
-    const q = searchText.value.toLowerCase();
-    result = result.filter(
-      (i) =>
-        i.title.toLowerCase().includes(q) ||
-        i.description.toLowerCase().includes(q) ||
-        i.tags.some((t) => t.toLowerCase().includes(q))
-    );
-  }
-  if (filterType.value) {
-    result = result.filter((i) => i.itemType === filterType.value);
-  }
-  if (filterPriority.value) {
-    result = result.filter((i) => i.priority === filterPriority.value);
-  }
-  return result;
-});
-
-const statusFilteredItems = computed(() =>
-  filterPmItemsBySelectedStatuses(baseFilteredItems.value, selectedStatuses.value),
-);
 
 // ── Helpers ──────────────────────────────────────────────
 
