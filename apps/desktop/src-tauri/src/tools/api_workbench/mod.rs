@@ -10,6 +10,12 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+mod helpers;
+mod types;
+
+use helpers::*;
+use types::*;
+
 pub(crate) const API_WORKBENCH_SCHEMA_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS api_workbench_collections (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -132,66 +138,6 @@ CREATE TABLE IF NOT EXISTS api_workbench_history (
 CREATE INDEX IF NOT EXISTS idx_api_workbench_history_created
   ON api_workbench_history(created_at DESC);
 "#;
-
-const MAX_TIMEOUT_MS: u64 = 120_000;
-const MIN_TIMEOUT_MS: u64 = 100;
-const MAX_RESPONSE_BODY_BYTES: usize = 2 * 1024 * 1024;
-const MAX_HISTORY_BODY_PREVIEW_BYTES: usize = 64 * 1024;
-const MAX_HISTORY_ROWS: i64 = 200;
-const MAX_HISTORY_SNAPSHOT_BYTES: usize = 2 * 1024 * 1024;
-const MAX_HISTORY_NOTE_CHARS: usize = 2000;
-
-#[derive(Debug, Clone)]
-struct ResponseBodyPayload {
-    body_text: String,
-    body_size: usize,
-    body_truncated: bool,
-    body_storage: String,
-    body_file_path: String,
-    body_file_name: String,
-    body_extension: String,
-    body_hash: String,
-    body_preview_error: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-struct KeyValueRow {
-    enabled: bool,
-    key: String,
-    value: String,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct RequestDraft {
-    method: String,
-    url: String,
-    query: Vec<KeyValueRow>,
-    headers: Vec<KeyValueRow>,
-    body_type: String,
-    body: String,
-    form: Vec<KeyValueRow>,
-    timeout_ms: u64,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ExecutedRequestSnapshot {
-    method: String,
-    final_url: String,
-    headers: Vec<KeyValueRow>,
-    body_type: String,
-    body: String,
-    form: Vec<KeyValueRow>,
-    timeout_ms: u64,
-}
-
-#[derive(Debug, Clone)]
-struct PreparedBody {
-    body: Option<Vec<u8>>,
-    content_type: Option<String>,
-}
 
 fn ensure_api_workbench_history_columns(conn: &Connection) -> Result<(), String> {
     let columns = [
