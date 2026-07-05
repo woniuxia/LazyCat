@@ -144,6 +144,7 @@ declare module 'vue' {
     PmTodayCard: typeof import('./src/components/pm/PmTodayCard.vue')['default']
     PmTodaySection: typeof import('./src/components/pm/PmTodaySection.vue')['default']
     PmTodayView: typeof import('./src/components/pm/PmTodayView.vue')['default']
+    PmToolbar: typeof import('./src/components/pm/PmToolbar.vue')['default']
     PmViewSwitcher: typeof import('./src/components/pm/PmViewSwitcher.vue')['default']
     PomodoroPanel: typeof import('./src/components/PomodoroPanel.vue')['default']
     PomodoroPrompt: typeof import('./src/components/PomodoroPrompt.vue')['default']
