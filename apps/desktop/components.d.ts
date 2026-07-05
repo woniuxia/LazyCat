@@ -139,6 +139,7 @@ declare module 'vue' {
     PmPanel: typeof import('./src/components/pm/PmPanel.vue')['default']
     PmProjectDialog: typeof import('./src/components/pm/PmProjectDialog.vue')['default']
     PmSettingsDrawer: typeof import('./src/components/pm/PmSettingsDrawer.vue')['default']
+    PmSidebar: typeof import('./src/components/pm/PmSidebar.vue')['default']
     PmSiyuanDrawer: typeof import('./src/components/pm/PmSiyuanDrawer.vue')['default']
     PmTodayCard: typeof import('./src/components/pm/PmTodayCard.vue')['default']
     PmTodaySection: typeof import('./src/components/pm/PmTodaySection.vue')['default']
