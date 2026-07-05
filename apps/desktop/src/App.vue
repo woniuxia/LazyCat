@@ -94,7 +94,8 @@ import {
 } from "./utils/hotkeyNavigate";
 
 const { ensureClipboardListener, showSuggestion, setPendingToolInput } = useClipboardSuggestion();
-const appWindow = getCurrentWindow();
+const isTauriEnv = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+const appWindow = isTauriEnv ? getCurrentWindow() : null;
 
 const sidebarItems: SidebarItem[] = getSidebarItems();
 const allTools = getAllTools();
@@ -372,7 +373,7 @@ onMounted(async () => {
         activeTool: activeTool.value,
       })) {
         try {
-          await appWindow.hide();
+          await appWindow?.hide();
           return;
         } catch { /* ignore in non-Tauri env */ }
       }
