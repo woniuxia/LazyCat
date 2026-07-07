@@ -1,5 +1,6 @@
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { ref, watch, onMounted } from "vue";
+import { APP_EVENTS } from "../bridge/events";
 import type { ClipboardDetectResult } from "../utils/clipboard-detect";
 import { detectClipboardContent } from "../utils/clipboard-detect";
 import { getSetting } from "./useSettings";
@@ -66,7 +67,7 @@ export function useClipboardSuggestion() {
     if (!clipboardListenerPromise) {
       clipboardListenerPromise = (async () => {
         try {
-          return await listen("clipboard-changed", async () => {
+          return await listen(APP_EVENTS.CLIPBOARD_CHANGED, async () => {
             if (getSetting("clipboard_detection") === "false") return;
             await detectClipboard();
           });

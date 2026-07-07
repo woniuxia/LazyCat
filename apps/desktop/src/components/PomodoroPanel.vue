@@ -62,6 +62,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { ElMessage } from "element-plus";
 import { Close, SwitchButton, Timer, VideoPlay } from "@element-plus/icons-vue";
 import { invokeToolByChannel } from "../bridge/tauri";
+import { APP_EVENTS } from "../bridge/events";
 import {
   DEFAULT_POMODORO_CONFIG,
   formatPomodoroDuration,
@@ -190,7 +191,7 @@ onMounted(async () => {
   tickHandle = window.setInterval(() => {
     now.value = new Date();
   }, 1000);
-  unlistenRefresh = await listen("pomodoro-state-changed", () => {
+  unlistenRefresh = await listen(APP_EVENTS.POMODORO_STATE_CHANGED, () => {
     void loadState();
   });
 });

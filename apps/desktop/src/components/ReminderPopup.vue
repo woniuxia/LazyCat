@@ -93,6 +93,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ElMessage } from "element-plus";
 import type { UnlistenFn } from "@tauri-apps/api/event";
+import { APP_EVENTS } from "../bridge/events";
 import type { TodoPriority, TodoReminderDispatch } from "../types/todo";
 
 declare global {
@@ -222,9 +223,12 @@ async function handleSnoozeCommand(minutes: string | number) {
 onMounted(async () => {
   mergeReminderQueue(normalizePayload(window.__LAZYCAT_REMINDER_BOOTSTRAP__));
   delete window.__LAZYCAT_REMINDER_BOOTSTRAP__;
-  unlistenReminderPush = await listen<TodoReminderDispatch | TodoReminderDispatch[]>("reminder-push", (event) => {
-    mergeReminderQueue(normalizePayload(event.payload));
-  });
+  unlistenReminderPush = await listen<TodoReminderDispatch | TodoReminderDispatch[]>(
+    APP_EVENTS.REMINDER_PUSH,
+    (event) => {
+      mergeReminderQueue(normalizePayload(event.payload));
+    },
+  );
 });
 
 onBeforeUnmount(() => {

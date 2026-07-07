@@ -5,7 +5,7 @@
 //! 2. 注入 privacyMask 标记
 //! 3. 算内容 hash（force=false 命中跳过）
 //! 4. ensure 挂件存在（失败不阻塞）
-//! 5. emit `widget://color-mode` + `widget://dashboard-data`
+//! 5. emit 挂件颜色模式与仪表盘数据事件
 //! 6. 写 state.last_rendered_at
 //!
 //! 不再做：CapturePreview / 图像合成 / canvas-ready 握手 / hidden WebView 重建。
@@ -15,6 +15,7 @@ use std::time::Instant;
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter};
 
+use crate::events::{EVENT_WIDGET_COLOR_MODE, EVENT_WIDGET_DASHBOARD_DATA};
 use crate::tools::widget::{config, dashboard_logic, data, session, widget};
 
 /// `tool:widget:apply` 入口；force=true 跳过 hash 去重。
@@ -95,10 +96,10 @@ pub fn apply_with_force(app: &AppHandle, force: bool) -> Result<Value, String> {
     //    color-mode 固定 "dark"（浅玻璃蒙层 + 深色字）：挂件背景透明，
     //    深色字在多数壁纸上对比度都可接受，且不依赖 base 壁纸采样。
     //    未来可让用户在面板里切换 light / dark / auto。
-    if let Err(e) = app.emit("widget://color-mode", "dark") {
+    if let Err(e) = app.emit(EVENT_WIDGET_COLOR_MODE, "dark") {
         eprintln!("[widget] apply: emit color-mode failed: {e}");
     }
-    app.emit("widget://dashboard-data", &dashboard_emit)
+    app.emit(EVENT_WIDGET_DASHBOARD_DATA, &dashboard_emit)
         .map_err(|e| format!("emit dashboard-data failed: {e}"))?;
 
     // 7. 写状态

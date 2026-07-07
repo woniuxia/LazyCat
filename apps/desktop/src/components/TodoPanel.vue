@@ -468,6 +468,7 @@ import {
 } from "@element-plus/icons-vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { invokeToolByChannel } from "../bridge/tauri";
+import { APP_EVENTS } from "../bridge/events";
 import {
   useClipboardSuggestion,
   type PendingToolInput,
@@ -2162,7 +2163,7 @@ onMounted(async () => {
     }
   }
   try {
-    reminderUnlisten = await listen("todo-reminder-fired", async () => {
+    reminderUnlisten = await listen(APP_EVENTS.TODO_REMINDER_FIRED, async () => {
       await loadItems();
     });
   } catch {

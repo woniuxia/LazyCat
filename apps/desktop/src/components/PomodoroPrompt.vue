@@ -36,6 +36,7 @@ import { computed, onMounted, ref } from "vue";
 import { emit } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invokeToolByChannel } from "../bridge/tauri";
+import { APP_EVENTS } from "../bridge/events";
 import type { PomodoroState } from "../types/pomodoro";
 
 const popupWindow = getCurrentWindow();
@@ -61,7 +62,7 @@ async function runAction(action: () => Promise<unknown>) {
   pending.value = true;
   try {
     await action();
-    await emit("pomodoro-state-changed", { refresh: true });
+    await emit(APP_EVENTS.POMODORO_STATE_CHANGED, { refresh: true });
     await closeWindow();
   } finally {
     pending.value = false;

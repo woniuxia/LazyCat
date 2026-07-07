@@ -67,6 +67,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { Close, Plus } from "@element-plus/icons-vue";
 import type { SidebarItem } from "./types";
+import { APP_EVENTS } from "./bridge/events";
 import { useFavorites } from "./composables/useFavorites";
 import { useTabs } from "./composables/useTabs";
 import { useMenuVisibility } from "./composables/useMenuVisibility";
@@ -348,7 +349,7 @@ onMounted(async () => {
     try { await registerNamedHotkey("spotlight", savedSpotlightHotkey); } catch { /* ignore */ }
   }
   try {
-    await listen("main-window-toggle", async () => {
+    await listen(APP_EVENTS.MAIN_WINDOW_TOGGLE, async () => {
       await tryOpenClipboardPathFromToggle();
       if (getSetting("focus_search_on_show") === "true") {
         focusSearch();
@@ -356,7 +357,7 @@ onMounted(async () => {
     });
   } catch { /* ignore in non-Tauri env */ }
   try {
-    await listen<{ kind: string; toolId?: string }>("widget://navigate", (event) => {
+    await listen<{ kind: string; toolId?: string }>(APP_EVENTS.WIDGET_NAVIGATE, (event) => {
       const { kind, toolId } = event.payload;
       if (kind === "open-tool" && toolId) {
         onSelect(toolId);
@@ -367,7 +368,7 @@ onMounted(async () => {
     });
   } catch { /* ignore in non-Tauri env */ }
   try {
-    await listen<HotkeyNavigatePayload>("hotkey-navigate", async (event) => {
+    await listen<HotkeyNavigatePayload>(APP_EVENTS.HOTKEY_NAVIGATE, async (event) => {
       const { target, text, source, itemId, projectId, view } = event.payload;
       if (shouldHideNamedHotkeyWindow(event.payload, {
         activeTool: activeTool.value,
@@ -409,7 +410,7 @@ onMounted(async () => {
     });
   } catch { /* ignore in non-Tauri env */ }
   try {
-    await listen<{ name: string }>("hosts-applied", (event) => {
+    await listen<{ name: string }>(APP_EVENTS.HOSTS_APPLIED, (event) => {
       const name = event.payload?.name ?? "";
       ElMessage.success(
         name

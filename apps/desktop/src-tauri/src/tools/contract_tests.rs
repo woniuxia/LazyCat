@@ -1,4 +1,5 @@
 use super::{supported_actions, PM_WIDGET_REFRESH_ACTIONS, TODO_WIDGET_REFRESH_ACTIONS};
+use crate::events;
 use regex::Regex;
 use std::collections::HashSet;
 use std::path::Path;
@@ -85,6 +86,19 @@ fn parse_channel_map() -> Vec<(String, String)> {
         .collect()
 }
 
+fn parse_frontend_events() -> HashSet<String> {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/bridge/events.ts");
+    let source = std::fs::read_to_string(&path)
+        .unwrap_or_else(|err| panic!("read APP_EVENTS from {:?} failed: {err}", path));
+    let entry_re =
+        Regex::new(r#"^\s*[A-Z0-9_]+:\s*"([^"]+)",\s*$"#).expect("valid APP_EVENTS regex");
+
+    source
+        .lines()
+        .filter_map(|line| entry_re.captures(line).map(|caps| caps[1].to_string()))
+        .collect()
+}
+
 #[test]
 fn channel_map_actions_are_supported_by_backend() {
     let channel_actions = parse_channel_map();
@@ -125,6 +139,23 @@ fn backend_supported_actions_are_exposed_or_explicitly_exempted() {
                 "后端 action 未暴露到 CHANNEL_MAP 且未豁免：{domain}.{action}。{SYNC_GUIDE}"
             );
         }
+    }
+}
+
+#[test]
+fn rust_events_are_declared_on_frontend() {
+    let frontend_events = parse_frontend_events();
+    assert!(
+        frontend_events.len() >= 10,
+        "APP_EVENTS 解析条目数过少：{}。事件名需同步 src/bridge/events.ts 与 src-tauri/src/events.rs",
+        frontend_events.len()
+    );
+
+    for event in events::ALL {
+        assert!(
+            frontend_events.contains(*event),
+            "Rust 事件未在前端 APP_EVENTS 声明：{event}。事件名需同步 src/bridge/events.ts 与 src-tauri/src/events.rs"
+        );
     }
 }
 

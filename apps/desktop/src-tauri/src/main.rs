@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod events;
 mod tools;
 
 use tauri::{
@@ -12,6 +13,11 @@ use tauri::{
 use tauri_plugin_autostart::MacosLauncher;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
+use events::{
+    EVENT_CLIPBOARD_CHANGED, EVENT_HOTKEY_NAVIGATE, EVENT_MAIN_WINDOW_TOGGLE,
+    EVENT_POMODORO_STATE_CHANGED, EVENT_QUICK_CAPTURE_RESET, EVENT_REMINDER_PUSH,
+    EVENT_SPOTLIGHT_RESET, EVENT_TODO_REMINDER_FIRED,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -398,7 +404,7 @@ fn position_reminder_popup(window: &WebviewWindow) {
 
 fn emit_todo_refresh_event(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
-        let _ = window.emit("todo-reminder-fired", json!({ "refresh": true }));
+        let _ = window.emit(EVENT_TODO_REMINDER_FIRED, json!({ "refresh": true }));
     }
 }
 
@@ -415,7 +421,7 @@ fn show_reminder_popup(app: &AppHandle, reminders: Vec<tools::todo::ReminderDisp
             let _ = window.set_focus();
             #[cfg(windows)]
             force_foreground(&window);
-            let _ = window.emit("reminder-push", &reminders);
+            let _ = window.emit(EVENT_REMINDER_PUSH, &reminders);
             return;
         }
 
@@ -434,7 +440,7 @@ fn show_reminder_popup(app: &AppHandle, reminders: Vec<tools::todo::ReminderDisp
                 .initialization_script(reminder_popup_init_script(&reminders))
                 .on_page_load(move |window, payload| {
                     if let PageLoadEvent::Finished = payload.event() {
-                        let _ = window.emit("reminder-push", &initial_reminders);
+                        let _ = window.emit(EVENT_REMINDER_PUSH, &initial_reminders);
                     }
                 });
 
@@ -486,7 +492,6 @@ fn show_pomodoro_prompt(app: &AppHandle) {
             let _ = window.set_focus();
             #[cfg(windows)]
             force_foreground(&window);
-            let _ = window.emit("pomodoro-prompt-refresh", json!({}));
             return;
         }
 
@@ -546,7 +551,7 @@ fn show_quick_capture(app: &AppHandle) {
             let _ = window.set_focus();
             #[cfg(windows)]
             force_foreground(&window);
-            let _ = window.emit("quick-capture-reset", json!({}));
+            let _ = window.emit(EVENT_QUICK_CAPTURE_RESET, json!({}));
             return;
         }
 
@@ -638,7 +643,7 @@ fn show_spotlight(app: &AppHandle) {
             let _ = window.set_focus();
             #[cfg(windows)]
             force_foreground(&window);
-            let _ = window.emit("spotlight-reset", json!({}));
+            let _ = window.emit(EVENT_SPOTLIGHT_RESET, json!({}));
             return;
         }
 
@@ -780,7 +785,7 @@ fn handle_main_window_shortcut(app: &tauri::AppHandle, shortcut_name: &str) {
         MainWindowShortcutDecision::Reveal => {
             reveal_main_window(app);
             if shortcut_name == "toggle" {
-                let _ = window.emit("main-window-toggle", json!({}));
+                let _ = window.emit(EVENT_MAIN_WINDOW_TOGGLE, json!({}));
             }
         }
         MainWindowShortcutDecision::RevealAndNavigate {
@@ -788,7 +793,7 @@ fn handle_main_window_shortcut(app: &tauri::AppHandle, shortcut_name: &str) {
         } => {
             reveal_main_window(app);
             let _ = window.emit(
-                "hotkey-navigate",
+                EVENT_HOTKEY_NAVIGATE,
                 HotkeyNavigatePayload {
                     target: shortcut_name.to_string(),
                     did_move_to_cursor_monitor,
@@ -1113,7 +1118,7 @@ fn spotlight_pick(
         cursor_monitor_relation == CursorMonitorRelation::MovedToCursorMonitor;
     reveal_main_window(&app);
     let _ = window.emit(
-        "hotkey-navigate",
+        EVENT_HOTKEY_NAVIGATE,
         HotkeyNavigatePayload {
             target,
             did_move_to_cursor_monitor,
@@ -1146,7 +1151,7 @@ fn start_todo_scheduler(app: tauri::AppHandle) {
 
                     if let Some(window) = app.get_webview_window("main") {
                         for reminder in reminders {
-                            let _ = window.emit("todo-reminder-fired", &reminder);
+                            let _ = window.emit(EVENT_TODO_REMINDER_FIRED, &reminder);
                         }
                     }
                 }
@@ -1162,7 +1167,7 @@ fn start_todo_scheduler(app: tauri::AppHandle) {
 
 fn emit_pomodoro_refresh_event(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
-        let _ = window.emit("pomodoro-state-changed", json!({ "refresh": true }));
+        let _ = window.emit(EVENT_POMODORO_STATE_CHANGED, json!({ "refresh": true }));
     }
 }
 
@@ -1211,7 +1216,7 @@ fn start_clipboard_monitor(app: tauri::AppHandle) {
             let _ = tools::inbox::process_clipboard_change(window_visible);
 
             if let Some(window) = app.get_webview_window("main") {
-                let _ = window.emit("clipboard-changed", json!({ "sequence": current_seq }));
+                let _ = window.emit(EVENT_CLIPBOARD_CHANGED, json!({ "sequence": current_seq }));
             }
         }
     });
@@ -1256,7 +1261,7 @@ fn main() {
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             reveal_main_window(app);
             if let Some(window) = app.get_webview_window("main") {
-                let _ = window.emit("main-window-toggle", json!({}));
+                let _ = window.emit(EVENT_MAIN_WINDOW_TOGGLE, json!({}));
             }
         }));
     }
@@ -1390,7 +1395,7 @@ fn main() {
                     "show" => {
                         reveal_main_window(app);
                         if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.emit("main-window-toggle", json!({}));
+                            let _ = window.emit(EVENT_MAIN_WINDOW_TOGGLE, json!({}));
                         }
                     }
                     "quit" => {

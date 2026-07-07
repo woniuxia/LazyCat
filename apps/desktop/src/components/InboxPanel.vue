@@ -524,6 +524,7 @@ import type { UnlistenFn } from "@tauri-apps/api/event";
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { invokeToolByChannel, suppressClipboardCapture } from "../bridge/tauri";
+import { APP_EVENTS } from "../bridge/events";
 import { useClipboardSuggestion } from "../composables/useClipboardSuggestion";
 import { useTabs } from "../composables/useTabs";
 import type {
@@ -1312,7 +1313,7 @@ onMounted(async () => {
   document.addEventListener("keydown", onDocumentKeydown);
   document.addEventListener("scroll", onDocumentScroll, true);
   try {
-    clipboardUnlisten = await listen("clipboard-changed", () => {
+    clipboardUnlisten = await listen(APP_EVENTS.CLIPBOARD_CHANGED, () => {
       void refreshFromClipboardChange();
     });
   } catch {

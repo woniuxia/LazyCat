@@ -1,5 +1,6 @@
 import { invokeToolByChannel } from "../../bridge/tauri";
 import { emit } from "@tauri-apps/api/event";
+import { APP_EVENTS } from "../../bridge/events";
 import { toPinyinInitials } from "../../utils/fuzzy-match";
 import { registerProvider } from "../registry";
 import type {
@@ -76,7 +77,7 @@ async function defaultAction(
   try {
     await invokeToolByChannel("tool:hosts:activate", { profileName });
     try {
-      await emit("hosts-applied", { name: profileName });
+      await emit(APP_EVENTS.HOSTS_APPLIED, { name: profileName });
     } catch {
       /* event emit failure is non-fatal */
     }

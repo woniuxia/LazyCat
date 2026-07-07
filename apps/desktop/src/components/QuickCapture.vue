@@ -15,6 +15,7 @@ import { ref, onMounted, onBeforeUnmount } from "vue";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { invokeToolByChannel } from "../bridge/tauri";
+import { APP_EVENTS } from "../bridge/events";
 
 const title = ref("");
 const inputRef = ref<HTMLInputElement | null>(null);
@@ -24,7 +25,7 @@ onMounted(async () => {
   inputRef.value?.focus();
 
   try {
-    unlistenReset = await listen("quick-capture-reset", () => {
+    unlistenReset = await listen(APP_EVENTS.QUICK_CAPTURE_RESET, () => {
       title.value = "";
       inputRef.value?.focus();
     });

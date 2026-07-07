@@ -29,6 +29,7 @@ use chrono::Local;
 use serde_json::Value;
 use tauri::{AppHandle, Emitter, Listener, Manager};
 
+use crate::events::EVENT_WIDGET_NAVIGATE;
 use crate::tools::widget::{apply, conflicts, guards, session, widget};
 use crate::tools::widget::diagnostics::{WidgetEvent, ApplyResult, SkipReason};
 
@@ -88,7 +89,7 @@ pub fn start(app: AppHandle) {
                     let _ = main.show();
                     let _ = main.set_focus();
                 }
-                let _ = app_nav.emit("widget://navigate", &payload);
+                let _ = app_nav.emit(EVENT_WIDGET_NAVIGATE, &payload);
             }
         }
     });

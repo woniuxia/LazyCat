@@ -46,6 +46,7 @@
 import { onMounted, onBeforeUnmount, ref, computed } from "vue";
 import { listen, emit, type UnlistenFn } from "@tauri-apps/api/event";
 import { invokeToolByChannel } from "../bridge/tauri";
+import { APP_EVENTS } from "../bridge/events";
 import type { WidgetDashboardData, WidgetTodoItem, WidgetHotTool } from "../types/widget";
 import { getAllToolMap } from "../composables/toolCatalog";
 import WidgetTodoList from "./WidgetTodoList.vue";
@@ -106,7 +107,7 @@ const hotToolsForSlot = computed(() => {
 
 onMounted(async () => {
   unlisteners.push(
-    await listen<WidgetDashboardData>("widget://dashboard-data", (e) => {
+    await listen<WidgetDashboardData>(APP_EVENTS.WIDGET_DASHBOARD_DATA, (e) => {
       data.value = e.payload;
       privacyMask.value = e.payload?.privacyMask === true;
       lastDataReceivedAt.value = Date.now();

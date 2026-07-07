@@ -90,6 +90,7 @@ import SpotlightErrorBar from "./SpotlightErrorBar.vue";
 import SpotlightSuccessBar from "./SpotlightSuccessBar.vue";
 import SpotlightVaultUnlockInput from "./SpotlightVaultUnlockInput.vue";
 
+import { APP_EVENTS } from "../bridge/events";
 import { listProviders, getDescriptor, searchItems } from "../spotlight/registry";
 import "../spotlight/providers/tool";
 import "../spotlight/providers/vault";
@@ -912,7 +913,7 @@ async function closeWindow() {
 
 onMounted(async () => {
   try {
-    unlistenReset = await listen("spotlight-reset", () => {
+    unlistenReset = await listen(APP_EVENTS.SPOTLIGHT_RESET, () => {
       query.value = "";
       activeIndex.value = 0;
       errorMessage.value = null;
@@ -947,7 +948,7 @@ onMounted(async () => {
       unlistenBrowserProfilesChanged = unlisten;
     })
     .catch(() => {
-      /* Tauri event listener is best-effort; spotlight-reset remains the fallback. */
+      /* Tauri event listener is best-effort; APP_EVENTS.SPOTLIGHT_RESET remains the fallback. */
     });
 
   window.addEventListener("focus", onWindowFocus);
