@@ -205,10 +205,11 @@
   </div>
 </template>
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onBeforeUnmount } from "vue";
+import { ref, computed, onMounted, onBeforeUnmount } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { open } from "@tauri-apps/plugin-dialog";
-import { invokeToolByChannel } from "../bridge/tauri";
+import { useListSearch } from "../composables/useListSearch";
+import { useToolInvoke } from "../composables/useToolInvoke";
 import defaultIcon from "../assets/icon.png";
 
 interface LauncherEntry {
@@ -231,13 +232,7 @@ interface ScanItem {
 
 const entries = ref<LauncherEntry[]>([]);
 const customGroups = ref<string[]>([]);
-const searchQuery = ref("");
-const debouncedQuery = ref("");
-let debounceTimer: ReturnType<typeof setTimeout>;
-watch(searchQuery, (v) => {
-  clearTimeout(debounceTimer);
-  debounceTimer = setTimeout(() => { debouncedQuery.value = v; }, 300);
-});
+const { invokeWithLoading, invokeSilent } = useToolInvoke();
 const viewType = ref<"grid" | "list">("grid");
 const activeGroup = ref("全部");
 
@@ -290,17 +285,21 @@ function groupCount(g: string): number {
   return entries.value.filter((e) => (e.group_name || "未分组") === g).length;
 }
 
-const filteredEntries = computed(() => {
-  let list = entries.value;
-  if (activeGroup.value !== "全部") {
-    list = list.filter((e) => (e.group_name || "未分组") === activeGroup.value);
-  }
-  const q = debouncedQuery.value.trim().toLowerCase();
-  if (q) {
-    list = list.filter((e) => e.name.toLowerCase().includes(q) || e.exe_path.toLowerCase().includes(q));
-  }
-  return list;
+const groupFilteredEntries = computed(() => {
+  if (activeGroup.value === "全部") return entries.value;
+  return entries.value.filter((e) => (e.group_name || "未分组") === activeGroup.value);
 });
+
+function matchesLauncherEntry(entry: LauncherEntry, keyword: string) {
+  const q = keyword.toLowerCase();
+  return entry.name.toLowerCase().includes(q) || entry.exe_path.toLowerCase().includes(q);
+}
+
+const {
+  keyword: searchQuery,
+  debouncedKeyword: debouncedQuery,
+  filtered: filteredEntries,
+} = useListSearch(() => groupFilteredEntries.value, matchesLauncherEntry);
 
 const filteredScanItems = computed(() => {
   const q = scanSearch.value.trim().toLowerCase();
@@ -310,39 +309,37 @@ const filteredScanItems = computed(() => {
 
 // Load
 async function loadEntries() {
-  try {
-    const res = (await invokeToolByChannel("tool:launcher:list", {})) as { items: LauncherEntry[] };
-    entries.value = res.items;
-  } catch (e) {
-    ElMessage.error(`加载失败：${(e as Error).message}`);
-  }
+  const res = await invokeWithLoading<{ items: LauncherEntry[] }>(
+    "tool:launcher:list",
+    {},
+    { errorPrefix: "加载失败：" },
+  );
+  if (res) entries.value = res.items;
 }
 
 async function loadGroups() {
-  try {
-    const res = (await invokeToolByChannel("tool:launcher:list-groups", {})) as { groups: string[] };
-    customGroups.value = res.groups;
-  } catch (e) {
-    // ignore
-  }
+  // 分组列表用于补全 UI，加载失败不阻断启动器主体使用。
+  const res = await invokeSilent<{ groups: string[] }>("tool:launcher:list-groups", {});
+  if (res) customGroups.value = res.groups;
 }
 
-onMounted(() => { loadEntries(); loadGroups(); document.addEventListener("click", hideCtx); });
+onMounted(() => { void loadEntries(); void loadGroups(); document.addEventListener("click", hideCtx); });
 onBeforeUnmount(() => { document.removeEventListener("click", hideCtx); });
 
 // Launch
 async function launchApp(entry: LauncherEntry, admin = false) {
   if (justDragged.value) { justDragged.value = false; return; }
-  try {
-    await invokeToolByChannel("tool:launcher:launch", {
+  const launched = await invokeWithLoading<Record<string, unknown>>(
+    "tool:launcher:launch",
+    {
       exe_path: entry.exe_path,
       arguments: entry.arguments,
       admin,
-    });
-    ElMessage.success({ message: '已启动', duration: 1500 });
-  } catch (e) {
-    ElMessage.error(`启动失败：${(e as Error).message}`);
-  }
+    },
+    { errorPrefix: "启动失败：" },
+  );
+  if (!launched) return;
+  ElMessage.success({ message: '已启动', duration: 1500 });
 }
 
 // Scan
@@ -352,14 +349,17 @@ async function openScanDialog() {
   scanSelection.value = [];
   scanLoading.value = true;
   try {
-    const res = (await invokeToolByChannel("tool:launcher:scan", {})) as { items: ScanItem[] };
+    const res = await invokeWithLoading<{ items: ScanItem[] }>(
+      "tool:launcher:scan",
+      {},
+      { errorPrefix: "扫描失败：" },
+    );
+    if (!res) return;
     const existingPaths = new Set(entries.value.map((e) => e.exe_path.toLowerCase()));
     scanItems.value = res.items.map((s) => ({
       ...s,
       _exists: existingPaths.has(s.exe_path.toLowerCase()),
     }));
-  } catch (e) {
-    ElMessage.error(`扫描失败：${(e as Error).message}`);
   } finally {
     scanLoading.value = false;
   }
@@ -370,19 +370,20 @@ function onScanSelectionChange(rows: ScanItem[]) {
 }
 
 async function addScanned() {
-  try {
-    const items = scanSelection.value.map((s) => ({
-      name: s.name,
-      exe_path: s.exe_path,
-      arguments: s.arguments,
-    }));
-    await invokeToolByChannel("tool:launcher:add", { items });
-    ElMessage.success(`已添加 ${items.length} 个应用`);
-    scanDialogVisible.value = false;
-    await loadEntries();
-  } catch (e) {
-    ElMessage.error(`添加失败：${(e as Error).message}`);
-  }
+  const items = scanSelection.value.map((s) => ({
+    name: s.name,
+    exe_path: s.exe_path,
+    arguments: s.arguments,
+  }));
+  const added = await invokeWithLoading<Record<string, unknown>>(
+    "tool:launcher:add",
+    { items },
+    { errorPrefix: "添加失败：" },
+  );
+  if (!added) return;
+  ElMessage.success(`已添加 ${items.length} 个应用`);
+  scanDialogVisible.value = false;
+  await loadEntries();
 }
 
 // Manual add
@@ -393,7 +394,12 @@ async function handleManualAddFile() {
       filters: [{ name: "可执行文件", extensions: ["exe"] }],
     });
     if (!filePath) return;
-    await invokeToolByChannel("tool:launcher:add-manual", { exe_path: filePath });
+    const added = await invokeWithLoading<Record<string, unknown>>(
+      "tool:launcher:add-manual",
+      { exe_path: filePath },
+      { errorPrefix: "添加失败：" },
+    );
+    if (!added) return;
     ElMessage.success("已添加");
     await loadEntries();
   } catch (e) {
@@ -409,7 +415,12 @@ async function handleManualAddFolder() {
       title: "选择文件夹",
     });
     if (!dirPath) return;
-    await invokeToolByChannel("tool:launcher:add-manual", { exe_path: dirPath });
+    const added = await invokeWithLoading<Record<string, unknown>>(
+      "tool:launcher:add-manual",
+      { exe_path: dirPath },
+      { errorPrefix: "添加失败：" },
+    );
+    if (!added) return;
     ElMessage.success("已添加");
     await loadEntries();
   } catch (e) {
@@ -433,11 +444,11 @@ function ctxLaunch(admin: boolean) {
 
 async function ctxOpenFolder() {
   if (!ctxEntry.value) return;
-  try {
-    await invokeToolByChannel("tool:launcher:open-folder", { exe_path: ctxEntry.value.exe_path });
-  } catch (e) {
-    ElMessage.error(`打开目录失败：${(e as Error).message}`);
-  }
+  await invokeWithLoading<Record<string, unknown>>(
+    "tool:launcher:open-folder",
+    { exe_path: ctxEntry.value.exe_path },
+    { errorPrefix: "打开目录失败：" },
+  );
   hideCtx();
 }
 
@@ -454,32 +465,40 @@ function ctxEdit() {
 
 async function ctxRemove() {
   if (!ctxEntry.value) return;
+  const entry = ctxEntry.value;
   hideCtx();
   try {
-    await ElMessageBox.confirm(`确定删除「${ctxEntry.value.name}」？`, "确认删除", { type: "warning" });
-    await invokeToolByChannel("tool:launcher:remove", { id: ctxEntry.value.id });
-    ElMessage.success("已删除");
-    await loadEntries();
+    await ElMessageBox.confirm(`确定删除「${entry.name}」？`, "确认删除", { type: "warning" });
   } catch (e) {
     if ((e as { toString?: () => string })?.toString?.()?.includes("cancel")) return;
     ElMessage.error(`删除失败：${(e as Error).message}`);
+    return;
   }
+  const removed = await invokeWithLoading<Record<string, unknown>>(
+    "tool:launcher:remove",
+    { id: entry.id },
+    { errorPrefix: "删除失败：" },
+  );
+  if (!removed) return;
+  ElMessage.success("已删除");
+  await loadEntries();
 }
 
 // Edit save
 async function saveEdit() {
-  try {
-    await invokeToolByChannel("tool:launcher:update", {
+  const saved = await invokeWithLoading<Record<string, unknown>>(
+    "tool:launcher:update",
+    {
       id: editForm.value.id,
       name: editForm.value.name,
       group_name: editForm.value.group_name,
-    });
-    editDialogVisible.value = false;
-    ElMessage.success("已保存");
-    await loadEntries();
-  } catch (e) {
-    ElMessage.error(`保存失败：${(e as Error).message}`);
-  }
+    },
+    { errorPrefix: "保存失败：" },
+  );
+  if (!saved) return;
+  editDialogVisible.value = false;
+  ElMessage.success("已保存");
+  await loadEntries();
 }
 
 // Drag & drop reorder
@@ -510,12 +529,13 @@ async function onDrop(targetIdx: number) {
   dragIdx.value = -1;
 
   const orders = list.map((e, i) => ({ id: e.id, sort_order: i }));
-  try {
-    await invokeToolByChannel("tool:launcher:reorder", { orders });
-    await loadEntries();
-  } catch (e) {
-    ElMessage.error(`排序失败：${(e as Error).message}`);
-  }
+  const reordered = await invokeWithLoading<Record<string, unknown>>(
+    "tool:launcher:reorder",
+    { orders },
+    { errorPrefix: "排序失败：" },
+  );
+  if (!reordered) return;
+  await loadEntries();
 }
 
 // Group management
@@ -527,8 +547,9 @@ const groupTableData = computed(() =>
 );
 
 async function createGroup() {
+  let newName = "";
   try {
-    const { value: newName } = await ElMessageBox.prompt("输入分组名称", "新建分组", {
+    const result = await ElMessageBox.prompt("输入分组名称", "新建分组", {
       confirmButtonText: "确定",
       cancelButtonText: "取消",
       inputValidator: (v) => {
@@ -537,19 +558,27 @@ async function createGroup() {
         return true;
       },
     });
-    if (!newName) return;
-    await invokeToolByChannel("tool:launcher:create-group", { name: newName.trim() });
-    ElMessage.success(`分组「${newName.trim()}」已创建`);
-    await loadGroups();
+    newName = String(result.value).trim();
   } catch (e) {
     if ((e as { toString?: () => string })?.toString?.()?.includes("cancel")) return;
     ElMessage.error(`创建分组失败：${(e as Error).message}`);
+    return;
   }
+  if (!newName) return;
+  const created = await invokeWithLoading<Record<string, unknown>>(
+    "tool:launcher:create-group",
+    { name: newName },
+    { errorPrefix: "创建分组失败：" },
+  );
+  if (!created) return;
+  ElMessage.success(`分组「${newName}」已创建`);
+  await loadGroups();
 }
 
 async function startRenameGroup(oldName: string) {
+  let newName = "";
   try {
-    const { value: newName } = await ElMessageBox.prompt("输入新的分组名称", "重命名分组", {
+    const result = await ElMessageBox.prompt("输入新的分组名称", "重命名分组", {
       inputValue: oldName,
       confirmButtonText: "确定",
       cancelButtonText: "取消",
@@ -559,14 +588,21 @@ async function startRenameGroup(oldName: string) {
         return true;
       },
     });
-    if (!newName || newName.trim() === oldName) return;
-    await invokeToolByChannel("tool:launcher:rename-group", { old_name: oldName, new_name: newName.trim() });
-    ElMessage.success("分组已重命名");
-    await Promise.all([loadEntries(), loadGroups()]);
+    newName = String(result.value).trim();
   } catch (e) {
     if ((e as { toString?: () => string })?.toString?.()?.includes("cancel")) return;
     ElMessage.error(`重命名失败：${(e as Error).message}`);
+    return;
   }
+  if (!newName || newName === oldName) return;
+  const renamed = await invokeWithLoading<Record<string, unknown>>(
+    "tool:launcher:rename-group",
+    { old_name: oldName, new_name: newName },
+    { errorPrefix: "重命名失败：" },
+  );
+  if (!renamed) return;
+  ElMessage.success("分组已重命名");
+  await Promise.all([loadEntries(), loadGroups()]);
 }
 
 async function deleteGroup(groupName: string) {
@@ -576,13 +612,19 @@ async function deleteGroup(groupName: string) {
       "确认删除分组",
       { type: "warning" },
     );
-    await invokeToolByChannel("tool:launcher:delete-group", { name: groupName });
-    ElMessage.success("分组已删除");
-    await Promise.all([loadEntries(), loadGroups()]);
   } catch (e) {
     if ((e as { toString?: () => string })?.toString?.()?.includes("cancel")) return;
     ElMessage.error(`删除分组失败：${(e as Error).message}`);
+    return;
   }
+  const deleted = await invokeWithLoading<Record<string, unknown>>(
+    "tool:launcher:delete-group",
+    { name: groupName },
+    { errorPrefix: "删除分组失败：" },
+  );
+  if (!deleted) return;
+  ElMessage.success("分组已删除");
+  await Promise.all([loadEntries(), loadGroups()]);
 }
 </script>
 <style scoped>
@@ -774,4 +816,3 @@ async function deleteGroup(groupName: string) {
   box-shadow: inset 3px 0 0 var(--lc-accent);
 }
 </style>
-
