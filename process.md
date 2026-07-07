@@ -8,6 +8,51 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-07-07: IPC 契约对账与横切面治理 X1-X4
+
+**场景**: 执行《IPC 契约对账与横切面治理》：为前后端 action、应用级事件名建立对账安全网，并在 Snippet / Launcher / Hosts / Dns 四个试点面板收敛 IPC 错误反馈与列表搜索防抖写法。
+**使用次数**: 0
+**问题**:
+1. `src/bridge/tauri.ts`、Rust `tools/mod.rs` 和挂件刷新白名单是三份手工清单，已出现 todo 白名单幽灵 action，运行前缺少漂移报警。
+2. 应用级事件名散落在 Rust emit 和前端 listen/emit 字符串里，常规 grep 容易漏掉换行形态事件。
+3. 面板 IPC 错误反馈长期存在裸 `invokeToolByChannel` + 手写 try/catch、局部 ipc 包装和静默 catch 混用；搜索防抖也有多套手写 timer。
+**解决**:
+1. Rust 工具模块显式暴露 `supported_actions()`，`tools/mod.rs` 聚合域 action；契约测试逐行解析 `tauri.ts` 的 `CHANNEL_MAP`，用 `>=300` 哨兵断言防止格式变更后假绿，并双向检查前后端 action 与挂件白名单。
+2. 前端新增 `bridge/events.ts`、Rust 新增 `events.rs`，Rust `ALL` 只引用具名常量；契约测试解析前端 `APP_EVENTS`，断言 `events::ALL ⊆ APP_EVENTS`，同时清理无 listener 的 `pomodoro-prompt-refresh` emit。
+3. `useToolInvoke` 增加 `errorPrefix` 与 `invokeSilent`；用户触发操作走 `invokeWithLoading(..., { errorPrefix })`，后台可降级读取走 `invokeSilent` 并写明静默原因。
+4. 新增 `useDebouncedKeyword` / `useListSearch` 分层双 API：后端搜索面板只用关键字防抖，本地过滤面板复用同一防抖层再叠加 matcher。Snippet 搜索 260ms -> 300ms、Hosts 搜索新增 300ms 防抖是本批明确允许的微变。
+5. 试点面板按“行为清单 → 改造 → 验证 → 提交”执行；Snippet 用 `useDebouncedKeyword` 触发后端搜索，Launcher / Hosts 用 `useListSearch` 本地过滤，Dns 无搜索框只收敛错误反馈。
+**关键点**:
+1. 解析式契约测试必须配哨兵数量断言和文件头格式注释，否则格式改动后可能解析为空但测试仍通过。
+2. 事件常量双侧维护时，Rust `ALL` 必须由具名常量组成，避免“常量定义一份、测试集合再手写一份”的双写漂移。
+3. 面板收敛样板优先使用多实例解构 loading：`const { loading: saving, invokeWithLoading: invokeSave } = useToolInvoke()`；后台统计、预加载和一致性检查失败不应打扰用户时用 `invokeSilent` 并注释原因。
+4. `useToolInvoke` 当前仍是 boolean loading，并发调用会互相覆盖；本批只记录观察点，后续如遇同一实例并发请求再改为计数式 loading。
+5. 涉及产品 UI 的手工冒烟仍需与用户协调运行应用；本批自动执行了 e2e 冒烟，未擅自启动桌面 UI。
+**涉及文件**:
+- `apps/desktop/src-tauri/src/tools/*.rs`
+- `apps/desktop/src-tauri/src/tools/contract_tests.rs`
+- `apps/desktop/src-tauri/src/events.rs`
+- `apps/desktop/src/bridge/tauri.ts`
+- `apps/desktop/src/bridge/events.ts`
+- `apps/desktop/src/composables/useToolInvoke.ts`
+- `apps/desktop/src/composables/useListSearch.ts`
+- `apps/desktop/src/components/{SnippetPanel,LauncherPanel,HostsPanel,DnsPanel}.vue`
+
+**验证**:
+- `cargo test data_dictionary -- --nocapture`
+- `cargo test`
+- `pnpm --filter @lazycat/desktop test src/composables/useToolInvoke.test.ts`
+- `pnpm --filter @lazycat/desktop test src/composables/useListSearch.test.ts`
+- `pnpm --filter @lazycat/desktop test`
+- `pnpm typecheck`
+- `pnpm test:e2e`
+- `pnpm --filter @lazycat/desktop build:web`
+
+**完成定义勾稽**:
+1. 三份 action 清单与两侧事件常量已纳入 `cargo test` 对账，todo 幽灵词条清零。
+2. `src/bridge/events.ts` 与 `src-tauri/src/events.rs` 已建立，应用级事件名裸字面量清理到常量定义处。
+3. 四个试点面板已成为错误反馈与搜索防抖样板，规范经验已沉淀在本条记录中。
+
 ## 2026-07-07: Spotlight 预取缓存变更用 provider 级事件失效
 
 **场景**: 浏览器身份别名保存后，Spotlight 驻留窗口仍显示旧别名，导致新别名搜不到、旧别名还能命中。
