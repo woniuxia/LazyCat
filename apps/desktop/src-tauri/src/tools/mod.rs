@@ -105,43 +105,87 @@ fn dispatch_tool(domain: &str, action: &str, payload: &Value) -> Result<Value, S
     }
 }
 
+pub fn supported_actions(domain: &str) -> Option<&'static [&'static str]> {
+    match domain {
+        "api_mock" => Some(api_mock::supported_actions()),
+        "api_workbench" => Some(api_workbench::supported_actions()),
+        "browser_profiles" => Some(browser_profiles::supported_actions()),
+        "encode" => Some(encode::supported_actions()),
+        "convert" => Some(convert::supported_actions()),
+        "text" => Some(text::supported_actions()),
+        "time" => Some(time::supported_actions()),
+        "gen" => Some(gen::supported_actions()),
+        "regex" => Some(regex::supported_actions()),
+        "cron" => Some(cron::supported_actions()),
+        "crypto" => Some(crypto::supported_actions()),
+        "data_dictionary" => Some(data_dictionary::supported_actions()),
+        "db" => Some(db::supported_actions()),
+        "format" => Some(format::supported_actions()),
+        "network" => Some(network::supported_actions()),
+        "dns" => Some(dns::supported_actions()),
+        "env" => Some(env::supported_actions()),
+        "port" => Some(port::supported_actions()),
+        "file" => Some(file::supported_actions()),
+        "image" => Some(image::supported_actions()),
+        "hosts" => Some(hosts::supported_actions()),
+        "manuals" => Some(manuals::supported_actions()),
+        "settings" => Some(settings::supported_actions()),
+        "hotkey" => Some(hotkey::supported_actions()),
+        "jwt" => Some(jwt::supported_actions()),
+        "schema" => Some(schema::supported_actions()),
+        "mybatis" => Some(mybatis::supported_actions()),
+        "nginx" => Some(nginx::supported_actions()),
+        "snippets" => Some(snippets::supported_actions()),
+        "pdf" => Some(pdf::supported_actions()),
+        "vault" => Some(vault::supported_actions()),
+        "launcher" => Some(launcher::supported_actions()),
+        "todo" => Some(todo::supported_actions()),
+        "pm" => Some(pm::supported_actions()),
+        "pomodoro" => Some(pomodoro::supported_actions()),
+        "maven" => Some(maven::supported_actions()),
+        "inbox" => Some(inbox::supported_actions()),
+        "attachments" => Some(attachments::supported_actions()),
+        "system" => Some(system::supported_actions()),
+        "widget" => Some(widget::supported_actions()),
+        _ => None,
+    }
+}
+
 /// 判定是否要通知挂件刷新；只对真正改写 PM / Todo 数据的 action 触发。
 ///
 /// 故意排除纯查询（item_list / item_counts / siyuan_*）与跨域副作用（todo_link
 /// 由 PM 域统一覆盖），避免无意义的合成请求。
+const PM_WIDGET_REFRESH_ACTIONS: &[&str] = &[
+    "item_create",
+    "item_update",
+    "item_change_status",
+    "item_reorder",
+    "item_toggle_pin",
+    "item_batch_update",
+    "item_delete",
+    "item_move_project",
+    "item_todo_create",
+    "item_todo_link",
+    "item_todo_unlink",
+    "project_create",
+    "project_update",
+    "project_archive",
+    "project_restore",
+    "project_delete",
+];
+
+const TODO_WIDGET_REFRESH_ACTIONS: &[&str] = &[
+    "item_create",
+    "item_update",
+    "item_change_status",
+    "item_toggle_pin",
+    "item_delete",
+];
+
 fn pm_or_todo_data_changed(domain: &str, action: &str) -> bool {
     match domain {
-        "pm" => matches!(
-            action,
-            "item_create"
-                | "item_update"
-                | "item_change_status"
-                | "item_reorder"
-                | "item_toggle_pin"
-                | "item_batch_update"
-                | "item_delete"
-                | "item_move_project"
-                | "item_todo_create"
-                | "item_todo_link"
-                | "item_todo_unlink"
-                | "project_create"
-                | "project_update"
-                | "project_archive"
-                | "project_restore"
-                | "project_delete"
-        ),
-        "todo" => matches!(
-            action,
-            "item_create"
-                | "item_update"
-                | "item_change_status"
-                | "item_reorder"
-                | "item_toggle_pin"
-                | "item_batch_update"
-                | "item_delete"
-                | "item_complete"
-                | "item_undo_complete"
-        ),
+        "pm" => PM_WIDGET_REFRESH_ACTIONS.contains(&action),
+        "todo" => TODO_WIDGET_REFRESH_ACTIONS.contains(&action),
         _ => false,
     }
 }
@@ -167,6 +211,9 @@ pub fn execute_tool_with_app(
         _ => execute_tool(domain, action, payload),
     }
 }
+
+#[cfg(test)]
+mod contract_tests;
 
 #[cfg(test)]
 mod tests {

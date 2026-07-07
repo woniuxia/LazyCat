@@ -1,4 +1,6 @@
-﻿import { invoke } from "@tauri-apps/api/core";
+﻿// 本文件被 src-tauri 契约对账测试逐行解析。
+// CHANNEL_MAP 请保持一行一条目格式：`"tool:x:y": { domain: "x", action: "y" },`
+import { invoke } from "@tauri-apps/api/core";
 
 export interface ToolRequest {
   request_id: string;
