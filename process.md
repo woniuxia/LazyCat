@@ -8,6 +8,33 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-07-07: Spotlight 预取缓存变更用 provider 级事件失效
+
+**场景**: 浏览器身份别名保存后，Spotlight 驻留窗口仍显示旧别名，导致新别名搜不到、旧别名还能命中。
+**使用次数**: 0
+**问题**:
+1. 浏览器身份的搜索字段构建逻辑已正确复用别名，但 Spotlight 已打开窗口持有 `prefetchAll()` 的 provider 缓存，不会因为浏览器身份面板保存配置自动重建。
+2. 局部刷新和全量 `prefetchAll()` 都会写同一个 `browser-profiles` provider 结果，异步竞态下旧全量请求可能覆盖新局部结果。
+3. 从 Spotlight 启动身份会更新使用统计，若不刷新缓存，空输入结果的排序权重仍可能滞后。
+**解决**:
+1. 增加 `browser-profiles-changed` Tauri 事件封装，浏览器身份别名、隐藏状态、Edge 路径和 Spotlight 启动成功后统一通知变更。
+2. Spotlight 监听该事件后只重新 `prefetch` 浏览器身份 provider，并替换该 provider 的结果，不清空其他 provider 缓存。
+3. 为浏览器身份 provider 写入增加统一版本号守卫，阻止过期的局部刷新或全量预取回写。
+**关键点**:
+1. provider item 的搜索字段正确，不代表驻留 Spotlight 缓存会自动更新；跨窗口状态变更要显式失效。
+2. provider 级局部刷新应和全量预取共享同一个写入版本，而不是各自维护独立锁。
+3. 会影响排序权重的默认动作也属于缓存变更源，不能只监听配置编辑路径。
+**涉及文件**:
+- `apps/desktop/src/spotlight/browser-profiles-events.ts`
+- `apps/desktop/src/spotlight/browser-profiles-refresh.ts`
+- `apps/desktop/src/components/SpotlightPanel.vue`
+- `apps/desktop/src/components/BrowserProfilesPanel.vue`
+- `apps/desktop/src/spotlight/providers/browser-profiles.ts`
+**验证**:
+- `pnpm test src/utils/browserProfiles.test.ts src/spotlight/providers/browser-profiles.test.ts src/spotlight/browser-profiles-events.test.ts src/spotlight/browser-profiles-refresh.test.ts src/spotlight/search.test.ts src/utils/spotlight-active-index.test.ts`
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+
 ## 2026-07-04: 任务清单快速添加栏（输入行 + 日期/优先级内联速选）
 
 **场景**: 按 `docs/superpowers/plans/2026-07-04-todo-quick-add-plan.md` 4 阶段 TDD 实施：列表视图工具栏下方常驻快速添加栏，回车即建、焦点保留连续录入，继承筛选上下文（分类/项目/优先级默认值），后端零改动复用 `tool:todo:item-create`。
