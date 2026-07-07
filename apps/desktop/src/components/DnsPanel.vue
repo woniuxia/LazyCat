@@ -183,8 +183,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
 import { ElMessage } from "element-plus";
-import { invokeToolByChannel } from "../bridge/tauri";
 import { getSettingJson, setSettingJson } from "../composables/useSettings";
+import { useToolInvoke } from "../composables/useToolInvoke";
 
 interface DnsResult {
   domain: string;
@@ -289,17 +289,18 @@ const MAX_DNS_QUERY_HISTORY = 100;
 const activeTab = ref("query");
 const domain = ref("");
 const dnsServer = ref("");
-const loading = ref(false);
 const result = ref<DnsResult | null>(null);
 const systemDnsIpv4List = ref<string[]>([]);
 const queryHistory = ref<DnsHistoryEntry[]>(loadDnsQueryHistory());
 const selectedPreset = ref<string | null>(null);
+const { loading, invokeWithLoading: invokeQuery } = useToolInvoke();
+const { invokeSilent } = useToolInvoke();
 
 // 性能对比 Tab 状态
 const compareDomain = ref("");
-const compareLoading = ref(false);
 const compareResults = ref<CompareResult[]>([]);
 const customServerInput = ref("");
+const { loading: compareLoading, invokeWithLoading: invokeCompare } = useToolInvoke();
 const compareServers = ref<CompareServer[]>([
   { key: "system", label: "系统 DNS", ip: "", checked: true },
   { key: "google", label: "Google", ip: "8.8.8.8", checked: true },
@@ -420,16 +421,14 @@ function addCustomServer() {
 }
 
 async function loadSystemDnsDefaults() {
-  try {
-    const data = (await invokeToolByChannel("tool:dns:system-dns", {})) as SystemDnsResponse;
-    const ipv4 = Array.isArray(data?.ipv4) ? data.ipv4.filter((v) => typeof v === "string") : [];
-    systemDnsIpv4List.value = ipv4;
-    if (!dnsServer.value.trim() && ipv4.length > 0) {
-      dnsServer.value = ipv4[0];
-      selectedPreset.value = PRESET_DNS_SERVERS.find((p) => p.ip === ipv4[0])?.label ?? null;
-    }
-  } catch {
-    // 忽略系统 DNS 加载失败
+  // 系统 DNS 只是输入默认值，读取失败不阻断手动查询。
+  const data = await invokeSilent<SystemDnsResponse>("tool:dns:system-dns", {});
+  if (!data) return;
+  const ipv4 = Array.isArray(data.ipv4) ? data.ipv4.filter((v) => typeof v === "string") : [];
+  systemDnsIpv4List.value = ipv4;
+  if (!dnsServer.value.trim() && ipv4.length > 0) {
+    dnsServer.value = ipv4[0];
+    selectedPreset.value = PRESET_DNS_SERVERS.find((p) => p.ip === ipv4[0])?.label ?? null;
   }
 }
 
@@ -441,19 +440,17 @@ async function runQuery() {
   }
 
   result.value = null;
-  loading.value = true;
-  try {
-    const data = await invokeToolByChannel("tool:dns:resolve", {
+  const data = await invokeQuery<DnsResult>(
+    "tool:dns:resolve",
+    {
       domain: d,
       server: dnsServer.value.trim(),
-    });
-    result.value = data as DnsResult;
-    appendHistory(d, dnsServer.value);
-  } catch (e) {
-    ElMessage.error((e as Error).message);
-  } finally {
-    loading.value = false;
-  }
+    },
+    { errorPrefix: "查询失败：" },
+  );
+  if (!data) return;
+  result.value = data;
+  appendHistory(d, dnsServer.value);
 }
 
 async function runCompare() {
@@ -470,18 +467,16 @@ async function runCompare() {
   }
 
   compareResults.value = [];
-  compareLoading.value = true;
-  try {
-    const data = await invokeToolByChannel("tool:dns:compare", {
+  const data = await invokeCompare<CompareResult[]>(
+    "tool:dns:compare",
+    {
       domain: d,
       servers: checked.map((s) => s.ip),
-    });
-    compareResults.value = data as CompareResult[];
-  } catch (e) {
-    ElMessage.error((e as Error).message);
-  } finally {
-    compareLoading.value = false;
-  }
+    },
+    { errorPrefix: "对比失败：" },
+  );
+  if (!data) return;
+  compareResults.value = data;
 }
 
 onMounted(() => {
