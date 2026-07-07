@@ -97,9 +97,18 @@ import "../spotlight/providers/hosts";
 import "../spotlight/providers/todo";
 import "../spotlight/providers/pm";
 import "../spotlight/providers/data-dictionary";
-import "../spotlight/providers/browser-profiles";
+import { browserProfilesProvider } from "../spotlight/providers/browser-profiles";
 import "../spotlight/providers/suggestion";
 import "../spotlight/providers/launcher";
+import { listenBrowserProfilesChanged } from "../spotlight/browser-profiles-events";
+import {
+  BROWSER_PROFILES_PROVIDER_ID,
+  beginBrowserProfilesLocalRefresh,
+  canWriteBrowserProfiles,
+  captureBrowserProfilesPrefetchVersion,
+  createBrowserProfilesRefreshGuard,
+  replaceBrowserProfilesItems,
+} from "../spotlight/browser-profiles-refresh";
 import * as configStore from "../spotlight/config-store";
 import {
   createQueryTimeResultGuard,
@@ -158,6 +167,8 @@ let unlockResolver: ((value: boolean) => void) | null = null;
 const unlockState = ref<{ entryTitle: string } | null>(null);
 
 let unlistenReset: UnlistenFn | null = null;
+let unlistenBrowserProfilesChanged: UnlistenFn | null = null;
+let browserProfilesListenerDisposed = false;
 let unsubConfig: (() => void) | null = null;
 
 const itemsByProvider = ref<ScopedItemsMap>(new Map());
@@ -165,6 +176,7 @@ const queryItemsByProvider = ref<ScopedItemsMap>(new Map());
 const queryLoading = ref(false);
 const queryGuard = createQueryTimeResultGuard();
 const view = ref<SpotlightView | null>(null);
+const browserProfilesRefreshGuard = createBrowserProfilesRefreshGuard();
 
 interface ClipboardSuggestion {
   toolId: string;
@@ -507,14 +519,36 @@ async function prefetchAll() {
     : listProviders();
   await Promise.allSettled(
     providers.map(async (provider) => {
+      const browserProfilesPrefetchVersion =
+        provider.id === BROWSER_PROFILES_PROVIDER_ID
+          ? captureBrowserProfilesPrefetchVersion(browserProfilesRefreshGuard)
+          : null;
       try {
         const items = await provider.prefetch();
+        if (
+          provider.id === BROWSER_PROFILES_PROVIDER_ID &&
+          !canWriteBrowserProfiles(
+            browserProfilesRefreshGuard,
+            browserProfilesPrefetchVersion!,
+          )
+        ) {
+          return;
+        }
         // 单 provider 完成后立即写回,渐进式更新而非等所有 provider
         const next = new Map(itemsByProvider.value);
         next.set(provider.id, items);
         itemsByProvider.value = next;
       } catch (err) {
         console.warn(`[Spotlight] provider ${provider.id} prefetch failed:`, err);
+        if (
+          provider.id === BROWSER_PROFILES_PROVIDER_ID &&
+          !canWriteBrowserProfiles(
+            browserProfilesRefreshGuard,
+            browserProfilesPrefetchVersion!,
+          )
+        ) {
+          return;
+        }
         // 失败时保留上一次该 provider 的数据,而不是覆盖为空
         if (!itemsByProvider.value.has(provider.id)) {
           const next = new Map(itemsByProvider.value);
@@ -534,6 +568,26 @@ async function prefetchAll() {
     itemsByProvider.value = next;
   }
   loading.value = false;
+}
+
+async function refreshBrowserProfilesProvider() {
+  const version = beginBrowserProfilesLocalRefresh(browserProfilesRefreshGuard);
+  try {
+    const items = await browserProfilesProvider.prefetch();
+    if (!canWriteBrowserProfiles(browserProfilesRefreshGuard, version)) return;
+    itemsByProvider.value = replaceBrowserProfilesItems(
+      itemsByProvider.value,
+      items,
+    );
+    activeIndex.value = nextSpotlightActiveIndex({
+      currentIndex: activeIndex.value,
+      resultCount: results.value.length,
+      queryChanged: false,
+    });
+  } catch (err) {
+    if (!canWriteBrowserProfiles(browserProfilesRefreshGuard, version)) return;
+    console.warn("[Spotlight] refresh browser profiles failed:", err);
+  }
 }
 
 async function refreshQueryProviders() {
@@ -881,6 +935,21 @@ onMounted(async () => {
     /* ignore */
   }
 
+  browserProfilesListenerDisposed = false;
+  void listenBrowserProfilesChanged(() => {
+    void refreshBrowserProfilesProvider();
+  })
+    .then((unlisten) => {
+      if (browserProfilesListenerDisposed) {
+        unlisten();
+        return;
+      }
+      unlistenBrowserProfilesChanged = unlisten;
+    })
+    .catch(() => {
+      /* Tauri event listener is best-effort; spotlight-reset remains the fallback. */
+    });
+
   window.addEventListener("focus", onWindowFocus);
 
   await nextTick();
@@ -913,6 +982,9 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   unlistenReset?.();
+  browserProfilesListenerDisposed = true;
+  unlistenBrowserProfilesChanged?.();
+  unlistenBrowserProfilesChanged = null;
   unsubConfig?.();
   if (successTimeoutId != null) {
     window.clearTimeout(successTimeoutId);

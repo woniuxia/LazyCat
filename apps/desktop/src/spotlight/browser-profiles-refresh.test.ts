@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { nextSpotlightActiveIndex } from "../utils/spotlight-active-index";
 import type { SpotlightItem, SpotlightProviderId } from "./types";
 import {
   BROWSER_PROFILES_PROVIDER_ID,
@@ -53,5 +54,15 @@ describe("browser profile Spotlight refresh guard", () => {
     expect(next.get(BROWSER_PROFILES_PROVIDER_ID)?.map((entry) => entry.title)).toEqual([
       "new-alias",
     ]);
+  });
+
+  it("resets active index after browser profile results shrink past it", () => {
+    expect(
+      nextSpotlightActiveIndex({
+        currentIndex: 4,
+        resultCount: 2,
+        queryChanged: false,
+      }),
+    ).toBe(0);
   });
 });
