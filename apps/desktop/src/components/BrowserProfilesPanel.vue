@@ -204,6 +204,10 @@ import {
 } from "@element-plus/icons-vue";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invokeToolByChannel } from "../bridge/tauri";
+import {
+  notifyBrowserProfilesChanged,
+  type BrowserProfilesChangedReason,
+} from "../spotlight/browser-profiles-events";
 import type {
   BrowserProfileItem,
   BrowserProfilesListResponse,
@@ -287,6 +291,10 @@ async function loadProfiles() {
   }
 }
 
+function notifyProfilesChanged(reason: BrowserProfilesChangedReason) {
+  void notifyBrowserProfilesChanged(reason).catch(() => undefined);
+}
+
 function onCardKeydown(profile: BrowserProfileItem, event: KeyboardEvent) {
   if (event.target !== event.currentTarget) return;
   event.preventDefault();
@@ -306,6 +314,7 @@ async function launchProfile(profile: BrowserProfileItem) {
       browser: "edge",
       profileDir: profile.profileDir,
     });
+    notifyProfilesChanged("launch");
     ElMessage.success(`已打开 Edge：${getBrowserProfileDisplayName(profile)}`);
     await loadProfiles();
   } catch (err) {
@@ -331,6 +340,7 @@ async function editAlias(profile: BrowserProfileItem) {
       profileDir: profile.profileDir,
       alias: String(value ?? "").trim(),
     });
+    notifyProfilesChanged("alias");
     ElMessage.success("别名已保存");
     await loadProfiles();
   } catch (err) {
@@ -346,6 +356,7 @@ async function setHidden(profile: BrowserProfileItem, hidden: boolean) {
       profileDir: profile.profileDir,
       hidden,
     });
+    notifyProfilesChanged("hidden");
     ElMessage.success(hidden ? "已隐藏" : "已恢复");
     await loadProfiles();
   } catch (err) {
@@ -364,6 +375,7 @@ async function chooseEdgePath() {
     await invokeToolByChannel("tool:browser-profiles:set-edge-path", {
       edgePath,
     });
+    notifyProfilesChanged("edge-path");
     ElMessage.success("Edge 路径已保存");
     await loadProfiles();
   } catch (err) {

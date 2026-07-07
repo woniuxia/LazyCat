@@ -2,9 +2,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const invokeToolByChannel = vi.fn();
 const invoke = vi.fn();
+const notifyBrowserProfilesChanged = vi.fn();
 
 vi.mock("../../bridge/tauri", () => ({
   invokeToolByChannel: (...args: unknown[]) => invokeToolByChannel(...args),
+}));
+
+vi.mock("../browser-profiles-events", () => ({
+  notifyBrowserProfilesChanged: (...args: unknown[]) =>
+    notifyBrowserProfilesChanged(...args),
 }));
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -33,6 +39,7 @@ function profile(overrides: Partial<BrowserProfileItem>): BrowserProfileItem {
 beforeEach(() => {
   invokeToolByChannel.mockReset();
   invoke.mockReset();
+  notifyBrowserProfilesChanged.mockReset();
 });
 
 describe("buildBrowserProfileSpotlightItem", () => {
@@ -100,6 +107,22 @@ describe("browserProfilesProvider", () => {
       closeSpotlight: true,
       toast: { message: "已打开 Edge：管理员", type: "success" },
     });
+    expect(notifyBrowserProfilesChanged).toHaveBeenCalledWith("launch");
+  });
+
+  it("does not notify when launch fails", async () => {
+    invokeToolByChannel.mockRejectedValueOnce(new Error("boom"));
+    const item = buildBrowserProfileSpotlightItem(
+      profile({
+        profileDir: "Profile 2",
+        alias: "管理员",
+      }),
+    );
+
+    const result = await browserProfilesProvider.defaultAction(item, {} as never);
+
+    expect(result.errorMessage).toBe("boom");
+    expect(notifyBrowserProfilesChanged).not.toHaveBeenCalled();
   });
 
   it("opens browser profiles tool from action menu", async () => {

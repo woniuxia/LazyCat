@@ -9,6 +9,7 @@ import {
   getBrowserProfileDisplayName,
   getBrowserProfileSpotlightWeight,
 } from "../../utils/browserProfiles";
+import { notifyBrowserProfilesChanged } from "../browser-profiles-events";
 import { registerProvider } from "../registry";
 import type {
   ProviderDescriptor,
@@ -81,6 +82,11 @@ async function launchProfile(item: SpotlightItem): Promise<SpotlightExecuteResul
       browser: payload.browser,
       profileDir: payload.profileDir,
     });
+    try {
+      await notifyBrowserProfilesChanged("launch");
+    } catch {
+      /* Spotlight cache refresh notification is best-effort. */
+    }
     return {
       closeSpotlight: true,
       toast: {
