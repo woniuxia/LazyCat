@@ -2961,3 +2961,46 @@ Cron 工具原先仅提供基础 6 字段输入与简单预览，缺少规范化
 - `pnpm --filter @lazycat/desktop build:web`
 
 **使用次数**: 0
+
+## 2026-07-07: 结构治理批次 0-2 行为保持拆分
+
+**场景**: 执行结构治理路线图首批实施计划：先恢复 e2e 冒烟，再把 PM 前端域迁入子目录并拆分 `PmPanel.vue`，最后把 Rust `api_workbench` 巨型模块改为目录模块。
+**问题**:
+1. `App.vue` 在纯 Web e2e 环境 setup 顶层调用 Tauri 窗口 API，导致主 App 无法挂载，后续重构缺少端到端安全网。
+2. PM 组件平铺在 `components/` 根目录，`PmPanel.vue` 同时承担侧栏、工具栏、筛选、CRUD、右键菜单和视图编排，后续改动冲突面大。
+3. `api_workbench.rs` 单文件同时包含 action 分发、共享类型、HTTP 执行、导出、缓存、历史和 CRUD，测试也集中在同一个 `mod tests`，迁移时容易漏搬 cfg 函数对或测试。
+**解决**:
+1. `App.vue` 仅在检测到 `__TAURI_INTERNALS__` 时获取 `getCurrentWindow()`，非 Tauri 环境用可选链兜底；统一 Tauri 环境判断工具是后续改良点，本批不顺手抽象。
+2. 先用 `git mv` 把 18 个 `Pm*` 组件迁入 `components/pm/`，只更新外部动态 import 和跨目录相对路径，保留 `InlinePmSelector` / `InlineTodoList` 在根目录。
+3. `PmPanel.vue` 按耦合度从低到高拆出 `usePmContextMenu`、`usePmItemFilters`、`usePmItemActions`、`PmSidebar`、`PmToolbar`，共享状态继续留在壳层，用 props down / events up 保持原行为。
+4. `api_workbench` 先从文件转目录，再按 `types/helpers`、`response`、`executor/export`、CRUD、`history` 顺序抽取；每步同时迁移对应测试，并用 `cargo test api_workbench` 做小步验证。
+5. 收尾按计划做用例数对账和手工冒烟：`api_workbench` 当前 52 个相关测试；用户已确认 PM 行为清单和接口调试面板手工冒烟通过。
+**关键点**:
+1. 行为保持拆分要先恢复最小 e2e 安全网；如果 e2e 本身已坏，先修阻断点，不把后续结构改动和测试基线问题混在同一提交。
+2. Vue 壳层拆分优先抽 composable，再抽布局组件；筛选条件、选中项、拖拽状态、对话框编排等跨块共享状态留在壳层，避免引入新状态管理模式。
+3. Rust 巨型模块目录化时先移动为 `mod.rs`，再抽共享 `types/helpers`，最后按业务域迁移函数和测试；带 `#[cfg(test)]` / `#[cfg(not(test))]` 的函数对必须随归属模块成对迁移。
+4. 行数目标只作为拆分反馈，不作为临时加拆分的理由。本批后 `PmPanel.vue` 为 1531 行，低于原 2643 行但未达 1200 行软目标；继续缩小需要另定接缝，不能在机械拆分批次内即兴扩展。
+5. `api_workbench` 子模块当前总计 5414 行、11 个模块，平均约 492 行；单个 `executor`、`history`、`response` 仍偏大，但平均值满足本批软目标，后续若继续治理应另列计划。
+**涉及文件**:
+- `apps/desktop/src/App.vue`
+- `apps/desktop/src/components/pm/*`
+- `apps/desktop/src/composables/usePmContextMenu.ts`
+- `apps/desktop/src/composables/usePmItemFilters.ts`
+- `apps/desktop/src/composables/usePmItemActions.ts`
+- `apps/desktop/src-tauri/src/tools/api_workbench/*`
+- `apps/desktop/src/tool-registry.ts`
+- `apps/desktop/src/composables/pmViewRegistry.ts`
+
+**验证**:
+- `pnpm test:e2e`
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+- `pnpm test`
+- `cargo check`
+- `cargo test api_workbench -- --list`（52 tests）
+- `cargo test api_workbench`（52 通过）
+- `cargo test`（457 通过）
+- PM 行为清单手工冒烟通过
+- 接口调试面板手工冒烟通过
+
+**使用次数**: 0
