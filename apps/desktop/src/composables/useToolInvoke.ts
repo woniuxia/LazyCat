@@ -2,6 +2,14 @@ import { ref } from "vue";
 import { ElMessage } from "element-plus";
 import { invokeToolByChannel } from "../bridge/tauri";
 
+type InvokeWithLoadingOptions = {
+  errorPrefix?: string;
+};
+
+function getErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+
 /**
  * Composable wrapping IPC invoke with loading state and error handling.
  */
@@ -18,15 +26,27 @@ export function useToolInvoke() {
   async function invokeWithLoading<T = unknown>(
     channel: string,
     payload: Record<string, unknown>,
+    opts?: InvokeWithLoadingOptions,
   ): Promise<T | undefined> {
     loading.value = true;
     try {
       return (await invokeToolByChannel(channel, payload)) as T;
     } catch (error) {
-      ElMessage.error((error as Error).message);
+      ElMessage.error(`${opts?.errorPrefix ?? ""}${getErrorMessage(error)}`);
       return undefined;
     } finally {
       loading.value = false;
+    }
+  }
+
+  async function invokeSilent<T = unknown>(
+    channel: string,
+    payload: Record<string, unknown>,
+  ): Promise<T | undefined> {
+    try {
+      return await invoke<T>(channel, payload);
+    } catch {
+      return undefined;
     }
   }
 
@@ -50,5 +70,5 @@ export function useToolInvoke() {
     }
   }
 
-  return { loading, invoke, invokeWithLoading, invokeString, invokeStringWithError };
+  return { loading, invoke, invokeWithLoading, invokeSilent, invokeString, invokeStringWithError };
 }
