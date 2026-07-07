@@ -7,7 +7,6 @@
         class="left-search"
         placeholder="搜索标题、内容、标签"
         clearable
-        @input="onSearchInput"
       />
 
       <div class="filter-group">
@@ -193,10 +192,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onBeforeUnmount, ref } from "vue";
+import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import MonacoPane from "./MonacoPane.vue";
-import { invokeToolByChannel } from "../bridge/tauri";
+import { useDebouncedKeyword } from "../composables/useListSearch";
+import { useToolInvoke } from "../composables/useToolInvoke";
 
 interface SnippetSummary {
   id: number;
@@ -273,7 +273,7 @@ const languageExtensionMap: Record<string, string> = {
   toml: "toml",
 };
 
-const keyword = ref("");
+const { keyword, debouncedKeyword } = useDebouncedKeyword();
 const selectedTag = ref("");
 const sortBy = ref<"last_used" | "updated_at" | "created_at" | "title">("last_used");
 const viewPreset = ref<"all" | "favorite" | "recent7" | "untagged">("all");
@@ -288,7 +288,7 @@ const tagInputRef = ref();
 const renamingIdx = ref<number | null>(null);
 const renameValue = ref("");
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
-let searchTimer: ReturnType<typeof setTimeout> | null = null;
+const { invokeWithLoading, invokeSilent } = useToolInvoke();
 
 const listSubTitle = computed(() => `共 ${snippets.value.length} 条结果`);
 
@@ -306,10 +306,6 @@ const languageOptions = computed(() => {
   return [...Array.from(used), ...defaultLanguages.filter((l) => !used.has(l))];
 });
 
-async function ipc<T>(channel: string, payload: Record<string, unknown> = {}): Promise<T> {
-  return (await invokeToolByChannel(channel, payload)) as T;
-}
-
 function buildQuery() {
   return {
     tag: selectedTag.value,
@@ -322,9 +318,19 @@ function buildQuery() {
 
 async function loadSnippets() {
   const query = buildQuery();
-  const data = keyword.value.trim()
-    ? await ipc<SnippetSummary[]>("tool:snippets:v2:search", { ...query, keyword: keyword.value.trim() })
-    : await ipc<SnippetSummary[]>("tool:snippets:v2:list", query);
+  const searchKeyword = debouncedKeyword.value;
+  const data = searchKeyword
+    ? await invokeWithLoading<SnippetSummary[]>(
+        "tool:snippets:v2:search",
+        { ...query, keyword: searchKeyword },
+        { errorPrefix: "列表加载失败：" },
+      )
+    : await invokeWithLoading<SnippetSummary[]>(
+        "tool:snippets:v2:list",
+        query,
+        { errorPrefix: "列表加载失败：" },
+      );
+  if (!data) return;
 
   snippets.value = data;
   if (selectedId.value && !data.some((item) => item.id === selectedId.value)) {
@@ -334,24 +340,43 @@ async function loadSnippets() {
 }
 
 async function loadMeta() {
-  tagStats.value = await ipc<TagStat[]>("tool:snippets:v2:tag-stats");
+  const data = await invokeWithLoading<TagStat[]>(
+    "tool:snippets:v2:tag-stats",
+    {},
+    { errorPrefix: "标签加载失败：" },
+  );
+  if (data) tagStats.value = data;
 }
 
 async function selectSnippet(id: number) {
+  const detail = await invokeWithLoading<SnippetDetail>(
+    "tool:snippets:v2:get",
+    { id },
+    { errorPrefix: "加载片段失败：" },
+  );
+  if (!detail) return;
+
   selectedId.value = id;
-  current.value = await ipc<SnippetDetail>("tool:snippets:v2:get", { id });
+  current.value = detail;
   activeFragmentName.value = "0";
-  await ipc("tool:snippets:v2:mark-used", { id });
+  // 使用统计失败不影响用户查看片段。
+  await invokeSilent("tool:snippets:v2:mark-used", { id });
   void loadSnippets();
 }
 
 async function createSnippet() {
-  const created = await ipc<SnippetDetail>("tool:snippets:v2:create", {
-    title: "",
-    description: "",
-    tags: selectedTag.value ? [selectedTag.value] : [],
-    fragments: [{ label: "main", language: "plaintext", code: "" }],
-  });
+  const created = await invokeWithLoading<SnippetDetail>(
+    "tool:snippets:v2:create",
+    {
+      title: "",
+      description: "",
+      tags: selectedTag.value ? [selectedTag.value] : [],
+      fragments: [{ label: "main", language: "plaintext", code: "" }],
+    },
+    { errorPrefix: "新建失败：" },
+  );
+  if (!created) return;
+
   await loadMeta();
   await loadSnippets();
   await selectSnippet(created.id);
@@ -362,14 +387,20 @@ function scheduleSave() {
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = setTimeout(async () => {
     if (!current.value) return;
-    await ipc("tool:snippets:v2:update", {
-      id: current.value.id,
-      title: current.value.title,
-      description: current.value.description,
-      isFavorite: current.value.isFavorite,
-      tags: current.value.tags,
-      fragments: current.value.fragments,
-    });
+    const saved = await invokeWithLoading<SnippetDetail>(
+      "tool:snippets:v2:update",
+      {
+        id: current.value.id,
+        title: current.value.title,
+        description: current.value.description,
+        isFavorite: current.value.isFavorite,
+        tags: current.value.tags,
+        fragments: current.value.fragments,
+      },
+      { errorPrefix: "保存失败：" },
+    );
+    if (!saved) return;
+
     await loadSnippets();
     await loadMeta();
   }, 420);
@@ -377,7 +408,13 @@ function scheduleSave() {
 
 async function deleteSnippet() {
   if (!current.value) return;
-  await ipc("tool:snippets:v2:delete", { id: current.value.id });
+  const deleted = await invokeWithLoading<{ ok: boolean }>(
+    "tool:snippets:v2:delete",
+    { id: current.value.id },
+    { errorPrefix: "删除失败：" },
+  );
+  if (!deleted) return;
+
   current.value = null;
   selectedId.value = null;
   await loadSnippets();
@@ -387,13 +424,6 @@ async function deleteSnippet() {
 function setPreset(preset: "all" | "favorite" | "recent7" | "untagged") {
   viewPreset.value = preset;
   void loadSnippets();
-}
-
-function onSearchInput() {
-  if (searchTimer) clearTimeout(searchTimer);
-  searchTimer = setTimeout(() => {
-    void loadSnippets();
-  }, 260);
 }
 
 function showTagInput() {
@@ -502,7 +532,8 @@ async function copyCurrentCode() {
   await navigator.clipboard.writeText(activeFragment.value.code || "");
   ElMessage.success("代码已复制");
   if (current.value) {
-    await ipc("tool:snippets:v2:mark-used", { id: current.value.id });
+    // 使用统计失败不影响已经完成的复制操作。
+    await invokeSilent("tool:snippets:v2:mark-used", { id: current.value.id });
     await loadSnippets();
   }
 }
@@ -513,18 +544,17 @@ async function toggleFavorite() {
   scheduleSave();
 }
 
+watch(debouncedKeyword, () => {
+  void loadSnippets();
+});
+
 onMounted(async () => {
-  try {
-    await loadMeta();
-    await loadSnippets();
-  } catch (error) {
-    ElMessage.error((error as Error).message || "代码片段加载失败");
-  }
+  await loadMeta();
+  await loadSnippets();
 });
 
 onBeforeUnmount(() => {
   if (saveTimer) clearTimeout(saveTimer);
-  if (searchTimer) clearTimeout(searchTimer);
 });
 </script>
 
