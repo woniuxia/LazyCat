@@ -3,7 +3,44 @@ use serde_json::{json, Value};
 
 use super::helpers::db_conn;
 
+const ACTIONS: &[&str] = &[
+    "v2_list",
+    "list",
+    "v2_get",
+    "get",
+    "v2_create",
+    "create",
+    "v2_update",
+    "update",
+    "v2_delete",
+    "delete",
+    "v2_search",
+    "search",
+    "v2_mark_used",
+    "v2_tag_stats",
+    "tags",
+    "v2_folder_list",
+    "folder_list",
+    "v2_folder_create",
+    "folder_create",
+    "v2_folder_update",
+    "folder_update",
+    "v2_folder_delete",
+    "folder_delete",
+    "toggle_favorite",
+    "language_stats",
+    "batch_update",
+    "batch_delete",
+];
+
+pub(crate) fn supported_actions() -> &'static [&'static str] {
+    ACTIONS
+}
+
 pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
+    if !ACTIONS.contains(&action) {
+        return Err(format!("unsupported snippets action: {action}"));
+    }
     match action {
         "v2_list" | "list" => v2_list(payload),
         "v2_get" | "get" => v2_get(payload),

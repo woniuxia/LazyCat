@@ -5,7 +5,30 @@ use std::process::Command;
 
 use super::helpers::db_conn;
 
+const ACTIONS: &[&str] = &[
+    "scan",
+    "list",
+    "add",
+    "add_manual",
+    "update",
+    "remove",
+    "reorder",
+    "launch",
+    "open_folder",
+    "list_groups",
+    "create_group",
+    "rename_group",
+    "delete_group",
+];
+
+pub(crate) fn supported_actions() -> &'static [&'static str] {
+    ACTIONS
+}
+
 pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
+    if !ACTIONS.contains(&action) {
+        return Err(format!("unsupported launcher action: {action}"));
+    }
     match action {
         "scan" => scan_shortcuts(),
         "list" => list_entries(),

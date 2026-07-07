@@ -54,7 +54,40 @@ fn redis_conns() -> &'static Mutex<HashMap<String, redis::aio::MultiplexedConnec
     REDIS_CONNS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+const ACTIONS: &[&str] = &[
+    "connection_list",
+    "connection_save",
+    "connection_delete",
+    "connection_test",
+    "connection_open",
+    "connection_close",
+    "schema_databases",
+    "schema_tables",
+    "schema_table_detail",
+    "query_execute",
+    "query_cancel",
+    "table_data_page",
+    "table_apply_changes",
+    "result_export",
+    "saved_query_list",
+    "saved_query_save",
+    "saved_query_delete",
+    "history_list",
+    "history_clear",
+    "redis_scan",
+    "redis_key_detail",
+    "redis_key_write",
+    "redis_command",
+];
+
+pub(crate) fn supported_actions() -> &'static [&'static str] {
+    ACTIONS
+}
+
 pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
+    if !ACTIONS.contains(&action) {
+        return Err(format!("unsupported db action: {action}"));
+    }
     match action {
         "connection_list" => connection_list(),
         "connection_save" => connection_save(payload),

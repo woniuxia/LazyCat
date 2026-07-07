@@ -4,7 +4,18 @@ use std::sync::OnceLock;
 
 pub static MANUAL_SERVERS: OnceLock<HashMap<String, u16>> = OnceLock::new();
 
+const ACTIONS: &[&str] = &[
+    "list",
+];
+
+pub(crate) fn supported_actions() -> &'static [&'static str] {
+    ACTIONS
+}
+
 pub fn execute(action: &str, _payload: &Value) -> Result<Value, String> {
+    if !ACTIONS.contains(&action) {
+        return Err(format!("unsupported manuals action: {action}"));
+    }
     match action {
         "list" => {
             let servers = MANUAL_SERVERS.get();

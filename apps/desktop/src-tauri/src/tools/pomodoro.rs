@@ -58,7 +58,22 @@ pub struct PomodoroPrompt {
     pub prompted_at: String,
 }
 
+const ACTIONS: &[&str] = &[
+    "get_state",
+    "set_enabled",
+    "start_today",
+    "skip_today",
+    "stop_today",
+];
+
+pub(crate) fn supported_actions() -> &'static [&'static str] {
+    ACTIONS
+}
+
 pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
+    if !ACTIONS.contains(&action) {
+        return Err(format!("unsupported pomodoro action: {action}"));
+    }
     match action {
         "get_state" => get_state(),
         "set_enabled" => set_enabled(payload),

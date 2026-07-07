@@ -250,47 +250,48 @@ fn action_list_with_conn(conn: &Connection) -> Result<Value, String> {
     Ok(json!({ "collections": collections, "history": history }))
 }
 
-fn is_supported_api_workbench_action(action: &str) -> bool {
-    matches!(
-        action,
-        "list"
-            | "collection_create"
-            | "collection_update"
-            | "collection_set_active_environment"
-            | "collection_delete"
-            | "folder_create"
-            | "folder_update"
-            | "folder_delete"
-            | "folder_move"
-            | "folder_reorder"
-            | "request_get"
-            | "request_save"
-            | "request_delete"
-            | "request_move"
-            | "request_reorder"
-            | "send"
-            | "export_curl"
-            | "history_save_request"
-            | "request_save_example_response"
-            | "history_list"
-            | "history_get"
-            | "history_replay"
-            | "history_update"
-            | "history_clear"
-            | "response_preview_office"
-            | "response_cache_open"
-            | "response_cache_reveal"
-            | "export_markdown"
-            | "environment_list"
-            | "environment_save"
-            | "environment_delete"
-            | "global_variables_list"
-            | "global_variables_save"
-    )
+const ACTIONS: &[&str] = &[
+    "list",
+    "collection_create",
+    "collection_update",
+    "collection_set_active_environment",
+    "collection_delete",
+    "folder_create",
+    "folder_update",
+    "folder_delete",
+    "folder_move",
+    "folder_reorder",
+    "request_get",
+    "request_save",
+    "request_delete",
+    "request_move",
+    "request_reorder",
+    "send",
+    "export_curl",
+    "history_save_request",
+    "request_save_example_response",
+    "history_list",
+    "history_get",
+    "history_replay",
+    "history_update",
+    "history_clear",
+    "response_preview_office",
+    "response_cache_open",
+    "response_cache_reveal",
+    "export_markdown",
+    "environment_list",
+    "environment_save",
+    "environment_delete",
+    "global_variables_list",
+    "global_variables_save",
+];
+
+pub(crate) fn supported_actions() -> &'static [&'static str] {
+    ACTIONS
 }
 
 pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
-    if !is_supported_api_workbench_action(action) {
+    if !ACTIONS.contains(&action) {
         return Err(format!("unsupported api_workbench action: {action}"));
     }
     let conn = db_conn()?;

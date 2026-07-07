@@ -1489,31 +1489,32 @@ fn push_log(logs: &Arc<Mutex<VecDeque<RequestLogEntry>>>, entry: RequestLogEntry
     }
 }
 
-fn is_supported_api_mock_action(action: &str) -> bool {
-    matches!(
-        action,
-        "project_list"
-            | "project_create"
-            | "project_update"
-            | "project_delete"
-            | "project_reorder"
-            | "route_list"
-            | "route_get"
-            | "route_save"
-            | "route_toggle"
-            | "route_delete"
-            | "route_reorder"
-            | "file_import"
-            | "service_start"
-            | "service_stop"
-            | "service_status"
-            | "request_logs"
-            | "request_logs_clear"
-    )
+const ACTIONS: &[&str] = &[
+    "project_list",
+    "project_create",
+    "project_update",
+    "project_delete",
+    "project_reorder",
+    "route_list",
+    "route_get",
+    "route_save",
+    "route_toggle",
+    "route_delete",
+    "route_reorder",
+    "file_import",
+    "service_start",
+    "service_stop",
+    "service_status",
+    "request_logs",
+    "request_logs_clear",
+];
+
+pub(crate) fn supported_actions() -> &'static [&'static str] {
+    ACTIONS
 }
 
 pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
-    if !is_supported_api_mock_action(action) {
+    if !ACTIONS.contains(&action) {
         return Err(format!("unsupported api_mock action: {action}"));
     }
     let conn = db_conn()?;

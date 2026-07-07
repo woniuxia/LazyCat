@@ -11,7 +11,20 @@ struct RenderContext {
     safe_substitution: bool,
 }
 
+const ACTIONS: &[&str] = &[
+    "render",
+    "lint",
+    "extract_params",
+];
+
+pub(crate) fn supported_actions() -> &'static [&'static str] {
+    ACTIONS
+}
+
 pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
+    if !ACTIONS.contains(&action) {
+        return Err(format!("unsupported mybatis action: {action}"));
+    }
     match action {
         "render" => render(payload),
         "lint" => lint(payload),

@@ -15,7 +15,55 @@ pub(crate) const PRIORITIES: [&str; 4] = ["P0", "P1", "P2", "P3"];
 
 // ── Entry point ──────────────────────────────────────────
 
+const ACTIONS: &[&str] = &[
+    "project_list",
+    "project_create",
+    "project_update",
+    "project_archive",
+    "project_restore",
+    "project_delete",
+    "item_counts",
+    "item_list",
+    "item_create",
+    "item_update",
+    "item_change_status",
+    "item_reorder",
+    "item_toggle_pin",
+    "item_batch_update",
+    "item_delete",
+    "item_move_project",
+    "tag_list",
+    "weekly_work",
+    "siyuan_test",
+    "siyuan_directory",
+    "siyuan_search_pages",
+    "siyuan_create_page",
+    "siyuan_open_page",
+    "open_link",
+    "siyuan_check_running",
+    "siyuan_launch",
+    "item_todo_list",
+    "item_todo_link",
+    "item_todo_unlink",
+    "item_todo_create",
+    "item_todo_candidates",
+    "item_todo_candidates_by_project",
+    "item_today_list",
+    "item_today_counts",
+    "item_calendar_range",
+    "item_matrix_bucket",
+    "item_import_preview",
+    "item_import",
+];
+
+pub(crate) fn supported_actions() -> &'static [&'static str] {
+    ACTIONS
+}
+
 pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
+    if !ACTIONS.contains(&action) {
+        return Err(format!("unsupported pm action: {action}"));
+    }
     match action {
         "project_list" => project_list(),
         "project_create" => project_create(payload),

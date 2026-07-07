@@ -28,7 +28,21 @@ fn byte_offset_to_char_offset(input: &str, byte_offset: usize) -> usize {
     input[..byte_offset].chars().count()
 }
 
+const ACTIONS: &[&str] = &[
+    "test",
+    "replace",
+    "generate",
+    "templates",
+];
+
+pub(crate) fn supported_actions() -> &'static [&'static str] {
+    ACTIONS
+}
+
 pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
+    if !ACTIONS.contains(&action) {
+        return Err(format!("unsupported regex action: {action}"));
+    }
     match action {
         "test" => {
             let pattern = payload["pattern"].as_str().unwrap_or_default();

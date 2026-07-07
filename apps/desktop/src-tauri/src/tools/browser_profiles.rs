@@ -55,7 +55,22 @@ struct BrowserProfileItem {
     last_launched_at: Option<String>,
 }
 
+const ACTIONS: &[&str] = &[
+    "list",
+    "save_alias",
+    "set_hidden",
+    "set_edge_path",
+    "launch",
+];
+
+pub(crate) fn supported_actions() -> &'static [&'static str] {
+    ACTIONS
+}
+
 pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
+    if !ACTIONS.contains(&action) {
+        return Err(format!("unsupported browser_profiles action: {action}"));
+    }
     match action {
         "list" => list_profiles(),
         "save_alias" => save_alias(payload),

@@ -4,7 +4,20 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
 
+const ACTIONS: &[&str] = &[
+    "info",
+    "split",
+    "merge",
+];
+
+pub(crate) fn supported_actions() -> &'static [&'static str] {
+    ACTIONS
+}
+
 pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
+    if !ACTIONS.contains(&action) {
+        return Err(format!("unsupported pdf action: {action}"));
+    }
     match action {
         "info" => pdf_info(payload),
         "split" => pdf_split(payload),

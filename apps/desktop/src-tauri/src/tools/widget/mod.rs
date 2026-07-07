@@ -22,7 +22,29 @@ pub mod widget;
 use serde_json::{json, Value};
 use tauri::AppHandle;
 
+const ACTIONS: &[&str] = &[
+    "status",
+    "get_config",
+    "set_config",
+    "dashboard_data",
+    "apply",
+    "enable",
+    "disable",
+    "resume",
+    "reposition",
+    "pause",
+    "set_privacy_mask",
+    "diagnostics",
+];
+
+pub(crate) fn supported_actions() -> &'static [&'static str] {
+    ACTIONS
+}
+
 pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
+    if !ACTIONS.contains(&action) {
+        return Err(format!("unsupported widget action: {action}"));
+    }
     match action {
         "status" => Ok(session::session().status_snapshot()),
         "get_config" => serde_json::to_value(config::read_config())
@@ -42,6 +64,9 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
 }
 
 pub fn execute_with_app(action: &str, payload: &Value, app: &AppHandle) -> Result<Value, String> {
+    if !ACTIONS.contains(&action) {
+        return Err(format!("unsupported widget action: {action}"));
+    }
     match action {
         "apply" => apply::apply(app),
         "enable" => enable_widget(app),

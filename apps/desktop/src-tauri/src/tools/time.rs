@@ -93,7 +93,21 @@ fn date_add(payload: &Value) -> Result<Value, String> {
     }))
 }
 
+const ACTIONS: &[&str] = &[
+    "timestamp_to_date",
+    "date_to_timestamp",
+    "date_diff",
+    "date_add",
+];
+
+pub(crate) fn supported_actions() -> &'static [&'static str] {
+    ACTIONS
+}
+
 pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
+    if !ACTIONS.contains(&action) {
+        return Err(format!("unsupported time action: {action}"));
+    }
     match action {
         "timestamp_to_date" => {
             let input = payload["input"].as_i64().unwrap_or_default();

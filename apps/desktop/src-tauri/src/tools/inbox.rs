@@ -99,7 +99,29 @@ struct CaptureCandidate {
 
 type SqlParam = Box<dyn rusqlite::ToSql>;
 
+const ACTIONS: &[&str] = &[
+    "list",
+    "get",
+    "search",
+    "promote",
+    "update_meta",
+    "archive",
+    "delete",
+    "cleanup",
+    "capture_status",
+    "capture_pause",
+    "open_path",
+    "copy_image",
+];
+
+pub(crate) fn supported_actions() -> &'static [&'static str] {
+    ACTIONS
+}
+
 pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
+    if !ACTIONS.contains(&action) {
+        return Err(format!("unsupported inbox action: {action}"));
+    }
     match action {
         "list" => action_list(payload),
         "get" => action_get(payload),

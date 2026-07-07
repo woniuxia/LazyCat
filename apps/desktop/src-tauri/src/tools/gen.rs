@@ -149,7 +149,23 @@ fn password_strength(payload: &Value) -> Result<Value, String> {
     }))
 }
 
+const ACTIONS: &[&str] = &[
+    "uuid",
+    "uuid_simple",
+    "guid",
+    "snowflake",
+    "password",
+    "password_strength",
+];
+
+pub(crate) fn supported_actions() -> &'static [&'static str] {
+    ACTIONS
+}
+
 pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
+    if !ACTIONS.contains(&action) {
+        return Err(format!("unsupported gen action: {action}"));
+    }
     match action {
         "uuid" => Ok(json!(Uuid::new_v4().to_string())),
         "uuid_simple" => Ok(json!(Uuid::new_v4().to_string().replace('-', ""))),

@@ -658,7 +658,24 @@ fn parse_ping_single_latency(output: &str) -> Option<u64> {
     None
 }
 
+const ACTIONS: &[&str] = &[
+    "tcp_test",
+    "http_test",
+    "http_status_list",
+    "http_status_lookup",
+    "chmod_calc",
+    "udp_test",
+    "ping_test",
+];
+
+pub(crate) fn supported_actions() -> &'static [&'static str] {
+    ACTIONS
+}
+
 pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
+    if !ACTIONS.contains(&action) {
+        return Err(format!("unsupported network action: {action}"));
+    }
     match action {
         "tcp_test" => {
             let host = payload["host"].as_str().unwrap_or("127.0.0.1");

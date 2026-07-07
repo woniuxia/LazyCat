@@ -770,9 +770,23 @@ mod win {
     }
 }
 
+const ACTIONS: &[&str] = &[
+    "check",
+    "scan",
+    "mappings",
+    "detect_owner",
+];
+
+pub(crate) fn supported_actions() -> &'static [&'static str] {
+    ACTIONS
+}
+
 pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
     #[cfg(target_os = "windows")]
     {
+        if !ACTIONS.contains(&action) {
+            return Err(format!("unsupported hotkey action: {action}"));
+        }
         match action {
             "check" => {
                 let shortcut = payload

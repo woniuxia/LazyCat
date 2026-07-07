@@ -1101,7 +1101,29 @@ fn yaml_format(payload: &Value) -> Result<Value, String> {
     Ok(json!({ "output": output }))
 }
 
+const ACTIONS: &[&str] = &[
+    "json_to_xml",
+    "xml_to_json",
+    "json_to_yaml",
+    "csv_to_json",
+    "csv_read_file",
+    "java_bean_to_json",
+    "json_to_js_object",
+    "java_bean_to_js_object",
+    "config_convert",
+    "yaml_validate",
+    "yaml_format",
+    "sql_to_entity",
+];
+
+pub(crate) fn supported_actions() -> &'static [&'static str] {
+    ACTIONS
+}
+
 pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
+    if !ACTIONS.contains(&action) {
+        return Err(format!("unsupported convert action: {action}"));
+    }
     match action {
         "json_to_xml" => {
             let input = payload["input"].as_str().unwrap_or_default();

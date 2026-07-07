@@ -18,7 +18,24 @@ use super::helpers::{db_conn, get_attachments_dir, get_data_dir};
 /// 单图上限：5 MB（前后端一致）
 const MAX_SIZE_BYTES: i64 = 5 * 1024 * 1024;
 
+const ACTIONS: &[&str] = &[
+    "save",
+    "save_from_path",
+    "list",
+    "remove",
+    "rebind",
+    "cleanup_orphans",
+    "delete_by_owner",
+];
+
+pub(crate) fn supported_actions() -> &'static [&'static str] {
+    ACTIONS
+}
+
 pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
+    if !ACTIONS.contains(&action) {
+        return Err(format!("unsupported attachments action: {action}"));
+    }
     match action {
         "save" => save(payload),
         "save_from_path" => save_from_path(payload),

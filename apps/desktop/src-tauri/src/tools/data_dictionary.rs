@@ -120,7 +120,31 @@ struct RelationConfig {
     reverse_name: String,
 }
 
+const ACTIONS: &[&str] = &[
+    "list",
+    "get",
+    "import_preview",
+    "create",
+    "rename",
+    "replace_records",
+    "update_fields",
+    "reorder",
+    "search",
+    "popular_records",
+    "mark_record_used",
+    "record_detail",
+    "rebuild_indexes",
+    "delete",
+];
+
+pub(crate) fn supported_actions() -> &'static [&'static str] {
+    ACTIONS
+}
+
 pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
+    if !ACTIONS.contains(&action) {
+        return Err(format!("unsupported data dictionary action: {action}"));
+    }
     match action {
         "list" => action_list(),
         "get" => action_get(payload),

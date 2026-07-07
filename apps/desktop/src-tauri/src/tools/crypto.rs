@@ -18,7 +18,25 @@ fn bcrypt_verify(payload: &Value) -> Result<Value, String> {
     Ok(json!({ "valid": valid }))
 }
 
+const ACTIONS: &[&str] = &[
+    "rsa_encrypt",
+    "rsa_decrypt",
+    "aes_encrypt",
+    "aes_decrypt",
+    "des_encrypt",
+    "des_decrypt",
+    "bcrypt_hash",
+    "bcrypt_verify",
+];
+
+pub(crate) fn supported_actions() -> &'static [&'static str] {
+    ACTIONS
+}
+
 pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
+    if !ACTIONS.contains(&action) {
+        return Err(format!("unsupported crypto action: {action}"));
+    }
     match action {
         "rsa_encrypt" => {
             let plaintext = payload["plaintext"]

@@ -179,7 +179,20 @@ fn naming_convert(payload: &Value) -> Result<Value, String> {
     }))
 }
 
+const ACTIONS: &[&str] = &[
+    "process",
+    "presets",
+    "naming_convert",
+];
+
+pub(crate) fn supported_actions() -> &'static [&'static str] {
+    ACTIONS
+}
+
 pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
+    if !ACTIONS.contains(&action) {
+        return Err(format!("unsupported text action: {action}"));
+    }
     match action {
         "process" => process_text(payload),
         "presets" => Ok(json!(builtin_presets())),

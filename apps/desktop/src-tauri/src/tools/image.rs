@@ -4,7 +4,19 @@ use std::fs;
 use std::io::BufWriter;
 use std::path::PathBuf;
 
+const ACTIONS: &[&str] = &[
+    "convert",
+    "info",
+];
+
+pub(crate) fn supported_actions() -> &'static [&'static str] {
+    ACTIONS
+}
+
 pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
+    if !ACTIONS.contains(&action) {
+        return Err(format!("unsupported image action: {action}"));
+    }
     match action {
         "convert" => image_convert(payload),
         "info" => image_info(payload),

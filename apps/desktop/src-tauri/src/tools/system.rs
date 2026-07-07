@@ -18,7 +18,24 @@ use serde_json::{json, Value};
 
 use super::helpers::{get_attachments_dir, get_data_dir};
 
+const ACTIONS: &[&str] = &[
+    "get_paths",
+    "open_external",
+    "read_clipboard_files",
+    "open_local_path",
+    "reveal_in_folder",
+    "check_paths_exist",
+    "local_ips",
+];
+
+pub(crate) fn supported_actions() -> &'static [&'static str] {
+    ACTIONS
+}
+
 pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
+    if !ACTIONS.contains(&action) {
+        return Err(format!("unsupported system action: {action}"));
+    }
     match action {
         "get_paths" => get_paths(),
         "open_external" => open_external(payload),

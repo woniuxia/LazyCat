@@ -6,7 +6,30 @@ use tauri_plugin_autostart::ManagerExt;
 
 use super::helpers::{db_conn, get_base_dir, get_config_path, get_data_dir};
 
+const ACTIONS: &[&str] = &[
+    "get",
+    "set",
+    "get_all",
+    "export",
+    "import",
+    "export_to_file",
+    "import_from_file",
+    "get_data_dir",
+    "set_data_dir",
+    "reset_data_dir",
+    "enable_autostart",
+    "disable_autostart",
+    "is_autostart_enabled",
+];
+
+pub(crate) fn supported_actions() -> &'static [&'static str] {
+    ACTIONS
+}
+
 pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
+    if !ACTIONS.contains(&action) {
+        return Err(format!("unsupported settings action: {action}"));
+    }
     match action {
         "get" => settings_get(payload),
         "set" => settings_set(payload),
@@ -27,6 +50,9 @@ pub fn execute_with_app(
     payload: &Value,
     app: &tauri::AppHandle,
 ) -> Result<Value, String> {
+    if !ACTIONS.contains(&action) {
+        return Err(format!("unsupported settings action: {action}"));
+    }
     match action {
         "enable_autostart" => enable_autostart(app),
         "disable_autostart" => disable_autostart(app),

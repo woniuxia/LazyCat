@@ -1,6 +1,18 @@
 use serde_json::{json, Value};
 
+const ACTIONS: &[&str] = &[
+    "generate",
+    "lint",
+];
+
+pub(crate) fn supported_actions() -> &'static [&'static str] {
+    ACTIONS
+}
+
 pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
+    if !ACTIONS.contains(&action) {
+        return Err(format!("unsupported nginx action: {action}"));
+    }
     match action {
         "generate" => generate(payload),
         "lint" => lint(payload),

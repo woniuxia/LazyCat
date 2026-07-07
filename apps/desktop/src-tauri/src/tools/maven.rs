@@ -3,7 +3,19 @@ use std::cmp::Ordering;
 use std::fs;
 use std::path::PathBuf;
 
+const ACTIONS: &[&str] = &[
+    "locate",
+    "open_path",
+];
+
+pub(crate) fn supported_actions() -> &'static [&'static str] {
+    ACTIONS
+}
+
 pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
+    if !ACTIONS.contains(&action) {
+        return Err(format!("unsupported maven action: {action}"));
+    }
     match action {
         "locate" => locate(payload),
         "open_path" => open_path(payload),

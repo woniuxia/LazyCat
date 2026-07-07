@@ -6,7 +6,29 @@ use image::ImageFormat;
 use qrcode::QrCode;
 use serde_json::{json, Value};
 
+const ACTIONS: &[&str] = &[
+    "base64_encode",
+    "base64_decode",
+    "base64_url_encode",
+    "base64_url_decode",
+    "url_encode",
+    "url_decode",
+    "md5",
+    "qr_generate",
+    "sha1",
+    "sha256",
+    "sha512",
+    "hmac_sha256",
+];
+
+pub(crate) fn supported_actions() -> &'static [&'static str] {
+    ACTIONS
+}
+
 pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
+    if !ACTIONS.contains(&action) {
+        return Err(format!("unsupported encode action: {action}"));
+    }
     match action {
         "base64_encode" => {
             let input = payload["input"].as_str().unwrap_or_default();

@@ -1284,7 +1284,35 @@ fn backfill_plain_fields(conn: &Connection, key: &[u8; KEY_LEN]) {
     }
 }
 
+const ACTIONS: &[&str] = &[
+    "status",
+    "setup",
+    "unlock",
+    "touch",
+    "lock",
+    "change_password",
+    "list",
+    "meta_list",
+    "get",
+    "reveal_one",
+    "create",
+    "update",
+    "delete",
+    "open_url",
+    "tag_stats",
+    "rename_tag",
+    "delete_tag",
+    "record_usage",
+];
+
+pub(crate) fn supported_actions() -> &'static [&'static str] {
+    ACTIONS
+}
+
 pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
+    if !ACTIONS.contains(&action) {
+        return Err(format!("unsupported vault action: {action}"));
+    }
     match action {
         "status" => cmd_status(payload),
         "setup" => cmd_setup(payload),

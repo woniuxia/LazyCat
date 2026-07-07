@@ -14,7 +14,27 @@ use super::helpers::{db_conn, get_data_dir};
 /// exists" confirmation dialog instead of silently overwriting.
 pub const ERR_DUPLICATE_NAME: &str = "DUPLICATE_NAME";
 
+const ACTIONS: &[&str] = &[
+    "save",
+    "list",
+    "delete",
+    "activate",
+    "reorder",
+    "read_system",
+    "admin_check",
+    "backup_list",
+    "backup_restore",
+    "backup_delete",
+];
+
+pub(crate) fn supported_actions() -> &'static [&'static str] {
+    ACTIONS
+}
+
 pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
+    if !ACTIONS.contains(&action) {
+        return Err(format!("unsupported hosts action: {action}"));
+    }
     match action {
         "save" => hosts_save(payload),
         "list" => hosts_list(),

@@ -155,7 +155,20 @@ fn build_process_summaries(entries: &[PortUsageEntry]) -> Vec<PortProcessSummary
     out
 }
 
+const ACTIONS: &[&str] = &[
+    "usage",
+    "process_detail",
+    "kill",
+];
+
+pub(crate) fn supported_actions() -> &'static [&'static str] {
+    ACTIONS
+}
+
 pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
+    if !ACTIONS.contains(&action) {
+        return Err(format!("unsupported port action: {action}"));
+    }
     match action {
         "usage" => port_usage(payload),
         "process_detail" => process_detail(payload),

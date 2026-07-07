@@ -80,7 +80,37 @@ struct TaskReminderSummary {
 
 // ── Entry points ──────────────────────────────────────────
 
+const ACTIONS: &[&str] = &[
+    "type_list",
+    "type_upsert",
+    "type_delete",
+    "assignee_list",
+    "assignee_upsert",
+    "assignee_delete",
+    "item_list",
+    "item_create",
+    "item_update",
+    "item_upsert",
+    "item_change_status",
+    "item_snooze",
+    "item_toggle_pin",
+    "item_toggle_active",
+    "item_delete",
+    "reminder_list_unread",
+    "reminder_mark_read",
+    "open_link",
+    "pm_candidates",
+    "item_set_pm_link",
+];
+
+pub(crate) fn supported_actions() -> &'static [&'static str] {
+    ACTIONS
+}
+
 pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
+    if !ACTIONS.contains(&action) {
+        return Err(format!("unsupported todo action: {action}"));
+    }
     match action {
         "type_list" => type_list(),
         "type_upsert" => type_upsert(payload),

@@ -23,7 +23,23 @@ enum PreviewTimezone {
     Iana(Tz),
 }
 
+const ACTIONS: &[&str] = &[
+    "generate",
+    "preview",
+    "preview_v2",
+    "normalize",
+    "describe",
+    "parse",
+];
+
+pub(crate) fn supported_actions() -> &'static [&'static str] {
+    ACTIONS
+}
+
 pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
+    if !ACTIONS.contains(&action) {
+        return Err(format!("unsupported cron action: {action}"));
+    }
     match action {
         "generate" => {
             let second = payload["second"].as_str().unwrap_or("0");

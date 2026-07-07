@@ -3,7 +3,20 @@ use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::PathBuf;
 
+const ACTIONS: &[&str] = &[
+    "split",
+    "merge",
+    "write_text",
+];
+
+pub(crate) fn supported_actions() -> &'static [&'static str] {
+    ACTIONS
+}
+
 pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
+    if !ACTIONS.contains(&action) {
+        return Err(format!("unsupported file action: {action}"));
+    }
     match action {
         "split" => file_split(payload),
         "merge" => file_merge(payload),

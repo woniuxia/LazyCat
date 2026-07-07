@@ -72,7 +72,18 @@ fn detect_tool(
     }
 }
 
+const ACTIONS: &[&str] = &[
+    "detect",
+];
+
+pub(crate) fn supported_actions() -> &'static [&'static str] {
+    ACTIONS
+}
+
 pub fn execute(action: &str, _payload: &Value) -> Result<Value, String> {
+    if !ACTIONS.contains(&action) {
+        return Err(format!("unsupported env action: {action}"));
+    }
     match action {
         "detect" => {
             let started_at = Instant::now();

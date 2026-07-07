@@ -1,7 +1,18 @@
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use serde_json::{json, Value};
 
+const ACTIONS: &[&str] = &[
+    "decode",
+];
+
+pub(crate) fn supported_actions() -> &'static [&'static str] {
+    ACTIONS
+}
+
 pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
+    if !ACTIONS.contains(&action) {
+        return Err(format!("unsupported jwt action: {action}"));
+    }
     match action {
         "decode" => {
             let token = payload["token"].as_str().unwrap_or_default().trim();
