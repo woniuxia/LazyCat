@@ -17,6 +17,7 @@ const ACTIONS: &[&str] = &[
     "extract_params",
 ];
 
+#[cfg(test)]
 pub(crate) fn supported_actions() -> &'static [&'static str] {
     ACTIONS
 }

@@ -114,6 +114,7 @@ const ACTIONS: &[&str] = &[
     "copy_image",
 ];
 
+#[cfg(test)]
 pub(crate) fn supported_actions() -> &'static [&'static str] {
     ACTIONS
 }

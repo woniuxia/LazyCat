@@ -29,6 +29,7 @@ const ACTIONS: &[&str] = &[
     "bcrypt_verify",
 ];
 
+#[cfg(test)]
 pub(crate) fn supported_actions() -> &'static [&'static str] {
     ACTIONS
 }

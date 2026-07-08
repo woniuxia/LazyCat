@@ -455,18 +455,6 @@ impl WidgetSession {
         }
     }
 
-    /// 读 SessionInner 快照（替代旧 state::snapshot）。
-    pub fn read_inner<F, R>(&self, f: F) -> R
-    where
-        F: FnOnce(&SessionInner) -> R,
-    {
-        self.inner.read().map(|g| f(&g)).unwrap_or_else(|_| {
-            // Poisoned lock: just panic in tests, but in prod... create a dummy?
-            // For safety, unwrap here (poison means something already panicked)
-            panic!("WidgetSession inner lock poisoned")
-        })
-    }
-
     pub fn update_last_rendered(&self) {
         if let Ok(mut g) = self.inner.write() {
             g.last_rendered_at = Some(now_iso());

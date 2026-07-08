@@ -356,14 +356,12 @@ fn rebuild_window(app: &AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Instant;
 
     #[test]
     fn debounce_waits_full_window() {
         let (tx, rx) = mpsc::sync_channel::<&'static str>(16);
         // 先发一条
         tx.try_send("test").ok();
-        let start = Instant::now();
         // 单独线程发事件后立即 debounce（本线程消费）
         std::thread::spawn(move || {
             debounce_5s(&rx);

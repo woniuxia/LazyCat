@@ -508,7 +508,7 @@ fn normalize_siyuan_page_title(title: &str) -> Result<String, String> {
     }
 }
 
-pub(crate) fn build_siyuan_target_hpath(location: &SiyuanLocation, title: &str) -> Result<String, String> {
+pub(super) fn build_siyuan_target_hpath(location: &SiyuanLocation, title: &str) -> Result<String, String> {
     let title = normalize_siyuan_page_title(title)?;
     if let Some(parent_hpath) = location
         .parent_hpath

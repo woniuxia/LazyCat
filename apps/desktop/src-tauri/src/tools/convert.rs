@@ -1116,6 +1116,7 @@ const ACTIONS: &[&str] = &[
     "sql_to_entity",
 ];
 
+#[cfg(test)]
 pub(crate) fn supported_actions() -> &'static [&'static str] {
     ACTIONS
 }

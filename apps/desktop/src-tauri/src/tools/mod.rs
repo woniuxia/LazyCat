@@ -105,6 +105,7 @@ fn dispatch_tool(domain: &str, action: &str, payload: &Value) -> Result<Value, S
     }
 }
 
+#[cfg(test)]
 pub fn supported_actions(domain: &str) -> Option<&'static [&'static str]> {
     match domain {
         "api_mock" => Some(api_mock::supported_actions()),

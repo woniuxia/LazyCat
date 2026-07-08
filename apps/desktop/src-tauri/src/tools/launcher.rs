@@ -21,6 +21,7 @@ const ACTIONS: &[&str] = &[
     "delete_group",
 ];
 
+#[cfg(test)]
 pub(crate) fn supported_actions() -> &'static [&'static str] {
     ACTIONS
 }

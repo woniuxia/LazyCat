@@ -185,6 +185,7 @@ const ACTIONS: &[&str] = &[
     "naming_convert",
 ];
 
+#[cfg(test)]
 pub(crate) fn supported_actions() -> &'static [&'static str] {
     ACTIONS
 }

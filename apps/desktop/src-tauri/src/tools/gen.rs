@@ -158,6 +158,7 @@ const ACTIONS: &[&str] = &[
     "password_strength",
 ];
 
+#[cfg(test)]
 pub(crate) fn supported_actions() -> &'static [&'static str] {
     ACTIONS
 }

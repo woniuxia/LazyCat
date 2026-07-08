@@ -11,6 +11,7 @@ pub const EVENT_WIDGET_DASHBOARD_DATA: &str = "widget://dashboard-data";
 pub const EVENT_WIDGET_NAVIGATE: &str = "widget://navigate";
 
 /// 供契约对账测试使用；由具名常量引用组成，无双写漂移。
+#[cfg(test)]
 pub const ALL: &[&str] = &[
     EVENT_MAIN_WINDOW_TOGGLE,
     EVENT_HOTKEY_NAVIGATE,

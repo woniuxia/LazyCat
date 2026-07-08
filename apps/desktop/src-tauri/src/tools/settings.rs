@@ -22,6 +22,7 @@ const ACTIONS: &[&str] = &[
     "is_autostart_enabled",
 ];
 
+#[cfg(test)]
 pub(crate) fn supported_actions() -> &'static [&'static str] {
     ACTIONS
 }

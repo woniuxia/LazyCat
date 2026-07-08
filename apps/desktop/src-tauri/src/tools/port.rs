@@ -161,6 +161,7 @@ const ACTIONS: &[&str] = &[
     "kill",
 ];
 
+#[cfg(test)]
 pub(crate) fn supported_actions() -> &'static [&'static str] {
     ACTIONS
 }

@@ -35,6 +35,7 @@ const ACTIONS: &[&str] = &[
     "templates",
 ];
 
+#[cfg(test)]
 pub(crate) fn supported_actions() -> &'static [&'static str] {
     ACTIONS
 }

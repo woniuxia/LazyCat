@@ -8,6 +8,30 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-07-08: 契约测试专用接口未标 #[cfg(test)] 导致 44 个 dead_code 警告
+
+**场景**: `cargo run` 报 44 个警告，绝大多数是 40 个工具模块的 `supported_actions()`、`mod.rs` 聚合函数与 `events.rs::ALL` "never used"。这些是 2026-07-07 横切面治理 X1-X4 引入的契约对账清单，实际只被 `#[cfg(test)] mod contract_tests` 引用，生产编译剖面看不到使用者。
+**使用次数**: 0
+**问题**:
+1. 测试专用的契约接口（`supported_actions` × 40 + `mod.rs` 聚合 + `events::ALL`）未标 `#[cfg(test)]`，`cargo build/run` 下触发 dead_code 警告共 42 个。
+2. `pm_siyuan.rs` 的 `build_siyuan_target_hpath` 为 `pub(crate)`，但参数类型 `SiyuanLocation` 仅 `pub(super)`，触发 private_interfaces 警告。
+3. `widget/session.rs` 的 `read_inner` 是"替代旧 state::snapshot"的重构遗留，全仓库无调用方。
+4. 附带：`widget/pulse.rs` 测试里残留 `let start = Instant::now();`（测试改写后未删），仅在 `--tests` 剖面报警。
+**解决**:
+1. 给全部 42 处契约接口加 `#[cfg(test)]`（40 个模块用 Python 按精确行匹配批量插入，UTF-8 读写；函数签名 40 处完全一致且前面均为空行，无 doc 注释干扰）。
+2. `build_siyuan_target_hpath` 降为 `pub(super)`——所有调用方（模块内部 + `pm.rs` 测试）都在 `crate::tools` 内。
+3. 删除 `read_inner` 与 pulse 测试残留变量（连带删除仅其使用的 `use std::time::Instant`）。
+**关键点**:
+1. 只被 `#[cfg(test)]` 代码引用的项必须同样标 `#[cfg(test)]`，否则每次生产编译都报 dead_code；新增工具域时，新模块的 `supported_actions()` 要带上 `#[cfg(test)]`（与 `contract_tests.rs` 的 SYNC_GUIDE 同步语义）。
+2. 代价是这些函数只在 `cargo test` / `cargo check --tests` 时编译；验证契约清单需跑 test 剖面，仅 `cargo check` 不覆盖。
+3. 消警告前先定性：本批 42/44 是"测试基础设施被误判死代码"，删除会破坏契约安全网；真正的死代码只有 2 处。
+**涉及文件**:
+- `src-tauri/src/tools/*.rs`（40 个模块 + `mod.rs`）、`src-tauri/src/events.rs`
+- `src-tauri/src/tools/pm_siyuan.rs`、`src-tauri/src/tools/widget/session.rs`、`src-tauri/src/tools/widget/pulse.rs`
+**验证**:
+- `cargo check` 与 `cargo check --tests` 均 0 警告
+- `cargo test` 461 通过 0 失败（契约对账测试全绿）
+
 ## 2026-07-08: Tauri 窗口缺失 capabilities 白名单导致 Spotlight 事件静默失效
 
 **场景**: 浏览器身份设置别名后，Spotlight 用别名搜索不到；昨晚已实现的 `browser-profiles-changed` 事件刷新机制（2026-07-07 记录）在运行时完全不生效。

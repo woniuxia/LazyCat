@@ -27,6 +27,7 @@ const ACTIONS: &[&str] = &[
     "backup_delete",
 ];
 
+#[cfg(test)]
 pub(crate) fn supported_actions() -> &'static [&'static str] {
     ACTIONS
 }

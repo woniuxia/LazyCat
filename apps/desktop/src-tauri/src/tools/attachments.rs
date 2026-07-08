@@ -28,6 +28,7 @@ const ACTIONS: &[&str] = &[
     "delete_by_owner",
 ];
 
+#[cfg(test)]
 pub(crate) fn supported_actions() -> &'static [&'static str] {
     ACTIONS
 }

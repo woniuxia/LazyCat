@@ -1509,6 +1509,7 @@ const ACTIONS: &[&str] = &[
     "request_logs_clear",
 ];
 
+#[cfg(test)]
 pub(crate) fn supported_actions() -> &'static [&'static str] {
     ACTIONS
 }

@@ -28,6 +28,7 @@ const ACTIONS: &[&str] = &[
     "local_ips",
 ];
 
+#[cfg(test)]
 pub(crate) fn supported_actions() -> &'static [&'static str] {
     ACTIONS
 }

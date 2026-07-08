@@ -103,6 +103,7 @@ const ACTIONS: &[&str] = &[
     "item_set_pm_link",
 ];
 
+#[cfg(test)]
 pub(crate) fn supported_actions() -> &'static [&'static str] {
     ACTIONS
 }
