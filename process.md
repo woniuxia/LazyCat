@@ -8,6 +8,28 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-07-08: Tauri 窗口缺失 capabilities 白名单导致 Spotlight 事件静默失效
+
+**场景**: 浏览器身份设置别名后，Spotlight 用别名搜索不到；昨晚已实现的 `browser-profiles-changed` 事件刷新机制（2026-07-07 记录）在运行时完全不生效。
+**使用次数**: 0
+**问题**:
+1. `capabilities/default.json` 的 `windows` 白名单缺少 `spotlight` 和 `pomodoro-prompt`，这两个窗口的 `@tauri-apps/api/event` `listen`/`emit` 调用全部被 Tauri ACL 拒绝。
+2. Spotlight 三条刷新链路全部依赖 event 插件且全部包了 catch 静默吞错：`SPOTLIGHT_RESET`（唤出重置 + 重新预取）、`browser-profiles-changed`（别名变更局部刷新）、`spotlight-config-changed`（配置跨窗口同步）。运行时 Spotlight 缓存永远停留在应用启动时的快照，别名设置后直到整个应用重启才可搜索。
+3. 症状被两层机制掩盖：自定义 command（`tool_execute` 等）不受 ACL 管控所以挂载时首轮预取正常，数据"看起来有"；`focusInput` 的 `el.select()` 全选旧查询词，首次按键即覆盖，掩盖了重置事件失效的可见痕迹。
+4. 同类前科：2026-05-10 `76be630` widget 窗口因同一原因数据加载失败，当时只补了 `widget`，未排查其余窗口。
+**解决**:
+1. `capabilities/default.json` 的 `windows` 数组补齐 `spotlight` 与 `pomodoro-prompt`，与 `main.rs` 中全部 `WebviewWindowBuilder` label + 主窗口对齐。
+2. `cargo check` 验证 tauri-build 对 capability 文件的构建期校验通过。
+**关键点**:
+1. 新增 Tauri 窗口时必须同步把 label 加进 `capabilities/default.json` 的 `windows`，否则该窗口所有插件命令（event/dialog/notification 等）静默失败；自定义 command 不受影响，容易造成"部分功能正常"的假象。（已第 2 次踩坑，下次 +1 后固化到 CLAUDE.md）
+2. 跨窗口事件链路排查顺序：先查 capabilities 白名单，再查事件名一致性，最后查监听回调逻辑；`listen()` 被 ACL 拒绝时 promise reject，会被"best-effort"式 catch 吞掉。
+3. 排查时前端匹配逻辑、后端存储、事件封装层层验证都正常但运行时不工作，应怀疑权限/环境层而非代码逻辑层；本地可直接读 `%USERPROFILE%\.lazycat\config.json` 指针与数据目录 sqlite 验证落库事实。
+**涉及文件**:
+- `apps/desktop/src-tauri/capabilities/default.json`
+**验证**:
+- `cargo check`（tauri-build 构建期校验 capability 文件）
+- 手工冒烟待用户执行：重启应用 → 修改别名 → 唤出 Spotlight 搜索别名
+
 ## 2026-07-07: IPC 契约对账与横切面治理 X1-X4
 
 **场景**: 执行《IPC 契约对账与横切面治理》：为前后端 action、应用级事件名建立对账安全网，并在 Snippet / Launcher / Hosts / Dns 四个试点面板收敛 IPC 错误反馈与列表搜索防抖写法。
@@ -56,7 +78,7 @@
 ## 2026-07-07: Spotlight 预取缓存变更用 provider 级事件失效
 
 **场景**: 浏览器身份别名保存后，Spotlight 驻留窗口仍显示旧别名，导致新别名搜不到、旧别名还能命中。
-**使用次数**: 0
+**使用次数**: 1（2026-07-08 排查同一问题时引用，发现该机制因 capabilities 白名单缺失未生效，见 2026-07-08 记录）
 **问题**:
 1. 浏览器身份的搜索字段构建逻辑已正确复用别名，但 Spotlight 已打开窗口持有 `prefetchAll()` 的 provider 缓存，不会因为浏览器身份面板保存配置自动重建。
 2. 局部刷新和全量 `prefetchAll()` 都会写同一个 `browser-profiles` provider 结果，异步竞态下旧全量请求可能覆盖新局部结果。
