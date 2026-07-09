@@ -103,6 +103,7 @@
             :path-error="pathError"
             :cors-error="corsError"
             :can-save="!!selectedProject"
+            :dirty="isRouteDirty"
             @save="saveRoute()"
             @delete="deleteRoute"
             @pick-file="pickFile"

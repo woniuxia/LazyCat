@@ -9,8 +9,10 @@ import {
   findMockPortConflict,
   formatMockFileSize,
   getMockBodyEditorLanguage,
+  getMockBodyFormatLabel,
   getMockFileContentTypeWarning,
   getMockLogRowTone,
+  getMockMethodColor,
   getMockProjectAccessUrl,
   getMockProjectRuntimeAction,
   getMockRouteSpecificityLabel,
@@ -404,6 +406,16 @@ describe("apiMock utils", () => {
     expect(getMockBodyEditorLanguage("")).toBe("plaintext");
   });
 
+  it("maps formattable editor languages to display labels", () => {
+    expect(getMockBodyFormatLabel("json")).toBe("JSON");
+    expect(getMockBodyFormatLabel("xml")).toBe("XML");
+    expect(getMockBodyFormatLabel("html")).toBe("HTML");
+    expect(getMockBodyFormatLabel("css")).toBe("CSS");
+    expect(getMockBodyFormatLabel("javascript")).toBe("JavaScript");
+    expect(getMockBodyFormatLabel("plaintext")).toBe("");
+    expect(getMockBodyFormatLabel("")).toBe("");
+  });
+
   it("finds port conflicts among other projects only", () => {
     const projects = [
       { id: 1, name: "A", port: 18080 },
@@ -429,5 +441,12 @@ describe("apiMock utils", () => {
       "http://127.0.0.1:18080/api/users/:id",
     );
     expect(buildMockRouteUrl({ host: "0.0.0.0", port: 8080 }, "/files/*")).toBe("http://127.0.0.1:8080/files/*");
+  });
+
+  it("maps HTTP methods to semantic colors with a fallback", () => {
+    expect(getMockMethodColor("GET")).toBe("#047857");
+    expect(getMockMethodColor("DELETE")).toBe("#b91c1c");
+    expect(getMockMethodColor("HEAD")).toBe(getMockMethodColor("OPTIONS"));
+    expect(getMockMethodColor("UNKNOWN")).toBe("#475569");
   });
 });

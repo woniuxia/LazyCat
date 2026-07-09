@@ -8,6 +8,31 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-07-09: API Mock 响应体格式化扩展到全部文本语言（复用 @lazycat/formatters）
+
+**场景**: API Mock 路由表单中响应内容（文本类型）原本只有"格式化 JSON"按钮（`JSON.parse` + `JSON.stringify` 实现），需要扩展为对编辑器可识别的全部语言（JSON/XML/HTML/CSS/JavaScript）提供格式化。
+**解决**:
+1. 复用 `@lazycat/formatters` 包（格式化工具面板 `FormatterPanel.vue` 已在用），不在组件里重写格式化逻辑。
+2. 包内缺 CSS/JS 格式化，新增 `formatCss`（`prettier/plugins/postcss`）和 `formatJavaScript`（复用已有 babel/estree 插件），零新增 npm 依赖——prettier standalone 的插件全部随主包分发。
+3. JSON 从 `JSON.parse/stringify` 改为 Prettier `formatJson`：基于 AST 文本重排，不丢大整数精度（`JSON.parse` 会把超精度整数转 double）。
+4. 组件内用 `Record<language, formatter>` 映射表分发；按钮文案/错误提示的语言标签抽为 `getMockBodyFormatLabel` 纯函数放 `utils/apiMock.ts` 并配套单测。
+**关键点**:
+1. `@lazycat/formatters` 是 workspace 包且 `main` 指向 `dist/index.js`，修改其 `src` 后必须先 `pnpm --filter @lazycat/formatters build` 重新生成 dist，否则 desktop 的 typecheck/构建/运行用的仍是旧产物。
+2. prettier standalone 插件路径：`prettier/plugins/postcss`（css/less/scss）、`prettier/plugins/babel` + `prettier/plugins/estree`（JS/JSON，estree 是 printer 必须一起传）。
+**涉及文件**:
+- `packages/formatters/src/index.ts`
+- `apps/desktop/src/utils/apiMock.ts`
+- `apps/desktop/src/utils/apiMock.test.ts`
+- `apps/desktop/src/components/api-mock/ApiMockRouteForm.vue`
+
+**验证**:
+- `pnpm --filter @lazycat/formatters build`
+- `pnpm vitest run src/utils/apiMock.test.ts`（27 通过）
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+
+**使用次数**: 0
+
 ## 2026-07-08: 契约测试专用接口未标 #[cfg(test)] 导致 44 个 dead_code 警告
 
 **场景**: `cargo run` 报 44 个警告，绝大多数是 40 个工具模块的 `supported_actions()`、`mod.rs` 聚合函数与 `events.rs::ALL` "never used"。这些是 2026-07-07 横切面治理 X1-X4 引入的契约对账清单，实际只被 `#[cfg(test)] mod contract_tests` 引用，生产编译剖面看不到使用者。

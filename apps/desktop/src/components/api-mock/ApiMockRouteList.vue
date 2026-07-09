@@ -22,8 +22,8 @@
           @click="emit('select', route.id)"
           @keydown.enter="emit('select', route.id)"
         >
-          <span class="method">{{ route.method }}</span>
-          <span class="route-path">{{ route.pathPattern }}</span>
+          <span class="method" :style="{ color: route.enabled ? getMockMethodColor(route.method) : '#94a3b8' }">{{ route.method }}</span>
+          <span class="route-path" :title="route.name && route.name !== route.pathPattern ? `${route.name}\n${route.pathPattern}` : route.pathPattern">{{ route.pathPattern }}</span>
           <span class="route-controls" @click.stop>
             <el-button
               class="route-copy"
@@ -56,6 +56,7 @@ import { onBeforeUnmount, onMounted, ref } from "vue";
 import { CopyDocument, Plus } from "@element-plus/icons-vue";
 import Sortable from "sortablejs";
 import type { ApiMockRouteSummary } from "../../types/api-mock";
+import { getMockMethodColor } from "../../utils/apiMock";
 
 const props = defineProps<{
   routes: ApiMockRouteSummary[];
@@ -136,22 +137,28 @@ onBeforeUnmount(() => {
 .route-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .api-mock-route {
   display: grid;
   grid-template-columns: 58px minmax(0, 1fr) auto;
-  gap: 4px 8px;
+  gap: 2px 8px;
   align-items: center;
   width: 100%;
-  padding: 8px 10px;
+  padding: 6px 10px;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
   background: #f8fafc;
   color: inherit;
   text-align: left;
   cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.api-mock-route:hover {
+  border-color: #93c5fd;
+  background: #f0f7ff;
 }
 
 .api-mock-route.active {
@@ -163,10 +170,6 @@ onBeforeUnmount(() => {
   color: #94a3b8;
 }
 
-.api-mock-route.disabled .method {
-  color: #64748b;
-}
-
 .api-mock-route.api-mock-sortable-ghost {
   opacity: 0.4;
   border-style: dashed;
@@ -175,7 +178,6 @@ onBeforeUnmount(() => {
 .method {
   font-size: 12px;
   font-weight: 700;
-  color: #0f766e;
 }
 
 .route-path {

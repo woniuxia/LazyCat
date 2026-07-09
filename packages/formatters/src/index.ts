@@ -2,6 +2,7 @@ import { format } from "prettier/standalone";
 import parserBabel from "prettier/plugins/babel";
 import parserEstree from "prettier/plugins/estree";
 import parserHtml from "prettier/plugins/html";
+import parserPostcss from "prettier/plugins/postcss";
 import { format as formatSql } from "sql-formatter";
 import formatXmlLib from "xml-formatter";
 
@@ -11,6 +12,14 @@ export async function formatJson(input: string): Promise<string> {
 
 export async function formatHtml(input: string): Promise<string> {
   return format(input, { parser: "html", plugins: [parserHtml] });
+}
+
+export async function formatCss(input: string): Promise<string> {
+  return format(input, { parser: "css", plugins: [parserPostcss] });
+}
+
+export async function formatJavaScript(input: string): Promise<string> {
+  return format(input, { parser: "babel", plugins: [parserBabel, parserEstree] });
 }
 
 export function formatXml(input: string): string {

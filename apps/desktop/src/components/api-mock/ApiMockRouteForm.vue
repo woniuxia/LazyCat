@@ -1,8 +1,23 @@
 <template>
-  <el-form label-position="top" class="api-mock-form">
-    <div v-if="fullUrl" class="route-url-line">
-      <span class="route-url">{{ fullUrl }}</span>
-      <el-button :icon="CopyDocument" size="small" text title="复制完整 URL" @click="copyFullUrl" />
+  <el-form
+    label-position="top"
+    class="api-mock-form"
+    @keydown.ctrl.s.prevent="canSave && emit('save')"
+    @keydown.meta.s.prevent="canSave && emit('save')"
+  >
+    <div class="route-toolbar">
+      <template v-if="fullUrl">
+        <span class="route-method" :style="{ color: getMockMethodColor(form.method) }">{{ form.method }}</span>
+        <span class="route-url">{{ fullUrl }}</span>
+        <el-button :icon="CopyDocument" size="small" text title="复制完整 URL" @click="copyFullUrl" />
+      </template>
+      <span class="toolbar-status">
+        {{ getMockRouteSpecificityLabel(form.pathPattern) }}匹配<span v-if="dirty" class="dirty-hint"> · 有未保存修改</span>
+      </span>
+      <div class="toolbar-actions">
+        <el-button v-if="form.id !== null" :icon="Delete" size="small" type="danger" text @click="emit('delete')">删除</el-button>
+        <el-button type="primary" size="small" :disabled="!canSave" title="Ctrl+S" @click="emit('save')">保存路由</el-button>
+      </div>
     </div>
 
     <section class="form-section">
@@ -35,66 +50,6 @@
         </el-form-item>
       </div>
       <div v-if="pathError" class="api-mock-error">{{ pathError }}</div>
-    </section>
-
-    <section class="form-section">
-      <div class="subsection-head">
-        <h3>响应内容</h3>
-        <el-button
-          v-if="form.responseKind === 'static_body' && canFormatJson"
-          size="small"
-          text
-          type="primary"
-          @click="formatBody"
-        >
-          格式化 JSON
-        </el-button>
-      </div>
-      <div class="response-grid">
-        <el-form-item label="响应类型">
-          <el-radio-group v-model="form.responseKind">
-            <el-radio-button label="static_body">文本</el-radio-button>
-            <el-radio-button label="file">文件</el-radio-button>
-          </el-radio-group>
-        </el-form-item>
-        <el-form-item label="Content-Type">
-          <el-select
-            v-model="form.contentType"
-            filterable
-            allow-create
-            clearable
-            default-first-option
-            :value-on-clear="''"
-            placeholder="application/json; charset=utf-8"
-          >
-            <el-option
-              v-for="preset in API_MOCK_CONTENT_TYPE_PRESETS"
-              :key="preset.value"
-              :label="preset.value"
-              :value="preset.value"
-            >
-              <div class="content-type-option">
-                <span>{{ preset.label }}</span>
-                <small>{{ preset.value }}</small>
-              </div>
-            </el-option>
-          </el-select>
-        </el-form-item>
-      </div>
-
-      <div v-if="form.responseKind === 'static_body'" class="body-editor">
-        <MonacoPane v-model="form.bodyText" :language="bodyLanguage" />
-      </div>
-
-      <div v-else class="file-box">
-        <div>
-          <strong>{{ file?.originalName || "未选择文件" }}</strong>
-          <span v-if="file">
-            {{ file.contentType || "application/octet-stream" }} · {{ formatMockFileSize(file.size) }}
-          </span>
-        </div>
-        <el-button :icon="Upload" @click="emit('pick-file')">导入文件</el-button>
-      </div>
     </section>
 
     <section class="form-section">
@@ -162,20 +117,74 @@
       </el-collapse-item>
     </el-collapse>
 
-    <div class="form-footer">
-      <span>{{ getMockRouteSpecificityLabel(form.pathPattern) }}匹配</span>
-      <div class="footer-actions">
-        <el-button v-if="form.id !== null" :icon="Delete" type="danger" text @click="emit('delete')">删除</el-button>
-        <el-button type="primary" :disabled="!canSave" @click="emit('save')">保存路由</el-button>
+    <section class="form-section">
+      <div class="subsection-head">
+        <h3>响应内容</h3>
+        <el-button
+          v-if="form.responseKind === 'static_body' && bodyFormatLabel"
+          size="small"
+          text
+          type="primary"
+          :loading="formattingBody"
+          @click="formatBody"
+        >
+          格式化 {{ bodyFormatLabel }}
+        </el-button>
       </div>
-    </div>
+      <div class="response-grid">
+        <el-form-item label="响应类型">
+          <el-radio-group v-model="form.responseKind">
+            <el-radio-button label="static_body">文本</el-radio-button>
+            <el-radio-button label="file">文件</el-radio-button>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item label="Content-Type">
+          <el-select
+            v-model="form.contentType"
+            filterable
+            allow-create
+            clearable
+            default-first-option
+            :value-on-clear="''"
+            placeholder="application/json; charset=utf-8"
+          >
+            <el-option
+              v-for="preset in API_MOCK_CONTENT_TYPE_PRESETS"
+              :key="preset.value"
+              :label="preset.value"
+              :value="preset.value"
+            >
+              <div class="content-type-option">
+                <span>{{ preset.label }}</span>
+                <small>{{ preset.value }}</small>
+              </div>
+            </el-option>
+          </el-select>
+        </el-form-item>
+      </div>
+
+      <div v-if="form.responseKind === 'static_body'" class="body-editor">
+        <MonacoPane v-model="form.bodyText" :language="bodyLanguage" />
+      </div>
+
+      <div v-else class="file-box">
+        <div>
+          <strong>{{ file?.originalName || "未选择文件" }}</strong>
+          <span v-if="file">
+            {{ file.contentType || "application/octet-stream" }} · {{ formatMockFileSize(file.size) }}
+          </span>
+        </div>
+        <el-button :icon="Upload" @click="emit('pick-file')">导入文件</el-button>
+      </div>
+    </section>
   </el-form>
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import { CopyDocument, Delete, Plus, Upload } from "@element-plus/icons-vue";
 import { ElMessage } from "element-plus";
+import { formatCss, formatHtml, formatJavaScript, formatJson, formatXml } from "@lazycat/formatters";
 import MonacoPane from "../MonacoPane.vue";
 import type { ApiMockFileInfo, ApiMockProjectSummary, ApiMockRouteFormModel } from "../../types/api-mock";
 import {
@@ -185,7 +194,10 @@ import {
   buildMockRouteUrl,
   formatMockFileSize,
   getMockBodyEditorLanguage,
+  getMockBodyFormatLabel,
+  getMockMethodColor,
   getMockRouteSpecificityLabel,
+  parseMockCorsOriginList,
 } from "../../utils/apiMock";
 
 const props = defineProps<{
@@ -195,6 +207,7 @@ const props = defineProps<{
   pathError: string;
   corsError: string;
   canSave: boolean;
+  dirty?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -210,9 +223,16 @@ const fullUrl = computed(() => {
 
 const bodyLanguage = computed(() => getMockBodyEditorLanguage(props.form.contentType));
 
-const canFormatJson = computed(() => bodyLanguage.value === "json");
+const bodyFormatLabel = computed(() => getMockBodyFormatLabel(bodyLanguage.value));
 
-const corsTitle = computed(() => `CORS（${props.form.cors.enabled ? "已启用" : "已关闭"}）`);
+const formattingBody = ref(false);
+
+const corsTitle = computed(() => {
+  if (!props.form.cors.enabled) return "CORS（已关闭）";
+  const origins = parseMockCorsOriginList(props.form.cors.allowOrigin);
+  const originSummary = origins.length === 0 ? "*" : origins.length === 1 ? origins[0] : `${origins.length} 个来源`;
+  return `CORS（已启用 · ${originSummary}）`;
+});
 
 async function copyFullUrl() {
   try {
@@ -223,12 +243,24 @@ async function copyFullUrl() {
   }
 }
 
-function formatBody() {
+const BODY_FORMATTERS: Record<string, (input: string) => string | Promise<string>> = {
+  json: formatJson,
+  xml: formatXml,
+  html: formatHtml,
+  css: formatCss,
+  javascript: formatJavaScript,
+};
+
+async function formatBody() {
+  const formatter = BODY_FORMATTERS[bodyLanguage.value];
+  if (!formatter || formattingBody.value || !props.form.bodyText.trim()) return;
+  formattingBody.value = true;
   try {
-    const parsed = JSON.parse(props.form.bodyText);
-    props.form.bodyText = JSON.stringify(parsed, null, 2);
+    props.form.bodyText = await formatter(props.form.bodyText);
   } catch {
-    ElMessage.error("响应 Body 不是合法 JSON，无法格式化");
+    ElMessage.error(`响应 Body 不是合法 ${bodyFormatLabel.value}，无法格式化`);
+  } finally {
+    formattingBody.value = false;
   }
 }
 
@@ -243,7 +275,7 @@ function addHeader() {
   container-type: inline-size;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 16px;
 }
 
 .api-mock-form :deep(.el-form-item) {
@@ -256,23 +288,53 @@ function addHeader() {
   gap: 10px;
 }
 
-.route-url-line {
+/* 吸顶工具栏：URL 与保存操作合并，滚动长表单时始终可见（滚动容器为 .el-tabs__content） */
+.route-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 8px;
   padding: 6px 10px;
   border: 1px solid #e2e8f0;
   border-radius: 6px;
   background: #f8fafc;
 }
 
+.route-method {
+  flex: none;
+  font-size: 12px;
+  font-weight: 700;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
 .route-url {
+  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 13px;
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   color: #334155;
+}
+
+.toolbar-status {
+  flex: none;
+  margin-left: auto;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.dirty-hint {
+  color: #b45309;
+  font-weight: 600;
+}
+
+.toolbar-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
 }
 
 /* 基础信息：命名区域网格，随容器宽度重排 */
@@ -440,30 +502,6 @@ function addHeader() {
   margin: 0;
   font-size: 12px;
   color: #64748b;
-}
-
-/* 底部操作栏吸底：长表单滚动时保存入口不丢失 */
-.form-footer {
-  position: sticky;
-  bottom: 0;
-  z-index: 10;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 0;
-  background: #ffffff;
-  border-top: 1px solid #e2e8f0;
-}
-
-.form-footer > span {
-  font-size: 12px;
-  color: #64748b;
-}
-
-.footer-actions {
-  display: flex;
-  align-items: center;
 }
 
 /* —— 容器断点：按表单实际宽度而非视口折行 —— */

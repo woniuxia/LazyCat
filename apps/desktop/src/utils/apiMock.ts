@@ -18,6 +18,21 @@ export const API_MOCK_METHODS: ApiMockMethod[] = [
   "OPTIONS",
 ];
 
+/** HTTP 方法语义配色（浅色背景下对比度 >= 4.5:1），列表与表单共用 */
+export const API_MOCK_METHOD_COLORS: Record<ApiMockMethod, string> = {
+  GET: "#047857",
+  POST: "#1d4ed8",
+  PUT: "#b45309",
+  PATCH: "#6d28d9",
+  DELETE: "#b91c1c",
+  HEAD: "#475569",
+  OPTIONS: "#475569",
+};
+
+export function getMockMethodColor(method: string): string {
+  return API_MOCK_METHOD_COLORS[method as ApiMockMethod] ?? "#475569";
+}
+
 export const DEFAULT_API_MOCK_CONTENT_TYPE = "application/json; charset=utf-8";
 
 export interface ApiMockContentTypePreset {
@@ -385,6 +400,18 @@ export function getMockBodyEditorLanguage(contentType: string): string {
   if (mime === "text/css") return "css";
   if (mime === "text/javascript" || mime === "application/javascript") return "javascript";
   return "plaintext";
+}
+
+const MOCK_BODY_FORMAT_LABELS: Record<string, string> = {
+  json: "JSON",
+  xml: "XML",
+  html: "HTML",
+  css: "CSS",
+  javascript: "JavaScript",
+};
+
+export function getMockBodyFormatLabel(language: string): string {
+  return MOCK_BODY_FORMAT_LABELS[language] ?? "";
 }
 
 export function findMockPortConflict(
