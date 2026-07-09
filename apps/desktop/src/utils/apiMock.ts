@@ -63,6 +63,10 @@ export const DEFAULT_API_MOCK_CORS: ApiMockCorsConfig = {
   maxAgeSeconds: 600,
 };
 
+export function createDefaultApiMockCors(enabled = true): ApiMockCorsConfig {
+  return { ...DEFAULT_API_MOCK_CORS, allowMethods: [], enabled };
+}
+
 export type ApiMockValidationResult = { ok: true; message: "" } | { ok: false; message: string };
 export type ApiMockRuntimeAction = "start" | "stop" | "restart";
 
@@ -111,10 +115,20 @@ export function validateMockPathPattern(pattern: string): ApiMockValidationResul
   return ok();
 }
 
+export function parseMockCorsOriginList(allowOrigin: string): string[] {
+  return allowOrigin
+    .split(",")
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+}
+
 export function validateMockCorsConfig(config: ApiMockCorsConfig): ApiMockValidationResult {
   if (!config.enabled) return ok();
-  if (config.allowCredentials && config.allowOrigin.trim() === "*") {
-    return fail("允许携带凭据时，Allow-Origin 不能为 *");
+  if (config.allowCredentials) {
+    const origins = parseMockCorsOriginList(config.allowOrigin);
+    if (origins.length === 0 || origins.includes("*")) {
+      return fail("允许携带凭据时，Allow-Origin 不能为 * 或留空");
+    }
   }
   if (config.maxAgeSeconds !== null && (!Number.isInteger(config.maxAgeSeconds) || config.maxAgeSeconds < 0)) {
     return fail("Max-Age 必须为空或非负整数");

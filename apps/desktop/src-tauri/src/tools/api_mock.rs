@@ -390,10 +390,17 @@ fn parse_cors_config(value: &Value) -> Result<CorsConfig, String> {
     config.allow_origin = config.allow_origin.trim().to_string();
     config.allow_headers = config.allow_headers.trim().to_string();
     config.expose_headers = config.expose_headers.trim().to_string();
+    // 兜底必须先于 credentials 校验：空 Origin 等价于 *，否则会绕过下面的校验。
+    if config.allow_origin.is_empty() {
+        config.allow_origin = "*".into();
+    }
+    if config.allow_headers.is_empty() {
+        config.allow_headers = "*".into();
+    }
     for method in &config.allow_methods {
         validate_method(method)?;
     }
-    if config.enabled && config.allow_credentials && config.allow_origin == "*" {
+    if config.enabled && config.allow_credentials && cors_origin_list(&config.allow_origin).contains(&"*") {
         return Err("Allow-Origin cannot be * when credentials are allowed".into());
     }
     if let Some(max_age) = config.max_age_seconds {
@@ -401,37 +408,59 @@ fn parse_cors_config(value: &Value) -> Result<CorsConfig, String> {
             return Err("CORS max age must be non-negative".into());
         }
     }
-    if config.allow_origin.is_empty() {
-        config.allow_origin = "*".into();
-    }
-    if config.allow_headers.is_empty() {
-        config.allow_headers = "*".into();
-    }
     Ok(config)
 }
 
-fn build_cors_headers(config: &CorsConfig, route_method: &str) -> Vec<HeaderRow> {
+fn cors_origin_list(configured: &str) -> Vec<&str> {
+    configured
+        .split(',')
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+        .collect()
+}
+
+/// 解析 Allow-Origin 配置（支持逗号分隔多值）并按请求 Origin 回显。
+/// 返回 (输出值, 是否需要 Vary: Origin)；含 * 或为空时视为通配。
+fn resolve_cors_allow_origin(configured: &str, request_origin: Option<&str>) -> (String, bool) {
+    let origins = cors_origin_list(configured);
+    if origins.is_empty() || origins.contains(&"*") {
+        return ("*".into(), false);
+    }
+    let matched = request_origin
+        .and_then(|origin| origins.iter().find(|item| item.eq_ignore_ascii_case(origin)).copied());
+    (matched.unwrap_or(origins[0]).to_string(), true)
+}
+
+fn build_cors_headers(
+    config: &CorsConfig,
+    route_method: &str,
+    request_origin: Option<&str>,
+    preflight: bool,
+) -> Vec<HeaderRow> {
     if !config.enabled {
         return Vec::new();
     }
-    let allow_methods = if config.allow_methods.is_empty() {
-        route_method.to_string()
-    } else {
-        config.allow_methods.join(", ")
-    };
-    let mut headers = vec![
-        header("Access-Control-Allow-Origin", &config.allow_origin),
-        header("Access-Control-Allow-Methods", &allow_methods),
-        header("Access-Control-Allow-Headers", &config.allow_headers),
-    ];
-    if !config.expose_headers.is_empty() {
-        headers.push(header("Access-Control-Expose-Headers", &config.expose_headers));
+    let (allow_origin, needs_vary) = resolve_cors_allow_origin(&config.allow_origin, request_origin);
+    let mut headers = vec![header("Access-Control-Allow-Origin", &allow_origin)];
+    if needs_vary {
+        headers.push(header("Vary", "Origin"));
     }
     if config.allow_credentials {
         headers.push(header("Access-Control-Allow-Credentials", "true"));
     }
-    if let Some(max_age) = config.max_age_seconds {
-        headers.push(header("Access-Control-Max-Age", &max_age.to_string()));
+    if preflight {
+        let allow_methods = if config.allow_methods.is_empty() {
+            route_method.to_string()
+        } else {
+            config.allow_methods.join(", ")
+        };
+        headers.push(header("Access-Control-Allow-Methods", &allow_methods));
+        headers.push(header("Access-Control-Allow-Headers", &config.allow_headers));
+        if let Some(max_age) = config.max_age_seconds {
+            headers.push(header("Access-Control-Max-Age", &max_age.to_string()));
+        }
+    } else if !config.expose_headers.is_empty() {
+        headers.push(header("Access-Control-Expose-Headers", &config.expose_headers));
     }
     headers
 }
@@ -1320,6 +1349,7 @@ fn handle_http_stream(
 
     let preflight_method = request_header_value(&request, "Access-Control-Request-Method")
         .map(|value| value.to_ascii_uppercase());
+    let request_origin = request_header_value(&request, "Origin");
     let mut route_id = None;
     let mut route_name = None;
     let mut error = None;
@@ -1330,12 +1360,18 @@ fn handle_http_stream(
             // CORS 预检不套用路由延迟，避免浏览器场景下预检 + 实际请求双重延迟。
             route_id = Some(route.id);
             route_name = Some(route.name.clone());
-            build_response(204, route.headers.clone(), build_cors_headers(&route.cors, &route.method), Vec::new(), false)
+            build_response(
+                204,
+                route.headers.clone(),
+                build_cors_headers(&route.cors, &route.method, request_origin.as_deref(), true),
+                Vec::new(),
+                false,
+            )
         } else if let Some(route) = select_route(routes, "OPTIONS", &path) {
             route_id = Some(route.id);
             route_name = Some(route.name.clone());
             delay_ms = route.delay_ms.max(0) as u64;
-            match build_route_response(route, method == "HEAD") {
+            match build_route_response(route, method == "HEAD", request_origin.as_deref()) {
                 Ok(response) => response,
                 Err(err) => {
                     error = Some(err.clone());
@@ -1349,7 +1385,7 @@ fn handle_http_stream(
         route_id = Some(route.id);
         route_name = Some(route.name.clone());
         delay_ms = route.delay_ms.max(0) as u64;
-        match build_route_response(route, method == "HEAD") {
+        match build_route_response(route, method == "HEAD", request_origin.as_deref()) {
             Ok(response) => response,
             Err(err) => {
                 error = Some(err.clone());
@@ -1423,7 +1459,11 @@ impl HttpResponse {
     }
 }
 
-fn build_route_response(route: &MockRouteSnapshot, head_only: bool) -> Result<HttpResponse, String> {
+fn build_route_response(
+    route: &MockRouteSnapshot,
+    head_only: bool,
+    request_origin: Option<&str>,
+) -> Result<HttpResponse, String> {
     let mut headers = route.headers.clone();
     let mut body = if route.response_kind == "file" {
         let file = route.file.as_ref().ok_or("file response missing file record")?;
@@ -1445,7 +1485,7 @@ fn build_route_response(route: &MockRouteSnapshot, head_only: bool) -> Result<Ht
     if header_value(&headers, "Content-Type").is_none() {
         headers.push(header("Content-Type", &content_type));
     }
-    headers.extend(build_cors_headers(&route.cors, &route.method));
+    headers.extend(build_cors_headers(&route.cors, &route.method, request_origin, false));
     if head_only {
         body.clear();
     }
@@ -1673,6 +1713,32 @@ mod tests {
         .expect_err("invalid cors");
         assert!(err.contains("Allow-Origin"));
 
+        // 空 Origin 会兜底为 *，credentials 校验必须同样拦截。
+        let err = parse_cors_config(&json!({
+            "enabled": true,
+            "allowOrigin": "  ",
+            "allowMethods": [],
+            "allowHeaders": "*",
+            "exposeHeaders": "",
+            "allowCredentials": true,
+            "maxAgeSeconds": 600
+        }))
+        .expect_err("empty origin with credentials");
+        assert!(err.contains("Allow-Origin"));
+
+        // 多值列表中混入 * 同样拦截。
+        let err = parse_cors_config(&json!({
+            "enabled": true,
+            "allowOrigin": "http://a.com, *",
+            "allowMethods": [],
+            "allowHeaders": "*",
+            "exposeHeaders": "",
+            "allowCredentials": true,
+            "maxAgeSeconds": 600
+        }))
+        .expect_err("wildcard in origin list with credentials");
+        assert!(err.contains("Allow-Origin"));
+
         let cors = parse_cors_config(&json!({
             "enabled": true,
             "allowOrigin": "http://localhost:5173",
@@ -1683,7 +1749,7 @@ mod tests {
             "maxAgeSeconds": 600
         }))
         .expect("cors");
-        let headers = build_cors_headers(&cors, "PATCH");
+        let headers = build_cors_headers(&cors, "PATCH", None, true);
         assert_eq!(
             header_value(&headers, "Access-Control-Allow-Origin").as_deref(),
             Some("http://localhost:5173")
@@ -1696,6 +1762,73 @@ mod tests {
             header_value(&headers, "Access-Control-Allow-Credentials").as_deref(),
             Some("true")
         );
+        assert_eq!(header_value(&headers, "Vary").as_deref(), Some("Origin"));
+    }
+
+    #[test]
+    fn api_mock_cors_headers_split_by_preflight_and_actual_response() {
+        let cors = parse_cors_config(&json!({
+            "enabled": true,
+            "allowOrigin": "*",
+            "allowMethods": ["GET", "POST"],
+            "allowHeaders": "X-Token",
+            "exposeHeaders": "X-Trace",
+            "allowCredentials": false,
+            "maxAgeSeconds": 600
+        }))
+        .expect("cors");
+
+        let preflight = build_cors_headers(&cors, "GET", None, true);
+        assert_eq!(
+            header_value(&preflight, "Access-Control-Allow-Methods").as_deref(),
+            Some("GET, POST")
+        );
+        assert_eq!(
+            header_value(&preflight, "Access-Control-Allow-Headers").as_deref(),
+            Some("X-Token")
+        );
+        assert_eq!(header_value(&preflight, "Access-Control-Max-Age").as_deref(), Some("600"));
+        assert!(header_value(&preflight, "Access-Control-Expose-Headers").is_none());
+        // 通配 Origin 不需要 Vary。
+        assert!(header_value(&preflight, "Vary").is_none());
+
+        let actual = build_cors_headers(&cors, "GET", None, false);
+        assert_eq!(header_value(&actual, "Access-Control-Allow-Origin").as_deref(), Some("*"));
+        assert_eq!(
+            header_value(&actual, "Access-Control-Expose-Headers").as_deref(),
+            Some("X-Trace")
+        );
+        assert!(header_value(&actual, "Access-Control-Allow-Methods").is_none());
+        assert!(header_value(&actual, "Access-Control-Allow-Headers").is_none());
+        assert!(header_value(&actual, "Access-Control-Max-Age").is_none());
+    }
+
+    #[test]
+    fn api_mock_cors_multi_origin_echoes_matched_request_origin() {
+        assert_eq!(
+            resolve_cors_allow_origin("http://a.com, http://b.com", Some("http://b.com")),
+            ("http://b.com".to_string(), true)
+        );
+        // 大小写不敏感匹配，回显配置值。
+        assert_eq!(
+            resolve_cors_allow_origin("http://a.com, http://B.com", Some("http://b.com")),
+            ("http://B.com".to_string(), true)
+        );
+        // 未命中或无 Origin 头时回退首个配置值。
+        assert_eq!(
+            resolve_cors_allow_origin("http://a.com, http://b.com", Some("http://evil.com")),
+            ("http://a.com".to_string(), true)
+        );
+        assert_eq!(
+            resolve_cors_allow_origin("http://a.com, http://b.com", None),
+            ("http://a.com".to_string(), true)
+        );
+        // 含 * 或为空视为通配。
+        assert_eq!(
+            resolve_cors_allow_origin("http://a.com, *", Some("http://b.com")),
+            ("*".to_string(), false)
+        );
+        assert_eq!(resolve_cors_allow_origin("", None), ("*".to_string(), false));
     }
 
     #[test]

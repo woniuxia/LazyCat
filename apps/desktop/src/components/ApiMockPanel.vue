@@ -4,7 +4,7 @@
       :projects="projects"
       :selected-id="selectedProjectId"
       @select="selectProject"
-      @create="createProjectDraft"
+      @create="openProjectDialog(null)"
       @reorder="handleProjectsReorder"
     />
 
@@ -23,7 +23,7 @@
     <main class="api-mock-detail">
       <div class="api-mock-actions">
         <div>
-          <h2>{{ selectedProject?.name || "项目配置" }}</h2>
+          <h2>{{ selectedProject?.name || "未选择项目" }}</h2>
           <span v-if="selectedProject" class="endpoint-line">
             <span class="endpoint-url">
               {{ selectedProjectAccessUrl }}
@@ -39,6 +39,14 @@
           </span>
         </div>
         <div class="action-buttons">
+          <el-button
+            :icon="Setting"
+            size="small"
+            :disabled="!selectedProject"
+            @click="openProjectDialog(selectedProject)"
+          >
+            项目设置
+          </el-button>
           <el-button :icon="Refresh" size="small" :disabled="!selectedProject" @click="manualRefresh">刷新</el-button>
           <el-button
             v-if="selectedProjectRuntimeAction === 'restart'"
@@ -81,36 +89,12 @@
         上次启动失败：{{ selectedProject.runtime.lastError }}
       </div>
 
-      <el-tabs v-model="activeTab" class="api-mock-tabs">
-        <el-tab-pane label="项目" name="project">
-          <el-form label-position="top" class="api-mock-form">
-            <div class="form-grid">
-              <el-form-item label="名称">
-                <el-input v-model="projectForm.name" placeholder="例如：管理后台 Mock" />
-              </el-form-item>
-              <el-form-item label="监听地址">
-                <el-select v-model="projectForm.host">
-                  <el-option label="127.0.0.1" value="127.0.0.1" />
-                  <el-option label="0.0.0.0" value="0.0.0.0" />
-                </el-select>
-              </el-form-item>
-              <el-form-item label="端口">
-                <el-input-number v-model="projectForm.port" :min="1" :max="65535" controls-position="right" />
-              </el-form-item>
-            </div>
-            <el-form-item label="描述">
-              <el-input v-model="projectForm.description" type="textarea" :rows="3" />
-            </el-form-item>
-            <div class="form-footer">
-              <el-checkbox v-model="projectForm.enabledCorsDefault">新路由默认启用 CORS</el-checkbox>
-              <div>
-                <el-button v-if="selectedProject" :icon="Delete" type="danger" text @click="deleteProject">删除</el-button>
-                <el-button type="primary" @click="saveProject()">保存项目</el-button>
-              </div>
-            </div>
-          </el-form>
-        </el-tab-pane>
+      <div v-if="!selectedProject" class="api-mock-detail-empty">
+        <p>选择左侧项目，或新建一个 Mock 项目开始。</p>
+        <el-button type="primary" :icon="Plus" @click="openProjectDialog(null)">新建项目</el-button>
+      </div>
 
+      <el-tabs v-else v-model="activeTab" class="api-mock-tabs">
         <el-tab-pane label="路由" name="route">
           <ApiMockRouteForm
             :form="routeForm"
@@ -129,13 +113,21 @@
           <ApiMockLogList :logs="logs" :status="logsStatus" @clear="clearLogs" @jump="jumpToLogRoute" />
         </el-tab-pane>
       </el-tabs>
+
+      <ApiMockProjectDialog
+        v-model:visible="projectDialogVisible"
+        :project="projectDialogTarget"
+        :projects="projects"
+        @save="handleProjectDialogSave"
+        @delete="handleProjectDialogDelete"
+      />
     </main>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
-import { CopyDocument, Delete, Refresh, VideoPause, VideoPlay } from "@element-plus/icons-vue";
+import { CopyDocument, Plus, Refresh, Setting, VideoPause, VideoPlay } from "@element-plus/icons-vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invokeToolByChannel } from "../bridge/tauri";
@@ -143,6 +135,7 @@ import ApiMockProjectList from "./api-mock/ApiMockProjectList.vue";
 import ApiMockRouteList from "./api-mock/ApiMockRouteList.vue";
 import ApiMockRouteForm from "./api-mock/ApiMockRouteForm.vue";
 import ApiMockLogList from "./api-mock/ApiMockLogList.vue";
+import ApiMockProjectDialog from "./api-mock/ApiMockProjectDialog.vue";
 import type {
   ApiMockFileInfo,
   ApiMockProjectFormModel,
@@ -155,7 +148,7 @@ import type {
 import type { ApiMockRouteFormSnapshot } from "../utils/apiMock";
 import {
   DEFAULT_API_MOCK_CONTENT_TYPE,
-  DEFAULT_API_MOCK_CORS,
+  createDefaultApiMockCors,
   deriveMockProjectRuntimeState,
   findMockPortConflict,
   getMockFileContentTypeWarning,
@@ -163,7 +156,6 @@ import {
   getMockProjectRuntimeAction,
   normalizeMockHeaderRows,
   resolveMockFileContentType,
-  serializeMockProjectForm,
   serializeMockRouteForm,
   trimMockContentType,
   validateMockContentTypeHeader,
@@ -181,16 +173,9 @@ const logs = ref<ApiMockRequestLog[]>([]);
 const selectedProjectId = ref<number | null>(null);
 const selectedRouteId = ref<number | null>(null);
 const routeFile = ref<ApiMockFileInfo | null>(null);
-const activeTab = ref("project");
-
-const projectForm = reactive<ApiMockProjectFormModel>({
-  id: null,
-  name: "",
-  description: "",
-  host: "127.0.0.1",
-  port: 18080,
-  enabledCorsDefault: true,
-});
+const activeTab = ref("route");
+const projectDialogVisible = ref(false);
+const projectDialogTarget = ref<ApiMockProjectSummary | null>(null);
 
 const routeForm = reactive<ApiMockRouteFormModel>({
   id: null,
@@ -204,10 +189,9 @@ const routeForm = reactive<ApiMockRouteFormModel>({
   bodyText: "{\n  \"ok\": true\n}",
   enabled: true,
   delayMs: 0,
-  cors: { ...DEFAULT_API_MOCK_CORS },
+  cors: createDefaultApiMockCors(),
 });
 
-const projectBaseline = ref("");
 const routeBaseline = ref("");
 
 const selectedProject = computed(() => projects.value.find((item) => item.id === selectedProjectId.value) ?? null);
@@ -226,16 +210,6 @@ const corsError = computed(() => {
   return result.ok ? "" : result.message;
 });
 
-function projectFormSnapshotText(): string {
-  return serializeMockProjectForm({
-    name: projectForm.name,
-    description: projectForm.description,
-    host: projectForm.host,
-    port: projectForm.port,
-    enabledCorsDefault: projectForm.enabledCorsDefault,
-  });
-}
-
 function routeFormSnapshotText(): string {
   return serializeMockRouteForm({
     name: routeForm.name,
@@ -253,18 +227,7 @@ function routeFormSnapshotText(): string {
   });
 }
 
-const isProjectDirty = computed(() => projectFormSnapshotText() !== projectBaseline.value);
 const isRouteDirty = computed(() => routeFormSnapshotText() !== routeBaseline.value);
-
-function assignProjectForm(project: ApiMockProjectSummary | null) {
-  projectForm.id = project?.id ?? null;
-  projectForm.name = project?.name ?? "";
-  projectForm.description = project?.description ?? "";
-  projectForm.host = project?.host ?? "127.0.0.1";
-  projectForm.port = project?.port ?? 18080;
-  projectForm.enabledCorsDefault = project?.enabledCorsDefault ?? true;
-  projectBaseline.value = projectFormSnapshotText();
-}
 
 function assignRouteForm(route: ApiMockRouteDetail | null) {
   routeForm.id = route?.id ?? null;
@@ -278,7 +241,9 @@ function assignRouteForm(route: ApiMockRouteDetail | null) {
   routeForm.bodyText = route?.bodyText ?? "{\n  \"ok\": true\n}";
   routeForm.enabled = route?.enabled ?? true;
   routeForm.delayMs = route?.delayMs ?? 0;
-  routeForm.cors = route?.cors ? { ...route.cors } : { ...DEFAULT_API_MOCK_CORS };
+  routeForm.cors = route?.cors
+    ? { ...route.cors, allowMethods: [...route.cors.allowMethods] }
+    : createDefaultApiMockCors(selectedProject.value?.enabledCorsDefault ?? true);
   routeFile.value = route?.file ?? null;
   routeBaseline.value = routeFormSnapshotText();
 }
@@ -305,10 +270,8 @@ function showSaveResult(subject: string) {
   ElMessage.success(`${subject}已保存`);
 }
 
-async function confirmLeaveForms(scope: "route" | "all"): Promise<boolean> {
-  const dirtyProject = scope === "all" && isProjectDirty.value;
-  const dirtyRoute = isRouteDirty.value;
-  if (!dirtyProject && !dirtyRoute) return true;
+async function confirmLeaveRouteForm(): Promise<boolean> {
+  if (!isRouteDirty.value) return true;
 
   let action: "confirm" | "cancel" | "close";
   try {
@@ -324,9 +287,7 @@ async function confirmLeaveForms(scope: "route" | "all"): Promise<boolean> {
   }
   if (action === "close") return false;
   if (action === "cancel") return true;
-  if (dirtyProject && !(await saveProject())) return false;
-  if (dirtyRoute && !(await saveRoute({ reselect: false }))) return false;
-  return true;
+  return saveRoute({ reselect: false });
 }
 
 async function refreshProjects() {
@@ -335,7 +296,6 @@ async function refreshProjects() {
   if (!selectedProjectId.value && projects.value[0]) {
     selectedProjectId.value = projects.value[0].id;
   }
-  assignProjectForm(selectedProject.value);
 }
 
 async function refreshRoutes() {
@@ -385,41 +345,34 @@ async function selectRoute(id: number) {
     activeTab.value = "route";
     return;
   }
-  if (!(await confirmLeaveForms("route"))) return;
+  if (!(await confirmLeaveRouteForm())) return;
   await loadRoute(id);
 }
 
 async function selectProject(id: number) {
   if (id === selectedProjectId.value) return;
-  if (!(await confirmLeaveForms("all"))) return;
+  if (!(await confirmLeaveRouteForm())) return;
   selectedProjectId.value = id;
   selectedRouteId.value = null;
-  assignProjectForm(selectedProject.value);
   assignRouteForm(null);
   await refreshRoutes();
   await refreshLogs();
 }
 
-async function createProjectDraft() {
-  if (!(await confirmLeaveForms("all"))) return;
-  selectedProjectId.value = null;
-  selectedRouteId.value = null;
-  routes.value = [];
-  logs.value = [];
-  assignProjectForm(null);
-  assignRouteForm(null);
-  activeTab.value = "project";
+function openProjectDialog(project: ApiMockProjectSummary | null) {
+  projectDialogTarget.value = project;
+  projectDialogVisible.value = true;
 }
 
 async function createRouteDraft() {
-  if (!(await confirmLeaveForms("route"))) return;
+  if (!(await confirmLeaveRouteForm())) return;
   selectedRouteId.value = null;
   assignRouteForm(null);
   activeTab.value = "route";
 }
 
 async function duplicateRoute(route: ApiMockRouteSummary) {
-  if (!(await confirmLeaveForms("route"))) return;
+  if (!(await confirmLeaveRouteForm())) return;
   try {
     const result = (await invokeToolByChannel("tool:api-mock:route-get", { id: route.id })) as {
       route: ApiMockRouteDetail;
@@ -435,49 +388,54 @@ async function duplicateRoute(route: ApiMockRouteSummary) {
   }
 }
 
-async function saveProject(): Promise<boolean> {
-  if (!projectForm.name.trim()) {
-    ElMessage.error("项目名称不能为空");
-    return false;
-  }
+async function handleProjectDialogSave(model: ApiMockProjectFormModel): Promise<void> {
   const payload = {
-    id: projectForm.id ?? undefined,
-    name: projectForm.name.trim(),
-    description: projectForm.description,
-    host: projectForm.host,
-    port: projectForm.port,
-    enabledCorsDefault: projectForm.enabledCorsDefault,
+    id: model.id ?? undefined,
+    name: model.name,
+    description: model.description,
+    host: model.host,
+    port: model.port,
+    enabledCorsDefault: model.enabledCorsDefault,
   };
   try {
-    const channel = projectForm.id ? "tool:api-mock:project-update" : "tool:api-mock:project-create";
+    const channel = model.id ? "tool:api-mock:project-update" : "tool:api-mock:project-create";
     const result = (await invokeToolByChannel(channel, payload)) as { id: number };
-    selectedProjectId.value = result.id;
+    projectDialogVisible.value = false;
+    if (!model.id) {
+      selectedProjectId.value = result.id;
+      selectedRouteId.value = null;
+      assignRouteForm(null);
+    }
     await refreshProjects();
     await refreshRoutes();
     showSaveResult("项目");
-    const conflict = findMockPortConflict(projects.value, result.id, projectForm.port);
+    const conflict = findMockPortConflict(projects.value, result.id, model.port);
     if (conflict) {
       ElMessage.warning(`端口与项目「${conflict.name}」相同，二者不能同时运行`);
     }
-    return true;
   } catch (error) {
     ElMessage.error(getErrorMessage(error, "保存项目失败"));
-    return false;
   }
 }
 
-async function deleteProject() {
-  if (!selectedProjectId.value) return;
+async function handleProjectDialogDelete() {
+  const target = projectDialogTarget.value;
+  if (!target) return;
   try {
-    await ElMessageBox.confirm("删除该 Mock 项目及其路由配置？运行中的服务会同时停止。", "删除项目", { type: "warning" });
+    await ElMessageBox.confirm(`删除项目「${target.name}」及其路由配置？运行中的服务会同时停止。`, "删除项目", {
+      type: "warning",
+    });
   } catch {
     return;
   }
   try {
-    await invokeToolByChannel("tool:api-mock:project-delete", { id: selectedProjectId.value });
-    selectedProjectId.value = null;
-    selectedRouteId.value = null;
-    assignRouteForm(null);
+    await invokeToolByChannel("tool:api-mock:project-delete", { id: target.id });
+    projectDialogVisible.value = false;
+    if (selectedProjectId.value === target.id) {
+      selectedProjectId.value = null;
+      selectedRouteId.value = null;
+      assignRouteForm(null);
+    }
     await refreshAll();
     ElMessage.success("项目已删除");
   } catch (error) {
@@ -786,7 +744,6 @@ watch([selectedProjectId, activeTab], () => {
 onBeforeUnmount(stopLogsTimer);
 
 onMounted(() => {
-  assignProjectForm(null);
   assignRouteForm(null);
   void refreshAll();
 });
@@ -796,6 +753,8 @@ onMounted(() => {
 .api-mock-panel {
   display: grid;
   grid-template-columns: 260px 320px minmax(0, 1fr);
+  /* 锁定行高等于容器高：长表单不撑爆布局，滚动收敛在 tabs 内 */
+  grid-template-rows: minmax(0, 1fr);
   gap: 14px;
   height: 100%;
   min-height: 0;
@@ -871,26 +830,33 @@ onMounted(() => {
 }
 
 .api-mock-tabs {
+  /* EP 2.13 起 .el-tabs 自身是 flex 列容器；滚动收敛到 .el-tabs__content（见下） */
+  flex: 1;
   min-height: 0;
   padding: 0 16px 16px;
+}
+
+.api-mock-tabs :deep(.el-tabs__content) {
+  /* EP 默认 overflow:hidden 使内容区作为 flex 子项的自动最小高度为 0，
+     窗口不够高时会收缩并裁剪长表单；改为在此层滚动，tab 头固定、保存栏吸底 */
+  flex: 1;
+  min-height: 0;
   overflow: auto;
 }
 
-.api-mock-form {
-  max-width: 980px;
-}
-
-.form-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.form-footer {
+.api-mock-detail-empty {
   display: flex;
+  flex: 1;
+  flex-direction: column;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
   gap: 12px;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.api-mock-detail-empty p {
+  margin: 0;
 }
 
 @media (max-width: 1180px) {
@@ -906,10 +872,8 @@ onMounted(() => {
 @media (max-width: 860px) {
   .api-mock-panel {
     grid-template-columns: 1fr;
-  }
-
-  .form-grid {
-    grid-template-columns: 1fr;
+    /* 单列三行竖排，恢复行高随内容 */
+    grid-template-rows: none;
   }
 }
 </style>

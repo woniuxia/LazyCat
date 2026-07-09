@@ -14,6 +14,7 @@ declare module 'vue' {
     AesPanel: typeof import('./src/components/AesPanel.vue')['default']
     ApiMockLogList: typeof import('./src/components/api-mock/ApiMockLogList.vue')['default']
     ApiMockPanel: typeof import('./src/components/ApiMockPanel.vue')['default']
+    ApiMockProjectDialog: typeof import('./src/components/api-mock/ApiMockProjectDialog.vue')['default']
     ApiMockProjectList: typeof import('./src/components/api-mock/ApiMockProjectList.vue')['default']
     ApiMockRouteForm: typeof import('./src/components/api-mock/ApiMockRouteForm.vue')['default']
     ApiMockRouteList: typeof import('./src/components/api-mock/ApiMockRouteList.vue')['default']

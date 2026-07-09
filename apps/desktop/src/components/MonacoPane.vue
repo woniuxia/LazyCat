@@ -34,6 +34,8 @@ onMounted(() => {
     readOnly: props.readOnly,
     automaticLayout: true,
     minimap: { enabled: false },
+    // 编辑器滚动到边界后放行滚轮事件，避免吞掉外层容器的滚动
+    scrollbar: { alwaysConsumeMouseWheel: false },
     guides: {
       indentation: true,
       bracketPairs: true

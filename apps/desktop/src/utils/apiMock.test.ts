@@ -4,6 +4,7 @@ import {
   API_MOCK_CONTENT_TYPE_PRESETS,
   buildMockRouteSummary,
   buildMockRouteUrl,
+  createDefaultApiMockCors,
   deriveMockProjectRuntimeState,
   findMockPortConflict,
   formatMockFileSize,
@@ -43,20 +44,37 @@ describe("apiMock utils", () => {
   });
 
   it("validates CORS credentials origin rule", () => {
-    expect(
-      validateMockCorsConfig({
-        enabled: true,
-        allowOrigin: "*",
-        allowMethods: [],
-        allowHeaders: "*",
-        exposeHeaders: "",
-        allowCredentials: true,
-        maxAgeSeconds: 600,
-      }),
-    ).toEqual({
+    const base = {
+      enabled: true,
+      allowMethods: [],
+      allowHeaders: "*",
+      exposeHeaders: "",
+      allowCredentials: true,
+      maxAgeSeconds: 600,
+    } as const;
+
+    expect(validateMockCorsConfig({ ...base, allowOrigin: "*", allowMethods: [] })).toEqual({
       ok: false,
-      message: "允许携带凭据时，Allow-Origin 不能为 *",
+      message: "允许携带凭据时，Allow-Origin 不能为 * 或留空",
     });
+    // 空 Origin 会在后端兜底为 *，校验必须同样拦截。
+    expect(validateMockCorsConfig({ ...base, allowOrigin: "  ", allowMethods: [] }).ok).toBe(false);
+    // 多值列表中混入 * 同样拦截。
+    expect(validateMockCorsConfig({ ...base, allowOrigin: "http://a.com, *", allowMethods: [] }).ok).toBe(false);
+    // 合法多值列表放行。
+    expect(
+      validateMockCorsConfig({ ...base, allowOrigin: "http://a.com, http://b.com", allowMethods: [] }).ok,
+    ).toBe(true);
+  });
+
+  it("creates independent CORS defaults honoring project switch", () => {
+    const enabled = createDefaultApiMockCors();
+    const disabled = createDefaultApiMockCors(false);
+    expect(enabled.enabled).toBe(true);
+    expect(disabled.enabled).toBe(false);
+
+    enabled.allowMethods.push("GET");
+    expect(createDefaultApiMockCors().allowMethods).toEqual([]);
   });
 
   it("normalizes header rows", () => {
