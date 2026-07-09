@@ -3122,3 +3122,35 @@ Cron 工具原先仅提供基础 6 字段输入与简单预览，缺少规范化
 - 接口调试面板手工冒烟通过
 
 **使用次数**: 0
+
+## 2026-07-08: API Mock CORS 修复与增强
+
+**场景**: 梳理 API Mock CORS 功能后集中修复发现的问题：项目级"新路由默认启用 CORS"配置不生效、`allowMethods` 无编辑入口、CORS 响应头不区分预检与实际响应、credentials 校验可被空 Origin 绕过；同时增强 Allow-Origin 多值回显能力。
+**问题**:
+1. `enabledCorsDefault` 有完整的存储、编辑 UI、序列化链路，但新建路由时 `assignRouteForm` 硬编码 `{ ...DEFAULT_API_MOCK_CORS }`，配置无消费方，是死配置。
+2. `parse_cors_config` 中"空 Origin 兜底为 *"发生在 credentials 校验之后，credentials + 空 Origin 会绕过"credentials 不允许 *"校验。
+3. 预检专用头（Allow-Methods/Allow-Headers/Max-Age）与实际响应专用头（Expose-Headers）混在同一个 `build_cors_headers` 中全量输出。
+4. 共享常量 `DEFAULT_API_MOCK_CORS` 被 `{ ...spread }` 浅拷贝，其中 `allowMethods` 数组引用共享，加编辑 UI 后会污染常量。
+**解决**:
+1. 前端新增 `createDefaultApiMockCors(enabled)` 工厂函数（内部重建 `allowMethods` 数组），新建路由时传入 `selectedProject.enabledCorsDefault`。
+2. 后端把空值兜底移到 credentials 校验之前；校验改为解析逗号分隔列表后检查是否含 `*`，前端 `validateMockCorsConfig` 同步一致。
+3. `build_cors_headers` 增加 `preflight` 参数分流输出；`resolve_cors_allow_origin` 支持多值配置按请求 Origin 大小写不敏感回显，非通配时自动附带 `Vary: Origin`，未命中回退首个配置值。
+4. 表单补 Allow-Methods 多选（留空自动使用路由方法）、CORS 折叠标题显示启用状态、关闭时其余字段禁用、面板内行为提示文案。
+**关键点**:
+1. 排查配置类功能时按"存储-编辑-消费"三环检查闭合性：字段有存储和 UI 不代表生效，必须找到消费方；grep 字段名后确认除表单读写外还有业务落点。
+2. 校验与兜底的顺序敏感：兜底改变值域时（空 -> *），校验必须在兜底之后（或校验逻辑覆盖兜底前的等价输入），否则形成绕过路径。前后端双侧校验要同步同一语义。
+3. 导出的共享默认值常量含数组/对象字段时，使用处 `{ ...spread }` 只有浅拷贝；提供工厂函数替代直接展开，避免消费方遗漏深拷贝。
+**涉及文件**:
+- `apps/desktop/src-tauri/src/tools/api_mock.rs`
+- `apps/desktop/src/utils/apiMock.ts`
+- `apps/desktop/src/utils/apiMock.test.ts`
+- `apps/desktop/src/components/api-mock/ApiMockRouteForm.vue`
+- `apps/desktop/src/components/ApiMockPanel.vue`
+
+**验证**:
+- `cargo test api_mock`（29 通过，含 3 个新增 CORS 用例）
+- `pnpm test src/utils/apiMock.test.ts`（26 通过）
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+
+**使用次数**: 0
