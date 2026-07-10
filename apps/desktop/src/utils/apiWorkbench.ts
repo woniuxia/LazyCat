@@ -309,3 +309,32 @@ export function getApiWorkbenchMethodClass(method: string): string {
     ? `method-${normalized}`
     : "method-default";
 }
+
+export type ApiWorkbenchAuthInput =
+  | { type: "bearer"; token: string }
+  | { type: "basic"; username: string; password: string };
+
+export function buildApiWorkbenchAuthHeader(input: ApiWorkbenchAuthInput): string {
+  if (input.type === "bearer") {
+    return `Bearer ${input.token.trim()}`;
+  }
+  const bytes = new TextEncoder().encode(`${input.username}:${input.password}`);
+  let binary = "";
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return `Basic ${btoa(binary)}`;
+}
+
+export function upsertApiWorkbenchHeaderRow(
+  rows: ApiWorkbenchKeyValueRow[],
+  key: string,
+  value: string,
+): ApiWorkbenchKeyValueRow[] {
+  const lowered = key.trim().toLowerCase();
+  const index = rows.findIndex((row) => row.key.trim().toLowerCase() === lowered);
+  if (index === -1) {
+    return [...rows, { enabled: true, key, value }];
+  }
+  return rows.map((row, i) => (i === index ? { ...row, enabled: true, value } : row));
+}

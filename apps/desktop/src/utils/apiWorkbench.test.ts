@@ -3,6 +3,7 @@ import {
   API_WORKBENCH_ENVIRONMENT_MANAGER_VALUE,
   buildApiWorkbenchEnvironmentDraftSummary,
   buildApiWorkbenchPreviewUrl,
+  buildApiWorkbenchAuthHeader,
   buildApiWorkbenchNewRequestState,
   buildApiWorkbenchSelectionState,
   countApiWorkbenchActiveRows,
@@ -17,6 +18,7 @@ import {
   resolveApiWorkbenchEnvironmentSelect,
   serializeApiWorkbenchEnvironmentRows,
   splitApiWorkbenchUrlQuery,
+  upsertApiWorkbenchHeaderRow,
   validateApiWorkbenchVariableName,
 } from "./apiWorkbench";
 
@@ -253,6 +255,42 @@ describe("apiWorkbench utils", () => {
     expect(getApiWorkbenchMethodClass("OPTIONS")).toBe("method-options");
     expect(getApiWorkbenchMethodClass("TRACE")).toBe("method-default");
     expect(getApiWorkbenchMethodClass("")).toBe("method-default");
+  });
+
+  it("builds bearer and basic auth headers with utf-8 credentials", () => {
+    expect(buildApiWorkbenchAuthHeader({ type: "bearer", token: " abc " })).toBe("Bearer abc");
+    expect(
+      buildApiWorkbenchAuthHeader({ type: "basic", username: "user", password: "pass" }),
+    ).toBe("Basic dXNlcjpwYXNz");
+    const nonAscii = buildApiWorkbenchAuthHeader({
+      type: "basic",
+      username: "用户",
+      password: "密码",
+    });
+    expect(nonAscii.startsWith("Basic ")).toBe(true);
+    const decoded = new TextDecoder().decode(
+      Uint8Array.from(atob(nonAscii.slice(6)), (ch) => ch.charCodeAt(0)),
+    );
+    expect(decoded).toBe("用户:密码");
+  });
+
+  it("upserts authorization header row and re-enables existing row", () => {
+    expect(upsertApiWorkbenchHeaderRow([], "Authorization", "Bearer x")).toEqual([
+      { enabled: true, key: "Authorization", value: "Bearer x" },
+    ]);
+    expect(
+      upsertApiWorkbenchHeaderRow(
+        [
+          { enabled: false, key: "authorization", value: "old" },
+          { enabled: true, key: "Accept", value: "*/*" },
+        ],
+        "Authorization",
+        "Bearer y",
+      ),
+    ).toEqual([
+      { enabled: true, key: "authorization", value: "Bearer y" },
+      { enabled: true, key: "Accept", value: "*/*" },
+    ]);
   });
 
   it("maps response status to tag tone", () => {

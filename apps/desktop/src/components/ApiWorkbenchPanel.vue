@@ -154,6 +154,39 @@
               Headers<span v-if="headerRowCount > 0" class="editor-tab-badge">({{ headerRowCount }})</span>
             </span>
           </template>
+          <div class="headers-quick-auth">
+            <el-popover v-model:visible="quickAuthVisible" placement="bottom-start" :width="320" trigger="click">
+              <template #reference>
+                <el-button size="small" :icon="Key">快速认证</el-button>
+              </template>
+              <div class="quick-auth-form">
+                <el-radio-group v-model="quickAuthType" size="small">
+                  <el-radio-button label="bearer">Bearer Token</el-radio-button>
+                  <el-radio-button label="basic">Basic Auth</el-radio-button>
+                </el-radio-group>
+                <el-input
+                  v-if="quickAuthType === 'bearer'"
+                  v-model="quickAuthToken"
+                  size="small"
+                  placeholder="Token"
+                  clearable
+                />
+                <template v-else>
+                  <el-input v-model="quickAuthUsername" size="small" placeholder="用户名" clearable />
+                  <el-input
+                    v-model="quickAuthPassword"
+                    size="small"
+                    type="password"
+                    show-password
+                    placeholder="密码"
+                  />
+                </template>
+                <el-button type="primary" size="small" @click="applyQuickAuth">
+                  生成 Authorization 头
+                </el-button>
+              </div>
+            </el-popover>
+          </div>
           <ApiWorkbenchKeyValueEditor v-model="draft.headers" variant="headers" />
         </el-tab-pane>
         <el-tab-pane name="body">
@@ -460,6 +493,7 @@ import {
   Delete,
   DocumentChecked,
   EditPen,
+  Key,
   Plus,
   Promotion,
   Refresh,
@@ -498,6 +532,7 @@ import {
   countApiWorkbenchActiveRows,
   draftApiWorkbenchEnvironmentRows,
   findDuplicateApiWorkbenchEnvironmentVariableNames,
+  buildApiWorkbenchAuthHeader,
   getApiWorkbenchMethodClass,
   getApiWorkbenchStatusTone,
   hasApiWorkbenchBody,
@@ -505,6 +540,7 @@ import {
   resolveApiWorkbenchEnvironmentSelect,
   serializeApiWorkbenchEnvironmentRows,
   splitApiWorkbenchUrlQuery,
+  upsertApiWorkbenchHeaderRow,
 } from "../utils/apiWorkbench";
 import {
   buildApiWorkbenchExampleResponse,
@@ -676,6 +712,38 @@ function variableSourceLabel(source: ApiWorkbenchVariableUsage["source"]): strin
   if (source === "environment") return "当前环境";
   if (source === "global") return "全局";
   return "缺失";
+}
+
+const quickAuthVisible = ref(false);
+const quickAuthType = ref<"bearer" | "basic">("bearer");
+const quickAuthToken = ref("");
+const quickAuthUsername = ref("");
+const quickAuthPassword = ref("");
+
+function applyQuickAuth() {
+  if (quickAuthType.value === "bearer" && !quickAuthToken.value.trim()) {
+    ElMessage.warning("请填写 Token");
+    return;
+  }
+  if (quickAuthType.value === "basic" && !quickAuthUsername.value.trim()) {
+    ElMessage.warning("请填写用户名");
+    return;
+  }
+  const headerValue =
+    quickAuthType.value === "bearer"
+      ? buildApiWorkbenchAuthHeader({ type: "bearer", token: quickAuthToken.value })
+      : buildApiWorkbenchAuthHeader({
+          type: "basic",
+          username: quickAuthUsername.value,
+          password: quickAuthPassword.value,
+        });
+  draft.value.headers = upsertApiWorkbenchHeaderRow(
+    draft.value.headers,
+    "Authorization",
+    headerValue,
+  );
+  quickAuthVisible.value = false;
+  ElMessage.success("已写入 Authorization 头");
 }
 
 async function copyText(text: string, successMessage: string) {
@@ -2130,6 +2198,12 @@ onBeforeUnmount(() => {
   margin-bottom: 8px;
 }
 
+.headers-quick-auth {
+  display: flex;
+  justify-content: flex-start;
+  margin-bottom: 8px;
+}
+
 .headers-table {
   min-height: 180px;
   max-height: 48vh;
@@ -2337,6 +2411,11 @@ onBeforeUnmount(() => {
 </style>
 
 <style>
+.quick-auth-form {
+  display: grid;
+  gap: 8px;
+}
+
 .request-settings {
   display: grid;
   gap: 10px;
