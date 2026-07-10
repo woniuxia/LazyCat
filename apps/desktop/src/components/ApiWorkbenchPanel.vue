@@ -39,7 +39,9 @@
 
         <div class="api-workbench-request-bar">
           <el-select v-model="draft.method" class="method-select">
-            <el-option v-for="method in methods" :key="method" :label="method" :value="method" />
+            <el-option v-for="method in methods" :key="method" :label="method" :value="method">
+              <span :class="getApiWorkbenchMethodClass(method)">{{ method }}</span>
+            </el-option>
           </el-select>
           <el-input
             v-model="draft.url"
@@ -245,7 +247,7 @@
               class="history-item"
             >
               <div class="history-main" @click="loadHistoryIntoTemporaryEditor(item)">
-                <strong>{{ item.method }}</strong>
+                <strong :class="getApiWorkbenchMethodClass(item.method)">{{ item.method }}</strong>
                 <span>{{ defaultApiWorkbenchHistoryDisplayName(item) }}</span>
                 <small>
                   <span :class="`history-status history-status-${getApiWorkbenchStatusTone(item.status, item.error)}`">
@@ -470,6 +472,7 @@ import {
   countApiWorkbenchActiveRows,
   draftApiWorkbenchEnvironmentRows,
   findDuplicateApiWorkbenchEnvironmentVariableNames,
+  getApiWorkbenchMethodClass,
   getApiWorkbenchStatusTone,
   hasApiWorkbenchBody,
   normalizeApiWorkbenchDraft,
@@ -1590,6 +1593,7 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+/* Method 色板为全局类（供下拉 popper 与子组件共用），定义见文件尾部非 scoped 样式块 */
 .api-workbench-panel {
   display: grid;
   grid-template-columns: 272px minmax(460px, 1fr) minmax(360px, 40%);
@@ -2287,5 +2291,33 @@ onBeforeUnmount(() => {
   .history-actions {
     justify-content: flex-start;
   }
+}
+</style>
+
+<style>
+.method-get {
+  color: #1a7f37;
+}
+
+.method-post {
+  color: #bc4c00;
+}
+
+.method-put {
+  color: #0969da;
+}
+
+.method-patch {
+  color: #1b7c83;
+}
+
+.method-delete {
+  color: #cf222e;
+}
+
+.method-head,
+.method-options,
+.method-default {
+  color: var(--el-text-color-secondary);
 }
 </style>

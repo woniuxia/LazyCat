@@ -280,7 +280,6 @@ export function formatApiWorkbenchResponseBody(body: string, contentType: string
 }
 
 export type ApiWorkbenchStatusTone = "success" | "warning" | "danger" | "info";
-
 export function getApiWorkbenchStatusTone(
   status: number | null,
   error: string | null,
@@ -290,4 +289,21 @@ export function getApiWorkbenchStatusTone(
   if (status >= 300 && status < 400) return "warning";
   if (status >= 400 && status < 600) return "danger";
   return "info";
+}
+
+const API_WORKBENCH_METHOD_CLASSES = new Set([
+  "get",
+  "post",
+  "put",
+  "patch",
+  "delete",
+  "head",
+  "options",
+]);
+
+export function getApiWorkbenchMethodClass(method: string): string {
+  const normalized = method.trim().toLowerCase();
+  return API_WORKBENCH_METHOD_CLASSES.has(normalized)
+    ? `method-${normalized}`
+    : "method-default";
 }

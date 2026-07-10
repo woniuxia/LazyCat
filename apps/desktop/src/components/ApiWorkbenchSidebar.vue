@@ -61,7 +61,7 @@
             })
           "
         >
-          <strong>{{ request.method }}</strong>
+          <strong :class="getApiWorkbenchMethodClass(request.method)">{{ request.method }}</strong>
           <span>{{ request.name }}</span>
         </button>
 
@@ -102,7 +102,7 @@
               })
             "
           >
-            <strong>{{ row.request.method }}</strong>
+            <strong :class="getApiWorkbenchMethodClass(row.request.method)">{{ row.request.method }}</strong>
             <span>{{ row.request.name }}</span>
           </button>
         </template>
@@ -144,6 +144,7 @@ import {
   getApiWorkbenchFolderAncestorIds,
 } from "../utils/apiWorkbenchTree";
 import { filterApiWorkbenchCollection } from "../utils/apiWorkbenchSearch";
+import { getApiWorkbenchMethodClass } from "../utils/apiWorkbench";
 
 type ApiWorkbenchSidebarRow =
   | {

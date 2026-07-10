@@ -10,6 +10,7 @@ import {
   extractApiWorkbenchVariables,
   findDuplicateApiWorkbenchEnvironmentVariableNames,
   formatApiWorkbenchResponseBody,
+  getApiWorkbenchMethodClass,
   getApiWorkbenchStatusTone,
   hasApiWorkbenchBody,
   normalizeApiWorkbenchDraft,
@@ -238,6 +239,14 @@ describe("apiWorkbench utils", () => {
       duplicateNames: ["TOKEN"],
       changed: true,
     });
+  });
+
+  it("maps methods to color classes with fallback", () => {
+    expect(getApiWorkbenchMethodClass("GET")).toBe("method-get");
+    expect(getApiWorkbenchMethodClass("delete")).toBe("method-delete");
+    expect(getApiWorkbenchMethodClass("OPTIONS")).toBe("method-options");
+    expect(getApiWorkbenchMethodClass("TRACE")).toBe("method-default");
+    expect(getApiWorkbenchMethodClass("")).toBe("method-default");
   });
 
   it("maps response status to tag tone", () => {
