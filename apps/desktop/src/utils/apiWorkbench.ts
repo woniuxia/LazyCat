@@ -338,3 +338,31 @@ export function upsertApiWorkbenchHeaderRow(
   }
   return rows.map((row, i) => (i === index ? { ...row, enabled: true, value } : row));
 }
+
+export interface ApiWorkbenchVariablePrefixMatch {
+  start: number;
+  query: string;
+}
+
+export function matchApiWorkbenchVariablePrefix(
+  text: string,
+  cursor: number,
+): ApiWorkbenchVariablePrefixMatch | null {
+  const before = text.slice(0, Math.max(0, cursor));
+  const match = /\{\{([A-Za-z0-9_.-]*)$/.exec(before);
+  if (!match) return null;
+  return { start: match.index, query: match[1] };
+}
+
+export function applyApiWorkbenchVariableCompletion(
+  text: string,
+  cursor: number,
+  name: string,
+): { text: string; cursor: number } | null {
+  const match = matchApiWorkbenchVariablePrefix(text, cursor);
+  if (!match) return null;
+  const after = text.slice(cursor);
+  const closing = after.startsWith("}}") ? "" : "}}";
+  const nextText = `${text.slice(0, match.start)}{{${name}${closing}${after}`;
+  return { text: nextText, cursor: match.start + name.length + 4 };
+}

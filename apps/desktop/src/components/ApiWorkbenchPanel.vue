@@ -47,8 +47,16 @@
             v-model="draft.url"
             class="request-url-input"
             placeholder="https://example.com/api 或 /api/users"
-            @blur="applyUrlQuerySplit"
+            @blur="handleUrlBlur"
             @paste="handleUrlPaste"
+            @focus="urlVariablePopover?.onFocus($event)"
+            @input="urlVariablePopover?.refresh()"
+            @keydown="urlVariablePopover?.onKeydown($event)"
+          />
+          <ApiWorkbenchVariablePopover
+            v-if="variableNameCandidates.length > 0"
+            ref="urlVariablePopover"
+            :candidates="variableNameCandidates"
           />
           <el-popover placement="bottom-end" :width="300" trigger="click">
             <template #reference>
@@ -146,7 +154,11 @@
               Query<span v-if="queryRowCount > 0" class="editor-tab-badge">({{ queryRowCount }})</span>
             </span>
           </template>
-          <ApiWorkbenchKeyValueEditor v-model="draft.query" variant="query" />
+          <ApiWorkbenchKeyValueEditor
+            v-model="draft.query"
+            variant="query"
+            :variable-names="variableNameCandidates"
+          />
         </el-tab-pane>
         <el-tab-pane name="headers">
           <template #label>
@@ -187,7 +199,11 @@
               </div>
             </el-popover>
           </div>
-          <ApiWorkbenchKeyValueEditor v-model="draft.headers" variant="headers" />
+          <ApiWorkbenchKeyValueEditor
+            v-model="draft.headers"
+            variant="headers"
+            :variable-names="variableNameCandidates"
+          />
         </el-tab-pane>
         <el-tab-pane name="body">
           <template #label>
@@ -209,7 +225,12 @@
               </template>
             </div>
           </div>
-          <ApiWorkbenchKeyValueEditor v-if="draft.bodyType === 'form-urlencoded'" v-model="draft.form" variant="form" />
+          <ApiWorkbenchKeyValueEditor
+            v-if="draft.bodyType === 'form-urlencoded'"
+            v-model="draft.form"
+            variant="form"
+            :variable-names="variableNameCandidates"
+          />
           <div v-else-if="draft.bodyType !== 'none'" class="body-monaco">
             <MonacoPane
               v-model="draft.body"
@@ -503,6 +524,7 @@ import {
 import { ElMessage, ElMessageBox } from "element-plus";
 import { invokeToolByChannel } from "../bridge/tauri";
 import ApiWorkbenchKeyValueEditor from "./ApiWorkbenchKeyValueEditor.vue";
+import ApiWorkbenchVariablePopover from "./ApiWorkbenchVariablePopover.vue";
 import ApiWorkbenchResponseViewer from "./ApiWorkbenchResponseViewer.vue";
 import ApiWorkbenchSidebar from "./ApiWorkbenchSidebar.vue";
 import MonacoPane from "./MonacoPane.vue";
@@ -630,6 +652,23 @@ const baseUrlError = computed(() => {
   if (!draft.value.url.trim()) return "";
   return baseUrl.value.trim() ? "" : "相对 URL 需要当前环境配置 BASE_URL";
 });
+const variableNameCandidates = computed(() => {
+  const names: string[] = [];
+  const seen = new Set<string>();
+  for (const variable of selectedEnvironment.value?.variables ?? []) {
+    if (variable.name && !seen.has(variable.name)) {
+      seen.add(variable.name);
+      names.push(variable.name);
+    }
+  }
+  for (const row of globalVariables.value) {
+    if (row.key && !seen.has(row.key)) {
+      seen.add(row.key);
+      names.push(row.key);
+    }
+  }
+  return names;
+});
 const variableUsages = computed(() =>
   summarizeApiWorkbenchVariables({
     draft: normalizeApiWorkbenchDraft(draft.value),
@@ -715,7 +754,7 @@ function variableSourceLabel(source: ApiWorkbenchVariableUsage["source"]): strin
 }
 
 const quickAuthVisible = ref(false);
-const quickAuthType = ref<"bearer" | "basic">("bearer");
+const urlVariablePopover = ref<InstanceType<typeof ApiWorkbenchVariablePopover> | null>(null);const quickAuthType = ref<"bearer" | "basic">("bearer");
 const quickAuthToken = ref("");
 const quickAuthUsername = ref("");
 const quickAuthPassword = ref("");
@@ -836,6 +875,11 @@ function applyUrlQuerySplit() {
   draft.value.url = result.url;
   draft.value.query.push(...result.rows);
   ElMessage.success(`已拆分 ${result.rows.length} 个参数到 Query`);
+}
+
+function handleUrlBlur() {
+  urlVariablePopover.value?.onBlur();
+  applyUrlQuerySplit();
 }
 
 function handleUrlPaste() {

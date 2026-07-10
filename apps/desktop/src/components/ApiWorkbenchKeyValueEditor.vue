@@ -50,6 +50,10 @@
         class="api-workbench-kv-input"
         placeholder="Value"
         @update:model-value="update(index, { value: String($event) })"
+        @focus="variablePopover?.onFocus($event)"
+        @input="variablePopover?.refresh()"
+        @blur="variablePopover?.onBlur()"
+        @keydown="variablePopover?.onKeydown($event)"
       />
       <el-button
         class="api-workbench-kv-remove"
@@ -61,14 +65,20 @@
         @click="removeRow(index)"
       />
     </div>
+    <ApiWorkbenchVariablePopover
+      v-if="variableNames.length > 0"
+      ref="variablePopover"
+      :candidates="variableNames"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import { Delete } from "@element-plus/icons-vue";
 import { ElMessage } from "element-plus";
 import type { ApiWorkbenchKeyValueRow } from "../types/api-workbench";
+import ApiWorkbenchVariablePopover from "./ApiWorkbenchVariablePopover.vue";
 import { parseApiWorkbenchKvPaste } from "../utils/apiWorkbenchKvPaste";
 import { COMMON_CONTENT_TYPES, COMMON_HEADER_NAMES } from "../utils/apiWorkbenchHeaders";
 
@@ -87,6 +97,8 @@ const props = withDefaults(
 const emit = defineEmits<{
   (event: "update:modelValue", value: ApiWorkbenchKeyValueRow[]): void;
 }>();
+
+const variablePopover = ref<InstanceType<typeof ApiWorkbenchVariablePopover> | null>(null);
 
 const displayRows = computed<ApiWorkbenchKeyValueRow[]>(() => {
   const rows = props.modelValue;

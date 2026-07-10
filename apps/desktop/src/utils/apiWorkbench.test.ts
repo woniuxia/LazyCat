@@ -14,6 +14,8 @@ import {
   getApiWorkbenchMethodClass,
   getApiWorkbenchStatusTone,
   hasApiWorkbenchBody,
+  applyApiWorkbenchVariableCompletion,
+  matchApiWorkbenchVariablePrefix,
   normalizeApiWorkbenchDraft,
   resolveApiWorkbenchEnvironmentSelect,
   serializeApiWorkbenchEnvironmentRows,
@@ -291,6 +293,26 @@ describe("apiWorkbench utils", () => {
       { enabled: true, key: "authorization", value: "Bearer y" },
       { enabled: true, key: "Accept", value: "*/*" },
     ]);
+  });
+
+  it("matches variable prefix before cursor", () => {
+    expect(matchApiWorkbenchVariablePrefix("{{TO", 4)).toEqual({ start: 0, query: "TO" });
+    expect(matchApiWorkbenchVariablePrefix("/api/{{", 7)).toEqual({ start: 5, query: "" });
+    expect(matchApiWorkbenchVariablePrefix("/api/{{TOKEN}}", 14)).toBeNull();
+    expect(matchApiWorkbenchVariablePrefix("plain", 5)).toBeNull();
+    expect(matchApiWorkbenchVariablePrefix("{{A B", 5)).toBeNull();
+  });
+
+  it("applies variable completion and reuses existing closing braces", () => {
+    expect(applyApiWorkbenchVariableCompletion("/api/{{TO", 9, "TOKEN")).toEqual({
+      text: "/api/{{TOKEN}}",
+      cursor: 14,
+    });
+    expect(applyApiWorkbenchVariableCompletion("{{TO}}/x", 4, "TOKEN")).toEqual({
+      text: "{{TOKEN}}/x",
+      cursor: 9,
+    });
+    expect(applyApiWorkbenchVariableCompletion("plain", 5, "TOKEN")).toBeNull();
   });
 
   it("maps response status to tag tone", () => {
