@@ -947,6 +947,21 @@ async function loadRequestDetail(requestId: number): Promise<ApiWorkbenchRequest
   })) as ApiWorkbenchRequestDetail;
 }
 
+async function duplicateRequest(requestId: number) {
+  const detail = await loadRequestDetail(requestId);
+  const saved = (await invokeToolByChannel("tool:api-workbench:request-save", {
+    id: null,
+    collectionId: detail.collectionId,
+    folderId: detail.folderId,
+    name: `${detail.name} 副本`,
+    description: detail.description,
+    draft: normalizeApiWorkbenchDraft(detail.draft),
+  })) as { id: number };
+  await loadAll();
+  await loadRequest(saved.id);
+  ElMessage.success("已复制接口");
+}
+
 async function renameRequest(requestId: number) {
   const isCurrentOpen = selectedRequestId.value === requestId && selectedCollectionId.value !== null;
   const detail = isCurrentOpen ? null : await loadRequestDetail(requestId);
@@ -1083,6 +1098,7 @@ async function handleSidebarCommand(command: ApiWorkbenchNavCommand, target: Api
     }
     if (target.type === "request") {
       if (command === "request:open") return await loadRequest(target.requestId);
+      if (command === "request:duplicate") return await duplicateRequest(target.requestId);
       if (command === "request:rename") return await renameRequest(target.requestId);
       if (command === "request:delete") return await deleteRequest(target.requestId);
       if (command === "request:move") return await moveRequest(target.requestId);

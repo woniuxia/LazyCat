@@ -186,6 +186,7 @@ export function buildApiWorkbenchNavMenuItems(
   }
   return [
     { key: "request:open", label: "打开" },
+    { key: "request:duplicate", label: "复制接口" },
     { key: "request:import-curl", label: "导入 cURL" },
     { key: "collection:export", label: "导出 Markdown" },
     { divider: true, key: "request:manage", label: "" },

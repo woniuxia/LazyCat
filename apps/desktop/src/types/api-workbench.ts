@@ -102,6 +102,7 @@ export type ApiWorkbenchNavCommand =
   | "request:import-curl"
   | "request:create"
   | "request:open"
+  | "request:duplicate"
   | "request:rename"
   | "request:delete"
   | "request:move"
