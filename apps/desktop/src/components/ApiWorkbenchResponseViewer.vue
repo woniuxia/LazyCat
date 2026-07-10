@@ -45,7 +45,27 @@
     <div v-if="mode === 'preview'" class="api-response-viewer__content">
       <el-empty v-if="viewerKind === 'empty'" description="无响应体" />
 
-      <pre v-else-if="viewerKind === 'json'" class="api-response-viewer__code">{{ previewText }}</pre>
+      <template v-else-if="viewerKind === 'json'">
+        <JsonTreeViewer
+          v-if="jsonPreview && jsonPreview.ok"
+          class="api-response-viewer__json-tree"
+          :value="jsonPreview.value"
+          :default-expand-depth="2"
+          :copy-text="previewText"
+        />
+        <div v-else class="api-response-viewer__monaco-wrap">
+          <el-alert
+            class="api-response-viewer__alert"
+            type="info"
+            :title="jsonPreview ? jsonPreview.reason : 'JSON 解析失败，已切换原文模式'"
+            show-icon
+            :closable="false"
+          />
+          <div class="api-response-viewer__monaco">
+            <MonacoPane :model-value="rawText" :read-only="true" :language="rawLanguage" />
+          </div>
+        </div>
+      </template>
 
       <iframe
         v-else-if="viewerKind === 'html'"
@@ -133,7 +153,9 @@
       </div>
     </div>
 
-    <pre v-else-if="mode === 'raw'" class="api-response-viewer__code">{{ rawText }}</pre>
+    <div v-else-if="mode === 'raw'" class="api-response-viewer__monaco">
+      <MonacoPane :model-value="rawText" :read-only="true" :language="rawLanguage" />
+    </div>
 
     <dl v-else class="api-response-viewer__meta">
       <dt>状态</dt>
@@ -160,11 +182,15 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { CopyDocument, DocumentChecked } from "@element-plus/icons-vue";
 import { ElMessage } from "element-plus";
 import { invokeToolByChannel } from "../bridge/tauri";
+import MonacoPane from "./MonacoPane.vue";
+import JsonTreeViewer from "./common/JsonTreeViewer.vue";
 import type { ApiWorkbenchSendResult } from "../types/api-workbench";
 import {
   formatApiWorkbenchPreviewBody,
   getApiWorkbenchResponseViewerKind,
+  getApiWorkbenchRawLanguage,
   getDefaultApiWorkbenchResponseMode,
+  parseApiWorkbenchJsonPreview,
   type ApiWorkbenchResponseMode,
 } from "../utils/apiWorkbenchResponsePreview";
 
@@ -190,6 +216,12 @@ let officeRequestSeq = 0;
 const viewerKind = computed(() => getApiWorkbenchResponseViewerKind(props.response));
 const previewText = computed(() => formatApiWorkbenchPreviewBody(props.response));
 const rawText = computed(() => props.response.bodyText || "该响应没有可显示的文本内容。");
+const rawLanguage = computed(() =>
+  getApiWorkbenchRawLanguage(viewerKind.value, props.response.contentType),
+);
+const jsonPreview = computed(() =>
+  viewerKind.value === "json" ? parseApiWorkbenchJsonPreview(props.response.bodyText) : null,
+);
 const rawModeLabel = computed(() => (viewerKind.value === "html" ? "源码" : "原文"));
 const hasPreview = computed(() => viewerKind.value !== "binary" && viewerKind.value !== "empty");
 const isOfficeKind = computed(() => viewerKind.value.startsWith("office-"));
@@ -318,6 +350,26 @@ watch(
   padding: 10px;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.api-response-viewer__monaco-wrap {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.api-response-viewer__monaco {
+  height: 58vh;
+  min-height: 360px;
+  overflow: hidden;
+  border: 1px solid var(--el-border-color-extra-light);
+  border-radius: 6px;
+}
+
+.api-response-viewer__json-tree {
+  max-height: 58vh;
+  overflow: auto;
 }
 
 .api-response-viewer__frame {

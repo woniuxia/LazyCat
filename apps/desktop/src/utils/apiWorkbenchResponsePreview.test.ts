@@ -8,7 +8,9 @@ import {
   buildApiWorkbenchResponseFromHistory,
   formatApiWorkbenchPreviewBody,
   getApiWorkbenchResponseViewerKind,
+  getApiWorkbenchRawLanguage,
   getDefaultApiWorkbenchResponseMode,
+  parseApiWorkbenchJsonPreview,
 } from "./apiWorkbenchResponsePreview";
 
 function response(overrides: Partial<ApiWorkbenchSendResult> = {}): ApiWorkbenchSendResult {
@@ -123,6 +125,29 @@ describe("apiWorkbenchResponsePreview", () => {
       formatApiWorkbenchPreviewBody(response({ contentType: "application/json", bodyText: "{\"ok\":true}" })),
     ).toBe("{\n  \"ok\": true\n}");
     expect(formatApiWorkbenchPreviewBody(response({ bodyText: "plain" }))).toBe("plain");
+  });
+
+  it("maps viewer kind and mime to monaco raw language", () => {
+    expect(getApiWorkbenchRawLanguage("json", "application/json")).toBe("json");
+    expect(getApiWorkbenchRawLanguage("html", "text/html")).toBe("html");
+    expect(getApiWorkbenchRawLanguage("text", "application/xml")).toBe("xml");
+    expect(getApiWorkbenchRawLanguage("text", "text/xml; charset=utf-8")).toBe("xml");
+    expect(getApiWorkbenchRawLanguage("text", "application/atom+xml")).toBe("xml");
+    expect(getApiWorkbenchRawLanguage("text", "text/plain")).toBe("plaintext");
+    expect(getApiWorkbenchRawLanguage("binary", "application/octet-stream")).toBe("plaintext");
+  });
+
+  it("parses json preview with size guard and failure reasons", () => {
+    expect(parseApiWorkbenchJsonPreview("{\"ok\":true}")).toEqual({
+      ok: true,
+      value: { ok: true },
+    });
+    const tooLarge = parseApiWorkbenchJsonPreview("x".repeat(1_000_001));
+    expect(tooLarge.ok).toBe(false);
+    if (!tooLarge.ok) expect(tooLarge.reason).toContain("1 MB");
+    const invalid = parseApiWorkbenchJsonPreview("{oops}");
+    expect(invalid.ok).toBe(false);
+    if (!invalid.ok) expect(invalid.reason).toContain("JSON 解析失败");
   });
 
   it("rebuilds a previewable response from history detail", () => {

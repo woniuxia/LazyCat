@@ -98,6 +98,34 @@ export function getDefaultApiWorkbenchResponseMode(
   return kind === "binary" || kind === "empty" ? "meta" : "preview";
 }
 
+export function getApiWorkbenchRawLanguage(
+  kind: ApiWorkbenchResponseViewerKind,
+  contentType: string,
+): string {
+  if (kind === "json") return "json";
+  if (kind === "html") return "html";
+  const mime = normalizeApiWorkbenchMime(contentType);
+  if (mime === "application/xml" || mime === "text/xml" || mime.endsWith("+xml")) return "xml";
+  return "plaintext";
+}
+
+export const API_WORKBENCH_JSON_PREVIEW_MAX_BYTES = 1_000_000;
+
+export type ApiWorkbenchJsonPreviewResult =
+  | { ok: true; value: unknown }
+  | { ok: false; reason: string };
+
+export function parseApiWorkbenchJsonPreview(bodyText: string): ApiWorkbenchJsonPreviewResult {
+  if (bodyText.length > API_WORKBENCH_JSON_PREVIEW_MAX_BYTES) {
+    return { ok: false, reason: "响应体超过 1 MB，已切换原文模式" };
+  }
+  try {
+    return { ok: true, value: JSON.parse(bodyText) };
+  } catch {
+    return { ok: false, reason: "JSON 解析失败，已切换原文模式" };
+  }
+}
+
 export function formatApiWorkbenchPreviewBody(response: ApiWorkbenchSendResult): string {
   if (!response.bodyText && response.bodyStorage === "file") {
     return `二进制响应：${response.bodyFileName || response.bodyExtension || "文件"}，${response.bodySize} bytes`;
