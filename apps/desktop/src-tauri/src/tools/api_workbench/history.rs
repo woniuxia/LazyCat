@@ -67,6 +67,7 @@ pub(crate) fn history_save_request_with_conn(conn: &Connection, payload: &Value)
             body: String::new(),
             form: Vec::new(),
             timeout_ms: 10000,
+            follow_redirects: false,
         }
     };
     let query_json = serde_json::to_string(&draft.query).map_err(|e| e.to_string())?;

@@ -64,6 +64,7 @@ CREATE TABLE IF NOT EXISTS api_workbench_requests (
   body_text TEXT NOT NULL DEFAULT '',
   form_json TEXT NOT NULL DEFAULT '[]',
   timeout_ms INTEGER NOT NULL DEFAULT 10000,
+  follow_redirects INTEGER NOT NULL DEFAULT 0,
   example_response_json TEXT,
   sort_order INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -184,6 +185,27 @@ fn ensure_api_workbench_history_columns(conn: &Connection) -> Result<(), String>
     Ok(())
 }
 
+fn ensure_api_workbench_request_columns(conn: &Connection) -> Result<(), String> {
+    let columns = [("follow_redirects", "INTEGER NOT NULL DEFAULT 0")];
+    for (name, ty) in columns {
+        let exists: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('api_workbench_requests') WHERE name=?1",
+                [name],
+                |row| row.get(0),
+            )
+            .map_err(|e| format!("inspect api requests schema failed: {e}"))?;
+        if exists == 0 {
+            conn.execute(
+                &format!("ALTER TABLE api_workbench_requests ADD COLUMN {name} {ty}"),
+                [],
+            )
+            .map_err(|e| format!("migrate api requests column {name} failed: {e}"))?;
+        }
+    }
+    Ok(())
+}
+
 fn action_list_with_conn(conn: &Connection) -> Result<Value, String> {
     let mut stmt = conn
         .prepare(
@@ -297,6 +319,7 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
     }
     let conn = db_conn()?;
     ensure_api_workbench_history_columns(&conn)?;
+    ensure_api_workbench_request_columns(&conn)?;
     match action {
         "list" => action_list_with_conn(&conn),
         "collection_create" => collection_create_with_conn(&conn, payload),
@@ -402,6 +425,44 @@ mod tests {
 
         conn.execute_batch(API_WORKBENCH_SCHEMA_SQL)
             .expect("api workbench schema should allow old history table");
+    }
+
+    #[test]
+    fn ensure_request_columns_is_idempotent_on_old_schema() {
+        let conn = Connection::open_in_memory().expect("open memory db");
+        conn.execute_batch(
+            "CREATE TABLE api_workbench_requests (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                collection_id INTEGER NOT NULL,
+                folder_id INTEGER,
+                name TEXT NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
+                method TEXT NOT NULL DEFAULT 'GET',
+                url TEXT NOT NULL DEFAULT '',
+                query_json TEXT NOT NULL DEFAULT '[]',
+                headers_json TEXT NOT NULL DEFAULT '[]',
+                body_type TEXT NOT NULL DEFAULT 'none',
+                body_text TEXT NOT NULL DEFAULT '',
+                form_json TEXT NOT NULL DEFAULT '[]',
+                timeout_ms INTEGER NOT NULL DEFAULT 10000,
+                example_response_json TEXT,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );",
+        )
+        .expect("old requests schema");
+
+        ensure_api_workbench_request_columns(&conn).expect("first migrate");
+        ensure_api_workbench_request_columns(&conn).expect("second migrate");
+        let exists: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('api_workbench_requests') WHERE name='follow_redirects'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("column check");
+        assert_eq!(exists, 1);
     }
 
     #[test]

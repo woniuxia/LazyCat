@@ -42,8 +42,8 @@ pub(crate) fn request_save_with_conn(conn: &Connection, payload: &Value) -> Resu
                 "UPDATE api_workbench_requests
                  SET folder_id=?1, name=?2, description=?3, method=?4, url=?5,
                      query_json=?6, headers_json=?7, body_type=?8, body_text=?9,
-                     form_json=?10, timeout_ms=?11, updated_at=CURRENT_TIMESTAMP
-                 WHERE id=?12 AND collection_id=?13",
+                     form_json=?10, timeout_ms=?11, follow_redirects=?12, updated_at=CURRENT_TIMESTAMP
+                 WHERE id=?13 AND collection_id=?14",
                 params![
                     folder_id,
                     name,
@@ -56,6 +56,7 @@ pub(crate) fn request_save_with_conn(conn: &Connection, payload: &Value) -> Resu
                     draft.body,
                     form_json,
                     clamp_timeout_ms(draft.timeout_ms) as i64,
+                    if draft.follow_redirects { 1 } else { 0 },
                     id,
                     collection_id
                 ],
@@ -79,9 +80,9 @@ pub(crate) fn request_save_with_conn(conn: &Connection, payload: &Value) -> Resu
             "INSERT INTO api_workbench_requests(
                 collection_id, folder_id, name, description, method, url,
                 query_json, headers_json, body_type, body_text, form_json,
-                timeout_ms, sort_order
+                timeout_ms, follow_redirects, sort_order
              )
-             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
             params![
                 collection_id,
                 folder_id,
@@ -95,6 +96,7 @@ pub(crate) fn request_save_with_conn(conn: &Connection, payload: &Value) -> Resu
                 draft.body,
                 form_json,
                 clamp_timeout_ms(draft.timeout_ms) as i64,
+                if draft.follow_redirects { 1 } else { 0 },
                 next_order
             ],
         )
@@ -108,7 +110,7 @@ pub(crate) fn request_get_with_conn(conn: &Connection, payload: &Value) -> Resul
     conn.query_row(
         "SELECT id, collection_id, folder_id, name, description, method, url,
                 query_json, headers_json, body_type, body_text, form_json, timeout_ms,
-                example_response_json, sort_order, created_at, updated_at
+                example_response_json, sort_order, created_at, updated_at, follow_redirects
          FROM api_workbench_requests WHERE id=?1",
         [id],
         |row| {
@@ -129,7 +131,8 @@ pub(crate) fn request_get_with_conn(conn: &Connection, payload: &Value) -> Resul
                     "bodyType": row.get::<_, String>(9)?,
                     "body": row.get::<_, String>(10)?,
                     "form": serde_json::from_str::<Value>(&form_json).unwrap_or_else(|_| json!([])),
-                    "timeoutMs": row.get::<_, i64>(12)?
+                    "timeoutMs": row.get::<_, i64>(12)?,
+                    "followRedirects": row.get::<_, i64>(17)? != 0
                 },
                 "exampleResponse": row.get::<_, Option<String>>(13)?,
                 "sortOrder": row.get::<_, i64>(14)?,

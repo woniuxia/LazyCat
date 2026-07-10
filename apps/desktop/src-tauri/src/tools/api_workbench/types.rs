@@ -32,6 +32,8 @@ pub(crate) struct RequestDraft {
     pub(crate) body: String,
     pub(crate) form: Vec<KeyValueRow>,
     pub(crate) timeout_ms: u64,
+    #[serde(default)]
+    pub(crate) follow_redirects: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -44,6 +46,8 @@ pub(crate) struct ExecutedRequestSnapshot {
     pub(crate) body: String,
     pub(crate) form: Vec<KeyValueRow>,
     pub(crate) timeout_ms: u64,
+    #[serde(default)]
+    pub(crate) follow_redirects: bool,
 }
 
 #[derive(Debug, Clone)]

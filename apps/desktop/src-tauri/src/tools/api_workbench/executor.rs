@@ -113,6 +113,7 @@ pub(crate) fn prepare_api_workbench_request(
         body: resolved_body,
         form: resolved_form,
         timeout_ms: clamp_timeout_ms(draft.timeout_ms),
+        follow_redirects: draft.follow_redirects,
     })
 }
 
@@ -132,6 +133,7 @@ pub(crate) fn execute_api_workbench_request(snapshot: &ExecutedRequestSnapshot) 
         body: snapshot.body.clone(),
         form: snapshot.form.clone(),
         timeout_ms: snapshot.timeout_ms,
+        follow_redirects: snapshot.follow_redirects,
     };
     execute_http_request(
         &draft_for_timeout,
@@ -150,7 +152,7 @@ pub(crate) fn execute_http_request(
     let started = Instant::now();
     let agent = ureq::AgentBuilder::new()
         .timeout(Duration::from_millis(clamp_timeout_ms(draft.timeout_ms)))
-        .redirects(0)
+        .redirects(if draft.follow_redirects { 10 } else { 0 })
         .build();
     let method = draft.method.to_ascii_uppercase();
     let mut request = match method.as_str() {
@@ -213,7 +215,7 @@ pub(crate) fn execute_http_request(
 }
 
 pub(crate) fn response_to_json(
-    final_url: &str,
+    final_url_fallback: &str,
     duration_ms: u64,
     resp: ureq::Response,
     forced_error: Option<String>,
@@ -221,6 +223,14 @@ pub(crate) fn response_to_json(
 ) -> Result<Value, String> {
     let status = resp.status();
     let status_text = resp.status_text().to_string();
+    // 跟随重定向时以实际到达的 URL 为准
+    let final_url = resp.get_url().to_string();
+    let final_url = if final_url.is_empty() {
+        final_url_fallback.to_string()
+    } else {
+        final_url
+    };
+    let final_url = final_url.as_str();
     let content_type = resp.header("Content-Type").unwrap_or("").to_string();
     let content_disposition = resp.header("Content-Disposition").unwrap_or("").to_string();
     let response_headers: Vec<Value> = resp
@@ -471,7 +481,10 @@ pub(crate) fn send_with_conn(conn: &Connection, payload: &Value) -> Result<Value
             name: payload["name"].as_str().unwrap_or_default().to_string(),
             method: draft.method.clone(),
             url: draft.url.clone(),
-            final_url: executed_snapshot.final_url.clone(),
+            final_url: result["finalUrl"]
+                .as_str()
+                .unwrap_or(executed_snapshot.final_url.as_str())
+                .to_string(),
             status: result["status"].as_i64(),
             duration_ms: result["durationMs"].as_u64().unwrap_or(0),
             ok: result["ok"].as_bool().unwrap_or(false),
@@ -584,6 +597,133 @@ mod tests {
         )
         .expect_err("request must match");
         assert!(err.contains("接口不属于当前集合"));
+    }
+
+    #[test]
+    fn request_draft_defaults_follow_redirects_to_false() {
+        let draft: RequestDraft = serde_json::from_value(json!({
+            "method": "GET",
+            "url": "/",
+            "query": [],
+            "headers": [],
+            "bodyType": "none",
+            "body": "",
+            "form": [],
+            "timeoutMs": 1000
+        }))
+        .expect("old draft json");
+        assert!(!draft.follow_redirects);
+    }
+
+    #[test]
+    fn send_follows_302_post_as_get_when_enabled() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+        use std::thread;
+
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let port = listener.local_addr().unwrap().port();
+        let handle = thread::spawn(move || {
+            let mut second_request_line = String::new();
+            for i in 0..2 {
+                let Ok((mut stream, _)) = listener.accept() else {
+                    break;
+                };
+                let mut buf = [0u8; 2048];
+                let n = stream.read(&mut buf).unwrap_or(0);
+                let request = String::from_utf8_lossy(&buf[..n]).to_string();
+                if i == 0 {
+                    let _ = stream.write_all(
+                        b"HTTP/1.1 302 Found\r\nLocation: /next\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                    );
+                } else {
+                    second_request_line = request.lines().next().unwrap_or("").to_string();
+                    let _ = stream.write_all(
+                        b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 4\r\nConnection: close\r\n\r\ndone",
+                    );
+                }
+            }
+            second_request_line
+        });
+
+        let conn = test_conn();
+        let c = collection_create_with_conn(&conn, &json!({ "name": "Demo" })).expect("create");
+        let collection_id = c["id"].as_i64().unwrap();
+        let environment_id = c["activeEnvironmentId"].as_i64().unwrap();
+
+        let result = send_with_conn(
+            &conn,
+            &json!({
+                "collectionId": collection_id,
+                "environmentId": environment_id,
+                "draft": {
+                    "method": "POST",
+                    "url": format!("http://127.0.0.1:{port}/redirect"),
+                    "query": [],
+                    "headers": [],
+                    "bodyType": "json",
+                    "body": "{\"a\":1}",
+                    "form": [],
+                    "timeoutMs": 10000,
+                    "followRedirects": true
+                }
+            }),
+        )
+        .expect("send");
+
+        assert_eq!(result["status"], 200);
+        assert_eq!(result["bodyText"], "done");
+        assert!(result["finalUrl"].as_str().unwrap().contains("/next"));
+        let second_line = handle.join().expect("stub thread");
+        assert!(
+            second_line.starts_with("GET /next"),
+            "302 redirect should convert POST to GET, got: {second_line}"
+        );
+    }
+
+    #[test]
+    fn send_returns_original_307_for_post_even_when_following() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+        use std::thread;
+
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let port = listener.local_addr().unwrap().port();
+        thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut buf = [0u8; 2048];
+                let _ = stream.read(&mut buf);
+                let _ = stream.write_all(
+                    b"HTTP/1.1 307 Temporary Redirect\r\nLocation: /next\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                );
+            }
+        });
+
+        let conn = test_conn();
+        let c = collection_create_with_conn(&conn, &json!({ "name": "Demo" })).expect("create");
+        let collection_id = c["id"].as_i64().unwrap();
+        let environment_id = c["activeEnvironmentId"].as_i64().unwrap();
+
+        let result = send_with_conn(
+            &conn,
+            &json!({
+                "collectionId": collection_id,
+                "environmentId": environment_id,
+                "draft": {
+                    "method": "POST",
+                    "url": format!("http://127.0.0.1:{port}/redirect"),
+                    "query": [],
+                    "headers": [],
+                    "bodyType": "json",
+                    "body": "{\"a\":1}",
+                    "form": [],
+                    "timeoutMs": 10000,
+                    "followRedirects": true
+                }
+            }),
+        )
+        .expect("send");
+        assert_eq!(result["status"], 307);
     }
 
     #[test]
