@@ -38,6 +38,7 @@ export const DEFAULT_API_WORKBENCH_DRAFT: ApiWorkbenchRequestDraft = {
   body: "",
   form: [],
   timeoutMs: 10000,
+  followRedirects: false,
 };
 
 export function validateApiWorkbenchVariableName(name: string): boolean {
@@ -113,6 +114,7 @@ export function normalizeApiWorkbenchDraft(input: DraftInput): ApiWorkbenchReque
     body: String(input.body ?? ""),
     form: normalizeRows(input.form),
     timeoutMs,
+    followRedirects: input.followRedirects === true,
   };
 }
 

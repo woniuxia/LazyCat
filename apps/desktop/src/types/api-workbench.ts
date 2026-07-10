@@ -16,6 +16,7 @@ export interface ApiWorkbenchRequestDraft {
   body: string;
   form: ApiWorkbenchKeyValueRow[];
   timeoutMs: number;
+  followRedirects: boolean;
 }
 
 export interface ApiWorkbenchCollection {

@@ -50,6 +50,33 @@
             @blur="applyUrlQuerySplit"
             @paste="handleUrlPaste"
           />
+          <el-popover placement="bottom-end" :width="300" trigger="click">
+            <template #reference>
+              <el-button
+                class="request-settings-button"
+                :icon="Setting"
+                title="请求设置"
+                aria-label="请求设置"
+              />
+            </template>
+            <div class="request-settings">
+              <div class="request-settings-item">
+                <span>超时（ms）</span>
+                <el-input-number
+                  v-model="draft.timeoutMs"
+                  :min="1000"
+                  :max="120000"
+                  :step="1000"
+                  size="small"
+                />
+              </div>
+              <div class="request-settings-item">
+                <span>跟随重定向</span>
+                <el-switch v-model="draft.followRedirects" />
+              </div>
+              <p class="request-settings-note">301/302/303 按标准跟随；307/308 带请求体不跟随</p>
+            </div>
+          </el-popover>
           <el-button
             class="save-request-button"
             :icon="DocumentChecked"
@@ -147,7 +174,6 @@
                 <el-button size="small" @click="formatBodyJson">格式化</el-button>
                 <el-button size="small" @click="minifyBodyJson">压缩</el-button>
               </template>
-              <el-switch disabled inactive-text="跟随重定向" />
             </div>
           </div>
           <ApiWorkbenchKeyValueEditor v-if="draft.bodyType === 'form-urlencoded'" v-model="draft.form" variant="form" />
@@ -2311,6 +2337,26 @@ onBeforeUnmount(() => {
 </style>
 
 <style>
+.request-settings {
+  display: grid;
+  gap: 10px;
+}
+
+.request-settings-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+}
+
+.request-settings-note {
+  margin: 0;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .method-get {
   color: #1a7f37;
 }

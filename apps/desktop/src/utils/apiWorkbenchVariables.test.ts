@@ -16,6 +16,7 @@ describe("apiWorkbenchVariables", () => {
         body: "{\"org\":\"{{ORG_ID}}\"}",
         form: [{ enabled: true, key: "hidden", value: "{{FORM_ONLY}}" }],
         timeoutMs: 10000,
+        followRedirects: false,
       },
       environmentVariables: [
         { name: "BASE_URL", value: "http://127.0.0.1:8080" },

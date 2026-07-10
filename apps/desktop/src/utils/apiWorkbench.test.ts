@@ -62,6 +62,12 @@ describe("apiWorkbench utils", () => {
     expect(draft.query[0].key).toBe("q");
   });
 
+  it("normalizes follow redirects flag with default false", () => {
+    expect(normalizeApiWorkbenchDraft({}).followRedirects).toBe(false);
+    expect(normalizeApiWorkbenchDraft({ followRedirects: true }).followRedirects).toBe(true);
+    expect(normalizeApiWorkbenchDraft({ followRedirects: "yes" }).followRedirects).toBe(false);
+  });
+
   it("filters fully empty key-value rows while keeping partial rows", () => {
     const draft = normalizeApiWorkbenchDraft({
       query: [

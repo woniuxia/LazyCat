@@ -61,6 +61,7 @@ describe("apiWorkbenchHistory utils", () => {
         body: "{\"name\":\"demo\"}",
         form: [],
         timeoutMs: 12000,
+        followRedirects: false,
       },
     };
     const result = buildApiWorkbenchDraftFromHistory(detail);
