@@ -184,7 +184,10 @@
           />
           <el-empty v-else description="发送请求后查看响应" />
         </el-tab-pane>
-        <el-tab-pane label="响应头" name="headers">
+        <el-tab-pane name="headers">
+          <template #label>
+            响应头{{ response && response.responseHeaders.length > 0 ? ` (${response.responseHeaders.length})` : "" }}
+          </template>
           <div class="response-actions response-actions-header">
             <el-button
               size="small"
@@ -195,7 +198,29 @@
               复制响应头
             </el-button>
           </div>
-          <pre class="headers-view">{{ responseHeadersText }}</pre>
+          <el-empty
+            v-if="!response || response.responseHeaders.length === 0"
+            description="暂无响应头"
+          />
+          <div v-else class="headers-table">
+            <div
+              v-for="(row, index) in response.responseHeaders"
+              :key="`${row.key}-${index}`"
+              class="headers-table-row"
+            >
+              <span class="headers-table-key">{{ row.key }}</span>
+              <span class="headers-table-value">{{ row.value }}</span>
+              <el-button
+                class="headers-table-copy"
+                size="small"
+                text
+                :icon="CopyDocument"
+                @click="copyText(row.value, '响应头值已复制')"
+              >
+                复制值
+              </el-button>
+            </div>
+          </div>
         </el-tab-pane>
         <el-tab-pane label="历史" name="history">
           <div class="history-toolbar">
@@ -2059,19 +2084,48 @@ onBeforeUnmount(() => {
   margin-bottom: 8px;
 }
 
-.headers-view {
+.headers-table {
   min-height: 180px;
-  margin: 0;
+  max-height: 48vh;
   overflow: auto;
   border: 1px solid var(--el-border-color-extra-light);
   border-radius: 6px;
   background: var(--el-fill-color-blank);
-  font-family: var(--lc-font-mono);
   font-size: 12px;
-  line-height: 1.55;
-  padding: 10px;
-  white-space: pre-wrap;
-  word-break: break-word;
+}
+
+.headers-table-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 220px) minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px;
+  border-bottom: 1px solid var(--el-border-color-extra-light);
+  padding: 6px 10px;
+}
+
+.headers-table-row:last-child {
+  border-bottom: none;
+}
+
+.headers-table-key {
+  color: var(--el-text-color-primary);
+  font-family: var(--lc-font-mono);
+  font-weight: 600;
+  word-break: break-all;
+}
+
+.headers-table-value {
+  color: var(--el-text-color-regular);
+  font-family: var(--lc-font-mono);
+  overflow-wrap: anywhere;
+}
+
+.headers-table-copy {
+  visibility: hidden;
+}
+
+.headers-table-row:hover .headers-table-copy {
+  visibility: visible;
 }
 
 .response-body-input :deep(.el-textarea__inner) {
