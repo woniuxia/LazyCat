@@ -7,6 +7,7 @@ import type {
   ApiMockRuntimeSnapshot,
   ApiMockRuntimeState,
 } from "../types/api-mock";
+import { formatByteSize } from "./format";
 
 export const API_MOCK_METHODS: ApiMockMethod[] = [
   "GET",
@@ -319,16 +320,7 @@ export function inferMockContentTypeFromFileName(fileName: string): string {
 }
 
 export function formatMockFileSize(size: number): string {
-  if (!Number.isFinite(size) || size <= 0) return "0 B";
-  const units = ["B", "KB", "MB", "GB"];
-  let value = size;
-  let unitIndex = 0;
-  while (value >= 1024 && unitIndex < units.length - 1) {
-    value /= 1024;
-    unitIndex += 1;
-  }
-  const formatted = Number.isInteger(value) ? String(value) : value.toFixed(1).replace(/\.0$/, "");
-  return `${formatted} ${units[unitIndex]}`;
+  return formatByteSize(size);
 }
 
 export const MAX_API_MOCK_DELAY_MS = 60000;
