@@ -278,3 +278,16 @@ export function formatApiWorkbenchResponseBody(body: string, contentType: string
     return body;
   }
 }
+
+export type ApiWorkbenchStatusTone = "success" | "warning" | "danger" | "info";
+
+export function getApiWorkbenchStatusTone(
+  status: number | null,
+  error: string | null,
+): ApiWorkbenchStatusTone {
+  if (status === null || error) return "info";
+  if (status >= 200 && status < 300) return "success";
+  if (status >= 300 && status < 400) return "warning";
+  if (status >= 400 && status < 600) return "danger";
+  return "info";
+}

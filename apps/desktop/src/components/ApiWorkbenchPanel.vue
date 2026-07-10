@@ -164,11 +164,11 @@
       <div class="response-panel-heading">
         <strong>调试结果</strong>
         <div v-if="response" class="response-summary">
-          <el-tag :type="response.ok ? 'success' : 'warning'">
+          <el-tag :type="getApiWorkbenchStatusTone(response.status, response.error)">
             {{ response.status ?? "ERR" }}
           </el-tag>
-          <span>{{ response.durationMs }}ms</span>
-          <span>{{ response.bodySize }} bytes</span>
+          <span>{{ formatDurationMs(response.durationMs) }}</span>
+          <span>{{ formatByteSize(response.bodySize) }}</span>
         </div>
         <span v-else class="response-empty-status">未发送</span>
       </div>
@@ -222,7 +222,12 @@
               <div class="history-main" @click="loadHistoryIntoTemporaryEditor(item)">
                 <strong>{{ item.method }}</strong>
                 <span>{{ defaultApiWorkbenchHistoryDisplayName(item) }}</span>
-                <small>{{ item.status ?? "ERR" }} · {{ item.durationMs }}ms · {{ item.hasRequestSnapshot ? "完整快照" : "摘要历史" }}</small>
+                <small>
+                  <span :class="`history-status history-status-${getApiWorkbenchStatusTone(item.status, item.error)}`">
+                    {{ item.status ?? "ERR" }}
+                  </span>
+                  · {{ formatDurationMs(item.durationMs) }} · {{ item.hasRequestSnapshot ? "完整快照" : "摘要历史" }}
+                </small>
               </div>
               <div class="history-actions">
                 <el-button size="small" text :icon="Star" @click.stop="toggleHistoryPinned(item)">
@@ -440,6 +445,7 @@ import {
   countApiWorkbenchActiveRows,
   draftApiWorkbenchEnvironmentRows,
   findDuplicateApiWorkbenchEnvironmentVariableNames,
+  getApiWorkbenchStatusTone,
   hasApiWorkbenchBody,
   normalizeApiWorkbenchDraft,
   resolveApiWorkbenchEnvironmentSelect,
@@ -457,6 +463,7 @@ import {
   defaultApiWorkbenchHistoryDisplayName,
 } from "../utils/apiWorkbenchHistory";
 import { parseApiWorkbenchCurl } from "../utils/apiWorkbenchCurl";
+import { formatByteSize, formatDurationMs } from "../utils/format";
 import {
   resolveApiWorkbenchTemplate,
   summarizeApiWorkbenchVariables,
@@ -2010,6 +2017,26 @@ onBeforeUnmount(() => {
 .response-empty-status {
   color: var(--el-text-color-secondary);
   font-size: 12px;
+}
+
+.history-status {
+  font-weight: 600;
+}
+
+.history-status-success {
+  color: var(--el-color-success);
+}
+
+.history-status-warning {
+  color: var(--el-color-warning);
+}
+
+.history-status-danger {
+  color: var(--el-color-danger);
+}
+
+.history-status-info {
+  color: var(--el-text-color-secondary);
 }
 
 .response-toolbar {

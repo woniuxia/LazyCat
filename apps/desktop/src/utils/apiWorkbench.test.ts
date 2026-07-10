@@ -10,6 +10,7 @@ import {
   extractApiWorkbenchVariables,
   findDuplicateApiWorkbenchEnvironmentVariableNames,
   formatApiWorkbenchResponseBody,
+  getApiWorkbenchStatusTone,
   hasApiWorkbenchBody,
   normalizeApiWorkbenchDraft,
   resolveApiWorkbenchEnvironmentSelect,
@@ -237,6 +238,17 @@ describe("apiWorkbench utils", () => {
       duplicateNames: ["TOKEN"],
       changed: true,
     });
+  });
+
+  it("maps response status to tag tone", () => {
+    expect(getApiWorkbenchStatusTone(200, null)).toBe("success");
+    expect(getApiWorkbenchStatusTone(204, null)).toBe("success");
+    expect(getApiWorkbenchStatusTone(301, null)).toBe("warning");
+    expect(getApiWorkbenchStatusTone(404, null)).toBe("danger");
+    expect(getApiWorkbenchStatusTone(500, null)).toBe("danger");
+    expect(getApiWorkbenchStatusTone(null, "timeout")).toBe("info");
+    expect(getApiWorkbenchStatusTone(null, null)).toBe("info");
+    expect(getApiWorkbenchStatusTone(99, null)).toBe("info");
   });
 
   it("resolves environment selector values without storing the manage option", () => {
