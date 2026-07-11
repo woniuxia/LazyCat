@@ -201,3 +201,45 @@ export interface ApiWorkbenchListResult {
   collections: ApiWorkbenchCollection[];
   history: ApiWorkbenchHistoryItem[];
 }
+
+export type ApiWorkbenchTabKind = "request" | "temp";
+
+export interface ApiWorkbenchTabSnapshot {
+  name: string;
+  draft: ApiWorkbenchRequestDraft;
+}
+
+export interface ApiWorkbenchTab {
+  id: number;
+  kind: ApiWorkbenchTabKind;
+  requestId: number | null;
+  collectionId: number | null;
+  folderId: number | null;
+  name: string;
+  description: string;
+  draft: ApiWorkbenchRequestDraft;
+  response: ApiWorkbenchSendResult | null;
+  savedSnapshot: ApiWorkbenchTabSnapshot | null;
+  sourceHistoryId: number | null;
+  editorTab: string;
+  responseTab: string;
+}
+
+export interface ApiWorkbenchPersistedTab {
+  id: number;
+  kind: ApiWorkbenchTabKind;
+  requestId: number | null;
+  collectionId: number | null;
+  folderId: number | null;
+  name: string;
+  description: string;
+  draft: ApiWorkbenchRequestDraft;
+  savedSnapshot: ApiWorkbenchTabSnapshot | null;
+  sourceHistoryId: number | null;
+}
+
+export interface ApiWorkbenchTabsPersist {
+  version: 1;
+  activeTabId: number | null;
+  tabs: ApiWorkbenchPersistedTab[];
+}
