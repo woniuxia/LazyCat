@@ -2675,7 +2675,9 @@ onBeforeUnmount(() => {
   }
 
   .meta-environment-select {
-    width: 100%;
+    width: auto;
+    min-width: 0;
+    flex: 1 1 180px;
   }
 }
 
