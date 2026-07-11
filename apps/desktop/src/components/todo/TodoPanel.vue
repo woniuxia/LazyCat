@@ -495,7 +495,7 @@ import type { PmCandidateItem } from "../../types/pm";
 import { useTabs } from "../../composables/useTabs";
 import { usePmNavigation } from "../../composables/usePmNavigation";
 import { useTodoNavigation } from "../../composables/useTodoNavigation";
-import { groupTodoItemsByBucket } from "../../utils/todoBuckets";
+import { useTodoItemFilters } from "../../composables/useTodoItemFilters";
 import type { QuickAddContext } from "../../utils/todoQuickAdd";
 import { formatTodoRelativeDateTimeLabel } from "../../utils/todoRelativeDate";
 import {
@@ -519,7 +519,6 @@ import {
   combineLocalDateTime,
   deriveRepeatPreset,
   getCreateDraftDefaultDateTime,
-  getTodayDateString,
   isFiveMinuteDateTime,
   isFiveMinuteTime,
   normalizeEndMode,
@@ -772,51 +771,28 @@ const itemDraft = reactive({
 
 const isRepeating = computed(() => itemDraft.repeatPreset !== "none");
 
-const filteredItems = computed(() => {
-  const keyword = itemKeyword.value.trim().toLowerCase();
-  return items.value.filter((item) => {
-    if (!keyword) return true;
-    return (
-      item.title.toLowerCase().includes(keyword) || item.description.toLowerCase().includes(keyword)
-    );
-  });
+const {
+  sortedTypes,
+  activeItems,
+  recentWeekItems,
+  doneItems,
+  hasActiveFilter,
+  displayActiveItems,
+  displayRecentWeekItems,
+  displayDoneItems,
+  todayDueCount,
+  overdueCount,
+  clearAllFilters,
+} = useTodoItemFilters({
+  items,
+  types,
+  itemKeyword,
+  filterType,
+  filterPriority,
+  itemScheduleAt,
+  isItemOverdue,
 });
 
-const sortedTypes = computed(() => {
-  const typeCounts = new Map<number, number>();
-  for (const item of items.value) {
-    if (typeof item.typeId !== "number") continue;
-    typeCounts.set(item.typeId, (typeCounts.get(item.typeId) || 0) + 1);
-  }
-  return types.value
-    .map((item, index) => ({ item, index, count: typeCounts.get(item.id) || 0 }))
-    .sort((left, right) => right.count - left.count || left.index - right.index)
-    .map(({ item }) => item);
-});
-
-const bucketedItems = computed(() => groupTodoItemsByBucket(filteredItems.value));
-const activeItems = computed(() => bucketedItems.value.activeItems);
-const recentWeekItems = computed(() => bucketedItems.value.recentWeekItems);
-const doneItems = computed(() => bucketedItems.value.doneItems);
-
-const hasActiveFilter = computed(() => filterType.value !== null || filterPriority.value !== null);
-
-function applyDisplayFilter(list: TodoItem[]): TodoItem[] {
-  let result = list;
-  if (filterType.value !== null) {
-    const currentType = filterType.value;
-    result = result.filter((item) => (item.typeName || "未分类") === currentType);
-  }
-  if (filterPriority.value !== null) {
-    const currentPriority = filterPriority.value;
-    result = result.filter((item) => item.priority === currentPriority);
-  }
-  return result;
-}
-
-const displayActiveItems = computed(() => applyDisplayFilter(activeItems.value));
-const displayRecentWeekItems = computed(() => applyDisplayFilter(recentWeekItems.value));
-const displayDoneItems = computed(() => applyDisplayFilter(doneItems.value));
 const todoContextMenuItem = computed(() =>
   todoContextMenu.itemId == null
     ? null
@@ -834,23 +810,6 @@ const isDetailEditing = computed(
 const isDraftDirty = computed(
   () => isDetailEditing.value && draftBaseline.value !== snapshotItemDraft(),
 );
-
-const todayDueCount = computed(() => {
-  const today = getTodayDateString();
-  return activeItems.value.filter((item) => {
-    const time = itemScheduleAt(item);
-    return time && time.startsWith(today);
-  }).length;
-});
-
-const overdueCount = computed(() => {
-  return activeItems.value.filter((item) => isItemOverdue(item)).length;
-});
-
-function clearAllFilters() {
-  filterType.value = null;
-  filterPriority.value = null;
-}
 
 const quickAddContext = computed<QuickAddContext>(() => ({
   typeId:
