@@ -72,13 +72,13 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref } from "vue";
 import { Calendar, Close, Loading, Plus } from "@element-plus/icons-vue";
-import type { TodoPriority } from "../types";
-import { useToolInvoke } from "../composables/useToolInvoke";
+import type { TodoPriority } from "../../types";
+import { useToolInvoke } from "../../composables/useToolInvoke";
 import {
   buildQuickAddPayload,
   type QuickAddContext,
   type QuickAddDateChoice,
-} from "../utils/todoQuickAdd";
+} from "../../utils/todoQuickAdd";
 
 const props = defineProps<{ context: QuickAddContext }>();
 const emit = defineEmits<{ (e: "created", id: number): void }>();

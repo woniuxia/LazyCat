@@ -49,7 +49,7 @@
 
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, ref, watch } from "vue";
-import { clampContextMenuPosition } from "../utils/contextMenu";
+import { clampContextMenuPosition } from "../../utils/contextMenu";
 
 export type TodoContextMenuCommand = "pin" | "complete" | "edit-time" | "delete";
 

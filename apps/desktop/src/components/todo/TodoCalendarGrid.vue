@@ -52,8 +52,8 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { ArrowLeft, ArrowRight } from "@element-plus/icons-vue";
-import type { TodoItem } from "../types";
-import { getCalendarDays, formatMonthLabel } from "../utils/calendarGrid";
+import type { TodoItem } from "../../types";
+import { getCalendarDays, formatMonthLabel } from "../../utils/calendarGrid";
 
 const MAX_VISIBLE = 3;
 const weekdays = ["一", "二", "三", "四", "五", "六", "日"];

@@ -467,12 +467,12 @@ import {
   User,
 } from "@element-plus/icons-vue";
 import { ElMessage, ElMessageBox } from "element-plus";
-import { invokeToolByChannel } from "../bridge/tauri";
-import { APP_EVENTS } from "../bridge/events";
+import { invokeToolByChannel } from "../../bridge/tauri";
+import { APP_EVENTS } from "../../bridge/events";
 import {
   useClipboardSuggestion,
   type PendingToolInput,
-} from "../composables/useClipboardSuggestion";
+} from "../../composables/useClipboardSuggestion";
 import type {
   TodoAssignee,
   TodoEndMode,
@@ -489,20 +489,20 @@ import type {
   TodoSimpleRule,
   TodoStatus,
   TodoType,
-} from "../types";
-import { PM_STATUS_COLUMNS } from "../types/pm";
-import type { PmCandidateItem } from "../types/pm";
-import { useTabs } from "../composables/useTabs";
-import { usePmNavigation } from "../composables/usePmNavigation";
-import { useTodoNavigation } from "../composables/useTodoNavigation";
-import { groupTodoItemsByBucket } from "../utils/todoBuckets";
-import type { QuickAddContext } from "../utils/todoQuickAdd";
-import { formatTodoRelativeDateTimeLabel } from "../utils/todoRelativeDate";
+} from "../../types";
+import { PM_STATUS_COLUMNS } from "../../types/pm";
+import type { PmCandidateItem } from "../../types/pm";
+import { useTabs } from "../../composables/useTabs";
+import { usePmNavigation } from "../../composables/usePmNavigation";
+import { useTodoNavigation } from "../../composables/useTodoNavigation";
+import { groupTodoItemsByBucket } from "../../utils/todoBuckets";
+import type { QuickAddContext } from "../../utils/todoQuickAdd";
+import { formatTodoRelativeDateTimeLabel } from "../../utils/todoRelativeDate";
 import {
   prevMonth as calPrevMonth,
   nextMonth as calNextMonth,
   formatDateKey,
-} from "../utils/calendarGrid";
+} from "../../utils/calendarGrid";
 import TodoCalendarGrid from "./TodoCalendarGrid.vue";
 import TodoDetailView from "./TodoDetailView.vue";
 import TodoDetailEdit from "./TodoDetailEdit.vue";
@@ -524,7 +524,7 @@ import {
   isFiveMinuteTime,
   normalizeEndMode,
   splitDateTime,
-} from "../utils/todoSchedule";
+} from "../../utils/todoSchedule";
 
 type SelectTypeValue = number | string | undefined;
 type SelectAssigneeValue = number | string;
@@ -611,7 +611,7 @@ import {
   reminderPresetFromMinutes,
   reminderPresetToMinutes,
   toDraftReminderPresets,
-} from "../composables/useTodoItem";
+} from "../../composables/useTodoItem";
 
 function pad2(value: number) {
   return String(value).padStart(2, "0");

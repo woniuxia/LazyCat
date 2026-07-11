@@ -421,15 +421,15 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { Plus } from "@element-plus/icons-vue";
-import type { TodoAssignee, TodoItem, TodoPriority, TodoReminderPreset, TodoRepeatPreset, TodoSimpleRule } from "../types";
-import type { PmCandidateItem } from "../types/pm";
-import { effectiveReminderPresets } from "../composables/useTodoItem";
-import InlinePmSelector from "./InlinePmSelector.vue";
-import RichDescriptionEditor from "./RichDescriptionEditor.vue";
+import type { TodoAssignee, TodoItem, TodoPriority, TodoReminderPreset, TodoRepeatPreset, TodoSimpleRule } from "../../types";
+import type { PmCandidateItem } from "../../types/pm";
+import { effectiveReminderPresets } from "../../composables/useTodoItem";
+import InlinePmSelector from "../InlinePmSelector.vue";
+import RichDescriptionEditor from "../RichDescriptionEditor.vue";
 import {
   useRichDescriptionLifecycle,
   type RichEditorExposed,
-} from "../composables/useRichDescriptionLifecycle";
+} from "../../composables/useRichDescriptionLifecycle";
 
 interface DraftShape {
   title: string;

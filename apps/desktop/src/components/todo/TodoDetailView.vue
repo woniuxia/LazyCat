@@ -333,10 +333,10 @@ import {
   User,
   UserFilled,
 } from "@element-plus/icons-vue";
-import { effectiveReminderPresets } from "../composables/useTodoItem";
-import type { TodoItem, TodoPriority } from "../types";
-import { formatTodoRelativeDateTimeLabel } from "../utils/todoRelativeDate";
-import RichDescriptionViewer from "./RichDescriptionViewer.vue";
+import { effectiveReminderPresets } from "../../composables/useTodoItem";
+import type { TodoItem, TodoPriority } from "../../types";
+import { formatTodoRelativeDateTimeLabel } from "../../utils/todoRelativeDate";
+import RichDescriptionViewer from "../RichDescriptionViewer.vue";
 
 const props = defineProps<{
   item: TodoItem;

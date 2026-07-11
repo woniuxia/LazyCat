@@ -92,8 +92,8 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
-import { invokeToolByChannel } from "../bridge/tauri";
-import type { TodoAssignee, TodoType } from "../types";
+import { invokeToolByChannel } from "../../bridge/tauri";
+import type { TodoAssignee, TodoType } from "../../types";
 
 interface TodoTypeDraft {
   id: number;

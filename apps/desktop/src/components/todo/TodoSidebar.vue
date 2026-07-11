@@ -117,8 +117,8 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { Setting } from "@element-plus/icons-vue";
-import type { TodoItem, TodoPriority } from "../types";
-import { getTodayDateString } from "../utils/todoSchedule";
+import type { TodoItem, TodoPriority } from "../../types";
+import { getTodayDateString } from "../../utils/todoSchedule";
 
 const props = defineProps<{
   activeItems: TodoItem[];
