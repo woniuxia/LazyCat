@@ -12,6 +12,20 @@
     />
 
     <main class="api-workbench-editor">
+      <div v-if="collections.length === 0" class="editor-onboarding">
+        <el-empty description="从三步开始接口调试">
+          <div class="editor-onboarding-steps">
+            <span>1. 新建集合</span>
+            <span>2. 新建接口</span>
+            <span>3. Ctrl+Enter 发送</span>
+          </div>
+          <el-button type="primary" :icon="Plus" @click="createCollection">新建集合</el-button>
+        </el-empty>
+      </div>
+      <template v-else>
+      <div v-if="showBlankDraftHint" class="editor-blank-hint">
+        从左侧选择接口，或直接填写 URL 发送 · 快捷键：Ctrl+Enter 发送 / Ctrl+S 保存
+      </div>
       <div class="api-workbench-compose">
         <div class="api-workbench-meta-row">
           <el-input v-model="requestName" class="request-name-input" placeholder="接口名称" />
@@ -240,6 +254,7 @@
           <el-empty v-else description="无请求体" />
         </el-tab-pane>
       </el-tabs>
+      </template>
     </main>
 
     <section class="api-workbench-response">
@@ -325,6 +340,7 @@
               v-for="item in history"
               :key="item.id"
               class="history-item"
+              :title="item.createdAt"
             >
               <div class="history-main" @click="loadHistoryIntoTemporaryEditor(item)">
                 <strong :class="getApiWorkbenchMethodClass(item.method)">{{ item.method }}</strong>
@@ -333,29 +349,41 @@
                   <span :class="`history-status history-status-${getApiWorkbenchStatusTone(item.status, item.error)}`">
                     {{ item.status ?? "ERR" }}
                   </span>
-                  · {{ formatDurationMs(item.durationMs) }} · {{ item.hasRequestSnapshot ? "完整快照" : "摘要历史" }}
+                  · {{ formatDurationMs(item.durationMs) }} · {{ formatRelativeTime(item.createdAt) }} ·
+                  {{ item.hasRequestSnapshot ? "完整快照" : "摘要历史" }}
                 </small>
               </div>
               <div class="history-actions">
-                <el-button size="small" text :icon="Star" @click.stop="toggleHistoryPinned(item)">
-                  {{ item.pinned ? "取消标星" : "标星" }}
-                </el-button>
                 <el-button
                   size="small"
+                  text
+                  :icon="item.pinned ? StarFilled : Star"
+                  :title="item.pinned ? '取消标星' : '标星'"
+                  :aria-label="item.pinned ? '取消标星' : '标星'"
+                  @click.stop="toggleHistoryPinned(item)"
+                />
+                <el-button
+                  size="small"
+                  text
                   :icon="Refresh"
                   :loading="replayingHistoryId === item.id"
                   :disabled="!canReplayApiWorkbenchHistory(item)"
+                  title="重放"
+                  aria-label="重放"
                   @click.stop="replayHistory(item)"
+                />
+                <el-dropdown
+                  trigger="click"
+                  @command="(command: string) => handleHistoryMenuCommand(command, item)"
                 >
-                  重放
-                </el-button>
-                <el-button size="small" @click.stop="loadHistoryIntoTemporaryEditor(item)">
-                  载入
-                </el-button>
-                <el-button size="small" @click.stop="saveHistoryAsRequest(item)">
-                  保存为接口
-                </el-button>
-                <el-button size="small" @click.stop="editHistoryMeta(item)">备注</el-button>
+                  <el-button size="small" text :icon="MoreFilled" title="更多操作" @click.stop />
+                  <template #dropdown>
+                    <el-dropdown-menu>
+                      <el-dropdown-item command="save">保存为接口</el-dropdown-item>
+                      <el-dropdown-item command="note">备注</el-dropdown-item>
+                    </el-dropdown-menu>
+                  </template>
+                </el-dropdown>
               </div>
             </div>
           </div>
@@ -520,11 +548,13 @@ import {
   DocumentChecked,
   EditPen,
   Key,
+  MoreFilled,
   Plus,
   Promotion,
   Refresh,
   Setting,
   Star,
+  StarFilled,
 } from "@element-plus/icons-vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { invokeToolByChannel } from "../bridge/tauri";
@@ -581,7 +611,7 @@ import {
 } from "../utils/apiWorkbenchHistory";
 import type { ApiWorkbenchCurlParseResult } from "../utils/apiWorkbenchCurl";
 import ApiWorkbenchCurlImportDialog from "./ApiWorkbenchCurlImportDialog.vue";
-import { formatByteSize, formatDurationMs } from "../utils/format";
+import { formatByteSize, formatDurationMs, formatRelativeTime } from "../utils/format";
 import {
   resolveApiWorkbenchTemplate,
   summarizeApiWorkbenchVariables,
@@ -675,6 +705,12 @@ const variableNameCandidates = computed(() => {
   }
   return names;
 });
+const showBlankDraftHint = computed(
+  () =>
+    selectedRequestId.value === null &&
+    !draft.value.url.trim() &&
+    requestName.value.trim() === "",
+);
 const variableUsages = computed(() =>
   summarizeApiWorkbenchVariables({
     draft: normalizeApiWorkbenchDraft(draft.value),
@@ -871,6 +907,14 @@ function applyUrlQuerySplit() {
 function handleUrlBlur() {
   urlVariablePopover.value?.onBlur();
   applyUrlQuerySplit();
+}
+
+function handleHistoryMenuCommand(command: string, item: ApiWorkbenchHistoryItem) {
+  if (command === "save") {
+    void saveHistoryAsRequest(item);
+  } else if (command === "note") {
+    void editHistoryMeta(item);
+  }
 }
 
 function handleUrlPaste() {
@@ -2235,6 +2279,31 @@ onBeforeUnmount(() => {
   display: flex;
   justify-content: flex-start;
   margin-bottom: 8px;
+}
+
+.editor-onboarding {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+}
+
+.editor-onboarding-steps {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  margin-bottom: 14px;
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+}
+
+.editor-blank-hint {
+  border: 1px dashed var(--el-border-color);
+  border-radius: 6px;
+  background: var(--el-fill-color-lighter);
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  padding: 8px 12px;
 }
 
 .headers-table {
