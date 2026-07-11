@@ -3179,3 +3179,35 @@ Cron 工具原先仅提供基础 6 字段输入与简单预览，缺少规范化
 - `pnpm --filter @lazycat/desktop build:web`
 
 **使用次数**: 0
+
+## 2026-07-11: 接口调试 UX 优化 Phase 2-4 实施（响应区/工作流/多标签/拖拽）
+
+**场景**: 按 2026-07-04 定稿的 spec/plan 实施剩余 17 个任务：响应区（状态色阶、JSON 树+Monaco 双模式、响应头表格）、工作流小项（Method 色板、复制接口、跟随重定向、请求设置、快速认证、变量补全、cURL 弹窗、历史收敛+空态）、Postman 式多标签、侧栏树拖拽。
+**问题**:
+1. plan 是 07-04 快照，期间后端 `api_workbench.rs` 已重构为目录形态（10 个子模块），plan 里所有行号锚点失效。
+2. 多标签重构要求把 9 个面板单例 ref（draft/requestName/response/editorTab 等）全部迁到 per-tab 状态，且入口（侧栏打开/新建/历史载入/cURL 导入）、生命周期（删除接口/集合/文件夹、loadAll）都要联动。
+3. 变量自动补全浮层需要同时服务面板 URL 输入框和 KV 编辑器多行 value 输入框，父组件各自维护 apply 回调会大量重复。
+4. ureq 2.x 重定向语义需要真实 socket 验证（302+POST 转 GET、307 不跟随），且全量并发跑测试时 TcpListener stub 偶发抖动。
+**解决**:
+1. 严格按 plan 自身"行号为快照，执行时以搜索为准"的约定，全部用 grep 重定位；backend 改动点分散到 mod.rs（schema+迁移）、types.rs（serde default）、request.rs（读写）、executor.rs（发送）。
+2. 面板状态迁移采用"computed get/set 包装 activeTab 字段"模式：单例 ref 换成 `computed({ get: () => activeTab.value?.x ?? 默认, set })`，模板与大部分函数零改动；只重写入口函数和生命周期挂钩。无标签时用只读 detachedDraft 兜底 + 编辑区渲染空态。
+3. 补全浮层组件内部直接操作目标 input：`target.value = 补全结果; target.dispatchEvent(new Event("input", { bubbles: true }))`，让 el-input 的 v-model 自然接收，父组件只需转发 focus/input/keydown/blur 四个事件，无需 apply 回调。
+4. 重定向 stub 用 `Connection: close` 逼迫 ureq 重连触发第二次 accept；单测偶发失败先单独重跑确认是并发抖动而非逻辑错误，连续两次全量绿再提交。
+**关键点**:
+1. 大面板"单例状态 → 多标签"迁移的最小改动路径：保持既有函数体和模板绑定名不变，把 ref 替换为同名可写 computed，数据源指向 activeTab；只有创建/销毁/切换标签的路径需要新代码。
+2. 持久化标签用 version + 逐标签校验 + 失效降级（requestId 失效转 temp、collectionId 失效挂到 fallback），恢复逻辑全部落纯函数配单测，composable 只做编排。
+3. 发送/重放这类异步回填必须以发起时的 tabId 快照写回，标签已关则丢弃，防止旧响应写错标签。
+4. 原生拖拽落点判定（上 1/4 前插 / 下 1/4 后插 / 中部移入）抽纯函数；dragover 中用 `currentTarget.getBoundingClientRect()` 算相对 offset，不能用 `event.offsetY`（相对 event.target，行内有子元素时会跳变）。
+**涉及文件**:
+- `apps/desktop/src/utils/format.ts`、`apiWorkbench.ts`、`apiWorkbenchResponsePreview.ts`、`apiWorkbenchTabs.ts`、`apiWorkbenchTree.ts`（均配套 .test.ts）
+- `apps/desktop/src/composables/useApiWorkbenchTabs.ts`
+- `apps/desktop/src/components/ApiWorkbenchPanel.vue`、`ApiWorkbenchSidebar.vue`、`ApiWorkbenchResponseViewer.vue`、`ApiWorkbenchKeyValueEditor.vue`、`ApiWorkbenchTabsBar.vue`、`ApiWorkbenchVariablePopover.vue`、`ApiWorkbenchCurlImportDialog.vue`
+- `apps/desktop/src-tauri/src/tools/api_workbench/{mod,types,request,executor,history}.rs`
+
+**验证**:
+- `pnpm test`（634 通过）
+- `cargo test api_workbench`（56 通过）
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+
+**使用次数**: 0
