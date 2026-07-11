@@ -504,6 +504,11 @@
         <el-button type="primary" @click="confirmMoveDialog">移动</el-button>
       </template>
     </el-dialog>
+
+    <ApiWorkbenchCurlImportDialog
+      v-model="curlImportVisible"
+      @confirm="handleCurlImportConfirm"
+    />
   </div>
 </template>
 
@@ -574,7 +579,8 @@ import {
   canReplayApiWorkbenchHistory,
   defaultApiWorkbenchHistoryDisplayName,
 } from "../utils/apiWorkbenchHistory";
-import { parseApiWorkbenchCurl } from "../utils/apiWorkbenchCurl";
+import type { ApiWorkbenchCurlParseResult } from "../utils/apiWorkbenchCurl";
+import ApiWorkbenchCurlImportDialog from "./ApiWorkbenchCurlImportDialog.vue";
 import { formatByteSize, formatDurationMs } from "../utils/format";
 import {
   resolveApiWorkbenchTemplate,
@@ -754,6 +760,7 @@ function variableSourceLabel(source: ApiWorkbenchVariableUsage["source"]): strin
 }
 
 const quickAuthVisible = ref(false);
+const curlImportVisible = ref(false);
 const urlVariablePopover = ref<InstanceType<typeof ApiWorkbenchVariablePopover> | null>(null);const quickAuthType = ref<"bearer" | "basic">("bearer");
 const quickAuthToken = ref("");
 const quickAuthUsername = ref("");
@@ -800,22 +807,6 @@ function moveTargetKey(folderId: number | null): string {
 
 function keyToMoveTarget(key: string): number | null {
   return key === "__null__" ? null : Number(key);
-}
-
-function curlPreviewText(nextDraft: ApiWorkbenchRequestDraft): string {
-  const bodyLabel =
-    nextDraft.bodyType === "none"
-      ? "无"
-      : nextDraft.bodyType === "form-urlencoded"
-        ? `${nextDraft.bodyType} (${nextDraft.form.filter((row) => row.enabled && row.key.trim()).length} 项)`
-        : nextDraft.bodyType;
-  return [
-    `Method：${nextDraft.method}`,
-    `URL：${nextDraft.url}`,
-    `Query：${nextDraft.query.filter((row) => row.enabled && row.key.trim()).length} 项`,
-    `Headers：${nextDraft.headers.filter((row) => row.enabled && row.key.trim()).length} 项`,
-    `Body：${bodyLabel}`,
-  ].join("\n");
 }
 
 function chooseMoveTarget(
@@ -1466,21 +1457,19 @@ async function deleteEnvironment() {
 }
 
 async function importCurl() {
+  curlImportVisible.value = true;
+}
+
+async function handleCurlImportConfirm(result: ApiWorkbenchCurlParseResult) {
   try {
-    const { value } = await ElMessageBox.prompt("粘贴 cURL 命令", "导入 cURL", {
-      inputType: "textarea",
-      inputValue: "curl ",
-      confirmButtonText: "导入",
-      cancelButtonText: "取消",
-      inputValidator: (input: string) => (input.trim() ? true : "请输入 cURL 命令"),
-    });
-    const result = parseApiWorkbenchCurl(value);
-    await ElMessageBox.confirm(curlPreviewText(result.draft), "确认导入 cURL", {
+    await ElMessageBox.confirm("导入将覆盖当前编辑中的请求草稿，是否继续？", "确认导入 cURL", {
       confirmButtonText: "覆盖当前草稿",
       cancelButtonText: "取消",
     });
+    // Phase 4: 改为 openTempTab
     draft.value = result.draft;
     response.value = null;
+    curlImportVisible.value = false;
     if (result.warnings.length > 0) {
       ElMessage.warning(result.warnings.join("；"));
     } else {
