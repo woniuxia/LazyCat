@@ -9,6 +9,7 @@
       @select-collection="selectCollection"
       @open-request="loadRequest"
       @command="handleSidebarCommand"
+      @tree-drop="handleSidebarDrop"
     />
 
     <main class="api-workbench-editor">
@@ -588,6 +589,7 @@ import ApiWorkbenchSidebar from "./ApiWorkbenchSidebar.vue";
 import MonacoPane from "./MonacoPane.vue";
 import type {
   ApiWorkbenchCollection,
+  ApiWorkbenchDropAction,
   ApiWorkbenchEnvironment,
   ApiWorkbenchHistoryDetail,
   ApiWorkbenchHistoryItem,
@@ -641,6 +643,7 @@ import {
   buildApiWorkbenchFolderMoveTargets,
   buildApiWorkbenchRequestMoveTargets,
   moveApiWorkbenchOrderedId,
+  reorderApiWorkbenchIdsByDrop,
 } from "../utils/apiWorkbenchTree";
 
 type ApiWorkbenchSidebarExpose = {
@@ -1317,6 +1320,63 @@ async function reorderRequest(requestId: number, direction: ApiWorkbenchOrderDir
   });
   await loadAll();
   ElMessage.success("接口顺序已更新");
+}
+
+async function handleSidebarDrop(action: ApiWorkbenchDropAction) {
+  const collection = currentCollection();
+  if (!collection) return;
+  try {
+    if (action.kind === "request-move") {
+      await invokeToolByChannel("tool:api-workbench:request-move", {
+        id: action.requestId,
+        targetFolderId: action.targetFolderId,
+      });
+    } else if (action.kind === "request-reorder") {
+      const orderedIds = collection.requests
+        .filter((item) => item.folderId === action.folderId)
+        .sort(bySortThenId)
+        .map((item) => item.id);
+      const next = reorderApiWorkbenchIdsByDrop(
+        orderedIds,
+        action.requestId,
+        action.targetRequestId,
+        action.position,
+      );
+      if (next.join(",") === orderedIds.join(",")) return;
+      await invokeToolByChannel("tool:api-workbench:request-reorder", {
+        collectionId: collection.id,
+        folderId: action.folderId,
+        orderedIds: next,
+      });
+    } else if (action.kind === "folder-move") {
+      await invokeToolByChannel("tool:api-workbench:folder-move", {
+        id: action.folderId,
+        targetParentId: action.targetParentId,
+      });
+      sidebarRef.value?.expandFolder(action.targetParentId);
+    } else {
+      const orderedIds = collection.folders
+        .filter((item) => item.parentId === action.parentId)
+        .sort(bySortThenId)
+        .map((item) => item.id);
+      const next = reorderApiWorkbenchIdsByDrop(
+        orderedIds,
+        action.folderId,
+        action.targetFolderId,
+        action.position,
+      );
+      if (next.join(",") === orderedIds.join(",")) return;
+      await invokeToolByChannel("tool:api-workbench:folder-reorder", {
+        collectionId: collection.id,
+        parentId: action.parentId,
+        orderedIds: next,
+      });
+    }
+    await loadAll();
+    ElMessage.success("已更新接口树");
+  } catch (error) {
+    ElMessage.error(errorMessage(error));
+  }
 }
 
 async function handleSidebarCommand(command: ApiWorkbenchNavCommand, target: ApiWorkbenchNavTarget) {

@@ -204,6 +204,24 @@ export interface ApiWorkbenchListResult {
 
 export type ApiWorkbenchTabKind = "request" | "temp";
 
+export type ApiWorkbenchDropAction =
+  | { kind: "request-move"; requestId: number; targetFolderId: number | null }
+  | {
+      kind: "request-reorder";
+      requestId: number;
+      targetRequestId: number;
+      position: "before" | "after";
+      folderId: number | null;
+    }
+  | { kind: "folder-move"; folderId: number; targetParentId: number | null }
+  | {
+      kind: "folder-reorder";
+      folderId: number;
+      targetFolderId: number;
+      position: "before" | "after";
+      parentId: number | null;
+    };
+
 export interface ApiWorkbenchTabSnapshot {
   name: string;
   draft: ApiWorkbenchRequestDraft;

@@ -40,7 +40,11 @@
         <div
           v-if="tree.unassigned.requests.length > 0"
           class="api-workbench-nav-group"
+          :class="rowIndicatorClass('unassigned')"
           @contextmenu.prevent.stop="openMenu($event, { type: 'blank' })"
+          @dragover="handleUnassignedDragOver"
+          @dragleave="handleRowDragLeave('unassigned')"
+          @drop.prevent="handleUnassignedDrop"
         >
           <span>未分组</span>
           <small>{{ tree.unassigned.requests.length }}</small>
@@ -50,8 +54,14 @@
           :key="'unassigned-' + request.id"
           type="button"
           class="api-workbench-request-row"
-          :class="{ active: selectedRequestId === request.id }"
+          :class="{ active: selectedRequestId === request.id, ...rowIndicatorClass(`request:${request.id}`) }"
+          :draggable="dragEnabled"
           @click="emit('openRequest', request.id)"
+          @dragstart="handleRequestDragStart($event, request)"
+          @dragover="handleRowDragOver($event, `request:${request.id}`, requestRowDropMode($event, request))"
+          @dragleave="handleRowDragLeave(`request:${request.id}`)"
+          @drop.prevent="handleRequestRowDrop($event, request)"
+          @dragend="clearDragState"
           @contextmenu.prevent.stop="
             openMenu($event, {
               type: 'request',
@@ -70,9 +80,16 @@
             v-if="row.kind === 'folder'"
             type="button"
             class="api-workbench-folder-row"
+            :class="rowIndicatorClass(row.key)"
             :style="{ paddingLeft: row.depth * 14 + 8 + 'px' }"
             :aria-expanded="row.expanded"
+            :draggable="dragEnabled"
             @click="toggleFolder(row.folder.id)"
+            @dragstart="handleFolderDragStart($event, row.folder)"
+            @dragover="handleRowDragOver($event, row.key, folderRowDropMode($event, row.folder))"
+            @dragleave="handleRowDragLeave(row.key)"
+            @drop.prevent="handleFolderRowDrop($event, row.folder)"
+            @dragend="clearDragState"
             @contextmenu.prevent.stop="
               openMenu($event, {
                 type: 'folder',
@@ -90,9 +107,15 @@
             v-else
             type="button"
             class="api-workbench-request-row"
-            :class="{ active: selectedRequestId === row.request.id }"
+            :class="{ active: selectedRequestId === row.request.id, ...rowIndicatorClass(row.key) }"
             :style="{ paddingLeft: row.depth * 14 + 8 + 'px' }"
+            :draggable="dragEnabled"
             @click="emit('openRequest', row.request.id)"
+            @dragstart="handleRequestDragStart($event, row.request)"
+            @dragover="handleRowDragOver($event, row.key, requestRowDropMode($event, row.request))"
+            @dragleave="handleRowDragLeave(row.key)"
+            @drop.prevent="handleRequestRowDrop($event, row.request)"
+            @dragend="clearDragState"
             @contextmenu.prevent.stop="
               openMenu($event, {
                 type: 'request',
@@ -132,6 +155,7 @@ import { computed, ref } from "vue";
 import ApiWorkbenchContextMenu from "./ApiWorkbenchContextMenu.vue";
 import type {
   ApiWorkbenchCollection,
+  ApiWorkbenchDropAction,
   ApiWorkbenchMenuItem,
   ApiWorkbenchNavCommand,
   ApiWorkbenchNavTarget,
@@ -141,7 +165,10 @@ import type {
 import {
   buildApiWorkbenchNavMenuItems,
   buildApiWorkbenchTree,
+  buildApiWorkbenchFolderMoveTargets,
   getApiWorkbenchFolderAncestorIds,
+  resolveApiWorkbenchDropPosition,
+  type ApiWorkbenchDropPosition,
 } from "../utils/apiWorkbenchTree";
 import { filterApiWorkbenchCollection } from "../utils/apiWorkbenchSearch";
 import { getApiWorkbenchMethodClass } from "../utils/apiWorkbench";
@@ -173,6 +200,7 @@ const emit = defineEmits<{
   selectCollection: [collectionId: number];
   openRequest: [requestId: number];
   command: [command: ApiWorkbenchNavCommand, target: ApiWorkbenchNavTarget];
+  treeDrop: [action: ApiWorkbenchDropAction];
 }>();
 
 const expandedFolderKeys = ref(new Set<string>());
@@ -256,6 +284,193 @@ function closeMenu() {
 
 function emitCommand(command: ApiWorkbenchNavCommand, target: ApiWorkbenchNavTarget) {
   emit("command", command, target);
+}
+
+const APIWB_DRAG_MIME = "application/x-lazycat-apiwb";
+
+type ApiWorkbenchDragPayload =
+  | { type: "request"; id: number; collectionId: number; folderId: number | null }
+  | {
+      type: "folder";
+      id: number;
+      collectionId: number;
+      parentId: number | null;
+      validIntoIds: Set<number>;
+    };
+
+const dragPayload = ref<ApiWorkbenchDragPayload | null>(null);
+const dropIndicator = ref<{ key: string; mode: ApiWorkbenchDropPosition } | null>(null);
+
+const dragEnabled = computed(() => !searchActive.value);
+
+function dropOffset(event: DragEvent): { offsetY: number; height: number } {
+  const el = event.currentTarget as HTMLElement;
+  const rect = el.getBoundingClientRect();
+  return { offsetY: event.clientY - rect.top, height: rect.height };
+}
+
+function clearDragState() {
+  dragPayload.value = null;
+  dropIndicator.value = null;
+}
+
+function handleRequestDragStart(event: DragEvent, request: ApiWorkbenchTreeRequestNode) {
+  if (!dragEnabled.value) {
+    event.preventDefault();
+    return;
+  }
+  const payload: ApiWorkbenchDragPayload = {
+    type: "request",
+    id: request.id,
+    collectionId: request.collectionId,
+    folderId: request.folderId,
+  };
+  dragPayload.value = payload;
+  event.dataTransfer?.setData(
+    APIWB_DRAG_MIME,
+    JSON.stringify({ type: payload.type, id: payload.id, collectionId: payload.collectionId }),
+  );
+  if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+}
+
+function handleFolderDragStart(event: DragEvent, folder: ApiWorkbenchTreeFolderNode) {
+  if (!dragEnabled.value) {
+    event.preventDefault();
+    return;
+  }
+  const collection = selectedCollection.value;
+  const validIntoIds = new Set<number>();
+  if (collection) {
+    for (const target of buildApiWorkbenchFolderMoveTargets(collection, folder.id)) {
+      if (target.folderId !== null) validIntoIds.add(target.folderId);
+    }
+  }
+  const payload: ApiWorkbenchDragPayload = {
+    type: "folder",
+    id: folder.id,
+    collectionId: folder.collectionId,
+    parentId: folder.parentId,
+    validIntoIds,
+  };
+  dragPayload.value = payload;
+  event.dataTransfer?.setData(
+    APIWB_DRAG_MIME,
+    JSON.stringify({ type: payload.type, id: payload.id, collectionId: payload.collectionId }),
+  );
+  if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+}
+
+function requestRowDropMode(
+  event: DragEvent,
+  request: ApiWorkbenchTreeRequestNode,
+): "before" | "after" | null {
+  const drag = dragPayload.value;
+  if (!drag || drag.type !== "request") return null;
+  if (drag.collectionId !== request.collectionId) return null;
+  if (drag.id === request.id) return null;
+  if (drag.folderId !== request.folderId) return null;
+  const { offsetY, height } = dropOffset(event);
+  const mode = resolveApiWorkbenchDropPosition(offsetY, height, false);
+  return mode === "into" ? null : mode;
+}
+
+function folderRowDropMode(
+  event: DragEvent,
+  folder: ApiWorkbenchTreeFolderNode,
+): ApiWorkbenchDropPosition | null {
+  const drag = dragPayload.value;
+  if (!drag || drag.collectionId !== folder.collectionId) return null;
+  if (drag.type === "request") {
+    return drag.folderId === folder.id ? null : "into";
+  }
+  if (drag.id === folder.id) return null;
+  const allowInto = drag.validIntoIds.has(folder.id);
+  const mode = resolveApiWorkbenchDropPosition(dropOffset(event).offsetY, dropOffset(event).height, allowInto);
+  if (mode === "into") return allowInto ? "into" : null;
+  return folder.parentId === drag.parentId ? mode : null;
+}
+
+function unassignedDropMode(): "into" | null {
+  const drag = dragPayload.value;
+  if (!drag || drag.type !== "request") return null;
+  if (drag.collectionId !== selectedCollection.value?.id) return null;
+  return drag.folderId === null ? null : "into";
+}
+
+function handleRowDragOver(
+  event: DragEvent,
+  key: string,
+  mode: ApiWorkbenchDropPosition | null,
+) {
+  if (!mode) {
+    if (dropIndicator.value?.key === key) dropIndicator.value = null;
+    return;
+  }
+  event.preventDefault();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+  dropIndicator.value = { key, mode };
+}
+
+function handleRowDragLeave(key: string) {
+  if (dropIndicator.value?.key === key) dropIndicator.value = null;
+}
+
+function handleRequestRowDrop(event: DragEvent, request: ApiWorkbenchTreeRequestNode) {
+  const drag = dragPayload.value;
+  const mode = requestRowDropMode(event, request);
+  clearDragState();
+  if (!drag || drag.type !== "request" || !mode) return;
+  emit("treeDrop", {
+    kind: "request-reorder",
+    requestId: drag.id,
+    targetRequestId: request.id,
+    position: mode,
+    folderId: request.folderId,
+  });
+}
+
+function handleFolderRowDrop(event: DragEvent, folder: ApiWorkbenchTreeFolderNode) {
+  const drag = dragPayload.value;
+  const mode = folderRowDropMode(event, folder);
+  clearDragState();
+  if (!drag || !mode) return;
+  if (drag.type === "request") {
+    emit("treeDrop", { kind: "request-move", requestId: drag.id, targetFolderId: folder.id });
+    return;
+  }
+  if (mode === "into") {
+    emit("treeDrop", { kind: "folder-move", folderId: drag.id, targetParentId: folder.id });
+    return;
+  }
+  emit("treeDrop", {
+    kind: "folder-reorder",
+    folderId: drag.id,
+    targetFolderId: folder.id,
+    position: mode,
+    parentId: folder.parentId,
+  });
+}
+
+function handleUnassignedDragOver(event: DragEvent) {
+  handleRowDragOver(event, "unassigned", unassignedDropMode());
+}
+
+function handleUnassignedDrop() {
+  const drag = dragPayload.value;
+  const mode = unassignedDropMode();
+  clearDragState();
+  if (!drag || drag.type !== "request" || !mode) return;
+  emit("treeDrop", { kind: "request-move", requestId: drag.id, targetFolderId: null });
+}
+
+function rowIndicatorClass(key: string) {
+  const indicator = dropIndicator.value;
+  if (!indicator || indicator.key !== key) return {};
+  return {
+    "drop-into": indicator.mode === "into",
+    "drop-before": indicator.mode === "before",
+    "drop-after": indicator.mode === "after",
+  };
 }
 
 function selectMenuItem(item: ApiWorkbenchMenuItem) {
@@ -432,5 +647,19 @@ defineExpose({
   font-size: 11px;
   line-height: 1;
   padding: 4px 5px;
+}
+
+.drop-into {
+  outline: 1.5px dashed var(--el-color-primary);
+  outline-offset: -2px;
+  background: var(--el-color-primary-light-9);
+}
+
+.drop-before {
+  box-shadow: inset 0 2px 0 var(--el-color-primary);
+}
+
+.drop-after {
+  box-shadow: inset 0 -2px 0 var(--el-color-primary);
 }
 </style>

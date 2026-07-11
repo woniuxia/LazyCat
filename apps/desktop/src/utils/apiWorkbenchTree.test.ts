@@ -7,6 +7,8 @@ import {
   buildApiWorkbenchTree,
   getApiWorkbenchFolderAncestorIds,
   moveApiWorkbenchOrderedId,
+  reorderApiWorkbenchIdsByDrop,
+  resolveApiWorkbenchDropPosition,
 } from "./apiWorkbenchTree";
 
 const collection: ApiWorkbenchCollection = {
@@ -95,5 +97,36 @@ describe("apiWorkbenchTree", () => {
         expect.arrayContaining(["request:import-curl", "collection:export"]),
       );
     }
+  });
+});
+
+describe("resolveApiWorkbenchDropPosition", () => {
+  it("maps quarter zones to before/after and middle to into", () => {
+    expect(resolveApiWorkbenchDropPosition(2, 32, true)).toBe("before");
+    expect(resolveApiWorkbenchDropPosition(16, 32, true)).toBe("into");
+    expect(resolveApiWorkbenchDropPosition(30, 32, true)).toBe("after");
+  });
+
+  it("splits middle by half when into is not allowed", () => {
+    expect(resolveApiWorkbenchDropPosition(12, 32, false)).toBe("before");
+    expect(resolveApiWorkbenchDropPosition(20, 32, false)).toBe("after");
+  });
+
+  it("handles degenerate row height", () => {
+    expect(resolveApiWorkbenchDropPosition(0, 0, true)).toBe("into");
+    expect(resolveApiWorkbenchDropPosition(0, 0, false)).toBe("before");
+  });
+});
+
+describe("reorderApiWorkbenchIdsByDrop", () => {
+  it("inserts before and after the target", () => {
+    expect(reorderApiWorkbenchIdsByDrop([1, 2, 3, 4], 4, 2, "before")).toEqual([1, 4, 2, 3]);
+    expect(reorderApiWorkbenchIdsByDrop([1, 2, 3, 4], 1, 3, "after")).toEqual([2, 3, 1, 4]);
+  });
+
+  it("returns the original order for no-op or unknown ids", () => {
+    expect(reorderApiWorkbenchIdsByDrop([1, 2, 3], 2, 2, "before")).toEqual([1, 2, 3]);
+    expect(reorderApiWorkbenchIdsByDrop([1, 2, 3], 9, 2, "before")).toEqual([1, 2, 3]);
+    expect(reorderApiWorkbenchIdsByDrop([1, 2, 3], 1, 9, "after")).toEqual([1, 2, 3]);
   });
 });

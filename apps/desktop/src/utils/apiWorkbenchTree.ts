@@ -130,6 +130,36 @@ export function moveApiWorkbenchOrderedId(
   return next;
 }
 
+export type ApiWorkbenchDropPosition = "into" | "before" | "after";
+
+/** 悬停行内 offsetY 判定落点：上 1/4 前插、下 1/4 后插、中部移入（不允许移入时按上下半区分） */
+export function resolveApiWorkbenchDropPosition(
+  offsetY: number,
+  rowHeight: number,
+  allowInto: boolean,
+): ApiWorkbenchDropPosition {
+  if (rowHeight <= 0) return allowInto ? "into" : "before";
+  const ratio = offsetY / rowHeight;
+  if (ratio < 0.25) return "before";
+  if (ratio > 0.75) return "after";
+  if (allowInto) return "into";
+  return ratio < 0.5 ? "before" : "after";
+}
+
+export function reorderApiWorkbenchIdsByDrop(
+  orderedIds: number[],
+  dragId: number,
+  targetId: number,
+  position: "before" | "after",
+): number[] {
+  if (dragId === targetId) return orderedIds;
+  if (!orderedIds.includes(dragId) || !orderedIds.includes(targetId)) return orderedIds;
+  const without = orderedIds.filter((id) => id !== dragId);
+  const targetIndex = without.indexOf(targetId);
+  const insertIndex = position === "before" ? targetIndex : targetIndex + 1;
+  return [...without.slice(0, insertIndex), dragId, ...without.slice(insertIndex)];
+}
+
 export function buildApiWorkbenchNavMenuItems(
   target: ApiWorkbenchNavTarget,
   options: { hasSelectedCollection: boolean },
