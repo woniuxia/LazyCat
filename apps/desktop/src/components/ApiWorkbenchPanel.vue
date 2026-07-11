@@ -66,6 +66,40 @@
                 </div>
               </el-option>
             </el-select>
+            <el-popover placement="bottom-end" :width="300" trigger="click">
+              <template #reference>
+                <el-button
+                  class="request-settings-button"
+                  :icon="Setting"
+                  title="请求设置"
+                  aria-label="请求设置"
+                />
+              </template>
+              <div class="request-settings">
+                <div class="request-settings-item">
+                  <span>超时（ms）</span>
+                  <el-input-number
+                    v-model="draft.timeoutMs"
+                    :min="1000"
+                    :max="120000"
+                    :step="1000"
+                    size="small"
+                  />
+                </div>
+                <div class="request-settings-item">
+                  <span>跟随重定向</span>
+                  <el-switch v-model="draft.followRedirects" />
+                </div>
+                <p class="request-settings-note">301/302/303 按标准跟随；307/308 带请求体不跟随</p>
+              </div>
+            </el-popover>
+            <el-button
+              class="save-request-button"
+              :icon="DocumentChecked"
+              title="保存接口"
+              aria-label="保存接口"
+              @click="saveRequest"
+            />
           </div>
         </div>
 
@@ -89,40 +123,6 @@
             v-if="variableNameCandidates.length > 0"
             ref="urlVariablePopover"
             :candidates="variableNameCandidates"
-          />
-          <el-popover placement="bottom-end" :width="300" trigger="click">
-            <template #reference>
-              <el-button
-                class="request-settings-button"
-                :icon="Setting"
-                title="请求设置"
-                aria-label="请求设置"
-              />
-            </template>
-            <div class="request-settings">
-              <div class="request-settings-item">
-                <span>超时（ms）</span>
-                <el-input-number
-                  v-model="draft.timeoutMs"
-                  :min="1000"
-                  :max="120000"
-                  :step="1000"
-                  size="small"
-                />
-              </div>
-              <div class="request-settings-item">
-                <span>跟随重定向</span>
-                <el-switch v-model="draft.followRedirects" />
-              </div>
-              <p class="request-settings-note">301/302/303 按标准跟随；307/308 带请求体不跟随</p>
-            </div>
-          </el-popover>
-          <el-button
-            class="save-request-button"
-            :icon="DocumentChecked"
-            title="保存接口"
-            aria-label="保存接口"
-            @click="saveRequest"
           />
           <el-button
             class="send-button"
@@ -2070,7 +2070,7 @@ onBeforeUnmount(() => {
 
 .api-workbench-request-bar {
   display: grid;
-  grid-template-columns: 104px minmax(240px, 1fr) 32px auto;
+  grid-template-columns: 104px minmax(0, 1fr) auto;
 }
 
 .api-workbench-primary-actions,
@@ -2652,10 +2652,6 @@ onBeforeUnmount(() => {
   .api-workbench-panel {
     grid-template-columns: 260px minmax(420px, 1fr) minmax(340px, 38%);
   }
-
-  .api-workbench-request-bar {
-    grid-template-columns: 104px minmax(220px, 1fr) 32px auto;
-  }
 }
 
 @media (max-width: 1180px) {
@@ -2668,7 +2664,6 @@ onBeforeUnmount(() => {
     min-height: 360px;
   }
 
-  .api-workbench-request-bar,
   .api-workbench-meta-row {
     grid-template-columns: 1fr;
   }
