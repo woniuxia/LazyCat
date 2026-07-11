@@ -8,6 +8,23 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-07-11: 结构治理批次 3（Todo 域）行为保持拆分
+
+**场景**: 执行结构治理路线图批次 3：Todo 前端域迁入 `components/todo/`、`TodoPanel.vue`（2961 行）拆 5 个 composable、Rust `todo.rs`（3253 行）目录化。plan `docs/superpowers/plans/2026-07-11-structure-refactor-batch3-todo-plan.md`。
+**使用次数**: 0
+**结果**: TodoPanel.vue 2961 → 1878 行；todo/mod.rs 3253 → 619 行 + 7 子模块（types/helpers/recurrence/reminders/taxonomy/items/pm_link）；22 个 Rust 用例、634 前端用例、e2e 全程保持通过，共 14 个提交。
+**问题与关键点**:
+1. **`.vue` 迁 `.ts` 会暴露从未被检查的类型问题**：本项目 typecheck 是纯 tsc、不覆盖 `.vue` script。搬进 composable 后新暴露两处：`itemDraft.kind` 从未声明（运行时恒 undefined，两处 `!== "recurring"` 判断恒真）——在 `TodoItemDraft` 接口上声明 `kind?: TodoKind` 保持运行时行为不变；`todoLinkedPmItem.projectId` 实际可空——ref 类型放宽为 `number | null`。均为零运行时改动的类型适配，diff 中显式可见。
+2. **源码断言测试随代码走**：TodoPanel 的 3 个组件测试盯具体函数源码。quick-add/title-enter 盯的代码（quickAddContext、onQuickAddCreated、onTitleEnter、saveItem 胶水）刻意留壳层实现零测试改动；edit-focus 盯的 enterEditMode 随编辑器状态机迁出，测试同步增加对 `useTodoDetailState.ts` 的 readFileSync 读取，断言内容不变。
+3. **共享 `let` 标志跨 composable 需 ref 化**：`skipProjectWatch` 原是壳层 `let`，watch 移入 useTodoPmLink 后改为 composable 内 ref 返回，壳层引用点 `.value` 化（本批唯一预期的非纯移动适配）。
+4. **Rust 目录化用 `mod x; use x::*;` 私有 glob 胶水**（批次 2 同款）：函数体零改动，仅 `fn` → `pub(crate) fn` + 子模块显式 `use super::helpers::*` 等。**偏差**：`mod tests` 未按 plan 拆到子模块而是整体留在 mod.rs——测试共享 80+ 行 `create_test_conn` 建表夹具和 seed 系列夹具，拆分收益小于夹具共享成本；私有 use 导入对子模块可见，`use super::*` 让测试零改动，测试路径与基线完全一致便于对账。
+5. **只被测试使用的顶部导入会被 cargo check 误报 unused**：删除后 `cargo test` 编译才炸（Timelike/DateTime/params!/json!）。处理：移进 `mod tests` 内部 use。每步必须 `cargo check`（零警告）+ `cargo test todo`（用例数对账）双跑。
+6. **子模块内 `super::` 指向变化**：原 mod.rs 里 `super::attachments`（= tools::attachments）搬进子模块后要改 `crate::tools::attachments`；`super::helpers::db_conn`（全局 helpers）与本地 `mod helpers` 同名不冲突（api_workbench 先例）。
+7. sed 行区间删除比长字符串 Edit 稳，但边界必须先 `sed -n` 逐块核对——本批一次多删一行（formatDate 函数头）由 build:web 立即暴露；每步验证兜底有效。
+**涉及文件**: `components/todo/`（14 文件迁移）、`composables/useTodo{ItemFilters,ScheduleFields,CrudActions,PmLink,DetailState}.ts`、`src-tauri/src/tools/todo/`（8 文件）
+**验证**: 每步 `pnpm typecheck` + `build:web` + `pnpm test`（634）/ `cargo check` 零警告 + `cargo test todo`（22 用例对账）；收尾 `cargo test` 全量 467、`pnpm test:e2e` 2 passed。cargo 全量偶发 1 个计时敏感用例失败（api_mock delay 类），复跑即绿。
+**遗留改良点（只记不做）**: TodoPanel 死代码 `initialCreateSchedule`、`disabledFiveMinuteMinutes/disabledAllSeconds`、`snoozeItem` 无调用方；`itemDraft.kind` 恒 undefined 的两处判断语义待确认。
+
 ## 2026-07-09: API Mock 响应体格式化扩展到全部文本语言（复用 @lazycat/formatters）
 
 **场景**: API Mock 路由表单中响应内容（文本类型）原本只有"格式化 JSON"按钮（`JSON.parse` + `JSON.stringify` 实现），需要扩展为对编辑器可识别的全部语言（JSON/XML/HTML/CSS/JavaScript）提供格式化。
