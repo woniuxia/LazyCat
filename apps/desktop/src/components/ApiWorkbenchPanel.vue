@@ -23,9 +23,26 @@
         </el-empty>
       </div>
       <template v-else>
-      <div v-if="showBlankDraftHint" class="editor-blank-hint">
-        从左侧选择接口，或直接填写 URL 发送 · 快捷键：Ctrl+Enter 发送 / Ctrl+S 保存
+      <ApiWorkbenchTabsBar
+        :tabs="tabs"
+        :active-tab-id="activeTabId"
+        @activate="activateTab"
+        @close="handleTabClose"
+        @close-others="(id: number) => closeTabsSkippingDirty(tabIdsOtherThan(id))"
+        @close-left="(id: number) => closeTabsSkippingDirty(tabIdsToLeft(id))"
+        @close-right="(id: number) => closeTabsSkippingDirty(tabIdsToRight(id))"
+        @new-temp="handleNewTempTab"
+      />
+      <div v-if="!activeTab" class="editor-onboarding">
+        <el-empty description="从左侧选择接口，或新建临时请求">
+          <div class="editor-onboarding-steps">
+            <span>Ctrl+Enter 发送</span>
+            <span>Ctrl+S 保存</span>
+          </div>
+          <el-button type="primary" :icon="Plus" @click="handleNewTempTab">新建临时请求</el-button>
+        </el-empty>
       </div>
+      <template v-else>
       <div class="api-workbench-compose">
         <div class="api-workbench-meta-row">
           <el-input v-model="requestName" class="request-name-input" placeholder="接口名称" />
@@ -254,6 +271,7 @@
           <el-empty v-else description="无请求体" />
         </el-tab-pane>
       </el-tabs>
+      </template>
       </template>
     </main>
 
@@ -559,6 +577,11 @@ import {
 import { ElMessage, ElMessageBox } from "element-plus";
 import { invokeToolByChannel } from "../bridge/tauri";
 import ApiWorkbenchKeyValueEditor from "./ApiWorkbenchKeyValueEditor.vue";
+import ApiWorkbenchTabsBar from "./ApiWorkbenchTabsBar.vue";
+import { useApiWorkbenchTabs } from "../composables/useApiWorkbenchTabs";
+import {
+  backfillApiWorkbenchTabFolderIds,
+} from "../utils/apiWorkbenchTabs";
 import ApiWorkbenchVariablePopover from "./ApiWorkbenchVariablePopover.vue";
 import ApiWorkbenchResponseViewer from "./ApiWorkbenchResponseViewer.vue";
 import ApiWorkbenchSidebar from "./ApiWorkbenchSidebar.vue";
@@ -581,11 +604,8 @@ import type {
 import {
   API_WORKBENCH_ENVIRONMENT_MANAGER_VALUE,
   API_WORKBENCH_METHODS,
-  DEFAULT_API_WORKBENCH_DRAFT,
   buildApiWorkbenchEnvironmentDraftSummary,
-  buildApiWorkbenchNewRequestState,
   buildApiWorkbenchPreviewUrl,
-  buildApiWorkbenchSelectionState,
   countApiWorkbenchActiveRows,
   draftApiWorkbenchEnvironmentRows,
   findDuplicateApiWorkbenchEnvironmentVariableNames,
@@ -620,7 +640,6 @@ import {
 import {
   buildApiWorkbenchFolderMoveTargets,
   buildApiWorkbenchRequestMoveTargets,
-  getApiWorkbenchFolderAncestorIds,
   moveApiWorkbenchOrderedId,
 } from "../utils/apiWorkbenchTree";
 
@@ -637,28 +656,91 @@ const collections = ref<ApiWorkbenchCollection[]>([]);
 const environments = ref<ApiWorkbenchEnvironment[]>([]);
 const globalVariables = ref<ApiWorkbenchKeyValueRow[]>([]);
 const history = ref<ApiWorkbenchHistoryItem[]>([]);
-const sourceHistoryId = ref<number | null>(null);
 const historyQuery = ref("");
 const historyPinnedOnly = ref(false);
 const historyLoading = ref(false);
 const replayingHistoryId = ref<number | null>(null);
 const selectedCollectionId = ref<number | null>(null);
 const selectedEnvironmentId = ref<number | null>(null);
-const selectedRequestId = ref<number | null>(null);
-const selectedRequestFolderId = ref<number | null>(null);
-const requestName = ref("");
-const requestDescription = ref("");
-const draft = ref({ ...DEFAULT_API_WORKBENCH_DRAFT });
 const environmentRows = ref<ApiWorkbenchKeyValueRow[]>([]);
-const response = ref<ApiWorkbenchSendResult | null>(null);
-const editorTab = ref("query");
-const responseTab = ref("response");
 const environmentDialogVisible = ref(false);
 const moveDialogVisible = ref(false);
 const moveDialogTitle = ref("");
 const moveDialogTargets = ref<ApiWorkbenchMoveTarget[]>([]);
 const moveDialogSelectedKey = ref("__null__");
 let moveDialogResolver: ((value: number | null | undefined) => void) | null = null;
+
+const {
+  tabs,
+  activeTabId,
+  activeTab,
+  isTabDirty,
+  activateTab: activateTabInStore,
+  openRequestTab,
+  openTempTab,
+  closeTab: closeTabInStore,
+  closeTabs,
+  tabIdsOtherThan,
+  tabIdsToLeft,
+  tabIdsToRight,
+  markSaved,
+  restoreFromSettings,
+} = useApiWorkbenchTabs();
+
+// 无激活标签时的只读兜底草稿；编辑区此时渲染空态，不会真正写入
+const detachedDraft = normalizeApiWorkbenchDraft({});
+
+const draft = computed({
+  get: () => activeTab.value?.draft ?? detachedDraft,
+  set: (value) => {
+    if (activeTab.value) activeTab.value.draft = value;
+  },
+});
+const requestName = computed({
+  get: () => activeTab.value?.name ?? "",
+  set: (value) => {
+    if (activeTab.value) activeTab.value.name = value;
+  },
+});
+const requestDescription = computed({
+  get: () => activeTab.value?.description ?? "",
+  set: (value) => {
+    if (activeTab.value) activeTab.value.description = value;
+  },
+});
+const response = computed({
+  get: () => activeTab.value?.response ?? null,
+  set: (value) => {
+    if (activeTab.value) activeTab.value.response = value;
+  },
+});
+const sourceHistoryId = computed({
+  get: () => activeTab.value?.sourceHistoryId ?? null,
+  set: (value) => {
+    if (activeTab.value) activeTab.value.sourceHistoryId = value;
+  },
+});
+const selectedRequestId = computed(() =>
+  activeTab.value?.kind === "request" ? activeTab.value.requestId : null,
+);
+const selectedRequestFolderId = computed({
+  get: () => activeTab.value?.folderId ?? null,
+  set: (value) => {
+    if (activeTab.value) activeTab.value.folderId = value;
+  },
+});
+const editorTab = computed({
+  get: () => activeTab.value?.editorTab ?? "query",
+  set: (value) => {
+    if (activeTab.value) activeTab.value.editorTab = value;
+  },
+});
+const responseTab = computed({
+  get: () => activeTab.value?.responseTab ?? "response",
+  set: (value) => {
+    if (activeTab.value) activeTab.value.responseTab = value;
+  },
+});
 
 const selectedCollection = computed(
   () => collections.value.find((item) => item.id === selectedCollectionId.value) ?? null,
@@ -705,12 +787,6 @@ const variableNameCandidates = computed(() => {
   }
   return names;
 });
-const showBlankDraftHint = computed(
-  () =>
-    selectedRequestId.value === null &&
-    !draft.value.url.trim() &&
-    requestName.value.trim() === "",
-);
 const variableUsages = computed(() =>
   summarizeApiWorkbenchVariables({
     draft: normalizeApiWorkbenchDraft(draft.value),
@@ -745,30 +821,17 @@ const queryRowCount = computed(() => countApiWorkbenchActiveRows(draft.value.que
 const headerRowCount = computed(() => countApiWorkbenchActiveRows(draft.value.headers));
 const bodyHasContent = computed(() => hasApiWorkbenchBody(draft.value));
 
-function resetRequestState() {
-  selectedRequestId.value = null;
-  selectedRequestFolderId.value = null;
-  sourceHistoryId.value = null;
-  requestName.value = "";
-  requestDescription.value = "";
-  draft.value = normalizeApiWorkbenchDraft({});
-  response.value = null;
-}
-
 function startNewRequest(folderId: number | null) {
   if (!selectedCollectionId.value) {
     ElMessage.warning("请先选择集合");
     return;
   }
-  const next = buildApiWorkbenchNewRequestState({ folderId });
-  selectedRequestId.value = next.selectedRequestId;
-  selectedRequestFolderId.value = next.selectedRequestFolderId;
-  sourceHistoryId.value = null;
-  requestName.value = next.requestName;
-  requestDescription.value = next.requestDescription;
-  draft.value = next.draft;
-  response.value = next.response;
-  editorTab.value = "query";
+  const tab = openTempTab({ collectionId: selectedCollectionId.value, folderId });
+  if (!tab) {
+    ElMessage.warning("标签数量已达上限，请先关闭部分标签");
+    return;
+  }
+  tab.editorTab = "query";
   if (folderId !== null) sidebarRef.value?.expandFolder(folderId);
 }
 
@@ -797,7 +860,8 @@ function variableSourceLabel(source: ApiWorkbenchVariableUsage["source"]): strin
 
 const quickAuthVisible = ref(false);
 const curlImportVisible = ref(false);
-const urlVariablePopover = ref<InstanceType<typeof ApiWorkbenchVariablePopover> | null>(null);const quickAuthType = ref<"bearer" | "basic">("bearer");
+const urlVariablePopover = ref<InstanceType<typeof ApiWorkbenchVariablePopover> | null>(null);
+const quickAuthType = ref<"bearer" | "basic">("bearer");
 const quickAuthToken = ref("");
 const quickAuthUsername = ref("");
 const quickAuthPassword = ref("");
@@ -958,9 +1022,22 @@ async function loadAll() {
     if (!selectedCollectionId.value && collections.value.length > 0) {
       await selectCollection(collections.value[0].id);
     }
+    syncTabsWithCollections();
   } finally {
     loading.value = false;
   }
+}
+
+/** loadAll 后同步标签：request 标签回填 folderId，所有标签清理失效的 folderId */
+function syncTabsWithCollections() {
+  let next = backfillApiWorkbenchTabFolderIds(tabs.value, collections.value);
+  const validFolderIds = new Set(
+    collections.value.flatMap((collection) => collection.folders.map((folder) => folder.id)),
+  );
+  next = next.map((tab) =>
+    tab.folderId !== null && !validFolderIds.has(tab.folderId) ? { ...tab, folderId: null } : tab,
+  );
+  tabs.value = next;
 }
 
 async function loadHistory() {
@@ -980,18 +1057,8 @@ async function loadHistory() {
 async function selectCollection(id: number) {
   if (selectedCollectionId.value === id) return;
   const collection = collections.value.find((item) => item.id === id);
-  const nextState = buildApiWorkbenchSelectionState({
-    nextCollection: collection ?? null,
-  });
-  selectedCollectionId.value = nextState.selectedCollectionId;
-  selectedEnvironmentId.value = nextState.selectedEnvironmentId;
-  selectedRequestId.value = nextState.selectedRequestId;
-  selectedRequestFolderId.value = null;
-  sourceHistoryId.value = null;
-  requestName.value = nextState.requestName;
-  requestDescription.value = "";
-  draft.value = nextState.draft;
-  response.value = nextState.response;
+  selectedCollectionId.value = collection?.id ?? null;
+  selectedEnvironmentId.value = collection?.activeEnvironmentId ?? null;
   await refreshEnvironments(id);
 }
 
@@ -1072,9 +1139,21 @@ async function deleteCollection(collectionId: number) {
     selectedCollectionId.value = null;
     selectedEnvironmentId.value = null;
     environments.value = [];
-    resetRequestState();
   }
   await loadAll();
+  for (const tab of [...tabs.value]) {
+    if (tab.collectionId !== collectionId) continue;
+    if (isTabDirty(tab)) {
+      // 脏标签转为临时标签，归属删除后新选中的集合（无集合则为 null）
+      tab.kind = "temp";
+      tab.requestId = null;
+      tab.savedSnapshot = null;
+      tab.collectionId = selectedCollectionId.value;
+      tab.folderId = null;
+    } else {
+      closeTabInStore(tab.id);
+    }
+  }
   ElMessage.success("集合已删除");
 }
 
@@ -1103,13 +1182,7 @@ async function deleteFolder(folderId: number) {
     "删除文件夹",
     { type: "warning", confirmButtonText: "删除", cancelButtonText: "取消" },
   );
-  const openFolderId = selectedRequestFolderId.value;
-  const openRequestInsideDeletedFolder =
-    openFolderId !== null &&
-    (openFolderId === folderId ||
-      getApiWorkbenchFolderAncestorIds(collection.folders, openFolderId).includes(folderId));
   await invokeToolByChannel("tool:api-workbench:folder-delete", { id: folderId });
-  if (openRequestInsideDeletedFolder) selectedRequestFolderId.value = null;
   await loadAll();
   ElMessage.success("文件夹已删除，接口已移动到未分组");
 }
@@ -1136,20 +1209,22 @@ async function duplicateRequest(requestId: number) {
 }
 
 async function renameRequest(requestId: number) {
-  const isCurrentOpen = selectedRequestId.value === requestId && selectedCollectionId.value !== null;
-  const detail = isCurrentOpen ? null : await loadRequestDetail(requestId);
-  const name = await promptName("重命名接口", isCurrentOpen ? requestName.value : detail?.name ?? "");
+  const openTab = tabs.value.find((tab) => tab.kind === "request" && tab.requestId === requestId);
+  const detail = openTab ? null : await loadRequestDetail(requestId);
+  const name = await promptName("重命名接口", openTab ? openTab.name : (detail?.name ?? ""));
+  const nextDraft = normalizeApiWorkbenchDraft(openTab ? openTab.draft : detail?.draft);
   await invokeToolByChannel("tool:api-workbench:request-save", {
     id: requestId,
-    collectionId: isCurrentOpen ? selectedCollectionId.value : detail?.collectionId,
-    folderId: isCurrentOpen ? selectedRequestFolderId.value : detail?.folderId,
+    collectionId: openTab ? openTab.collectionId : detail?.collectionId,
+    folderId: openTab ? openTab.folderId : detail?.folderId,
     name,
-    description: isCurrentOpen ? requestDescription.value : detail?.description ?? "",
-    draft: isCurrentOpen
-      ? normalizeApiWorkbenchDraft(draft.value)
-      : normalizeApiWorkbenchDraft(detail?.draft),
+    description: openTab ? openTab.description : (detail?.description ?? ""),
+    draft: nextDraft,
   });
-  if (isCurrentOpen) requestName.value = name;
+  if (openTab) {
+    openTab.name = name;
+    openTab.savedSnapshot = { name, draft: nextDraft };
+  }
   await loadAll();
   ElMessage.success("接口已重命名");
 }
@@ -1163,7 +1238,17 @@ async function deleteRequest(requestId: number) {
     cancelButtonText: "取消",
   });
   await invokeToolByChannel("tool:api-workbench:request-delete", { id: requestId });
-  if (selectedRequestId.value === requestId) resetRequestState();
+  const hitTab = tabs.value.find((tab) => tab.kind === "request" && tab.requestId === requestId);
+  if (hitTab) {
+    if (isTabDirty(hitTab)) {
+      // 脏标签转为临时标签，保留未保存内容
+      hitTab.kind = "temp";
+      hitTab.requestId = null;
+      hitTab.savedSnapshot = null;
+    } else {
+      closeTabInStore(hitTab.id);
+    }
+  }
   await loadAll();
   ElMessage.success("接口已删除");
 }
@@ -1191,7 +1276,6 @@ async function moveRequest(requestId: number) {
   );
   if (targetFolderId === undefined) return;
   await invokeToolByChannel("tool:api-workbench:request-move", { id: requestId, targetFolderId });
-  if (selectedRequestId.value === requestId) selectedRequestFolderId.value = targetFolderId;
   await loadAll();
   sidebarRef.value?.expandFolder(targetFolderId);
   ElMessage.success("接口已移动");
@@ -1505,23 +1589,19 @@ async function importCurl() {
 }
 
 async function handleCurlImportConfirm(result: ApiWorkbenchCurlParseResult) {
-  try {
-    await ElMessageBox.confirm("导入将覆盖当前编辑中的请求草稿，是否继续？", "确认导入 cURL", {
-      confirmButtonText: "覆盖当前草稿",
-      cancelButtonText: "取消",
-    });
-    // Phase 4: 改为 openTempTab
-    draft.value = result.draft;
-    response.value = null;
-    curlImportVisible.value = false;
-    if (result.warnings.length > 0) {
-      ElMessage.warning(result.warnings.join("；"));
-    } else {
-      ElMessage.success("已导入 cURL");
-    }
-  } catch (error) {
-    if (isMessageBoxCancel(error)) return;
-    ElMessage.error(errorMessage(error));
+  const tab = openTempTab({
+    collectionId: selectedCollectionId.value,
+    draft: result.draft,
+  });
+  if (!tab) {
+    ElMessage.warning("标签数量已达上限，请先关闭部分标签");
+    return;
+  }
+  curlImportVisible.value = false;
+  if (result.warnings.length > 0) {
+    ElMessage.warning(result.warnings.join("；"));
+  } else {
+    ElMessage.success("已导入 cURL 到新标签");
   }
 }
 
@@ -1612,6 +1692,8 @@ async function saveHistoryAsRequest(item: ApiWorkbenchHistoryItem) {
 }
 
 async function sendRequest() {
+  const tab = activeTab.value;
+  if (!tab) return;
   if (!selectedEnvironmentId.value) {
     ElMessage.warning("请先选择环境");
     return;
@@ -1621,15 +1703,19 @@ async function sendRequest() {
     return;
   }
   sending.value = true;
+  const sentTabId = tab.id;
   try {
-    const normalized = normalizeApiWorkbenchDraft(draft.value);
-    response.value = (await invokeToolByChannel("tool:api-workbench:send", {
-      collectionId: selectedCollectionId.value,
+    const normalized = normalizeApiWorkbenchDraft(tab.draft);
+    const result = (await invokeToolByChannel("tool:api-workbench:send", {
+      collectionId: tab.collectionId ?? selectedCollectionId.value,
       environmentId: selectedEnvironmentId.value,
-      requestId: selectedRequestId.value,
-      name: requestName.value,
+      requestId: tab.kind === "request" ? tab.requestId : null,
+      name: tab.name,
       draft: normalized,
     })) as ApiWorkbenchSendResult;
+    // 以发送时的标签为准回填；标签已关闭则丢弃，防旧响应写错标签
+    const target = tabs.value.find((item) => item.id === sentTabId);
+    if (target) target.response = result;
     await loadHistory();
   } finally {
     sending.value = false;
@@ -1637,38 +1723,63 @@ async function sendRequest() {
 }
 
 async function saveRequest() {
-  if (!selectedCollectionId.value) {
+  const tab = activeTab.value;
+  if (!tab) return;
+  const collectionId = tab.collectionId ?? selectedCollectionId.value;
+  if (!collectionId) {
     ElMessage.warning("请先选择集合");
     return;
   }
-  if (!requestName.value.trim()) {
+  if (!tab.name.trim()) {
     ElMessage.warning("请填写接口名称");
     return;
   }
+  const normalized = normalizeApiWorkbenchDraft(tab.draft);
+  const savedName = tab.name.trim();
   const saved = (await invokeToolByChannel("tool:api-workbench:request-save", {
-    id: selectedRequestId.value,
-    collectionId: selectedCollectionId.value,
-    folderId: selectedRequestFolderId.value,
-    name: requestName.value.trim(),
-    description: requestDescription.value,
-    draft: normalizeApiWorkbenchDraft(draft.value),
+    id: tab.kind === "request" ? tab.requestId : null,
+    collectionId,
+    folderId: tab.folderId,
+    name: savedName,
+    description: tab.description,
+    draft: normalized,
   })) as { id: number };
-  selectedRequestId.value = saved.id;
-  sourceHistoryId.value = null;
+  markSaved(tab.id, {
+    requestId: saved.id,
+    collectionId,
+    folderId: tab.folderId,
+    name: savedName,
+    draft: normalized,
+  });
+  tab.sourceHistoryId = null;
   await loadAll();
   ElMessage.success("已保存接口");
 }
 
 async function loadRequest(id: number) {
+  const existing = tabs.value.find((tab) => tab.kind === "request" && tab.requestId === id);
+  if (existing) {
+    void activateTab(existing.id);
+    return;
+  }
   const detail = (await invokeToolByChannel("tool:api-workbench:request-get", {
     id,
   })) as ApiWorkbenchRequestDetail;
-  selectedRequestId.value = detail.id;
-  selectedRequestFolderId.value = detail.folderId;
-  sourceHistoryId.value = null;
-  requestName.value = detail.name;
-  requestDescription.value = detail.description;
-  draft.value = normalizeApiWorkbenchDraft(detail.draft);
+  const tab = openRequestTab({
+    requestId: detail.id,
+    collectionId: detail.collectionId,
+    folderId: detail.folderId,
+    name: detail.name,
+    description: detail.description,
+    draft: normalizeApiWorkbenchDraft(detail.draft),
+  });
+  if (!tab) {
+    ElMessage.warning("标签数量已达上限，请先关闭部分标签");
+    return;
+  }
+  if (detail.collectionId !== selectedCollectionId.value) {
+    await selectCollection(detail.collectionId);
+  }
   sidebarRef.value?.expandFolder(detail.folderId);
 }
 
@@ -1685,20 +1796,21 @@ async function loadHistoryIntoTemporaryEditor(item: ApiWorkbenchHistoryItem) {
     historyId: item.id,
   })) as ApiWorkbenchHistoryDetail;
   const { draft: nextDraft, degraded } = buildApiWorkbenchDraftFromHistory(detail);
-  if (sourceHistoryId.value !== null) {
-    await ElMessageBox.confirm("当前临时接口草稿会被历史记录覆盖，是否继续？", "载入历史", {
-      type: "warning",
-    });
+  const tab = openTempTab({
+    collectionId: detail.collectionId ?? selectedCollectionId.value,
+    name: defaultApiWorkbenchHistoryDisplayName(detail),
+    draft: nextDraft,
+    sourceHistoryId: detail.id,
+    response: buildApiWorkbenchResponseFromHistory(detail),
+  });
+  if (!tab) {
+    ElMessage.warning("标签数量已达上限，请先关闭部分标签");
+    return;
   }
-  selectedRequestId.value = null;
-  selectedRequestFolderId.value =
-    detail.collectionId === selectedCollectionId.value ? selectedRequestFolderId.value : null;
-  sourceHistoryId.value = detail.id;
-  requestName.value = defaultApiWorkbenchHistoryDisplayName(detail);
-  requestDescription.value = "";
-  draft.value = nextDraft;
-  response.value = buildApiWorkbenchResponseFromHistory(detail);
-  responseTab.value = "response";
+  tab.responseTab = "response";
+  if (tab.collectionId !== null && tab.collectionId !== selectedCollectionId.value) {
+    await selectCollection(tab.collectionId);
+  }
   if (degraded) {
     ElMessage.warning("旧历史仅包含摘要，已恢复 Method 和 URL");
   }
@@ -1709,12 +1821,17 @@ async function replayHistory(item: ApiWorkbenchHistoryItem) {
     ElMessage.warning("旧历史缺少执行快照，请载入后手动发送");
     return;
   }
+  const targetTabId = activeTab.value?.id ?? null;
   replayingHistoryId.value = item.id;
   try {
-    response.value = (await invokeToolByChannel("tool:api-workbench:history-replay", {
+    const result = (await invokeToolByChannel("tool:api-workbench:history-replay", {
       historyId: item.id,
     })) as ApiWorkbenchSendResult;
-    responseTab.value = "response";
+    const target = targetTabId === null ? null : tabs.value.find((tab) => tab.id === targetTabId);
+    if (target) {
+      target.response = result;
+      target.responseTab = "response";
+    }
     await loadHistory();
   } finally {
     replayingHistoryId.value = null;
@@ -1769,9 +1886,67 @@ async function clearHistory() {
   await loadHistory();
 }
 
+async function activateTab(tabId: number) {
+  activateTabInStore(tabId);
+  const tab = activeTab.value;
+  if (tab && tab.collectionId !== null && tab.collectionId !== selectedCollectionId.value) {
+    await selectCollection(tab.collectionId);
+  }
+}
+
+async function confirmCloseDirtyTab(tabName: string): Promise<boolean> {
+  try {
+    await ElMessageBox.confirm(
+      `标签「${tabName || "未命名请求"}」有未保存修改，关闭后将丢失。`,
+      "关闭标签",
+      { type: "warning", confirmButtonText: "关闭", cancelButtonText: "取消" },
+    );
+    return true;
+  } catch (error) {
+    if (isMessageBoxCancel(error)) return false;
+    throw error;
+  }
+}
+
+async function handleTabClose(tabId: number) {
+  const tab = tabs.value.find((item) => item.id === tabId);
+  if (!tab) return;
+  if (isTabDirty(tab) && !(await confirmCloseDirtyTab(tab.name))) return;
+  closeTabInStore(tabId);
+}
+
+function closeTabsSkippingDirty(targetIds: number[]) {
+  const skipped = closeTabs(targetIds, isTabDirty);
+  if (skipped > 0) {
+    ElMessage.info(`已跳过 ${skipped} 个未保存标签`);
+  }
+}
+
+function handleNewTempTab() {
+  const tab = openTempTab({ collectionId: selectedCollectionId.value });
+  if (!tab) {
+    ElMessage.warning("标签数量已达上限，请先关闭部分标签");
+  }
+}
+
 onMounted(() => {
   window.addEventListener("keydown", handleWorkbenchKeydown);
-  void loadAll();
+  void loadAll().then(() => {
+    restoreFromSettings({
+      collectionIds: new Set(collections.value.map((collection) => collection.id)),
+      requestIds: new Set(
+        collections.value.flatMap((collection) =>
+          collection.requests.map((request) => request.id),
+        ),
+      ),
+      fallbackCollectionId: selectedCollectionId.value,
+    });
+    syncTabsWithCollections();
+    const tab = activeTab.value;
+    if (tab && tab.collectionId !== null && tab.collectionId !== selectedCollectionId.value) {
+      void selectCollection(tab.collectionId);
+    }
+  });
 });
 
 onBeforeUnmount(() => {
@@ -2295,15 +2470,6 @@ onBeforeUnmount(() => {
   margin-bottom: 14px;
   color: var(--el-text-color-secondary);
   font-size: 13px;
-}
-
-.editor-blank-hint {
-  border: 1px dashed var(--el-border-color);
-  border-radius: 6px;
-  background: var(--el-fill-color-lighter);
-  color: var(--el-text-color-secondary);
-  font-size: 12px;
-  padding: 8px 12px;
 }
 
 .headers-table {
