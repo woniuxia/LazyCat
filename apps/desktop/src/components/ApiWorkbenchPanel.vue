@@ -2073,7 +2073,15 @@ onBeforeUnmount(() => {
   grid-template-columns: 104px minmax(0, 1fr) auto;
 }
 
-.api-workbench-primary-actions,
+.api-workbench-primary-actions {
+  display: flex;
+  min-width: 0;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .curl-actions {
   display: flex;
   flex-wrap: wrap;
@@ -2360,7 +2368,9 @@ onBeforeUnmount(() => {
 }
 
 .meta-environment-select {
-  width: 180px;
+  width: auto;
+  min-width: 0;
+  flex: 1 1 180px;
 }
 
 .request-name-input,
@@ -2672,12 +2682,6 @@ onBeforeUnmount(() => {
   .curl-actions,
   .response-actions {
     justify-content: flex-start;
-  }
-
-  .meta-environment-select {
-    width: auto;
-    min-width: 0;
-    flex: 1 1 180px;
   }
 }
 
