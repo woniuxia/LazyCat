@@ -643,6 +643,10 @@ fn to_camel_case(name: &str) -> String {
     result
 }
 
+fn needs_table_field(column_name: &str, field_name: &str) -> bool {
+    field_name != column_name && field_name != to_camel_case(column_name)
+}
+
 fn to_pascal_case(name: &str) -> String {
     let camel = to_camel_case(name);
     let mut chars = camel.chars();
@@ -866,7 +870,8 @@ fn generate_java(
 
         if table.columns.iter().any(|col| {
             let field_name = convert_field_name(&col.name, naming);
-            single_primary_key != Some(col.name.as_str()) && field_name != col.name
+            single_primary_key != Some(col.name.as_str())
+                && needs_table_field(&col.name, &field_name)
         }) {
             imports.push("com.baomidou.mybatisplus.annotation.TableField".into());
         }
@@ -917,7 +922,7 @@ fn generate_java(
                     ));
                 }
             }
-        } else if mybatis_plus && field_name != col.name {
+        } else if mybatis_plus && needs_table_field(&col.name, &field_name) {
             out.push_str(&format!("    @TableField(\"{}\")\n", col.name));
         }
 
@@ -1663,12 +1668,21 @@ mod tests {
     }
 
     #[test]
+    fn table_field_mapping_uses_default_camel_case() {
+        assert!(!needs_table_field("email", "email"));
+        assert!(!needs_table_field("created_at", "createdAt"));
+        assert!(!needs_table_field("user_name", "userName"));
+        assert!(needs_table_field("legacy_code", "legacyCodeValue"));
+    }
+
+    #[test]
     fn sql_to_entity_java_mybatis_plus_annotations() {
         let sql = r#"
             CREATE TABLE t_user (
                 id BIGINT NOT NULL AUTO_INCREMENT COMMENT 'primary key',
                 user_name VARCHAR(100) NOT NULL COMMENT 'user name',
                 email VARCHAR(200),
+                created_at DATETIME NOT NULL,
                 PRIMARY KEY (id)
             );
         "#;
@@ -1688,13 +1702,14 @@ mod tests {
         let code = r["code"].as_str().unwrap();
 
         assert!(code.contains("import com.baomidou.mybatisplus.annotation.IdType;"));
-        assert!(code.contains("import com.baomidou.mybatisplus.annotation.TableField;"));
+        assert!(!code.contains("import com.baomidou.mybatisplus.annotation.TableField;"));
         assert!(code.contains("import com.baomidou.mybatisplus.annotation.TableId;"));
         assert!(code.contains("import com.baomidou.mybatisplus.annotation.TableName;"));
         assert!(code.contains("@TableName(\"t_user\")"));
         assert!(code.contains("@TableId(type = IdType.AUTO)\n    private Long id;"));
-        assert!(code.contains("@TableField(\"user_name\")\n    private String userName;"));
-        assert!(!code.contains("@TableField(\"email\")"));
+        assert!(!code.contains("@TableField"));
+        assert!(code.contains("private String userName;"));
+        assert!(code.contains("private LocalDateTime createdAt;"));
     }
 
     #[test]
@@ -1747,8 +1762,10 @@ mod tests {
 
         assert!(!code.contains("@TableId"));
         assert!(!code.contains("import com.baomidou.mybatisplus.annotation.TableId;"));
-        assert!(code.contains("@TableField(\"order_id\")\n    private Long orderId;"));
-        assert!(code.contains("@TableField(\"item_id\")\n    private Long itemId;"));
+        assert!(!code.contains("import com.baomidou.mybatisplus.annotation.TableField;"));
+        assert!(!code.contains("@TableField"));
+        assert!(code.contains("private Long orderId;"));
+        assert!(code.contains("private Long itemId;"));
     }
 
     #[test]
