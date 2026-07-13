@@ -172,9 +172,6 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
     let _ = conn.execute_batch("ALTER TABLE pm_items ADD COLUMN ref_code TEXT DEFAULT NULL;");
 
     conn
-        .execute_batch(super::api_workbench::API_WORKBENCH_SCHEMA_SQL)
-        .map_err(|e| format!("create api workbench schema failed: {e}"))?;
-    conn
         .execute_batch(super::api_mock::API_MOCK_SCHEMA_SQL)
         .map_err(|e| format!("create api mock schema failed: {e}"))?;
 
@@ -688,49 +685,6 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
         CREATE INDEX IF NOT EXISTS idx_attachments_hash  ON attachments(hash);",
     )
     .map_err(|e| format!("initialize attachments failed: {e}"))?;
-
-    conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS db_connections (
-            id TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            engine TEXT NOT NULL,
-            host TEXT NOT NULL,
-            port INTEGER NOT NULL,
-            username TEXT,
-            password_cipher TEXT,
-            default_database TEXT,
-            env_tag TEXT NOT NULL DEFAULT 'dev',
-            read_only INTEGER NOT NULL DEFAULT 0,
-            group_name TEXT,
-            sort_order INTEGER NOT NULL DEFAULT 0,
-            options_json TEXT,
-            created_at INTEGER NOT NULL,
-            updated_at INTEGER NOT NULL,
-            last_used_at INTEGER
-        );
-
-        CREATE TABLE IF NOT EXISTS db_saved_queries (
-            id TEXT PRIMARY KEY,
-            connection_id TEXT,
-            title TEXT NOT NULL,
-            sql TEXT NOT NULL,
-            created_at INTEGER NOT NULL,
-            updated_at INTEGER NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS db_query_history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            connection_id TEXT NOT NULL,
-            sql TEXT NOT NULL,
-            executed_at INTEGER NOT NULL,
-            duration_ms INTEGER,
-            status TEXT NOT NULL,
-            row_count INTEGER
-        );
-        CREATE INDEX IF NOT EXISTS idx_db_query_history_executed_at
-            ON db_query_history(executed_at DESC);",
-    )
-    .map_err(|e| format!("initialize db workbench tables failed: {e}"))?;
 
     let fts_result = conn.execute_batch(
         "CREATE VIRTUAL TABLE IF NOT EXISTS snippet_fts USING fts5(

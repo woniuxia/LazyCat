@@ -9,7 +9,6 @@ const SYNC_GUIDE: &str =
 
 const DOMAINS: &[&str] = &[
     "api_mock",
-    "api_workbench",
     "browser_profiles",
     "encode",
     "convert",
@@ -20,7 +19,6 @@ const DOMAINS: &[&str] = &[
     "cron",
     "crypto",
     "data_dictionary",
-    "db",
     "format",
     "network",
     "dns",
