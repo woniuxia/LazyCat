@@ -8,6 +8,9 @@
         <el-option v-for="n in namingStyles" :key="n.value" :label="n.label" :value="n.value" />
       </el-select>
       <el-checkbox v-model="comments">注释</el-checkbox>
+      <el-checkbox v-if="language === 'java'" v-model="mybatisPlus">
+        MyBatis-Plus 注解
+      </el-checkbox>
       <el-button type="primary" :loading="generating" @click="generate">生成</el-button>
       <el-button @click="copyOutput">复制</el-button>
     </div>
@@ -44,6 +47,7 @@ const sqlEntityState = {
   language: "java",
   naming: "camelCase",
   comments: true,
+  mybatisPlus: false,
   sqlInput: `CREATE TABLE t_user (
   id BIGINT NOT NULL AUTO_INCREMENT COMMENT '主键',
   user_name VARCHAR(100) NOT NULL COMMENT '用户名',
@@ -81,6 +85,7 @@ const namingStyles = [
 const language = ref(sqlEntityState.language);
 const naming = ref(sqlEntityState.naming);
 const comments = ref(sqlEntityState.comments);
+const mybatisPlus = ref(sqlEntityState.mybatisPlus);
 const sqlInput = ref(sqlEntityState.sqlInput);
 const codeOutput = ref(sqlEntityState.codeOutput);
 const tableCount = ref(0);
@@ -103,6 +108,7 @@ async function generate() {
       options: {
         comments: comments.value,
         naming: naming.value,
+        mybatisPlus: language.value === "java" && mybatisPlus.value,
       },
     })) as { code: string; tables: unknown[] };
     codeOutput.value = data.code;
@@ -131,6 +137,7 @@ onBeforeUnmount(() => {
   sqlEntityState.language = language.value;
   sqlEntityState.naming = naming.value;
   sqlEntityState.comments = comments.value;
+  sqlEntityState.mybatisPlus = mybatisPlus.value;
   sqlEntityState.sqlInput = sqlInput.value;
   sqlEntityState.codeOutput = codeOutput.value;
 });
