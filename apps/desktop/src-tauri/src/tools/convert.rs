@@ -404,6 +404,7 @@ struct SqlColumn {
     name: String,
     sql_type: String,
     nullable: bool,
+    auto_increment: bool,
     default_val: Option<String>,
     comment: Option<String>,
 }
@@ -412,6 +413,49 @@ struct SqlColumn {
 struct SqlTable {
     name: String,
     columns: Vec<SqlColumn>,
+    primary_keys: Vec<String>,
+}
+
+fn parse_primary_keys(body: &str) -> Vec<String> {
+    let parts = split_top_level_commas(body);
+    let re_table_primary_key =
+        regex::Regex::new(r#"(?i)^\s*PRIMARY\s+KEY\s*\(([^)]+)\)"#).unwrap();
+    let re_column = regex::Regex::new(r#"(?i)^\s*[`"\[]?(\w+)[`"\]]?\s+"#).unwrap();
+    let re_inline_primary_key = regex::Regex::new(r"(?i)\bPRIMARY\s+KEY\b").unwrap();
+    let mut primary_keys = Vec::new();
+
+    for part in parts {
+        let trimmed = part.trim();
+        if let Some(cap) = re_table_primary_key.captures(trimmed) {
+            if let Some(columns) = cap.get(1) {
+                for column in columns.as_str().split(',') {
+                    let name = column
+                        .trim()
+                        .trim_matches('`')
+                        .trim_matches('"')
+                        .trim_matches('[')
+                        .trim_matches(']');
+                    if !name.is_empty()
+                        && !primary_keys.iter().any(|key: &String| key.as_str() == name)
+                    {
+                        primary_keys.push(name.to_string());
+                    }
+                }
+            }
+            continue;
+        }
+
+        if re_inline_primary_key.is_match(trimmed) {
+            if let Some(cap) = re_column.captures(trimmed) {
+                let name = cap.get(1).unwrap().as_str();
+                if !primary_keys.iter().any(|key: &String| key.as_str() == name) {
+                    primary_keys.push(name.to_string());
+                }
+            }
+        }
+    }
+
+    primary_keys
 }
 
 fn parse_create_tables(sql: &str) -> Vec<SqlTable> {
@@ -427,9 +471,11 @@ fn parse_create_tables(sql: &str) -> Vec<SqlTable> {
         // Find the matching closing paren, respecting nesting
         if let Some(body) = find_paren_body(sql, start) {
             let columns = parse_columns(&body);
+            let primary_keys = parse_primary_keys(&body);
             tables.push(SqlTable {
                 name: table_name,
                 columns,
+                primary_keys,
             });
         }
     }
@@ -479,6 +525,7 @@ fn parse_columns(body: &str) -> Vec<SqlColumn> {
         r#"(?i)^\s*[`"\[]?(\w+)[`"\]]?\s+([\w]+(?:\s*\([^)]*\))?(?:\s+(?:UNSIGNED|SIGNED|ZEROFILL))*)"#
     ).unwrap();
     let re_not_null = regex::Regex::new(r"(?i)\bNOT\s+NULL\b").unwrap();
+    let re_auto_increment = regex::Regex::new(r"(?i)\bAUTO_INCREMENT\b").unwrap();
     let re_default =
         regex::Regex::new(r"(?i)\bDEFAULT\s+('(?:[^']*(?:''[^']*)*)'|[^\s,]+)").unwrap();
     let re_comment = regex::Regex::new(r"(?i)\bCOMMENT\s+'((?:[^']*(?:''[^']*)*)*)'").unwrap();
@@ -519,6 +566,7 @@ fn parse_columns(body: &str) -> Vec<SqlColumn> {
             let col_name = cap.get(1).unwrap().as_str().to_string();
             let col_type = cap.get(2).unwrap().as_str().trim().to_string();
             let nullable = !re_not_null.is_match(trimmed);
+            let auto_increment = re_auto_increment.is_match(trimmed);
             let default_val = re_default
                 .captures(trimmed)
                 .and_then(|c| c.get(1))
@@ -531,6 +579,7 @@ fn parse_columns(body: &str) -> Vec<SqlColumn> {
                 name: col_name,
                 sql_type: col_type,
                 nullable,
+                auto_increment,
                 default_val,
                 comment,
             });
@@ -772,7 +821,12 @@ fn get_type_for_lang(sql_type: &str, lang: &str) -> String {
     }
 }
 
-fn generate_java(table: &SqlTable, naming: &str, comments: bool) -> String {
+fn generate_java(
+    table: &SqlTable,
+    naming: &str,
+    comments: bool,
+    mybatis_plus: bool,
+) -> String {
     let class_name = table_name_to_class(&table.name);
     let mut out = String::new();
 
@@ -796,6 +850,34 @@ fn generate_java(table: &SqlTable, naming: &str, comments: bool) -> String {
             _ => {}
         }
     }
+
+    let single_primary_key = if table.primary_keys.len() == 1 {
+        table.primary_keys.first().map(String::as_str)
+    } else {
+        None
+    };
+
+    if mybatis_plus {
+        imports.push("com.baomidou.mybatisplus.annotation.TableName".into());
+
+        if single_primary_key.is_some() {
+            imports.push("com.baomidou.mybatisplus.annotation.TableId".into());
+        }
+
+        if table.columns.iter().any(|col| {
+            let field_name = convert_field_name(&col.name, naming);
+            single_primary_key != Some(col.name.as_str()) && field_name != col.name
+        }) {
+            imports.push("com.baomidou.mybatisplus.annotation.TableField".into());
+        }
+
+        if table.columns.iter().any(|col| {
+            single_primary_key == Some(col.name.as_str()) && col.auto_increment
+        }) {
+            imports.push("com.baomidou.mybatisplus.annotation.IdType".into());
+        }
+    }
+
     imports.sort();
     imports.dedup();
     for imp in &imports {
@@ -804,6 +886,9 @@ fn generate_java(table: &SqlTable, naming: &str, comments: bool) -> String {
     out.push('\n');
 
     out.push_str("@Data\n");
+    if mybatis_plus {
+        out.push_str(&format!("@TableName(\"{}\")\n", table.name));
+    }
     out.push_str(&format!("public class {} {{\n", class_name));
 
     for col in &table.columns {
@@ -813,6 +898,29 @@ fn generate_java(table: &SqlTable, naming: &str, comments: bool) -> String {
             }
         }
         let field_name = convert_field_name(&col.name, naming);
+        let is_single_primary_key = single_primary_key == Some(col.name.as_str());
+
+        if mybatis_plus && is_single_primary_key {
+            let renamed = field_name != col.name;
+            match (renamed, col.auto_increment) {
+                (false, false) => out.push_str("    @TableId\n"),
+                (true, false) => {
+                    out.push_str(&format!("    @TableId(\"{}\")\n", col.name));
+                }
+                (false, true) => {
+                    out.push_str("    @TableId(type = IdType.AUTO)\n");
+                }
+                (true, true) => {
+                    out.push_str(&format!(
+                        "    @TableId(value = \"{}\", type = IdType.AUTO)\n",
+                        col.name
+                    ));
+                }
+            }
+        } else if mybatis_plus && field_name != col.name {
+            out.push_str(&format!("    @TableField(\"{}\")\n", col.name));
+        }
+
         let type_name = get_type_for_lang(&col.sql_type, "java");
         out.push_str(&format!("    private {} {};\n", type_name, field_name));
         out.push('\n');
@@ -1001,6 +1109,7 @@ fn sql_to_entity(payload: &Value) -> Result<Value, String> {
     let options = &payload["options"];
     let comments = options["comments"].as_bool().unwrap_or(true);
     let naming = options["naming"].as_str().unwrap_or("camelCase");
+    let mybatis_plus = options["mybatisPlus"].as_bool().unwrap_or(false);
 
     let tables = parse_create_tables(sql);
     if tables.is_empty() {
@@ -1012,7 +1121,7 @@ fn sql_to_entity(payload: &Value) -> Result<Value, String> {
 
     for table in &tables {
         let code = match language.as_str() {
-            "java" => generate_java(table, naming, comments),
+            "java" => generate_java(table, naming, comments, mybatis_plus),
             "typescript" => generate_typescript(table, naming, comments),
             "go" => generate_go(table, naming, comments),
             "python" => generate_python(table, naming, comments),
@@ -1539,6 +1648,10 @@ mod tests {
         assert!(code.contains("import lombok.Data;"));
         assert!(!code.contains("getId()"));
         assert!(!code.contains("setUserName("));
+        assert!(!code.contains("com.baomidou.mybatisplus.annotation"));
+        assert!(!code.contains("@TableName"));
+        assert!(!code.contains("@TableField"));
+        assert!(!code.contains("@TableId"));
 
         let tables = r["tables"].as_array().unwrap();
         assert_eq!(tables.len(), 1);
@@ -1547,6 +1660,95 @@ mod tests {
         assert_eq!(cols.len(), 4);
         assert_eq!(cols[0]["name"], "id");
         assert_eq!(cols[0]["nullable"], false);
+    }
+
+    #[test]
+    fn sql_to_entity_java_mybatis_plus_annotations() {
+        let sql = r#"
+            CREATE TABLE t_user (
+                id BIGINT NOT NULL AUTO_INCREMENT COMMENT 'primary key',
+                user_name VARCHAR(100) NOT NULL COMMENT 'user name',
+                email VARCHAR(200),
+                PRIMARY KEY (id)
+            );
+        "#;
+        let r = execute(
+            "sql_to_entity",
+            &json!({
+                "sql": sql,
+                "language": "java",
+                "options": {
+                    "comments": true,
+                    "naming": "camelCase",
+                    "mybatisPlus": true
+                }
+            }),
+        )
+        .unwrap();
+        let code = r["code"].as_str().unwrap();
+
+        assert!(code.contains("import com.baomidou.mybatisplus.annotation.IdType;"));
+        assert!(code.contains("import com.baomidou.mybatisplus.annotation.TableField;"));
+        assert!(code.contains("import com.baomidou.mybatisplus.annotation.TableId;"));
+        assert!(code.contains("import com.baomidou.mybatisplus.annotation.TableName;"));
+        assert!(code.contains("@TableName(\"t_user\")"));
+        assert!(code.contains("@TableId(type = IdType.AUTO)\n    private Long id;"));
+        assert!(code.contains("@TableField(\"user_name\")\n    private String userName;"));
+        assert!(!code.contains("@TableField(\"email\")"));
+    }
+
+    #[test]
+    fn sql_to_entity_java_mybatis_plus_inline_primary_key() {
+        let sql = "CREATE TABLE account (user_id BIGINT NOT NULL PRIMARY KEY, display_name VARCHAR(100));";
+        let r = execute(
+            "sql_to_entity",
+            &json!({
+                "sql": sql,
+                "language": "java",
+                "options": {
+                    "comments": false,
+                    "naming": "camelCase",
+                    "mybatisPlus": true
+                }
+            }),
+        )
+        .unwrap();
+        let code = r["code"].as_str().unwrap();
+
+        assert!(code.contains("@TableId(\"user_id\")\n    private Long userId;"));
+        assert!(!code.contains("@TableField(\"user_id\")"));
+        assert!(!code.contains("import com.baomidou.mybatisplus.annotation.IdType;"));
+    }
+
+    #[test]
+    fn sql_to_entity_java_mybatis_plus_composite_primary_key() {
+        let sql = r#"
+            CREATE TABLE order_item (
+                order_id BIGINT NOT NULL,
+                item_id BIGINT NOT NULL,
+                quantity INT,
+                PRIMARY KEY (order_id, item_id)
+            );
+        "#;
+        let r = execute(
+            "sql_to_entity",
+            &json!({
+                "sql": sql,
+                "language": "java",
+                "options": {
+                    "comments": false,
+                    "naming": "camelCase",
+                    "mybatisPlus": true
+                }
+            }),
+        )
+        .unwrap();
+        let code = r["code"].as_str().unwrap();
+
+        assert!(!code.contains("@TableId"));
+        assert!(!code.contains("import com.baomidou.mybatisplus.annotation.TableId;"));
+        assert!(code.contains("@TableField(\"order_id\")\n    private Long orderId;"));
+        assert!(code.contains("@TableField(\"item_id\")\n    private Long itemId;"));
     }
 
     #[test]
