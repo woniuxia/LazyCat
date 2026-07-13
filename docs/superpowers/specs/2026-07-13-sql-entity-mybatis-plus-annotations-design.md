@@ -39,7 +39,10 @@
    - 自增且名称一致：`@TableId(type = IdType.AUTO)`。
    - 自增且名称不一致：`@TableId(value = "原始列名", type = IdType.AUTO)`。
    - 仅在存在自增主键时导入 `IdType`。
-3. 非主键字段仅在 Java 属性名与数据库列名不一致时生成 `@TableField("原始列名")`。
+3. 非主键字段优先使用 MyBatis-Plus 默认下划线转驼峰映射：
+   - Java 属性名等于数据库列名时，不生成 `@TableField`。
+   - Java 属性名等于数据库列名的标准驼峰结果时，不生成 `@TableField`，例如 `created_at → createdAt`、`user_name → userName`。
+   - 只有 Java 属性名既不等于原始列名，也不等于标准驼峰结果时，才生成 `@TableField("原始列名")`。
 4. 主键字段不重复生成 `@TableField`。
 5. 复合主键不生成多个无效的 `@TableId`；其字段按普通字段映射规则处理。
 6. 注解位于字段 Javadoc 之后、字段声明之前。
@@ -58,7 +61,8 @@
 
 - 默认关闭时不生成 MyBatis-Plus 注解。
 - 开启后生成 `@TableName`。
-- 蛇形列名转驼峰属性时生成 `@TableField`，名称一致时不生成。
+- 蛇形列名转标准驼峰属性时不生成 `@TableField`，且不导入 `TableField`。
+- 非标准属性名无法依赖默认映射时生成 `@TableField`。
 - 表级单主键生成 `@TableId`。
 - 列级自增主键生成带 `IdType.AUTO` 的 `@TableId`。
 - 主键名称发生转换时由 `@TableId` 携带原始列名，且不重复生成 `@TableField`。
