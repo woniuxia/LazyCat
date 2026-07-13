@@ -5,7 +5,7 @@
 
 **Goal:** 把 `JsonTreeViewer` 从只读 JSON 树升级为通用查看+编辑组件（搜索定位、路径/子树复制、opt-in 树内编辑、撤销重做），并接入 JSON 处理面板（文本/树双模式）、JWT 解码、CSV 输出三个消费方。
 
-**Architecture:** 三个 Phase 对应设计文档三个阶段。所有行为状态机落在纯函数（`utils/`）与 composable（`composables/`，Vue reactivity 无 DOM 可测）中，组件模板只做绑定；每个任务收尾即提交。对现有 props 纯增量，数据字典与待实施 api-workbench-ux-plan Task 2.3 的用法零改动。
+**Architecture:** 三个 Phase 对应设计文档三个阶段。所有行为状态机落在纯函数（`utils/`）与 composable（`composables/`，Vue reactivity 无 DOM 可测）中，组件模板只做绑定；每个任务收尾即提交。对现有 props 纯增量，数据字典等既有消费方用法零改动。
 
 **Tech Stack:** Vue 3 + TypeScript + Element Plus；测试为 node 环境 vitest（无 jsdom / @vue/test-utils，不新增）。
 

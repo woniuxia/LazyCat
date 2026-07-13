@@ -11,7 +11,7 @@
 
 | 阶段 | 产出 | 新增/修改文件 |
 |------|------|---------------|
-| 1 | X1a：40 个工具模块显式声明 supported_actions + 前置守卫 | `src-tauri/src/tools/*.rs` |
+| 1 | X1a：38 个工具模块显式声明 supported_actions + 前置守卫 | `src-tauri/src/tools/*.rs` |
 | 2 | X1b：mod.rs 聚合、白名单 const 化、契约对账测试 | `tools/mod.rs`、新增 `tools/contract_tests.rs`、`src/bridge/tauri.ts` 头注释 |
 | 3 | X2：事件名双侧常量化 + 纳入对账 | 新增 `src/bridge/events.ts`、`src-tauri/src/events.rs`；替换约 13 个文件的字面量 |
 | 4 | X3 前置：useToolInvoke 升级（TDD） | `composables/useToolInvoke.ts`、新增 `.test.ts` |
@@ -47,15 +47,15 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
 
 ACTIONS 内容一律照抄该模块 execute 的现有 match 臂，不增不减。
 
-### 1.2 模块清单（40 个，对应 `mod.rs:62-106` dispatch 臂）
+### 1.2 模块清单（38 个，对应 `mod.rs` dispatch 臂）
 
-api_mock、api_workbench、attachments、browser_profiles、convert、cron、crypto、data_dictionary、db、dns、encode、env、file、format、gen、hosts、hotkey、image、inbox、jwt、launcher、manuals、maven、mybatis、network、nginx、pdf、pm、pomodoro、port、regex、schema、settings、snippets、system、text、time、todo、vault、widget。
+api_mock、attachments、browser_profiles、convert、cron、crypto、data_dictionary、dns、encode、env、file、format、gen、hosts、hotkey、image、inbox、jwt、launcher、manuals、maven、mybatis、network、nginx、pdf、pm、pomodoro、port、regex、schema、settings、snippets、system、text、time、todo、vault、widget。
 
 capture 走独立 command 不在清单内。
 
 ### 1.3 特例处理
 
-- **api_mock / api_workbench**：已有 `is_supported_api_mock_action`（api_mock.rs:1492）、`is_supported_api_workbench_action`（api_workbench.rs:3086），改造为与 1.1 相同的 `ACTIONS` const + `supported_actions()` 形态；内嵌测试若引用旧函数名同步更新，**用例数与断言语义不变**。
+- **api_mock**：沿用既有 supported-actions 先例并统一为通用 `ACTIONS` const + `supported_actions()` 形态；内嵌测试语义不变。
 - **pm**：ACTIONS 含全部经 pm 域分发的 action（pm.rs:18 起的 match 臂，含委托给 pm_weekly / pm_siyuan / pm_todo_link 的条目，共 45 个，以 match 臂为准照抄）。
 - **settings / widget**：存在双入口（settings.rs:9 `execute` 与 :25 `execute_with_app`；widget/mod.rs:25 与 :44）。先读两入口确认 action 分工，ACTIONS 取**两入口并集**，守卫在两个入口都插入。
 - **todo**：ACTIONS 以 todo.rs:85-104 现有 20 个 match 臂为准（不含白名单幽灵词条）。
@@ -74,7 +74,7 @@ capture 走独立 command 不在清单内。
 pub fn supported_actions(domain: &str) -> Option<&'static [&'static str]> {
     match domain {
         "api_mock" => Some(api_mock::supported_actions()),
-        // ... 40 个域
+        // 其余 38 个域按同一结构列出
         _ => None,
     }
 }
@@ -254,5 +254,5 @@ main.rs 加 `mod events;`；替换 main.rs 约 14 处（401、418、437、489、
 
 - 每阶段独立提交，回退粒度 = `git revert` 单阶段；面板批内单面板独立提交。
 - contract_tests 解析对文件格式敏感：哨兵断言（≥300 / ≥10）防假绿；tauri.ts / events.ts 头注释声明格式约定。
-- 阶段 1 涉及 api_workbench.rs / todo.rs 等路线图待拆文件，均为每处十行内机械插入；若路线图批次 2/3 先行，则本计划对应步骤落到拆后新结构（spec 纪律 4）。
+- 阶段 1 涉及 todo.rs 等路线图待拆文件，均为每处十行内机械插入；若对应拆分先行，则本计划步骤落到拆后新结构（spec 纪律 4）。
 - 中文注释一律 UTF-8；PowerShell 写文件显式 `-Encoding UTF8`（CLAUDE.md 05.2）。
