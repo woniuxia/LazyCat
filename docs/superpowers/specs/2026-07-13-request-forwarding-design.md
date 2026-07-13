@@ -139,10 +139,12 @@ interface RequestForwardRule {
 1. HTTP 使用 `targetUrl`，必须为 `http://` 或 `https://`，TCP/UDP 使用 `targetHost + targetPort`。
 2. 默认 `bindHost = 127.0.0.1`。
 3. `listenPort` 和 `targetPort` 范围为 `1..=65535`。
-4. 协议保存后不可直接切换；用户需要创建新规则，避免协议专属字段残留。
-5. `autoStart` 表示下次应用启动时应尝试恢复，不代表当前实际已运行。
-6. 运行中的规则配置只读；必须先停止再更新。
-7. 后端对所有规则重复校验，不能依赖前端表单约束。
+4. `bindHost` 第一版只接受 IP 字面量，不接受主机名；支持 IPv4 和 IPv6，UI 展示 IPv6 端点时使用 `[addr]:port`。
+5. 协议保存后不可直接切换；用户需要创建新规则，避免协议专属字段残留。
+6. `autoStart` 表示下次应用启动时应尝试恢复，不代表当前实际已运行；它由后端运行 action 管理，`create/update` payload 不接受客户端直接修改。
+7. 运行中的规则配置只读；必须先停止再更新。
+8. 后端对所有规则重复校验，不能依赖前端表单约束。
+9. 启动前解析下游地址并执行自转发检查：若下游端口等于本规则监听端口，且下游解析地址会命中本规则监听范围，则拒绝启动。`0.0.0.0` / `::` 视为覆盖本机对应地址族；允许显式转发到其他规则的不同监听端口。
 
 ## HTTP 转发
 
@@ -151,10 +153,10 @@ HTTP 使用 Hyper/Hyper-Util 一类的异步服务与客户端能力，并使用
 数据流：
 
 1. 接收本地 HTTP 请求。
-2. 将原始 Path 和 Query 拼接到规则的下游 Base URL。
+2. 将请求 Path 和 Query 合并到规则的下游 Base URL。Base URL 允许可选路径前缀，但禁止 Query 和 Fragment；保存时移除尾部 `/` 作为规范化基线。入站 Path 保留前导 `/`，最终 Path 为 `basePath + inboundPath`，例如 `https://a.example/api` + `/users` 得到 `/api/users`；入站 Query 原样作为最终 Query。
 3. 保留 Method 和 Body 流。
 4. 过滤逐跳 Header，例如 `Connection`、`Keep-Alive`、`Proxy-Authenticate`、`Proxy-Authorization`、`TE`、`Trailer`、`Transfer-Encoding`、`Upgrade`，以及 `Connection` Header 点名的字段。
-5. 设置正确的下游 Host，并补充标准 `Forwarded` / `X-Forwarded-*` 信息；不允许客户端伪造值无限追加。
+5. 设置正确的下游 Host。删除客户端传入的 `Forwarded`、`X-Forwarded-For`、`X-Forwarded-Host`、`X-Forwarded-Proto` 后由代理重建：`for`/`X-Forwarded-For` 使用直接客户端 IP，`host`/`X-Forwarded-Host` 使用原始 Host，`proto`/`X-Forwarded-Proto` 固定为本地监听协议 `http`。第一版不信任或追加客户端提供的代理链。
 6. 将下游响应以流式方式返回客户端，并过滤响应逐跳 Header。
 7. SSE 响应持续流式转发，不进行整包缓冲。
 
@@ -167,6 +169,7 @@ HTTP 使用 Hyper/Hyper-Util 一类的异步服务与客户端能力，并使用
 3. 无效客户端请求由 HTTP 服务层返回对应 `4xx`。
 4. 已经开始向客户端流式发送响应后发生下游错误时，只能终止响应流并记录错误，不伪造新的状态码。
 5. 单个请求失败不停止监听规则。
+6. 达到 HTTP 并发上限时不排队、不连接下游，立即返回 `503 Service Unavailable`，记录过载日志并增加错误计数。
 
 ## TCP 转发
 
@@ -176,6 +179,7 @@ HTTP 使用 Hyper/Hyper-Util 一类的异步服务与客户端能力，并使用
 4. 下游连接失败时关闭当前客户端连接并写日志，不停止监听规则。
 5. 停止规则时先停止接受新连接，再取消并关闭该规则现有连接。
 6. 连接日志记录客户端、下游、开始/结束时间、上下行字节和错误，不保存原始负载。
+7. 达到 TCP 并发上限时接受后立即关闭新连接，记录过载日志并增加错误计数；现有连接不受影响。
 
 ## UDP 转发
 
@@ -189,6 +193,7 @@ UDP 无连接，必须按客户端地址隔离下游响应路径。
 6. 达到会话上限时拒绝创建新会话并记录明确错误，现有会话继续工作。
 7. 停止规则时关闭监听与全部会话。
 8. UDP 日志记录客户端、数据报数量、上下行字节和错误，不保存原始负载。
+9. 会话已存在时继续接收；只有新客户端达到会话上限时丢弃该数据报，并增加错误计数。
 
 ## 并发、取消和限制
 
@@ -200,6 +205,7 @@ UDP 无连接，必须按客户端地址隔离下游响应路径。
 4. 网络连接和请求阶段设置明确超时；SSE 的已建立响应流不使用普通响应总时长超时。
 5. 所有监听和连接任务响应规则级取消信号。
 6. 停止 action 等待监听任务退出并完成必要清理，再返回成功；若清理异常则返回明确错误。
+7. 过载不进入全局队列：HTTP 返回 503，TCP 关闭新连接，UDP 丢弃新客户端数据报；三者都写日志并增加错误计数。
 
 具体默认数值应作为命名常量集中管理，并通过边界测试验证，不散落在协议实现中。
 
@@ -219,11 +225,12 @@ type RequestForwardRuntimeState =
 规则：
 
 1. `autoStart` 是持久化期望；`runtimeState` 只来自运行管理器。
-2. 启动成功后在同一业务操作中将 `autoStart` 更新为 true。
-3. 用户停止成功后将 `autoStart` 更新为 false。
-4. 应用启动恢复失败时保留 `autoStart = true`，以表达用户期望未改变；状态显示 failed，且本次进程内不无限自动重试。
-5. 用户修改失败规则并选择“仅保存”时更新配置并将 `autoStart` 设为 false；选择“保存并启动”时重新尝试启动。
-6. 相同规则的启停操作串行化，重复 start/stop 返回幂等结果或明确的状态冲突，不产生两个监听实例。
+2. `failed` 是终止态：监听器和全部子任务已经退出，规则不占用端口，可直接编辑、删除或重新启动。运行中发生可恢复的单请求/连接错误不进入 failed；只有规则级任务退出并完成清理后才能进入 failed。
+3. 用户启动顺序为：运行管理器成功绑定并进入 running -> 持久化 `auto_start = true` -> action 成功。若持久化失败，必须停止刚启动的实例作为补偿；补偿也失败时返回包含两段原因的一致性错误，并以运行管理器实际状态为准展示，不能返回成功。
+4. 用户停止顺序为：运行管理器完成停止并进入 stopped -> 持久化 `auto_start = false` -> action 成功。若持久化失败，尝试重新启动旧配置作为补偿；补偿也失败时返回一致性错误并展示实际状态，不能返回成功。
+5. 应用启动恢复不修改 `auto_start`。恢复失败时保留 `auto_start = true`，以表达用户期望未改变；状态显示 failed，且本次进程内不无限自动重试。
+6. 用户修改 failed 规则并选择“仅保存”时更新配置并将 `auto_start` 设为 false；选择“保存并启动”时重新尝试启动。
+7. 相同规则的启停和更新操作按规则 ID 串行化，重复 start/stop 返回幂等结果或明确的状态冲突，不产生两个监听实例。
 
 ## 数据模型
 
@@ -260,7 +267,7 @@ CREATE TABLE IF NOT EXISTS request_forward_rules (
 ```sql
 CREATE TABLE IF NOT EXISTS request_forward_stats (
   rule_id INTEGER PRIMARY KEY,
-  connection_or_request_count INTEGER NOT NULL DEFAULT 0,
+  event_count INTEGER NOT NULL DEFAULT 0,
   upload_bytes INTEGER NOT NULL DEFAULT 0,
   download_bytes INTEGER NOT NULL DEFAULT 0,
   error_count INTEGER NOT NULL DEFAULT 0,
@@ -270,6 +277,8 @@ CREATE TABLE IF NOT EXISTS request_forward_stats (
 ```
 
 实时计数先在内存中累加，再按受控频率或连接/请求结束时写入，避免每个数据块都写 SQLite。停止规则和应用正常退出时执行最终 flush。
+
+`event_count` 使用协议相关但稳定的口径：HTTP 为已接收请求数，TCP 为已接受客户端连接数，UDP 为从客户端收到的数据报数。前端按协议显示“请求数 / 连接数 / 数据报数”，不能统一写成含糊的“连接或请求”。
 
 ### `request_forward_logs`
 
@@ -310,8 +319,9 @@ CREATE TABLE IF NOT EXISTS request_forward_logs (
 4. 正文只采集明确的文本或结构化 Content-Type，例如 text、JSON、XML、form-urlencoded。
 5. 请求和响应正文分别最多记录前 64 KiB，超出设置截断标记；该限制只影响日志，不限制实际转发正文。
 6. 二进制正文不保存预览，只记录 Content-Type 和字节数。
-7. 流式正文采集使用旁路限长观察，不将完整请求或响应缓冲进内存。
-8. 清空日志不重置累计统计；统计另有显式重置 action。
+7. 存在非 identity `Content-Encoding` 的正文不尝试解压或保存预览，只记录编码、Content-Type 和字节数。
+8. 流式正文采集使用旁路限长观察，不将完整请求或响应缓冲进内存。
+9. 清空日志不重置累计统计；统计另有显式重置 action。
 
 ## 安全边界
 
@@ -348,7 +358,8 @@ CREATE TABLE IF NOT EXISTS request_forward_logs (
 2. 支持按成功/错误和关键词做基础筛选。
 3. HTTP 日志可展开查看脱敏 Headers 与可选正文预览。
 4. TCP/UDP 日志只显示连接/会话摘要和流量。
-5. 清空当前规则日志前二次确认。
+5. 关键词筛选匹配客户端地址、目标地址、HTTP Method/Path、状态码和错误文本；后端先应用筛选和稳定排序，再分页返回。
+6. 清空当前规则日志前二次确认。
 
 组件只负责编排；端点展示、表单校验参数构建、状态文案和日志格式化等适合复用的逻辑抽到 `src/utils/requestForward.ts` 并配套单测。
 
@@ -361,8 +372,8 @@ CREATE TABLE IF NOT EXISTS request_forward_logs (
 | `tool:request-forward:list` | `list` | 规则列表与实际状态摘要 |
 | `tool:request-forward:get` | `get` | 单条规则详情 |
 | `tool:request-forward:create` | `create` | 创建停止状态规则 |
-| `tool:request-forward:update` | `update` | 更新已停止/失败规则 |
-| `tool:request-forward:delete` | `delete` | 删除已停止规则及关联数据 |
+| `tool:request-forward:update` | `update` | 更新已停止/失败规则，不接受 autoStart |
+| `tool:request-forward:delete` | `delete` | 删除已停止或 failed 规则及关联数据 |
 | `tool:request-forward:start` | `start` | 启动单条规则并设置自动恢复 |
 | `tool:request-forward:stop` | `stop` | 停止单条规则并关闭自动恢复 |
 | `tool:request-forward:start-all` | `start_all` | 启动全部未运行规则并返回逐条结果 |
@@ -388,9 +399,10 @@ CREATE TABLE IF NOT EXISTS request_forward_logs (
 1. 规则不存在、配置无效、运行中编辑、端口绑定失败分别返回明确错误。
 2. 启动失败保留规则配置，并在运行状态中保存最后错误。
 3. 批量启停返回每条规则的成功或失败结果，不用单个布尔值伪装全部成功。
-4. 日志或统计持久化失败不得伪装成功；网络转发是否继续由错误类型决定，并记录可观测的 last error。
-5. 运行管理器 mutex 中不执行 bind、connect、join 或数据库 IO，避免长时间持锁和死锁。
-6. 不吞掉 Tokio task panic 或 join error；转换为规则错误状态或应用级错误日志。
+4. 日志或统计持久化失败不停止仍可正常转发的规则，但必须写入规则级 `last_observability_error` 并在面板提示“转发运行中，日志/统计写入异常”；查询或清理 action 本身不得伪装成功。
+5. 若日志/统计失败来自数据库整体不可用，继续转发但不无限缓存待写数据，只保留有界内存错误摘要和实时计数。
+6. 运行管理器 mutex 中不执行 bind、connect、join 或数据库 IO，避免长时间持锁和死锁。
+7. 不吞掉 Tokio task panic 或 join error；只有在监听和子任务完成清理后才转换为 failed。
 
 ## 验证计划
 
