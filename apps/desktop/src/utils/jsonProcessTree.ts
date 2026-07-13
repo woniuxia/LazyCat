@@ -1,4 +1,4 @@
-/** 树形模式体积闸门:1MB(1_000_000 字符),与 api-workbench 响应预览阈值一致。 */
+/** 树形模式体积闸门：1MB（1_000_000 字符）。 */
 export const JSON_TREE_TEXT_LIMIT = 1_000_000;
 
 export type JsonTreeGateResult =

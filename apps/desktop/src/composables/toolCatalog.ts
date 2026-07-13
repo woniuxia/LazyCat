@@ -87,21 +87,10 @@ const SIDEBAR_ITEMS: SidebarItem[] = [
   {
     kind: "group",
     group: {
-      id: "database",
-      name: "数据库",
-      tools: [
-        { id: "db-workbench", name: "数据库工作台", desc: "MySQL/KingbaseES/Redis 连接管理、查询与数据编辑" },
-      ],
-    },
-  },
-  {
-    kind: "group",
-    group: {
       id: "network",
       name: "网络与系统",
       tools: [
         { id: "network", name: "IP/端口连通", desc: "TCP 与 HTTP 连通性测试" },
-        { id: "api-workbench", name: "接口调试", desc: "离线 HTTP 接口调试与文档生成" },
         { id: "api-mock", name: "API Mock", desc: "本地接口 Mock 服务与路由管理" },
         { id: "dns", name: "DNS 查询", desc: "域名解析与记录查询" },
         { id: "capture", name: "抓包工具", desc: "数据包捕获与协议分析" },
