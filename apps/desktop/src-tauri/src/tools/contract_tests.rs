@@ -21,6 +21,7 @@ const DOMAINS: &[&str] = &[
     "data_dictionary",
     "format",
     "network",
+    "request_forward",
     "dns",
     "env",
     "port",
