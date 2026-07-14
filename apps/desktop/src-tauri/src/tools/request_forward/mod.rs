@@ -3,7 +3,9 @@ use serde_json::{json, Value};
 use super::helpers::db_conn;
 use model::RuleWriteInput;
 
+mod http;
 mod model;
+mod observability;
 mod repository;
 mod validation;
 
