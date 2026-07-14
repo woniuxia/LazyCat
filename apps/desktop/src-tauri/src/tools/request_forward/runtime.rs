@@ -300,6 +300,16 @@ impl RuntimeManager {
         persistence: &P,
     ) -> Result<RuntimeStatus, String> {
         let previous = self.instance(rule.id);
+
+        if previous.state == RuntimeState::Failed {
+            if let Err(error) = persistence.set_auto_start(rule.id, false) {
+                self.set_failed(rule.id, error.clone());
+                return Err(error);
+            }
+            self.set_instance(rule.id, RuntimeInstance::stopped());
+            return Ok(self.status(rule.id));
+        }
+
         let had_running_handle = previous.state == RuntimeState::Running;
 
         if had_running_handle {
@@ -768,5 +778,46 @@ mod tests {
         assert!(results[2].ok);
         assert_eq!(results[2].state, RuntimeState::Running);
         assert!(runner.has_live_task());
+    }
+
+    #[test]
+    fn failed_stop_normalizes_to_stopped_and_persists_false() {
+        let runner = Arc::new(FakeRunner::default());
+        runner.fail_start_for(1, "runner start failed");
+        let manager = RuntimeManager::new(runner.clone());
+        let persistence = FakePersistence::default();
+        let failed_rule = rule(1);
+
+        manager
+            .start(&failed_rule, &persistence)
+            .expect_err("start enters failed state");
+        let status = manager
+            .stop(&failed_rule, &persistence)
+            .expect("failed rule stop succeeds");
+
+        assert!(!runner.has_live_task());
+        assert_eq!(status.state, RuntimeState::Stopped);
+        assert_eq!(persistence.value(1), Some(false));
+    }
+
+    #[test]
+    fn failed_stop_persist_failure_returns_error() {
+        let runner = Arc::new(FakeRunner::default());
+        runner.fail_start_for(1, "runner start failed");
+        let manager = RuntimeManager::new(runner);
+        let persistence = FakePersistence::default();
+        let failed_rule = rule(1);
+        manager
+            .start(&failed_rule, &persistence)
+            .expect_err("start enters failed state");
+        persistence.fail_for(1, false, "persist false failed");
+
+        let error = manager
+            .stop(&failed_rule, &persistence)
+            .expect_err("failed stop persistence error propagates");
+
+        assert!(error.contains("persist false failed"));
+        assert_eq!(manager.status(1).state, RuntimeState::Failed);
+        assert_eq!(persistence.value(1), None);
     }
 }
