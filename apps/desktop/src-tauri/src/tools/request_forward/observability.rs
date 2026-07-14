@@ -114,12 +114,18 @@ pub(crate) enum TcpEventKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TcpEvent {
+    pub(crate) kind: TcpEventKind,
+    pub(crate) error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct TcpObservationSnapshot {
     pub(crate) event_count: u64,
     pub(crate) upload_bytes: u64,
     pub(crate) download_bytes: u64,
     pub(crate) error_count: u64,
-    pub(crate) events: Vec<TcpEventKind>,
+    pub(crate) events: Vec<TcpEvent>,
 }
 
 #[derive(Default)]
@@ -128,7 +134,7 @@ struct TcpObservationState {
     upload_bytes: u64,
     download_bytes: u64,
     error_count: u64,
-    events: VecDeque<TcpEventKind>,
+    events: VecDeque<TcpEvent>,
 }
 
 #[derive(Default)]
@@ -141,28 +147,28 @@ impl TcpObservability {
     pub(crate) fn accepted(&self) {
         self.update(|state| {
             state.event_count = state.event_count.saturating_add(1);
-            push_tcp_event(state, TcpEventKind::Accepted);
+            push_tcp_event(state, TcpEventKind::Accepted, None);
         });
     }
 
-    pub(crate) fn downstream_connect_failed(&self) {
-        self.failed(TcpEventKind::DownstreamConnectFailed);
+    pub(crate) fn downstream_connect_failed(&self, error: String) {
+        self.failed(TcpEventKind::DownstreamConnectFailed, error);
     }
 
-    pub(crate) fn overloaded(&self) {
-        self.failed(TcpEventKind::Overloaded);
+    pub(crate) fn overloaded(&self, error: String) {
+        self.failed(TcpEventKind::Overloaded, error);
     }
 
-    pub(crate) fn relay_failed(&self) {
-        self.failed(TcpEventKind::RelayFailed);
+    pub(crate) fn relay_failed(&self, error: String) {
+        self.failed(TcpEventKind::RelayFailed, error);
     }
 
-    pub(crate) fn listener_failed(&self) {
-        self.failed(TcpEventKind::ListenerFailed);
+    pub(crate) fn listener_failed(&self, error: String) {
+        self.failed(TcpEventKind::ListenerFailed, error);
     }
 
-    pub(crate) fn child_task_failed(&self) {
-        self.failed(TcpEventKind::ChildTaskFailed);
+    pub(crate) fn child_task_failed(&self, error: String) {
+        self.failed(TcpEventKind::ChildTaskFailed, error);
     }
 
     pub(crate) fn transferred(&self, upload_bytes: u64, download_bytes: u64) {
@@ -170,6 +176,11 @@ impl TcpObservability {
             state.upload_bytes = state.upload_bytes.saturating_add(upload_bytes);
             state.download_bytes = state.download_bytes.saturating_add(download_bytes);
         });
+    }
+
+    pub(crate) fn snapshot(&self) -> TcpObservationSnapshot {
+        let state = self.state.lock().expect("TCP observability lock poisoned");
+        snapshot_tcp_state(&state)
     }
 
     #[cfg(test)]
@@ -199,10 +210,10 @@ impl TcpObservability {
         }
     }
 
-    fn failed(&self, event: TcpEventKind) {
+    fn failed(&self, event: TcpEventKind, error: String) {
         self.update(|state| {
             state.error_count = state.error_count.saturating_add(1);
-            push_tcp_event(state, event);
+            push_tcp_event(state, event, Some(error));
         });
     }
 
@@ -213,11 +224,11 @@ impl TcpObservability {
     }
 }
 
-fn push_tcp_event(state: &mut TcpObservationState, event: TcpEventKind) {
+fn push_tcp_event(state: &mut TcpObservationState, kind: TcpEventKind, error: Option<String>) {
     if state.events.len() == TCP_EVENT_BUFFER_LIMIT {
         state.events.pop_front();
     }
-    state.events.push_back(event);
+    state.events.push_back(TcpEvent { kind, error });
 }
 
 fn snapshot_tcp_state(state: &TcpObservationState) -> TcpObservationSnapshot {
@@ -226,7 +237,7 @@ fn snapshot_tcp_state(state: &TcpObservationState) -> TcpObservationSnapshot {
         upload_bytes: state.upload_bytes,
         download_bytes: state.download_bytes,
         error_count: state.error_count,
-        events: state.events.iter().copied().collect(),
+        events: state.events.iter().cloned().collect(),
     }
 }
 

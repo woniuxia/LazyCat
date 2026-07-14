@@ -1,13 +1,17 @@
 use std::collections::HashMap;
+use std::future::pending;
+use std::io::{Error, ErrorKind};
 use std::net::{IpAddr, SocketAddr, TcpListener as StdTcpListener};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
+#[cfg(test)]
+use std::time::Instant;
 
-use tokio::io::copy_bidirectional;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::Semaphore;
+use tokio::sync::{Notify, Semaphore};
 use tokio::task::JoinSet;
 use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
@@ -15,9 +19,7 @@ use tokio_util::sync::CancellationToken;
 use super::model::ForwardRule;
 #[cfg(test)]
 pub(super) use super::observability::TcpEventKind;
-use super::observability::TcpObservability;
-#[cfg(test)]
-use super::observability::TcpObservationSnapshot;
+use super::observability::{TcpObservability, TcpObservationSnapshot};
 use super::runtime::{RuleRunner, RunningHandle};
 
 pub(crate) const TCP_MAX_CONNECTIONS_PER_RULE: usize = 64;
@@ -27,6 +29,20 @@ pub(crate) struct TcpRuleRunner {
     next_handle: AtomicU64,
     running: Mutex<HashMap<u64, TcpRunningRule>>,
     connection_limit: usize,
+    worker_failure: Option<Arc<Notify>>,
+}
+
+#[cfg(test)]
+#[derive(Clone)]
+pub(crate) struct TcpWorkerFailureTrigger {
+    notify: Arc<Notify>,
+}
+
+#[cfg(test)]
+impl TcpWorkerFailureTrigger {
+    fn trigger(&self) {
+        self.notify.notify_one();
+    }
 }
 
 struct TcpRunningRule {
@@ -34,7 +50,54 @@ struct TcpRunningRule {
     listener_addr: SocketAddr,
     cancellation: CancellationToken,
     observability: Arc<TcpObservability>,
+    completion: Arc<WorkerCompletion>,
     worker: JoinHandle<Result<(), String>>,
+}
+
+#[derive(Default)]
+struct WorkerCompletion {
+    failure: Mutex<Option<String>>,
+    changed: Condvar,
+}
+
+impl WorkerCompletion {
+    fn record_failure(&self, error: String) {
+        *self
+            .failure
+            .lock()
+            .expect("TCP worker completion lock poisoned") = Some(error);
+        self.changed.notify_all();
+    }
+
+    fn failure(&self) -> Option<String> {
+        self.failure
+            .lock()
+            .expect("TCP worker completion lock poisoned")
+            .clone()
+    }
+
+    #[cfg(test)]
+    fn wait_for_failure(&self, timeout: Duration) -> bool {
+        let deadline = Instant::now() + timeout;
+        let mut failure = self
+            .failure
+            .lock()
+            .expect("TCP worker completion lock poisoned");
+        while failure.is_none() {
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                return false;
+            };
+            let (next_failure, timeout_result) = self
+                .changed
+                .wait_timeout(failure, remaining)
+                .expect("TCP worker completion lock poisoned");
+            failure = next_failure;
+            if timeout_result.timed_out() {
+                return failure.is_some();
+            }
+        }
+        true
+    }
 }
 
 impl TcpRuleRunner {
@@ -51,7 +114,16 @@ impl TcpRuleRunner {
             next_handle: AtomicU64::new(1),
             running: Mutex::new(HashMap::new()),
             connection_limit,
+            worker_failure: None,
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_worker_failure_for_test() -> (Self, TcpWorkerFailureTrigger) {
+        let notify = Arc::new(Notify::new());
+        let mut runner = Self::new();
+        runner.worker_failure = Some(Arc::clone(&notify));
+        (runner, TcpWorkerFailureTrigger { notify })
     }
 
     #[cfg(test)]
@@ -61,6 +133,18 @@ impl TcpRuleRunner {
             .expect("TCP runner lock poisoned")
             .get(&handle.0)
             .map(|rule| rule.listener_addr)
+            .ok_or_else(|| "TCP 转发规则运行句柄不存在".to_string())
+    }
+
+    pub(crate) fn observation_snapshot(
+        &self,
+        handle: RunningHandle,
+    ) -> Result<TcpObservationSnapshot, String> {
+        self.running
+            .lock()
+            .expect("TCP runner lock poisoned")
+            .get(&handle.0)
+            .map(|rule| rule.observability.snapshot())
             .ok_or_else(|| "TCP 转发规则运行句柄不存在".to_string())
     }
 
@@ -75,6 +159,46 @@ impl TcpRuleRunner {
             .next()
             .expect("checked TCP rule count")
             .listener_addr)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn only_handle(&self) -> Result<RunningHandle, String> {
+        let running = self.running.lock().expect("TCP runner lock poisoned");
+        if running.len() != 1 {
+            return Err("测试期望恰好一个运行中的 TCP 规则".into());
+        }
+        Ok(RunningHandle(
+            *running.keys().next().expect("checked TCP rule count"),
+        ))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn observability_for_test(
+        &self,
+        handle: RunningHandle,
+    ) -> Result<Arc<TcpObservability>, String> {
+        self.running
+            .lock()
+            .expect("TCP runner lock poisoned")
+            .get(&handle.0)
+            .map(|rule| Arc::clone(&rule.observability))
+            .ok_or_else(|| "TCP 转发规则运行句柄不存在".to_string())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn wait_for_worker_failure(&self, handle: RunningHandle) -> Result<(), String> {
+        let completion = self
+            .running
+            .lock()
+            .expect("TCP runner lock poisoned")
+            .get(&handle.0)
+            .map(|rule| Arc::clone(&rule.completion))
+            .ok_or_else(|| "TCP 转发规则运行句柄不存在".to_string())?;
+        if completion.wait_for_failure(Duration::from_secs(2)) {
+            Ok(())
+        } else {
+            Err("等待 TCP worker 清理超时".into())
+        }
     }
 
     #[cfg(test)]
@@ -126,13 +250,16 @@ impl RuleRunner for TcpRuleRunner {
             .map_err(|error| format!("无法创建 TCP 转发运行时: {error}"))?;
         let cancellation = CancellationToken::new();
         let observability = Arc::new(TcpObservability::default());
+        let completion = Arc::new(WorkerCompletion::default());
         let worker_cancellation = cancellation.clone();
         let worker_observability = Arc::clone(&observability);
+        let worker_completion = Arc::clone(&completion);
         let connection_limit = self.connection_limit;
+        let worker_failure = self.worker_failure.clone();
         let worker = thread::Builder::new()
             .name(format!("request-forward-tcp-{}", rule.id))
             .spawn(move || {
-                runtime.block_on(async move {
+                let result = runtime.block_on(async move {
                     let listener = TcpListener::from_std(std_listener)
                         .map_err(|error| format!("无法创建 TCP 异步监听器: {error}"))?;
                     run_listener(
@@ -142,9 +269,14 @@ impl RuleRunner for TcpRuleRunner {
                         worker_cancellation,
                         worker_observability,
                         connection_limit,
+                        worker_failure,
                     )
                     .await
-                })
+                });
+                if let Err(error) = &result {
+                    worker_completion.record_failure(error.clone());
+                }
+                result
             })
             .map_err(|error| format!("无法启动 TCP 转发线程: {error}"))?;
 
@@ -159,6 +291,7 @@ impl RuleRunner for TcpRuleRunner {
                     listener_addr,
                     cancellation,
                     observability,
+                    completion,
                     worker,
                 },
             );
@@ -179,6 +312,27 @@ impl RuleRunner for TcpRuleRunner {
             Err(_) => Err("TCP 转发线程异常退出".into()),
         }
     }
+
+    fn take_failure(&self, handle: RunningHandle) -> Option<String> {
+        let failure = self
+            .running
+            .lock()
+            .expect("TCP runner lock poisoned")
+            .get(&handle.0)
+            .and_then(|running| running.completion.failure());
+        let failure = failure?;
+
+        let running = self
+            .running
+            .lock()
+            .expect("TCP runner lock poisoned")
+            .remove(&handle.0)?;
+        match running.worker.join() {
+            Ok(Err(_)) => Some(failure),
+            Ok(Ok(())) => Some("TCP 转发线程意外退出".into()),
+            Err(_) => Some("TCP 转发线程异常退出".into()),
+        }
+    }
 }
 
 async fn run_listener(
@@ -188,6 +342,7 @@ async fn run_listener(
     cancellation: CancellationToken,
     observability: Arc<TcpObservability>,
     connection_limit: usize,
+    worker_failure: Option<Arc<Notify>>,
 ) -> Result<(), String> {
     let semaphore = Arc::new(Semaphore::new(connection_limit));
     let mut children = JoinSet::new();
@@ -197,6 +352,13 @@ async fn run_listener(
         tokio::select! {
             biased;
             _ = cancellation.cancelled() => break,
+            _ = wait_for_worker_failure(worker_failure.clone()) => {
+                let error = "injected TCP worker failure".to_string();
+                observability.listener_failed(error.clone());
+                rule_error = Some(error);
+                cancellation.cancel();
+                break;
+            },
             accepted = listener.accept() => match accepted {
                 Ok((client, _)) => {
                     observability.accepted();
@@ -217,22 +379,26 @@ async fn run_listener(
                             });
                         }
                         Err(_) => {
-                            observability.overloaded();
+                            observability.overloaded(format!(
+                                "TCP 并发连接已达到上限 {connection_limit}"
+                            ));
                             drop(client);
                         }
                     }
                 }
                 Err(error) => {
-                    observability.listener_failed();
-                    rule_error = Some(format!("TCP 接受连接失败: {error}"));
+                    let error = format!("TCP 接受连接失败: {error}");
+                    observability.listener_failed(error.clone());
+                    rule_error = Some(error);
                     cancellation.cancel();
                     break;
                 }
             },
             completed = children.join_next(), if !children.is_empty() => {
                 if let Some(Err(error)) = completed {
-                    observability.child_task_failed();
-                    rule_error = Some(format!("TCP 转发子任务异常退出: {error}"));
+                    let error = format!("TCP 转发子任务异常退出: {error}");
+                    observability.child_task_failed(error.clone());
+                    rule_error = Some(error);
                     cancellation.cancel();
                     break;
                 }
@@ -244,9 +410,10 @@ async fn run_listener(
     cancellation.cancel();
     while let Some(completed) = children.join_next().await {
         if let Err(error) = completed {
-            observability.child_task_failed();
+            let error = format!("TCP 转发子任务异常退出: {error}");
+            observability.child_task_failed(error.clone());
             if rule_error.is_none() {
-                rule_error = Some(format!("TCP 转发子任务异常退出: {error}"));
+                rule_error = Some(error);
             }
         }
     }
@@ -255,35 +422,112 @@ async fn run_listener(
 }
 
 async fn forward_connection(
-    mut client: TcpStream,
+    client: TcpStream,
     target_host: String,
     target_port: u16,
     cancellation: CancellationToken,
     observability: Arc<TcpObservability>,
 ) {
-    let mut downstream = tokio::select! {
+    let downstream = tokio::select! {
         _ = cancellation.cancelled() => return,
         connected = timeout(
             TCP_DOWNSTREAM_CONNECT_TIMEOUT,
             TcpStream::connect((target_host.as_str(), target_port)),
         ) => match connected {
             Ok(Ok(stream)) => stream,
-            Ok(Err(_)) | Err(_) => {
-                observability.downstream_connect_failed();
+            Ok(Err(error)) => {
+                observability.downstream_connect_failed(format!(
+                    "连接下游 {target_host}:{target_port} 失败: {error}"
+                ));
+                return;
+            }
+            Err(_) => {
+                observability.downstream_connect_failed(format!(
+                    "连接下游 {target_host}:{target_port} 超时（{} ms）",
+                    TCP_DOWNSTREAM_CONNECT_TIMEOUT.as_millis()
+                ));
                 return;
             }
         },
     };
 
+    let (client_reader, client_writer) = client.into_split();
+    let (downstream_reader, downstream_writer) = downstream.into_split();
+    let upload_observability = Arc::clone(&observability);
     let transferred = tokio::select! {
         _ = cancellation.cancelled() => return,
-        transferred = copy_bidirectional(&mut client, &mut downstream) => transferred,
+        transferred = relay_bidirectionally(
+            client_reader,
+            downstream_writer,
+            upload_observability,
+            downstream_reader,
+            client_writer,
+            observability.clone(),
+        ) => transferred,
     };
-    match transferred {
-        Ok((upload_bytes, download_bytes)) => {
-            observability.transferred(upload_bytes, download_bytes);
+    if let Err(error) = transferred {
+        observability.relay_failed(format!("TCP 双向转发失败: {error}"));
+    }
+}
+
+async fn relay_bidirectionally(
+    client_reader: tokio::net::tcp::OwnedReadHalf,
+    downstream_writer: tokio::net::tcp::OwnedWriteHalf,
+    observability_upload: Arc<TcpObservability>,
+    downstream_reader: tokio::net::tcp::OwnedReadHalf,
+    client_writer: tokio::net::tcp::OwnedWriteHalf,
+    observability_download: Arc<TcpObservability>,
+) -> Result<(), Error> {
+    tokio::try_join!(
+        copy_direction(client_reader, downstream_writer, observability_upload, true),
+        copy_direction(
+            downstream_reader,
+            client_writer,
+            observability_download,
+            false
+        ),
+    )?;
+    Ok(())
+}
+
+async fn copy_direction<R, W>(
+    mut reader: R,
+    mut writer: W,
+    observability: Arc<TcpObservability>,
+    upload: bool,
+) -> Result<(), Error>
+where
+    R: AsyncRead + Unpin,
+    W: AsyncWrite + Unpin,
+{
+    let mut buffer = [0_u8; 8 * 1024];
+    loop {
+        let read = reader.read(&mut buffer).await?;
+        if read == 0 {
+            writer.shutdown().await?;
+            return Ok(());
         }
-        Err(_) => observability.relay_failed(),
+
+        let mut offset = 0;
+        while offset < read {
+            let written = writer.write(&buffer[offset..read]).await?;
+            if written == 0 {
+                return Err(Error::new(ErrorKind::WriteZero, "TCP 写入返回零字节"));
+            }
+            offset += written;
+            if upload {
+                observability.transferred(written as u64, 0);
+            } else {
+                observability.transferred(0, written as u64);
+            }
+        }
+    }
+}
+
+async fn wait_for_worker_failure(failure: Option<Arc<Notify>>) {
+    match failure {
+        Some(notify) => notify.notified().await,
+        None => pending().await,
     }
 }
 
@@ -407,7 +651,9 @@ mod tests {
             .expect("wait for byte counters");
         assert_eq!(snapshot.event_count, 1);
         assert_eq!(snapshot.error_count, 0);
-        assert_eq!(snapshot.events, vec![TcpEventKind::Accepted]);
+        assert_eq!(snapshot.events.len(), 1);
+        assert_eq!(snapshot.events[0].kind, TcpEventKind::Accepted);
+        assert_eq!(snapshot.events[0].error, None);
 
         runner.stop(handle).expect("stop TCP rule");
     }
@@ -436,14 +682,22 @@ mod tests {
         let accepted_snapshot = runner
             .wait_for_snapshot(handle, |snapshot| snapshot.event_count == 1)
             .expect("wait for proxy to accept failed client");
-        assert_eq!(accepted_snapshot.events, vec![TcpEventKind::Accepted]);
+        assert_eq!(accepted_snapshot.events.len(), 1);
+        assert_eq!(accepted_snapshot.events[0].kind, TcpEventKind::Accepted);
+        assert_eq!(accepted_snapshot.events[0].error, None);
         let failure_snapshot = runner
             .wait_for_snapshot(handle, |snapshot| snapshot.error_count == 1)
             .expect("wait for downstream failure event");
         assert_eq!(failure_snapshot.event_count, 1);
-        assert!(failure_snapshot
+        let failure_event = failure_snapshot
             .events
-            .contains(&TcpEventKind::DownstreamConnectFailed));
+            .iter()
+            .find(|event| event.kind == TcpEventKind::DownstreamConnectFailed)
+            .expect("record downstream failure event");
+        assert!(failure_event
+            .error
+            .as_deref()
+            .is_some_and(|error| error.contains("127.0.0.1")));
         let mut closed = Vec::new();
         assert_client_closed(&mut failed_client, &mut closed);
 
@@ -486,7 +740,8 @@ mod tests {
             .expect("wait for retry counters");
         assert!(snapshot
             .events
-            .contains(&TcpEventKind::DownstreamConnectFailed));
+            .iter()
+            .any(|event| event.kind == TcpEventKind::DownstreamConnectFailed));
 
         runner.stop(handle).expect("stop TCP rule");
     }
@@ -547,7 +802,10 @@ mod tests {
                     && snapshot.error_count == 1
             })
             .expect("wait for overload counters");
-        assert!(snapshot.events.contains(&TcpEventKind::Overloaded));
+        assert!(snapshot
+            .events
+            .iter()
+            .any(|event| event.kind == TcpEventKind::Overloaded));
 
         runner.stop(handle).expect("stop TCP rule");
     }
@@ -607,6 +865,109 @@ mod tests {
             )),
         }
         assert!(TcpStream::connect_timeout(&listener_addr, SOCKET_TIMEOUT).is_err());
+        downstream.join().expect("join downstream server");
+    }
+
+    #[test]
+    fn tcp_worker_failure_marks_rule_failed_and_retires_handle() {
+        let downstream = TcpListener::bind("127.0.0.1:0").expect("bind downstream listener");
+        let downstream_addr = downstream.local_addr().expect("read downstream address");
+        let rule = tcp_rule(5, downstream_addr);
+        let (runner, failure) = TcpRuleRunner::with_worker_failure_for_test();
+        let runner = Arc::new(runner);
+        let manager = RuntimeManager::new(runner.clone());
+        let persistence = TestPersistence::default();
+
+        assert_eq!(
+            manager
+                .start(&rule, &persistence)
+                .expect("start TCP rule")
+                .state,
+            RuntimeState::Running
+        );
+        let handle = runner.only_handle().expect("read running TCP handle");
+        let listener_addr = runner.listener_addr(handle).expect("read listener address");
+        failure.trigger();
+        runner
+            .wait_for_snapshot(handle, |snapshot| {
+                snapshot.events.iter().any(|event| {
+                    event.kind == TcpEventKind::ListenerFailed
+                        && event.error.as_deref() == Some("injected TCP worker failure")
+                })
+            })
+            .expect("wait for injected worker failure");
+        runner
+            .wait_for_worker_failure(handle)
+            .expect("wait for worker cleanup");
+        let snapshot = runner
+            .observation_snapshot(handle)
+            .expect("read production TCP observation");
+        assert!(snapshot.events.iter().any(|event| {
+            event.kind == TcpEventKind::ListenerFailed
+                && event.error.as_deref() == Some("injected TCP worker failure")
+        }));
+
+        let status = manager.status(rule.id);
+        assert_eq!(status.state, RuntimeState::Failed);
+        assert_eq!(
+            status.last_error.as_deref(),
+            Some("injected TCP worker failure")
+        );
+        assert!(manager.ensure_rule_mutable(rule.id).is_ok());
+        assert!(TcpStream::connect_timeout(&listener_addr, SOCKET_TIMEOUT).is_err());
+
+        assert_eq!(
+            manager
+                .start(&rule, &persistence)
+                .expect("restart failed TCP rule")
+                .state,
+            RuntimeState::Running
+        );
+        manager
+            .stop(&rule, &persistence)
+            .expect("stop restarted TCP rule");
+        drop(downstream);
+    }
+
+    #[test]
+    fn tcp_counts_partial_upload_before_cancellation() {
+        let (received_tx, received_rx) = mpsc::channel();
+        let (downstream_addr, downstream) = accept_once(move |mut stream| {
+            let mut request = [0_u8; 7];
+            stream
+                .read_exact(&mut request)
+                .expect("read partial forwarded request");
+            assert_eq!(&request, b"partial");
+            received_tx
+                .send(())
+                .expect("signal forwarded partial request");
+            let mut rest = Vec::new();
+            stream
+                .read_to_end(&mut rest)
+                .expect("read cancellation close");
+        });
+        let rule = tcp_rule(6, downstream_addr);
+        let runner = TcpRuleRunner::new();
+        let handle = runner.start(&rule).expect("start TCP rule");
+        let listener_addr = runner.listener_addr(handle).expect("read listener address");
+        let observability = runner
+            .observability_for_test(handle)
+            .expect("get observability");
+
+        let mut client = connect(listener_addr);
+        client.write_all(b"partial").expect("write partial request");
+        received_rx
+            .recv_timeout(SOCKET_TIMEOUT)
+            .expect("downstream receives partial request");
+        runner
+            .wait_for_snapshot(handle, |snapshot| snapshot.upload_bytes == 7)
+            .expect("record partial upload before cancellation");
+
+        runner.stop(handle).expect("cancel TCP rule");
+        let snapshot = observability.snapshot();
+        assert_eq!(snapshot.upload_bytes, 7);
+        assert_eq!(snapshot.download_bytes, 0);
+        assert_client_closed(&mut client, &mut Vec::new());
         downstream.join().expect("join downstream server");
     }
 

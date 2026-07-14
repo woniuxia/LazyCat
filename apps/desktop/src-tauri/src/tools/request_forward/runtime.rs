@@ -51,6 +51,10 @@ pub(super) struct RunningHandle(pub(super) u64);
 pub(super) trait RuleRunner: Send + Sync {
     fn start(&self, rule: &ForwardRule) -> Result<RunningHandle, String>;
     fn stop(&self, handle: RunningHandle) -> Result<(), String>;
+
+    fn take_failure(&self, _handle: RunningHandle) -> Option<String> {
+        None
+    }
 }
 
 pub(crate) trait AutoStartPersistence {
@@ -178,6 +182,7 @@ impl RuntimeManager {
     }
 
     pub(crate) fn status(&self, rule_id: i64) -> RuntimeStatus {
+        self.reconcile_runner_failure(rule_id);
         self.instances
             .lock()
             .expect("request-forward instances lock poisoned")
@@ -300,6 +305,7 @@ impl RuntimeManager {
         rule: &ForwardRule,
         persistence: &P,
     ) -> Result<RuntimeStatus, String> {
+        self.reconcile_runner_failure(rule.id);
         let previous = self.instance(rule.id);
 
         if previous.state == RuntimeState::Failed {
@@ -431,6 +437,21 @@ impl RuntimeManager {
     fn set_failed(&self, rule_id: i64, error: String) {
         self.set_state(rule_id, RuntimeState::Failed, None, Some(error));
     }
+
+    fn reconcile_runner_failure(&self, rule_id: i64) {
+        let handle = self
+            .instances
+            .lock()
+            .expect("request-forward instances lock poisoned")
+            .get(&rule_id)
+            .filter(|instance| instance.state == RuntimeState::Running)
+            .and_then(|instance| instance.handle);
+        if let Some(handle) = handle {
+            if let Some(error) = self.runner.take_failure(handle) {
+                self.set_failed(rule_id, error);
+            }
+        }
+    }
 }
 
 fn compensation_error_message(primary_error: &str, compensation_error: &str) -> String {
@@ -459,6 +480,10 @@ impl RuleRunner for ProtocolRunner {
 
     fn stop(&self, handle: RunningHandle) -> Result<(), String> {
         self.tcp.stop(handle)
+    }
+
+    fn take_failure(&self, handle: RunningHandle) -> Option<String> {
+        self.tcp.take_failure(handle)
     }
 }
 
