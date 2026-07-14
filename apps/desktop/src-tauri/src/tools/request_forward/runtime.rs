@@ -1,10 +1,12 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use serde::Serialize;
 
 use super::model::{ForwardProtocol, ForwardRule};
 use super::tcp::TcpRuleRunner;
+use super::udp::UdpRuleRunner;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -460,30 +462,79 @@ fn compensation_error_message(primary_error: &str, compensation_error: &str) -> 
 
 struct ProtocolRunner {
     tcp: TcpRuleRunner,
+    udp: UdpRuleRunner,
+    next_handle: AtomicU64,
+    running: Mutex<HashMap<u64, ProtocolChildHandle>>,
+}
+
+#[derive(Clone, Copy)]
+enum ProtocolChildHandle {
+    Tcp(RunningHandle),
+    Udp(RunningHandle),
 }
 
 impl Default for ProtocolRunner {
     fn default() -> Self {
         Self {
             tcp: TcpRuleRunner::new(),
+            udp: UdpRuleRunner::new(),
+            next_handle: AtomicU64::new(1),
+            running: Mutex::new(HashMap::new()),
         }
     }
 }
 
 impl RuleRunner for ProtocolRunner {
     fn start(&self, rule: &ForwardRule) -> Result<RunningHandle, String> {
-        match rule.protocol {
+        let child_handle = match rule.protocol {
             ForwardProtocol::Tcp => self.tcp.start(rule),
-            ForwardProtocol::Http | ForwardProtocol::Udp => Err("协议转发运行器尚未安装".into()),
-        }
+            ForwardProtocol::Udp => self.udp.start(rule),
+            ForwardProtocol::Http => Err("协议转发运行器尚未安装".into()),
+        }?;
+        let protocol_handle = match rule.protocol {
+            ForwardProtocol::Tcp => ProtocolChildHandle::Tcp(child_handle),
+            ForwardProtocol::Udp => ProtocolChildHandle::Udp(child_handle),
+            ForwardProtocol::Http => unreachable!("HTTP runner did not start"),
+        };
+        let handle = RunningHandle(self.next_handle.fetch_add(1, Ordering::Relaxed));
+        self.running
+            .lock()
+            .expect("request-forward protocol runner lock poisoned")
+            .insert(handle.0, protocol_handle);
+        Ok(handle)
     }
 
     fn stop(&self, handle: RunningHandle) -> Result<(), String> {
-        self.tcp.stop(handle)
+        let protocol_handle = self
+            .running
+            .lock()
+            .expect("request-forward protocol runner lock poisoned")
+            .remove(&handle.0)
+            .ok_or_else(|| "转发规则运行句柄不存在".to_string())?;
+        match protocol_handle {
+            ProtocolChildHandle::Tcp(handle) => self.tcp.stop(handle),
+            ProtocolChildHandle::Udp(handle) => self.udp.stop(handle),
+        }
     }
 
     fn take_failure(&self, handle: RunningHandle) -> Option<String> {
-        self.tcp.take_failure(handle)
+        let protocol_handle = self
+            .running
+            .lock()
+            .expect("request-forward protocol runner lock poisoned")
+            .get(&handle.0)
+            .copied()?;
+        let failure = match protocol_handle {
+            ProtocolChildHandle::Tcp(handle) => self.tcp.take_failure(handle),
+            ProtocolChildHandle::Udp(handle) => self.udp.take_failure(handle),
+        };
+        if failure.is_some() {
+            self.running
+                .lock()
+                .expect("request-forward protocol runner lock poisoned")
+                .remove(&handle.0);
+        }
+        failure
     }
 }
 
@@ -496,12 +547,16 @@ pub(crate) fn global_manager() -> &'static RuntimeManager {
 #[cfg(test)]
 mod tests {
     use std::collections::{HashMap, HashSet};
+    use std::net::{TcpListener, UdpSocket};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{mpsc, Arc, Mutex};
     use std::thread;
     use std::time::Duration;
 
-    use super::{AutoStartPersistence, RuleRunner, RunningHandle, RuntimeManager, RuntimeState};
+    use super::{
+        AutoStartPersistence, ProtocolRunner, RuleRunner, RunningHandle, RuntimeManager,
+        RuntimeState,
+    };
     use crate::tools::helpers::ensure_request_forward_schema_for_test;
     use crate::tools::request_forward::model::{ForwardProtocol, ForwardRule, RuleWriteInput};
     use crate::tools::request_forward::repository;
@@ -858,5 +913,28 @@ mod tests {
         assert!(error.contains("persist false failed"));
         assert_eq!(manager.status(1).state, RuntimeState::Failed);
         assert_eq!(persistence.value(1), None);
+    }
+
+    #[test]
+    fn protocol_runner_assigns_distinct_handles_to_tcp_and_udp_rules() {
+        let tcp_target = TcpListener::bind("127.0.0.1:0").expect("bind TCP target");
+        let udp_target = UdpSocket::bind("127.0.0.1:0").expect("bind UDP target");
+        let mut tcp_rule = rule(80);
+        tcp_rule.listen_port = 0;
+        tcp_rule.target_host = Some("127.0.0.1".into());
+        tcp_rule.target_port = Some(tcp_target.local_addr().expect("read TCP target").port());
+        let mut udp_rule = rule(81);
+        udp_rule.protocol = ForwardProtocol::Udp;
+        udp_rule.listen_port = 0;
+        udp_rule.target_host = Some("127.0.0.1".into());
+        udp_rule.target_port = Some(udp_target.local_addr().expect("read UDP target").port());
+        let runner = ProtocolRunner::default();
+
+        let tcp_handle = runner.start(&tcp_rule).expect("start TCP rule");
+        let udp_handle = runner.start(&udp_rule).expect("start UDP rule");
+        assert_ne!(tcp_handle, udp_handle);
+
+        runner.stop(tcp_handle).expect("stop TCP rule");
+        runner.stop(udp_handle).expect("stop UDP rule");
     }
 }

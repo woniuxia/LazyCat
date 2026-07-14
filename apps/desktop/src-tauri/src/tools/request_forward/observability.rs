@@ -85,6 +85,7 @@ mod tests {
 }
 
 use std::collections::VecDeque;
+use std::net::SocketAddr;
 use std::sync::{Condvar, Mutex};
 #[cfg(test)]
 use std::time::{Duration, Instant};
@@ -233,6 +234,291 @@ fn push_tcp_event(state: &mut TcpObservationState, kind: TcpEventKind, error: Op
 
 fn snapshot_tcp_state(state: &TcpObservationState) -> TcpObservationSnapshot {
     TcpObservationSnapshot {
+        event_count: state.event_count,
+        upload_bytes: state.upload_bytes,
+        download_bytes: state.download_bytes,
+        error_count: state.error_count,
+        events: state.events.iter().cloned().collect(),
+    }
+}
+
+const UDP_EVENT_BUFFER_LIMIT: usize = 256;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum UdpEventKind {
+    ClientDatagram,
+    SessionCreated,
+    DownstreamConnectFailed,
+    DownstreamSendFailed,
+    DownstreamReceiveFailed,
+    ClientSendFailed,
+    Overloaded,
+    SessionExpired,
+    ListenerFailed,
+    ChildTaskFailed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct UdpEvent {
+    pub(crate) kind: UdpEventKind,
+    pub(crate) client_addr: Option<SocketAddr>,
+    pub(crate) target: String,
+    pub(crate) target_addr: Option<SocketAddr>,
+    pub(crate) error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct UdpObservationSnapshot {
+    pub(crate) event_count: u64,
+    pub(crate) upload_bytes: u64,
+    pub(crate) download_bytes: u64,
+    pub(crate) error_count: u64,
+    pub(crate) events: Vec<UdpEvent>,
+}
+
+#[derive(Default)]
+struct UdpObservationState {
+    event_count: u64,
+    upload_bytes: u64,
+    download_bytes: u64,
+    error_count: u64,
+    events: VecDeque<UdpEvent>,
+}
+
+#[derive(Default)]
+pub(crate) struct UdpObservability {
+    state: Mutex<UdpObservationState>,
+    changed: Condvar,
+}
+
+impl UdpObservability {
+    pub(crate) fn client_datagram(
+        &self,
+        client_addr: SocketAddr,
+        target: &str,
+        target_addr: Option<SocketAddr>,
+    ) {
+        self.update(|state| {
+            state.event_count = state.event_count.saturating_add(1);
+            push_udp_event(
+                state,
+                UdpEventKind::ClientDatagram,
+                Some(client_addr),
+                target,
+                target_addr,
+                None,
+            );
+        });
+    }
+
+    pub(crate) fn session_created(
+        &self,
+        client_addr: SocketAddr,
+        target: &str,
+        target_addr: SocketAddr,
+    ) {
+        self.event(
+            UdpEventKind::SessionCreated,
+            Some(client_addr),
+            target,
+            Some(target_addr),
+            None,
+        );
+    }
+
+    pub(crate) fn downstream_connect_failed(
+        &self,
+        client_addr: SocketAddr,
+        target: &str,
+        target_addr: Option<SocketAddr>,
+        error: String,
+    ) {
+        self.failed(
+            UdpEventKind::DownstreamConnectFailed,
+            Some(client_addr),
+            target,
+            target_addr,
+            error,
+        );
+    }
+
+    pub(crate) fn downstream_send_failed(
+        &self,
+        client_addr: SocketAddr,
+        target: &str,
+        target_addr: SocketAddr,
+        error: String,
+    ) {
+        self.failed(
+            UdpEventKind::DownstreamSendFailed,
+            Some(client_addr),
+            target,
+            Some(target_addr),
+            error,
+        );
+    }
+
+    pub(crate) fn downstream_receive_failed(
+        &self,
+        client_addr: SocketAddr,
+        target: &str,
+        target_addr: SocketAddr,
+        error: String,
+    ) {
+        self.failed(
+            UdpEventKind::DownstreamReceiveFailed,
+            Some(client_addr),
+            target,
+            Some(target_addr),
+            error,
+        );
+    }
+
+    pub(crate) fn client_send_failed(
+        &self,
+        client_addr: SocketAddr,
+        target: &str,
+        target_addr: SocketAddr,
+        error: String,
+    ) {
+        self.failed(
+            UdpEventKind::ClientSendFailed,
+            Some(client_addr),
+            target,
+            Some(target_addr),
+            error,
+        );
+    }
+
+    pub(crate) fn overloaded(
+        &self,
+        client_addr: SocketAddr,
+        target: &str,
+        target_addr: Option<SocketAddr>,
+        error: String,
+    ) {
+        self.failed(
+            UdpEventKind::Overloaded,
+            Some(client_addr),
+            target,
+            target_addr,
+            error,
+        );
+    }
+
+    pub(crate) fn session_expired(
+        &self,
+        client_addr: SocketAddr,
+        target: &str,
+        target_addr: SocketAddr,
+    ) {
+        self.event(
+            UdpEventKind::SessionExpired,
+            Some(client_addr),
+            target,
+            Some(target_addr),
+            None,
+        );
+    }
+
+    pub(crate) fn listener_failed(&self, target: &str, error: String) {
+        self.failed(UdpEventKind::ListenerFailed, None, target, None, error);
+    }
+
+    pub(crate) fn child_task_failed(&self, target: &str, error: String) {
+        self.failed(UdpEventKind::ChildTaskFailed, None, target, None, error);
+    }
+
+    pub(crate) fn transferred(&self, upload_bytes: u64, download_bytes: u64) {
+        self.update(|state| {
+            state.upload_bytes = state.upload_bytes.saturating_add(upload_bytes);
+            state.download_bytes = state.download_bytes.saturating_add(download_bytes);
+        });
+    }
+
+    #[cfg(test)]
+    pub(crate) fn wait_for(
+        &self,
+        timeout: Duration,
+        predicate: impl Fn(&UdpObservationSnapshot) -> bool,
+    ) -> Option<UdpObservationSnapshot> {
+        let deadline = Instant::now() + timeout;
+        let mut state = self.state.lock().expect("UDP observability lock poisoned");
+        loop {
+            let snapshot = snapshot_udp_state(&state);
+            if predicate(&snapshot) {
+                return Some(snapshot);
+            }
+
+            let remaining = deadline.checked_duration_since(Instant::now())?;
+            let (next_state, timeout_result) = self
+                .changed
+                .wait_timeout(state, remaining)
+                .expect("UDP observability lock poisoned");
+            state = next_state;
+            if timeout_result.timed_out() {
+                let snapshot = snapshot_udp_state(&state);
+                return predicate(&snapshot).then_some(snapshot);
+            }
+        }
+    }
+
+    fn failed(
+        &self,
+        kind: UdpEventKind,
+        client_addr: Option<SocketAddr>,
+        target: &str,
+        target_addr: Option<SocketAddr>,
+        error: String,
+    ) {
+        self.update(|state| {
+            state.error_count = state.error_count.saturating_add(1);
+            push_udp_event(state, kind, client_addr, target, target_addr, Some(error));
+        });
+    }
+
+    fn event(
+        &self,
+        kind: UdpEventKind,
+        client_addr: Option<SocketAddr>,
+        target: &str,
+        target_addr: Option<SocketAddr>,
+        error: Option<String>,
+    ) {
+        self.update(|state| {
+            push_udp_event(state, kind, client_addr, target, target_addr, error);
+        });
+    }
+
+    fn update(&self, update: impl FnOnce(&mut UdpObservationState)) {
+        let mut state = self.state.lock().expect("UDP observability lock poisoned");
+        update(&mut state);
+        self.changed.notify_all();
+    }
+}
+
+fn push_udp_event(
+    state: &mut UdpObservationState,
+    kind: UdpEventKind,
+    client_addr: Option<SocketAddr>,
+    target: &str,
+    target_addr: Option<SocketAddr>,
+    error: Option<String>,
+) {
+    if state.events.len() == UDP_EVENT_BUFFER_LIMIT {
+        state.events.pop_front();
+    }
+    state.events.push_back(UdpEvent {
+        kind,
+        client_addr,
+        target: target.to_string(),
+        target_addr,
+        error,
+    });
+}
+
+fn snapshot_udp_state(state: &UdpObservationState) -> UdpObservationSnapshot {
+    UdpObservationSnapshot {
         event_count: state.event_count,
         upload_bytes: state.upload_bytes,
         download_bytes: state.download_bytes,

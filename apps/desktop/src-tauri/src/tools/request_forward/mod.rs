@@ -10,6 +10,7 @@ mod observability;
 mod repository;
 mod runtime;
 mod tcp;
+mod udp;
 mod validation;
 
 const ACTIONS: &[&str] = &[
