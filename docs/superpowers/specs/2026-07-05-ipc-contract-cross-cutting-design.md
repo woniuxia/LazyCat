@@ -36,14 +36,14 @@
 1. **避让路线图**：不碰 PmPanel / TodoPanel / ApiWorkbenchPanel（路线图批次 1、3 与 API UX 18 项的落点）；试点面板固定为 SnippetPanel、LauncherPanel、HostsPanel、DnsPanel（均不在路线图批次与候选池）。
 2. **每批独立验收、独立提交、可独立 revert**；开工前工作区干净。
 3. X1、X2 为后端 + 测试 + 机械替换，不依赖 e2e；X3、X4 涉及面板行为，建议路线图批次 0（e2e 恢复）先行，未先行则以行为清单手工冒烟兜底。
-4. **与路线图 Rust 批次的交叠协调**：X1 会触碰 api_workbench.rs / todo.rs 等路线图待拆文件的 execute 入口（每处十行内的机械插入）。先做 X1，则拆分时 supported_actions 与守卫随新 mod.rs 迁移（路线图批次 2 本就以 `is_supported_api_workbench_action` 为对账基准，形态兼容）；先做拆分，则 X1 落到拆后新结构。两个方向均兼容，开工时以当时代码为准，不构成硬依赖。
+4. **与路线图 Rust 批次的交叠协调**：X1 会触碰 todo.rs 等路线图待拆文件的 execute 入口（每处十行内的机械插入）。先做 X1，则拆分时 supported_actions 与守卫随新 mod.rs 迁移；先做拆分，则 X1 落到拆后新结构。两个方向均兼容，开工时以当时代码为准，不构成硬依赖。
 
 ## 4. X1 详设：契约对账安全网（约 1.5-2 天）
 
 ### 4.1 模块侧
 
 - 每个工具模块新增 `pub(crate) fn supported_actions() -> &'static [&'static str]`，`execute` 入口前置守卫：action 不在清单即返回 `Err(format!("{domain}: unsupported action '{action}'"))`。
-- 直接推广 `api_mock.rs:1492` / `api_workbench.rs:3086` 已有的 `is_supported_*` 先例，且把这两处统一改成同一形态。
+- 直接推广 `api_mock.rs` 已有的 supported-actions 先例，并统一改成同一形态。
 - 原 match 的 `_` 兜底臂保留不动（守卫后不可达，作双保险）。
 - pm 子模块（pm_today / pm_calendar / pm_matrix / pm_weekly / pm_siyuan / pm_todo_link）经 pm 域分发，其 action 统一收在 `pm::supported_actions()`。
 - `mod.rs` 聚合 `pub fn supported_actions(domain: &str) -> Option<&'static [&'static str]>`，域清单与 `dispatch_tool` 的 match 一一对应。

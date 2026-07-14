@@ -96,8 +96,8 @@ fn clear_entry_tags(conn: &Connection, entry_id: i64) -> Result<(), String> {
 const CANARY_PLAINTEXT: &[u8] = b"LAZYCAT_VAULT_OK";
 const PBKDF2_ITERATIONS: usize = 600_000;
 const SALT_LEN: usize = 32;
-pub(crate) const KEY_LEN: usize = 32;
-pub(crate) const IV_LEN: usize = 16;
+const KEY_LEN: usize = 32;
+const IV_LEN: usize = 16;
 const VAULT_LOCK_PROFILE_KEY: &str = "vault_lock_profile";
 const DEFAULT_LOCK_PROFILE: &str = "balanced";
 
@@ -212,7 +212,7 @@ fn random_bytes(len: usize) -> Result<Vec<u8>, String> {
     Ok(buf)
 }
 
-pub(crate) fn aes256_encrypt(
+fn aes256_encrypt(
     key: &[u8; KEY_LEN],
     iv: &[u8],
     plaintext: &[u8],
@@ -221,7 +221,7 @@ pub(crate) fn aes256_encrypt(
         .map_err(|e| format!("AES encrypt failed: {e}"))
 }
 
-pub(crate) fn aes256_decrypt(
+fn aes256_decrypt(
     key: &[u8; KEY_LEN],
     iv: &[u8],
     ciphertext: &[u8],

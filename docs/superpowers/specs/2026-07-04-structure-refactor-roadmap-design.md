@@ -1,177 +1,93 @@
 # 结构治理路线图设计（Structure Refactor Roadmap）
 
 - 日期：2026-07-04
-- 状态：设计定稿（三节均经用户逐节确认）
-- 范围：热点大文件行为保持拆分 + e2e 安全网恢复 + components 目录渐进分域
+- 状态：设计定稿
+- 范围：热点大文件行为保持拆分、e2e 安全网恢复、components 目录渐进分域
 
-## 1. 背景与量化现状
+## 1. 背景与目标
 
-2026-02 已完成一轮六方案重构（App.vue 现 427 行、类型集中、CSS 分层、utils 纯函数层），本次是增量结构治理，不是救火。
+本路线图是增量结构治理，不改变行为、接口语义、UI 表现或数据格式。
 
-当前痛点（2026-07-04 扫描）：
+目标：
 
-| 类别 | 文件 | 行数 | 近 4 个月变更次数 |
-|---|---|---|---|
-| 前端 God 面板 | TodoPanel.vue | 2960（快速添加栏落地后） | 39 |
-| 前端 God 面板 | PmPanel.vue | 2643 | 42 |
-| 前端 God 面板 | VaultPanel.vue | 2542 | 低 |
-| 前端 God 面板 | DataDictionaryPanel.vue | 2496 | 12 |
-| 前端 God 面板 | InboxPanel.vue / ApiWorkbenchPanel.vue / PmListView.vue / NetworkPanel.vue | 2000-2300 | 中 |
-| Rust 巨型模块 | api_workbench.rs | 5249 | 18 |
-| Rust 巨型模块 | data_dictionary.rs | 3319 | 中 |
-| Rust 巨型模块 | todo.rs | 3222 | 23 |
-| Rust 巨型模块 | api_mock.rs | 2594 | 中（近期活跃） |
+1. 恢复 e2e 冒烟，为后续结构调整提供回归保护。
+2. 将高频变更的大型前端面板拆到可维护规模。
+3. 随批次把 components 目录按业务域渐进整理。
+4. 每批独立验收、独立提交，可单独回退。
 
-其他事实：
+非目标：
 
-- e2e 冒烟自 2026-03-07 起必挂：`App.vue:97` 顶层 `const appWindow = getCurrentWindow()` 在纯 web 环境抛错，App 不挂载（引入提交 dada6c8）。所有重构当前无端到端回归保护。
-- `components/` 根下约 125 个文件基本平铺（含 colocated `*.test.ts`），但已有分域先例：`api-mock/`、`db/`、`common/`、`settings/`。域聚类明显：Pm* 18 个、Todo* 9 个（含 TodoQuickAddBar）、Api* 6 个、Spotlight* 5 个。
-- Rust 侧有成熟拆分先例：pm.rs 拆为 pm / pm_today / pm_calendar / pm_matrix / pm_weekly / pm_siyuan / pm_todo_link 共 7 个模块；子目录先例 `db_drivers/`、`widget/`。
+- 不重构状态管理。
+- 不在机械拆分中顺手修改业务行为。
+- 不做一次性全量目录搬迁。
+- 不为满足行数指标制造无职责边界的文件。
 
-## 2. 目标与非目标
+## 2. 全局纪律
 
-**目标**
+1. 行为保持：拆分中发现的改良点只记录，不混入当前批次。
+2. 验证基线：每批执行 `pnpm typecheck`、`pnpm --filter @lazycat/desktop build:web`、相关单测和 e2e 冒烟；Rust 批次额外执行相关 `cargo test`。
+3. 行为清单先行：拆分前列出交互清单，拆分后逐项冒烟。
+4. 目录规则：新子组件放 `components/<域>/`；拆哪个域就迁移该域既有组件和 colocated 测试。
+5. 共享状态保留在壳层，优先 props down / events up，不引入新的全局状态模式。
+6. 每批开工前确认工作区边界，不与无关修改混批。
 
-1. 把"又大又热"的文件拆到可维护规模，降低后续每次改动的成本与回归风险。
-2. 恢复 e2e 冒烟，让后续所有批次有回归保护。
-3. components 目录随批次渐进分域（拆哪个域，搬哪个域）。
-
-**非目标**
-
-- 不做任何行为、接口语义、UI 表现、数据格式变更（纯机械拆分）。
-- 不重构状态管理、不去重、不补大规模测试（发现的改良点仅记录 process.md）。
-- 不做一次性全量目录搬家。
-- 不预先详设批次 4+（避免规划腐化）。
-
-## 3. 全局纪律（每批适用）
-
-1. **行为保持**：纯代码搬家。拆分中发现的改良点只记录到 process.md，不顺手做。
-2. **每批独立验收、独立提交**：`pnpm typecheck` + `pnpm --filter @lazycat/desktop build:web` + 相关单测；Rust 批次加 `cargo test`；批次 0 完成后，e2e 冒烟纳入之后每一批验收。
-3. **行为清单先行**：每批拆前列出必须原样保留的交互点清单，拆后照单手工冒烟。
-4. **尺寸软目标**：面板壳层拆后 ≤ 800 行（PmPanel 首批目标 ≤ 1200 行）；子组件/composable 按单一职责，不为凑数硬拆。
-5. **目录规则**：新子组件放 `components/<域>/`；拆哪个域就把该域既有文件（含 colocated `*.test.ts`）一并 `git mv` 进去。composables/ 仅 26 个文件，保持平铺。
-6. **避让约束**：
-   - 每批开工前确认工作区干净，不与进行中改动混批。
-   - `ApiWorkbenchPanel.vue` 拆分延后到 API Workbench UX 18 项落地之后（多标签改造会重构该面板）。
-   - TodoPanel 拆分排在快速添加栏 plan（`docs/superpowers/plans/2026-07-04-todo-quick-add-plan.md`）实施之后。**更新 2026-07-04：该 plan 已实施完成（提交 21f54c9 / a38ec66 / 0fece60），此前置条件已满足。**
-
-## 4. 批次路线图
+## 3. 批次路线图
 
 | 批次 | 内容 | 前置条件 | 规模 |
 |---|---|---|---|
-| 0 | App.vue Tauri 环境守卫，恢复 e2e 冒烟 | 无 | 小（1-2 文件） |
-| 1 | PM 前端域：`components/pm/` + 拆 PmPanel.vue | 批次 0 | 中大 |
-| 2 | api_workbench.rs 目录化拆分 | 无硬依赖，排在 1 后 | 中 |
-| 3 | Todo 域：`components/todo/` + 拆 TodoPanel.vue + 拆 todo.rs | 快速添加栏 plan 已实施（2026-07-04 已满足） | 大 |
-| 4+ | 候选池逐批评估（见第 9 节） | 按当时热度×规模重排 | — |
+| 0 | App.vue Tauri 环境守卫，恢复 e2e 冒烟 | 无 | 小 |
+| 1 | PM 前端域迁入 `components/pm/` 并拆分 `PmPanel.vue` | 批次 0 | 中大 |
+| 后续 | Todo 域及其他热点文件按热度和规模逐批评估 | 对应功能计划已稳定 | 按批次确定 |
 
-## 5. 批次 0 详设：恢复 e2e 安全网
+## 4. 批次 0：恢复 e2e 安全网
 
-- **改法**：以 `'__TAURI_INTERNALS__' in window` 做 isTauri 探测；`getCurrentWindow()` 从 setup 顶层改为守卫后的惰性获取；无 Tauri 环境时相关调用降级为 no-op。
-- **涉及**：App.vue 顶层 `appWindow` 常量（97 行）及其唯一运行时调用点——hotkey-navigate 监听器内的 `appWindow.hide()`（约 375 行，已有 try/catch）。注意：vault 失焦锁定实现在 `VaultPanel.vue`（`listen("tauri://blur", ...)`，约 1478 行），不经由 App.vue 的 `getCurrentWindow()`，本批不动它。
-- **验收**：`pnpm test:e2e` 冒烟通过；桌面态回归两项——主呼出快捷键二次触发隐藏窗口正常、vault 失焦锁定正常（后者为 dada6c8 引入该行的历史动机，回归以确认无意外耦合）。
-- **注记**：playwright webServer 冷启动 `ERR_ABORTED` 为已知次要现象，修复主因后若仍复现再单独排查，不混入本批。
+- 使用 `'__TAURI_INTERNALS__' in window` 判断 Tauri 环境。
+- `getCurrentWindow()` 从 setup 顶层改为守卫后的惰性获取。
+- 非 Tauri 环境下窗口操作降级为 no-op。
+- 验证：`pnpm test:e2e`，并确认桌面态主呼出快捷键和 Vault 失焦行为不受影响。
 
-## 6. 批次 1 详设：PM 前端域（两个提交）
+## 5. 批次 1：PM 前端域
 
-### 提交 1a：目录搬迁
+### 目录搬迁
 
-- `git mv` 18 个 `Pm*` 文件至 `components/pm/`；同步更新两个动态 import 枢纽——`tool-registry.ts` 与 `composables/pmViewRegistry.ts`（6 个 `../components/Pm*View.vue` 的 `defineAsyncComponent`）——及其他静态引用点。
-- 跨域桥组件 `InlinePmSelector` / `InlineTodoList` 留在根目录（被 Todo/PM 双侧消费，归属不清不硬归类）。
-- `components.d.ts` 为自动生成，无需手改。
-- 验收：typecheck + build:web + e2e 冒烟。
+- 将 18 个 `Pm*` 文件迁入 `components/pm/`。
+- 更新 `tool-registry.ts`、`composables/pmViewRegistry.ts` 和静态引用。
+- `InlinePmSelector`、`InlineTodoList` 作为跨域桥组件保留在根目录。
 
-### 提交 1b：PmPanel.vue 拆分（2643 行 → ≤ 1200 行软目标）
+### PmPanel 拆分
 
-| 抽取物 | 内容 | 来源（2026-07-04 版行号） |
-|---|---|---|
-| `pm/PmSidebar.vue` | 左侧栏（项目列表/今日/总览/底栏） | 模板 6-86 |
-| `pm/PmToolbar.vue` | 工具栏（视图切换/搜索/筛选/创建） | 模板 90-160（`pm-toolbar` 外层） |
-| `composables/usePmItemFilters.ts` | 搜索防抖 + baseFilteredItems / statusFilteredItems 两层筛选 | script 筛选簇（约 413-650） |
-| `composables/usePmItemActions.ts` | 工作项 CRUD、状态推进、置顶、乐观更新回滚 | script 约 825-1091 |
-| `composables/usePmContextMenu.ts` | 右键菜单状态与动作构建 | script 约 1093-1207 |
+| 抽取物 | 职责 |
+|---|---|
+| `pm/PmSidebar.vue` | 项目列表、今日、总览和底栏 |
+| `pm/PmToolbar.vue` | 视图切换、搜索、筛选和创建 |
+| `usePmItemFilters.ts` | 搜索防抖与分层筛选 |
+| `usePmItemActions.ts` | 工作项 CRUD、状态推进和乐观更新回滚 |
+| `usePmContextMenu.ts` | 右键菜单状态与动作构建 |
 
-**约束**
+约束：
 
-- 跨块共享状态（`selectedProjectId`、`items`、`selectedItemId`、拖拽状态 `draggingItemId`/`dropTargetProjectId`、`todayRefreshSignal`）保留在壳层，props down / events up，不引入 provide/inject 新模式。
-- 视图容器 v-if 链、对话框/抽屉编排保留在壳层。
-- PmSidebar 需透传拖拽放置状态（`dropTargetProjectId`），这是侧栏抽取的主要风险点。
+- `selectedProjectId`、`items`、`selectedItemId`、拖拽状态和刷新信号继续留在壳层。
+- 视图容器、对话框和抽屉编排继续留在壳层。
+- 侧栏抽取必须完整透传跨项目拖拽状态。
 
-**验收**：typecheck + build:web + e2e 冒烟 + 手工冒烟清单（六视图切换、工作项 CRUD、跨项目拖拽、右键菜单、思源抽屉、今日 badge 刷新）。PM 域无现成组件单测，本批不补测（机械拆分约束），靠四重验收兜底。
+验证：typecheck、build:web、e2e、相关测试，以及六视图切换、工作项 CRUD、跨项目拖拽、右键菜单、思源抽屉和今日 badge 冒烟。
 
-## 7. 批次 2 详设：api_workbench.rs 模块化
+## 6. 后续批次机制
 
-### 目标结构（复用 db_drivers/ 子目录先例）
+每完成一批，按近三个月变更次数和文件规模重新排序候选池。初始候选包括 Todo、数据字典、API Mock、Inbox、Network、PmListView 和 Vault 等仍存在的热点模块。
 
-```text
-tools/api_workbench/
-  mod.rs        execute 入口 + action 分发（签名不变，tools/mod.rs 零改动）
-  types.rs      KeyValueRow / RequestDraft / ExecutedRequestSnapshot / ResponseBodyPayload 等
-  helpers.rs    模板解析 / URL 构建 / HTTP 工具 / 编码 / 常量（pub(crate)）
-  collection.rs 集合 4 action
-  folder.rs     文件夹 5 action
-  request.rs    请求 5 action + request_save_example_response
-  environment.rs 环境 3 action + 全局变量 2 action
-  executor.rs   send 执行链（send_with_conn / prepare / execute_http_request）
-  history.rs    历史 6 action + 缓存清理（cleanup_unreferenced_history_cache_files）
-  export.rs     export_curl / export_markdown + 渲染函数
-  response.rs   响应缓存 2 action（cache_open / cache_reveal）+ response_preview_office
-```
+数据字典结构调整必须遵守项目规范中的派生索引、sort_key 和字段值索引不变量，并执行 `cargo test data_dictionary -- --nocapture`。
 
-共 **33 个 action**（以 `is_supported_api_workbench_action` 为对账基准）：32 个按上表迁移进子模块，`list` 保留在 mod.rs（`action_list_with_conn` 是跨 collection/folder/request 的聚合树查询，不归属单一子模块）；与现有 match 分发点（原文件 3131 行起）一一对应。
+## 7. 风险与回退
 
-原文件含一个 `#[cfg(test)] mod tests`（3171 行至文件尾，约 2080 行、占全文件约 40%）：**内嵌测试随被测函数迁移至对应子模块**。另有一对 `#[cfg(test)]` / `#[cfg(not(test))]` 版本的 `get_api_workbench_response_cache_dir`（1363-1378 行，测试态重定向缓存目录到临时目录）及文件头部配套的 `#[cfg(not(test))] use super::helpers::get_data_dir;` 导入：**迁移时必须成对（连同该导入）搬至缓存目录逻辑所在子模块**，拆散会导致测试构建失败或测试写入真实数据目录。迁移前后 `cargo test` 用例数必须一致。
+- 每批独立提交，使用 `git revert` 可单批回退。
+- 状态或事件漏传由行为清单和手工冒烟兜底。
+- import 断链由 typecheck 和 build:web 捕获。
+- 不在结构治理批次中混入产品功能变更。
 
-### 实施顺序
+## 8. 完成定义
 
-先抽 types / helpers / response（边界最清晰）→ executor / export → 各域 CRUD；一批内小步多提交。
-
-### 风险与对策
-
-- 共享私有函数（模板解析、URL 构建、HTTP 工具）跨 executor/request/export：统一收入 helpers.rs，`pub(crate)`。
-- `_with_conn` 模式与 `Result<Value, String>` 错误形态保持不变。
-- 历史缓存清理需感知全表引用：保留在 history.rs。
-
-**验收**：`cargo test`（api_workbench 内嵌测试迁移后全部保持通过，用例数与迁移前一致）+ 接口调试面板手工冒烟（发送/历史/环境/导出/响应预览）+ typecheck + e2e。
-
-**协调注记**：后续实施 UX 18 项 plan 时，plan 中指向 `api_workbench.rs` 的路径引用按本节新结构对号入座。
-
-## 8. 批次 3 概要：Todo 域
-
-前提：快速添加栏 plan 已实施——**2026-07-04 已满足**（提交 21f54c9 / a38ec66 / 0fece60），TodoPanel 现为 2960 行。**批次启动时按当时代码出行号级接缝清单**，本节只定框架：
-
-- 目录搬迁：9 个 `Todo*` 组件（含 TodoQuickAddBar）及 5 个 colocated 测试文件（TodoPanel.edit-focus / TodoPanel.title-enter / TodoPanel.quick-add / TodoQuickAddBar / TodoDetailView.layout 的 `.test.ts`）一并迁入 `components/todo/`。
-- TodoPanel.vue 抽取方向（按 2026-07-04 探索）：编辑器状态机（编辑/创建/dirty 检测）、调度字段（日期/提醒/重复）、PM 关联、筛选分组、CRUD 操作五个 composable。
-- 有利条件：TodoPanel 已有 3 个组件测试（edit-focus、title-enter、quick-add），拆分全程必须保持通过。
-- todo.rs（3222 行）按批次 2 相同模式目录化拆分，接缝届时探查。
-
-## 9. 批次 4+ 候选池机制
-
-每完成一批，按"近 3 个月变更次数 × 行数"重排候选池，避开当时未实施 spec 的落点。
-
-初始候选池：data_dictionary.rs（3319）、api_mock.rs（2594）、DataDictionaryPanel.vue（2496）、InboxPanel.vue（2260）、NetworkPanel.vue（2050）、PmListView.vue（2177）、VaultPanel.vue（2542，热度低靠后）、ApiWorkbenchPanel.vue（UX 18 项落地后）。
-
-特别注记：data_dictionary 拆分受 CLAUDE.md 04.9 强不变量约束（派生索引、sort_key、字段值索引等），只动代码组织、不碰任何不变量，验收必跑 `cargo test data_dictionary -- --nocapture`。
-
-## 10. 风险与回退
-
-- 每批独立提交，回退粒度 = `git revert` 单批。
-- 机械拆分最大风险是搬移时漏传状态/事件造成行为细变：以"行为清单 + 照单手工冒烟"兜底（见第 3 节纪律 3）。
-- 目录搬迁 import 断链由 typecheck + build:web 全量捕获。
-- 每批开工前确认工作区干净，不与进行中改动混批。
-
-## 11. 完成定义
-
-1. 批次 0-3 完成，e2e 冒烟每批常绿。
-2. PmPanel ≤ 1200 行；api_workbench 子模块平均 ≤ 600 行（软目标）；`components/pm/`、`components/todo/` 建立。
-3. 拆分模式（Vue 壳层拆分四步、Rust 目录化拆分三步）沉淀进 process.md，供批次 4+ 复用。
-
-## 12. 决策记录
-
-| 决策 | 结论 | 备选与否决理由 |
-|---|---|---|
-| 收益方向 | 拆热点大文件 + e2e 安全网 + 目录整理 | "为待实施 spec 铺路"未选为主目标，但排序上全程避让 |
-| 拆分深度 | 行为保持机械拆分 | 顺手改良被否：无 e2e 保护期风险高、批次周期变长 |
-| TodoPanel 顺序 | 快速添加栏 plan 先行 | 拆分先行会作废已三审定稿的 plan；该 plan 已于 2026-07-04 实施完成，前置条件现已满足 |
-| 目录策略 | 渐进分域（方案 B） | 一次性大搬家（方案 A）与 3 个待实施 plan 路径引用全面冲突；双线并行（方案 C）回归定位难 |
-| Rust 拆分形态 | 目录化 `tools/api_workbench/` | 平铺 `api_workbench_*.rs` 会加剧 tools/ 根下 48 个 .rs 的膨胀；`db_drivers/`、`widget/` 已有子目录先例 |
+1. e2e 冒烟恢复并在后续批次保持常绿。
+2. `components/pm/`、`components/todo/` 等已实施业务域形成清晰目录边界。
+3. Vue 壳层拆分与 Rust 目录化的通用经验沉淀到 `process.md`。
+4. 每批均有独立验证记录和可回退提交。

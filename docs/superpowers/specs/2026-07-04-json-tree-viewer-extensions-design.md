@@ -10,7 +10,7 @@
 
 三个约束贯穿设计：
 
-1. 对现有 props 纯增量、向后兼容。数据字典与待实施的 `2026-07-04-api-workbench-ux-plan.md` Task 2.3（响应预览按 `:value` + `:default-expand-depth` + `:copy-text` 只读接入）都不因本设计产生改动。
+1. 对现有 props 纯增量、向后兼容，数据字典等既有消费方不因本设计产生改动。
 2. 本轮不做性能改造（无虚拟滚动、无分块渲染）。大文档靠默认折叠深度与消费方体积闸门兜底。
 3. 不新增第三方 JSON viewer/editor 依赖，继续自研树 + Element Plus。
 
@@ -29,10 +29,8 @@
 1. 不做虚拟滚动、分块渲染等性能改造；超大文档"展开全部"会卡是本轮已知边界，写入组件文档注释。
 2. 不做过滤式搜索（只显示命中分支）。
 3. 不做拖拽移动节点；排序诉求由菜单"上移/下移"承接。
-4. 不接入 Redis String 值、DB 结果单元格。
-5. 不设计 API 响应预览接入；该接入归 `2026-07-04-api-workbench-ux-plan.md` Task 2.3，本设计只保证其用法零改动可用。
-6. 不接入收纳箱详情（内容不保证是 JSON，按需另议）。
-7. 不引入第三方 JSON viewer/editor 依赖。
+4. 不接入收纳箱详情（内容不保证是 JSON，按需另议）。
+5. 不引入第三方 JSON viewer/editor 依赖。
 8. 不持久化展开状态、搜索词或 undo 栈。
 9. 不做子串级 `<mark>` 高亮；命中高亮整段 label 或值文本。
 
@@ -207,7 +205,7 @@ function collectJsonTreeAncestorKeys(path: JsonTreePath): string[];
 ### JSON 处理面板（编辑主战场）
 
 1. 工具栏加"文本 | 树形"切换（segmented），默认文本；文本 `input` 始终是事实源。面板重挂载（工具切换）后模式重置为文本——模块级持久化仅覆盖 input/output 文本，属预期行为。
-2. 进入树形的闸门：内容 `JSON.parse` 成功且 `text.length <= 1_000_000`（与 api-workbench-ux-plan 的 1MB 阈值一致）。不满足时 `ElMessage` 说明原因（解析失败给出错误信息；超限说明体积），停留文本模式。
+2. 进入树形的闸门：内容 `JSON.parse` 成功且 `text.length <= 1_000_000`。不满足时 `ElMessage` 说明原因（解析失败给出错误信息；超限说明体积），停留文本模式。
 3. 输入侧树形使用 `editable` 且 `default-expand-depth="2"`，避免大文档过闸门后因组件默认 `"all"` 全展开触发已知卡顿路径。
 4. 树内编辑经 `v-model:value` 维护对象；每次 `update:value` 立即序列化（2 空格缩进）回写 `input`，使文本在任何时刻都是最新事实源——面板经 `<component :is>` 切换工具时直接卸载（无 keep-alive），即时回写保证卸载不丢编辑。
 5. 树模式下点击任何文本类操作（格式化、压缩、各转换按钮）：`input` 已因即时回写保持最新，直接切回文本模式执行。
@@ -277,5 +275,4 @@ pnpm --filter @lazycat/desktop build:web
 
 1. 虚拟滚动/大文档性能另开设计；触发条件是 API 响应预览或数据字典出现真实卡顿反馈。
 2. 过滤式搜索、拖拽排序、子串级高亮按需求另议。
-3. Redis String 值、DB 结果单元格、收纳箱详情的接入各自另开小型设计。
-4. API 响应预览接入按 `2026-07-04-api-workbench-ux-plan.md` 既有任务执行；其用法（`default-expand-depth="2"`）叠加 `showSearch` 默认开启，意味着搜索与折叠能力零改动即生效，届时只需评估是否要 `showSearch=false` 收窄。
+3. 收纳箱详情等新消费方接入各自另开小型设计。

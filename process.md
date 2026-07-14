@@ -19,7 +19,7 @@
 3. **共享 `let` 标志跨 composable 需 ref 化**：`skipProjectWatch` 原是壳层 `let`，watch 移入 useTodoPmLink 后改为 composable 内 ref 返回，壳层引用点 `.value` 化（本批唯一预期的非纯移动适配）。
 4. **Rust 目录化用 `mod x; use x::*;` 私有 glob 胶水**（批次 2 同款）：函数体零改动，仅 `fn` → `pub(crate) fn` + 子模块显式 `use super::helpers::*` 等。**偏差**：`mod tests` 未按 plan 拆到子模块而是整体留在 mod.rs——测试共享 80+ 行 `create_test_conn` 建表夹具和 seed 系列夹具，拆分收益小于夹具共享成本；私有 use 导入对子模块可见，`use super::*` 让测试零改动，测试路径与基线完全一致便于对账。
 5. **只被测试使用的顶部导入会被 cargo check 误报 unused**：删除后 `cargo test` 编译才炸（Timelike/DateTime/params!/json!）。处理：移进 `mod tests` 内部 use。每步必须 `cargo check`（零警告）+ `cargo test todo`（用例数对账）双跑。
-6. **子模块内 `super::` 指向变化**：原 mod.rs 里 `super::attachments`（= tools::attachments）搬进子模块后要改 `crate::tools::attachments`；`super::helpers::db_conn`（全局 helpers）与本地 `mod helpers` 同名不冲突（api_workbench 先例）。
+6. **子模块内 `super::` 指向变化**：原 mod.rs 里 `super::attachments`（= tools::attachments）搬进子模块后要改 `crate::tools::attachments`；本地模块与全局 helper 同名时要显式核对解析目标。
 7. sed 行区间删除比长字符串 Edit 稳，但边界必须先 `sed -n` 逐块核对——本批一次多删一行（formatDate 函数头）由 build:web 立即暴露；每步验证兜底有效。
 **涉及文件**: `components/todo/`（14 文件迁移）、`composables/useTodo{ItemFilters,ScheduleFields,CrudActions,PmLink,DetailState}.ts`、`src-tauri/src/tools/todo/`（8 文件）
 **验证**: 每步 `pnpm typecheck` + `build:web` + `pnpm test`（634）/ `cargo check` 零警告 + `cargo test todo`（22 用例对账）；收尾 `cargo test` 全量 467、`pnpm test:e2e` 2 passed。cargo 全量偶发 1 个计时敏感用例失败（api_mock delay 类），复跑即绿。
@@ -395,30 +395,6 @@
 - `pnpm typecheck`
 - `pnpm --filter @lazycat/desktop build:web`
 
-## 2026-07-01: API Workbench 环境管理弹窗用两栏结构承载多环境编辑
-
-**场景**: 优化接口调试的环境管理弹窗，降低多环境切换、变量状态判断和保存反馈成本。
-**使用次数**: 0
-**问题**:
-1. 旧弹窗只有当前环境标题、操作按钮和变量表，用户切换环境仍要回到下拉框，管理多个环境时上下文弱。
-2. 变量数、BASE_URL 配置状态和未保存修改只隐含在表单内容里，保存按钮反馈不足。
-3. 如果在弹窗内直接切换环境而不处理草稿状态，容易丢失未保存变量修改。
-**解决**:
-1. 弹窗改成左侧环境列表、右侧变量编辑区，顶部展示集合、环境数、变量数、BASE_URL 状态和保存状态。
-2. 抽出 `buildApiWorkbenchEnvironmentDraftSummary` 纯函数，统一计算变量数、重复名、BASE_URL 和脏状态，并配套单测。
-3. 弹窗内环境列表切换前检测未保存修改，需确认后才丢弃草稿并切换。
-**关键点**:
-1. 环境管理 UI 可以重排，但保存协议仍保持 `environment-save` 的变量数组为单一写入入口。
-2. 脏状态比较只看变量 `name/value`，不把历史 `isSecret` 差异误判成用户修改。
-3. 弹窗两栏布局要在小窗口退化为单栏，列表项使用真实 button，hover/active 只改变颜色和边框，避免布局跳动。
-**涉及文件**:
-- `apps/desktop/src/components/ApiWorkbenchPanel.vue`
-- `apps/desktop/src/utils/apiWorkbench.ts`
-- `apps/desktop/src/utils/apiWorkbench.test.ts`
-**验证**:
-- `pnpm test src/utils/apiWorkbench.test.ts`
-- `pnpm typecheck`
-- `pnpm --filter @lazycat/desktop build:web`
 
 ## 2026-07-01: 通用 JSON 树视图要把遍历规则留在纯函数层
 
@@ -475,200 +451,13 @@
 - `cargo test pomodoro`
 - `pnpm --filter @lazycat/desktop build:web`
 
-## 2026-07-01: 接口调试响应预览要分离文本与二进制存储
 
-**场景**: 为 API Workbench 增加 JSON/HTML/图片/PDF/文本/未知二进制兜底、历史重新预览、响应缓存清理和 Office 基础预览。
-**使用次数**: 0
-**问题**:
-1. 发送路径如果把所有响应字节统一 `String::from_utf8_lossy`，会损坏图片、PDF、Office 等二进制响应。
-2. 二进制历史如果只保存摘要，历史详情无法重新预览；如果缓存清理只删数据库，会留下孤儿缓存文件。
-3. Office 预览如果读取任意前端传入路径，会扩大本地文件读取风险。
-**解决**:
-1. 后端发送路径先按 MIME/扩展名/字节特征分类，文本返回 `bodyText`，完整二进制写入 `<dataDir>/api-workbench/response-cache/`，截断二进制不写缓存。
-2. 历史表保存 `bodyStorage/bodyFilePath/bodyFileName/bodyExtension/bodyHash/bodyPreviewError`；清空、清理未标星和自动裁剪历史时按剩余引用计数删除不再使用的缓存文件。
-3. Office 基础预览走 API Workbench 专用 action，先校验 `filePath` canonicalize 后仍位于响应缓存目录内，再解析 CSV/Excel 或 docx/pptx 的 OpenXML 文本。
-**关键点**:
-1. 二进制示例响应首版只保存元信息摘要，不能保存历史缓存路径或 hash，避免历史清理后示例悬空。
-2. 前端预览分类、历史响应重建和示例摘要应放在纯函数中测试，面板只负责状态编排。
-3. 缓存写入失败时仍返回 HTTP 状态和响应头，前端走二进制元信息兜底并展示预览错误。
-**涉及文件**:
-- `apps/desktop/src-tauri/src/tools/api_workbench.rs`
-- `apps/desktop/src-tauri/Cargo.toml`
-- `apps/desktop/src/components/ApiWorkbenchPanel.vue`
-- `apps/desktop/src/components/ApiWorkbenchResponseViewer.vue`
-- `apps/desktop/src/types/api-workbench.ts`
-- `apps/desktop/src/utils/apiWorkbenchResponsePreview.ts`
-- `apps/desktop/src/utils/apiWorkbenchResponsePreview.test.ts`
-**验证**:
-- `cargo test api_workbench -- --nocapture`
-- `pnpm test src/utils/apiWorkbench.test.ts src/utils/apiWorkbenchResponsePreview.test.ts`
-- `pnpm typecheck`
-- `pnpm --filter @lazycat/desktop build:web`
 
-## 2026-06-30: 接口调试环境变量重复名要在提交前和后端同时校验
 
-**场景**: 修复 API Workbench 环境管理中保存重复变量名时直接暴露 SQLite `UNIQUE constraint` 且 `saveCurrentEnvironment` 未捕获 Promise 异常的问题。
-**使用次数**: 0
-**问题**:
-1. 前端环境变量行序列化时只过滤启用和非空 key，没有检测 trim 后重复变量名。
-2. 后端 `environment_save` 只校验变量名格式，重复名最终落到数据库唯一约束，错误不可读。
-3. 保存当前环境路径只有 `try/finally`，没有 `catch`，导致后端错误变成未处理 Promise。
-**解决**:
-1. 前端抽出重复变量名检测函数，保存、新增、复制、重命名前先提示 `环境变量名称重复：xxx`。
-2. 后端 `parse_variable_rows` 增加同一 payload 内重复名校验，返回 `变量名重复: xxx`。
-3. `saveCurrentEnvironment` 补 `catch`，并对遗留唯一约束错误做兜底友好文案映射。
-**涉及文件**:
-- `apps/desktop/src/components/ApiWorkbenchPanel.vue`
-- `apps/desktop/src/utils/apiWorkbench.ts`
-- `apps/desktop/src/utils/apiWorkbench.test.ts`
-- `apps/desktop/src-tauri/src/tools/api_workbench.rs`
-**验证**:
-- `pnpm test src/utils/apiWorkbench.test.ts`
-- `cargo test api_workbench -- --nocapture`
-- `pnpm typecheck`
-- `pnpm --filter @lazycat/desktop build:web`
 
-## 2026-06-30: 接口调试环境编辑入口收敛到管理弹窗
 
-**场景**: 将 API Workbench 主编辑区的环境页签迁移到环境切换下拉框底部的“环境管理”弹窗，减少主请求编辑区干扰。
-**使用次数**: 0
-**问题**:
-1. 环境切换下拉框如果直接 `v-model` 到数字 ID，新增管理入口的字符串值会污染当前环境状态。
-2. 环境变量编辑放在请求参数页签内，会和 Query / Headers / Body 的请求编辑任务混在一起。
-3. Element Plus Select 下拉层会脱离组件局部结构，管理入口分隔样式需要按全局下拉项处理。
-**解决**:
-1. 新增环境选择解析纯函数，用 sentinel 区分“切换环境”和“打开管理”，管理项只打开弹窗并保留当前环境 ID。
-2. 删除主编辑区“环境”页签，把新增、复制、重命名、删除和保存环境变量迁移到 `el-dialog`。
-3. 下拉框改为受控 `:model-value` + `@update:model-value`，避免管理项进入 `selectedEnvironmentId`。
-**涉及文件**:
-- `apps/desktop/src/components/ApiWorkbenchPanel.vue`
-- `apps/desktop/src/utils/apiWorkbench.ts`
-- `apps/desktop/src/utils/apiWorkbench.test.ts`
-**验证**:
-- `pnpm test src/utils/apiWorkbench.test.ts`
-- `pnpm typecheck`
-- `pnpm --filter @lazycat/desktop build:web`
 
-## 2026-06-30: 接口调试历史复现以执行快照为重放真源
 
-**场景**: 为 API Workbench 增加历史复现闭环，支持发送时保存草稿快照和执行快照、历史详情载入、执行快照重放、标星、搜索、备注和默认保留标星清理。
-**使用次数**: 0
-**问题**:
-1. 仅依赖历史摘要无法恢复 headers/body/form，也不能保证重放不受当前环境变量变化影响。
-2. 历史 schema 迁移如果放在 action 分发前，会让未知 action 测试先失败在迁移路径，掩盖真实错误。
-3. 前端直接从历史摘要恢复请求会形成降级路径和完整快照路径混杂在组件里。
-**解决**:
-1. 后端发送路径拆分为请求准备和 HTTP 执行，历史同时保存 `request_snapshot_json` 与 `executed_request_snapshot_json`；重放只使用执行快照，不读环境变量。
-2. `execute` 先校验 action 是否支持，再执行历史列兼容迁移，保持未知 action 的错误语义稳定。
-3. 前端新增 `apiWorkbenchHistory` 纯函数，统一判断可重放、从历史详情构造草稿和生成默认展示名；组件只负责状态编排和调用后端 action。
-**涉及文件**:
-- `apps/desktop/src-tauri/src/tools/api_workbench.rs`
-- `apps/desktop/src/components/ApiWorkbenchPanel.vue`
-- `apps/desktop/src/bridge/tauri.ts`
-- `apps/desktop/src/types/api-workbench.ts`
-- `apps/desktop/src/utils/apiWorkbenchHistory.ts`
-**验证**:
-- `cargo test api_workbench -- --nocapture`
-- `pnpm test src/utils/apiWorkbench.test.ts src/utils/apiWorkbenchTree.test.ts src/utils/apiWorkbenchHistory.test.ts`
-- `pnpm typecheck`
-- `pnpm --filter @lazycat/desktop build:web`
-
-## 2026-06-30: 接口调试个人闭环继续保持发送路径单一真源
-
-**场景**: 完善接口调试个人高频链路，补 cURL 导入导出、历史沉淀、示例响应、搜索、变量提示和环境管理。
-**使用次数**: 0
-**问题**:
-1. cURL 导出如果前端生成，会重复实现变量解析、URL 拼接和 Body 准备逻辑。
-2. 历史表只有请求摘要和响应预览，历史转接口不能伪造缺失的 Headers / Body。
-3. 搜索和变量提示属于前端体验，但不能反写排序、展开态或发送校验真源。
-**解决**:
-1. cURL 导出放在 Rust 后端，复用发送前的变量解析、URL 构造和 Body 准备，只额外做目标 Shell 引号转义。
-2. 历史保存为接口只写历史中已有的 method/url 和来源说明，headers/body 保持空。
-3. 搜索和变量摘要抽成纯函数配套单测，组件只负责展示；发送和导出继续以后端校验为准。
-**涉及文件**:
-- `apps/desktop/src-tauri/src/tools/api_workbench.rs`
-- `apps/desktop/src/bridge/tauri.ts`
-- `apps/desktop/src/components/ApiWorkbenchPanel.vue`
-- `apps/desktop/src/components/ApiWorkbenchSidebar.vue`
-- `apps/desktop/src/utils/apiWorkbenchCurl.ts`
-- `apps/desktop/src/utils/apiWorkbenchSearch.ts`
-- `apps/desktop/src/utils/apiWorkbenchVariables.ts`
-**验证**:
-- `cargo test api_workbench -- --nocapture`
-- `pnpm test src/utils/apiWorkbench.test.ts src/utils/apiWorkbenchTree.test.ts src/utils/apiWorkbenchCurl.test.ts src/utils/apiWorkbenchSearch.test.ts src/utils/apiWorkbenchVariables.test.ts`
-- `pnpm typecheck`
-- `pnpm --filter @lazycat/desktop build:web`
-
-## 2026-06-30: 接口调试导航树管理要以后端排序为真源
-
-**场景**: 完善接口调试左侧集合、文件夹和接口树管理，支持右键菜单、移动和排序。
-**使用次数**: 0
-**问题**:
-1. 前端如果只本地调整树顺序，刷新后会回到数据库顺序。
-2. 多级文件夹移动如果不校验后代关系，会产生循环树。
-3. 删除文件夹需要保留接口，避免组织结构管理误删接口定义。
-**解决**:
-1. 后端新增 move/reorder action，排序提交同级完整 id 列表，事务内写入 gapless `sort_order`。
-2. 文件夹移动校验同集合、不能移动到自己或后代。
-3. 删除文件夹前把后代文件夹内接口统一移到未分组。
-**验证**:
-- `cargo test api_workbench -- --nocapture`
-- `pnpm test src/utils/apiWorkbench.test.ts src/utils/apiWorkbenchTree.test.ts`
-- `pnpm typecheck`
-- `pnpm --filter @lazycat/desktop build:web`
-
-## 2026-06-30: 接口调试状态切换和变量解析要按实际执行路径验证
-
-**场景**: 修复接口调试工具审查发现的问题，覆盖集合切换、环境变量编辑、历史初始化、模板变量替换和发送归属校验。
-**使用次数**: 0
-**问题**:
-1. 面板支持相对 URL，但没有环境变量编辑入口，用户无法配置 `BASE_URL`。
-2. 切换集合时保留旧请求草稿和 `requestId`，会把新集合环境与旧集合请求混用。
-3. 后端模板变量提取会 trim，但替换只匹配无空格写法，`{{ TOKEN }}` 校验通过后仍未替换。
-4. 发送请求无条件解析隐藏 body/form 字段，旧隐藏字段里的缺失变量会阻断当前请求。
-**解决**:
-1. 在接口调试面板增加当前环境变量编辑页签，保存走既有 `environment_save`。
-2. 抽出集合选择状态纯函数，切换集合时重置请求 ID、名称、草稿和响应。
-3. 后端 `resolve_template` 改为扫描替换原始占位符，同时保持变量名 trim 后校验。
-4. `send` 按 `bodyType` 只解析实际会发送的 body/form，并校验 collection/environment/request 归属一致。
-**关键点**:
-1. 支持相对 URL 时，`BASE_URL` 不能只存在于后端模型，前端必须提供可达编辑路径。
-2. 会写历史或发网络请求的功能不能只信前端状态，后端也要校验跨集合归属。
-3. 模板变量的“提取”和“替换”必须共享语义，尤其是空白容忍规则。
-4. 隐藏表单字段不应参与当前请求校验，避免历史草稿状态污染实际发送。
-**涉及文件**:
-- `apps/desktop/src-tauri/src/tools/api_workbench.rs`
-- `apps/desktop/src/components/ApiWorkbenchPanel.vue`
-- `apps/desktop/src/utils/apiWorkbench.ts`
-- `apps/desktop/src/utils/apiWorkbench.test.ts`
-**验证**:
-- `cargo test api_workbench -- --nocapture`
-- `pnpm test src/utils/apiWorkbench.test.ts`
-- `pnpm typecheck`
-- `pnpm --filter @lazycat/desktop build:web`
-
-## 2026-06-29: 接口调试工具按后端单一真源实现
-
-**场景**: 新增接口调试工具，支持集合、环境变量、请求发送、历史和 Markdown 导出。
-**使用次数**: 0
-**问题**:
-1. Markdown 模板如果前后端各实现一份，会形成双重真值。
-2. `BASE_URL` 同时允许全局和环境级会产生遮蔽歧义。
-3. 接口调试工具需要展示原始 3xx，不能让 HTTP 客户端默认跟随重定向。
-**解决**:
-1. Markdown 导出固定由 Rust 后端生成，前端只触发导出。
-2. `BASE_URL` 固定为环境级变量，全局变量保存时拒绝该名称。
-3. `ureq::AgentBuilder` 显式设置 `redirects(0)`，3xx 原样返回响应头和响应体。
-**涉及文件**:
-- `apps/desktop/src-tauri/src/tools/api_workbench.rs`
-- `apps/desktop/src-tauri/src/tools/helpers.rs`
-- `apps/desktop/src/components/ApiWorkbenchPanel.vue`
-- `apps/desktop/src/utils/apiWorkbench.ts`
-**验证**:
-- `cargo test api_workbench -- --nocapture`
-- `pnpm test src/utils/apiWorkbench.test.ts`
-- `pnpm typecheck`
-- `pnpm --filter @lazycat/desktop build:web`
 
 ## 2026-06-28: 数据字典体验状态优先显式建模
 
@@ -3086,68 +2875,27 @@ Cron 工具原先仅提供基础 6 字段输入与简单预览，缺少规范化
 
 **使用次数**: 0
 
-## 2026-07-03: 数据库工作台（MySQL/KingbaseES/Redis）两期落地
 
-**场景**: 新增深度工具 db-workbench：一期 MySQL + KingbaseES 的 SQL 工作台（连接管理、结构浏览、查询、表数据网格编辑、导出、收藏历史、安全阀），二期 Redis key 浏览器与命令控制台。
-**问题**:
-1. `execute_tool` 是同步分发，而 sqlx/redis 都是异步驱动。
-2. 任意 SQL 的只读/危险分类需要前后端口径一致，且 PG 系与 MySQL 语法细节冲突（`#` 在 MySQL 是注释、在 PG 是 JSONB 操作符；PG 有美元引用与写 CTE）。
-3. PG 强类型下字符串参数写回会因类型推断失败报错；PG 族连接与库绑定，不能像 MySQL 一样单池跨库。
-4. 取消执行需要拿到引擎侧会话标识，而一次性 IPC 响应模型里前端无执行句柄。
-5. 新增 21 个 Rust 测试后，api_mock 两个文件清理测试开始稳定互相冲突。
-**解决**:
-1. 复用 dns.rs 的静态 `OnceLock<Runtime>` + `block_on` 模式；连接池与运行中查询放静态 `Mutex<HashMap>`，池 key 为 `connectionId\u{1}database`。
-2. 语句拆分/分类做成方言参数化纯函数（Rust `sql_text.rs` 与 TS `dbSqlClassify.ts` 同规则同测试向量）；只读判定后端权威，前端仅提示。WITH 语句按“顶层（括号深度 0）是否出现写动词”判定写 CTE。
-3. KB/PG 写回与筛选统一 `CAST($n AS 列类型)`（类型来自 pg_attribute 的 format_type），LIKE 则把列 `::text`；每 (连接, 库) 一个池。
-4. queryId 由前端生成随请求传入，后端执行前在同一连接上查 `CONNECTION_ID()` / `pg_backend_pid()` 登记，取消时另取连接发 `KILL QUERY` / `pg_cancel_backend`；超时后连接 detach 销毁不回池。
-5. 二次确认走结构化握手：后端返回 `needsConfirmation + reasons`，前端弹窗后携带 `confirmed: true` 原样重发；只读连接无确认通道直接拒绝。
-6. api_mock 竞态根因是两个测试写入相同内容、内容寻址存储共享同一物理文件而 SQLite 各自独立，改成不同内容即修复。
-**关键点**:
-1. 内容寻址 + 共享物理目录的测试必须保证测试间内容互异，否则并行必然互删。
-2. sqlx 用 `raw_sql` + `fetch_many` 能同时拿行流和 rows_affected，并兼容 SHOW/USE 等不可预编译语句；行数截断后继续消费流丢弃剩余行，保证连接干净。
-3. 结果单元格全部字符串化（string|null）+ 列 kind 标记，避免 BIGINT/DECIMAL 前端精度丢失。
-4. 表数据网格编辑的唯一入口是"表数据浏览"页签（后端已知表名与主键），任意 SELECT 结果一律只读，规避解析任意 SQL 推断来源表。
-**涉及文件**:
-- `apps/desktop/src-tauri/src/tools/db.rs`、`db_drivers/{mod,sql_text,mysql,kingbase,redis}.rs`
-- `apps/desktop/src/components/DbWorkbenchPanel.vue`、`components/db/*`（6 个组件）
-- `apps/desktop/src/utils/dbSqlClassify.ts`、`dbGridChanges.ts`、`dbRedisKeyTree.ts` 及配套测试
-- `apps/desktop/src/composables/useDbConnections.ts`、`types/db.ts`、`bridge/tauri.ts`、`tool-registry.ts`、`composables/toolCatalog.ts`
-- `apps/desktop/src-tauri/src/tools/{helpers,vault,settings,mod}.rs`（表结构/加密提权/迁移复制 db-key/注册）
+## 2026-07-07: 结构治理批次 0-1 行为保持拆分
 
-**验证**:
-- `cargo test`（449 通过，含 sql_text/mysql/kingbase/redis/db 单测）
-- `pnpm test`（433 通过）
-- `pnpm typecheck`
-- `pnpm --filter @lazycat/desktop build:web`
-
-**使用次数**: 0
-
-## 2026-07-07: 结构治理批次 0-2 行为保持拆分
-
-**场景**: 执行结构治理路线图首批实施计划：先恢复 e2e 冒烟，再把 PM 前端域迁入子目录并拆分 `PmPanel.vue`，最后把 Rust `api_workbench` 巨型模块改为目录模块。
+**场景**: 执行结构治理路线图首批实施计划：先恢复 e2e 冒烟，再把 PM 前端域迁入子目录并拆分 `PmPanel.vue`。
 **问题**:
 1. `App.vue` 在纯 Web e2e 环境 setup 顶层调用 Tauri 窗口 API，导致主 App 无法挂载，后续重构缺少端到端安全网。
 2. PM 组件平铺在 `components/` 根目录，`PmPanel.vue` 同时承担侧栏、工具栏、筛选、CRUD、右键菜单和视图编排，后续改动冲突面大。
-3. `api_workbench.rs` 单文件同时包含 action 分发、共享类型、HTTP 执行、导出、缓存、历史和 CRUD，测试也集中在同一个 `mod tests`，迁移时容易漏搬 cfg 函数对或测试。
 **解决**:
-1. `App.vue` 仅在检测到 `__TAURI_INTERNALS__` 时获取 `getCurrentWindow()`，非 Tauri 环境用可选链兜底；统一 Tauri 环境判断工具是后续改良点，本批不顺手抽象。
+1. `App.vue` 仅在检测到 `__TAURI_INTERNALS__` 时获取 `getCurrentWindow()`，非 Tauri 环境用可选链兜底。
 2. 先用 `git mv` 把 18 个 `Pm*` 组件迁入 `components/pm/`，只更新外部动态 import 和跨目录相对路径，保留 `InlinePmSelector` / `InlineTodoList` 在根目录。
 3. `PmPanel.vue` 按耦合度从低到高拆出 `usePmContextMenu`、`usePmItemFilters`、`usePmItemActions`、`PmSidebar`、`PmToolbar`，共享状态继续留在壳层，用 props down / events up 保持原行为。
-4. `api_workbench` 先从文件转目录，再按 `types/helpers`、`response`、`executor/export`、CRUD、`history` 顺序抽取；每步同时迁移对应测试，并用 `cargo test api_workbench` 做小步验证。
-5. 收尾按计划做用例数对账和手工冒烟：`api_workbench` 当前 52 个相关测试；用户已确认 PM 行为清单和接口调试面板手工冒烟通过。
 **关键点**:
 1. 行为保持拆分要先恢复最小 e2e 安全网；如果 e2e 本身已坏，先修阻断点，不把后续结构改动和测试基线问题混在同一提交。
 2. Vue 壳层拆分优先抽 composable，再抽布局组件；筛选条件、选中项、拖拽状态、对话框编排等跨块共享状态留在壳层，避免引入新状态管理模式。
-3. Rust 巨型模块目录化时先移动为 `mod.rs`，再抽共享 `types/helpers`，最后按业务域迁移函数和测试；带 `#[cfg(test)]` / `#[cfg(not(test))]` 的函数对必须随归属模块成对迁移。
-4. 行数目标只作为拆分反馈，不作为临时加拆分的理由。本批后 `PmPanel.vue` 为 1531 行，低于原 2643 行但未达 1200 行软目标；继续缩小需要另定接缝，不能在机械拆分批次内即兴扩展。
-5. `api_workbench` 子模块当前总计 5414 行、11 个模块，平均约 492 行；单个 `executor`、`history`、`response` 仍偏大，但平均值满足本批软目标，后续若继续治理应另列计划。
+3. 行数目标只作为拆分反馈，不作为临时加拆分的理由。本批后 `PmPanel.vue` 为 1531 行，低于原 2643 行但未达 1200 行软目标；继续缩小需要另定接缝。
 **涉及文件**:
 - `apps/desktop/src/App.vue`
 - `apps/desktop/src/components/pm/*`
 - `apps/desktop/src/composables/usePmContextMenu.ts`
 - `apps/desktop/src/composables/usePmItemFilters.ts`
 - `apps/desktop/src/composables/usePmItemActions.ts`
-- `apps/desktop/src-tauri/src/tools/api_workbench/*`
 - `apps/desktop/src/tool-registry.ts`
 - `apps/desktop/src/composables/pmViewRegistry.ts`
 
@@ -3156,12 +2904,7 @@ Cron 工具原先仅提供基础 6 字段输入与简单预览，缺少规范化
 - `pnpm typecheck`
 - `pnpm --filter @lazycat/desktop build:web`
 - `pnpm test`
-- `cargo check`
-- `cargo test api_workbench -- --list`（52 tests）
-- `cargo test api_workbench`（52 通过）
-- `cargo test`（457 通过）
 - PM 行为清单手工冒烟通过
-- 接口调试面板手工冒烟通过
 
 **使用次数**: 0
 
@@ -3192,38 +2935,6 @@ Cron 工具原先仅提供基础 6 字段输入与简单预览，缺少规范化
 **验证**:
 - `cargo test api_mock`（29 通过，含 3 个新增 CORS 用例）
 - `pnpm test src/utils/apiMock.test.ts`（26 通过）
-- `pnpm typecheck`
-- `pnpm --filter @lazycat/desktop build:web`
-
-**使用次数**: 0
-
-## 2026-07-11: 接口调试 UX 优化 Phase 2-4 实施（响应区/工作流/多标签/拖拽）
-
-**场景**: 按 2026-07-04 定稿的 spec/plan 实施剩余 17 个任务：响应区（状态色阶、JSON 树+Monaco 双模式、响应头表格）、工作流小项（Method 色板、复制接口、跟随重定向、请求设置、快速认证、变量补全、cURL 弹窗、历史收敛+空态）、Postman 式多标签、侧栏树拖拽。
-**问题**:
-1. plan 是 07-04 快照，期间后端 `api_workbench.rs` 已重构为目录形态（10 个子模块），plan 里所有行号锚点失效。
-2. 多标签重构要求把 9 个面板单例 ref（draft/requestName/response/editorTab 等）全部迁到 per-tab 状态，且入口（侧栏打开/新建/历史载入/cURL 导入）、生命周期（删除接口/集合/文件夹、loadAll）都要联动。
-3. 变量自动补全浮层需要同时服务面板 URL 输入框和 KV 编辑器多行 value 输入框，父组件各自维护 apply 回调会大量重复。
-4. ureq 2.x 重定向语义需要真实 socket 验证（302+POST 转 GET、307 不跟随），且全量并发跑测试时 TcpListener stub 偶发抖动。
-**解决**:
-1. 严格按 plan 自身"行号为快照，执行时以搜索为准"的约定，全部用 grep 重定位；backend 改动点分散到 mod.rs（schema+迁移）、types.rs（serde default）、request.rs（读写）、executor.rs（发送）。
-2. 面板状态迁移采用"computed get/set 包装 activeTab 字段"模式：单例 ref 换成 `computed({ get: () => activeTab.value?.x ?? 默认, set })`，模板与大部分函数零改动；只重写入口函数和生命周期挂钩。无标签时用只读 detachedDraft 兜底 + 编辑区渲染空态。
-3. 补全浮层组件内部直接操作目标 input：`target.value = 补全结果; target.dispatchEvent(new Event("input", { bubbles: true }))`，让 el-input 的 v-model 自然接收，父组件只需转发 focus/input/keydown/blur 四个事件，无需 apply 回调。
-4. 重定向 stub 用 `Connection: close` 逼迫 ureq 重连触发第二次 accept；单测偶发失败先单独重跑确认是并发抖动而非逻辑错误，连续两次全量绿再提交。
-**关键点**:
-1. 大面板"单例状态 → 多标签"迁移的最小改动路径：保持既有函数体和模板绑定名不变，把 ref 替换为同名可写 computed，数据源指向 activeTab；只有创建/销毁/切换标签的路径需要新代码。
-2. 持久化标签用 version + 逐标签校验 + 失效降级（requestId 失效转 temp、collectionId 失效挂到 fallback），恢复逻辑全部落纯函数配单测，composable 只做编排。
-3. 发送/重放这类异步回填必须以发起时的 tabId 快照写回，标签已关则丢弃，防止旧响应写错标签。
-4. 原生拖拽落点判定（上 1/4 前插 / 下 1/4 后插 / 中部移入）抽纯函数；dragover 中用 `currentTarget.getBoundingClientRect()` 算相对 offset，不能用 `event.offsetY`（相对 event.target，行内有子元素时会跳变）。
-**涉及文件**:
-- `apps/desktop/src/utils/format.ts`、`apiWorkbench.ts`、`apiWorkbenchResponsePreview.ts`、`apiWorkbenchTabs.ts`、`apiWorkbenchTree.ts`（均配套 .test.ts）
-- `apps/desktop/src/composables/useApiWorkbenchTabs.ts`
-- `apps/desktop/src/components/ApiWorkbenchPanel.vue`、`ApiWorkbenchSidebar.vue`、`ApiWorkbenchResponseViewer.vue`、`ApiWorkbenchKeyValueEditor.vue`、`ApiWorkbenchTabsBar.vue`、`ApiWorkbenchVariablePopover.vue`、`ApiWorkbenchCurlImportDialog.vue`
-- `apps/desktop/src-tauri/src/tools/api_workbench/{mod,types,request,executor,history}.rs`
-
-**验证**:
-- `pnpm test`（634 通过）
-- `cargo test api_workbench`（56 通过）
 - `pnpm typecheck`
 - `pnpm --filter @lazycat/desktop build:web`
 

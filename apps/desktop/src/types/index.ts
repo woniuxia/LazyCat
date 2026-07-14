@@ -105,24 +105,6 @@ export type {
   RebuildDataDictionaryIndexesResult,
 } from "./data-dictionary";
 export type {
-  ApiWorkbenchBodyType,
-  ApiWorkbenchMethod,
-  ApiWorkbenchKeyValueRow,
-  ApiWorkbenchRequestDraft,
-  ApiWorkbenchCollection,
-  ApiWorkbenchFolder,
-  ApiWorkbenchRequestSummary,
-  ApiWorkbenchRequestDetail,
-  ApiWorkbenchVariable,
-  ApiWorkbenchEnvironment,
-  ApiWorkbenchSendResult,
-  ApiWorkbenchHistoryRequestSnapshot,
-  ApiWorkbenchExecutedRequestSnapshot,
-  ApiWorkbenchHistoryItem,
-  ApiWorkbenchHistoryDetail,
-  ApiWorkbenchListResult,
-} from "./api-workbench";
-export type {
   ApiMockMethod,
   ApiMockResponseKind,
   ApiMockRuntimeState,

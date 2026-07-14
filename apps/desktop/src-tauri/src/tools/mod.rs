@@ -1,4 +1,3 @@
-pub mod api_workbench;
 pub mod api_mock;
 pub mod browser_profiles;
 pub mod capture;
@@ -45,8 +44,6 @@ pub mod vault;
 pub mod attachments;
 pub mod system;
 pub mod widget;
-pub mod db;
-pub mod db_drivers;
 
 use serde_json::Value;
 
@@ -62,7 +59,6 @@ pub fn execute_tool(domain: &str, action: &str, payload: &Value) -> Result<Value
 fn dispatch_tool(domain: &str, action: &str, payload: &Value) -> Result<Value, String> {
     match domain {
         "api_mock" => api_mock::execute(action, payload),
-        "api_workbench" => api_workbench::execute(action, payload),
         "browser_profiles" => browser_profiles::execute(action, payload),
         "encode" => encode::execute(action, payload),
         "convert" => convert::execute(action, payload),
@@ -73,7 +69,6 @@ fn dispatch_tool(domain: &str, action: &str, payload: &Value) -> Result<Value, S
         "cron" => cron::execute(action, payload),
         "crypto" => crypto::execute(action, payload),
         "data_dictionary" => data_dictionary::execute(action, payload),
-        "db" => db::execute(action, payload),
         "format" => format::execute(action, payload),
         "network" => network::execute(action, payload),
         "dns" => dns::execute(action, payload),
@@ -109,7 +104,6 @@ fn dispatch_tool(domain: &str, action: &str, payload: &Value) -> Result<Value, S
 pub fn supported_actions(domain: &str) -> Option<&'static [&'static str]> {
     match domain {
         "api_mock" => Some(api_mock::supported_actions()),
-        "api_workbench" => Some(api_workbench::supported_actions()),
         "browser_profiles" => Some(browser_profiles::supported_actions()),
         "encode" => Some(encode::supported_actions()),
         "convert" => Some(convert::supported_actions()),
@@ -120,7 +114,6 @@ pub fn supported_actions(domain: &str) -> Option<&'static [&'static str]> {
         "cron" => Some(cron::supported_actions()),
         "crypto" => Some(crypto::supported_actions()),
         "data_dictionary" => Some(data_dictionary::supported_actions()),
-        "db" => Some(db::supported_actions()),
         "format" => Some(format::supported_actions()),
         "network" => Some(network::supported_actions()),
         "dns" => Some(dns::supported_actions()),
