@@ -9,6 +9,7 @@ mod model;
 mod observability;
 mod repository;
 mod runtime;
+mod tcp;
 mod validation;
 
 const ACTIONS: &[&str] = &[

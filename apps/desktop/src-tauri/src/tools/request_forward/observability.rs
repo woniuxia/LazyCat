@@ -84,6 +84,11 @@ mod tests {
     }
 }
 
+use std::collections::VecDeque;
+use std::sync::{Condvar, Mutex};
+#[cfg(test)]
+use std::time::{Duration, Instant};
+
 use hyper::http::HeaderMap;
 
 pub(crate) const HTTP_BODY_PREVIEW_LIMIT: usize = 64 * 1024;
@@ -95,6 +100,135 @@ const SENSITIVE_HEADERS: [&str; 4] = [
     "cookie",
     "set-cookie",
 ];
+
+const TCP_EVENT_BUFFER_LIMIT: usize = 256;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TcpEventKind {
+    Accepted,
+    DownstreamConnectFailed,
+    Overloaded,
+    RelayFailed,
+    ListenerFailed,
+    ChildTaskFailed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TcpObservationSnapshot {
+    pub(crate) event_count: u64,
+    pub(crate) upload_bytes: u64,
+    pub(crate) download_bytes: u64,
+    pub(crate) error_count: u64,
+    pub(crate) events: Vec<TcpEventKind>,
+}
+
+#[derive(Default)]
+struct TcpObservationState {
+    event_count: u64,
+    upload_bytes: u64,
+    download_bytes: u64,
+    error_count: u64,
+    events: VecDeque<TcpEventKind>,
+}
+
+#[derive(Default)]
+pub(crate) struct TcpObservability {
+    state: Mutex<TcpObservationState>,
+    changed: Condvar,
+}
+
+impl TcpObservability {
+    pub(crate) fn accepted(&self) {
+        self.update(|state| {
+            state.event_count = state.event_count.saturating_add(1);
+            push_tcp_event(state, TcpEventKind::Accepted);
+        });
+    }
+
+    pub(crate) fn downstream_connect_failed(&self) {
+        self.failed(TcpEventKind::DownstreamConnectFailed);
+    }
+
+    pub(crate) fn overloaded(&self) {
+        self.failed(TcpEventKind::Overloaded);
+    }
+
+    pub(crate) fn relay_failed(&self) {
+        self.failed(TcpEventKind::RelayFailed);
+    }
+
+    pub(crate) fn listener_failed(&self) {
+        self.failed(TcpEventKind::ListenerFailed);
+    }
+
+    pub(crate) fn child_task_failed(&self) {
+        self.failed(TcpEventKind::ChildTaskFailed);
+    }
+
+    pub(crate) fn transferred(&self, upload_bytes: u64, download_bytes: u64) {
+        self.update(|state| {
+            state.upload_bytes = state.upload_bytes.saturating_add(upload_bytes);
+            state.download_bytes = state.download_bytes.saturating_add(download_bytes);
+        });
+    }
+
+    #[cfg(test)]
+    pub(crate) fn wait_for(
+        &self,
+        timeout: Duration,
+        predicate: impl Fn(&TcpObservationSnapshot) -> bool,
+    ) -> Option<TcpObservationSnapshot> {
+        let deadline = Instant::now() + timeout;
+        let mut state = self.state.lock().expect("TCP observability lock poisoned");
+        loop {
+            let snapshot = snapshot_tcp_state(&state);
+            if predicate(&snapshot) {
+                return Some(snapshot);
+            }
+
+            let remaining = deadline.checked_duration_since(Instant::now())?;
+            let (next_state, timeout_result) = self
+                .changed
+                .wait_timeout(state, remaining)
+                .expect("TCP observability lock poisoned");
+            state = next_state;
+            if timeout_result.timed_out() {
+                let snapshot = snapshot_tcp_state(&state);
+                return predicate(&snapshot).then_some(snapshot);
+            }
+        }
+    }
+
+    fn failed(&self, event: TcpEventKind) {
+        self.update(|state| {
+            state.error_count = state.error_count.saturating_add(1);
+            push_tcp_event(state, event);
+        });
+    }
+
+    fn update(&self, update: impl FnOnce(&mut TcpObservationState)) {
+        let mut state = self.state.lock().expect("TCP observability lock poisoned");
+        update(&mut state);
+        self.changed.notify_all();
+    }
+}
+
+fn push_tcp_event(state: &mut TcpObservationState, event: TcpEventKind) {
+    if state.events.len() == TCP_EVENT_BUFFER_LIMIT {
+        state.events.pop_front();
+    }
+    state.events.push_back(event);
+}
+
+fn snapshot_tcp_state(state: &TcpObservationState) -> TcpObservationSnapshot {
+    TcpObservationSnapshot {
+        event_count: state.event_count,
+        upload_bytes: state.upload_bytes,
+        download_bytes: state.download_bytes,
+        error_count: state.error_count,
+        events: state.events.iter().copied().collect(),
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct BodyPreview {

@@ -3,7 +3,8 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use serde::Serialize;
 
-use super::model::ForwardRule;
+use super::model::{ForwardProtocol, ForwardRule};
+use super::tcp::TcpRuleRunner;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -45,9 +46,9 @@ pub(crate) struct BatchOperationResult {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct RunningHandle(u64);
+pub(super) struct RunningHandle(pub(super) u64);
 
-trait RuleRunner: Send + Sync {
+pub(super) trait RuleRunner: Send + Sync {
     fn start(&self, rule: &ForwardRule) -> Result<RunningHandle, String>;
     fn stop(&self, handle: RunningHandle) -> Result<(), String>;
 }
@@ -88,7 +89,7 @@ pub(crate) struct RuntimeManager {
 }
 
 impl RuntimeManager {
-    fn new(runner: Arc<dyn RuleRunner>) -> Self {
+    pub(super) fn new(runner: Arc<dyn RuleRunner>) -> Self {
         Self {
             runner,
             instances: Mutex::new(HashMap::new()),
@@ -436,22 +437,35 @@ fn compensation_error_message(primary_error: &str, compensation_error: &str) -> 
     format!("{primary_error}; 补偿失败: {compensation_error}")
 }
 
-struct PlaceholderRunner;
+struct ProtocolRunner {
+    tcp: TcpRuleRunner,
+}
 
-impl RuleRunner for PlaceholderRunner {
-    fn start(&self, _rule: &ForwardRule) -> Result<RunningHandle, String> {
-        Err("协议转发运行器尚未安装".into())
+impl Default for ProtocolRunner {
+    fn default() -> Self {
+        Self {
+            tcp: TcpRuleRunner::new(),
+        }
+    }
+}
+
+impl RuleRunner for ProtocolRunner {
+    fn start(&self, rule: &ForwardRule) -> Result<RunningHandle, String> {
+        match rule.protocol {
+            ForwardProtocol::Tcp => self.tcp.start(rule),
+            ForwardProtocol::Http | ForwardProtocol::Udp => Err("协议转发运行器尚未安装".into()),
+        }
     }
 
-    fn stop(&self, _handle: RunningHandle) -> Result<(), String> {
-        Err("协议转发运行器尚未安装".into())
+    fn stop(&self, handle: RunningHandle) -> Result<(), String> {
+        self.tcp.stop(handle)
     }
 }
 
 static RUNTIME_MANAGER: OnceLock<RuntimeManager> = OnceLock::new();
 
 pub(crate) fn global_manager() -> &'static RuntimeManager {
-    RUNTIME_MANAGER.get_or_init(|| RuntimeManager::new(Arc::new(PlaceholderRunner)))
+    RUNTIME_MANAGER.get_or_init(|| RuntimeManager::new(Arc::new(ProtocolRunner::default())))
 }
 
 #[cfg(test)]
