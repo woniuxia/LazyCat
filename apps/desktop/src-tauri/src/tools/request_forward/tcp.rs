@@ -1,3 +1,4 @@
+use std::any::Any;
 use std::collections::HashMap;
 use std::future::pending;
 use std::io::{Error, ErrorKind};
@@ -30,6 +31,13 @@ pub(crate) struct TcpRuleRunner {
     running: Mutex<HashMap<u64, TcpRunningRule>>,
     connection_limit: usize,
     worker_failure: Option<Arc<Notify>>,
+    worker_abrupt_exit: Option<WorkerAbruptExit>,
+}
+
+#[derive(Clone)]
+struct WorkerAbruptExit {
+    notify: Arc<Notify>,
+    triggered: Arc<std::sync::atomic::AtomicBool>,
 }
 
 #[cfg(test)]
@@ -41,6 +49,21 @@ pub(crate) struct TcpWorkerFailureTrigger {
 #[cfg(test)]
 impl TcpWorkerFailureTrigger {
     fn trigger(&self) {
+        self.notify.notify_one();
+    }
+}
+
+#[cfg(test)]
+#[derive(Clone)]
+pub(crate) struct TcpWorkerAbruptExitTrigger {
+    notify: Arc<Notify>,
+    triggered: Arc<std::sync::atomic::AtomicBool>,
+}
+
+#[cfg(test)]
+impl TcpWorkerAbruptExitTrigger {
+    fn trigger(&self) {
+        self.triggered.store(true, Ordering::SeqCst);
         self.notify.notify_one();
     }
 }
@@ -115,6 +138,7 @@ impl TcpRuleRunner {
             running: Mutex::new(HashMap::new()),
             connection_limit,
             worker_failure: None,
+            worker_abrupt_exit: None,
         }
     }
 
@@ -124,6 +148,18 @@ impl TcpRuleRunner {
         let mut runner = Self::new();
         runner.worker_failure = Some(Arc::clone(&notify));
         (runner, TcpWorkerFailureTrigger { notify })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_worker_abrupt_exit_for_test() -> (Self, TcpWorkerAbruptExitTrigger) {
+        let notify = Arc::new(Notify::new());
+        let triggered = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let mut runner = Self::new();
+        runner.worker_abrupt_exit = Some(WorkerAbruptExit {
+            notify: Arc::clone(&notify),
+            triggered: Arc::clone(&triggered),
+        });
+        (runner, TcpWorkerAbruptExitTrigger { notify, triggered })
     }
 
     #[cfg(test)]
@@ -202,6 +238,26 @@ impl TcpRuleRunner {
     }
 
     #[cfg(test)]
+    pub(crate) fn wait_for_worker_exit(&self, handle: RunningHandle) -> Result<(), String> {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            let finished = self
+                .running
+                .lock()
+                .expect("TCP runner lock poisoned")
+                .get(&handle.0)
+                .is_some_and(|rule| rule.worker.is_finished());
+            if finished {
+                return Ok(());
+            }
+            if Instant::now() >= deadline {
+                return Err("等待 TCP worker 退出超时".into());
+            }
+            thread::yield_now();
+        }
+    }
+
+    #[cfg(test)]
     pub(crate) fn wait_for_snapshot(
         &self,
         handle: RunningHandle,
@@ -256,6 +312,8 @@ impl RuleRunner for TcpRuleRunner {
         let worker_completion = Arc::clone(&completion);
         let connection_limit = self.connection_limit;
         let worker_failure = self.worker_failure.clone();
+        let worker_abrupt_exit = self.worker_abrupt_exit.clone();
+        let worker_abrupt_exit_for_listener = worker_abrupt_exit.clone();
         let worker = thread::Builder::new()
             .name(format!("request-forward-tcp-{}", rule.id))
             .spawn(move || {
@@ -270,9 +328,16 @@ impl RuleRunner for TcpRuleRunner {
                         worker_observability,
                         connection_limit,
                         worker_failure,
+                        worker_abrupt_exit_for_listener.map(|exit| exit.notify),
                     )
                     .await
                 });
+                if worker_abrupt_exit
+                    .as_ref()
+                    .is_some_and(|exit| exit.triggered.load(Ordering::SeqCst))
+                {
+                    return Ok(());
+                }
                 if let Err(error) = &result {
                     worker_completion.record_failure(error.clone());
                 }
@@ -314,13 +379,15 @@ impl RuleRunner for TcpRuleRunner {
     }
 
     fn take_failure(&self, handle: RunningHandle) -> Option<String> {
-        let failure = self
+        let (failure, is_finished) = self
             .running
             .lock()
             .expect("TCP runner lock poisoned")
             .get(&handle.0)
-            .and_then(|running| running.completion.failure());
-        let failure = failure?;
+            .map(|running| (running.completion.failure(), running.worker.is_finished()))?;
+        if failure.is_none() && !is_finished {
+            return None;
+        }
 
         let running = self
             .running
@@ -328,9 +395,9 @@ impl RuleRunner for TcpRuleRunner {
             .expect("TCP runner lock poisoned")
             .remove(&handle.0)?;
         match running.worker.join() {
-            Ok(Err(_)) => Some(failure),
-            Ok(Ok(())) => Some("TCP 转发线程意外退出".into()),
-            Err(_) => Some("TCP 转发线程异常退出".into()),
+            Ok(Err(error)) => Some(failure.unwrap_or(error)),
+            Ok(Ok(())) => Some(failure.unwrap_or_else(|| "TCP 转发线程意外退出".into())),
+            Err(payload) => Some(failure.unwrap_or_else(|| worker_panic_error(payload))),
         }
     }
 }
@@ -343,6 +410,7 @@ async fn run_listener(
     observability: Arc<TcpObservability>,
     connection_limit: usize,
     worker_failure: Option<Arc<Notify>>,
+    worker_abrupt_exit: Option<Arc<Notify>>,
 ) -> Result<(), String> {
     let semaphore = Arc::new(Semaphore::new(connection_limit));
     let mut children = JoinSet::new();
@@ -356,6 +424,10 @@ async fn run_listener(
                 let error = "injected TCP worker failure".to_string();
                 observability.listener_failed(error.clone());
                 rule_error = Some(error);
+                cancellation.cancel();
+                break;
+            },
+            _ = wait_for_worker_failure(worker_abrupt_exit.clone()) => {
                 cancellation.cancel();
                 break;
             },
@@ -529,6 +601,15 @@ async fn wait_for_worker_failure(failure: Option<Arc<Notify>>) {
         Some(notify) => notify.notified().await,
         None => pending().await,
     }
+}
+
+fn worker_panic_error(payload: Box<dyn Any + Send>) -> String {
+    let detail = payload
+        .downcast_ref::<&str>()
+        .map(|value| (*value).to_string())
+        .or_else(|| payload.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "非文本 panic payload".into());
+    format!("TCP 转发线程 panic: {detail}")
 }
 
 #[cfg(test)]
@@ -920,6 +1001,44 @@ mod tests {
             manager
                 .start(&rule, &persistence)
                 .expect("restart failed TCP rule")
+                .state,
+            RuntimeState::Running
+        );
+        manager
+            .stop(&rule, &persistence)
+            .expect("stop restarted TCP rule");
+        drop(downstream);
+    }
+
+    #[test]
+    fn tcp_worker_abrupt_exit_marks_rule_failed_and_allows_restart() {
+        let downstream = TcpListener::bind("127.0.0.1:0").expect("bind downstream listener");
+        let downstream_addr = downstream.local_addr().expect("read downstream address");
+        let rule = tcp_rule(7, downstream_addr);
+        let (runner, abrupt_exit) = TcpRuleRunner::with_worker_abrupt_exit_for_test();
+        let runner = Arc::new(runner);
+        let manager = RuntimeManager::new(runner.clone());
+        let persistence = TestPersistence::default();
+
+        manager.start(&rule, &persistence).expect("start TCP rule");
+        let handle = runner.only_handle().expect("read running TCP handle");
+        abrupt_exit.trigger();
+        runner
+            .wait_for_worker_exit(handle)
+            .expect("wait for abrupt worker exit");
+
+        let status = manager.status(rule.id);
+        assert_eq!(status.state, RuntimeState::Failed);
+        assert!(status
+            .last_error
+            .as_deref()
+            .is_some_and(|error| !error.is_empty()));
+        assert!(manager.ensure_rule_mutable(rule.id).is_ok());
+
+        assert_eq!(
+            manager
+                .start(&rule, &persistence)
+                .expect("restart abruptly exited TCP rule")
                 .state,
             RuntimeState::Running
         );
