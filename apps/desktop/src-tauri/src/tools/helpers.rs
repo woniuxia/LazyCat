@@ -174,6 +174,9 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
     conn
         .execute_batch(super::api_mock::API_MOCK_SCHEMA_SQL)
         .map_err(|e| format!("create api mock schema failed: {e}"))?;
+    conn
+        .execute_batch(super::sql_entity::SQL_ENTITY_SCHEMA_SQL)
+        .map_err(|e| format!("create sql entity schema failed: {e}"))?;
 
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS hosts_profiles (

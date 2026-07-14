@@ -35,6 +35,7 @@ pub mod pomodoro;
 pub mod port;
 pub mod regex;
 pub mod schema;
+pub mod sql_entity;
 pub mod settings;
 pub mod snippets;
 pub mod text;
@@ -82,6 +83,7 @@ fn dispatch_tool(domain: &str, action: &str, payload: &Value) -> Result<Value, S
         "hotkey" => hotkey::execute(action, payload),
         "jwt" => jwt::execute(action, payload),
         "schema" => schema::execute(action, payload),
+        "sql_entity" => sql_entity::execute(action, payload),
         "mybatis" => mybatis::execute(action, payload),
         "nginx" => nginx::execute(action, payload),
         "snippets" => snippets::execute(action, payload),
@@ -127,6 +129,7 @@ pub fn supported_actions(domain: &str) -> Option<&'static [&'static str]> {
         "hotkey" => Some(hotkey::supported_actions()),
         "jwt" => Some(jwt::supported_actions()),
         "schema" => Some(schema::supported_actions()),
+        "sql_entity" => Some(sql_entity::supported_actions()),
         "mybatis" => Some(mybatis::supported_actions()),
         "nginx" => Some(nginx::supported_actions()),
         "snippets" => Some(snippets::supported_actions()),
