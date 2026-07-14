@@ -8,6 +8,32 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-07-14: SQL 实体生成器基类字段排除
+
+**场景**: Java 实体生成需要从多个基类模板汇总字段排除，同时只生成一个合法父类继承声明。
+
+**关键点**:
+1. 先把 SQL 列转换成最终 Java 属性名，再与基类字段集合精确匹配；不要混用数据库列名和属性名。
+2. 字段过滤必须发生在类型 import、MyBatis-Plus 注解和字段正文生成之前，所有派生输出共享同一个过滤后集合，避免残留无用 import 或注解。
+3. Java 多个“基类配置”应拆成一个实际父类和多个字段模板；只有实际父类生成 `extends/import`，其余模板只提供排除字段。
+
+**涉及文件**:
+- `apps/desktop/src-tauri/src/tools/sql_entity.rs`
+- `apps/desktop/src-tauri/src/tools/convert.rs`
+- `apps/desktop/src/components/SqlEntityPanel.vue`
+- `apps/desktop/src/components/SqlEntityBaseClassDialog.vue`
+- `apps/desktop/src/utils/sqlEntityBaseClass.ts`
+
+**验证**:
+- `cargo test sql_entity:: -- --nocapture`
+- `cargo test sql_to_entity_ -- --nocapture`
+- `cargo test contract_tests -- --nocapture`
+- `pnpm test src/utils/sqlEntityBaseClass.test.ts`
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+
+**使用次数**: 0
+
 ## 2026-07-11: 结构治理批次 3（Todo 域）行为保持拆分
 
 **场景**: 执行结构治理路线图批次 3：Todo 前端域迁入 `components/todo/`、`TodoPanel.vue`（2961 行）拆 5 个 composable、Rust `todo.rs`（3253 行）目录化。plan `docs/superpowers/plans/2026-07-11-structure-refactor-batch3-todo-plan.md`。
