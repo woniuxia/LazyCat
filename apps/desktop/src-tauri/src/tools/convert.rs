@@ -1,5 +1,5 @@
 use serde_json::{json, Value};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::fs;
 
 fn json_to_xml(root_tag: &str, value: &Value) -> String {
@@ -825,18 +825,66 @@ fn get_type_for_lang(sql_type: &str, lang: &str) -> String {
     }
 }
 
+#[derive(Debug, Clone, Default)]
+struct JavaBaseOptions {
+    excluded_fields: HashSet<String>,
+    parent_qualified_name: Option<String>,
+}
+
+fn parse_java_base_options(options: &Value) -> Result<JavaBaseOptions, String> {
+    let items = options["baseClasses"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    if items.is_empty() {
+        return Ok(JavaBaseOptions::default());
+    }
+
+    let parent_id = options["parentBaseClassId"]
+        .as_i64()
+        .ok_or("已选择基类时必须指定实际父类")?;
+    let mut result = JavaBaseOptions::default();
+
+    for item in items {
+        let id = item["id"].as_i64().ok_or("基类 ID 无效")?;
+        let qualified_name = super::sql_entity::validate_java_qualified_name(
+            item["qualifiedName"]
+                .as_str()
+                .ok_or("基类完整类名无效")?,
+        )?;
+        for field in super::sql_entity::normalize_java_fields(&item["fields"])? {
+            result.excluded_fields.insert(field);
+        }
+        if id == parent_id {
+            result.parent_qualified_name = Some(qualified_name);
+        }
+    }
+
+    if result.parent_qualified_name.is_none() {
+        return Err("实际父类必须属于已选基类".into());
+    }
+    Ok(result)
+}
+
 fn generate_java(
     table: &SqlTable,
     naming: &str,
     comments: bool,
     mybatis_plus: bool,
+    base_options: &JavaBaseOptions,
 ) -> String {
     let class_name = table_name_to_class(&table.name);
     let mut out = String::new();
+    let included_columns: Vec<(&SqlColumn, String)> = table
+        .columns
+        .iter()
+        .map(|column| (column, convert_field_name(&column.name, naming)))
+        .filter(|(_, field_name)| !base_options.excluded_fields.contains(field_name))
+        .collect();
 
     // Collect imports
     let mut imports = vec!["lombok.Data".to_string()];
-    for col in &table.columns {
+    for (col, _) in &included_columns {
         let type_name = get_type_for_lang(&col.sql_type, "java");
         match type_name.as_str() {
             "LocalDateTime" => {
@@ -854,9 +902,18 @@ fn generate_java(
             _ => {}
         }
     }
+    if let Some(parent) = &base_options.parent_qualified_name {
+        if parent.contains('.') {
+            imports.push(parent.clone());
+        }
+    }
 
     let single_primary_key = if table.primary_keys.len() == 1 {
-        table.primary_keys.first().map(String::as_str)
+        table.primary_keys.first().map(String::as_str).filter(|key| {
+            included_columns
+                .iter()
+                .any(|(column, _)| column.name == **key)
+        })
     } else {
         None
     };
@@ -868,15 +925,14 @@ fn generate_java(
             imports.push("com.baomidou.mybatisplus.annotation.TableId".into());
         }
 
-        if table.columns.iter().any(|col| {
-            let field_name = convert_field_name(&col.name, naming);
+        if included_columns.iter().any(|(col, field_name)| {
             single_primary_key != Some(col.name.as_str())
-                && needs_table_field(&col.name, &field_name)
+                && needs_table_field(&col.name, field_name)
         }) {
             imports.push("com.baomidou.mybatisplus.annotation.TableField".into());
         }
 
-        if table.columns.iter().any(|col| {
+        if included_columns.iter().any(|(col, _)| {
             single_primary_key == Some(col.name.as_str()) && col.auto_increment
         }) {
             imports.push("com.baomidou.mybatisplus.annotation.IdType".into());
@@ -894,19 +950,28 @@ fn generate_java(
     if mybatis_plus {
         out.push_str(&format!("@TableName(\"{}\")\n", table.name));
     }
-    out.push_str(&format!("public class {} {{\n", class_name));
+    let parent_name = base_options
+        .parent_qualified_name
+        .as_deref()
+        .and_then(|name| name.rsplit('.').next());
+    let extends_clause = parent_name
+        .map(|name| format!(" extends {name}"))
+        .unwrap_or_default();
+    out.push_str(&format!(
+        "public class {}{} {{\n",
+        class_name, extends_clause
+    ));
 
-    for col in &table.columns {
+    for (col, field_name) in &included_columns {
         if comments {
             if let Some(ref c) = col.comment {
                 out.push_str(&format!("    /** {} */\n", c));
             }
         }
-        let field_name = convert_field_name(&col.name, naming);
         let is_single_primary_key = single_primary_key == Some(col.name.as_str());
 
         if mybatis_plus && is_single_primary_key {
-            let renamed = field_name != col.name;
+            let renamed = field_name.as_str() != col.name;
             match (renamed, col.auto_increment) {
                 (false, false) => out.push_str("    @TableId\n"),
                 (true, false) => {
@@ -922,7 +987,7 @@ fn generate_java(
                     ));
                 }
             }
-        } else if mybatis_plus && needs_table_field(&col.name, &field_name) {
+        } else if mybatis_plus && needs_table_field(&col.name, field_name) {
             out.push_str(&format!("    @TableField(\"{}\")\n", col.name));
         }
 
@@ -1115,6 +1180,11 @@ fn sql_to_entity(payload: &Value) -> Result<Value, String> {
     let comments = options["comments"].as_bool().unwrap_or(true);
     let naming = options["naming"].as_str().unwrap_or("camelCase");
     let mybatis_plus = options["mybatisPlus"].as_bool().unwrap_or(false);
+    let java_base_options = if language == "java" {
+        parse_java_base_options(options)?
+    } else {
+        JavaBaseOptions::default()
+    };
 
     let tables = parse_create_tables(sql);
     if tables.is_empty() {
@@ -1126,7 +1196,13 @@ fn sql_to_entity(payload: &Value) -> Result<Value, String> {
 
     for table in &tables {
         let code = match language.as_str() {
-            "java" => generate_java(table, naming, comments, mybatis_plus),
+            "java" => generate_java(
+                table,
+                naming,
+                comments,
+                mybatis_plus,
+                &java_base_options,
+            ),
             "typescript" => generate_typescript(table, naming, comments),
             "go" => generate_go(table, naming, comments),
             "python" => generate_python(table, naming, comments),
@@ -1766,6 +1842,73 @@ mod tests {
         assert!(!code.contains("@TableField"));
         assert!(code.contains("private Long orderId;"));
         assert!(code.contains("private Long itemId;"));
+    }
+
+    #[test]
+    fn sql_to_entity_java_excludes_selected_base_fields_and_extends_parent() {
+        let result = execute(
+            "sql_to_entity",
+            &json!({
+                "sql": "CREATE TABLE t_user (id BIGINT NOT NULL AUTO_INCREMENT, tenant_id BIGINT, created_at DATETIME, name VARCHAR(100), PRIMARY KEY (id));",
+                "language": "java",
+                "options": {
+                    "comments": false,
+                    "naming": "camelCase",
+                    "mybatisPlus": true,
+                    "baseClasses": [
+                        { "id": 1, "alias": "基础", "qualifiedName": "com.example.BaseEntity", "fields": ["id", "createdAt"] },
+                        { "id": 2, "alias": "租户", "qualifiedName": "com.example.TenantFields", "fields": ["tenantId"] }
+                    ],
+                    "parentBaseClassId": 1
+                }
+            }),
+        )
+        .unwrap();
+        let code = result["code"].as_str().unwrap();
+        assert!(code.contains("import com.example.BaseEntity;"));
+        assert!(code.contains("public class User extends BaseEntity"));
+        assert!(code.contains("private String name;"));
+        assert!(!code.contains("private Long id;"));
+        assert!(!code.contains("private Long tenantId;"));
+        assert!(!code.contains("private LocalDateTime createdAt;"));
+        assert!(!code.contains("TableId"));
+        assert!(!code.contains("IdType"));
+        assert!(!code.contains("java.time.LocalDateTime"));
+        assert!(!code.contains("TenantFields"));
+    }
+
+    #[test]
+    fn sql_to_entity_java_rejects_parent_outside_selection() {
+        let error = execute(
+            "sql_to_entity",
+            &json!({
+                "sql": "CREATE TABLE users (id BIGINT);",
+                "language": "java",
+                "options": {
+                    "baseClasses": [{ "id": 1, "alias": "基础", "qualifiedName": "BaseEntity", "fields": ["id"] }],
+                    "parentBaseClassId": 2
+                }
+            }),
+        )
+        .unwrap_err();
+        assert!(error.contains("实际父类必须属于已选基类"));
+    }
+
+    #[test]
+    fn sql_to_entity_java_rejects_invalid_base_class_snapshot() {
+        let error = execute(
+            "sql_to_entity",
+            &json!({
+                "sql": "CREATE TABLE users (id BIGINT);",
+                "language": "java",
+                "options": {
+                    "baseClasses": [{ "id": 1, "alias": "非法", "qualifiedName": "com.example.1Base", "fields": ["created-at"] }],
+                    "parentBaseClassId": 1
+                }
+            }),
+        )
+        .unwrap_err();
+        assert!(error.contains("非法 Java 标识符"));
     }
 
     #[test]
