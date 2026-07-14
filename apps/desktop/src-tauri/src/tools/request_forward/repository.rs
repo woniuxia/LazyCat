@@ -54,8 +54,7 @@ pub(crate) fn update_with_conn(
     id: i64,
     input: RuleWriteInput,
 ) -> Result<ForwardRule, String> {
-    let existing = get_with_conn(conn, id)?;
-    ensure_rule_stopped(&existing)?;
+    get_with_conn(conn, id)?;
     let input = validate_rule_input(input)?;
     conn.execute(
         "UPDATE request_forward_rules
@@ -88,10 +87,28 @@ pub(crate) fn update_with_conn(
 }
 
 pub(crate) fn delete_with_conn(conn: &Connection, id: i64) -> Result<(), String> {
-    let existing = get_with_conn(conn, id)?;
-    ensure_rule_stopped(&existing)?;
+    get_with_conn(conn, id)?;
     conn.execute("DELETE FROM request_forward_rules WHERE id = ?1", [id])
         .map_err(|e| format!("删除转发规则失败: {e}"))?;
+    Ok(())
+}
+
+pub(crate) fn set_auto_start_with_conn(
+    conn: &Connection,
+    id: i64,
+    auto_start: bool,
+) -> Result<(), String> {
+    let changed = conn
+        .execute(
+            "UPDATE request_forward_rules
+             SET auto_start = ?1, updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?2",
+            params![bool_to_db(auto_start), id],
+        )
+        .map_err(|e| format!("更新转发规则启动意图失败: {e}"))?;
+    if changed == 0 {
+        return Err(MISSING_RULE_ERROR.into());
+    }
     Ok(())
 }
 
@@ -117,13 +134,6 @@ fn insert_rule(
         ],
     )
     .map_err(|e| format!("创建转发规则失败: {e}"))?;
-    Ok(())
-}
-
-fn ensure_rule_stopped(rule: &ForwardRule) -> Result<(), String> {
-    if rule.auto_start {
-        return Err("已启动的转发规则不能修改或删除".into());
-    }
     Ok(())
 }
 

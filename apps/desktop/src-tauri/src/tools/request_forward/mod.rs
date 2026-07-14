@@ -2,11 +2,13 @@ use serde_json::{json, Value};
 
 use super::helpers::db_conn;
 use model::RuleWriteInput;
+use runtime::AutoStartPersistence;
 
 mod http;
 mod model;
 mod observability;
 mod repository;
+mod runtime;
 mod validation;
 
 const ACTIONS: &[&str] = &[
@@ -53,15 +55,94 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
             let conn = db_conn()?;
             let id = parse_rule_id(payload)?;
             let input = parse_update_rule_input(payload)?;
-            Ok(json!({ "item": repository::update_with_conn(&conn, id, input)? }))
+            let item = runtime::global_manager()
+                .with_rule_mutation(id, || repository::update_with_conn(&conn, id, input))?;
+            Ok(json!({ "item": item }))
         }
         "delete" => {
             let conn = db_conn()?;
-            repository::delete_with_conn(&conn, parse_rule_id(payload)?)?;
+            let id = parse_rule_id(payload)?;
+            let manager = runtime::global_manager();
+            manager.with_rule_mutation(id, || {
+                repository::delete_with_conn(&conn, id)?;
+                manager.clear_rule_state(id);
+                Ok(())
+            })?;
             Ok(json!({ "ok": true }))
+        }
+        "start" => {
+            let conn = db_conn()?;
+            let id = parse_rule_id(payload)?;
+            let persistence = DatabaseAutoStartPersistence { conn: &conn };
+            let status = runtime::global_manager()
+                .start_loaded(id, &persistence, || repository::get_with_conn(&conn, id))
+                .map_err(|error| runtime_action_error(id, error))?;
+            Ok(json!({ "item": status }))
+        }
+        "stop" => {
+            let conn = db_conn()?;
+            let id = parse_rule_id(payload)?;
+            let persistence = DatabaseAutoStartPersistence { conn: &conn };
+            let status = runtime::global_manager()
+                .stop_loaded(id, &persistence, || repository::get_with_conn(&conn, id))
+                .map_err(|error| runtime_action_error(id, error))?;
+            Ok(json!({ "item": status }))
+        }
+        "start_all" => {
+            let conn = db_conn()?;
+            let rule_ids = repository::list_with_conn(&conn)?
+                .into_iter()
+                .map(|rule| rule.id)
+                .collect::<Vec<_>>();
+            let persistence = DatabaseAutoStartPersistence { conn: &conn };
+            let results =
+                runtime::global_manager().start_all_loaded(&rule_ids, &persistence, |id| {
+                    repository::get_with_conn(&conn, id)
+                });
+            Ok(json!({ "results": results }))
+        }
+        "stop_all" => {
+            let conn = db_conn()?;
+            let rule_ids = repository::list_with_conn(&conn)?
+                .into_iter()
+                .map(|rule| rule.id)
+                .collect::<Vec<_>>();
+            let persistence = DatabaseAutoStartPersistence { conn: &conn };
+            let results =
+                runtime::global_manager().stop_all_loaded(&rule_ids, &persistence, |id| {
+                    repository::get_with_conn(&conn, id)
+                });
+            Ok(json!({ "results": results }))
+        }
+        "status" => {
+            let conn = db_conn()?;
+            if payload.get("id").is_some() {
+                let rule = repository::get_with_conn(&conn, parse_rule_id(payload)?)?;
+                Ok(json!({ "item": runtime::global_manager().status(rule.id) }))
+            } else {
+                let rules = repository::list_with_conn(&conn)?;
+                let items =
+                    runtime::global_manager().statuses(rules.into_iter().map(|rule| rule.id));
+                Ok(json!({ "items": items }))
+            }
         }
         _ => Err("request_forward action not implemented".into()),
     }
+}
+
+struct DatabaseAutoStartPersistence<'a> {
+    conn: &'a rusqlite::Connection,
+}
+
+impl AutoStartPersistence for DatabaseAutoStartPersistence<'_> {
+    fn set_auto_start(&self, rule_id: i64, value: bool) -> Result<(), String> {
+        repository::set_auto_start_with_conn(self.conn, rule_id, value)
+    }
+}
+
+fn runtime_action_error(rule_id: i64, error: String) -> String {
+    let status = runtime::global_manager().status(rule_id);
+    format!("{error}; 当前运行状态: {}", status.state.as_str())
 }
 
 fn parse_rule_id(payload: &Value) -> Result<i64, String> {
