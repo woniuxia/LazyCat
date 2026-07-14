@@ -33,7 +33,12 @@ export function reconcileBaseClassSelection(
   availableIds: number[],
 ): { selectedIds: number[]; parentId: number | null } {
   const available = new Set(availableIds);
-  const nextSelected = selectedIds.filter((id) => available.has(id));
+  const seen = new Set<number>();
+  const nextSelected = selectedIds.filter((id) => {
+    if (!available.has(id) || seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
   if (nextSelected.length === 0) return { selectedIds: [], parentId: null };
   if (nextSelected.length === 1) {
     return { selectedIds: nextSelected, parentId: nextSelected[0] };

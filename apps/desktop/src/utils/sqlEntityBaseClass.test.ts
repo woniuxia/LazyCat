@@ -39,4 +39,11 @@ describe("sqlEntityBaseClass", () => {
       parentId: 1,
     });
   });
+
+  it("保留可用选择的原顺序并去掉重复 ID", () => {
+    expect(reconcileBaseClassSelection([3, 1, 3, 2], 3, [1, 2, 3])).toEqual({
+      selectedIds: [3, 1, 2],
+      parentId: 3,
+    });
+  });
 });
