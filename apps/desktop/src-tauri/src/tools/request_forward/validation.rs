@@ -1,7 +1,7 @@
 use std::net::IpAddr;
 use std::str::FromStr;
 
-use url::Url;
+use url::{Host, Url};
 
 use super::model::{ForwardProtocol, RuleWriteInput, ValidatedRuleWriteInput};
 
@@ -41,7 +41,7 @@ fn validate_http_input(
         .target_url
         .as_deref()
         .ok_or_else(|| "HTTP 规则必须配置目标 URL".to_string())?;
-    let target_url = normalize_http_target_url(target_url)?;
+    let target_url = normalize_http_target_url(target_url, bind_host, input.listen_port)?;
 
     Ok(ValidatedRuleWriteInput {
         name: input.name,
@@ -56,7 +56,11 @@ fn validate_http_input(
     })
 }
 
-fn normalize_http_target_url(value: &str) -> Result<String, String> {
+fn normalize_http_target_url(
+    value: &str,
+    bind_host: IpAddr,
+    listen_port: u16,
+) -> Result<String, String> {
     let value = value.trim();
     if value.is_empty() {
         return Err("HTTP 规则必须配置目标 URL".into());
@@ -72,8 +76,24 @@ fn normalize_http_target_url(value: &str) -> Result<String, String> {
     if parsed.query().is_some() || parsed.fragment().is_some() {
         return Err("HTTP 目标 URL 不能包含 query 或 fragment".into());
     }
+    if let Some(port) = parsed.port() {
+        validate_port(port, "HTTP 目标端口")?;
+    }
+    if url_ip_host(&parsed) == Some(bind_host)
+        && parsed.port_or_known_default() == Some(listen_port)
+    {
+        return Err("目标地址与监听地址相同，不能直接转发到自身".into());
+    }
 
     Ok(parsed.as_str().trim_end_matches('/').to_string())
+}
+
+fn url_ip_host(url: &Url) -> Option<IpAddr> {
+    match url.host()? {
+        Host::Ipv4(host) => Some(IpAddr::V4(host)),
+        Host::Ipv6(host) => Some(IpAddr::V6(host)),
+        Host::Domain(_) => None,
+    }
 }
 
 fn validate_socket_input(

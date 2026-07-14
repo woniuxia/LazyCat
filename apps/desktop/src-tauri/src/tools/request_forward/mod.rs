@@ -253,6 +253,31 @@ mod tests {
     }
 
     #[test]
+    fn validation_rejects_http_self_forward_for_ipv4_and_equivalent_ipv6() {
+        let mut default_port_self_forward = http_input();
+        default_port_self_forward.listen_port = 80;
+        default_port_self_forward.target_url = Some("http://127.0.0.1/api".into());
+        assert!(validation::validate_rule_input(default_port_self_forward).is_err());
+
+        let mut ipv4_self_forward = http_input();
+        ipv4_self_forward.target_url = Some("http://127.0.0.1:8080/api".into());
+        assert!(validation::validate_rule_input(ipv4_self_forward).is_err());
+
+        let mut ipv6_self_forward = http_input();
+        ipv6_self_forward.bind_host = "0:0:0:0:0:0:0:1".into();
+        ipv6_self_forward.listen_port = 8443;
+        ipv6_self_forward.target_url = Some("https://[::1]:8443/api".into());
+        assert!(validation::validate_rule_input(ipv6_self_forward).is_err());
+    }
+
+    #[test]
+    fn validation_rejects_http_explicit_port_zero() {
+        let mut invalid_http_port = http_input();
+        invalid_http_port.target_url = Some("http://example.com:0/api".into());
+        assert!(validation::validate_rule_input(invalid_http_port).is_err());
+    }
+
+    #[test]
     fn repository_crud_creates_stats_and_reports_missing_rules() {
         let mut conn = test_conn();
         let created = repository::create_with_conn(&mut conn, http_input()).expect("create rule");
