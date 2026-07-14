@@ -747,7 +747,68 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
         .map_err(|e| format!("seed todo types failed: {e}"))?;
     }
 
+    ensure_request_forward_schema(conn)?;
+
     Ok(())
+}
+
+fn ensure_request_forward_schema(conn: &Connection) -> Result<(), String> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS request_forward_rules (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            protocol TEXT NOT NULL,
+            bind_host TEXT NOT NULL,
+            listen_port INTEGER NOT NULL,
+            target_url TEXT,
+            target_host TEXT,
+            target_port INTEGER,
+            capture_http_headers INTEGER NOT NULL DEFAULT 1,
+            capture_http_body INTEGER NOT NULL DEFAULT 0,
+            auto_start INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS request_forward_stats (
+            rule_id INTEGER PRIMARY KEY,
+            event_count INTEGER NOT NULL DEFAULT 0,
+            upload_bytes INTEGER NOT NULL DEFAULT 0,
+            download_bytes INTEGER NOT NULL DEFAULT 0,
+            error_count INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY(rule_id) REFERENCES request_forward_rules(id) ON DELETE CASCADE
+        );
+        CREATE TABLE IF NOT EXISTS request_forward_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            rule_id INTEGER NOT NULL,
+            protocol TEXT NOT NULL,
+            client_addr TEXT,
+            target_addr TEXT NOT NULL,
+            method TEXT,
+            path TEXT,
+            status_code INTEGER,
+            duration_ms INTEGER,
+            upload_bytes INTEGER NOT NULL DEFAULT 0,
+            download_bytes INTEGER NOT NULL DEFAULT 0,
+            request_headers_json TEXT,
+            response_headers_json TEXT,
+            request_body_preview TEXT,
+            response_body_preview TEXT,
+            request_body_truncated INTEGER NOT NULL DEFAULT 0,
+            response_body_truncated INTEGER NOT NULL DEFAULT 0,
+            error TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(rule_id) REFERENCES request_forward_rules(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_request_forward_logs_rule_created
+            ON request_forward_logs(rule_id, created_at DESC, id DESC);",
+    )
+    .map_err(|e| format!("create request forward schema failed: {e}"))
+}
+
+#[cfg(test)]
+pub(crate) fn ensure_request_forward_schema_for_test(conn: &Connection) -> Result<(), String> {
+    ensure_request_forward_schema(conn)
 }
 
 pub fn db_conn() -> Result<Connection, String> {
