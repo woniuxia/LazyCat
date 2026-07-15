@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use serde::Serialize;
 
+use super::http::HttpRuleRunner;
 use super::model::{ForwardProtocol, ForwardRule};
 use super::tcp::TcpRuleRunner;
 use super::udp::UdpRuleRunner;
@@ -461,6 +462,7 @@ fn compensation_error_message(primary_error: &str, compensation_error: &str) -> 
 }
 
 struct ProtocolRunner {
+    http: HttpRuleRunner,
     tcp: TcpRuleRunner,
     udp: UdpRuleRunner,
     next_handle: AtomicU64,
@@ -469,6 +471,7 @@ struct ProtocolRunner {
 
 #[derive(Clone, Copy)]
 enum ProtocolChildHandle {
+    Http(RunningHandle),
     Tcp(RunningHandle),
     Udp(RunningHandle),
 }
@@ -476,6 +479,7 @@ enum ProtocolChildHandle {
 impl Default for ProtocolRunner {
     fn default() -> Self {
         Self {
+            http: HttpRuleRunner::new(),
             tcp: TcpRuleRunner::new(),
             udp: UdpRuleRunner::new(),
             next_handle: AtomicU64::new(1),
@@ -487,14 +491,14 @@ impl Default for ProtocolRunner {
 impl RuleRunner for ProtocolRunner {
     fn start(&self, rule: &ForwardRule) -> Result<RunningHandle, String> {
         let child_handle = match rule.protocol {
+            ForwardProtocol::Http => self.http.start(rule),
             ForwardProtocol::Tcp => self.tcp.start(rule),
             ForwardProtocol::Udp => self.udp.start(rule),
-            ForwardProtocol::Http => Err("协议转发运行器尚未安装".into()),
         }?;
         let protocol_handle = match rule.protocol {
+            ForwardProtocol::Http => ProtocolChildHandle::Http(child_handle),
             ForwardProtocol::Tcp => ProtocolChildHandle::Tcp(child_handle),
             ForwardProtocol::Udp => ProtocolChildHandle::Udp(child_handle),
-            ForwardProtocol::Http => unreachable!("HTTP runner did not start"),
         };
         let handle = RunningHandle(self.next_handle.fetch_add(1, Ordering::Relaxed));
         self.running
@@ -512,6 +516,7 @@ impl RuleRunner for ProtocolRunner {
             .remove(&handle.0)
             .ok_or_else(|| "转发规则运行句柄不存在".to_string())?;
         match protocol_handle {
+            ProtocolChildHandle::Http(handle) => self.http.stop(handle),
             ProtocolChildHandle::Tcp(handle) => self.tcp.stop(handle),
             ProtocolChildHandle::Udp(handle) => self.udp.stop(handle),
         }
@@ -525,6 +530,7 @@ impl RuleRunner for ProtocolRunner {
             .get(&handle.0)
             .copied()?;
         let failure = match protocol_handle {
+            ProtocolChildHandle::Http(handle) => self.http.take_failure(handle),
             ProtocolChildHandle::Tcp(handle) => self.tcp.take_failure(handle),
             ProtocolChildHandle::Udp(handle) => self.udp.take_failure(handle),
         };
@@ -916,7 +922,7 @@ mod tests {
     }
 
     #[test]
-    fn protocol_runner_assigns_distinct_handles_to_tcp_and_udp_rules() {
+    fn protocol_runner_assigns_distinct_handles_to_http_tcp_and_udp_rules() {
         let tcp_target = TcpListener::bind("127.0.0.1:0").expect("bind TCP target");
         let udp_target = UdpSocket::bind("127.0.0.1:0").expect("bind UDP target");
         let mut tcp_rule = rule(80);
@@ -928,13 +934,26 @@ mod tests {
         udp_rule.listen_port = 0;
         udp_rule.target_host = Some("127.0.0.1".into());
         udp_rule.target_port = Some(udp_target.local_addr().expect("read UDP target").port());
+        let mut http_rule = rule(82);
+        http_rule.protocol = ForwardProtocol::Http;
+        http_rule.listen_port = 0;
+        http_rule.target_url = Some(format!(
+            "http://{}",
+            tcp_target.local_addr().expect("read HTTP target")
+        ));
+        http_rule.target_host = None;
+        http_rule.target_port = None;
         let runner = ProtocolRunner::default();
 
         let tcp_handle = runner.start(&tcp_rule).expect("start TCP rule");
         let udp_handle = runner.start(&udp_rule).expect("start UDP rule");
+        let http_handle = runner.start(&http_rule).expect("start HTTP rule");
         assert_ne!(tcp_handle, udp_handle);
+        assert_ne!(tcp_handle, http_handle);
+        assert_ne!(udp_handle, http_handle);
 
         runner.stop(tcp_handle).expect("stop TCP rule");
         runner.stop(udp_handle).expect("stop UDP rule");
+        runner.stop(http_handle).expect("stop HTTP rule");
     }
 }

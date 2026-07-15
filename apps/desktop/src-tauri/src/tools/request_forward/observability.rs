@@ -86,7 +86,7 @@ mod tests {
 
 use std::collections::VecDeque;
 use std::net::SocketAddr;
-use std::sync::{Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 #[cfg(test)]
 use std::time::{Duration, Instant};
 
@@ -524,6 +524,298 @@ fn snapshot_udp_state(state: &UdpObservationState) -> UdpObservationSnapshot {
         download_bytes: state.download_bytes,
         error_count: state.error_count,
         events: state.events.iter().cloned().collect(),
+    }
+}
+
+const HTTP_EVENT_BUFFER_LIMIT: usize = 256;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum HttpEventKind {
+    Accepted,
+    DownstreamFailed,
+    ResponseTimeout,
+    Overloaded,
+    UpgradeRejected,
+    ResponseStreamFailed,
+    ListenerFailed,
+    ChildTaskFailed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct HttpEvent {
+    pub(crate) kind: HttpEventKind,
+    pub(crate) error: Option<String>,
+    pub(crate) request_headers: Option<Vec<(String, String)>>,
+    pub(crate) response_headers: Option<Vec<(String, String)>>,
+    pub(crate) request_body_preview: Option<BodyPreview>,
+    pub(crate) response_body_preview: Option<BodyPreview>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct HttpObservationSnapshot {
+    pub(crate) event_count: u64,
+    pub(crate) upload_bytes: u64,
+    pub(crate) download_bytes: u64,
+    pub(crate) error_count: u64,
+    pub(crate) events: Vec<HttpEvent>,
+}
+
+struct HttpEventRecord {
+    kind: HttpEventKind,
+    error: Option<String>,
+    request_headers: Option<Vec<(String, String)>>,
+    response_headers: Mutex<Option<Vec<(String, String)>>>,
+    request_body_preview: Option<Arc<Mutex<PreviewTap>>>,
+    response_body_preview: Mutex<Option<Arc<Mutex<PreviewTap>>>>,
+}
+
+impl HttpEventRecord {
+    fn snapshot(&self) -> HttpEvent {
+        let preview = |tap: &Option<Arc<Mutex<PreviewTap>>>| {
+            tap.as_ref()
+                .map(|tap| tap.lock().expect("HTTP preview lock poisoned").preview())
+        };
+        HttpEvent {
+            kind: self.kind,
+            error: self.error.clone(),
+            request_headers: self.request_headers.clone(),
+            response_headers: self
+                .response_headers
+                .lock()
+                .expect("HTTP response headers lock poisoned")
+                .clone(),
+            request_body_preview: preview(&self.request_body_preview),
+            response_body_preview: preview(
+                &self
+                    .response_body_preview
+                    .lock()
+                    .expect("HTTP response preview lock poisoned"),
+            ),
+        }
+    }
+}
+
+#[derive(Default)]
+struct HttpObservationState {
+    event_count: u64,
+    upload_bytes: u64,
+    download_bytes: u64,
+    error_count: u64,
+    events: VecDeque<Arc<HttpEventRecord>>,
+}
+
+#[derive(Default)]
+pub(crate) struct HttpObservability {
+    state: Mutex<HttpObservationState>,
+    changed: Condvar,
+}
+
+pub(crate) struct HttpRequestTrace {
+    observability: Arc<HttpObservability>,
+    record: Arc<HttpEventRecord>,
+    capture_response_headers: bool,
+    capture_response_body: bool,
+}
+
+impl HttpObservability {
+    pub(crate) fn accepted(
+        self: &Arc<Self>,
+        request_headers: &HeaderMap,
+        capture_headers: bool,
+        capture_body: bool,
+    ) -> Arc<HttpRequestTrace> {
+        let request_body_preview = (capture_body && should_capture_body(request_headers))
+            .then(|| Arc::new(Mutex::new(PreviewTap::new())));
+        let record = Arc::new(HttpEventRecord {
+            kind: HttpEventKind::Accepted,
+            error: None,
+            request_headers: capture_headers.then(|| redact_headers(request_headers)),
+            response_headers: Mutex::new(None),
+            request_body_preview,
+            response_body_preview: Mutex::new(None),
+        });
+        self.update(|state| {
+            state.event_count = state.event_count.saturating_add(1);
+            push_http_event(state, Arc::clone(&record));
+        });
+        Arc::new(HttpRequestTrace {
+            observability: Arc::clone(self),
+            record,
+            capture_response_headers: capture_headers,
+            capture_response_body: capture_body,
+        })
+    }
+
+    pub(crate) fn uploaded(&self, bytes: usize) {
+        self.update(|state| {
+            state.upload_bytes = state.upload_bytes.saturating_add(bytes as u64);
+        });
+    }
+
+    pub(crate) fn downloaded(&self, bytes: usize) {
+        self.update(|state| {
+            state.download_bytes = state.download_bytes.saturating_add(bytes as u64);
+        });
+    }
+
+    pub(crate) fn downstream_failed(&self, error: String) {
+        self.failed(HttpEventKind::DownstreamFailed, error);
+    }
+
+    pub(crate) fn response_timeout(&self, error: String) {
+        self.failed(HttpEventKind::ResponseTimeout, error);
+    }
+
+    pub(crate) fn overloaded(&self, error: String) {
+        self.failed(HttpEventKind::Overloaded, error);
+    }
+
+    pub(crate) fn upgrade_rejected(&self, error: String) {
+        self.failed(HttpEventKind::UpgradeRejected, error);
+    }
+
+    pub(crate) fn response_stream_failed(&self, error: String) {
+        self.failed(HttpEventKind::ResponseStreamFailed, error);
+    }
+
+    pub(crate) fn listener_failed(&self, error: String) {
+        self.failed(HttpEventKind::ListenerFailed, error);
+    }
+
+    pub(crate) fn child_task_failed(&self, error: String) {
+        self.failed(HttpEventKind::ChildTaskFailed, error);
+    }
+
+    pub(crate) fn snapshot(&self) -> HttpObservationSnapshot {
+        let state = self.state.lock().expect("HTTP observability lock poisoned");
+        HttpObservationSnapshot {
+            event_count: state.event_count,
+            upload_bytes: state.upload_bytes,
+            download_bytes: state.download_bytes,
+            error_count: state.error_count,
+            events: state.events.iter().map(|event| event.snapshot()).collect(),
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn wait_for(
+        &self,
+        timeout: Duration,
+        predicate: impl Fn(&HttpObservationSnapshot) -> bool,
+    ) -> Option<HttpObservationSnapshot> {
+        let deadline = Instant::now() + timeout;
+        let mut state = self.state.lock().expect("HTTP observability lock poisoned");
+        loop {
+            let snapshot = snapshot_http_state(&state);
+            if predicate(&snapshot) {
+                return Some(snapshot);
+            }
+
+            let remaining = deadline.checked_duration_since(Instant::now())?;
+            let (next_state, timeout_result) = self
+                .changed
+                .wait_timeout(state, remaining)
+                .expect("HTTP observability lock poisoned");
+            state = next_state;
+            if timeout_result.timed_out() {
+                let snapshot = snapshot_http_state(&state);
+                return predicate(&snapshot).then_some(snapshot);
+            }
+        }
+    }
+
+    fn failed(&self, kind: HttpEventKind, error: String) {
+        self.update(|state| {
+            state.error_count = state.error_count.saturating_add(1);
+            push_http_event(
+                state,
+                Arc::new(HttpEventRecord {
+                    kind,
+                    error: Some(error),
+                    request_headers: None,
+                    response_headers: Mutex::new(None),
+                    request_body_preview: None,
+                    response_body_preview: Mutex::new(None),
+                }),
+            );
+        });
+    }
+
+    fn update(&self, update: impl FnOnce(&mut HttpObservationState)) {
+        let mut state = self.state.lock().expect("HTTP observability lock poisoned");
+        update(&mut state);
+        self.changed.notify_all();
+    }
+}
+
+impl HttpRequestTrace {
+    pub(crate) fn observe_request(&self, chunk: &[u8]) {
+        if let Some(tap) = &self.record.request_body_preview {
+            tap.lock()
+                .expect("HTTP request preview lock poisoned")
+                .observe(chunk);
+        }
+    }
+
+    pub(crate) fn response_started(&self, headers: &HeaderMap) {
+        if self.capture_response_headers {
+            *self
+                .record
+                .response_headers
+                .lock()
+                .expect("HTTP response headers lock poisoned") = Some(redact_headers(headers));
+        }
+        if self.capture_response_body && should_capture_body(headers) {
+            *self
+                .record
+                .response_body_preview
+                .lock()
+                .expect("HTTP response preview lock poisoned") =
+                Some(Arc::new(Mutex::new(PreviewTap::new())));
+        }
+    }
+
+    pub(crate) fn observe_response(&self, chunk: &[u8]) {
+        let tap = self
+            .record
+            .response_body_preview
+            .lock()
+            .expect("HTTP response preview lock poisoned")
+            .clone();
+        if let Some(tap) = tap {
+            tap.lock()
+                .expect("HTTP response preview lock poisoned")
+                .observe(chunk);
+        }
+    }
+
+    pub(crate) fn uploaded(&self, bytes: usize) {
+        self.observability.uploaded(bytes);
+    }
+
+    pub(crate) fn downloaded(&self, bytes: usize) {
+        self.observability.downloaded(bytes);
+    }
+
+    pub(crate) fn response_stream_failed(&self, error: String) {
+        self.observability.response_stream_failed(error);
+    }
+}
+
+fn push_http_event(state: &mut HttpObservationState, event: Arc<HttpEventRecord>) {
+    if state.events.len() == HTTP_EVENT_BUFFER_LIMIT {
+        state.events.pop_front();
+    }
+    state.events.push_back(event);
+}
+
+fn snapshot_http_state(state: &HttpObservationState) -> HttpObservationSnapshot {
+    HttpObservationSnapshot {
+        event_count: state.event_count,
+        upload_bytes: state.upload_bytes,
+        download_bytes: state.download_bytes,
+        error_count: state.error_count,
+        events: state.events.iter().map(|event| event.snapshot()).collect(),
     }
 }
 
