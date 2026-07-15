@@ -128,6 +128,24 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
                 Ok(json!({ "items": items }))
             }
         }
+        "log_list" => {
+            let conn = db_conn()?;
+            let page = repository::list_logs_with_conn(&conn, &parse_log_query(payload)?)?;
+            Ok(json!({ "items": page.items, "total": page.total }))
+        }
+        "log_clear" => {
+            let conn = db_conn()?;
+            repository::clear_logs_with_conn(&conn, parse_rule_id(payload)?)?;
+            Ok(json!({ "ok": true }))
+        }
+        "stats_get" => {
+            let id = parse_rule_id(payload)?;
+            Ok(json!({ "item": runtime::global_manager().stats(id)? }))
+        }
+        "stats_reset" => {
+            let id = parse_rule_id(payload)?;
+            Ok(json!({ "item": runtime::global_manager().reset_stats(id)? }))
+        }
         _ => Err("request_forward action not implemented".into()),
     }
 }
@@ -168,9 +186,47 @@ fn parse_update_rule_input(payload: &Value) -> Result<RuleWriteInput, String> {
     parse_rule_input(&Value::Object(rule_payload))
 }
 
+fn parse_log_query(payload: &Value) -> Result<repository::LogQuery, String> {
+    let rule_id = parse_rule_id(payload)?;
+    let keyword = match payload.get("keyword") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(value)) => Some(value.clone()),
+        Some(_) => return Err("转发日志关键词无效".into()),
+    };
+    let outcome = match payload.get("mode") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(value)) if value == "success" => Some(repository::LogOutcome::Success),
+        Some(Value::String(value)) if value == "error" => Some(repository::LogOutcome::Error),
+        Some(_) => return Err("转发日志结果模式无效".into()),
+    };
+    let offset = match payload.get("offset") {
+        None | Some(Value::Null) => 0,
+        Some(value) => value
+            .as_u64()
+            .and_then(|value| usize::try_from(value).ok())
+            .ok_or_else(|| "转发日志分页偏移无效".to_string())?,
+    };
+    let limit = match payload.get("limit") {
+        None | Some(Value::Null) => 100,
+        Some(value) => value
+            .as_u64()
+            .filter(|value| (1..=1000).contains(value))
+            .and_then(|value| usize::try_from(value).ok())
+            .ok_or_else(|| "转发日志分页大小无效".to_string())?,
+    };
+    Ok(repository::LogQuery {
+        rule_id,
+        keyword,
+        outcome,
+        offset,
+        limit,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::model::{ForwardProtocol, RuleWriteInput};
+    use super::runtime::{RuntimeState, RuntimeStatus};
     use super::{repository, validation};
     use crate::tools::helpers::ensure_request_forward_schema_for_test;
     use rusqlite::{params, Connection};
@@ -413,5 +469,67 @@ mod tests {
     fn action_rejects_unknown_action() {
         let err = super::execute("unknown", &json!({})).expect_err("unknown action should fail");
         assert!(err.contains("unsupported request_forward action"));
+    }
+
+    #[test]
+    fn log_and_status_actions_serialize_camel_case_output() {
+        let query = super::parse_log_query(&json!({
+            "id": 7,
+            "keyword": "timeout",
+            "mode": "error",
+            "offset": 20,
+            "limit": 50
+        }))
+        .expect("parse log query");
+        assert_eq!(query.rule_id, 7);
+        assert_eq!(query.keyword.as_deref(), Some("timeout"));
+        assert_eq!(query.outcome, Some(repository::LogOutcome::Error));
+        assert_eq!(query.offset, 20);
+        assert_eq!(query.limit, 50);
+
+        let value = serde_json::to_value(RuntimeStatus {
+            rule_id: 7,
+            state: RuntimeState::Running,
+            last_error: None,
+            last_observability_error: Some("database is read-only".into()),
+        })
+        .expect("serialize status");
+        assert_eq!(value["ruleId"], 7);
+        assert_eq!(value["lastObservabilityError"], "database is read-only");
+        assert!(value.get("last_observability_error").is_none());
+
+        let log_value = serde_json::to_value(repository::ForwardLog {
+            id: 1,
+            rule_id: 7,
+            protocol: ForwardProtocol::Http,
+            client_addr: Some("127.0.0.1:12345".into()),
+            target_addr: "example.com:80".into(),
+            method: Some("GET".into()),
+            path: Some("/health".into()),
+            status_code: Some(200),
+            duration_ms: Some(12),
+            upload_bytes: 3,
+            download_bytes: 4,
+            request_headers: None,
+            response_headers: None,
+            request_body_preview: None,
+            response_body_preview: None,
+            request_body_truncated: false,
+            response_body_truncated: false,
+            error: None,
+            created_at: "2026-07-15 00:00:00".into(),
+        })
+        .expect("serialize log");
+        assert_eq!(log_value["ruleId"], 7);
+        assert_eq!(log_value["clientAddr"], "127.0.0.1:12345");
+        assert_eq!(log_value["statusCode"], 200);
+        assert!(log_value.get("client_addr").is_none());
+    }
+
+    #[test]
+    fn log_query_rejects_invalid_mode_and_pagination() {
+        assert!(super::parse_log_query(&json!({ "id": 1, "mode": "all" })).is_err());
+        assert!(super::parse_log_query(&json!({ "id": 1, "limit": 0 })).is_err());
+        assert!(super::parse_log_query(&json!({ "id": 1, "offset": -1 })).is_err());
     }
 }

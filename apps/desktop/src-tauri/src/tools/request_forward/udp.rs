@@ -13,7 +13,9 @@ use tokio_util::sync::CancellationToken;
 use super::model::ForwardRule;
 #[cfg(test)]
 pub(super) use super::observability::UdpEventKind;
-use super::observability::{UdpObservability, UdpObservationSnapshot};
+use super::observability::UdpObservability;
+#[cfg(test)]
+use super::observability::UdpObservationSnapshot;
 use super::runtime::{RuleRunner, RunningHandle};
 
 pub(crate) const UDP_MAX_SESSIONS_PER_RULE: usize = 256;
@@ -69,6 +71,7 @@ struct UdpRunningRule {
     listener_addr: SocketAddr,
     cancellation: CancellationToken,
     observability: Arc<UdpObservability>,
+    #[cfg(test)]
     sessions: Arc<UdpSessionRegistry>,
     completion: Arc<UdpWorkerCompletion>,
     worker: JoinHandle<Result<(), String>>,
@@ -265,6 +268,18 @@ impl UdpRuleRunner {
         }
     }
 
+    pub(crate) fn observability(
+        &self,
+        handle: RunningHandle,
+    ) -> Result<Arc<UdpObservability>, String> {
+        self.running
+            .lock()
+            .expect("UDP runner lock poisoned")
+            .get(&handle.0)
+            .map(|rule| Arc::clone(&rule.observability))
+            .ok_or_else(|| "UDP 转发规则运行句柄不存在".to_string())
+    }
+
     #[cfg(test)]
     fn listener_addr(&self, handle: RunningHandle) -> Result<SocketAddr, String> {
         self.running
@@ -394,6 +409,7 @@ impl RuleRunner for UdpRuleRunner {
                     listener_addr,
                     cancellation,
                     observability,
+                    #[cfg(test)]
                     sessions,
                     completion,
                     worker,

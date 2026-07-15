@@ -340,7 +340,9 @@ use tokio::time::timeout;
 use tokio_util::sync::{CancellationToken, WaitForCancellationFutureOwned};
 
 use super::model::ForwardRule;
-use super::observability::{HttpObservability, HttpObservationSnapshot, HttpRequestTrace};
+#[cfg(test)]
+use super::observability::HttpObservationSnapshot;
+use super::observability::{HttpObservability, HttpRequestTrace};
 use super::runtime::{RuleRunner, RunningHandle};
 
 pub(crate) const HTTP_MAX_CONNECTIONS_PER_RULE: usize = 64;
@@ -393,6 +395,7 @@ impl HttpRuleRunner {
         Self::with_options(HTTP_MAX_CONNECTIONS_PER_RULE, HTTP_PRE_RESPONSE_TIMEOUT)
     }
 
+    #[cfg(test)]
     pub(crate) fn with_connection_limit(connection_limit: usize) -> Self {
         Self::with_options(connection_limit, HTTP_PRE_RESPONSE_TIMEOUT)
     }
@@ -425,6 +428,7 @@ impl HttpRuleRunner {
             .ok_or_else(|| "HTTP 转发规则运行句柄不存在".to_string())
     }
 
+    #[cfg(test)]
     pub(crate) fn observation_snapshot(
         &self,
         handle: RunningHandle,
@@ -434,6 +438,18 @@ impl HttpRuleRunner {
             .expect("HTTP runner lock poisoned")
             .get(&handle.0)
             .map(|rule| rule.observability.snapshot())
+            .ok_or_else(|| "HTTP 转发规则运行句柄不存在".to_string())
+    }
+
+    pub(crate) fn observability(
+        &self,
+        handle: RunningHandle,
+    ) -> Result<Arc<HttpObservability>, String> {
+        self.running
+            .lock()
+            .expect("HTTP runner lock poisoned")
+            .get(&handle.0)
+            .map(|rule| Arc::clone(&rule.observability))
             .ok_or_else(|| "HTTP 转发规则运行句柄不存在".to_string())
     }
 
@@ -677,11 +693,31 @@ async fn forward_request(
     capture_http_body: bool,
 ) -> Result<Response<ProxyBody>, Infallible> {
     let original_host = request.headers().get("host").cloned();
-    let trace = observability.accepted(request.headers(), capture_http_headers, capture_http_body);
+    let target_addr = format!(
+        "{}:{}",
+        target_url.host_str().unwrap_or_default(),
+        target_url.port_or_known_default().unwrap_or(80)
+    );
+    let method = request.method().to_string();
+    let path = request
+        .uri()
+        .path_and_query()
+        .map(|value| value.as_str())
+        .unwrap_or("/")
+        .to_string();
+    let trace = observability.accepted(
+        client_addr,
+        target_addr,
+        method,
+        path,
+        request.headers(),
+        capture_http_headers,
+        capture_http_body,
+    );
 
     if is_upgrade_request(request.headers()) {
         let error = "HTTP 转发不支持 WebSocket 或 Upgrade 请求".to_string();
-        observability.upgrade_rejected(error.clone());
+        trace.upgrade_rejected(error.clone());
         return Ok(text_response(StatusCode::BAD_REQUEST, &error));
     }
 
@@ -689,7 +725,7 @@ async fn forward_request(
         Ok(permit) => permit,
         Err(_) => {
             let error = "HTTP 并发请求已达到上限".to_string();
-            observability.overloaded(error.clone());
+            trace.overloaded(error.clone());
             return Ok(text_response(StatusCode::SERVICE_UNAVAILABLE, &error));
         }
     };
@@ -698,7 +734,7 @@ async fn forward_request(
     let target_uri = match build_target_uri(&target_url, &parts.uri) {
         Ok(uri) => uri,
         Err(error) => {
-            observability.downstream_failed(error.clone());
+            trace.downstream_failed(error.clone());
             return Ok(text_response(StatusCode::BAD_REQUEST, &error));
         }
     };
@@ -706,11 +742,11 @@ async fn forward_request(
     if let Err(error) =
         rebuild_forward_headers(&mut parts.headers, client_addr.ip(), original_host.as_ref())
     {
-        observability.downstream_failed(error.clone());
+        trace.downstream_failed(error.clone());
         return Ok(text_response(StatusCode::BAD_REQUEST, &error));
     }
     if let Err(error) = replace_host_header(&mut parts.headers, &target_uri) {
-        observability.downstream_failed(error.clone());
+        trace.downstream_failed(error.clone());
         return Ok(text_response(StatusCode::BAD_REQUEST, &error));
     }
     parts.uri = target_uri;
@@ -721,12 +757,12 @@ async fn forward_request(
             Ok(Ok(response)) => response,
             Ok(Err(error)) => {
                 let error = format!("连接下游 HTTP 服务失败: {error}");
-                observability.downstream_failed(error.clone());
+                trace.downstream_failed(error.clone());
                 return Ok(text_response(StatusCode::BAD_GATEWAY, &error));
             }
             Err(_) => {
                 let error = format!("等待下游 HTTP 响应头超时（{} ms）", pre_response_timeout.as_millis());
-                observability.response_timeout(error.clone());
+                trace.response_timeout(error.clone());
                 return Ok(text_response(StatusCode::GATEWAY_TIMEOUT, &error));
             }
         },
@@ -734,7 +770,7 @@ async fn forward_request(
 
     let (mut parts, body) = response.into_parts();
     strip_hop_by_hop(&mut parts.headers);
-    trace.response_started(&parts.headers);
+    trace.response_started(parts.status.as_u16(), &parts.headers);
     Ok(Response::from_parts(
         parts,
         observe_response_body(body, trace, cancellation),
@@ -771,9 +807,58 @@ fn observe_response_body(
         .map_err(move |error| -> ProxyError {
             error_trace.response_stream_failed(format!("下游 HTTP 响应流失败: {error}"));
             Box::new(error)
-        })
-        .boxed();
+        });
+    let body = CompletionBody::new(body, trace).boxed();
     CancellableBody::new(body, cancellation).boxed()
+}
+
+struct CompletionBody<B> {
+    inner: Pin<Box<B>>,
+    trace: Arc<HttpRequestTrace>,
+    completed: bool,
+}
+
+impl<B> CompletionBody<B> {
+    fn new(inner: B, trace: Arc<HttpRequestTrace>) -> Self {
+        Self {
+            inner: Box::pin(inner),
+            trace,
+            completed: false,
+        }
+    }
+
+    fn complete(&mut self) {
+        if !self.completed {
+            self.completed = true;
+            self.trace.response_completed();
+        }
+    }
+}
+
+impl<B> Drop for CompletionBody<B> {
+    fn drop(&mut self) {
+        self.complete();
+    }
+}
+
+impl<B> Body for CompletionBody<B>
+where
+    B: Body<Data = Bytes>,
+{
+    type Data = Bytes;
+    type Error = B::Error;
+
+    fn poll_frame(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
+        let this = self.get_mut();
+        let result = this.inner.as_mut().poll_frame(cx);
+        if matches!(result, Poll::Ready(None) | Poll::Ready(Some(Err(_)))) {
+            this.complete();
+        }
+        result
+    }
 }
 
 struct CancellableBody<B> {
@@ -1377,9 +1462,12 @@ mod integration_tests {
         upstream.join().expect("join cancelled upstream");
         assert!(TcpStream::connect_timeout(&listener_addr, RESPONSE_TIMEOUT).is_err());
 
-        let mut byte = [0_u8; 1];
-        match client.read(&mut byte) {
-            Ok(0) => {}
+        client
+            .set_read_timeout(Some(RESPONSE_TIMEOUT))
+            .expect("set stopped client read timeout");
+        let mut remaining = Vec::new();
+        match client.read_to_end(&mut remaining) {
+            Ok(_) => {}
             Err(error)
                 if matches!(
                     error.kind(),
@@ -1387,7 +1475,7 @@ mod integration_tests {
                         | std::io::ErrorKind::ConnectionAborted
                         | std::io::ErrorKind::NotConnected
                 ) => {}
-            result => panic!("client connection remained open after HTTP stop: {result:?}"),
+            result => panic!("client connection did not close after HTTP stop: {result:?}"),
         }
     }
 

@@ -20,7 +20,9 @@ use tokio_util::sync::CancellationToken;
 use super::model::ForwardRule;
 #[cfg(test)]
 pub(super) use super::observability::TcpEventKind;
-use super::observability::{TcpObservability, TcpObservationSnapshot};
+use super::observability::TcpObservability;
+#[cfg(test)]
+use super::observability::TcpObservationSnapshot;
 use super::runtime::{RuleRunner, RunningHandle};
 
 pub(crate) const TCP_MAX_CONNECTIONS_PER_RULE: usize = 64;
@@ -172,6 +174,7 @@ impl TcpRuleRunner {
             .ok_or_else(|| "TCP 转发规则运行句柄不存在".to_string())
     }
 
+    #[cfg(test)]
     pub(crate) fn observation_snapshot(
         &self,
         handle: RunningHandle,
@@ -181,6 +184,18 @@ impl TcpRuleRunner {
             .expect("TCP runner lock poisoned")
             .get(&handle.0)
             .map(|rule| rule.observability.snapshot())
+            .ok_or_else(|| "TCP 转发规则运行句柄不存在".to_string())
+    }
+
+    pub(crate) fn observability(
+        &self,
+        handle: RunningHandle,
+    ) -> Result<Arc<TcpObservability>, String> {
+        self.running
+            .lock()
+            .expect("TCP runner lock poisoned")
+            .get(&handle.0)
+            .map(|rule| Arc::clone(&rule.observability))
             .ok_or_else(|| "TCP 转发规则运行句柄不存在".to_string())
     }
 
@@ -213,12 +228,7 @@ impl TcpRuleRunner {
         &self,
         handle: RunningHandle,
     ) -> Result<Arc<TcpObservability>, String> {
-        self.running
-            .lock()
-            .expect("TCP runner lock poisoned")
-            .get(&handle.0)
-            .map(|rule| Arc::clone(&rule.observability))
-            .ok_or_else(|| "TCP 转发规则运行句柄不存在".to_string())
+        self.observability(handle)
     }
 
     #[cfg(test)]
@@ -432,8 +442,11 @@ async fn run_listener(
                 break;
             },
             accepted = listener.accept() => match accepted {
-                Ok((client, _)) => {
-                    observability.accepted();
+                Ok((client, client_addr)) => {
+                    observability.accepted_connection(
+                        Some(client_addr),
+                        Some(format!("{target_host}:{target_port}")),
+                    );
                     match semaphore.clone().try_acquire_owned() {
                         Ok(permit) => {
                             let child_cancellation = cancellation.clone();

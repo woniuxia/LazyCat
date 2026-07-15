@@ -4,7 +4,13 @@ mod tests {
 
     use hyper::http::{HeaderMap, HeaderValue};
 
-    use super::{redact_headers, should_capture_body, PreviewTap, HTTP_BODY_PREVIEW_LIMIT};
+    use std::net::SocketAddr;
+    use std::sync::Arc;
+
+    use super::{
+        redact_headers, should_capture_body, HttpObservability, ObservationCursor, PreviewTap,
+        TcpObservability, UdpObservability, HTTP_BODY_PREVIEW_LIMIT,
+    };
 
     #[test]
     fn redacts_all_sensitive_headers_case_insensitively() {
@@ -82,15 +88,133 @@ mod tests {
         assert_eq!(preview.bytes.len(), HTTP_BODY_PREVIEW_LIMIT);
         assert!(preview.truncated);
     }
+
+    #[test]
+    fn stats_merge_has_no_double_count_across_repeated_get_and_flush() {
+        let observability = TcpObservability::default();
+        observability.accepted();
+        observability.transferred(12, 34);
+        observability.relay_failed("relay failed".into());
+        let baseline = ObservationCursor::default();
+
+        let first = observability.batch_since(baseline);
+        let repeated = observability.batch_since(baseline);
+
+        assert_eq!(first.delta.event_count, 1);
+        assert_eq!(first.delta.upload_bytes, 12);
+        assert_eq!(first.delta.download_bytes, 34);
+        assert_eq!(first.delta.error_count, 1);
+        assert_eq!(repeated.delta, first.delta);
+        assert_eq!(repeated.next_cursor, first.next_cursor);
+
+        let after_flush = observability.batch_since(first.next_cursor);
+        assert_eq!(after_flush.delta.event_count, 0);
+        assert_eq!(after_flush.delta.upload_bytes, 0);
+        assert_eq!(after_flush.delta.download_bytes, 0);
+        assert_eq!(after_flush.delta.error_count, 0);
+        assert!(after_flush.events.is_empty());
+    }
+
+    #[test]
+    fn per_protocol_event_count_values_are_preserved_in_batches() {
+        let tcp = TcpObservability::default();
+        tcp.accepted();
+        tcp.accepted();
+
+        let udp = UdpObservability::default();
+        let client: SocketAddr = "127.0.0.1:12000".parse().unwrap();
+        udp.client_datagram(client, "127.0.0.1:53", None);
+        udp.client_datagram(client, "127.0.0.1:53", None);
+        udp.client_datagram(client, "127.0.0.1:53", None);
+
+        let http = Arc::new(HttpObservability::default());
+        let headers = HeaderMap::new();
+        let client = "127.0.0.1:12001".parse().unwrap();
+        let _first = http.accepted(
+            client,
+            "example.com:80".into(),
+            "GET".into(),
+            "/1".into(),
+            &headers,
+            false,
+            false,
+        );
+        let _second = http.accepted(
+            client,
+            "example.com:80".into(),
+            "GET".into(),
+            "/2".into(),
+            &headers,
+            false,
+            false,
+        );
+        let _third = http.accepted(
+            client,
+            "example.com:80".into(),
+            "GET".into(),
+            "/3".into(),
+            &headers,
+            false,
+            false,
+        );
+        let _fourth = http.accepted(
+            client,
+            "example.com:80".into(),
+            "GET".into(),
+            "/4".into(),
+            &headers,
+            false,
+            false,
+        );
+
+        assert_eq!(
+            tcp.batch_since(ObservationCursor::default())
+                .delta
+                .event_count,
+            2
+        );
+        assert_eq!(
+            udp.batch_since(ObservationCursor::default())
+                .delta
+                .event_count,
+            3
+        );
+        assert_eq!(
+            http.batch_since(ObservationCursor::default())
+                .delta
+                .event_count,
+            4
+        );
+    }
+
+    #[test]
+    fn event_sequence_gap_is_explicit_when_ring_buffer_drops_unflushed_events() {
+        let observability = TcpObservability::default();
+        for _ in 0..300 {
+            observability.accepted();
+        }
+
+        let batch = observability.batch_since(ObservationCursor::default());
+
+        assert_eq!(batch.delta.event_count, 300);
+        assert_eq!(batch.events.len(), 256);
+        let gap = batch.gap.expect("dropped events must be explicit");
+        assert_eq!(gap.dropped_events, 44);
+        assert_eq!(gap.first_available_sequence, 45);
+    }
 }
 
 use std::collections::VecDeque;
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 #[cfg(test)]
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use std::time::Instant;
 
 use hyper::http::HeaderMap;
+
+use super::repository::StatsDelta;
 
 pub(crate) const HTTP_BODY_PREVIEW_LIMIT: usize = 64 * 1024;
 
@@ -104,6 +228,26 @@ const SENSITIVE_HEADERS: [&str; 4] = [
 
 const TCP_EVENT_BUFFER_LIMIT: usize = 256;
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct ObservationCursor {
+    pub(crate) totals: StatsDelta,
+    pub(crate) last_event_sequence: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ObservationGap {
+    pub(crate) dropped_events: u64,
+    pub(crate) first_available_sequence: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ObservationBatch<E> {
+    pub(crate) delta: StatsDelta,
+    pub(crate) events: Vec<E>,
+    pub(crate) next_cursor: ObservationCursor,
+    pub(crate) gap: Option<ObservationGap>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TcpEventKind {
     Accepted,
@@ -116,10 +260,14 @@ pub(crate) enum TcpEventKind {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct TcpEvent {
+    pub(crate) sequence: u64,
     pub(crate) kind: TcpEventKind,
+    pub(crate) client_addr: Option<String>,
+    pub(crate) target_addr: Option<String>,
     pub(crate) error: Option<String>,
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct TcpObservationSnapshot {
     pub(crate) event_count: u64,
@@ -135,6 +283,7 @@ struct TcpObservationState {
     upload_bytes: u64,
     download_bytes: u64,
     error_count: u64,
+    next_event_sequence: u64,
     events: VecDeque<TcpEvent>,
 }
 
@@ -145,10 +294,25 @@ pub(crate) struct TcpObservability {
 }
 
 impl TcpObservability {
+    #[cfg(test)]
     pub(crate) fn accepted(&self) {
+        self.accepted_connection(None, None);
+    }
+
+    pub(crate) fn accepted_connection(
+        &self,
+        client_addr: Option<SocketAddr>,
+        target_addr: Option<String>,
+    ) {
         self.update(|state| {
             state.event_count = state.event_count.saturating_add(1);
-            push_tcp_event(state, TcpEventKind::Accepted, None);
+            push_tcp_event_with_addresses(
+                state,
+                TcpEventKind::Accepted,
+                client_addr.map(|value| value.to_string()),
+                target_addr,
+                None,
+            );
         });
     }
 
@@ -179,9 +343,21 @@ impl TcpObservability {
         });
     }
 
+    #[cfg(test)]
     pub(crate) fn snapshot(&self) -> TcpObservationSnapshot {
         let state = self.state.lock().expect("TCP observability lock poisoned");
         snapshot_tcp_state(&state)
+    }
+
+    pub(crate) fn batch_since(&self, cursor: ObservationCursor) -> ObservationBatch<TcpEvent> {
+        let state = self.state.lock().expect("TCP observability lock poisoned");
+        batch_from_events(
+            stats_delta_from_tcp(&state),
+            state.next_event_sequence,
+            state.events.iter().cloned(),
+            cursor,
+            |event| event.sequence,
+        )
     }
 
     #[cfg(test)]
@@ -226,12 +402,30 @@ impl TcpObservability {
 }
 
 fn push_tcp_event(state: &mut TcpObservationState, kind: TcpEventKind, error: Option<String>) {
+    push_tcp_event_with_addresses(state, kind, None, None, error);
+}
+
+fn push_tcp_event_with_addresses(
+    state: &mut TcpObservationState,
+    kind: TcpEventKind,
+    client_addr: Option<String>,
+    target_addr: Option<String>,
+    error: Option<String>,
+) {
     if state.events.len() == TCP_EVENT_BUFFER_LIMIT {
         state.events.pop_front();
     }
-    state.events.push_back(TcpEvent { kind, error });
+    state.next_event_sequence = state.next_event_sequence.saturating_add(1);
+    state.events.push_back(TcpEvent {
+        sequence: state.next_event_sequence,
+        kind,
+        client_addr,
+        target_addr,
+        error,
+    });
 }
 
+#[cfg(test)]
 fn snapshot_tcp_state(state: &TcpObservationState) -> TcpObservationSnapshot {
     TcpObservationSnapshot {
         event_count: state.event_count,
@@ -260,6 +454,7 @@ pub(crate) enum UdpEventKind {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct UdpEvent {
+    pub(crate) sequence: u64,
     pub(crate) kind: UdpEventKind,
     pub(crate) client_addr: Option<SocketAddr>,
     pub(crate) target: String,
@@ -267,6 +462,7 @@ pub(crate) struct UdpEvent {
     pub(crate) error: Option<String>,
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct UdpObservationSnapshot {
     pub(crate) event_count: u64,
@@ -282,6 +478,7 @@ struct UdpObservationState {
     upload_bytes: u64,
     download_bytes: u64,
     error_count: u64,
+    next_event_sequence: u64,
     events: VecDeque<UdpEvent>,
 }
 
@@ -436,6 +633,17 @@ impl UdpObservability {
         });
     }
 
+    pub(crate) fn batch_since(&self, cursor: ObservationCursor) -> ObservationBatch<UdpEvent> {
+        let state = self.state.lock().expect("UDP observability lock poisoned");
+        batch_from_events(
+            stats_delta_from_udp(&state),
+            state.next_event_sequence,
+            state.events.iter().cloned(),
+            cursor,
+            |event| event.sequence,
+        )
+    }
+
     #[cfg(test)]
     pub(crate) fn wait_for(
         &self,
@@ -508,7 +716,9 @@ fn push_udp_event(
     if state.events.len() == UDP_EVENT_BUFFER_LIMIT {
         state.events.pop_front();
     }
+    state.next_event_sequence = state.next_event_sequence.saturating_add(1);
     state.events.push_back(UdpEvent {
+        sequence: state.next_event_sequence,
         kind,
         client_addr,
         target: target.to_string(),
@@ -517,6 +727,7 @@ fn push_udp_event(
     });
 }
 
+#[cfg(test)]
 fn snapshot_udp_state(state: &UdpObservationState) -> UdpObservationSnapshot {
     UdpObservationSnapshot {
         event_count: state.event_count,
@@ -543,14 +754,24 @@ pub(crate) enum HttpEventKind {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct HttpEvent {
+    pub(crate) sequence: u64,
     pub(crate) kind: HttpEventKind,
     pub(crate) error: Option<String>,
+    pub(crate) client_addr: Option<String>,
+    pub(crate) target_addr: String,
+    pub(crate) method: Option<String>,
+    pub(crate) path: Option<String>,
+    pub(crate) status_code: Option<u16>,
+    pub(crate) duration_ms: Option<u64>,
+    pub(crate) upload_bytes: u64,
+    pub(crate) download_bytes: u64,
     pub(crate) request_headers: Option<Vec<(String, String)>>,
     pub(crate) response_headers: Option<Vec<(String, String)>>,
     pub(crate) request_body_preview: Option<BodyPreview>,
     pub(crate) response_body_preview: Option<BodyPreview>,
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct HttpObservationSnapshot {
     pub(crate) event_count: u64,
@@ -561,8 +782,18 @@ pub(crate) struct HttpObservationSnapshot {
 }
 
 struct HttpEventRecord {
-    kind: HttpEventKind,
-    error: Option<String>,
+    sequence: AtomicU64,
+    completed: AtomicBool,
+    kind: Mutex<HttpEventKind>,
+    error: Mutex<Option<String>>,
+    client_addr: Option<String>,
+    target_addr: String,
+    method: Option<String>,
+    path: Option<String>,
+    status_code: Mutex<Option<u16>>,
+    upload_bytes: AtomicU64,
+    download_bytes: AtomicU64,
+    started_at: Instant,
     request_headers: Option<Vec<(String, String)>>,
     response_headers: Mutex<Option<Vec<(String, String)>>>,
     request_body_preview: Option<Arc<Mutex<PreviewTap>>>,
@@ -576,8 +807,24 @@ impl HttpEventRecord {
                 .map(|tap| tap.lock().expect("HTTP preview lock poisoned").preview())
         };
         HttpEvent {
-            kind: self.kind,
-            error: self.error.clone(),
+            sequence: self.sequence.load(Ordering::Acquire),
+            kind: *self.kind.lock().expect("HTTP event kind lock poisoned"),
+            error: self
+                .error
+                .lock()
+                .expect("HTTP event error lock poisoned")
+                .clone(),
+            client_addr: self.client_addr.clone(),
+            target_addr: self.target_addr.clone(),
+            method: self.method.clone(),
+            path: self.path.clone(),
+            status_code: *self
+                .status_code
+                .lock()
+                .expect("HTTP status code lock poisoned"),
+            duration_ms: Some(self.started_at.elapsed().as_millis() as u64),
+            upload_bytes: self.upload_bytes.load(Ordering::Acquire),
+            download_bytes: self.download_bytes.load(Ordering::Acquire),
             request_headers: self.request_headers.clone(),
             response_headers: self
                 .response_headers
@@ -601,6 +848,7 @@ struct HttpObservationState {
     upload_bytes: u64,
     download_bytes: u64,
     error_count: u64,
+    next_event_sequence: u64,
     events: VecDeque<Arc<HttpEventRecord>>,
 }
 
@@ -620,6 +868,10 @@ pub(crate) struct HttpRequestTrace {
 impl HttpObservability {
     pub(crate) fn accepted(
         self: &Arc<Self>,
+        client_addr: SocketAddr,
+        target_addr: String,
+        method: String,
+        path: String,
         request_headers: &HeaderMap,
         capture_headers: bool,
         capture_body: bool,
@@ -627,8 +879,18 @@ impl HttpObservability {
         let request_body_preview = (capture_body && should_capture_body(request_headers))
             .then(|| Arc::new(Mutex::new(PreviewTap::new())));
         let record = Arc::new(HttpEventRecord {
-            kind: HttpEventKind::Accepted,
-            error: None,
+            sequence: AtomicU64::new(0),
+            completed: AtomicBool::new(false),
+            kind: Mutex::new(HttpEventKind::Accepted),
+            error: Mutex::new(None),
+            client_addr: Some(client_addr.to_string()),
+            target_addr,
+            method: Some(method),
+            path: Some(path),
+            status_code: Mutex::new(None),
+            upload_bytes: AtomicU64::new(0),
+            download_bytes: AtomicU64::new(0),
+            started_at: Instant::now(),
             request_headers: capture_headers.then(|| redact_headers(request_headers)),
             response_headers: Mutex::new(None),
             request_body_preview,
@@ -636,7 +898,6 @@ impl HttpObservability {
         });
         self.update(|state| {
             state.event_count = state.event_count.saturating_add(1);
-            push_http_event(state, Arc::clone(&record));
         });
         Arc::new(HttpRequestTrace {
             observability: Arc::clone(self),
@@ -658,22 +919,6 @@ impl HttpObservability {
         });
     }
 
-    pub(crate) fn downstream_failed(&self, error: String) {
-        self.failed(HttpEventKind::DownstreamFailed, error);
-    }
-
-    pub(crate) fn response_timeout(&self, error: String) {
-        self.failed(HttpEventKind::ResponseTimeout, error);
-    }
-
-    pub(crate) fn overloaded(&self, error: String) {
-        self.failed(HttpEventKind::Overloaded, error);
-    }
-
-    pub(crate) fn upgrade_rejected(&self, error: String) {
-        self.failed(HttpEventKind::UpgradeRejected, error);
-    }
-
     pub(crate) fn response_stream_failed(&self, error: String) {
         self.failed(HttpEventKind::ResponseStreamFailed, error);
     }
@@ -686,6 +931,7 @@ impl HttpObservability {
         self.failed(HttpEventKind::ChildTaskFailed, error);
     }
 
+    #[cfg(test)]
     pub(crate) fn snapshot(&self) -> HttpObservationSnapshot {
         let state = self.state.lock().expect("HTTP observability lock poisoned");
         HttpObservationSnapshot {
@@ -695,6 +941,17 @@ impl HttpObservability {
             error_count: state.error_count,
             events: state.events.iter().map(|event| event.snapshot()).collect(),
         }
+    }
+
+    pub(crate) fn batch_since(&self, cursor: ObservationCursor) -> ObservationBatch<HttpEvent> {
+        let state = self.state.lock().expect("HTTP observability lock poisoned");
+        batch_from_events(
+            stats_delta_from_http(&state),
+            state.next_event_sequence,
+            state.events.iter().map(|event| event.snapshot()),
+            cursor,
+            |event| event.sequence,
+        )
     }
 
     #[cfg(test)]
@@ -730,8 +987,18 @@ impl HttpObservability {
             push_http_event(
                 state,
                 Arc::new(HttpEventRecord {
-                    kind,
-                    error: Some(error),
+                    sequence: AtomicU64::new(0),
+                    completed: AtomicBool::new(true),
+                    kind: Mutex::new(kind),
+                    error: Mutex::new(Some(error)),
+                    client_addr: None,
+                    target_addr: "HTTP".into(),
+                    method: None,
+                    path: None,
+                    status_code: Mutex::new(None),
+                    upload_bytes: AtomicU64::new(0),
+                    download_bytes: AtomicU64::new(0),
+                    started_at: Instant::now(),
                     request_headers: None,
                     response_headers: Mutex::new(None),
                     request_body_preview: None,
@@ -757,7 +1024,7 @@ impl HttpRequestTrace {
         }
     }
 
-    pub(crate) fn response_started(&self, headers: &HeaderMap) {
+    pub(crate) fn response_started(&self, status_code: u16, headers: &HeaderMap) {
         if self.capture_response_headers {
             *self
                 .record
@@ -773,6 +1040,11 @@ impl HttpRequestTrace {
                 .expect("HTTP response preview lock poisoned") =
                 Some(Arc::new(Mutex::new(PreviewTap::new())));
         }
+        *self
+            .record
+            .status_code
+            .lock()
+            .expect("HTTP status code lock poisoned") = Some(status_code);
     }
 
     pub(crate) fn observe_response(&self, chunk: &[u8]) {
@@ -790,15 +1062,69 @@ impl HttpRequestTrace {
     }
 
     pub(crate) fn uploaded(&self, bytes: usize) {
+        self.record
+            .upload_bytes
+            .fetch_add(bytes as u64, Ordering::Relaxed);
         self.observability.uploaded(bytes);
     }
 
     pub(crate) fn downloaded(&self, bytes: usize) {
+        self.record
+            .download_bytes
+            .fetch_add(bytes as u64, Ordering::Relaxed);
         self.observability.downloaded(bytes);
     }
 
     pub(crate) fn response_stream_failed(&self, error: String) {
         self.observability.response_stream_failed(error);
+    }
+
+    pub(crate) fn response_completed(&self) {
+        self.complete(HttpEventKind::Accepted, None);
+    }
+
+    pub(crate) fn downstream_failed(&self, error: String) {
+        self.complete(HttpEventKind::DownstreamFailed, Some(error));
+    }
+
+    pub(crate) fn response_timeout(&self, error: String) {
+        self.complete(HttpEventKind::ResponseTimeout, Some(error));
+    }
+
+    pub(crate) fn overloaded(&self, error: String) {
+        self.complete(HttpEventKind::Overloaded, Some(error));
+    }
+
+    pub(crate) fn upgrade_rejected(&self, error: String) {
+        self.complete(HttpEventKind::UpgradeRejected, Some(error));
+    }
+
+    fn complete(&self, kind: HttpEventKind, error: Option<String>) {
+        if self.record.completed.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        *self
+            .record
+            .kind
+            .lock()
+            .expect("HTTP event kind lock poisoned") = kind;
+        *self
+            .record
+            .error
+            .lock()
+            .expect("HTTP event error lock poisoned") = error;
+        self.observability.update(|state| {
+            if self
+                .record
+                .error
+                .lock()
+                .expect("HTTP event error lock poisoned")
+                .is_some()
+            {
+                state.error_count = state.error_count.saturating_add(1);
+            }
+            push_http_event(state, Arc::clone(&self.record));
+        });
     }
 }
 
@@ -806,9 +1132,14 @@ fn push_http_event(state: &mut HttpObservationState, event: Arc<HttpEventRecord>
     if state.events.len() == HTTP_EVENT_BUFFER_LIMIT {
         state.events.pop_front();
     }
+    state.next_event_sequence = state.next_event_sequence.saturating_add(1);
+    event
+        .sequence
+        .store(state.next_event_sequence, Ordering::Release);
     state.events.push_back(event);
 }
 
+#[cfg(test)]
 fn snapshot_http_state(state: &HttpObservationState) -> HttpObservationSnapshot {
     HttpObservationSnapshot {
         event_count: state.event_count,
@@ -816,6 +1147,72 @@ fn snapshot_http_state(state: &HttpObservationState) -> HttpObservationSnapshot 
         download_bytes: state.download_bytes,
         error_count: state.error_count,
         events: state.events.iter().map(|event| event.snapshot()).collect(),
+    }
+}
+
+fn stats_delta_from_tcp(state: &TcpObservationState) -> StatsDelta {
+    StatsDelta {
+        event_count: state.event_count,
+        upload_bytes: state.upload_bytes,
+        download_bytes: state.download_bytes,
+        error_count: state.error_count,
+    }
+}
+
+fn stats_delta_from_udp(state: &UdpObservationState) -> StatsDelta {
+    StatsDelta {
+        event_count: state.event_count,
+        upload_bytes: state.upload_bytes,
+        download_bytes: state.download_bytes,
+        error_count: state.error_count,
+    }
+}
+
+fn stats_delta_from_http(state: &HttpObservationState) -> StatsDelta {
+    StatsDelta {
+        event_count: state.event_count,
+        upload_bytes: state.upload_bytes,
+        download_bytes: state.download_bytes,
+        error_count: state.error_count,
+    }
+}
+
+fn batch_from_events<E>(
+    totals: StatsDelta,
+    next_event_sequence: u64,
+    events: impl IntoIterator<Item = E>,
+    cursor: ObservationCursor,
+    sequence: impl Fn(&E) -> u64,
+) -> ObservationBatch<E> {
+    let events = events
+        .into_iter()
+        .filter(|event| sequence(event) > cursor.last_event_sequence)
+        .collect::<Vec<_>>();
+    let first_available_sequence = events.first().map(&sequence);
+    let expected_sequence = cursor.last_event_sequence.saturating_add(1);
+    let gap = first_available_sequence
+        .filter(|first| *first > expected_sequence)
+        .map(|first| ObservationGap {
+            dropped_events: first - expected_sequence,
+            first_available_sequence: first,
+        });
+    ObservationBatch {
+        delta: StatsDelta {
+            event_count: totals.event_count.saturating_sub(cursor.totals.event_count),
+            upload_bytes: totals
+                .upload_bytes
+                .saturating_sub(cursor.totals.upload_bytes),
+            download_bytes: totals
+                .download_bytes
+                .saturating_sub(cursor.totals.download_bytes),
+            error_count: totals.error_count.saturating_sub(cursor.totals.error_count),
+        },
+        events,
+        next_cursor: ObservationCursor {
+            totals,
+            last_event_sequence: next_event_sequence,
+        },
+        gap,
     }
 }
 
