@@ -264,6 +264,8 @@ pub(crate) struct TcpEvent {
     pub(crate) kind: TcpEventKind,
     pub(crate) client_addr: Option<String>,
     pub(crate) target_addr: Option<String>,
+    pub(crate) upload_bytes: u64,
+    pub(crate) download_bytes: u64,
     pub(crate) error: Option<String>,
 }
 
@@ -293,37 +295,43 @@ pub(crate) struct TcpObservability {
     changed: Condvar,
 }
 
+pub(crate) struct TcpConnectionObservation {
+    observability: Arc<TcpObservability>,
+    client_addr: Option<String>,
+    target_addr: Option<String>,
+    upload_bytes: AtomicU64,
+    download_bytes: AtomicU64,
+    finalized: AtomicBool,
+}
+
 impl TcpObservability {
     #[cfg(test)]
     pub(crate) fn accepted(&self) {
-        self.accepted_connection(None, None);
-    }
-
-    pub(crate) fn accepted_connection(
-        &self,
-        client_addr: Option<SocketAddr>,
-        target_addr: Option<String>,
-    ) {
         self.update(|state| {
             state.event_count = state.event_count.saturating_add(1);
-            push_tcp_event_with_addresses(
-                state,
-                TcpEventKind::Accepted,
-                client_addr.map(|value| value.to_string()),
-                target_addr,
-                None,
-            );
+            push_tcp_event(state, TcpEventKind::Accepted, None);
         });
     }
 
-    pub(crate) fn downstream_connect_failed(&self, error: String) {
-        self.failed(TcpEventKind::DownstreamConnectFailed, error);
+    pub(crate) fn accepted_connection(
+        self: &Arc<Self>,
+        client_addr: Option<SocketAddr>,
+        target_addr: Option<String>,
+    ) -> Arc<TcpConnectionObservation> {
+        self.update(|state| {
+            state.event_count = state.event_count.saturating_add(1);
+        });
+        Arc::new(TcpConnectionObservation {
+            observability: Arc::clone(self),
+            client_addr: client_addr.map(|value| value.to_string()),
+            target_addr,
+            upload_bytes: AtomicU64::new(0),
+            download_bytes: AtomicU64::new(0),
+            finalized: AtomicBool::new(false),
+        })
     }
 
-    pub(crate) fn overloaded(&self, error: String) {
-        self.failed(TcpEventKind::Overloaded, error);
-    }
-
+    #[cfg(test)]
     pub(crate) fn relay_failed(&self, error: String) {
         self.failed(TcpEventKind::RelayFailed, error);
     }
@@ -401,6 +409,63 @@ impl TcpObservability {
     }
 }
 
+impl TcpConnectionObservation {
+    pub(crate) fn transferred(&self, upload_bytes: u64, download_bytes: u64) {
+        self.observability.transferred(upload_bytes, download_bytes);
+        self.upload_bytes.fetch_add(upload_bytes, Ordering::Relaxed);
+        self.download_bytes
+            .fetch_add(download_bytes, Ordering::Relaxed);
+    }
+
+    pub(crate) fn completed(&self) {
+        self.finalize(TcpEventKind::Accepted, None);
+    }
+
+    pub(crate) fn downstream_connect_failed(&self, error: String) {
+        self.finalize(TcpEventKind::DownstreamConnectFailed, Some(error));
+    }
+
+    pub(crate) fn overloaded(&self, error: String) {
+        self.finalize(TcpEventKind::Overloaded, Some(error));
+    }
+
+    pub(crate) fn relay_failed(&self, error: String) {
+        self.finalize(TcpEventKind::RelayFailed, Some(error));
+    }
+
+    fn finalize(&self, kind: TcpEventKind, error: Option<String>) {
+        if self
+            .finalized
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            return;
+        }
+        let upload_bytes = self.upload_bytes.load(Ordering::Acquire);
+        let download_bytes = self.download_bytes.load(Ordering::Acquire);
+        self.observability.update(|state| {
+            if error.is_some() {
+                state.error_count = state.error_count.saturating_add(1);
+            }
+            push_tcp_event_with_addresses_and_bytes(
+                state,
+                kind,
+                self.client_addr.clone(),
+                self.target_addr.clone(),
+                upload_bytes,
+                download_bytes,
+                error,
+            );
+        });
+    }
+}
+
+impl Drop for TcpConnectionObservation {
+    fn drop(&mut self) {
+        self.completed();
+    }
+}
+
 fn push_tcp_event(state: &mut TcpObservationState, kind: TcpEventKind, error: Option<String>) {
     push_tcp_event_with_addresses(state, kind, None, None, error);
 }
@@ -412,6 +477,18 @@ fn push_tcp_event_with_addresses(
     target_addr: Option<String>,
     error: Option<String>,
 ) {
+    push_tcp_event_with_addresses_and_bytes(state, kind, client_addr, target_addr, 0, 0, error);
+}
+
+fn push_tcp_event_with_addresses_and_bytes(
+    state: &mut TcpObservationState,
+    kind: TcpEventKind,
+    client_addr: Option<String>,
+    target_addr: Option<String>,
+    upload_bytes: u64,
+    download_bytes: u64,
+    error: Option<String>,
+) {
     if state.events.len() == TCP_EVENT_BUFFER_LIMIT {
         state.events.pop_front();
     }
@@ -421,6 +498,8 @@ fn push_tcp_event_with_addresses(
         kind,
         client_addr,
         target_addr,
+        upload_bytes,
+        download_bytes,
         error,
     });
 }

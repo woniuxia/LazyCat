@@ -20,9 +20,9 @@ use tokio_util::sync::CancellationToken;
 use super::model::ForwardRule;
 #[cfg(test)]
 pub(super) use super::observability::TcpEventKind;
-use super::observability::TcpObservability;
 #[cfg(test)]
 use super::observability::TcpObservationSnapshot;
+use super::observability::{TcpConnectionObservation, TcpObservability};
 use super::runtime::{RuleRunner, RunningHandle};
 
 pub(crate) const TCP_MAX_CONNECTIONS_PER_RULE: usize = 64;
@@ -443,14 +443,13 @@ async fn run_listener(
             },
             accepted = listener.accept() => match accepted {
                 Ok((client, client_addr)) => {
-                    observability.accepted_connection(
+                    let connection = observability.accepted_connection(
                         Some(client_addr),
                         Some(format!("{target_host}:{target_port}")),
                     );
                     match semaphore.clone().try_acquire_owned() {
                         Ok(permit) => {
                             let child_cancellation = cancellation.clone();
-                            let child_observability = Arc::clone(&observability);
                             let child_target_host = target_host.clone();
                             children.spawn(async move {
                                 let _permit = permit;
@@ -459,12 +458,12 @@ async fn run_listener(
                                     child_target_host,
                                     target_port,
                                     child_cancellation,
-                                    child_observability,
+                                    connection,
                                 ).await;
                             });
                         }
                         Err(_) => {
-                            observability.overloaded(format!(
+                            connection.overloaded(format!(
                                 "TCP 并发连接已达到上限 {connection_limit}"
                             ));
                             drop(client);
@@ -511,7 +510,7 @@ async fn forward_connection(
     target_host: String,
     target_port: u16,
     cancellation: CancellationToken,
-    observability: Arc<TcpObservability>,
+    connection: Arc<TcpConnectionObservation>,
 ) {
     let downstream = tokio::select! {
         _ = cancellation.cancelled() => return,
@@ -521,13 +520,13 @@ async fn forward_connection(
         ) => match connected {
             Ok(Ok(stream)) => stream,
             Ok(Err(error)) => {
-                observability.downstream_connect_failed(format!(
+                connection.downstream_connect_failed(format!(
                     "连接下游 {target_host}:{target_port} 失败: {error}"
                 ));
                 return;
             }
             Err(_) => {
-                observability.downstream_connect_failed(format!(
+                connection.downstream_connect_failed(format!(
                     "连接下游 {target_host}:{target_port} 超时（{} ms）",
                     TCP_DOWNSTREAM_CONNECT_TIMEOUT.as_millis()
                 ));
@@ -538,37 +537,38 @@ async fn forward_connection(
 
     let (client_reader, client_writer) = client.into_split();
     let (downstream_reader, downstream_writer) = downstream.into_split();
-    let upload_observability = Arc::clone(&observability);
+    let upload_observation = Arc::clone(&connection);
     let transferred = tokio::select! {
         _ = cancellation.cancelled() => return,
         transferred = relay_bidirectionally(
             client_reader,
             downstream_writer,
-            upload_observability,
+            upload_observation,
             downstream_reader,
             client_writer,
-            observability.clone(),
+            Arc::clone(&connection),
         ) => transferred,
     };
-    if let Err(error) = transferred {
-        observability.relay_failed(format!("TCP 双向转发失败: {error}"));
+    match transferred {
+        Ok(()) => connection.completed(),
+        Err(error) => connection.relay_failed(format!("TCP 双向转发失败: {error}")),
     }
 }
 
 async fn relay_bidirectionally(
     client_reader: tokio::net::tcp::OwnedReadHalf,
     downstream_writer: tokio::net::tcp::OwnedWriteHalf,
-    observability_upload: Arc<TcpObservability>,
+    observation_upload: Arc<TcpConnectionObservation>,
     downstream_reader: tokio::net::tcp::OwnedReadHalf,
     client_writer: tokio::net::tcp::OwnedWriteHalf,
-    observability_download: Arc<TcpObservability>,
+    observation_download: Arc<TcpConnectionObservation>,
 ) -> Result<(), Error> {
     tokio::try_join!(
-        copy_direction(client_reader, downstream_writer, observability_upload, true),
+        copy_direction(client_reader, downstream_writer, observation_upload, true),
         copy_direction(
             downstream_reader,
             client_writer,
-            observability_download,
+            observation_download,
             false
         ),
     )?;
@@ -578,7 +578,7 @@ async fn relay_bidirectionally(
 async fn copy_direction<R, W>(
     mut reader: R,
     mut writer: W,
-    observability: Arc<TcpObservability>,
+    observation: Arc<TcpConnectionObservation>,
     upload: bool,
 ) -> Result<(), Error>
 where
@@ -601,9 +601,9 @@ where
             }
             offset += written;
             if upload {
-                observability.transferred(written as u64, 0);
+                observation.transferred(written as u64, 0);
             } else {
-                observability.transferred(0, written as u64);
+                observation.transferred(0, written as u64);
             }
         }
     }
@@ -740,13 +740,17 @@ mod tests {
 
         let snapshot = runner
             .wait_for_snapshot(handle, |snapshot| {
-                snapshot.upload_bytes == 7 && snapshot.download_bytes == 8
+                snapshot.upload_bytes == 7
+                    && snapshot.download_bytes == 8
+                    && snapshot.events.len() == 1
             })
             .expect("wait for byte counters");
         assert_eq!(snapshot.event_count, 1);
         assert_eq!(snapshot.error_count, 0);
         assert_eq!(snapshot.events.len(), 1);
         assert_eq!(snapshot.events[0].kind, TcpEventKind::Accepted);
+        assert_eq!(snapshot.events[0].upload_bytes, 7);
+        assert_eq!(snapshot.events[0].download_bytes, 8);
         assert_eq!(snapshot.events[0].error, None);
 
         runner.stop(handle).expect("stop TCP rule");
@@ -773,14 +777,10 @@ mod tests {
         failed_client
             .write_all(b"trigger")
             .expect("write failed downstream request");
-        let accepted_snapshot = runner
-            .wait_for_snapshot(handle, |snapshot| snapshot.event_count == 1)
-            .expect("wait for proxy to accept failed client");
-        assert_eq!(accepted_snapshot.events.len(), 1);
-        assert_eq!(accepted_snapshot.events[0].kind, TcpEventKind::Accepted);
-        assert_eq!(accepted_snapshot.events[0].error, None);
         let failure_snapshot = runner
-            .wait_for_snapshot(handle, |snapshot| snapshot.error_count == 1)
+            .wait_for_snapshot(handle, |snapshot| {
+                snapshot.error_count == 1 && snapshot.events.len() == 1
+            })
             .expect("wait for downstream failure event");
         assert_eq!(failure_snapshot.event_count, 1);
         let failure_event = failure_snapshot
@@ -792,6 +792,8 @@ mod tests {
             .error
             .as_deref()
             .is_some_and(|error| error.contains("127.0.0.1")));
+        assert_eq!(failure_event.upload_bytes, 0);
+        assert_eq!(failure_event.download_bytes, 0);
         let mut closed = Vec::new();
         assert_client_closed(&mut failed_client, &mut closed);
 

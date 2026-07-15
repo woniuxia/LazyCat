@@ -781,8 +781,7 @@ fn unified_logs(batch: UnifiedObservationBatch) -> Vec<ForwardLogWrite> {
         UnifiedObservationBatch::Tcp(batch) => batch
             .events
             .into_iter()
-            .enumerate()
-            .map(|(index, event)| ForwardLogWrite {
+            .map(|event| ForwardLogWrite {
                 protocol: ForwardProtocol::Tcp,
                 client_addr: event.client_addr,
                 target_addr: event.target_addr.unwrap_or_else(|| "TCP".into()),
@@ -790,12 +789,8 @@ fn unified_logs(batch: UnifiedObservationBatch) -> Vec<ForwardLogWrite> {
                 path: None,
                 status_code: None,
                 duration_ms: None,
-                upload_bytes: (index == 0)
-                    .then_some(batch.delta.upload_bytes)
-                    .unwrap_or(0),
-                download_bytes: (index == 0)
-                    .then_some(batch.delta.download_bytes)
-                    .unwrap_or(0),
+                upload_bytes: event.upload_bytes,
+                download_bytes: event.download_bytes,
                 request_headers: None,
                 response_headers: None,
                 request_body_preview: None,
@@ -1007,18 +1002,66 @@ mod tests {
 
     use super::{
         unified_delta, unified_logs, unified_next_cursor, AutoStartPersistence,
-        ObservabilityPersistence, ObservationCursor, ObservationSource, ProtocolRunner, RuleRunner,
-        RunningHandle, RuntimeManager, RuntimeState,
+        ObservabilityPersistence, ObservationBatch, ObservationCursor, ObservationSource,
+        ProtocolRunner, RuleRunner, RunningHandle, RuntimeManager, RuntimeState,
+        UnifiedObservationBatch,
     };
     use crate::tools::helpers::ensure_request_forward_schema_for_test;
     use crate::tools::request_forward::model::{ForwardProtocol, ForwardRule, RuleWriteInput};
     use crate::tools::request_forward::observability::{
-        HttpObservability, TcpObservability, HTTP_BODY_PREVIEW_LIMIT,
+        HttpObservability, TcpEvent, TcpEventKind, TcpObservability, HTTP_BODY_PREVIEW_LIMIT,
     };
     use crate::tools::request_forward::repository;
     use crate::tools::request_forward::repository::{ForwardLogWrite, ForwardStats, StatsDelta};
     use hyper::http::{HeaderMap, HeaderValue};
     use rusqlite::Connection;
+
+    #[test]
+    fn tcp_unified_logs_keep_bytes_per_event() {
+        let batch = UnifiedObservationBatch::Tcp(ObservationBatch {
+            delta: StatsDelta {
+                event_count: 2,
+                upload_bytes: 15,
+                download_bytes: 27,
+                error_count: 0,
+            },
+            events: vec![
+                TcpEvent {
+                    sequence: 1,
+                    kind: TcpEventKind::Accepted,
+                    client_addr: Some("client-1".into()),
+                    target_addr: Some("target-1".into()),
+                    upload_bytes: 3,
+                    download_bytes: 4,
+                    error: None,
+                },
+                TcpEvent {
+                    sequence: 2,
+                    kind: TcpEventKind::Accepted,
+                    client_addr: Some("client-2".into()),
+                    target_addr: Some("target-2".into()),
+                    upload_bytes: 12,
+                    download_bytes: 23,
+                    error: None,
+                },
+            ],
+            next_cursor: ObservationCursor {
+                totals: StatsDelta {
+                    event_count: 2,
+                    upload_bytes: 15,
+                    download_bytes: 27,
+                    error_count: 0,
+                },
+                last_event_sequence: 2,
+            },
+            gap: None,
+        });
+
+        let logs = unified_logs(batch);
+        assert_eq!(logs.len(), 2);
+        assert_eq!((logs[0].upload_bytes, logs[0].download_bytes), (3, 4));
+        assert_eq!((logs[1].upload_bytes, logs[1].download_bytes), (12, 23));
+    }
 
     #[derive(Default)]
     struct FakeRunner {

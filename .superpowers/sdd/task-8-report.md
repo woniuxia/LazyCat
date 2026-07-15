@@ -56,7 +56,7 @@ cargo test request_forward::observability::tests -- --nocapture
 7 passed, 0 failed
 
 cargo test request_forward -- --nocapture
-58 passed, 0 failed
+59 passed, 0 failed
 
 cargo check
 Finished successfully, no request_forward warnings
@@ -69,4 +69,20 @@ passed
 
 ## Concern
 
-累计统计始终精确；TCP/UDP 在同一 cadence 批次包含多个事件时，日志行的字节字段按批次聚合写入首个可见事件，整体统计字节不丢失，但单行到单连接/单数据报的字节归属不是逐事件精确拆分。后续若需要逐连接/逐数据报审计，应在协议事件记录中增加 per-event byte counters；本任务未改变转发语义，避免扩大到协议生命周期重构。
+累计统计始终精确；UDP 在同一 cadence 批次包含多个事件时，日志行的字节字段仍按批次聚合写入首个可见事件，整体统计字节不丢失，但单行到单数据报的字节归属不是逐事件精确拆分。本次按限定范围只修复 TCP，不改 UDP。
+
+## TCP 日志字节归属补充
+
+### RED
+
+- 新增 `tcp_unified_logs_keep_bytes_per_event`：同一 observation batch 内两个 TCP 连接分别为 `(3, 4)` 与 `(12, 23)`。
+- 旧实现实际将首条日志写为整个 batch 的 `(15, 27)`，第二条为 `(0, 0)`；测试按预期失败。
+
+### GREEN
+
+- `TcpEvent` 增加连接级 `upload_bytes` / `download_bytes`。
+- `accepted_connection` 只增加全局 `event_count` 并返回独立连接 observation；每次成功写入同步增加全局 totals 和该连接 counters。
+- 正常完成、下游连接失败、relay 失败、过载或取消通过原子 finalize 只生成一次连接 summary；规则级 listener/child 错误保持 0 bytes。
+- `unified_logs` 直接读取 TCP event 字节，不再使用 `batch.delta/index == 0`。
+- 聚焦验证：TCP 7 passed、observability 7 passed、runtime 14 passed；正常半关闭连接 summary 为 upload 7 / download 8。
+- 最终验证：`cargo test request_forward -- --nocapture` 59 passed；`cargo check` 成功且无 warning；`git diff --check` 通过。
