@@ -81,6 +81,19 @@ pub(crate) trait AutoStartPersistence {
     fn set_auto_start(&self, rule_id: i64, value: bool) -> Result<(), String>;
 }
 
+pub(crate) trait LifecycleRepository {
+    fn auto_start_rules(&self) -> Result<Vec<ForwardRule>, String>;
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RestoreResult {
+    pub rule_id: i64,
+    pub ok: bool,
+    pub error: Option<String>,
+    pub state: RuntimeState,
+}
+
 pub(crate) trait ObservabilityPersistence: Send + Sync {
     fn persist(
         &self,
@@ -295,6 +308,47 @@ impl RuntimeManager {
             .collect()
     }
 
+    pub(crate) fn restore_auto_start_rules(
+        &self,
+        repository: &dyn LifecycleRepository,
+    ) -> Result<Vec<RestoreResult>, String> {
+        Ok(repository
+            .auto_start_rules()?
+            .into_iter()
+            .map(|rule| {
+                let rule_id = rule.id;
+                let result = self.with_rule_lock(rule_id, || self.start_restored_locked(&rule));
+                match result {
+                    Ok(status) => RestoreResult {
+                        rule_id,
+                        ok: true,
+                        error: None,
+                        state: status.state,
+                    },
+                    Err(error) => RestoreResult {
+                        rule_id,
+                        ok: false,
+                        error: Some(error),
+                        state: self.status(rule_id).state,
+                    },
+                }
+            })
+            .collect())
+    }
+
+    pub(crate) fn on_app_exit(&self) {
+        let rule_ids = self
+            .instances
+            .lock()
+            .expect("request-forward instances lock poisoned")
+            .keys()
+            .copied()
+            .collect::<Vec<_>>();
+        for rule_id in rule_ids {
+            let _ = self.with_rule_lock(rule_id, || self.stop_for_shutdown_locked(rule_id));
+        }
+    }
+
     pub(crate) fn status(&self, rule_id: i64) -> RuntimeStatus {
         self.reconcile_runner_failure(rule_id);
         let last_observability_error = self.last_observability_error(rule_id);
@@ -458,6 +512,50 @@ impl RuntimeManager {
         self.start_observability(rule, handle);
 
         Ok(self.status(rule.id))
+    }
+
+    fn start_restored_locked(&self, rule: &ForwardRule) -> Result<RuntimeStatus, String> {
+        if self.status(rule.id).state == RuntimeState::Running {
+            return Ok(self.status(rule.id));
+        }
+        self.set_state(rule.id, RuntimeState::Starting, None, None);
+        let handle = match self.runner.start(rule) {
+            Ok(handle) => handle,
+            Err(error) => {
+                self.set_failed(rule.id, error.clone());
+                return Err(error);
+            }
+        };
+        self.set_state(rule.id, RuntimeState::Running, Some(handle), None);
+        self.start_observability(rule, handle);
+        Ok(self.status(rule.id))
+    }
+
+    fn stop_for_shutdown_locked(&self, rule_id: i64) -> Result<(), String> {
+        self.reconcile_runner_failure(rule_id);
+        let previous = self.instance(rule_id);
+        let Some(handle) = previous.handle else {
+            self.stop_observability(rule_id);
+            return Ok(());
+        };
+        self.set_state(rule_id, RuntimeState::Stopping, Some(handle), None);
+        let stop_result = self.runner.stop(handle);
+        self.stop_observability(rule_id);
+        match stop_result {
+            Ok(()) => {
+                self.set_instance(rule_id, RuntimeInstance::stopped());
+                Ok(())
+            }
+            Err(error) => {
+                self.set_state(
+                    rule_id,
+                    RuntimeState::Running,
+                    Some(handle),
+                    Some(error.clone()),
+                );
+                Err(error)
+            }
+        }
     }
 
     fn stop_locked<P: AutoStartPersistence>(
@@ -997,8 +1095,8 @@ mod tests {
 
     use super::{
         unified_delta, unified_logs, unified_next_cursor, AutoStartPersistence,
-        ObservabilityPersistence, ObservationBatch, ObservationCursor, ObservationSource,
-        ProtocolRunner, RuleRunner, RunningHandle, RuntimeManager, RuntimeState,
+        LifecycleRepository, ObservabilityPersistence, ObservationBatch, ObservationCursor,
+        ObservationSource, ProtocolRunner, RuleRunner, RunningHandle, RuntimeManager, RuntimeState,
         UnifiedObservationBatch,
     };
     use crate::tools::helpers::ensure_request_forward_schema_for_test;
@@ -1300,6 +1398,16 @@ mod tests {
         }
     }
 
+    struct FakeLifecycleRepository {
+        rules: Vec<ForwardRule>,
+    }
+
+    impl LifecycleRepository for FakeLifecycleRepository {
+        fn auto_start_rules(&self) -> Result<Vec<ForwardRule>, String> {
+            Ok(self.rules.clone())
+        }
+    }
+
     fn rule(id: i64) -> ForwardRule {
         ForwardRule {
             id,
@@ -1336,6 +1444,79 @@ mod tests {
             capture_http_headers: false,
             capture_http_body: false,
         }
+    }
+
+    #[test]
+    fn restore_attempts_every_auto_start_rule_and_isolates_failures() {
+        let runner = Arc::new(FakeRunner::default());
+        runner.fail_start_for(1, "first restore failed");
+        let manager = RuntimeManager::new(runner.clone());
+        let repository = FakeLifecycleRepository {
+            rules: vec![rule(1), rule(2), rule(3)]
+                .into_iter()
+                .map(|mut rule| {
+                    rule.auto_start = true;
+                    rule
+                })
+                .collect(),
+        };
+
+        let results = manager
+            .restore_auto_start_rules(&repository)
+            .expect("load auto-start rules");
+
+        assert_eq!(results.len(), 3);
+        assert!(!results[0].ok);
+        assert!(results[1].ok);
+        assert!(results[2].ok);
+        assert_eq!(runner.start_calls.load(Ordering::SeqCst), 3);
+    }
+
+    #[test]
+    fn restore_failure_keeps_auto_start_true_and_failed_runtime_state() {
+        let runner = Arc::new(FakeRunner::default());
+        runner.fail_start_for(1, "restore bind failed");
+        let manager = RuntimeManager::new(runner);
+        let mut auto_start_rule = rule(1);
+        auto_start_rule.auto_start = true;
+        let repository = FakeLifecycleRepository {
+            rules: vec![auto_start_rule.clone()],
+        };
+
+        let results = manager
+            .restore_auto_start_rules(&repository)
+            .expect("load auto-start rules");
+        let status = manager.status(auto_start_rule.id);
+
+        assert!(auto_start_rule.auto_start);
+        assert!(!results[0].ok);
+        assert_eq!(status.state, RuntimeState::Failed);
+        assert!(status
+            .last_error
+            .as_deref()
+            .expect("restore error recorded")
+            .contains("restore bind failed"));
+    }
+
+    #[test]
+    fn app_shutdown_stops_runtime_without_changing_auto_start() {
+        let runner = Arc::new(FakeRunner::default());
+        let manager = RuntimeManager::new(runner.clone());
+        let persistence = FakePersistence::default();
+        let mut auto_start_rule = rule(1);
+        auto_start_rule.auto_start = true;
+        manager
+            .start(&auto_start_rule, &persistence)
+            .expect("start before shutdown");
+
+        manager.on_app_exit();
+
+        assert!(!runner.has_live_task());
+        assert_eq!(
+            manager.status(auto_start_rule.id).state,
+            RuntimeState::Stopped
+        );
+        assert_eq!(persistence.value(auto_start_rule.id), Some(true));
     }
 
     #[test]

@@ -1284,6 +1284,22 @@ fn main() {
             }
         })
         .setup(|app| {
+            tools::request_forward::initialize_manager().map_err(std::io::Error::other)?;
+            std::thread::spawn(
+                || match tools::request_forward::restore_auto_start_rules() {
+                    Ok(results) => {
+                        for result in results.into_iter().filter(|result| !result.ok) {
+                            eprintln!(
+                                "request-forward restore failed for rule {}: {}",
+                                result.rule_id,
+                                result.error.as_deref().unwrap_or("未知错误")
+                            );
+                        }
+                    }
+                    Err(error) => eprintln!("request-forward restore failed: {error}"),
+                },
+            );
+
             // 允许附件目录通过 asset:// 协议访问，覆盖默认目录与用户自定义数据目录两种场景
             if let Ok(dir) = tools::helpers::get_attachments_dir() {
                 if let Err(e) = app
@@ -1499,6 +1515,7 @@ fn main() {
         .run(|app_handle, event| {
             // 应用退出时销毁挂件窗口
             if let RunEvent::ExitRequested { .. } = event {
+                tools::request_forward::on_app_exit();
                 tools::widget::on_app_exit(app_handle);
             }
         });

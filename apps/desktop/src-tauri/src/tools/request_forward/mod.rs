@@ -2,7 +2,9 @@ use serde_json::{json, Value};
 
 use super::helpers::db_conn;
 use model::RuleWriteInput;
-use runtime::AutoStartPersistence;
+use runtime::{AutoStartPersistence, LifecycleRepository};
+
+pub use runtime::RestoreResult;
 
 mod http;
 mod model;
@@ -29,6 +31,33 @@ const ACTIONS: &[&str] = &[
     "stats_get",
     "stats_reset",
 ];
+
+struct DatabaseLifecycleRepository;
+
+impl LifecycleRepository for DatabaseLifecycleRepository {
+    fn auto_start_rules(&self) -> Result<Vec<model::ForwardRule>, String> {
+        let conn = db_conn()?;
+        Ok(repository::list_with_conn(&conn)?
+            .into_iter()
+            .filter(|rule| rule.auto_start)
+            .collect())
+    }
+}
+
+pub fn initialize_manager() -> Result<(), String> {
+    db_conn()?;
+    // 工具分发当前是同步全局入口；进程级唯一 runtime 避免每个 action 都耦合 AppHandle。
+    let _ = runtime::global_manager();
+    Ok(())
+}
+
+pub fn restore_auto_start_rules() -> Result<Vec<RestoreResult>, String> {
+    runtime::global_manager().restore_auto_start_rules(&DatabaseLifecycleRepository)
+}
+
+pub fn on_app_exit() {
+    runtime::global_manager().on_app_exit();
+}
 
 #[cfg(test)]
 pub(crate) fn supported_actions() -> &'static [&'static str] {
