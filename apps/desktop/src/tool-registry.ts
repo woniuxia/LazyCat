@@ -29,6 +29,7 @@ const toolRegistry: Record<string, Component> = {
   bcrypt: defineAsyncComponent(() => import("./components/BcryptPanel.vue")),
   regex: defineAsyncComponent(() => import("./components/RegexPanel.vue")),
   network: defineAsyncComponent(() => import("./components/NetworkPanel.vue")),
+  "request-forward": defineAsyncComponent(() => import("./components/RequestForwardPanel.vue")),
   "api-mock": defineAsyncComponent(() => import("./components/ApiMockPanel.vue")),
   hosts: defineAsyncComponent(() => import("./components/HostsPanel.vue")),
   ports: defineAsyncComponent(() => import("./components/PortsPanel.vue")),

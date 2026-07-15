@@ -124,3 +124,17 @@ export type {
   BrowserProfilesListResponse,
   BrowserProfilesLaunchResponse,
 } from "./browser-profiles";
+export type {
+  RequestForwardProtocol,
+  RequestForwardRuntimeState,
+  RequestForwardRuleWriteInput,
+  RequestForwardRuleForm,
+  RequestForwardRule,
+  RequestForwardRuntimeStatus,
+  RequestForwardBatchOperationResult,
+  RequestForwardLogQuery,
+  RequestForwardLogOutcome,
+  RequestForwardLogRow,
+  RequestForwardLogResult,
+  RequestForwardStats,
+} from "./request-forward";

@@ -91,6 +91,7 @@ const SIDEBAR_ITEMS: SidebarItem[] = [
       name: "网络与系统",
       tools: [
         { id: "network", name: "IP/端口连通", desc: "TCP 与 HTTP 连通性测试" },
+        { id: "request-forward", name: "请求转发", desc: "HTTP、TCP 与 UDP 本地端口转发" },
         { id: "api-mock", name: "API Mock", desc: "本地接口 Mock 服务与路由管理" },
         { id: "dns", name: "DNS 查询", desc: "域名解析与记录查询" },
         { id: "capture", name: "抓包工具", desc: "数据包捕获与协议分析" },
