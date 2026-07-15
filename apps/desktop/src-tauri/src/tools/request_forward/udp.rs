@@ -1,12 +1,13 @@
 use std::any::Any;
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr, UdpSocket as StdUdpSocket};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use tokio::net::{lookup_host, UdpSocket};
+use tokio::sync::Mutex as AsyncMutex;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
@@ -83,9 +84,15 @@ struct UdpSession {
     client_addr: SocketAddr,
     target: String,
     target_addr: SocketAddr,
-    upload_bytes: AtomicU64,
-    download_bytes: AtomicU64,
-    finalized: AtomicBool,
+    lifecycle: AsyncMutex<UdpSessionLifecycle>,
+}
+
+#[derive(Default)]
+struct UdpSessionLifecycle {
+    upload_bytes: u64,
+    download_bytes: u64,
+    closed: bool,
+    finalized: bool,
 }
 
 impl UdpSession {
@@ -104,35 +111,50 @@ impl UdpSession {
             client_addr,
             target,
             target_addr,
-            upload_bytes: AtomicU64::new(0),
-            download_bytes: AtomicU64::new(0),
-            finalized: AtomicBool::new(false),
+            lifecycle: AsyncMutex::new(UdpSessionLifecycle::default()),
         }
     }
 
-    fn add_upload(&self, bytes: u64) {
-        self.upload_bytes.fetch_add(bytes, Ordering::Relaxed);
+    async fn send_downstream(&self, payload: &[u8]) -> std::io::Result<Option<usize>> {
+        let mut lifecycle = self.lifecycle.lock().await;
+        if lifecycle.closed {
+            return Ok(None);
+        }
+        let sent = self.downstream.send(payload).await?;
+        lifecycle.upload_bytes += sent as u64;
+        Ok(Some(sent))
     }
 
-    fn add_download(&self, bytes: u64) {
-        self.download_bytes.fetch_add(bytes, Ordering::Relaxed);
+    async fn send_to_client(
+        &self,
+        listener: &UdpSocket,
+        payload: &[u8],
+    ) -> std::io::Result<Option<usize>> {
+        let mut lifecycle = self.lifecycle.lock().await;
+        if lifecycle.closed {
+            return Ok(None);
+        }
+        let sent = listener.send_to(payload, self.client_addr).await?;
+        if sent == payload.len() {
+            lifecycle.download_bytes += sent as u64;
+        }
+        Ok(Some(sent))
     }
 
-    fn finalize(&self, kind: UdpEventKind, error: Option<String>) {
-        if self
-            .finalized
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .is_err()
-        {
+    async fn finalize(&self, kind: UdpEventKind, error: Option<String>) {
+        let mut lifecycle = self.lifecycle.lock().await;
+        if lifecycle.finalized {
             return;
         }
+        lifecycle.closed = true;
+        lifecycle.finalized = true;
         self.observability.session_finalized(
             kind,
             self.client_addr,
             &self.target,
             self.target_addr,
-            self.upload_bytes.load(Ordering::Acquire),
-            self.download_bytes.load(Ordering::Acquire),
+            lifecycle.upload_bytes,
+            lifecycle.download_bytes,
             error,
         );
     }
@@ -593,14 +615,16 @@ async fn run_listener(
                             }
                         },
                     };
-                    session.add_upload(size as u64);
                     session.touch();
-                    if let Err(error) = session.downstream.send(&buffer[..size]).await {
-                        sessions.remove_if_current(client_addr, &session);
-                        session.finalize(
-                            UdpEventKind::DownstreamSendFailed,
-                            Some(format!("发送到下游 {} 失败: {error}", session.target_addr)),
-                        );
+                    match session.send_downstream(&buffer[..size]).await {
+                        Ok(Some(_)) | Ok(None) => {}
+                        Err(error) => {
+                            sessions.remove_if_current(client_addr, &session);
+                            session.finalize(
+                                UdpEventKind::DownstreamSendFailed,
+                                Some(format!("发送到下游 {} 失败: {error}", session.target_addr)),
+                            ).await;
+                        }
                     }
                 }
                 Err(error) => {
@@ -626,7 +650,7 @@ async fn run_listener(
     drop(listener);
     cancellation.cancel();
     for (_, session) in sessions.cancel_all() {
-        session.finalize(UdpEventKind::SessionClosed, None);
+        session.finalize(UdpEventKind::SessionClosed, None).await;
     }
     if let Some(cleanup) = cleanup {
         if let Err(error) = cleanup.await {
@@ -685,7 +709,7 @@ async fn cleanup_idle_sessions(
             _ = cancellation.cancelled() => break,
             _ = interval.tick() => {
                 for (_, session) in sessions.remove_idle(Instant::now(), limits.idle_timeout) {
-                    session.finalize(UdpEventKind::SessionExpired, None);
+                    session.finalize(UdpEventKind::SessionExpired, None).await;
                 }
             }
         }
@@ -709,25 +733,25 @@ async fn forward_responses(
             received = session.downstream.recv(&mut buffer) => match received {
                 Ok(size) => {
                     session.touch();
-                    match listener.send_to(&buffer[..size], client_addr).await {
-                        Ok(sent) if sent == size => {
+                    match session.send_to_client(&listener, &buffer[..size]).await {
+                        Ok(Some(sent)) if sent == size => {
                             observability.transferred(0, size as u64);
-                            session.add_download(size as u64);
                         }
-                        Ok(sent) => {
+                        Ok(Some(sent)) => {
                             sessions.remove_if_current(client_addr, &session);
                             session.finalize(
                                 UdpEventKind::ClientSendFailed,
                                 Some(format!("向客户端 {client_addr} 发送 UDP 响应不完整: {sent}/{size}")),
-                            );
+                            ).await;
                             break;
                         }
+                        Ok(None) => break,
                         Err(error) => {
                             sessions.remove_if_current(client_addr, &session);
                             session.finalize(
                                 UdpEventKind::ClientSendFailed,
                                 Some(format!("向客户端 {client_addr} 发送 UDP 响应失败: {error}")),
-                            );
+                            ).await;
                             break;
                         }
                     }
@@ -737,7 +761,7 @@ async fn forward_responses(
                     session.finalize(
                         UdpEventKind::DownstreamReceiveFailed,
                         Some(format!("接收下游 {} 的 UDP 响应失败: {error}", session.target_addr)),
-                    );
+                    ).await;
                     break;
                 }
             }
@@ -761,8 +785,9 @@ mod tests {
     use std::thread::{self, JoinHandle};
     use std::time::Duration;
 
-    use super::{UdpEventKind, UdpLimits, UdpRuleRunner};
+    use super::{UdpEventKind, UdpLimits, UdpRuleRunner, UdpSession};
     use crate::tools::request_forward::model::{ForwardProtocol, ForwardRule};
+    use crate::tools::request_forward::observability::UdpObservability;
     use crate::tools::request_forward::runtime::{
         AutoStartPersistence, RuleRunner, RuntimeManager, RuntimeState,
     };
@@ -814,6 +839,55 @@ mod tests {
         let mut buffer = [0_u8; 1024];
         let (size, _) = client.recv_from(&mut buffer).expect("receive UDP response");
         buffer[..size].to_vec()
+    }
+
+    #[tokio::test]
+    async fn udp_session_summary_cannot_be_overtaken_by_successful_io_accounting() {
+        let downstream = tokio::net::UdpSocket::bind("127.0.0.1:0")
+            .await
+            .expect("bind async UDP downstream");
+        let observability = Arc::new(UdpObservability::default());
+        let client_addr = "127.0.0.1:12000".parse().unwrap();
+        let target_addr = downstream.local_addr().expect("read downstream address");
+        let session = Arc::new(UdpSession::new(
+            downstream,
+            Arc::clone(&observability),
+            client_addr,
+            target_addr.to_string(),
+            target_addr,
+        ));
+
+        let mut active_io = session.lifecycle.lock().await;
+        let finalizing_session = Arc::clone(&session);
+        let finalize = tokio::spawn(async move {
+            finalizing_session
+                .finalize(UdpEventKind::SessionClosed, None)
+                .await;
+        });
+        tokio::task::yield_now().await;
+        active_io.upload_bytes += 5;
+        drop(active_io);
+        finalize.await.expect("join session finalize");
+
+        assert_eq!(session.send_downstream(b"closed").await.unwrap(), None);
+        session.finalize(UdpEventKind::SessionExpired, None).await;
+
+        let snapshot = observability
+            .wait_for(Duration::from_secs(1), |snapshot| {
+                !snapshot.events.is_empty()
+            })
+            .expect("wait for session summary");
+        let summary = snapshot
+            .events
+            .iter()
+            .find(|event| event.kind == UdpEventKind::SessionClosed)
+            .expect("session summary");
+        assert_eq!(summary.upload_bytes, 5);
+        assert_eq!(
+            snapshot.events.len(),
+            1,
+            "session summary must finalize once"
+        );
     }
 
     fn spawn_scripted_echo(
