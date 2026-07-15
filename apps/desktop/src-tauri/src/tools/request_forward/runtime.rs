@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError, Sender};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, RwLock, RwLockReadGuard};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
@@ -201,6 +201,7 @@ struct ObservationWorker {
 pub(crate) struct RuntimeManager {
     runner: Arc<dyn RuleRunner>,
     observability_persistence: Arc<dyn ObservabilityPersistence>,
+    lifecycle: RwLock<bool>,
     instances: Mutex<HashMap<i64, RuntimeInstance>>,
     rule_locks: Mutex<HashMap<i64, Arc<Mutex<()>>>>,
     observability_states: Arc<Mutex<HashMap<i64, Arc<Mutex<RuleObservabilityState>>>>>,
@@ -219,6 +220,7 @@ impl RuntimeManager {
         Self {
             runner,
             observability_persistence,
+            lifecycle: RwLock::new(false),
             instances: Mutex::new(HashMap::new()),
             rule_locks: Mutex::new(HashMap::new()),
             observability_states: Arc::new(Mutex::new(HashMap::new())),
@@ -336,7 +338,14 @@ impl RuntimeManager {
             .collect())
     }
 
-    pub(crate) fn on_app_exit(&self) {
+    pub(crate) fn on_app_exit(&self) -> Vec<BatchOperationResult> {
+        {
+            let mut shutting_down = self
+                .lifecycle
+                .write()
+                .expect("request-forward lifecycle lock poisoned");
+            *shutting_down = true;
+        }
         let rule_ids = self
             .instances
             .lock()
@@ -344,9 +353,15 @@ impl RuntimeManager {
             .keys()
             .copied()
             .collect::<Vec<_>>();
-        for rule_id in rule_ids {
-            let _ = self.with_rule_lock(rule_id, || self.stop_for_shutdown_locked(rule_id));
-        }
+        rule_ids
+            .into_iter()
+            .map(|rule_id| {
+                self.batch_result(
+                    rule_id,
+                    self.with_rule_lock(rule_id, || self.stop_for_shutdown_locked(rule_id)),
+                )
+            })
+            .collect()
     }
 
     pub(crate) fn status(&self, rule_id: i64) -> RuntimeStatus {
@@ -397,6 +412,17 @@ impl RuntimeManager {
             .lock()
             .expect("request-forward rule lock poisoned");
         action()
+    }
+
+    fn start_lifecycle_guard(&self) -> Result<RwLockReadGuard<'_, bool>, String> {
+        let guard = self
+            .lifecycle
+            .read()
+            .expect("request-forward lifecycle lock poisoned");
+        if *guard {
+            return Err("应用正在退出，无法启动转发规则".into());
+        }
+        Ok(guard)
     }
 
     pub(crate) fn clear_rule_state(&self, rule_id: i64) {
@@ -454,6 +480,7 @@ impl RuntimeManager {
         rule: &ForwardRule,
         persistence: &P,
     ) -> Result<RuntimeStatus, String> {
+        let _lifecycle_guard = self.start_lifecycle_guard()?;
         if self.status(rule.id).state == RuntimeState::Running {
             return Ok(self.status(rule.id));
         }
@@ -515,6 +542,7 @@ impl RuntimeManager {
     }
 
     fn start_restored_locked(&self, rule: &ForwardRule) -> Result<RuntimeStatus, String> {
+        let _lifecycle_guard = self.start_lifecycle_guard()?;
         if self.status(rule.id).state == RuntimeState::Running {
             return Ok(self.status(rule.id));
         }
@@ -531,12 +559,12 @@ impl RuntimeManager {
         Ok(self.status(rule.id))
     }
 
-    fn stop_for_shutdown_locked(&self, rule_id: i64) -> Result<(), String> {
+    fn stop_for_shutdown_locked(&self, rule_id: i64) -> Result<RuntimeStatus, String> {
         self.reconcile_runner_failure(rule_id);
         let previous = self.instance(rule_id);
         let Some(handle) = previous.handle else {
             self.stop_observability(rule_id);
-            return Ok(());
+            return Ok(self.status(rule_id));
         };
         self.set_state(rule_id, RuntimeState::Stopping, Some(handle), None);
         let stop_result = self.runner.stop(handle);
@@ -544,7 +572,7 @@ impl RuntimeManager {
         match stop_result {
             Ok(()) => {
                 self.set_instance(rule_id, RuntimeInstance::stopped());
-                Ok(())
+                Ok(self.status(rule_id))
             }
             Err(error) => {
                 self.set_state(
@@ -606,6 +634,14 @@ impl RuntimeManager {
                     last_error: Some(primary_error.clone()),
                 },
             );
+            let _lifecycle_guard = match self.start_lifecycle_guard() {
+                Ok(guard) => guard,
+                Err(shutdown_error) => {
+                    let error = compensation_error_message(&primary_error, &shutdown_error);
+                    self.set_failed(rule.id, error.clone());
+                    return Err(error);
+                }
+            };
             match self.runner.start(rule) {
                 Ok(handle) => {
                     self.start_observability(rule, handle);
@@ -1286,7 +1322,7 @@ mod tests {
         fn stop(&self, handle: RunningHandle) -> Result<(), String> {
             self.stop_calls.fetch_add(1, Ordering::SeqCst);
             let mut state = self.inner.lock().expect("lock fake runner");
-            if let Some(error) = state.stop_error.clone() {
+            if let Some(error) = state.stop_error.take() {
                 return Err(error);
             }
             state.live_handles.remove(&handle.0);
@@ -1509,7 +1545,7 @@ mod tests {
             .start(&auto_start_rule, &persistence)
             .expect("start before shutdown");
 
-        manager.on_app_exit();
+        let _ = manager.on_app_exit();
 
         assert!(!runner.has_live_task());
         assert_eq!(
@@ -1517,6 +1553,80 @@ mod tests {
             RuntimeState::Stopped
         );
         assert_eq!(persistence.value(auto_start_rule.id), Some(true));
+    }
+
+    #[test]
+    fn restore_after_app_shutdown_is_rejected() {
+        let runner = Arc::new(FakeRunner::default());
+        let manager = RuntimeManager::new(runner.clone());
+        let mut auto_start_rule = rule(1);
+        auto_start_rule.auto_start = true;
+        let repository = FakeLifecycleRepository {
+            rules: vec![auto_start_rule],
+        };
+
+        let _ = manager.on_app_exit();
+        let results = manager
+            .restore_auto_start_rules(&repository)
+            .expect("load auto-start rules after shutdown");
+
+        assert_eq!(results.len(), 1);
+        assert!(!results[0].ok);
+        assert!(results[0]
+            .error
+            .as_deref()
+            .expect("shutdown rejection error")
+            .contains("应用正在退出"));
+        assert_eq!(runner.start_calls.load(Ordering::SeqCst), 0);
+        assert!(!runner.has_live_task());
+    }
+
+    #[test]
+    fn manual_start_after_app_shutdown_is_rejected() {
+        let runner = Arc::new(FakeRunner::default());
+        let manager = RuntimeManager::new(runner.clone());
+        let persistence = FakePersistence::default();
+
+        let _ = manager.on_app_exit();
+        let error = manager
+            .start(&rule(1), &persistence)
+            .expect_err("start after shutdown must fail");
+
+        assert!(error.contains("应用正在退出"));
+        assert_eq!(runner.start_calls.load(Ordering::SeqCst), 0);
+        assert!(!runner.has_live_task());
+    }
+
+    #[test]
+    fn app_shutdown_reports_stop_failures_and_continues_other_rules() {
+        let runner = Arc::new(FakeRunner::default());
+        let manager = RuntimeManager::new(runner.clone());
+        let persistence = FakePersistence::default();
+        manager.start(&rule(1), &persistence).expect("start rule 1");
+        manager.start(&rule(2), &persistence).expect("start rule 2");
+        runner.fail_stop("shutdown stop failed");
+
+        let results = manager.on_app_exit();
+
+        assert_eq!(runner.stop_calls.load(Ordering::SeqCst), 2);
+        assert_eq!(results.len(), 2);
+        let failures = results
+            .iter()
+            .filter(|result| !result.ok)
+            .collect::<Vec<_>>();
+        assert_eq!(failures.len(), 1);
+        assert!(failures[0]
+            .error
+            .as_deref()
+            .expect("shutdown stop error")
+            .contains("shutdown stop failed"));
+        assert_eq!(
+            results
+                .iter()
+                .filter(|result| result.state == RuntimeState::Stopped)
+                .count(),
+            1
+        );
     }
 
     #[test]

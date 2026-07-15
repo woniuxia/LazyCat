@@ -56,7 +56,17 @@ pub fn restore_auto_start_rules() -> Result<Vec<RestoreResult>, String> {
 }
 
 pub fn on_app_exit() {
-    runtime::global_manager().on_app_exit();
+    for result in runtime::global_manager()
+        .on_app_exit()
+        .into_iter()
+        .filter(|result| !result.ok)
+    {
+        eprintln!(
+            "request-forward shutdown failed for rule {}: {}",
+            result.rule_id,
+            result.error.as_deref().unwrap_or("未知错误")
+        );
+    }
 }
 
 #[cfg(test)]
