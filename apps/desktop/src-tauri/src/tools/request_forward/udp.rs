@@ -1,7 +1,7 @@
 use std::any::Any;
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr, UdpSocket as StdUdpSocket};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
@@ -12,10 +12,8 @@ use tokio_util::sync::CancellationToken;
 
 use super::model::ForwardRule;
 #[cfg(test)]
-pub(super) use super::observability::UdpEventKind;
-use super::observability::UdpObservability;
-#[cfg(test)]
 use super::observability::UdpObservationSnapshot;
+use super::observability::{UdpEventKind, UdpObservability};
 use super::runtime::{RuleRunner, RunningHandle};
 
 pub(crate) const UDP_MAX_SESSIONS_PER_RULE: usize = 256;
@@ -81,17 +79,62 @@ struct UdpSession {
     downstream: Arc<UdpSocket>,
     cancellation: CancellationToken,
     last_active: Mutex<Instant>,
+    observability: Arc<UdpObservability>,
+    client_addr: SocketAddr,
+    target: String,
     target_addr: SocketAddr,
+    upload_bytes: AtomicU64,
+    download_bytes: AtomicU64,
+    finalized: AtomicBool,
 }
 
 impl UdpSession {
-    fn new(downstream: UdpSocket, target_addr: SocketAddr) -> Self {
+    fn new(
+        downstream: UdpSocket,
+        observability: Arc<UdpObservability>,
+        client_addr: SocketAddr,
+        target: String,
+        target_addr: SocketAddr,
+    ) -> Self {
         Self {
             downstream: Arc::new(downstream),
             cancellation: CancellationToken::new(),
             last_active: Mutex::new(Instant::now()),
+            observability,
+            client_addr,
+            target,
             target_addr,
+            upload_bytes: AtomicU64::new(0),
+            download_bytes: AtomicU64::new(0),
+            finalized: AtomicBool::new(false),
         }
+    }
+
+    fn add_upload(&self, bytes: u64) {
+        self.upload_bytes.fetch_add(bytes, Ordering::Relaxed);
+    }
+
+    fn add_download(&self, bytes: u64) {
+        self.download_bytes.fetch_add(bytes, Ordering::Relaxed);
+    }
+
+    fn finalize(&self, kind: UdpEventKind, error: Option<String>) {
+        if self
+            .finalized
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            return;
+        }
+        self.observability.session_finalized(
+            kind,
+            self.client_addr,
+            &self.target,
+            self.target_addr,
+            self.upload_bytes.load(Ordering::Acquire),
+            self.download_bytes.load(Ordering::Acquire),
+            error,
+        );
     }
 
     fn touch(&self) {
@@ -188,20 +231,18 @@ impl UdpSessionRegistry {
         removed
     }
 
-    fn cancel_all(&self) {
+    fn cancel_all(&self) -> Vec<(SocketAddr, Arc<UdpSession>)> {
         let sessions = {
             let mut sessions = self.sessions.lock().expect("UDP sessions lock poisoned");
-            sessions
-                .drain()
-                .map(|(_, session)| session)
-                .collect::<Vec<_>>()
+            sessions.drain().collect::<Vec<_>>()
         };
         if !sessions.is_empty() {
-            for session in sessions {
+            for (_, session) in &sessions {
                 session.cancellation.cancel();
             }
             self.changed.notify_all();
         }
+        sessions
     }
 
     #[cfg(test)]
@@ -472,17 +513,8 @@ async fn run_listener(
     let mut responses = JoinSet::new();
     let cleanup_cancellation = cancellation.clone();
     let cleanup_sessions = Arc::clone(&sessions);
-    let cleanup_observability = Arc::clone(&observability);
-    let cleanup_target = target.clone();
     let mut cleanup = Some(tokio::spawn(async move {
-        cleanup_idle_sessions(
-            cleanup_cancellation,
-            cleanup_sessions,
-            cleanup_observability,
-            cleanup_target,
-            limits,
-        )
-        .await;
+        cleanup_idle_sessions(cleanup_cancellation, cleanup_sessions, limits).await;
     }));
     let mut buffer = [0_u8; 65_535];
     let mut rule_error = None;
@@ -515,19 +547,25 @@ async fn run_listener(
                                 client_addr,
                                 &target,
                                 target_addr_hint,
+                                size as u64,
                                 format!("UDP 会话数已达到上限 {}", limits.max_sessions),
                             );
                             continue;
                         }
                         None => match create_downstream_socket(&target_host, target_port).await {
                             Ok((downstream, target_addr)) => {
-                                let session = Arc::new(UdpSession::new(downstream, target_addr));
+                                let session = Arc::new(UdpSession::new(
+                                    downstream,
+                                    Arc::clone(&observability),
+                                    client_addr,
+                                    target.clone(),
+                                    target_addr,
+                                ));
                                 sessions.insert(client_addr, Arc::clone(&session));
                                 observability.session_created(client_addr, &target, target_addr);
                                 let response_listener = Arc::clone(&listener);
                                 let response_sessions = Arc::clone(&sessions);
                                 let response_observability = Arc::clone(&observability);
-                                let response_target = target.clone();
                                 let response_session = Arc::clone(&session);
                                 let response_cancellation = cancellation.clone();
                                 responses.spawn(async move {
@@ -536,7 +574,6 @@ async fn run_listener(
                                         response_listener,
                                         response_sessions,
                                         response_observability,
-                                        response_target,
                                         response_session,
                                         response_cancellation,
                                     )
@@ -549,19 +586,20 @@ async fn run_listener(
                                     client_addr,
                                     &target,
                                     target_addr_hint,
+                                    size as u64,
                                     error,
                                 );
                                 continue;
                             }
                         },
                     };
+                    session.add_upload(size as u64);
                     session.touch();
                     if let Err(error) = session.downstream.send(&buffer[..size]).await {
-                        observability.downstream_send_failed(
-                            client_addr,
-                            &target,
-                            session.target_addr,
-                            format!("发送到下游 {} 失败: {error}", session.target_addr),
+                        sessions.remove_if_current(client_addr, &session);
+                        session.finalize(
+                            UdpEventKind::DownstreamSendFailed,
+                            Some(format!("发送到下游 {} 失败: {error}", session.target_addr)),
                         );
                     }
                 }
@@ -587,7 +625,9 @@ async fn run_listener(
 
     drop(listener);
     cancellation.cancel();
-    sessions.cancel_all();
+    for (_, session) in sessions.cancel_all() {
+        session.finalize(UdpEventKind::SessionClosed, None);
+    }
     if let Some(cleanup) = cleanup {
         if let Err(error) = cleanup.await {
             let error = format!("UDP 会话清理任务异常退出: {error}");
@@ -637,8 +677,6 @@ async fn create_downstream_socket(
 async fn cleanup_idle_sessions(
     cancellation: CancellationToken,
     sessions: Arc<UdpSessionRegistry>,
-    observability: Arc<UdpObservability>,
-    target: String,
     limits: UdpLimits,
 ) {
     let mut interval = tokio::time::interval(limits.cleanup_interval);
@@ -646,8 +684,8 @@ async fn cleanup_idle_sessions(
         tokio::select! {
             _ = cancellation.cancelled() => break,
             _ = interval.tick() => {
-                for (client_addr, session) in sessions.remove_idle(Instant::now(), limits.idle_timeout) {
-                    observability.session_expired(client_addr, &target, session.target_addr);
+                for (_, session) in sessions.remove_idle(Instant::now(), limits.idle_timeout) {
+                    session.finalize(UdpEventKind::SessionExpired, None);
                 }
             }
         }
@@ -660,7 +698,6 @@ async fn forward_responses(
     listener: Arc<UdpSocket>,
     sessions: Arc<UdpSessionRegistry>,
     observability: Arc<UdpObservability>,
-    target: String,
     session: Arc<UdpSession>,
     rule_cancellation: CancellationToken,
 ) {
@@ -673,37 +710,34 @@ async fn forward_responses(
                 Ok(size) => {
                     session.touch();
                     match listener.send_to(&buffer[..size], client_addr).await {
-                        Ok(sent) if sent == size => observability.transferred(0, size as u64),
+                        Ok(sent) if sent == size => {
+                            observability.transferred(0, size as u64);
+                            session.add_download(size as u64);
+                        }
                         Ok(sent) => {
-                            observability.client_send_failed(
-                                client_addr,
-                                &target,
-                                session.target_addr,
-                                format!("向客户端 {client_addr} 发送 UDP 响应不完整: {sent}/{size}"),
-                            );
                             sessions.remove_if_current(client_addr, &session);
+                            session.finalize(
+                                UdpEventKind::ClientSendFailed,
+                                Some(format!("向客户端 {client_addr} 发送 UDP 响应不完整: {sent}/{size}")),
+                            );
                             break;
                         }
                         Err(error) => {
-                            observability.client_send_failed(
-                                client_addr,
-                                &target,
-                                session.target_addr,
-                                format!("向客户端 {client_addr} 发送 UDP 响应失败: {error}"),
-                            );
                             sessions.remove_if_current(client_addr, &session);
+                            session.finalize(
+                                UdpEventKind::ClientSendFailed,
+                                Some(format!("向客户端 {client_addr} 发送 UDP 响应失败: {error}")),
+                            );
                             break;
                         }
                     }
                 }
                 Err(error) => {
-                    observability.downstream_receive_failed(
-                        client_addr,
-                        &target,
-                        session.target_addr,
-                        format!("接收下游 {} 的 UDP 响应失败: {error}", session.target_addr),
-                    );
                     sessions.remove_if_current(client_addr, &session);
+                    session.finalize(
+                        UdpEventKind::DownstreamReceiveFailed,
+                        Some(format!("接收下游 {} 的 UDP 响应失败: {error}", session.target_addr)),
+                    );
                     break;
                 }
             }
@@ -893,6 +927,72 @@ mod tests {
             })
             .expect("observe idle UDP session cleanup");
         assert_eq!(snapshot.error_count, 0);
+
+        runner.stop(handle).expect("stop UDP rule");
+    }
+
+    #[test]
+    fn udp_idle_expiry_finalizes_each_session_with_its_own_bytes_once() {
+        let (downstream_addr, _peers_rx, downstream) = spawn_scripted_echo(2);
+        let limits = UdpLimits::for_test(4, Duration::from_millis(40), Duration::from_millis(5));
+        let runner = UdpRuleRunner::with_limits(limits);
+        let handle = runner
+            .start(&udp_rule(6, downstream_addr))
+            .expect("start UDP rule");
+        let listener_addr = runner.listener_addr(handle).expect("read listener address");
+        let sessions = runner
+            .sessions_for_test(handle)
+            .expect("read UDP session registry");
+        let first = bind_client();
+        let second = bind_client();
+
+        first
+            .send_to(b"a", listener_addr)
+            .expect("send first client datagram");
+        second
+            .send_to(b"longer", listener_addr)
+            .expect("send second client datagram");
+        assert_eq!(receive(&first), b"reply:a");
+        assert_eq!(receive(&second), b"reply:longer");
+        downstream.join().expect("join scripted downstream");
+
+        sessions
+            .wait_for_count(0, SOCKET_TIMEOUT)
+            .expect("wait for idle UDP session cleanup");
+        let first_addr = first.local_addr().expect("read first client address");
+        let second_addr = second.local_addr().expect("read second client address");
+        let snapshot = runner
+            .wait_for_snapshot(handle, |snapshot| {
+                snapshot
+                    .events
+                    .iter()
+                    .filter(|event| event.kind == UdpEventKind::SessionExpired)
+                    .count()
+                    == 2
+            })
+            .expect("observe both UDP session summaries");
+        let summaries = snapshot
+            .events
+            .iter()
+            .filter(|event| event.kind == UdpEventKind::SessionExpired)
+            .collect::<Vec<_>>();
+        assert_eq!(summaries.len(), 2);
+        let first_summary = summaries
+            .iter()
+            .find(|event| event.client_addr == Some(first_addr))
+            .expect("first session summary");
+        let second_summary = summaries
+            .iter()
+            .find(|event| event.client_addr == Some(second_addr))
+            .expect("second session summary");
+        assert_eq!(
+            (first_summary.upload_bytes, first_summary.download_bytes),
+            (1, 7)
+        );
+        assert_eq!(
+            (second_summary.upload_bytes, second_summary.download_bytes),
+            (6, 12)
+        );
 
         runner.stop(handle).expect("stop UDP rule");
     }

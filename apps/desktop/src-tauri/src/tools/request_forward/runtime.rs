@@ -804,8 +804,7 @@ fn unified_logs(batch: UnifiedObservationBatch) -> Vec<ForwardLogWrite> {
         UnifiedObservationBatch::Udp(batch) => batch
             .events
             .into_iter()
-            .enumerate()
-            .map(|(index, event)| ForwardLogWrite {
+            .map(|event| ForwardLogWrite {
                 protocol: ForwardProtocol::Udp,
                 client_addr: event.client_addr.map(|value| value.to_string()),
                 target_addr: event
@@ -816,12 +815,8 @@ fn unified_logs(batch: UnifiedObservationBatch) -> Vec<ForwardLogWrite> {
                 path: None,
                 status_code: None,
                 duration_ms: None,
-                upload_bytes: (index == 0)
-                    .then_some(batch.delta.upload_bytes)
-                    .unwrap_or(0),
-                download_bytes: (index == 0)
-                    .then_some(batch.delta.download_bytes)
-                    .unwrap_or(0),
+                upload_bytes: event.upload_bytes,
+                download_bytes: event.download_bytes,
                 request_headers: None,
                 response_headers: None,
                 request_body_preview: None,
@@ -1009,7 +1004,8 @@ mod tests {
     use crate::tools::helpers::ensure_request_forward_schema_for_test;
     use crate::tools::request_forward::model::{ForwardProtocol, ForwardRule, RuleWriteInput};
     use crate::tools::request_forward::observability::{
-        HttpObservability, TcpEvent, TcpEventKind, TcpObservability, HTTP_BODY_PREVIEW_LIMIT,
+        HttpObservability, TcpEvent, TcpEventKind, TcpObservability, UdpEvent, UdpEventKind,
+        HTTP_BODY_PREVIEW_LIMIT,
     };
     use crate::tools::request_forward::repository;
     use crate::tools::request_forward::repository::{ForwardLogWrite, ForwardStats, StatsDelta};
@@ -1061,6 +1057,55 @@ mod tests {
         assert_eq!(logs.len(), 2);
         assert_eq!((logs[0].upload_bytes, logs[0].download_bytes), (3, 4));
         assert_eq!((logs[1].upload_bytes, logs[1].download_bytes), (12, 23));
+    }
+
+    #[test]
+    fn udp_unified_logs_keep_bytes_per_session_event() {
+        let batch = UnifiedObservationBatch::Udp(ObservationBatch {
+            delta: StatsDelta {
+                event_count: 2,
+                upload_bytes: 9,
+                download_bytes: 21,
+                error_count: 0,
+            },
+            events: vec![
+                UdpEvent {
+                    sequence: 1,
+                    kind: UdpEventKind::SessionExpired,
+                    client_addr: Some("127.0.0.1:12001".parse().unwrap()),
+                    target: "127.0.0.1:53".into(),
+                    target_addr: Some("127.0.0.1:53".parse().unwrap()),
+                    upload_bytes: 2,
+                    download_bytes: 8,
+                    error: None,
+                },
+                UdpEvent {
+                    sequence: 2,
+                    kind: UdpEventKind::SessionExpired,
+                    client_addr: Some("127.0.0.1:12002".parse().unwrap()),
+                    target: "127.0.0.1:53".into(),
+                    target_addr: Some("127.0.0.1:53".parse().unwrap()),
+                    upload_bytes: 7,
+                    download_bytes: 13,
+                    error: None,
+                },
+            ],
+            next_cursor: ObservationCursor {
+                totals: StatsDelta {
+                    event_count: 2,
+                    upload_bytes: 9,
+                    download_bytes: 21,
+                    error_count: 0,
+                },
+                last_event_sequence: 2,
+            },
+            gap: None,
+        });
+
+        let logs = unified_logs(batch);
+        assert_eq!(logs.len(), 2);
+        assert_eq!((logs[0].upload_bytes, logs[0].download_bytes), (2, 8));
+        assert_eq!((logs[1].upload_bytes, logs[1].download_bytes), (7, 13));
     }
 
     #[derive(Default)]

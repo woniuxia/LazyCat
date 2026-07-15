@@ -527,6 +527,7 @@ pub(crate) enum UdpEventKind {
     ClientSendFailed,
     Overloaded,
     SessionExpired,
+    SessionClosed,
     ListenerFailed,
     ChildTaskFailed,
 }
@@ -538,6 +539,8 @@ pub(crate) struct UdpEvent {
     pub(crate) client_addr: Option<SocketAddr>,
     pub(crate) target: String,
     pub(crate) target_addr: Option<SocketAddr>,
+    pub(crate) upload_bytes: u64,
+    pub(crate) download_bytes: u64,
     pub(crate) error: Option<String>,
 }
 
@@ -607,63 +610,45 @@ impl UdpObservability {
         client_addr: SocketAddr,
         target: &str,
         target_addr: Option<SocketAddr>,
+        upload_bytes: u64,
         error: String,
     ) {
-        self.failed(
+        self.failed_with_bytes(
             UdpEventKind::DownstreamConnectFailed,
             Some(client_addr),
             target,
             target_addr,
+            upload_bytes,
+            0,
             error,
         );
     }
 
-    pub(crate) fn downstream_send_failed(
+    pub(crate) fn session_finalized(
         &self,
+        kind: UdpEventKind,
         client_addr: SocketAddr,
         target: &str,
         target_addr: SocketAddr,
-        error: String,
+        upload_bytes: u64,
+        download_bytes: u64,
+        error: Option<String>,
     ) {
-        self.failed(
-            UdpEventKind::DownstreamSendFailed,
-            Some(client_addr),
-            target,
-            Some(target_addr),
-            error,
-        );
-    }
-
-    pub(crate) fn downstream_receive_failed(
-        &self,
-        client_addr: SocketAddr,
-        target: &str,
-        target_addr: SocketAddr,
-        error: String,
-    ) {
-        self.failed(
-            UdpEventKind::DownstreamReceiveFailed,
-            Some(client_addr),
-            target,
-            Some(target_addr),
-            error,
-        );
-    }
-
-    pub(crate) fn client_send_failed(
-        &self,
-        client_addr: SocketAddr,
-        target: &str,
-        target_addr: SocketAddr,
-        error: String,
-    ) {
-        self.failed(
-            UdpEventKind::ClientSendFailed,
-            Some(client_addr),
-            target,
-            Some(target_addr),
-            error,
-        );
+        self.update(|state| {
+            if error.is_some() {
+                state.error_count = state.error_count.saturating_add(1);
+            }
+            push_udp_event_with_bytes(
+                state,
+                kind,
+                Some(client_addr),
+                target,
+                Some(target_addr),
+                upload_bytes,
+                download_bytes,
+                error,
+            );
+        });
     }
 
     pub(crate) fn overloaded(
@@ -671,29 +656,17 @@ impl UdpObservability {
         client_addr: SocketAddr,
         target: &str,
         target_addr: Option<SocketAddr>,
+        upload_bytes: u64,
         error: String,
     ) {
-        self.failed(
+        self.failed_with_bytes(
             UdpEventKind::Overloaded,
             Some(client_addr),
             target,
             target_addr,
+            upload_bytes,
+            0,
             error,
-        );
-    }
-
-    pub(crate) fn session_expired(
-        &self,
-        client_addr: SocketAddr,
-        target: &str,
-        target_addr: SocketAddr,
-    ) {
-        self.event(
-            UdpEventKind::SessionExpired,
-            Some(client_addr),
-            target,
-            Some(target_addr),
-            None,
         );
     }
 
@@ -758,9 +731,32 @@ impl UdpObservability {
         target_addr: Option<SocketAddr>,
         error: String,
     ) {
+        self.failed_with_bytes(kind, client_addr, target, target_addr, 0, 0, error);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn failed_with_bytes(
+        &self,
+        kind: UdpEventKind,
+        client_addr: Option<SocketAddr>,
+        target: &str,
+        target_addr: Option<SocketAddr>,
+        upload_bytes: u64,
+        download_bytes: u64,
+        error: String,
+    ) {
         self.update(|state| {
             state.error_count = state.error_count.saturating_add(1);
-            push_udp_event(state, kind, client_addr, target, target_addr, Some(error));
+            push_udp_event_with_bytes(
+                state,
+                kind,
+                client_addr,
+                target,
+                target_addr,
+                upload_bytes,
+                download_bytes,
+                Some(error),
+            );
         });
     }
 
@@ -792,6 +788,20 @@ fn push_udp_event(
     target_addr: Option<SocketAddr>,
     error: Option<String>,
 ) {
+    push_udp_event_with_bytes(state, kind, client_addr, target, target_addr, 0, 0, error);
+}
+
+#[allow(clippy::too_many_arguments)]
+fn push_udp_event_with_bytes(
+    state: &mut UdpObservationState,
+    kind: UdpEventKind,
+    client_addr: Option<SocketAddr>,
+    target: &str,
+    target_addr: Option<SocketAddr>,
+    upload_bytes: u64,
+    download_bytes: u64,
+    error: Option<String>,
+) {
     if state.events.len() == UDP_EVENT_BUFFER_LIMIT {
         state.events.pop_front();
     }
@@ -802,6 +812,8 @@ fn push_udp_event(
         client_addr,
         target: target.to_string(),
         target_addr,
+        upload_bytes,
+        download_bytes,
         error,
     });
 }
