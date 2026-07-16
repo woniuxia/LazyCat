@@ -8,6 +8,33 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-07-16: 高密度工作台分区与连续日志自动刷新
+
+**场景**: 将请求转发右侧工作台拆为配置/观测两个任务型 Tab，并让运行日志复用既有状态轮询自动刷新，同时保持分页连续和已有数据可读。
+
+**关键点**:
+1. 配置和运行观测属于不同任务上下文，使用保持挂载的独立 Tab 与滚动容器；已有规则记住会话内 Tab，新建草稿强制进入配置，观测页不展示无关的保存操作。
+2. 自动刷新不能把最新首页直接拼到旧分页尾部，否则突发新增会制造 offset 缺口。后台从 `offset = 0` 查询连续窗口，根据 `total` 增量扩展已加载深度，必要时补查，再整体替换连续前缀。
+3. 复用既有串行 `setTimeout` 轮询，不新增计时器。日志请求、筛选防抖或观测写操作冲突时只保留一个带选择与筛选快照的待执行意图；终止轮完成或消费该意图后不重启状态轮询。
+4. 后台刷新失败保留当前日志，并使用独立的非阻塞错误提示；首次或手动加载失败仍走替换式错误态，避免可用旧数据被隐藏。
+5. 信息密度通过收紧区块间距、内边距和日志行节奏提升，不缩小正文可读基线，不修改全局 Element Plus 主题覆盖。
+
+**涉及文件**:
+- `apps/desktop/src/components/RequestForwardPanel.vue`
+- `apps/desktop/src/components/request-forward/RequestForwardRuleForm.vue`
+- `apps/desktop/src/components/request-forward/RequestForwardLogList.vue`
+- `apps/desktop/src/utils/requestForward.ts`
+- 对应 `RequestForwardPanel.test.ts` 与 `requestForward.test.ts`
+
+**验证**:
+- `pnpm test src/utils/requestForward.test.ts src/components/RequestForwardPanel.test.ts`（42 通过）
+- `pnpm test`（57 个测试文件、584 个测试通过）
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+- 未自动启动产品 UI，运行时视觉冒烟未执行
+
+**使用次数**: 0
+
 ## 2026-07-16: 长生命周期网络服务的运行态与观测一致性
 
 **场景**: 在同步 Tauri tool dispatch 中承载 HTTP / TCP / UDP 长生命周期服务，同时提供自启动、退出清理、统计日志和可编辑前端面板。
