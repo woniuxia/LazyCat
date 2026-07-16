@@ -8,6 +8,33 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-07-16: 长生命周期网络服务的运行态与观测一致性
+
+**场景**: 在同步 Tauri tool dispatch 中承载 HTTP / TCP / UDP 长生命周期服务，同时提供自启动、退出清理、统计日志和可编辑前端面板。
+
+**关键点**:
+1. 同步 IPC 不等于每次调用临时创建异步 runtime；由进程级 manager 持有专用 Tokio runtime、规则句柄和逐规则操作锁，启动/停止/查询都围绕同一份运行态真值串行化。
+2. `autoStart` 是持久化意图，`running/failed/stopped` 是运行时事实，不能互相冒充。跨持久化与运行时的启动/停止要有反向补偿；应用退出先关闭生命周期闸门，再逐条停服务，但不改写用户的自启动意图。
+3. 观测必须有界且不能反向拖慢转发：流式 preview tap 只复制上限内字节并继续透传原 chunk，日志用容量/保留上限控制；落库失败独立暴露，不把仍正常的网络转发伪装为失败。
+4. UDP 按客户端隔离 session；session 汇总落库前先进入 finalize gate，并等待已登记的在途 I/O 记账退出，避免结束摘要被迟到的成功回包越过或重复计数。
+5. 自动轮询、筛选防抖和详情切换同时存在时，响应写回需校验请求 token、选择意图与参数快照；轮询不得覆盖 dirty 表单，清空/重置等观测变更与在途轮询互斥。
+
+**涉及文件**:
+- `apps/desktop/src-tauri/src/tools/request_forward/`
+- `apps/desktop/src/components/RequestForwardPanel.vue`
+- `apps/desktop/src/utils/requestForward.ts`
+
+**验证**:
+- `cargo test request_forward -- --nocapture`（68 通过，含 HTTP 流式/SSE、HTTPS 显式拒绝、TCP half-close、UDP 双客户端隔离）
+- `cargo test contract_tests -- --nocapture`
+- `cargo test`
+- `pnpm test src/utils/requestForward.test.ts src/components/RequestForwardPanel.test.ts`
+- `pnpm test`
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+
+**使用次数**: 0
+
 ## 2026-07-14: SQL 实体生成器基类字段排除
 
 **场景**: Java 实体生成需要从多个基类模板汇总字段排除，同时只生成一个合法父类继承声明。
