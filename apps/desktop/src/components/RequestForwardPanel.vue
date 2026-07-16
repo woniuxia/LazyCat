@@ -18,6 +18,8 @@ import {
   captureRequestForwardMutationIntent,
   getDefaultRequestForwardForm,
   getRequestForwardBatchMessage,
+  getRequestForwardLogProbeLimit,
+  getRequestForwardLogTargetCount,
   isRequestForwardRuleReadonly,
   toRequestForwardRuleWriteInput,
   validateRequestForwardRuleForm,
@@ -32,6 +34,13 @@ type RuleEnvelope = { item: RequestForwardRule };
 type StatusEnvelope = { item: RequestForwardRuntimeStatus };
 type BatchEnvelope = { results: RequestForwardBatchOperationResult[] };
 type StatsEnvelope = { item: RequestForwardStats };
+type WorkbenchTab = "config" | "observability";
+type LogQueryContext = {
+  ruleId: number;
+  intentToken: number;
+  keyword: string;
+  mode: "all" | RequestForwardLogOutcome;
+};
 
 const LOG_PAGE_SIZE = 30;
 
@@ -40,6 +49,7 @@ const rules = ref<RequestForwardRule[]>([]);
 const statuses = ref<RequestForwardRuntimeStatus[]>([]);
 const selectedId = ref<number | null>(null);
 const draft = ref(false);
+const activeWorkbenchTab = ref<WorkbenchTab>("config");
 const form = ref<RequestForwardRuleForm>(getDefaultRequestForwardForm());
 const formDirty = ref(false);
 const fieldErrors = ref<Partial<Record<keyof RequestForwardRuleForm, string>>>({});
@@ -55,6 +65,7 @@ const logMode = ref<"all" | RequestForwardLogOutcome>("all");
 const logsLoading = ref(false);
 const loadingMore = ref(false);
 const logError = ref("");
+const logRefreshError = ref("");
 const observabilityMutating = ref(false);
 
 let refreshRequestToken = 0;
@@ -66,6 +77,7 @@ let statsRequestToken = 0;
 let logRequestToken = 0;
 let logInFlight = false;
 let logDebounceTimer: ReturnType<typeof setTimeout> | undefined;
+let pendingLogRefresh: LogQueryContext | null = null;
 
 const selectedRule = computed(
   () => rules.value.find((rule) => rule.id === selectedId.value) ?? null,
@@ -133,6 +145,43 @@ function clearLogDebounce() {
   logDebounceTimer = undefined;
 }
 
+function captureLogQueryContext(
+  ruleId = selectedId.value,
+  intentToken = selectionIntentToken,
+): LogQueryContext | null {
+  if (ruleId == null || draft.value) return null;
+  return {
+    ruleId,
+    intentToken,
+    keyword: logKeyword.value.trim(),
+    mode: logMode.value,
+  };
+}
+
+function isLogQueryContextCurrent(context: LogQueryContext): boolean {
+  return (
+    selectionIntentToken === context.intentToken &&
+    selectedId.value === context.ruleId &&
+    !draft.value &&
+    logKeyword.value.trim() === context.keyword &&
+    logMode.value === context.mode
+  );
+}
+
+function queryLogs(
+  context: LogQueryContext,
+  offset: number,
+  limit: number,
+): Promise<RequestForwardLogPage> {
+  return invoke<RequestForwardLogPage>("tool:request-forward:log-list", {
+    id: context.ruleId,
+    keyword: context.keyword || null,
+    mode: context.mode === "all" ? null : context.mode,
+    offset,
+    limit,
+  });
+}
+
 function resetObservabilityState() {
   statsRequestToken += 1;
   logRequestToken += 1;
@@ -145,7 +194,9 @@ function resetObservabilityState() {
   logsLoading.value = false;
   loadingMore.value = false;
   logError.value = "";
+  logRefreshError.value = "";
   logInFlight = false;
+  pendingLogRefresh = null;
 }
 
 async function loadStats(
@@ -179,11 +230,11 @@ async function loadLogs(
   ruleId = selectedId.value,
   intentToken = selectionIntentToken,
 ) {
-  if (ruleId == null || draft.value || observabilityMutating.value) return;
+  const context = captureLogQueryContext(ruleId, intentToken);
+  if (!context || observabilityMutating.value) return;
   if (append && (loadingMore.value || logInFlight)) return;
-  const normalizedKeyword = logKeyword.value.trim();
-  const modeSnapshot = logMode.value;
   const requestToken = ++logRequestToken;
+  const offset = append ? logItems.value.length : 0;
   logInFlight = true;
   append ? (loadingMore.value = true) : (logsLoading.value = true);
   if (!append) {
@@ -191,29 +242,18 @@ async function loadLogs(
     logTotal.value = 0;
   }
   logError.value = "";
+  logRefreshError.value = "";
   try {
-    const result = await invoke<RequestForwardLogPage>("tool:request-forward:log-list", {
-      id: ruleId,
-      keyword: normalizedKeyword || null,
-      mode: logMode.value === "all" ? null : logMode.value,
-      offset: append ? logItems.value.length : 0,
-      limit: LOG_PAGE_SIZE,
-    });
-    if (
-      requestToken !== logRequestToken ||
-      selectionIntentToken !== intentToken ||
-      selectedId.value !== ruleId ||
-      logKeyword.value.trim() !== normalizedKeyword ||
-      logMode.value !== modeSnapshot ||
-      draft.value
-    ) return;
+    const result = await queryLogs(context, offset, LOG_PAGE_SIZE);
+    if (requestToken !== logRequestToken || !isLogQueryContextCurrent(context)) return;
     const knownIds = new Set(logItems.value.map((item) => item.id));
     logItems.value = append
       ? [...logItems.value, ...result.items.filter((item) => !knownIds.has(item.id))]
       : result.items;
     logTotal.value = result.total;
+    logRefreshError.value = "";
   } catch (error) {
-    if (requestToken === logRequestToken && selectedId.value === ruleId) {
+    if (requestToken === logRequestToken && isLogQueryContextCurrent(context)) {
       logError.value = `加载日志失败：${errorMessage(error)}`;
     }
   } finally {
@@ -222,7 +262,72 @@ async function loadLogs(
       logsLoading.value = false;
       loadingMore.value = false;
     }
+    flushPendingLogRefresh();
   }
+}
+
+async function refreshLogsInBackground(
+  context = captureLogQueryContext(),
+): Promise<void> {
+  if (
+    !context ||
+    activeWorkbenchTab.value !== "observability" ||
+    !isLogQueryContextCurrent(context)
+  ) return;
+  if (observabilityMutating.value || logInFlight || loadingMore.value || logDebounceTimer) {
+    pendingLogRefresh = context;
+    return;
+  }
+
+  pendingLogRefresh = null;
+  const requestToken = ++logRequestToken;
+  const loadedCount = logItems.value.length;
+  const previousTotal = logTotal.value;
+  logInFlight = true;
+  try {
+    const probe = await queryLogs(
+      context,
+      0,
+      getRequestForwardLogProbeLimit(loadedCount),
+    );
+    if (requestToken !== logRequestToken || !isLogQueryContextCurrent(context)) return;
+
+    const targetCount = getRequestForwardLogTargetCount({
+      loadedCount,
+      previousTotal,
+      nextTotal: probe.total,
+    });
+    const page = probe.items.length >= targetCount
+      ? { ...probe, items: probe.items.slice(0, targetCount) }
+      : await queryLogs(context, 0, targetCount);
+    if (requestToken !== logRequestToken || !isLogQueryContextCurrent(context)) return;
+
+    logItems.value = page.items;
+    logTotal.value = page.total;
+    logRefreshError.value = "";
+  } catch (error) {
+    if (requestToken === logRequestToken && isLogQueryContextCurrent(context)) {
+      logRefreshError.value = `日志自动刷新失败：${errorMessage(error)}`;
+    }
+  } finally {
+    if (requestToken === logRequestToken) logInFlight = false;
+    flushPendingLogRefresh();
+  }
+}
+
+function flushPendingLogRefresh() {
+  const pending = pendingLogRefresh;
+  if (!pending) return;
+  if (
+    activeWorkbenchTab.value !== "observability" ||
+    !isLogQueryContextCurrent(pending)
+  ) {
+    pendingLogRefresh = null;
+    return;
+  }
+  if (observabilityMutating.value || logInFlight || loadingMore.value || logDebounceTimer) return;
+  pendingLogRefresh = null;
+  void refreshLogsInBackground(pending);
 }
 
 function scheduleLogReload() {
@@ -230,7 +335,10 @@ function scheduleLogReload() {
   logRequestToken += 1;
   logItems.value = [];
   logTotal.value = 0;
-  logDebounceTimer = setTimeout(() => void loadLogs(false), 300);
+  logDebounceTimer = setTimeout(() => {
+    logDebounceTimer = undefined;
+    void loadLogs(false);
+  }, 300);
 }
 
 function loadMoreLogs() {
@@ -297,6 +405,7 @@ function createDraft() {
   selectionIntentToken += 1;
   draft.value = true;
   selectedId.value = null;
+  activeWorkbenchTab.value = "config";
   form.value = getDefaultRequestForwardForm();
   formDirty.value = false;
   fieldErrors.value = {};
@@ -517,6 +626,7 @@ async function clearLogs() {
   const intentToken = selectionIntentToken;
   observabilityMutating.value = true;
   logRequestToken += 1;
+  pendingLogRefresh = null;
   try {
     await invoke<{ ok: boolean }>("tool:request-forward:log-clear", { id: rule.id });
     if (selectionIntentToken !== intentToken || selectedId.value !== rule.id || draft.value) return;
@@ -599,6 +709,7 @@ async function runPoll(generation: number) {
   pollInFlight = true;
   try {
     await refreshRules();
+    await refreshLogsInBackground();
   } finally {
     pollInFlight = false;
     if (generation === pollGeneration && hasActiveRuntimeRule.value) {
@@ -614,8 +725,15 @@ function syncPolling(active: boolean) {
 
 watch([selectedId, draft], ([ruleId, isDraft]) => {
   resetObservabilityState();
-  if (ruleId != null && !isDraft) {
+  if (ruleId != null && !isDraft && activeWorkbenchTab.value === "observability") {
     void Promise.all([loadStats(ruleId), loadLogs(false, ruleId)]);
+  }
+});
+watch(activeWorkbenchTab, (tab) => {
+  if (tab === "observability") {
+    reloadCurrentObservability();
+  } else {
+    pendingLogRefresh = null;
   }
 });
 watch(logKeyword, scheduleLogReload);
@@ -632,6 +750,7 @@ onUnmounted(() => {
   refreshRequestToken += 1;
   statsRequestToken += 1;
   logRequestToken += 1;
+  pendingLogRefresh = null;
   clearLogDebounce();
   clearPolling();
 });
@@ -667,161 +786,182 @@ onUnmounted(() => {
           </div>
         </header>
 
-        <div v-if="readonly" class="readonly-banner" role="status">
-          <div>
-            <strong>规则正在运行，配置已锁定</strong>
-            <span>停止成功后才会解除只读，避免运行配置与持久化配置不一致。</span>
-          </div>
-          <el-button
-            :disabled="interactionBusy"
-            :loading="operating"
-            @click="handleStopAndEdit"
-          >停止并编辑</el-button>
-        </div>
-
-        <div class="workbench-scroll">
-          <RequestForwardRuleFormEditor
-            :model-value="form"
-            :readonly="readonly"
-            :disabled="interactionBusy"
-            :persisted="!draft"
-            :errors="fieldErrors"
-            @update:model-value="handleFormUpdate"
-          />
-
-          <section v-if="!draft" class="observability" aria-labelledby="observability-title">
-            <div
-              v-if="selectedStatus?.lastObservabilityError"
-              class="observability-warning"
-              role="status"
-            >
-              <strong>观测数据暂不可用</strong>
-              <span>{{ selectedStatus.lastObservabilityError }}</span>
-            </div>
-
-            <header class="section-header">
-              <div>
-                <p class="section-header__eyebrow">OBSERVABILITY</p>
-                <h2 id="observability-title">转发统计</h2>
+        <el-tabs
+          v-model="activeWorkbenchTab"
+          class="workbench-tabs"
+          :class="{ 'is-draft': draft }"
+        >
+          <el-tab-pane label="规则配置" name="config">
+            <div class="workbench-pane">
+              <div v-if="readonly" class="readonly-banner" role="status">
+                <div>
+                  <strong>规则正在运行，配置已锁定</strong>
+                  <span>停止成功后才会解除只读，避免运行配置与持久化配置不一致。</span>
+                </div>
+                <el-button
+                  :disabled="interactionBusy"
+                  :loading="operating"
+                  @click="handleStopAndEdit"
+                >停止并编辑</el-button>
               </div>
-              <el-button
-                size="small"
-                :disabled="statsLoading || observabilityMutating"
-                :loading="observabilityMutating"
-                @click="resetStats"
-              >
-                重置统计
-              </el-button>
-            </header>
 
-            <div v-if="statsError" class="stats-error" role="alert">
-              <span>{{ statsError }}</span>
-              <el-button size="small" @click="loadStats()">重新加载</el-button>
-            </div>
-            <div v-else class="stats-grid" :aria-busy="statsLoading">
-              <article class="stat-card">
-                <span>{{ eventLabel }}</span>
-                <strong>{{ stats?.eventCount ?? (statsLoading ? "…" : 0) }}</strong>
-              </article>
-              <article class="stat-card">
-                <span>上传</span>
-                <strong>{{ stats ? formatBytes(stats.uploadBytes) : statsLoading ? "…" : "0 B" }}</strong>
-              </article>
-              <article class="stat-card">
-                <span>下载</span>
-                <strong>{{ stats ? formatBytes(stats.downloadBytes) : statsLoading ? "…" : "0 B" }}</strong>
-              </article>
-              <article class="stat-card is-error">
-                <span>错误数</span>
-                <strong>{{ stats?.errorCount ?? (statsLoading ? "…" : 0) }}</strong>
-              </article>
-            </div>
-
-            <header class="section-header log-header">
-              <div>
-                <p class="section-header__eyebrow">RECENT ACTIVITY</p>
-                <h2>转发日志</h2>
-              </div>
-              <el-button
-                size="small"
-                :disabled="!selectedRule || logsLoading || observabilityMutating"
-                :loading="observabilityMutating"
-                @click="clearLogs"
-              >
-                清空全部日志
-              </el-button>
-            </header>
-
-            <div class="log-toolbar">
-              <label class="log-search">
-                <span>日志关键字</span>
-                <el-input
-                  v-model="logKeyword"
-                  clearable
-                  placeholder="客户端、目标、路径或错误信息"
+              <div class="workbench-scroll">
+                <RequestForwardRuleFormEditor
+                  :model-value="form"
+                  :readonly="readonly"
+                  :disabled="interactionBusy"
+                  :persisted="!draft"
+                  :errors="fieldErrors"
+                  @update:model-value="handleFormUpdate"
                 />
-              </label>
-              <div class="log-mode" aria-label="日志结果筛选">
-                <button
-                  type="button"
-                  aria-label="全部"
-                  :class="{ 'is-active': logMode === 'all' }"
-                  @click="logMode = 'all'"
-                >全部</button>
-                <button
-                  type="button"
-                  aria-label="成功"
-                  :class="{ 'is-active': logMode === 'success' }"
-                  @click="logMode = 'success'"
-                >成功</button>
-                <button
-                  type="button"
-                  aria-label="失败"
-                  :class="{ 'is-active': logMode === 'error' }"
-                  @click="logMode = 'error'"
-                >失败</button>
+              </div>
+
+              <footer class="workbench-actions">
+                <el-button
+                  v-if="!draft"
+                  type="danger"
+                  plain
+                  :disabled="readonly || interactionBusy"
+                  @click="deleteSelected"
+                >
+                  删除规则
+                </el-button>
+                <span class="workbench-actions__spacer" />
+                <el-button
+                  :disabled="readonly || interactionBusy"
+                  :loading="saving"
+                  @click="saveRule"
+                >
+                  仅保存
+                </el-button>
+                <el-button
+                  type="primary"
+                  :disabled="readonly || interactionBusy"
+                  :loading="saving"
+                  @click="saveAndStart"
+                >
+                  保存并启动
+                </el-button>
+              </footer>
+            </div>
+          </el-tab-pane>
+
+          <el-tab-pane v-if="!draft" label="运行观测" name="observability">
+            <div class="workbench-pane">
+              <div class="workbench-scroll">
+                <section class="observability" aria-labelledby="observability-title">
+                  <div
+                    v-if="selectedStatus?.lastObservabilityError"
+                    class="observability-warning"
+                    role="status"
+                  >
+                    <strong>观测数据暂不可用</strong>
+                    <span>{{ selectedStatus.lastObservabilityError }}</span>
+                  </div>
+
+                  <header class="section-header">
+                    <div>
+                      <p class="section-header__eyebrow">OBSERVABILITY</p>
+                      <h2 id="observability-title">转发统计</h2>
+                    </div>
+                    <el-button
+                      size="small"
+                      :disabled="statsLoading || observabilityMutating"
+                      :loading="observabilityMutating"
+                      @click="resetStats"
+                    >
+                      重置统计
+                    </el-button>
+                  </header>
+
+                  <div v-if="statsError" class="stats-error" role="alert">
+                    <span>{{ statsError }}</span>
+                    <el-button size="small" @click="loadStats()">重新加载</el-button>
+                  </div>
+                  <div v-else class="stats-grid" :aria-busy="statsLoading">
+                    <article class="stat-card">
+                      <span>{{ eventLabel }}</span>
+                      <strong>{{ stats?.eventCount ?? (statsLoading ? "…" : 0) }}</strong>
+                    </article>
+                    <article class="stat-card">
+                      <span>上传</span>
+                      <strong>{{ stats ? formatBytes(stats.uploadBytes) : statsLoading ? "…" : "0 B" }}</strong>
+                    </article>
+                    <article class="stat-card">
+                      <span>下载</span>
+                      <strong>{{ stats ? formatBytes(stats.downloadBytes) : statsLoading ? "…" : "0 B" }}</strong>
+                    </article>
+                    <article class="stat-card is-error">
+                      <span>错误数</span>
+                      <strong>{{ stats?.errorCount ?? (statsLoading ? "…" : 0) }}</strong>
+                    </article>
+                  </div>
+
+                  <header class="section-header log-header">
+                    <div>
+                      <p class="section-header__eyebrow">RECENT ACTIVITY</p>
+                      <h2>转发日志</h2>
+                    </div>
+                    <el-button
+                      size="small"
+                      :disabled="!selectedRule || logsLoading || observabilityMutating"
+                      :loading="observabilityMutating"
+                      @click="clearLogs"
+                    >
+                      清空全部日志
+                    </el-button>
+                  </header>
+
+                  <div class="log-toolbar">
+                    <label class="log-search">
+                      <span>日志关键字</span>
+                      <el-input
+                        v-model="logKeyword"
+                        clearable
+                        placeholder="客户端、目标、路径或错误信息"
+                      />
+                    </label>
+                    <div class="log-mode" aria-label="日志结果筛选">
+                      <button
+                        type="button"
+                        aria-label="全部"
+                        :class="{ 'is-active': logMode === 'all' }"
+                        @click="logMode = 'all'"
+                      >全部</button>
+                      <button
+                        type="button"
+                        aria-label="成功"
+                        :class="{ 'is-active': logMode === 'success' }"
+                        @click="logMode = 'success'"
+                      >成功</button>
+                      <button
+                        type="button"
+                        aria-label="失败"
+                        :class="{ 'is-active': logMode === 'error' }"
+                        @click="logMode = 'error'"
+                      >失败</button>
+                    </div>
+                  </div>
+
+                  <div v-if="logRefreshError" class="log-refresh-warning" role="status">
+                    <span>{{ logRefreshError }}</span>
+                    <el-button size="small" @click="refreshLogsInBackground()">重试</el-button>
+                  </div>
+
+                  <RequestForwardLogList
+                    :items="logItems"
+                    :loading="logsLoading"
+                    :loading-more="loadingMore"
+                    :error="logError"
+                    :has-more="hasMoreLogs"
+                    @retry="loadLogs(false)"
+                    @load-more="loadMoreLogs"
+                  />
+                </section>
               </div>
             </div>
-
-            <RequestForwardLogList
-              :items="logItems"
-              :loading="logsLoading"
-              :loading-more="loadingMore"
-              :error="logError"
-              :has-more="hasMoreLogs"
-              @retry="loadLogs(false)"
-              @load-more="loadMoreLogs"
-            />
-          </section>
-        </div>
-
-        <footer class="workbench-actions">
-          <el-button
-            v-if="!draft"
-            type="danger"
-            plain
-            :disabled="readonly || interactionBusy"
-            @click="deleteSelected"
-          >
-            删除规则
-          </el-button>
-          <span class="workbench-actions__spacer" />
-          <el-button
-            :disabled="readonly || interactionBusy"
-            :loading="saving"
-            @click="saveRule"
-          >
-            仅保存
-          </el-button>
-          <el-button
-            type="primary"
-            :disabled="readonly || interactionBusy"
-            :loading="saving"
-            @click="saveAndStart"
-          >
-            保存并启动
-          </el-button>
-        </footer>
+          </el-tab-pane>
+        </el-tabs>
       </template>
 
       <div v-else class="workbench-empty">
@@ -853,6 +993,40 @@ onUnmounted(() => {
   min-height: 0;
   flex-direction: column;
   background: #fdfdfd;
+}
+
+.workbench-tabs {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.workbench-tabs :deep(.el-tabs__header) {
+  flex: none;
+  margin: 0;
+  padding: 0 26px;
+  background: #fff;
+}
+
+.workbench-tabs :deep(.el-tabs__content) {
+  min-height: 0;
+  flex: 1;
+}
+
+.workbench-tabs :deep(.el-tab-pane) {
+  height: 100%;
+  min-height: 0;
+}
+
+.workbench-tabs.is-draft :deep(.el-tabs__header) { display: none; }
+
+.workbench-pane {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
 }
 
 .workbench-header {

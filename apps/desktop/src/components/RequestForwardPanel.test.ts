@@ -69,6 +69,38 @@ describe("RequestForwardPanel source structure", () => {
     expect(source).toContain("clearTimeout");
   });
 
+  it("splits persisted rules into mounted config and observability tabs", () => {
+    expect(source).toContain("activeWorkbenchTab");
+    expect(source).toContain("<el-tabs");
+    expect(source).toContain('label="规则配置"');
+    expect(source).toContain('label="运行观测"');
+    expect(source).toContain('name="config"');
+    expect(source).toContain('name="observability"');
+    expect(source).not.toContain("<el-tab-pane lazy");
+  });
+
+  it("keeps the remembered tab for rules and forces drafts to config", () => {
+    expect(source).toMatch(
+      /function createDraft\(\)[\s\S]*?activeWorkbenchTab\.value = "config"/,
+    );
+    const selectRuleBody = source.match(/function selectRule\(id: number\)[\s\S]*?\n}/)?.[0] ?? "";
+    expect(selectRuleBody).not.toContain("activeWorkbenchTab.value");
+  });
+
+  it("queues one background log refresh from the existing serial poll", () => {
+    expect(source).toContain("pendingLogRefresh");
+    expect(source).toContain("refreshLogsInBackground");
+    expect(source).toContain("flushPendingLogRefresh");
+    expect(source).toMatch(/await refreshRules\(\)[\s\S]*?refreshLogsInBackground/);
+    expect(source).not.toContain("setInterval");
+  });
+
+  it("keeps background refresh errors non-blocking", () => {
+    expect(source).toContain("logRefreshError");
+    expect(source).toContain("日志自动刷新失败");
+    expect(source).toMatch(/logRefreshError[\s\S]*?RequestForwardLogList/);
+  });
+
   it("keeps the card selection button separate from action buttons", () => {
     expect(listSource).not.toMatch(/<button[^>]*class="rule-card"/);
     expect(listSource).toContain('class="rule-card__select"');
@@ -133,17 +165,18 @@ describe("RequestForwardPanel source structure", () => {
 
   it("queries logs by rule id with debounced filters and stale-response guards", () => {
     expect(source).toContain("tool:request-forward:log-list");
-    expect(source).toMatch(/id:\s*ruleId/);
-    expect(source).toContain("keyword: normalizedKeyword || null");
-    expect(source).toContain("mode: logMode.value === \"all\" ? null : logMode.value");
+    expect(source).toContain("id: context.ruleId");
+    expect(source).toContain("keyword: context.keyword || null");
+    expect(source).toContain('mode: context.mode === "all" ? null : context.mode');
     expect(source).toContain("300");
     expect(source).toContain("logRequestToken");
     expect(source).toContain("selectionIntentToken");
+    expect(source).toContain("isLogQueryContextCurrent");
   });
 
   it("keeps log pagination stable and guards concurrent load-more", () => {
-    expect(source).toContain("offset: append ? logItems.value.length : 0");
-    expect(source).toContain("limit: LOG_PAGE_SIZE");
+    expect(source).toContain("const offset = append ? logItems.value.length : 0");
+    expect(source).toContain("queryLogs(context, offset, LOG_PAGE_SIZE)");
     expect(source).toContain("loadingMore");
     expect(source).toContain("logInFlight");
     expect(source).toContain("if (loadingMore.value || logInFlight)");
