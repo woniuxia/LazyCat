@@ -31,13 +31,16 @@ const statuses = ref<RequestForwardRuntimeStatus[]>([]);
 const selectedId = ref<number | null>(null);
 const draft = ref(false);
 const form = ref<RequestForwardRuleForm>(getDefaultRequestForwardForm());
+const formDirty = ref(false);
 const fieldErrors = ref<Partial<Record<keyof RequestForwardRuleForm, string>>>({});
 const saving = ref(false);
 const operating = ref(false);
 
 let refreshRequestToken = 0;
 let selectionIntentToken = 0;
-let pollTimer: ReturnType<typeof setInterval> | undefined;
+let pollTimer: ReturnType<typeof setTimeout> | undefined;
+let pollGeneration = 0;
+let pollInFlight = false;
 
 const selectedRule = computed(
   () => rules.value.find((rule) => rule.id === selectedId.value) ?? null,
@@ -72,8 +75,9 @@ function errorMessage(error: unknown): string {
 }
 
 function syncFormFromSelection() {
-  if (draft.value) return;
-  if (selectedRule.value) form.value = { ...selectedRule.value };
+  if (!draft.value && !formDirty.value && selectedRule.value) {
+    form.value = { ...selectedRule.value };
+  }
 }
 
 async function refreshRules(options: { showLoading?: boolean } = {}) {
@@ -104,6 +108,7 @@ function selectRule(id: number) {
   selectionIntentToken += 1;
   draft.value = false;
   selectedId.value = id;
+  formDirty.value = false;
   fieldErrors.value = {};
   syncFormFromSelection();
 }
@@ -113,7 +118,13 @@ function createDraft() {
   draft.value = true;
   selectedId.value = null;
   form.value = getDefaultRequestForwardForm();
+  formDirty.value = false;
   fieldErrors.value = {};
+}
+
+function handleFormUpdate(value: RequestForwardRuleForm) {
+  form.value = value;
+  formDirty.value = true;
 }
 
 function validateForm(): boolean {
@@ -155,6 +166,7 @@ async function saveRule(): Promise<RequestForwardRule | null> {
     selectedId.value = result.item.id;
     selectionIntentToken += 1;
     form.value = { ...result.item };
+    formDirty.value = false;
     await refreshRules();
     ElMessage.success("规则已保存");
     return result.item;
@@ -258,6 +270,7 @@ async function deleteSelected() {
     await invoke<{ ok: boolean }>("tool:request-forward:delete", { id: rule.id });
     selectionIntentToken += 1;
     selectedId.value = null;
+    formDirty.value = false;
     await refreshRules();
     ElMessage.success("规则已删除");
   } catch (error) {
@@ -275,13 +288,38 @@ function upsertStatus(
 }
 
 function clearPolling() {
-  if (pollTimer) clearInterval(pollTimer);
+  pollGeneration += 1;
+  if (pollTimer) clearTimeout(pollTimer);
   pollTimer = undefined;
+}
+
+function schedulePolling(generation: number) {
+  pollTimer = setTimeout(() => void runPoll(generation), 2_000);
+}
+
+async function runPoll(generation: number) {
+  if (
+    generation !== pollGeneration ||
+    pollInFlight ||
+    !hasActiveRuntimeRule.value
+  ) {
+    return;
+  }
+  pollTimer = undefined;
+  pollInFlight = true;
+  try {
+    await refreshRules();
+  } finally {
+    pollInFlight = false;
+    if (generation === pollGeneration && hasActiveRuntimeRule.value) {
+      schedulePolling(generation);
+    }
+  }
 }
 
 function syncPolling(active: boolean) {
   clearPolling();
-  if (active) pollTimer = setInterval(() => void refreshRules(), 2_000);
+  if (active) schedulePolling(pollGeneration);
 }
 
 watch(hasActiveRuntimeRule, syncPolling, { immediate: true });
@@ -299,6 +337,7 @@ onUnmounted(() => {
       :statuses="statuses"
       :selected-id="selectedId"
       :loading="loading"
+      :busy="operating || saving"
       @add="createDraft"
       @select="selectRule"
       @start="startRule"
@@ -331,10 +370,11 @@ onUnmounted(() => {
 
         <div class="workbench-scroll">
           <RequestForwardRuleFormEditor
-            v-model="form"
+            :model-value="form"
             :readonly="readonly"
             :persisted="!draft"
             :errors="fieldErrors"
+            @update:model-value="handleFormUpdate"
           />
         </div>
 

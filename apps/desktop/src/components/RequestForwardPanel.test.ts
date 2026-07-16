@@ -51,11 +51,35 @@ describe("RequestForwardPanel source structure", () => {
     expect(formSource).toContain(':disabled="persisted"');
   });
 
-  it("polls only for active runtime states and clears the timer", () => {
+  it("polls serially with timeout guards and clears the timer", () => {
     expect(source).toContain("hasActiveRuntimeRule");
-    expect(source).toContain("setInterval");
+    expect(source).not.toContain("setInterval");
+    expect(source).toContain("setTimeout");
     expect(source).toContain("2_000");
+    expect(source).toContain("pollGeneration");
+    expect(source).toContain("pollInFlight");
     expect(source).toContain("onUnmounted");
-    expect(source).toContain("clearInterval");
+    expect(source).toContain("clearTimeout");
+  });
+
+  it("keeps the card selection button separate from action buttons", () => {
+    expect(listSource).not.toMatch(/<button[^>]*class="rule-card"/);
+    expect(listSource).toContain('class="rule-card__select"');
+    expect(listSource).toContain('class="rule-card__actions"');
+    expect(listSource).toMatch(/<\/button>\s*<span class="rule-card__actions">/);
+  });
+
+  it("does not overwrite dirty forms during background refresh", () => {
+    expect(source).toContain("const formDirty");
+    expect(source).toContain("!formDirty.value");
+    expect(source).toContain(':model-value="form"');
+    expect(source).toContain('@update:model-value="handleFormUpdate"');
+    expect(source).toContain("formDirty.value = false");
+  });
+
+  it("disables list actions while panel operations are busy", () => {
+    expect(listSource).toContain("busy: boolean");
+    expect(source).toContain(':busy="operating || saving"');
+    expect(listSource.match(/:disabled="busy/g)?.length ?? 0).toBeGreaterThanOrEqual(4);
   });
 });

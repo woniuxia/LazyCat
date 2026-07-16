@@ -12,6 +12,7 @@ const props = defineProps<{
   statuses: RequestForwardRuntimeStatus[];
   selectedId: number | null;
   loading?: boolean;
+  busy: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -68,45 +69,50 @@ function canStop(state: RequestForwardRuntimeState): boolean {
         <p class="rule-list__eyebrow">FORWARD RULES</p>
         <h2>转发规则</h2>
       </div>
-      <el-button type="primary" @click="emit('add')">新建规则</el-button>
+      <el-button type="primary" :disabled="busy" @click="emit('add')">新建规则</el-button>
     </div>
 
     <el-input v-model="keyword" clearable placeholder="搜索名称、协议或端点" aria-label="搜索规则" />
 
     <div class="rule-list__batch" aria-label="批量操作">
-      <el-button size="small" :disabled="!rules.length" @click="emit('start-all')">
+      <el-button size="small" :disabled="busy || !rules.length" @click="emit('start-all')">
         全部启动
       </el-button>
-      <el-button size="small" :disabled="!rules.length" @click="emit('stop-all')">
+      <el-button size="small" :disabled="busy || !rules.length" @click="emit('stop-all')">
         全部停止
       </el-button>
       <span>{{ filteredRules.length }} / {{ rules.length }}</span>
     </div>
 
     <div v-loading="loading" class="rule-list__scroll">
-      <button
+      <article
         v-for="rule in filteredRules"
         :key="rule.id"
-        type="button"
         class="rule-card"
         :class="{ 'is-selected': rule.id === selectedId }"
         :aria-current="rule.id === selectedId ? 'true' : undefined"
-        @click="emit('select', rule.id)"
       >
-        <span class="rule-card__topline">
-          <strong>{{ rule.name }}</strong>
-          <span class="state-label" :class="`is-${stateOf(rule.id)}`">
-            {{ stateLabel(stateOf(rule.id)) }}
+        <button
+          type="button"
+          class="rule-card__select"
+          @click="emit('select', rule.id)"
+        >
+          <span class="rule-card__topline">
+            <strong>{{ rule.name }}</strong>
+            <span class="state-label" :class="`is-${stateOf(rule.id)}`">
+              {{ stateLabel(stateOf(rule.id)) }}
+            </span>
           </span>
-        </span>
-        <span class="rule-card__protocol">{{ rule.protocol.toUpperCase() }}</span>
-        <span class="rule-card__summary">{{ formatRequestForwardRuleSummary(rule) }}</span>
+          <span class="rule-card__protocol">{{ rule.protocol.toUpperCase() }}</span>
+          <span class="rule-card__summary">{{ formatRequestForwardRuleSummary(rule) }}</span>
+        </button>
         <span class="rule-card__actions">
           <el-button
             v-if="canStart(stateOf(rule.id))"
             text
             size="small"
-            @click.stop="emit('start', rule.id)"
+            :disabled="busy"
+            @click="emit('start', rule.id)"
           >
             启动
           </el-button>
@@ -114,18 +120,20 @@ function canStop(state: RequestForwardRuntimeState): boolean {
             v-else
             text
             size="small"
-            :disabled="!canStop(stateOf(rule.id))"
-            @click.stop="emit('stop', rule.id)"
+            :disabled="busy || !canStop(stateOf(rule.id))"
+            @click="emit('stop', rule.id)"
           >
             停止
           </el-button>
         </span>
-      </button>
+      </article>
 
       <div v-if="!loading && rules.length === 0" class="rule-list__empty">
         <strong>还没有转发规则</strong>
         <span>新建一条规则，配置本地监听端口与目标服务。</span>
-        <el-button type="primary" plain @click="emit('add')">新建第一条规则</el-button>
+        <el-button type="primary" plain :disabled="busy" @click="emit('add')">
+          新建第一条规则
+        </el-button>
       </div>
       <div v-else-if="!loading && filteredRules.length === 0" class="rule-list__empty compact">
         <strong>没有匹配规则</strong>
@@ -194,18 +202,13 @@ function canStop(state: RequestForwardRuntimeState): boolean {
 }
 
 .rule-card {
-  position: relative;
   display: grid;
   width: 100%;
   min-width: 0;
-  gap: 7px;
-  padding: 12px;
   border: 1px solid #dfe3e8;
   border-radius: 7px;
   background: #fff;
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
+  overflow: hidden;
   transition: border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease;
 }
 
@@ -214,9 +217,9 @@ function canStop(state: RequestForwardRuntimeState): boolean {
   background: #fbfcfd;
 }
 
-.rule-card:focus-visible {
+.rule-card__select:focus-visible {
   outline: 2px solid var(--el-color-primary, #409eff);
-  outline-offset: 2px;
+  outline-offset: -2px;
 }
 
 .rule-card.is-selected {
@@ -228,6 +231,18 @@ function canStop(state: RequestForwardRuntimeState): boolean {
   min-width: 0;
   justify-content: space-between;
   gap: 8px;
+}
+
+.rule-card__select {
+  display: grid;
+  min-width: 0;
+  gap: 7px;
+  padding: 12px 12px 4px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
 .rule-card__topline strong {
@@ -260,6 +275,7 @@ function canStop(state: RequestForwardRuntimeState): boolean {
 .rule-card__actions {
   min-height: 24px;
   justify-content: flex-end;
+  padding: 0 8px 6px;
 }
 
 .state-label {
