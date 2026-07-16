@@ -151,9 +151,10 @@ export function getRequestForwardLogTone(
 }
 
 function isValidHttpTargetUrl(value: string | null): boolean {
-  if (!value) return false;
+  const normalized = value?.trim();
+  if (!normalized || normalized.includes("?") || normalized.includes("#")) return false;
   try {
-    const url = new URL(value);
+    const url = new URL(normalized);
     return (
       (url.protocol === "http:" || url.protocol === "https:") &&
       Boolean(url.hostname) &&

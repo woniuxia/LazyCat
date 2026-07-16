@@ -86,7 +86,9 @@ describe("request forward utilities", () => {
     for (const targetUrl of [
       "ftp://example.com/api",
       "https://example.com/api?q=1",
+      "http://example.com/api?",
       "https://example.com/api#part",
+      "http://example.com/api#",
       "http://example.com:0/api",
     ]) {
       expect(validateRequestForwardRuleForm({ ...baseForm, targetUrl })).toContain("targetUrl");
