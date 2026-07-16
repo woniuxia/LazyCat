@@ -39,6 +39,40 @@
 
 **使用次数**: 0
 
+## 2026-07-16: 完整移除抓包工具
+
+**场景**: 从桌面应用中完整移除依赖 Npcap/PCAP 的抓包工具，同时保留名称相近但职责无关的快速捕获、收纳箱剪贴板采集和壁纸 CapturePreview。
+**问题**:
+1. 抓包工具跨越前端目录、异步组件注册、Tauri 独立 command、Rust 工具模块和 Cargo feature，只有隐藏菜单会留下不可达死代码与依赖。
+2. `capture` 在仓库中还用于 QuickCapture、Inbox clipboard capture 和 wallpaper capture，不能按关键词批量删除。
+3. README、双规范文档和旧实施计划仍引用抓包入口或已删除组件，源码删除后会形成失效文档。
+**解决**:
+1. 先给 `toolCatalog` 增加退役工具回归测试，确认测试因 `capture` 仍存在而失败，再移除目录项和组件注册使其通过。
+2. 删除 `CapturePanel.vue`、`tools/capture.rs`、6 个 Tauri command 及注册，并移除 `pcap`、`etherparse`、`libc` 可选依赖和 `capture` feature；同步更新 Cargo.lock。
+3. 清理组件声明、README、旧计划引用，并同步更新 `AGENTS.md` / `CLAUDE.md` 的章节编号和新增工具说明。
+**关键点**:
+1. 完整删除工具按“目录入口 -> 组件注册 -> IPC/command -> 后端模块 -> 依赖与锁文件 -> 文档”逐层闭环扫描。
+2. 对高频通用词先建立精确标识集合（`CapturePanel`、Npcap、PCAP command、Cargo feature），避免误删同名但不同域的功能。
+3. 依赖移除后必须运行 Cargo 检查，让锁文件同步裁剪仅由该功能引入的传递依赖。
+**涉及文件**:
+- `apps/desktop/src/composables/toolCatalog.ts`
+- `apps/desktop/src/tool-registry.ts`
+- `apps/desktop/src/components/CapturePanel.vue`
+- `apps/desktop/src-tauri/src/main.rs`
+- `apps/desktop/src-tauri/src/tools/capture.rs`
+- `apps/desktop/src-tauri/Cargo.toml`
+- `apps/desktop/src-tauri/Cargo.lock`
+- `README.md`、`AGENTS.md`、`CLAUDE.md`
+
+**验证**:
+- `pnpm test src/composables/toolCatalog.test.ts`（2 通过）
+- `pnpm test`（57 个测试文件、579 个测试通过）
+- `cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml`
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+
+**使用次数**: 0
+
 ## 2026-07-14: SQL 实体生成器基类字段排除
 
 **场景**: Java 实体生成需要从多个基类模板汇总字段排除，同时只生成一个合法父类继承声明。

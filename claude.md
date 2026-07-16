@@ -41,8 +41,8 @@
 
 - 要看项目背景、目录或命令：看 `03`
 - 要理解调用链路、前后端边界或新增工具入口：看 `04`
-- 要改富文本编辑器或附件相关：看 `04.8`
-- 要改数据字典工具、动态 JSON 检索、关系或排序：看 `04.9`
+- 要改富文本编辑器或附件相关：看 `04.7`
+- 要改数据字典工具、动态 JSON 检索、关系或排序：看 `04.8`
 - 要改 Element Plus 样式：看 `05.1`
 - 要处理中文乱码、编码或写文件问题：看 `05.2`
 - 要查数据目录、迁移与备份策略：看 `05.3`
@@ -98,7 +98,7 @@
 ```text
 apps/desktop/                    Tauri 桌面应用
   src-tauri/                     Rust 后端
-    src/tools/                   工具域模块（42 个 .rs）、mod.rs、helpers.rs
+    src/tools/                   工具域模块、mod.rs、helpers.rs
   src/components/                Vue 面板组件
   src/composables/               状态管理 composables
   src/rich/                      TipTap 富文本支持层（extensions / legacy / data-dir）
@@ -144,20 +144,14 @@ scripts/                         构建与发布脚本
 - 通道映射：`tool:<domain>:<action>` -> `{ domain, action }`
 - Rust 分发：`tool_execute` -> `src-tauri/src/tools/mod.rs` 的 `execute_tool`
 
-### 04.2 capture 特殊链路
-
-- `capture` 模块位于 `src-tauri/src/tools/capture.rs`，但不走 `CHANNEL_MAP` / `tool_execute`。
-- 抓包能力通过 Tauri 独立 command 暴露，例如 `start_capture`、`stop_capture`、`export_pcap`。
-- 入口位于 `src-tauri/src/main.rs`。
-
-### 04.3 前端组织
+### 04.2 前端组织
 
 - 未使用 `vue-router`；`App.vue` 通过 `activeTool` + `tool-registry.ts` 动态加载面板。
 - 工具面板通过 `<component :is="currentComponent">` 渲染。
 - 新增前端工具入口时，通常会同时改 `App.vue`、`tool-registry.ts` 和对应面板组件。
 - 面板内部多视图切换走相同模式：PM 面板的 `composables/pmViewRegistry.ts` 注册 `kanban/gantt/today/list/calendar/matrix` 6 个视图，`PmPanel.vue` 通过 `<component :is="currentView.component">` 渲染；视图选择按上下文记忆，由 `composables/usePmViewMemory.ts` 读写 `user_settings`（key 规则 `pm:view:overview` 或 `pm:view:project-<id>`）。
 
-### 04.4 关键 Composables
+### 04.3 关键 Composables
 
 通用：
 - `useToolInvoke`：IPC 调用包装，管理 loading / error 状态。
@@ -179,13 +173,13 @@ PM 域：
 - `useTodoItem`：Todo 事项数据归一化纯函数（无响应式状态）。
 - `useRichDescriptionLifecycle`：富文本编辑器附件生命周期（临时绑定、孤儿清理、保存前整理）。
 
-### 04.5 持久化与格式化
+### 04.4 持久化与格式化
 
 - XML / HTML / Java / SQL 格式化在 Rust 端为直通模式，核心依赖 `@lazycat/formatters`（Prettier standalone + 显式解析器插件）。
 - `user_settings` 主要存储用户偏好与配置项。
 - 业务数据按域存储在独立表中，例如 `hosts_profiles`、`snippet_*`、`vault_*`、`launcher_entries`、`todo_items`、`pm_items`、`inbox_*`、`attachments`（内容寻址附件存储，服务富文本编辑器）。
 
-### 04.6 新增工具标准流程
+### 04.5 新增工具标准流程
 
 常规工具（走 channel 分发）：
 
@@ -195,13 +189,7 @@ PM 域：
 4. 如需后端，在 `apps/desktop/src/bridge/tauri.ts` 的 `CHANNEL_MAP` 增加通道。
 5. 如需后端，在 `apps/desktop/src-tauri/src/tools/` 新增 Rust 模块，并在 `mod.rs` 注册。
 
-非 channel 工具（如 `capture`）：
-
-1. 先完成前端入口、组件和工具注册。
-2. 再在 `src-tauri/src/main.rs` 增加并注册 Tauri command。
-3. 前端通过 `@tauri-apps/api/core` 的 `invoke` 直接调用 command。
-
-### 04.7 PM 域视图扩展
+### 04.6 PM 域视图扩展
 
 - PM 后端按视图拆分到独立模块：`pm.rs`（CRUD 主干）、`pm_today.rs`（今日视图）、`pm_calendar.rs`（日历视图）、`pm_matrix.rs`（四象限视图）、`pm_siyuan.rs`（思源集成）、`pm_todo_link.rs`（Todo 打通）。
 - 5 个扩展 action（均走常规通道分发）：
@@ -212,7 +200,7 @@ PM 域：
 - 性能索引已在 `helpers.rs` 建好：`idx_pm_items_project_status`、`idx_pm_items_end_at`、`idx_pm_items_status`、`idx_pm_items_updated_at`、`idx_pm_items_completed_at`。跨项目查询（`project_id IS NULL`）依赖 `end_at`/`status`/`completed_at` 索引避免全表扫描。
 - 列表视图 `PmListView.vue` 在无分组且数据 > 500 行时启用渐进式渲染（初始 200 行，滚动底部追加 200），避免大数据量初次渲染卡顿。
 
-### 04.8 富文本编辑器（TipTap）
+### 04.7 富文本编辑器（TipTap）
 
 - 支持层位于 `src/rich/`：`extensions.ts`（共享 ProseMirror schema）、`legacy.ts`（纯文本旧数据兼容）、`data-dir.ts`（dataDir 同步缓存）。
 - 编辑器组件 `RichDescriptionEditor.vue`，只读渲染器 `RichDescriptionViewer.vue`；两者必须使用完全一致的扩展集（均调用 `buildExtensions()`），否则 Viewer 无法识别 Editor 写入的 JSON 节点。
@@ -223,7 +211,7 @@ PM 域：
 - 后端存储由 `attachments.rs` 提供，内容寻址（hash 命名），通道为 `tool:attachments:*`。
 - 消费方：`PmItemDialog`、`PmProjectDialog`、`TodoDetailEdit`（编辑器），`PmDetailPanel`、`TodoDetailView`（只读渲染器）。
 
-### 04.9 数据字典工具
+### 04.8 数据字典工具
 
 - 前端主面板：`DataDictionaryPanel.vue`；类型集中在 `types/data-dictionary.ts`；高风险纯函数优先放到 `utils/dataDictionary*.ts` 并配套测试。
 - 后端主模块：`src-tauri/src/tools/data_dictionary.rs`；表结构和兼容迁移在 `helpers.rs`；通道统一走 `tool:data-dictionary:*` -> `data_dictionary`。
@@ -413,7 +401,7 @@ PM 域：
 
 1. 确认当前功能主要落点：前端组件、bridge、Rust 工具、类型、数据库、测试。
 2. 先看 `04` 对应调用链路和 `process.md` 同类经验。
-3. 若属于新增工具，优先按 `04.6` 规划接入点；若涉及高风险或数据迁移，转入 `07.7`。
+3. 若属于新增工具，优先按 `04.5` 规划接入点；若涉及高风险或数据迁移，转入 `07.7`。
 
 **实施中**
 

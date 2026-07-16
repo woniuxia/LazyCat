@@ -1,6 +1,5 @@
 pub mod api_mock;
 pub mod browser_profiles;
-pub mod capture;
 pub mod convert;
 pub mod cron;
 pub mod crypto;

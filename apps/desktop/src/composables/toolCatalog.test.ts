@@ -16,4 +16,11 @@ describe("toolCatalog retired workbenches", () => {
     expect(isRealToolId("db-workbench")).toBe(false);
     expect(isRealToolId("api-mock")).toBe(true);
   });
+
+  it("removes the retired packet capture tool", () => {
+    const toolIds = getAllTools().map((tool) => tool.id);
+
+    expect(toolIds).not.toContain("capture");
+    expect(isRealToolId("capture")).toBe(false);
+  });
 });

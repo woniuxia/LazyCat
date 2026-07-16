@@ -694,7 +694,6 @@ async function copyAccount(account: string) {
 - `apps/desktop/src/components/SettingsPanel.vue`（设置项）
 
 **参考文件**：
-- `apps/desktop/src/components/CapturePanel.vue`（虚拟滚动实现参考）
 - `apps/desktop/src-tauri/src/tools/hotkey.rs`（GetClipboardSequenceNumber 使用参考）
 
 ## 9. 实现策略
@@ -729,7 +728,7 @@ async function copyAccount(account: string) {
 
 5. **前端面板**（InboxPanel.vue + inbox.ts）
    - 实现三栏布局（左：筛选，中：摘要列表，右：详情）
-   - 实现虚拟滚动（复用 `CapturePanel.vue` 的自定义虚拟滚动实现，见注释 "Virtual scroll"）
+   - 实现自定义虚拟滚动
    - 实现分页加载（每页 50 条，使用 `IntersectionObserver` 监听滚动到底部）
    - 实现详情懒加载（点击后才请求完整内容）
    - 实现升格、归档、删除、星标等操作
@@ -810,7 +809,7 @@ walkdir = "2.4"     # 目录遍历（清理孤儿文件）
 - 不做系统服务
 - 不做 OCR
 - 不做文件全文索引
-- 虚拟滚动复用 `CapturePanel.vue` 的自定义实现
+- 使用自定义虚拟滚动
 - 剪贴板监控复用 `hotkey.rs` 的 `GetClipboardSequenceNumber()` 机制
 
 ## 12. 实现前置检查
@@ -823,4 +822,3 @@ walkdir = "2.4"     # 目录遍历（清理孤儿文件）
 4. **图片格式支持**：确认 `image` crate v0.25 默认支持的格式列表（PNG/JPG/BMP/GIF/WebP）
 
 TodoPanel 和 VaultPanel 需要先扩展 `watchPendingInput` 支持，复用 `useClipboardSuggestion.ts` 的 `applyAction` + `watchPendingInput` 模式（参考 BcryptPanel、EncodePanel、FormatterPanel、JwtPanel、JsonProcessPanel、TimestampPanel 的实现）。
-

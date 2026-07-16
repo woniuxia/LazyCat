@@ -94,7 +94,6 @@ const SIDEBAR_ITEMS: SidebarItem[] = [
         { id: "request-forward", name: "请求转发", desc: "HTTP、TCP 与 UDP 本地端口转发" },
         { id: "api-mock", name: "API Mock", desc: "本地接口 Mock 服务与路由管理" },
         { id: "dns", name: "DNS 查询", desc: "域名解析与记录查询" },
-        { id: "capture", name: "抓包工具", desc: "数据包捕获与协议分析" },
         { id: "hosts", name: "Hosts 管理", desc: "多配置保存与切换" },
         { id: "ports", name: "端口占用", desc: "端口占用与进程分析" },
         { id: "env", name: "环境检测", desc: "检测 Node 与 Java 版本" },
