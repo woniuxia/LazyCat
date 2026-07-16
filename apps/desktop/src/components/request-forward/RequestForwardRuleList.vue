@@ -95,6 +95,7 @@ function canStop(state: RequestForwardRuntimeState): boolean {
         <button
           type="button"
           class="rule-card__select"
+          :disabled="busy"
           @click="emit('select', rule.id)"
         >
           <span class="rule-card__topline">
@@ -243,6 +244,11 @@ function canStop(state: RequestForwardRuntimeState): boolean {
   color: inherit;
   text-align: left;
   cursor: pointer;
+}
+
+.rule-card__select:disabled {
+  cursor: not-allowed;
+  opacity: 0.72;
 }
 
 .rule-card__topline strong {

@@ -482,12 +482,12 @@ mod tests {
             created
         );
 
-        let mut update = tcp_input();
+        let mut update = http_input();
         update.name = "已更新规则".into();
         let updated = repository::update_with_conn(&conn, created.id, update).expect("update rule");
         assert_eq!(updated.name, "已更新规则");
-        assert_eq!(updated.protocol, ForwardProtocol::Tcp);
-        assert_eq!(updated.target_host.as_deref(), Some("192.168.1.10"));
+        assert_eq!(updated.protocol, ForwardProtocol::Http);
+        assert_eq!(updated.target_url.as_deref(), Some("https://example.com/api"));
 
         repository::delete_with_conn(&conn, created.id).expect("delete rule");
         assert!(repository::list_with_conn(&conn).unwrap().is_empty());
@@ -502,6 +502,67 @@ mod tests {
         assert!(repository::delete_with_conn(&conn, created.id)
             .expect_err("missing delete")
             .contains("不存在"));
+    }
+
+    #[test]
+    fn repository_rejects_blank_names_and_persists_trimmed_names() {
+        let mut conn = test_conn();
+        let mut blank_create = http_input();
+        blank_create.name = " \t ".into();
+        assert!(repository::create_with_conn(&mut conn, blank_create)
+            .expect_err("blank create name must fail")
+            .contains("名称"));
+
+        let mut trimmed_create = http_input();
+        trimmed_create.name = "  本地 API  ".into();
+        let created = repository::create_with_conn(&mut conn, trimmed_create)
+            .expect("trimmed create succeeds");
+        assert_eq!(created.name, "本地 API");
+
+        let mut blank_update = http_input();
+        blank_update.name = "\r\n".into();
+        assert!(repository::update_with_conn(&conn, created.id, blank_update)
+            .expect_err("blank update name must fail")
+            .contains("名称"));
+        assert_eq!(
+            repository::get_with_conn(&conn, created.id)
+                .expect("read unchanged rule")
+                .name,
+            "本地 API"
+        );
+
+        let mut trimmed_update = http_input();
+        trimmed_update.name = "  已更新名称  ".into();
+        let updated = repository::update_with_conn(&conn, created.id, trimmed_update)
+            .expect("trimmed update succeeds");
+        assert_eq!(updated.name, "已更新名称");
+    }
+
+    #[test]
+    fn repository_rejects_protocol_changes_but_allows_same_protocol_updates() {
+        let mut conn = test_conn();
+        let created = repository::create_with_conn(&mut conn, http_input()).expect("create HTTP");
+
+        for protocol in [ForwardProtocol::Tcp, ForwardProtocol::Udp] {
+            let mut switched = tcp_input();
+            switched.protocol = protocol;
+            let error = repository::update_with_conn(&conn, created.id, switched)
+                .expect_err("persisted protocol is immutable");
+            assert!(error.contains("协议"));
+            assert_eq!(
+                repository::get_with_conn(&conn, created.id)
+                    .expect("read unchanged rule")
+                    .protocol,
+                ForwardProtocol::Http
+            );
+        }
+
+        let mut same_protocol = http_input();
+        same_protocol.name = "同协议更新".into();
+        let updated = repository::update_with_conn(&conn, created.id, same_protocol)
+            .expect("same protocol update succeeds");
+        assert_eq!(updated.protocol, ForwardProtocol::Http);
+        assert_eq!(updated.name, "同协议更新");
     }
 
     #[test]

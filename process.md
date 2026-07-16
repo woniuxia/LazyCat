@@ -18,6 +18,10 @@
 3. 观测必须有界且不能反向拖慢转发：流式 preview tap 只复制上限内字节并继续透传原 chunk，日志用容量/保留上限控制；落库失败独立暴露，不把仍正常的网络转发伪装为失败。
 4. UDP 按客户端隔离 session；session 汇总落库前先进入 finalize gate，并等待已登记的在途 I/O 记账退出，避免结束摘要被迟到的成功回包越过或重复计数。
 5. 自动轮询、筛选防抖和详情切换同时存在时，响应写回需校验请求 token、选择意图与参数快照；轮询不得覆盖 dirty 表单，清空/重置等观测变更与在途轮询互斥。
+6. 启动网络监听前先解析下游全部地址并做自转发检查；wildcard 监听只覆盖同地址族的 loopback/本机接口，不能用“同端口”粗暴拒绝所有远端目标。协议本身的显式拒绝（如暂不支持 HTTPS）应早于 DNS 预检。
+7. runner 的 stop 合约应是“消费句柄并终止任务，即使清理返回错误”；manager 收到 stop error 后必须进入 `failed` 且不保留 handle，用户停止仍持久化关闭自启动意图，应用退出则不修改该意图。
+8. HTTP 响应头已发送后 body 流失败必须在当前 request trace 上幂等完成，保留请求 metadata、状态码和已传输字节；不要同时追加匿名流失败事件和成功完成事件。
+9. 前端写操作期间统一锁定规则选择与表单；异步 mutation 捕获目标 ID 和选择意图，晚响应只在意图仍一致时更新选择/表单。后台发现当前 dirty 规则已删除时，应显式结束旧编辑上下文并同步新选择。
 
 **涉及文件**:
 - `apps/desktop/src-tauri/src/tools/request_forward/`
@@ -25,7 +29,7 @@
 - `apps/desktop/src/utils/requestForward.ts`
 
 **验证**:
-- `cargo test request_forward -- --nocapture`（68 通过，含 HTTP 流式/SSE、HTTPS 显式拒绝、TCP half-close、UDP 双客户端隔离）
+- `cargo test request_forward -- --nocapture`（80 通过，含 DNS/wildcard 自转发、stop 错误终态、HTTP body 流失败、HTTP 流式/SSE、HTTPS 显式拒绝、TCP half-close、UDP 双客户端隔离）
 - `cargo test contract_tests -- --nocapture`
 - `cargo test`
 - `pnpm test src/utils/requestForward.test.ts src/components/RequestForwardPanel.test.ts`

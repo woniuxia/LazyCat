@@ -152,7 +152,10 @@ pub(crate) fn update_with_conn(
     id: i64,
     input: RuleWriteInput,
 ) -> Result<ForwardRule, String> {
-    get_with_conn(conn, id)?;
+    let existing = get_with_conn(conn, id)?;
+    if existing.protocol != input.protocol {
+        return Err("已保存规则不能修改协议，请新建规则".into());
+    }
     let input = validate_rule_input(input)?;
     conn.execute(
         "UPDATE request_forward_rules

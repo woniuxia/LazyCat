@@ -1010,10 +1010,6 @@ impl HttpObservability {
         });
     }
 
-    pub(crate) fn response_stream_failed(&self, error: String) {
-        self.failed(HttpEventKind::ResponseStreamFailed, error);
-    }
-
     pub(crate) fn listener_failed(&self, error: String) {
         self.failed(HttpEventKind::ListenerFailed, error);
     }
@@ -1167,7 +1163,7 @@ impl HttpRequestTrace {
     }
 
     pub(crate) fn response_stream_failed(&self, error: String) {
-        self.observability.response_stream_failed(error);
+        self.complete(HttpEventKind::ResponseStreamFailed, Some(error));
     }
 
     pub(crate) fn response_completed(&self) {

@@ -6,6 +6,7 @@ import { isExposedForwardBindHost } from "../../utils/requestForward";
 const props = defineProps<{
   modelValue: RequestForwardRuleForm;
   readonly: boolean;
+  disabled: boolean;
   persisted: boolean;
   errors?: Partial<Record<keyof RequestForwardRuleForm, string>>;
 }>();
@@ -38,7 +39,7 @@ function update<K extends keyof RequestForwardRuleForm>(
         <el-form-item label="规则名称" :error="errors?.name">
           <el-input
             :model-value="modelValue.name"
-            :disabled="readonly"
+            :disabled="readonly || disabled"
             maxlength="80"
             show-word-limit
             placeholder="例如：本地 API 转发"
@@ -48,7 +49,7 @@ function update<K extends keyof RequestForwardRuleForm>(
         <el-form-item label="协议">
           <el-select
             :model-value="modelValue.protocol"
-            :disabled="persisted"
+            :disabled="persisted || readonly || disabled"
             @update:model-value="update('protocol', $event)"
           >
             <el-option label="HTTP / HTTPS" value="http" />
@@ -72,7 +73,7 @@ function update<K extends keyof RequestForwardRuleForm>(
         <el-form-item label="监听地址" :error="errors?.bindHost">
           <el-input
             :model-value="modelValue.bindHost"
-            :disabled="readonly"
+            :disabled="readonly || disabled"
             placeholder="127.0.0.1 或 ::1"
             @update:model-value="update('bindHost', $event)"
           />
@@ -80,7 +81,7 @@ function update<K extends keyof RequestForwardRuleForm>(
         <el-form-item label="监听端口" :error="errors?.listenPort">
           <el-input-number
             :model-value="modelValue.listenPort"
-            :disabled="readonly"
+            :disabled="readonly || disabled"
             :min="1"
             :max="65535"
             controls-position="right"
@@ -109,7 +110,7 @@ function update<K extends keyof RequestForwardRuleForm>(
       >
         <el-input
           :model-value="modelValue.targetUrl ?? ''"
-          :disabled="readonly"
+          :disabled="readonly || disabled"
           placeholder="https://example.com/api"
           @update:model-value="update('targetUrl', $event)"
         />
@@ -119,7 +120,7 @@ function update<K extends keyof RequestForwardRuleForm>(
         <el-form-item label="目标主机" :error="errors?.targetHost">
           <el-input
             :model-value="modelValue.targetHost ?? ''"
-            :disabled="readonly"
+            :disabled="readonly || disabled"
             placeholder="192.168.1.10 或 db.internal"
             @update:model-value="update('targetHost', $event)"
           />
@@ -127,7 +128,7 @@ function update<K extends keyof RequestForwardRuleForm>(
         <el-form-item label="目标端口" :error="errors?.targetPort">
           <el-input-number
             :model-value="modelValue.targetPort"
-            :disabled="readonly"
+            :disabled="readonly || disabled"
             :min="1"
             :max="65535"
             controls-position="right"
@@ -148,14 +149,14 @@ function update<K extends keyof RequestForwardRuleForm>(
       <div class="capture-options">
         <el-checkbox
           :model-value="modelValue.captureHttpHeaders"
-          :disabled="readonly"
+          :disabled="readonly || disabled"
           @update:model-value="update('captureHttpHeaders', Boolean($event))"
         >
           采集请求与响应头
         </el-checkbox>
         <el-checkbox
           :model-value="modelValue.captureHttpBody"
-          :disabled="readonly"
+          :disabled="readonly || disabled"
           @update:model-value="update('captureHttpBody', Boolean($event))"
         >
           采集请求与响应正文预览

@@ -14,6 +14,8 @@ import type {
   RequestForwardStats,
 } from "../types/request-forward";
 import {
+  applyRequestForwardMutationResult,
+  captureRequestForwardMutationIntent,
   getDefaultRequestForwardForm,
   getRequestForwardBatchMessage,
   isRequestForwardRuleReadonly,
@@ -77,6 +79,9 @@ const selectedState = computed<RequestForwardRuntimeState>(
 const readonly = computed(
   () => Boolean(selectedRule.value) && isRequestForwardRuleReadonly(selectedState.value),
 );
+const interactionBusy = computed(
+  () => operating.value || saving.value || observabilityMutating.value,
+);
 const hasActiveRuntimeRule = computed(() =>
   statuses.value.some((status) => isRequestForwardRuleReadonly(status.state)),
 );
@@ -101,6 +106,14 @@ const stateCopy = computed(() => {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function currentSelectionIntent() {
+  return {
+    selectionToken: selectionIntentToken,
+    selectedId: selectedId.value,
+    draft: draft.value,
+  };
 }
 
 function syncFormFromSelection() {
@@ -251,7 +264,13 @@ async function refreshRules(options: { showLoading?: boolean } = {}) {
     statuses.value = statusResult.items;
     if (selectionIntentToken !== intentToken || draft.value) return;
     const retained = rules.value.some((rule) => rule.id === selectedId.value);
+    const removedSelectedRule = selectedId.value != null && !retained;
     selectedId.value = retained ? selectedId.value : rules.value[0]?.id ?? null;
+    if (removedSelectedRule) {
+      formDirty.value = false;
+      fieldErrors.value = {};
+      ElMessage.warning("当前编辑的规则已被删除，已切换到可用规则");
+    }
     syncFormFromSelection();
     if (selectedId.value != null && selectedId.value === previousSelectedId) {
       await loadStats(selectedId.value);
@@ -264,6 +283,7 @@ async function refreshRules(options: { showLoading?: boolean } = {}) {
 }
 
 function selectRule(id: number) {
+  if (interactionBusy.value) return;
   selectionIntentToken += 1;
   draft.value = false;
   selectedId.value = id;
@@ -273,6 +293,7 @@ function selectRule(id: number) {
 }
 
 function createDraft() {
+  if (interactionBusy.value) return;
   selectionIntentToken += 1;
   draft.value = true;
   selectedId.value = null;
@@ -282,6 +303,7 @@ function createDraft() {
 }
 
 function handleFormUpdate(value: RequestForwardRuleForm) {
+  if (interactionBusy.value || readonly.value) return;
   form.value = value;
   formDirty.value = true;
 }
@@ -307,25 +329,34 @@ function validateForm(): boolean {
 }
 
 async function saveRule(): Promise<RequestForwardRule | null> {
+  if (interactionBusy.value) return null;
   if (readonly.value) {
     ElMessage.warning("运行中的规则不能修改，请先停止规则");
     return null;
   }
   if (!validateForm()) return null;
+  const isDraft = draft.value;
+  const targetId = isDraft ? null : selectedRule.value?.id ?? null;
+  if (!isDraft && targetId == null) return null;
+  const intent = captureRequestForwardMutationIntent(currentSelectionIntent(), targetId);
+  const payload = toRequestForwardRuleWriteInput(form.value);
   saving.value = true;
   try {
-    const payload = toRequestForwardRuleWriteInput(form.value);
-    const result = draft.value
-      ? await invoke<RuleEnvelope>("tool:request-forward:create", payload)
-      : await invoke<RuleEnvelope>("tool:request-forward:update", {
-          id: selectedRule.value!.id,
-          ...payload,
-        });
-    draft.value = false;
-    selectedId.value = result.item.id;
-    selectionIntentToken += 1;
-    form.value = { ...result.item };
-    formDirty.value = false;
+    const operation = isDraft
+      ? invoke<RuleEnvelope>("tool:request-forward:create", payload)
+      : invoke<RuleEnvelope>("tool:request-forward:update", { id: targetId, ...payload });
+    const { value: result } = await applyRequestForwardMutationResult(
+      operation,
+      intent,
+      currentSelectionIntent,
+      (completed) => {
+        draft.value = false;
+        selectedId.value = completed.item.id;
+        selectionIntentToken += 1;
+        form.value = { ...completed.item };
+        formDirty.value = false;
+      },
+    );
     await refreshRules();
     ElMessage.success("规则已保存");
     return result.item;
@@ -349,10 +380,18 @@ async function saveAndStart() {
 }
 
 async function startRule(id: number, feedback = true) {
+  if (interactionBusy.value) return;
+  const intent = captureRequestForwardMutationIntent(currentSelectionIntent(), id);
   operating.value = true;
   try {
-    const result = await invoke<StatusEnvelope>("tool:request-forward:start", { id });
-    statuses.value = upsertStatus(statuses.value, result.item);
+    await applyRequestForwardMutationResult(
+      invoke<StatusEnvelope>("tool:request-forward:start", { id: intent.targetId }),
+      intent,
+      currentSelectionIntent,
+      (result) => {
+        statuses.value = upsertStatus(statuses.value, result.item);
+      },
+    );
     await refreshRules();
     if (feedback) ElMessage.success("规则已启动");
   } catch (error) {
@@ -364,10 +403,18 @@ async function startRule(id: number, feedback = true) {
 }
 
 async function stopRule(id: number, feedback = true) {
+  if (interactionBusy.value) return;
+  const intent = captureRequestForwardMutationIntent(currentSelectionIntent(), id);
   operating.value = true;
   try {
-    const result = await invoke<StatusEnvelope>("tool:request-forward:stop", { id });
-    statuses.value = upsertStatus(statuses.value, result.item);
+    await applyRequestForwardMutationResult(
+      invoke<StatusEnvelope>("tool:request-forward:stop", { id: intent.targetId }),
+      intent,
+      currentSelectionIntent,
+      (result) => {
+        statuses.value = upsertStatus(statuses.value, result.item);
+      },
+    );
     await refreshRules();
     if (feedback) ElMessage.success("规则已停止");
   } catch (error) {
@@ -410,7 +457,8 @@ async function runBatch(operation: "start" | "stop") {
 
 async function deleteSelected() {
   const rule = selectedRule.value;
-  if (!rule) return;
+  if (!rule || interactionBusy.value) return;
+  const intent = captureRequestForwardMutationIntent(currentSelectionIntent(), rule.id);
   if (isRequestForwardRuleReadonly(selectedState.value)) {
     ElMessage.warning("运行中的规则不能删除，请先停止规则");
     return;
@@ -426,10 +474,16 @@ async function deleteSelected() {
   }
   operating.value = true;
   try {
-    await invoke<{ ok: boolean }>("tool:request-forward:delete", { id: rule.id });
-    selectionIntentToken += 1;
-    selectedId.value = null;
-    formDirty.value = false;
+    await applyRequestForwardMutationResult(
+      invoke<{ ok: boolean }>("tool:request-forward:delete", { id: intent.targetId }),
+      intent,
+      currentSelectionIntent,
+      () => {
+        selectionIntentToken += 1;
+        selectedId.value = null;
+        formDirty.value = false;
+      },
+    );
     await refreshRules();
     ElMessage.success("规则已删除");
   } catch (error) {
@@ -590,7 +644,7 @@ onUnmounted(() => {
       :statuses="statuses"
       :selected-id="selectedId"
       :loading="loading"
-      :busy="operating || saving || observabilityMutating"
+      :busy="interactionBusy"
       @add="createDraft"
       @select="selectRule"
       @start="startRule"
@@ -618,13 +672,18 @@ onUnmounted(() => {
             <strong>规则正在运行，配置已锁定</strong>
             <span>停止成功后才会解除只读，避免运行配置与持久化配置不一致。</span>
           </div>
-          <el-button :loading="operating" @click="handleStopAndEdit">停止并编辑</el-button>
+          <el-button
+            :disabled="interactionBusy"
+            :loading="operating"
+            @click="handleStopAndEdit"
+          >停止并编辑</el-button>
         </div>
 
         <div class="workbench-scroll">
           <RequestForwardRuleFormEditor
             :model-value="form"
             :readonly="readonly"
+            :disabled="interactionBusy"
             :persisted="!draft"
             :errors="fieldErrors"
             @update:model-value="handleFormUpdate"
@@ -741,18 +800,22 @@ onUnmounted(() => {
             v-if="!draft"
             type="danger"
             plain
-            :disabled="readonly || operating"
+            :disabled="readonly || interactionBusy"
             @click="deleteSelected"
           >
             删除规则
           </el-button>
           <span class="workbench-actions__spacer" />
-          <el-button :disabled="readonly || operating" :loading="saving" @click="saveRule">
+          <el-button
+            :disabled="readonly || interactionBusy"
+            :loading="saving"
+            @click="saveRule"
+          >
             仅保存
           </el-button>
           <el-button
             type="primary"
-            :disabled="readonly || operating"
+            :disabled="readonly || interactionBusy"
             :loading="saving"
             @click="saveAndStart"
           >
@@ -765,7 +828,9 @@ onUnmounted(() => {
         <div class="workbench-empty__mark">RF</div>
         <h1>选择或新建转发规则</h1>
         <p>在左侧选择已有规则查看配置，或新建 HTTP、TCP、UDP 转发规则。</p>
-        <el-button type="primary" @click="createDraft">新建规则</el-button>
+        <el-button type="primary" :disabled="interactionBusy" @click="createDraft">
+          新建规则
+        </el-button>
       </div>
     </main>
   </div>

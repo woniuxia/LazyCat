@@ -648,7 +648,9 @@ async fn run_listener(
                             _ = child_cancellation.cancelled() => {}
                             result = serve => {
                                 if let Err(error) = result {
-                                    child_observability.child_task_failed(format!("HTTP 客户端连接失败: {error}"));
+                                    if !is_observed_response_stream_error(&error) {
+                                        child_observability.child_task_failed(format!("HTTP 客户端连接失败: {error}"));
+                                    }
                                 }
                             }
                         }
@@ -795,7 +797,6 @@ fn observe_response_body(
     cancellation: CancellationToken,
 ) -> ProxyBody {
     let success_trace = Arc::clone(&trace);
-    let error_trace = Arc::clone(&trace);
     let body = body
         .map_frame(move |frame| {
             if let Some(bytes) = frame.data_ref() {
@@ -804,10 +805,7 @@ fn observe_response_body(
             }
             frame
         })
-        .map_err(move |error| -> ProxyError {
-            error_trace.response_stream_failed(format!("下游 HTTP 响应流失败: {error}"));
-            Box::new(error)
-        });
+        .map_err(|error| -> ProxyError { Box::new(ObservedResponseStreamError::new(error)) });
     let body = CompletionBody::new(body, trace).boxed();
     CancellableBody::new(body, cancellation).boxed()
 }
@@ -827,23 +825,31 @@ impl<B> CompletionBody<B> {
         }
     }
 
-    fn complete(&mut self) {
+    fn complete_successfully(&mut self) {
         if !self.completed {
             self.completed = true;
             self.trace.response_completed();
+        }
+    }
+
+    fn fail(&mut self, error: String) {
+        if !self.completed {
+            self.completed = true;
+            self.trace.response_stream_failed(error);
         }
     }
 }
 
 impl<B> Drop for CompletionBody<B> {
     fn drop(&mut self) {
-        self.complete();
+        self.complete_successfully();
     }
 }
 
 impl<B> Body for CompletionBody<B>
 where
     B: Body<Data = Bytes>,
+    B::Error: std::fmt::Display,
 {
     type Data = Bytes;
     type Error = B::Error;
@@ -854,11 +860,51 @@ where
     ) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
         let this = self.get_mut();
         let result = this.inner.as_mut().poll_frame(cx);
-        if matches!(result, Poll::Ready(None) | Poll::Ready(Some(Err(_)))) {
-            this.complete();
+        match &result {
+            Poll::Ready(None) => this.complete_successfully(),
+            Poll::Ready(Some(Err(error))) => {
+                this.fail(format!("下游 HTTP 响应流失败: {error}"));
+            }
+            Poll::Pending | Poll::Ready(Some(Ok(_))) => {}
         }
         result
     }
+}
+
+#[derive(Debug)]
+struct ObservedResponseStreamError {
+    source: ProxyError,
+}
+
+impl ObservedResponseStreamError {
+    fn new(error: impl Error + Send + Sync + 'static) -> Self {
+        Self {
+            source: Box::new(error),
+        }
+    }
+}
+
+impl std::fmt::Display for ObservedResponseStreamError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.source.fmt(formatter)
+    }
+}
+
+impl Error for ObservedResponseStreamError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        Some(self.source.as_ref())
+    }
+}
+
+fn is_observed_response_stream_error(error: &hyper::Error) -> bool {
+    let mut current: Option<&(dyn Error + 'static)> = Some(error);
+    while let Some(source) = current {
+        if source.is::<ObservedResponseStreamError>() {
+            return true;
+        }
+        current = source.source();
+    }
+    false
 }
 
 struct CancellableBody<B> {
@@ -937,7 +983,9 @@ mod integration_tests {
     use std::time::Duration;
 
     use super::super::model::{ForwardProtocol, ForwardRule};
-    use super::super::observability::{HttpEventKind, HTTP_BODY_PREVIEW_LIMIT};
+    use super::super::observability::{
+        HttpEventKind, ObservationCursor, HTTP_BODY_PREVIEW_LIMIT,
+    };
     use super::super::runtime::RuleRunner;
     use super::HttpRuleRunner;
 
@@ -1304,6 +1352,95 @@ mod integration_tests {
             .any(|event| event.kind == HttpEventKind::ResponseTimeout));
         release_tx.send(()).expect("release upstream worker");
         upstream.join().expect("join timeout upstream");
+        runner.stop(handle).expect("stop HTTP rule");
+    }
+
+    #[test]
+    fn http_response_stream_failure_finalizes_the_current_request_once() {
+        let (upstream_addr, upstream) = accept_once(|mut stream| {
+            let _ = read_head(&mut stream);
+            stream
+                .write_all(
+                    b"HTTP/1.1 206 Partial Content\r\nContent-Type: text/plain\r\nX-Upstream: kept\r\nContent-Length: 10\r\nConnection: close\r\n\r\nabc",
+                )
+                .expect("write truncated upstream response");
+            stream.flush().expect("flush truncated upstream response");
+        });
+        let rule = http_rule(50, format!("http://{upstream_addr}"), true, true);
+        let runner = HttpRuleRunner::new();
+        let handle = runner.start(&rule).expect("start HTTP rule");
+        let mut client = connect(runner.listener_addr(handle).expect("read listener"));
+        client
+            .write_all(
+                b"GET /stream-fail?q=1 HTTP/1.1\r\nHost: public.example\r\nX-Request-Id: stream-50\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            )
+            .expect("write stream failure request");
+        let mut response = Vec::new();
+        client
+            .read_to_end(&mut response)
+            .expect("read response until failed stream closes");
+        upstream.join().expect("join truncated upstream");
+
+        let snapshot = runner
+            .wait_for_snapshot(handle, |snapshot| {
+                snapshot.error_count == 1
+                    && (snapshot.events.len() >= 2
+                        || snapshot.events.iter().any(|event| {
+                            event.kind == HttpEventKind::ResponseStreamFailed
+                                && event.method.is_some()
+                        }))
+            })
+            .unwrap_or_else(|error| {
+                panic!(
+                    "wait for response stream failure finalization: {error}; current snapshot: {:?}",
+                    runner
+                        .observation_snapshot(handle)
+                        .expect("read current HTTP observation")
+                )
+            });
+        assert_eq!(snapshot.event_count, 1);
+        assert_eq!(snapshot.error_count, 1);
+        assert_eq!(snapshot.events.len(), 1);
+        let failed = &snapshot.events[0];
+        assert_eq!(failed.kind, HttpEventKind::ResponseStreamFailed);
+        assert!(failed
+            .error
+            .as_deref()
+            .is_some_and(|error| error.contains("下游 HTTP 响应流失败")));
+        assert!(failed.client_addr.is_some());
+        assert_eq!(failed.target_addr, upstream_addr.to_string());
+        assert_eq!(failed.method.as_deref(), Some("GET"));
+        assert_eq!(failed.path.as_deref(), Some("/stream-fail?q=1"));
+        assert_eq!(failed.status_code, Some(206));
+        assert_eq!(failed.upload_bytes, 0);
+        assert_eq!(failed.download_bytes, 3);
+        assert!(failed
+            .request_headers
+            .as_ref()
+            .is_some_and(|headers| headers.iter().any(|(name, value)| {
+                name.eq_ignore_ascii_case("x-request-id") && value == "stream-50"
+            })));
+        assert!(failed
+            .response_headers
+            .as_ref()
+            .is_some_and(|headers| headers.iter().any(|(name, value)| {
+                name.eq_ignore_ascii_case("x-upstream") && value == "kept"
+            })));
+        assert_eq!(
+            failed
+                .response_body_preview
+                .as_ref()
+                .map(|preview| preview.bytes.as_slice()),
+            Some(b"abc".as_slice())
+        );
+
+        let batch = runner
+            .observability(handle)
+            .expect("read HTTP observability")
+            .batch_since(ObservationCursor::default());
+        assert_eq!(batch.events.len(), 1);
+        assert_eq!(batch.events[0].kind, HttpEventKind::ResponseStreamFailed);
+
         runner.stop(handle).expect("stop HTTP rule");
     }
 

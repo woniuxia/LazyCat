@@ -9,6 +9,8 @@ import type {
   RequestForwardRuleWriteInput,
 } from "../types/request-forward";
 import {
+  applyRequestForwardMutationResult,
+  captureRequestForwardMutationIntent,
   DEFAULT_REQUEST_FORWARD_FORM,
   formatRequestForwardEndpoint,
   formatRequestForwardRuleSummary,
@@ -23,6 +25,14 @@ import {
   validateRequestForwardRuleForm,
 } from "./requestForward";
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
 const baseForm: RequestForwardRuleForm = {
   name: "本地 API",
   protocol: "http",
@@ -36,6 +46,48 @@ const baseForm: RequestForwardRuleForm = {
 };
 
 describe("request forward utilities", () => {
+  it("does not let a late mutation response overwrite a newer selection or edit", async () => {
+    let current = { selectionToken: 7, selectedId: 1, draft: false };
+    let visibleForm = { ...baseForm, name: "规则 A" };
+    const intent = captureRequestForwardMutationIntent(current, 1);
+    const response = deferred<RequestForwardRuleForm>();
+    const mutation = applyRequestForwardMutationResult(
+      response.promise,
+      intent,
+      () => current,
+      (saved) => {
+        visibleForm = saved;
+      },
+    );
+
+    current = { selectionToken: 8, selectedId: 2, draft: false };
+    visibleForm = { ...baseForm, name: "规则 B 的本地编辑" };
+    response.resolve({ ...baseForm, name: "规则 A 的晚响应" });
+
+    const result = await mutation;
+    expect(result.applied).toBe(false);
+    expect(result.value.name).toBe("规则 A 的晚响应");
+    expect(visibleForm.name).toBe("规则 B 的本地编辑");
+  });
+
+  it("applies a mutation response while the captured selection intent is current", async () => {
+    const current = { selectionToken: 3, selectedId: 1, draft: false };
+    const intent = captureRequestForwardMutationIntent(current, 1);
+    let visibleName = "旧名称";
+
+    const result = await applyRequestForwardMutationResult(
+      Promise.resolve("新名称"),
+      intent,
+      () => current,
+      (name) => {
+        visibleName = name;
+      },
+    );
+
+    expect(result.applied).toBe(true);
+    expect(visibleName).toBe("新名称");
+  });
+
   it("returns a safe default form", () => {
     expect(getDefaultRequestForwardForm()).toEqual(DEFAULT_REQUEST_FORWARD_FORM);
     expect(getDefaultRequestForwardForm()).not.toBe(DEFAULT_REQUEST_FORWARD_FORM);

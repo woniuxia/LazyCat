@@ -1,13 +1,107 @@
-use std::net::IpAddr;
+use std::collections::HashSet;
+use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 use std::str::FromStr;
 
 use url::{Host, Url};
 
 use super::model::{ForwardProtocol, RuleWriteInput, ValidatedRuleWriteInput};
 
+pub(crate) fn validate_start_target(rule: &super::model::ForwardRule) -> Result<(), String> {
+    let bind_host = parse_bind_host(&rule.bind_host)?;
+    let (target_host, target_port) = target_endpoint(rule)?;
+    let target_addrs = resolve_target_addrs(&target_host, target_port)?;
+
+    if target_port != rule.listen_port {
+        return Ok(());
+    }
+
+    let local_addresses = if bind_host.is_unspecified() {
+        Some(local_interface_addresses()?)
+    } else {
+        None
+    };
+    let targets_listener = target_addrs.iter().any(|target| {
+        let target_ip = target.ip();
+        if bind_host.is_unspecified() {
+            same_address_family(bind_host, target_ip)
+                && (target_ip.is_loopback()
+                    || local_addresses
+                        .as_ref()
+                        .is_some_and(|addresses| addresses.contains(&target_ip)))
+        } else {
+            target_ip == bind_host
+        }
+    });
+    if targets_listener {
+        return Err("目标地址与监听地址相同，不能直接转发到自身".into());
+    }
+
+    Ok(())
+}
+
+fn target_endpoint(rule: &super::model::ForwardRule) -> Result<(String, u16), String> {
+    match rule.protocol {
+        ForwardProtocol::Http => {
+            let target_url = rule
+                .target_url
+                .as_deref()
+                .ok_or_else(|| "HTTP 规则必须配置目标 URL".to_string())?;
+            let parsed = Url::parse(target_url)
+                .map_err(|error| format!("HTTP 目标 URL 格式不正确: {error}"))?;
+            if parsed.scheme() == "https" {
+                return Err("当前版本暂不支持 HTTPS 下游".into());
+            }
+            let host = parsed
+                .host_str()
+                .ok_or_else(|| "HTTP 目标 URL 必须包含主机名".to_string())?;
+            let port = parsed
+                .port_or_known_default()
+                .ok_or_else(|| "HTTP 目标 URL 缺少有效端口".to_string())?;
+            Ok((host.to_string(), port))
+        }
+        ForwardProtocol::Tcp | ForwardProtocol::Udp => {
+            let host = rule
+                .target_host
+                .as_deref()
+                .map(str::trim)
+                .filter(|host| !host.is_empty())
+                .ok_or_else(|| "TCP/UDP 规则必须配置目标主机".to_string())?;
+            let port = rule
+                .target_port
+                .ok_or_else(|| "TCP/UDP 规则必须配置目标端口".to_string())?;
+            Ok((host.to_string(), port))
+        }
+    }
+}
+
+fn resolve_target_addrs(host: &str, port: u16) -> Result<Vec<SocketAddr>, String> {
+    let addresses = (host, port)
+        .to_socket_addrs()
+        .map_err(|error| format!("解析目标地址 {host}:{port} 失败: {error}"))?
+        .collect::<Vec<_>>();
+    if addresses.is_empty() {
+        return Err(format!("解析目标地址 {host}:{port} 失败: 未返回任何地址"));
+    }
+    Ok(addresses)
+}
+
+fn local_interface_addresses() -> Result<HashSet<IpAddr>, String> {
+    local_ip_address::list_afinet_netifas()
+        .map(|interfaces| interfaces.into_iter().map(|(_, address)| address).collect())
+        .map_err(|error| format!("枚举本机网络接口地址失败: {error}"))
+}
+
+fn same_address_family(left: IpAddr, right: IpAddr) -> bool {
+    matches!((left, right), (IpAddr::V4(_), IpAddr::V4(_)) | (IpAddr::V6(_), IpAddr::V6(_)))
+}
+
 pub(crate) fn validate_rule_input(
-    input: RuleWriteInput,
+    mut input: RuleWriteInput,
 ) -> Result<ValidatedRuleWriteInput, String> {
+    input.name = input.name.trim().to_string();
+    if input.name.is_empty() {
+        return Err("规则名称不能为空".into());
+    }
     let bind_host = parse_bind_host(&input.bind_host)?;
     validate_port(input.listen_port, "监听端口")?;
 
@@ -131,4 +225,77 @@ fn validate_socket_input(
         capture_http_headers: input.capture_http_headers,
         capture_http_body: input.capture_http_body,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_start_target;
+    use crate::tools::request_forward::model::{ForwardProtocol, ForwardRule};
+
+    fn socket_rule(protocol: ForwardProtocol, bind_host: &str, target_host: &str) -> ForwardRule {
+        ForwardRule {
+            id: 1,
+            name: "自转发检查".into(),
+            protocol,
+            bind_host: bind_host.into(),
+            listen_port: 18_080,
+            target_url: None,
+            target_host: Some(target_host.into()),
+            target_port: Some(18_080),
+            capture_http_headers: false,
+            capture_http_body: false,
+            auto_start: false,
+            created_at: String::new(),
+            updated_at: String::new(),
+        }
+    }
+
+    #[test]
+    fn wildcard_ipv4_rejects_loopback_target_on_same_port() {
+        let rule = socket_rule(ForwardProtocol::Tcp, "0.0.0.0", "127.0.0.1");
+
+        let error = validate_start_target(&rule).expect_err("wildcard listener covers loopback");
+
+        assert!(error.contains("不能直接转发到自身"));
+    }
+
+    #[test]
+    fn wildcard_ipv6_rejects_loopback_target_on_same_port() {
+        let rule = socket_rule(ForwardProtocol::Udp, "::", "::1");
+
+        let error = validate_start_target(&rule).expect_err("wildcard listener covers loopback");
+
+        assert!(error.contains("不能直接转发到自身"));
+    }
+
+    #[test]
+    fn specific_listener_rejects_hostname_resolving_to_itself() {
+        let rule = ForwardRule {
+            protocol: ForwardProtocol::Http,
+            bind_host: "127.0.0.1".into(),
+            target_url: Some("http://localhost:18080/api".into()),
+            target_host: None,
+            target_port: None,
+            ..socket_rule(ForwardProtocol::Http, "127.0.0.1", "unused")
+        };
+
+        let error = validate_start_target(&rule).expect_err("localhost resolves to listener");
+
+        assert!(error.contains("不能直接转发到自身"));
+    }
+
+    #[test]
+    fn same_target_address_on_different_port_is_allowed() {
+        let mut rule = socket_rule(ForwardProtocol::Tcp, "0.0.0.0", "127.0.0.1");
+        rule.target_port = Some(18_081);
+
+        validate_start_target(&rule).expect("different port cannot loop into this listener");
+    }
+
+    #[test]
+    fn wildcard_listener_allows_remote_target_on_same_port() {
+        let rule = socket_rule(ForwardProtocol::Tcp, "0.0.0.0", "192.0.2.1");
+
+        validate_start_target(&rule).expect("wildcard must not reject every remote address");
+    }
 }

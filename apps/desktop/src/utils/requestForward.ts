@@ -22,6 +22,46 @@ export function getDefaultRequestForwardForm(): RequestForwardRuleForm {
   return { ...DEFAULT_REQUEST_FORWARD_FORM };
 }
 
+export interface RequestForwardSelectionIntentState {
+  selectionToken: number;
+  selectedId: number | null;
+  draft: boolean;
+}
+
+export interface RequestForwardMutationIntent extends RequestForwardSelectionIntentState {
+  targetId: number | null;
+}
+
+export function captureRequestForwardMutationIntent(
+  selection: RequestForwardSelectionIntentState,
+  targetId: number | null,
+): RequestForwardMutationIntent {
+  return { ...selection, targetId };
+}
+
+export function isRequestForwardMutationIntentCurrent(
+  intent: RequestForwardMutationIntent,
+  current: RequestForwardSelectionIntentState,
+): boolean {
+  return (
+    intent.selectionToken === current.selectionToken &&
+    intent.selectedId === current.selectedId &&
+    intent.draft === current.draft
+  );
+}
+
+export async function applyRequestForwardMutationResult<T>(
+  operation: Promise<T>,
+  intent: RequestForwardMutationIntent,
+  current: () => RequestForwardSelectionIntentState,
+  apply: (value: T) => void | Promise<void>,
+): Promise<{ value: T; applied: boolean }> {
+  const value = await operation;
+  const applied = isRequestForwardMutationIntentCurrent(intent, current());
+  if (applied) await apply(value);
+  return { value, applied };
+}
+
 export function normalizeRequestForwardRuleForm(
   form: RequestForwardRuleForm,
 ): RequestForwardRuleForm {

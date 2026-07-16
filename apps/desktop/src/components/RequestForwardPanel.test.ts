@@ -30,7 +30,7 @@ describe("RequestForwardPanel source structure", () => {
   it("keeps running rules readonly and exposes stop-and-edit", () => {
     expect(source).toContain("停止并编辑");
     expect(source).toContain("handleStopAndEdit");
-    expect(formSource).toContain(':disabled="readonly"');
+    expect(formSource).toContain(':disabled="readonly || disabled"');
   });
 
   it("separates save from save-and-start", () => {
@@ -55,7 +55,7 @@ describe("RequestForwardPanel source structure", () => {
   it("confirms deletion and keeps persisted protocols immutable", () => {
     expect(source).toContain("ElMessageBox.confirm");
     expect(source).toContain("删除后无法恢复");
-    expect(formSource).toContain(':disabled="persisted"');
+    expect(formSource).toContain(':disabled="persisted || readonly || disabled"');
   });
 
   it("polls serially with timeout guards and clears the timer", () => {
@@ -86,12 +86,34 @@ describe("RequestForwardPanel source structure", () => {
 
   it("disables list actions while panel operations are busy", () => {
     expect(listSource).toContain("busy: boolean");
-    expect(source).toContain(':busy="operating || saving || observabilityMutating"');
+    expect(source).toContain(':busy="interactionBusy"');
     expect(listSource.match(/:disabled="busy/g)?.length ?? 0).toBeGreaterThanOrEqual(4);
   });
 
+  it("locks rule selection and every form field during mutations", () => {
+    expect(source).toContain("const interactionBusy = computed");
+    expect(source).toContain(':busy="interactionBusy"');
+    expect(source).toContain(':disabled="interactionBusy"');
+    expect(listSource).toMatch(/class="rule-card__select"[\s\S]*?:disabled="busy"/);
+    expect(formSource).toContain("disabled: boolean");
+    expect(formSource.match(/readonly \|\| disabled/g)?.length ?? 0).toBeGreaterThanOrEqual(8);
+  });
+
+  it("guards mutation responses with captured target and selection intent", () => {
+    expect(source).toContain("captureRequestForwardMutationIntent");
+    expect(source).toContain("applyRequestForwardMutationResult");
+    expect(source).toContain("currentSelectionIntent");
+    expect(source.match(/applyRequestForwardMutationResult/g)?.length ?? 0).toBeGreaterThanOrEqual(4);
+  });
+
+  it("ends a dirty edit context when the selected rule is deleted externally", () => {
+    expect(source).toContain("当前编辑的规则已被删除");
+    expect(source).toMatch(/removedSelectedRule[\s\S]*?formDirty\.value = false/);
+    expect(source).toMatch(/removedSelectedRule[\s\S]*?syncFormFromSelection\(\)/);
+  });
+
   it("keeps rule selection and actions busy during observability mutations", () => {
-    expect(source).toContain(':busy="operating || saving || observabilityMutating"');
+    expect(source).toContain(':busy="interactionBusy"');
     expect(source).toContain("function reloadCurrentObservability");
     expect(source).toContain("const intentToken = selectionIntentToken");
     expect(source).toContain("const ruleId = selectedId.value");

@@ -17,6 +17,7 @@ use super::observability::{
 use super::repository::{self, ForwardLogWrite, ForwardStats, StatsDelta};
 use super::tcp::TcpRuleRunner;
 use super::udp::UdpRuleRunner;
+use super::validation::validate_start_target;
 use crate::tools::helpers::db_conn;
 
 const OBSERVABILITY_FLUSH_INTERVAL: Duration = Duration::from_secs(1);
@@ -66,6 +67,7 @@ pub(super) struct RunningHandle(pub(super) u64);
 
 pub(super) trait RuleRunner: Send + Sync {
     fn start(&self, rule: &ForwardRule) -> Result<RunningHandle, String>;
+    /// Consumes the handle and leaves no live task, including when cleanup reports an error.
     fn stop(&self, handle: RunningHandle) -> Result<(), String>;
 
     fn take_failure(&self, _handle: RunningHandle) -> Option<String> {
@@ -525,12 +527,7 @@ impl RuntimeManager {
                 }
                 Err(compensation_error) => {
                     let error = compensation_error_message(&primary_error, &compensation_error);
-                    self.set_state(
-                        rule.id,
-                        RuntimeState::Running,
-                        Some(handle),
-                        Some(error.clone()),
-                    );
+                    self.set_failed(rule.id, error.clone());
                     return Err(error);
                 }
             }
@@ -575,12 +572,7 @@ impl RuntimeManager {
                 Ok(self.status(rule_id))
             }
             Err(error) => {
-                self.set_state(
-                    rule_id,
-                    RuntimeState::Running,
-                    Some(handle),
-                    Some(error.clone()),
-                );
+                self.set_failed(rule_id, error.clone());
                 Err(error)
             }
         }
@@ -608,13 +600,15 @@ impl RuntimeManager {
         if had_running_handle {
             let handle = previous.handle.expect("running state must have a handle");
             self.set_state(rule.id, RuntimeState::Stopping, Some(handle), None);
-            if let Err(error) = self.runner.stop(handle) {
-                self.set_state(
-                    rule.id,
-                    RuntimeState::Running,
-                    Some(handle),
-                    Some(error.clone()),
-                );
+            if let Err(stop_error) = self.runner.stop(handle) {
+                self.stop_observability(rule.id);
+                let error = match persistence.set_auto_start(rule.id, false) {
+                    Ok(()) => stop_error,
+                    Err(persistence_error) => format!(
+                        "{stop_error}; 保存停止意图失败: {persistence_error}"
+                    ),
+                };
+                self.set_failed(rule.id, error.clone());
                 return Err(error);
             }
             self.stop_observability(rule.id);
@@ -1034,6 +1028,7 @@ impl Default for ProtocolRunner {
 
 impl RuleRunner for ProtocolRunner {
     fn start(&self, rule: &ForwardRule) -> Result<RunningHandle, String> {
+        validate_start_target(rule)?;
         let child_handle = match rule.protocol {
             ForwardProtocol::Http => self.http.start(rule),
             ForwardProtocol::Tcp => self.tcp.start(rule),
@@ -1322,10 +1317,10 @@ mod tests {
         fn stop(&self, handle: RunningHandle) -> Result<(), String> {
             self.stop_calls.fetch_add(1, Ordering::SeqCst);
             let mut state = self.inner.lock().expect("lock fake runner");
+            state.live_handles.remove(&handle.0);
             if let Some(error) = state.stop_error.take() {
                 return Err(error);
             }
-            state.live_handles.remove(&handle.0);
             Ok(())
         }
 
@@ -1627,6 +1622,16 @@ mod tests {
                 .count(),
             1
         );
+        assert_eq!(
+            results
+                .iter()
+                .filter(|result| result.state == RuntimeState::Failed)
+                .count(),
+            1
+        );
+        assert!(!runner.has_live_task());
+        assert_eq!(persistence.value(1), Some(true));
+        assert_eq!(persistence.value(2), Some(true));
     }
 
     #[test]
@@ -1930,12 +1935,50 @@ mod tests {
 
         assert!(error.contains("persist true failed"));
         assert!(error.contains("compensation stop failed"));
-        assert!(runner.has_live_task());
-        assert_eq!(status.state, RuntimeState::Running);
+        assert!(!runner.has_live_task());
+        assert_eq!(status.state, RuntimeState::Failed);
         assert!(status
             .last_error
             .expect("error recorded")
             .contains("compensation stop failed"));
+    }
+
+    #[test]
+    fn runner_stop_failure_is_terminal_and_persists_user_stop_intent() {
+        let runner = Arc::new(FakeRunner::default());
+        let manager = RuntimeManager::new(runner.clone());
+        let persistence = FakePersistence::default();
+        manager.start(&rule(1), &persistence).expect("start succeeds");
+        runner.fail_stop("runner stop failed");
+
+        let error = manager
+            .stop(&rule(1), &persistence)
+            .expect_err("runner stop error remains visible");
+
+        assert!(error.contains("runner stop failed"));
+        assert!(!runner.has_live_task());
+        assert_eq!(manager.status(1).state, RuntimeState::Failed);
+        assert_eq!(persistence.value(1), Some(false));
+    }
+
+    #[test]
+    fn runner_stop_and_persistence_failures_are_combined_without_phantom_runtime() {
+        let runner = Arc::new(FakeRunner::default());
+        let manager = RuntimeManager::new(runner.clone());
+        let persistence = FakePersistence::default();
+        manager.start(&rule(1), &persistence).expect("start succeeds");
+        runner.fail_stop("runner stop failed");
+        persistence.fail_for(1, false, "persist false failed");
+
+        let error = manager
+            .stop(&rule(1), &persistence)
+            .expect_err("both failures remain visible");
+
+        assert!(error.contains("runner stop failed"));
+        assert!(error.contains("persist false failed"));
+        assert!(!runner.has_live_task());
+        assert_eq!(manager.status(1).state, RuntimeState::Failed);
+        assert_eq!(persistence.value(1), Some(true));
     }
 
     #[test]
@@ -2073,5 +2116,64 @@ mod tests {
         runner.stop(tcp_handle).expect("stop TCP rule");
         runner.stop(udp_handle).expect("stop UDP rule");
         runner.stop(http_handle).expect("stop HTTP rule");
+    }
+
+    #[test]
+    fn protocol_runner_rejects_resolved_self_targets_before_starting_any_protocol() {
+        let runner = ProtocolRunner::default();
+        let free_tcp_port = || {
+            let listener = TcpListener::bind("127.0.0.1:0").expect("reserve TCP port");
+            listener.local_addr().expect("read TCP port").port()
+        };
+        let free_udp_port = || {
+            let socket = UdpSocket::bind("127.0.0.1:0").expect("reserve UDP port");
+            socket.local_addr().expect("read UDP port").port()
+        };
+
+        let mut http_rule = rule(90);
+        http_rule.protocol = ForwardProtocol::Http;
+        http_rule.listen_port = free_tcp_port();
+        http_rule.target_url = Some(format!("http://localhost:{}", http_rule.listen_port));
+        http_rule.target_host = None;
+        http_rule.target_port = None;
+
+        let mut tcp_rule = rule(91);
+        tcp_rule.bind_host = "0.0.0.0".into();
+        tcp_rule.listen_port = free_tcp_port();
+        tcp_rule.target_host = Some("127.0.0.1".into());
+        tcp_rule.target_port = Some(tcp_rule.listen_port);
+
+        let mut udp_rule = rule(92);
+        udp_rule.protocol = ForwardProtocol::Udp;
+        udp_rule.bind_host = "0.0.0.0".into();
+        udp_rule.listen_port = free_udp_port();
+        udp_rule.target_host = Some("127.0.0.1".into());
+        udp_rule.target_port = Some(udp_rule.listen_port);
+
+        for rule in [&http_rule, &tcp_rule, &udp_rule] {
+            match runner.start(rule) {
+                Err(error) => assert!(error.contains("不能直接转发到自身")),
+                Ok(handle) => {
+                    runner.stop(handle).expect("cleanup unexpectedly started rule");
+                    panic!("{} self target unexpectedly started", rule.protocol.as_str());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn protocol_runner_keeps_https_downstream_rejection_explicit() {
+        let mut https_rule = rule(93);
+        https_rule.protocol = ForwardProtocol::Http;
+        https_rule.listen_port = 0;
+        https_rule.target_url = Some("https://does-not-resolve.invalid/api".into());
+        https_rule.target_host = None;
+        https_rule.target_port = None;
+
+        let error = ProtocolRunner::default()
+            .start(&https_rule)
+            .expect_err("HTTPS downstream remains explicitly unsupported");
+
+        assert!(error.contains("暂不支持 HTTPS 下游"));
     }
 }
