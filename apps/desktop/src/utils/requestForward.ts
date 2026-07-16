@@ -18,6 +18,29 @@ export const DEFAULT_REQUEST_FORWARD_FORM: RequestForwardRuleForm = {
   captureHttpBody: false,
 };
 
+const REQUEST_FORWARD_LOG_PAGE_SIZE = 30;
+const REQUEST_FORWARD_LOG_LIMIT = 1000;
+
+export function getRequestForwardLogProbeLimit(loadedCount: number): number {
+  return Math.min(
+    REQUEST_FORWARD_LOG_LIMIT,
+    Math.max(REQUEST_FORWARD_LOG_PAGE_SIZE, loadedCount + REQUEST_FORWARD_LOG_PAGE_SIZE),
+  );
+}
+
+export function getRequestForwardLogTargetCount(input: {
+  loadedCount: number;
+  previousTotal: number;
+  nextTotal: number;
+}): number {
+  const added = Math.max(0, input.nextTotal - input.previousTotal);
+  return Math.min(
+    REQUEST_FORWARD_LOG_LIMIT,
+    input.nextTotal,
+    Math.max(REQUEST_FORWARD_LOG_PAGE_SIZE, input.loadedCount + added),
+  );
+}
+
 export function getDefaultRequestForwardForm(): RequestForwardRuleForm {
   return { ...DEFAULT_REQUEST_FORWARD_FORM };
 }

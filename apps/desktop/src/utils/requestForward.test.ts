@@ -17,6 +17,8 @@ import {
   getDefaultRequestForwardForm,
   getForwardEventLabel,
   getRequestForwardBatchMessage,
+  getRequestForwardLogProbeLimit,
+  getRequestForwardLogTargetCount,
   getRequestForwardLogTone,
   isExposedForwardBindHost,
   isRequestForwardRuleReadonly,
@@ -46,6 +48,40 @@ const baseForm: RequestForwardRuleForm = {
 };
 
 describe("request forward utilities", () => {
+  it("keeps background log refreshes on a continuous bounded window", () => {
+    expect(getRequestForwardLogProbeLimit(30)).toBe(60);
+    expect(getRequestForwardLogProbeLimit(990)).toBe(1000);
+
+    expect(
+      getRequestForwardLogTargetCount({
+        loadedCount: 60,
+        previousTotal: 100,
+        nextTotal: 105,
+      }),
+    ).toBe(65);
+    expect(
+      getRequestForwardLogTargetCount({
+        loadedCount: 60,
+        previousTotal: 100,
+        nextTotal: 200,
+      }),
+    ).toBe(160);
+    expect(
+      getRequestForwardLogTargetCount({
+        loadedCount: 60,
+        previousTotal: 100,
+        nextTotal: 20,
+      }),
+    ).toBe(20);
+    expect(
+      getRequestForwardLogTargetCount({
+        loadedCount: 990,
+        previousTotal: 1000,
+        nextTotal: 1000,
+      }),
+    ).toBe(990);
+  });
+
   it("does not let a late mutation response overwrite a newer selection or edit", async () => {
     let current = { selectionToken: 7, selectedId: 1, draft: false };
     let visibleForm = { ...baseForm, name: "规则 A" };
