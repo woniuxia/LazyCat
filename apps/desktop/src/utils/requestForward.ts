@@ -45,15 +45,24 @@ export function validateRequestForwardRuleForm(form: RequestForwardRuleForm): st
   const normalized = normalizeRequestForwardRuleForm(form);
   const missing: string[] = [];
   if (!normalized.name) missing.push("name");
-  if (!normalized.bindHost) missing.push("bindHost");
-  if (!normalized.listenPort || normalized.listenPort < 1 || normalized.listenPort > 65535) {
+  if (!isIpLiteral(normalized.bindHost)) missing.push("bindHost");
+  if (
+    !Number.isInteger(normalized.listenPort) ||
+    normalized.listenPort < 1 ||
+    normalized.listenPort > 65535
+  ) {
     missing.push("listenPort");
   }
   if (normalized.protocol === "http") {
-    if (!normalized.targetUrl) missing.push("targetUrl");
+    if (!isValidHttpTargetUrl(normalized.targetUrl)) missing.push("targetUrl");
   } else {
     if (!normalized.targetHost) missing.push("targetHost");
-    if (!normalized.targetPort || normalized.targetPort < 1 || normalized.targetPort > 65535) {
+    if (
+      normalized.targetPort == null ||
+      !Number.isInteger(normalized.targetPort) ||
+      normalized.targetPort < 1 ||
+      normalized.targetPort > 65535
+    ) {
       missing.push("targetPort");
     }
   }
@@ -82,12 +91,20 @@ export function isRequestForwardRuleReadonly(state: RequestForwardRuntimeState):
 }
 
 export function isExposedForwardBindHost(bindHost: string): boolean {
-  const host = bindHost.trim().toLowerCase();
-  return host === "0.0.0.0" || host === "::";
+  const host = bindHost.trim();
+  if (!isIpLiteral(host)) return false;
+  if (isIpv4Literal(host)) return Number(host.split(".")[0]) !== 127;
+  return normalizeIpv6Literal(host) !== "::1";
 }
 
-export function formatRequestForwardEndpoint(host: string, port: number): string {
-  const trimmedHost = host.trim();
+export function formatRequestForwardEndpoint(
+  host?: string | null,
+  port?: number | null,
+): string {
+  const trimmedHost = host?.trim();
+  if (!trimmedHost || port == null || !Number.isInteger(port) || port < 1 || port > 65535) {
+    return "—";
+  }
   return trimmedHost.includes(":") && !trimmedHost.startsWith("[")
     ? `[${trimmedHost}]:${port}`
     : `${trimmedHost}:${port}`;
@@ -98,7 +115,7 @@ export function formatRequestForwardRuleSummary(form: RequestForwardRuleForm): s
   const target =
     form.protocol === "http"
       ? form.targetUrl?.trim() || "—"
-      : formatRequestForwardEndpoint(form.targetHost?.trim() || "—", form.targetPort ?? 0);
+      : formatRequestForwardEndpoint(form.targetHost, form.targetPort);
   return `${source} → ${target}`;
 }
 
@@ -113,29 +130,59 @@ export function getForwardEventLabel(protocol: RequestForwardProtocol): string {
   }
 }
 
-export function getRequestForwardBatchMessage(result: {
-  requested: number;
-  succeeded: number;
-  failed: number;
-}): string {
-  if (result.requested === 0) return "没有可处理的规则";
-  if (result.failed === 0) return `已启动 ${result.succeeded} 条规则`;
-  return `已启动 ${result.succeeded} 条规则，${result.failed} 条失败`;
+type RequestForwardBatchOperation = "start" | "stop";
+
+export function getRequestForwardBatchMessage(
+  operation: RequestForwardBatchOperation,
+  result: { requested: number; succeeded: number; failed: number },
+): string {
+  const action = operation === "start" ? "启动" : "停止";
+  if (result.requested === 0) return `没有可${action}的规则`;
+  if (result.failed === 0) return `已${action} ${result.succeeded} 条规则`;
+  return `已${action} ${result.succeeded} 条规则，${result.failed} 条失败`;
 }
 
-export type RequestForwardLogTone = "success" | "danger" | "warning" | "info";
+export type RequestForwardLogTone = "success" | "danger";
 
 export function getRequestForwardLogTone(
-  status: RequestForwardLogOutcome | "warn" | "info",
+  status: RequestForwardLogOutcome,
 ): RequestForwardLogTone {
-  switch (status) {
-    case "success":
-      return "success";
-    case "error":
-      return "danger";
-    case "warn":
-      return "warning";
-    default:
-      return "info";
+  return status === "success" ? "success" : "danger";
+}
+
+function isValidHttpTargetUrl(value: string | null): boolean {
+  if (!value) return false;
+  try {
+    const url = new URL(value);
+    return (
+      (url.protocol === "http:" || url.protocol === "https:") &&
+      Boolean(url.hostname) &&
+      !url.search &&
+      !url.hash &&
+      url.port !== "0"
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isIpLiteral(value: string): boolean {
+  return isIpv4Literal(value) || normalizeIpv6Literal(value) !== null;
+}
+
+function isIpv4Literal(value: string): boolean {
+  const parts = value.split(".");
+  return (
+    parts.length === 4 &&
+    parts.every((part) => /^\d{1,3}$/.test(part) && Number(part) >= 0 && Number(part) <= 255)
+  );
+}
+
+function normalizeIpv6Literal(value: string): string | null {
+  if (!value.includes(":") || value.includes("[") || value.includes("]")) return null;
+  try {
+    return new URL(`http://[${value}]/`).hostname.slice(1, -1).toLowerCase();
+  } catch {
+    return null;
   }
 }

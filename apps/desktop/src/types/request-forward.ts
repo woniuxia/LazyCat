@@ -42,8 +42,10 @@ export interface RequestForwardBatchOperationResult {
   state: RequestForwardRuntimeState;
 }
 
+export type RequestForwardRestoreResult = RequestForwardBatchOperationResult;
+
 export interface RequestForwardLogQuery {
-  ruleId: number;
+  id: number;
   keyword?: string | null;
   mode?: RequestForwardLogOutcome | null;
   offset?: number;
@@ -74,7 +76,7 @@ export interface RequestForwardLogRow {
   createdAt: string;
 }
 
-export interface RequestForwardLogResult {
+export interface RequestForwardLogPage {
   items: RequestForwardLogRow[];
   total: number;
 }

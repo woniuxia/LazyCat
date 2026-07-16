@@ -132,9 +132,10 @@ export type {
   RequestForwardRule,
   RequestForwardRuntimeStatus,
   RequestForwardBatchOperationResult,
+  RequestForwardRestoreResult,
   RequestForwardLogQuery,
   RequestForwardLogOutcome,
   RequestForwardLogRow,
-  RequestForwardLogResult,
+  RequestForwardLogPage,
   RequestForwardStats,
 } from "./request-forward";
