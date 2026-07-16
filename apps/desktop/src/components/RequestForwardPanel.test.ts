@@ -86,8 +86,16 @@ describe("RequestForwardPanel source structure", () => {
 
   it("disables list actions while panel operations are busy", () => {
     expect(listSource).toContain("busy: boolean");
-    expect(source).toContain(':busy="operating || saving"');
+    expect(source).toContain(':busy="operating || saving || observabilityMutating"');
     expect(listSource.match(/:disabled="busy/g)?.length ?? 0).toBeGreaterThanOrEqual(4);
+  });
+
+  it("keeps rule selection and actions busy during observability mutations", () => {
+    expect(source).toContain(':busy="operating || saving || observabilityMutating"');
+    expect(source).toContain("function reloadCurrentObservability");
+    expect(source).toContain("const intentToken = selectionIntentToken");
+    expect(source).toContain("const ruleId = selectedId.value");
+    expect(source).toMatch(/finally \{\s*observabilityMutating\.value = false;\s*reloadCurrentObservability\(\);/);
   });
 
   it("loads selected-rule stats with protocol-specific event labels", () => {
@@ -125,11 +133,18 @@ describe("RequestForwardPanel source structure", () => {
     expect(source).toContain("清空转发日志");
     expect(source).toContain("重置转发统计");
     expect(source).toContain("request-forward-observability-confirm");
-    expect(source).toContain("await loadLogs(false)");
+    expect(source).toContain("loadLogs(false, ruleId, intentToken)");
     const clearLogsBody = source.match(/async function clearLogs\(\)[\s\S]*?\n}\n\nasync function resetStats/)?.[0] ?? "";
     const resetStatsBody = source.match(/async function resetStats\(\)[\s\S]*?\n}\n\nfunction upsertStatus/)?.[0] ?? "";
     expect(clearLogsBody).not.toContain("tool:request-forward:stats-reset");
     expect(resetStatsBody).not.toContain("tool:request-forward:log-clear");
+  });
+
+  it("allows clearing all rule logs even when the active filter is empty", () => {
+    const clearButton = source.match(/<el-button[\s\S]*?@click="clearLogs"[\s\S]*?<\/el-button>/)?.[0] ?? "";
+    expect(clearButton).toContain("全部日志");
+    expect(clearButton).toContain("selectedRule");
+    expect(clearButton).not.toContain("!logItems.length");
   });
 
   it("shows observability warnings without changing runtime state", () => {

@@ -135,10 +135,12 @@ function resetObservabilityState() {
   logInFlight = false;
 }
 
-async function loadStats(ruleId = selectedId.value) {
+async function loadStats(
+  ruleId = selectedId.value,
+  intentToken = selectionIntentToken,
+) {
   if (ruleId == null || draft.value || observabilityMutating.value) return;
   const requestToken = ++statsRequestToken;
-  const intentToken = selectionIntentToken;
   statsLoading.value = true;
   statsError.value = "";
   try {
@@ -159,13 +161,16 @@ async function loadStats(ruleId = selectedId.value) {
   }
 }
 
-async function loadLogs(append = false, ruleId = selectedId.value) {
+async function loadLogs(
+  append = false,
+  ruleId = selectedId.value,
+  intentToken = selectionIntentToken,
+) {
   if (ruleId == null || draft.value || observabilityMutating.value) return;
   if (append && (loadingMore.value || logInFlight)) return;
   const normalizedKeyword = logKeyword.value.trim();
   const modeSnapshot = logMode.value;
   const requestToken = ++logRequestToken;
-  const intentToken = selectionIntentToken;
   logInFlight = true;
   append ? (loadingMore.value = true) : (logsLoading.value = true);
   if (!append) {
@@ -218,6 +223,16 @@ function scheduleLogReload() {
 function loadMoreLogs() {
   if (loadingMore.value || logInFlight) return;
   void loadLogs(true);
+}
+
+function reloadCurrentObservability() {
+  const intentToken = selectionIntentToken;
+  const ruleId = selectedId.value;
+  if (draft.value || ruleId == null || selectedRule.value?.id !== ruleId) return;
+  void Promise.all([
+    loadStats(ruleId, intentToken),
+    loadLogs(false, ruleId, intentToken),
+  ]);
 }
 
 async function refreshRules(options: { showLoading?: boolean } = {}) {
@@ -451,13 +466,12 @@ async function clearLogs() {
   try {
     await invoke<{ ok: boolean }>("tool:request-forward:log-clear", { id: rule.id });
     if (selectionIntentToken !== intentToken || selectedId.value !== rule.id || draft.value) return;
-    observabilityMutating.value = false;
-    await loadLogs(false);
     ElMessage.success("转发日志已清空");
   } catch (error) {
     ElMessage.error(`清空日志失败：${errorMessage(error)}`);
   } finally {
     observabilityMutating.value = false;
+    reloadCurrentObservability();
     if (hasActiveRuntimeRule.value) syncPolling(true);
   }
 }
@@ -496,6 +510,7 @@ async function resetStats() {
     ElMessage.error(`重置统计失败：${errorMessage(error)}`);
   } finally {
     observabilityMutating.value = false;
+    reloadCurrentObservability();
     if (hasActiveRuntimeRule.value) syncPolling(true);
   }
 }
@@ -575,7 +590,7 @@ onUnmounted(() => {
       :statuses="statuses"
       :selected-id="selectedId"
       :loading="loading"
-      :busy="operating || saving"
+      :busy="operating || saving || observabilityMutating"
       @add="createDraft"
       @select="selectRule"
       @start="startRule"
@@ -670,11 +685,11 @@ onUnmounted(() => {
               </div>
               <el-button
                 size="small"
-                :disabled="logsLoading || observabilityMutating || !logItems.length"
+                :disabled="!selectedRule || logsLoading || observabilityMutating"
                 :loading="observabilityMutating"
                 @click="clearLogs"
               >
-                清空日志
+                清空全部日志
               </el-button>
             </header>
 
