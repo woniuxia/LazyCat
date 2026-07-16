@@ -4,10 +4,14 @@ import { ElMessage, ElMessageBox } from "element-plus";
 import { useToolInvoke } from "../composables/useToolInvoke";
 import type {
   RequestForwardBatchOperationResult,
+  RequestForwardLogOutcome,
+  RequestForwardLogPage,
+  RequestForwardLogRow,
   RequestForwardRule,
   RequestForwardRuleForm,
   RequestForwardRuntimeState,
   RequestForwardRuntimeStatus,
+  RequestForwardStats,
 } from "../types/request-forward";
 import {
   getDefaultRequestForwardForm,
@@ -17,6 +21,7 @@ import {
   validateRequestForwardRuleForm,
 } from "../utils/requestForward";
 import RequestForwardRuleFormEditor from "./request-forward/RequestForwardRuleForm.vue";
+import RequestForwardLogList from "./request-forward/RequestForwardLogList.vue";
 import RequestForwardRuleList from "./request-forward/RequestForwardRuleList.vue";
 
 type RuleListEnvelope = { items: RequestForwardRule[] };
@@ -24,6 +29,9 @@ type StatusListEnvelope = { items: RequestForwardRuntimeStatus[] };
 type RuleEnvelope = { item: RequestForwardRule };
 type StatusEnvelope = { item: RequestForwardRuntimeStatus };
 type BatchEnvelope = { results: RequestForwardBatchOperationResult[] };
+type StatsEnvelope = { item: RequestForwardStats };
+
+const LOG_PAGE_SIZE = 30;
 
 const { loading, invoke } = useToolInvoke();
 const rules = ref<RequestForwardRule[]>([]);
@@ -35,12 +43,27 @@ const formDirty = ref(false);
 const fieldErrors = ref<Partial<Record<keyof RequestForwardRuleForm, string>>>({});
 const saving = ref(false);
 const operating = ref(false);
+const stats = ref<RequestForwardStats | null>(null);
+const statsLoading = ref(false);
+const statsError = ref("");
+const logItems = ref<RequestForwardLogRow[]>([]);
+const logTotal = ref(0);
+const logKeyword = ref("");
+const logMode = ref<"all" | RequestForwardLogOutcome>("all");
+const logsLoading = ref(false);
+const loadingMore = ref(false);
+const logError = ref("");
+const observabilityMutating = ref(false);
 
 let refreshRequestToken = 0;
 let selectionIntentToken = 0;
 let pollTimer: ReturnType<typeof setTimeout> | undefined;
 let pollGeneration = 0;
 let pollInFlight = false;
+let statsRequestToken = 0;
+let logRequestToken = 0;
+let logInFlight = false;
+let logDebounceTimer: ReturnType<typeof setTimeout> | undefined;
 
 const selectedRule = computed(
   () => rules.value.find((rule) => rule.id === selectedId.value) ?? null,
@@ -58,6 +81,12 @@ const hasActiveRuntimeRule = computed(() =>
   statuses.value.some((status) => isRequestForwardRuleReadonly(status.state)),
 );
 const hasEditor = computed(() => draft.value || Boolean(selectedRule.value));
+const hasMoreLogs = computed(() => logItems.value.length < logTotal.value);
+const eventLabel = computed(() => {
+  if (selectedRule.value?.protocol === "tcp") return "连接数";
+  if (selectedRule.value?.protocol === "udp") return "数据报数";
+  return "请求数";
+});
 
 const stateCopy = computed(() => {
   const labels: Record<RequestForwardRuntimeState, string> = {
@@ -80,9 +109,121 @@ function syncFormFromSelection() {
   }
 }
 
+function formatBytes(value: number): string {
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+  return `${(value / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function clearLogDebounce() {
+  if (logDebounceTimer) clearTimeout(logDebounceTimer);
+  logDebounceTimer = undefined;
+}
+
+function resetObservabilityState() {
+  statsRequestToken += 1;
+  logRequestToken += 1;
+  clearLogDebounce();
+  stats.value = null;
+  statsLoading.value = false;
+  statsError.value = "";
+  logItems.value = [];
+  logTotal.value = 0;
+  logsLoading.value = false;
+  loadingMore.value = false;
+  logError.value = "";
+  logInFlight = false;
+}
+
+async function loadStats(ruleId = selectedId.value) {
+  if (ruleId == null || draft.value || observabilityMutating.value) return;
+  const requestToken = ++statsRequestToken;
+  const intentToken = selectionIntentToken;
+  statsLoading.value = true;
+  statsError.value = "";
+  try {
+    const result = await invoke<StatsEnvelope>("tool:request-forward:stats-get", { id: ruleId });
+    if (
+      requestToken !== statsRequestToken ||
+      selectionIntentToken !== intentToken ||
+      selectedId.value !== ruleId ||
+      draft.value
+    ) return;
+    stats.value = result.item;
+  } catch (error) {
+    if (requestToken === statsRequestToken && selectedId.value === ruleId) {
+      statsError.value = `加载统计失败：${errorMessage(error)}`;
+    }
+  } finally {
+    if (requestToken === statsRequestToken) statsLoading.value = false;
+  }
+}
+
+async function loadLogs(append = false, ruleId = selectedId.value) {
+  if (ruleId == null || draft.value || observabilityMutating.value) return;
+  if (append && (loadingMore.value || logInFlight)) return;
+  const normalizedKeyword = logKeyword.value.trim();
+  const modeSnapshot = logMode.value;
+  const requestToken = ++logRequestToken;
+  const intentToken = selectionIntentToken;
+  logInFlight = true;
+  append ? (loadingMore.value = true) : (logsLoading.value = true);
+  if (!append) {
+    logItems.value = [];
+    logTotal.value = 0;
+  }
+  logError.value = "";
+  try {
+    const result = await invoke<RequestForwardLogPage>("tool:request-forward:log-list", {
+      id: ruleId,
+      keyword: normalizedKeyword || null,
+      mode: logMode.value === "all" ? null : logMode.value,
+      offset: append ? logItems.value.length : 0,
+      limit: LOG_PAGE_SIZE,
+    });
+    if (
+      requestToken !== logRequestToken ||
+      selectionIntentToken !== intentToken ||
+      selectedId.value !== ruleId ||
+      logKeyword.value.trim() !== normalizedKeyword ||
+      logMode.value !== modeSnapshot ||
+      draft.value
+    ) return;
+    const knownIds = new Set(logItems.value.map((item) => item.id));
+    logItems.value = append
+      ? [...logItems.value, ...result.items.filter((item) => !knownIds.has(item.id))]
+      : result.items;
+    logTotal.value = result.total;
+  } catch (error) {
+    if (requestToken === logRequestToken && selectedId.value === ruleId) {
+      logError.value = `加载日志失败：${errorMessage(error)}`;
+    }
+  } finally {
+    if (requestToken === logRequestToken) {
+      logInFlight = false;
+      logsLoading.value = false;
+      loadingMore.value = false;
+    }
+  }
+}
+
+function scheduleLogReload() {
+  clearLogDebounce();
+  logRequestToken += 1;
+  logItems.value = [];
+  logTotal.value = 0;
+  logDebounceTimer = setTimeout(() => void loadLogs(false), 300);
+}
+
+function loadMoreLogs() {
+  if (loadingMore.value || logInFlight) return;
+  void loadLogs(true);
+}
+
 async function refreshRules(options: { showLoading?: boolean } = {}) {
   const requestToken = ++refreshRequestToken;
   const intentToken = selectionIntentToken;
+  const previousSelectedId = selectedId.value;
   try {
     const request = Promise.all([
       invoke<RuleListEnvelope>("tool:request-forward:list", {}),
@@ -97,6 +238,9 @@ async function refreshRules(options: { showLoading?: boolean } = {}) {
     const retained = rules.value.some((rule) => rule.id === selectedId.value);
     selectedId.value = retained ? selectedId.value : rules.value[0]?.id ?? null;
     syncFormFromSelection();
+    if (selectedId.value != null && selectedId.value === previousSelectedId) {
+      await loadStats(selectedId.value);
+    }
   } catch (error) {
     if (options.showLoading) ElMessage.error(`加载转发规则失败：${errorMessage(error)}`);
   } finally {
@@ -280,6 +424,82 @@ async function deleteSelected() {
   }
 }
 
+async function clearLogs() {
+  const rule = selectedRule.value;
+  if (!rule || observabilityMutating.value) return;
+  if (pollInFlight) {
+    ElMessage.warning("状态刷新中，请稍后再清空日志");
+    return;
+  }
+  try {
+    await ElMessageBox.confirm(
+      `确定清空规则“${rule.name}”的全部转发日志吗？统计数据不会被重置。`,
+      "清空转发日志",
+      {
+        type: "warning",
+        confirmButtonText: "清空日志",
+        cancelButtonText: "取消",
+        customClass: "request-forward-observability-confirm",
+      },
+    );
+  } catch {
+    return;
+  }
+  const intentToken = selectionIntentToken;
+  observabilityMutating.value = true;
+  logRequestToken += 1;
+  try {
+    await invoke<{ ok: boolean }>("tool:request-forward:log-clear", { id: rule.id });
+    if (selectionIntentToken !== intentToken || selectedId.value !== rule.id || draft.value) return;
+    observabilityMutating.value = false;
+    await loadLogs(false);
+    ElMessage.success("转发日志已清空");
+  } catch (error) {
+    ElMessage.error(`清空日志失败：${errorMessage(error)}`);
+  } finally {
+    observabilityMutating.value = false;
+    if (hasActiveRuntimeRule.value) syncPolling(true);
+  }
+}
+
+async function resetStats() {
+  const rule = selectedRule.value;
+  if (!rule || observabilityMutating.value) return;
+  if (pollInFlight) {
+    ElMessage.warning("状态刷新中，请稍后再重置统计");
+    return;
+  }
+  try {
+    await ElMessageBox.confirm(
+      `确定重置规则“${rule.name}”的转发统计吗？历史日志不会被清空。`,
+      "重置转发统计",
+      {
+        type: "warning",
+        confirmButtonText: "重置统计",
+        cancelButtonText: "取消",
+        customClass: "request-forward-observability-confirm",
+      },
+    );
+  } catch {
+    return;
+  }
+  const intentToken = selectionIntentToken;
+  observabilityMutating.value = true;
+  statsRequestToken += 1;
+  try {
+    const result = await invoke<StatsEnvelope>("tool:request-forward:stats-reset", { id: rule.id });
+    if (selectionIntentToken !== intentToken || selectedId.value !== rule.id || draft.value) return;
+    stats.value = result.item;
+    statsError.value = "";
+    ElMessage.success("转发统计已重置");
+  } catch (error) {
+    ElMessage.error(`重置统计失败：${errorMessage(error)}`);
+  } finally {
+    observabilityMutating.value = false;
+    if (hasActiveRuntimeRule.value) syncPolling(true);
+  }
+}
+
 function upsertStatus(
   current: RequestForwardRuntimeStatus[],
   next: RequestForwardRuntimeStatus,
@@ -301,6 +521,7 @@ async function runPoll(generation: number) {
   if (
     generation !== pollGeneration ||
     pollInFlight ||
+    observabilityMutating.value ||
     !hasActiveRuntimeRule.value
   ) {
     return;
@@ -322,10 +543,27 @@ function syncPolling(active: boolean) {
   if (active) schedulePolling(pollGeneration);
 }
 
+watch([selectedId, draft], ([ruleId, isDraft]) => {
+  resetObservabilityState();
+  if (ruleId != null && !isDraft) {
+    void Promise.all([loadStats(ruleId), loadLogs(false, ruleId)]);
+  }
+});
+watch(logKeyword, scheduleLogReload);
+watch(logMode, () => {
+  clearLogDebounce();
+  logRequestToken += 1;
+  logItems.value = [];
+  logTotal.value = 0;
+  void loadLogs(false);
+});
 watch(hasActiveRuntimeRule, syncPolling, { immediate: true });
 onMounted(() => void refreshRules({ showLoading: true }));
 onUnmounted(() => {
   refreshRequestToken += 1;
+  statsRequestToken += 1;
+  logRequestToken += 1;
+  clearLogDebounce();
   clearPolling();
 });
 </script>
@@ -376,6 +614,111 @@ onUnmounted(() => {
             :errors="fieldErrors"
             @update:model-value="handleFormUpdate"
           />
+
+          <section v-if="!draft" class="observability" aria-labelledby="observability-title">
+            <div
+              v-if="selectedStatus?.lastObservabilityError"
+              class="observability-warning"
+              role="status"
+            >
+              <strong>观测数据暂不可用</strong>
+              <span>{{ selectedStatus.lastObservabilityError }}</span>
+            </div>
+
+            <header class="section-header">
+              <div>
+                <p class="section-header__eyebrow">OBSERVABILITY</p>
+                <h2 id="observability-title">转发统计</h2>
+              </div>
+              <el-button
+                size="small"
+                :disabled="statsLoading || observabilityMutating"
+                :loading="observabilityMutating"
+                @click="resetStats"
+              >
+                重置统计
+              </el-button>
+            </header>
+
+            <div v-if="statsError" class="stats-error" role="alert">
+              <span>{{ statsError }}</span>
+              <el-button size="small" @click="loadStats()">重新加载</el-button>
+            </div>
+            <div v-else class="stats-grid" :aria-busy="statsLoading">
+              <article class="stat-card">
+                <span>{{ eventLabel }}</span>
+                <strong>{{ stats?.eventCount ?? (statsLoading ? "…" : 0) }}</strong>
+              </article>
+              <article class="stat-card">
+                <span>上传</span>
+                <strong>{{ stats ? formatBytes(stats.uploadBytes) : statsLoading ? "…" : "0 B" }}</strong>
+              </article>
+              <article class="stat-card">
+                <span>下载</span>
+                <strong>{{ stats ? formatBytes(stats.downloadBytes) : statsLoading ? "…" : "0 B" }}</strong>
+              </article>
+              <article class="stat-card is-error">
+                <span>错误数</span>
+                <strong>{{ stats?.errorCount ?? (statsLoading ? "…" : 0) }}</strong>
+              </article>
+            </div>
+
+            <header class="section-header log-header">
+              <div>
+                <p class="section-header__eyebrow">RECENT ACTIVITY</p>
+                <h2>转发日志</h2>
+              </div>
+              <el-button
+                size="small"
+                :disabled="logsLoading || observabilityMutating || !logItems.length"
+                :loading="observabilityMutating"
+                @click="clearLogs"
+              >
+                清空日志
+              </el-button>
+            </header>
+
+            <div class="log-toolbar">
+              <label class="log-search">
+                <span>日志关键字</span>
+                <el-input
+                  v-model="logKeyword"
+                  clearable
+                  placeholder="客户端、目标、路径或错误信息"
+                />
+              </label>
+              <div class="log-mode" aria-label="日志结果筛选">
+                <button
+                  type="button"
+                  aria-label="全部"
+                  :class="{ 'is-active': logMode === 'all' }"
+                  @click="logMode = 'all'"
+                >全部</button>
+                <button
+                  type="button"
+                  aria-label="成功"
+                  :class="{ 'is-active': logMode === 'success' }"
+                  @click="logMode = 'success'"
+                >成功</button>
+                <button
+                  type="button"
+                  aria-label="失败"
+                  :class="{ 'is-active': logMode === 'error' }"
+                  @click="logMode = 'error'"
+                >失败</button>
+              </div>
+            </div>
+
+            <RequestForwardLogList
+              :items="logItems"
+              :loading="logsLoading"
+              :loading-more="loadingMore"
+              :error="logError"
+              :has-more="hasMoreLogs"
+              @retry="loadLogs(false)"
+              @load-more="loadMoreLogs"
+            />
+          </section>
         </div>
 
         <footer class="workbench-actions">
@@ -505,6 +848,37 @@ onUnmounted(() => {
   padding: 18px 26px 24px;
 }
 
+.observability { margin-top: 22px; padding-top: 20px; border-top: 1px solid #e4e7eb; }
+.observability-warning {
+  display: grid;
+  gap: 3px;
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border: 1px solid #ecd6a9;
+  border-radius: 6px;
+  background: #fffaf0;
+}
+.observability-warning strong { color: #65450d; font-size: 12px; }
+.observability-warning span { color: #85672f; font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
+.section-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 10px; }
+.section-header h2 { margin: 2px 0 0; color: var(--text-primary, #1f2937); font-size: 15px; }
+.section-header__eyebrow { margin: 0; color: #778494; font-size: 9px; font-weight: 800; letter-spacing: .12em; }
+.stats-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 9px; }
+.stat-card { display: grid; gap: 6px; min-width: 0; padding: 12px; border: 1px solid #e2e6eb; border-radius: 6px; background: #fff; }
+.stat-card span { color: #7b8795; font-size: 11px; }
+.stat-card strong { overflow: hidden; color: #26364a; font-size: 17px; text-overflow: ellipsis; white-space: nowrap; }
+.stat-card.is-error strong { color: #aa3933; }
+.stats-error { display: flex; min-height: 74px; align-items: center; justify-content: center; gap: 12px; border: 1px solid #efc8c5; border-radius: 6px; background: #fff8f7; color: #a9332d; font-size: 12px; }
+.log-header { margin-top: 22px; }
+.log-toolbar { display: flex; align-items: flex-end; gap: 12px; margin-bottom: 12px; }
+.log-search { display: grid; min-width: 220px; flex: 1; gap: 5px; }
+.log-search > span { color: #657386; font-size: 11px; font-weight: 600; }
+.log-mode { display: inline-flex; flex: none; padding: 2px; border: 1px solid #d7dce3; border-radius: 6px; background: #f4f6f8; }
+.log-mode button { min-height: 28px; border: 0; border-radius: 4px; padding: 0 11px; background: transparent; color: #637083; cursor: pointer; font: inherit; font-size: 12px; }
+.log-mode button:hover { color: #2f5f86; }
+.log-mode button.is-active { background: #fff; color: #245b83; box-shadow: 0 1px 2px rgb(31 41 55 / 12%); font-weight: 700; }
+.log-mode button:focus-visible { outline: 2px solid var(--el-color-primary, #409eff); outline-offset: 2px; }
+
 .workbench-actions {
   display: flex;
   flex: none;
@@ -552,6 +926,10 @@ onUnmounted(() => {
   .readonly-banner { margin-inline: 18px; align-items: flex-start; }
   .workbench-scroll { padding-inline: 18px; }
   .workbench-actions { padding-inline: 18px; flex-wrap: wrap; }
+  .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .log-toolbar { align-items: stretch; flex-direction: column; }
+  .log-search { min-width: 0; }
+  .log-mode { align-self: flex-start; }
 }
 
 @media (prefers-reduced-motion: reduce) {
