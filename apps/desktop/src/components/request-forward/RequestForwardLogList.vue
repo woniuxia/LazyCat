@@ -126,10 +126,10 @@ function requestTitle(log: RequestForwardLogRow): string {
 </template>
 
 <style scoped>
-.log-list { display: grid; gap: 10px; }
+.log-list { display: grid; gap: 8px; }
 .log-state {
   display: flex;
-  min-height: 96px;
+  min-height: 82px;
   align-items: center;
   justify-content: center;
   gap: 12px;
@@ -139,24 +139,24 @@ function requestTitle(log: RequestForwardLogRow): string {
   font-size: 13px;
 }
 .log-state.is-error { border-color: #efc8c5; background: #fff8f7; color: #a9332d; }
-.log-row { padding: 13px 14px; border: 1px solid #e2e6eb; border-radius: 6px; background: #fff; }
-.log-row__summary { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.log-row { padding: 10px 12px; border: 1px solid #e2e6eb; border-radius: 6px; background: #fff; }
+.log-row__summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .log-row__summary time { flex: none; color: #7a8695; font-size: 11px; }
-.log-row__main { display: flex; min-width: 0; align-items: center; gap: 8px; }
+.log-row__main { display: flex; min-width: 0; align-items: center; gap: 6px; }
 .log-row__main strong { overflow: hidden; color: #273548; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
 .protocol-badge,
 .outcome-badge { flex: none; border-radius: 3px; padding: 2px 5px; font-size: 10px; font-weight: 800; letter-spacing: .04em; }
 .protocol-badge { background: #edf3f8; color: #45627b; }
 .outcome-badge.is-success { background: #e8f6ef; color: #16724e; }
 .outcome-badge.is-error { background: #fdeceb; color: #ad3731; }
-.log-row__facts { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin: 11px 0 0; }
+.log-row__facts { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin: 8px 0 0; }
 .log-row__facts div { min-width: 0; }
 .log-row__facts dt { color: #8792a0; font-size: 10px; }
 .log-row__facts dd { overflow: hidden; margin: 2px 0 0; color: #475569; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
-.log-row__error { margin: 10px 0 0; color: #ae3b35; font-size: 12px; line-height: 1.45; }
-.detail-toggle { margin-top: 10px; border: 0; padding: 0; background: transparent; color: var(--el-color-primary, #409eff); cursor: pointer; font: inherit; font-size: 12px; }
+.log-row__error { margin: 8px 0 0; color: #ae3b35; font-size: 12px; line-height: 1.4; }
+.detail-toggle { margin-top: 8px; border: 0; padding: 0; background: transparent; color: var(--el-color-primary, #409eff); cursor: pointer; font: inherit; font-size: 12px; }
 .detail-toggle:focus-visible { outline: 2px solid var(--el-color-primary, #409eff); outline-offset: 3px; border-radius: 2px; }
-.http-details { display: grid; gap: 12px; margin-top: 10px; padding: 12px; border-radius: 5px; background: #f7f9fb; }
+.http-details { display: grid; gap: 10px; margin-top: 8px; padding: 10px; border-radius: 5px; background: #f7f9fb; }
 .http-details h4 { margin: 0 0 6px; color: #48576a; font-size: 11px; }
 .http-details h4 span { color: #a86608; font-weight: 500; }
 .header-list { display: grid; gap: 4px; margin: 0; }
@@ -167,7 +167,7 @@ function requestTitle(log: RequestForwardLogRow): string {
 .header-list dd { margin: 0; color: #344256; }
 .http-details pre { max-height: 180px; margin: 0; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; color: #344256; font: 11px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; }
 .http-details__empty { margin: 0; color: #7a8695; font-size: 12px; }
-.load-more { display: flex; justify-content: center; padding: 4px 0 2px; }
+.load-more { display: flex; justify-content: center; padding: 2px 0; }
 
 @media (max-width: 880px) {
   .log-row__facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }

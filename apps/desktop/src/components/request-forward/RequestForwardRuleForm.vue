@@ -167,10 +167,10 @@ function update<K extends keyof RequestForwardRuleForm>(
 </template>
 
 <style scoped>
-.rule-form { display: grid; gap: 14px; }
+.rule-form { display: grid; gap: 10px; }
 
 .form-section {
-  padding: 16px 18px 4px;
+  padding: 12px 14px 2px;
   border: 1px solid #e1e5ea;
   border-radius: 7px;
   background: #fff;
@@ -178,8 +178,8 @@ function update<K extends keyof RequestForwardRuleForm>(
 
 .form-section__heading {
   display: flex;
-  gap: 10px;
-  margin-bottom: 14px;
+  gap: 8px;
+  margin-bottom: 10px;
 }
 
 .form-section__heading > span {
@@ -197,16 +197,16 @@ function update<K extends keyof RequestForwardRuleForm>(
 
 .form-section__heading p,
 .field-hint {
-  margin: 3px 0 0;
+  margin: 2px 0 0;
   color: var(--text-secondary, #64748b);
   font-size: 12px;
-  line-height: 1.5;
+  line-height: 1.4;
 }
 
 .form-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 180px;
-  gap: 16px;
+  gap: 12px;
 }
 
 .form-grid--identity { grid-template-columns: minmax(0, 1fr) 220px; }
@@ -216,25 +216,25 @@ function update<K extends keyof RequestForwardRuleForm>(
 .exposure-warning {
   display: grid;
   gap: 3px;
-  margin: -2px 0 16px;
-  padding: 10px 12px;
+  margin: -1px 0 12px;
+  padding: 8px 10px;
   border-left: 3px solid #d58a16;
   background: #fff8e8;
   color: #70490b;
   font-size: 12px;
-  line-height: 1.55;
+  line-height: 1.45;
 }
 
 .capture-options {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px 24px;
-  margin-bottom: 14px;
+  gap: 10px 20px;
+  margin-bottom: 10px;
 }
 
 @media (max-width: 680px) {
   .form-grid,
   .form-grid--identity { grid-template-columns: minmax(0, 1fr); gap: 0; }
-  .form-section { padding-inline: 14px; }
+  .form-section { padding-inline: 12px; }
 }
 </style>
