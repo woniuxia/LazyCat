@@ -1,20 +1,33 @@
 use std::collections::HashSet;
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 use std::str::FromStr;
+use std::sync::mpsc;
+use std::thread;
+use std::time::Duration;
 
 use url::{Host, Url};
 
 use super::model::{ForwardProtocol, RuleWriteInput, ValidatedRuleWriteInput};
 
-pub(crate) fn validate_start_target(rule: &super::model::ForwardRule) -> Result<(), String> {
-    let bind_host = parse_bind_host(&rule.bind_host)?;
-    let (target_host, target_port) = target_endpoint(rule)?;
-    let target_addrs = resolve_target_addrs(&target_host, target_port)?;
+const TARGET_RESOLUTION_TIMEOUT: Duration = Duration::from_secs(2);
 
+pub(crate) fn validate_start_target(rule: &super::model::ForwardRule) -> Result<(), String> {
+    validate_start_target_with_resolver(rule, &|host, port| {
+        resolve_target_addrs_bounded(host.to_string(), port)
+    })
+}
+
+fn validate_start_target_with_resolver(
+    rule: &super::model::ForwardRule,
+    resolver: &impl Fn(&str, u16) -> Result<Vec<SocketAddr>, String>,
+) -> Result<(), String> {
+    let (target_host, target_port) = target_endpoint(rule)?;
     if target_port != rule.listen_port {
         return Ok(());
     }
 
+    let bind_host = parse_bind_host(&rule.bind_host)?;
+    let target_addrs = resolver(&target_host, target_port)?;
     let local_addresses = if bind_host.is_unspecified() {
         Some(local_interface_addresses()?)
     } else {
@@ -37,6 +50,46 @@ pub(crate) fn validate_start_target(rule: &super::model::ForwardRule) -> Result<
     }
 
     Ok(())
+}
+
+fn resolve_target_addrs_bounded(host: String, port: u16) -> Result<Vec<SocketAddr>, String> {
+    resolve_target_addrs_bounded_with(
+        host,
+        port,
+        TARGET_RESOLUTION_TIMEOUT,
+        |host, port| resolve_target_addrs(&host, port),
+    )
+}
+
+fn resolve_target_addrs_bounded_with(
+    host: String,
+    port: u16,
+    timeout: Duration,
+    resolver: impl FnOnce(String, u16) -> Result<Vec<SocketAddr>, String> + Send + 'static,
+) -> Result<Vec<SocketAddr>, String> {
+    let display_host = host.clone();
+    let (result_tx, result_rx) = mpsc::sync_channel(1);
+    thread::Builder::new()
+        .name("request-forward-dns".into())
+        .spawn(move || {
+            let _ = result_tx.send(resolver(host, port));
+        })
+        .map_err(|error| format!("无法启动目标地址解析线程: {error}"))?;
+
+    match result_rx.recv_timeout(timeout) {
+        Ok(result) => result,
+        Err(mpsc::RecvTimeoutError::Timeout) => {
+            // getaddrinfo cannot be cancelled portably. Dropping the JoinHandle bounds the
+            // manager/rule-lock wait; the detached resolver may remain until the OS call returns.
+            Err(format!(
+                "解析目标地址 {display_host}:{port} 超时（{} ms）",
+                timeout.as_millis()
+            ))
+        }
+        Err(mpsc::RecvTimeoutError::Disconnected) => {
+            Err(format!("解析目标地址 {display_host}:{port} 失败: 解析线程异常退出"))
+        }
+    }
 }
 
 fn target_endpoint(rule: &super::model::ForwardRule) -> Result<(String, u16), String> {
@@ -229,7 +282,15 @@ fn validate_socket_input(
 
 #[cfg(test)]
 mod tests {
-    use super::validate_start_target;
+    use std::net::SocketAddr;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::mpsc;
+    use std::time::{Duration, Instant};
+
+    use super::{
+        resolve_target_addrs_bounded_with, validate_start_target,
+        validate_start_target_with_resolver,
+    };
     use crate::tools::request_forward::model::{ForwardProtocol, ForwardRule};
 
     fn socket_rule(protocol: ForwardProtocol, bind_host: &str, target_host: &str) -> ForwardRule {
@@ -297,5 +358,53 @@ mod tests {
         let rule = socket_rule(ForwardProtocol::Tcp, "0.0.0.0", "192.0.2.1");
 
         validate_start_target(&rule).expect("wildcard must not reject every remote address");
+    }
+
+    #[test]
+    fn different_ports_skip_resolution_for_http_tcp_and_udp() {
+        let calls = AtomicUsize::new(0);
+        let resolver = |_: &str, _: u16| -> Result<Vec<SocketAddr>, String> {
+            calls.fetch_add(1, Ordering::SeqCst);
+            Err("resolver must not be called".into())
+        };
+        let http_rule = ForwardRule {
+            protocol: ForwardProtocol::Http,
+            target_url: Some("http://different-port.invalid:18081/api".into()),
+            target_host: None,
+            target_port: None,
+            ..socket_rule(ForwardProtocol::Http, "127.0.0.1", "unused")
+        };
+        let mut tcp_rule = socket_rule(ForwardProtocol::Tcp, "127.0.0.1", "different-port.invalid");
+        tcp_rule.target_port = Some(18_081);
+        let mut udp_rule = socket_rule(ForwardProtocol::Udp, "127.0.0.1", "different-port.invalid");
+        udp_rule.target_port = Some(18_081);
+
+        for rule in [&http_rule, &tcp_rule, &udp_rule] {
+            validate_start_target_with_resolver(rule, &resolver)
+                .expect("different port does not require DNS self-forward checking");
+        }
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn same_port_resolution_times_out_within_the_bound() {
+        let (release_tx, release_rx) = mpsc::channel();
+        let started = Instant::now();
+
+        let error = resolve_target_addrs_bounded_with(
+            "slow.invalid".into(),
+            18_080,
+            Duration::from_millis(30),
+            move |_, _| {
+                let _ = release_rx.recv();
+                Ok(vec!["127.0.0.1:18080".parse().expect("test address")])
+            },
+        )
+        .expect_err("same-port resolution must time out");
+        let elapsed = started.elapsed();
+        release_tx.send(()).expect("release detached resolver");
+
+        assert!(error.contains("解析目标地址 slow.invalid:18080 超时"));
+        assert!(elapsed < Duration::from_millis(500), "elapsed: {elapsed:?}");
     }
 }
