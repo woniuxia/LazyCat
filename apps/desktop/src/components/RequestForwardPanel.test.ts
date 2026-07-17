@@ -287,6 +287,26 @@ describe("RequestForwardPanel source structure", () => {
     expect(inspectorSource).toContain("响应体预览");
   });
 
+  it("uses a three-pane workspace with a persistent resizer", () => {
+    expect(source).toContain('class="request-forward-panel request-forward-workspace"');
+    expect(source).toContain('class="inspector-resizer"');
+    expect(source).toContain('role="separator"');
+    expect(source).toContain('aria-orientation="vertical"');
+    expect(source).toContain('request-forward:inspector-width');
+    expect(source).toContain("getSetting");
+    expect(source).toContain("setSetting");
+    expect(source).toContain("@pointerdown");
+    expect(source).toContain("@keydown.left");
+    expect(source).toContain("@keydown.right");
+    expect(source).toContain("ResizeObserver");
+  });
+
+  it("keeps the inspector as an overlay on narrow layouts", () => {
+    expect(source).toContain("is-inspector-open");
+    expect(source).toMatch(/@media \(max-width: 1100px\)/);
+    expect(source).toContain("position: absolute");
+  });
+
   it("never renders TCP or UDP payload details", () => {
     expect(inspectorSource).not.toMatch(/payload/i);
     expect(inspectorSource).toContain('v-if="log.protocol === \'http\'"');

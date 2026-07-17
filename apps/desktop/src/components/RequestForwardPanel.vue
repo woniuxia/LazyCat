@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
+import { getSetting, setSetting } from "../composables/useSettings";
 import { useToolInvoke } from "../composables/useToolInvoke";
 import type {
   RequestForwardBatchOperationResult,
@@ -15,12 +16,15 @@ import type {
 } from "../types/request-forward";
 import {
   applyRequestForwardMutationResult,
+  clampRequestForwardInspectorWidth,
   captureRequestForwardMutationIntent,
+  DEFAULT_REQUEST_FORWARD_INSPECTOR_WIDTH,
   getDefaultRequestForwardForm,
   getRequestForwardBatchMessage,
   getRequestForwardLogProbeLimit,
   getRequestForwardLogTargetCount,
   isRequestForwardRuleReadonly,
+  MIN_REQUEST_FORWARD_INSPECTOR_WIDTH,
   retainRequestForwardSelectedLogId,
   toRequestForwardRuleWriteInput,
   validateRequestForwardRuleForm,
@@ -44,9 +48,15 @@ type LogQueryContext = {
 };
 
 const LOG_PAGE_SIZE = 30;
+const INSPECTOR_WIDTH_SETTING = "request-forward:inspector-width";
 
 const { loading, invoke } = useToolInvoke();
 const rules = ref<RequestForwardRule[]>([]);
+const workspaceRef = ref<HTMLElement | null>(null);
+const workspaceWidth = ref(DEFAULT_REQUEST_FORWARD_INSPECTOR_WIDTH * 2);
+const preferredInspectorWidth = ref(
+  Number(getSetting(INSPECTOR_WIDTH_SETTING)) || DEFAULT_REQUEST_FORWARD_INSPECTOR_WIDTH,
+);
 const statuses = ref<RequestForwardRuntimeStatus[]>([]);
 const selectedId = ref<number | null>(null);
 const editorMode = ref<"create" | "edit" | null>(null);
@@ -81,6 +91,10 @@ let logRequestToken = 0;
 let logInFlight = false;
 let logDebounceTimer: ReturnType<typeof setTimeout> | undefined;
 let pendingLogRefresh: LogQueryContext | null = null;
+let workspaceResizeObserver: ResizeObserver | null = null;
+let resizeStartX = 0;
+let resizeStartWidth = 0;
+let inspectorResizeActive = false;
 
 const selectedRule = computed(
   () => rules.value.find((rule) => rule.id === selectedId.value) ?? null,
@@ -111,6 +125,21 @@ const hasMoreLogs = computed(() => logItems.value.length < logTotal.value);
 const selectedLog = computed(
   () => logItems.value.find((item) => item.id === selectedLogId.value) ?? null,
 );
+const inspectorWidth = computed(() =>
+  clampRequestForwardInspectorWidth(
+    preferredInspectorWidth.value,
+    workspaceWidth.value,
+  ),
+);
+const inspectorMaximum = computed(() =>
+  Math.max(
+    MIN_REQUEST_FORWARD_INSPECTOR_WIDTH,
+    Math.floor(workspaceWidth.value * 0.5),
+  ),
+);
+const workspaceStyle = computed(() => ({
+  "--request-forward-inspector-width": `${inspectorWidth.value}px`,
+}));
 const eventLabel = computed(() => {
   if (selectedRule.value?.protocol === "tcp") return "连接数";
   if (selectedRule.value?.protocol === "udp") return "数据报数";
@@ -368,6 +397,53 @@ function loadMoreLogs() {
 
 function selectLog(id: number) {
   selectedLogId.value = id;
+}
+
+function persistInspectorWidth() {
+  setSetting(
+    INSPECTOR_WIDTH_SETTING,
+    String(Math.round(preferredInspectorWidth.value)),
+  );
+}
+
+function handleInspectorPointerMove(event: PointerEvent) {
+  if (!inspectorResizeActive) return;
+  preferredInspectorWidth.value = clampRequestForwardInspectorWidth(
+    resizeStartWidth + resizeStartX - event.clientX,
+    workspaceWidth.value,
+  );
+}
+
+function stopInspectorResize(persist = true) {
+  if (!inspectorResizeActive) return;
+  inspectorResizeActive = false;
+  window.removeEventListener("pointermove", handleInspectorPointerMove);
+  window.removeEventListener("pointerup", handleInspectorPointerUp);
+  document.body.classList.remove("request-forward-is-resizing");
+  if (persist) persistInspectorWidth();
+}
+
+function handleInspectorPointerUp() {
+  stopInspectorResize();
+}
+
+function startInspectorResize(event: PointerEvent) {
+  if (event.button !== 0) return;
+  event.preventDefault();
+  resizeStartX = event.clientX;
+  resizeStartWidth = inspectorWidth.value;
+  inspectorResizeActive = true;
+  document.body.classList.add("request-forward-is-resizing");
+  window.addEventListener("pointermove", handleInspectorPointerMove);
+  window.addEventListener("pointerup", handleInspectorPointerUp);
+}
+
+function adjustInspectorWidth(delta: number) {
+  preferredInspectorWidth.value = clampRequestForwardInspectorWidth(
+    inspectorWidth.value + delta,
+    workspaceWidth.value,
+  );
+  persistInspectorWidth();
 }
 
 function reloadCurrentObservability() {
@@ -814,7 +890,19 @@ watch(logMode, () => {
   void loadLogs(false);
 });
 watch(hasActiveRuntimeRule, syncPolling, { immediate: true });
-onMounted(() => void refreshRules({ showLoading: true }));
+onMounted(() => {
+  const savedWidth = Number(getSetting(INSPECTOR_WIDTH_SETTING));
+  if (Number.isFinite(savedWidth) && savedWidth > 0) {
+    preferredInspectorWidth.value = savedWidth;
+  }
+  if (workspaceRef.value) {
+    workspaceResizeObserver = new ResizeObserver(([entry]) => {
+      workspaceWidth.value = Math.max(0, entry.contentRect.width - 220);
+    });
+    workspaceResizeObserver.observe(workspaceRef.value);
+  }
+  void refreshRules({ showLoading: true });
+});
 onUnmounted(() => {
   refreshRequestToken += 1;
   statsRequestToken += 1;
@@ -822,11 +910,18 @@ onUnmounted(() => {
   pendingLogRefresh = null;
   clearLogDebounce();
   clearPolling();
+  workspaceResizeObserver?.disconnect();
+  workspaceResizeObserver = null;
+  stopInspectorResize(false);
 });
 </script>
 
 <template>
-  <div class="request-forward-panel">
+  <div
+    ref="workspaceRef"
+    class="request-forward-panel request-forward-workspace"
+    :style="workspaceStyle"
+  >
     <RequestForwardRuleList
       :rules="rules"
       :statuses="statuses"
@@ -984,7 +1079,24 @@ onUnmounted(() => {
       </div>
     </main>
 
-    <aside class="log-inspector-shell">
+    <div
+      class="inspector-resizer"
+      role="separator"
+      aria-label="调整日志详情宽度"
+      aria-orientation="vertical"
+      :aria-valuemin="MIN_REQUEST_FORWARD_INSPECTOR_WIDTH"
+      :aria-valuemax="inspectorMaximum"
+      :aria-valuenow="inspectorWidth"
+      tabindex="0"
+      @pointerdown="startInspectorResize"
+      @keydown.left.prevent="adjustInspectorWidth(16)"
+      @keydown.right.prevent="adjustInspectorWidth(-16)"
+    />
+
+    <aside
+      class="log-inspector-shell"
+      :class="{ 'is-inspector-open': selectedLog }"
+    >
       <RequestForwardLogInspector
         :log="selectedLog"
         @close="selectedLogId = null"
@@ -1014,7 +1126,8 @@ onUnmounted(() => {
 <style scoped>
 .request-forward-panel {
   display: grid;
-  grid-template-columns: 220px minmax(0, 1fr) 380px;
+  position: relative;
+  grid-template-columns: 220px minmax(0, 1fr) 6px var(--request-forward-inspector-width);
   width: 100%;
   height: 100%;
   min-height: 0;
@@ -1022,7 +1135,21 @@ onUnmounted(() => {
   background: #fff;
 }
 
-.log-inspector-shell { display: flex; min-width: 0; min-height: 0; border-left: 1px solid #dfe4e9; }
+.inspector-resizer {
+  position: relative;
+  z-index: 2;
+  width: 6px;
+  min-width: 6px;
+  border: 0;
+  padding: 0;
+  background: #eef1f4;
+  cursor: col-resize;
+  transition: background-color 150ms ease;
+}
+.inspector-resizer::after { position: absolute; top: 50%; left: 2px; width: 2px; height: 34px; border-radius: 2px; background: #b8c2cd; content: ""; transform: translateY(-50%); }
+.inspector-resizer:hover { background: #dfe8ee; }
+.inspector-resizer:focus-visible { outline: 2px solid var(--el-color-primary, #409eff); outline-offset: -2px; }
+.log-inspector-shell { display: flex; min-width: 0; min-height: 0; border-left: 1px solid #dfe4e9; background: #fbfcfd; }
 
 .rule-workbench {
   display: flex;
@@ -1179,6 +1306,26 @@ onUnmounted(() => {
   .log-toolbar { align-items: stretch; flex-direction: column; }
   .log-search { min-width: 0; }
   .log-mode { align-self: flex-start; }
+}
+
+@media (max-width: 1100px) {
+  .request-forward-panel {
+    grid-template-columns: 220px minmax(0, 1fr);
+  }
+  .inspector-resizer { display: none; }
+  .log-inspector-shell {
+    position: absolute;
+    z-index: 20;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(92%, 520px);
+    border-left: 1px solid #cfd8e1;
+    box-shadow: -12px 0 28px rgb(31 41 55 / 16%);
+    transform: translateX(102%);
+    transition: transform 180ms ease;
+  }
+  .log-inspector-shell.is-inspector-open { transform: translateX(0); }
 }
 
 @media (prefers-reduced-motion: reduce) {
