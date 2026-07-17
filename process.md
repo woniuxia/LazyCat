@@ -3091,3 +3091,37 @@ Cron 工具原先仅提供基础 6 字段输入与简单预览，缺少规范化
 - `pnpm --filter @lazycat/desktop build:web`
 
 **使用次数**: 0
+
+## 2026-07-17: 请求转发三栏日志工作台改造
+
+**场景**: 用户希望提高请求转发页面的数据密度，把规则维护收口到弹窗，并将日志浏览改造成左侧规则、中间日志、右侧详情的三栏工作台。
+**问题**:
+1. 规则编辑目标、当前观测规则和异步刷新共享选中状态时，右键编辑或删除容易误切日志上下文，较慢响应也可能覆盖用户的新操作。
+2. 日志详情与列表行混排会显著降低单位屏幕信息量，后台刷新整批替换日志时还可能丢失当前详情选择。
+3. 详情栏宽度既要适应当前窗口，又要记住用户偏好；如果把窗口钳制后的宽度直接持久化，窗口临时收窄会永久覆盖用户原有设置。
+4. Element Plus 右键菜单组件 ref 若在模板渲染期间写入响应式集合，可能触发递归更新。
+**解决**:
+1. 新建与编辑共用规则弹窗，用独立 `editorRuleId` 和意图 token 绑定编辑目标；当前日志观测继续只由 `selectedId` 驱动。
+2. 日志改为高密度表格行，HTTP 头与正文迁入独立详情检查器；后台刷新后只按稳定日志 id 保持选中，目标不存在时显式关闭详情。
+3. splitter 分开维护“首选宽度”和“当前渲染宽度”：只在拖拽结束或键盘调整后保存首选宽度，窗口变化只通过纯函数临时钳制显示值。
+4. 右键菜单 ref 使用普通 `Map` 缓存，左键选择、右键菜单和行内启动/停止保持独立事件路径。
+**关键点**:
+1. 配置弹窗的编辑目标不能复用观测选中项；异步保存还要携带意图快照，避免旧响应改变新选择。
+2. 可拖拽面板持久化的是用户偏好，不是受当前视口约束后的派生值。
+3. 后台列表替换只能用稳定 id 延续详情上下文，不能依赖对象引用或行号。
+4. 模板函数 ref 只写非响应式缓存，避免在渲染期制造新的响应式更新。
+**涉及文件**:
+- `apps/desktop/src/components/RequestForwardPanel.vue`
+- `apps/desktop/src/components/request-forward/RequestForwardRuleList.vue`
+- `apps/desktop/src/components/request-forward/RequestForwardRuleDialog.vue`
+- `apps/desktop/src/components/request-forward/RequestForwardLogList.vue`
+- `apps/desktop/src/components/request-forward/RequestForwardLogInspector.vue`
+- `apps/desktop/src/utils/requestForward.ts`
+
+**验证**:
+- `pnpm test src/utils/requestForward.test.ts src/components/RequestForwardPanel.test.ts`
+- `pnpm test`
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+
+**使用次数**: 0
