@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
+import { Delete, Edit, MoreFilled, Plus, Search, VideoPause, VideoPlay } from "@element-plus/icons-vue";
 import type {
   RequestForwardRule,
   RequestForwardRuntimeState,
@@ -20,11 +21,16 @@ const emit = defineEmits<{
   select: [id: number];
   start: [id: number];
   stop: [id: number];
+  edit: [id: number];
+  delete: [id: number];
   "start-all": [];
   "stop-all": [];
 }>();
 
+type RuleMenuHandle = { handleOpen: () => void };
+
 const keyword = ref("");
+const menuRefs = new Map<number, RuleMenuHandle>();
 
 const statusById = computed(
   () => new Map(props.statuses.map((status) => [status.ruleId, status])),
@@ -38,6 +44,22 @@ const filteredRules = computed(() => {
       .includes(query),
   );
 });
+const runningCount = computed(
+  () => props.statuses.filter((status) => status.state === "running").length,
+);
+
+function setMenuRef(ruleId: number, value: unknown) {
+  if (value) menuRefs.set(ruleId, value as RuleMenuHandle);
+  else menuRefs.delete(ruleId);
+}
+
+function openMenu(ruleId: number) {
+  menuRefs.get(ruleId)?.handleOpen();
+}
+
+function handleCommand(command: "edit" | "delete", ruleId: number) {
+  emit(command, ruleId);
+}
 
 function stateOf(ruleId: number): RequestForwardRuntimeState {
   return statusById.value.get(ruleId)?.state ?? "stopped";
@@ -66,13 +88,28 @@ function canStop(state: RequestForwardRuntimeState): boolean {
   <aside class="rule-list" aria-label="转发规则列表">
     <div class="rule-list__header">
       <div>
-        <p class="rule-list__eyebrow">FORWARD RULES</p>
         <h2>转发规则</h2>
+        <span>{{ rules.length }} 条 · {{ runningCount }} 条运行中</span>
       </div>
-      <el-button type="primary" :disabled="busy" @click="emit('add')">新建规则</el-button>
+      <el-tooltip content="新建规则" placement="bottom">
+        <el-button
+          type="primary"
+          circle
+          :icon="Plus"
+          :disabled="busy"
+          aria-label="新建规则"
+          @click="emit('add')"
+        />
+      </el-tooltip>
     </div>
 
-    <el-input v-model="keyword" clearable placeholder="搜索名称、协议或端点" aria-label="搜索规则" />
+    <el-input
+      v-model="keyword"
+      clearable
+      :prefix-icon="Search"
+      placeholder="搜索名称、协议或端点"
+      aria-label="搜索规则"
+    />
 
     <div class="rule-list__batch" aria-label="批量操作">
       <el-button size="small" :disabled="busy || !rules.length" @click="emit('start-all')">
@@ -85,53 +122,86 @@ function canStop(state: RequestForwardRuntimeState): boolean {
     </div>
 
     <div v-loading="loading" class="rule-list__scroll">
-      <article
+      <el-dropdown
         v-for="rule in filteredRules"
         :key="rule.id"
-        class="rule-card"
-        :class="{ 'is-selected': rule.id === selectedId }"
-        :aria-current="rule.id === selectedId ? 'true' : undefined"
+        :ref="(value: unknown) => setMenuRef(rule.id, value)"
+        class="rule-menu"
+        trigger="contextmenu"
+        @command="(command: 'edit' | 'delete') => handleCommand(command, rule.id)"
       >
-        <button
-          type="button"
-          class="rule-card__select"
-          :disabled="busy"
-          @click="emit('select', rule.id)"
+        <div
+          class="rule-row"
+          :class="{ 'is-selected': rule.id === selectedId }"
+          :aria-current="rule.id === selectedId ? 'true' : undefined"
         >
-          <span class="rule-card__topline">
-            <strong>{{ rule.name }}</strong>
-            <span class="state-label" :class="`is-${stateOf(rule.id)}`">
-              {{ stateLabel(stateOf(rule.id)) }}
-            </span>
-          </span>
-          <span class="rule-card__protocol">{{ rule.protocol.toUpperCase() }}</span>
-          <span class="rule-card__summary">{{ formatRequestForwardRuleSummary(rule) }}</span>
-        </button>
-        <span class="rule-card__actions">
-          <el-button
-            v-if="canStart(stateOf(rule.id))"
-            text
-            size="small"
+          <button
+            type="button"
+            class="rule-row__select"
             :disabled="busy"
-            @click="emit('start', rule.id)"
+            :title="`${rule.name}，左键查看日志，右键编辑规则`"
+            @click="emit('select', rule.id)"
           >
-            启动
-          </el-button>
-          <el-button
-            v-else
-            text
-            size="small"
-            :disabled="busy || !canStop(stateOf(rule.id))"
-            @click="emit('stop', rule.id)"
-          >
-            停止
-          </el-button>
-        </span>
-      </article>
+            <span class="rule-row__topline">
+              <strong>{{ rule.name }}</strong>
+              <span class="state-label" :class="`is-${stateOf(rule.id)}`">
+                {{ stateLabel(stateOf(rule.id)) }}
+              </span>
+            </span>
+            <span class="rule-row__summary">
+              <b>{{ rule.protocol.toUpperCase() }}</b>
+              <span>{{ formatRequestForwardRuleSummary(rule) }}</span>
+            </span>
+          </button>
+
+          <div class="rule-row__actions">
+            <el-tooltip :content="canStart(stateOf(rule.id)) ? '启动规则' : '停止规则'" placement="bottom">
+              <el-button
+                v-if="canStart(stateOf(rule.id))"
+                text
+                circle
+                size="small"
+                :icon="VideoPlay"
+                :disabled="busy"
+                aria-label="启动规则"
+                @click="emit('start', rule.id)"
+              />
+              <el-button
+                v-else
+                text
+                circle
+                size="small"
+                :icon="VideoPause"
+                :disabled="busy || !canStop(stateOf(rule.id))"
+                aria-label="停止规则"
+                @click="emit('stop', rule.id)"
+              />
+            </el-tooltip>
+            <el-tooltip content="规则菜单" placement="bottom">
+              <el-button
+                text
+                circle
+                size="small"
+                :icon="MoreFilled"
+                :disabled="busy"
+                aria-label="打开规则菜单"
+                @click="openMenu(rule.id)"
+              />
+            </el-tooltip>
+          </div>
+        </div>
+
+        <template #dropdown>
+          <el-dropdown-menu>
+            <el-dropdown-item command="edit" :icon="Edit">编辑规则</el-dropdown-item>
+            <el-dropdown-item command="delete" :icon="Delete" divided>删除规则</el-dropdown-item>
+          </el-dropdown-menu>
+        </template>
+      </el-dropdown>
 
       <div v-if="!loading && rules.length === 0" class="rule-list__empty">
         <strong>还没有转发规则</strong>
-        <span>新建一条规则，配置本地监听端口与目标服务。</span>
+        <span>新建一条规则，配置本地监听端点与目标服务。</span>
         <el-button type="primary" plain :disabled="busy" @click="emit('add')">
           新建第一条规则
         </el-button>
@@ -147,160 +217,96 @@ function canStop(state: RequestForwardRuntimeState): boolean {
 <style scoped>
 .rule-list {
   display: flex;
-  min-width: 0;
+  width: 220px;
+  min-width: 220px;
   min-height: 0;
   flex-direction: column;
-  gap: 12px;
-  padding: 18px;
+  gap: 8px;
+  padding: 12px 10px;
   border-right: 1px solid var(--border-color, #dfe3e8);
   background: #f7f8fa;
 }
 
 .rule-list__header,
 .rule-list__batch,
-.rule-card__topline,
-.rule-card__actions {
+.rule-row__topline,
+.rule-row__summary,
+.rule-row__actions {
   display: flex;
   align-items: center;
 }
 
 .rule-list__header {
+  min-height: 34px;
   justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
 }
 
 .rule-list__header h2 {
-  margin: 2px 0 0;
+  margin: 0;
   color: var(--text-primary, #1f2937);
-  font-size: 18px;
+  font-size: 15px;
 }
 
-.rule-list__eyebrow {
-  margin: 0;
+.rule-list__header span {
+  display: block;
+  margin-top: 3px;
   color: var(--text-secondary, #64748b);
   font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
 }
 
-.rule-list__batch {
-  gap: 8px;
-}
-
-.rule-list__batch span {
-  margin-left: auto;
-  color: var(--text-secondary, #64748b);
-  font-size: 12px;
-}
+.rule-list__batch { gap: 5px; }
+.rule-list__batch span { margin-left: auto; color: #718095; font-size: 10px; }
 
 .rule-list__scroll {
   display: flex;
-  min-height: 160px;
+  min-height: 140px;
   flex: 1;
   flex-direction: column;
-  gap: 8px;
   overflow-y: auto;
+  border-top: 1px solid #e2e7ec;
 }
 
-.rule-card {
+.rule-menu { display: block; width: 100%; }
+
+.rule-row {
   display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   width: 100%;
-  min-width: 0;
-  border: 1px solid #dfe3e8;
-  border-radius: 7px;
-  background: #fff;
-  overflow: hidden;
-  transition: border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease;
+  min-height: 50px;
+  border-bottom: 1px solid #e2e7ec;
+  background: transparent;
+  transition: background-color 160ms ease, box-shadow 160ms ease;
 }
 
-.rule-card:hover {
-  border-color: #aeb8c5;
-  background: #fbfcfd;
-}
+.rule-row:hover { background: #f0f3f6; }
+.rule-row.is-selected { background: #eaf2f7; box-shadow: inset 3px 0 0 var(--el-color-primary, #409eff); }
 
-.rule-card__select:focus-visible {
-  outline: 2px solid var(--el-color-primary, #409eff);
-  outline-offset: -2px;
-}
-
-.rule-card.is-selected {
-  border-color: var(--el-color-primary, #409eff);
-  box-shadow: inset 3px 0 0 var(--el-color-primary, #409eff);
-}
-
-.rule-card__topline {
-  min-width: 0;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.rule-card__select {
+.rule-row__select {
   display: grid;
   min-width: 0;
-  gap: 7px;
-  padding: 12px 12px 4px;
+  gap: 5px;
   border: 0;
+  padding: 7px 5px 7px 9px;
   background: transparent;
   color: inherit;
-  text-align: left;
   cursor: pointer;
+  text-align: left;
 }
 
-.rule-card__select:disabled {
-  cursor: not-allowed;
-  opacity: 0.72;
-}
+.rule-row__select:disabled { cursor: not-allowed; opacity: .68; }
+.rule-row__select:focus-visible { outline: 2px solid var(--el-color-primary, #409eff); outline-offset: -2px; }
+.rule-row__topline { min-width: 0; justify-content: space-between; gap: 7px; }
+.rule-row__topline strong { overflow: hidden; color: #273548; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.rule-row__summary { min-width: 0; gap: 6px; color: #6d7a8d; font-size: 10px; }
+.rule-row__summary b { flex: none; color: #45627b; font-size: 9px; }
+.rule-row__summary span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.rule-card__topline strong {
-  overflow: hidden;
-  color: var(--text-primary, #1f2937);
-  font-size: 14px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+.rule-row__actions { align-self: center; gap: 0; padding-right: 3px; }
+.rule-row__actions :deep(.el-button) { width: 26px; height: 26px; margin: 0; }
 
-.rule-card__protocol {
-  width: fit-content;
-  padding: 2px 5px;
-  border: 1px solid #d7dde5;
-  border-radius: 3px;
-  color: #455468;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-}
-
-.rule-card__summary {
-  overflow: hidden;
-  color: var(--text-secondary, #64748b);
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.rule-card__actions {
-  min-height: 24px;
-  justify-content: flex-end;
-  padding: 0 8px 6px;
-}
-
-.state-label {
-  flex: none;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.state-label::before {
-  display: inline-block;
-  width: 6px;
-  height: 6px;
-  margin-right: 5px;
-  border-radius: 50%;
-  background: currentColor;
-  content: "";
-  vertical-align: 1px;
-}
-
+.state-label { flex: none; font-size: 10px; font-weight: 600; }
+.state-label::before { display: inline-block; width: 5px; height: 5px; margin-right: 4px; border-radius: 50%; background: currentColor; content: ""; vertical-align: 1px; }
 .state-label.is-running { color: #168357; }
 .state-label.is-starting,
 .state-label.is-stopping { color: #a86608; }
@@ -309,23 +315,23 @@ function canStop(state: RequestForwardRuntimeState): boolean {
 
 .rule-list__empty {
   display: grid;
+  min-height: 180px;
   place-items: center;
-  gap: 8px;
-  min-height: 220px;
-  padding: 24px;
-  border: 1px dashed #cbd3dd;
-  border-radius: 7px;
+  align-content: center;
+  gap: 7px;
+  padding: 18px 10px;
   color: var(--text-secondary, #64748b);
   text-align: center;
 }
-
-.rule-list__empty strong { color: var(--text-primary, #1f2937); }
-.rule-list__empty span { max-width: 260px; font-size: 13px; line-height: 1.55; }
-.rule-list__empty.compact { min-height: 140px; }
+.rule-list__empty strong { color: var(--text-primary, #1f2937); font-size: 13px; }
+.rule-list__empty span { font-size: 11px; line-height: 1.5; }
+.rule-list__empty.compact { min-height: 120px; }
 
 @media (max-width: 780px) {
   .rule-list {
-    max-height: 42vh;
+    width: 100%;
+    min-width: 0;
+    max-height: 38vh;
     border-right: 0;
     border-bottom: 1px solid var(--border-color, #dfe3e8);
   }

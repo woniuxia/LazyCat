@@ -101,11 +101,27 @@ describe("RequestForwardPanel source structure", () => {
     expect(source).toMatch(/logRefreshError[\s\S]*?RequestForwardLogList/);
   });
 
-  it("keeps the card selection button separate from action buttons", () => {
-    expect(listSource).not.toMatch(/<button[^>]*class="rule-card"/);
-    expect(listSource).toContain('class="rule-card__select"');
-    expect(listSource).toContain('class="rule-card__actions"');
-    expect(listSource).toMatch(/<\/button>\s*<span class="rule-card__actions">/);
+  it("keeps rule selection separate from row actions", () => {
+    expect(listSource).not.toMatch(/<button[^>]*class="rule-row"/);
+    expect(listSource).toContain('class="rule-row__select"');
+    expect(listSource).toContain('class="rule-row__actions"');
+    expect(listSource).toMatch(/<\/button>\s*<div class="rule-row__actions">/);
+  });
+
+  it("uses a compact rule navigation with context editing", () => {
+    expect(listSource).toContain('trigger="contextmenu"');
+    expect(listSource).toMatch(/edit: \[id: number\]/);
+    expect(listSource).toMatch(/delete: \[id: number\]/);
+    expect(listSource).toContain('command="edit"');
+    expect(listSource).toContain('command="delete"');
+    expect(listSource).toContain("MoreFilled");
+    expect(listSource).toContain('class="rule-row"');
+    expect(listSource).not.toContain('class="rule-card"');
+  });
+
+  it("keeps inline start and stop controls in the rule navigation", () => {
+    expect(listSource).toMatch(/emit\(["']start["'], rule\.id\)/);
+    expect(listSource).toMatch(/emit\(["']stop["'], rule\.id\)/);
   });
 
   it("does not overwrite dirty forms during background refresh", () => {
@@ -126,7 +142,7 @@ describe("RequestForwardPanel source structure", () => {
     expect(source).toContain("const interactionBusy = computed");
     expect(source).toContain(':busy="interactionBusy"');
     expect(source).toContain(':disabled="interactionBusy"');
-    expect(listSource).toMatch(/class="rule-card__select"[\s\S]*?:disabled="busy"/);
+    expect(listSource).toMatch(/class="rule-row__select"[\s\S]*?:disabled="busy"/);
     expect(formSource).toContain("disabled: boolean");
     expect(formSource.match(/readonly \|\| disabled/g)?.length ?? 0).toBeGreaterThanOrEqual(8);
   });
