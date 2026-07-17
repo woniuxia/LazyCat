@@ -2,6 +2,7 @@ param(
   [Parameter(Mandatory = $true)]
   [string]$Tag,
   [string]$Repo = "",
+  [switch]$AllPackages,
   [switch]$SkipBuild,
   [switch]$SkipUpload
 )
@@ -417,9 +418,14 @@ try {
   $setupFullExe = Join-Path $outDir "${baseName}_setup-full.exe"
   $shaFile = Join-Path $outDir "SHA256SUMS.txt"
 
-  $runtimeDir = Get-ChildItem -Path (Join-Path $tauriRoot "WebView2") -Directory -Filter "Microsoft.WebView2.FixedVersionRuntime.*" | Select-Object -First 1
-  if (-not $runtimeDir) {
-    throw "WebView2 Fixed Runtime not found under $tauriRoot\WebView2. Required for integrated package."
+  $artifacts = @($portableLiteZip)
+  $runtimeDir = $null
+  if ($AllPackages) {
+    $artifacts = @($setupLiteExe, $setupFullExe, $portableLiteZip, $portableFullZip)
+    $runtimeDir = Get-ChildItem -Path (Join-Path $tauriRoot "WebView2") -Directory -Filter "Microsoft.WebView2.FixedVersionRuntime.*" | Select-Object -First 1
+    if (-not $runtimeDir) {
+      throw "WebView2 Fixed Runtime not found under $tauriRoot\WebView2. Required for integrated package."
+    }
   }
 
   if (!(Test-Path $outDir)) {
@@ -427,62 +433,70 @@ try {
   }
 
   if (-not $SkipBuild) {
-    Write-Host "[1/6] Build web renderer..."
+    Write-Host "[build] Build web renderer..."
     pnpm --filter @lazycat/desktop build:web
     if ($LASTEXITCODE -ne 0) {
       throw "build:web failed with exit code $LASTEXITCODE"
     }
 
-    Write-Host "[2/6] Build integrated NSIS installer (fixedRuntime)..."
-    $offlineCfg = Get-Content $tauriConfigPath -Raw | ConvertFrom-Json
-    Ensure-ObjectProperty -Target $offlineCfg -Name "bundle" -Value ([pscustomobject]@{})
-    Ensure-ObjectProperty -Target $offlineCfg.bundle -Name "windows" -Value ([pscustomobject]@{})
-    Ensure-ObjectProperty -Target $offlineCfg.bundle.windows -Name "webviewInstallMode" -Value ([pscustomobject]@{})
-    $offlineCfg.bundle.windows.webviewInstallMode = [pscustomobject]@{
-      type = "fixedRuntime"
-      path = "WebView2/$($runtimeDir.Name)"
-    }
-    Write-JsonFile -Object $offlineCfg -Path $offlineConfigPath
+    if ($AllPackages) {
+      Write-Host "[build] Build integrated NSIS installer (fixedRuntime)..."
+      $offlineCfg = Get-Content $tauriConfigPath -Raw | ConvertFrom-Json
+      Ensure-ObjectProperty -Target $offlineCfg -Name "bundle" -Value ([pscustomobject]@{})
+      Ensure-ObjectProperty -Target $offlineCfg.bundle -Name "windows" -Value ([pscustomobject]@{})
+      Ensure-ObjectProperty -Target $offlineCfg.bundle.windows -Name "webviewInstallMode" -Value ([pscustomobject]@{})
+      $offlineCfg.bundle.windows.webviewInstallMode = [pscustomobject]@{
+        type = "fixedRuntime"
+        path = "WebView2/$($runtimeDir.Name)"
+      }
+      Write-JsonFile -Object $offlineCfg -Path $offlineConfigPath
 
-    try {
-      Invoke-InVsDevEnv -Command "pnpm --filter @lazycat/desktop exec tauri build --bundles nsis --config src-tauri/tauri.conf.release-offline.tmp.json"
-    }
-    finally {
-      if (Test-Path $offlineConfigPath) {
-        Remove-Item -Force $offlineConfigPath
+      try {
+        Invoke-InVsDevEnv -Command "pnpm --filter @lazycat/desktop exec tauri build --bundles nsis --config src-tauri/tauri.conf.release-offline.tmp.json"
+      }
+      finally {
+        if (Test-Path $offlineConfigPath) {
+          Remove-Item -Force $offlineConfigPath
+        }
+      }
+      $latestFullSetup = Get-LatestSetupExe -NsisBundleDir $nsisBundleDir
+      Copy-Item -Path $latestFullSetup -Destination $setupFullExe -Force
+
+      Write-Host "[build] Build slim NSIS installer (makensis only)..."
+      $nsisDir = Join-Path $releaseDir "nsis/x64"
+      New-LiteNsisFromFull -NsisDir $nsisDir -OutputPath $setupLiteExe
+
+      Write-Host "[package] Build lite and full portable zip packages..."
+      foreach ($dir in @($stageLiteDir, $stageFullDir)) {
+        Remove-PathIfExists -Path $dir
+        New-Item -ItemType Directory -Path $dir | Out-Null
+      }
+
+      Copy-PortableFiles -ReleaseDir $releaseDir -StageDir $stageLiteDir
+      Copy-PortableFiles -ReleaseDir $releaseDir -StageDir $stageFullDir
+      Copy-Item -Path $runtimeDir.FullName -Destination (Join-Path $stageFullDir $runtimeDir.Name) -Recurse -Force
+
+      New-Zip -ZipPath $portableLiteZip -SourceDir $stageLiteDir
+      New-Zip -ZipPath $portableFullZip -SourceDir $stageFullDir
+
+      foreach ($dir in @($stageLiteDir, $stageFullDir)) {
+        Remove-PathIfExists -Path $dir
       }
     }
-    $latestFullSetup = Get-LatestSetupExe -NsisBundleDir $nsisBundleDir
-    Copy-Item -Path $latestFullSetup -Destination $setupFullExe -Force
+    else {
+      Write-Host "[build] Build desktop runtime without installer bundles..."
+      Invoke-InVsDevEnv -Command "pnpm --filter @lazycat/desktop exec tauri build --no-bundle"
 
-    Write-Host "[3/6] Build slim NSIS installer (makensis only)..."
-    $nsisDir = Join-Path $releaseDir "nsis/x64"
-    New-LiteNsisFromFull -NsisDir $nsisDir -OutputPath $setupLiteExe
-
-    Write-Host "[4/6] Build portable zip packages..."
-    foreach ($dir in @($stageLiteDir, $stageFullDir)) {
-      if (Test-Path $dir) {
-        Remove-Item -Recurse -Force $dir
-      }
-      New-Item -ItemType Directory -Path $dir | Out-Null
-    }
-
-    Copy-PortableFiles -ReleaseDir $releaseDir -StageDir $stageLiteDir
-    Copy-PortableFiles -ReleaseDir $releaseDir -StageDir $stageFullDir
-    Copy-Item -Path $runtimeDir.FullName -Destination (Join-Path $stageFullDir $runtimeDir.Name) -Recurse -Force
-
-    New-Zip -ZipPath $portableLiteZip -SourceDir $stageLiteDir
-    New-Zip -ZipPath $portableFullZip -SourceDir $stageFullDir
-
-    foreach ($dir in @($stageLiteDir, $stageFullDir)) {
-      if (Test-Path $dir) {
-        Remove-Item -Recurse -Force $dir
-      }
+      Write-Host "[package] Build lite portable zip package..."
+      Remove-PathIfExists -Path $stageLiteDir
+      New-Item -ItemType Directory -Path $stageLiteDir | Out-Null
+      Copy-PortableFiles -ReleaseDir $releaseDir -StageDir $stageLiteDir
+      New-Zip -ZipPath $portableLiteZip -SourceDir $stageLiteDir
+      Remove-PathIfExists -Path $stageLiteDir
     }
   }
 
-  Write-Host "[5/6] Generate SHA256 file..."
-  $artifacts = @($setupLiteExe, $setupFullExe, $portableLiteZip, $portableFullZip)
+  Write-Host "[hash] Generate SHA256 file..."
   foreach ($f in $artifacts) {
     if (!(Test-Path $f)) {
       throw "Artifact missing: $f"
@@ -495,11 +509,11 @@ try {
   $hashLines | Set-Content -Encoding UTF8 $shaFile
 
   if ($SkipUpload) {
-    Write-Host "[6/6] Skip upload. Artifacts generated in: $outDir"
+    Write-Host "[upload] Skip upload. Artifacts generated in: $outDir"
     return
   }
 
-  Write-Host "[6/6] Push tag and upload GitHub release assets..."
+  Write-Host "[upload] Push tag and upload GitHub release assets..."
   git push origin $currentBranch
   if ($LASTEXITCODE -ne 0) {
     throw "git push origin $currentBranch failed with exit code $LASTEXITCODE"
@@ -554,7 +568,7 @@ try {
     $releaseExists = $false
   }
 
-  $assetsToUpload = @($setupLiteExe, $setupFullExe, $portableLiteZip, $portableFullZip, $shaFile)
+  $assetsToUpload = @($artifacts) + $shaFile
   if ($releaseExists) {
     & gh release upload $Tag @assetsToUpload --clobber @ghCommon
     if ($LASTEXITCODE -ne 0) {
@@ -569,13 +583,17 @@ try {
   }
 
   Write-Host "Done. Release artifacts:"
-  Get-ChildItem -Path $outDir -File | Select-Object Name, Length, LastWriteTime
+  @($artifacts) + $shaFile |
+    ForEach-Object { Get-Item -Path $_ } |
+    Select-Object Name, Length, LastWriteTime
 }
 finally {
   Remove-PathIfExists -Path $stageLiteDir
-  Remove-PathIfExists -Path $stageFullDir
-  if (Test-Path $offlineConfigPath) {
-    Remove-Item -Force $offlineConfigPath
+  if ($AllPackages) {
+    Remove-PathIfExists -Path $stageFullDir
+    if (Test-Path $offlineConfigPath) {
+      Remove-Item -Force $offlineConfigPath
+    }
   }
   Pop-Location
 }

@@ -35,6 +35,40 @@
 
 **使用次数**: 0
 
+## 2026-07-17: Windows 发布脚本默认只构建 lite portable
+
+**场景**: 日常 Windows 打包通常只需要不内置 WebView2 的绿色包，但原发布脚本每次都会构建 lite/full 安装包与绿色包共四个产物。
+
+**问题**:
+1. lite portable 只依赖 release 运行文件和资源，却被迫先执行带 fixed WebView2 的 NSIS 完整构建，耗时和磁盘开销明显偏高。
+2. 哈希、缺失检查和 GitHub 上传写死四个产物，无法让默认模式只处理本次实际选择的包。
+3. 单独复制一份 lite 脚本会重复版本校验、Git/tag、压缩和上传逻辑，后续容易分叉。
+
+**解决**:
+1. `release-all-win.ps1` 新增 `-AllPackages`；默认使用 `tauri build --no-bundle` 并只生成 lite portable，传开关时完整保留原四包流程。
+2. 用模式对应的 `$artifacts` 集合统一驱动缺失检查、SHA256 和 GitHub Release 上传；`-SkipBuild` 也只校验当前模式应有产物。
+3. 根命令新增 `release:win` 作为默认入口，`release:all:win` 显式传 `-AllPackages`，让命令名和行为保持一致。
+
+**关键点**:
+1. 模式专属前置条件应延迟到对应分支；默认 lite portable 不应检查固定版 WebView2 或初始化 full stage。
+2. 构建产物集合必须成为哈希和上传的唯一来源，不能扫描输出目录，否则历史残留文件可能被误传。
+
+**涉及文件**:
+- `scripts/release-all-win.ps1`
+- `package.json`
+- `README.md`
+- `AGENTS.md`
+- `CLAUDE.md`
+
+**验证**:
+- PowerShell AST 语法解析
+- Tauri CLI `build --help` 确认支持 `--no-bundle`
+- package scripts 断言与模式分支静态检查
+- `pnpm release:win -- -Tag v0.7.1 -SkipBuild -SkipUpload`（SHA 仅包含 lite portable）
+- `pnpm release:all:win -- -Tag v0.7.1 -SkipBuild -SkipUpload`（SHA 包含原四个产物）
+
+**使用次数**: 0
+
 ## 2026-07-16: 长生命周期网络服务的运行态与观测一致性
 
 **场景**: 在同步 Tauri tool dispatch 中承载 HTTP / TCP / UDP 长生命周期服务，同时提供自启动、退出清理、统计日志和可编辑前端面板。

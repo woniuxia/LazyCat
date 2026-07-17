@@ -27,7 +27,7 @@
 - 所有 CDN 依赖和外部资源（字体、Monaco 等）必须本地打包；运行时不得依赖公网 CDN。
 - UI 默认保持干净浅色/白色风格，除非用户明确要求其他视觉方向。
 - Windows 环境注意：控制台可能为 GBK 编码；运行中的 `.exe` 会持有文件锁，重建前需先结束进程。
-- 便携包/绿色包交付优先 `zip` 形态；当前 `pnpm build:portable` 底层仍执行 NSIS 构建（历史命名），需要再走脚本或手动封装为 `zip`。
+- 便携包/绿色包交付优先 `zip` 形态；`pnpm release:win -- -Tag vX.Y.Z` 默认只构建 lite portable，完整四包使用 `pnpm release:all:win -- -Tag vX.Y.Z`。
 
 ## 02. 快速检索
 
@@ -128,7 +128,8 @@ scripts/                         构建与发布脚本
 | `pnpm build:win:precheck` | Windows 构建预检 |
 | `pnpm build:win` | Windows NSIS 打包 |
 | `pnpm build:portable` | 当前与 `build:win` 同底层（NSIS）；便携 `zip` 需额外封装 |
-| `pnpm release:all:win -- -Tag vX.Y.Z` | 构建安装包/绿色包、生成 SHA256、推送 tag 并上传 GitHub Release |
+| `pnpm release:win -- -Tag vX.Y.Z` | 默认构建 lite portable、生成 SHA256、推送 tag 并上传 GitHub Release |
+| `pnpm release:all:win -- -Tag vX.Y.Z` | 构建 lite/full 安装包与绿色包、生成 SHA256、推送 tag 并上传 GitHub Release |
 
 ## 04. 开发与架构要点
 
@@ -313,8 +314,9 @@ PM 域：
 
 - 规则：必须使用 `tauri build`，不要用 `cargo build --release`。
 - 原因：后者不会嵌入前端资源，最终会白屏。
-- `release-all-win.ps1` 构建顺序：先完整 tauri build（离线/带 WebView2） → 从完整 NSIS 脚本裁剪掉 WebView2 指令生成轻量 NSIS（`New-LiteNsisFromFull`，避免二次 `tauri build`） → 打包 portable zip。
-- `pnpm build:portable` 当前等价于 NSIS 构建流程；绿色 `zip` 由 `release-all-win.ps1` 自动生成（完整版和轻量版各一份）。
+- `release-all-win.ps1` 默认通过 `tauri build --no-bundle` 只生成 lite portable；传 `-AllPackages` 时才执行完整流程：带 fixed WebView2 的 tauri build → 从完整 NSIS 脚本裁剪轻量 NSIS（`New-LiteNsisFromFull`） → 打包 lite/full portable。
+- `pnpm release:win` 是默认 lite portable 入口；`pnpm release:all:win` 会向同一脚本传 `-AllPackages`，保留原四包逻辑。
+- `pnpm build:portable` 仍是历史命名，当前等价于 NSIS 构建流程；需要便携 `zip` 时使用上述 release 命令。
 - `main.rs` 启动时会扫描 exe 同级 `Microsoft.WebView2.FixedVersionRuntime.*`；若存在则自动切换到本地 WebView2。
 - `release-all-win.ps1` 已处理 Git `usr/bin/link.exe` 遮蔽 MSVC 链接器、便携包 DLL 输出路径变化、旧 PowerShell 缺少 `Get-FileHash` 的兼容问题。
 - `build:web` 出现 `spawn EPERM` 时先重试，仍失败再提升权限重试。
@@ -333,9 +335,9 @@ PM 域：
 1. 先统一版本号，至少同步根 `package.json`、`apps/desktop/package.json`、`apps/desktop/src-tauri/Cargo.toml`、`apps/desktop/src-tauri/tauri.conf.json`；发布 tag 固定为 `v<version>`。
 2. 正式发版只从 `main` 的干净工作区执行；版本变更、脚本修复和 Release 说明都要先提交到 Git，并先推送 `origin/main`。
 3. 发版前至少执行 `pnpm typecheck`、`pnpm --filter @lazycat/desktop build:web`、`pnpm test`；需要完整发布检查时再补 `pnpm test:e2e`。
-4. 正式发 GitHub Release 使用 `pnpm release:all:win -- -Tag vX.Y.Z`。脚本会校验版本一致性、tag 与版本匹配、当前分支是否为 `main`、工作区是否干净，并在发 tag 前先推送当前 `main`。
-5. 若构建已完成，但哈希生成或 GitHub 上传阶段中断，使用 `pnpm release:all:win -- -Tag vX.Y.Z -SkipBuild` 继续，不要重复完整构建。
-6. 若只需要本地出包、不上传 GitHub Release，使用 `pnpm release:all:win -- -Tag vX.Y.Z -SkipUpload`；该模式只生成产物与 `SHA256SUMS.txt`。
+4. 正式发 GitHub Release 默认使用 `pnpm release:win -- -Tag vX.Y.Z`，只发布 lite portable；需要四种产物时使用 `pnpm release:all:win -- -Tag vX.Y.Z`。两者都会校验版本、tag、`main` 分支和干净工作区，并在发 tag 前推送当前 `main`。
+5. 若构建已完成，但哈希生成或上传阶段中断，在原命令后追加 `-SkipBuild` 继续；默认模式只要求 lite portable 已存在，全量模式要求四个产物都存在。
+6. 若只需要本地出包、不上传 GitHub Release，在对应命令后追加 `-SkipUpload`；该模式只生成所选产物与 `SHA256SUMS.txt`。
 
 ## 07. 协作与变更纪律
 

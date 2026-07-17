@@ -225,7 +225,8 @@ pnpm dev
 | `pnpm test:e2e` | 运行端到端测试 |
 | `pnpm build:win` | 构建 Windows NSIS 安装包 |
 | `pnpm build:portable` | 构建 Windows 便携版 |
-| `pnpm release:all:win -- -Tag vX.Y.Z` | 一键构建安装包/绿色包、生成 SHA256、推送 tag 并上传 GitHub Release |
+| `pnpm release:win -- -Tag vX.Y.Z` | 默认构建 lite portable、生成 SHA256、推送 tag 并上传 GitHub Release |
+| `pnpm release:all:win -- -Tag vX.Y.Z` | 构建 lite/full 安装包与绿色包、生成 SHA256、推送 tag 并上传 GitHub Release |
 
 ## 参与贡献
 
