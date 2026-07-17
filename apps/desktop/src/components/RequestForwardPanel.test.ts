@@ -25,17 +25,24 @@ const logListUrl = new URL(
 const logListSource = existsSync(fileURLToPath(logListUrl))
   ? readFileSync(fileURLToPath(logListUrl), "utf8")
   : "";
+const dialogUrl = new URL(
+  "./request-forward/RequestForwardRuleDialog.vue",
+  import.meta.url,
+);
+const dialogSource = existsSync(fileURLToPath(dialogUrl))
+  ? readFileSync(fileURLToPath(dialogUrl), "utf8")
+  : "";
 
 describe("RequestForwardPanel source structure", () => {
   it("keeps running rules readonly and exposes stop-and-edit", () => {
-    expect(source).toContain("停止并编辑");
-    expect(source).toContain("handleStopAndEdit");
+    expect(dialogSource).toContain("停止并编辑");
+    expect(source).toContain("handleEditorStopAndEdit");
     expect(formSource).toContain(':disabled="readonly || disabled"');
   });
 
   it("separates save from save-and-start", () => {
-    expect(source).toContain("仅保存");
-    expect(source).toContain("保存并启动");
+    expect(dialogSource).toContain("仅保存");
+    expect(dialogSource).toContain("保存并启动");
     expect(source).toContain("saveRule");
     expect(source).toContain("startRule");
   });
@@ -69,22 +76,39 @@ describe("RequestForwardPanel source structure", () => {
     expect(source).toContain("clearTimeout");
   });
 
-  it("splits persisted rules into mounted config and observability tabs", () => {
-    expect(source).toContain("activeWorkbenchTab");
-    expect(source).toContain("<el-tabs");
-    expect(source).toContain('label="规则配置"');
-    expect(source).toContain('label="运行观测"');
-    expect(source).toContain('name="config"');
-    expect(source).toContain('name="observability"');
-    expect(source).not.toContain("<el-tab-pane lazy");
+  it("uses observability as the default workspace without tabs", () => {
+    expect(source).not.toContain("activeWorkbenchTab");
+    expect(source).not.toContain("<el-tabs");
+    expect(source).not.toContain("<el-tab-pane");
+    expect(source).toContain('class="observability"');
   });
 
-  it("keeps the remembered tab for rules and forces drafts to config", () => {
-    expect(source).toMatch(
-      /function createDraft\(\)[\s\S]*?activeWorkbenchTab\.value = "config"/,
-    );
-    const selectRuleBody = source.match(/function selectRule\(id: number\)[\s\S]*?\n}/)?.[0] ?? "";
-    expect(selectRuleBody).not.toContain("activeWorkbenchTab.value");
+  it("moves create and edit into one controlled rule dialog", () => {
+    expect(source).toContain("RequestForwardRuleDialog");
+    expect(source).toContain('ref<"create" | "edit" | null>');
+    expect(source).toContain("function openCreateDialog()");
+    expect(source).toContain("function openEditDialog(id: number)");
+    expect(source).toContain('@edit="openEditDialog"');
+    expect(source).not.toContain("<el-tabs");
+    expect(source).not.toContain("<el-tab-pane");
+    expect(dialogSource).toContain("<el-dialog");
+    expect(dialogSource).toContain("RequestForwardRuleFormEditor");
+    expect(dialogSource).toContain("停止并编辑");
+    expect(dialogSource).toContain("仅保存");
+    expect(dialogSource).toContain("保存并启动");
+  });
+
+  it("does not replace the selected log context when editing another rule", () => {
+    expect(source).toContain("editorRuleId");
+    expect(source).toContain("currentEditorIntent");
+    expect(source).toMatch(/function openEditDialog\(id: number\)[\s\S]*?editorRuleId\.value = id/);
+    expect(source).not.toMatch(/function openEditDialog\(id: number\)[\s\S]*?selectedId\.value = id/);
+  });
+
+  it("opens create without replacing the selected observability rule", () => {
+    const openCreateBody = source.match(/function openCreateDialog\(\)[\s\S]*?\n}/)?.[0] ?? "";
+    expect(openCreateBody).toContain('editorMode.value = "create"');
+    expect(openCreateBody).not.toContain("selectedId.value");
   });
 
   it("queues one background log refresh from the existing serial poll", () => {
@@ -126,9 +150,10 @@ describe("RequestForwardPanel source structure", () => {
 
   it("does not overwrite dirty forms during background refresh", () => {
     expect(source).toContain("const formDirty");
-    expect(source).toContain("!formDirty.value");
-    expect(source).toContain(':model-value="form"');
-    expect(source).toContain('@update:model-value="handleFormUpdate"');
+    expect(source).toContain("requestEditorClose");
+    expect(source).toContain('formDirty.value = true');
+    expect(dialogSource).toContain(':model-value="form"');
+    expect(dialogSource).toContain('@update:model-value');
     expect(source).toContain("formDirty.value = false");
   });
 
@@ -154,10 +179,11 @@ describe("RequestForwardPanel source structure", () => {
     expect(source.match(/applyRequestForwardMutationResult/g)?.length ?? 0).toBeGreaterThanOrEqual(4);
   });
 
-  it("ends a dirty edit context when the selected rule is deleted externally", () => {
+  it("separates externally removed view and editor targets", () => {
+    expect(source).toContain("当前查看的规则已被删除");
     expect(source).toContain("当前编辑的规则已被删除");
-    expect(source).toMatch(/removedSelectedRule[\s\S]*?formDirty\.value = false/);
-    expect(source).toMatch(/removedSelectedRule[\s\S]*?syncFormFromSelection\(\)/);
+    expect(source).toContain("removedEditorRule");
+    expect(source).toMatch(/removedEditorRule[\s\S]*?closeEditor\(\)/);
   });
 
   it("keeps rule selection and actions busy during observability mutations", () => {

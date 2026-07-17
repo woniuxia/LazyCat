@@ -24,8 +24,8 @@ import {
   toRequestForwardRuleWriteInput,
   validateRequestForwardRuleForm,
 } from "../utils/requestForward";
-import RequestForwardRuleFormEditor from "./request-forward/RequestForwardRuleForm.vue";
 import RequestForwardLogList from "./request-forward/RequestForwardLogList.vue";
+import RequestForwardRuleDialog from "./request-forward/RequestForwardRuleDialog.vue";
 import RequestForwardRuleList from "./request-forward/RequestForwardRuleList.vue";
 
 type RuleListEnvelope = { items: RequestForwardRule[] };
@@ -34,7 +34,6 @@ type RuleEnvelope = { item: RequestForwardRule };
 type StatusEnvelope = { item: RequestForwardRuntimeStatus };
 type BatchEnvelope = { results: RequestForwardBatchOperationResult[] };
 type StatsEnvelope = { item: RequestForwardStats };
-type WorkbenchTab = "config" | "observability";
 type LogQueryContext = {
   ruleId: number;
   intentToken: number;
@@ -48,8 +47,8 @@ const { loading, invoke } = useToolInvoke();
 const rules = ref<RequestForwardRule[]>([]);
 const statuses = ref<RequestForwardRuntimeStatus[]>([]);
 const selectedId = ref<number | null>(null);
-const draft = ref(false);
-const activeWorkbenchTab = ref<WorkbenchTab>("config");
+const editorMode = ref<"create" | "edit" | null>(null);
+const editorRuleId = ref<number | null>(null);
 const form = ref<RequestForwardRuleForm>(getDefaultRequestForwardForm());
 const formDirty = ref(false);
 const fieldErrors = ref<Partial<Record<keyof RequestForwardRuleForm, string>>>({});
@@ -70,6 +69,7 @@ const observabilityMutating = ref(false);
 
 let refreshRequestToken = 0;
 let selectionIntentToken = 0;
+let editorIntentToken = 0;
 let pollTimer: ReturnType<typeof setTimeout> | undefined;
 let pollGeneration = 0;
 let pollInFlight = false;
@@ -88,8 +88,15 @@ const selectedStatus = computed<RequestForwardRuntimeStatus | null>(
 const selectedState = computed<RequestForwardRuntimeState>(
   () => selectedStatus.value?.state ?? "stopped",
 );
+const editorRule = computed(
+  () => rules.value.find((rule) => rule.id === editorRuleId.value) ?? null,
+);
+const editorStatus = computed<RequestForwardRuntimeStatus | null>(
+  () => statuses.value.find((status) => status.ruleId === editorRuleId.value) ?? null,
+);
 const readonly = computed(
-  () => Boolean(selectedRule.value) && isRequestForwardRuleReadonly(selectedState.value),
+  () => Boolean(editorRule.value) &&
+    isRequestForwardRuleReadonly(editorStatus.value?.state ?? "stopped"),
 );
 const interactionBusy = computed(
   () => operating.value || saving.value || observabilityMutating.value,
@@ -97,7 +104,6 @@ const interactionBusy = computed(
 const hasActiveRuntimeRule = computed(() =>
   statuses.value.some((status) => isRequestForwardRuleReadonly(status.state)),
 );
-const hasEditor = computed(() => draft.value || Boolean(selectedRule.value));
 const hasMoreLogs = computed(() => logItems.value.length < logTotal.value);
 const eventLabel = computed(() => {
   if (selectedRule.value?.protocol === "tcp") return "连接数";
@@ -124,14 +130,16 @@ function currentSelectionIntent() {
   return {
     selectionToken: selectionIntentToken,
     selectedId: selectedId.value,
-    draft: draft.value,
+    draft: false,
   };
 }
 
-function syncFormFromSelection() {
-  if (!draft.value && !formDirty.value && selectedRule.value) {
-    form.value = { ...selectedRule.value };
-  }
+function currentEditorIntent() {
+  return {
+    selectionToken: editorIntentToken,
+    selectedId: editorRuleId.value,
+    draft: editorMode.value === "create",
+  };
 }
 
 function formatBytes(value: number): string {
@@ -149,7 +157,7 @@ function captureLogQueryContext(
   ruleId = selectedId.value,
   intentToken = selectionIntentToken,
 ): LogQueryContext | null {
-  if (ruleId == null || draft.value) return null;
+  if (ruleId == null) return null;
   return {
     ruleId,
     intentToken,
@@ -162,7 +170,6 @@ function isLogQueryContextCurrent(context: LogQueryContext): boolean {
   return (
     selectionIntentToken === context.intentToken &&
     selectedId.value === context.ruleId &&
-    !draft.value &&
     logKeyword.value.trim() === context.keyword &&
     logMode.value === context.mode
   );
@@ -203,7 +210,7 @@ async function loadStats(
   ruleId = selectedId.value,
   intentToken = selectionIntentToken,
 ) {
-  if (ruleId == null || draft.value || observabilityMutating.value) return;
+  if (ruleId == null || observabilityMutating.value) return;
   const requestToken = ++statsRequestToken;
   statsLoading.value = true;
   statsError.value = "";
@@ -212,8 +219,7 @@ async function loadStats(
     if (
       requestToken !== statsRequestToken ||
       selectionIntentToken !== intentToken ||
-      selectedId.value !== ruleId ||
-      draft.value
+      selectedId.value !== ruleId
     ) return;
     stats.value = result.item;
   } catch (error) {
@@ -271,7 +277,6 @@ async function refreshLogsInBackground(
 ): Promise<void> {
   if (
     !context ||
-    activeWorkbenchTab.value !== "observability" ||
     !isLogQueryContextCurrent(context)
   ) return;
   if (observabilityMutating.value || logInFlight || loadingMore.value || logDebounceTimer) {
@@ -319,7 +324,6 @@ function flushPendingLogRefresh() {
   const pending = pendingLogRefresh;
   if (!pending) return;
   if (
-    activeWorkbenchTab.value !== "observability" ||
     !isLogQueryContextCurrent(pending)
   ) {
     pendingLogRefresh = null;
@@ -349,7 +353,7 @@ function loadMoreLogs() {
 function reloadCurrentObservability() {
   const intentToken = selectionIntentToken;
   const ruleId = selectedId.value;
-  if (draft.value || ruleId == null || selectedRule.value?.id !== ruleId) return;
+  if (ruleId == null || selectedRule.value?.id !== ruleId) return;
   void Promise.all([
     loadStats(ruleId, intentToken),
     loadLogs(false, ruleId, intentToken),
@@ -359,7 +363,9 @@ function reloadCurrentObservability() {
 async function refreshRules(options: { showLoading?: boolean } = {}) {
   const requestToken = ++refreshRequestToken;
   const intentToken = selectionIntentToken;
+  const capturedEditorToken = editorIntentToken;
   const previousSelectedId = selectedId.value;
+  const previousEditorId = editorRuleId.value;
   try {
     const request = Promise.all([
       invoke<RuleListEnvelope>("tool:request-forward:list", {}),
@@ -370,16 +376,22 @@ async function refreshRules(options: { showLoading?: boolean } = {}) {
     if (requestToken !== refreshRequestToken) return;
     rules.value = ruleResult.items;
     statuses.value = statusResult.items;
-    if (selectionIntentToken !== intentToken || draft.value) return;
+    const removedEditorRule =
+      editorMode.value === "edit" &&
+      previousEditorId != null &&
+      capturedEditorToken === editorIntentToken &&
+      !rules.value.some((rule) => rule.id === previousEditorId);
+    if (removedEditorRule) {
+      closeEditor();
+      ElMessage.warning("当前编辑的规则已被删除，编辑弹窗已关闭");
+    }
+    if (selectionIntentToken !== intentToken) return;
     const retained = rules.value.some((rule) => rule.id === selectedId.value);
     const removedSelectedRule = selectedId.value != null && !retained;
     selectedId.value = retained ? selectedId.value : rules.value[0]?.id ?? null;
     if (removedSelectedRule) {
-      formDirty.value = false;
-      fieldErrors.value = {};
-      ElMessage.warning("当前编辑的规则已被删除，已切换到可用规则");
+      ElMessage.warning("当前查看的规则已被删除，已切换到可用规则");
     }
-    syncFormFromSelection();
     if (selectedId.value != null && selectedId.value === previousSelectedId) {
       await loadStats(selectedId.value);
     }
@@ -393,22 +405,57 @@ async function refreshRules(options: { showLoading?: boolean } = {}) {
 function selectRule(id: number) {
   if (interactionBusy.value) return;
   selectionIntentToken += 1;
-  draft.value = false;
   selectedId.value = id;
-  formDirty.value = false;
-  fieldErrors.value = {};
-  syncFormFromSelection();
 }
 
-function createDraft() {
+function openCreateDialog() {
   if (interactionBusy.value) return;
-  selectionIntentToken += 1;
-  draft.value = true;
-  selectedId.value = null;
-  activeWorkbenchTab.value = "config";
+  editorIntentToken += 1;
+  editorMode.value = "create";
+  editorRuleId.value = null;
   form.value = getDefaultRequestForwardForm();
   formDirty.value = false;
   fieldErrors.value = {};
+}
+
+function openEditDialog(id: number) {
+  if (interactionBusy.value) return;
+  const rule = rules.value.find((item) => item.id === id);
+  if (!rule) return;
+  editorIntentToken += 1;
+  editorMode.value = "edit";
+  editorRuleId.value = id;
+  form.value = { ...rule };
+  formDirty.value = false;
+  fieldErrors.value = {};
+}
+
+function closeEditor() {
+  editorIntentToken += 1;
+  editorMode.value = null;
+  editorRuleId.value = null;
+  formDirty.value = false;
+  fieldErrors.value = {};
+}
+
+async function requestEditorClose() {
+  if (interactionBusy.value) return;
+  if (formDirty.value) {
+    try {
+      await ElMessageBox.confirm(
+        "关闭后将丢失未保存的修改。",
+        "未保存的修改",
+        {
+          type: "warning",
+          confirmButtonText: "放弃修改",
+          cancelButtonText: "继续编辑",
+        },
+      );
+    } catch {
+      return;
+    }
+  }
+  closeEditor();
 }
 
 function handleFormUpdate(value: RequestForwardRuleForm) {
@@ -444,10 +491,10 @@ async function saveRule(): Promise<RequestForwardRule | null> {
     return null;
   }
   if (!validateForm()) return null;
-  const isDraft = draft.value;
-  const targetId = isDraft ? null : selectedRule.value?.id ?? null;
+  const isDraft = editorMode.value === "create";
+  const targetId = isDraft ? null : editorRuleId.value;
   if (!isDraft && targetId == null) return null;
-  const intent = captureRequestForwardMutationIntent(currentSelectionIntent(), targetId);
+  const intent = captureRequestForwardMutationIntent(currentEditorIntent(), targetId);
   const payload = toRequestForwardRuleWriteInput(form.value);
   saving.value = true;
   try {
@@ -457,13 +504,13 @@ async function saveRule(): Promise<RequestForwardRule | null> {
     const { value: result } = await applyRequestForwardMutationResult(
       operation,
       intent,
-      currentSelectionIntent,
+      currentEditorIntent,
       (completed) => {
-        draft.value = false;
-        selectedId.value = completed.item.id;
-        selectionIntentToken += 1;
-        form.value = { ...completed.item };
-        formDirty.value = false;
+        if (isDraft) {
+          selectionIntentToken += 1;
+          selectedId.value = completed.item.id;
+        }
+        closeEditor();
       },
     );
     await refreshRules();
@@ -534,10 +581,10 @@ async function stopRule(id: number, feedback = true) {
   }
 }
 
-async function handleStopAndEdit() {
-  if (!selectedRule.value) return;
+async function handleEditorStopAndEdit() {
+  if (!editorRule.value) return;
   try {
-    await stopRule(selectedRule.value.id, false);
+    await stopRule(editorRule.value.id, false);
     ElMessage.success("规则已停止，可以编辑");
   } catch (error) {
     ElMessage.error(`停止失败，规则仍保持只读：${errorMessage(error)}`);
@@ -564,11 +611,12 @@ async function runBatch(operation: "start" | "stop") {
   }
 }
 
-async function deleteSelected() {
-  const rule = selectedRule.value;
+async function deleteRule(id: number) {
+  const rule = rules.value.find((item) => item.id === id) ?? null;
   if (!rule || interactionBusy.value) return;
   const intent = captureRequestForwardMutationIntent(currentSelectionIntent(), rule.id);
-  if (isRequestForwardRuleReadonly(selectedState.value)) {
+  const state = statuses.value.find((status) => status.ruleId === id)?.state ?? "stopped";
+  if (isRequestForwardRuleReadonly(state)) {
     ElMessage.warning("运行中的规则不能删除，请先停止规则");
     return;
   }
@@ -588,11 +636,13 @@ async function deleteSelected() {
       intent,
       currentSelectionIntent,
       () => {
-        selectionIntentToken += 1;
-        selectedId.value = null;
-        formDirty.value = false;
+        if (selectedId.value === id) {
+          selectionIntentToken += 1;
+          selectedId.value = null;
+        }
       },
     );
+    if (editorRuleId.value === id) closeEditor();
     await refreshRules();
     ElMessage.success("规则已删除");
   } catch (error) {
@@ -600,6 +650,10 @@ async function deleteSelected() {
   } finally {
     operating.value = false;
   }
+}
+
+function deleteEditorRule() {
+  if (editorRuleId.value != null) void deleteRule(editorRuleId.value);
 }
 
 async function clearLogs() {
@@ -629,7 +683,7 @@ async function clearLogs() {
   pendingLogRefresh = null;
   try {
     await invoke<{ ok: boolean }>("tool:request-forward:log-clear", { id: rule.id });
-    if (selectionIntentToken !== intentToken || selectedId.value !== rule.id || draft.value) return;
+    if (selectionIntentToken !== intentToken || selectedId.value !== rule.id) return;
     ElMessage.success("转发日志已清空");
   } catch (error) {
     ElMessage.error(`清空日志失败：${errorMessage(error)}`);
@@ -666,7 +720,7 @@ async function resetStats() {
   statsRequestToken += 1;
   try {
     const result = await invoke<StatsEnvelope>("tool:request-forward:stats-reset", { id: rule.id });
-    if (selectionIntentToken !== intentToken || selectedId.value !== rule.id || draft.value) return;
+    if (selectionIntentToken !== intentToken || selectedId.value !== rule.id) return;
     stats.value = result.item;
     statsError.value = "";
     ElMessage.success("转发统计已重置");
@@ -723,17 +777,10 @@ function syncPolling(active: boolean) {
   if (active) schedulePolling(pollGeneration);
 }
 
-watch([selectedId, draft], ([ruleId, isDraft]) => {
+watch(selectedId, (ruleId) => {
   resetObservabilityState();
-  if (ruleId != null && !isDraft && activeWorkbenchTab.value === "observability") {
+  if (ruleId != null) {
     void Promise.all([loadStats(ruleId), loadLogs(false, ruleId)]);
-  }
-});
-watch(activeWorkbenchTab, (tab) => {
-  if (tab === "observability") {
-    reloadCurrentObservability();
-  } else {
-    pendingLogRefresh = null;
   }
 });
 watch(logKeyword, scheduleLogReload);
@@ -764,90 +811,31 @@ onUnmounted(() => {
       :selected-id="selectedId"
       :loading="loading"
       :busy="interactionBusy"
-      @add="createDraft"
+      @add="openCreateDialog"
       @select="selectRule"
       @start="startRule"
       @stop="stopRule"
+      @edit="openEditDialog"
+      @delete="deleteRule"
       @start-all="runBatch('start')"
       @stop-all="runBatch('stop')"
     />
 
     <main class="rule-workbench">
-      <template v-if="hasEditor">
+      <template v-if="selectedRule">
         <header class="workbench-header">
           <div>
-            <p class="workbench-header__eyebrow">{{ draft ? "NEW RULE" : `RULE #${selectedRule?.id}` }}</p>
-            <h1>{{ draft ? "新建转发规则" : selectedRule?.name }}</h1>
-            <p>{{ draft ? "新规则默认保持停止，保存后可按需启动。" : "配置本地监听端点与转发目标。" }}</p>
+            <p class="workbench-header__eyebrow">RULE #{{ selectedRule.id }}</p>
+            <h1>{{ selectedRule.name }}</h1>
+            <p>查看当前规则的运行统计与转发日志。</p>
           </div>
-          <div v-if="!draft" class="runtime-state" :class="`is-${selectedState}`">
+          <div class="runtime-state" :class="`is-${selectedState}`">
             <span>{{ stateCopy }}</span>
             <small v-if="selectedStatus?.lastError">{{ selectedStatus.lastError }}</small>
           </div>
         </header>
 
-        <el-tabs
-          v-model="activeWorkbenchTab"
-          class="workbench-tabs"
-          :class="{ 'is-draft': draft }"
-        >
-          <el-tab-pane label="规则配置" name="config">
-            <div class="workbench-pane">
-              <div v-if="readonly" class="readonly-banner" role="status">
-                <div>
-                  <strong>规则正在运行，配置已锁定</strong>
-                  <span>停止成功后才会解除只读，避免运行配置与持久化配置不一致。</span>
-                </div>
-                <el-button
-                  :disabled="interactionBusy"
-                  :loading="operating"
-                  @click="handleStopAndEdit"
-                >停止并编辑</el-button>
-              </div>
-
-              <div class="workbench-scroll">
-                <RequestForwardRuleFormEditor
-                  :model-value="form"
-                  :readonly="readonly"
-                  :disabled="interactionBusy"
-                  :persisted="!draft"
-                  :errors="fieldErrors"
-                  @update:model-value="handleFormUpdate"
-                />
-              </div>
-
-              <footer class="workbench-actions">
-                <el-button
-                  v-if="!draft"
-                  type="danger"
-                  plain
-                  :disabled="readonly || interactionBusy"
-                  @click="deleteSelected"
-                >
-                  删除规则
-                </el-button>
-                <span class="workbench-actions__spacer" />
-                <el-button
-                  :disabled="readonly || interactionBusy"
-                  :loading="saving"
-                  @click="saveRule"
-                >
-                  仅保存
-                </el-button>
-                <el-button
-                  type="primary"
-                  :disabled="readonly || interactionBusy"
-                  :loading="saving"
-                  @click="saveAndStart"
-                >
-                  保存并启动
-                </el-button>
-              </footer>
-            </div>
-          </el-tab-pane>
-
-          <el-tab-pane v-if="!draft" label="运行观测" name="observability">
-            <div class="workbench-pane">
+        <div class="workbench-pane">
               <div class="workbench-scroll">
                 <section class="observability" aria-labelledby="observability-title">
                   <div
@@ -960,19 +948,35 @@ onUnmounted(() => {
                 </section>
               </div>
             </div>
-          </el-tab-pane>
-        </el-tabs>
       </template>
 
       <div v-else class="workbench-empty">
         <div class="workbench-empty__mark">RF</div>
         <h1>选择或新建转发规则</h1>
-        <p>在左侧选择已有规则查看配置，或新建 HTTP、TCP、UDP 转发规则。</p>
-        <el-button type="primary" :disabled="interactionBusy" @click="createDraft">
+        <p>在左侧选择规则查看日志，或新建 HTTP、TCP、UDP 转发规则。</p>
+        <el-button type="primary" :disabled="interactionBusy" @click="openCreateDialog">
           新建规则
         </el-button>
       </div>
     </main>
+
+    <RequestForwardRuleDialog
+      :visible="editorMode !== null"
+      :mode="editorMode"
+      :form="form"
+      :errors="fieldErrors"
+      :readonly="readonly"
+      :persisted="editorMode === 'edit'"
+      :disabled="interactionBusy"
+      :saving="saving"
+      :operating="operating"
+      @update:form="handleFormUpdate"
+      @request-close="requestEditorClose"
+      @save="saveRule"
+      @save-and-start="saveAndStart"
+      @stop-and-edit="handleEditorStopAndEdit"
+      @delete="deleteEditorRule"
+    />
   </div>
 </template>
 
@@ -994,39 +998,6 @@ onUnmounted(() => {
   flex-direction: column;
   background: #fdfdfd;
 }
-
-.workbench-tabs {
-  display: flex;
-  min-width: 0;
-  min-height: 0;
-  flex: 1;
-  flex-direction: column;
-}
-
-.workbench-tabs :deep(.el-tabs__header) {
-  flex: none;
-  margin: 0;
-  padding: 0 20px;
-  background: #fff;
-}
-
-.workbench-tabs :deep(.el-tabs__item) {
-  height: 38px;
-  padding-inline: 14px;
-  font-size: 13px;
-}
-
-.workbench-tabs :deep(.el-tabs__content) {
-  min-height: 0;
-  flex: 1;
-}
-
-.workbench-tabs :deep(.el-tab-pane) {
-  height: 100%;
-  min-height: 0;
-}
-
-.workbench-tabs.is-draft :deep(.el-tabs__header) { display: none; }
 
 .workbench-pane {
   display: flex;
@@ -1084,22 +1055,6 @@ onUnmounted(() => {
 .runtime-state.is-stopping { color: #a86608; }
 .runtime-state.is-failed { color: #c23b35; }
 
-.readonly-banner {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: 14px;
-  margin: 12px 20px 0;
-  padding: 9px 10px;
-  border: 1px solid #ecd6a9;
-  border-radius: 6px;
-  background: #fffaf0;
-}
-
-.readonly-banner > div { display: grid; min-width: 0; gap: 3px; margin-right: auto; }
-.readonly-banner strong { color: #65450d; font-size: 13px; }
-.readonly-banner span { color: #85672f; font-size: 12px; line-height: 1.45; }
-
 .workbench-scroll {
   min-width: 0;
   min-height: 0;
@@ -1153,17 +1108,6 @@ onUnmounted(() => {
   font-size: 12px;
 }
 
-.workbench-actions {
-  display: flex;
-  flex: none;
-  gap: 8px;
-  padding: 12px 20px;
-  border-top: 1px solid #e4e7eb;
-  background: #fff;
-}
-
-.workbench-actions__spacer { flex: 1; }
-
 .workbench-empty {
   display: grid;
   max-width: 440px;
@@ -1197,10 +1141,7 @@ onUnmounted(() => {
     overflow: hidden;
   }
   .workbench-header { padding: 18px; }
-  .workbench-tabs :deep(.el-tabs__header) { padding-inline: 16px; }
-  .readonly-banner { margin-inline: 16px; align-items: flex-start; }
   .workbench-scroll { padding-inline: 16px; }
-  .workbench-actions { padding-inline: 16px; flex-wrap: wrap; }
   .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .log-toolbar { align-items: stretch; flex-direction: column; }
   .log-search { min-width: 0; }
