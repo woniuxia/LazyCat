@@ -21,6 +21,38 @@ export const DEFAULT_REQUEST_FORWARD_FORM: RequestForwardRuleForm = {
 const REQUEST_FORWARD_LOG_PAGE_SIZE = 30;
 const REQUEST_FORWARD_LOG_LIMIT = 1000;
 
+export const DEFAULT_REQUEST_FORWARD_INSPECTOR_WIDTH = 420;
+export const MIN_REQUEST_FORWARD_INSPECTOR_WIDTH = 320;
+
+export function clampRequestForwardInspectorWidth(
+  preferred: unknown,
+  availableWidth: number,
+): number {
+  const parsed = typeof preferred === "number" ? preferred : Number(preferred);
+  const width = Number.isFinite(parsed)
+    ? parsed
+    : DEFAULT_REQUEST_FORWARD_INSPECTOR_WIDTH;
+  const safeAvailable = Number.isFinite(availableWidth)
+    ? Math.max(0, availableWidth)
+    : DEFAULT_REQUEST_FORWARD_INSPECTOR_WIDTH * 2;
+  const maximum = Math.max(
+    MIN_REQUEST_FORWARD_INSPECTOR_WIDTH,
+    Math.floor(safeAvailable * 0.5),
+  );
+  return Math.min(
+    maximum,
+    Math.max(MIN_REQUEST_FORWARD_INSPECTOR_WIDTH, Math.round(width)),
+  );
+}
+
+export function retainRequestForwardSelectedLogId(
+  selectedId: number | null,
+  items: Array<{ id: number }>,
+): number | null {
+  if (selectedId == null) return null;
+  return items.some((item) => item.id === selectedId) ? selectedId : null;
+}
+
 export function getRequestForwardLogProbeLimit(loadedCount: number): number {
   return Math.min(
     REQUEST_FORWARD_LOG_LIMIT,

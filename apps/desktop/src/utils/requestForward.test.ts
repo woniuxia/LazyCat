@@ -10,6 +10,7 @@ import type {
 } from "../types/request-forward";
 import {
   applyRequestForwardMutationResult,
+  clampRequestForwardInspectorWidth,
   captureRequestForwardMutationIntent,
   DEFAULT_REQUEST_FORWARD_FORM,
   formatRequestForwardEndpoint,
@@ -23,6 +24,7 @@ import {
   isExposedForwardBindHost,
   isRequestForwardRuleReadonly,
   normalizeRequestForwardRuleForm,
+  retainRequestForwardSelectedLogId,
   toRequestForwardRuleWriteInput,
   validateRequestForwardRuleForm,
 } from "./requestForward";
@@ -48,6 +50,20 @@ const baseForm: RequestForwardRuleForm = {
 };
 
 describe("request forward utilities", () => {
+  it("clamps the preferred inspector width to the current workspace", () => {
+    expect(clampRequestForwardInspectorWidth(undefined, 1200)).toBe(420);
+    expect(clampRequestForwardInspectorWidth("oops", 1200)).toBe(420);
+    expect(clampRequestForwardInspectorWidth(200, 1200)).toBe(320);
+    expect(clampRequestForwardInspectorWidth(900, 1200)).toBe(600);
+    expect(clampRequestForwardInspectorWidth(480, 800)).toBe(400);
+  });
+
+  it("retains a selected log only while its stable id is present", () => {
+    expect(retainRequestForwardSelectedLogId(7, [{ id: 9 }, { id: 7 }])).toBe(7);
+    expect(retainRequestForwardSelectedLogId(7, [{ id: 9 }])).toBeNull();
+    expect(retainRequestForwardSelectedLogId(null, [{ id: 9 }])).toBeNull();
+  });
+
   it("keeps background log refreshes on a continuous bounded window", () => {
     expect(getRequestForwardLogProbeLimit(30)).toBe(60);
     expect(getRequestForwardLogProbeLimit(990)).toBe(1000);
