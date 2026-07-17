@@ -287,6 +287,19 @@ describe("RequestForwardPanel source structure", () => {
     expect(inspectorSource).toContain("响应体预览");
   });
 
+  it("adapts log columns to the log region instead of the viewport", () => {
+    expect(logListSource).toContain("container-type: inline-size");
+    expect(logListSource).toContain("@container forward-log-list");
+    expect(logListSource).not.toMatch(/\.log-table\s*\{[^}]*min-width:\s*(?:720|570|430)px/s);
+  });
+
+  it("keeps the complete rule summary visible without reserving an action column", () => {
+    expect(listSource).toContain(':title="formatRequestForwardRuleSummary(rule)"');
+    expect(listSource).toMatch(/\.rule-row\s*\{[^}]*position:\s*relative/s);
+    expect(listSource).toMatch(/\.rule-row__actions\s*\{[^}]*position:\s*absolute/s);
+    expect(listSource).toMatch(/\.rule-row__summary span\s*\{[^}]*white-space:\s*normal/s);
+  });
+
   it("uses a three-pane workspace with a persistent resizer", () => {
     expect(source).toContain('class="request-forward-panel request-forward-workspace"');
     expect(source).toContain('class="inspector-resizer"');

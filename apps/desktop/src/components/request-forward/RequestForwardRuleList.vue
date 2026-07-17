@@ -148,7 +148,10 @@ function canStop(state: RequestForwardRuntimeState): boolean {
                 {{ stateLabel(stateOf(rule.id)) }}
               </span>
             </span>
-            <span class="rule-row__summary">
+            <span
+              class="rule-row__summary"
+              :title="formatRequestForwardRuleSummary(rule)"
+            >
               <b>{{ rule.protocol.toUpperCase() }}</b>
               <span>{{ formatRequestForwardRuleSummary(rule) }}</span>
             </span>
@@ -270,8 +273,8 @@ function canStop(state: RequestForwardRuntimeState): boolean {
 .rule-menu { display: block; width: 100%; }
 
 .rule-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  position: relative;
+  display: block;
   width: 100%;
   min-height: 50px;
   border-bottom: 1px solid #e2e7ec;
@@ -284,7 +287,9 @@ function canStop(state: RequestForwardRuntimeState): boolean {
 
 .rule-row__select {
   display: grid;
+  width: 100%;
   min-width: 0;
+  box-sizing: border-box;
   gap: 5px;
   border: 0;
   padding: 7px 5px 7px 9px;
@@ -296,13 +301,13 @@ function canStop(state: RequestForwardRuntimeState): boolean {
 
 .rule-row__select:disabled { cursor: not-allowed; opacity: .68; }
 .rule-row__select:focus-visible { outline: 2px solid var(--el-color-primary, #409eff); outline-offset: -2px; }
-.rule-row__topline { min-width: 0; justify-content: space-between; gap: 7px; }
+.rule-row__topline { min-width: 0; justify-content: space-between; gap: 7px; padding-right: 55px; }
 .rule-row__topline strong { overflow: hidden; color: #273548; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
-.rule-row__summary { min-width: 0; gap: 6px; color: #6d7a8d; font-size: 10px; }
-.rule-row__summary b { flex: none; color: #45627b; font-size: 9px; }
-.rule-row__summary span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rule-row__summary { min-width: 0; align-items: flex-start; gap: 6px; color: #6d7a8d; font-size: 10px; line-height: 1.4; }
+.rule-row__summary b { flex: none; margin-top: 1px; color: #45627b; font-size: 9px; }
+.rule-row__summary span { min-width: 0; overflow-wrap: anywhere; white-space: normal; }
 
-.rule-row__actions { align-self: center; gap: 0; padding-right: 3px; }
+.rule-row__actions { position: absolute; top: 5px; right: 3px; gap: 0; }
 .rule-row__actions :deep(.el-button) { width: 26px; height: 26px; margin: 0; }
 
 .state-label { flex: none; font-size: 10px; font-weight: 600; }

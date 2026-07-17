@@ -88,10 +88,14 @@ function outcomeLabel(log: RequestForwardLogRow): string {
 </template>
 
 <style scoped>
-.log-list { min-width: 0; }
+.log-list {
+  min-width: 0;
+  container-name: forward-log-list;
+  container-type: inline-size;
+}
 .log-state { display: flex; min-height: 96px; align-items: center; justify-content: center; gap: 10px; border: 1px dashed #d8dde5; color: #64748b; font-size: 12px; }
 .log-state.is-error { border-color: #efc8c5; background: #fff8f7; color: #a9332d; }
-.log-table { min-width: 720px; border: 1px solid #dfe4e9; border-radius: 5px; overflow: hidden; }
+.log-table { width: 100%; min-width: 0; border: 1px solid #dfe4e9; border-radius: 5px; overflow: hidden; }
 .log-table__header,
 .log-table__row {
   display: grid;
@@ -114,20 +118,18 @@ function outcomeLabel(log: RequestForwardLogRow): string {
 .outcome.is-error { background: #fdeceb; color: #ad3731; }
 .load-more { display: flex; justify-content: center; padding: 8px 0 2px; }
 
-@media (max-width: 1320px) {
-  .log-table { min-width: 570px; }
+@container forward-log-list (max-width: 820px) {
   .log-table__header,
-  .log-table__row { grid-template-columns: 58px minmax(180px, 1.5fr) minmax(110px, 1fr) 68px 68px 84px; }
+  .log-table__row { grid-template-columns: 58px minmax(150px, 1.5fr) minmax(96px, 1fr) 64px 68px 80px; }
   .log-table__header > :nth-child(4),
   .log-table__row > :nth-child(4),
   .log-table__header > :nth-child(6),
   .log-table__row > :nth-child(6) { display: none; }
 }
 
-@media (max-width: 900px) {
-  .log-table { min-width: 430px; }
+@container forward-log-list (max-width: 620px) {
   .log-table__header,
-  .log-table__row { grid-template-columns: 54px minmax(170px, 1fr) 66px 80px; }
+  .log-table__row { grid-template-columns: 54px minmax(0, 1fr) 66px 80px; }
   .log-table__header > :nth-child(3),
   .log-table__row > :nth-child(3),
   .log-table__header > :nth-child(5),
