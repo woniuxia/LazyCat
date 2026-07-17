@@ -21,10 +21,12 @@ import {
   getRequestForwardLogProbeLimit,
   getRequestForwardLogTargetCount,
   isRequestForwardRuleReadonly,
+  retainRequestForwardSelectedLogId,
   toRequestForwardRuleWriteInput,
   validateRequestForwardRuleForm,
 } from "../utils/requestForward";
 import RequestForwardLogList from "./request-forward/RequestForwardLogList.vue";
+import RequestForwardLogInspector from "./request-forward/RequestForwardLogInspector.vue";
 import RequestForwardRuleDialog from "./request-forward/RequestForwardRuleDialog.vue";
 import RequestForwardRuleList from "./request-forward/RequestForwardRuleList.vue";
 
@@ -58,6 +60,7 @@ const stats = ref<RequestForwardStats | null>(null);
 const statsLoading = ref(false);
 const statsError = ref("");
 const logItems = ref<RequestForwardLogRow[]>([]);
+const selectedLogId = ref<number | null>(null);
 const logTotal = ref(0);
 const logKeyword = ref("");
 const logMode = ref<"all" | RequestForwardLogOutcome>("all");
@@ -105,6 +108,9 @@ const hasActiveRuntimeRule = computed(() =>
   statuses.value.some((status) => isRequestForwardRuleReadonly(status.state)),
 );
 const hasMoreLogs = computed(() => logItems.value.length < logTotal.value);
+const selectedLog = computed(
+  () => logItems.value.find((item) => item.id === selectedLogId.value) ?? null,
+);
 const eventLabel = computed(() => {
   if (selectedRule.value?.protocol === "tcp") return "连接数";
   if (selectedRule.value?.protocol === "udp") return "数据报数";
@@ -197,6 +203,7 @@ function resetObservabilityState() {
   statsLoading.value = false;
   statsError.value = "";
   logItems.value = [];
+  selectedLogId.value = null;
   logTotal.value = 0;
   logsLoading.value = false;
   loadingMore.value = false;
@@ -256,6 +263,10 @@ async function loadLogs(
     logItems.value = append
       ? [...logItems.value, ...result.items.filter((item) => !knownIds.has(item.id))]
       : result.items;
+    selectedLogId.value = retainRequestForwardSelectedLogId(
+      selectedLogId.value,
+      logItems.value,
+    );
     logTotal.value = result.total;
     logRefreshError.value = "";
   } catch (error) {
@@ -308,6 +319,10 @@ async function refreshLogsInBackground(
     if (requestToken !== logRequestToken || !isLogQueryContextCurrent(context)) return;
 
     logItems.value = page.items;
+    selectedLogId.value = retainRequestForwardSelectedLogId(
+      selectedLogId.value,
+      logItems.value,
+    );
     logTotal.value = page.total;
     logRefreshError.value = "";
   } catch (error) {
@@ -339,6 +354,7 @@ function scheduleLogReload() {
   logRequestToken += 1;
   logItems.value = [];
   logTotal.value = 0;
+  selectedLogId.value = null;
   logDebounceTimer = setTimeout(() => {
     logDebounceTimer = undefined;
     void loadLogs(false);
@@ -348,6 +364,10 @@ function scheduleLogReload() {
 function loadMoreLogs() {
   if (loadingMore.value || logInFlight) return;
   void loadLogs(true);
+}
+
+function selectLog(id: number) {
+  selectedLogId.value = id;
 }
 
 function reloadCurrentObservability() {
@@ -685,6 +705,7 @@ async function clearLogs() {
     await invoke<{ ok: boolean }>("tool:request-forward:log-clear", { id: rule.id });
     if (selectionIntentToken !== intentToken || selectedId.value !== rule.id) return;
     ElMessage.success("转发日志已清空");
+    selectedLogId.value = null;
   } catch (error) {
     ElMessage.error(`清空日志失败：${errorMessage(error)}`);
   } finally {
@@ -789,6 +810,7 @@ watch(logMode, () => {
   logRequestToken += 1;
   logItems.value = [];
   logTotal.value = 0;
+  selectedLogId.value = null;
   void loadLogs(false);
 });
 watch(hasActiveRuntimeRule, syncPolling, { immediate: true });
@@ -938,10 +960,12 @@ onUnmounted(() => {
 
                   <RequestForwardLogList
                     :items="logItems"
+                    :selected-id="selectedLogId"
                     :loading="logsLoading"
                     :loading-more="loadingMore"
                     :error="logError"
                     :has-more="hasMoreLogs"
+                    @select="selectLog"
                     @retry="loadLogs(false)"
                     @load-more="loadMoreLogs"
                   />
@@ -959,6 +983,13 @@ onUnmounted(() => {
         </el-button>
       </div>
     </main>
+
+    <aside class="log-inspector-shell">
+      <RequestForwardLogInspector
+        :log="selectedLog"
+        @close="selectedLogId = null"
+      />
+    </aside>
 
     <RequestForwardRuleDialog
       :visible="editorMode !== null"
@@ -983,13 +1014,15 @@ onUnmounted(() => {
 <style scoped>
 .request-forward-panel {
   display: grid;
-  grid-template-columns: minmax(280px, 34%) minmax(0, 1fr);
+  grid-template-columns: 220px minmax(0, 1fr) 380px;
   width: 100%;
   height: 100%;
   min-height: 0;
   overflow: hidden;
   background: #fff;
 }
+
+.log-inspector-shell { display: flex; min-width: 0; min-height: 0; border-left: 1px solid #dfe4e9; }
 
 .rule-workbench {
   display: flex;

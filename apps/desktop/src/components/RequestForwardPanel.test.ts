@@ -32,6 +32,13 @@ const dialogUrl = new URL(
 const dialogSource = existsSync(fileURLToPath(dialogUrl))
   ? readFileSync(fileURLToPath(dialogUrl), "utf8")
   : "";
+const inspectorUrl = new URL(
+  "./request-forward/RequestForwardLogInspector.vue",
+  import.meta.url,
+);
+const inspectorSource = existsSync(fileURLToPath(inspectorUrl))
+  ? readFileSync(fileURLToPath(inspectorUrl), "utf8")
+  : "";
 
 describe("RequestForwardPanel source structure", () => {
   it("keeps running rules readonly and exposes stop-and-edit", () => {
@@ -258,17 +265,31 @@ describe("RequestForwardPanel source structure", () => {
     expect(logListSource).toContain("uploadBytes");
     expect(logListSource).toContain("downloadBytes");
     expect(logListSource).toContain("durationMs");
-    expect(logListSource).toMatch(/log\.protocol === ["']http["']/);
-    expect(logListSource).toContain("requestHeaders");
-    expect(logListSource).toContain("responseHeaders");
-    expect(logListSource).toContain("requestBodyPreview");
-    expect(logListSource).toContain("responseBodyPreview");
-    expect(logListSource).toContain("内容已截断");
+    expect(inspectorSource).toMatch(/log\.protocol === ["']http["']/);
+    expect(inspectorSource).toContain("requestHeaders");
+    expect(inspectorSource).toContain("responseHeaders");
+    expect(inspectorSource).toContain("requestBodyPreview");
+    expect(inspectorSource).toContain("responseBodyPreview");
+    expect(inspectorSource).toContain("内容已截断");
+  });
+
+  it("renders selectable dense log rows and a separate inspector", () => {
+    expect(logListSource).toContain("selectedId: number | null");
+    expect(logListSource).toMatch(/select: \[id: number\]/);
+    expect(logListSource).toContain('class="log-table"');
+    expect(logListSource).toContain('class="log-table__row"');
+    expect(logListSource).not.toContain('class="http-details"');
+    expect(source).toContain("selectedLogId");
+    expect(source).toContain("RequestForwardLogInspector");
+    expect(inspectorSource).toContain("请求头");
+    expect(inspectorSource).toContain("响应头");
+    expect(inspectorSource).toContain("请求体预览");
+    expect(inspectorSource).toContain("响应体预览");
   });
 
   it("never renders TCP or UDP payload details", () => {
-    expect(logListSource).not.toMatch(/payload/i);
-    expect(logListSource).toContain('v-if="log.protocol === \'http\'"');
+    expect(inspectorSource).not.toMatch(/payload/i);
+    expect(inspectorSource).toContain('v-if="log.protocol === \'http\'"');
   });
 
   it("provides keyword, success/error filters and loading states", () => {
