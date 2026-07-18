@@ -187,7 +187,7 @@ fn hosts_activate(payload: &Value) -> Result<Value, String> {
     let backup_dir = get_data_dir()?.join("hosts-backups");
     fs::create_dir_all(&backup_dir).map_err(|e| format!("create backup dir failed: {e}"))?;
     let original =
-        fs::read_to_string(hosts_path()).map_err(|e| format!("read hosts failed: {e}"))?;
+        fs::read_to_string(system_hosts_path()).map_err(|e| format!("read hosts failed: {e}"))?;
     let stamp = Local::now().format("%Y-%m-%dT%H-%M-%S").to_string();
     let safe_name = sanitize_filename(profile_name);
     let backup_path = backup_dir.join(format!("{stamp}-{safe_name}.hosts.bak"));
@@ -221,7 +221,7 @@ fn hosts_reorder(payload: &Value) -> Result<Value, String> {
     Ok(json!({"ok": true}))
 }
 
-fn hosts_path() -> PathBuf {
+pub(crate) fn system_hosts_path() -> PathBuf {
     let system_root = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_string());
     PathBuf::from(system_root)
         .join("System32")
@@ -232,7 +232,7 @@ fn hosts_path() -> PathBuf {
 
 /// Try direct write first; on PermissionDenied, trigger UAC elevation via PowerShell.
 fn write_hosts_file(content: &str) -> Result<(), String> {
-    let path = hosts_path();
+    let path = system_hosts_path();
 
     match fs::write(&path, content.as_bytes()) {
         Ok(()) => Ok(()),
@@ -274,7 +274,7 @@ fn elevated_write_hosts(content: &str) -> Result<(), String> {
     let script_path = data_dir.join(format!("hosts-elevate-{nonce}.ps1"));
     let vbs_path = data_dir.join(format!("hosts-elevate-{nonce}.vbs"));
     let marker_path = data_dir.join(format!("hosts-elevate-{nonce}.marker"));
-    let hosts = hosts_path();
+    let hosts = system_hosts_path();
 
     fs::write(&temp_path, content).map_err(|e| format!("write temp file failed: {e}"))?;
 
@@ -363,13 +363,13 @@ Set UAC = Nothing"#,
 }
 
 fn hosts_read_system() -> Result<Value, String> {
-    let content =
-        fs::read_to_string(hosts_path()).map_err(|e| format!("read system hosts failed: {e}"))?;
+    let content = fs::read_to_string(system_hosts_path())
+        .map_err(|e| format!("read system hosts failed: {e}"))?;
     Ok(json!({ "content": content }))
 }
 
 fn hosts_admin_check() -> Result<Value, String> {
-    let path = hosts_path();
+    let path = system_hosts_path();
     let can_write = fs::OpenOptions::new().write(true).open(&path).is_ok();
     Ok(json!({ "canWrite": can_write }))
 }
@@ -431,8 +431,8 @@ fn hosts_backup_restore(payload: &Value) -> Result<Value, String> {
     let backup_content =
         fs::read_to_string(&backup_path).map_err(|e| format!("read backup file failed: {e}"))?;
 
-    let current =
-        fs::read_to_string(hosts_path()).map_err(|e| format!("read current hosts failed: {e}"))?;
+    let current = fs::read_to_string(system_hosts_path())
+        .map_err(|e| format!("read current hosts failed: {e}"))?;
     fs::create_dir_all(&backup_dir).map_err(|e| format!("create backup dir failed: {e}"))?;
     let stamp = Local::now().format("%Y-%m-%dT%H-%M-%S").to_string();
     let pre_restore_name = format!("{stamp}-pre-restore.hosts.bak");

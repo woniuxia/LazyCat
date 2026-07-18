@@ -153,4 +153,13 @@ describe("networkFavorites", () => {
       }),
     ).toBe(false);
   });
+  it("parses bracketed IPv6 history targets without splitting the address", () => {
+    const favorite = buildNetworkFavoriteFromHistory(
+      { protocol: "tcp", target: "[2001:db8::1]:443", timeoutMs: 2000 },
+      "IPv6",
+      { id: "ipv6", now: 7 },
+    );
+    expect(favorite.host).toBe("2001:db8::1");
+    expect(favorite.port).toBe(443);
+  });
 });

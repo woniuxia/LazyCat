@@ -8,6 +8,70 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-07-18: 访问链路诊断前端原位替换
+
+**场景**: 保留工具 ID `network`，将旧连通性面板替换为分层访问链路诊断，并保留 PING/TCP/UDP 单项探测。
+**问题**:
+1. Tauri 事件可能早于 `diagnosis_start` 返回，事件也可能丢失、重复或晚到；只监听事件会漏掉首个快照，只轮询则无法及时展示步骤进度。
+2. 步骤 lifecycle 与 outcome 是独立事实，前端合并成一个成功/失败标签会掩盖 blocked、skipped、cancelled 和 unverified。
+3. 旧 UDP 无响应结果曾使用 `reachable: true`，不能继续展示为“可达”；旧历史目标也不能用简单冒号切分，否则破坏 IPv6。
+**解决**:
+1. 诊断工作区先注册监听再 start；start 返回前按 runId 缓存最高 sequence，返回后立即 get 恢复事实源，并用串行 setTimeout 轮询兜底。所有快照按 active runId 和单调 sequence 接收。
+2. 步骤分别展示 lifecycle、outcome、原始错误和折叠证据；后端未提供 conclusions 时明确显示“步骤汇总”，不在前端伪造结论。
+3. 父面板默认“链路诊断”，用 v-show 保留诊断和单项探测实例状态；单项探测继续读写旧收藏/历史 key，UDP 分成收到响应、明确不可达、无响应无法判断三态。
+4. IPv6 socket 目标统一格式化为 `[IPv6]:port`，旧记录通过方括号规则和最后一个冒号解析；目录名称改为“访问链路诊断”，工具 ID 和 registry 保持不变。
+**关键点**:
+1. 长任务 UI 中事件是低延迟通知，get 快照是恢复来源；两条路径必须进入同一个 sequence 去重函数。
+2. 取消后保留已完成步骤，卸载时取消仍在运行的任务并处理 listener Promise 与卸载竞态。
+3. 兼容期应保留旧设置 key 和数据，不在 UI 替换任务中提前执行迁移；数据 schema 和脱敏导出交由独立迁移任务处理。
+**涉及文件**:
+- `apps/desktop/src/components/NetworkPanel.vue`
+- `apps/desktop/src/components/network/NetworkDiagnosisWorkspace.vue`
+- `apps/desktop/src/components/network/NetworkQuickProbe.vue`
+- `apps/desktop/src/components/NetworkPanel.test.ts`
+- `apps/desktop/src/utils/accessPathDiagnosticsView.ts`
+- `apps/desktop/src/utils/accessPathDiagnosticsView.test.ts`
+- `apps/desktop/src/composables/toolCatalog.ts`
+
+**验证**:
+- `pnpm --filter @lazycat/desktop test src/components/NetworkPanel.test.ts src/utils/accessPathDiagnosticsView.test.ts src/utils/accessPathInput.test.ts src/utils/networkFavorites.test.ts`
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+
+**使用次数**: 0
+
+## 2026-07-18: 访问链路 TCP、TLS、HTTP 探测
+
+**场景**: 在长任务运行时和只读环境适配器之后，接入真实 TCP、TLS、HTTP 与 HTTP 代理 CONNECT 探测，同时保留原 network action。
+**问题**:
+1. 直连、HTTP 代理访问 HTTP、HTTP 代理 CONNECT 访问 HTTPS 的实际连接对象不同，不能把“代理端口可达”写成“目标端口可达”。
+2. TLS 需要分离连接 IP、SNI、证书校验名和信任来源；OpenSSL 本地链结果不能冒充 Windows 系统信任或在线吊销结论。
+3. HTTP 必须限制重定向、响应头、响应体和整体耗时；TLS/CONNECT 失败时不能合成 HTTP 状态，同时不能泄露凭据或敏感查询参数。
+**解决**:
+1. TCP 对候选 A/AAAA 地址做最多 4 路并发探测，逐地址保留地址族、耗时、原始 OS 错误和错误分类；代理路径明确将 destinationRole 标为 proxy。
+2. TLS 对直连地址逐个握手；代理路径先逐代理地址 CONNECT，再在隧道上握手。契约使用独立 `verifyHostname`，不从 SNI 或 HTTP Host 推导；证据分开记录 SNI、校验名、证书链、OpenSSL 链验证、Windows trust unsupported 和 revocation unverified。
+3. HTTP 使用通用 transport connector 统一驱动明文 TCP 与 TLS stream，支持 HEAD、405/501 受限 GET、重定向和 HTTP 代理 absolute-form；每跳重新建立受限连接并保留连接证据。
+4. 默认不发送 Cookie、Authorization、Proxy-Authorization 或请求体；请求保留实际 query，证据和 Location 对敏感 query 值脱敏。
+5. 主链地址只来自 connectionIp、目标 IP 或 OS 有效解析；指定 DNS 仍是旁路对照。代理画像 unresolved、无候选地址、CONNECT/TLS 前置失败分别标为 blocked，不包装成失败或成功。明文正向代理无法可靠表达独立 connectionIp 时显式标记 unsupported。
+**关键点**:
+1. 无共享运行上下文时，各步骤独立重算同一代理画像并建立自己的连接；每步证据必须记录实际对端，不能根据前一步结果静态推断。
+2. HTTPS 的 HTTP connector 只在主机名和 OpenSSL 链校验通过后发送请求；Windows 信任和吊销能力不足仍在 TLS 证据中显式保留。
+3. 阻塞 OpenSSL/HTTP socket 操作放入 spawn_blocking，并按统一 deadline 设置阶段剩余 socket timeout；CancellationToken 在 DNS/TCP/CONNECT/TLS 后和 HTTP 写请求前检查，取消后不再发起后续请求，晚到结果也不能回写终态。
+**涉及文件**:
+- `apps/desktop/src-tauri/src/tools/access_path_diagnostics/probes/tcp.rs`
+- `apps/desktop/src-tauri/src/tools/access_path_diagnostics/probes/tls.rs`
+- `apps/desktop/src-tauri/src/tools/access_path_diagnostics/probes/http.rs`
+- `apps/desktop/src-tauri/src/tools/access_path_diagnostics/probes/mod.rs`
+- `apps/desktop/src-tauri/src/tools/access_path_diagnostics/runtime.rs`
+
+**验证**:
+- `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml access_path_diagnostics -- --nocapture`（68 通过）
+- `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml tools::network::tests -- --nocapture`（8 通过）
+- `pnpm test src/utils/accessPathInput.test.ts`（13 通过）
+- `pnpm typecheck`
+
+**使用次数**: 0
+
 ## 2026-07-16: 高密度工作台分区与连续日志自动刷新
 
 **场景**: 将请求转发右侧工作台拆为配置/观测两个任务型 Tab，并让运行日志复用既有状态轮询自动刷新，同时保持分页连续和已有数据可读。
@@ -32,6 +96,106 @@
 - `pnpm typecheck`
 - `pnpm --filter @lazycat/desktop build:web`
 - 未自动启动产品 UI，运行时视觉冒烟未执行
+
+**使用次数**: 0
+
+## 2026-07-18: 访问链路诊断契约与输入归一化
+
+**场景**: 为原位替换 `network` 工具先建立前后端统一契约，不提前接入运行时或网络探测。
+**问题**:
+1. URL、域名、IPv4、IPv6 和带端口地址不能依赖简单冒号切分，裸 IPv6、`[IPv6]:port` 和 `host:port` 的语义不同。
+2. 步骤执行状态与诊断结论混用时，`blocked/skipped/cancelled` 会被错误表达成探测失败或成功。
+3. TypeScript 与 Rust 分别定义模型时，字段可选性、枚举值和 JSON 命名容易漂移。
+**解决**:
+1. TypeScript 纯函数统一输出协议、规范化主机、目标类型、端口、路径、URL、SNI、HTTP Host 和连接 IP；URL 默认使用 HTTPS，并显式校验覆盖项。
+2. 生命周期固定为 `pending/running/completed/blocked/skipped/cancelled`，结果固定为 `success/warning/failed/unverified`，两者独立建模。
+3. 报告使用 `schemaVersion = 1`，证据、结论和建议通过稳定 ID 引用；Rust serde 使用 `camelCase` 字段和 `snake_case` 枚举值，并用序列化测试锁定 wire format。
+**关键点**:
+1. IPv6 应交给结构化解析器校验和规范化；裸 IPv6 只表示地址，带端口时必须使用方括号。
+2. SNI、HTTP Host 和连接 IP 是三个独立字段，不能从同一个字符串在探测阶段临时猜测。
+3. 跨语言契约要同时对齐字段名、枚举值、可选性和空集合序列化行为，不能只对齐类型名称。
+**涉及文件**:
+- `apps/desktop/src/types/access-path-diagnostics.ts`
+- `apps/desktop/src/types/index.ts`
+- `apps/desktop/src/utils/accessPathInput.ts`
+- `apps/desktop/src/utils/accessPathInput.test.ts`
+- `apps/desktop/src-tauri/src/tools/access_path_diagnostics/model.rs`
+- `apps/desktop/src-tauri/src/tools/access_path_diagnostics/mod.rs`
+- `apps/desktop/src-tauri/src/tools/mod.rs`
+
+**验证**:
+- `pnpm --filter @lazycat/desktop test src/utils/accessPathInput.test.ts`
+- `pnpm --filter @lazycat/desktop typecheck`
+- `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --bin lazycat-desktop access_path_diagnostics`
+
+**使用次数**: 0
+
+## 2026-07-18: 访问链路诊断长任务运行时
+
+**场景**: 在真实代理、DNS、TCP、TLS、HTTP 探测器接入前，先建立支持进度、取消和快照恢复的诊断任务协议。
+**问题**:
+1. 通用 `tool_execute` 同步返回，无法承载逐步事件、整体取消和事件丢失后的最终状态恢复。
+2. 用户取消、单步超时、整体超时和晚到结果并发发生时，旧结果可能覆盖终态或制造伪成功。
+3. 窗口关闭、应用退出和大量已完成任务会让后台任务或快照注册表持续残留。
+**解决**:
+1. 新增独立 `diagnosis_start/get/cancel` Tauri command；start 只返回 runId，快照事件携带单调 sequence，get 返回注册表中的最新事实。
+2. 每个 run 使用独立 `CancellationToken`、步骤状态和窗口所有权；状态先落快照再发事件，终态拒绝晚到步骤结果，重复取消保持幂等。
+3. 单步和整体超时分别落为 `step_timeout` 与 `diagnosis_timeout`，保留已完成步骤；窗口关闭和应用退出主动取消并移除所属任务。
+4. 活跃任务设置并发上限，终态快照按创建顺序保留固定数量；当前未接入的探测器显式返回 `skipped/capability_not_implemented`。
+**关键点**:
+1. 事件是通知通道，注册表快照才是恢复来源；事件发送失败不能回滚已落地状态。
+2. 取消必须先使 run 进入终态，再丢弃底层晚到结果；不能只在前端停止 loading。
+3. 任务所有权绑定启动窗口，get/cancel 不允许跨窗口访问同一个 runId。
+**涉及文件**:
+- `apps/desktop/src-tauri/src/tools/access_path_diagnostics/runtime.rs`
+- `apps/desktop/src-tauri/src/tools/access_path_diagnostics/mod.rs`
+- `apps/desktop/src-tauri/src/events.rs`
+- `apps/desktop/src-tauri/src/main.rs`
+- `apps/desktop/src/bridge/events.ts`
+- `apps/desktop/src/bridge/tauri.ts`
+- `apps/desktop/src/types/access-path-diagnostics.ts`
+- `apps/desktop/src/types/index.ts`
+
+**验证**:
+- `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --bin lazycat-desktop access_path_diagnostics -- --nocapture`
+- `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --bin lazycat-desktop tools::contract_tests::rust_events_are_declared_on_frontend -- --nocapture`
+- `pnpm --filter @lazycat/desktop test src/utils/accessPathInput.test.ts`
+- `pnpm --filter @lazycat/desktop typecheck`
+
+**使用次数**: 0
+
+## 2026-07-18: 访问链路诊断只读环境适配器
+
+**场景**: 为访问链路诊断接入代理、Hosts 和 DNS 环境证据，同时保持系统配置只读并明确能力边界。
+**问题**:
+1. 不同客户端分别采用 WinINET、WinHTTP 或代理环境变量，不存在适用于所有应用的唯一代理结论；PAC/WPAD 未执行时也不能套用静态代理伪造决策。
+2. 系统有效解析可能受 Hosts、缓存、NRPT、VPN 和 DoH 影响，指定 DNS 查询只能作为旁路对照，二者不能混成同一种 DNS 结果。
+3. Hosts 和 DNS 旧能力会把部分错误压成空结果，无法区分无记录、读取失败、格式错误和服务器响应错误。
+**解决**:
+1. 代理适配器分别读取环境变量、当前用户 WinINET 和 WinHTTP 画像；支持域名/IP/端口/CIDR `NO_PROXY`，输出配置来源、命中规则和脱敏代理端点。WinINET 使用 `WinHttpGetIEProxyConfigForCurrentUser`，WinHTTP 使用 `WinHttpGetDefaultProxyConfiguration`。
+2. PAC/WPAD 只报告 configured + unsupported；运行请求支持 `auto/environment/windows_user/winhttp/direct` 画像选择，强制直连也写入显式证据。
+3. Hosts 适配器复用现有系统路径，报告目标命中、重复、多地址、IPv4/IPv6 混合、注释记录、相关注释和不可见字符/格式问题。
+4. DNS 适配器用 OS `getaddrinfo` 表达系统有效解析，用 Hickory 对指定服务器旁路查询 A/AAAA/CNAME/PTR，并区分 `no_records/nxdomain/servfail/refused/timeout/transport_error/malformed_response`。
+5. Windows DNS 缓存、NRPT、DoH 明确标记 unsupported；三类适配器结果统一写入步骤 evidence，不把能力缺失表达成成功。
+**关键点**:
+1. 代理凭据、PAC 查询参数和 fragment 在进入 evidence 前必须脱敏，不能依赖报告导出阶段再补救。
+2. A 成功但 AAAA/CNAME 无记录是正常 DNS 组合，不能仅因可选类型无记录把整步标成警告。
+3. IP 目标未指定旁路 DNS 时应标记 DNS 不适用；指定服务器后才执行 PTR 对照查询。
+**涉及文件**:
+- `apps/desktop/src-tauri/src/tools/access_path_diagnostics/adapters/proxy.rs`
+- `apps/desktop/src-tauri/src/tools/access_path_diagnostics/adapters/hosts.rs`
+- `apps/desktop/src-tauri/src/tools/access_path_diagnostics/adapters/dns.rs`
+- `apps/desktop/src-tauri/src/tools/access_path_diagnostics/adapters/mod.rs`
+- `apps/desktop/src-tauri/src/tools/access_path_diagnostics/runtime.rs`
+- `apps/desktop/src-tauri/src/tools/hosts.rs`
+- `apps/desktop/src/types/access-path-diagnostics.ts`
+- `apps/desktop/src/types/index.ts`
+
+**验证**:
+- `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --bin lazycat-desktop access_path_diagnostics -- --nocapture`
+- `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --bin lazycat-desktop tools::hosts::tests -- --nocapture`
+- `pnpm --filter @lazycat/desktop test src/utils/accessPathInput.test.ts`
+- `pnpm --filter @lazycat/desktop typecheck`
 
 **使用次数**: 0
 
@@ -3127,5 +3291,46 @@ Cron 工具原先仅提供基础 6 字段输入与简单预览，缺少规范化
 - `pnpm test`
 - `pnpm typecheck`
 - `pnpm --filter @lazycat/desktop build:web`
+
+**使用次数**: 0
+
+## 2026-07-18: 访问链路旧数据迁移与脱敏报告
+
+**场景**: 在原位替换 network 面板后兼容旧收藏/历史，并为访问链路诊断提供受限持久化、复制和导出报告。
+**解决**:
+1. 新增 `network_diagnostics` 设置 envelope，固定 `schemaVersion: 1`；首次加载从 `network_test_favorites` / `network_test_history` 幂等构造新状态，旧 key 保留并继续同步写入。
+2. 历史目标解析只对单冒号 `host:port` 拆分，`[IPv6]:port` 使用方括号规则，裸 IPv6 不被误切；详细报告最多保留 10 条并限制单条/总大小。
+3. 报告复制与导出统一递归脱敏，清除代理凭据、Authorization、Cookie 和敏感查询参数；终态报告持久化同样使用脱敏结果。
+**关键点**:
+- 迁移必须读新 envelope 优先、旧 key 只作回退，重复执行不能生成随机 ID 或覆盖用户原始数据。
+- 脱敏需同时覆盖可解析 URL 和 malformed 文本，查询参数按敏感名称匹配，不能只依赖 URL parser。
+**涉及文件**:
+- `apps/desktop/src/utils/networkDiagnosticsPersistence.ts`
+- `apps/desktop/src/utils/accessPathReport.ts`
+- `apps/desktop/src/utils/networkFavorites.ts`
+- `apps/desktop/src/components/network/NetworkQuickProbe.vue`
+- `apps/desktop/src/components/network/NetworkDiagnosisWorkspace.vue`
+**验证**:
+- `pnpm --filter @lazycat/desktop exec vitest run src/utils/networkFavorites.test.ts src/utils/networkDiagnosticsPersistence.test.ts src/utils/accessPathReport.test.ts src/components/NetworkPanel.test.ts`
+- `pnpm typecheck`
+- `git diff --check`
+
+**使用次数**: 0
+## 2026-07-18: 访问链路诊断集成 fixture 与终态结论
+
+**场景**: 收口访问链路诊断的跨层验证，并让运行时终态报告产生可追溯结论和建议。
+**解决**:
+1. 增加本地 TCP/TLS/HTTP/代理 fixture 覆盖，DNS fixture 同时监听 UDP/TCP，验证 NXDOMAIN、SERVFAIL、REFUSED、无记录和超时分类；补取消、整体/单步超时、晚到结果和并发清理断言，并明确候选域名扩展为 unsupported。
+2. 终态报告按真实 step lifecycle/outcome 生成 conclusions/recommendations，失败或 blocked 步骤补带错误证据的结论；全成功报告生成 info 结论，取消报告保留已完成步骤并生成可引用证据。
+3. 保持 `network.rs` 的 `http_status_*` 与 `chmod_calc` action 不变，并用原有测试锁定兼容性。
+**关键点**:
+- 本地 DNS fixture 必须同时提供 UDP 与 TCP；Hickory 可能在两种传输间分配查询，单监听 UDP 会制造假超时。
+- 结论和建议只能引用报告中的 evidenceId，不能从前端状态臆造成功；取消/超时也应保留真实错误阶段。
+**涉及文件**:
+- `apps/desktop/src-tauri/src/tools/access_path_diagnostics/adapters/dns.rs`
+- `apps/desktop/src-tauri/src/tools/access_path_diagnostics/runtime.rs`
+**验证**:
+- `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml access_path_diagnostics -- --nocapture`（72 通过）
+- `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml tools::network::tests -- --nocapture`（8 通过）
 
 **使用次数**: 0

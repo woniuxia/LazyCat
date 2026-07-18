@@ -43,6 +43,7 @@ pub mod time;
 pub mod todo;
 pub mod vault;
 pub mod attachments;
+pub mod access_path_diagnostics;
 pub mod system;
 pub mod widget;
 

@@ -1422,6 +1422,7 @@ fn main() {
             match event {
                 WindowEvent::CloseRequested { api, .. } => {
                     if window.label() != MAIN_WINDOW_LABEL {
+                        tools::access_path_diagnostics::runtime::on_window_closed(window.label());
                         return;
                     }
                     // 读取用户设置
@@ -1441,6 +1442,8 @@ fn main() {
                         api.prevent_close();
                         tools::vault::force_lock();
                         let _ = window.hide();
+                    } else {
+                        tools::access_path_diagnostics::runtime::on_window_closed(window.label());
                     }
                     // 否则允许窗口关闭（应用退出）
                 }
@@ -1466,12 +1469,16 @@ fn main() {
             suppress_clipboard_capture,
             spotlight_pick,
             spotlight_close,
+            tools::access_path_diagnostics::runtime::diagnosis_start,
+            tools::access_path_diagnostics::runtime::diagnosis_get,
+            tools::access_path_diagnostics::runtime::diagnosis_cancel,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app_handle, event| {
-            // 应用退出时销毁挂件窗口
+            // 应用退出时取消长任务并销毁挂件窗口
             if let RunEvent::ExitRequested { .. } = event {
+                tools::access_path_diagnostics::runtime::on_app_exit();
                 tools::request_forward::on_app_exit();
                 tools::widget::on_app_exit(app_handle);
             }

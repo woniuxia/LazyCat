@@ -9,6 +9,7 @@ pub const EVENT_SPOTLIGHT_RESET: &str = "spotlight-reset";
 pub const EVENT_WIDGET_COLOR_MODE: &str = "widget://color-mode";
 pub const EVENT_WIDGET_DASHBOARD_DATA: &str = "widget://dashboard-data";
 pub const EVENT_WIDGET_NAVIGATE: &str = "widget://navigate";
+pub const EVENT_ACCESS_PATH_DIAGNOSIS_SNAPSHOT: &str = "access-path-diagnosis://snapshot";
 
 /// 供契约对账测试使用；由具名常量引用组成，无双写漂移。
 #[cfg(test)]
@@ -24,4 +25,5 @@ pub const ALL: &[&str] = &[
     EVENT_WIDGET_COLOR_MODE,
     EVENT_WIDGET_DASHBOARD_DATA,
     EVENT_WIDGET_NAVIGATE,
+    EVENT_ACCESS_PATH_DIAGNOSIS_SNAPSHOT,
 ];

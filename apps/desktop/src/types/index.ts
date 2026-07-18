@@ -139,3 +139,28 @@ export type {
   RequestForwardLogPage,
   RequestForwardStats,
 } from "./request-forward";
+export type {
+  AccessPathProtocol,
+  AccessPathTargetKind,
+  AccessPathStepId,
+  AccessPathStepLifecycle,
+  AccessPathStepOutcome,
+  AccessPathConclusionSeverity,
+  AccessPathRunStatus,
+  AccessPathProxyProfile,
+  AccessPathJsonValue,
+  NormalizedAccessPathTarget,
+  AccessPathInputOptions,
+  AccessPathError,
+  AccessPathEvidence,
+  AccessPathConclusion,
+  AccessPathRecommendation,
+  AccessPathStepSnapshot,
+  AccessPathReport,
+  AccessPathDiagnosisStartRequest,
+  AccessPathDiagnosisStartResponse,
+  AccessPathDiagnosisRunSnapshot,
+  AccessPathDiagnosisSnapshotEvent,
+  AccessPathDiagnosisCancelResponse,
+} from "./access-path-diagnostics";
+export { ACCESS_PATH_REPORT_SCHEMA_VERSION } from "./access-path-diagnostics";

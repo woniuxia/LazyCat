@@ -24,4 +24,6 @@ export const APP_EVENTS = {
   WIDGET_DASHBOARD_DATA: "widget://dashboard-data",
   /** Rust -> 主窗口：Widget 快捷导航 payload { kind: string; toolId?: string } */
   WIDGET_NAVIGATE: "widget://navigate",
+  /** Rust -> 启动诊断的窗口：访问链路诊断运行快照 */
+  ACCESS_PATH_DIAGNOSIS_SNAPSHOT: "access-path-diagnosis://snapshot",
 } as const;

@@ -91,9 +91,21 @@ export function historySourceToNetworkForm(
   source: NetworkHistoryFavoriteSource,
 ): NetworkFavoriteForm {
   if (source.protocol === "tcp" || source.protocol === "udp") {
-    const separatorIndex = source.target.lastIndexOf(":");
-    const host = separatorIndex > 0 ? source.target.slice(0, separatorIndex) : source.target;
-    const port = separatorIndex > 0 ? Number(source.target.slice(separatorIndex + 1)) : 0;
+    const target = source.target.trim();
+    const bracketed = /^\[([^\]]+)]:(\d+)$/.exec(target);
+    const firstColon = target.indexOf(":");
+    const lastColon = target.lastIndexOf(":");
+    const separatorIndex = bracketed || firstColon < 0 || firstColon !== lastColon ? -1 : lastColon;
+    const host = bracketed
+      ? bracketed[1]
+      : separatorIndex > 0
+        ? target.slice(0, separatorIndex)
+        : target;
+    const port = bracketed
+      ? Number(bracketed[2])
+      : separatorIndex > 0
+        ? Number(target.slice(separatorIndex + 1))
+        : 0;
     return {
       protocol: source.protocol,
       host,

@@ -1,6 +1,17 @@
 ﻿// 本文件被 src-tauri 契约对账测试逐行解析。
 // CHANNEL_MAP 请保持一行一条目格式：`"tool:x:y": { domain: "x", action: "y" },`
 import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import type {
+  AccessPathDiagnosisCancelResponse,
+  AccessPathDiagnosisRunSnapshot,
+  AccessPathDiagnosisSnapshotEvent,
+  AccessPathDiagnosisStartRequest,
+  AccessPathDiagnosisStartResponse,
+} from "../types/access-path-diagnostics";
+import { APP_EVENTS } from "./events";
+
+export const ACCESS_PATH_DIAGNOSIS_SNAPSHOT_EVENT = APP_EVENTS.ACCESS_PATH_DIAGNOSIS_SNAPSHOT;
 
 export interface ToolRequest {
   request_id: string;
@@ -43,6 +54,30 @@ export async function resumeAllShortcuts(): Promise<void> {
 
 export async function suppressClipboardCapture(content: string): Promise<void> {
   await invoke("suppress_clipboard_capture", { content });
+}
+
+export async function diagnosisStart(
+  request: AccessPathDiagnosisStartRequest,
+): Promise<AccessPathDiagnosisStartResponse> {
+  return invoke<AccessPathDiagnosisStartResponse>("diagnosis_start", { request });
+}
+
+export async function diagnosisGet(runId: string): Promise<AccessPathDiagnosisRunSnapshot> {
+  return invoke<AccessPathDiagnosisRunSnapshot>("diagnosis_get", { runId });
+}
+
+export async function diagnosisCancel(
+  runId: string,
+): Promise<AccessPathDiagnosisCancelResponse> {
+  return invoke<AccessPathDiagnosisCancelResponse>("diagnosis_cancel", { runId });
+}
+
+export function onAccessPathDiagnosisSnapshot(
+  handler: (event: AccessPathDiagnosisSnapshotEvent) => void,
+): Promise<UnlistenFn> {
+  return listen<AccessPathDiagnosisSnapshotEvent>(ACCESS_PATH_DIAGNOSIS_SNAPSHOT_EVENT, (event) => {
+    handler(event.payload);
+  });
 }
 
 const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
