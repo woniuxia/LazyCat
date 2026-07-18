@@ -103,8 +103,32 @@ fn source_name(path: &Path) -> Result<String, ArchiveError> {
     Ok(name.to_owned())
 }
 
+#[cfg(not(windows))]
 fn comparison_key(value: &str) -> String {
     value.chars().flat_map(char::to_lowercase).collect()
+}
+
+#[cfg(windows)]
+fn basename_eq_ignore_case(left: &str, right: &str) -> bool {
+    use windows_sys::Win32::Foundation::TRUE;
+    use windows_sys::Win32::Globalization::{CompareStringOrdinal, CSTR_EQUAL};
+
+    let left: Vec<u16> = left.encode_utf16().collect();
+    let right: Vec<u16> = right.encode_utf16().collect();
+    unsafe {
+        CompareStringOrdinal(
+            left.as_ptr(),
+            left.len() as i32,
+            right.as_ptr(),
+            right.len() as i32,
+            TRUE,
+        ) == CSTR_EQUAL
+    }
+}
+
+#[cfg(not(windows))]
+fn basename_eq_ignore_case(left: &str, right: &str) -> bool {
+    comparison_key(left) == comparison_key(right)
 }
 
 fn zip_entry_name(
@@ -309,7 +333,7 @@ pub fn archive_artifacts(
         _ => return Err(ArchiveError::Failed("未知的前端产物处理模式".into())),
     };
     let backend_target = source_name(&request.backend_artifact)?;
-    if comparison_key(&frontend_target) == comparison_key(&backend_target) {
+    if basename_eq_ignore_case(&frontend_target, &backend_target) {
         return Err(ArchiveError::Failed(format!(
             "前后端归档名称冲突：{frontend_target}"
         )));
@@ -551,6 +575,37 @@ mod tests {
         .unwrap_err();
 
         assert!(matches!(error, ArchiveError::Failed(message) if message.contains("名称冲突")));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_ordinal_ignore_case_matches_sigma_filesystem_semantics() {
+        let root = TestDir::new();
+        let frontend = root.0.join("σ");
+        let backend = root.0.join("backend/ς");
+        let output = root.0.join("output");
+        fs::create_dir_all(&frontend).unwrap();
+        fs::create_dir_all(&backend).unwrap();
+        fs::create_dir_all(&output).unwrap();
+
+        assert!(!basename_eq_ignore_case("σ", "ς"));
+
+        let result = archive_artifacts(
+            &ArchiveRequest {
+                frontend_artifact: frontend,
+                frontend_mode: "copy_directory".into(),
+                backend_artifact: backend,
+                output_root: output,
+                folder_name: "20260723-ordinal-ignore-case".into(),
+                run_id: "run-ordinal-ignore-case".into(),
+            },
+            &AtomicBool::new(false),
+            |_| {},
+        )
+        .unwrap();
+
+        assert!(result.join("σ").is_dir());
+        assert!(result.join("ς").is_dir());
     }
 
     #[test]
