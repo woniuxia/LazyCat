@@ -1,7 +1,7 @@
 use chrono::{Datelike, Days, NaiveDate, Weekday};
 use std::fs::{self, File};
 use std::io::{BufReader, BufWriter, Read, Write};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use walkdir::WalkDir;
 use zip::write::FileOptions;
@@ -86,10 +86,56 @@ fn check_cancel(cancelled: &AtomicBool) -> Result<(), ArchiveError> {
 }
 
 fn source_name(path: &Path) -> Result<String, ArchiveError> {
-    path.file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .filter(|name| !name.is_empty())
-        .ok_or_else(|| ArchiveError::Failed(format!("无法确定产物名称：{}", path.display())))
+    let name = path
+        .file_name()
+        .ok_or_else(|| ArchiveError::Failed(format!("无法确定产物名称：{}", path.display())))?;
+    let name = name.to_str().ok_or_else(|| {
+        ArchiveError::Failed(format!("产物名称不是有效 UTF-8：{}", path.display()))
+    })?;
+    if name.is_empty() {
+        return Err(ArchiveError::Failed(format!(
+            "无法确定产物名称：{}",
+            path.display()
+        )));
+    }
+    validate_folder_name(name)
+        .map_err(|error| ArchiveError::Failed(format!("产物名称无效：{error}")))?;
+    Ok(name.to_owned())
+}
+
+fn comparison_key(value: &str) -> String {
+    value.chars().flat_map(char::to_lowercase).collect()
+}
+
+fn zip_entry_name(
+    root_name: &str,
+    relative: &Path,
+    source: &Path,
+    destination_zip: &Path,
+) -> Result<String, ArchiveError> {
+    let mut parts = Vec::new();
+    for component in relative.components() {
+        let Component::Normal(component) = component else {
+            return Err(ArchiveError::Failed(format!(
+                "ZIP 相对路径包含不支持的组件（源：{}，目标：{}）",
+                source.display(),
+                destination_zip.display()
+            )));
+        };
+        let component = component.to_str().ok_or_else(|| {
+            ArchiveError::Failed(format!(
+                "ZIP entry 名称不是有效 UTF-8（源：{}，目标：{}）",
+                source.display(),
+                destination_zip.display()
+            ))
+        })?;
+        parts.push(component);
+    }
+    if parts.is_empty() {
+        Ok(root_name.to_owned())
+    } else {
+        Ok(format!("{root_name}/{}", parts.join("/")))
+    }
 }
 
 fn io_error(
@@ -207,12 +253,7 @@ fn zip_directory_with_root(
                 destination_zip.display()
             ))
         })?;
-        let suffix = relative.to_string_lossy().replace('\\', "/");
-        let name = if suffix.is_empty() {
-            root_name.clone()
-        } else {
-            format!("{root_name}/{suffix}")
-        };
+        let name = zip_entry_name(&root_name, relative, source, destination_zip)?;
         if entry.file_type().is_dir() {
             writer
                 .add_directory(format!("{name}/"), options)
@@ -268,7 +309,7 @@ pub fn archive_artifacts(
         _ => return Err(ArchiveError::Failed("未知的前端产物处理模式".into())),
     };
     let backend_target = source_name(&request.backend_artifact)?;
-    if frontend_target.eq_ignore_ascii_case(&backend_target) {
+    if comparison_key(&frontend_target) == comparison_key(&backend_target) {
         return Err(ArchiveError::Failed(format!(
             "前后端归档名称冲突：{frontend_target}"
         )));
@@ -483,5 +524,118 @@ mod tests {
         assert!(matches!(error, ArchiveError::Cancelled));
         assert!(!output.join("20260723-客户门户").exists());
         assert!(!output.join("20260723-另一个项目").exists());
+    }
+
+    #[test]
+    fn collision_uses_unicode_case_folding() {
+        let root = TestDir::new();
+        let frontend = root.0.join("Ä");
+        let backend = root.0.join("backend/ä");
+        let output = root.0.join("output");
+        fs::create_dir_all(&frontend).unwrap();
+        fs::create_dir_all(&backend).unwrap();
+        fs::create_dir_all(&output).unwrap();
+
+        let error = archive_artifacts(
+            &ArchiveRequest {
+                frontend_artifact: frontend,
+                frontend_mode: "copy_directory".into(),
+                backend_artifact: backend,
+                output_root: output,
+                folder_name: "20260723-unicode".into(),
+                run_id: "run-unicode-collision".into(),
+            },
+            &AtomicBool::new(false),
+            |_| {},
+        )
+        .unwrap_err();
+
+        assert!(matches!(error, ArchiveError::Failed(message) if message.contains("名称冲突")));
+    }
+
+    #[test]
+    fn source_name_rejects_windows_normalized_names() {
+        for value in ["dist.", "folder ", "CON", "LPT1.txt"] {
+            assert!(
+                source_name(Path::new(value)).is_err(),
+                "must reject {value:?}"
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn source_name_rejects_non_utf8_names() {
+        use std::ffi::OsString;
+        use std::os::unix::ffi::OsStringExt;
+
+        let path = PathBuf::from(OsString::from_vec(vec![0xff]));
+        assert!(source_name(&path).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn zip_mode_rejects_non_utf8_entry_name() {
+        use std::ffi::OsString;
+        use std::os::unix::ffi::OsStringExt;
+
+        let root = TestDir::new();
+        let frontend = root.0.join("dist");
+        let backend = root.0.join("server.jar");
+        let output = root.0.join("output");
+        fs::create_dir_all(&frontend).unwrap();
+        fs::create_dir_all(&output).unwrap();
+        fs::write(frontend.join(OsString::from_vec(vec![0xff])), "bad").unwrap();
+        fs::write(&backend, "jar").unwrap();
+
+        let error = archive_artifacts(
+            &ArchiveRequest {
+                frontend_artifact: frontend,
+                frontend_mode: "zip_directory".into(),
+                backend_artifact: backend,
+                output_root: output.clone(),
+                folder_name: "20260723-non-utf8".into(),
+                run_id: "run-non-utf8".into(),
+            },
+            &AtomicBool::new(false),
+            |_| {},
+        )
+        .unwrap_err();
+
+        assert!(matches!(error, ArchiveError::Failed(message) if message.contains("UTF-8")));
+        assert!(!output.join("20260723-non-utf8").exists());
+    }
+
+    #[test]
+    fn cancellation_after_staging_creation_removes_staging_directory() {
+        let root = TestDir::new();
+        let frontend = root.0.join("dist");
+        let backend = root.0.join("server.jar");
+        let output = root.0.join("output");
+        fs::create_dir_all(&frontend).unwrap();
+        fs::create_dir_all(&output).unwrap();
+        fs::write(frontend.join("index.html"), "ok").unwrap();
+        fs::write(&backend, "jar").unwrap();
+        let cancelled = AtomicBool::new(false);
+
+        let error = archive_artifacts(
+            &ArchiveRequest {
+                frontend_artifact: frontend,
+                frontend_mode: "copy_directory".into(),
+                backend_artifact: backend,
+                output_root: output.clone(),
+                folder_name: "20260723-staging-cancel".into(),
+                run_id: "run-staging-cancel".into(),
+            },
+            &cancelled,
+            |_| cancelled.store(true, Ordering::Release),
+        )
+        .unwrap_err();
+
+        assert!(matches!(error, ArchiveError::Cancelled));
+        assert!(!output
+            .join(".lazycat-release-package-run-staging-cancel.tmp")
+            .exists());
+        assert!(!output.join("20260723-staging-cancel").exists());
     }
 }
