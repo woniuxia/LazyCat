@@ -17,14 +17,17 @@ import type {
 import {
   applyRequestForwardMutationResult,
   clampRequestForwardInspectorWidth,
+  clampRequestForwardRuleListWidth,
   captureRequestForwardMutationIntent,
   DEFAULT_REQUEST_FORWARD_INSPECTOR_WIDTH,
+  DEFAULT_REQUEST_FORWARD_RULE_LIST_WIDTH,
   getDefaultRequestForwardForm,
   getRequestForwardBatchMessage,
   getRequestForwardLogProbeLimit,
   getRequestForwardLogTargetCount,
   isRequestForwardRuleReadonly,
   MIN_REQUEST_FORWARD_INSPECTOR_WIDTH,
+  MIN_REQUEST_FORWARD_RULE_LIST_WIDTH,
   retainRequestForwardSelectedLogId,
   toRequestForwardRuleWriteInput,
   validateRequestForwardRuleForm,
@@ -49,11 +52,16 @@ type LogQueryContext = {
 
 const LOG_PAGE_SIZE = 30;
 const INSPECTOR_WIDTH_SETTING = "request-forward:inspector-width";
+const RULE_LIST_WIDTH_SETTING = "request-forward:rule-list-width";
+const RESIZER_WIDTH = 6;
 
 const { loading, invoke } = useToolInvoke();
 const rules = ref<RequestForwardRule[]>([]);
 const workspaceRef = ref<HTMLElement | null>(null);
-const workspaceWidth = ref(DEFAULT_REQUEST_FORWARD_INSPECTOR_WIDTH * 2);
+const workspaceWidth = ref(1200);
+const preferredRuleListWidth = ref(
+  Number(getSetting(RULE_LIST_WIDTH_SETTING)) || DEFAULT_REQUEST_FORWARD_RULE_LIST_WIDTH,
+);
 const preferredInspectorWidth = ref(
   Number(getSetting(INSPECTOR_WIDTH_SETTING)) || DEFAULT_REQUEST_FORWARD_INSPECTOR_WIDTH,
 );
@@ -92,9 +100,12 @@ let logInFlight = false;
 let logDebounceTimer: ReturnType<typeof setTimeout> | undefined;
 let pendingLogRefresh: LogQueryContext | null = null;
 let workspaceResizeObserver: ResizeObserver | null = null;
-let resizeStartX = 0;
-let resizeStartWidth = 0;
+let inspectorResizeStartX = 0;
+let inspectorResizeStartWidth = 0;
 let inspectorResizeActive = false;
+let ruleListResizeStartX = 0;
+let ruleListResizeStartWidth = 0;
+let ruleListResizeActive = false;
 
 const selectedRule = computed(
   () => rules.value.find((rule) => rule.id === selectedId.value) ?? null,
@@ -125,19 +136,32 @@ const hasMoreLogs = computed(() => logItems.value.length < logTotal.value);
 const selectedLog = computed(
   () => logItems.value.find((item) => item.id === selectedLogId.value) ?? null,
 );
+const ruleListWidth = computed(() =>
+  clampRequestForwardRuleListWidth(
+    preferredRuleListWidth.value,
+    workspaceWidth.value,
+  ),
+);
+const ruleListMaximum = computed(() =>
+  clampRequestForwardRuleListWidth(Number.MAX_SAFE_INTEGER, workspaceWidth.value),
+);
+const inspectorAvailableWidth = computed(() =>
+  Math.max(0, workspaceWidth.value - ruleListWidth.value - RESIZER_WIDTH),
+);
 const inspectorWidth = computed(() =>
   clampRequestForwardInspectorWidth(
     preferredInspectorWidth.value,
-    workspaceWidth.value,
+    inspectorAvailableWidth.value,
   ),
 );
 const inspectorMaximum = computed(() =>
   Math.max(
     MIN_REQUEST_FORWARD_INSPECTOR_WIDTH,
-    Math.floor(workspaceWidth.value * 0.5),
+    Math.floor(inspectorAvailableWidth.value * 0.5),
   ),
 );
 const workspaceStyle = computed(() => ({
+  "--request-forward-rule-list-width": `${ruleListWidth.value}px`,
   "--request-forward-inspector-width": `${inspectorWidth.value}px`,
 }));
 const eventLabel = computed(() => {
@@ -399,6 +423,53 @@ function selectLog(id: number) {
   selectedLogId.value = id;
 }
 
+function persistRuleListWidth() {
+  setSetting(
+    RULE_LIST_WIDTH_SETTING,
+    String(Math.round(preferredRuleListWidth.value)),
+  );
+}
+
+function handleRuleListPointerMove(event: PointerEvent) {
+  if (!ruleListResizeActive) return;
+  preferredRuleListWidth.value = clampRequestForwardRuleListWidth(
+    ruleListResizeStartWidth + event.clientX - ruleListResizeStartX,
+    workspaceWidth.value,
+  );
+}
+
+function stopRuleListResize(persist = true) {
+  if (!ruleListResizeActive) return;
+  ruleListResizeActive = false;
+  window.removeEventListener("pointermove", handleRuleListPointerMove);
+  window.removeEventListener("pointerup", handleRuleListPointerUp);
+  document.body.classList.remove("request-forward-is-resizing");
+  if (persist) persistRuleListWidth();
+}
+
+function handleRuleListPointerUp() {
+  stopRuleListResize();
+}
+
+function startRuleListResize(event: PointerEvent) {
+  if (event.button !== 0) return;
+  event.preventDefault();
+  ruleListResizeStartX = event.clientX;
+  ruleListResizeStartWidth = ruleListWidth.value;
+  ruleListResizeActive = true;
+  document.body.classList.add("request-forward-is-resizing");
+  window.addEventListener("pointermove", handleRuleListPointerMove);
+  window.addEventListener("pointerup", handleRuleListPointerUp);
+}
+
+function adjustRuleListWidth(delta: number) {
+  preferredRuleListWidth.value = clampRequestForwardRuleListWidth(
+    ruleListWidth.value + delta,
+    workspaceWidth.value,
+  );
+  persistRuleListWidth();
+}
+
 function persistInspectorWidth() {
   setSetting(
     INSPECTOR_WIDTH_SETTING,
@@ -409,8 +480,8 @@ function persistInspectorWidth() {
 function handleInspectorPointerMove(event: PointerEvent) {
   if (!inspectorResizeActive) return;
   preferredInspectorWidth.value = clampRequestForwardInspectorWidth(
-    resizeStartWidth + resizeStartX - event.clientX,
-    workspaceWidth.value,
+    inspectorResizeStartWidth + inspectorResizeStartX - event.clientX,
+    inspectorAvailableWidth.value,
   );
 }
 
@@ -430,8 +501,8 @@ function handleInspectorPointerUp() {
 function startInspectorResize(event: PointerEvent) {
   if (event.button !== 0) return;
   event.preventDefault();
-  resizeStartX = event.clientX;
-  resizeStartWidth = inspectorWidth.value;
+  inspectorResizeStartX = event.clientX;
+  inspectorResizeStartWidth = inspectorWidth.value;
   inspectorResizeActive = true;
   document.body.classList.add("request-forward-is-resizing");
   window.addEventListener("pointermove", handleInspectorPointerMove);
@@ -441,7 +512,7 @@ function startInspectorResize(event: PointerEvent) {
 function adjustInspectorWidth(delta: number) {
   preferredInspectorWidth.value = clampRequestForwardInspectorWidth(
     inspectorWidth.value + delta,
-    workspaceWidth.value,
+    inspectorAvailableWidth.value,
   );
   persistInspectorWidth();
 }
@@ -891,13 +962,17 @@ watch(logMode, () => {
 });
 watch(hasActiveRuntimeRule, syncPolling, { immediate: true });
 onMounted(() => {
+  const savedRuleListWidth = Number(getSetting(RULE_LIST_WIDTH_SETTING));
+  if (Number.isFinite(savedRuleListWidth) && savedRuleListWidth > 0) {
+    preferredRuleListWidth.value = savedRuleListWidth;
+  }
   const savedWidth = Number(getSetting(INSPECTOR_WIDTH_SETTING));
   if (Number.isFinite(savedWidth) && savedWidth > 0) {
     preferredInspectorWidth.value = savedWidth;
   }
   if (workspaceRef.value) {
     workspaceResizeObserver = new ResizeObserver(([entry]) => {
-      workspaceWidth.value = Math.max(0, entry.contentRect.width - 220);
+      workspaceWidth.value = Math.max(0, entry.contentRect.width);
     });
     workspaceResizeObserver.observe(workspaceRef.value);
   }
@@ -912,6 +987,7 @@ onUnmounted(() => {
   clearPolling();
   workspaceResizeObserver?.disconnect();
   workspaceResizeObserver = null;
+  stopRuleListResize(false);
   stopInspectorResize(false);
 });
 </script>
@@ -936,6 +1012,20 @@ onUnmounted(() => {
       @delete="deleteRule"
       @start-all="runBatch('start')"
       @stop-all="runBatch('stop')"
+    />
+
+    <div
+      class="rule-list-resizer"
+      role="separator"
+      aria-label="调整规则列表宽度"
+      aria-orientation="vertical"
+      :aria-valuemin="MIN_REQUEST_FORWARD_RULE_LIST_WIDTH"
+      :aria-valuemax="ruleListMaximum"
+      :aria-valuenow="ruleListWidth"
+      tabindex="0"
+      @pointerdown="startRuleListResize"
+      @keydown.left.prevent="adjustRuleListWidth(-16)"
+      @keydown.right.prevent="adjustRuleListWidth(16)"
     />
 
     <main class="rule-workbench">
@@ -1127,14 +1217,20 @@ onUnmounted(() => {
 .request-forward-panel {
   display: grid;
   position: relative;
-  grid-template-columns: 220px minmax(0, 1fr) 6px var(--request-forward-inspector-width);
+  grid-template-columns: var(--request-forward-rule-list-width) 6px minmax(0, 1fr) 6px var(--request-forward-inspector-width);
   width: 100%;
   height: 100%;
   min-height: 0;
   overflow: hidden;
   background: #fff;
+  font-size: 16px;
 }
+.request-forward-panel :deep(.el-button),
+.request-forward-panel :deep(.el-input__inner),
+.request-forward-panel :deep(.el-input__wrapper),
+.request-forward-panel :deep(.el-select__placeholder) { font-size: 16px; }
 
+.rule-list-resizer,
 .inspector-resizer {
   position: relative;
   z-index: 2;
@@ -1146,8 +1242,11 @@ onUnmounted(() => {
   cursor: col-resize;
   transition: background-color 150ms ease;
 }
+.rule-list-resizer::after,
 .inspector-resizer::after { position: absolute; top: 50%; left: 2px; width: 2px; height: 34px; border-radius: 2px; background: #b8c2cd; content: ""; transform: translateY(-50%); }
+.rule-list-resizer:hover,
 .inspector-resizer:hover { background: #dfe8ee; }
+.rule-list-resizer:focus-visible,
 .inspector-resizer:focus-visible { outline: 2px solid var(--el-color-primary, #409eff); outline-offset: -2px; }
 .log-inspector-shell { display: flex; min-width: 0; min-height: 0; border-left: 1px solid #dfe4e9; background: #fbfcfd; }
 
@@ -1180,20 +1279,20 @@ onUnmounted(() => {
 .workbench-empty h1 {
   margin: 3px 0 5px;
   color: var(--text-primary, #1f2937);
-  font-size: 20px;
+  font-size: 24px;
 }
 
 .workbench-header p,
 .workbench-empty p {
   margin: 0;
   color: var(--text-secondary, #64748b);
-  font-size: 13px;
+  font-size: 16px;
   line-height: 1.55;
 }
 
 .workbench-header__eyebrow {
   color: var(--el-color-primary, #409eff) !important;
-  font-size: 10px !important;
+  font-size: 12px !important;
   font-weight: 800;
   letter-spacing: 0.12em;
 }
@@ -1207,8 +1306,8 @@ onUnmounted(() => {
   text-align: right;
 }
 
-.runtime-state span { font-size: 13px; font-weight: 700; }
-.runtime-state span::before { content: "●"; margin-right: 6px; font-size: 9px; }
+.runtime-state span { font-size: 16px; font-weight: 700; }
+.runtime-state span::before { content: "●"; margin-right: 6px; font-size: 10px; }
 .runtime-state small { color: #c23b35; line-height: 1.45; }
 .runtime-state.is-running { color: #168357; }
 .runtime-state.is-starting,
@@ -1233,23 +1332,23 @@ onUnmounted(() => {
   border-radius: 6px;
   background: #fffaf0;
 }
-.observability-warning strong { color: #65450d; font-size: 12px; }
-.observability-warning span { color: #85672f; font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
+.observability-warning strong { color: #65450d; font-size: 14px; }
+.observability-warning span { color: #85672f; font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
 .section-header { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 8px; }
-.section-header h2 { margin: 2px 0 0; color: var(--text-primary, #1f2937); font-size: 15px; }
-.section-header__eyebrow { margin: 0; color: #778494; font-size: 9px; font-weight: 800; letter-spacing: .12em; }
+.section-header h2 { margin: 2px 0 0; color: var(--text-primary, #1f2937); font-size: 18px; }
+.section-header__eyebrow { margin: 0; color: #667486; font-size: 12px; font-weight: 800; letter-spacing: .12em; }
 .stats-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; }
 .stat-card { display: grid; gap: 3px; min-width: 0; padding: 9px 10px; border: 1px solid #e2e6eb; border-radius: 6px; background: #fff; }
-.stat-card span { color: #7b8795; font-size: 11px; }
-.stat-card strong { overflow: hidden; color: #26364a; font-size: 16px; text-overflow: ellipsis; white-space: nowrap; }
+.stat-card span { color: #667486; font-size: 14px; }
+.stat-card strong { overflow: hidden; color: #26364a; font-size: 20px; text-overflow: ellipsis; white-space: nowrap; }
 .stat-card.is-error strong { color: #aa3933; }
-.stats-error { display: flex; min-height: 64px; align-items: center; justify-content: center; gap: 10px; border: 1px solid #efc8c5; border-radius: 6px; background: #fff8f7; color: #a9332d; font-size: 12px; }
+.stats-error { display: flex; min-height: 72px; align-items: center; justify-content: center; gap: 10px; border: 1px solid #efc8c5; border-radius: 6px; background: #fff8f7; color: #a9332d; font-size: 14px; }
 .log-header { margin-top: 16px; }
 .log-toolbar { display: flex; align-items: flex-end; gap: 10px; margin-bottom: 10px; }
 .log-search { display: grid; min-width: 220px; flex: 1; gap: 4px; }
-.log-search > span { color: #657386; font-size: 11px; font-weight: 600; }
+.log-search > span { color: #56667a; font-size: 14px; font-weight: 600; }
 .log-mode { display: inline-flex; flex: none; padding: 2px; border: 1px solid #d7dce3; border-radius: 6px; background: #f4f6f8; }
-.log-mode button { min-height: 26px; border: 0; border-radius: 4px; padding: 0 10px; background: transparent; color: #637083; cursor: pointer; font: inherit; font-size: 12px; }
+.log-mode button { min-height: 32px; border: 0; border-radius: 4px; padding: 0 12px; background: transparent; color: #56667a; cursor: pointer; font: inherit; font-size: 14px; }
 .log-mode button:hover { color: #2f5f86; }
 .log-mode button.is-active { background: #fff; color: #245b83; box-shadow: 0 1px 2px rgb(31 41 55 / 12%); font-weight: 700; }
 .log-mode button:focus-visible { outline: 2px solid var(--el-color-primary, #409eff); outline-offset: 2px; }
@@ -1265,7 +1364,7 @@ onUnmounted(() => {
   border-radius: 6px;
   background: #fffaf0;
   color: #85672f;
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .workbench-empty {
@@ -1287,30 +1386,16 @@ onUnmounted(() => {
   border-radius: 8px;
   background: #f6f8fa;
   color: #4c5d72;
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 800;
   letter-spacing: 0.08em;
 }
 
 .workbench-empty .el-button { margin-top: 18px; }
 
-@media (max-width: 780px) {
-  .request-forward-panel {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto minmax(0, 1fr);
-    overflow: hidden;
-  }
-  .workbench-header { padding: 18px; }
-  .workbench-scroll { padding-inline: 16px; }
-  .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .log-toolbar { align-items: stretch; flex-direction: column; }
-  .log-search { min-width: 0; }
-  .log-mode { align-self: flex-start; }
-}
-
 @media (max-width: 1100px) {
   .request-forward-panel {
-    grid-template-columns: 220px minmax(0, 1fr);
+    grid-template-columns: var(--request-forward-rule-list-width) 6px minmax(0, 1fr);
   }
   .inspector-resizer { display: none; }
   .log-inspector-shell {
@@ -1326,6 +1411,22 @@ onUnmounted(() => {
     transition: transform 180ms ease;
   }
   .log-inspector-shell.is-inspector-open { transform: translateX(0); }
+}
+
+@media (max-width: 780px) {
+  .request-forward-panel {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    overflow: hidden;
+  }
+  .rule-list-resizer,
+  .inspector-resizer { display: none; }
+  .workbench-header { padding: 18px; }
+  .workbench-scroll { padding-inline: 16px; }
+  .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .log-toolbar { align-items: stretch; flex-direction: column; }
+  .log-search { min-width: 0; }
+  .log-mode { align-self: flex-start; }
 }
 
 @media (prefers-reduced-motion: reduce) {

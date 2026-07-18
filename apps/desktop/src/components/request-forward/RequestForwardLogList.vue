@@ -93,7 +93,7 @@ function outcomeLabel(log: RequestForwardLogRow): string {
   container-name: forward-log-list;
   container-type: inline-size;
 }
-.log-state { display: flex; min-height: 96px; align-items: center; justify-content: center; gap: 10px; border: 1px dashed #d8dde5; color: #64748b; font-size: 12px; }
+.log-state { display: flex; min-height: 104px; align-items: center; justify-content: center; gap: 10px; border: 1px dashed #d8dde5; color: #56667a; font-size: 16px; }
 .log-state.is-error { border-color: #efc8c5; background: #fff8f7; color: #a9332d; }
 .log-table { width: 100%; min-width: 0; border: 1px solid #dfe4e9; border-radius: 5px; overflow: hidden; }
 .log-table__header,
@@ -102,8 +102,8 @@ function outcomeLabel(log: RequestForwardLogRow): string {
   grid-template-columns: 58px minmax(180px, 1.5fr) minmax(118px, 1fr) minmax(118px, 1fr) 68px 68px 68px 84px;
   align-items: center;
 }
-.log-table__header { min-height: 28px; border-bottom: 1px solid #dfe4e9; background: #f5f7f9; color: #748194; font-size: 10px; font-weight: 700; }
-.log-table__row { width: 100%; min-height: 34px; border: 0; border-bottom: 1px solid #edf0f3; padding: 0; background: #fff; color: #455468; cursor: pointer; font: inherit; font-size: 10px; text-align: left; transition: background-color 150ms ease, box-shadow 150ms ease; }
+.log-table__header { min-height: 36px; border-bottom: 1px solid #dfe4e9; background: #f5f7f9; color: #5f6e81; font-size: 14px; font-weight: 700; }
+.log-table__row { width: 100%; min-height: 42px; border: 0; border-bottom: 1px solid #edf0f3; padding: 0; background: #fff; color: #3f4e62; cursor: pointer; font: inherit; font-size: 14px; text-align: left; transition: background-color 150ms ease, box-shadow 150ms ease; }
 .log-table__row:last-child { border-bottom: 0; }
 .log-table__row:hover { background: #f7fafc; }
 .log-table__row.is-selected { background: #eaf3f8; box-shadow: inset 3px 0 0 var(--el-color-primary, #409eff); }
@@ -111,9 +111,9 @@ function outcomeLabel(log: RequestForwardLogRow): string {
 .log-table__header > span,
 .log-table__row > span,
 .log-table__row > time { min-width: 0; overflow: hidden; padding: 0 6px; text-overflow: ellipsis; white-space: nowrap; }
-.request-cell { display: flex; align-items: center; gap: 5px; color: #273548; font-size: 11px; }
-.request-cell i { flex: none; color: #527089; font-size: 8px; font-style: normal; font-weight: 800; }
-.outcome { display: inline-block; min-width: 30px; border-radius: 3px; padding: 2px 4px; font-size: 9px; text-align: center; }
+.request-cell { display: flex; align-items: center; gap: 6px; color: #273548; font-size: 16px; }
+.request-cell i { flex: none; color: #45627b; font-size: 12px; font-style: normal; font-weight: 800; }
+.outcome { display: inline-block; min-width: 36px; border-radius: 3px; padding: 3px 5px; font-size: 12px; text-align: center; }
 .outcome.is-success { background: #e8f6ef; color: #16724e; }
 .outcome.is-error { background: #fdeceb; color: #ad3731; }
 .load-more { display: flex; justify-content: center; padding: 8px 0 2px; }

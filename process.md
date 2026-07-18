@@ -8,6 +8,86 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-07-18: 访问链路诊断高级参数持久化
+
+**场景**: 在访问链路诊断与单项探测共享 `network_diagnostics` 设置 envelope 的前提下，持久化诊断高级参数。
+**解决**:
+1. 将默认协议、连接 IP、TLS/HTTP 覆盖、指定 DNS、代理画像和两级超时统一纳入 `diagnosisAdvancedParams`，旧设置缺少字段时按既有默认值归一化。
+2. 诊断组件初始化时恢复参数，修改后短延迟保存；卸载前刷新待保存内容。
+3. 每次写入先读取当前 envelope 再合并，报告、收藏、历史和高级参数互不覆盖。
+**关键点**:
+1. 多个常驻组件共享同一设置 key 时，各自只能更新所属字段，不能持有启动时快照直接覆盖整个 envelope。
+2. 持久化边界必须校验枚举和数值范围，损坏值回到与表单一致的默认值。
+**涉及文件**:
+- `apps/desktop/src/components/network/NetworkDiagnosisWorkspace.vue`
+- `apps/desktop/src/utils/networkDiagnosticsPersistence.ts`
+- `apps/desktop/src/utils/networkDiagnosticsPersistence.test.ts`
+- `apps/desktop/src/components/NetworkPanel.test.ts`
+
+**验证**:
+- `pnpm test src/utils/networkDiagnosticsPersistence.test.ts src/components/NetworkPanel.test.ts`
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+
+**使用次数**: 0
+
+## 2026-07-18: 请求转发可读性与双侧栏宽度偏好
+
+**场景**: 提升请求转发工作台的文字可读性，并让规则导航与日志详情都支持可持久化的宽度调整。
+**解决**:
+1. 请求转发范围内统一上调导航、统计、日志、详情和规则弹窗的文字基线，不修改全局 Element Plus 主题。
+2. 规则摘要拆成“监听”和“转发”两行，协议与运行状态保留在标题行，长端点允许自然换行并保留完整悬停文本。
+3. 左侧规则栏复用详情栏的宽度偏好模式：拖拽结束或键盘调整后持久化首选宽度，窗口缩放只临时钳制渲染宽度。
+4. 规则字段说明迁移到标签旁的问号 tooltip，同时支持鼠标悬停和键盘聚焦；校验错误仍保留在字段下方。
+**关键点**:
+- 双侧 splitter 必须各自维护拖拽起点、首选宽度和设置 key，避免互相覆盖。
+- 宽度钳制要给中央工作区保留最低可用空间；移动端继续使用单列布局并隐藏 splitter。
+- tooltip 只承载帮助说明，不能取代字段标签、校验错误或暴露监听地址的安全警告。
+**涉及文件**:
+- `apps/desktop/src/components/RequestForwardPanel.vue`
+- `apps/desktop/src/components/request-forward/RequestForwardRuleList.vue`
+- `apps/desktop/src/components/request-forward/RequestForwardRuleForm.vue`
+- `apps/desktop/src/components/request-forward/RequestForwardRuleDialog.vue`
+- `apps/desktop/src/components/request-forward/RequestForwardLogList.vue`
+- `apps/desktop/src/components/request-forward/RequestForwardLogInspector.vue`
+- `apps/desktop/src/utils/requestForward.ts`
+**验证**:
+- `pnpm test src/utils/requestForward.test.ts src/components/RequestForwardPanel.test.ts`（56 通过）
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+
+**使用次数**: 1（2026-07-19：继续提升请求转发全页字体基线）
+
+## 2026-07-18: 访问链路诊断分阶段引导
+
+**场景**: 在已有代理、Hosts、DNS、TCP、TLS、HTTP 六层事实报告上，补足体系化、循序渐进的排查体验。
+**问题**:
+1. 六个步骤平铺时，用户能看到事实但需要自己判断所处阶段、首要异常和下一步顺序。
+2. 早期步骤的普通警告可能排在后续明确失败之前，导致“首要定位”和建议顺序互相矛盾。
+3. 取消、跳过、阻断和失败的阶段语义不同，不能统一显示为成功或异常。
+**解决**:
+1. 前端将步骤归并为“路径判定、连接建立、服务响应”三阶段，阶段状态仅从既有 lifecycle/outcome 派生，不新增诊断事实源。
+2. 运行中聚焦当前步骤；终态优先定位首个失败或阻断步骤，再处理 warning/unverified。顶部建议把焦点步骤对应项提前，其余建议保持原链路顺序。
+3. 每个阶段保留完整步骤、原始错误、关联建议和折叠证据；cancelled 明确显示“未完成”，skipped 仍按适用性结果处理。
+4. 后端终态结论优先带入真实错误消息；无错误对象时再按 blocked、warning、unverified 等状态生成明确文案。
+**关键点**:
+1. “排查引导”可以是报告事实的稳定派生视图，但不能在前端臆造根因或成功结论。
+2. 首要定位、建议排序和步骤内建议必须引用同一组 evidenceId，避免展示口径分裂。
+3. 阶段聚合必须保留 lifecycle 与 outcome 的独立语义，尤其不能把 cancelled 阶段标成“已通过”。
+**涉及文件**:
+- `apps/desktop/src/components/network/NetworkDiagnosisWorkspace.vue`
+- `apps/desktop/src/utils/accessPathDiagnosticsView.ts`
+- `apps/desktop/src/utils/accessPathDiagnosticsView.test.ts`
+- `apps/desktop/src-tauri/src/tools/access_path_diagnostics/runtime.rs`
+
+**验证**:
+- `pnpm --filter @lazycat/desktop exec vitest run src/utils/accessPathDiagnosticsView.test.ts src/components/NetworkPanel.test.ts`
+- `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml access_path_diagnostics -- --nocapture`
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+
+**使用次数**: 0
+
 ## 2026-07-18: 访问链路诊断前端原位替换
 
 **场景**: 保留工具 ID `network`，将旧连通性面板替换为分层访问链路诊断，并保留 PING/TCP/UDP 单项探测。

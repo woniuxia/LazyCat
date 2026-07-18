@@ -156,6 +156,22 @@
         <code :title="snapshot.runId">{{ snapshot.runId }}</code>
       </header>
 
+      <nav class="phase-overview" aria-label="诊断阶段">
+        <div
+          v-for="phase in diagnosisPhases"
+          :key="phase.id"
+          class="phase-overview-item"
+          :class="'tone-' + phaseState(phase)"
+          :aria-current="phaseState(phase) === 'running' ? 'step' : undefined"
+        >
+          <span class="phase-number">{{ phase.order }}</span>
+          <div>
+            <strong>{{ phase.label }}</strong>
+            <span>{{ diagnosisPhaseStateLabel(phaseState(phase)) }}</span>
+          </div>
+        </div>
+      </nav>
+
       <section class="normalized-strip" aria-label="本次诊断参数">
         <div>
           <span>请求 URL</span>
@@ -178,10 +194,8 @@
       <section class="summary-band" aria-labelledby="diagnosis-summary-title">
         <div class="section-heading">
           <div>
-            <span class="section-kicker">SUMMARY</span>
-            <h3 id="diagnosis-summary-title">
-              {{ snapshot.report.conclusions.length ? "诊断结论" : "步骤汇总" }}
-            </h3>
+            <span class="section-kicker">DIAGNOSIS</span>
+            <h3 id="diagnosis-summary-title">诊断定位</h3>
           </div>
           <div class="summary-actions">
             <span class="summary-count"
@@ -197,74 +211,111 @@
             </button>
           </div>
         </div>
-        <div v-if="snapshot.report.conclusions.length" class="conclusion-list">
-          <div
-            v-for="conclusion in snapshot.report.conclusions"
-            :key="conclusion.id"
-            class="conclusion-item"
-            :class="'severity-' + conclusion.severity"
-          >
-            <span>{{ conclusionSeverityLabel(conclusion.severity) }}</span>
-            <p>{{ conclusion.message }}</p>
+        <div v-if="diagnosisGuide" class="diagnosis-guide" :class="'tone-' + diagnosisGuide.tone">
+          <span class="guide-marker" aria-hidden="true" />
+          <div>
+            <span class="guide-eyebrow">{{ diagnosisGuide.eyebrow }}</span>
+            <strong>{{ diagnosisGuide.title }}</strong>
+            <p>{{ diagnosisGuide.description }}</p>
           </div>
         </div>
         <p v-else class="summary-copy">{{ stepSummaryText }}</p>
-        <div v-if="snapshot.report.recommendations.length" class="recommendation-list">
-          <div v-for="item in snapshot.report.recommendations" :key="item.id">
-            <strong>{{ item.title }}</strong>
-            <span>{{ item.action }}</span>
+        <div v-if="orderedRecommendations.length" class="recommendation-list">
+          <div v-for="(item, index) in orderedRecommendations" :key="item.id">
+            <span class="recommendation-order">{{ index + 1 }}</span>
+            <div>
+              <strong>{{ item.title }}</strong>
+              <span>{{ item.action }}</span>
+            </div>
           </div>
         </div>
+        <details v-if="snapshot.report.conclusions.length > 1" class="finding-details">
+          <summary>全部诊断结论 {{ snapshot.report.conclusions.length }} 项</summary>
+          <div class="conclusion-list">
+            <div
+              v-for="conclusion in snapshot.report.conclusions"
+              :key="conclusion.id"
+              class="conclusion-item"
+              :class="'severity-' + conclusion.severity"
+            >
+              <span>{{ conclusionSeverityLabel(conclusion.severity) }}</span>
+              <p>{{ conclusion.message }}</p>
+            </div>
+          </div>
+        </details>
       </section>
 
       <section class="steps-section" aria-labelledby="diagnosis-steps-title">
         <div class="section-heading">
           <div>
             <span class="section-kicker">ACCESS PATH</span>
-            <h3 id="diagnosis-steps-title">链路步骤</h3>
+            <h3 id="diagnosis-steps-title">逐层排查</h3>
           </div>
         </div>
-        <ol class="step-list">
-          <li v-for="(step, index) in snapshot.report.steps" :key="step.id" class="step-item">
-            <div class="step-rail" aria-hidden="true">
-              <span :class="'tone-' + stepTone(step)">{{ index + 1 }}</span>
-              <i v-if="index < snapshot.report.steps.length - 1" />
+        <section v-for="phase in diagnosisPhases" :key="phase.id" class="phase-section">
+          <header class="phase-header">
+            <div>
+              <span>阶段 {{ phase.order }}</span>
+              <strong>{{ phase.label }}</strong>
+              <p>{{ phase.description }}</p>
             </div>
-            <div class="step-body">
-              <div class="step-heading">
-                <div>
-                  <strong>{{ stepName(step.id) }}</strong>
-                  <span>{{ stepDescription(step.id) }}</span>
-                </div>
-                <div class="step-states">
-                  <span class="lifecycle-badge">{{ lifecycleLabel(step.lifecycle) }}</span>
-                  <span v-if="step.outcome" class="outcome-badge" :class="'tone-' + step.outcome">
-                    {{ outcomeLabel(step.outcome) }}
-                  </span>
-                </div>
+            <span class="phase-state" :class="'tone-' + phaseState(phase)">
+              {{ diagnosisPhaseStateLabel(phaseState(phase)) }}
+            </span>
+          </header>
+          <ol class="step-list">
+            <li v-for="(step, stepIndex) in phaseSteps(phase)" :key="step.id" class="step-item">
+              <div class="step-rail" aria-hidden="true">
+                <span :class="'tone-' + stepTone(step)">{{ stepOrdinal(step.id) }}</span>
+                <i v-if="stepIndex < phaseSteps(phase).length - 1" />
               </div>
-              <div v-if="step.error" class="step-error" role="status">
-                <strong>{{ step.error.code }}</strong>
-                <span>{{ step.error.message }}</span>
-                <em>{{ step.error.retriable ? "可重试" : "不可重试" }}</em>
-              </div>
-              <details v-if="evidenceForStep(step.id).length" class="evidence-details">
-                <summary>证据 {{ evidenceForStep(step.id).length }} 项</summary>
-                <div class="evidence-list">
-                  <article v-for="evidence in evidenceForStep(step.id)" :key="evidence.id">
-                    <header>
-                      <strong>{{ evidence.kind }}</strong>
-                      <time v-if="evidence.observedAt">{{
-                        formatTimestamp(evidence.observedAt)
-                      }}</time>
-                    </header>
-                    <pre>{{ formatEvidence(evidence.value) }}</pre>
-                  </article>
+              <div class="step-body">
+                <div class="step-heading">
+                  <div>
+                    <strong>{{ accessPathStepLabel(step.id) }}</strong>
+                    <span>{{ accessPathStepDescription(step.id) }}</span>
+                  </div>
+                  <div class="step-states">
+                    <span class="lifecycle-badge">{{ lifecycleLabel(step.lifecycle) }}</span>
+                    <span v-if="step.outcome" class="outcome-badge" :class="'tone-' + step.outcome">
+                      {{ outcomeLabel(step.outcome) }}
+                    </span>
+                  </div>
                 </div>
-              </details>
-            </div>
-          </li>
-        </ol>
+                <div v-if="step.error" class="step-error" role="status">
+                  <strong>{{ step.error.code }}</strong>
+                  <span>{{ step.error.message }}</span>
+                  <em>{{ step.error.retriable ? "可重试" : "不可重试" }}</em>
+                </div>
+                <div
+                  v-for="item in recommendationsForStep(step)"
+                  :key="item.id"
+                  class="step-recommendation"
+                >
+                  <span>下一步</span>
+                  <div>
+                    <strong>{{ item.title }}</strong>
+                    <p>{{ item.action }}</p>
+                  </div>
+                </div>
+                <details v-if="evidenceForStep(step.id).length" class="evidence-details">
+                  <summary>查看原始证据 · {{ evidenceForStep(step.id).length }} 项</summary>
+                  <div class="evidence-list">
+                    <article v-for="evidence in evidenceForStep(step.id)" :key="evidence.id">
+                      <header>
+                        <strong>{{ evidence.kind }}</strong>
+                        <time v-if="evidence.observedAt">{{
+                          formatTimestamp(evidence.observedAt)
+                        }}</time>
+                      </header>
+                      <pre>{{ formatEvidence(evidence.value) }}</pre>
+                    </article>
+                  </div>
+                </details>
+              </div>
+            </li>
+          </ol>
+        </section>
       </section>
     </template>
 
@@ -273,8 +324,22 @@
       <strong>正在建立诊断任务</strong>
     </div>
     <div v-else class="workspace-empty">
-      <el-icon><Connection /></el-icon>
-      <strong>等待诊断目标</strong>
+      <div class="empty-heading">
+        <el-icon><Connection /></el-icon>
+        <div>
+          <strong>分阶段定位访问问题</strong>
+          <span>路径选择、连接建立、服务响应依次验证</span>
+        </div>
+      </div>
+      <ol class="empty-phase-list">
+        <li v-for="phase in diagnosisPhases" :key="phase.id">
+          <span>{{ phase.order }}</span>
+          <div>
+            <strong>{{ phase.label }}</strong>
+            <p>{{ phase.description }}</p>
+          </div>
+        </li>
+      </ol>
     </div>
   </section>
 </template>
@@ -291,7 +356,7 @@ import {
   VideoPlay,
   WarningFilled,
 } from "@element-plus/icons-vue";
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import {
   diagnosisCancel,
@@ -307,7 +372,9 @@ import type {
   AccessPathJsonValue,
   AccessPathProtocol,
   AccessPathProxyProfile,
+  AccessPathRecommendation,
   AccessPathStepId,
+  AccessPathStepSnapshot,
 } from "../../types/access-path-diagnostics";
 import { normalizeAccessPathInput } from "../../utils/accessPathInput";
 import { formatAccessPathReport } from "../../utils/accessPathReport";
@@ -315,30 +382,45 @@ import {
   appendDiagnosticReport,
   migrateNetworkDiagnosticsSettings,
   NETWORK_DIAGNOSTICS_SETTINGS_KEY,
+  normalizeNetworkDiagnosisAdvancedParams,
+} from "../../utils/networkDiagnosticsPersistence";
+import type {
+  NetworkDiagnosisAdvancedParams,
+  NetworkDiagnosticsSettings,
 } from "../../utils/networkDiagnosticsPersistence";
 import { getSettingJson, setSettingJson } from "../../composables/useSettings";
 import {
+  accessPathStepDescription,
+  accessPathStepLabel,
   acceptDiagnosisSnapshot,
+  buildDiagnosisGuide,
+  DIAGNOSIS_PHASES,
+  diagnosisPhaseState,
+  diagnosisPhaseStateLabel,
   diagnosisStatusLabel,
   lifecycleLabel,
   outcomeLabel,
+  orderDiagnosisRecommendations,
   parseDnsServerList,
   stepTone,
 } from "../../utils/accessPathDiagnosticsView";
+import type { DiagnosisPhaseDefinition } from "../../utils/accessPathDiagnosticsView";
 
 const POLL_INTERVAL_MS = 1200;
+const SETTINGS_SAVE_DELAY_MS = 250;
 const TERMINAL_LIFECYCLES = new Set(["completed", "blocked", "skipped", "cancelled"]);
 
 const target = ref("");
-const defaultProtocol = ref<AccessPathProtocol>("https");
-const connectionIp = ref("");
-const sni = ref("");
-const verifyHostname = ref("");
-const httpHost = ref("");
-const dnsServers = ref("");
-const proxyProfile = ref<AccessPathProxyProfile>("auto");
-const stepTimeoutMs = ref(5000);
-const overallTimeoutMs = ref(30000);
+const initialAdvancedParams = loadNetworkDiagnosticsSettings().diagnosisAdvancedParams;
+const defaultProtocol = ref<AccessPathProtocol>(initialAdvancedParams.defaultProtocol);
+const connectionIp = ref(initialAdvancedParams.connectionIp);
+const sni = ref(initialAdvancedParams.sni);
+const verifyHostname = ref(initialAdvancedParams.verifyHostname);
+const httpHost = ref(initialAdvancedParams.httpHost);
+const dnsServers = ref(initialAdvancedParams.dnsServers);
+const proxyProfile = ref<AccessPathProxyProfile>(initialAdvancedParams.proxyProfile);
+const stepTimeoutMs = ref(initialAdvancedParams.stepTimeoutMs);
+const overallTimeoutMs = ref(initialAdvancedParams.overallTimeoutMs);
 const advancedOpen = ref(false);
 const starting = ref(false);
 const cancelling = ref(false);
@@ -348,11 +430,13 @@ const runError = ref("");
 
 const pendingSnapshots = new Map<string, AccessPathDiagnosisRunSnapshot>();
 let pollTimer: ReturnType<typeof setTimeout> | undefined;
+let advancedSettingsTimer: ReturnType<typeof setTimeout> | undefined;
 let pollGeneration = 0;
 let unlisten: (() => void) | null = null;
 let listenerPromise: Promise<void> | null = null;
 let disposed = false;
 const persistedReportIds = new Set<string>();
+const diagnosisPhases = DIAGNOSIS_PHASES;
 
 const isRunning = computed(() => snapshot.value?.status === "running");
 const isBusy = computed(() => starting.value || cancelling.value || isRunning.value);
@@ -379,6 +463,14 @@ const completedStepCount = computed(
   () =>
     snapshot.value?.report.steps.filter((step) => TERMINAL_LIFECYCLES.has(step.lifecycle)).length ??
     0,
+);
+const diagnosisGuide = computed(() =>
+  snapshot.value ? buildDiagnosisGuide(snapshot.value.report, snapshot.value.status) : null,
+);
+const orderedRecommendations = computed(() =>
+  snapshot.value
+    ? orderDiagnosisRecommendations(snapshot.value.report, diagnosisGuide.value?.stepId ?? null)
+    : [],
 );
 const elapsedText = computed(() => {
   if (!snapshot.value) return "";
@@ -428,9 +520,24 @@ const liveMessage = computed(() => {
   if (!snapshot.value) return "";
   const activeStep = snapshot.value.report.steps.find((step) => step.lifecycle === "running");
   return activeStep
-    ? runStatusText.value + "，当前步骤：" + stepName(activeStep.id)
+    ? runStatusText.value + "，当前步骤：" + accessPathStepLabel(activeStep.id)
     : runStatusText.value + "，已结束 " + completedStepCount.value + " 个步骤";
 });
+
+watch(
+  [
+    defaultProtocol,
+    connectionIp,
+    sni,
+    verifyHostname,
+    httpHost,
+    dnsServers,
+    proxyProfile,
+    stepTimeoutMs,
+    overallTimeoutMs,
+  ],
+  schedulePersistAdvancedParams,
+);
 
 function errorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
@@ -440,6 +547,46 @@ function errorMessage(error: unknown): string {
   } catch {
     return String(error);
   }
+}
+
+function loadNetworkDiagnosticsSettings(): NetworkDiagnosticsSettings {
+  const result = migrateNetworkDiagnosticsSettings({
+    current: getSettingJson<unknown>(NETWORK_DIAGNOSTICS_SETTINGS_KEY, null),
+    legacyFavorites: getSettingJson<unknown>("network_test_favorites", []),
+    legacyHistory: getSettingJson<unknown>("network_test_history", []),
+  });
+  if (result.migrated) setSettingJson(NETWORK_DIAGNOSTICS_SETTINGS_KEY, result.settings);
+  return result.settings;
+}
+
+function currentAdvancedParams(): NetworkDiagnosisAdvancedParams {
+  return normalizeNetworkDiagnosisAdvancedParams({
+    defaultProtocol: defaultProtocol.value,
+    connectionIp: connectionIp.value,
+    sni: sni.value,
+    verifyHostname: verifyHostname.value,
+    httpHost: httpHost.value,
+    dnsServers: dnsServers.value,
+    proxyProfile: proxyProfile.value,
+    stepTimeoutMs: stepTimeoutMs.value,
+    overallTimeoutMs: overallTimeoutMs.value,
+  });
+}
+
+function persistAdvancedParams(): void {
+  const current = loadNetworkDiagnosticsSettings();
+  setSettingJson(NETWORK_DIAGNOSTICS_SETTINGS_KEY, {
+    ...current,
+    diagnosisAdvancedParams: currentAdvancedParams(),
+  });
+}
+
+function schedulePersistAdvancedParams(): void {
+  if (advancedSettingsTimer) clearTimeout(advancedSettingsTimer);
+  advancedSettingsTimer = setTimeout(() => {
+    advancedSettingsTimer = undefined;
+    persistAdvancedParams();
+  }, SETTINGS_SAVE_DELAY_MS);
 }
 
 function clampTimeout(value: number, minimum: number, maximum: number, label: string): number {
@@ -586,14 +733,9 @@ async function cancelDiagnosis(): Promise<void> {
 
 function persistReport(report: AccessPathDiagnosisRunSnapshot["report"]): void {
   if (persistedReportIds.has(report.reportId)) return;
-  const migrated = migrateNetworkDiagnosticsSettings({
-    current: getSettingJson<unknown>(NETWORK_DIAGNOSTICS_SETTINGS_KEY, null),
-    legacyFavorites: getSettingJson<unknown>("network_test_favorites", []),
-    legacyHistory: getSettingJson<unknown>("network_test_history", []),
-  });
   setSettingJson(
     NETWORK_DIAGNOSTICS_SETTINGS_KEY,
-    appendDiagnosticReport(migrated.settings, report),
+    appendDiagnosticReport(loadNetworkDiagnosticsSettings(), report),
   );
   persistedReportIds.add(report.reportId);
 }
@@ -636,6 +778,29 @@ function evidenceForStep(stepId: AccessPathStepId): AccessPathEvidence[] {
   );
 }
 
+function phaseState(phase: DiagnosisPhaseDefinition) {
+  return diagnosisPhaseState(phase, snapshot.value?.report.steps ?? []);
+}
+
+function phaseSteps(phase: DiagnosisPhaseDefinition): AccessPathStepSnapshot[] {
+  if (!snapshot.value) return [];
+  const stepIds = new Set(phase.stepIds);
+  return snapshot.value.report.steps.filter((step) => stepIds.has(step.id));
+}
+
+function stepOrdinal(stepId: AccessPathStepId): number {
+  const index = snapshot.value?.report.steps.findIndex((step) => step.id === stepId) ?? -1;
+  return index + 1;
+}
+
+function recommendationsForStep(step: AccessPathStepSnapshot): AccessPathRecommendation[] {
+  if (!snapshot.value || step.evidenceIds.length === 0) return [];
+  const evidenceIds = new Set(step.evidenceIds);
+  return snapshot.value.report.recommendations.filter((item) =>
+    item.evidenceIds.some((evidenceId) => evidenceIds.has(evidenceId)),
+  );
+}
+
 function formatEvidence(value: AccessPathJsonValue): string {
   return typeof value === "string" ? value : JSON.stringify(value, null, 2);
 }
@@ -643,28 +808,6 @@ function formatEvidence(value: AccessPathJsonValue): string {
 function formatTimestamp(value: string): string {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleTimeString("zh-CN", { hour12: false });
-}
-
-function stepName(id: AccessPathStepId): string {
-  return {
-    proxy: "代理决策",
-    hosts: "Hosts",
-    dns: "DNS 解析",
-    tcp: "TCP 连接",
-    tls: "TLS 握手",
-    http: "HTTP 请求",
-  }[id];
-}
-
-function stepDescription(id: AccessPathStepId): string {
-  return {
-    proxy: "配置来源与当前目标的直连 / 代理路径",
-    hosts: "本机 Hosts 命中、重复、冲突和格式",
-    dns: "系统解析与指定 DNS 查询结果",
-    tcp: "逐地址族建立连接并保留原始错误",
-    tls: "SNI、证书链、主机名校验与信任结果",
-    http: "受限 HEAD / GET、重定向与响应状态",
-  }[id];
 }
 
 function conclusionSeverityLabel(severity: AccessPathConclusionSeverity): string {
@@ -680,6 +823,11 @@ onMounted(() => {
 onUnmounted(() => {
   disposed = true;
   stopPolling();
+  if (advancedSettingsTimer) {
+    clearTimeout(advancedSettingsTimer);
+    advancedSettingsTimer = undefined;
+    persistAdvancedParams();
+  }
   const runId = activeRunId.value;
   if (runId && isRunning.value) void diagnosisCancel(runId).catch(() => undefined);
   if (unlisten) unlisten();
@@ -690,6 +838,8 @@ onUnmounted(() => {
 <style scoped>
 .diagnosis-workspace {
   color: #182230;
+  font-size: 14px;
+  line-height: 1.5;
 }
 
 .target-bar {
@@ -713,7 +863,7 @@ onUnmounted(() => {
 .target-field label,
 .form-field > span {
   color: #475467;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 650;
 }
 
@@ -729,7 +879,7 @@ select {
   background: #fff;
   color: #182230;
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   letter-spacing: 0;
   transition:
     border-color 0.15s ease,
@@ -784,7 +934,7 @@ summary:focus-visible {
   border: 1px solid transparent;
   border-radius: 6px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 650;
 }
 
@@ -816,7 +966,7 @@ summary:focus-visible {
   background: #f8fafc;
   color: #344054;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 650;
   text-align: left;
 }
@@ -834,7 +984,7 @@ summary:focus-visible {
   border-radius: 9px;
   background: #dbeafe;
   color: #175cd3;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .advanced-grid {
@@ -859,7 +1009,7 @@ summary:focus-visible {
   top: 50%;
   right: 10px;
   color: #667085;
-  font-size: 11px;
+  font-size: 12px;
   transform: translateY(-50%);
   pointer-events: none;
 }
@@ -895,12 +1045,12 @@ summary:focus-visible {
 }
 
 .run-error strong {
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .run-error span {
   overflow-wrap: anywhere;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .text-button {
@@ -909,7 +1059,7 @@ summary:focus-visible {
   background: transparent;
   color: #0876d8;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 650;
 }
 
@@ -934,12 +1084,12 @@ summary:focus-visible {
 }
 
 .run-state strong {
-  font-size: 14px;
+  font-size: 16px;
 }
 
 .run-state span:not(.state-dot) {
   color: #667085;
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .state-dot {
@@ -974,9 +1124,116 @@ summary:focus-visible {
   max-width: 42%;
   overflow: hidden;
   color: #667085;
-  font-size: 11px;
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.phase-overview {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0;
+  margin: 0 20px 14px;
+  border: 1px solid #dfe6ee;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #fbfcfd;
+}
+
+.phase-overview-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  padding: 10px 12px;
+  border-right: 1px solid #dfe6ee;
+}
+
+.phase-overview-item:last-child {
+  border-right: 0;
+}
+
+.phase-overview-item::after {
+  position: absolute;
+  right: -5px;
+  z-index: 1;
+  width: 8px;
+  height: 8px;
+  border-top: 1px solid #dfe6ee;
+  border-right: 1px solid #dfe6ee;
+  background: #fbfcfd;
+  content: "";
+  transform: rotate(45deg);
+}
+
+.phase-overview-item:last-child::after {
+  display: none;
+}
+
+.phase-number {
+  display: grid;
+  place-items: center;
+  flex: 0 0 24px;
+  width: 24px;
+  height: 24px;
+  border: 1px solid #cfd8e3;
+  border-radius: 50%;
+  background: #fff;
+  color: #667085;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.phase-overview-item > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.phase-overview-item strong {
+  color: #344054;
+  font-size: 13px;
+}
+
+.phase-overview-item > div > span {
+  color: #667085;
+  font-size: 12px;
+}
+
+.phase-overview-item.tone-running {
+  background: #f1f8ff;
+}
+
+.phase-overview-item.tone-running .phase-number {
+  border-color: #58a6ed;
+  background: #eaf4ff;
+  color: #0876d8;
+}
+
+.phase-overview-item.tone-success .phase-number {
+  border-color: #7bc6a3;
+  background: #eaf8f1;
+  color: #117549;
+}
+
+.phase-overview-item.tone-warning .phase-number {
+  border-color: #e9b949;
+  background: #fff8e1;
+  color: #9a5b08;
+}
+
+.phase-overview-item.tone-cancelled .phase-number {
+  border-color: #d4dce6;
+  background: #f4f6f8;
+  color: #667085;
+}
+
+.phase-overview-item.tone-failed .phase-number {
+  border-color: #ef9a94;
+  background: #fff0ef;
+  color: #b42318;
 }
 
 .normalized-strip {
@@ -1003,7 +1260,7 @@ summary:focus-visible {
 
 .normalized-strip span {
   color: #667085;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 650;
   text-transform: uppercase;
 }
@@ -1012,7 +1269,7 @@ summary:focus-visible {
   overflow: hidden;
   color: #263244;
   font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1039,14 +1296,14 @@ summary:focus-visible {
   display: block;
   margin-bottom: 3px;
   color: #0876d8;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 750;
 }
 
 .section-heading h3 {
   margin: 0;
   color: #182230;
-  font-size: 15px;
+  font-size: 17px;
   letter-spacing: 0;
 }
 
@@ -1064,14 +1321,93 @@ summary:focus-visible {
 }
 .summary-count {
   color: #667085;
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .summary-copy {
   margin: 0;
   color: #475467;
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.7;
+}
+
+.diagnosis-guide {
+  display: grid;
+  grid-template-columns: 4px minmax(0, 1fr);
+  gap: 12px;
+  padding: 13px 14px;
+  border: 1px solid #dfe6ee;
+  border-radius: 6px;
+  background: #f8fafc;
+}
+
+.guide-marker {
+  width: 4px;
+  min-height: 48px;
+  border-radius: 2px;
+  background: #98a2b3;
+}
+
+.diagnosis-guide > div {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  min-width: 0;
+}
+
+.guide-eyebrow {
+  color: #667085;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.diagnosis-guide strong {
+  color: #182230;
+  font-size: 16px;
+}
+
+.diagnosis-guide p {
+  margin: 2px 0 0;
+  color: #475467;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.diagnosis-guide.tone-running {
+  border-color: #b7daf8;
+  background: #f5faff;
+}
+
+.diagnosis-guide.tone-running .guide-marker {
+  background: #0876d8;
+}
+
+.diagnosis-guide.tone-success {
+  border-color: #b7dfcb;
+  background: #f4fbf7;
+}
+
+.diagnosis-guide.tone-success .guide-marker {
+  background: #168755;
+}
+
+.diagnosis-guide.tone-warning {
+  border-color: #f0d38a;
+  background: #fffbef;
+}
+
+.diagnosis-guide.tone-warning .guide-marker {
+  background: #d97706;
+}
+
+.diagnosis-guide.tone-failed {
+  border-color: #f0b7b2;
+  background: #fff7f6;
+}
+
+.diagnosis-guide.tone-failed .guide-marker {
+  background: #d92d20;
 }
 
 .conclusion-list,
@@ -1099,13 +1435,13 @@ summary:focus-visible {
 
 .conclusion-item span {
   color: #667085;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 650;
 }
 
 .conclusion-item p {
   margin: 0;
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .recommendation-list {
@@ -1114,15 +1450,127 @@ summary:focus-visible {
 
 .recommendation-list > div {
   display: grid;
-  grid-template-columns: minmax(120px, 0.3fr) minmax(0, 1fr);
-  gap: 12px;
-  padding-top: 9px;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 10px;
+  padding: 10px 0 0;
   border-top: 1px dashed #d8e0e9;
-  font-size: 12px;
+  font-size: 14px;
 }
 
-.recommendation-list span {
+.recommendation-list > div > div {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.3fr) minmax(0, 1fr);
+  gap: 12px;
+}
+
+.recommendation-list > div > div > span {
   color: #475467;
+}
+
+.recommendation-order {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #eaf4ff;
+  color: #0876d8;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.finding-details {
+  margin-top: 14px;
+  border-top: 1px solid #e4eaf1;
+}
+
+.finding-details > summary {
+  width: max-content;
+  padding: 10px 0 6px;
+  color: #475467;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.phase-section + .phase-section {
+  margin-top: 22px;
+}
+
+.phase-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 12px;
+  padding-bottom: 9px;
+  border-bottom: 1px solid #e4eaf1;
+}
+
+.phase-header > div {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  align-items: baseline;
+  gap: 7px;
+  min-width: 0;
+}
+
+.phase-header > div > span {
+  color: #0876d8;
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.phase-header strong {
+  color: #182230;
+  font-size: 15px;
+}
+
+.phase-header p {
+  margin: 0;
+  color: #667085;
+  font-size: 13px;
+}
+
+.phase-state {
+  flex: none;
+  padding: 3px 7px;
+  border: 1px solid #d8e0e9;
+  border-radius: 4px;
+  background: #f8fafc;
+  color: #667085;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.phase-state.tone-running {
+  border-color: #b7daf8;
+  background: #f1f8ff;
+  color: #0876d8;
+}
+
+.phase-state.tone-success {
+  border-color: #b7dfcb;
+  background: #edf9f3;
+  color: #117549;
+}
+
+.phase-state.tone-warning {
+  border-color: #f0d38a;
+  background: #fffae9;
+  color: #9a5b08;
+}
+
+.phase-state.tone-cancelled {
+  border-color: #d8e0e9;
+  background: #f4f6f8;
+  color: #667085;
+}
+
+.phase-state.tone-failed {
+  border-color: #f0b7b2;
+  background: #fff2f1;
+  color: #b42318;
 }
 
 .step-list {
@@ -1151,7 +1599,7 @@ summary:focus-visible {
   border-radius: 50%;
   background: #fff;
   color: #667085;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
 }
 
@@ -1210,12 +1658,12 @@ summary:focus-visible {
 }
 
 .step-heading strong {
-  font-size: 13px;
+  font-size: 15px;
 }
 
 .step-heading > div:first-child span {
   color: #667085;
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .step-states {
@@ -1234,7 +1682,7 @@ summary:focus-visible {
   border-radius: 4px;
   background: #f8fafc;
   color: #475467;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 650;
 }
 
@@ -1267,7 +1715,7 @@ summary:focus-visible {
   border-left: 3px solid #d92d20;
   background: #fff7f6;
   color: #b42318;
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .step-error span {
@@ -1280,6 +1728,39 @@ summary:focus-visible {
   white-space: nowrap;
 }
 
+.step-recommendation {
+  display: grid;
+  grid-template-columns: 50px minmax(0, 1fr);
+  gap: 9px;
+  margin-top: 8px;
+  padding: 8px 9px;
+  border-left: 3px solid #0876d8;
+  background: #f4f9ff;
+}
+
+.step-recommendation > span {
+  color: #0876d8;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.step-recommendation > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.step-recommendation strong,
+.step-recommendation p {
+  font-size: 13px;
+}
+
+.step-recommendation p {
+  margin: 0;
+  color: #475467;
+  line-height: 1.5;
+}
+
 .evidence-details {
   margin-top: 9px;
   border-top: 1px dashed #d8e0e9;
@@ -1290,7 +1771,7 @@ summary:focus-visible {
   padding: 8px 0 4px;
   color: #0876d8;
   cursor: pointer;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 650;
 }
 
@@ -1315,7 +1796,7 @@ summary:focus-visible {
   padding: 7px 9px;
   border-bottom: 1px solid #e5eaf0;
   color: #475467;
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .evidence-list time {
@@ -1329,7 +1810,7 @@ summary:focus-visible {
   overflow: auto;
   color: #263244;
   font:
-    11px/1.55 "Cascadia Code",
+    13px/1.6 "Cascadia Code",
     Consolas,
     monospace;
   white-space: pre-wrap;
@@ -1344,19 +1825,86 @@ summary:focus-visible {
   color: #98a2b3;
 }
 
-.workspace-empty .el-icon {
-  margin-bottom: 12px;
-  font-size: 30px;
+.empty-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: min(520px, calc(100% - 40px));
+  margin-bottom: 18px;
+}
+
+.empty-heading .el-icon {
+  flex: none;
+  margin: 0;
+  font-size: 28px;
+}
+
+.empty-heading > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
 }
 
 .workspace-empty strong {
   color: #475467;
+  font-size: 15px;
+}
+
+.empty-heading span {
   font-size: 13px;
 }
 
-.workspace-empty span {
-  margin-top: 6px;
-  font-size: 11px;
+.empty-phase-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  width: min(520px, calc(100% - 40px));
+  margin: 0;
+  padding: 0;
+  border: 1px solid #e0e7ef;
+  border-radius: 6px;
+  list-style: none;
+  background: #fbfcfd;
+}
+
+.empty-phase-list li {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+  padding: 11px;
+  border-right: 1px solid #e0e7ef;
+}
+
+.empty-phase-list li:last-child {
+  border-right: 0;
+}
+
+.empty-phase-list li > span {
+  display: grid;
+  place-items: center;
+  flex: 0 0 22px;
+  width: 22px;
+  height: 22px;
+  border: 1px solid #cfd8e3;
+  border-radius: 50%;
+  color: #667085;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.empty-phase-list li > div {
+  min-width: 0;
+}
+
+.empty-phase-list strong {
+  display: block;
+  font-size: 13px;
+}
+
+.empty-phase-list p {
+  margin: 3px 0 0;
+  color: #667085;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .loading-empty {
@@ -1401,8 +1949,25 @@ summary:focus-visible {
   }
 
   .advanced-grid,
-  .normalized-strip {
+  .normalized-strip,
+  .phase-overview,
+  .empty-phase-list {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .phase-overview-item,
+  .empty-phase-list li {
+    border-right: 0;
+    border-bottom: 1px solid #e0e7ef;
+  }
+
+  .phase-overview-item:last-child,
+  .empty-phase-list li:last-child {
+    border-bottom: 0;
+  }
+
+  .phase-overview-item::after {
+    display: none;
   }
 
   .normalized-strip > div {
@@ -1430,6 +1995,16 @@ summary:focus-visible {
 
   .step-error {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .phase-header > div,
+  .recommendation-list > div > div {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .phase-header {
+    display: flex;
+    flex-direction: column;
   }
 }
 

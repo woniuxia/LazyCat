@@ -1,4 +1,8 @@
-import type { AccessPathReport } from "../types/access-path-diagnostics";
+import type {
+  AccessPathProtocol,
+  AccessPathProxyProfile,
+  AccessPathReport,
+} from "../types/access-path-diagnostics";
 import { sanitizeAccessPathReport } from "./accessPathReport";
 import {
   normalizeNetworkFavorites,
@@ -12,6 +16,30 @@ export const MAX_NETWORK_HISTORY = 50;
 export const MAX_DIAGNOSTIC_REPORTS = 10;
 export const MAX_DIAGNOSTIC_REPORT_BYTES = 256 * 1024;
 export const MAX_DIAGNOSTIC_TOTAL_BYTES = 1024 * 1024;
+
+export interface NetworkDiagnosisAdvancedParams {
+  defaultProtocol: AccessPathProtocol;
+  connectionIp: string;
+  sni: string;
+  verifyHostname: string;
+  httpHost: string;
+  dnsServers: string;
+  proxyProfile: AccessPathProxyProfile;
+  stepTimeoutMs: number;
+  overallTimeoutMs: number;
+}
+
+export const DEFAULT_NETWORK_DIAGNOSIS_ADVANCED_PARAMS: NetworkDiagnosisAdvancedParams = {
+  defaultProtocol: "https",
+  connectionIp: "",
+  sni: "",
+  verifyHostname: "",
+  httpHost: "",
+  dnsServers: "",
+  proxyProfile: "auto",
+  stepTimeoutMs: 5000,
+  overallTimeoutMs: 30000,
+};
 
 export interface NetworkHistorySummary {
   id: string;
@@ -32,6 +60,48 @@ export interface NetworkDiagnosticsSettings {
   favorites: NetworkFavoriteItem[];
   history: NetworkHistorySummary[];
   reports: AccessPathReport[];
+  diagnosisAdvancedParams: NetworkDiagnosisAdvancedParams;
+}
+
+function normalizeText(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function normalizeTimeout(
+  value: unknown,
+  minimum: number,
+  maximum: number,
+  fallback: number,
+): number {
+  return typeof value === "number" &&
+    Number.isInteger(value) &&
+    value >= minimum &&
+    value <= maximum
+    ? value
+    : fallback;
+}
+
+export function normalizeNetworkDiagnosisAdvancedParams(
+  raw: unknown,
+): NetworkDiagnosisAdvancedParams {
+  const value = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  return {
+    defaultProtocol: value.defaultProtocol === "http" ? "http" : "https",
+    connectionIp: normalizeText(value.connectionIp),
+    sni: normalizeText(value.sni),
+    verifyHostname: normalizeText(value.verifyHostname),
+    httpHost: normalizeText(value.httpHost),
+    dnsServers: normalizeText(value.dnsServers),
+    proxyProfile:
+      value.proxyProfile === "environment" ||
+      value.proxyProfile === "windows_user" ||
+      value.proxyProfile === "winhttp" ||
+      value.proxyProfile === "direct"
+        ? value.proxyProfile
+        : "auto",
+    stepTimeoutMs: normalizeTimeout(value.stepTimeoutMs, 500, 60000, 5000),
+    overallTimeoutMs: normalizeTimeout(value.overallTimeoutMs, 1000, 300000, 30000),
+  };
 }
 
 function isProtocol(value: unknown): value is NetworkFavoriteProtocol {
@@ -112,6 +182,7 @@ export function createNetworkDiagnosticsSettings(
     favorites?: unknown;
     history?: unknown;
     reports?: unknown;
+    diagnosisAdvancedParams?: unknown;
   } = {},
 ): NetworkDiagnosticsSettings {
   return {
@@ -119,6 +190,7 @@ export function createNetworkDiagnosticsSettings(
     favorites: normalizeNetworkFavorites(input.favorites),
     history: normalizeNetworkHistory(input.history),
     reports: normalizeReports(input.reports),
+    diagnosisAdvancedParams: normalizeNetworkDiagnosisAdvancedParams(input.diagnosisAdvancedParams),
   };
 }
 

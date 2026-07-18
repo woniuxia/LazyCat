@@ -11,6 +11,7 @@ import type {
 import {
   applyRequestForwardMutationResult,
   clampRequestForwardInspectorWidth,
+  clampRequestForwardRuleListWidth,
   captureRequestForwardMutationIntent,
   DEFAULT_REQUEST_FORWARD_FORM,
   formatRequestForwardEndpoint,
@@ -50,6 +51,14 @@ const baseForm: RequestForwardRuleForm = {
 };
 
 describe("request forward utilities", () => {
+  it("clamps the preferred rule list width without consuming the workbench", () => {
+    expect(clampRequestForwardRuleListWidth(undefined, 1200)).toBe(260);
+    expect(clampRequestForwardRuleListWidth("oops", 1200)).toBe(260);
+    expect(clampRequestForwardRuleListWidth(180, 1200)).toBe(220);
+    expect(clampRequestForwardRuleListWidth(500, 1200)).toBe(420);
+    expect(clampRequestForwardRuleListWidth(400, 800)).toBe(320);
+  });
+
   it("clamps the preferred inspector width to the current workspace", () => {
     expect(clampRequestForwardInspectorWidth(undefined, 1200)).toBe(420);
     expect(clampRequestForwardInspectorWidth("oops", 1200)).toBe(420);

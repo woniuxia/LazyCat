@@ -11,11 +11,7 @@ struct RenderContext {
     safe_substitution: bool,
 }
 
-const ACTIONS: &[&str] = &[
-    "render",
-    "lint",
-    "extract_params",
-];
+const ACTIONS: &[&str] = &["render", "lint", "extract_params"];
 
 #[cfg(test)]
 pub(crate) fn supported_actions() -> &'static [&'static str] {
@@ -166,6 +162,7 @@ fn extract_params(payload: &Value) -> Result<Value, String> {
     // test 表达式中的标识符
     let test_re = Regex::new(r#"<(?:if|when)\b[^>]*\btest\s*=\s*["']([^"']+)["']"#)
         .map_err(|e| e.to_string())?;
+    let string_literal_re = Regex::new(r#"'[^']*'|"[^"]*""#).map_err(|e| e.to_string())?;
     let keywords: std::collections::HashSet<&str> = [
         "null",
         "true",
@@ -183,7 +180,8 @@ fn extract_params(payload: &Value) -> Result<Value, String> {
     let ident_re = Regex::new(r"\b([a-zA-Z_][a-zA-Z0-9_]*)\b").map_err(|e| e.to_string())?;
     for cap in test_re.captures_iter(sql_template) {
         if let Some(m) = cap.get(1) {
-            for ic in ident_re.captures_iter(m.as_str()) {
+            let expression = string_literal_re.replace_all(m.as_str(), " ");
+            for ic in ident_re.captures_iter(&expression) {
                 if let Some(im) = ic.get(1) {
                     let ident = im.as_str().to_string();
                     if !keywords.contains(ident.as_str())
@@ -661,6 +659,58 @@ mod tests {
     }
 
     #[test]
+    fn render_with_set_should_only_include_present_fields() {
+        let out = execute(
+            "render",
+            &json!({
+                "sqlTemplate": r#"
+                    <update>
+                      UPDATE users
+                      <set>
+                        <if test="name != null">name = #{name},</if>
+                        <if test="email != null">email = #{email},</if>
+                      </set>
+                      WHERE id = #{id}
+                    </update>
+                "#,
+                "params": r#"{"id":101,"name":"Lazycat","email":null}"#
+            }),
+        )
+        .expect("render");
+
+        assert_eq!(
+            out["sql"],
+            "UPDATE users SET name = 'Lazycat' WHERE id = 101"
+        );
+    }
+
+    #[test]
+    fn render_with_choose_should_use_first_matching_branch() {
+        let out = execute(
+            "render",
+            &json!({
+                "sqlTemplate": r#"
+                    <select>
+                      SELECT id, name FROM users
+                      <choose>
+                        <when test="sortMode == 'name'">ORDER BY name ASC</when>
+                        <when test="sortMode == 'created'">ORDER BY created_at DESC</when>
+                        <otherwise>ORDER BY id DESC</otherwise>
+                      </choose>
+                    </select>
+                "#,
+                "params": r#"{"sortMode":"created"}"#
+            }),
+        )
+        .expect("render");
+
+        assert_eq!(
+            out["sql"],
+            "SELECT id, name FROM users ORDER BY created_at DESC"
+        );
+    }
+
+    #[test]
     fn lint_should_report_tag_errors_and_warn_for_dollar() {
         let out = execute(
             "lint",
@@ -672,5 +722,24 @@ mod tests {
         let issues = out["issues"].as_array().cloned().unwrap_or_default();
         assert!(issues.iter().any(|v| v["level"] == "error"));
         assert!(issues.iter().any(|v| v["level"] == "warn"));
+    }
+
+    #[test]
+    fn extract_params_should_ignore_identifiers_inside_string_literals() {
+        let out = execute(
+            "extract_params",
+            &json!({
+                "sqlTemplate": r#"
+                    <choose>
+                      <when test="sortMode == 'name'">ORDER BY name</when>
+                      <when test="sortMode == 'created'">ORDER BY created_at</when>
+                    </choose>
+                    WHERE id = #{id}
+                "#
+            }),
+        )
+        .expect("extract params");
+
+        assert_eq!(out["params"], json!(["id", "sortMode"]));
     }
 }

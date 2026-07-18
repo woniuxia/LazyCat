@@ -112,11 +112,14 @@ function handleBeforeClose() {
   background: #fffaf0;
 }
 .readonly-banner > div { display: grid; min-width: 0; flex: 1; gap: 3px; }
-.readonly-banner strong { color: #65450d; font-size: 13px; }
-.readonly-banner span { color: #85672f; font-size: 12px; line-height: 1.45; }
+.readonly-banner strong { color: #65450d; font-size: 16px; }
+.readonly-banner span { color: #85672f; font-size: 14px; line-height: 1.5; }
 .dialog-scroll { max-height: min(68vh, 720px); overflow-y: auto; padding-right: 2px; }
 .dialog-footer { display: flex; align-items: center; gap: 8px; }
 .dialog-footer__spacer { flex: 1; }
+:global(.request-forward-rule-dialog) { --el-font-size-base: 16px; }
+:global(.request-forward-rule-dialog .el-dialog__title) { font-size: 20px; }
+:global(.request-forward-rule-dialog .el-button) { font-size: 16px; }
 
 @media (max-width: 560px) {
   .readonly-banner { align-items: flex-start; flex-direction: column; }

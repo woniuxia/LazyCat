@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   appendDiagnosticReport,
   createNetworkDiagnosticsSettings,
+  DEFAULT_NETWORK_DIAGNOSIS_ADVANCED_PARAMS,
   MAX_DIAGNOSTIC_REPORT_BYTES,
   migrateNetworkDiagnosticsSettings,
+  normalizeNetworkDiagnosisAdvancedParams,
   normalizeNetworkHistory,
 } from "./networkDiagnosticsPersistence";
 import type { AccessPathReport } from "../types/access-path-diagnostics";
@@ -62,6 +64,9 @@ describe("network diagnostics persistence", () => {
     expect(result.settings.schemaVersion).toBe(1);
     expect(result.settings.favorites[0].host).toBe("2001:db8::1");
     expect(result.settings.history[0].target).toBe("[2001:db8::1]:443");
+    expect(result.settings.diagnosisAdvancedParams).toEqual(
+      DEFAULT_NETWORK_DIAGNOSIS_ADVANCED_PARAMS,
+    );
   });
 
   it("is idempotent for an existing envelope and drops malformed rows", () => {
@@ -91,6 +96,42 @@ describe("network diagnostics persistence", () => {
     expect(normalizeNetworkHistory([null, { id: "bad" }])).toEqual([]);
   });
 
+  it("normalizes and restores persisted diagnosis advanced parameters", () => {
+    const advancedParams = normalizeNetworkDiagnosisAdvancedParams({
+      defaultProtocol: "http",
+      connectionIp: "192.0.2.10",
+      sni: "origin.example.com",
+      verifyHostname: "example.com",
+      httpHost: "example.com",
+      dnsServers: "1.1.1.1, 8.8.8.8",
+      proxyProfile: "winhttp",
+      stepTimeoutMs: 7500,
+      overallTimeoutMs: 45000,
+    });
+    const settings = createNetworkDiagnosticsSettings({ diagnosisAdvancedParams: advancedParams });
+
+    expect(settings.diagnosisAdvancedParams).toEqual(advancedParams);
+    expect(
+      migrateNetworkDiagnosticsSettings({
+        current: settings,
+        legacyFavorites: [],
+        legacyHistory: [],
+      }).settings.diagnosisAdvancedParams,
+    ).toEqual(advancedParams);
+  });
+
+  it("falls back to safe defaults for malformed diagnosis advanced parameters", () => {
+    expect(
+      normalizeNetworkDiagnosisAdvancedParams({
+        defaultProtocol: "ftp",
+        connectionIp: 1,
+        proxyProfile: "system",
+        stepTimeoutMs: 499,
+        overallTimeoutMs: 300001,
+      }),
+    ).toEqual(DEFAULT_NETWORK_DIAGNOSIS_ADVANCED_PARAMS);
+  });
+
   it("keeps at most ten detailed reports and de-duplicates by report id", () => {
     let settings = createNetworkDiagnosticsSettings();
     for (let index = 0; index < 12; index += 1) {
@@ -99,6 +140,7 @@ describe("network diagnostics persistence", () => {
     expect(settings.reports).toHaveLength(10);
     settings = appendDiagnosticReport(settings, report);
     expect(settings.reports.filter((item) => item.reportId === "r1")).toHaveLength(1);
+    expect(settings.diagnosisAdvancedParams).toEqual(DEFAULT_NETWORK_DIAGNOSIS_ADVANCED_PARAMS);
   });
   it("bounds nested evidence and keeps evidence references valid", () => {
     const evidence = Array.from({ length: 100 }, (_, index) => ({

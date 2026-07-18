@@ -6,7 +6,10 @@ import type {
   RequestForwardRuntimeState,
   RequestForwardRuntimeStatus,
 } from "../../types/request-forward";
-import { formatRequestForwardRuleSummary } from "../../utils/requestForward";
+import {
+  formatRequestForwardEndpoint,
+  formatRequestForwardRuleSummary,
+} from "../../utils/requestForward";
 
 const props = defineProps<{
   rules: RequestForwardRule[];
@@ -82,6 +85,16 @@ function canStart(state: RequestForwardRuntimeState): boolean {
 function canStop(state: RequestForwardRuntimeState): boolean {
   return state === "starting" || state === "running";
 }
+
+function listenEndpoint(rule: RequestForwardRule): string {
+  return formatRequestForwardEndpoint(rule.bindHost, rule.listenPort);
+}
+
+function targetEndpoint(rule: RequestForwardRule): string {
+  return rule.protocol === "http"
+    ? rule.targetUrl?.trim() || "—"
+    : formatRequestForwardEndpoint(rule.targetHost, rule.targetPort);
+}
 </script>
 
 <template>
@@ -144,16 +157,25 @@ function canStop(state: RequestForwardRuntimeState): boolean {
           >
             <span class="rule-row__topline">
               <strong>{{ rule.name }}</strong>
-              <span class="state-label" :class="`is-${stateOf(rule.id)}`">
-                {{ stateLabel(stateOf(rule.id)) }}
+              <span class="rule-row__meta">
+                <b class="protocol-label">{{ rule.protocol.toUpperCase() }}</b>
+                <span class="state-label" :class="`is-${stateOf(rule.id)}`">
+                  {{ stateLabel(stateOf(rule.id)) }}
+                </span>
               </span>
             </span>
             <span
               class="rule-row__summary"
               :title="formatRequestForwardRuleSummary(rule)"
             >
-              <b>{{ rule.protocol.toUpperCase() }}</b>
-              <span>{{ formatRequestForwardRuleSummary(rule) }}</span>
+              <span class="rule-row__summary-line">
+                <b>监听</b>
+                <span>{{ listenEndpoint(rule) }}</span>
+              </span>
+              <span class="rule-row__summary-line">
+                <b>转发</b>
+                <span>{{ targetEndpoint(rule) }}</span>
+              </span>
             </span>
           </button>
 
@@ -220,8 +242,8 @@ function canStop(state: RequestForwardRuntimeState): boolean {
 <style scoped>
 .rule-list {
   display: flex;
-  width: 220px;
-  min-width: 220px;
+  width: 100%;
+  min-width: 0;
   min-height: 0;
   flex-direction: column;
   gap: 8px;
@@ -234,6 +256,8 @@ function canStop(state: RequestForwardRuntimeState): boolean {
 .rule-list__batch,
 .rule-row__topline,
 .rule-row__summary,
+.rule-row__summary-line,
+.rule-row__meta,
 .rule-row__actions {
   display: flex;
   align-items: center;
@@ -248,18 +272,18 @@ function canStop(state: RequestForwardRuntimeState): boolean {
 .rule-list__header h2 {
   margin: 0;
   color: var(--text-primary, #1f2937);
-  font-size: 15px;
+  font-size: 18px;
 }
 
 .rule-list__header span {
   display: block;
   margin-top: 3px;
   color: var(--text-secondary, #64748b);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .rule-list__batch { gap: 5px; }
-.rule-list__batch span { margin-left: auto; color: #718095; font-size: 10px; }
+.rule-list__batch span { margin-left: auto; color: #657386; font-size: 12px; }
 
 .rule-list__scroll {
   display: flex;
@@ -276,7 +300,7 @@ function canStop(state: RequestForwardRuntimeState): boolean {
   position: relative;
   display: block;
   width: 100%;
-  min-height: 50px;
+  min-height: 82px;
   border-bottom: 1px solid #e2e7ec;
   background: transparent;
   transition: background-color 160ms ease, box-shadow 160ms ease;
@@ -290,9 +314,9 @@ function canStop(state: RequestForwardRuntimeState): boolean {
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
-  gap: 5px;
+  gap: 6px;
   border: 0;
-  padding: 7px 5px 7px 9px;
+  padding: 9px 5px 9px 9px;
   background: transparent;
   color: inherit;
   cursor: pointer;
@@ -302,15 +326,18 @@ function canStop(state: RequestForwardRuntimeState): boolean {
 .rule-row__select:disabled { cursor: not-allowed; opacity: .68; }
 .rule-row__select:focus-visible { outline: 2px solid var(--el-color-primary, #409eff); outline-offset: -2px; }
 .rule-row__topline { min-width: 0; justify-content: space-between; gap: 7px; padding-right: 55px; }
-.rule-row__topline strong { overflow: hidden; color: #273548; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
-.rule-row__summary { min-width: 0; align-items: flex-start; gap: 6px; color: #6d7a8d; font-size: 10px; line-height: 1.4; }
-.rule-row__summary b { flex: none; margin-top: 1px; color: #45627b; font-size: 9px; }
-.rule-row__summary span { min-width: 0; overflow-wrap: anywhere; white-space: normal; }
+.rule-row__topline strong { overflow: hidden; color: #273548; font-size: 16px; text-overflow: ellipsis; white-space: nowrap; }
+.rule-row__meta { flex: none; gap: 7px; }
+.protocol-label { color: #45627b; font-size: 12px; }
+.rule-row__summary { display: grid; min-width: 0; gap: 3px; color: #56667a; font-size: 14px; line-height: 1.5; }
+.rule-row__summary-line { min-width: 0; align-items: flex-start; gap: 7px; }
+.rule-row__summary-line b { width: 34px; flex: none; color: #45627b; font-size: 12px; }
+.rule-row__summary-line span { min-width: 0; overflow-wrap: anywhere; white-space: normal; }
 
 .rule-row__actions { position: absolute; top: 5px; right: 3px; gap: 0; }
 .rule-row__actions :deep(.el-button) { width: 26px; height: 26px; margin: 0; }
 
-.state-label { flex: none; font-size: 10px; font-weight: 600; }
+.state-label { flex: none; font-size: 12px; font-weight: 600; }
 .state-label::before { display: inline-block; width: 5px; height: 5px; margin-right: 4px; border-radius: 50%; background: currentColor; content: ""; vertical-align: 1px; }
 .state-label.is-running { color: #168357; }
 .state-label.is-starting,
@@ -328,8 +355,8 @@ function canStop(state: RequestForwardRuntimeState): boolean {
   color: var(--text-secondary, #64748b);
   text-align: center;
 }
-.rule-list__empty strong { color: var(--text-primary, #1f2937); font-size: 13px; }
-.rule-list__empty span { font-size: 11px; line-height: 1.5; }
+.rule-list__empty strong { color: var(--text-primary, #1f2937); font-size: 16px; }
+.rule-list__empty span { font-size: 14px; line-height: 1.5; }
 .rule-list__empty.compact { min-height: 120px; }
 
 @media (max-width: 780px) {

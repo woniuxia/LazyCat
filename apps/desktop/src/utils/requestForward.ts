@@ -23,6 +23,30 @@ const REQUEST_FORWARD_LOG_LIMIT = 1000;
 
 export const DEFAULT_REQUEST_FORWARD_INSPECTOR_WIDTH = 420;
 export const MIN_REQUEST_FORWARD_INSPECTOR_WIDTH = 320;
+export const DEFAULT_REQUEST_FORWARD_RULE_LIST_WIDTH = 260;
+export const MIN_REQUEST_FORWARD_RULE_LIST_WIDTH = 220;
+export const MAX_REQUEST_FORWARD_RULE_LIST_WIDTH = 420;
+
+export function clampRequestForwardRuleListWidth(
+  preferred: unknown,
+  availableWidth: number,
+): number {
+  const parsed = typeof preferred === "number" ? preferred : Number(preferred);
+  const width = Number.isFinite(parsed)
+    ? parsed
+    : DEFAULT_REQUEST_FORWARD_RULE_LIST_WIDTH;
+  const safeAvailable = Number.isFinite(availableWidth)
+    ? Math.max(0, availableWidth)
+    : DEFAULT_REQUEST_FORWARD_RULE_LIST_WIDTH * 3;
+  const maximum = Math.max(
+    MIN_REQUEST_FORWARD_RULE_LIST_WIDTH,
+    Math.min(MAX_REQUEST_FORWARD_RULE_LIST_WIDTH, Math.floor(safeAvailable - 480)),
+  );
+  return Math.min(
+    maximum,
+    Math.max(MIN_REQUEST_FORWARD_RULE_LIST_WIDTH, Math.round(width)),
+  );
+}
 
 export function clampRequestForwardInspectorWidth(
   preferred: unknown,

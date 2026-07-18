@@ -62,6 +62,7 @@ const activeMode = ref<NetworkMode>("diagnosis");
 <style scoped>
 .network-panel {
   display: flex;
+  flex: 0 0 auto;
   width: 100%;
   min-width: 0;
   min-height: 0;
@@ -107,7 +108,7 @@ const activeMode = ref<NetworkMode>("diagnosis");
   background: transparent;
   color: var(--lc-text-secondary);
   cursor: pointer;
-  font: 600 12px var(--lc-font-body);
+  font: 600 13px var(--lc-font-body);
   letter-spacing: 0;
   transition:
     color var(--lc-duration) var(--lc-ease),

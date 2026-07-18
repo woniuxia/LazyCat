@@ -293,18 +293,24 @@ describe("RequestForwardPanel source structure", () => {
     expect(logListSource).not.toMatch(/\.log-table\s*\{[^}]*min-width:\s*(?:720|570|430)px/s);
   });
 
-  it("keeps the complete rule summary visible without reserving an action column", () => {
+  it("splits listening and forwarding details without reserving an action column", () => {
     expect(listSource).toContain(':title="formatRequestForwardRuleSummary(rule)"');
+    expect(listSource).toContain("<b>监听</b>");
+    expect(listSource).toContain("<b>转发</b>");
+    expect(listSource).toContain("listenEndpoint(rule)");
+    expect(listSource).toContain("targetEndpoint(rule)");
     expect(listSource).toMatch(/\.rule-row\s*\{[^}]*position:\s*relative/s);
     expect(listSource).toMatch(/\.rule-row__actions\s*\{[^}]*position:\s*absolute/s);
-    expect(listSource).toMatch(/\.rule-row__summary span\s*\{[^}]*white-space:\s*normal/s);
+    expect(listSource).toMatch(/\.rule-row__summary-line span\s*\{[^}]*white-space:\s*normal/s);
   });
 
-  it("uses a three-pane workspace with a persistent resizer", () => {
+  it("uses persistent keyboard-accessible resizers for both side panes", () => {
     expect(source).toContain('class="request-forward-panel request-forward-workspace"');
+    expect(source).toContain('class="rule-list-resizer"');
     expect(source).toContain('class="inspector-resizer"');
     expect(source).toContain('role="separator"');
     expect(source).toContain('aria-orientation="vertical"');
+    expect(source).toContain('request-forward:rule-list-width');
     expect(source).toContain('request-forward:inspector-width');
     expect(source).toContain("getSetting");
     expect(source).toContain("setSetting");
@@ -312,6 +318,23 @@ describe("RequestForwardPanel source structure", () => {
     expect(source).toContain("@keydown.left");
     expect(source).toContain("@keydown.right");
     expect(source).toContain("ResizeObserver");
+  });
+
+  it("moves field guidance into hover and focus tooltips", () => {
+    expect(formSource).toContain("QuestionFilled");
+    expect(formSource).toContain('class="field-tip"');
+    expect(formSource).toContain("<el-tooltip");
+    expect(formSource).not.toContain('class="field-hint"');
+    expect(formSource).toContain('aria-label="目标 URL 提示"');
+  });
+
+  it("uses a readable typography baseline across the workspace", () => {
+    expect(source).toMatch(/\.request-forward-panel\s*\{[^}]*font-size:\s*16px/s);
+    expect(source).toMatch(/\.workbench-header h1,[\s\S]*?font-size:\s*24px/s);
+    expect(listSource).toMatch(/\.rule-row__summary\s*\{[^}]*font-size:\s*14px/s);
+    expect(logListSource).toMatch(/\.log-table__row\s*\{[^}]*font-size:\s*14px/s);
+    expect(formSource).toContain(".rule-form :deep(.el-form-item__label)");
+    expect(formSource).toMatch(/\.rule-form :deep\(\.el-checkbox__label\)\s*\{\s*font-size:\s*16px/s);
   });
 
   it("keeps the inspector as an overlay on narrow layouts", () => {

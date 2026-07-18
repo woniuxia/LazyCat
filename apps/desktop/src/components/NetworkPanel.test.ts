@@ -24,6 +24,12 @@ describe("NetworkPanel source structure", () => {
     expect(panelSource).not.toMatch(/v-if="activeMode === '(?:diagnosis|quick)'"/);
   });
 
+  it("prevents the diagnosis workspace from shrinking below its content height", () => {
+    const networkPanelRule = panelSource.match(/\.network-panel\s*\{([\s\S]*?)\}/)?.[1] ?? "";
+
+    expect(networkPanelRule).toContain("flex: 0 0 auto;");
+  });
+
   it("registers the diagnosis listener before start and recovers with get", () => {
     const startBody =
       diagnosisSource.match(
@@ -78,5 +84,12 @@ describe("NetworkPanel source structure", () => {
     expect(diagnosisSource).toContain("formatAccessPathReport");
     expect(diagnosisSource).toContain("复制报告");
     expect(diagnosisSource).toContain("导出报告");
+  });
+
+  it("restores and persists diagnosis advanced parameters", () => {
+    expect(diagnosisSource).toContain("loadNetworkDiagnosticsSettings().diagnosisAdvancedParams");
+    expect(diagnosisSource).toContain("normalizeNetworkDiagnosisAdvancedParams");
+    expect(diagnosisSource).toContain("schedulePersistAdvancedParams");
+    expect(diagnosisSource).toContain("diagnosisAdvancedParams: currentAdvancedParams()");
   });
 });

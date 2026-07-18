@@ -1780,7 +1780,7 @@ fn refresh_report_findings(report: &mut DiagnosisReport) {
         report.conclusions.push(Conclusion {
             id: conclusion_id,
             severity,
-            message: format!("{} 步骤未形成完整的成功证据", step_label(step.id)),
+            message: finding_message(&step),
             evidence_ids: evidence_ids.clone(),
             recommendation_ids: if severity == ConclusionSeverity::Info {
                 Vec::new()
@@ -1830,6 +1830,28 @@ fn refresh_report_findings(report: &mut DiagnosisReport) {
             evidence_ids,
             recommendation_ids: Vec::new(),
         });
+    }
+}
+
+fn finding_message(step: &DiagnosticStep) -> String {
+    if let Some(error) = &step.error {
+        return format!("{}：{}", step_label(step.id), error.message);
+    }
+    match (step.lifecycle, step.outcome) {
+        (StepLifecycle::Blocked, _) => {
+            format!("{} 被前置条件阻断，后续结论不完整", step_label(step.id))
+        }
+        (StepLifecycle::Cancelled, _) => format!("{} 尚未完成，诊断已取消", step_label(step.id)),
+        (StepLifecycle::Completed, Some(StepOutcome::Warning)) => {
+            format!("{} 存在差异或风险项，需要结合证据确认影响", step_label(step.id))
+        }
+        (StepLifecycle::Completed, Some(StepOutcome::Unverified)) => {
+            format!("{} 缺少足够证据，当前无法验证", step_label(step.id))
+        }
+        (StepLifecycle::Completed, Some(StepOutcome::Failed)) => {
+            format!("{} 检查失败", step_label(step.id))
+        }
+        _ => format!("{} 未形成完整的成功证据", step_label(step.id)),
     }
 }
 
@@ -3001,6 +3023,11 @@ mod tests {
                 && step.error.as_ref().map(|error| error.code.as_str()) == Some("step_timeout")
         }));
         assert!(!snapshot.report.conclusions.is_empty());
+        assert!(snapshot
+            .report
+            .conclusions
+            .iter()
+            .all(|item| item.message.contains("步骤超时")));
         assert!(snapshot
             .report
             .recommendations
