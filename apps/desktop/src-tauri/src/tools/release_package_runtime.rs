@@ -76,15 +76,28 @@ fn run_powershell(
     pid_slot: Arc<Mutex<Option<u32>>>,
     emit: Arc<dyn Fn(&'static str, String) + Send + Sync>,
 ) -> Result<(), CommandError> {
-    let mut child = Command::new("powershell.exe")
+    let mut pid_guard = pid_slot.lock().unwrap();
+    if cancelled.load(Ordering::Acquire) {
+        return Err(CommandError::Cancelled);
+    }
+    let child = Command::new("powershell.exe")
         .args(["-NoProfile", "-NonInteractive", "-Command", command])
         .current_dir(cwd)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .creation_flags(CREATE_NO_WINDOW)
-        .spawn()
-        .map_err(|error| CommandError::Spawn(format!("启动 PowerShell 失败：{error}")))?;
-    *pid_slot.lock().unwrap() = Some(child.id());
+        .spawn();
+    let mut child = match child {
+        Ok(child) => child,
+        Err(_error) if cancelled.load(Ordering::Acquire) => return Err(CommandError::Cancelled),
+        Err(error) => {
+            return Err(CommandError::Spawn(format!(
+                "启动 PowerShell 失败：{error}"
+            )))
+        }
+    };
+    *pid_guard = Some(child.id());
+    drop(pid_guard);
 
     let stdout = spawn_reader(child.stdout.take().unwrap(), "stdout", emit.clone());
     let stderr = spawn_reader(child.stderr.take().unwrap(), "stderr", emit);
@@ -101,9 +114,14 @@ fn run_powershell(
             Ok(Some(status)) => break status,
             Ok(None) => thread::sleep(Duration::from_millis(100)),
             Err(error) => {
+                let _ = terminate_process_tree(child.id());
+                let _ = child.wait();
                 let _ = stdout.join();
                 let _ = stderr.join();
                 *pid_slot.lock().unwrap() = None;
+                if cancelled.load(Ordering::Acquire) {
+                    return Err(CommandError::Cancelled);
+                }
                 return Err(CommandError::Wait(format!("等待 PowerShell 失败：{error}")));
             }
         }
@@ -164,9 +182,12 @@ struct ActiveRun {
     run_id: String,
     cancelled: Arc<AtomicBool>,
     pid: Arc<Mutex<Option<u32>>>,
+    finished: Arc<AtomicBool>,
+    cancel_won: Arc<AtomicBool>,
 }
 
 static ACTIVE_RUN: OnceLock<Mutex<Option<ActiveRun>>> = OnceLock::new();
+static SHUTTING_DOWN: AtomicBool = AtomicBool::new(false);
 
 fn active_run() -> &'static Mutex<Option<ActiveRun>> {
     ACTIVE_RUN.get_or_init(|| Mutex::new(None))
@@ -216,7 +237,9 @@ impl EventSink for TauriEventSink {
 
 #[derive(Debug)]
 enum PipelineError {
-    Cancelled,
+    Cancelled {
+        phase: &'static str,
+    },
     Failed {
         phase: &'static str,
         message: String,
@@ -263,7 +286,7 @@ fn run_command_phase(
     sink: Arc<dyn EventSink>,
 ) -> Result<(), PipelineError> {
     if cancelled.load(Ordering::Acquire) {
-        return Err(PipelineError::Cancelled);
+        return Err(PipelineError::Cancelled { phase });
     }
     emit_status(
         sink.as_ref(),
@@ -294,7 +317,7 @@ fn run_command_phase(
         }),
     )
     .map_err(|error| match error {
-        CommandError::Cancelled => PipelineError::Cancelled,
+        CommandError::Cancelled => PipelineError::Cancelled { phase },
         error => PipelineError::Failed {
             phase,
             message: error.message(),
@@ -351,7 +374,7 @@ fn run_pipeline(
     }
 
     if cancelled.load(Ordering::Acquire) {
-        return Err(PipelineError::Cancelled);
+        return Err(PipelineError::Cancelled { phase: "archive" });
     }
     emit_status(
         sink.as_ref(),
@@ -381,12 +404,55 @@ fn run_pipeline(
         emit_system_log(sink.as_ref(), run_id, project.id, "archive", line)
     })
     .map_err(|error| match error {
-        ArchiveError::Cancelled => PipelineError::Cancelled,
+        ArchiveError::Cancelled => PipelineError::Cancelled { phase: "archive" },
         ArchiveError::Failed(message) => PipelineError::Failed {
             phase: "archive",
             message,
         },
     })
+}
+
+fn pipeline_phase(result: &Result<PathBuf, PipelineError>) -> &'static str {
+    match result {
+        Ok(_) => "archive",
+        Err(PipelineError::Cancelled { phase }) | Err(PipelineError::Failed { phase, .. }) => phase,
+    }
+}
+
+fn claim_pipeline_result(
+    result: Result<PathBuf, PipelineError>,
+    cancelled: &AtomicBool,
+    finished: &AtomicBool,
+    cancel_won: &AtomicBool,
+    pid: &Mutex<Option<u32>>,
+) -> Result<PathBuf, PipelineError> {
+    let _guard = pid.lock().unwrap();
+    let result = if cancelled.load(Ordering::Acquire) {
+        cancel_won.store(true, Ordering::Release);
+        Err(PipelineError::Cancelled {
+            phase: pipeline_phase(&result),
+        })
+    } else {
+        result
+    };
+    finished.store(true, Ordering::Release);
+    result
+}
+
+fn request_cancel(active: &ActiveRun) -> bool {
+    active.cancelled.store(true, Ordering::Release);
+    let pid = active.pid.lock().unwrap();
+    if active.finished.load(Ordering::Acquire) {
+        if active.cancel_won.load(Ordering::Acquire) {
+            return true;
+        }
+        active.cancelled.store(false, Ordering::Release);
+        return false;
+    }
+    if let Some(pid) = *pid {
+        let _ = terminate_process_tree(pid);
+    }
+    true
 }
 
 pub fn start(
@@ -398,10 +464,15 @@ pub fn start(
     let run_id = uuid::Uuid::new_v4().to_string();
     let cancelled = Arc::new(AtomicBool::new(false));
     let pid = Arc::new(Mutex::new(None));
+    let finished = Arc::new(AtomicBool::new(false));
+    let cancel_won = Arc::new(AtomicBool::new(false));
     {
         let mut active = active_run()
             .lock()
             .map_err(|_| "release package runtime lock poisoned")?;
+        if SHUTTING_DOWN.load(Ordering::Acquire) {
+            return Err("应用正在退出，不能启动发布打包任务".into());
+        }
         if active.is_some() {
             return Err("已有发布打包任务正在运行".into());
         }
@@ -409,6 +480,8 @@ pub fn start(
             run_id: run_id.clone(),
             cancelled: cancelled.clone(),
             pid: pid.clone(),
+            finished: finished.clone(),
+            cancel_won: cancel_won.clone(),
         });
     }
 
@@ -421,10 +494,11 @@ pub fn start(
             project,
             output_root,
             folder_name,
-            cancelled,
-            pid,
+            cancelled.clone(),
+            pid.clone(),
             sink.clone(),
         );
+        let result = claim_pipeline_result(result, &cancelled, &finished, &cancel_won, &pid);
         match result {
             Ok(path) => emit_status(
                 sink.as_ref(),
@@ -435,12 +509,12 @@ pub fn start(
                 Some(path.to_string_lossy().into_owned()),
                 None,
             ),
-            Err(PipelineError::Cancelled) => emit_status(
+            Err(PipelineError::Cancelled { phase }) => emit_status(
                 sink.as_ref(),
                 &thread_run_id,
                 project_id,
                 "cancelled",
-                "pipeline",
+                phase,
                 None,
                 None,
             ),
@@ -470,28 +544,15 @@ pub fn cancel(run_id: &str) -> Result<Value, String> {
     let Some(active) = active.as_ref().filter(|active| active.run_id == run_id) else {
         return Err("发布打包任务不存在或 runId 不匹配".into());
     };
-    active.cancelled.store(true, Ordering::Release);
-    if let Some(pid) = *active.pid.lock().unwrap() {
-        let _ = terminate_process_tree(pid);
-    }
-    Ok(json!({ "cancelRequested": true }))
+    Ok(json!({ "cancelRequested": request_cancel(active) }))
 }
 
 pub fn on_app_exit() {
-    let (cancelled, pid) = {
-        let Ok(active) = active_run().lock() else {
-            return;
-        };
-        let Some(active) = active.as_ref() else {
-            return;
-        };
-        let cancelled = active.cancelled.clone();
-        let pid = *active.pid.lock().unwrap();
-        (cancelled, pid)
-    };
-    cancelled.store(true, Ordering::Release);
-    if let Some(pid) = pid {
-        let _ = terminate_process_tree(pid);
+    SHUTTING_DOWN.store(true, Ordering::Release);
+    if let Ok(active) = active_run().lock() {
+        if let Some(active) = active.as_ref() {
+            request_cancel(active);
+        }
     }
 }
 
@@ -540,7 +601,7 @@ mod tests {
         thread::sleep(Duration::from_millis(500));
         cancel.store(true, Ordering::Release);
         if let Some(value) = *pid.lock().unwrap() {
-            terminate_process_tree(value).unwrap();
+            let _ = terminate_process_tree(value);
         }
         assert!(matches!(
             handle.join().unwrap(),
@@ -549,9 +610,110 @@ mod tests {
     }
 
     #[test]
+    fn cancelled_before_spawn_does_not_try_to_start_process() {
+        let cancelled = Arc::new(AtomicBool::new(true));
+        let pid = Arc::new(Mutex::new(None));
+        let result = run_powershell(
+            Path::new("Z:\\missing-cancelled-cwd"),
+            "exit 0",
+            cancelled,
+            pid.clone(),
+            Arc::new(|_, _| {}),
+        );
+        assert!(matches!(result, Err(CommandError::Cancelled)));
+        assert!(pid.lock().unwrap().is_none());
+    }
+
+    #[test]
     fn decoder_prefers_utf8_then_falls_back_to_gbk() {
         assert_eq!(decode_console_line("构建成功\r\n".as_bytes()), "构建成功");
         let (gbk, _, _) = encoding_rs::GBK.encode("构建成功\r\n");
         assert_eq!(decode_console_line(&gbk), "构建成功");
+    }
+}
+
+#[cfg(test)]
+mod pipeline_tests {
+    use super::*;
+    use std::sync::atomic::AtomicBool;
+
+    struct Sink;
+
+    impl EventSink for Sink {
+        fn log(&self, _event: LogEvent) {}
+        fn status(&self, _event: StatusEvent) {}
+    }
+
+    fn project() -> ReleasePackageProjectConfig {
+        ReleasePackageProjectConfig {
+            id: 7,
+            name: "test".into(),
+            frontend_project_path: "Z:\\missing".into(),
+            frontend_build_command: "exit 0".into(),
+            frontend_artifact_path: "dist".into(),
+            frontend_artifact_mode: "copy_directory".into(),
+            backend_project_path: "Z:\\missing".into(),
+            backend_build_command: "exit 0".into(),
+            backend_artifact_path: "server.jar".into(),
+            created_at: String::new(),
+            updated_at: String::new(),
+        }
+    }
+
+    #[test]
+    fn pipeline_cancellation_reports_the_active_phase() {
+        let result = run_pipeline(
+            "run-phase",
+            project(),
+            PathBuf::from("Z:\\output"),
+            "folder".into(),
+            Arc::new(AtomicBool::new(true)),
+            Arc::new(Mutex::new(None)),
+            Arc::new(Sink),
+        );
+        assert!(matches!(
+            result,
+            Err(PipelineError::Cancelled { phase: "frontend" })
+        ));
+    }
+
+    #[test]
+    fn completed_run_rejects_late_cancellation() {
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let finished = Arc::new(AtomicBool::new(false));
+        let pid = Arc::new(Mutex::new(None));
+        {
+            let _guard = pid.lock().unwrap();
+            finished.store(true, Ordering::Release);
+        }
+        let active = ActiveRun {
+            run_id: "finished".into(),
+            cancelled: cancelled.clone(),
+            pid,
+            finished,
+            cancel_won: Arc::new(AtomicBool::new(false)),
+        };
+        assert!(!request_cancel(&active));
+        assert!(!cancelled.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn cancellation_before_terminal_claim_wins_with_archive_phase() {
+        let cancelled = Arc::new(AtomicBool::new(true));
+        let finished = Arc::new(AtomicBool::new(false));
+        let cancel_won = Arc::new(AtomicBool::new(false));
+        let result = claim_pipeline_result(
+            Ok(PathBuf::from("archive")),
+            &cancelled,
+            &finished,
+            &cancel_won,
+            &Mutex::new(None),
+        );
+        assert!(matches!(
+            result,
+            Err(PipelineError::Cancelled { phase: "archive" })
+        ));
+        assert!(finished.load(Ordering::Acquire));
+        assert!(cancel_won.load(Ordering::Acquire));
     }
 }
