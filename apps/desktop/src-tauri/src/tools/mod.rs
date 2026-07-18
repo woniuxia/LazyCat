@@ -33,6 +33,8 @@ pub mod pm_todo_link;
 pub mod pomodoro;
 pub mod port;
 pub mod regex;
+pub mod release_package;
+pub mod release_package_archive;
 pub mod request_forward;
 pub mod schema;
 pub mod sql_entity;
@@ -68,6 +70,7 @@ fn dispatch_tool(domain: &str, action: &str, payload: &Value) -> Result<Value, S
         "time" => time::execute(action, payload),
         "gen" => gen::execute(action, payload),
         "regex" => regex::execute(action, payload),
+        "release_package" => release_package::execute(action, payload),
         "request_forward" => request_forward::execute(action, payload),
         "cron" => cron::execute(action, payload),
         "crypto" => crypto::execute(action, payload),
@@ -115,6 +118,7 @@ pub fn supported_actions(domain: &str) -> Option<&'static [&'static str]> {
         "time" => Some(time::supported_actions()),
         "gen" => Some(gen::supported_actions()),
         "regex" => Some(regex::supported_actions()),
+        "release_package" => Some(release_package::supported_actions()),
         "request_forward" => Some(request_forward::supported_actions()),
         "cron" => Some(cron::supported_actions()),
         "crypto" => Some(crypto::supported_actions()),

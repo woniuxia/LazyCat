@@ -16,6 +16,7 @@ const DOMAINS: &[&str] = &[
     "time",
     "gen",
     "regex",
+    "release_package",
     "cron",
     "crypto",
     "data_dictionary",
