@@ -1,5 +1,10 @@
 use chrono::{Datelike, Days, NaiveDate, Weekday};
+use std::fs::{self, File};
+use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use walkdir::WalkDir;
+use zip::write::FileOptions;
 
 pub fn validate_folder_name(raw: &str) -> Result<(), String> {
     if raw.is_empty() || raw.trim() != raw || matches!(raw, "." | "..") {
@@ -44,11 +49,302 @@ pub fn resolve_artifact_path(project_path: &Path, artifact_path: &str) -> PathBu
     }
 }
 
+#[derive(Debug)]
+pub enum ArchiveError {
+    Cancelled,
+    Failed(String),
+}
+
+pub struct ArchiveRequest {
+    pub frontend_artifact: PathBuf,
+    pub frontend_mode: String,
+    pub backend_artifact: PathBuf,
+    pub output_root: PathBuf,
+    pub folder_name: String,
+    pub run_id: String,
+}
+
+struct StagingGuard {
+    path: PathBuf,
+    committed: bool,
+}
+
+impl Drop for StagingGuard {
+    fn drop(&mut self) {
+        if !self.committed {
+            let _ = fs::remove_dir_all(&self.path);
+        }
+    }
+}
+
+fn check_cancel(cancelled: &AtomicBool) -> Result<(), ArchiveError> {
+    if cancelled.load(Ordering::Acquire) {
+        Err(ArchiveError::Cancelled)
+    } else {
+        Ok(())
+    }
+}
+
+fn source_name(path: &Path) -> Result<String, ArchiveError> {
+    path.file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .filter(|name| !name.is_empty())
+        .ok_or_else(|| ArchiveError::Failed(format!("无法确定产物名称：{}", path.display())))
+}
+
+fn io_error(
+    operation: &str,
+    source: &Path,
+    target: &Path,
+    error: impl std::fmt::Display,
+) -> ArchiveError {
+    ArchiveError::Failed(format!(
+        "{operation}失败（源：{}，目标：{}）：{error}",
+        source.display(),
+        target.display()
+    ))
+}
+
+fn copy_file(source: &Path, target: &Path, cancelled: &AtomicBool) -> Result<(), ArchiveError> {
+    check_cancel(cancelled)?;
+    let source_file =
+        File::open(source).map_err(|error| io_error("读取产物", source, target, error))?;
+    if let Some(parent) = target.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| io_error("创建归档目录", source, parent, error))?;
+    }
+    let target_file =
+        File::create(target).map_err(|error| io_error("创建归档文件", source, target, error))?;
+    let mut reader = BufReader::new(source_file);
+    let mut writer = BufWriter::new(target_file);
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        check_cancel(cancelled)?;
+        let size = reader
+            .read(&mut buffer)
+            .map_err(|error| io_error("读取产物", source, target, error))?;
+        if size == 0 {
+            break;
+        }
+        writer
+            .write_all(&buffer[..size])
+            .map_err(|error| io_error("写入归档文件", source, target, error))?;
+    }
+    writer
+        .flush()
+        .map_err(|error| io_error("完成归档文件", source, target, error))?;
+    Ok(())
+}
+
+fn copy_path_with_root(
+    source: &Path,
+    destination_root: &Path,
+    cancelled: &AtomicBool,
+) -> Result<(), ArchiveError> {
+    let root_name = source_name(source)?;
+    let destination = destination_root.join(&root_name);
+    if source.is_dir() {
+        for entry in WalkDir::new(source) {
+            check_cancel(cancelled)?;
+            let entry = entry.map_err(|error| {
+                ArchiveError::Failed(format!(
+                    "遍历产物失败（源：{}，目标：{}）：{error}",
+                    source.display(),
+                    destination.display()
+                ))
+            })?;
+            let relative = entry.path().strip_prefix(source).map_err(|error| {
+                ArchiveError::Failed(format!(
+                    "计算产物相对路径失败（源：{}，目标：{}）：{error}",
+                    source.display(),
+                    destination.display()
+                ))
+            })?;
+            let target = destination.join(relative);
+            if entry.file_type().is_dir() {
+                fs::create_dir_all(&target)
+                    .map_err(|error| io_error("创建归档目录", entry.path(), &target, error))?;
+            } else {
+                copy_file(entry.path(), &target, cancelled)?;
+            }
+        }
+    } else {
+        copy_file(source, &destination, cancelled)?;
+    }
+    Ok(())
+}
+
+fn zip_directory_with_root(
+    source: &Path,
+    destination_zip: &Path,
+    cancelled: &AtomicBool,
+) -> Result<(), ArchiveError> {
+    if let Some(parent) = destination_zip.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| io_error("创建归档目录", source, parent, error))?;
+    }
+    let file = File::create(destination_zip)
+        .map_err(|error| io_error("创建 ZIP", source, destination_zip, error))?;
+    let mut writer = zip::ZipWriter::new(file);
+    let options = FileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated)
+        .unix_permissions(0o644);
+    let root_name = source_name(source)?;
+    let mut buffer = [0_u8; 64 * 1024];
+    for entry in WalkDir::new(source) {
+        check_cancel(cancelled)?;
+        let entry = entry.map_err(|error| {
+            ArchiveError::Failed(format!(
+                "遍历 ZIP 源目录失败（源：{}，目标：{}）：{error}",
+                source.display(),
+                destination_zip.display()
+            ))
+        })?;
+        let relative = entry.path().strip_prefix(source).map_err(|error| {
+            ArchiveError::Failed(format!(
+                "计算 ZIP 相对路径失败（源：{}，目标：{}）：{error}",
+                source.display(),
+                destination_zip.display()
+            ))
+        })?;
+        let suffix = relative.to_string_lossy().replace('\\', "/");
+        let name = if suffix.is_empty() {
+            root_name.clone()
+        } else {
+            format!("{root_name}/{suffix}")
+        };
+        if entry.file_type().is_dir() {
+            writer
+                .add_directory(format!("{name}/"), options)
+                .map_err(|error| io_error("写入 ZIP 目录", source, destination_zip, error))?;
+            continue;
+        }
+        writer
+            .start_file(name, options)
+            .map_err(|error| io_error("写入 ZIP 文件头", source, destination_zip, error))?;
+        let mut reader =
+            BufReader::new(File::open(entry.path()).map_err(|error| {
+                io_error("读取 ZIP 源文件", entry.path(), destination_zip, error)
+            })?);
+        loop {
+            check_cancel(cancelled)?;
+            let size = reader.read(&mut buffer).map_err(|error| {
+                io_error("读取 ZIP 源文件", entry.path(), destination_zip, error)
+            })?;
+            if size == 0 {
+                break;
+            }
+            writer
+                .write_all(&buffer[..size])
+                .map_err(|error| io_error("写入 ZIP", entry.path(), destination_zip, error))?;
+        }
+    }
+    writer
+        .finish()
+        .map_err(|error| io_error("完成 ZIP", source, destination_zip, error))?;
+    Ok(())
+}
+
+pub fn archive_artifacts(
+    request: &ArchiveRequest,
+    cancelled: &AtomicBool,
+    mut emit: impl FnMut(&str),
+) -> Result<PathBuf, ArchiveError> {
+    validate_folder_name(&request.folder_name).map_err(ArchiveError::Failed)?;
+    check_cancel(cancelled)?;
+    if !request.output_root.is_dir() {
+        return Err(ArchiveError::Failed("全局归档根目录不存在".into()));
+    }
+    if !request.frontend_artifact.is_dir() {
+        return Err(ArchiveError::Failed("前端产物必须是文件夹".into()));
+    }
+    if !request.backend_artifact.exists() {
+        return Err(ArchiveError::Failed("后端产物不存在".into()));
+    }
+    let frontend_name = source_name(&request.frontend_artifact)?;
+    let frontend_target = match request.frontend_mode.as_str() {
+        "copy_directory" => frontend_name.clone(),
+        "zip_directory" => format!("{frontend_name}.zip"),
+        _ => return Err(ArchiveError::Failed("未知的前端产物处理模式".into())),
+    };
+    let backend_target = source_name(&request.backend_artifact)?;
+    if frontend_target.eq_ignore_ascii_case(&backend_target) {
+        return Err(ArchiveError::Failed(format!(
+            "前后端归档名称冲突：{frontend_target}"
+        )));
+    }
+    let final_path = request.output_root.join(&request.folder_name);
+    if final_path.exists() {
+        return Err(ArchiveError::Failed("目标归档目录已存在".into()));
+    }
+    let staging_path = request
+        .output_root
+        .join(format!(".lazycat-release-package-{}.tmp", request.run_id));
+    if staging_path.exists() {
+        return Err(ArchiveError::Failed("本次运行临时目录已存在".into()));
+    }
+    fs::create_dir(&staging_path).map_err(|error| {
+        io_error(
+            "创建归档临时目录",
+            &request.output_root,
+            &staging_path,
+            error,
+        )
+    })?;
+    let mut guard = StagingGuard {
+        path: staging_path.clone(),
+        committed: false,
+    };
+    emit("正在归档前端产物");
+    if request.frontend_mode == "zip_directory" {
+        zip_directory_with_root(
+            &request.frontend_artifact,
+            &staging_path.join(frontend_target),
+            cancelled,
+        )?;
+    } else {
+        copy_path_with_root(&request.frontend_artifact, &staging_path, cancelled)?;
+    }
+    emit("正在归档后端产物");
+    copy_path_with_root(&request.backend_artifact, &staging_path, cancelled)?;
+    check_cancel(cancelled)?;
+    if final_path.exists() {
+        return Err(ArchiveError::Failed("目标归档目录在执行期间被创建".into()));
+    }
+    fs::rename(&staging_path, &final_path)
+        .map_err(|error| io_error("提交最终归档目录", &staging_path, &final_path, error))?;
+    guard.committed = true;
+    Ok(final_path)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use chrono::NaiveDate;
+    use std::fs;
     use std::path::Path;
+    use std::sync::atomic::AtomicBool;
+    use uuid::Uuid;
+    use zip::ZipArchive;
+
+    struct TestDir(PathBuf);
+
+    impl TestDir {
+        fn new() -> Self {
+            let path = std::env::temp_dir().join(format!(
+                "lazycat-release-package-archive-test-{}",
+                Uuid::new_v4()
+            ));
+            fs::create_dir(&path).unwrap();
+            Self(path)
+        }
+    }
+
+    impl Drop for TestDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
 
     #[test]
     fn thursday_is_inclusive_and_other_days_advance() {
@@ -85,5 +381,107 @@ mod tests {
             resolve_artifact_path(Path::new(r"D:\work\web"), r"E:\shared\dist"),
             Path::new(r"E:\shared\dist")
         );
+    }
+
+    #[test]
+    fn copy_mode_keeps_source_directory_and_backend_file() {
+        let root = TestDir::new();
+        let frontend = root.0.join("dist");
+        let backend = root.0.join("portal.jar");
+        let output = root.0.join("output");
+        fs::create_dir_all(&frontend).unwrap();
+        fs::create_dir_all(&output).unwrap();
+        fs::write(frontend.join("index.html"), "ok").unwrap();
+        fs::write(&backend, "jar").unwrap();
+
+        let result = archive_artifacts(
+            &ArchiveRequest {
+                frontend_artifact: frontend,
+                frontend_mode: "copy_directory".into(),
+                backend_artifact: backend,
+                output_root: output,
+                folder_name: "20260723-客户门户".into(),
+                run_id: "run-copy".into(),
+            },
+            &AtomicBool::new(false),
+            |_| {},
+        )
+        .unwrap();
+
+        assert!(result.join("dist/index.html").is_file());
+        assert!(result.join("portal.jar").is_file());
+    }
+
+    #[test]
+    fn zip_mode_keeps_frontend_directory_as_zip_root() {
+        let root = TestDir::new();
+        let frontend = root.0.join("dist");
+        let backend = root.0.join("server.jar");
+        let output = root.0.join("output");
+        fs::create_dir_all(frontend.join("assets")).unwrap();
+        fs::create_dir_all(&output).unwrap();
+        fs::write(frontend.join("assets/app.js"), "js").unwrap();
+        fs::write(&backend, "jar").unwrap();
+
+        let result = archive_artifacts(
+            &ArchiveRequest {
+                frontend_artifact: frontend,
+                frontend_mode: "zip_directory".into(),
+                backend_artifact: backend,
+                output_root: output,
+                folder_name: "20260723-客户门户".into(),
+                run_id: "run-zip".into(),
+            },
+            &AtomicBool::new(false),
+            |_| {},
+        )
+        .unwrap();
+
+        let mut zip = ZipArchive::new(fs::File::open(result.join("dist.zip")).unwrap()).unwrap();
+        assert!(zip.by_name("dist/assets/app.js").is_ok());
+    }
+
+    #[test]
+    fn collision_and_cancel_never_create_final_directory() {
+        let root = TestDir::new();
+        let frontend = root.0.join("dist");
+        let backend = root.0.join("backend/DIST");
+        let output = root.0.join("output");
+        fs::create_dir_all(&frontend).unwrap();
+        fs::create_dir_all(&backend).unwrap();
+        fs::create_dir_all(&output).unwrap();
+
+        let error = archive_artifacts(
+            &ArchiveRequest {
+                frontend_artifact: frontend.clone(),
+                frontend_mode: "copy_directory".into(),
+                backend_artifact: backend,
+                output_root: output.clone(),
+                folder_name: "20260723-客户门户".into(),
+                run_id: "run-collision".into(),
+            },
+            &AtomicBool::new(false),
+            |_| {},
+        )
+        .unwrap_err();
+        assert!(matches!(error, ArchiveError::Failed(message) if message.contains("名称冲突")));
+
+        let cancelled = AtomicBool::new(true);
+        let error = archive_artifacts(
+            &ArchiveRequest {
+                frontend_artifact: frontend,
+                frontend_mode: "copy_directory".into(),
+                backend_artifact: root.0.join("missing.jar"),
+                output_root: output.clone(),
+                folder_name: "20260723-另一个项目".into(),
+                run_id: "run-cancel".into(),
+            },
+            &cancelled,
+            |_| {},
+        )
+        .unwrap_err();
+        assert!(matches!(error, ArchiveError::Cancelled));
+        assert!(!output.join("20260723-客户门户").exists());
+        assert!(!output.join("20260723-另一个项目").exists());
     }
 }
