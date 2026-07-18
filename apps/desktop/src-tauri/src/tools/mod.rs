@@ -35,6 +35,7 @@ pub mod port;
 pub mod regex;
 pub mod release_package;
 pub mod release_package_archive;
+pub mod release_package_runtime;
 pub mod request_forward;
 pub mod schema;
 pub mod sql_entity;
@@ -210,6 +211,7 @@ pub fn execute_tool_with_app(
     app: &tauri::AppHandle,
 ) -> Result<Value, String> {
     match domain {
+        "release_package" => release_package::execute_with_app(action, payload, app),
         "settings" => settings::execute_with_app(action, payload, app),
         "widget" => widget::execute_with_app(action, payload, app),
         _ => execute_tool(domain, action, payload),

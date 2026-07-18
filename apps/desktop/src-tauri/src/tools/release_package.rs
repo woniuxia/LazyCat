@@ -30,6 +30,8 @@ const ACTIONS: &[&str] = &[
     "project_update",
     "project_delete",
     "prepare",
+    "start",
+    "cancel",
 ];
 
 #[derive(Clone, Debug, Serialize)]
@@ -214,12 +216,7 @@ pub(crate) fn load_project(
     .ok_or_else(|| "release package project not found".into())
 }
 
-fn prepare_with_conn(
-    conn: &Connection,
-    project_id: i64,
-    today: NaiveDate,
-) -> Result<Value, String> {
-    let project = load_project(conn, project_id)?;
+pub(crate) fn load_output_root(conn: &Connection) -> Result<String, String> {
     let output_root = conn
         .query_row(
             "SELECT value FROM user_settings WHERE key=?1",
@@ -232,6 +229,37 @@ fn prepare_with_conn(
     if output_root.trim().is_empty() {
         return Err("release package output root is required".into());
     }
+    Ok(output_root)
+}
+
+fn validate_run_inputs(
+    project: &ReleasePackageProjectConfig,
+    output_root: &str,
+    folder_name: &str,
+) -> Result<(), String> {
+    let output_root = PathBuf::from(output_root);
+    if !output_root.is_dir() {
+        return Err("全局归档根目录不存在或不是文件夹".into());
+    }
+    if !PathBuf::from(&project.frontend_project_path).is_dir() {
+        return Err("前端工程目录不存在或不是文件夹".into());
+    }
+    if !PathBuf::from(&project.backend_project_path).is_dir() {
+        return Err("后端工程目录不存在或不是文件夹".into());
+    }
+    if output_root.join(folder_name).exists() {
+        return Err("目标归档目录已存在".into());
+    }
+    Ok(())
+}
+
+fn prepare_with_conn(
+    conn: &Connection,
+    project_id: i64,
+    today: NaiveDate,
+) -> Result<Value, String> {
+    let project = load_project(conn, project_id)?;
+    let output_root = load_output_root(conn)?;
     let folder_name = default_folder_name(today, &project.name);
     validate_folder_name(&folder_name)?;
     let archive_path = PathBuf::from(&output_root)
@@ -256,6 +284,9 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
     if !ACTIONS.contains(&action) {
         return Err(format!("unsupported release_package action: {action}"));
     }
+    if matches!(action, "start" | "cancel") {
+        return Err("release_package action requires app context".into());
+    }
     let conn = db_conn()?;
     match action {
         "project_list" => project_list_with_conn(&conn),
@@ -269,6 +300,35 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
             prepare_with_conn(&conn, id, Local::now().date_naive())
         }
         _ => unreachable!(),
+    }
+}
+
+pub fn execute_with_app(
+    action: &str,
+    payload: &Value,
+    app: &tauri::AppHandle,
+) -> Result<Value, String> {
+    match action {
+        "start" => {
+            let project_id = payload["projectId"]
+                .as_i64()
+                .ok_or("projectId is required")?;
+            let folder_name = payload["folderName"]
+                .as_str()
+                .ok_or("folderName is required")?
+                .to_string();
+            validate_folder_name(&folder_name)?;
+            let conn = db_conn()?;
+            let project = load_project(&conn, project_id)?;
+            let output_root = load_output_root(&conn)?;
+            validate_run_inputs(&project, &output_root, &folder_name)?;
+            super::release_package_runtime::start(app, project, output_root.into(), folder_name)
+        }
+        "cancel" => {
+            let run_id = payload["runId"].as_str().ok_or("runId is required")?;
+            super::release_package_runtime::cancel(run_id)
+        }
+        _ => execute(action, payload),
     }
 }
 
