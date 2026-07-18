@@ -327,6 +327,73 @@ const MYBATIS_EXAMPLES: MybatisExample[] = [
     ],
   },
   {
+    id: "range-query",
+    label: "范围条件查询",
+    summary: ">= / <=：在 XML 中使用 &gt;= 与 &lt;= 转义比较运算符",
+    sqlTemplate: `<select>
+  SELECT id, name, score, created_at
+  FROM users
+  <where>
+    <if test="minScore != null and minScore &gt;= 0">
+      AND score &gt;= #{minScore}
+    </if>
+    <if test="maxScore != null and maxScore &lt;= 100">
+      AND score &lt;= #{maxScore}
+    </if>
+    <if test="startAt != null and startAt != ''">
+      AND created_at &gt;= #{startAt}
+    </if>
+    <if test="endAt != null and endAt != ''">
+      AND created_at &lt;= #{endAt}
+    </if>
+  </where>
+</select>`,
+    params: [
+      { name: "minScore", type: "number", value: "60" },
+      { name: "maxScore", type: "number", value: "90" },
+      { name: "startAt", type: "string", value: "2026-07-01 00:00:00" },
+      { name: "endAt", type: "string", value: "2026-07-31 23:59:59" },
+    ],
+  },
+  {
+    id: "trim-where",
+    label: "Trim 动态条件",
+    summary: "trim：自定义 WHERE 前缀并移除开头的 AND / OR",
+    sqlTemplate: `<select>
+  SELECT id, name, enabled
+  FROM users
+  <trim prefix="WHERE " prefixOverrides="AND |OR ">
+    <if test="keyword != null and keyword != ''">
+      AND name LIKE #{keyword}
+    </if>
+    <if test="enabled != null">
+      AND enabled = #{enabled}
+    </if>
+  </trim>
+</select>`,
+    params: [
+      { name: "keyword", type: "string", value: "%cat%" },
+      { name: "enabled", type: "boolean", value: "true" },
+    ],
+  },
+  {
+    id: "batch-delete",
+    label: "批量删除",
+    summary: "delete + foreach：按归属对象安全展开待删除 ID",
+    sqlTemplate: `<delete>
+  DELETE FROM user_sessions
+  WHERE user_id = #{userId}
+    AND id IN
+    <foreach collection="sessionIds" item="sessionId" open="(" separator="," close=")">
+      #{sessionId}
+    </foreach>
+</delete>`,
+    params: [
+      { name: "userId", type: "number", value: "101" },
+      { name: "sessionIds", type: "array", value: "[11, 12, 15]" },
+    ],
+  },
+  {
     id: "dynamic-order",
     label: "动态排序字段",
     summary: "${}：演示原样替换与 SQL 注入风险检查",
@@ -726,6 +793,8 @@ async function copyRenderedSql() {
   box-shadow: none;
   background: #fbfdff;
   font-family: var(--lc-font-mono);
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0, "calt" 0;
   font-size: 13px;
   line-height: 1.65;
   tab-size: 2;
@@ -847,6 +916,8 @@ async function copyRenderedSql() {
   background: #fbfdff;
   color: var(--lc-text);
   font-family: var(--lc-font-mono);
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0, "calt" 0;
   font-size: 13px;
   line-height: 1.65;
   white-space: pre-wrap;
@@ -855,6 +926,8 @@ async function copyRenderedSql() {
 
 .binding-value {
   font-family: var(--lc-font-mono);
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0, "calt" 0;
   color: var(--lc-text);
   word-break: break-all;
 }

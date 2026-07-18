@@ -180,7 +180,14 @@ fn extract_params(payload: &Value) -> Result<Value, String> {
     let ident_re = Regex::new(r"\b([a-zA-Z_][a-zA-Z0-9_]*)\b").map_err(|e| e.to_string())?;
     for cap in test_re.captures_iter(sql_template) {
         if let Some(m) = cap.get(1) {
-            let expression = string_literal_re.replace_all(m.as_str(), " ");
+            let decoded_expression = m
+                .as_str()
+                .replace("&gt;", ">")
+                .replace("&lt;", "<")
+                .replace("&amp;", "&")
+                .replace("&quot;", "\"")
+                .replace("&apos;", "'");
+            let expression = string_literal_re.replace_all(&decoded_expression, " ");
             for ic in ident_re.captures_iter(&expression) {
                 if let Some(im) = ic.get(1) {
                     let ident = im.as_str().to_string();
@@ -707,6 +714,68 @@ mod tests {
         assert_eq!(
             out["sql"],
             "SELECT id, name FROM users ORDER BY created_at DESC"
+        );
+    }
+
+    #[test]
+    fn render_and_extract_should_support_escaped_range_comparisons() {
+        let template = r#"
+            <select>
+              SELECT id, score FROM users
+              <where>
+                <if test="minScore != null and minScore &gt;= 0">
+                  AND score &gt;= #{minScore}
+                </if>
+                <if test="maxScore != null and maxScore &lt;= 100">
+                  AND score &lt;= #{maxScore}
+                </if>
+              </where>
+            </select>
+        "#;
+        let rendered = execute(
+            "render",
+            &json!({
+                "sqlTemplate": template,
+                "params": r#"{"minScore":60,"maxScore":90}"#
+            }),
+        )
+        .expect("render");
+        let extracted = execute(
+            "extract_params",
+            &json!({
+                "sqlTemplate": template
+            }),
+        )
+        .expect("extract params");
+
+        assert_eq!(
+            rendered["sql"],
+            "SELECT id, score FROM users WHERE score >= 60 AND score <= 90"
+        );
+        assert_eq!(extracted["params"], json!(["minScore", "maxScore"]));
+    }
+
+    #[test]
+    fn render_with_trim_should_remove_leading_logic() {
+        let out = execute(
+            "render",
+            &json!({
+                "sqlTemplate": r#"
+                    <select>
+                      SELECT id, name FROM users
+                      <trim prefix="WHERE " prefixOverrides="AND |OR ">
+                        <if test="name != null">AND name = #{name}</if>
+                      </trim>
+                    </select>
+                "#,
+                "params": r#"{"name":"Lazycat"}"#
+            }),
+        )
+        .expect("render");
+
+        assert_eq!(
+            out["sql"],
+            "SELECT id, name FROM users WHERE name = 'Lazycat'"
         );
     }
 
