@@ -32,7 +32,11 @@ const emit = defineEmits<{
   add: [];
   select: [id: number];
   start: [id: number];
+  "start-once": [id: number];
+  "start-auto": [id: number];
   stop: [id: number];
+  "stop-cancel-auto": [id: number];
+  "auto-start-update": [id: number, enabled: boolean];
   edit: [id: number];
   duplicate: [id: number];
   delete: [id: number];
@@ -70,7 +74,13 @@ function openMenu(ruleId: number) {
   menuRefs.get(ruleId)?.handleOpen();
 }
 
-function handleCommand(command: "edit" | "duplicate" | "delete", ruleId: number) {
+function handleCommand(
+  command: "edit" | "duplicate" | "delete" | "start-once" | "start-auto" | "stop-cancel-auto",
+  ruleId: number,
+) {
+  if (command === "start-once") return emit("start-once", ruleId);
+  if (command === "start-auto") return emit("start-auto", ruleId);
+  if (command === "stop-cancel-auto") return emit("stop-cancel-auto", ruleId);
   emit(command, ruleId);
 }
 
@@ -151,7 +161,7 @@ function targetEndpoint(rule: RequestForwardRule): string {
         :ref="(value: unknown) => setMenuRef(rule.id, value)"
         class="rule-menu"
         trigger="contextmenu"
-        @command="(command: 'edit' | 'duplicate' | 'delete') => handleCommand(command, rule.id)"
+        @command="(command: 'edit' | 'duplicate' | 'delete' | 'start-once' | 'start-auto' | 'stop-cancel-auto') => handleCommand(command, rule.id)"
       >
         <div
           class="rule-row"
@@ -172,6 +182,7 @@ function targetEndpoint(rule: RequestForwardRule): string {
                 <span class="state-label" :class="`is-${stateOf(rule.id)}`">
                   {{ stateLabel(stateOf(rule.id)) }}
                 </span>
+                <span v-if="rule.autoStart" class="auto-start-label">随应用启动</span>
               </span>
             </span>
             <span
@@ -212,6 +223,16 @@ function targetEndpoint(rule: RequestForwardRule): string {
                 @click="emit('stop', rule.id)"
               />
             </el-tooltip>
+            <el-tooltip content="随应用启动" placement="bottom">
+              <el-switch
+                :model-value="rule.autoStart"
+                size="small"
+                :disabled="busy"
+                :aria-label="rule.name + '随应用启动'"
+                @click.stop
+                @update:model-value="emit('auto-start-update', rule.id, $event)"
+              />
+            </el-tooltip>
             <el-tooltip content="规则菜单" placement="bottom">
               <el-button
                 text
@@ -228,6 +249,21 @@ function targetEndpoint(rule: RequestForwardRule): string {
 
         <template #dropdown>
           <el-dropdown-menu>
+            <el-dropdown-item
+              v-if="canStart(stateOf(rule.id))"
+              command="start-once"
+              :icon="VideoPlay"
+            >仅本次启动</el-dropdown-item>
+            <el-dropdown-item
+              v-if="canStart(stateOf(rule.id))"
+              command="start-auto"
+              :icon="VideoPlay"
+            >启动并自动恢复</el-dropdown-item>
+            <el-dropdown-item
+              v-if="canStop(stateOf(rule.id)) && rule.autoStart"
+              command="stop-cancel-auto"
+              :icon="VideoPause"
+            >停止并取消自动恢复</el-dropdown-item>
             <el-dropdown-item command="edit" :icon="Edit">编辑规则</el-dropdown-item>
             <el-dropdown-item command="duplicate" :icon="CopyDocument">复制规则</el-dropdown-item>
             <el-dropdown-item command="delete" :icon="Delete" divided>删除规则</el-dropdown-item>
@@ -336,10 +372,11 @@ function targetEndpoint(rule: RequestForwardRule): string {
 
 .rule-row__select:disabled { cursor: not-allowed; opacity: .68; }
 .rule-row__select:focus-visible { outline: 2px solid var(--el-color-primary, #409eff); outline-offset: -2px; }
-.rule-row__topline { min-width: 0; justify-content: space-between; gap: 7px; padding-right: 55px; }
+.rule-row__topline { min-width: 0; justify-content: space-between; gap: 7px; padding-right: 92px; }
 .rule-row__topline strong { overflow: hidden; color: #273548; font-size: 16px; text-overflow: ellipsis; white-space: nowrap; }
 .rule-row__meta { flex: none; gap: 7px; }
 .protocol-label { color: #45627b; font-size: 12px; }
+.auto-start-label { color: #2f7b59; font-size: 11px; font-weight: 600; }
 .rule-row__summary { display: grid; min-width: 0; gap: 3px; color: #56667a; font-size: 14px; line-height: 1.5; }
 .rule-row__summary-line { min-width: 0; align-items: flex-start; gap: 7px; }
 .rule-row__summary-line b { width: 34px; flex: none; color: #45627b; font-size: 12px; }

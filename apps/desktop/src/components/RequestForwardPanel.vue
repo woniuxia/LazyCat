@@ -857,14 +857,14 @@ async function runPreflight(): Promise<RequestForwardPreflightResult | null> {
   return executePreflight();
 }
 
-async function preflightAndStart() {
+async function preflightAndStart(autoStart?: boolean) {
   const result = await runPreflight();
   if (!result?.ready) {
     if (result) ElMessage.warning("配置预检未通过，请先处理阻断项");
     return;
   }
   if (!isAcceptedPreflightCurrent()) return;
-  await saveAndStart();
+  await saveAndStart(autoStart);
 }
 
 async function saveRule(): Promise<RequestForwardRule | null> {
@@ -907,22 +907,48 @@ async function saveRule(): Promise<RequestForwardRule | null> {
   }
 }
 
-async function saveAndStart() {
+async function chooseStartIntent(): Promise<boolean | null> {
+  try {
+    await ElMessageBox.confirm(
+      "请选择本次启动是否加入应用启动时的自动恢复。",
+      "启动方式",
+      {
+        type: "info",
+        confirmButtonText: "启动并自动恢复",
+        cancelButtonText: "仅本次启动",
+        distinguishCancelAndClose: true,
+      },
+    );
+    return true;
+  } catch (reason) {
+    return reason === "cancel" ? false : null;
+  }
+}
+
+async function saveAndStart(autoStart?: boolean) {
   const saved = await saveRule();
   if (!saved) return;
+  const intent = autoStart ?? await chooseStartIntent();
+  if (intent == null) return;
   try {
-    await startRule(saved.id, false);
+    await startRule(saved.id, false, intent);
     ElMessage.success("规则已保存并启动");
   } catch (error) {
     ElMessage.error(`规则已保存，但启动失败：${errorMessage(error)}`);
   }
 }
 
-async function startRule(id: number, feedback = true) {
+async function startRule(id: number, feedback = true, autoStart?: boolean) {
   if (interactionBusy.value) return;
   const intent = captureRequestForwardMutationIntent(currentSelectionIntent(), id);
   operating.value = true;
   try {
+    if (autoStart !== undefined) {
+      await invoke("tool:request-forward:auto-start-update", {
+        id: intent.targetId,
+        enabled: autoStart,
+      });
+    }
     await applyRequestForwardMutationResult(
       invoke<StatusEnvelope>("tool:request-forward:start", { id: intent.targetId }),
       intent,
@@ -937,6 +963,42 @@ async function startRule(id: number, feedback = true) {
     await refreshRules();
     if (feedback) ElMessage.error(`启动规则失败：${errorMessage(error)}`);
     if (!feedback) throw error;
+  } finally {
+    operating.value = false;
+  }
+}
+
+async function startRuleWithPrompt(id: number) {
+  const autoStart = await chooseStartIntent();
+  if (autoStart == null) return;
+  await startRule(id, true, autoStart);
+}
+
+function startRuleOnce(id: number) {
+  return startRule(id, true, false);
+}
+
+function startRuleWithAutoRecovery(id: number) {
+  return startRule(id, true, true);
+}
+
+async function setAutoStartIntent(id: number, enabled: boolean, feedback = true) {
+  if (interactionBusy.value) return false;
+  const intent = captureRequestForwardMutationIntent(currentSelectionIntent(), id);
+  operating.value = true;
+  try {
+    await invoke("tool:request-forward:auto-start-update", {
+      id: intent.targetId,
+      enabled,
+    });
+    await refreshRules();
+    if (feedback) {
+      ElMessage.success(enabled ? "已设置为随应用启动" : "已取消随应用启动");
+    }
+    return true;
+  } catch (error) {
+    if (feedback) ElMessage.error(`更新自动恢复设置失败：${errorMessage(error)}`);
+    return false;
   } finally {
     operating.value = false;
   }
@@ -962,6 +1024,20 @@ async function stopRule(id: number, feedback = true) {
     if (!feedback) throw error;
   } finally {
     operating.value = false;
+  }
+}
+
+async function stopAndCancelAutoStart(id: number) {
+  if (interactionBusy.value) return;
+  try {
+    await stopRule(id, false);
+    if (await setAutoStartIntent(id, false, false)) {
+      ElMessage.success("规则已停止并取消自动恢复");
+    } else {
+      ElMessage.error("规则已停止，但取消自动恢复失败");
+    }
+  } catch (error) {
+    ElMessage.error(`停止并取消自动恢复失败：${errorMessage(error)}`);
   }
 }
 
@@ -1225,8 +1301,12 @@ onUnmounted(() => {
       :busy="interactionBusy"
       @add="openCreateDialog"
       @select="selectRule"
-      @start="startRule"
+      @start="startRuleWithPrompt"
+      @start-once="startRuleOnce"
+      @start-auto="startRuleWithAutoRecovery"
       @stop="stopRule"
+      @stop-cancel-auto="stopAndCancelAutoStart"
+      @auto-start-update="setAutoStartIntent"
       @edit="openEditDialog"
       @duplicate="openDuplicateDialog"
       @delete="deleteRule"
@@ -1259,6 +1339,17 @@ onUnmounted(() => {
           <div class="workbench-header__aside">
             <div class="runtime-state" :class="`is-${selectedState}`">
               <span>{{ stateCopy }}</span>
+              <small v-if="selectedRule.autoStart && !selectedRuntimeError">随应用启动</small>
+              <div
+                v-if="selectedRule.autoStart && selectedState !== 'starting' && selectedState !== 'stopping'"
+                class="runtime-state__actions"
+              >
+                <el-button
+                  size="small"
+                  :disabled="interactionBusy"
+                  @click="stopAndCancelAutoStart(selectedRule.id)"
+                >停止并取消自动恢复</el-button>
+              </div>
               <template v-if="selectedRuntimeError">
                 <small>{{ getRequestForwardErrorSummary(selectedRuntimeError.code) }}</small>
                 <div class="runtime-state__actions">

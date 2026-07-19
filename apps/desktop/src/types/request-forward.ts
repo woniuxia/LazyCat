@@ -67,6 +67,11 @@ export interface RequestForwardRule extends RequestForwardRuleWriteInput {
   updatedAt: string;
 }
 
+export interface RequestForwardAutoStartUpdate {
+  id: number;
+  enabled: boolean;
+}
+
 export interface RequestForwardRuntimeStatus {
   ruleId: number;
   state: RequestForwardRuntimeState;

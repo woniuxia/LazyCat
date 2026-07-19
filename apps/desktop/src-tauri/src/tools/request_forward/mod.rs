@@ -5,7 +5,7 @@ use model::{
     encode_request_forward_error, encode_request_forward_error_with_code,
     RequestForwardErrorCode, RuleWriteInput,
 };
-use runtime::{AutoStartPersistence, LifecycleRepository};
+use runtime::LifecycleRepository;
 
 pub use runtime::RestoreResult;
 
@@ -30,6 +30,7 @@ const ACTIONS: &[&str] = &[
     "stop",
     "start_all",
     "stop_all",
+    "auto_start_update",
     "status",
     "log_list",
     "log_clear",
@@ -85,6 +86,26 @@ pub fn on_app_exit() {
 #[cfg(test)]
 pub(crate) fn supported_actions() -> &'static [&'static str] {
     ACTIONS
+}
+
+#[cfg(test)]
+mod task6_red_tests {
+    use serde_json::json;
+
+    use super::{parse_auto_start_enabled, supported_actions};
+
+    #[test]
+    fn supports_explicit_auto_start_update_action() {
+        assert!(supported_actions().contains(&"auto_start_update"));
+    }
+
+    #[test]
+    fn auto_start_update_requires_an_explicit_boolean() {
+        assert!(parse_auto_start_enabled(&json!({ "enabled": true })).unwrap());
+        assert!(!parse_auto_start_enabled(&json!({ "enabled": false })).unwrap());
+        assert!(parse_auto_start_enabled(&json!({})).is_err());
+        assert!(parse_auto_start_enabled(&json!({ "enabled": 1 })).is_err());
+    }
 }
 
 pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
@@ -143,17 +164,15 @@ fn execute_inner(action: &str, payload: &Value) -> Result<Value, String> {
         "start" => {
             let conn = db_conn()?;
             let id = parse_rule_id(payload)?;
-            let persistence = DatabaseAutoStartPersistence { conn: &conn };
             let status = runtime::global_manager()
-                .start_loaded(id, &persistence, || repository::get_with_conn(&conn, id))?;
+                .start_loaded(id, || repository::get_with_conn(&conn, id))?;
             Ok(json!({ "item": status }))
         }
         "stop" => {
             let conn = db_conn()?;
             let id = parse_rule_id(payload)?;
-            let persistence = DatabaseAutoStartPersistence { conn: &conn };
             let status = runtime::global_manager()
-                .stop_loaded(id, &persistence, || repository::get_with_conn(&conn, id))?;
+                .stop_loaded(id, || repository::get_with_conn(&conn, id))?;
             Ok(json!({ "item": status }))
         }
         "start_all" => {
@@ -162,9 +181,8 @@ fn execute_inner(action: &str, payload: &Value) -> Result<Value, String> {
                 .into_iter()
                 .map(|rule| rule.id)
                 .collect::<Vec<_>>();
-            let persistence = DatabaseAutoStartPersistence { conn: &conn };
             let results =
-                runtime::global_manager().start_all_loaded(&rule_ids, &persistence, |id| {
+                runtime::global_manager().start_all_loaded(&rule_ids, |id| {
                     repository::get_with_conn(&conn, id)
                 });
             Ok(json!({ "results": results }))
@@ -175,12 +193,21 @@ fn execute_inner(action: &str, payload: &Value) -> Result<Value, String> {
                 .into_iter()
                 .map(|rule| rule.id)
                 .collect::<Vec<_>>();
-            let persistence = DatabaseAutoStartPersistence { conn: &conn };
             let results =
-                runtime::global_manager().stop_all_loaded(&rule_ids, &persistence, |id| {
+                runtime::global_manager().stop_all_loaded(&rule_ids, |id| {
                     repository::get_with_conn(&conn, id)
                 });
             Ok(json!({ "results": results }))
+        }
+        "auto_start_update" => {
+            let conn = db_conn()?;
+            let id = parse_rule_id(payload)?;
+            let enabled = parse_auto_start_enabled(payload)?;
+            let item = runtime::global_manager().with_auto_start_mutation(id, || {
+                repository::set_auto_start_with_conn(&conn, id, enabled)?;
+                repository::get_with_conn(&conn, id)
+            })?;
+            Ok(json!({ "item": item }))
         }
         "status" => {
             let conn = db_conn()?;
@@ -216,22 +243,19 @@ fn execute_inner(action: &str, payload: &Value) -> Result<Value, String> {
     }
 }
 
-struct DatabaseAutoStartPersistence<'a> {
-    conn: &'a rusqlite::Connection,
-}
-
-impl AutoStartPersistence for DatabaseAutoStartPersistence<'_> {
-    fn set_auto_start(&self, rule_id: i64, value: bool) -> Result<(), String> {
-        repository::set_auto_start_with_conn(self.conn, rule_id, value)
-    }
-}
-
 fn parse_rule_id(payload: &Value) -> Result<i64, String> {
     payload
         .get("id")
         .and_then(Value::as_i64)
         .filter(|id| *id > 0)
         .ok_or_else(|| "转发规则 ID 无效".into())
+}
+
+fn parse_auto_start_enabled(payload: &Value) -> Result<bool, String> {
+    payload
+        .get("enabled")
+        .and_then(Value::as_bool)
+        .ok_or_else(|| "自动恢复开关参数无效".to_string())
 }
 
 fn parse_rule_input(payload: &Value) -> Result<RuleWriteInput, String> {
@@ -627,6 +651,17 @@ mod tests {
         assert_eq!(updated.protocol, ForwardProtocol::Http);
         assert_eq!(updated.target_url.as_deref(), Some("https://example.com/api"));
 
+        repository::set_auto_start_with_conn(&conn, created.id, true)
+            .expect("enable auto-start");
+        assert!(repository::get_with_conn(&conn, created.id)
+            .expect("read enabled auto-start")
+            .auto_start);
+        repository::set_auto_start_with_conn(&conn, created.id, false)
+            .expect("disable auto-start");
+        assert!(!repository::get_with_conn(&conn, created.id)
+            .expect("read disabled auto-start")
+            .auto_start);
+
         repository::delete_with_conn(&conn, created.id).expect("delete rule");
         assert!(repository::list_with_conn(&conn).unwrap().is_empty());
         assert!(repository::get_with_conn(&conn, created.id)
@@ -639,6 +674,9 @@ mod tests {
         );
         assert!(repository::delete_with_conn(&conn, created.id)
             .expect_err("missing delete")
+            .contains("不存在"));
+        assert!(repository::set_auto_start_with_conn(&conn, created.id, true)
+            .expect_err("missing auto-start update")
             .contains("不存在"));
     }
 

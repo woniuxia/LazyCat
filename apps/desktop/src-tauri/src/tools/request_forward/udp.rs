@@ -781,33 +781,16 @@ fn worker_panic_error(payload: Box<dyn Any + Send>) -> String {
 #[cfg(test)]
 mod tests {
     use std::net::{SocketAddr, UdpSocket};
-    use std::sync::{mpsc, Arc, Mutex};
+    use std::sync::{mpsc, Arc};
     use std::thread::{self, JoinHandle};
     use std::time::Duration;
 
     use super::{UdpEventKind, UdpLimits, UdpRuleRunner, UdpSession};
     use crate::tools::request_forward::model::{ForwardProtocol, ForwardRule};
     use crate::tools::request_forward::observability::UdpObservability;
-    use crate::tools::request_forward::runtime::{
-        AutoStartPersistence, RuleRunner, RuntimeManager, RuntimeState,
-    };
+    use crate::tools::request_forward::runtime::{RuleRunner, RuntimeManager, RuntimeState};
 
     const SOCKET_TIMEOUT: Duration = Duration::from_secs(2);
-
-    #[derive(Default)]
-    struct TestPersistence {
-        values: Mutex<Vec<(i64, bool)>>,
-    }
-
-    impl AutoStartPersistence for TestPersistence {
-        fn set_auto_start(&self, rule_id: i64, value: bool) -> Result<(), String> {
-            self.values
-                .lock()
-                .expect("lock test persistence")
-                .push((rule_id, value));
-            Ok(())
-        }
-    }
 
     fn udp_rule(id: i64, target_addr: SocketAddr) -> ForwardRule {
         ForwardRule {
@@ -1130,11 +1113,9 @@ mod tests {
         let rule = udp_rule(5, downstream.local_addr().expect("read downstream address"));
         let runner = Arc::new(UdpRuleRunner::new());
         let manager = RuntimeManager::new(runner.clone());
-        let persistence = TestPersistence::default();
-
         assert_eq!(
             manager
-                .start(&rule, &persistence)
+                .start(&rule)
                 .expect("start UDP rule")
                 .state,
             RuntimeState::Running
@@ -1152,7 +1133,7 @@ mod tests {
             .wait_for_count(1, SOCKET_TIMEOUT)
             .expect("wait for active UDP session");
 
-        let stopped = manager.stop(&rule, &persistence).expect("stop UDP rule");
+        let stopped = manager.stop(&rule).expect("stop UDP rule");
         assert_eq!(stopped.state, RuntimeState::Stopped);
         sessions
             .wait_for_count(0, SOCKET_TIMEOUT)
@@ -1160,14 +1141,6 @@ mod tests {
         assert!(
             UdpSocket::bind(listener_addr).is_ok(),
             "UDP listener must close"
-        );
-        assert_eq!(
-            persistence
-                .values
-                .lock()
-                .expect("lock persistence")
-                .as_slice(),
-            &[(5, true), (5, false)]
         );
     }
 }

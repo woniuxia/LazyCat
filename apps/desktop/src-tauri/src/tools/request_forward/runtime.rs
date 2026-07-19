@@ -79,10 +79,6 @@ pub(super) trait RuleRunner: Send + Sync {
     }
 }
 
-pub(crate) trait AutoStartPersistence {
-    fn set_auto_start(&self, rule_id: i64, value: bool) -> Result<(), String>;
-}
-
 pub(crate) trait LifecycleRepository {
     fn auto_start_rules(&self) -> Result<Vec<ForwardRule>, String>;
 }
@@ -233,19 +229,13 @@ impl RuntimeManager {
         }
     }
 
-    #[cfg(test)]
-    pub(crate) fn start<P: AutoStartPersistence>(
-        &self,
-        rule: &ForwardRule,
-        persistence: &P,
-    ) -> Result<RuntimeStatus, String> {
-        self.with_rule_lock(rule.id, || self.start_locked(rule, persistence))
+    pub(crate) fn start(&self, rule: &ForwardRule) -> Result<RuntimeStatus, String> {
+        self.with_rule_lock(rule.id, || self.start_locked(rule))
     }
 
-    pub(crate) fn start_loaded<P: AutoStartPersistence>(
+    pub(crate) fn start_loaded(
         &self,
         rule_id: i64,
-        persistence: &P,
         load_rule: impl FnOnce() -> Result<ForwardRule, String>,
     ) -> Result<RuntimeStatus, String> {
         self.with_rule_lock(rule_id, || {
@@ -253,23 +243,17 @@ impl RuntimeManager {
             if rule.id != rule_id {
                 return Err("转发规则 ID 不匹配".into());
             }
-            self.start_locked(&rule, persistence)
+            self.start_locked(&rule)
         })
     }
 
-    #[cfg(test)]
-    pub(crate) fn stop<P: AutoStartPersistence>(
-        &self,
-        rule: &ForwardRule,
-        persistence: &P,
-    ) -> Result<RuntimeStatus, String> {
-        self.with_rule_lock(rule.id, || self.stop_locked(rule, persistence))
+    pub(crate) fn stop(&self, rule: &ForwardRule) -> Result<RuntimeStatus, String> {
+        self.with_rule_lock(rule.id, || self.stop_locked(rule))
     }
 
-    pub(crate) fn stop_loaded<P: AutoStartPersistence>(
+    pub(crate) fn stop_loaded(
         &self,
         rule_id: i64,
-        persistence: &P,
         load_rule: impl FnOnce() -> Result<ForwardRule, String>,
     ) -> Result<RuntimeStatus, String> {
         self.with_rule_lock(rule_id, || {
@@ -277,41 +261,29 @@ impl RuntimeManager {
             if rule.id != rule_id {
                 return Err("转发规则 ID 不匹配".into());
             }
-            self.stop_locked(&rule, persistence)
+            self.stop_locked(&rule)
         })
     }
 
-    pub(crate) fn start_all_loaded<P: AutoStartPersistence>(
+    pub(crate) fn start_all_loaded(
         &self,
         rule_ids: &[i64],
-        persistence: &P,
         load_rule: impl Fn(i64) -> Result<ForwardRule, String>,
     ) -> Vec<BatchOperationResult> {
         rule_ids
             .iter()
-            .map(|&rule_id| {
-                self.batch_result(
-                    rule_id,
-                    self.start_loaded(rule_id, persistence, || load_rule(rule_id)),
-                )
-            })
+            .map(|&rule_id| self.batch_result(rule_id, self.start_loaded(rule_id, || load_rule(rule_id))))
             .collect()
     }
 
-    pub(crate) fn stop_all_loaded<P: AutoStartPersistence>(
+    pub(crate) fn stop_all_loaded(
         &self,
         rule_ids: &[i64],
-        persistence: &P,
         load_rule: impl Fn(i64) -> Result<ForwardRule, String>,
     ) -> Vec<BatchOperationResult> {
         rule_ids
             .iter()
-            .map(|&rule_id| {
-                self.batch_result(
-                    rule_id,
-                    self.stop_loaded(rule_id, persistence, || load_rule(rule_id)),
-                )
-            })
+            .map(|&rule_id| self.batch_result(rule_id, self.stop_loaded(rule_id, || load_rule(rule_id))))
             .collect()
     }
 
@@ -410,6 +382,14 @@ impl RuntimeManager {
         })
     }
 
+    pub(crate) fn with_auto_start_mutation<T>(
+        &self,
+        rule_id: i64,
+        mutation: impl FnOnce() -> Result<T, String>,
+    ) -> Result<T, String> {
+        self.with_rule_lock(rule_id, mutation)
+    }
+
     fn with_rule_lock<T>(
         &self,
         rule_id: i64,
@@ -483,10 +463,9 @@ impl RuntimeManager {
         self.observability_persistence.stats(rule_id)
     }
 
-    fn start_locked<P: AutoStartPersistence>(
+    fn start_locked(
         &self,
         rule: &ForwardRule,
-        persistence: &P,
     ) -> Result<RuntimeStatus, String> {
         let _lifecycle_guard = self.start_lifecycle_guard()?;
         if self.status(rule.id).state == RuntimeState::Running {
@@ -518,26 +497,6 @@ impl RuntimeManager {
                 last_error: None,
             },
         );
-
-        if let Err(primary_error) = persistence.set_auto_start(rule.id, true) {
-            self.set_state(
-                rule.id,
-                RuntimeState::Stopping,
-                Some(handle),
-                Some(primary_error.clone()),
-            );
-            match self.runner.stop(handle) {
-                Ok(()) => {
-                    self.set_failed(rule.id, primary_error.clone());
-                    return Err(primary_error);
-                }
-                Err(compensation_error) => {
-                    let error = compensation_error_message(&primary_error, &compensation_error);
-                    self.set_failed(rule.id, error.clone());
-                    return Err(error);
-                }
-            }
-        }
 
         self.start_observability(rule, handle);
 
@@ -584,19 +543,11 @@ impl RuntimeManager {
         }
     }
 
-    fn stop_locked<P: AutoStartPersistence>(
-        &self,
-        rule: &ForwardRule,
-        persistence: &P,
-    ) -> Result<RuntimeStatus, String> {
+    fn stop_locked(&self, rule: &ForwardRule) -> Result<RuntimeStatus, String> {
         self.reconcile_runner_failure(rule.id);
         let previous = self.instance(rule.id);
 
         if previous.state == RuntimeState::Failed {
-            if let Err(error) = persistence.set_auto_start(rule.id, false) {
-                self.set_failed(rule.id, error.clone());
-                return Err(error);
-            }
             self.set_instance(rule.id, RuntimeInstance::stopped());
             return Ok(self.status(rule.id));
         }
@@ -608,57 +559,11 @@ impl RuntimeManager {
             self.set_state(rule.id, RuntimeState::Stopping, Some(handle), None);
             if let Err(stop_error) = self.runner.stop(handle) {
                 self.stop_observability(rule.id);
-                let error = match persistence.set_auto_start(rule.id, false) {
-                    Ok(()) => stop_error,
-                    Err(persistence_error) => format!(
-                        "{stop_error}; 保存停止意图失败: {persistence_error}"
-                    ),
-                };
-                self.set_failed(rule.id, error.clone());
-                return Err(error);
+                self.set_failed(rule.id, stop_error.clone());
+                return Err(stop_error);
             }
             self.stop_observability(rule.id);
             self.set_instance(rule.id, RuntimeInstance::stopped());
-        }
-
-        if !rule.auto_start && !had_running_handle {
-            return Ok(self.status(rule.id));
-        }
-
-        if let Err(primary_error) = persistence.set_auto_start(rule.id, false) {
-            self.set_instance(
-                rule.id,
-                RuntimeInstance {
-                    state: RuntimeState::Starting,
-                    handle: None,
-                    last_error: Some(primary_error.clone()),
-                },
-            );
-            let _lifecycle_guard = match self.start_lifecycle_guard() {
-                Ok(guard) => guard,
-                Err(shutdown_error) => {
-                    let error = compensation_error_message(&primary_error, &shutdown_error);
-                    self.set_failed(rule.id, error.clone());
-                    return Err(error);
-                }
-            };
-            match self.runner.start(rule) {
-                Ok(handle) => {
-                    self.start_observability(rule, handle);
-                    self.set_state(
-                        rule.id,
-                        RuntimeState::Running,
-                        Some(handle),
-                        Some(primary_error.clone()),
-                    );
-                    return Err(primary_error);
-                }
-                Err(compensation_error) => {
-                    let error = compensation_error_message(&primary_error, &compensation_error);
-                    self.set_failed(rule.id, error.clone());
-                    return Err(error);
-                }
-            }
         }
 
         self.set_instance(rule.id, RuntimeInstance::stopped());
@@ -1004,10 +909,6 @@ fn unified_logs(batch: UnifiedObservationBatch) -> Vec<ForwardLogWrite> {
     }
 }
 
-fn compensation_error_message(primary_error: &str, compensation_error: &str) -> String {
-    format!("{primary_error}; 补偿失败: {compensation_error}")
-}
-
 struct ProtocolRunner {
     http: HttpRuleRunner,
     tcp: TcpRuleRunner,
@@ -1134,7 +1035,7 @@ mod tests {
     use std::time::Duration;
 
     use super::{
-        unified_delta, unified_logs, unified_next_cursor, AutoStartPersistence,
+        unified_delta, unified_logs, unified_next_cursor,
         LifecycleRepository, ObservabilityPersistence, ObservationBatch, ObservationCursor,
         ObservationSource, ProtocolRunner, RuleRunner, RunningHandle, RuntimeManager, RuntimeState,
         UnifiedObservationBatch,
@@ -1399,18 +1300,10 @@ mod tests {
 
     #[derive(Default)]
     struct FakePersistence {
-        errors: Mutex<HashMap<(i64, bool), String>>,
         values: Mutex<HashMap<i64, bool>>,
     }
 
     impl FakePersistence {
-        fn fail_for(&self, rule_id: i64, value: bool, error: &str) {
-            self.errors
-                .lock()
-                .expect("lock fake persistence")
-                .insert((rule_id, value), error.into());
-        }
-
         fn value(&self, rule_id: i64) -> Option<bool> {
             self.values
                 .lock()
@@ -1420,16 +1313,8 @@ mod tests {
         }
     }
 
-    impl AutoStartPersistence for FakePersistence {
+    impl FakePersistence {
         fn set_auto_start(&self, rule_id: i64, value: bool) -> Result<(), String> {
-            if let Some(error) = self
-                .errors
-                .lock()
-                .expect("lock fake persistence")
-                .get(&(rule_id, value))
-            {
-                return Err(error.clone());
-            }
             self.values
                 .lock()
                 .expect("lock fake persistence")
@@ -1545,8 +1430,11 @@ mod tests {
         let persistence = FakePersistence::default();
         let mut auto_start_rule = rule(1);
         auto_start_rule.auto_start = true;
+        persistence
+            .set_auto_start(auto_start_rule.id, true)
+            .expect("seed auto-start intent");
         manager
-            .start(&auto_start_rule, &persistence)
+            .start(&auto_start_rule)
             .expect("start before shutdown");
 
         let _ = manager.on_app_exit();
@@ -1589,11 +1477,9 @@ mod tests {
     fn manual_start_after_app_shutdown_is_rejected() {
         let runner = Arc::new(FakeRunner::default());
         let manager = RuntimeManager::new(runner.clone());
-        let persistence = FakePersistence::default();
-
         let _ = manager.on_app_exit();
         let error = manager
-            .start(&rule(1), &persistence)
+            .start(&rule(1))
             .expect_err("start after shutdown must fail");
 
         assert!(error.contains("应用正在退出"));
@@ -1606,8 +1492,10 @@ mod tests {
         let runner = Arc::new(FakeRunner::default());
         let manager = RuntimeManager::new(runner.clone());
         let persistence = FakePersistence::default();
-        manager.start(&rule(1), &persistence).expect("start rule 1");
-        manager.start(&rule(2), &persistence).expect("start rule 2");
+        persistence.set_auto_start(1, true).expect("seed rule 1 intent");
+        persistence.set_auto_start(2, true).expect("seed rule 2 intent");
+        manager.start(&rule(1)).expect("start rule 1");
+        manager.start(&rule(2)).expect("start rule 2");
         runner.fail_stop("shutdown stop failed");
 
         let results = manager.on_app_exit();
@@ -1644,6 +1532,21 @@ mod tests {
     }
 
     #[test]
+    fn manual_start_does_not_persist_auto_start_intent() {
+        let runner = Arc::new(FakeRunner::default());
+        let manager = RuntimeManager::new(runner);
+        let persistence = FakePersistence::default();
+        let mut manual_rule = rule(91);
+        manual_rule.auto_start = false;
+
+        manager
+            .start(&manual_rule)
+            .expect("manual start succeeds");
+
+        assert_eq!(persistence.value(manual_rule.id), None);
+    }
+
+    #[test]
     fn failed_state_has_no_live_task_and_allows_update_delete() {
         let mut conn = test_conn();
         let stored_rule = repository::create_with_conn(&mut conn, write_input("失败规则"))
@@ -1651,10 +1554,8 @@ mod tests {
         let runner = Arc::new(FakeRunner::default());
         runner.fail_start_for(stored_rule.id, "runner start failed");
         let manager = RuntimeManager::new(runner.clone());
-        let persistence = FakePersistence::default();
-
         let error = manager
-            .start(&stored_rule, &persistence)
+            .start(&stored_rule)
             .expect_err("start fails");
 
         assert!(error.contains("runner start failed"));
@@ -1683,9 +1584,8 @@ mod tests {
             runner.clone(),
             Arc::new(FailingObservabilityPersistence),
         );
-        let persistence = FakePersistence::default();
         let rule = rule(88);
-        manager.start(&rule, &persistence).expect("start rule");
+        manager.start(&rule).expect("start rule");
         observability.accepted();
 
         manager.flush_observability(rule.id);
@@ -1711,9 +1611,8 @@ mod tests {
         let observability = Arc::new(TcpObservability::default());
         runner.set_observation_source(ObservationSource::Tcp(Arc::clone(&observability)));
         let manager = RuntimeManager::with_observability_persistence(runner, persistence.clone());
-        let auto_start = FakePersistence::default();
         manager
-            .start(&stored_rule, &auto_start)
+            .start(&stored_rule)
             .expect("start stats rule");
         observability.accepted();
         observability.transferred(10, 20);
@@ -1752,7 +1651,7 @@ mod tests {
         observability.accepted();
         assert_eq!(manager.stats(stored_rule.id).unwrap().event_count, 1);
         manager
-            .stop(&stored_rule, &auto_start)
+            .stop(&stored_rule)
             .expect("stop stats rule");
     }
 
@@ -1891,100 +1790,54 @@ mod tests {
     }
 
     #[test]
-    fn start_persist_failure_stops_new_runtime_before_returning_error() {
+    fn manual_start_keeps_auto_start_intent_unchanged() {
         let runner = Arc::new(FakeRunner::default());
         let manager = RuntimeManager::new(runner.clone());
         let persistence = FakePersistence::default();
-        persistence.fail_for(1, true, "persist true failed");
+        persistence.set_auto_start(1, false).expect("seed manual intent");
 
-        let error = manager
-            .start(&rule(1), &persistence)
-            .expect_err("start fails");
+        manager
+            .start(&rule(1))
+            .expect("runtime start is independent");
 
-        assert!(error.contains("persist true failed"));
-        assert_eq!(runner.stop_calls.load(Ordering::SeqCst), 1);
-        assert!(!runner.has_live_task());
-        assert_eq!(manager.status(1).state, RuntimeState::Failed);
-        assert_eq!(persistence.value(1), None);
-    }
-
-    #[test]
-    fn stop_persist_failure_restarts_old_config_before_returning_error() {
-        let runner = Arc::new(FakeRunner::default());
-        let manager = RuntimeManager::new(runner.clone());
-        let persistence = FakePersistence::default();
-        manager.start(&rule(1), &persistence).expect("start succeeds");
-        persistence.fail_for(1, false, "persist false failed");
-
-        let error = manager
-            .stop(&rule(1), &persistence)
-            .expect_err("stop fails");
-
-        assert!(error.contains("persist false failed"));
-        assert_eq!(runner.start_calls.load(Ordering::SeqCst), 2);
+        assert_eq!(runner.stop_calls.load(Ordering::SeqCst), 0);
         assert!(runner.has_live_task());
         assert_eq!(manager.status(1).state, RuntimeState::Running);
-        assert_eq!(persistence.value(1), Some(true));
-    }
-
-    #[test]
-    fn double_compensation_failure_reports_runtime_truth() {
-        let runner = Arc::new(FakeRunner::default());
-        runner.fail_stop("compensation stop failed");
-        let manager = RuntimeManager::new(runner.clone());
-        let persistence = FakePersistence::default();
-        persistence.fail_for(1, true, "persist true failed");
-
-        let error = manager
-            .start(&rule(1), &persistence)
-            .expect_err("start fails");
-        let status = manager.status(1);
-
-        assert!(error.contains("persist true failed"));
-        assert!(error.contains("compensation stop failed"));
-        assert!(!runner.has_live_task());
-        assert_eq!(status.state, RuntimeState::Failed);
-        assert!(status
-            .last_error
-            .expect("error recorded")
-            .contains("compensation stop failed"));
-    }
-
-    #[test]
-    fn runner_stop_failure_is_terminal_and_persists_user_stop_intent() {
-        let runner = Arc::new(FakeRunner::default());
-        let manager = RuntimeManager::new(runner.clone());
-        let persistence = FakePersistence::default();
-        manager.start(&rule(1), &persistence).expect("start succeeds");
-        runner.fail_stop("runner stop failed");
-
-        let error = manager
-            .stop(&rule(1), &persistence)
-            .expect_err("runner stop error remains visible");
-
-        assert!(error.contains("runner stop failed"));
-        assert!(!runner.has_live_task());
-        assert_eq!(manager.status(1).state, RuntimeState::Failed);
         assert_eq!(persistence.value(1), Some(false));
     }
 
     #[test]
-    fn runner_stop_and_persistence_failures_are_combined_without_phantom_runtime() {
+    fn manual_stop_keeps_auto_start_intent_unchanged() {
         let runner = Arc::new(FakeRunner::default());
         let manager = RuntimeManager::new(runner.clone());
         let persistence = FakePersistence::default();
+        persistence.set_auto_start(1, true).expect("seed auto-start intent");
+        manager.start(&rule(1)).expect("start succeeds");
+
         manager
-            .start(&rule(1), &persistence)
-            .expect("start succeeds");
+            .stop(&rule(1))
+            .expect("runtime stop is independent");
+
+        assert_eq!(runner.start_calls.load(Ordering::SeqCst), 1);
+        assert!(!runner.has_live_task());
+        assert_eq!(manager.status(1).state, RuntimeState::Stopped);
+        assert_eq!(persistence.value(1), Some(true));
+    }
+
+    #[test]
+    fn runner_stop_failure_is_terminal_without_changing_auto_start_intent() {
+        let runner = Arc::new(FakeRunner::default());
+        let manager = RuntimeManager::new(runner.clone());
+        let persistence = FakePersistence::default();
+        persistence.set_auto_start(1, true).expect("seed auto-start intent");
+        manager.start(&rule(1)).expect("start succeeds");
         runner.fail_stop("runner stop failed");
-        persistence.fail_for(1, false, "persist false failed");
 
         let error = manager
-            .stop(&rule(1), &persistence)
-            .expect_err("both failures remain visible");
+            .stop(&rule(1))
+            .expect_err("runner stop error remains visible");
 
         assert!(error.contains("runner stop failed"));
-        assert!(error.contains("persist false failed"));
         assert!(!runner.has_live_task());
         assert_eq!(manager.status(1).state, RuntimeState::Failed);
         assert_eq!(persistence.value(1), Some(true));
@@ -1994,23 +1847,20 @@ mod tests {
     fn same_rule_operations_are_serialized_and_start_is_idempotent() {
         let runner = Arc::new(FakeRunner::default());
         let manager = Arc::new(RuntimeManager::new(runner.clone()));
-        let persistence = Arc::new(FakePersistence::default());
         let rule = rule(1);
         let (entered_start, release_start) = runner.block_next_start();
 
         let first_manager = manager.clone();
-        let first_persistence = persistence.clone();
         let first_rule = rule.clone();
-        let first = thread::spawn(move || first_manager.start(&first_rule, &*first_persistence));
+        let first = thread::spawn(move || first_manager.start(&first_rule));
         entered_start
             .recv_timeout(Duration::from_secs(1))
             .expect("first start reaches runner");
 
         let second_manager = manager.clone();
-        let second_persistence = persistence.clone();
         let second_rule = rule.clone();
         let second =
-            thread::spawn(move || second_manager.start(&second_rule, &*second_persistence));
+            thread::spawn(move || second_manager.start(&second_rule));
 
         assert_eq!(runner.start_calls.load(Ordering::SeqCst), 1);
         release_start.send(()).expect("release first start");
@@ -2021,14 +1871,48 @@ mod tests {
     }
 
     #[test]
-    fn batch_start_isolates_each_rule_and_never_claims_compensation_success() {
+    fn auto_start_mutation_is_serialized_with_runtime_operations() {
+        let runner = Arc::new(FakeRunner::default());
+        let manager = Arc::new(RuntimeManager::new(runner.clone()));
+        let (entered_start, release_start) = runner.block_next_start();
+
+        let start_manager = manager.clone();
+        let start = thread::spawn(move || start_manager.start(&rule(1)));
+        entered_start
+            .recv_timeout(Duration::from_secs(1))
+            .expect("start holds the rule lock");
+
+        let mutation_count = Arc::new(AtomicUsize::new(0));
+        let mutation_manager = manager.clone();
+        let mutation_count_for_thread = mutation_count.clone();
+        let mutation = thread::spawn(move || {
+            mutation_manager.with_auto_start_mutation(1, || {
+                mutation_count_for_thread.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            })
+        });
+
+        assert_eq!(mutation_count.load(Ordering::SeqCst), 0);
+        release_start.send(()).expect("release start");
+        start.join().expect("join start").expect("start succeeds");
+        mutation
+            .join()
+            .expect("join auto-start mutation")
+            .expect("auto-start mutation succeeds");
+        assert_eq!(mutation_count.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn batch_start_isolates_runner_failures_without_changing_auto_start() {
         let runner = Arc::new(FakeRunner::default());
         runner.fail_start_for(1, "first runner failed");
         let manager = RuntimeManager::new(runner.clone());
         let persistence = FakePersistence::default();
-        persistence.fail_for(2, true, "second persist failed");
+        for id in 1..=3 {
+            persistence.set_auto_start(id, false).expect("seed manual intent");
+        }
 
-        let results = manager.start_all_loaded(&[1, 2, 3], &persistence, |id| Ok(rule(id)));
+        let results = manager.start_all_loaded(&[1, 2, 3], |id| Ok(rule(id)));
 
         assert_eq!(results.len(), 3);
         assert!(!results[0].ok);
@@ -2038,20 +1922,18 @@ mod tests {
             .as_deref()
             .expect("first error")
             .contains("first runner failed"));
-        assert!(!results[1].ok);
-        assert_eq!(results[1].state, RuntimeState::Failed);
-        assert!(results[1]
-            .error
-            .as_deref()
-            .expect("second error")
-            .contains("second persist failed"));
+        assert!(results[1].ok);
+        assert_eq!(results[1].state, RuntimeState::Running);
         assert!(results[2].ok);
         assert_eq!(results[2].state, RuntimeState::Running);
         assert!(runner.has_live_task());
+        assert_eq!(persistence.value(1), Some(false));
+        assert_eq!(persistence.value(2), Some(false));
+        assert_eq!(persistence.value(3), Some(false));
     }
 
     #[test]
-    fn failed_stop_normalizes_to_stopped_and_persists_false() {
+    fn failed_stop_normalizes_to_stopped_without_changing_auto_start() {
         let runner = Arc::new(FakeRunner::default());
         runner.fail_start_for(1, "runner start failed");
         let manager = RuntimeManager::new(runner.clone());
@@ -2059,35 +1941,14 @@ mod tests {
         let failed_rule = rule(1);
 
         manager
-            .start(&failed_rule, &persistence)
+            .start(&failed_rule)
             .expect_err("start enters failed state");
         let status = manager
-            .stop(&failed_rule, &persistence)
+            .stop(&failed_rule)
             .expect("failed rule stop succeeds");
 
         assert!(!runner.has_live_task());
         assert_eq!(status.state, RuntimeState::Stopped);
-        assert_eq!(persistence.value(1), Some(false));
-    }
-
-    #[test]
-    fn failed_stop_persist_failure_returns_error() {
-        let runner = Arc::new(FakeRunner::default());
-        runner.fail_start_for(1, "runner start failed");
-        let manager = RuntimeManager::new(runner);
-        let persistence = FakePersistence::default();
-        let failed_rule = rule(1);
-        manager
-            .start(&failed_rule, &persistence)
-            .expect_err("start enters failed state");
-        persistence.fail_for(1, false, "persist false failed");
-
-        let error = manager
-            .stop(&failed_rule, &persistence)
-            .expect_err("failed stop persistence error propagates");
-
-        assert!(error.contains("persist false failed"));
-        assert_eq!(manager.status(1).state, RuntimeState::Failed);
         assert_eq!(persistence.value(1), None);
     }
 

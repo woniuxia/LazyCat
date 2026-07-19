@@ -629,32 +629,15 @@ fn worker_panic_error(payload: Box<dyn Any + Send>) -> String {
 mod tests {
     use std::io::{Read, Write};
     use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
-    use std::sync::{mpsc, Arc, Mutex};
+    use std::sync::{mpsc, Arc};
     use std::thread::{self, JoinHandle};
     use std::time::Duration;
 
     use super::{TcpEventKind, TcpRuleRunner};
     use crate::tools::request_forward::model::{ForwardProtocol, ForwardRule};
-    use crate::tools::request_forward::runtime::{
-        AutoStartPersistence, RuleRunner, RuntimeManager, RuntimeState,
-    };
+    use crate::tools::request_forward::runtime::{RuleRunner, RuntimeManager, RuntimeState};
 
     const SOCKET_TIMEOUT: Duration = Duration::from_secs(2);
-
-    #[derive(Default)]
-    struct TestPersistence {
-        values: Mutex<Vec<(i64, bool)>>,
-    }
-
-    impl AutoStartPersistence for TestPersistence {
-        fn set_auto_start(&self, rule_id: i64, value: bool) -> Result<(), String> {
-            self.values
-                .lock()
-                .expect("lock test persistence")
-                .push((rule_id, value));
-            Ok(())
-        }
-    }
 
     fn tcp_rule(id: i64, target_addr: SocketAddr) -> ForwardRule {
         ForwardRule {
@@ -919,11 +902,9 @@ mod tests {
         let rule = tcp_rule(4, downstream_addr);
         let runner = Arc::new(TcpRuleRunner::new());
         let manager = RuntimeManager::new(runner.clone());
-        let persistence = TestPersistence::default();
-
         assert_eq!(
             manager
-                .start(&rule, &persistence)
+                .start(&rule)
                 .expect("start TCP rule")
                 .state,
             RuntimeState::Running
@@ -939,16 +920,8 @@ mod tests {
             .recv_timeout(SOCKET_TIMEOUT)
             .expect("downstream accepts active client");
 
-        let stopped = manager.stop(&rule, &persistence).expect("stop TCP rule");
+        let stopped = manager.stop(&rule).expect("stop TCP rule");
         assert_eq!(stopped.state, RuntimeState::Stopped);
-        assert_eq!(
-            persistence
-                .values
-                .lock()
-                .expect("lock persistence")
-                .as_slice(),
-            &[(4, true), (4, false)]
-        );
 
         let mut closed = Vec::new();
         match client.read_to_end(&mut closed) {
@@ -972,11 +945,9 @@ mod tests {
         let (runner, failure) = TcpRuleRunner::with_worker_failure_for_test();
         let runner = Arc::new(runner);
         let manager = RuntimeManager::new(runner.clone());
-        let persistence = TestPersistence::default();
-
         assert_eq!(
             manager
-                .start(&rule, &persistence)
+                .start(&rule)
                 .expect("start TCP rule")
                 .state,
             RuntimeState::Running
@@ -1017,13 +988,13 @@ mod tests {
 
         assert_eq!(
             manager
-                .start(&rule, &persistence)
+                .start(&rule)
                 .expect("restart failed TCP rule")
                 .state,
             RuntimeState::Running
         );
         manager
-            .stop(&rule, &persistence)
+            .stop(&rule)
             .expect("stop restarted TCP rule");
         drop(downstream);
     }
@@ -1036,9 +1007,7 @@ mod tests {
         let (runner, abrupt_exit) = TcpRuleRunner::with_worker_abrupt_exit_for_test();
         let runner = Arc::new(runner);
         let manager = RuntimeManager::new(runner.clone());
-        let persistence = TestPersistence::default();
-
-        manager.start(&rule, &persistence).expect("start TCP rule");
+        manager.start(&rule).expect("start TCP rule");
         let handle = runner.only_handle().expect("read running TCP handle");
         abrupt_exit.trigger();
         runner
@@ -1055,13 +1024,13 @@ mod tests {
 
         assert_eq!(
             manager
-                .start(&rule, &persistence)
+                .start(&rule)
                 .expect("restart abruptly exited TCP rule")
                 .state,
             RuntimeState::Running
         );
         manager
-            .stop(&rule, &persistence)
+            .stop(&rule)
             .expect("stop restarted TCP rule");
         drop(downstream);
     }

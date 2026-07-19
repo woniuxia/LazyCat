@@ -137,7 +137,7 @@ describe("RequestForwardPanel source structure", () => {
     expect(dialogSource).toContain("preflightResult");
     expect(dialogSource).toContain("preflighting");
     expect(dialogSource).toMatch(/preflight: \[\]/);
-    expect(dialogSource).toMatch(/"preflight-and-start": \[\]/);
+    expect(dialogSource).toMatch(/"preflight-and-start": \[autoStart: boolean\]/);
     expect(dialogSource).toMatch(/"apply-suggested-port": \[port: number\]/);
     expect(dialogSource).toContain("检测配置");
     expect(dialogSource).toContain("检测并启动");
@@ -166,12 +166,12 @@ describe("RequestForwardPanel source structure", () => {
 
   it("starts from the tested snapshot only when the backend result is ready", () => {
     const body = source.match(
-      /async function preflightAndStart\(\)[\s\S]*?\n}\n\nasync function/,
+      /async function preflightAndStart\(autoStart\?: boolean\)[\s\S]*?\n}\n\nasync function/,
     )?.[0] ?? "";
     expect(body).toContain("await runPreflight()");
     expect(body).toMatch(/!result\?\.ready|!result\.ready/);
     expect(body).toContain("isAcceptedPreflightCurrent");
-    expect(body).toContain("await saveAndStart()");
+    expect(body).toContain("await saveAndStart(autoStart)");
     expect(source).toMatch(/const interactionBusy = computed\([\s\S]*?preflighting\.value/);
   });
 
@@ -341,6 +341,14 @@ describe("RequestForwardPanel source structure", () => {
   it("keeps inline start and stop controls in the rule navigation", () => {
     expect(listSource).toMatch(/emit\(["']start["'], rule\.id\)/);
     expect(listSource).toMatch(/emit\(["']stop["'], rule\.id\)/);
+  });
+
+  it("exposes explicit auto-start intent controls", () => {
+    expect(source).toContain("auto-start-update");
+    expect(source).toContain("仅本次启动");
+    expect(source).toContain("启动并自动恢复");
+    expect(source).toContain("停止并取消自动恢复");
+    expect(listSource).toContain("随应用启动");
   });
 
   it("does not overwrite dirty forms during background refresh", () => {

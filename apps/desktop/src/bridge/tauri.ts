@@ -162,6 +162,7 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:request-forward:stop": { domain: "request_forward", action: "stop" },
   "tool:request-forward:start-all": { domain: "request_forward", action: "start_all" },
   "tool:request-forward:stop-all": { domain: "request_forward", action: "stop_all" },
+  "tool:request-forward:auto-start-update": { domain: "request_forward", action: "auto_start_update" },
   "tool:request-forward:status": { domain: "request_forward", action: "status" },
   "tool:request-forward:log-list": { domain: "request_forward", action: "log_list" },
   "tool:request-forward:log-clear": { domain: "request_forward", action: "log_clear" },

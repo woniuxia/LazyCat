@@ -26,9 +26,9 @@ const emit = defineEmits<{
   "update:form": [value: RequestForwardRuleForm];
   "request-close": [];
   save: [];
-  "save-and-start": [];
+  "save-and-start": [autoStart: boolean];
   preflight: [];
-  "preflight-and-start": [];
+  "preflight-and-start": [autoStart: boolean];
   "apply-suggested-port": [port: number];
   "stop-and-edit": [];
   delete: [];
@@ -40,8 +40,9 @@ function handleBeforeClose() {
   emit("request-close");
 }
 
-function handleSaveCommand(command: "save" | "save-and-start") {
-  emit(command);
+function handleSaveCommand(command: "save" | "start-once" | "start-auto") {
+  if (command === "save") emit("save");
+  else emit("save-and-start", command === "start-auto");
 }
 </script>
 
@@ -108,7 +109,8 @@ function handleSaveCommand(command: "save" | "save-and-start") {
           <template #dropdown>
             <el-dropdown-menu>
               <el-dropdown-item command="save">仅保存</el-dropdown-item>
-              <el-dropdown-item command="save-and-start">保存并启动</el-dropdown-item>
+              <el-dropdown-item command="start-once">保存并仅本次启动</el-dropdown-item>
+              <el-dropdown-item command="start-auto">保存并启动且自动恢复</el-dropdown-item>
             </el-dropdown-menu>
           </template>
         </el-dropdown>
@@ -119,14 +121,25 @@ function handleSaveCommand(command: "save" | "save-and-start") {
         >
           检测配置
         </el-button>
-        <el-button
-          type="primary"
+        <el-dropdown
           :disabled="readonly || disabled"
-          :loading="preflighting || saving || operating"
-          @click="emit('preflight-and-start')"
+          trigger="click"
+          @command="(command: 'once' | 'auto') => emit('preflight-and-start', command === 'auto')"
         >
-          检测并启动
-        </el-button>
+          <el-button
+            type="primary"
+            :disabled="readonly || disabled"
+            :loading="preflighting || saving || operating"
+          >
+            检测并启动
+          </el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="once">检测并仅本次启动</el-dropdown-item>
+              <el-dropdown-item command="auto">检测并启动且自动恢复</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
       </div>
     </template>
   </el-dialog>
