@@ -107,8 +107,13 @@ export function duplicateRequestForwardRuleForm(
   listenPort: number,
 ): RequestForwardRuleForm {
   const suffix = " 副本";
-  const maximumBaseLength = 80 - Array.from(suffix).length;
-  const name = `${Array.from(rule.name.trim()).slice(0, maximumBaseLength).join("")}${suffix}`;
+  const maximumBaseLength = 80 - suffix.length;
+  let baseName = "";
+  for (const character of rule.name.trim()) {
+    if (baseName.length + character.length > maximumBaseLength) break;
+    baseName += character;
+  }
+  const name = `${baseName}${suffix}`;
   return toRequestForwardRuleWriteInput({ ...rule, name, listenPort });
 }
 

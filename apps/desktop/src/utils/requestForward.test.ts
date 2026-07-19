@@ -43,6 +43,20 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
+function expectNoLoneSurrogate(value: string) {
+  for (let index = 0; index < value.length; index += 1) {
+    const unit = value.charCodeAt(index);
+    if (unit >= 0xd800 && unit <= 0xdbff) {
+      const next = value.charCodeAt(index + 1);
+      expect(next).toBeGreaterThanOrEqual(0xdc00);
+      expect(next).toBeLessThanOrEqual(0xdfff);
+      index += 1;
+      continue;
+    }
+    expect(unit < 0xdc00 || unit > 0xdfff).toBe(true);
+  }
+}
+
 const baseForm: RequestForwardRuleForm = {
   name: "本地 API",
   protocol: "http",
@@ -229,11 +243,11 @@ describe("request forward utilities", () => {
     });
   });
 
-  it("keeps duplicate names within 80 Unicode characters without splitting surrogates", () => {
+  it("keeps duplicate Chinese names within the 80-character form limit", () => {
     const source: RequestForwardRule = {
       ...baseForm,
       id: 14,
-      name: "😀".repeat(78),
+      name: "转".repeat(80),
       autoStart: false,
       createdAt: "2026-07-18T08:00:00Z",
       updatedAt: "2026-07-19T08:00:00Z",
@@ -241,9 +255,42 @@ describe("request forward utilities", () => {
 
     const duplicate = duplicateRequestForwardRuleForm(source, 8081);
 
-    expect(duplicate.name).toBe(`${"😀".repeat(77)} 副本`);
-    expect(Array.from(duplicate.name)).toHaveLength(80);
-    expect(duplicate.name).not.toContain("\uFFFD");
+    expect(duplicate.name).toBe(`${"转".repeat(77)} 副本`);
+    expect(duplicate.name).toHaveLength(80);
+  });
+
+  it("keeps a 40-emoji duplicate name within 80 UTF-16 code units", () => {
+    const source: RequestForwardRule = {
+      ...baseForm,
+      id: 15,
+      name: "😀".repeat(40),
+      autoStart: false,
+      createdAt: "2026-07-18T08:00:00Z",
+      updatedAt: "2026-07-19T08:00:00Z",
+    };
+
+    const duplicate = duplicateRequestForwardRuleForm(source, 8081);
+
+    expect(duplicate.name).toBe(`${"😀".repeat(38)} 副本`);
+    expect(duplicate.name.length).toBeLessThanOrEqual(80);
+    expectNoLoneSurrogate(duplicate.name);
+  });
+
+  it("truncates mixed BMP and astral names without leaving a lone surrogate", () => {
+    const source: RequestForwardRule = {
+      ...baseForm,
+      id: 16,
+      name: `${"甲".repeat(74)}😀${"乙".repeat(10)}`,
+      autoStart: false,
+      createdAt: "2026-07-18T08:00:00Z",
+      updatedAt: "2026-07-19T08:00:00Z",
+    };
+
+    const duplicate = duplicateRequestForwardRuleForm(source, 8081);
+
+    expect(duplicate.name).toBe(`${"甲".repeat(74)}😀乙 副本`);
+    expect(duplicate.name).toHaveLength(80);
+    expectNoLoneSurrogate(duplicate.name);
   });
 
   it("validates protocol-specific required fields", () => {
