@@ -3,6 +3,7 @@ import type {
   ReleasePackageProject,
   ReleasePackageProjectDraft,
   ReleasePackageRunStatus,
+  ReleasePackageTarget,
 } from "../types/release-package";
 
 export interface ReleasePackageCommandExample {
@@ -57,6 +58,14 @@ Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force
     command: `Move-Item -LiteralPath '.\\release' -Destination '.\\deploy\\release' -Force`,
   },
 ] as const satisfies readonly ReleasePackageCommandExample[];
+
+export function createDefaultReleasePackageTargets(): ReleasePackageTarget[] {
+  return ["frontend", "backend"];
+}
+
+export function validateReleasePackageTargets(targets: readonly ReleasePackageTarget[]): string | null {
+  return targets.length === 0 ? "请至少选择前端包或后端包" : null;
+}
 
 export function createEmptyReleasePackageDraft(): ReleasePackageProjectDraft {
   return {
@@ -133,6 +142,7 @@ export function releasePackageRunStatusLabel(status: ReleasePackageRunStatus): s
     idle: "未运行",
     running: "运行中",
     succeeded: "已完成",
+    partially_succeeded: "部分成功",
     failed: "失败",
     cancelled: "已终止",
   };

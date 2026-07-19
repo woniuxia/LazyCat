@@ -8,12 +8,14 @@ import type {
 import {
   acceptReleasePackageEvent,
   appendReleasePackageLog,
+  createDefaultReleasePackageTargets,
   createEmptyReleasePackageDraft,
   isReleasePackageDraftDirty,
   projectToReleasePackageDraft,
   releasePackageRunStatusLabel,
   RELEASE_PACKAGE_COMMAND_EXAMPLES,
   validateReleasePackageDraft,
+  validateReleasePackageTargets,
   writeReleasePackageCommand,
 } from "./releasePackage";
 
@@ -128,6 +130,12 @@ Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force
     });
   });
 
+  it("defaults each run to both package targets and rejects an empty selection", () => {
+    expect(createDefaultReleasePackageTargets()).toEqual(["frontend", "backend"]);
+    expect(validateReleasePackageTargets([])).toBe("请至少选择前端包或后端包");
+    expect(validateReleasePackageTargets(["backend"])).toBeNull();
+  });
+
   it("normalizes a project into an editable draft and detects dirty fields", () => {
     const draft = projectToReleasePackageDraft(project);
     expect(isReleasePackageDraftDirty(project, draft)).toBe(false);
@@ -158,6 +166,7 @@ Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force
     ["idle", "未运行"],
     ["running", "运行中"],
     ["succeeded", "已完成"],
+    ["partially_succeeded", "部分成功"],
     ["failed", "失败"],
     ["cancelled", "已终止"],
   ] satisfies readonly [ReleasePackageRunStatus, string][])("maps %s status to %s", (status, label) => {

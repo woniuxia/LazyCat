@@ -1,6 +1,21 @@
 export type ReleasePackageArtifactMode = "copy_directory" | "zip_directory";
-export type ReleasePackagePhase = "frontend" | "backend" | "archive";
-export type ReleasePackageRunStatus = "idle" | "running" | "succeeded" | "failed" | "cancelled";
+export type ReleasePackageTarget = "frontend" | "backend";
+export type ReleasePackagePhase = ReleasePackageTarget | "overall";
+export type ReleasePackageRunStatus =
+  | "idle"
+  | "running"
+  | "succeeded"
+  | "partially_succeeded"
+  | "failed"
+  | "cancelled";
+export type ReleasePackageTargetStatus =
+  | "idle"
+  | "pending"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "cancelled"
+  | "skipped";
 
 export interface ReleasePackageProjectDraft {
   name: string;
