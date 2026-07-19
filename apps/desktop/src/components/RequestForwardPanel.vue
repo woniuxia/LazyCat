@@ -23,8 +23,12 @@ import {
   captureRequestForwardMutationIntent,
   DEFAULT_REQUEST_FORWARD_INSPECTOR_WIDTH,
   DEFAULT_REQUEST_FORWARD_RULE_LIST_WIDTH,
+  formatRequestForwardEndpoint,
   getDefaultRequestForwardForm,
   getRequestForwardBatchMessage,
+  getRequestForwardCommandExamples,
+  getRequestForwardLocalEndpoint,
+  getRequestForwardLocalUrl,
   getRequestForwardLogProbeLimit,
   getRequestForwardLogTargetCount,
   isRequestForwardRuleReadonly,
@@ -34,6 +38,8 @@ import {
   toRequestForwardRuleWriteInput,
   validateRequestForwardRuleForm,
 } from "../utils/requestForward";
+import type { RequestForwardCommandExamples } from "../utils/requestForward";
+import RequestForwardEndpointActions from "./request-forward/RequestForwardEndpointActions.vue";
 import RequestForwardLogList from "./request-forward/RequestForwardLogList.vue";
 import RequestForwardLogInspector from "./request-forward/RequestForwardLogInspector.vue";
 import RequestForwardRuleDialog from "./request-forward/RequestForwardRuleDialog.vue";
@@ -202,6 +208,55 @@ const stateCopy = computed(() => {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+async function copyEndpointValue(value: string, label: string) {
+  try {
+    await navigator.clipboard.writeText(value);
+    ElMessage.success(`已复制${label}`);
+  } catch (error) {
+    ElMessage.error(`复制${label}失败：${errorMessage(error)}`);
+  }
+}
+
+function copyListenEndpoint() {
+  const rule = selectedRule.value;
+  if (!rule) return;
+  void copyEndpointValue(getRequestForwardLocalEndpoint(rule), "监听地址");
+}
+
+function copyTargetEndpoint() {
+  const rule = selectedRule.value;
+  if (!rule) return;
+  const target = rule.protocol === "http"
+    ? rule.targetUrl?.trim() ?? ""
+    : formatRequestForwardEndpoint(rule.targetHost, rule.targetPort);
+  void copyEndpointValue(target, "目标地址");
+}
+
+async function openLocalEndpoint() {
+  const rule = selectedRule.value;
+  const url = rule ? getRequestForwardLocalUrl(rule) : null;
+  if (!url) {
+    ElMessage.error("当前规则没有可打开的 HTTP 监听地址");
+    return;
+  }
+  try {
+    await invoke<{ ok: boolean }>("tool:system:open-external", { url });
+  } catch (error) {
+    ElMessage.error(`浏览器打开失败：${errorMessage(error)}`);
+  }
+}
+
+function copyEndpointCommand(command: keyof RequestForwardCommandExamples) {
+  const rule = selectedRule.value;
+  const examples = rule ? getRequestForwardCommandExamples(rule) : null;
+  if (!examples) {
+    ElMessage.error("当前规则没有可复制的 HTTP 命令");
+    return;
+  }
+  const label = command === "powershell" ? "PowerShell 命令" : "curl 命令";
+  void copyEndpointValue(examples[command], label);
 }
 
 function currentSelectionIntent() {
@@ -1089,9 +1144,18 @@ onUnmounted(() => {
             <h1>{{ selectedRule.name }}</h1>
             <p>查看当前规则的运行统计与转发日志。</p>
           </div>
-          <div class="runtime-state" :class="`is-${selectedState}`">
-            <span>{{ stateCopy }}</span>
-            <small v-if="selectedStatus?.lastError">{{ selectedStatus.lastError }}</small>
+          <div class="workbench-header__aside">
+            <div class="runtime-state" :class="`is-${selectedState}`">
+              <span>{{ stateCopy }}</span>
+              <small v-if="selectedStatus?.lastError">{{ selectedStatus.lastError }}</small>
+            </div>
+            <RequestForwardEndpointActions
+              :protocol="selectedRule.protocol"
+              @copy-listen="copyListenEndpoint"
+              @copy-target="copyTargetEndpoint"
+              @open-local="openLocalEndpoint"
+              @copy-command="copyEndpointCommand"
+            />
           </div>
         </header>
 
@@ -1355,6 +1419,13 @@ onUnmounted(() => {
   letter-spacing: 0.12em;
 }
 
+.workbench-header__aside {
+  display: grid;
+  max-width: 560px;
+  justify-items: end;
+  gap: 10px;
+}
+
 .runtime-state {
   display: grid;
   max-width: 300px;
@@ -1479,7 +1550,9 @@ onUnmounted(() => {
   }
   .rule-list-resizer,
   .inspector-resizer { display: none; }
-  .workbench-header { padding: 18px; }
+  .workbench-header { align-items: stretch; flex-direction: column; padding: 18px; }
+  .workbench-header__aside { max-width: none; justify-items: start; }
+  .runtime-state { max-width: none; justify-items: start; text-align: left; }
   .workbench-scroll { padding-inline: 16px; }
   .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .log-toolbar { align-items: stretch; flex-direction: column; }

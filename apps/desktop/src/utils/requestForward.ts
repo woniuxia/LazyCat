@@ -229,6 +229,44 @@ export function formatRequestForwardEndpoint(
     : `${trimmedHost}:${port}`;
 }
 
+export interface RequestForwardCommandExamples {
+  powershell: string;
+  curl: string;
+}
+
+export function getRequestForwardLocalEndpoint(
+  form: RequestForwardRuleForm,
+): string {
+  return formatRequestForwardEndpoint(form.bindHost, form.listenPort);
+}
+
+export function getRequestForwardLocalUrl(
+  form: RequestForwardRuleForm,
+): string | null {
+  if (form.protocol !== "http") return null;
+  const bindHost = form.bindHost.trim();
+  const accessHost = bindHost === "0.0.0.0"
+    ? "127.0.0.1"
+    : bindHost === "::"
+      ? "::1"
+      : bindHost;
+  const endpoint = formatRequestForwardEndpoint(accessHost, form.listenPort);
+  return endpoint === "—" ? null : `http://${endpoint}`;
+}
+
+export function getRequestForwardCommandExamples(
+  form: RequestForwardRuleForm,
+): RequestForwardCommandExamples | null {
+  const url = getRequestForwardLocalUrl(form);
+  if (!url) return null;
+  const powershellUrl = url.replaceAll("'", "''");
+  const shellUrl = url.replaceAll("'", `'"'"'`);
+  return {
+    powershell: `Invoke-WebRequest -UseBasicParsing -Uri '${powershellUrl}'`,
+    curl: `curl --url '${shellUrl}'`,
+  };
+}
+
 export function formatRequestForwardRuleSummary(form: RequestForwardRuleForm): string {
   const source = formatRequestForwardEndpoint(form.bindHost, form.listenPort);
   const target =

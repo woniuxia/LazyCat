@@ -19,6 +19,9 @@ import {
   getDefaultRequestForwardForm,
   getForwardEventLabel,
   getRequestForwardBatchMessage,
+  getRequestForwardCommandExamples,
+  getRequestForwardLocalEndpoint,
+  getRequestForwardLocalUrl,
   getRequestForwardLogProbeLimit,
   getRequestForwardLogTargetCount,
   getRequestForwardLogTone,
@@ -299,6 +302,60 @@ describe("request forward utilities", () => {
         targetPort: null,
       }),
     ).toBe("127.0.0.1:8080 → —");
+  });
+
+  it("builds protocol-specific local endpoints and HTTP browser URLs", () => {
+    expect(getRequestForwardLocalEndpoint(baseForm)).toBe("127.0.0.1:8080");
+    expect(getRequestForwardLocalUrl(baseForm)).toBe("http://127.0.0.1:8080");
+
+    const ipv6Http = { ...baseForm, bindHost: "::", listenPort: 9090 };
+    expect(getRequestForwardLocalEndpoint(ipv6Http)).toBe("[::]:9090");
+    expect(getRequestForwardLocalUrl(ipv6Http)).toBe("http://[::1]:9090");
+    expect(getRequestForwardLocalUrl({ ...baseForm, bindHost: "0.0.0.0" })).toBe(
+      "http://127.0.0.1:8080",
+    );
+
+    const tcpRule = {
+      ...baseForm,
+      protocol: "tcp" as const,
+      bindHost: "2001:db8::1",
+      targetUrl: null,
+      targetHost: "2001:db8::2",
+      targetPort: 5432,
+    };
+    expect(getRequestForwardLocalEndpoint(tcpRule)).toBe("[2001:db8::1]:8080");
+    expect(getRequestForwardLocalUrl(tcpRule)).toBeNull();
+    expect(
+      getRequestForwardLocalEndpoint({ ...tcpRule, protocol: "udp", listenPort: 5353 }),
+    ).toBe("[2001:db8::1]:5353");
+  });
+
+  it("builds copyable PowerShell and curl commands for the local HTTP URL", () => {
+    expect(getRequestForwardCommandExamples(baseForm)).toEqual({
+      powershell:
+        "Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:8080'",
+      curl: "curl --url 'http://127.0.0.1:8080'",
+    });
+    expect(getRequestForwardCommandExamples({ ...baseForm, bindHost: "::" })).toEqual({
+      powershell: "Invoke-WebRequest -UseBasicParsing -Uri 'http://[::1]:8080'",
+      curl: "curl --url 'http://[::1]:8080'",
+    });
+
+    const quotedHost = { ...baseForm, bindHost: "127.0.0.1'quoted" };
+    expect(getRequestForwardCommandExamples(quotedHost)).toEqual({
+      powershell:
+        "Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1''quoted:8080'",
+      curl: `curl --url 'http://127.0.0.1'"'"'quoted:8080'`,
+    });
+    expect(
+      getRequestForwardCommandExamples({
+        ...baseForm,
+        protocol: "udp",
+        targetUrl: null,
+        targetHost: "127.0.0.1",
+        targetPort: 53,
+      }),
+    ).toBeNull();
   });
 
   it("formats protocol-specific event labels", () => {

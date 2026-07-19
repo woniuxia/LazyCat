@@ -58,6 +58,13 @@ const preflightResultUrl = new URL(
 const preflightResultSource = existsSync(fileURLToPath(preflightResultUrl))
   ? readFileSync(fileURLToPath(preflightResultUrl), "utf8")
   : "";
+const endpointActionsUrl = new URL(
+  "./request-forward/RequestForwardEndpointActions.vue",
+  import.meta.url,
+);
+const endpointActionsSource = existsSync(fileURLToPath(endpointActionsUrl))
+  ? readFileSync(fileURLToPath(endpointActionsUrl), "utf8")
+  : "";
 
 describe("RequestForwardPanel source structure", () => {
   it("registers the preflight channel and exact result contract", () => {
@@ -454,6 +461,42 @@ describe("RequestForwardPanel source structure", () => {
     expect(formSource).toContain("HTTP 规则在本地以 HTTP 接收，目标可为 HTTP 或 HTTPS。");
     expect(formSource).toContain("HTTP 规则的本地监听使用 HTTP，目标 URL 支持 HTTP/HTTPS。");
     expect(formSource).toContain("仅支持 HTTP/HTTPS 基础地址");
+  });
+
+  it("delegates endpoint action rendering to a semantic event-only component", () => {
+    expect(source).toContain("RequestForwardEndpointActions");
+    expect(source).toContain(':protocol="selectedRule.protocol"');
+    expect(source).toContain('@copy-listen="copyListenEndpoint"');
+    expect(source).toContain('@copy-target="copyTargetEndpoint"');
+    expect(source).toContain('@open-local="openLocalEndpoint"');
+    expect(source).toContain('@copy-command="copyEndpointCommand"');
+
+    expect(endpointActionsSource).toContain("复制监听地址");
+    expect(endpointActionsSource).toContain("复制目标地址");
+    expect(endpointActionsSource).toContain("浏览器打开");
+    expect(endpointActionsSource).toContain("命令示例");
+    expect(endpointActionsSource).toMatch(/protocol === ["']http["']/);
+    expect(endpointActionsSource).toContain('command="powershell"');
+    expect(endpointActionsSource).toContain('command="curl"');
+    expect(endpointActionsSource).toMatch(/["']copy-listen["']: \[\]/);
+    expect(endpointActionsSource).toMatch(/["']copy-target["']: \[\]/);
+    expect(endpointActionsSource).toMatch(/["']open-local["']: \[\]/);
+    expect(endpointActionsSource).toMatch(
+      /["']copy-command["']: \[command: ["']powershell["'] \| ["']curl["']\]/,
+    );
+    expect(endpointActionsSource).not.toContain("navigator.clipboard");
+    expect(endpointActionsSource).not.toContain("tool:system:open-external");
+  });
+
+  it("keeps endpoint side effects in the panel and reports every failure", () => {
+    expect(source).toContain("getRequestForwardLocalEndpoint");
+    expect(source).toContain("getRequestForwardLocalUrl");
+    expect(source).toContain("getRequestForwardCommandExamples");
+    expect(source).toContain("formatRequestForwardEndpoint");
+    expect(source).toContain("await navigator.clipboard.writeText(value)");
+    expect(source).toContain('invoke<{ ok: boolean }>("tool:system:open-external", { url })');
+    expect(source).toContain("复制${label}失败：${errorMessage(error)}");
+    expect(source).toContain("浏览器打开失败：${errorMessage(error)}");
   });
 
   it("uses a readable typography baseline across the workspace", () => {

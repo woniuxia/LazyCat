@@ -8,6 +8,33 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-07-19: 请求转发监听端点快捷操作
+
+**场景**: 在请求转发观测工作台中补充监听与目标地址复制、HTTP 本地访问和命令示例，减少手工拼接地址与命令。
+
+**解决**:
+1. 用纯函数统一生成监听端点、本地 HTTP URL 和 PowerShell/curl 命令；IPv6 端点统一加方括号，HTTP 访问时把通配监听地址映射到对应回环地址。
+2. 标题区子组件只展示协议相关操作并发出语义事件；剪贴板与外部链接副作用集中在主面板，失败统一显示实际错误。
+3. HTTP 命令始终指向本地监听 URL；TCP/UDP 只提供地址复制，不展示浏览器或 HTTP 命令入口。
+
+**关键点**:
+- 监听地址、HTTP 可访问 URL、转发目标是三个不同语义；复制监听地址保留真实 bind host，浏览器 URL 才把 `0.0.0.0` / `::` 映射为 `127.0.0.1` / `::1`。
+- PowerShell 与 POSIX shell 的单引号转义规则不同，命令示例应分别转义，不能直接插值未处理的 URL。
+
+**涉及文件**:
+- `apps/desktop/src/utils/requestForward.ts`
+- `apps/desktop/src/components/RequestForwardPanel.vue`
+- `apps/desktop/src/components/request-forward/RequestForwardEndpointActions.vue`
+- 对应前端测试与自动生成组件声明
+
+**验证**:
+- `pnpm test src/utils/requestForward.test.ts src/components/RequestForwardPanel.test.ts`（69 项通过）
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+- `git diff --check`
+
+**使用次数**: 0
+
 ## 2026-07-19: 高收益首版工具统一补齐工作流与正确性边界
 
 **场景**: 集中优化 Markdown、文本对比、图片转换、PDF、JSON Schema、环境检测、快捷启动和浏览器身份八个已有工具。
