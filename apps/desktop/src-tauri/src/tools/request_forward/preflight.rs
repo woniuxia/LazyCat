@@ -1,19 +1,24 @@
+use std::future::Future;
 use std::io;
 use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream, UdpSocket};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use hickory_resolver::config::{ResolverConfig, ResolverOpts};
+use hickory_resolver::system_conf::read_system_conf;
+use hickory_resolver::TokioAsyncResolver;
 use hyper_rustls::ConfigBuilderExt;
 use rustls::pki_types::ServerName;
 use rustls::ClientConfig;
 use serde::Serialize;
 use tokio_rustls::TlsConnector;
-use url::Url;
+use url::{Host, Url};
 
 use super::model::{ForwardProtocol, RuleWriteInput, ValidatedRuleWriteInput};
-use super::validation::{resolve_target_addrs_bounded, validate_rule_input};
+use super::validation::validate_rule_input;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
+const TARGET_RESOLUTION_TIMEOUT: Duration = Duration::from_secs(2);
 const PORT_SUGGESTION_SCAN_LIMIT: u16 = 64;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -110,7 +115,7 @@ fn preflight_with_tls_loader(
         }
     };
 
-    let addresses = match resolve_target_addrs_bounded(target.host.clone(), target.port) {
+    let addresses = match resolve_target_addrs(target.host.clone(), target.port) {
         Ok(addresses) => {
             checks.push(PreflightCheck {
                 kind: CheckKind::Dns,
@@ -198,6 +203,56 @@ fn socket_address(host: &str, port: u16) -> Result<SocketAddr, String> {
     Ok(SocketAddr::new(ip, port))
 }
 
+fn resolve_target_addrs(host: String, port: u16) -> Result<Vec<SocketAddr>, String> {
+    resolve_target_addrs_with(host, port, TARGET_RESOLUTION_TIMEOUT, |host| async move {
+        let (config, options) = read_system_conf()
+            .unwrap_or_else(|_| (ResolverConfig::default(), ResolverOpts::default()));
+        TokioAsyncResolver::tokio(config, options)
+            .lookup_ip(host)
+            .await
+            .map(|lookup| lookup.iter().collect())
+            .map_err(|error| error.to_string())
+    })
+}
+
+fn resolve_target_addrs_with<F, Fut>(
+    host: String,
+    port: u16,
+    timeout: Duration,
+    resolver: F,
+) -> Result<Vec<SocketAddr>, String>
+where
+    F: FnOnce(String) -> Fut,
+    Fut: Future<Output = Result<Vec<IpAddr>, String>>,
+{
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        return Ok(vec![SocketAddr::new(ip, port)]);
+    }
+
+    let display_host = host.clone();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .map_err(|error| format!("创建 DNS 预检 runtime 失败: {error}"))?;
+    runtime.block_on(async move {
+        match tokio::time::timeout(timeout, resolver(host)).await {
+            Ok(Ok(addresses)) if addresses.is_empty() => Err(format!(
+                "解析目标地址 {display_host}:{port} 失败: 未返回任何地址"
+            )),
+            Ok(Ok(addresses)) => Ok(addresses
+                .into_iter()
+                .map(|address| SocketAddr::new(address, port))
+                .collect()),
+            Ok(Err(error)) => Err(format!("解析目标地址 {display_host}:{port} 失败: {error}")),
+            Err(_) => Err(format!(
+                "解析目标地址 {display_host}:{port} 超时（{} ms）",
+                timeout.as_millis()
+            )),
+        }
+    })
+}
+
 fn bind_temporarily(protocol: ForwardProtocol, address: SocketAddr) -> io::Result<()> {
     match protocol {
         ForwardProtocol::Http | ForwardProtocol::Tcp => {
@@ -228,14 +283,19 @@ fn target_endpoint(input: &ValidatedRuleWriteInput) -> Result<TargetEndpoint, St
                 .ok_or_else(|| "HTTP 规则必须配置目标 URL".to_string())?;
             let parsed = Url::parse(target_url)
                 .map_err(|error| format!("HTTP 目标 URL 格式不正确: {error}"))?;
-            let host = parsed
-                .host_str()
-                .ok_or_else(|| "HTTP 目标 URL 必须包含主机名".to_string())?;
+            let host = match parsed
+                .host()
+                .ok_or_else(|| "HTTP 目标 URL 必须包含主机名".to_string())?
+            {
+                Host::Domain(host) => host.to_string(),
+                Host::Ipv4(host) => host.to_string(),
+                Host::Ipv6(host) => host.to_string(),
+            };
             let port = parsed
                 .port_or_known_default()
                 .ok_or_else(|| "HTTP 目标 URL 缺少有效端口".to_string())?;
             Ok(TargetEndpoint {
-                host: host.to_string(),
+                host,
                 port,
                 https: parsed.scheme() == "https",
             })
@@ -326,14 +386,19 @@ fn finish(checks: Vec<PreflightCheck>, suggested_listen_port: Option<u16>) -> Pr
 
 #[cfg(test)]
 mod tests {
-    use std::net::{TcpListener, TcpStream, UdpSocket};
+    use std::net::{IpAddr, TcpListener, TcpStream, UdpSocket};
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
     use std::thread;
     use std::time::{Duration, Instant};
 
+    use rustls::pki_types::ServerName;
     use rustls::{ClientConfig, RootCertStore};
 
-    use super::{preflight, preflight_with_tls_config, CheckKind, CheckState};
+    use super::{
+        preflight, preflight_with_tls_config, resolve_target_addrs_with, target_endpoint,
+        CheckKind, CheckState,
+    };
     use crate::tools::request_forward::http::integration_tests::accept_tls_once;
     use crate::tools::request_forward::model::{ForwardProtocol, RuleWriteInput};
 
@@ -386,6 +451,70 @@ mod tests {
             capture_http_headers: false,
             capture_http_body: false,
         }
+    }
+
+    #[test]
+    fn http_ipv6_target_endpoint_removes_url_brackets() {
+        let input = https_input(free_tcp_port(), "http://[::1]:8080/api".into());
+        let validated = super::validate_rule_input(input).expect("validate IPv6 HTTP target");
+
+        let target = target_endpoint(&validated).expect("extract IPv6 HTTP target");
+
+        assert_eq!(target.host, "::1");
+        assert_eq!(target.port, 8080);
+        assert!(!target.https);
+    }
+
+    #[test]
+    fn https_ipv6_target_uses_rustls_ip_server_name() {
+        let input = https_input(free_tcp_port(), "https://[::1]:8443/api".into());
+        let validated = super::validate_rule_input(input).expect("validate IPv6 HTTPS target");
+        let target = target_endpoint(&validated).expect("extract IPv6 HTTPS target");
+
+        assert_eq!(target.host, "::1");
+        assert_eq!(target.port, 8443);
+        assert!(target.https);
+        assert!(matches!(
+            ServerName::try_from(target.host),
+            Ok(ServerName::IpAddress(_))
+        ));
+    }
+
+    #[test]
+    fn dns_timeout_drops_pending_lookup_future() {
+        struct DropFlag(Arc<AtomicBool>);
+
+        impl Drop for DropFlag {
+            fn drop(&mut self) {
+                self.0.store(true, Ordering::SeqCst);
+            }
+        }
+
+        let dropped = Arc::new(AtomicBool::new(false));
+        let lookup_dropped = Arc::clone(&dropped);
+        let started = Instant::now();
+
+        let error = resolve_target_addrs_with(
+            "slow.invalid".into(),
+            443,
+            Duration::from_millis(30),
+            move |_| {
+                let drop_flag = DropFlag(lookup_dropped);
+                async move {
+                    let _drop_flag = drop_flag;
+                    std::future::pending::<Result<Vec<IpAddr>, String>>().await
+                }
+            },
+        )
+        .expect_err("pending DNS lookup must time out");
+        let elapsed = started.elapsed();
+
+        assert!(error.contains("解析目标地址 slow.invalid:443 超时"));
+        assert!(elapsed < Duration::from_millis(500), "elapsed: {elapsed:?}");
+        assert!(
+            dropped.load(Ordering::SeqCst),
+            "lookup future was not dropped"
+        );
     }
 
     fn check_state(result: &super::PreflightResult, kind: CheckKind) -> CheckState {
