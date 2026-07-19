@@ -5,6 +5,7 @@ import type {
   RequestForwardLogPage,
   RequestForwardLogQuery,
   RequestForwardRestoreResult,
+  RequestForwardRule,
   RequestForwardRuleForm,
   RequestForwardRuleWriteInput,
 } from "../types/request-forward";
@@ -14,6 +15,7 @@ import {
   clampRequestForwardRuleListWidth,
   captureRequestForwardMutationIntent,
   DEFAULT_REQUEST_FORWARD_FORM,
+  duplicateRequestForwardRuleForm,
   formatRequestForwardEndpoint,
   formatRequestForwardRuleSummary,
   getDefaultRequestForwardForm,
@@ -160,6 +162,88 @@ describe("request forward utilities", () => {
       listenPort: 8080,
       protocol: "http",
     });
+  });
+
+  it("builds a duplicate HTTP rule form with a caller-provided listen port", () => {
+    const source: RequestForwardRule & {
+      state: "running";
+      lastError: string;
+    } = {
+      ...baseForm,
+      id: 12,
+      autoStart: true,
+      createdAt: "2026-07-18T08:00:00Z",
+      updatedAt: "2026-07-19T08:00:00Z",
+      state: "running",
+      lastError: "旧运行错误",
+    };
+
+    const duplicate = duplicateRequestForwardRuleForm(source, 18_080);
+
+    expect(duplicate).toEqual({
+      name: "本地 API 副本",
+      protocol: "http",
+      bindHost: "127.0.0.1",
+      listenPort: 18_080,
+      targetUrl: "http://127.0.0.1:3000/api",
+      targetHost: null,
+      targetPort: null,
+      captureHttpHeaders: true,
+      captureHttpBody: false,
+    });
+    expect(duplicate).not.toHaveProperty("id");
+    expect(duplicate).not.toHaveProperty("autoStart");
+    expect(duplicate).not.toHaveProperty("createdAt");
+    expect(duplicate).not.toHaveProperty("updatedAt");
+    expect(duplicate).not.toHaveProperty("state");
+    expect(duplicate).not.toHaveProperty("lastError");
+  });
+
+  it("preserves socket targets and capture settings when duplicating", () => {
+    const source: RequestForwardRule = {
+      ...baseForm,
+      id: 13,
+      name: "UDP DNS",
+      protocol: "udp",
+      listenPort: 5353,
+      targetUrl: null,
+      targetHost: "2001:db8::53",
+      targetPort: 53,
+      captureHttpHeaders: false,
+      captureHttpBody: true,
+      autoStart: false,
+      createdAt: "2026-07-18T08:00:00Z",
+      updatedAt: "2026-07-19T08:00:00Z",
+    };
+
+    expect(duplicateRequestForwardRuleForm(source, 15_353)).toEqual({
+      name: "UDP DNS 副本",
+      protocol: "udp",
+      bindHost: "127.0.0.1",
+      listenPort: 15_353,
+      targetUrl: null,
+      targetHost: "2001:db8::53",
+      targetPort: 53,
+      captureHttpHeaders: false,
+      captureHttpBody: true,
+    });
+  });
+
+  it("keeps duplicate names within 80 Unicode characters without splitting surrogates", () => {
+    const source: RequestForwardRule = {
+      ...baseForm,
+      id: 14,
+      name: "😀".repeat(78),
+      autoStart: false,
+      createdAt: "2026-07-18T08:00:00Z",
+      updatedAt: "2026-07-19T08:00:00Z",
+    };
+
+    const duplicate = duplicateRequestForwardRuleForm(source, 8081);
+
+    expect(duplicate.name).toBe(`${"😀".repeat(77)} 副本`);
+    expect(Array.from(duplicate.name)).toHaveLength(80);
+    expect(duplicate.name).not.toContain("\uFFFD");
   });
 
   it("validates protocol-specific required fields", () => {

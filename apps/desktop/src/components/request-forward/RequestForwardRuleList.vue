@@ -1,6 +1,15 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { Delete, Edit, MoreFilled, Plus, Search, VideoPause, VideoPlay } from "@element-plus/icons-vue";
+import {
+  CopyDocument,
+  Delete,
+  Edit,
+  MoreFilled,
+  Plus,
+  Search,
+  VideoPause,
+  VideoPlay,
+} from "@element-plus/icons-vue";
 import type {
   RequestForwardRule,
   RequestForwardRuntimeState,
@@ -25,6 +34,7 @@ const emit = defineEmits<{
   start: [id: number];
   stop: [id: number];
   edit: [id: number];
+  duplicate: [id: number];
   delete: [id: number];
   "start-all": [];
   "stop-all": [];
@@ -60,7 +70,7 @@ function openMenu(ruleId: number) {
   menuRefs.get(ruleId)?.handleOpen();
 }
 
-function handleCommand(command: "edit" | "delete", ruleId: number) {
+function handleCommand(command: "edit" | "duplicate" | "delete", ruleId: number) {
   emit(command, ruleId);
 }
 
@@ -141,7 +151,7 @@ function targetEndpoint(rule: RequestForwardRule): string {
         :ref="(value: unknown) => setMenuRef(rule.id, value)"
         class="rule-menu"
         trigger="contextmenu"
-        @command="(command: 'edit' | 'delete') => handleCommand(command, rule.id)"
+        @command="(command: 'edit' | 'duplicate' | 'delete') => handleCommand(command, rule.id)"
       >
         <div
           class="rule-row"
@@ -219,6 +229,7 @@ function targetEndpoint(rule: RequestForwardRule): string {
         <template #dropdown>
           <el-dropdown-menu>
             <el-dropdown-item command="edit" :icon="Edit">编辑规则</el-dropdown-item>
+            <el-dropdown-item command="duplicate" :icon="CopyDocument">复制规则</el-dropdown-item>
             <el-dropdown-item command="delete" :icon="Delete" divided>删除规则</el-dropdown-item>
           </el-dropdown-menu>
         </template>

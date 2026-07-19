@@ -1,6 +1,7 @@
 import type {
   RequestForwardLogOutcome,
   RequestForwardProtocol,
+  RequestForwardRule,
   RequestForwardRuleForm,
   RequestForwardRuleWriteInput,
   RequestForwardRuntimeState,
@@ -99,6 +100,16 @@ export function getRequestForwardLogTargetCount(input: {
 
 export function getDefaultRequestForwardForm(): RequestForwardRuleForm {
   return { ...DEFAULT_REQUEST_FORWARD_FORM };
+}
+
+export function duplicateRequestForwardRuleForm(
+  rule: RequestForwardRule,
+  listenPort: number,
+): RequestForwardRuleForm {
+  const suffix = " 副本";
+  const maximumBaseLength = 80 - Array.from(suffix).length;
+  const name = `${Array.from(rule.name.trim()).slice(0, maximumBaseLength).join("")}${suffix}`;
+  return toRequestForwardRuleWriteInput({ ...rule, name, listenPort });
 }
 
 export interface RequestForwardSelectionIntentState {

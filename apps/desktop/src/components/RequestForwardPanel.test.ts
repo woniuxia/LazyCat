@@ -277,6 +277,45 @@ describe("RequestForwardPanel source structure", () => {
     expect(listSource).not.toContain('class="rule-card"');
   });
 
+  it("offers duplicate as a rule menu action without selecting the source rule", () => {
+    expect(listSource).toMatch(/duplicate: \[id: number\]/);
+    expect(listSource).toContain('command="duplicate"');
+    expect(listSource).toContain("复制规则");
+    expect(source).toContain('@duplicate="openDuplicateDialog"');
+
+    const body = source.match(
+      /function openDuplicateDialog\(id: number\)[\s\S]*?\n}/,
+    )?.[0] ?? "";
+    expect(body).toContain("rules.value.find");
+    expect(body).toContain("duplicateRequestForwardRuleForm");
+    expect(body).toContain('editorMode.value = "create"');
+    expect(body).toContain("editorRuleId.value = null");
+    expect(body).toContain("editorIntentToken += 1");
+    expect(body).toContain("ElMessage.error");
+    expect(body).not.toContain("selectedId.value");
+  });
+
+  it("automatically preflights a duplicate draft without applying its suggested port", () => {
+    const body = source.match(
+      /function openDuplicateDialog\(id: number\)[\s\S]*?\n}/,
+    )?.[0] ?? "";
+    expect(body).toContain("source.listenPort");
+    expect(body).toContain("void runPreflight()");
+    expect(body).not.toContain("applySuggestedListenPort");
+    expect(body).not.toContain("suggestedListenPort");
+    expect(preflightResultSource).toContain("使用建议端口");
+    expect(source).toContain('@apply-suggested-port="applySuggestedListenPort"');
+  });
+
+  it("keeps duplicate drafts on the existing create save actions", () => {
+    expect(source).toMatch(/function openDuplicateDialog[\s\S]*?editorMode\.value = "create"/);
+    expect(source).toMatch(/const operation = isDraft[\s\S]*?tool:request-forward:create/);
+    expect(dialogSource).toContain("仅保存");
+    expect(dialogSource).toContain("保存并启动");
+    expect(dialogSource).toContain("检测配置");
+    expect(dialogSource).toContain("检测并启动");
+  });
+
   it("keeps inline start and stop controls in the rule navigation", () => {
     expect(listSource).toMatch(/emit\(["']start["'], rule\.id\)/);
     expect(listSource).toMatch(/emit\(["']stop["'], rule\.id\)/);

@@ -23,6 +23,7 @@ import {
   captureRequestForwardMutationIntent,
   DEFAULT_REQUEST_FORWARD_INSPECTOR_WIDTH,
   DEFAULT_REQUEST_FORWARD_RULE_LIST_WIDTH,
+  duplicateRequestForwardRuleForm,
   formatRequestForwardEndpoint,
   getDefaultRequestForwardForm,
   getRequestForwardBatchMessage,
@@ -660,6 +661,23 @@ function openCreateDialog() {
   fieldErrors.value = {};
 }
 
+function openDuplicateDialog(id: number) {
+  if (interactionBusy.value) return;
+  const source = rules.value.find((item) => item.id === id);
+  if (!source) {
+    ElMessage.error("无法复制规则：源规则不存在或已被删除");
+    return;
+  }
+  editorIntentToken += 1;
+  invalidatePreflight();
+  editorMode.value = "create";
+  editorRuleId.value = null;
+  form.value = duplicateRequestForwardRuleForm(source, source.listenPort);
+  formDirty.value = false;
+  fieldErrors.value = {};
+  void runPreflight();
+}
+
 function openEditDialog(id: number) {
   if (interactionBusy.value) return;
   const rule = rules.value.find((item) => item.id === id);
@@ -1117,6 +1135,7 @@ onUnmounted(() => {
       @start="startRule"
       @stop="stopRule"
       @edit="openEditDialog"
+      @duplicate="openDuplicateDialog"
       @delete="deleteRule"
       @start-all="runBatch('start')"
       @stop-all="runBatch('stop')"
