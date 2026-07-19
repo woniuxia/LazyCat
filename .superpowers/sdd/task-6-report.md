@@ -78,3 +78,4 @@ PASS
 - active 项目只在面板首次无选中项或 runtime 确实处于 running 状态时优先；普通刷新保持已有 selectedId 和脏草稿，保存后仍显式恢复 savedId。
 - 删除 IPC 成功后先清空 selectedId 与 draft，再刷新项目列表；即使刷新失败，也不会继续把已删除配置显示为有效选中项。
 - 新增源码契约测试固定 active 选择条件与删除清空顺序；focused 测试更新为 4 个文件、18 个测试全部通过。
+- 进一步限定 active 恢复：新建脏 draft（`selectedId === null && dirty`）刷新时保持新建态，只有首次干净状态或 running 才恢复 active；删除成功后立即从本地项目列表移除目标，刷新失败也不会残留已删除项。
