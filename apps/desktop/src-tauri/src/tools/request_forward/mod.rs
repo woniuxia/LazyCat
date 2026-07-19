@@ -348,7 +348,23 @@ mod tests {
                 RequestForwardErrorCode::DnsFailed,
             ),
             (
+                "解析目标地址 tls-proxy.invalid:443 失败: No such host is known",
+                RequestForwardErrorCode::DnsFailed,
+            ),
+            (
+                "解析目标地址 certificate-api.invalid:443 失败: No such host is known",
+                RequestForwardErrorCode::DnsFailed,
+            ),
+            (
+                "解析下游 tls-proxy.invalid:443 失败: No such host is known",
+                RequestForwardErrorCode::DnsFailed,
+            ),
+            (
                 "连接下游 10.0.0.8:443 失败: connection refused",
+                RequestForwardErrorCode::TargetUnreachable,
+            ),
+            (
+                "连接下游 tls-proxy.invalid:443 失败: connection refused",
                 RequestForwardErrorCode::TargetUnreachable,
             ),
             (

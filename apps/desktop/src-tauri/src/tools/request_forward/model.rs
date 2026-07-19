@@ -63,15 +63,31 @@ pub(crate) fn classify_request_forward_error(message: &str) -> RequestForwardErr
     {
         return RequestForwardErrorCode::ListenerInUse;
     }
-    if normalized.contains("tls")
-        || normalized.contains("certificate")
+    if normalized.contains("解析目标地址")
+        || normalized.contains("解析下游")
+        || normalized.contains("读取系统 dns 配置失败")
+        || normalized.contains("创建 dns 预检 runtime 失败")
+        || normalized.contains("无法启动目标地址解析线程")
+        || normalized.contains("未解析到可尝试的目标地址")
+        || normalized.contains("未解析到地址")
+    {
+        return RequestForwardErrorCode::DnsFailed;
+    }
+    if normalized.contains("tls handshake")
+        || normalized.contains("tls 握手")
+        || normalized.contains("tls 根证书")
+        || normalized.contains("tls 主机名")
+        || normalized.contains("tls socket")
+        || normalized.contains("tls 预检 runtime")
         || normalized.contains("invalid peer")
+        || normalized.contains("peer certificate")
+        || normalized.contains("certificate not valid")
+        || normalized.contains("certificate verify")
         || normalized.contains("not valid for name")
     {
         return RequestForwardErrorCode::TlsFailed;
     }
-    if normalized.contains("解析目标地址")
-        || normalized.contains("dns")
+    if normalized.contains("dns")
         || normalized.contains("name or service not known")
         || normalized.contains("no such host")
         || normalized.contains("nodename nor servname")

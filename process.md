@@ -13,13 +13,13 @@
 **场景**: 运行错误需要同时服务即时 IPC 失败、运行状态展示和后续批量操作，并兼容历史纯文本错误。
 
 **解决**:
-1. 在 Rust 域内用带 marker/version 的 JSON envelope 统一输出稳定错误码、原始 message 和失败后的真实 runtime state；分类集中维护，并先按 TLS、自转发等高特征错误匹配。
+1. 在 Rust 域内用带 marker/version 的 JSON envelope 统一输出稳定错误码、原始 message 和失败后的真实 runtime state；分类集中维护，并按错误阶段与固定上下文分层匹配。
 2. 前端纯函数严格校验 marker、版本、错误码和 state；支持直接 JSON 与 `Error.message` 内嵌 envelope，未知或畸形输入保留完整原文并回退 `unknown`。
 3. 恢复动作由纯映射生成，Panel 只编排现有启动、编辑和无副作用预检；建议端口必须绑定当前规则的实际预检结果，并由用户显式应用到编辑态。
 
 **关键点**:
 - 监听占用只能在监听绑定上下文中识别 `AddrInUse`/Windows 10048，不能把任意 connect/io 错误归为端口占用。
-- 分类规则有优先级；TLS hostname 文本可能包含 `dnsname`，TLS 必须先于通用 DNS 关键字。
+- 分类规则有优先级：强 DNS 阶段/固定上下文先于 TLS，明确 TLS/证书/握手上下文其次，通用 DNS 关键字最后兜底；既避免目标主机名中的 `tls`/`certificate` 误导分类，也避免 TLS 的 `invalid dnsname` 被误判为 DNS。
 - 晚到的恢复预检响应必须同时校验 request token、selection token 和 rule id。
 
 **涉及文件**:
@@ -28,11 +28,11 @@
 - 对应 Rust 与前端测试
 
 **验证**:
-- `cargo test --target-dir E:\tmp\lazycat-task1-target request_forward -- --nocapture`（104 项通过）
+- `cargo test --target-dir E:\tmp\lazycat-task1-target request_forward -- --nocapture`（105 项通过）
 - `pnpm test src/utils/requestForward.test.ts src/components/RequestForwardPanel.test.ts src/composables/useRequestForwardPreflight.test.ts`（89 项通过）
 - `pnpm --filter @lazycat/desktop build:web`
 - `cargo check --target-dir E:\tmp\lazycat-task1-target`
-- `pnpm typecheck` 被并行中的 Release Package 未完成类型改动阻断（非本任务文件）
+- `pnpm typecheck`
 
 **使用次数**: 0
 
