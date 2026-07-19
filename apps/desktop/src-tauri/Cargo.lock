@@ -2956,6 +2956,7 @@ dependencies = [
  "tauri-plugin-notification",
  "tauri-plugin-single-instance",
  "tokio",
+ "tokio-rustls",
  "tokio-util",
  "toml 0.8.2",
  "ureq",

@@ -9,6 +9,7 @@ pub use runtime::RestoreResult;
 mod http;
 mod model;
 mod observability;
+mod preflight;
 mod repository;
 mod runtime;
 mod tcp;
@@ -16,6 +17,7 @@ mod udp;
 mod validation;
 
 const ACTIONS: &[&str] = &[
+    "preflight",
     "list",
     "get",
     "create",
@@ -79,6 +81,10 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         return Err("unsupported request_forward action".into());
     }
     match action {
+        "preflight" => {
+            let input = parse_rule_input(payload)?;
+            Ok(json!(preflight::preflight(input)?))
+        }
         "list" => {
             let conn = db_conn()?;
             Ok(json!({ "items": repository::list_with_conn(&conn)? }))
@@ -569,6 +575,53 @@ mod tests {
     fn action_rejects_unknown_action() {
         let err = super::execute("unknown", &json!({})).expect_err("unknown action should fail");
         assert!(err.contains("unsupported request_forward action"));
+    }
+
+    #[test]
+    fn preflight_action_contract_serializes_camel_case_checks() {
+        let listener = std::net::UdpSocket::bind("127.0.0.1:0")
+            .expect("reserve temporary UDP listener port");
+        let listen_port = listener
+            .local_addr()
+            .expect("read temporary UDP listener port")
+            .port();
+        drop(listener);
+
+        assert!(super::supported_actions().contains(&"preflight"));
+        let value = super::execute(
+            "preflight",
+            &json!({
+                "name": "UDP 预检",
+                "protocol": "udp",
+                "bindHost": "127.0.0.1",
+                "listenPort": listen_port,
+                "targetUrl": null,
+                "targetHost": "127.0.0.1",
+                "targetPort": 9,
+                "captureHttpHeaders": false,
+                "captureHttpBody": false
+            }),
+        )
+        .expect("execute UDP preflight action");
+
+        assert_eq!(value["ready"], true);
+        assert!(value["checks"].as_array().is_some_and(|checks| {
+            checks.iter().any(|check| {
+                check["kind"] == "listener"
+                    && check["state"] == "passed"
+                    && check["message"].is_string()
+            })
+        }));
+        assert!(value.get("suggestedListenPort").is_some());
+        assert!(value.get("suggested_listen_port").is_none());
+    }
+
+    #[test]
+    fn preflight_action_rejects_invalid_payload() {
+        let error = super::execute("preflight", &json!({ "protocol": "tcp" }))
+            .expect_err("invalid preflight payload must remain an action error");
+
+        assert!(error.contains("转发规则参数无效"));
     }
 
     #[test]

@@ -1088,7 +1088,7 @@ fn worker_panic_error(payload: Box<dyn Any + Send>) -> String {
 }
 
 #[cfg(test)]
-mod integration_tests {
+pub(crate) mod integration_tests {
     use std::io::{Read, Write};
     use std::net::{SocketAddr, TcpListener, TcpStream};
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -1349,15 +1349,15 @@ mod integration_tests {
         (key, certificate.build())
     }
 
-    struct TlsFixture {
-        address: SocketAddr,
-        client_config: ClientConfig,
+    pub(crate) struct TlsFixture {
+        pub(crate) address: SocketAddr,
+        pub(crate) client_config: ClientConfig,
         result_rx: mpsc::Receiver<Result<(), String>>,
         worker: Option<JoinHandle<()>>,
     }
 
     impl TlsFixture {
-        fn finish(mut self) -> Result<(), String> {
+        pub(crate) fn finish(mut self) -> Result<(), String> {
             let result = match self.result_rx.recv_timeout(SOCKET_TIMEOUT) {
                 Ok(result) => result,
                 Err(mpsc::RecvTimeoutError::Timeout) => {
@@ -1388,7 +1388,7 @@ mod integration_tests {
         }
     }
 
-    fn accept_tls_once(
+    pub(crate) fn accept_tls_once(
         trust_ipv4_loopback: bool,
         handler: impl FnOnce(&mut openssl::ssl::SslStream<TcpStream>) + Send + 'static,
     ) -> TlsFixture {

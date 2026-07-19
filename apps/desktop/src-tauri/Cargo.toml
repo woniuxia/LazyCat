@@ -53,6 +53,7 @@ hyper-rustls = { version = "0.27", default-features = false, features = ["http1"
 hyper-util = { version = "0.1", features = ["client", "client-legacy", "http1", "server", "tokio"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "net", "io-util", "sync", "time"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 tokio-util = { version = "0.7", features = ["rt"] }
 jsonschema = "0.18"
 roxmltree = "0.20"
