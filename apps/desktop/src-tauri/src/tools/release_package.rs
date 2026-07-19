@@ -59,6 +59,12 @@ pub struct PrepareResult {
     pub frontend_artifact_mode: String,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ReleaseTarget {
+    Frontend,
+    Backend,
+}
+
 struct ProjectPayload {
     name: String,
     frontend_project_path: String,
@@ -78,6 +84,26 @@ fn required_string(payload: &Value, key: &str) -> Result<String, String> {
         .filter(|value| !value.is_empty())
         .map(str::to_owned)
         .ok_or_else(|| format!("{key} is required"))
+}
+
+fn parse_targets(value: &Value) -> Result<Vec<ReleaseTarget>, String> {
+    let values = value.as_array().ok_or("targets is required")?;
+    if values.is_empty() {
+        return Err("请至少选择前端包或后端包".into());
+    }
+    let mut targets = Vec::with_capacity(values.len());
+    for value in values {
+        let target = match value.as_str() {
+            Some("frontend") => ReleaseTarget::Frontend,
+            Some("backend") => ReleaseTarget::Backend,
+            _ => return Err("targets 只能包含 frontend 或 backend".into()),
+        };
+        if targets.contains(&target) {
+            return Err("targets 不能包含重复项".into());
+        }
+        targets.push(target);
+    }
+    Ok(targets)
 }
 
 fn parse_project_payload(payload: &Value) -> Result<ProjectPayload, String> {
@@ -236,15 +262,20 @@ fn validate_run_inputs(
     project: &ReleasePackageProjectConfig,
     output_root: &str,
     folder_name: &str,
+    targets: &[ReleaseTarget],
 ) -> Result<(), String> {
     let output_root = PathBuf::from(output_root);
     if !output_root.is_dir() {
         return Err("全局归档根目录不存在或不是文件夹".into());
     }
-    if !PathBuf::from(&project.frontend_project_path).is_dir() {
+    if targets.contains(&ReleaseTarget::Frontend)
+        && !PathBuf::from(&project.frontend_project_path).is_dir()
+    {
         return Err("前端工程目录不存在或不是文件夹".into());
     }
-    if !PathBuf::from(&project.backend_project_path).is_dir() {
+    if targets.contains(&ReleaseTarget::Backend)
+        && !PathBuf::from(&project.backend_project_path).is_dir()
+    {
         return Err("后端工程目录不存在或不是文件夹".into());
     }
     if output_root.join(folder_name).exists() {
@@ -321,7 +352,8 @@ pub fn execute_with_app(
             let conn = db_conn()?;
             let project = load_project(&conn, project_id)?;
             let output_root = load_output_root(&conn)?;
-            validate_run_inputs(&project, &output_root, &folder_name)?;
+            let targets = parse_targets(payload.get("targets").unwrap_or(&Value::Null))?;
+            validate_run_inputs(&project, &output_root, &folder_name, &targets)?;
             super::release_package_runtime::start(app, project, output_root.into(), folder_name)
         }
         "cancel" => {
@@ -338,6 +370,7 @@ mod tests {
     use chrono::NaiveDate;
     use rusqlite::Connection;
     use serde_json::{json, Value};
+    use std::fs;
 
     fn test_conn() -> Connection {
         let conn = Connection::open_in_memory().unwrap();
@@ -390,5 +423,51 @@ mod tests {
             prepare_with_conn(&conn, id, NaiveDate::from_ymd_opt(2026, 7, 23).unwrap()).unwrap();
         assert_eq!(out["defaultFolderName"], "20260723-客户门户");
         assert_eq!(out["archivePath"], r"D:\releases\20260723-客户门户");
+    }
+
+    #[test]
+    fn run_targets_must_be_known_unique_and_non_empty() {
+        assert_eq!(
+            parse_targets(&json!(["frontend", "backend"])).unwrap(),
+            vec![ReleaseTarget::Frontend, ReleaseTarget::Backend]
+        );
+        assert!(parse_targets(&json!([])).unwrap_err().contains("至少选择"));
+        assert!(parse_targets(&json!(["frontend", "frontend"])).is_err());
+        assert!(parse_targets(&json!(["mobile"])).is_err());
+    }
+
+    #[test]
+    fn run_validation_only_checks_selected_project_directory() {
+        let root = std::env::temp_dir().join(format!(
+            "lazycat-release-input-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let backend = root.join("backend");
+        let output = root.join("output");
+        fs::create_dir_all(&backend).unwrap();
+        fs::create_dir_all(&output).unwrap();
+        let project = ReleasePackageProjectConfig {
+            id: 1,
+            name: "test".into(),
+            frontend_project_path: root.join("missing-frontend").to_string_lossy().into_owned(),
+            frontend_build_command: "exit 0".into(),
+            frontend_artifact_path: "dist".into(),
+            frontend_artifact_mode: "copy_directory".into(),
+            backend_project_path: backend.to_string_lossy().into_owned(),
+            backend_build_command: "exit 0".into(),
+            backend_artifact_path: "app.jar".into(),
+            created_at: String::new(),
+            updated_at: String::new(),
+        };
+
+        let result = validate_run_inputs(
+            &project,
+            output.to_string_lossy().as_ref(),
+            "release",
+            &[ReleaseTarget::Backend],
+        );
+        let _ = fs::remove_dir_all(&root);
+
+        assert!(result.is_ok());
     }
 }
