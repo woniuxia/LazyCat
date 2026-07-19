@@ -18,8 +18,8 @@ const emit = defineEmits<{
 
 const exposedListener = computed(() => isExposedForwardBindHost(props.modelValue.bindHost));
 const protocolTip = computed(() => props.persisted
-  ? "协议在规则创建后不可修改。"
-  : "HTTP 会按请求转发；TCP 和 UDP 会按连接或数据报转发。");
+  ? "HTTP 规则在本地以 HTTP 接收，目标可为 HTTP 或 HTTPS。协议在规则创建后不可修改。"
+  : "HTTP 规则在本地以 HTTP 接收，目标可为 HTTP 或 HTTPS。TCP 和 UDP 会按连接或数据报转发。");
 
 function update<K extends keyof RequestForwardRuleForm>(
   key: K,
@@ -70,7 +70,7 @@ function update<K extends keyof RequestForwardRuleForm>(
             :disabled="persisted || readonly || disabled"
             @update:model-value="update('protocol', $event)"
           >
-            <el-option label="HTTP / HTTPS" value="http" />
+            <el-option label="HTTP" value="http" />
             <el-option label="TCP" value="tcp" />
             <el-option label="UDP" value="udp" />
           </el-select>
@@ -83,7 +83,8 @@ function update<K extends keyof RequestForwardRuleForm>(
         <span>02</span>
         <div>
           <h3>本地监听</h3>
-          <p>指定 LazyCat 接收流量的本地地址与端口。</p>
+          <p v-if="modelValue.protocol === 'http'">HTTP 规则的本地监听使用 HTTP，目标 URL 支持 HTTP/HTTPS。</p>
+          <p v-else>指定 LazyCat 接收流量的本地地址与端口。</p>
         </div>
       </div>
       <div class="form-grid">

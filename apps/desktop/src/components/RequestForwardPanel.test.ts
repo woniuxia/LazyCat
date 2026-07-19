@@ -328,6 +328,14 @@ describe("RequestForwardPanel source structure", () => {
     expect(formSource).toContain('aria-label="目标 URL 提示"');
   });
 
+  it("distinguishes the local HTTP listener from HTTP or HTTPS targets", () => {
+    expect(formSource).toContain('<el-option label="HTTP" value="http" />');
+    expect(formSource).not.toContain('label="HTTP / HTTPS"');
+    expect(formSource).toContain("HTTP 规则在本地以 HTTP 接收，目标可为 HTTP 或 HTTPS。");
+    expect(formSource).toContain("HTTP 规则的本地监听使用 HTTP，目标 URL 支持 HTTP/HTTPS。");
+    expect(formSource).toContain("仅支持 HTTP/HTTPS 基础地址");
+  });
+
   it("uses a readable typography baseline across the workspace", () => {
     expect(source).toMatch(/\.request-forward-panel\s*\{[^}]*font-size:\s*16px/s);
     expect(source).toMatch(/\.workbench-header h1,[\s\S]*?font-size:\s*24px/s);
