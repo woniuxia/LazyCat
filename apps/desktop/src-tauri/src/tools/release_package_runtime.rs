@@ -635,7 +635,62 @@ mod tests {
 #[cfg(test)]
 mod pipeline_tests {
     use super::*;
+    #[cfg(windows)]
+    use std::fs;
     use std::sync::atomic::AtomicBool;
+
+    #[cfg(windows)]
+    struct TestDir(PathBuf);
+
+    #[cfg(windows)]
+    impl TestDir {
+        fn new() -> Self {
+            let path = std::env::temp_dir()
+                .join(format!("lazycat-release-runtime-{}", uuid::Uuid::new_v4()));
+            fs::create_dir_all(&path).unwrap();
+            Self(path)
+        }
+    }
+
+    #[cfg(windows)]
+    impl Drop for TestDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[cfg(windows)]
+    #[derive(Default)]
+    struct CollectingSink {
+        statuses: Mutex<Vec<StatusEvent>>,
+    }
+
+    #[cfg(windows)]
+    impl EventSink for CollectingSink {
+        fn log(&self, _event: LogEvent) {}
+
+        fn status(&self, event: StatusEvent) {
+            self.statuses.lock().unwrap().push(event);
+        }
+    }
+
+    #[cfg(windows)]
+    impl CollectingSink {
+        fn phases(&self) -> Vec<String> {
+            self.statuses
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|event| event.status == "running")
+                .map(|event| event.phase.clone())
+                .fold(Vec::new(), |mut phases, phase| {
+                    if phases.last() != Some(&phase) {
+                        phases.push(phase);
+                    }
+                    phases
+                })
+        }
+    }
 
     struct Sink;
 
@@ -715,5 +770,88 @@ mod pipeline_tests {
         ));
         assert!(finished.load(Ordering::Acquire));
         assert!(cancel_won.load(Ordering::Acquire));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn pipeline_builds_frontend_then_backend_and_archives_both() {
+        let root = TestDir::new();
+        let frontend_project = root.0.join("web");
+        let backend_project = root.0.join("server");
+        let output_root = root.0.join("output");
+        fs::create_dir_all(&frontend_project).unwrap();
+        fs::create_dir_all(&backend_project).unwrap();
+        fs::create_dir_all(&output_root).unwrap();
+        let project = ReleasePackageProjectConfig {
+            id: 1,
+            name: "冒烟项目".into(),
+            frontend_project_path: frontend_project.to_string_lossy().into_owned(),
+            frontend_build_command: "New-Item -ItemType Directory -Force dist | Out-Null; Set-Content dist/index.html web".into(),
+            frontend_artifact_path: "dist".into(),
+            frontend_artifact_mode: "copy_directory".into(),
+            backend_project_path: backend_project.to_string_lossy().into_owned(),
+            backend_build_command: "New-Item -ItemType Directory -Force target | Out-Null; Set-Content target/app.jar jar".into(),
+            backend_artifact_path: "target/app.jar".into(),
+            created_at: String::new(),
+            updated_at: String::new(),
+        };
+        let sink = Arc::new(CollectingSink::default());
+        let result = run_pipeline(
+            "smoke-run",
+            project,
+            output_root,
+            "20260723-冒烟项目".into(),
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(Mutex::new(None)),
+            sink.clone(),
+        )
+        .unwrap();
+        assert!(result.join("dist/index.html").is_file());
+        assert!(result.join("app.jar").is_file());
+        assert_eq!(sink.phases(), vec!["frontend", "backend", "archive"]);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn failed_frontend_never_runs_backend_or_creates_final_directory() {
+        let root = TestDir::new();
+        let frontend_project = root.0.join("web");
+        let backend_project = root.0.join("server");
+        let output_root = root.0.join("output");
+        fs::create_dir_all(&frontend_project).unwrap();
+        fs::create_dir_all(&backend_project).unwrap();
+        fs::create_dir_all(&output_root).unwrap();
+        let project = ReleasePackageProjectConfig {
+            id: 2,
+            name: "冒烟项目".into(),
+            frontend_project_path: frontend_project.to_string_lossy().into_owned(),
+            frontend_build_command: "exit 9".into(),
+            frontend_artifact_path: "dist".into(),
+            frontend_artifact_mode: "copy_directory".into(),
+            backend_project_path: backend_project.to_string_lossy().into_owned(),
+            backend_build_command: "Set-Content marker.txt should-not-run".into(),
+            backend_artifact_path: "marker.txt".into(),
+            created_at: String::new(),
+            updated_at: String::new(),
+        };
+        let error = run_pipeline(
+            "failed-run",
+            project,
+            output_root.clone(),
+            "20260723-冒烟项目".into(),
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(Mutex::new(None)),
+            Arc::new(CollectingSink::default()),
+        )
+        .unwrap_err();
+        assert!(matches!(
+            error,
+            PipelineError::Failed {
+                phase: "frontend",
+                ..
+            }
+        ));
+        assert!(!backend_project.join("marker.txt").exists());
+        assert!(!output_root.join("20260723-冒烟项目").exists());
     }
 }

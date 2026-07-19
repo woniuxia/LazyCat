@@ -138,6 +138,7 @@ declare module 'vue' {
     PortsPanel: typeof import('./src/components/PortsPanel.vue')['default']
     QuickCapture: typeof import('./src/components/QuickCapture.vue')['default']
     RegexPanel: typeof import('./src/components/RegexPanel.vue')['default']
+    ReleasePackagePanel: typeof import('./src/components/ReleasePackagePanel.vue')['default']
     ReminderPopup: typeof import('./src/components/ReminderPopup.vue')['default']
     RequestForwardLogInspector: typeof import('./src/components/request-forward/RequestForwardLogInspector.vue')['default']
     RequestForwardLogList: typeof import('./src/components/request-forward/RequestForwardLogList.vue')['default']
