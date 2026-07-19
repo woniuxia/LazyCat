@@ -420,7 +420,7 @@ mod tests {
     use super::{
         preflight, preflight_with_tls_config, resolve_target_addrs_with,
         resolve_target_addrs_with_system_config, suggest_listen_port, target_endpoint, CheckKind,
-        CheckState,
+        CheckState, PORT_SUGGESTION_SCAN_LIMIT,
     };
     use crate::tools::request_forward::http::integration_tests::accept_tls_once;
     use crate::tools::request_forward::model::{ForwardProtocol, RuleWriteInput};
@@ -627,7 +627,7 @@ mod tests {
     }
 
     #[test]
-    fn occupied_listener_fails_and_suggests_bindable_different_port() {
+    fn occupied_listener_fails_and_suggests_different_port_within_scan_range() {
         let occupied = TcpListener::bind("127.0.0.1:0").expect("occupy listener");
         let occupied_port = occupied.local_addr().expect("read occupied port").port();
         let (target, worker) = tcp_target();
@@ -650,7 +650,17 @@ mod tests {
             .suggested_listen_port
             .expect("occupied listener has suggestion");
         assert_ne!(suggested, occupied_port);
-        TcpListener::bind(("127.0.0.1", suggested)).expect("suggested TCP port is bindable");
+        assert!((1..=PORT_SUGGESTION_SCAN_LIMIT)
+            .filter_map(|offset| occupied_port.checked_add(offset))
+            .any(|candidate| candidate == suggested));
+        let listener_check = result
+            .checks
+            .iter()
+            .find(|check| check.kind == CheckKind::Listener)
+            .expect("listener check");
+        assert!(listener_check
+            .message
+            .contains("该建议仅表示检测时可用，不保证实际启动时仍可绑定"));
     }
 
     #[test]
