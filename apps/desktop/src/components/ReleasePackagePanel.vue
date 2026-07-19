@@ -85,7 +85,14 @@
                         <article v-for="example in RELEASE_PACKAGE_COMMAND_EXAMPLES" :key="example.id" class="command-example-item">
                           <div class="command-example-heading">
                             <strong>{{ example.title }}</strong>
-                            <el-button :icon="CopyDocument" size="small" @click="copyCommandExample(example.command)">复制</el-button>
+                            <el-button
+                              :icon="CopyDocument"
+                              :aria-label="`复制${example.title}命令`"
+                              size="small"
+                              @click="copyCommandExample(example.command)"
+                            >
+                              复制
+                            </el-button>
                           </div>
                           <p>{{ example.description }}</p>
                           <pre>{{ example.command }}</pre>
@@ -149,7 +156,14 @@
                         <article v-for="example in RELEASE_PACKAGE_COMMAND_EXAMPLES" :key="example.id" class="command-example-item">
                           <div class="command-example-heading">
                             <strong>{{ example.title }}</strong>
-                            <el-button :icon="CopyDocument" size="small" @click="copyCommandExample(example.command)">复制</el-button>
+                            <el-button
+                              :icon="CopyDocument"
+                              :aria-label="`复制${example.title}命令`"
+                              size="small"
+                              @click="copyCommandExample(example.command)"
+                            >
+                              复制
+                            </el-button>
                           </div>
                           <p>{{ example.description }}</p>
                           <pre>{{ example.command }}</pre>
@@ -185,7 +199,7 @@
           <h3>运行日志</h3>
           <p>按执行顺序记录构建、归档及异常输出。</p>
         </div>
-        <el-tag class="log-status-tag" :type="statusTagTypes[status]" effect="plain" size="small">
+        <el-tag class="log-status" :type="statusTagTypes[status]" effect="plain" size="small">
           {{ statusLabels[status] }}
         </el-tag>
       </header>
@@ -652,8 +666,33 @@ onMounted(async () => {
 }
 .log-card-header { padding: 12px 14px; border-bottom: 1px solid #ebeef5; }
 .log-card-header h3 { margin: 0 0 3px; color: #303133; font-size: 15px; }
-.log-card-header p { margin: 0; color: #909399; font-size: 12px; }
-.log-status-tag { flex: none; }
+.log-card-header p { margin: 0; color: #5f6b7a; font-size: 12px; }
+.log-status { flex: none; }
+.release-package-log-card :deep(.log-status.el-tag--primary) {
+  --el-tag-text-color: #1d4ed8;
+  --el-tag-bg-color: #eff6ff;
+  --el-tag-border-color: #bfdbfe;
+}
+.release-package-log-card :deep(.log-status.el-tag--success) {
+  --el-tag-text-color: #237a3b;
+  --el-tag-bg-color: #eefbf2;
+  --el-tag-border-color: #b7e4c3;
+}
+.release-package-log-card :deep(.log-status.el-tag--info) {
+  --el-tag-text-color: #4b5563;
+  --el-tag-bg-color: #f3f4f6;
+  --el-tag-border-color: #d1d5db;
+}
+.release-package-log-card :deep(.log-status.el-tag--warning) {
+  --el-tag-text-color: #8a4b08;
+  --el-tag-bg-color: #fff7ed;
+  --el-tag-border-color: #fed7aa;
+}
+.release-package-log-card :deep(.log-status.el-tag--danger) {
+  --el-tag-text-color: #b42318;
+  --el-tag-bg-color: #fff1f0;
+  --el-tag-border-color: #fecaca;
+}
 .release-package-log {
   min-height: 180px;
   max-height: 320px;
@@ -665,7 +704,7 @@ onMounted(async () => {
 }
 .log-line { display: flex; gap: 8px; white-space: pre-wrap; word-break: break-word; }
 .log-line.stderr { color: #d03050; }
-.log-meta { flex: none; color: #909399; }
+.log-meta { flex: none; color: #5f6b7a; }
 .archive-preview { margin: 0; overflow-wrap: anywhere; color: var(--lc-text-secondary, #606266); font-size: 13px; }
 
 :global(.release-package-command-examples) {
