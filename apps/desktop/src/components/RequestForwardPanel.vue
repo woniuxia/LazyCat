@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { save } from "@tauri-apps/plugin-dialog";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { useRequestForwardPreflight } from "../composables/useRequestForwardPreflight";
 import { getSetting, setSetting } from "../composables/useSettings";
@@ -7,6 +8,7 @@ import { useToolInvoke } from "../composables/useToolInvoke";
 import type {
   RequestForwardBatchOperationResult,
   RequestForwardLogOutcome,
+  RequestForwardLogFilters,
   RequestForwardLogPage,
   RequestForwardLogRow,
   RequestForwardPreflightResult,
@@ -18,12 +20,16 @@ import type {
 } from "../types/request-forward";
 import {
   applyRequestForwardMutationResult,
+  buildRequestForwardLogExportFileName,
+  buildRequestForwardLogQuery,
   clampRequestForwardInspectorWidth,
   clampRequestForwardRuleListWidth,
   captureRequestForwardMutationIntent,
   DEFAULT_REQUEST_FORWARD_INSPECTOR_WIDTH,
   DEFAULT_REQUEST_FORWARD_RULE_LIST_WIDTH,
   duplicateRequestForwardRuleForm,
+  exportRequestForwardLogsCsv,
+  exportRequestForwardLogsJson,
   formatRequestForwardEndpoint,
   getDefaultRequestForwardForm,
   getRequestForwardBatchMessage,
@@ -61,6 +67,10 @@ type LogQueryContext = {
   intentToken: number;
   keyword: string;
   mode: "all" | RequestForwardLogOutcome;
+  method: string;
+  statusCode: number | null;
+  startedAt: string;
+  endedAt: string;
 };
 
 const LOG_PAGE_SIZE = 30;
@@ -115,6 +125,16 @@ const selectedLogId = ref<number | null>(null);
 const logTotal = ref(0);
 const logKeyword = ref("");
 const logMode = ref<"all" | RequestForwardLogOutcome>("all");
+const logMethod = ref("");
+const logStatusCode = ref<number | null>(null);
+const logStartedAt = ref("");
+const logEndedAt = ref("");
+const logLive = ref(true);
+const pausedNewCount = ref(0);
+const pausedHasNew = ref(false);
+const latestLogId = ref<number | null>(null);
+const pausedProbeTotal = ref(0);
+const exportLoading = ref(false);
 const logsLoading = ref(false);
 const loadingMore = ref(false);
 const logError = ref("");
@@ -196,6 +216,15 @@ const hasActiveRuntimeRule = computed(() =>
 const hasMoreLogs = computed(() => logItems.value.length < logTotal.value);
 const selectedLog = computed(
   () => logItems.value.find((item) => item.id === selectedLogId.value) ?? null,
+);
+const hasLogFilters = computed(
+  () =>
+    Boolean(logKeyword.value.trim()) ||
+    logMode.value !== "all" ||
+    Boolean(logMethod.value) ||
+    Boolean(logStatusCode.value) ||
+    Boolean(logStartedAt.value) ||
+    Boolean(logEndedAt.value),
 );
 const ruleListWidth = computed(() =>
   clampRequestForwardRuleListWidth(
@@ -332,6 +361,10 @@ function captureLogQueryContext(
     intentToken,
     keyword: logKeyword.value.trim(),
     mode: logMode.value,
+    method: logMethod.value,
+    statusCode: logStatusCode.value,
+    startedAt: logStartedAt.value,
+    endedAt: logEndedAt.value,
   };
 }
 
@@ -340,8 +373,18 @@ function isLogQueryContextCurrent(context: LogQueryContext): boolean {
     selectionIntentToken === context.intentToken &&
     selectedId.value === context.ruleId &&
     logKeyword.value.trim() === context.keyword &&
-    logMode.value === context.mode
+    logMode.value === context.mode &&
+    logMethod.value === context.method &&
+    logStatusCode.value === context.statusCode &&
+    logStartedAt.value === context.startedAt &&
+    logEndedAt.value === context.endedAt
   );
+}
+
+function logTimeForQuery(value: string): string | null {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toISOString();
 }
 
 function queryLogs(
@@ -349,13 +392,21 @@ function queryLogs(
   offset: number,
   limit: number,
 ): Promise<RequestForwardLogPage> {
-  return invoke<RequestForwardLogPage>("tool:request-forward:log-list", {
+  const payload = buildRequestForwardLogQuery({
     id: context.ruleId,
-    keyword: context.keyword || null,
-    mode: context.mode === "all" ? null : context.mode,
+    keyword: context.keyword,
+    mode: context.mode,
+    method: context.method,
+    statusCode: context.statusCode,
+    startedAt: logTimeForQuery(context.startedAt),
+    endedAt: logTimeForQuery(context.endedAt),
     offset,
     limit,
   });
+  return invoke<RequestForwardLogPage>(
+    "tool:request-forward:log-list",
+    { ...payload },
+  );
 }
 
 function resetObservabilityState() {
@@ -372,6 +423,10 @@ function resetObservabilityState() {
   loadingMore.value = false;
   logError.value = "";
   logRefreshError.value = "";
+  latestLogId.value = null;
+  pausedProbeTotal.value = 0;
+  pausedNewCount.value = 0;
+  pausedHasNew.value = false;
   logInFlight = false;
   pendingLogRefresh = null;
 }
@@ -431,6 +486,10 @@ async function loadLogs(
       logItems.value,
     );
     logTotal.value = result.total;
+    latestLogId.value = result.latestId ?? null;
+    pausedProbeTotal.value = result.total;
+    pausedNewCount.value = 0;
+    pausedHasNew.value = false;
     logRefreshError.value = "";
   } catch (error) {
     if (requestToken === logRequestToken && isLogQueryContextCurrent(context)) {
@@ -453,6 +512,10 @@ async function refreshLogsInBackground(
     !context ||
     !isLogQueryContextCurrent(context)
   ) return;
+  if (!logLive.value) {
+    await probePausedLogs(context);
+    return;
+  }
   if (observabilityMutating.value || logInFlight || loadingMore.value || logDebounceTimer) {
     pendingLogRefresh = context;
     return;
@@ -487,10 +550,50 @@ async function refreshLogsInBackground(
       logItems.value,
     );
     logTotal.value = page.total;
+    latestLogId.value = page.latestId ?? null;
+    pausedProbeTotal.value = page.total;
     logRefreshError.value = "";
   } catch (error) {
     if (requestToken === logRequestToken && isLogQueryContextCurrent(context)) {
       logRefreshError.value = `日志自动刷新失败：${errorMessage(error)}`;
+    }
+  } finally {
+    if (requestToken === logRequestToken) logInFlight = false;
+    flushPendingLogRefresh();
+  }
+}
+
+async function probePausedLogs(context: LogQueryContext): Promise<void> {
+  if (
+    observabilityMutating.value ||
+    logInFlight ||
+    loadingMore.value ||
+    logDebounceTimer
+  ) {
+    pendingLogRefresh = context;
+    return;
+  }
+
+  pendingLogRefresh = null;
+  const requestToken = ++logRequestToken;
+  logInFlight = true;
+  try {
+    const probe = await queryLogs(context, 0, 1);
+    if (requestToken !== logRequestToken || !isLogQueryContextCurrent(context)) return;
+    const hasNewLatest =
+      probe.latestId != null &&
+      (latestLogId.value == null || probe.latestId > latestLogId.value);
+    if (hasNewLatest) {
+      pausedHasNew.value = true;
+      const totalIncrease = Math.max(0, probe.total - pausedProbeTotal.value);
+      pausedNewCount.value += totalIncrease;
+    }
+    latestLogId.value = probe.latestId ?? null;
+    pausedProbeTotal.value = probe.total;
+    logRefreshError.value = "";
+  } catch (error) {
+    if (requestToken === logRequestToken && isLogQueryContextCurrent(context)) {
+      logRefreshError.value = `日志暂停探测失败：${errorMessage(error)}`;
     }
   } finally {
     if (requestToken === logRequestToken) logInFlight = false;
@@ -531,6 +634,69 @@ function loadMoreLogs() {
 
 function selectLog(id: number) {
   selectedLogId.value = id;
+}
+
+function setLogLive(live: boolean) {
+  if (logLive.value === live) return;
+  logRequestToken += 1;
+  logInFlight = false;
+  logsLoading.value = false;
+  loadingMore.value = false;
+  pendingLogRefresh = null;
+  logLive.value = live;
+  pausedNewCount.value = 0;
+  pausedHasNew.value = false;
+  pausedProbeTotal.value = logTotal.value;
+  if (live) void loadLogs(false);
+}
+
+function clearLogFilters() {
+  logKeyword.value = "";
+  logMode.value = "all";
+  logMethod.value = "";
+  logStatusCode.value = null;
+  logStartedAt.value = "";
+  logEndedAt.value = "";
+}
+
+function logFiltersFromContext(context: LogQueryContext): RequestForwardLogFilters {
+  return {
+    keyword: context.keyword,
+    mode: context.mode,
+    method: context.method,
+    statusCode: context.statusCode,
+    startedAt: context.startedAt || null,
+    endedAt: context.endedAt || null,
+  };
+}
+
+async function exportLogs(format: string) {
+  if (format !== "json" && format !== "csv") return;
+  const rule = selectedRule.value;
+  const context = captureLogQueryContext();
+  if (!rule || !context || exportLoading.value) return;
+
+  exportLoading.value = true;
+  try {
+    const path = await save({
+      defaultPath: buildRequestForwardLogExportFileName(rule.name, format),
+    });
+    if (!path) return;
+
+    const page = await queryLogs(context, 0, 1000);
+    const filters = logFiltersFromContext(context);
+    const result =
+      format === "json"
+        ? exportRequestForwardLogsJson({ items: page.items, total: page.total, filters })
+        : exportRequestForwardLogsCsv({ items: page.items, total: page.total, filters });
+    await invoke("tool:file:write-text", { path, content: result.content });
+    const suffix = result.truncated ? "（已截断，最多导出 1000 条）" : "";
+    ElMessage.success("已导出 " + result.exported + " 条日志" + suffix);
+  } catch (error) {
+    ElMessage.error("导出日志失败：" + errorMessage(error));
+  } finally {
+    exportLoading.value = false;
+  }
 }
 
 function persistRuleListWidth() {
@@ -1288,15 +1454,10 @@ watch(selectedId, (ruleId) => {
     void Promise.all([loadStats(ruleId), loadLogs(false, ruleId)]);
   }
 });
-watch(logKeyword, scheduleLogReload);
-watch(logMode, () => {
-  clearLogDebounce();
-  logRequestToken += 1;
-  logItems.value = [];
-  logTotal.value = 0;
-  selectedLogId.value = null;
-  void loadLogs(false);
-});
+watch(
+  [logKeyword, logMode, logMethod, logStatusCode, logStartedAt, logEndedAt],
+  scheduleLogReload,
+);
 watch(hasActiveRuntimeRule, syncPolling, { immediate: true });
 onMounted(() => {
   const savedRuleListWidth = Number(getSetting(RULE_LIST_WIDTH_SETTING));
@@ -1511,45 +1672,132 @@ onUnmounted(() => {
                       <p class="section-header__eyebrow">RECENT ACTIVITY</p>
                       <h2>转发日志</h2>
                     </div>
-                    <el-button
-                      size="small"
-                      :disabled="!selectedRule || logsLoading || observabilityMutating"
-                      :loading="observabilityMutating"
-                      @click="clearLogs"
-                    >
-                      清空全部日志
-                    </el-button>
+                    <div class="log-header__actions">
+                      <div class="log-live-mode" aria-label="日志刷新状态">
+                        <button
+                          type="button"
+                          :aria-pressed="logLive"
+                          :class="{ 'is-active': logLive }"
+                          @click="setLogLive(true)"
+                        >实时</button>
+                        <button
+                          type="button"
+                          :aria-pressed="!logLive"
+                          :class="{ 'is-active': !logLive }"
+                          @click="setLogLive(false)"
+                        >暂停</button>
+                      </div>
+                      <el-dropdown
+                        trigger="click"
+                        :disabled="!selectedRule || exportLoading"
+                        @command="exportLogs"
+                      >
+                        <el-button size="small" :loading="exportLoading">导出</el-button>
+                        <template #dropdown>
+                          <el-dropdown-menu>
+                            <el-dropdown-item command="json">导出 JSON</el-dropdown-item>
+                            <el-dropdown-item command="csv">导出 CSV</el-dropdown-item>
+                          </el-dropdown-menu>
+                        </template>
+                      </el-dropdown>
+                      <el-button
+                        size="small"
+                        :disabled="!selectedRule || logsLoading || observabilityMutating"
+                        :loading="observabilityMutating"
+                        @click="clearLogs"
+                      >
+                        清空全部日志
+                      </el-button>
+                    </div>
                   </header>
 
                   <div class="log-toolbar">
                     <label class="log-search">
-                      <span>日志关键字</span>
+                      <span>关键字</span>
                       <el-input
                         v-model="logKeyword"
                         clearable
                         placeholder="客户端、目标、路径或错误信息"
                       />
                     </label>
+                    <label class="log-filter">
+                      <span>Method</span>
+                      <el-select v-model="logMethod" clearable placeholder="全部">
+                        <el-option
+                          v-for="method in ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']"
+                          :key="method"
+                          :label="method"
+                          :value="method"
+                        />
+                      </el-select>
+                    </label>
+                    <label class="log-filter is-status">
+                      <span>状态码</span>
+                      <el-input-number
+                        v-model="logStatusCode"
+                        :min="100"
+                        :max="599"
+                        :step="1"
+                        controls-position="right"
+                        clearable
+                        placeholder="全部"
+                      />
+                    </label>
                     <div class="log-mode" aria-label="日志结果筛选">
                       <button
                         type="button"
                         aria-label="全部"
+                        :aria-pressed="logMode === 'all'"
                         :class="{ 'is-active': logMode === 'all' }"
                         @click="logMode = 'all'"
                       >全部</button>
                       <button
                         type="button"
                         aria-label="成功"
+                        :aria-pressed="logMode === 'success'"
                         :class="{ 'is-active': logMode === 'success' }"
                         @click="logMode = 'success'"
                       >成功</button>
                       <button
                         type="button"
                         aria-label="失败"
+                        :aria-pressed="logMode === 'error'"
                         :class="{ 'is-active': logMode === 'error' }"
                         @click="logMode = 'error'"
                       >失败</button>
                     </div>
+                    <el-button
+                      size="small"
+                      :disabled="!hasLogFilters"
+                      @click="clearLogFilters"
+                    >
+                      清空筛选
+                    </el-button>
+                  </div>
+
+                  <div class="log-time-filters">
+                    <label class="log-filter is-time">
+                      <span>开始时间</span>
+                      <el-input v-model="logStartedAt" type="datetime-local" step="1" />
+                    </label>
+                    <label class="log-filter is-time">
+                      <span>结束时间</span>
+                      <el-input v-model="logEndedAt" type="datetime-local" step="1" />
+                    </label>
+                    <span class="log-result-summary">
+                      {{ logItems.length }} / {{ logTotal }} 条
+                    </span>
+                  </div>
+
+                  <div v-if="!logLive" class="log-paused-status" role="status">
+                    <strong>日志刷新已暂停</strong>
+                    <span v-if="pausedHasNew">
+                      {{ pausedNewCount > 0 ? `至少 ${pausedNewCount} 条新日志` : "有新日志" }}
+                    </span>
+                    <span v-else>当前窗口保持不变</span>
+                    <el-button size="small" type="primary" plain @click="setLogLive(true)">
+                      恢复实时
+                    </el-button>
                   </div>
 
                   <div v-if="logRefreshError" class="log-refresh-warning" role="status">
@@ -1794,14 +2042,42 @@ onUnmounted(() => {
 .stat-card.is-error strong { color: #aa3933; }
 .stats-error { display: flex; min-height: 72px; align-items: center; justify-content: center; gap: 10px; border: 1px solid #efc8c5; border-radius: 6px; background: #fff8f7; color: #a9332d; font-size: 14px; }
 .log-header { margin-top: 16px; }
-.log-toolbar { display: flex; align-items: flex-end; gap: 10px; margin-bottom: 10px; }
-.log-search { display: grid; min-width: 220px; flex: 1; gap: 4px; }
-.log-search > span { color: #56667a; font-size: 14px; font-weight: 600; }
+.log-header__actions { display: flex; align-items: center; gap: 8px; }
+.log-live-mode,
 .log-mode { display: inline-flex; flex: none; padding: 2px; border: 1px solid #d7dce3; border-radius: 6px; background: #f4f6f8; }
+.log-live-mode button,
 .log-mode button { min-height: 32px; border: 0; border-radius: 4px; padding: 0 12px; background: transparent; color: #56667a; cursor: pointer; font: inherit; font-size: 14px; }
+.log-live-mode button:hover,
 .log-mode button:hover { color: #2f5f86; }
+.log-live-mode button.is-active,
 .log-mode button.is-active { background: #fff; color: #245b83; box-shadow: 0 1px 2px rgb(31 41 55 / 12%); font-weight: 700; }
+.log-live-mode button:focus-visible,
 .log-mode button:focus-visible { outline: 2px solid var(--el-color-primary, #409eff); outline-offset: 2px; }
+.log-toolbar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; margin-bottom: 8px; }
+.log-search,
+.log-filter { display: grid; gap: 4px; }
+.log-search { min-width: 220px; flex: 1; }
+.log-filter { width: 124px; }
+.log-filter.is-status { width: 92px; }
+.log-search > span,
+.log-filter > span { color: #56667a; font-size: 14px; font-weight: 600; }
+.log-time-filters { display: flex; align-items: flex-end; gap: 8px; margin-bottom: 10px; }
+.log-filter.is-time { width: 218px; }
+.log-result-summary { margin-left: auto; padding-bottom: 8px; color: #657386; font-size: 13px; white-space: nowrap; }
+.log-paused-status {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 8px;
+  padding: 7px 9px;
+  border: 1px solid #d9e1e8;
+  border-radius: 6px;
+  background: #f6f8fa;
+  color: #59687a;
+  font-size: 14px;
+}
+.log-paused-status strong { color: #344256; }
+.log-paused-status .el-button { margin-left: auto; }
 
 .log-refresh-warning {
   display: flex;
@@ -1876,9 +2152,17 @@ onUnmounted(() => {
   .runtime-state { max-width: none; justify-items: start; text-align: left; }
   .workbench-scroll { padding-inline: 16px; }
   .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .log-header { align-items: flex-start; }
+  .log-header__actions { flex-wrap: wrap; justify-content: flex-end; }
   .log-toolbar { align-items: stretch; flex-direction: column; }
   .log-search { min-width: 0; }
+  .log-filter,
+  .log-filter.is-status,
+  .log-filter.is-time { width: 100%; }
   .log-mode { align-self: flex-start; }
+  .log-time-filters { align-items: stretch; flex-direction: column; }
+  .log-result-summary { margin-left: 0; padding-bottom: 0; }
+  .log-paused-status { align-items: flex-start; flex-wrap: wrap; }
 }
 
 @media (prefers-reduced-motion: reduce) {

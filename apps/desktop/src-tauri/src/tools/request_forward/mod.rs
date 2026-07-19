@@ -259,7 +259,7 @@ fn execute_inner(action: &str, payload: &Value) -> Result<Value, String> {
         "log_list" => {
             let conn = db_conn()?;
             let page = repository::list_logs_with_conn(&conn, &parse_log_query(payload)?)?;
-            Ok(json!({ "items": page.items, "total": page.total }))
+            Ok(json!({ "items": page.items, "total": page.total, "latestId": page.latest_id }))
         }
         "log_clear" => {
             let conn = db_conn()?;
@@ -345,6 +345,24 @@ fn parse_log_query(payload: &Value) -> Result<repository::LogQuery, String> {
         Some(Value::String(value)) if value == "error" => Some(repository::LogOutcome::Error),
         Some(_) => return Err("转发日志结果模式无效".into()),
     };
+    let method = parse_optional_log_text(payload, "method", "转发日志 Method 无效")?
+        .map(|value| value.to_ascii_uppercase());
+    let status_code = match payload.get("statusCode") {
+        None | Some(Value::Null) => None,
+        Some(value) => value
+            .as_u64()
+            .filter(|value| (100..=599).contains(value))
+            .and_then(|value| u16::try_from(value).ok())
+            .ok_or_else(|| "转发日志状态码无效".to_string())
+            .map(Some)?,
+    };
+    let started_at = parse_optional_log_time(payload, "startedAt", "转发日志开始时间无效")?;
+    let ended_at = parse_optional_log_time(payload, "endedAt", "转发日志结束时间无效")?;
+    if let (Some(started_at), Some(ended_at)) = (&started_at, &ended_at) {
+        if started_at > ended_at {
+            return Err("转发日志时间范围无效".into());
+        }
+    }
     let offset = match payload.get("offset") {
         None | Some(Value::Null) => 0,
         Some(value) => value
@@ -364,9 +382,53 @@ fn parse_log_query(payload: &Value) -> Result<repository::LogQuery, String> {
         rule_id,
         keyword,
         outcome,
+        method,
+        status_code,
+        started_at,
+        ended_at,
         offset,
         limit,
     })
+}
+
+fn parse_optional_log_text(
+    payload: &Value,
+    key: &str,
+    message: &str,
+) -> Result<Option<String>, String> {
+    match payload.get(key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(value)) => {
+            let value = value.trim();
+            Ok((!value.is_empty()).then(|| value.to_string()))
+        }
+        Some(_) => Err(message.into()),
+    }
+}
+
+fn parse_optional_log_time(
+    payload: &Value,
+    key: &str,
+    message: &str,
+) -> Result<Option<String>, String> {
+    let Some(value) = parse_optional_log_text(payload, key, message)? else {
+        return Ok(None);
+    };
+    if let Ok(value) = chrono::DateTime::parse_from_rfc3339(&value) {
+        return Ok(Some(
+            value
+                .with_timezone(&chrono::Utc)
+                .format("%Y-%m-%d %H:%M:%S%.3f")
+                .to_string(),
+        ));
+    }
+    let normalized = value.replace('T', " ");
+    let parsed = chrono::NaiveDateTime::parse_from_str(&normalized, "%Y-%m-%d %H:%M:%S%.f")
+        .or_else(|_| chrono::NaiveDateTime::parse_from_str(&normalized, "%Y-%m-%d %H:%M"))
+        .map_err(|_| message.to_string())?;
+    Ok(Some(
+        parsed.format("%Y-%m-%d %H:%M:%S%.3f").to_string(),
+    ))
 }
 
 #[cfg(test)]
@@ -861,6 +923,10 @@ mod tests {
             "id": 7,
             "keyword": "timeout",
             "mode": "error",
+            "method": " post ",
+            "statusCode": 502,
+            "startedAt": "2026-07-15T08:30",
+            "endedAt": "2026-07-15T09:30:00.250",
             "offset": 20,
             "limit": 50
         }))
@@ -868,6 +934,10 @@ mod tests {
         assert_eq!(query.rule_id, 7);
         assert_eq!(query.keyword.as_deref(), Some("timeout"));
         assert_eq!(query.outcome, Some(repository::LogOutcome::Error));
+        assert_eq!(query.method.as_deref(), Some("POST"));
+        assert_eq!(query.status_code, Some(502));
+        assert_eq!(query.started_at.as_deref(), Some("2026-07-15 08:30:00.000"));
+        assert_eq!(query.ended_at.as_deref(), Some("2026-07-15 09:30:00.250"));
         assert_eq!(query.offset, 20);
         assert_eq!(query.limit, 50);
 
@@ -915,5 +985,28 @@ mod tests {
         assert!(super::parse_log_query(&json!({ "id": 1, "mode": "all" })).is_err());
         assert!(super::parse_log_query(&json!({ "id": 1, "limit": 0 })).is_err());
         assert!(super::parse_log_query(&json!({ "id": 1, "offset": -1 })).is_err());
+        assert!(super::parse_log_query(&json!({ "id": 1, "method": 1 })).is_err());
+        assert!(super::parse_log_query(&json!({ "id": 1, "statusCode": 99 })).is_err());
+        assert!(super::parse_log_query(&json!({ "id": 1, "statusCode": 600 })).is_err());
+        assert!(super::parse_log_query(&json!({ "id": 1, "startedAt": "today" })).is_err());
+        assert!(super::parse_log_query(&json!({
+            "id": 1,
+            "startedAt": "2026-07-15T10:00",
+            "endedAt": "2026-07-15T09:00"
+        }))
+        .is_err());
+    }
+
+    #[test]
+    fn log_query_normalizes_rfc3339_times_to_utc() {
+        let query = super::parse_log_query(&json!({
+            "id": 1,
+            "startedAt": "2026-07-15T16:00:00+08:00",
+            "endedAt": "2026-07-15T08:00:00Z"
+        }))
+        .expect("parse equivalent RFC3339 boundaries");
+
+        assert_eq!(query.started_at.as_deref(), Some("2026-07-15 08:00:00.000"));
+        assert_eq!(query.ended_at.as_deref(), Some("2026-07-15 08:00:00.000"));
     }
 }

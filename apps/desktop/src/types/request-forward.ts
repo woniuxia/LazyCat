@@ -92,8 +92,21 @@ export interface RequestForwardLogQuery {
   id: number;
   keyword?: string | null;
   mode?: RequestForwardLogOutcome | null;
+  method?: string | null;
+  statusCode?: number | null;
+  startedAt?: string | null;
+  endedAt?: string | null;
   offset?: number;
   limit?: number;
+}
+
+export interface RequestForwardLogFilters {
+  keyword: string;
+  mode: "all" | RequestForwardLogOutcome;
+  method: string;
+  statusCode: number | null;
+  startedAt: string | null;
+  endedAt: string | null;
 }
 
 export type RequestForwardLogOutcome = "success" | "error";
@@ -123,6 +136,7 @@ export interface RequestForwardLogRow {
 export interface RequestForwardLogPage {
   items: RequestForwardLogRow[];
   total: number;
+  latestId?: number | null;
 }
 
 export interface RequestForwardStats {

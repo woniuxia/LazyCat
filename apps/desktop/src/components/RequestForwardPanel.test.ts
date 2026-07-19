@@ -443,9 +443,13 @@ describe("RequestForwardPanel source structure", () => {
 
   it("queries logs by rule id with debounced filters and stale-response guards", () => {
     expect(source).toContain("tool:request-forward:log-list");
+    expect(source).toContain("buildRequestForwardLogQuery");
     expect(source).toContain("id: context.ruleId");
-    expect(source).toContain("keyword: context.keyword || null");
-    expect(source).toContain('mode: context.mode === "all" ? null : context.mode');
+    expect(source).toContain("keyword: context.keyword");
+    expect(source).toContain("method: context.method");
+    expect(source).toContain("statusCode: context.statusCode");
+    expect(source).toContain("logTimeForQuery(context.startedAt)");
+    expect(source).toContain("logTimeForQuery(context.endedAt)");
     expect(source).toContain("300");
     expect(source).toContain("logRequestToken");
     expect(source).toContain("selectionIntentToken");
@@ -621,13 +625,55 @@ describe("RequestForwardPanel source structure", () => {
     expect(inspectorSource).toContain('v-if="log.protocol === \'http\'"');
   });
 
-  it("provides keyword, success/error filters and loading states", () => {
-    expect(source).toContain("日志关键字");
+  it("provides complete log filters and loading states", () => {
+    expect(source).toContain("<span>关键字</span>");
+    expect(source).toContain("<span>Method</span>");
+    expect(source).toContain("<span>状态码</span>");
+    expect(source).toContain("<span>开始时间</span>");
+    expect(source).toContain("<span>结束时间</span>");
+    expect(source).toContain("clearLogFilters");
     expect(source).toContain('label="全部"');
     expect(source).toContain('label="成功"');
     expect(source).toContain('label="失败"');
     expect(logListSource).toContain("加载更多");
     expect(logListSource).toContain("重新加载");
     expect(logListSource).toContain("暂无转发日志");
+  });
+
+  it("pauses without replacing the visible window and rebuilds from zero on resume", () => {
+    const probeBody = source.match(
+      /async function probePausedLogs[\s\S]*?\n}\n\nfunction flushPendingLogRefresh/,
+    )?.[0] ?? "";
+    expect(source).toContain("const logLive = ref(true)");
+    expect(source).toContain("latestLogId");
+    expect(source).toContain("pausedNewCount");
+    expect(source).toMatch(/if \(!logLive\.value\) \{\s*await probePausedLogs\(context\)/);
+    expect(probeBody).toContain("queryLogs(context, 0, 1)");
+    expect(probeBody).not.toContain("logItems.value =");
+    expect(source).toMatch(
+      /function setLogLive\(live: boolean\)[\s\S]*?if \(live\) void loadLogs\(false\)/,
+    );
+    expect(source).toContain("恢复实时");
+  });
+
+  it("exports the current filtered query with an explicit 1000-row cap", () => {
+    expect(source).toContain('import { save } from "@tauri-apps/plugin-dialog"');
+    expect(source).toContain("buildRequestForwardLogExportFileName");
+    expect(source).toContain("queryLogs(context, 0, 1000)");
+    expect(source).toContain("exportRequestForwardLogsJson");
+    expect(source).toContain("exportRequestForwardLogsCsv");
+    expect(source).toContain('"tool:file:write-text"');
+    expect(source).toContain("已截断，最多导出 1000 条");
+  });
+
+  it("supports keyboard log navigation and detail copy actions", () => {
+    expect(logListSource).toContain("@keydown.down.prevent");
+    expect(logListSource).toContain("@keydown.up.prevent");
+    expect(logListSource).toContain("@keydown.home.prevent");
+    expect(logListSource).toContain("@keydown.end.prevent");
+    expect(logListSource).toContain('role="grid"');
+    expect(inspectorSource).toContain("formatRequestForwardLogBody");
+    expect(inspectorSource).toContain("getRequestForwardLogCopyText");
+    expect(inspectorSource).toContain("复制完整日志");
   });
 });

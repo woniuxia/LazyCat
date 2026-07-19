@@ -1,7 +1,10 @@
 import type {
   RequestForwardError,
   RequestForwardErrorCode,
+  RequestForwardLogFilters,
   RequestForwardLogOutcome,
+  RequestForwardLogQuery,
+  RequestForwardLogRow,
   RequestForwardProtocol,
   RequestForwardRule,
   RequestForwardRuleForm,
@@ -493,6 +496,209 @@ export function getRequestForwardLogTone(
   status: RequestForwardLogOutcome,
 ): RequestForwardLogTone {
   return status === "success" ? "success" : "danger";
+}
+
+const REQUEST_FORWARD_LOG_EXPORT_LIMIT = 1000;
+
+export function buildRequestForwardLogQuery(input: {
+  id: number;
+  keyword?: string | null;
+  mode?: "all" | RequestForwardLogOutcome | null;
+  method?: string | null;
+  statusCode?: number | null;
+  startedAt?: string | null;
+  endedAt?: string | null;
+  offset?: number;
+  limit?: number;
+}): RequestForwardLogQuery {
+  const keyword = input.keyword?.trim() ?? "";
+  const method = input.method?.trim() ?? "";
+  const statusCode =
+    typeof input.statusCode === "number" && Number.isInteger(input.statusCode)
+      ? input.statusCode
+      : null;
+  return {
+    id: input.id,
+    keyword: keyword || null,
+    mode: input.mode === "success" || input.mode === "error" ? input.mode : null,
+    method: method || null,
+    statusCode,
+    startedAt: input.startedAt?.trim() || null,
+    endedAt: input.endedAt?.trim() || null,
+    offset: input.offset,
+    limit: input.limit,
+  };
+}
+
+function requestForwardHeaderValue(
+  headers: [string, string][] | null | undefined,
+  name: string,
+): string | null {
+  const header = headers?.find(([key]) => key.trim().toLowerCase() === name);
+  return header?.[1] ?? null;
+}
+
+export function formatRequestForwardLogBody(
+  body: string | null | undefined,
+  headers: [string, string][] | null | undefined,
+): string | null {
+  if (body == null) return null;
+  const contentType =
+    requestForwardHeaderValue(headers, "content-type")
+      ?.split(";", 1)[0]
+      ?.trim()
+      .toLowerCase() ?? "";
+  if (contentType !== "application/json" && !contentType.endsWith("+json")) return body;
+  try {
+    const parsed: unknown = JSON.parse(body);
+    return JSON.stringify(parsed, null, 2);
+  } catch {
+    return body;
+  }
+}
+
+export function formatRequestForwardLogHeaders(
+  headers: [string, string][] | null | undefined,
+): string {
+  return (headers ?? []).map(([name, value]) => name + ": " + value).join("\n");
+}
+
+export function parseRequestForwardLogTimestamp(value: string): Date | null {
+  const databaseUtcPattern =
+    /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?$/;
+  const normalized = databaseUtcPattern.test(value)
+    ? value.replace(" ", "T") + "Z"
+    : value;
+  const date = new Date(normalized);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+export type RequestForwardLogCopySection =
+  | "error"
+  | "requestHeaders"
+  | "responseHeaders"
+  | "requestBody"
+  | "responseBody"
+  | "full";
+
+export function getRequestForwardLogCopyText(
+  log: RequestForwardLogRow,
+  section: RequestForwardLogCopySection,
+): string {
+  switch (section) {
+    case "error":
+      return log.error ?? "";
+    case "requestHeaders":
+      return formatRequestForwardLogHeaders(log.requestHeaders);
+    case "responseHeaders":
+      return formatRequestForwardLogHeaders(log.responseHeaders);
+    case "requestBody":
+      return formatRequestForwardLogBody(log.requestBodyPreview, log.requestHeaders) ?? "";
+    case "responseBody":
+      return formatRequestForwardLogBody(log.responseBodyPreview, log.responseHeaders) ?? "";
+    case "full":
+      return JSON.stringify(log, null, 2);
+  }
+}
+
+export interface RequestForwardLogExportInput {
+  items: RequestForwardLogRow[];
+  total: number;
+  filters: RequestForwardLogFilters;
+}
+
+export interface RequestForwardLogExportResult {
+  content: string;
+  exported: number;
+  truncated: boolean;
+}
+
+function requestForwardExportRows(input: RequestForwardLogExportInput): {
+  items: RequestForwardLogRow[];
+  exported: number;
+  truncated: boolean;
+} {
+  const items = input.items.slice(0, REQUEST_FORWARD_LOG_EXPORT_LIMIT);
+  return {
+    items,
+    exported: items.length,
+    truncated: input.total > items.length || input.items.length > items.length,
+  };
+}
+
+export function exportRequestForwardLogsJson(
+  input: RequestForwardLogExportInput,
+): RequestForwardLogExportResult {
+  const rows = requestForwardExportRows(input);
+  return {
+    content: JSON.stringify(
+      {
+        total: input.total,
+        exported: rows.exported,
+        truncated: rows.truncated,
+        filters: input.filters,
+        items: rows.items,
+      },
+      null,
+      2,
+    ),
+    exported: rows.exported,
+    truncated: rows.truncated,
+  };
+}
+
+function escapeRequestForwardCsvCell(value: unknown): string {
+  let csvValue = typeof value === "string" ? value : JSON.stringify(value) ?? "";
+  if (/^[=+\-@]/.test(csvValue)) csvValue = "'" + csvValue;
+  return '"' + csvValue.replaceAll('"', '""') + '"';
+}
+
+export function exportRequestForwardLogsCsv(
+  input: RequestForwardLogExportInput,
+): RequestForwardLogExportResult {
+  const rows = requestForwardExportRows(input);
+  const columns: Array<keyof RequestForwardLogRow> = [
+    "id", "ruleId", "protocol", "clientAddr", "targetAddr", "method", "path", "statusCode",
+    "durationMs", "uploadBytes", "downloadBytes", "requestHeaders", "responseHeaders",
+    "requestBodyPreview", "responseBodyPreview", "requestBodyTruncated", "responseBodyTruncated",
+    "error", "createdAt",
+  ];
+  const lines = [
+    columns.map(escapeRequestForwardCsvCell).join(","),
+    ...rows.items.map((item) =>
+      columns.map((column) => escapeRequestForwardCsvCell(item[column])).join(","),
+    ),
+  ];
+  return {
+    content: lines.join("\r\n"),
+    exported: rows.exported,
+    truncated: rows.truncated,
+  };
+}
+
+export function sanitizeRequestForwardLogFileName(value: string): string {
+  const sanitized = value
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_")
+    .replace(/[. ]+$/g, "")
+    .trim();
+  return Array.from(sanitized || "request-forward").slice(0, 80).join("");
+}
+
+export function buildRequestForwardLogExportFileName(
+  ruleName: string,
+  format: "json" | "csv",
+  date = new Date(),
+): string {
+  const stamp = [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0"),
+    "-",
+    String(date.getHours()).padStart(2, "0"),
+    String(date.getMinutes()).padStart(2, "0"),
+    String(date.getSeconds()).padStart(2, "0"),
+  ].join("");
+  return sanitizeRequestForwardLogFileName(ruleName) + "-logs-" + stamp + "." + format;
 }
 
 function isValidHttpTargetUrl(value: string | null): boolean {

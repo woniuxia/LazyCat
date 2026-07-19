@@ -1,7 +1,10 @@
 <script setup lang="ts">
+import { computed, nextTick } from "vue";
+import type { ComponentPublicInstance } from "vue";
 import type { RequestForwardLogRow } from "../../types/request-forward";
+import { parseRequestForwardLogTimestamp } from "../../utils/requestForward";
 
-defineProps<{
+const props = defineProps<{
   items: RequestForwardLogRow[];
   selectedId: number | null;
   loading: boolean;
@@ -10,11 +13,39 @@ defineProps<{
   hasMore: boolean;
 }>();
 
-defineEmits<{
+const emit = defineEmits<{
   select: [id: number];
   retry: [];
   "load-more": [];
 }>();
+
+const rowElements = new Map<number, HTMLButtonElement>();
+const selectedIndex = computed(() =>
+  props.items.findIndex((item) => item.id === props.selectedId),
+);
+
+function setLogRowRef(
+  id: number,
+  element: Element | ComponentPublicInstance | null,
+) {
+  const candidate = element instanceof HTMLElement ? element : element?.$el;
+  if (candidate instanceof HTMLButtonElement) rowElements.set(id, candidate);
+  else rowElements.delete(id);
+}
+
+function rowTabIndex(index: number): 0 | -1 {
+  return index === selectedIndex.value || (selectedIndex.value < 0 && index === 0)
+    ? 0
+    : -1;
+}
+
+async function moveSelectionTo(index: number) {
+  const target = props.items[index];
+  if (!target) return;
+  emit("select", target.id);
+  await nextTick();
+  rowElements.get(target.id)?.focus();
+}
 
 function formatBytes(value: number): string {
   if (value < 1024) return `${value} B`;
@@ -23,8 +54,8 @@ function formatBytes(value: number): string {
 }
 
 function formatTime(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
+  const date = parseRequestForwardLogTimestamp(value);
+  if (!date) return value;
   return date.toLocaleTimeString([], { hour12: false });
 }
 
@@ -48,8 +79,15 @@ function outcomeLabel(log: RequestForwardLogRow): string {
     </div>
     <div v-else-if="!items.length" class="log-state">暂无转发日志</div>
 
-    <div v-else class="log-table" role="table" aria-label="转发日志">
-      <div class="log-table__header" role="row">
+    <div
+      v-else
+      class="log-table"
+      role="grid"
+      aria-label="转发日志"
+      :aria-colcount="8"
+      :aria-rowcount="items.length + 1"
+    >
+      <div class="log-table__header" role="row" aria-rowindex="1">
         <span role="columnheader">结果</span>
         <span role="columnheader">请求 / 协议</span>
         <span role="columnheader">客户端</span>
@@ -60,24 +98,31 @@ function outcomeLabel(log: RequestForwardLogRow): string {
         <span role="columnheader">时间</span>
       </div>
       <button
-        v-for="log in items"
+        v-for="(log, index) in items"
         :key="log.id"
+        :ref="(element) => setLogRowRef(log.id, element)"
         type="button"
         class="log-table__row"
         :class="{ 'is-selected': log.id === selectedId, 'is-error': Boolean(log.error) }"
         :aria-selected="log.id === selectedId"
+        :aria-rowindex="index + 2"
+        :tabindex="rowTabIndex(index)"
         :title="log.error || requestTitle(log)"
         role="row"
         @click="$emit('select', log.id)"
+        @keydown.down.prevent="moveSelectionTo(Math.min(index + 1, items.length - 1))"
+        @keydown.up.prevent="moveSelectionTo(Math.max(index - 1, 0))"
+        @keydown.home.prevent="moveSelectionTo(0)"
+        @keydown.end.prevent="moveSelectionTo(items.length - 1)"
       >
-        <span role="cell"><b class="outcome" :class="log.error ? 'is-error' : 'is-success'">{{ outcomeLabel(log) }}</b></span>
-        <span class="request-cell" role="cell"><i>{{ log.protocol.toUpperCase() }}</i>{{ requestTitle(log) }}</span>
-        <span role="cell">{{ log.clientAddr ?? "未知" }}</span>
-        <span role="cell">{{ log.targetAddr }}</span>
-        <span role="cell">{{ formatBytes(log.uploadBytes) }}</span>
-        <span role="cell">{{ formatBytes(log.downloadBytes) }}</span>
-        <span role="cell">{{ log.durationMs == null ? "—" : `${log.durationMs} ms` }}</span>
-        <time role="cell" :datetime="log.createdAt">{{ formatTime(log.createdAt) }}</time>
+        <span role="gridcell"><b class="outcome" :class="log.error ? 'is-error' : 'is-success'">{{ outcomeLabel(log) }}</b></span>
+        <span class="request-cell" role="gridcell"><i>{{ log.protocol.toUpperCase() }}</i>{{ requestTitle(log) }}</span>
+        <span role="gridcell">{{ log.clientAddr ?? "未知" }}</span>
+        <span role="gridcell">{{ log.targetAddr }}</span>
+        <span role="gridcell">{{ formatBytes(log.uploadBytes) }}</span>
+        <span role="gridcell">{{ formatBytes(log.downloadBytes) }}</span>
+        <span role="gridcell">{{ log.durationMs == null ? "—" : `${log.durationMs} ms` }}</span>
+        <time role="gridcell" :datetime="log.createdAt">{{ formatTime(log.createdAt) }}</time>
       </button>
     </div>
 

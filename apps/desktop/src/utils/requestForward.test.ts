@@ -5,6 +5,7 @@ import type {
   RequestForwardLogOutcome,
   RequestForwardLogPage,
   RequestForwardLogQuery,
+  RequestForwardLogRow,
   RequestForwardRestoreResult,
   RequestForwardRule,
   RequestForwardRuleForm,
@@ -12,11 +13,17 @@ import type {
 } from "../types/request-forward";
 import {
   applyRequestForwardMutationResult,
+  buildRequestForwardLogExportFileName,
+  buildRequestForwardLogQuery,
   clampRequestForwardInspectorWidth,
   clampRequestForwardRuleListWidth,
   captureRequestForwardMutationIntent,
   DEFAULT_REQUEST_FORWARD_FORM,
   duplicateRequestForwardRuleForm,
+  exportRequestForwardLogsCsv,
+  exportRequestForwardLogsJson,
+  formatRequestForwardLogBody,
+  formatRequestForwardLogHeaders,
   formatRequestForwardEndpoint,
   formatRequestForwardRuleSummary,
   getDefaultRequestForwardForm,
@@ -30,12 +37,15 @@ import {
   getRequestForwardLogProbeLimit,
   getRequestForwardLogTargetCount,
   getRequestForwardLogTone,
+  getRequestForwardLogCopyText,
   getRequestForwardRecoveryActions,
   isExposedForwardBindHost,
   isRequestForwardRuleReadonly,
   normalizeRequestForwardRuleForm,
   parseRequestForwardError,
+  parseRequestForwardLogTimestamp,
   retainRequestForwardSelectedLogId,
+  sanitizeRequestForwardLogFileName,
   toRequestForwardRuleWriteInput,
   validateRequestForwardRuleForm,
 } from "./requestForward";
@@ -72,6 +82,28 @@ const baseForm: RequestForwardRuleForm = {
   targetPort: null,
   captureHttpHeaders: true,
   captureHttpBody: false,
+};
+
+const baseLog: RequestForwardLogRow = {
+  id: 31,
+  ruleId: 7,
+  protocol: "http",
+  clientAddr: "127.0.0.1:53000",
+  targetAddr: "127.0.0.1:3000",
+  method: "POST",
+  path: "/api/items",
+  statusCode: 201,
+  durationMs: 24,
+  uploadBytes: 18,
+  downloadBytes: 26,
+  requestHeaders: [["Content-Type", "application/json; charset=utf-8"]],
+  responseHeaders: [["content-type", "application/problem+json"]],
+  requestBodyPreview: "{\"name\":\"demo\"}",
+  responseBodyPreview: "{\"ok\":true}",
+  requestBodyTruncated: false,
+  responseBodyTruncated: false,
+  error: null,
+  createdAt: "2026-07-19 08:09:10.123",
 };
 
 describe("request forward utilities", () => {
@@ -651,5 +683,130 @@ describe("request forward utilities", () => {
     expect(query).not.toHaveProperty("ruleId");
     expect(page.total).toBe(0);
     expect(restore.state).toBe("failed");
+  });
+
+  it("normalizes all log filters into an explicit backend query", () => {
+    expect(
+      buildRequestForwardLogQuery({
+        id: 7,
+        keyword: "  timeout ",
+        mode: "all",
+        method: " post ",
+        statusCode: 503,
+        startedAt: "2026-07-19 08:00:00",
+        endedAt: "2026-07-19 09:00:00",
+        offset: 30,
+        limit: 30,
+      }),
+    ).toEqual({
+      id: 7,
+      keyword: "timeout",
+      mode: null,
+      method: "post",
+      statusCode: 503,
+      startedAt: "2026-07-19 08:00:00",
+      endedAt: "2026-07-19 09:00:00",
+      offset: 30,
+      limit: 30,
+    });
+    expect(buildRequestForwardLogQuery({ id: 7, keyword: " ", method: " " })).toEqual({
+      id: 7,
+      keyword: null,
+      mode: null,
+      method: null,
+      statusCode: null,
+      startedAt: null,
+      endedAt: null,
+      offset: undefined,
+      limit: undefined,
+    });
+  });
+
+  it("pretty prints only valid JSON bodies with a JSON content type", () => {
+    expect(
+      formatRequestForwardLogBody('{"name":"demo","items":[1,2]}', [
+        ["Content-Type", "application/json; charset=utf-8"],
+      ]),
+    ).toBe(JSON.stringify({ name: "demo", items: [1, 2] }, null, 2));
+    expect(
+      formatRequestForwardLogBody('{"name":"demo"}', [["Content-Type", "text/plain"]]),
+    ).toBe('{"name":"demo"}');
+    expect(
+      formatRequestForwardLogBody('{"name":"demo"}', [["Content-Type", "notapplication/jsonx"]]),
+    ).toBe('{"name":"demo"}');
+    expect(
+      formatRequestForwardLogBody("{not json}", [["Content-Type", "application/problem+json"]]),
+    ).toBe("{not json}");
+    expect(formatRequestForwardLogBody(null, null)).toBeNull();
+  });
+
+  it("parses database log timestamps as UTC instead of local time", () => {
+    expect(
+      parseRequestForwardLogTimestamp("2026-07-19 08:09:10.123")?.getTime(),
+    ).toBe(Date.UTC(2026, 6, 19, 8, 9, 10, 123));
+    expect(
+      parseRequestForwardLogTimestamp("2026-07-19T08:09:10+08:00")?.getTime(),
+    ).toBe(Date.UTC(2026, 6, 19, 0, 9, 10));
+    expect(parseRequestForwardLogTimestamp("invalid")).toBeNull();
+  });
+
+  it("builds copy text for headers, body, errors and full logs", () => {
+    expect(formatRequestForwardLogHeaders(baseLog.requestHeaders)).toBe(
+      "Content-Type: application/json; charset=utf-8",
+    );
+    expect(getRequestForwardLogCopyText({ ...baseLog, error: "连接超时" }, "error")).toBe(
+      "连接超时",
+    );
+    expect(getRequestForwardLogCopyText(baseLog, "requestBody")).toContain('"name": "demo"');
+    expect(getRequestForwardLogCopyText(baseLog, "responseHeaders")).toBe(
+      "content-type: application/problem+json",
+    );
+    expect(getRequestForwardLogCopyText(baseLog, "full")).toContain('"statusCode": 201');
+  });
+
+  it("exports filtered logs with metadata and a hard 1000-row cap", () => {
+    const items = Array.from({ length: 1001 }, (_, index) => ({
+      ...baseLog,
+      id: index + 1,
+    }));
+    const filters = {
+      keyword: "demo",
+      mode: "all" as const,
+      method: "POST",
+      statusCode: null,
+      startedAt: null,
+      endedAt: null,
+    };
+    const json = exportRequestForwardLogsJson({ items, total: 1200, filters });
+    const parsed = JSON.parse(json.content) as {
+      total: number;
+      exported: number;
+      truncated: boolean;
+      filters: typeof filters;
+      items: RequestForwardLogRow[];
+    };
+    expect(json.exported).toBe(1000);
+    expect(json.truncated).toBe(true);
+    expect(parsed).toMatchObject({ total: 1200, exported: 1000, truncated: true, filters });
+    expect(parsed.items).toHaveLength(1000);
+
+    const csv = exportRequestForwardLogsCsv({ items: items.slice(0, 1), total: 1, filters });
+    expect(csv.exported).toBe(1);
+    expect(csv.truncated).toBe(false);
+    expect(csv.content.split(/\r\n/)).toHaveLength(2);
+    expect(csv.content).toContain('"POST"');
+    expect(csv.content).toContain('application/json; charset=utf-8');
+  });
+
+  it("sanitizes Windows filenames and includes a local timestamp", () => {
+    expect(sanitizeRequestForwardLogFileName(' API:/v1* "测试"  ')).toBe("API__v1_ _测试_");
+    expect(sanitizeRequestForwardLogFileName("...   ")).toBe("request-forward");
+    expect(
+      buildRequestForwardLogExportFileName(
+        "API:/v1",
+        "json",
+        new Date(2026, 6, 19, 8, 9, 10),
+      ),
+    ).toBe("API__v1-logs-20260719-080910.json");
   });
 });

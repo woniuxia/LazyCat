@@ -77,6 +77,7 @@ pub(crate) struct ForwardLog {
 pub(crate) struct ForwardLogPage {
     pub(crate) items: Vec<ForwardLog>,
     pub(crate) total: u64,
+    pub(crate) latest_id: Option<i64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -100,6 +101,10 @@ pub(crate) struct LogQuery {
     pub(crate) rule_id: i64,
     pub(crate) keyword: Option<String>,
     pub(crate) outcome: Option<LogOutcome>,
+    pub(crate) method: Option<String>,
+    pub(crate) status_code: Option<u16>,
+    pub(crate) started_at: Option<String>,
+    pub(crate) ended_at: Option<String>,
     pub(crate) offset: usize,
     pub(crate) limit: usize,
 }
@@ -346,6 +351,12 @@ pub(crate) fn list_logs_with_conn(
         .map(str::trim)
         .filter(|value| !value.is_empty());
     let outcome = query.outcome.map(LogOutcome::as_str);
+    let method = query
+        .method
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let status_code = query.status_code.map(i64::from);
     let filter = "rule_id = ?1
         AND (?2 IS NULL OR client_addr LIKE '%' || ?2 || '%'
              OR target_addr LIKE '%' || ?2 || '%'
@@ -355,14 +366,41 @@ pub(crate) fn list_logs_with_conn(
              OR error LIKE '%' || ?2 || '%')
         AND (?3 IS NULL
              OR (?3 = 'success' AND error IS NULL)
-             OR (?3 = 'error' AND error IS NOT NULL))";
+             OR (?3 = 'error' AND error IS NOT NULL))
+        AND (?4 IS NULL OR method = ?4)
+        AND (?5 IS NULL OR status_code = ?5)
+        AND (?6 IS NULL OR created_at >= ?6)
+        AND (?7 IS NULL OR created_at <= ?7)";
     let total = conn
         .query_row(
             &format!("SELECT COUNT(*) FROM request_forward_logs WHERE {filter}"),
-            params![query.rule_id, keyword, outcome],
+            params![
+                query.rule_id,
+                keyword,
+                outcome,
+                method,
+                status_code,
+                query.started_at,
+                query.ended_at,
+            ],
             |row| row.get::<_, i64>(0),
         )
         .map_err(|e| format!("统计转发日志失败: {e}"))?;
+    let latest_id = conn
+        .query_row(
+            &format!("SELECT MAX(id) FROM request_forward_logs WHERE {filter}"),
+            params![
+                query.rule_id,
+                keyword,
+                outcome,
+                method,
+                status_code,
+                query.started_at,
+                query.ended_at,
+            ],
+            |row| row.get::<_, Option<i64>>(0),
+        )
+        .map_err(|e| format!("查询最新转发日志失败: {e}"))?;
     let mut stmt = conn
         .prepare(&format!(
             "SELECT id, rule_id, protocol, client_addr, target_addr, method, path,
@@ -373,7 +411,7 @@ pub(crate) fn list_logs_with_conn(
              FROM request_forward_logs
              WHERE {filter}
              ORDER BY created_at DESC, id DESC
-             LIMIT ?4 OFFSET ?5"
+             LIMIT ?8 OFFSET ?9"
         ))
         .map_err(|e| format!("查询转发日志失败: {e}"))?;
     let rows = stmt
@@ -382,6 +420,10 @@ pub(crate) fn list_logs_with_conn(
                 query.rule_id,
                 keyword,
                 outcome,
+                method,
+                status_code,
+                query.started_at,
+                query.ended_at,
                 sqlite_integer(query.limit as u64, "分页大小")?,
                 sqlite_integer(query.offset as u64, "分页偏移")?,
             ],
@@ -394,6 +436,7 @@ pub(crate) fn list_logs_with_conn(
     Ok(ForwardLogPage {
         items,
         total: total as u64,
+        latest_id,
     })
 }
 
@@ -606,6 +649,20 @@ mod tests {
         }
     }
 
+    fn log_query(rule_id: i64) -> LogQuery {
+        LogQuery {
+            rule_id,
+            keyword: None,
+            outcome: None,
+            method: None,
+            status_code: None,
+            started_at: None,
+            ended_at: None,
+            offset: 0,
+            limit: 100,
+        }
+    }
+
     #[test]
     fn log_insert_keeps_latest_1000_rows_per_rule() {
         let mut conn = test_conn();
@@ -714,11 +771,11 @@ mod tests {
         let page = list_logs_with_conn(
             &conn,
             &LogQuery {
-                rule_id,
                 keyword: Some("connection".into()),
                 outcome: Some(LogOutcome::Error),
                 offset: 1,
                 limit: 1,
+                ..log_query(rule_id)
             },
         )
         .expect("query filtered page");
@@ -727,6 +784,138 @@ mod tests {
         assert_eq!(page.items.len(), 1);
         assert_eq!(page.items[0].path.as_deref(), Some("/items/2"));
         assert_eq!(page.items[0].error.as_deref(), Some("connection reset"));
+        assert_eq!(page.latest_id, Some(4));
+    }
+
+    #[test]
+    fn log_query_combines_http_fields_time_boundaries_and_filtered_total() {
+        let mut conn = test_conn();
+        let rule_id = create_rule(&mut conn, "filtered query");
+        let mut first = http_log(1, None);
+        first.created_at = "2026-07-15 08:00:00.000".into();
+        let mut second = http_log(2, None);
+        second.method = Some("POST".into());
+        second.status_code = Some(201);
+        second.created_at = "2026-07-15 08:00:01.000".into();
+        let mut third = http_log(3, None);
+        third.created_at = "2026-07-15 08:00:02.000".into();
+        let mut fourth = http_log(4, None);
+        fourth.method = Some("PATCH".into());
+        fourth.status_code = Some(204);
+        fourth.created_at = "2026-07-15 08:00:02.000".into();
+        persist_observability_with_conn(
+            &mut conn,
+            rule_id,
+            StatsDelta::default(),
+            &[first, second, third, fourth],
+        )
+        .expect("persist filter fixtures");
+
+        let method_page = list_logs_with_conn(
+            &conn,
+            &LogQuery {
+                method: Some("GET".into()),
+                ..log_query(rule_id)
+            },
+        )
+        .expect("filter method");
+        assert_eq!(method_page.total, 2);
+        assert_eq!(
+            method_page.items.iter().map(|log| log.id).collect::<Vec<_>>(),
+            vec![3, 1]
+        );
+
+        let status_page = list_logs_with_conn(
+            &conn,
+            &LogQuery {
+                status_code: Some(201),
+                ..log_query(rule_id)
+            },
+        )
+        .expect("filter status");
+        assert_eq!(status_page.total, 1);
+        assert_eq!(status_page.items[0].id, 2);
+
+        let time_page = list_logs_with_conn(
+            &conn,
+            &LogQuery {
+                started_at: Some("2026-07-15 08:00:01.000".into()),
+                ended_at: Some("2026-07-15 08:00:02.000".into()),
+                offset: 1,
+                limit: 2,
+                ..log_query(rule_id)
+            },
+        )
+        .expect("filter inclusive time range before pagination");
+        assert_eq!(time_page.total, 3);
+        assert_eq!(
+            time_page.items.iter().map(|log| log.id).collect::<Vec<_>>(),
+            vec![3, 2],
+            "equal timestamps must use id DESC before pagination"
+        );
+        assert_eq!(time_page.latest_id, Some(4));
+
+        let combined_page = list_logs_with_conn(
+            &conn,
+            &LogQuery {
+                method: Some("GET".into()),
+                status_code: Some(200),
+                started_at: Some("2026-07-15 08:00:02.000".into()),
+                ended_at: Some("2026-07-15 08:00:02.000".into()),
+                ..log_query(rule_id)
+            },
+        )
+        .expect("combine filters");
+        assert_eq!(combined_page.total, 1);
+        assert_eq!(combined_page.items[0].id, 3);
+        assert_eq!(combined_page.latest_id, Some(3));
+    }
+
+    #[test]
+    fn tcp_and_udp_logs_do_not_match_http_only_filters() {
+        let mut conn = test_conn();
+        let rule_id = create_rule(&mut conn, "non-http logs");
+        let logs = [ForwardProtocol::Tcp, ForwardProtocol::Udp]
+            .into_iter()
+            .enumerate()
+            .map(|(index, protocol)| ForwardLogWrite {
+                protocol,
+                client_addr: Some("127.0.0.1:12345".into()),
+                target_addr: "127.0.0.1:9000".into(),
+                method: None,
+                path: None,
+                status_code: None,
+                duration_ms: Some(1),
+                upload_bytes: 1,
+                download_bytes: 1,
+                request_headers: None,
+                response_headers: None,
+                request_body_preview: None,
+                response_body_preview: None,
+                request_body_truncated: false,
+                response_body_truncated: false,
+                error: None,
+                created_at: format!("2026-07-15 09:00:0{index}.000"),
+            })
+            .collect::<Vec<_>>();
+        persist_observability_with_conn(&mut conn, rule_id, StatsDelta::default(), &logs)
+            .expect("persist TCP and UDP logs");
+
+        for query in [
+            LogQuery {
+                method: Some("GET".into()),
+                ..log_query(rule_id)
+            },
+            LogQuery {
+                status_code: Some(200),
+                ..log_query(rule_id)
+            },
+        ] {
+            let page = list_logs_with_conn(&conn, &query).expect("filter non-HTTP logs");
+            assert_eq!(page.total, 0);
+            assert!(page.items.is_empty());
+            assert_eq!(page.latest_id, None);
+        }
     }
 
     #[test]

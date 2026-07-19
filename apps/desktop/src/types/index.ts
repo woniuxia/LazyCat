@@ -135,6 +135,7 @@ export type {
   RequestForwardBatchOperationResult,
   RequestForwardRestoreResult,
   RequestForwardLogQuery,
+  RequestForwardLogFilters,
   RequestForwardLogOutcome,
   RequestForwardLogRow,
   RequestForwardLogPage,
