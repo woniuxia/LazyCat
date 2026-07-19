@@ -1005,10 +1005,13 @@ mod tests {
 
         let status = manager.status(rule.id);
         assert_eq!(status.state, RuntimeState::Failed);
-        assert_eq!(
-            status.last_error.as_deref(),
-            Some("injected TCP worker failure")
-        );
+        let last_error: serde_json::Value = serde_json::from_str(
+            status.last_error.as_deref().expect("structured runtime error"),
+        )
+        .expect("runtime error envelope JSON");
+        assert_eq!(last_error["code"], "unknown");
+        assert_eq!(last_error["message"], "injected TCP worker failure");
+        assert_eq!(last_error["state"], "failed");
         assert!(manager.ensure_rule_mutable(rule.id).is_ok());
         assert!(TcpStream::connect_timeout(&listener_addr, SOCKET_TIMEOUT).is_err());
 

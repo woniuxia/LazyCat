@@ -32,9 +32,12 @@ import {
   getRequestForwardLocalUrl,
   getRequestForwardLogProbeLimit,
   getRequestForwardLogTargetCount,
+  getRequestForwardErrorSummary,
+  getRequestForwardRecoveryActions,
   isRequestForwardRuleReadonly,
   MIN_REQUEST_FORWARD_INSPECTOR_WIDTH,
   MIN_REQUEST_FORWARD_RULE_LIST_WIDTH,
+  parseRequestForwardError,
   retainRequestForwardSelectedLogId,
   toRequestForwardRuleWriteInput,
   validateRequestForwardRuleForm,
@@ -83,6 +86,9 @@ const formDirty = ref(false);
 const fieldErrors = ref<Partial<Record<keyof RequestForwardRuleForm, string>>>({});
 const saving = ref(false);
 const operating = ref(false);
+const recoveryPreflightResult = ref<RequestForwardPreflightResult | null>(null);
+const recoveryPreflightRuleId = ref<number | null>(null);
+const recoveryPreflighting = ref(false);
 const {
   result: preflightResult,
   loading: preflighting,
@@ -115,6 +121,7 @@ const logRefreshError = ref("");
 const observabilityMutating = ref(false);
 
 let refreshRequestToken = 0;
+let recoveryPreflightRequestToken = 0;
 let selectionIntentToken = 0;
 let editorIntentToken = 0;
 let pollTimer: ReturnType<typeof setTimeout> | undefined;
@@ -142,6 +149,25 @@ const selectedStatus = computed<RequestForwardRuntimeStatus | null>(
 const selectedState = computed<RequestForwardRuntimeState>(
   () => selectedStatus.value?.state ?? "stopped",
 );
+const selectedRuntimeError = computed(() => {
+  const lastError = selectedStatus.value?.lastError;
+  return lastError ? parseRequestForwardError(lastError, selectedState.value) : null;
+});
+const selectedSuggestedListenPort = computed(() => {
+  if (
+    selectedRuntimeError.value?.code !== "listener_in_use" ||
+    recoveryPreflightRuleId.value !== selectedId.value
+  ) return null;
+  return recoveryPreflightResult.value?.suggestedListenPort ?? null;
+});
+const selectedRecoveryActions = computed(() =>
+  selectedRuntimeError.value
+    ? getRequestForwardRecoveryActions(
+        selectedRuntimeError.value,
+        selectedSuggestedListenPort.value,
+      )
+    : [],
+);
 const editorRule = computed(
   () => rules.value.find((rule) => rule.id === editorRuleId.value) ?? null,
 );
@@ -153,7 +179,12 @@ const readonly = computed(
     isRequestForwardRuleReadonly(editorStatus.value?.state ?? "stopped"),
 );
 const interactionBusy = computed(
-  () => operating.value || saving.value || preflighting.value || observabilityMutating.value,
+  () =>
+    operating.value ||
+    saving.value ||
+    preflighting.value ||
+    recoveryPreflighting.value ||
+    observabilityMutating.value,
 );
 const hasActiveRuntimeRule = computed(() =>
   statuses.value.some((status) => isRequestForwardRuleReadonly(status.state)),
@@ -208,7 +239,7 @@ const stateCopy = computed(() => {
 });
 
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  return parseRequestForwardError(error, "failed").message;
 }
 
 async function copyEndpointValue(value: string, label: string) {
@@ -646,12 +677,14 @@ async function refreshRules(options: { showLoading?: boolean } = {}) {
 
 function selectRule(id: number) {
   if (interactionBusy.value) return;
+  invalidateRecoveryPreflight();
   selectionIntentToken += 1;
   selectedId.value = id;
 }
 
 function openCreateDialog() {
   if (interactionBusy.value) return;
+  invalidateRecoveryPreflight();
   editorIntentToken += 1;
   invalidatePreflight();
   editorMode.value = "create";
@@ -663,6 +696,7 @@ function openCreateDialog() {
 
 function openDuplicateDialog(id: number) {
   if (interactionBusy.value) return;
+  invalidateRecoveryPreflight();
   const source = rules.value.find((item) => item.id === id);
   if (!source) {
     ElMessage.error("无法复制规则：源规则不存在或已被删除");
@@ -682,6 +716,7 @@ function openEditDialog(id: number) {
   if (interactionBusy.value) return;
   const rule = rules.value.find((item) => item.id === id);
   if (!rule) return;
+  invalidateRecoveryPreflight();
   editorIntentToken += 1;
   invalidatePreflight();
   editorMode.value = "edit";
@@ -738,6 +773,62 @@ function applySuggestedListenPort(port: number) {
   form.value = { ...form.value, listenPort: port };
   formDirty.value = true;
   invalidatePreflight();
+}
+
+function restartSelectedRule() {
+  if (!selectedRule.value || interactionBusy.value) return;
+  invalidateRecoveryPreflight();
+  void startRule(selectedRule.value.id);
+}
+
+function editSelectedRule() {
+  if (!selectedRule.value || interactionBusy.value) return;
+  openEditDialog(selectedRule.value.id);
+}
+
+function invalidateRecoveryPreflight() {
+  recoveryPreflightRequestToken += 1;
+  recoveryPreflightResult.value = null;
+  recoveryPreflightRuleId.value = null;
+}
+
+async function checkSelectedTarget() {
+  const rule = selectedRule.value;
+  if (!rule || interactionBusy.value) return;
+  const ruleId = rule.id;
+  const intentToken = selectionIntentToken;
+  const requestToken = ++recoveryPreflightRequestToken;
+  recoveryPreflighting.value = true;
+  try {
+    const result = await invoke<RequestForwardPreflightResult>(
+      "tool:request-forward:preflight",
+      toRequestForwardRuleWriteInput(rule),
+    );
+    if (
+      requestToken !== recoveryPreflightRequestToken ||
+      intentToken !== selectionIntentToken ||
+      selectedId.value !== ruleId
+    ) return;
+    recoveryPreflightResult.value = result;
+    recoveryPreflightRuleId.value = ruleId;
+    result.ready
+      ? ElMessage.success("目标检测通过")
+      : ElMessage.warning("目标检测未通过，请查看检测结果或编辑规则");
+  } catch (error) {
+    if (requestToken === recoveryPreflightRequestToken) {
+      ElMessage.error(`检测目标失败：${errorMessage(error)}`);
+    }
+  } finally {
+    if (requestToken === recoveryPreflightRequestToken) recoveryPreflighting.value = false;
+  }
+}
+
+function useSelectedSuggestedPort() {
+  const ruleId = selectedRule.value?.id;
+  const port = selectedSuggestedListenPort.value;
+  if (ruleId == null || port == null || interactionBusy.value) return;
+  openEditDialog(ruleId);
+  if (editorMode.value === "edit" && editorRuleId.value === ruleId) applySuggestedListenPort(port);
 }
 
 function validateForm(): boolean {
@@ -843,6 +934,7 @@ async function startRule(id: number, feedback = true) {
     await refreshRules();
     if (feedback) ElMessage.success("规则已启动");
   } catch (error) {
+    await refreshRules();
     if (feedback) ElMessage.error(`启动规则失败：${errorMessage(error)}`);
     if (!feedback) throw error;
   } finally {
@@ -1108,6 +1200,7 @@ onUnmounted(() => {
   statsRequestToken += 1;
   logRequestToken += 1;
   invalidatePreflight();
+  invalidateRecoveryPreflight();
   pendingLogRefresh = null;
   clearLogDebounce();
   clearPolling();
@@ -1166,7 +1259,57 @@ onUnmounted(() => {
           <div class="workbench-header__aside">
             <div class="runtime-state" :class="`is-${selectedState}`">
               <span>{{ stateCopy }}</span>
-              <small v-if="selectedStatus?.lastError">{{ selectedStatus.lastError }}</small>
+              <template v-if="selectedRuntimeError">
+                <small>{{ getRequestForwardErrorSummary(selectedRuntimeError.code) }}</small>
+                <div class="runtime-state__actions">
+                  <el-button
+                    v-if="selectedRecoveryActions.includes('restart')"
+                    size="small"
+                    :disabled="interactionBusy"
+                    @click="restartSelectedRule"
+                  >重新启动</el-button>
+                  <el-button
+                    v-if="selectedRecoveryActions.includes('edit')"
+                    size="small"
+                    :disabled="interactionBusy"
+                    @click="editSelectedRule"
+                  >编辑规则</el-button>
+                  <el-button
+                    v-if="selectedRecoveryActions.includes('check_target')"
+                    size="small"
+                    :disabled="interactionBusy"
+                    @click="checkSelectedTarget"
+                  >检测目标</el-button>
+                  <el-button
+                    v-if="selectedRecoveryActions.includes('use_suggested_port')"
+                    size="small"
+                    :disabled="interactionBusy"
+                    @click="useSelectedSuggestedPort"
+                  >使用建议端口</el-button>
+                </div>
+                <div
+                  v-if="recoveryPreflightResult && recoveryPreflightRuleId === selectedRule.id"
+                  class="runtime-state__preflight"
+                  role="status"
+                >
+                  <strong>检测结果</strong>
+                  <ul>
+                    <li
+                      v-for="check in recoveryPreflightResult.checks"
+                      :key="check.kind"
+                      :class="`is-${check.state}`"
+                    >{{ check.message }}</li>
+                  </ul>
+                </div>
+                <details class="runtime-state__details">
+                  <summary>查看技术详情</summary>
+                  <dl>
+                    <div><dt>错误码</dt><dd>{{ selectedRuntimeError.code }}</dd></div>
+                    <div><dt>状态</dt><dd>{{ selectedRuntimeError.state }}</dd></div>
+                    <div><dt>原始信息</dt><dd>{{ selectedRuntimeError.message }}</dd></div>
+                  </dl>
+                </details>
+              </template>
             </div>
             <RequestForwardEndpointActions
               :protocol="selectedRule.protocol"
@@ -1457,6 +1600,20 @@ onUnmounted(() => {
 .runtime-state span { font-size: 16px; font-weight: 700; }
 .runtime-state span::before { content: "●"; margin-right: 6px; font-size: 10px; }
 .runtime-state small { color: #c23b35; line-height: 1.45; }
+.runtime-state__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.runtime-state__actions :deep(.el-button + .el-button) { margin-left: 0; }
+.runtime-state__preflight { max-width: 420px; text-align: left; }
+.runtime-state__preflight strong { font-size: 13px; }
+.runtime-state__preflight ul { display: grid; gap: 3px; margin: 4px 0 0; padding-left: 18px; }
+.runtime-state__preflight li { color: #6b7280; font-size: 13px; overflow-wrap: anywhere; }
+.runtime-state__preflight li.is-failed { color: #c23b35; }
+.runtime-state__preflight li.is-warning { color: #a86608; }
+.runtime-state__details { max-width: 420px; color: #6b4f4c; font-size: 13px; }
+.runtime-state__details summary { cursor: pointer; }
+.runtime-state__details dl { display: grid; gap: 4px; margin: 8px 0 0; }
+.runtime-state__details dl div { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 8px; }
+.runtime-state__details dt { font-weight: 700; }
+.runtime-state__details dd { margin: 0; overflow-wrap: anywhere; }
 .runtime-state.is-running { color: #168357; }
 .runtime-state.is-starting,
 .runtime-state.is-stopping { color: #a86608; }

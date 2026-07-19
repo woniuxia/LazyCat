@@ -1,5 +1,120 @@
 use serde::{Deserialize, Serialize};
 
+pub(crate) const REQUEST_FORWARD_ERROR_MARKER: &str = "lazycat.request_forward.error";
+pub(crate) const REQUEST_FORWARD_ERROR_VERSION: u8 = 1;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum RequestForwardErrorCode {
+    ListenerInUse,
+    DnsFailed,
+    TargetUnreachable,
+    TlsFailed,
+    SelfForward,
+    InvalidConfig,
+    LifecycleConflict,
+    PersistenceFailed,
+    Unknown,
+}
+
+#[derive(Serialize)]
+struct RequestForwardErrorEnvelope<'a> {
+    marker: &'static str,
+    version: u8,
+    code: RequestForwardErrorCode,
+    message: &'a str,
+    state: &'a str,
+}
+
+pub(crate) fn encode_request_forward_error(message: &str, state: &str) -> String {
+    let envelope = RequestForwardErrorEnvelope {
+        marker: REQUEST_FORWARD_ERROR_MARKER,
+        version: REQUEST_FORWARD_ERROR_VERSION,
+        code: classify_request_forward_error(message),
+        message,
+        state,
+    };
+    serde_json::to_string(&envelope).unwrap_or_else(|_| message.to_string())
+}
+
+pub(crate) fn classify_request_forward_error(message: &str) -> RequestForwardErrorCode {
+    let normalized = message.to_lowercase();
+
+    if normalized.contains("不能直接转发到自身") || normalized.contains("self-forward") {
+        return RequestForwardErrorCode::SelfForward;
+    }
+    if (normalized.contains("监听绑定失败") || normalized.contains("listener bind failed"))
+        && (normalized.contains("address already in use")
+            || normalized.contains("addrinuse")
+            || normalized.contains("10048")
+            || normalized.contains("only one usage of each socket address"))
+    {
+        return RequestForwardErrorCode::ListenerInUse;
+    }
+    if normalized.contains("tls")
+        || normalized.contains("certificate")
+        || normalized.contains("invalid peer")
+        || normalized.contains("not valid for name")
+    {
+        return RequestForwardErrorCode::TlsFailed;
+    }
+    if normalized.contains("解析目标地址")
+        || normalized.contains("dns")
+        || normalized.contains("name or service not known")
+        || normalized.contains("no such host")
+        || normalized.contains("nodename nor servname")
+        || normalized.contains("temporary failure in name resolution")
+    {
+        return RequestForwardErrorCode::DnsFailed;
+    }
+    if normalized.contains("连接下游")
+        || normalized.contains("target unreachable")
+        || normalized.contains("connection refused")
+        || normalized.contains("network is unreachable")
+        || normalized.contains("host is unreachable")
+        || normalized.contains("connect timed out")
+        || normalized.contains("connection timed out")
+    {
+        return RequestForwardErrorCode::TargetUnreachable;
+    }
+    if normalized.contains("应用正在退出")
+        || normalized.contains("不能修改或删除")
+        || normalized.contains("starting")
+        || normalized.contains("stopping")
+        || normalized.contains("lifecycle")
+    {
+        return RequestForwardErrorCode::LifecycleConflict;
+    }
+    if normalized.contains("database")
+        || normalized.contains("数据库")
+        || normalized.contains("persist")
+        || normalized.contains("持久化")
+        || normalized.contains("保存停止意图失败")
+        || normalized.contains("查询转发")
+        || normalized.contains("读取转发")
+        || normalized.contains("创建转发规则失败")
+        || normalized.contains("更新转发规则失败")
+        || normalized.contains("删除转发规则失败")
+        || normalized.contains("启动意图失败")
+        || normalized.contains("重置转发统计失败")
+        || normalized.contains("清空转发日志失败")
+        || normalized.contains("提交转发")
+    {
+        return RequestForwardErrorCode::PersistenceFailed;
+    }
+    if normalized.contains("参数无效")
+        || normalized.contains("配置")
+        || normalized.contains("格式不正确")
+        || normalized.contains("必须")
+        || normalized.contains("缺少")
+        || normalized.contains("不能为空")
+        || normalized.contains("仅支持")
+    {
+        return RequestForwardErrorCode::InvalidConfig;
+    }
+    RequestForwardErrorCode::Unknown
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ForwardProtocol {

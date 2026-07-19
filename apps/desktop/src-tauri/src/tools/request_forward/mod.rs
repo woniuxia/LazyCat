@@ -1,7 +1,7 @@
 use serde_json::{json, Value};
 
 use super::helpers::db_conn;
-use model::RuleWriteInput;
+use model::{encode_request_forward_error, RuleWriteInput};
 use runtime::{AutoStartPersistence, LifecycleRepository};
 
 pub use runtime::RestoreResult;
@@ -77,6 +77,18 @@ pub(crate) fn supported_actions() -> &'static [&'static str] {
 }
 
 pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
+    execute_inner(action, payload).map_err(|message| {
+        let state = payload
+            .get("id")
+            .and_then(Value::as_i64)
+            .filter(|id| *id > 0)
+            .map(|id| runtime::global_manager().status(id).state)
+            .unwrap_or(runtime::RuntimeState::Stopped);
+        encode_request_forward_error(&message, state.as_str())
+    })
+}
+
+fn execute_inner(action: &str, payload: &Value) -> Result<Value, String> {
     if !ACTIONS.contains(&action) {
         return Err("unsupported request_forward action".into());
     }
@@ -122,8 +134,7 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
             let id = parse_rule_id(payload)?;
             let persistence = DatabaseAutoStartPersistence { conn: &conn };
             let status = runtime::global_manager()
-                .start_loaded(id, &persistence, || repository::get_with_conn(&conn, id))
-                .map_err(|error| runtime_action_error(id, error))?;
+                .start_loaded(id, &persistence, || repository::get_with_conn(&conn, id))?;
             Ok(json!({ "item": status }))
         }
         "stop" => {
@@ -131,8 +142,7 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
             let id = parse_rule_id(payload)?;
             let persistence = DatabaseAutoStartPersistence { conn: &conn };
             let status = runtime::global_manager()
-                .stop_loaded(id, &persistence, || repository::get_with_conn(&conn, id))
-                .map_err(|error| runtime_action_error(id, error))?;
+                .stop_loaded(id, &persistence, || repository::get_with_conn(&conn, id))?;
             Ok(json!({ "item": status }))
         }
         "start_all" => {
@@ -205,11 +215,6 @@ impl AutoStartPersistence for DatabaseAutoStartPersistence<'_> {
     }
 }
 
-fn runtime_action_error(rule_id: i64, error: String) -> String {
-    let status = runtime::global_manager().status(rule_id);
-    format!("{error}; 当前运行状态: {}", status.state.as_str())
-}
-
 fn parse_rule_id(payload: &Value) -> Result<i64, String> {
     payload
         .get("id")
@@ -270,7 +275,10 @@ fn parse_log_query(payload: &Value) -> Result<repository::LogQuery, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::model::{ForwardProtocol, RuleWriteInput};
+    use super::model::{
+        classify_request_forward_error, encode_request_forward_error, ForwardProtocol,
+        RequestForwardErrorCode, RuleWriteInput,
+    };
     use super::runtime::{RuntimeState, RuntimeStatus};
     use super::{repository, validation};
     use crate::tools::helpers::ensure_request_forward_schema_for_test;
@@ -311,6 +319,73 @@ mod tests {
             capture_http_headers: false,
             capture_http_body: false,
         }
+    }
+
+    #[test]
+    fn runtime_errors_have_stable_codes_with_windows_and_case_coverage() {
+        let cases = [
+            (
+                "HTTP 监听绑定失败: OS error 10048: Only one usage of each socket address is normally permitted",
+                RequestForwardErrorCode::ListenerInUse,
+            ),
+            (
+                "udp 监听绑定失败: ADDRESS ALREADY IN USE",
+                RequestForwardErrorCode::ListenerInUse,
+            ),
+            (
+                "解析目标地址 api.invalid:443 失败: No such host is known",
+                RequestForwardErrorCode::DnsFailed,
+            ),
+            (
+                "连接下游 10.0.0.8:443 失败: connection refused",
+                RequestForwardErrorCode::TargetUnreachable,
+            ),
+            (
+                "client error (Connect): invalid peer certificate: certificate not valid for name",
+                RequestForwardErrorCode::TlsFailed,
+            ),
+            (
+                "TLS handshake failed: invalid dnsname for certificate",
+                RequestForwardErrorCode::TlsFailed,
+            ),
+            (
+                "目标地址与监听地址相同，不能直接转发到自身",
+                RequestForwardErrorCode::SelfForward,
+            ),
+            ("HTTP 目标 URL 格式不正确", RequestForwardErrorCode::InvalidConfig),
+            (
+                "已启动的转发规则不能修改或删除",
+                RequestForwardErrorCode::LifecycleConflict,
+            ),
+            ("创建转发规则失败: 磁盘只读", RequestForwardErrorCode::PersistenceFailed),
+        ];
+
+        for (message, expected) in cases {
+            assert_eq!(
+                classify_request_forward_error(message),
+                expected,
+                "{message}"
+            );
+        }
+        assert_eq!(
+            classify_request_forward_error("connect button label failed to render"),
+            RequestForwardErrorCode::Unknown,
+            "an arbitrary mention of connect must not look like a listener conflict"
+        );
+    }
+
+    #[test]
+    fn structured_error_envelope_keeps_original_message_and_actual_state() {
+        let original = "opaque runner failure: 保留原文";
+        let encoded = encode_request_forward_error(original, RuntimeState::Running.as_str());
+        let decoded: serde_json::Value =
+            serde_json::from_str(&encoded).expect("valid envelope JSON");
+
+        assert_eq!(decoded["marker"], "lazycat.request_forward.error");
+        assert_eq!(decoded["version"], 1);
+        assert_eq!(decoded["code"], "unknown");
+        assert_eq!(decoded["message"], original);
+        assert_eq!(decoded["state"], "running");
     }
 
     #[test]

@@ -1,6 +1,7 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 
 import type {
+  RequestForwardError,
   RequestForwardLogOutcome,
   RequestForwardLogPage,
   RequestForwardLogQuery,
@@ -27,9 +28,11 @@ import {
   getRequestForwardLogProbeLimit,
   getRequestForwardLogTargetCount,
   getRequestForwardLogTone,
+  getRequestForwardRecoveryActions,
   isExposedForwardBindHost,
   isRequestForwardRuleReadonly,
   normalizeRequestForwardRuleForm,
+  parseRequestForwardError,
   retainRequestForwardSelectedLogId,
   toRequestForwardRuleWriteInput,
   validateRequestForwardRuleForm,
@@ -70,6 +73,72 @@ const baseForm: RequestForwardRuleForm = {
 };
 
 describe("request forward utilities", () => {
+  it("parses marked runtime error envelopes from strings and Error.message", () => {
+    const payload = JSON.stringify({
+      marker: "lazycat.request_forward.error",
+      version: 1,
+      code: "listener_in_use",
+      message: "HTTP 监听绑定失败: os error 10048",
+      state: "failed",
+    });
+    const expected: RequestForwardError = {
+      code: "listener_in_use",
+      message: "HTTP 监听绑定失败: os error 10048",
+      state: "failed",
+    };
+
+    expect(parseRequestForwardError(payload, "stopped")).toEqual(expected);
+    expect(parseRequestForwardError(new Error(payload), "stopped")).toEqual(expected);
+    expect(parseRequestForwardError(new Error(`invoke failed: ${payload}`), "stopped")).toEqual(
+      expected,
+    );
+  });
+
+  it("falls back safely for legacy text, unrelated JSON and malformed envelopes", () => {
+    for (const input of [
+      "历史纯文本错误",
+      '{"code":"dns_failed","message":"not marked","state":"failed"}',
+      '{"marker":"lazycat.request_forward.error","version":1,"code":"dns_failed","message":"bad state","state":"broken"}',
+      '{"marker":"lazycat.request_forward.error",',
+    ]) {
+      expect(parseRequestForwardError(input, "failed")).toEqual({
+        code: "unknown",
+        message: input,
+        state: "failed",
+      });
+    }
+  });
+
+  it("maps reusable recovery actions and gates suggested ports on actual preflight output", () => {
+    const listenerError: RequestForwardError = {
+      code: "listener_in_use",
+      message: "端口被占用",
+      state: "failed",
+    };
+    expect(getRequestForwardRecoveryActions(listenerError, null)).toEqual([
+      "restart",
+      "edit",
+      "check_target",
+    ]);
+    expect(getRequestForwardRecoveryActions(listenerError, 18080)).toEqual([
+      "restart",
+      "edit",
+      "check_target",
+      "use_suggested_port",
+    ]);
+    expect(
+      getRequestForwardRecoveryActions(
+        { code: "dns_failed", message: "DNS 失败", state: "failed" },
+        18080,
+      ),
+    ).toEqual(["restart", "edit", "check_target"]);
+    expect(
+      getRequestForwardRecoveryActions(
+        { code: "invalid_config", message: "配置错误", state: "stopped" },
+        null,
+      ),
+    ).toEqual(["edit", "check_target"]);
+  });
   it("clamps the preferred rule list width without consuming the workbench", () => {
     expect(clampRequestForwardRuleListWidth(undefined, 1200)).toBe(260);
     expect(clampRequestForwardRuleListWidth("oops", 1200)).toBe(260);

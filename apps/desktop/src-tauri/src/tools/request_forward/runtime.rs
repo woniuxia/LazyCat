@@ -9,7 +9,7 @@ use chrono::Utc;
 use serde::Serialize;
 
 use super::http::HttpRuleRunner;
-use super::model::{ForwardProtocol, ForwardRule};
+use super::model::{encode_request_forward_error, ForwardProtocol, ForwardRule};
 use super::observability::{
     HttpEvent, HttpObservability, ObservationBatch, ObservationCursor, TcpEvent, TcpObservability,
     UdpEvent, UdpObservability,
@@ -182,7 +182,10 @@ impl RuntimeInstance {
         RuntimeStatus {
             rule_id,
             state: self.state,
-            last_error: self.last_error.clone(),
+            last_error: self
+                .last_error
+                .as_deref()
+                .map(|error| encode_request_forward_error(error, self.state.as_str())),
             last_observability_error,
         }
     }
@@ -329,12 +332,15 @@ impl RuntimeManager {
                         error: None,
                         state: status.state,
                     },
-                    Err(error) => RestoreResult {
-                        rule_id,
-                        ok: false,
-                        error: Some(error),
-                        state: self.status(rule_id).state,
-                    },
+                    Err(error) => {
+                        let state = self.status(rule_id).state;
+                        RestoreResult {
+                            rule_id,
+                            ok: false,
+                            error: Some(encode_request_forward_error(&error, state.as_str())),
+                            state,
+                        }
+                    }
                 }
             })
             .collect())
@@ -671,12 +677,15 @@ impl RuntimeManager {
                 error: None,
                 state: status.state,
             },
-            Err(error) => BatchOperationResult {
-                rule_id,
-                ok: false,
-                error: Some(error),
-                state: self.status(rule_id).state,
-            },
+            Err(error) => {
+                let state = self.status(rule_id).state;
+                BatchOperationResult {
+                    rule_id,
+                    ok: false,
+                    error: Some(encode_request_forward_error(&error, state.as_str())),
+                    state,
+                }
+            }
         }
     }
 
@@ -1904,9 +1913,7 @@ mod tests {
         let runner = Arc::new(FakeRunner::default());
         let manager = RuntimeManager::new(runner.clone());
         let persistence = FakePersistence::default();
-        manager
-            .start(&rule(1), &persistence)
-            .expect("start succeeds");
+        manager.start(&rule(1), &persistence).expect("start succeeds");
         persistence.fail_for(1, false, "persist false failed");
 
         let error = manager
@@ -1966,7 +1973,9 @@ mod tests {
         let runner = Arc::new(FakeRunner::default());
         let manager = RuntimeManager::new(runner.clone());
         let persistence = FakePersistence::default();
-        manager.start(&rule(1), &persistence).expect("start succeeds");
+        manager
+            .start(&rule(1), &persistence)
+            .expect("start succeeds");
         runner.fail_stop("runner stop failed");
         persistence.fail_for(1, false, "persist false failed");
 

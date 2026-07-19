@@ -67,6 +67,22 @@ const endpointActionsSource = existsSync(fileURLToPath(endpointActionsUrl))
   : "";
 
 describe("RequestForwardPanel source structure", () => {
+  it("renders structured runtime recovery without bypassing panel orchestration", () => {
+    expect(source).toContain("parseRequestForwardError");
+    expect(source).toContain("getRequestForwardRecoveryActions");
+    expect(source).toContain("查看技术详情");
+    expect(source).toContain("重新启动");
+    expect(source).toContain("编辑规则");
+    expect(source).toContain("检测目标");
+    expect(source).toContain("使用建议端口");
+    expect(source).toMatch(/async function checkSelectedTarget\([\s\S]*?tool:request-forward:preflight/);
+    expect(source).toMatch(/function checkSelectedTarget[\s\S]*?selectionIntentToken/);
+    expect(source).toContain("recoveryPreflightRequestToken");
+    expect(source).toContain("recoveryPreflightResult.checks");
+    expect(source).toContain("检测结果");
+    expect(source).toMatch(/function useSelectedSuggestedPort\([\s\S]*?openEditDialog[\s\S]*?applySuggestedListenPort/);
+    expect(source).toContain(':disabled="interactionBusy"');
+  });
   it("registers the preflight channel and exact result contract", () => {
     expect(bridgeSource).toContain(
       '"tool:request-forward:preflight": { domain: "request_forward", action: "preflight" }',

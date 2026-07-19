@@ -1,11 +1,129 @@
 import type {
+  RequestForwardError,
+  RequestForwardErrorCode,
   RequestForwardLogOutcome,
   RequestForwardProtocol,
   RequestForwardRule,
   RequestForwardRuleForm,
   RequestForwardRuleWriteInput,
   RequestForwardRuntimeState,
+  RequestForwardRecoveryAction,
 } from "../types/request-forward";
+
+const REQUEST_FORWARD_ERROR_MARKER = "lazycat.request_forward.error";
+const REQUEST_FORWARD_ERROR_CODES = new Set<RequestForwardErrorCode>([
+  "listener_in_use",
+  "dns_failed",
+  "target_unreachable",
+  "tls_failed",
+  "self_forward",
+  "invalid_config",
+  "lifecycle_conflict",
+  "persistence_failed",
+  "unknown",
+]);
+const REQUEST_FORWARD_RUNTIME_STATES = new Set<RequestForwardRuntimeState>([
+  "stopped",
+  "starting",
+  "running",
+  "stopping",
+  "failed",
+]);
+
+export function parseRequestForwardError(
+  input: unknown,
+  fallbackState: RequestForwardRuntimeState,
+): RequestForwardError {
+  const original = input instanceof Error ? input.message : String(input);
+  for (const candidate of requestForwardErrorJsonCandidates(original)) {
+    try {
+      const parsed = JSON.parse(candidate) as Record<string, unknown>;
+      if (
+        parsed.marker === REQUEST_FORWARD_ERROR_MARKER &&
+        parsed.version === 1 &&
+        typeof parsed.code === "string" &&
+        REQUEST_FORWARD_ERROR_CODES.has(parsed.code as RequestForwardErrorCode) &&
+        typeof parsed.message === "string" &&
+        typeof parsed.state === "string" &&
+        REQUEST_FORWARD_RUNTIME_STATES.has(parsed.state as RequestForwardRuntimeState)
+      ) {
+        return {
+          code: parsed.code as RequestForwardErrorCode,
+          message: parsed.message,
+          state: parsed.state as RequestForwardRuntimeState,
+        };
+      }
+    } catch {
+      // Historical text and unrelated JS errors remain readable below.
+    }
+  }
+  return { code: "unknown", message: original, state: fallbackState };
+}
+
+export function getRequestForwardRecoveryActions(
+  error: RequestForwardError,
+  suggestedListenPort: number | null,
+): RequestForwardRecoveryAction[] {
+  switch (error.code) {
+    case "listener_in_use":
+      return suggestedListenPort == null
+        ? ["restart", "edit", "check_target"]
+        : ["restart", "edit", "check_target", "use_suggested_port"];
+    case "dns_failed":
+    case "target_unreachable":
+    case "tls_failed":
+      return ["restart", "edit", "check_target"];
+    case "self_forward":
+    case "invalid_config":
+      return ["edit", "check_target"];
+    case "lifecycle_conflict":
+    case "persistence_failed":
+    case "unknown":
+      return ["restart", "edit"];
+  }
+}
+
+export function getRequestForwardErrorSummary(code: RequestForwardErrorCode): string {
+  const summaries: Record<RequestForwardErrorCode, string> = {
+    listener_in_use: "监听端口已被占用",
+    dns_failed: "目标域名解析失败",
+    target_unreachable: "目标服务不可达",
+    tls_failed: "目标 TLS 校验失败",
+    self_forward: "目标指向当前监听地址",
+    invalid_config: "规则配置无效",
+    lifecycle_conflict: "运行状态冲突",
+    persistence_failed: "运行意图保存失败",
+    unknown: "运行时发生未知错误",
+  };
+  return summaries[code];
+}
+
+function requestForwardErrorJsonCandidates(value: string): string[] {
+  const candidates = [value];
+  let start = value.indexOf("{");
+  while (start >= 0) {
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let index = start; index < value.length; index += 1) {
+      const character = value[index];
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (character === "\\") escaped = true;
+        else if (character === '"') inString = false;
+        continue;
+      }
+      if (character === '"') inString = true;
+      else if (character === "{") depth += 1;
+      else if (character === "}" && --depth === 0) {
+        candidates.push(value.slice(start, index + 1));
+        break;
+      }
+    }
+    start = value.indexOf("{", start + 1);
+  }
+  return candidates;
+}
 
 export const DEFAULT_REQUEST_FORWARD_FORM: RequestForwardRuleForm = {
   name: "",

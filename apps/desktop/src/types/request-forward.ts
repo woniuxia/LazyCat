@@ -23,6 +23,29 @@ export type RequestForwardRuntimeState =
   | "stopping"
   | "failed";
 
+export type RequestForwardErrorCode =
+  | "listener_in_use"
+  | "dns_failed"
+  | "target_unreachable"
+  | "tls_failed"
+  | "self_forward"
+  | "invalid_config"
+  | "lifecycle_conflict"
+  | "persistence_failed"
+  | "unknown";
+
+export interface RequestForwardError {
+  code: RequestForwardErrorCode;
+  message: string;
+  state: RequestForwardRuntimeState;
+}
+
+export type RequestForwardRecoveryAction =
+  | "restart"
+  | "edit"
+  | "check_target"
+  | "use_suggested_port";
+
 export interface RequestForwardRuleWriteInput {
   name: string;
   protocol: RequestForwardProtocol;
