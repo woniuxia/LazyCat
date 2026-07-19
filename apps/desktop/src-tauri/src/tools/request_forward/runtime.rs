@@ -2162,18 +2162,18 @@ mod tests {
     }
 
     #[test]
-    fn protocol_runner_keeps_https_downstream_rejection_explicit() {
+    fn protocol_runner_accepts_https_downstream() {
         let mut https_rule = rule(93);
         https_rule.protocol = ForwardProtocol::Http;
         https_rule.listen_port = 0;
-        https_rule.target_url = Some("https://does-not-resolve.invalid/api".into());
+        https_rule.target_url = Some("https://example.com/api".into());
         https_rule.target_host = None;
         https_rule.target_port = None;
 
-        let error = ProtocolRunner::default()
+        let runner = ProtocolRunner::default();
+        let handle = runner
             .start(&https_rule)
-            .expect_err("HTTPS downstream remains explicitly unsupported");
-
-        assert!(error.contains("暂不支持 HTTPS 下游"));
+            .expect("HTTPS downstream starts without an early protocol rejection");
+        runner.stop(handle).expect("stop HTTPS downstream rule");
     }
 }

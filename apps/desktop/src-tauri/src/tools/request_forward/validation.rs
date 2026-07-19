@@ -101,9 +101,6 @@ fn target_endpoint(rule: &super::model::ForwardRule) -> Result<(String, u16), St
                 .ok_or_else(|| "HTTP 规则必须配置目标 URL".to_string())?;
             let parsed = Url::parse(target_url)
                 .map_err(|error| format!("HTTP 目标 URL 格式不正确: {error}"))?;
-            if parsed.scheme() == "https" {
-                return Err("当前版本暂不支持 HTTPS 下游".into());
-            }
             let host = parsed
                 .host_str()
                 .ok_or_else(|| "HTTP 目标 URL 必须包含主机名".to_string())?;
@@ -369,7 +366,7 @@ mod tests {
         };
         let http_rule = ForwardRule {
             protocol: ForwardProtocol::Http,
-            target_url: Some("http://different-port.invalid:18081/api".into()),
+            target_url: Some("https://different-port.invalid:18081/api".into()),
             target_host: None,
             target_port: None,
             ..socket_rule(ForwardProtocol::Http, "127.0.0.1", "unused")

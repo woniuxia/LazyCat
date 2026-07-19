@@ -330,9 +330,11 @@ use hyper::body::{Body, Frame, Incoming};
 use hyper::http::header::{CONNECTION, CONTENT_LENGTH, UPGRADE};
 use hyper::service::service_fn;
 use hyper::{Request, Response, StatusCode};
+use hyper_rustls::{HttpsConnector, HttpsConnectorBuilder};
 use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::client::legacy::Client;
 use hyper_util::rt::{TokioExecutor, TokioIo};
+use rustls::ClientConfig;
 use tokio::net::TcpListener;
 use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
@@ -351,13 +353,15 @@ const HTTP_PRE_RESPONSE_TIMEOUT: Duration = Duration::from_secs(10);
 
 type ProxyError = Box<dyn Error + Send + Sync>;
 type ProxyBody = BoxBody<Bytes, ProxyError>;
-type HttpClient = Client<HttpConnector, ProxyBody>;
+type DownstreamConnector = HttpsConnector<HttpConnector>;
+type HttpClient = Client<DownstreamConnector, ProxyBody>;
 
 pub(crate) struct HttpRuleRunner {
     next_handle: AtomicU64,
     running: Mutex<HashMap<u64, HttpRunningRule>>,
     connection_limit: usize,
     pre_response_timeout: Duration,
+    tls_config: Option<Arc<ClientConfig>>,
 }
 
 struct HttpRunningRule {
@@ -401,6 +405,14 @@ impl HttpRuleRunner {
     }
 
     fn with_options(connection_limit: usize, pre_response_timeout: Duration) -> Self {
+        Self::with_options_and_tls(connection_limit, pre_response_timeout, None)
+    }
+
+    fn with_options_and_tls(
+        connection_limit: usize,
+        pre_response_timeout: Duration,
+        tls_config: Option<Arc<ClientConfig>>,
+    ) -> Self {
         assert!(
             connection_limit > 0,
             "HTTP connection limit must be positive"
@@ -410,7 +422,17 @@ impl HttpRuleRunner {
             running: Mutex::new(HashMap::new()),
             connection_limit,
             pre_response_timeout,
+            tls_config,
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_tls_config_for_test(tls_config: Arc<ClientConfig>) -> Self {
+        Self::with_options_and_tls(
+            HTTP_MAX_CONNECTIONS_PER_RULE,
+            HTTP_PRE_RESPONSE_TIMEOUT,
+            Some(tls_config),
+        )
     }
 
     #[cfg(test)]
@@ -471,11 +493,26 @@ impl HttpRuleRunner {
             .ok_or_else(|| "等待 HTTP 转发统计超时".to_string())
     }
 
-    fn connector(&self) -> HttpConnector {
+    fn connector(&self) -> Result<DownstreamConnector, String> {
         let mut http = HttpConnector::new();
         // Windows 对不可达地址的异步 connect 可能长时间保持 pending；连接阶段必须有独立上限。
         http.set_connect_timeout(Some(HTTP_CONNECT_TIMEOUT));
-        http
+        // hyper-rustls 的 wrap_connector 不会调整自定义 HttpConnector 的 scheme 限制。
+        http.enforce_http(false);
+        let connector = match self.tls_config.as_ref() {
+            Some(tls_config) => HttpsConnectorBuilder::new()
+                .with_tls_config((**tls_config).clone())
+                .https_or_http()
+                .enable_http1()
+                .wrap_connector(http),
+            None => HttpsConnectorBuilder::new()
+                .with_native_roots()
+                .map_err(|error| format!("无法加载系统 TLS 根证书: {error}"))?
+                .https_or_http()
+                .enable_http1()
+                .wrap_connector(http),
+        };
+        Ok(connector)
     }
 }
 
@@ -491,10 +528,7 @@ impl RuleRunner for HttpRuleRunner {
             .ok_or_else(|| "HTTP 规则缺少目标 URL".to_string())?
             .parse::<Url>()
             .map_err(|_| "HTTP 目标 URL 格式不正确".to_string())?;
-        if target_url.scheme() != "http" {
-            return Err("当前版本暂不支持 HTTPS 下游".to_string());
-        }
-        let connector = self.connector();
+        let connector = self.connector()?;
         let std_listener = StdTcpListener::bind(SocketAddr::new(bind_ip, rule.listen_port))
             .map_err(|error| format!("HTTP 监听绑定失败: {error}"))?;
         std_listener
@@ -602,7 +636,7 @@ impl RuleRunner for HttpRuleRunner {
 async fn run_listener(
     listener: TcpListener,
     target_url: Url,
-    connector: HttpConnector,
+    connector: DownstreamConnector,
     cancellation: CancellationToken,
     observability: Arc<HttpObservability>,
     connection_limit: usize,
@@ -979,13 +1013,25 @@ mod integration_tests {
     use std::io::{Read, Write};
     use std::net::{SocketAddr, TcpListener, TcpStream};
     use std::sync::mpsc;
+    use std::sync::Arc;
     use std::thread::{self, JoinHandle};
     use std::time::Duration;
 
-    use super::super::model::{ForwardProtocol, ForwardRule};
-    use super::super::observability::{
-        HttpEventKind, ObservationCursor, HTTP_BODY_PREVIEW_LIMIT,
+    use openssl::asn1::Asn1Time;
+    use openssl::bn::{BigNum, MsbOption};
+    use openssl::hash::MessageDigest;
+    use openssl::pkey::{PKey, Private};
+    use openssl::rsa::Rsa;
+    use openssl::ssl::{SslAcceptor, SslMethod};
+    use openssl::x509::extension::{
+        BasicConstraints, ExtendedKeyUsage, KeyUsage, SubjectAlternativeName,
     };
+    use openssl::x509::{X509NameBuilder, X509};
+    use rustls::pki_types::CertificateDer;
+    use rustls::{ClientConfig, RootCertStore};
+
+    use super::super::model::{ForwardProtocol, ForwardRule};
+    use super::super::observability::{HttpEventKind, ObservationCursor, HTTP_BODY_PREVIEW_LIMIT};
     use super::super::runtime::RuleRunner;
     use super::HttpRuleRunner;
 
@@ -1084,6 +1130,183 @@ mod integration_tests {
         .expect("write HTTP response head");
         stream.write_all(body).expect("write HTTP response body");
         stream.flush().expect("flush HTTP response");
+    }
+
+    fn certificate_serial() -> openssl::asn1::Asn1Integer {
+        let mut serial = BigNum::new().expect("create certificate serial");
+        serial
+            .rand(128, MsbOption::MAYBE_ZERO, false)
+            .expect("generate certificate serial");
+        serial.to_asn1_integer().expect("encode certificate serial")
+    }
+
+    fn fixture_ca() -> (PKey<Private>, X509) {
+        let key = PKey::from_rsa(Rsa::generate(2048).expect("generate fixture CA key"))
+            .expect("create fixture CA key");
+        let mut name = X509NameBuilder::new().expect("create fixture CA name");
+        name.append_entry_by_text("CN", "LazyCat Request Forward Fixture CA")
+            .expect("set fixture CA name");
+        let name = name.build();
+        let mut certificate = X509::builder().expect("create fixture CA certificate");
+        certificate.set_version(2).expect("set fixture CA version");
+        certificate
+            .set_serial_number(&certificate_serial())
+            .expect("set fixture CA serial");
+        certificate
+            .set_subject_name(&name)
+            .expect("set fixture CA subject");
+        certificate
+            .set_issuer_name(&name)
+            .expect("set fixture CA issuer");
+        certificate
+            .set_pubkey(&key)
+            .expect("set fixture CA public key");
+        certificate
+            .set_not_before(&Asn1Time::days_from_now(0).expect("fixture CA not-before"))
+            .expect("set fixture CA not-before");
+        certificate
+            .set_not_after(&Asn1Time::days_from_now(1).expect("fixture CA not-after"))
+            .expect("set fixture CA not-after");
+        certificate
+            .append_extension(
+                BasicConstraints::new()
+                    .critical()
+                    .ca()
+                    .build()
+                    .expect("build fixture CA constraints"),
+            )
+            .expect("set fixture CA constraints");
+        certificate
+            .append_extension(
+                KeyUsage::new()
+                    .critical()
+                    .key_cert_sign()
+                    .crl_sign()
+                    .build()
+                    .expect("build fixture CA key usage"),
+            )
+            .expect("set fixture CA key usage");
+        certificate
+            .sign(&key, MessageDigest::sha256())
+            .expect("sign fixture CA certificate");
+        (key, certificate.build())
+    }
+
+    fn fixture_server_certificate(
+        ca_key: &PKey<Private>,
+        ca: &X509,
+        trust_ipv4_loopback: bool,
+    ) -> (PKey<Private>, X509) {
+        let key = PKey::from_rsa(Rsa::generate(2048).expect("generate fixture server key"))
+            .expect("create fixture server key");
+        let mut name = X509NameBuilder::new().expect("create fixture server name");
+        name.append_entry_by_text("CN", "localhost")
+            .expect("set fixture server name");
+        let name = name.build();
+        let mut certificate = X509::builder().expect("create fixture server certificate");
+        certificate
+            .set_version(2)
+            .expect("set fixture server version");
+        certificate
+            .set_serial_number(&certificate_serial())
+            .expect("set fixture server serial");
+        certificate
+            .set_subject_name(&name)
+            .expect("set fixture server subject");
+        certificate
+            .set_issuer_name(ca.subject_name())
+            .expect("set fixture server issuer");
+        certificate
+            .set_pubkey(&key)
+            .expect("set fixture server public key");
+        certificate
+            .set_not_before(&Asn1Time::days_from_now(0).expect("fixture server not-before"))
+            .expect("set fixture server not-before");
+        certificate
+            .set_not_after(&Asn1Time::days_from_now(1).expect("fixture server not-after"))
+            .expect("set fixture server not-after");
+        certificate
+            .append_extension(
+                BasicConstraints::new()
+                    .critical()
+                    .build()
+                    .expect("build fixture server constraints"),
+            )
+            .expect("set fixture server constraints");
+        certificate
+            .append_extension(
+                KeyUsage::new()
+                    .critical()
+                    .digital_signature()
+                    .key_encipherment()
+                    .build()
+                    .expect("build fixture server key usage"),
+            )
+            .expect("set fixture server key usage");
+        certificate
+            .append_extension(
+                ExtendedKeyUsage::new()
+                    .server_auth()
+                    .build()
+                    .expect("build fixture server extended key usage"),
+            )
+            .expect("set fixture server extended key usage");
+        let mut subject_alt_name = SubjectAlternativeName::new();
+        subject_alt_name.dns("localhost");
+        if trust_ipv4_loopback {
+            subject_alt_name.ip("127.0.0.1");
+        }
+        let subject_alt_name = subject_alt_name
+            .build(&certificate.x509v3_context(Some(ca), None))
+            .expect("build fixture server subject alternative name");
+        certificate
+            .append_extension(subject_alt_name)
+            .expect("set fixture server subject alternative name");
+        certificate
+            .sign(ca_key, MessageDigest::sha256())
+            .expect("sign fixture server certificate");
+        (key, certificate.build())
+    }
+
+    fn accept_tls_once(
+        trust_ipv4_loopback: bool,
+        handler: impl FnOnce(&mut openssl::ssl::SslStream<TcpStream>) + Send + 'static,
+    ) -> (SocketAddr, ClientConfig, JoinHandle<()>) {
+        let (ca_key, ca) = fixture_ca();
+        let (server_key, server_certificate) =
+            fixture_server_certificate(&ca_key, &ca, trust_ipv4_loopback);
+        let mut acceptor = SslAcceptor::mozilla_intermediate(SslMethod::tls_server())
+            .expect("create TLS fixture acceptor");
+        acceptor
+            .set_private_key(&server_key)
+            .expect("set TLS fixture private key");
+        acceptor
+            .set_certificate(&server_certificate)
+            .expect("set TLS fixture certificate");
+        acceptor
+            .check_private_key()
+            .expect("validate TLS fixture certificate and key");
+        let acceptor = acceptor.build();
+
+        let mut roots = RootCertStore::empty();
+        roots
+            .add(CertificateDer::from(
+                ca.to_der().expect("encode fixture CA certificate"),
+            ))
+            .expect("trust fixture CA certificate");
+        let client_config = ClientConfig::builder()
+            .with_root_certificates(roots)
+            .with_no_client_auth();
+
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind HTTPS fixture");
+        let address = listener.local_addr().expect("read HTTPS fixture address");
+        let worker = thread::spawn(move || {
+            let (stream, _) = listener.accept().expect("accept HTTPS fixture connection");
+            if let Ok(mut stream) = acceptor.accept(stream) {
+                handler(&mut stream);
+            }
+        });
+        (address, client_config, worker)
     }
 
     #[test]
@@ -1617,11 +1840,78 @@ mod integration_tests {
     }
 
     #[test]
-    fn https_downstream_is_rejected_explicitly() {
-        let rule = http_rule(10, "https://example.com".into(), false, false);
-        let error = HttpRuleRunner::new()
+    fn https_forwards_through_a_trusted_fixture_ca() {
+        let (upstream_addr, tls_config, upstream) = accept_tls_once(true, |stream| {
+            let head = read_head(stream);
+            let head_text = std::str::from_utf8(&head).expect("HTTPS request head text");
+            assert!(head_text.starts_with("POST /api/items?tag=secure HTTP/1.1\r\n"));
+            assert_eq!(
+                header_value(&head, "x-request-id").as_deref(),
+                Some("tls-10")
+            );
+            let mut body = vec![0; content_length(&head)];
+            stream
+                .read_exact(&mut body)
+                .expect("read HTTPS request body");
+            assert_eq!(body, b"hello tls");
+            write_response(stream, "200 OK", "text/plain", b"secure response");
+        });
+        let rule = http_rule(10, format!("https://{upstream_addr}/api"), true, true);
+        let runner = HttpRuleRunner::with_tls_config_for_test(Arc::new(tls_config));
+        let handle = runner.start(&rule).expect("start HTTPS rule");
+        let mut client = connect(runner.listener_addr(handle).expect("read HTTPS listener"));
+        client
+            .write_all(b"POST /items?tag=secure HTTP/1.1\r\nHost: public.example\r\nX-Request-Id: tls-10\r\nContent-Type: text/plain\r\nContent-Length: 9\r\nConnection: close\r\n\r\nhello tls")
+            .expect("write HTTPS forwarding request");
+
+        let (head, body) = read_response(&mut client);
+        assert!(
+            std::str::from_utf8(&head)
+                .expect("HTTPS response head text")
+                .starts_with("HTTP/1.1 200"),
+            "unexpected HTTPS response: head={:?}, body={:?}",
+            String::from_utf8_lossy(&head),
+            String::from_utf8_lossy(&body),
+        );
+        assert_eq!(body, b"secure response");
+        upstream.join().expect("join trusted HTTPS fixture");
+        runner.stop(handle).expect("stop HTTPS rule");
+    }
+
+    #[test]
+    fn https_returns_502_when_the_certificate_hostname_is_wrong() {
+        let (upstream_addr, tls_config, upstream) = accept_tls_once(false, |_| {
+            panic!("hostname-mismatched TLS connection must not send HTTP");
+        });
+        let rule = http_rule(11, format!("https://{upstream_addr}"), false, false);
+        let runner = HttpRuleRunner::with_tls_config_for_test(Arc::new(tls_config));
+        let handle = runner
             .start(&rule)
-            .expect_err("HTTPS downstream must remain disabled in this version");
-        assert!(error.contains("暂不支持 HTTPS 下游"));
+            .expect("start hostname mismatch HTTPS rule");
+        let mut client = connect(runner.listener_addr(handle).expect("read HTTPS listener"));
+        client
+            .write_all(b"GET /wrong-host HTTP/1.1\r\nHost: public.example\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+            .expect("write hostname mismatch request");
+
+        let (head, body) = read_response(&mut client);
+        assert!(std::str::from_utf8(&head)
+            .expect("hostname mismatch response head text")
+            .starts_with("HTTP/1.1 502"));
+        assert!(std::str::from_utf8(&body)
+            .expect("hostname mismatch response body text")
+            .contains("连接下游 HTTP 服务失败"));
+        let snapshot = runner
+            .wait_for_snapshot(handle, |snapshot| snapshot.error_count == 1)
+            .expect("wait for hostname mismatch event");
+        assert!(snapshot
+            .events
+            .iter()
+            .any(|event| event.kind == HttpEventKind::DownstreamFailed));
+        upstream
+            .join()
+            .expect("join hostname mismatch HTTPS fixture");
+        runner
+            .stop(handle)
+            .expect("stop hostname mismatch HTTPS rule");
     }
 }
