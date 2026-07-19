@@ -46,57 +46,155 @@
         </div>
 
         <el-form label-position="top" class="release-package-form">
-          <el-divider content-position="left">基本信息</el-divider>
-          <el-form-item label="项目名称" required>
-            <el-input v-model="draft.name" :disabled="running" placeholder="例如：订单管理系统" />
-          </el-form-item>
-
-          <el-divider content-position="left">前端工程</el-divider>
-          <div class="form-grid">
-            <el-form-item label="工程目录" required>
-              <el-input v-model="draft.frontendProjectPath" :disabled="running" placeholder="前端工程绝对路径">
-                <template #append><el-button :icon="FolderOpened" :disabled="running" @click="chooseFrontendProject">选择</el-button></template>
-              </el-input>
-            </el-form-item>
-            <el-form-item label="构建命令" required>
-              <el-input v-model="draft.frontendBuildCommand" :disabled="running" placeholder="例如：pnpm build" />
-            </el-form-item>
-          </div>
-          <div class="form-grid">
-            <el-form-item label="产物路径" required>
-              <el-input v-model="draft.frontendArtifactPath" :disabled="running" placeholder="相对工程目录，可为文件或目录" />
-            </el-form-item>
-            <el-form-item label="产物处理方式" required>
-              <el-select v-model="draft.frontendArtifactMode" :disabled="running" class="full-width">
-                <el-option label="直接复制目录" value="copy_directory" />
-                <el-option label="压缩为 ZIP" value="zip_directory" />
-              </el-select>
+          <div class="project-basics">
+            <el-form-item label="项目名称" required>
+              <el-input v-model="draft.name" :disabled="running" placeholder="例如：订单管理系统" />
             </el-form-item>
           </div>
 
-          <el-divider content-position="left">后端工程</el-divider>
-          <div class="form-grid">
-            <el-form-item label="工程目录" required>
-              <el-input v-model="draft.backendProjectPath" :disabled="running" placeholder="后端工程绝对路径">
-                <template #append><el-button :icon="FolderOpened" :disabled="running" @click="chooseBackendProject">选择</el-button></template>
-              </el-input>
-            </el-form-item>
-            <el-form-item label="构建命令" required>
-              <el-input v-model="draft.backendBuildCommand" :disabled="running" placeholder="例如：mvn clean package" />
-            </el-form-item>
+          <div class="engineering-grid">
+            <section class="engineering-card frontend-card">
+              <header class="engineering-card-header">
+                <div>
+                  <span class="engineering-kicker">FRONTEND</span>
+                  <h3>前端工程</h3>
+                </div>
+                <span class="engineering-index">01</span>
+              </header>
+
+              <el-form-item label="工程目录" required>
+                <el-input v-model="draft.frontendProjectPath" :disabled="running" placeholder="前端工程绝对路径">
+                  <template #append><el-button :icon="FolderOpened" :disabled="running" @click="chooseFrontendProject">选择</el-button></template>
+                </el-input>
+              </el-form-item>
+              <el-form-item required>
+                <template #label>
+                  <div class="command-label-row">
+                    <span>构建命令</span>
+                    <el-popover
+                      placement="bottom-start"
+                      trigger="click"
+                      :width="440"
+                      :teleported="true"
+                      popper-class="release-package-command-examples"
+                    >
+                      <template #reference>
+                        <el-button type="primary" text size="small">常用示例</el-button>
+                      </template>
+                      <div class="command-example-list">
+                        <article v-for="example in RELEASE_PACKAGE_COMMAND_EXAMPLES" :key="example.id" class="command-example-item">
+                          <div class="command-example-heading">
+                            <strong>{{ example.title }}</strong>
+                            <el-button :icon="CopyDocument" size="small" @click="copyCommandExample(example.command)">复制</el-button>
+                          </div>
+                          <p>{{ example.description }}</p>
+                          <pre>{{ example.command }}</pre>
+                        </article>
+                      </div>
+                    </el-popover>
+                  </div>
+                </template>
+                <el-input
+                  v-model="draft.frontendBuildCommand"
+                  class="command-input"
+                  type="textarea"
+                  :autosize="{ minRows: 4, maxRows: 9 }"
+                  :disabled="running"
+                  placeholder="例如：pnpm build"
+                />
+                <p class="command-hint">多行命令将在同一 PowerShell 会话中顺序执行，前面设置的环境变量可在后续命令中复用。</p>
+              </el-form-item>
+              <div class="artifact-grid">
+                <el-form-item label="产物路径" required>
+                  <el-input v-model="draft.frontendArtifactPath" :disabled="running" placeholder="相对工程目录，可为文件或目录" />
+                </el-form-item>
+                <el-form-item label="产物处理方式" required>
+                  <el-select v-model="draft.frontendArtifactMode" :disabled="running" class="full-width">
+                    <el-option label="直接复制目录" value="copy_directory" />
+                    <el-option label="压缩为 ZIP" value="zip_directory" />
+                  </el-select>
+                </el-form-item>
+              </div>
+            </section>
+
+            <section class="engineering-card backend-card">
+              <header class="engineering-card-header">
+                <div>
+                  <span class="engineering-kicker">BACKEND</span>
+                  <h3>后端工程</h3>
+                </div>
+                <span class="engineering-index">02</span>
+              </header>
+
+              <el-form-item label="工程目录" required>
+                <el-input v-model="draft.backendProjectPath" :disabled="running" placeholder="后端工程绝对路径">
+                  <template #append><el-button :icon="FolderOpened" :disabled="running" @click="chooseBackendProject">选择</el-button></template>
+                </el-input>
+              </el-form-item>
+              <el-form-item required>
+                <template #label>
+                  <div class="command-label-row">
+                    <span>构建命令</span>
+                    <el-popover
+                      placement="bottom-start"
+                      trigger="click"
+                      :width="440"
+                      :teleported="true"
+                      popper-class="release-package-command-examples"
+                    >
+                      <template #reference>
+                        <el-button type="primary" text size="small">常用示例</el-button>
+                      </template>
+                      <div class="command-example-list">
+                        <article v-for="example in RELEASE_PACKAGE_COMMAND_EXAMPLES" :key="example.id" class="command-example-item">
+                          <div class="command-example-heading">
+                            <strong>{{ example.title }}</strong>
+                            <el-button :icon="CopyDocument" size="small" @click="copyCommandExample(example.command)">复制</el-button>
+                          </div>
+                          <p>{{ example.description }}</p>
+                          <pre>{{ example.command }}</pre>
+                        </article>
+                      </div>
+                    </el-popover>
+                  </div>
+                </template>
+                <el-input
+                  v-model="draft.backendBuildCommand"
+                  class="command-input"
+                  type="textarea"
+                  :autosize="{ minRows: 4, maxRows: 9 }"
+                  :disabled="running"
+                  placeholder="例如：mvn clean package"
+                />
+                <p class="command-hint">
+                  多行命令将在同一 PowerShell 会话中顺序执行，环境变量可复用；关键外部工具失败后请检查 $LASTEXITCODE。
+                </p>
+              </el-form-item>
+              <el-form-item label="产物路径" required>
+                <el-input v-model="draft.backendArtifactPath" :disabled="running" placeholder="相对工程目录，可为文件或目录" />
+              </el-form-item>
+            </section>
           </div>
-          <el-form-item label="产物路径" required>
-            <el-input v-model="draft.backendArtifactPath" :disabled="running" placeholder="相对工程目录，可为文件或目录" />
-          </el-form-item>
         </el-form>
       </main>
     </div>
 
-    <section ref="logContainer" class="release-package-log" aria-live="polite" aria-label="打包日志">
-      <div v-if="logs.length === 0" class="log-empty">暂无运行日志</div>
-      <div v-for="(entry, index) in logs" :key="`${entry.runId}-${index}`" class="log-line" :class="{ stderr: entry.stream === 'stderr' }">
-        <span class="log-meta">[{{ entry.phase }}] [{{ entry.stream }}]</span>
-        <span>{{ entry.line }}</span>
+    <section class="release-package-log-card">
+      <header class="log-card-header">
+        <div>
+          <h3>运行日志</h3>
+          <p>按执行顺序记录构建、归档及异常输出。</p>
+        </div>
+        <el-tag class="log-status-tag" :type="statusTagTypes[status]" effect="plain" size="small">
+          {{ statusLabels[status] }}
+        </el-tag>
+      </header>
+      <div ref="logContainer" class="release-package-log" aria-live="polite" aria-label="打包日志">
+        <div v-if="logs.length === 0" class="log-empty">暂无运行日志</div>
+        <div v-for="(entry, index) in logs" :key="`${entry.runId}-${index}`" class="log-line" :class="{ stderr: entry.stream === 'stderr' }">
+          <span class="log-meta">[{{ entry.phase }}] [{{ entry.stream }}]</span>
+          <span>{{ entry.line }}</span>
+        </div>
       </div>
     </section>
 
@@ -120,7 +218,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
-import { Delete, DocumentChecked, FolderOpened, Plus, Refresh, VideoPause, VideoPlay } from "@element-plus/icons-vue";
+import { CopyDocument, Delete, DocumentChecked, FolderOpened, Plus, Refresh, VideoPause, VideoPlay } from "@element-plus/icons-vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invokeToolByChannel } from "../bridge/tauri";
@@ -130,9 +228,11 @@ import type {
   ReleasePackagePrepareResult,
   ReleasePackageProject,
   ReleasePackageProjectDraft,
+  ReleasePackageRunStatus,
   ReleasePackageStartResult,
 } from "../types/release-package";
 import {
+  RELEASE_PACKAGE_COMMAND_EXAMPLES,
   createEmptyReleasePackageDraft,
   isReleasePackageDraftDirty,
   projectToReleasePackageDraft,
@@ -155,6 +255,20 @@ const runtime = useReleasePackageRuntime();
 const logs = runtime.logs;
 const status = runtime.status;
 const archivePath = runtime.archivePath;
+const statusLabels: Record<ReleasePackageRunStatus, string> = {
+  idle: "未运行",
+  running: "运行中",
+  succeeded: "已完成",
+  failed: "失败",
+  cancelled: "已终止",
+};
+const statusTagTypes: Record<ReleasePackageRunStatus, "primary" | "success" | "info" | "warning" | "danger"> = {
+  idle: "info",
+  running: "primary",
+  succeeded: "success",
+  failed: "danger",
+  cancelled: "warning",
+};
 
 const selectedProject = computed(() => projects.value.find((item) => item.id === selectedId.value) ?? null);
 const dirty = computed(() => isReleasePackageDraftDirty(selectedProject.value, draft));
@@ -170,6 +284,15 @@ const archivePathPreview = computed(() => {
 
 function showError(error: unknown): void {
   ElMessage.error(error instanceof Error ? error.message : String(error));
+}
+
+async function copyCommandExample(command: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(command);
+    ElMessage.success("命令示例已复制");
+  } catch (error) {
+    showError(error);
+  }
 }
 
 async function loadProjects(): Promise<boolean> {
@@ -424,46 +547,178 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.release-package-panel { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
-.release-package-toolbar { display: flex; align-items: center; gap: 8px; }
-.toolbar-label { flex: none; color: var(--lc-text-secondary, #606266); font-size: 13px; }
+.release-package-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+}
+.release-package-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid #e4e7ed;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 2px 10px rgb(31 45 61 / 4%);
+}
+.toolbar-label { flex: none; color: var(--lc-text-secondary, #606266); font-size: 13px; font-weight: 600; }
 .release-package-root { flex: 1; min-width: 0; }
-.release-package-workspace { display: grid; grid-template-columns: 220px minmax(0, 1fr); min-height: 0; border-top: 1px solid var(--lc-border, #e5e7eb); }
-.release-package-projects { padding: 12px 12px 12px 0; border-right: 1px solid var(--lc-border, #e5e7eb); }
-.projects-heading, .editor-header, .editor-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.release-package-workspace {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid #e4e7ed;
+  border-radius: 10px;
+  background: #f7f8fa;
+  box-shadow: 0 4px 18px rgb(31 45 61 / 5%);
+}
+.release-package-projects {
+  padding: 14px 12px;
+  border-right: 1px solid #e4e7ed;
+  background: #fbfcfd;
+}
+.projects-heading, .editor-header, .editor-actions, .engineering-card-header, .command-label-row, .log-card-header, .command-example-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.projects-heading { margin-bottom: 8px; color: #303133; }
 .projects-empty, .log-empty, .editor-hint { color: var(--lc-text-secondary, #909399); font-size: 13px; }
-.project-item { display: flex; width: 100%; flex-direction: column; align-items: flex-start; gap: 3px; padding: 9px 10px; border: 0; border-radius: 4px; color: inherit; background: transparent; cursor: pointer; text-align: left; }
-.project-item:hover, .project-item.active { background: var(--el-fill-color-light, #f5f7fa); }
-.project-item.active { color: var(--el-color-primary, #409eff); }
+.project-item {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  margin-top: 4px;
+  padding: 9px 10px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+.project-item:hover { border-color: #dcdfe6; background: #fff; }
+.project-item.active { border-color: #b9d7fb; color: var(--el-color-primary, #409eff); background: #eef6ff; }
 .project-item:disabled { cursor: not-allowed; opacity: .65; }
 .project-name { overflow: hidden; max-width: 100%; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .project-updated { color: var(--lc-text-secondary, #909399); font-size: 11px; }
-.release-package-editor { min-width: 0; padding: 12px 0 0 16px; }
-.editor-header { align-items: flex-start; margin-bottom: 4px; }
-.editor-header h2 { margin: 0 0 4px; font-size: 18px; }
+.release-package-editor { min-width: 0; padding: 18px; }
+.editor-header { align-items: flex-start; margin-bottom: 14px; }
+.editor-header h2 { margin: 0 0 4px; color: #303133; font-size: 18px; }
 .editor-actions { flex-wrap: wrap; justify-content: flex-end; }
 .release-package-form { min-width: 0; }
-.release-package-form :deep(.el-divider) { margin: 16px 0 12px; }
-.release-package-form :deep(.el-form-item) { margin-bottom: 12px; }
-.form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.release-package-form :deep(.el-form-item) { margin-bottom: 14px; }
+.project-basics, .engineering-card {
+  border: 1px solid #e4e7ed;
+  border-radius: 9px;
+  background: #fff;
+  box-shadow: 0 2px 10px rgb(31 45 61 / 4%);
+}
+.project-basics { margin-bottom: 14px; padding: 14px 16px 0; }
+.engineering-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr));
+  gap: 14px;
+  align-items: start;
+}
+.engineering-card { min-width: 0; padding: 16px 16px 2px; }
+.engineering-card-header { align-items: flex-start; margin-bottom: 16px; padding-bottom: 11px; border-bottom: 1px solid #ebeef5; }
+.engineering-card-header h3 { margin: 2px 0 0; color: #303133; font-size: 16px; }
+.engineering-kicker { color: var(--el-color-primary, #409eff); font-size: 10px; font-weight: 700; letter-spacing: .12em; }
+.engineering-index { color: #c0c4cc; font: 600 20px/1 var(--lc-font-mono, Consolas, monospace); }
+.command-label-row { width: 100%; }
+.command-label-row :deep(.el-button) { height: auto; min-height: 22px; padding: 2px 4px; }
+.command-input { width: 100%; }
+.command-input :deep(.el-textarea__inner) {
+  resize: vertical;
+  font-family: var(--lc-font-mono, Consolas, monospace);
+  line-height: 1.55;
+}
+.command-hint { margin: 7px 0 0; color: #909399; font-size: 12px; line-height: 1.55; }
+.artifact-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(150px, .65fr); gap: 12px; }
 .full-width { width: 100%; }
-.release-package-log { min-height: 180px; max-height: 320px; overflow: auto; padding: 12px; color: #d7dae0; background: #1f2329; font: 12px/1.6 var(--lc-font-mono, Consolas, monospace); }
+.release-package-log-card {
+  overflow: hidden;
+  border: 1px solid #e4e7ed;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 2px 12px rgb(31 45 61 / 5%);
+}
+.log-card-header { padding: 12px 14px; border-bottom: 1px solid #ebeef5; }
+.log-card-header h3 { margin: 0 0 3px; color: #303133; font-size: 15px; }
+.log-card-header p { margin: 0; color: #909399; font-size: 12px; }
+.log-status-tag { flex: none; }
+.release-package-log {
+  min-height: 180px;
+  max-height: 320px;
+  overflow: auto;
+  padding: 12px 14px;
+  color: #303133;
+  background: #fff;
+  font: 12px/1.65 var(--lc-font-mono, Consolas, monospace);
+}
 .log-line { display: flex; gap: 8px; white-space: pre-wrap; word-break: break-word; }
-.log-line.stderr { color: #f56c6c; }
-.log-meta { flex: none; color: #98a2b3; }
+.log-line.stderr { color: #d03050; }
+.log-meta { flex: none; color: #909399; }
 .archive-preview { margin: 0; overflow-wrap: anywhere; color: var(--lc-text-secondary, #606266); font-size: 13px; }
+
+:global(.release-package-command-examples) {
+  max-width: calc(100vw - 32px);
+  padding: 10px !important;
+  border-color: #dcdfe6 !important;
+  background: #fff !important;
+  box-shadow: 0 10px 30px rgb(31 45 61 / 14%) !important;
+}
+:global(.release-package-command-examples .command-example-list) {
+  display: grid;
+  gap: 8px;
+  max-height: min(560px, calc(100vh - 120px));
+  overflow: auto;
+}
+:global(.release-package-command-examples .command-example-item) {
+  padding: 10px;
+  border: 1px solid #e4e7ed;
+  border-radius: 7px;
+  color: #303133;
+  background: #fff;
+}
+:global(.release-package-command-examples .command-example-heading) { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+:global(.release-package-command-examples .command-example-heading strong) { font-size: 13px; }
+:global(.release-package-command-examples .command-example-item p) { margin: 5px 0 8px; color: #606266; font-size: 12px; line-height: 1.5; }
+:global(.release-package-command-examples .command-example-item pre) {
+  overflow-x: auto;
+  margin: 0;
+  padding: 9px 10px;
+  border: 1px solid #ebeef5;
+  border-radius: 5px;
+  color: #303133;
+  background: #f7f8fa;
+  font: 11px/1.55 var(--lc-font-mono, Consolas, monospace);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
 @media (max-width: 960px) {
   .release-package-toolbar { flex-wrap: wrap; }
   .release-package-root { flex-basis: calc(100% - 84px); }
   .release-package-workspace { grid-template-columns: 1fr; }
-  .release-package-projects { display: flex; gap: 8px; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--lc-border, #e5e7eb); }
+  .release-package-projects { display: flex; gap: 8px; overflow-x: auto; border-right: 0; border-bottom: 1px solid #e4e7ed; }
   .projects-heading { flex: none; flex-direction: column; align-items: flex-start; }
   .project-item { flex: 0 0 150px; }
-  .release-package-editor { padding-left: 0; }
+  .release-package-editor { padding: 14px; }
 }
 @media (max-width: 640px) {
-  .form-grid { grid-template-columns: 1fr; gap: 0; }
   .editor-header { flex-direction: column; }
   .editor-actions { justify-content: flex-start; }
+  .artifact-grid { grid-template-columns: 1fr; gap: 0; }
+  .release-package-toolbar { padding: 10px; }
+  .release-package-editor { padding: 10px; }
+  .engineering-card { padding: 14px 12px 0; }
+  .log-card-header { align-items: flex-start; }
 }
 </style>

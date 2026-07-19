@@ -70,4 +70,38 @@ describe("ReleasePackagePanel", () => {
     expect(clearDraft).toBeGreaterThan(clearSelection);
     expect(refresh).toBeGreaterThan(clearDraft);
   });
+
+  it("uses a responsive engineering workspace with multiline command editors", () => {
+    expect(source).toContain('class="engineering-grid"');
+    expect(source).toContain('class="engineering-card frontend-card"');
+    expect(source).toContain('class="engineering-card backend-card"');
+    expect(source.match(/type="textarea"/g)).toHaveLength(2);
+    expect(source.match(/:autosize="\{ minRows: 4, maxRows: 9 \}"/g)).toHaveLength(2);
+    expect(source).toContain("同一 PowerShell 会话中顺序执行");
+    expect(source).toContain("$LASTEXITCODE");
+  });
+
+  it("renders command examples and reports clipboard failures", () => {
+    expect(source).toContain("RELEASE_PACKAGE_COMMAND_EXAMPLES");
+    expect(source.match(/常用示例/g)?.length).toBeGreaterThanOrEqual(2);
+    expect(source).toContain("CopyDocument");
+    expect(source).toContain("async function copyCommandExample(command: string)");
+    expect(source).toContain("await navigator.clipboard.writeText(command)");
+    expect(source).toContain('ElMessage.success("命令示例已复制")');
+    expect(source).toContain("showError(error)");
+    expect(source).toContain('popper-class="release-package-command-examples"');
+    expect(source).toContain(":global(.release-package-command-examples)");
+  });
+
+  it("wraps logs in a white status card", () => {
+    expect(source).toContain('class="release-package-log-card"');
+    expect(source).toContain('class="log-status-tag"');
+    expect(source).toContain("statusLabels");
+    for (const label of ["未运行", "运行中", "已完成", "失败", "已终止"]) {
+      expect(source).toContain(label);
+    }
+    expect(source).toMatch(/\.release-package-log\s*\{[^}]*background:\s*#fff;/s);
+    expect(source).toContain('ref="logContainer"');
+    expect(source).toContain('aria-live="polite"');
+  });
 });
