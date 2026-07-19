@@ -17,6 +17,9 @@ export const DEFAULT_VAULT_LOCK_PROFILE: VaultLockProfile = "balanced";
 const settings = reactive<Record<string, string>>({});
 const loaded = ref(false);
 const loadPromise = ref<Promise<void> | null>(null);
+const settingPersistenceQueues = new Map<string, Promise<void>>();
+const committedSettings = new Map<string, string | undefined>();
+const settingVersions = new Map<string, number>();
 
 // 新增：开机自启动相关状态
 const autostartEnabled = ref(false);
@@ -93,20 +96,50 @@ export function getSettingJson<T>(key: string, fallback: T): T {
  * then persists to SQLite asynchronously.
  */
 export function setSetting(key: string, value: string): void {
-  void setSettingAndWait(key, value).catch(() => {
-    // Preserve the existing fire-and-forget API.
+  void persistSetting(key, value, false).catch(() => {
+    // Preserve the existing fire-and-forget API and in-memory value on failure.
   });
 }
 
 export async function setSettingAndWait(key: string, value: string): Promise<void> {
-  const previous = settings[key];
+  await persistSetting(key, value, true);
+}
+
+function persistSetting(key: string, value: string, rollbackOnFailure: boolean): Promise<void> {
+  if (!committedSettings.has(key)) {
+    committedSettings.set(key, settings[key]);
+  }
+  const version = (settingVersions.get(key) ?? 0) + 1;
+  settingVersions.set(key, version);
   settings[key] = value;
-  try {
-    await invokeToolByChannel("tool:settings:set", { key, value });
-  } catch (error) {
-    if (previous === undefined) delete settings[key];
-    else settings[key] = previous;
-    throw error;
+
+  const persist = async (): Promise<void> => {
+    try {
+      await invokeToolByChannel("tool:settings:set", { key, value });
+      committedSettings.set(key, value);
+    } catch (error) {
+      if (rollbackOnFailure && settingVersions.get(key) === version) {
+        const committed = committedSettings.get(key);
+        if (committed === undefined) delete settings[key];
+        else settings[key] = committed;
+      }
+      throw error;
+    }
+  };
+  const previous = settingPersistenceQueues.get(key);
+  const operation = previous ? previous.catch(() => undefined).then(persist) : persist();
+
+  settingPersistenceQueues.set(key, operation);
+  void operation.then(
+    () => clearSettingPersistenceQueue(key, operation),
+    () => clearSettingPersistenceQueue(key, operation),
+  );
+  return operation;
+}
+
+function clearSettingPersistenceQueue(key: string, operation: Promise<void>): void {
+  if (settingPersistenceQueues.get(key) === operation) {
+    settingPersistenceQueues.delete(key);
   }
 }
 

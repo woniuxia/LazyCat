@@ -73,4 +73,69 @@ describe("setSettingAndWait", () => {
       value: "D:\\background",
     });
   });
+
+  it("serializes concurrent writes for the same key", async () => {
+    const first = deferred<{ ok: boolean }>();
+    const second = deferred<{ ok: boolean }>();
+    invokeMock.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+
+    const firstWrite = setSettingAndWait("release_package.serial", "first");
+    const secondWrite = setSettingAndWait("release_package.serial", "second");
+    await Promise.resolve();
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+
+    first.resolve({ ok: true });
+    await firstWrite;
+    await Promise.resolve();
+    expect(invokeMock).toHaveBeenCalledTimes(2);
+
+    second.resolve({ ok: true });
+    await secondWrite;
+    expect(getSetting("release_package.serial")).toBe("second");
+  });
+
+  it("does not let an older failed write overwrite a newer value", async () => {
+    const first = deferred<{ ok: boolean }>();
+    invokeMock.mockReturnValueOnce(first.promise).mockResolvedValueOnce({ ok: true });
+
+    const firstWrite = setSettingAndWait("release_package.stale_failure", "first");
+    const secondWrite = setSettingAndWait("release_package.stale_failure", "second");
+    first.reject(new Error("first failed"));
+
+    await expect(firstWrite).rejects.toThrow("first failed");
+    await secondWrite;
+    expect(getSetting("release_package.stale_failure")).toBe("second");
+  });
+
+  it("restores the latest committed value when the newest write fails", async () => {
+    invokeMock.mockResolvedValueOnce({ ok: true }).mockRejectedValueOnce(new Error("second failed"));
+
+    const firstWrite = setSettingAndWait("release_package.committed", "first");
+    const secondWrite = setSettingAndWait("release_package.committed", "second");
+    await firstWrite;
+    await expect(secondWrite).rejects.toThrow("second failed");
+    expect(getSetting("release_package.committed")).toBe("first");
+  });
+
+  it("restores the original value when all concurrent writes fail", async () => {
+    invokeMock
+      .mockRejectedValueOnce(new Error("first failed"))
+      .mockRejectedValueOnce(new Error("second failed"));
+
+    const firstWrite = setSettingAndWait("release_package.all_failed", "first");
+    const secondWrite = setSettingAndWait("release_package.all_failed", "second");
+    const results = await Promise.allSettled([firstWrite, secondWrite]);
+
+    expect(results.every((result) => result.status === "rejected")).toBe(true);
+    expect(getSetting("release_package.all_failed")).toBeUndefined();
+  });
+
+  it("keeps the in-memory value when fire-and-forget persistence fails", async () => {
+    invokeMock.mockRejectedValueOnce(new Error("background failed"));
+
+    setSetting("release_package.background_failure", "value");
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(getSetting("release_package.background_failure")).toBe("value");
+  });
 });
