@@ -1,5 +1,7 @@
 #[cfg(test)]
 mod tests {
+    use std::error::Error;
+    use std::fmt;
     use std::net::IpAddr;
 
     use hyper::http::{
@@ -11,7 +13,47 @@ mod tests {
     };
     use url::Url;
 
-    use super::{build_target_uri, rebuild_forward_headers, replace_host_header, strip_hop_by_hop};
+    use super::{
+        build_target_uri, format_error_chain, rebuild_forward_headers, replace_host_header,
+        strip_hop_by_hop,
+    };
+
+    #[derive(Debug)]
+    struct ChainedTestError {
+        message: &'static str,
+        source: Option<Box<ChainedTestError>>,
+    }
+
+    impl fmt::Display for ChainedTestError {
+        fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            formatter.write_str(self.message)
+        }
+    }
+
+    impl Error for ChainedTestError {
+        fn source(&self) -> Option<&(dyn Error + 'static)> {
+            self.source.as_deref().map(|source| source as &dyn Error)
+        }
+    }
+
+    #[test]
+    fn formats_error_source_chain_without_duplicate_messages() {
+        let error = ChainedTestError {
+            message: "client error (Connect)",
+            source: Some(Box::new(ChainedTestError {
+                message: "client error (Connect)",
+                source: Some(Box::new(ChainedTestError {
+                    message: "invalid peer certificate: certificate not valid for name",
+                    source: None,
+                })),
+            })),
+        };
+
+        assert_eq!(
+            format_error_chain(&error),
+            "client error (Connect): invalid peer certificate: certificate not valid for name"
+        );
+    }
 
     #[test]
     fn joins_base_path_and_inbound_path_and_query() {
@@ -330,11 +372,11 @@ use hyper::body::{Body, Frame, Incoming};
 use hyper::http::header::{CONNECTION, CONTENT_LENGTH, UPGRADE};
 use hyper::service::service_fn;
 use hyper::{Request, Response, StatusCode};
-use hyper_rustls::{HttpsConnector, HttpsConnectorBuilder};
+use hyper_rustls::{ConfigBuilderExt, HttpsConnector, HttpsConnectorBuilder};
 use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::client::legacy::Client;
 use hyper_util::rt::{TokioExecutor, TokioIo};
-use rustls::ClientConfig;
+use rustls::{ClientConfig, RootCertStore};
 use tokio::net::TcpListener;
 use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
@@ -355,13 +397,21 @@ type ProxyError = Box<dyn Error + Send + Sync>;
 type ProxyBody = BoxBody<Bytes, ProxyError>;
 type DownstreamConnector = HttpsConnector<HttpConnector>;
 type HttpClient = Client<DownstreamConnector, ProxyBody>;
+type TlsConfigLoader = Arc<dyn Fn() -> Result<ClientConfig, String> + Send + Sync>;
+
+fn load_native_tls_config() -> Result<ClientConfig, String> {
+    Ok(ClientConfig::builder()
+        .with_native_roots()
+        .map_err(|error| format!("无法加载系统 TLS 根证书: {error}"))?
+        .with_no_client_auth())
+}
 
 pub(crate) struct HttpRuleRunner {
     next_handle: AtomicU64,
     running: Mutex<HashMap<u64, HttpRunningRule>>,
     connection_limit: usize,
     pre_response_timeout: Duration,
-    tls_config: Option<Arc<ClientConfig>>,
+    tls_config_loader: TlsConfigLoader,
 }
 
 struct HttpRunningRule {
@@ -405,13 +455,17 @@ impl HttpRuleRunner {
     }
 
     fn with_options(connection_limit: usize, pre_response_timeout: Duration) -> Self {
-        Self::with_options_and_tls(connection_limit, pre_response_timeout, None)
+        Self::with_options_and_tls_loader(
+            connection_limit,
+            pre_response_timeout,
+            Arc::new(load_native_tls_config),
+        )
     }
 
-    fn with_options_and_tls(
+    fn with_options_and_tls_loader(
         connection_limit: usize,
         pre_response_timeout: Duration,
-        tls_config: Option<Arc<ClientConfig>>,
+        tls_config_loader: TlsConfigLoader,
     ) -> Self {
         assert!(
             connection_limit > 0,
@@ -422,16 +476,27 @@ impl HttpRuleRunner {
             running: Mutex::new(HashMap::new()),
             connection_limit,
             pre_response_timeout,
-            tls_config,
+            tls_config_loader,
         }
     }
 
     #[cfg(test)]
     pub(crate) fn with_tls_config_for_test(tls_config: Arc<ClientConfig>) -> Self {
-        Self::with_options_and_tls(
+        Self::with_options_and_tls_loader(
             HTTP_MAX_CONNECTIONS_PER_RULE,
             HTTP_PRE_RESPONSE_TIMEOUT,
-            Some(tls_config),
+            Arc::new(move || Ok((*tls_config).clone())),
+        )
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_tls_config_loader_for_test(
+        loader: impl Fn() -> Result<ClientConfig, String> + Send + Sync + 'static,
+    ) -> Self {
+        Self::with_options_and_tls_loader(
+            HTTP_MAX_CONNECTIONS_PER_RULE,
+            HTTP_PRE_RESPONSE_TIMEOUT,
+            Arc::new(loader),
         )
     }
 
@@ -493,26 +558,24 @@ impl HttpRuleRunner {
             .ok_or_else(|| "等待 HTTP 转发统计超时".to_string())
     }
 
-    fn connector(&self) -> Result<DownstreamConnector, String> {
+    fn connector(&self, target_scheme: &str) -> Result<DownstreamConnector, String> {
         let mut http = HttpConnector::new();
         // Windows 对不可达地址的异步 connect 可能长时间保持 pending；连接阶段必须有独立上限。
         http.set_connect_timeout(Some(HTTP_CONNECT_TIMEOUT));
         // hyper-rustls 的 wrap_connector 不会调整自定义 HttpConnector 的 scheme 限制。
         http.enforce_http(false);
-        let connector = match self.tls_config.as_ref() {
-            Some(tls_config) => HttpsConnectorBuilder::new()
-                .with_tls_config((**tls_config).clone())
-                .https_or_http()
-                .enable_http1()
-                .wrap_connector(http),
-            None => HttpsConnectorBuilder::new()
-                .with_native_roots()
-                .map_err(|error| format!("无法加载系统 TLS 根证书: {error}"))?
-                .https_or_http()
-                .enable_http1()
-                .wrap_connector(http),
+        let tls_config = match target_scheme {
+            "http" => ClientConfig::builder()
+                .with_root_certificates(RootCertStore::empty())
+                .with_no_client_auth(),
+            "https" => (self.tls_config_loader)()?,
+            _ => return Err("HTTP 目标 URL 仅支持 http 或 https".into()),
         };
-        Ok(connector)
+        Ok(HttpsConnectorBuilder::new()
+            .with_tls_config(tls_config)
+            .https_or_http()
+            .enable_http1()
+            .wrap_connector(http))
     }
 }
 
@@ -528,7 +591,7 @@ impl RuleRunner for HttpRuleRunner {
             .ok_or_else(|| "HTTP 规则缺少目标 URL".to_string())?
             .parse::<Url>()
             .map_err(|_| "HTTP 目标 URL 格式不正确".to_string())?;
-        let connector = self.connector()?;
+        let connector = self.connector(target_url.scheme())?;
         let std_listener = StdTcpListener::bind(SocketAddr::new(bind_ip, rule.listen_port))
             .map_err(|error| format!("HTTP 监听绑定失败: {error}"))?;
         std_listener
@@ -792,7 +855,7 @@ async fn forward_request(
         response = timeout(pre_response_timeout, client.request(outbound)) => match response {
             Ok(Ok(response)) => response,
             Ok(Err(error)) => {
-                let error = format!("连接下游 HTTP 服务失败: {error}");
+                let error = format!("连接下游 HTTP 服务失败: {}", format_error_chain(&error));
                 trace.downstream_failed(error.clone());
                 return Ok(text_response(StatusCode::BAD_GATEWAY, &error));
             }
@@ -811,6 +874,22 @@ async fn forward_request(
         parts,
         observe_response_body(body, trace, cancellation),
     ))
+}
+
+fn format_error_chain(error: &(dyn Error + 'static)) -> String {
+    let mut messages = Vec::new();
+    let mut current = Some(error);
+    for _ in 0..16 {
+        let Some(cause) = current else {
+            break;
+        };
+        let message = cause.to_string();
+        if !messages.iter().any(|existing| existing == &message) {
+            messages.push(message);
+        }
+        current = cause.source();
+    }
+    messages.join(": ")
 }
 
 fn observe_request_body(body: Incoming, trace: Arc<HttpRequestTrace>) -> ProxyBody {
@@ -1012,6 +1091,7 @@ fn worker_panic_error(payload: Box<dyn Any + Send>) -> String {
 mod integration_tests {
     use std::io::{Read, Write};
     use std::net::{SocketAddr, TcpListener, TcpStream};
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::mpsc;
     use std::sync::Arc;
     use std::thread::{self, JoinHandle};
@@ -1037,6 +1117,7 @@ mod integration_tests {
 
     const SOCKET_TIMEOUT: Duration = Duration::from_secs(2);
     const RESPONSE_TIMEOUT: Duration = Duration::from_millis(80);
+    const TLS_FIXTURE_ACCEPT_TIMEOUT: Duration = Duration::from_millis(500);
 
     fn http_rule(
         id: i64,
@@ -1268,10 +1349,49 @@ mod integration_tests {
         (key, certificate.build())
     }
 
+    struct TlsFixture {
+        address: SocketAddr,
+        client_config: ClientConfig,
+        result_rx: mpsc::Receiver<Result<(), String>>,
+        worker: Option<JoinHandle<()>>,
+    }
+
+    impl TlsFixture {
+        fn finish(mut self) -> Result<(), String> {
+            let result = match self.result_rx.recv_timeout(SOCKET_TIMEOUT) {
+                Ok(result) => result,
+                Err(mpsc::RecvTimeoutError::Timeout) => {
+                    let _ = TcpStream::connect_timeout(&self.address, RESPONSE_TIMEOUT);
+                    self.result_rx
+                        .recv_timeout(SOCKET_TIMEOUT)
+                        .map_err(|error| {
+                            format!("TLS fixture did not finish after wake-up: {error}")
+                        })?
+                }
+                Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    Err("TLS fixture worker exited without a result".into())
+                }
+            };
+
+            let worker = self.worker.take().expect("TLS fixture worker exists");
+            let join_deadline = std::time::Instant::now() + SOCKET_TIMEOUT;
+            while !worker.is_finished() && std::time::Instant::now() < join_deadline {
+                thread::sleep(Duration::from_millis(5));
+            }
+            if !worker.is_finished() {
+                return Err("TLS fixture worker did not exit within the timeout".into());
+            }
+            worker
+                .join()
+                .map_err(|_| "TLS fixture worker panicked".to_string())?;
+            result
+        }
+    }
+
     fn accept_tls_once(
         trust_ipv4_loopback: bool,
         handler: impl FnOnce(&mut openssl::ssl::SslStream<TcpStream>) + Send + 'static,
-    ) -> (SocketAddr, ClientConfig, JoinHandle<()>) {
+    ) -> TlsFixture {
         let (ca_key, ca) = fixture_ca();
         let (server_key, server_certificate) =
             fixture_server_certificate(&ca_key, &ca, trust_ipv4_loopback);
@@ -1300,13 +1420,49 @@ mod integration_tests {
 
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind HTTPS fixture");
         let address = listener.local_addr().expect("read HTTPS fixture address");
+        listener
+            .set_nonblocking(true)
+            .expect("make HTTPS fixture listener non-blocking");
+        let (result_tx, result_rx) = mpsc::sync_channel(1);
         let worker = thread::spawn(move || {
-            let (stream, _) = listener.accept().expect("accept HTTPS fixture connection");
-            if let Ok(mut stream) = acceptor.accept(stream) {
-                handler(&mut stream);
-            }
+            let deadline = std::time::Instant::now() + TLS_FIXTURE_ACCEPT_TIMEOUT;
+            let result = loop {
+                match listener.accept() {
+                    Ok((stream, _)) => {
+                        if let Err(error) = stream.set_nonblocking(false) {
+                            break Err(format!("make TLS fixture stream blocking failed: {error}"));
+                        }
+                        if let Err(error) = stream.set_read_timeout(Some(SOCKET_TIMEOUT)) {
+                            break Err(format!("set TLS fixture read timeout failed: {error}"));
+                        }
+                        if let Err(error) = stream.set_write_timeout(Some(SOCKET_TIMEOUT)) {
+                            break Err(format!("set TLS fixture write timeout failed: {error}"));
+                        }
+                        break match acceptor.accept(stream) {
+                            Ok(mut stream) => {
+                                handler(&mut stream);
+                                Ok(())
+                            }
+                            Err(error) => Err(format!("TLS fixture handshake failed: {error}")),
+                        };
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        if std::time::Instant::now() >= deadline {
+                            break Err("TLS fixture accept timeout".into());
+                        }
+                        thread::sleep(Duration::from_millis(5));
+                    }
+                    Err(error) => break Err(format!("TLS fixture accept failed: {error}")),
+                }
+            };
+            let _ = result_tx.send(result);
         });
-        (address, client_config, worker)
+        TlsFixture {
+            address,
+            client_config,
+            result_rx,
+            worker: Some(worker),
+        }
     }
 
     #[test]
@@ -1841,7 +1997,7 @@ mod integration_tests {
 
     #[test]
     fn https_forwards_through_a_trusted_fixture_ca() {
-        let (upstream_addr, tls_config, upstream) = accept_tls_once(true, |stream| {
+        let fixture = accept_tls_once(true, |stream| {
             let head = read_head(stream);
             let head_text = std::str::from_utf8(&head).expect("HTTPS request head text");
             assert!(head_text.starts_with("POST /api/items?tag=secure HTTP/1.1\r\n"));
@@ -1856,8 +2012,9 @@ mod integration_tests {
             assert_eq!(body, b"hello tls");
             write_response(stream, "200 OK", "text/plain", b"secure response");
         });
-        let rule = http_rule(10, format!("https://{upstream_addr}/api"), true, true);
-        let runner = HttpRuleRunner::with_tls_config_for_test(Arc::new(tls_config));
+        let rule = http_rule(10, format!("https://{}/api", fixture.address), true, true);
+        let runner =
+            HttpRuleRunner::with_tls_config_for_test(Arc::new(fixture.client_config.clone()));
         let handle = runner.start(&rule).expect("start HTTPS rule");
         let mut client = connect(runner.listener_addr(handle).expect("read HTTPS listener"));
         client
@@ -1874,17 +2031,18 @@ mod integration_tests {
             String::from_utf8_lossy(&body),
         );
         assert_eq!(body, b"secure response");
-        upstream.join().expect("join trusted HTTPS fixture");
+        fixture.finish().expect("finish trusted HTTPS fixture");
         runner.stop(handle).expect("stop HTTPS rule");
     }
 
     #[test]
     fn https_returns_502_when_the_certificate_hostname_is_wrong() {
-        let (upstream_addr, tls_config, upstream) = accept_tls_once(false, |_| {
+        let fixture = accept_tls_once(false, |_| {
             panic!("hostname-mismatched TLS connection must not send HTTP");
         });
-        let rule = http_rule(11, format!("https://{upstream_addr}"), false, false);
-        let runner = HttpRuleRunner::with_tls_config_for_test(Arc::new(tls_config));
+        let rule = http_rule(11, format!("https://{}", fixture.address), false, false);
+        let runner =
+            HttpRuleRunner::with_tls_config_for_test(Arc::new(fixture.client_config.clone()));
         let handle = runner
             .start(&rule)
             .expect("start hostname mismatch HTTPS rule");
@@ -1897,21 +2055,71 @@ mod integration_tests {
         assert!(std::str::from_utf8(&head)
             .expect("hostname mismatch response head text")
             .starts_with("HTTP/1.1 502"));
-        assert!(std::str::from_utf8(&body)
-            .expect("hostname mismatch response body text")
-            .contains("连接下游 HTTP 服务失败"));
+        let body_text = std::str::from_utf8(&body).expect("hostname mismatch response body text");
+        assert!(body_text.contains("连接下游 HTTP 服务失败"));
+        assert!(body_text.to_ascii_lowercase().contains("certificate"));
+        assert!(body_text
+            .to_ascii_lowercase()
+            .contains("not valid for name"));
         let snapshot = runner
             .wait_for_snapshot(handle, |snapshot| snapshot.error_count == 1)
             .expect("wait for hostname mismatch event");
-        assert!(snapshot
+        let failed = snapshot
             .events
             .iter()
-            .any(|event| event.kind == HttpEventKind::DownstreamFailed));
-        upstream
-            .join()
-            .expect("join hostname mismatch HTTPS fixture");
+            .find(|event| event.kind == HttpEventKind::DownstreamFailed)
+            .expect("hostname mismatch is recorded as downstream failure");
+        let observed_error = failed
+            .error
+            .as_deref()
+            .expect("TLS failure keeps error detail");
+        assert!(observed_error.to_ascii_lowercase().contains("certificate"));
+        assert!(observed_error
+            .to_ascii_lowercase()
+            .contains("not valid for name"));
+        let fixture_error = fixture
+            .finish()
+            .expect_err("hostname mismatch must fail the TLS fixture handshake");
+        assert!(fixture_error.contains("handshake failed"));
         runner
             .stop(handle)
             .expect("stop hostname mismatch HTTPS rule");
+    }
+
+    #[test]
+    fn tls_fixture_exits_within_timeout_without_a_client_connection() {
+        let fixture = accept_tls_once(true, |_| {});
+        let started = std::time::Instant::now();
+
+        let error = fixture
+            .finish()
+            .expect_err("unused TLS fixture must report an accept timeout");
+
+        assert!(error.contains("accept timeout"));
+        assert!(started.elapsed() < SOCKET_TIMEOUT + Duration::from_secs(1));
+    }
+
+    #[test]
+    fn http_start_does_not_load_tls_roots_but_https_start_does() {
+        let load_count = Arc::new(AtomicUsize::new(0));
+        let counted_loads = Arc::clone(&load_count);
+        let runner = HttpRuleRunner::with_tls_config_loader_for_test(move || {
+            counted_loads.fetch_add(1, Ordering::SeqCst);
+            Err("fixture native roots unavailable".into())
+        });
+        let http = http_rule(12, "http://127.0.0.1:9".into(), false, false);
+
+        let handle = runner
+            .start(&http)
+            .expect("plain HTTP starts without loading TLS roots");
+        assert_eq!(load_count.load(Ordering::SeqCst), 0);
+        runner.stop(handle).expect("stop plain HTTP rule");
+
+        let https = http_rule(13, "https://127.0.0.1:9".into(), false, false);
+        let error = runner
+            .start(&https)
+            .expect_err("HTTPS start must surface TLS root loading failure");
+        assert!(error.contains("fixture native roots unavailable"));
+        assert_eq!(load_count.load(Ordering::SeqCst), 1);
     }
 }
