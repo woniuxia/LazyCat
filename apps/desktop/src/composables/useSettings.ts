@@ -93,11 +93,21 @@ export function getSettingJson<T>(key: string, fallback: T): T {
  * then persists to SQLite asynchronously.
  */
 export function setSetting(key: string, value: string): void {
-  settings[key] = value;
-  // Async persist to SQLite, fire-and-forget
-  invokeToolByChannel("tool:settings:set", { key, value }).catch(() => {
-    // IPC failed, data remains in memory for current session
+  void setSettingAndWait(key, value).catch(() => {
+    // Preserve the existing fire-and-forget API.
   });
+}
+
+export async function setSettingAndWait(key: string, value: string): Promise<void> {
+  const previous = settings[key];
+  settings[key] = value;
+  try {
+    await invokeToolByChannel("tool:settings:set", { key, value });
+  } catch (error) {
+    if (previous === undefined) delete settings[key];
+    else settings[key] = previous;
+    throw error;
+  }
 }
 
 export function setVaultLockProfile(profile: VaultLockProfile): void {
