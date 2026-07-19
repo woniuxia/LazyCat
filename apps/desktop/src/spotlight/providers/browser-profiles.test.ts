@@ -66,6 +66,14 @@ describe("buildBrowserProfileSpotlightItem", () => {
     ]);
     expect(item.weight).toBeGreaterThan(1.08);
   });
+
+  it("uses a Chrome badge for Chrome profiles", () => {
+    const item = buildBrowserProfileSpotlightItem(
+      profile({ browser: "chrome", profileDir: "Profile 3" }),
+    );
+    expect(item.badge).toEqual({ short: "Chrome", tone: "primary" });
+    expect(item.payload?.browser).toBe("chrome");
+  });
 });
 
 describe("browserProfilesProvider", () => {

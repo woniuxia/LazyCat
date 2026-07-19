@@ -3,11 +3,9 @@ use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::PathBuf;
 
-const ACTIONS: &[&str] = &[
-    "split",
-    "merge",
-    "write_text",
-];
+const ACTIONS: &[&str] = &["split", "merge", "read_text", "write_text"];
+
+const MAX_TEXT_FILE_BYTES: u64 = 20 * 1024 * 1024;
 
 #[cfg(test)]
 pub(crate) fn supported_actions() -> &'static [&'static str] {
@@ -21,9 +19,23 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
     match action {
         "split" => file_split(payload),
         "merge" => file_merge(payload),
+        "read_text" => read_text(payload),
         "write_text" => write_text(payload),
         _ => Err(format!("unsupported file action: {action}")),
     }
+}
+
+fn read_text(payload: &Value) -> Result<Value, String> {
+    let path = payload["path"].as_str().ok_or("缺少 path 参数")?;
+    let metadata = fs::metadata(path).map_err(|e| format!("读取文件信息失败: {e}"))?;
+    if !metadata.is_file() {
+        return Err("所选路径不是文件".into());
+    }
+    if metadata.len() > MAX_TEXT_FILE_BYTES {
+        return Err("文本文件不能超过 20 MB".into());
+    }
+    let content = fs::read_to_string(path).map_err(|e| format!("读取 UTF-8 文本失败: {e}"))?;
+    Ok(json!({ "path": path, "content": content, "bytes": metadata.len() }))
 }
 
 fn file_split(payload: &Value) -> Result<Value, String> {
@@ -232,6 +244,19 @@ mod tests {
         )
         .expect("write_text");
         assert_eq!(fs::read_to_string(&path).expect("read"), "abc");
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn read_text_should_read_utf8_file() {
+        let path = std::env::temp_dir().join(format!("lazycat-read-{}.md", std::process::id()));
+        fs::write(&path, "# 标题\n").expect("write");
+        let result = execute(
+            "read_text",
+            &json!({ "path": path.to_string_lossy().to_string() }),
+        )
+        .expect("read_text");
+        assert_eq!(result["content"], "# 标题\n");
         let _ = fs::remove_file(path);
     }
 }

@@ -207,10 +207,12 @@ fn list_entries() -> Result<Value, String> {
 
     let rows = stmt
         .query_map([], |row| {
+            let exe_path = row.get::<_, String>(2)?;
+            let path_exists = Path::new(&exe_path).exists();
             Ok(json!({
                 "id": row.get::<_, i64>(0)?,
                 "name": row.get::<_, String>(1)?,
-                "exe_path": row.get::<_, String>(2)?,
+                "exe_path": exe_path,
                 "arguments": row.get::<_, String>(3)?,
                 "icon_base64": row.get::<_, String>(4)?,
                 "group_name": row.get::<_, String>(5)?,
@@ -218,6 +220,7 @@ fn list_entries() -> Result<Value, String> {
                 "launch_count": row.get::<_, i64>(7)?,
                 "created_at": row.get::<_, String>(8)?,
                 "updated_at": row.get::<_, String>(9)?,
+                "path_exists": path_exists,
             }))
         })
         .map_err(|e| format!("list map failed: {e}"))?;
@@ -328,6 +331,25 @@ fn update_entry(payload: &Value) -> Result<Value, String> {
             params![group, id],
         ).map_err(|e| format!("update group failed: {e}"))?;
     }
+    if let Some(exe_path) = payload.get("exe_path").and_then(|v| v.as_str()) {
+        let exe_path = exe_path.trim();
+        if exe_path.is_empty() {
+            return Err("程序路径不能为空".into());
+        }
+        let icon = extract_icon_base64(exe_path);
+        conn.execute(
+            "UPDATE launcher_entries SET exe_path = ?1, icon_base64 = ?2, updated_at = CURRENT_TIMESTAMP WHERE id = ?3",
+            params![exe_path, icon, id],
+        )
+        .map_err(|e| format!("update path failed: {e}"))?;
+    }
+    if let Some(arguments) = payload.get("arguments").and_then(|v| v.as_str()) {
+        conn.execute(
+            "UPDATE launcher_entries SET arguments = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2",
+            params![arguments, id],
+        )
+        .map_err(|e| format!("update arguments failed: {e}"))?;
+    }
     Ok(json!({ "ok": true }))
 }
 
@@ -398,12 +420,25 @@ fn launch_app(payload: &Value) -> Result<Value, String> {
         launch_as_admin(exe_path, arguments)?;
     } else {
         let mut cmd = Command::new(exe_path);
-        if !arguments.is_empty() {
-            cmd.args(arguments.split_whitespace());
-        }
+        apply_command_arguments(&mut cmd, arguments);
         cmd.spawn().map_err(|e| format!("launch failed: {e}"))?;
     }
     Ok(json!({ "ok": true }))
+}
+
+#[cfg(windows)]
+fn apply_command_arguments(command: &mut Command, arguments: &str) {
+    use std::os::windows::process::CommandExt;
+    if !arguments.trim().is_empty() {
+        command.raw_arg(arguments);
+    }
+}
+
+#[cfg(not(windows))]
+fn apply_command_arguments(command: &mut Command, arguments: &str) {
+    if !arguments.trim().is_empty() {
+        command.args(arguments.split_whitespace());
+    }
 }
 
 #[cfg(windows)]

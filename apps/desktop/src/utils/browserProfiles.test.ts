@@ -249,4 +249,17 @@ describe("browserProfiles utils", () => {
       ),
     ).toEqual(["Profile 2", "3 次", "今天 08:00"]);
   });
+
+  it("labels Chrome profile metadata with the correct browser", () => {
+    expect(
+      buildBrowserProfileMetaSegments(
+        profile({
+          browser: "chrome",
+          alias: "工作",
+          edgeDisplayName: "公司账号",
+          profileDir: "Profile 6",
+        }),
+      ),
+    ).toEqual(["Profile 6", "Chrome：公司账号", "未启动过"]);
+  });
 });

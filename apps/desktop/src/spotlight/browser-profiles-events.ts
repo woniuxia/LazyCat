@@ -6,6 +6,7 @@ export type BrowserProfilesChangedReason =
   | "alias"
   | "hidden"
   | "edge-path"
+  | "chrome-path"
   | "launch";
 
 export interface BrowserProfilesChangedPayload {

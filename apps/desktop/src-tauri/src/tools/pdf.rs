@@ -2,13 +2,9 @@ use lopdf::{Document, Object};
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-const ACTIONS: &[&str] = &[
-    "info",
-    "split",
-    "merge",
-];
+const ACTIONS: &[&str] = &["info", "split", "merge"];
 
 #[cfg(test)]
 pub(crate) fn supported_actions() -> &'static [&'static str] {
@@ -354,6 +350,7 @@ fn pdf_split(payload: &Value) -> Result<Value, String> {
     let path_str = payload["path"].as_str().ok_or("缺少参数: path")?;
     let output_dir_str = payload["outputDir"].as_str().ok_or("缺少参数: outputDir")?;
     let ranges_str = payload["ranges"].as_str().unwrap_or("");
+    let overwrite = payload["overwrite"].as_bool().unwrap_or(false);
 
     let path = Path::new(path_str);
     if !path.exists() {
@@ -378,18 +375,29 @@ fn pdf_split(payload: &Value) -> Result<Value, String> {
         .and_then(|s| s.to_str())
         .unwrap_or("output");
 
+    let planned_outputs: Vec<(Vec<u32>, String, PathBuf)> = groups
+        .iter()
+        .map(|group| {
+            let range_label = if group.len() == 1 {
+                format!("{}", group[0])
+            } else {
+                format!("{}-{}", group[0], group[group.len() - 1])
+            };
+            let filename = format!("{}_p{}.pdf", stem, range_label);
+            let out_path = output_dir.join(&filename);
+            (group.clone(), filename, out_path)
+        })
+        .collect();
+
+    ensure_outputs_available(
+        planned_outputs.iter().map(|(_, _, path)| path.as_path()),
+        std::iter::once(path),
+        overwrite,
+    )?;
+
     let mut output_files: Vec<Value> = Vec::new();
 
-    for group in &groups {
-        // Build filename from page range
-        let range_label = if group.len() == 1 {
-            format!("{}", group[0])
-        } else {
-            format!("{}-{}", group[0], group[group.len() - 1])
-        };
-        let filename = format!("{}_p{}.pdf", stem, range_label);
-        let out_path = output_dir.join(&filename);
-
+    for (group, filename, out_path) in planned_outputs {
         let wanted: BTreeSet<u32> = group.iter().cloned().collect();
         let pages_to_delete: Vec<u32> = (1..=total_pages).filter(|p| !wanted.contains(p)).collect();
 
@@ -427,17 +435,45 @@ fn pdf_merge(payload: &Value) -> Result<Value, String> {
 
     let output_path_str = payload["outputPath"]
         .as_str()
-        .ok_or("缺少参数: outputPath")?;
+        .ok_or("缺少参数: outputPath")?
+        .trim();
+    if output_path_str.is_empty() {
+        return Err("输出路径不能为空".into());
+    }
+    let output_path = Path::new(output_path_str);
+    let overwrite = payload["overwrite"].as_bool().unwrap_or(false);
+
+    let input_paths: Vec<PathBuf> = paths
+        .iter()
+        .enumerate()
+        .map(|(i, value)| {
+            value
+                .as_str()
+                .map(PathBuf::from)
+                .ok_or_else(|| format!("paths[{i}] 不是字符串"))
+        })
+        .collect::<Result<_, _>>()?;
+    ensure_outputs_available(
+        std::iter::once(output_path),
+        input_paths.iter().map(PathBuf::as_path),
+        overwrite,
+    )?;
 
     let mut documents: Vec<Document> = Vec::new();
-    for (i, p) in paths.iter().enumerate() {
-        let ps = p.as_str().ok_or(format!("paths[{i}] 不是字符串"))?;
-        let path = Path::new(ps);
+    for path in &input_paths {
         if !path.exists() {
-            return Err(format!("文件不存在: {}", ps));
+            return Err(format!("文件不存在: {}", path.display()));
         }
-        let doc = Document::load(path).map_err(|e| format!("无法加载 PDF 文件 '{}': {e}", ps))?;
+        let doc = Document::load(path)
+            .map_err(|e| format!("无法加载 PDF 文件 '{}': {e}", path.display()))?;
         documents.push(doc);
+    }
+
+    if let Some(parent) = output_path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        fs::create_dir_all(parent).map_err(|e| format!("无法创建输出目录: {e}"))?;
     }
 
     let sources = documents.len();
@@ -535,6 +571,39 @@ fn pdf_merge(payload: &Value) -> Result<Value, String> {
         "outputPath": output_path_str,
         "sources": sources,
     }))
+}
+
+fn ensure_outputs_available<'a>(
+    outputs: impl Iterator<Item = &'a Path>,
+    inputs: impl Iterator<Item = &'a Path>,
+    overwrite: bool,
+) -> Result<(), String> {
+    let input_paths: Vec<PathBuf> = inputs.map(Path::to_path_buf).collect();
+    for output in outputs {
+        if input_paths
+            .iter()
+            .any(|input| paths_are_same(input, output))
+        {
+            return Err(format!("输出路径不能与源 PDF 相同：{}", output.display()));
+        }
+        if output.exists() && !overwrite {
+            return Err(format!(
+                "输出文件已存在：{}。请确认覆盖后重试",
+                output.display()
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn paths_are_same(left: &Path, right: &Path) -> bool {
+    if left == right {
+        return true;
+    }
+    match (fs::canonicalize(left), fs::canonicalize(right)) {
+        (Ok(left), Ok(right)) => left == right,
+        _ => false,
+    }
 }
 
 #[cfg(test)]
@@ -643,5 +712,38 @@ mod tests {
     #[test]
     fn pdf_date_empty() {
         assert_eq!(parse_pdf_date(""), "");
+    }
+
+    #[test]
+    fn existing_output_requires_explicit_overwrite() {
+        let dir =
+            std::env::temp_dir().join(format!("lazycat-pdf-overwrite-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        let input = dir.join("input.pdf");
+        let output = dir.join("output.pdf");
+        std::fs::write(&input, b"input").expect("write input");
+        std::fs::write(&output, b"output").expect("write output");
+
+        let error = ensure_outputs_available(
+            std::iter::once(output.as_path()),
+            std::iter::once(input.as_path()),
+            false,
+        )
+        .unwrap_err();
+        assert!(error.contains("输出文件已存在"));
+        assert!(ensure_outputs_available(
+            std::iter::once(output.as_path()),
+            std::iter::once(input.as_path()),
+            true,
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn source_path_can_never_be_overwritten() {
+        let path = Path::new("C:/tmp/source.pdf");
+        let error = ensure_outputs_available(std::iter::once(path), std::iter::once(path), true)
+            .unwrap_err();
+        assert!(error.contains("不能与源 PDF 相同"));
     }
 }

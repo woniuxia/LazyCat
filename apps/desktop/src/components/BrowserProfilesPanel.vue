@@ -10,6 +10,13 @@
           </el-icon>
           <span>{{ edgeStatusText }}</span>
         </div>
+        <div class="browser-profiles-status" :class="{ 'is-found': response?.chromeFound }">
+          <el-icon>
+            <CircleCheck v-if="response?.chromeFound" />
+            <WarningFilled v-else />
+          </el-icon>
+          <span>{{ chromeStatusText }}</span>
+        </div>
       </div>
 
       <div v-if="totalProfileCount > 0" class="browser-profiles-search">
@@ -17,7 +24,7 @@
           v-model="searchQuery"
           clearable
           :prefix-icon="Search"
-          placeholder="搜索别名、Edge 名、目录或拼音首字母"
+          placeholder="搜索别名、浏览器名称、目录或拼音首字母"
         />
       </div>
 
@@ -33,10 +40,17 @@
         >
           选择 msedge.exe
         </el-button>
+        <el-button
+          :icon="FolderOpened"
+          :type="response && !response.chromeFound ? 'primary' : 'default'"
+          @click="chooseChromePath"
+        >
+          选择 chrome.exe
+        </el-button>
       </div>
     </header>
 
-    <section v-if="errorMessage || responseWarnings.length || response?.edgeFound === false" class="browser-profiles-alerts">
+    <section v-if="errorMessage || responseWarnings.length || response?.edgeFound === false || response?.chromeFound === false" class="browser-profiles-alerts">
       <div v-if="errorMessage" class="browser-profiles-alert is-error">
         {{ errorMessage }}
       </div>
@@ -49,11 +63,17 @@
           {{ path }}
         </div>
       </div>
+      <div v-if="response?.chromeFound === false" class="browser-profiles-probed">
+        <div class="browser-profiles-probed-title">未找到 Chrome，可选择本机 chrome.exe。已检查：</div>
+        <div v-for="path in response.probedChromePaths" :key="path" class="browser-profiles-path">
+          {{ path }}
+        </div>
+      </div>
     </section>
 
     <main class="browser-profiles-content" v-loading="loading">
       <div v-if="!loading && sortedProfiles.length === 0" class="browser-profiles-empty">
-        未发现 Edge Profile
+        未发现 Edge 或 Chrome Profile
       </div>
       <div v-else-if="!loading && filteredProfiles.length === 0" class="browser-profiles-empty">
         没有匹配的浏览器身份
@@ -67,11 +87,11 @@
             class="browser-profile-card"
             :class="{
               'is-launching': launchingKey === profileKey(profile),
-              'is-disabled': edgeMissing,
+              'is-disabled': isBrowserMissing(profile),
             }"
             role="button"
-            :tabindex="edgeMissing ? -1 : 0"
-            :aria-disabled="edgeMissing || undefined"
+            :tabindex="isBrowserMissing(profile) ? -1 : 0"
+            :aria-disabled="isBrowserMissing(profile) || undefined"
             :aria-label="`启动 ${getBrowserProfileDisplayName(profile)}`"
             :title="profileTooltip(profile)"
             @click="launchProfile(profile)"
@@ -100,6 +120,7 @@
                 <span class="browser-profile-name">
                   {{ getBrowserProfileDisplayName(profile) }}
                 </span>
+                <span class="browser-kind-tag">{{ browserLabel(profile.browser) }}</span>
                 <div class="browser-profile-card-actions">
                   <button
                     type="button"
@@ -156,6 +177,7 @@
                   <span class="browser-profile-name">
                     {{ getBrowserProfileDisplayName(profile) }}
                   </span>
+                  <span class="browser-kind-tag">{{ browserLabel(profile.browser) }}</span>
                   <div class="browser-profile-card-actions">
                     <button
                       type="button"
@@ -255,6 +277,20 @@ const edgeStatusText = computed(() => {
   if (!response.value) return "正在检测 Edge";
   return response.value.edgeFound ? "已找到 Edge" : "未找到 Edge";
 });
+const chromeStatusText = computed(() => {
+  if (!response.value) return "正在检测 Chrome";
+  return response.value.chromeFound ? "已找到 Chrome" : "未找到 Chrome";
+});
+
+function browserLabel(browser: BrowserProfileItem["browser"]): string {
+  return browser === "chrome" ? "Chrome" : "Edge";
+}
+
+function isBrowserMissing(profile: BrowserProfileItem): boolean {
+  return profile.browser === "chrome"
+    ? response.value?.chromeFound === false
+    : edgeMissing.value;
+}
 
 function profileMetaText(profile: BrowserProfileItem): string {
   return buildBrowserProfileMetaSegments(profile, metaNow.value).join(" · ");
@@ -263,8 +299,10 @@ function profileMetaText(profile: BrowserProfileItem): string {
 function profileTooltip(profile: BrowserProfileItem): string {
   const displayName = getBrowserProfileDisplayName(profile);
   const lines = [displayName];
-  const edgeName = profile.edgeDisplayName.trim();
-  if (edgeName && edgeName !== displayName) lines.push(`Edge 名称：${edgeName}`);
+  const browserName = profile.edgeDisplayName.trim();
+  if (browserName && browserName !== displayName) {
+    lines.push(`${browserLabel(profile.browser)} 名称：${browserName}`);
+  }
   lines.push(`目录：${profile.profileDir}`);
   lines.push(`启动次数：${profile.launchCount}`);
   lines.push(`最近启动：${formatBrowserProfileLastLaunchedAt(profile.lastLaunchedAt)}`);
@@ -302,8 +340,8 @@ function onCardKeydown(profile: BrowserProfileItem, event: KeyboardEvent) {
 }
 
 async function launchProfile(profile: BrowserProfileItem) {
-  if (edgeMissing.value) {
-    ElMessage.warning("未找到 Edge，请先选择 msedge.exe");
+  if (isBrowserMissing(profile)) {
+    ElMessage.warning(`未找到 ${browserLabel(profile.browser)}，请先选择对应可执行文件`);
     return;
   }
   const key = profileKey(profile);
@@ -311,11 +349,11 @@ async function launchProfile(profile: BrowserProfileItem) {
   launchingKey.value = key;
   try {
     await invokeToolByChannel("tool:browser-profiles:launch", {
-      browser: "edge",
+      browser: profile.browser,
       profileDir: profile.profileDir,
     });
     notifyProfilesChanged("launch");
-    ElMessage.success(`已打开 Edge：${getBrowserProfileDisplayName(profile)}`);
+    ElMessage.success(`已打开 ${browserLabel(profile.browser)}：${getBrowserProfileDisplayName(profile)}`);
     await loadProfiles();
   } catch (err) {
     ElMessage.error(`启动失败：${messageOf(err)}`);
@@ -336,7 +374,7 @@ async function editAlias(profile: BrowserProfileItem) {
       }),
     });
     await invokeToolByChannel("tool:browser-profiles:save-alias", {
-      browser: "edge",
+      browser: profile.browser,
       profileDir: profile.profileDir,
       alias: String(value ?? "").trim(),
     });
@@ -352,7 +390,7 @@ async function editAlias(profile: BrowserProfileItem) {
 async function setHidden(profile: BrowserProfileItem, hidden: boolean) {
   try {
     await invokeToolByChannel("tool:browser-profiles:set-hidden", {
-      browser: "edge",
+      browser: profile.browser,
       profileDir: profile.profileDir,
       hidden,
     });
@@ -381,6 +419,26 @@ async function chooseEdgePath() {
   } catch (err) {
     if (isCancel(err)) return;
     ElMessage.error(`保存 Edge 路径失败：${messageOf(err)}`);
+  }
+}
+
+async function chooseChromePath() {
+  try {
+    const selected = await open({
+      multiple: false,
+      filters: [{ name: "Google Chrome", extensions: ["exe"] }],
+    });
+    const chromePath = Array.isArray(selected) ? selected[0] : selected;
+    if (!chromePath) return;
+    await invokeToolByChannel("tool:browser-profiles:set-chrome-path", {
+      chromePath,
+    });
+    notifyProfilesChanged("chrome-path");
+    ElMessage.success("Chrome 路径已保存");
+    await loadProfiles();
+  } catch (err) {
+    if (isCancel(err)) return;
+    ElMessage.error(`保存 Chrome 路径失败：${messageOf(err)}`);
   }
 }
 
@@ -663,6 +721,17 @@ onMounted(() => {
   line-height: 1.4;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.browser-kind-tag {
+  flex-shrink: 0;
+  padding: 1px 5px;
+  border: 1px solid var(--lc-border-subtle);
+  border-radius: 4px;
+  color: var(--lc-text-muted);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.4;
 }
 
 .browser-profile-card-actions {

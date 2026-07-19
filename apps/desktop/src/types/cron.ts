@@ -1,3 +1,5 @@
+export type CronStandard = "linux5" | "spring6" | "quartz";
+
 export interface CronFieldParts {
   second: string;
   minute: string;
@@ -12,6 +14,7 @@ export interface CronNormalizeResponse {
   normalizedExpression: string;
   fieldCount: number;
   canonicalFieldCount: number;
+  standard: CronStandard;
   parts: CronFieldParts;
   warnings: string[];
 }
@@ -24,6 +27,7 @@ export interface CronPreviewItem {
 
 export interface CronPreviewV2Response {
   normalizedExpression: string;
+  standard: CronStandard;
   timezone: string;
   items: CronPreviewItem[];
   warnings: string[];
@@ -31,6 +35,7 @@ export interface CronPreviewV2Response {
 
 export interface CronDescribeResponse {
   normalizedExpression: string;
+  standard: CronStandard;
   summary: string;
   details: string[];
   warnings: string[];

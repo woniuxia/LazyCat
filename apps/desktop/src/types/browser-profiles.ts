@@ -1,4 +1,4 @@
-export type BrowserProfileBrowser = "edge";
+export type BrowserProfileBrowser = "edge" | "chrome";
 
 export interface BrowserProfileItem {
   browser: BrowserProfileBrowser;
@@ -15,6 +15,10 @@ export interface BrowserProfilesListResponse {
   edgePath: string | null;
   userDataDir: string;
   probedEdgePaths: string[];
+  chromeFound: boolean;
+  chromePath: string | null;
+  chromeUserDataDir: string;
+  probedChromePaths: string[];
   warnings: string[];
   profiles: BrowserProfileItem[];
 }

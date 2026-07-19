@@ -11,10 +11,12 @@ const props = withDefaults(
     modelValue: string;
     language?: string;
     readOnly?: boolean;
+    ariaLabel?: string;
   }>(),
   {
     language: "plaintext",
-    readOnly: false
+    readOnly: false,
+    ariaLabel: "代码编辑器"
   }
 );
 
@@ -32,6 +34,7 @@ onMounted(() => {
     language: props.language,
     theme: "vs",
     readOnly: props.readOnly,
+    ariaLabel: props.ariaLabel,
     automaticLayout: true,
     minimap: { enabled: false },
     // 编辑器滚动到边界后放行滚轮事件，避免吞掉外层容器的滚动
@@ -47,6 +50,36 @@ onMounted(() => {
     emit("update:modelValue", editor.getValue());
   });
 });
+
+async function formatDocument() {
+  await editor?.getAction("editor.action.formatDocument")?.run();
+}
+
+function focusLine(line: number, column = 1) {
+  if (!editor) return;
+  const model = editor.getModel();
+  if (!model) return;
+  const safeLine = Math.min(Math.max(1, line), model.getLineCount());
+  const safeColumn = Math.min(Math.max(1, column), model.getLineMaxColumn(safeLine));
+  editor.setPosition({ lineNumber: safeLine, column: safeColumn });
+  editor.revealLineInCenter(safeLine);
+  editor.focus();
+}
+
+function focusText(text: string) {
+  if (!editor || !text) return false;
+  const model = editor.getModel();
+  if (!model) return false;
+  const search = JSON.stringify(text);
+  const match = model.findMatches(search, false, true, null, false, 1)[0];
+  if (!match) return false;
+  editor.setSelection(match.range);
+  editor.revealRangeInCenter(match.range);
+  editor.focus();
+  return true;
+}
+
+defineExpose({ formatDocument, focusLine, focusText });
 
 watch(
   () => props.modelValue,

@@ -8,6 +8,63 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-07-19: 高收益首版工具统一补齐工作流与正确性边界
+
+**场景**: 集中优化 Markdown、文本对比、图片转换、PDF、JSON Schema、环境检测、快捷启动和浏览器身份八个已有工具。
+**问题**:
+1. 多个首版工具只有核心算法或单次执行入口，缺少文件打开/保存、结果导出、覆盖保护、键盘替代和错误恢复。
+2. 部分 UI 暴露的参数与真实能力不一致，例如非 JPEG 质量参数、Schema 组合样例、环境命令只要能启动就标记成功。
+3. 浏览器身份和快捷启动的数据模型已经具备扩展字段，但 UI 与执行链路没有完整使用。
+**解决**:
+1. Markdown 接入本地 GFM、安全净化和代码高亮；Diff 补双文件、语言、差异导航与导出；通用文本读取限制 20 MB。
+2. 图片和 PDF 对覆盖源文件、输出冲突、裁剪范围和合并顺序做前后端显式校验，并补结果目录入口。
+3. Schema 样例生成支持本地 `$ref`、循环保护、`allOf` 合并和显式组合分支；环境检测增加退出码、超时、多 PATH 与关键环境变量诊断。
+4. Launcher 开放路径和参数编辑、失效路径提示与键盘排序；浏览器身份扩展到 Edge + Chrome，并同步 Spotlight provider。
+**关键点**:
+- UI 参数必须与后端真实能力一致；不支持的质量或解析能力要明确说明，不能制造“已生效”的假象。
+- 文件型工具必须把覆盖保护、输出定位、大小/编码边界和未保存状态作为主流程，而不是事后补丁。
+- 扩展多提供方能力时，配置、统计、别名和隐藏状态必须按 provider 隔离，同时保持旧配置兼容。
+**涉及文件**:
+- `apps/desktop/src/components/{MarkdownPanel,DiffPanel,ImagePanel,PdfPanel,JsonSchemaPanel,EnvPanel,LauncherPanel,BrowserProfilesPanel}.vue`
+- `apps/desktop/src-tauri/src/tools/{file,image,pdf,schema,env,launcher,browser_profiles}.rs`
+- 对应 bridge、types、Spotlight provider、utils、tests 与本地前端依赖
+**验证**:
+- `pnpm test`（67 个测试文件、656 项通过）
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+- `cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml`
+- `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --bin lazycat-desktop`（572 项通过；本地 UDP fixture 需沙箱外权限）
+
+**使用次数**: 0
+
+## 2026-07-19: Cron 方言兼容与输出校验
+
+**场景**: Cron 工具生成的表达式被复制到 Linux Crontab、Spring 和 Quartz 等不同运行环境后频繁报字段数或日/周字段错误。
+**问题**:
+1. 面板把 Spring 6 字段当成通用格式输出，Linux Crontab 会把秒字段错当分钟；Quartz 还要求日和周字段必须有一个为 `?`。
+2. Linux/Spring 与 Quartz 的数字星期编号不同，直接用同一个解析器预览会出现“校验通过但触发日偏移”。
+3. `L/W/#` 由部分框架支持，但当前 Rust 预览解析器不支持，旧模板中的 `L` 会在工具内直接报错。
+**解决**:
+1. 新增 `linux5`、`spring6`、`quartz` 目标方言；规范化、生成、预览、描述统一携带 `standard`，输出按目标字段数和日/周规则转换。
+2. 预览使用内部 6 字段表达式，并按方言转换数字星期；输出仍保留用户目标方言，避免把内部实现细节复制到生产。
+3. 面板默认 Linux 5 字段，切换目标时自动修正秒字段和 Quartz `?`；复制前强制后端校验；移除无法可靠预览的 `L` 模板，对特殊语法和混合星期编号显式报错。
+**关键点**:
+- Cron 的字段数量和星期编号不是跨实现的稳定协议，目标运行环境必须成为输入的一部分。
+- 不能只依赖内部解析器返回成功；复制、模板和预览都要走同一个目标方言规范化路径。
+**涉及文件**:
+- `apps/desktop/src-tauri/src/tools/cron.rs`
+- `apps/desktop/src/components/CronPanel.vue`
+- `apps/desktop/src/utils/cron.ts`
+- `apps/desktop/src/utils/cron.test.ts`
+- `apps/desktop/src/types/cron.ts`
+**验证**:
+- `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml tools::cron::tests -- --nocapture`
+- `pnpm --filter @lazycat/desktop test -- src/utils/cron.test.ts`
+- `pnpm --filter @lazycat/desktop typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+
+**使用次数**: 0
+
 ## 2026-07-18: 访问链路诊断高级参数持久化
 
 **场景**: 在访问链路诊断与单项探测共享 `network_diagnostics` 设置 envelope 的前提下，持久化诊断高级参数。

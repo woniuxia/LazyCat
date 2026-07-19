@@ -29,6 +29,7 @@ export type {
   DetectOwnerResponse,
 } from "./hotkey";
 export type {
+  CronStandard,
   CronFieldParts,
   CronNormalizeResponse,
   CronPreviewItem,

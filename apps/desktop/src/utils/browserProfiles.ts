@@ -132,8 +132,9 @@ export function buildBrowserProfileMetaSegments(
   const profileDir = profile.profileDir.trim();
   if (profileDir && profileDir !== displayName) segments.push(profileDir);
 
-  const edgeName = profile.edgeDisplayName.trim();
-  if (edgeName && edgeName !== displayName) segments.push(`Edge：${edgeName}`);
+  const browserName = profile.edgeDisplayName.trim();
+  const browserLabel = profile.browser === "chrome" ? "Chrome" : "Edge";
+  if (browserName && browserName !== displayName) segments.push(`${browserLabel}：${browserName}`);
 
   if (profile.launchCount > 0) segments.push(`${profile.launchCount} 次`);
   segments.push(formatBrowserProfileLastLaunchedAtCompact(profile.lastLaunchedAt, now));

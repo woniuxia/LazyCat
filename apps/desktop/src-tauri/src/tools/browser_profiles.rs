@@ -10,6 +10,7 @@ use serde_json::{Map, Value};
 
 const CONFIG_KEY: &str = "browser_profiles_config_v1";
 const BROWSER_EDGE: &str = "edge";
+const BROWSER_CHROME: &str = "chrome";
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -17,7 +18,11 @@ struct BrowserProfilesConfig {
     #[serde(default)]
     edge_path: Option<String>,
     #[serde(default)]
+    chrome_path: Option<String>,
+    #[serde(default)]
     edge: BTreeMap<String, BrowserProfileConfigEntry>,
+    #[serde(default)]
+    chrome: BTreeMap<String, BrowserProfileConfigEntry>,
     #[serde(flatten)]
     extra: Map<String, Value>,
 }
@@ -60,6 +65,7 @@ const ACTIONS: &[&str] = &[
     "save_alias",
     "set_hidden",
     "set_edge_path",
+    "set_chrome_path",
     "launch",
 ];
 
@@ -77,6 +83,7 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         "save_alias" => save_alias(payload),
         "set_hidden" => set_hidden(payload),
         "set_edge_path" => set_edge_path(payload),
+        "set_chrome_path" => set_chrome_path(payload),
         "launch" => launch_profile(payload),
         _ => Err(format!("unsupported browser_profiles action: {action}")),
     }
@@ -162,12 +169,20 @@ fn merge_profiles(
     discovered: Vec<DiscoveredProfile>,
     config: &BrowserProfilesConfig,
 ) -> Vec<BrowserProfileItem> {
+    merge_profiles_for_browser(BROWSER_EDGE, discovered, &config.edge)
+}
+
+fn merge_profiles_for_browser(
+    browser: &str,
+    discovered: Vec<DiscoveredProfile>,
+    entries: &BTreeMap<String, BrowserProfileConfigEntry>,
+) -> Vec<BrowserProfileItem> {
     discovered
         .into_iter()
         .map(|profile| {
-            let entry = config.edge.get(&profile.profile_dir);
+            let entry = entries.get(&profile.profile_dir);
             BrowserProfileItem {
-                browser: BROWSER_EDGE.to_string(),
+                browser: browser.to_string(),
                 alias: entry
                     .and_then(|entry| entry.alias.clone())
                     .unwrap_or_default(),
@@ -199,22 +214,72 @@ fn build_edge_profile_arg(profile_dir: &str) -> String {
 }
 
 fn validate_edge_exe_path(path: &Path) -> Result<(), String> {
+    validate_browser_exe_path(path, "msedge.exe", "Edge")
+}
+
+fn validate_chrome_exe_path(path: &Path) -> Result<(), String> {
+    validate_browser_exe_path(path, "chrome.exe", "Chrome")
+}
+
+fn validate_browser_exe_path(path: &Path, executable: &str, label: &str) -> Result<(), String> {
     if !path.exists() {
-        return Err("Edge 可执行文件不存在".into());
+        return Err(format!("{label} 可执行文件不存在"));
     }
     if !path.is_file() {
-        return Err("Edge 路径不是文件".into());
+        return Err(format!("{label} 路径不是文件"));
     }
 
     let file_name = path
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or_default();
-    if !file_name.eq_ignore_ascii_case("msedge.exe") {
-        return Err("必须选择 msedge.exe".into());
+    if !file_name.eq_ignore_ascii_case(executable) {
+        return Err(format!("必须选择 {executable}"));
     }
 
     Ok(())
+}
+
+fn candidate_chrome_paths(config_chrome_path: Option<&str>) -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    if let Some(path) = config_chrome_path
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+    {
+        push_unique_path(&mut paths, PathBuf::from(path));
+    }
+    for env_name in ["ProgramFiles", "ProgramFiles(x86)"] {
+        if let Ok(base) = std::env::var(env_name) {
+            push_unique_path(
+                &mut paths,
+                PathBuf::from(base)
+                    .join("Google")
+                    .join("Chrome")
+                    .join("Application")
+                    .join("chrome.exe"),
+            );
+        }
+    }
+    if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
+        push_unique_path(
+            &mut paths,
+            PathBuf::from(local_app_data)
+                .join("Google")
+                .join("Chrome")
+                .join("Application")
+                .join("chrome.exe"),
+        );
+    }
+    paths
+}
+
+fn find_chrome_path(config_chrome_path: Option<&str>) -> (Option<PathBuf>, Vec<PathBuf>) {
+    let paths = candidate_chrome_paths(config_chrome_path);
+    let found = paths
+        .iter()
+        .find(|path| validate_chrome_exe_path(path).is_ok())
+        .cloned();
+    (found, paths)
 }
 
 fn candidate_edge_paths(config_edge_path: Option<&str>) -> Vec<PathBuf> {
@@ -278,7 +343,27 @@ fn edge_user_data_dir() -> PathBuf {
         .join("User Data")
 }
 
+fn chrome_user_data_dir() -> PathBuf {
+    std::env::var("LOCALAPPDATA")
+        .map(PathBuf::from)
+        .unwrap_or_default()
+        .join("Google")
+        .join("Chrome")
+        .join("User Data")
+}
+
 fn scan_edge_profiles(user_data_dir: &Path) -> (Vec<DiscoveredProfile>, Vec<String>) {
+    scan_chromium_profiles(user_data_dir, "Edge")
+}
+
+fn scan_chrome_profiles(user_data_dir: &Path) -> (Vec<DiscoveredProfile>, Vec<String>) {
+    scan_chromium_profiles(user_data_dir, "Chrome")
+}
+
+fn scan_chromium_profiles(
+    user_data_dir: &Path,
+    browser_label: &str,
+) -> (Vec<DiscoveredProfile>, Vec<String>) {
     let mut warnings = Vec::new();
     let mut edge_names = BTreeMap::new();
     let local_state_path = user_data_dir.join("Local State");
@@ -297,14 +382,14 @@ fn scan_edge_profiles(user_data_dir: &Path) -> (Vec<DiscoveredProfile>, Vec<Stri
             }
             Err(_) => {
                 warnings.push(format!(
-                    "未找到 Edge Local State: {}",
+                    "未找到 {browser_label} Local State: {}",
                     local_state_path.to_string_lossy()
                 ));
             }
         }
     } else {
         warnings.push(format!(
-            "未找到 Edge User Data: {}",
+            "未找到 {browser_label} User Data: {}",
             user_data_dir.to_string_lossy()
         ));
         return (Vec::new(), warnings);
@@ -325,7 +410,7 @@ fn scan_edge_profiles(user_data_dir: &Path) -> (Vec<DiscoveredProfile>, Vec<Stri
                 }
             }
         }
-        Err(err) => warnings.push(format!("读取 Edge User Data 失败: {err}")),
+        Err(err) => warnings.push(format!("读取 {browser_label} User Data 失败: {err}")),
     }
 
     let name_refs = names.iter().map(String::as_str).collect::<Vec<_>>();
@@ -388,18 +473,42 @@ fn list_profiles() -> Result<Value, String> {
         load_config_from_settings(&conn, &mut warnings)
     };
     let (edge_path, probed_paths) = find_edge_path(config.edge_path.as_deref());
-    let user_data_dir = edge_user_data_dir();
-    let (discovered, scan_warnings) = scan_edge_profiles(&user_data_dir);
-    warnings.extend(scan_warnings);
+    let (chrome_path, probed_chrome_paths) = find_chrome_path(config.chrome_path.as_deref());
+    let edge_user_data_dir = edge_user_data_dir();
+    let chrome_user_data_dir = chrome_user_data_dir();
+    let (edge_discovered, edge_scan_warnings) = if edge_user_data_dir.is_dir() {
+        scan_edge_profiles(&edge_user_data_dir)
+    } else {
+        (Vec::new(), Vec::new())
+    };
+    let (chrome_discovered, chrome_scan_warnings) = if chrome_user_data_dir.is_dir() {
+        scan_chrome_profiles(&chrome_user_data_dir)
+    } else {
+        (Vec::new(), Vec::new())
+    };
+    warnings.extend(edge_scan_warnings);
+    warnings.extend(chrome_scan_warnings);
 
-    let mut profiles = merge_profiles(discovered, &config);
+    let mut profiles = merge_profiles(edge_discovered, &config);
+    profiles.extend(merge_profiles_for_browser(
+        BROWSER_CHROME,
+        chrome_discovered,
+        &config.chrome,
+    ));
     sort_profiles(&mut profiles);
 
     Ok(json!({
         "edgeFound": edge_path.is_some(),
         "edgePath": edge_path.map(|path| path.to_string_lossy().to_string()),
-        "userDataDir": user_data_dir.to_string_lossy().to_string(),
+        "userDataDir": edge_user_data_dir.to_string_lossy().to_string(),
         "probedEdgePaths": probed_paths
+            .into_iter()
+            .map(|path| path.to_string_lossy().to_string())
+            .collect::<Vec<_>>(),
+        "chromeFound": chrome_path.is_some(),
+        "chromePath": chrome_path.map(|path| path.to_string_lossy().to_string()),
+        "chromeUserDataDir": chrome_user_data_dir.to_string_lossy().to_string(),
+        "probedChromePaths": probed_chrome_paths
             .into_iter()
             .map(|path| path.to_string_lossy().to_string())
             .collect::<Vec<_>>(),
@@ -409,26 +518,28 @@ fn list_profiles() -> Result<Value, String> {
 }
 
 fn save_alias(payload: &Value) -> Result<Value, String> {
-    require_edge_browser(payload)?;
+    let browser = require_supported_browser(payload)?;
     let profile_dir = require_profile_dir(payload)?;
-    ensure_profile_exists(&profile_dir)?;
+    ensure_browser_profile_exists(browser, &profile_dir)?;
     let alias = payload["alias"].as_str().unwrap_or_default();
     mutate_config(|config| {
-        save_alias_in_config(config, &profile_dir, alias);
+        save_alias_for_browser(config, browser, &profile_dir, alias);
         Ok(())
     })?;
     Ok(json!({ "ok": true }))
 }
 
 fn set_hidden(payload: &Value) -> Result<Value, String> {
-    require_edge_browser(payload)?;
+    let browser = require_supported_browser(payload)?;
     let profile_dir = require_profile_dir(payload)?;
-    ensure_profile_exists(&profile_dir)?;
+    ensure_browser_profile_exists(browser, &profile_dir)?;
     let hidden = payload["hidden"]
         .as_bool()
         .ok_or_else(|| "hidden is required".to_string())?;
     mutate_config(|config| {
-        let entry = config.edge.entry(profile_dir.clone()).or_default();
+        let entry = config_entries_mut(config, browser)
+            .entry(profile_dir.clone())
+            .or_default();
         entry.hidden = Some(hidden);
         Ok(())
     })?;
@@ -449,38 +560,54 @@ fn set_edge_path(payload: &Value) -> Result<Value, String> {
     Ok(json!({ "ok": true }))
 }
 
+fn set_chrome_path(payload: &Value) -> Result<Value, String> {
+    let chrome_path = payload["chromePath"]
+        .as_str()
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+        .ok_or_else(|| "chromePath is required".to_string())?;
+    validate_chrome_exe_path(Path::new(chrome_path))?;
+    mutate_config(|config| {
+        config.chrome_path = Some(chrome_path.to_string());
+        Ok(())
+    })?;
+    Ok(json!({ "ok": true }))
+}
+
 fn launch_profile(payload: &Value) -> Result<Value, String> {
-    require_edge_browser(payload)?;
+    let browser = require_supported_browser(payload)?;
     let profile_dir = require_profile_dir(payload)?;
     let mut warnings = Vec::new();
     let config = {
         let conn = super::helpers::db_conn()?;
         load_config_from_settings(&conn, &mut warnings)
     };
-    let (edge_path, _) = find_edge_path(config.edge_path.as_deref());
-    let edge_path = edge_path.ok_or_else(|| "未找到 msedge.exe".to_string())?;
-    ensure_profile_exists(&profile_dir)?;
+    let executable = match browser {
+        BROWSER_EDGE => find_edge_path(config.edge_path.as_deref()).0,
+        BROWSER_CHROME => find_chrome_path(config.chrome_path.as_deref()).0,
+        _ => None,
+    }
+    .ok_or_else(|| format!("未找到 {}", browser_executable_name(browser)))?;
+    ensure_browser_profile_exists(browser, &profile_dir)?;
 
-    Command::new(&edge_path)
+    Command::new(&executable)
         .arg(build_edge_profile_arg(&profile_dir))
         .spawn()
         .map_err(|err| format!("launch failed: {err}"))?;
 
     let now = chrono::Local::now().to_rfc3339();
     let stats_result = mutate_config(|config| {
-        update_launch_stats_in_config(config, &profile_dir, &now);
+        update_launch_stats_for_browser(config, browser, &profile_dir, &now);
         Ok(())
     });
     let launch_count = match stats_result {
-        Ok(config) => config
-            .edge
+        Ok(config) => config_entries(&config, browser)
             .get(&profile_dir)
             .and_then(|entry| entry.launch_count)
             .unwrap_or_default(),
         Err(err) => {
             warnings.push(format!("启动成功，但使用统计保存失败：{err}"));
-            config
-                .edge
+            config_entries(&config, browser)
                 .get(&profile_dir)
                 .and_then(|entry| entry.launch_count)
                 .unwrap_or_default()
@@ -496,10 +623,17 @@ fn launch_profile(payload: &Value) -> Result<Value, String> {
     }))
 }
 
-fn require_edge_browser(payload: &Value) -> Result<(), String> {
+fn require_supported_browser(payload: &Value) -> Result<&str, String> {
     match payload["browser"].as_str() {
-        Some(BROWSER_EDGE) => Ok(()),
-        _ => Err("首版只支持 Edge".into()),
+        Some(browser @ (BROWSER_EDGE | BROWSER_CHROME)) => Ok(browser),
+        _ => Err("仅支持 Edge 和 Chrome".into()),
+    }
+}
+
+fn browser_executable_name(browser: &str) -> &'static str {
+    match browser {
+        BROWSER_CHROME => "chrome.exe",
+        _ => "msedge.exe",
     }
 }
 
@@ -512,9 +646,11 @@ fn require_profile_dir(payload: &Value) -> Result<String, String> {
         .ok_or_else(|| "profileDir is required".to_string())
 }
 
-fn ensure_profile_exists(profile_dir: &str) -> Result<(), String> {
-    let user_data_dir = edge_user_data_dir();
-    let (profiles, _) = scan_edge_profiles(&user_data_dir);
+fn ensure_browser_profile_exists(browser: &str, profile_dir: &str) -> Result<(), String> {
+    let (profiles, _) = match browser {
+        BROWSER_CHROME => scan_chrome_profiles(&chrome_user_data_dir()),
+        _ => scan_edge_profiles(&edge_user_data_dir()),
+    };
     if profiles
         .iter()
         .any(|profile| profile.profile_dir == profile_dir)
@@ -525,15 +661,61 @@ fn ensure_profile_exists(profile_dir: &str) -> Result<(), String> {
     }
 }
 
+#[cfg(test)]
 fn save_alias_in_config(config: &mut BrowserProfilesConfig, profile_dir: &str, alias: &str) {
-    let entry = config.edge.entry(profile_dir.to_string()).or_default();
+    save_alias_for_browser(config, BROWSER_EDGE, profile_dir, alias);
+}
+
+fn save_alias_for_browser(
+    config: &mut BrowserProfilesConfig,
+    browser: &str,
+    profile_dir: &str,
+    alias: &str,
+) {
+    let entry = config_entries_mut(config, browser)
+        .entry(profile_dir.to_string())
+        .or_default();
     entry.alias = Some(alias.trim().to_string());
 }
 
+#[cfg(test)]
 fn update_launch_stats_in_config(config: &mut BrowserProfilesConfig, profile_dir: &str, now: &str) {
-    let entry = config.edge.entry(profile_dir.to_string()).or_default();
+    update_launch_stats_for_browser(config, BROWSER_EDGE, profile_dir, now);
+}
+
+fn update_launch_stats_for_browser(
+    config: &mut BrowserProfilesConfig,
+    browser: &str,
+    profile_dir: &str,
+    now: &str,
+) {
+    let entry = config_entries_mut(config, browser)
+        .entry(profile_dir.to_string())
+        .or_default();
     entry.launch_count = Some(entry.launch_count.unwrap_or_default() + 1);
     entry.last_launched_at = Some(now.to_string());
+}
+
+fn config_entries<'a>(
+    config: &'a BrowserProfilesConfig,
+    browser: &str,
+) -> &'a BTreeMap<String, BrowserProfileConfigEntry> {
+    if browser == BROWSER_CHROME {
+        &config.chrome
+    } else {
+        &config.edge
+    }
+}
+
+fn config_entries_mut<'a>(
+    config: &'a mut BrowserProfilesConfig,
+    browser: &str,
+) -> &'a mut BTreeMap<String, BrowserProfileConfigEntry> {
+    if browser == BROWSER_CHROME {
+        &mut config.chrome
+    } else {
+        &mut config.edge
+    }
 }
 
 fn push_unique_path(paths: &mut Vec<PathBuf>, path: PathBuf) {
@@ -746,10 +928,32 @@ mod tests {
     }
 
     #[test]
-    fn rejects_non_edge_browser_payload() {
-        let err =
-            require_edge_browser(&json!({ "browser": "chrome" })).expect_err("chrome unsupported");
-        assert!(err.contains("只支持 Edge") || err.contains("edge"));
+    fn accepts_edge_and_chrome_but_rejects_unknown_browser() {
+        assert_eq!(
+            require_supported_browser(&json!({ "browser": "edge" })).unwrap(),
+            BROWSER_EDGE
+        );
+        assert_eq!(
+            require_supported_browser(&json!({ "browser": "chrome" })).unwrap(),
+            BROWSER_CHROME
+        );
+        let err = require_supported_browser(&json!({ "browser": "firefox" }))
+            .expect_err("firefox unsupported");
+        assert!(err.contains("Edge") && err.contains("Chrome"));
+    }
+
+    #[test]
+    fn chrome_alias_is_isolated_from_edge_config() {
+        let mut config = BrowserProfilesConfig::default();
+        save_alias_for_browser(&mut config, BROWSER_CHROME, "Profile 2", "Chrome 工作");
+        assert!(config.edge.is_empty());
+        assert_eq!(
+            config
+                .chrome
+                .get("Profile 2")
+                .and_then(|entry| entry.alias.as_deref()),
+            Some("Chrome 工作")
+        );
     }
 
     #[test]

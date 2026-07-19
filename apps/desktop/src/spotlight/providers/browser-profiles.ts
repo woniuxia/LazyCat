@@ -18,7 +18,7 @@ import type {
 } from "../types";
 
 interface BrowserProfilePayload {
-  browser: "edge";
+  browser: "edge" | "chrome";
   profileDir: string;
   displayName: string;
 }
@@ -27,6 +27,7 @@ export function buildBrowserProfileSpotlightItem(
   profile: BrowserProfileItem,
 ): SpotlightItem {
   const displayName = getBrowserProfileDisplayName(profile);
+  const browserLabel = profile.browser === "chrome" ? "Chrome" : "Edge";
   const subtitleParts = [
     profile.edgeDisplayName.trim(),
     profile.profileDir.trim(),
@@ -37,7 +38,7 @@ export function buildBrowserProfileSpotlightItem(
     itemId: `${profile.browser}:${profile.profileDir}`,
     title: displayName,
     subtitle: subtitleParts.join(" · "),
-    badge: { short: "Edge", tone: "primary" },
+    badge: { short: browserLabel, tone: "primary" },
     searchFields: buildBrowserProfileSearchFields(profile),
     weight: getBrowserProfileSpotlightWeight(profile),
     payload: {
@@ -63,11 +64,11 @@ async function prefetchBrowserProfiles(): Promise<SpotlightItem[]> {
 }
 
 function payloadOf(item: SpotlightItem): BrowserProfilePayload | null {
-  if (item.payload?.browser !== "edge") return null;
+  if (item.payload?.browser !== "edge" && item.payload?.browser !== "chrome") return null;
   if (typeof item.payload.profileDir !== "string") return null;
   if (typeof item.payload.displayName !== "string") return null;
   return {
-    browser: "edge",
+    browser: item.payload.browser,
     profileDir: item.payload.profileDir,
     displayName: item.payload.displayName,
   };
@@ -90,7 +91,7 @@ async function launchProfile(item: SpotlightItem): Promise<SpotlightExecuteResul
     return {
       closeSpotlight: true,
       toast: {
-        message: `已打开 Edge：${payload.displayName}`,
+        message: `已打开 ${payload.browser === "chrome" ? "Chrome" : "Edge"}：${payload.displayName}`,
         type: "success",
       },
     };
@@ -123,8 +124,8 @@ async function executeAction(
 export const browserProfilesProvider: ProviderDescriptor = {
   id: "browser-profiles",
   name: "浏览器身份",
-  description: "启动 Edge 用户身份窗口",
-  badgeShort: "Edge",
+  description: "启动 Edge 或 Chrome 用户身份窗口",
+  badgeShort: "浏览器",
   badgeTone: "primary",
   weight: 1.02,
   defaultAliases: [],

@@ -1,5 +1,18 @@
 ﻿<template>
   <div class="cron-panel">
+    <section class="panel-block standard-block">
+      <div class="section-head">
+        <h3>目标运行环境</h3>
+        <el-tag effect="plain" type="info">{{ selectedStandard.caption }}</el-tag>
+      </div>
+      <el-segmented
+        class="standard-switch"
+        :model-value="cronStandard"
+        :options="standardOptions"
+        @update:model-value="changeStandard($event as CronStandard)"
+      />
+    </section>
+
     <section class="panel-block">
       <div class="section-head">
         <h3>常用模板</h3>
@@ -9,7 +22,7 @@
           v-for="tpl in templates"
           :key="tpl.label"
           size="small"
-          @click="applyTemplate(tpl.expression)"
+          @click="applyTemplate(tpl.parts)"
         >
           {{ tpl.label }}
         </el-button>
@@ -29,10 +42,11 @@
       <div class="expression-row">
         <el-input
           v-model="cronExpression"
-          placeholder="支持 Spring 6 字段，兼容 5 字段（自动补秒）"
+          :placeholder="expressionPlaceholder"
           clearable
+          @input="onExpressionInput"
         />
-        <el-button type="primary" @click="normalizeAndDescribe">解析并规范化</el-button>
+        <el-button type="primary" @click="normalizeAndDescribe()">校验并规范化</el-button>
         <el-button @click="copyExpression">复制</el-button>
       </div>
 
@@ -42,6 +56,7 @@
         show-icon
         :closable="false"
         :title="warnings[0]"
+        :description="warnings.slice(1).join('；') || undefined"
       />
 
       <div class="summary-box" v-if="summary">
@@ -62,7 +77,7 @@
 
     <section class="panel-block">
       <div class="section-head">
-        <h3>字段构建（Spring 6 字段）</h3>
+        <h3>字段构建（{{ selectedStandard.label }} {{ cronStandard === 'linux5' ? '5' : '6' }} 字段）</h3>
       </div>
 
       <div class="field-grid">
@@ -130,9 +145,10 @@
 import { computed, reactive, ref } from "vue";
 import { ElMessage } from "element-plus";
 import { invokeToolByChannel } from "../bridge/tauri";
-import type { CronDescribeResponse, CronFieldParts, CronNormalizeResponse, CronPreviewItem, CronPreviewV2Response } from "../types";
+import type { CronDescribeResponse, CronFieldParts, CronNormalizeResponse, CronPreviewItem, CronPreviewV2Response, CronStandard } from "../types";
+import { buildCronExpression, coerceCronParts, CRON_STANDARD_OPTIONS, templatesForStandard } from "../utils/cron";
 
-const fieldDefs: Array<{
+const baseFieldDefs: Array<{
   key: keyof CronFieldParts;
   label: string;
   placeholder: string;
@@ -144,27 +160,6 @@ const fieldDefs: Array<{
   { key: "dayOfMonth", label: "日", placeholder: "*", shortcuts: ["*", "1", "1-5", "*/2"] },
   { key: "month", label: "月", placeholder: "*", shortcuts: ["*", "1", "1-6", "7-12"] },
   { key: "dayOfWeek", label: "周", placeholder: "*", shortcuts: ["*", "Mon-Fri", "Mon", "Sat,Sun"] },
-];
-
-const templates = [
-  { label: "每30秒", expression: "*/30 * * * * *" },
-  { label: "每分钟", expression: "0 * * * * *" },
-  { label: "每5分钟", expression: "0 */5 * * * *" },
-  { label: "每10分钟", expression: "0 */10 * * * *" },
-  { label: "每15分钟", expression: "0 */15 * * * *" },
-  { label: "每30分钟", expression: "0 */30 * * * *" },
-  { label: "每小时整点", expression: "0 0 * * * *" },
-  { label: "每2小时", expression: "0 0 */2 * * *" },
-  { label: "每天 00:00", expression: "0 0 0 * * *" },
-  { label: "每天 09:00", expression: "0 0 9 * * *" },
-  { label: "每天 18:00", expression: "0 0 18 * * *" },
-  { label: "工作日 09:00", expression: "0 0 9 * * Mon-Fri" },
-  { label: "工作日 18:00", expression: "0 0 18 * * Mon-Fri" },
-  { label: "每周一 09:00", expression: "0 0 9 * * Mon" },
-  { label: "每周五 18:00", expression: "0 0 18 * * Fri" },
-  { label: "每月 1 日 00:00", expression: "0 0 0 1 * *" },
-  { label: "每月 1 日 09:00", expression: "0 0 9 1 * *" },
-  { label: "每月最后一天 23:00", expression: "0 0 23 L * *" },
 ];
 
 const timezoneOptions = [
@@ -184,7 +179,22 @@ const fields = reactive<CronFieldParts>({
   dayOfWeek: "*",
 });
 
-const cronExpression = ref("0 * * * * *");
+const cronStandard = ref<CronStandard>("linux5");
+const standardOptions = CRON_STANDARD_OPTIONS.map(({ label, value }) => ({ label, value }));
+const selectedStandard = computed(() => CRON_STANDARD_OPTIONS.find((item) => item.value === cronStandard.value)!);
+const templates = computed(() => templatesForStandard(cronStandard.value));
+const fieldDefs = computed(() => baseFieldDefs
+  .filter((field) => cronStandard.value !== "linux5" || field.key !== "second")
+  .map((field) => {
+    if (cronStandard.value !== "quartz" || (field.key !== "dayOfMonth" && field.key !== "dayOfWeek")) return field;
+    return { ...field, shortcuts: [...field.shortcuts, "?"] };
+  }));
+const expressionPlaceholder = computed(() => cronStandard.value === "linux5"
+  ? "分 时 日 月 周，例如：0 9 * * Mon-Fri"
+  : cronStandard.value === "quartz"
+    ? "秒 分 时 日 月 周，例如：0 0 9 ? * Mon-Fri"
+    : "秒 分 时 日 月 周，例如：0 0 9 * * Mon-Fri");
+const cronExpression = ref(buildCronExpression(fields, cronStandard.value));
 const warnings = ref<string[]>([]);
 const isExpressionValid = ref(false);
 
@@ -195,7 +205,7 @@ const previewCount = ref(8);
 const previewTimezone = ref("local");
 const previewItems = ref<CronPreviewItem[]>([]);
 
-const domDowHint = computed(() => fields.dayOfMonth !== "*" && fields.dayOfWeek !== "*");
+const domDowHint = computed(() => !["*", "?"].includes(fields.dayOfMonth) && !["*", "?"].includes(fields.dayOfWeek));
 const summaryDetailRows = computed(() =>
   summaryDetails.value.map((item) => {
     const idx = item.indexOf(":");
@@ -208,12 +218,19 @@ const summaryDetailRows = computed(() =>
 );
 
 function expressionFromFields(): string {
-  return [fields.second, fields.minute, fields.hour, fields.dayOfMonth, fields.month, fields.dayOfWeek].join(" ");
+  return buildCronExpression(fields, cronStandard.value);
 }
 
 function onFieldInput() {
   cronExpression.value = expressionFromFields();
   isExpressionValid.value = false;
+}
+
+function onExpressionInput() {
+  isExpressionValid.value = false;
+  summary.value = "";
+  summaryDetails.value = [];
+  previewItems.value = [];
 }
 
 function applyShortcut(key: keyof CronFieldParts, value: string) {
@@ -228,15 +245,15 @@ function applyNormalizedParts(parts: CronFieldParts) {
   fields.dayOfMonth = parts.dayOfMonth;
   fields.month = parts.month;
   fields.dayOfWeek = parts.dayOfWeek;
-  cronExpression.value = expressionFromFields();
 }
 
-async function normalizeAndDescribe() {
+async function normalizeAndDescribe(showSuccess = true): Promise<boolean> {
   try {
     await normalizeExpression(false);
 
     const described = (await invokeToolByChannel("tool:cron:describe", {
       expression: cronExpression.value,
+      standard: cronStandard.value,
       locale: "zh-CN",
     })) as CronDescribeResponse;
 
@@ -246,19 +263,21 @@ async function normalizeAndDescribe() {
       if (!warnings.value.includes(warning)) warnings.value.push(warning);
     }
 
-    ElMessage.success("Cron 表达式已规范化");
+    if (showSuccess) ElMessage.success(`已按 ${selectedStandard.value.label} 规则校验`);
+    return true;
   } catch (error) {
     isExpressionValid.value = false;
     summary.value = "";
     summaryDetails.value = [];
     ElMessage.error((error as Error).message);
+    return false;
   }
 }
 
 async function normalizeExpression(showMessage: boolean) {
   const normalized = (await invokeToolByChannel("tool:cron:normalize", {
     expression: cronExpression.value,
-    standard: "spring6",
+    standard: cronStandard.value,
   })) as CronNormalizeResponse;
 
   applyNormalizedParts(normalized.parts);
@@ -278,6 +297,7 @@ async function previewCron() {
       expression: cronExpression.value,
       count: previewCount.value,
       timezone: previewTimezone.value,
+      standard: cronStandard.value,
     })) as CronPreviewV2Response;
 
     cronExpression.value = data.normalizedExpression;
@@ -290,6 +310,8 @@ async function previewCron() {
 }
 
 async function copyExpression() {
+  const valid = await normalizeAndDescribe(false);
+  if (!valid) return;
   try {
     await navigator.clipboard.writeText(cronExpression.value);
     ElMessage.success("已复制表达式");
@@ -298,9 +320,20 @@ async function copyExpression() {
   }
 }
 
-function applyTemplate(expression: string) {
-  cronExpression.value = expression;
+function applyTemplate(parts: CronFieldParts) {
+  applyNormalizedParts(coerceCronParts(parts, cronStandard.value));
+  cronExpression.value = expressionFromFields();
   void normalizeAndDescribe();
+}
+
+function changeStandard(value: CronStandard) {
+  const removedSeconds = value === "linux5" && fields.second !== "0";
+  cronStandard.value = value;
+  applyNormalizedParts(coerceCronParts(fields, value));
+  cronExpression.value = expressionFromFields();
+  onExpressionInput();
+  void normalizeAndDescribe(false);
+  if (removedSeconds) ElMessage.warning("Linux Crontab 不支持秒级触发，已将秒字段重置为 0");
 }
 
 void normalizeAndDescribe();
@@ -323,10 +356,21 @@ void normalizeAndDescribe();
   gap: 10px;
 }
 
+.standard-block {
+  background: var(--el-fill-color-extra-light);
+}
+
+.standard-switch {
+  align-self: flex-start;
+  max-width: 100%;
+}
+
 .section-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .section-head h3 {
@@ -362,7 +406,7 @@ void normalizeAndDescribe();
 
 .summary-details {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: 6px;
   min-height: 28px;
   align-content: start;

@@ -84,6 +84,7 @@
           </div>
           <div class="pdf-actions">
             <el-button type="primary" :loading="splitLoading" @click="doSplit">执行拆分</el-button>
+            <el-button v-if="splitResultFiles.length > 0" @click="revealPath(splitResultFiles[0].path)">打开输出目录</el-button>
           </div>
           <el-alert
             v-if="splitResultMsg"
@@ -110,24 +111,28 @@
       <el-tab-pane label="合并" name="merge">
         <div class="pdf-section">
           <div class="pdf-actions">
-            <el-button @click="addMergeFiles">添加文件</el-button>
+            <el-button :loading="mergeFilesLoading" @click="addMergeFiles">添加文件</el-button>
             <el-button
               v-if="mergeFiles.length > 0"
               type="danger"
               plain
-              @click="mergeFiles = []"
+              @click="clearMergeFiles"
             >清空列表</el-button>
           </div>
 
           <div v-if="mergeFiles.length > 0" class="merge-file-list">
             <div
               v-for="(f, idx) in mergeFiles"
-              :key="idx"
+              :key="f.path"
               class="merge-file-item"
             >
               <span class="merge-file-index">{{ idx + 1 }}.</span>
               <span class="merge-file-name" :title="f.path">{{ shortName(f.path) }}</span>
               <el-tag v-if="f.pages > 0" size="small" type="info">{{ f.pages }} 页</el-tag>
+              <div class="merge-order-actions" aria-label="调整合并顺序">
+                <el-button text size="small" :disabled="idx === 0" :aria-label="`上移 ${shortName(f.path)}`" @click="moveMergeFile(idx, -1)">上移</el-button>
+                <el-button text size="small" :disabled="idx === mergeFiles.length - 1" :aria-label="`下移 ${shortName(f.path)}`" @click="moveMergeFile(idx, 1)">下移</el-button>
+              </div>
               <el-button text size="small" type="danger" @click="removeMergeFile(idx)">移除</el-button>
             </div>
             <div class="merge-total">
@@ -138,7 +143,7 @@
 
           <div class="pdf-file-row">
             <el-button @click="pickMergeOutput">保存到</el-button>
-            <el-input v-model="mergeOutputPath" placeholder="合并后的 PDF 文件路径" class="pdf-path-input" />
+            <el-input v-model="mergeOutputPath" placeholder="合并后的 PDF 文件路径" class="pdf-path-input" @input="clearMergeResult" />
           </div>
           <div class="pdf-actions">
             <el-button
@@ -147,6 +152,7 @@
               :disabled="mergeFiles.length < 2"
               @click="doMerge"
             >执行合并</el-button>
+            <el-button v-if="mergeResultPath" @click="revealPath(mergeResultPath)">打开输出目录</el-button>
           </div>
           <el-alert
             v-if="mergeResult"
@@ -163,7 +169,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { ElMessage } from "element-plus";
+import { ElMessage, ElMessageBox } from "element-plus";
 import { invokeToolByChannel } from "../bridge/tauri";
 import { open, save } from "@tauri-apps/plugin-dialog";
 
@@ -233,12 +239,8 @@ const splitResultFiles = ref<SplitResultFile[]>([]);
 const splitPageCount = ref(0);
 
 async function fetchPageCount(filePath: string): Promise<number> {
-  try {
-    const data = await invokeToolByChannel("tool:pdf:info", { path: filePath }) as { pages: number };
-    return data.pages;
-  } catch {
-    return 0;
-  }
+  const data = await invokeToolByChannel("tool:pdf:info", { path: filePath }) as { pages: number };
+  return data.pages;
 }
 
 async function pickSplitFile() {
@@ -256,7 +258,9 @@ async function pickSplitFile() {
       const lastSep = p.lastIndexOf(sep);
       splitOutputDir.value = lastSep > 0 ? p.substring(0, lastSep) : "";
     }
-  } catch { /* dialog cancelled */ }
+  } catch (error) {
+    ElMessage.error((error as Error).message);
+  }
 }
 
 async function pickSplitOutputDir() {
@@ -272,6 +276,17 @@ async function pickSplitOutputDir() {
   } catch { /* dialog cancelled */ }
 }
 
+async function runSplit(overwrite: boolean) {
+  const data = (await invokeToolByChannel("tool:pdf:split", {
+    path: splitPath.value.trim(),
+    ranges: splitRanges.value,
+    outputDir: splitOutputDir.value.trim(),
+    overwrite,
+  })) as { files: SplitResultFile[]; totalFiles: number };
+  splitResultMsg.value = `拆分完成: 生成 ${data.totalFiles} 个文件`;
+  splitResultFiles.value = data.files;
+}
+
 async function doSplit() {
   if (!splitPath.value.trim()) {
     ElMessage.warning("请选择源 PDF 文件");
@@ -285,15 +300,25 @@ async function doSplit() {
   splitResultMsg.value = "";
   splitResultFiles.value = [];
   try {
-    const data = (await invokeToolByChannel("tool:pdf:split", {
-      path: splitPath.value,
-      ranges: splitRanges.value,
-      outputDir: splitOutputDir.value,
-    })) as { files: SplitResultFile[]; totalFiles: number };
-    splitResultMsg.value = `拆分完成: 生成 ${data.totalFiles} 个文件`;
-    splitResultFiles.value = data.files;
+    await runSplit(false);
   } catch (error) {
-    ElMessage.error((error as Error).message);
+    const message = (error as Error).message;
+    if (!message.includes("输出文件已存在")) {
+      ElMessage.error(message);
+      return;
+    }
+    try {
+      await ElMessageBox.confirm(
+        "输出目录中已有同名拆分文件，是否覆盖全部冲突文件？",
+        "确认覆盖",
+        { type: "warning", confirmButtonText: "覆盖", cancelButtonText: "取消" },
+      );
+      await runSplit(true);
+    } catch (confirmError) {
+      if (confirmError !== "cancel" && confirmError !== "close") {
+        ElMessage.error((confirmError as Error).message);
+      }
+    }
   } finally {
     splitLoading.value = false;
   }
@@ -303,8 +328,10 @@ async function doSplit() {
 interface MergeFileEntry { path: string; pages: number }
 const mergeFiles = ref<MergeFileEntry[]>([]);
 const mergeOutputPath = ref("");
+const mergeFilesLoading = ref(false);
 const mergeLoading = ref(false);
 const mergeResult = ref("");
+const mergeResultPath = ref("");
 
 const mergeTotalPages = computed(() => mergeFiles.value.reduce((sum, f) => sum + f.pages, 0));
 
@@ -318,16 +345,64 @@ async function addMergeFiles() {
       const paths = Array.isArray(result)
         ? result.map((f) => (typeof f === "string" ? f : f.path))
         : [typeof result === "string" ? result : result.path];
-      for (const p of paths) {
-        const pages = await fetchPageCount(p);
-        mergeFiles.value.push({ path: p, pages });
+      const existingPaths = new Set(mergeFiles.value.map((file) => file.path.toLowerCase()));
+      const pendingPaths = paths.filter((path, index) => {
+        const normalized = path.toLowerCase();
+        if (existingPaths.has(normalized)) return false;
+        if (paths.findIndex((candidate) => candidate.toLowerCase() === normalized) !== index) return false;
+        return true;
+      });
+      mergeFilesLoading.value = true;
+      const results = await Promise.allSettled(
+        pendingPaths.map(async (path) => ({ path, pages: await fetchPageCount(path) })),
+      );
+      const loaded = results.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
+      const failed = results.length - loaded.length;
+      mergeFiles.value.push(...loaded);
+      if (loaded.length > 0) clearMergeResult();
+      if (failed > 0) {
+        ElMessage.warning(`${failed} 个文件无法读取，已跳过`);
+      } else if (pendingPaths.length < paths.length) {
+        ElMessage.info("已跳过重复文件");
       }
     }
-  } catch { /* dialog cancelled */ }
+  } catch (error) {
+    ElMessage.error((error as Error).message);
+  } finally {
+    mergeFilesLoading.value = false;
+  }
 }
 
 function removeMergeFile(idx: number) {
   mergeFiles.value.splice(idx, 1);
+  clearMergeResult();
+}
+
+function moveMergeFile(index: number, offset: -1 | 1) {
+  const target = index + offset;
+  if (target < 0 || target >= mergeFiles.value.length) return;
+  const [file] = mergeFiles.value.splice(index, 1);
+  mergeFiles.value.splice(target, 0, file);
+  clearMergeResult();
+}
+
+function clearMergeResult() {
+  mergeResult.value = "";
+  mergeResultPath.value = "";
+}
+
+async function clearMergeFiles() {
+  try {
+    await ElMessageBox.confirm(
+      `确定清空当前 ${mergeFiles.value.length} 个待合并文件吗？`,
+      "清空列表",
+      { type: "warning", confirmButtonText: "清空", cancelButtonText: "取消" },
+    );
+    mergeFiles.value = [];
+    clearMergeResult();
+  } catch {
+    // 用户取消时保持当前列表。
+  }
 }
 
 async function pickMergeOutput() {
@@ -343,6 +418,16 @@ async function pickMergeOutput() {
   } catch { /* dialog cancelled */ }
 }
 
+async function runMerge(overwrite: boolean) {
+  const data = (await invokeToolByChannel("tool:pdf:merge", {
+    paths: mergeFiles.value.map((f) => f.path),
+    outputPath: mergeOutputPath.value.trim(),
+    overwrite,
+  })) as { pages: number; outputPath: string; sources: number };
+  mergeResult.value = `合并完成: ${data.sources} 个文件，共 ${data.pages} 页，保存至 ${data.outputPath}`;
+  mergeResultPath.value = data.outputPath;
+}
+
 async function doMerge() {
   if (mergeFiles.value.length < 2) {
     ElMessage.warning("至少需要 2 个 PDF 文件");
@@ -354,16 +439,37 @@ async function doMerge() {
   }
   mergeLoading.value = true;
   mergeResult.value = "";
+  mergeResultPath.value = "";
   try {
-    const data = (await invokeToolByChannel("tool:pdf:merge", {
-      paths: mergeFiles.value.map((f) => f.path),
-      outputPath: mergeOutputPath.value,
-    })) as { pages: number; outputPath: string; sources: number };
-    mergeResult.value = `合并完成: ${data.sources} 个文件，共 ${data.pages} 页，保存至 ${data.outputPath}`;
+    await runMerge(false);
   } catch (error) {
-    ElMessage.error((error as Error).message);
+    const message = (error as Error).message;
+    if (!message.includes("输出文件已存在")) {
+      ElMessage.error(message);
+      return;
+    }
+    try {
+      await ElMessageBox.confirm(
+        `输出文件已存在，是否覆盖？\n${mergeOutputPath.value}`,
+        "确认覆盖",
+        { type: "warning", confirmButtonText: "覆盖", cancelButtonText: "取消" },
+      );
+      await runMerge(true);
+    } catch (confirmError) {
+      if (confirmError !== "cancel" && confirmError !== "close") {
+        ElMessage.error((confirmError as Error).message);
+      }
+    }
   } finally {
     mergeLoading.value = false;
+  }
+}
+
+async function revealPath(path: string) {
+  try {
+    await invokeToolByChannel("tool:system:reveal-in-folder", { path });
+  } catch (error) {
+    ElMessage.error((error as Error).message);
   }
 }
 
@@ -482,6 +588,12 @@ function shortName(path: string): string {
   white-space: nowrap;
 }
 
+.merge-order-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 2px;
+}
+
 .merge-total {
   padding: 6px 0 2px;
   font-size: 13px;
@@ -533,5 +645,24 @@ function shortName(path: string): string {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .pdf-file-row,
+  .pdf-actions {
+    flex-wrap: wrap;
+  }
+
+  .pdf-path-input {
+    min-width: 220px;
+  }
+
+  .merge-file-item {
+    flex-wrap: wrap;
+  }
+
+  .merge-file-name {
+    min-width: 160px;
+  }
 }
 </style>

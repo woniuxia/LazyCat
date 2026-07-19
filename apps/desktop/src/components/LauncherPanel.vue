@@ -6,7 +6,12 @@
         :key="g"
         class="group-item"
         :class="{ active: activeGroup === g }"
+        role="button"
+        tabindex="0"
+        :aria-pressed="activeGroup === g"
         @click="activeGroup = g"
+        @keydown.enter.prevent="activeGroup = g"
+        @keydown.space.prevent="activeGroup = g"
       >
         {{ g }} ({{ groupCount(g) }})
       </div>
@@ -49,9 +54,17 @@
             v-for="(entry, idx) in filteredEntries"
             :key="entry.id"
             class="grid-card"
-            :class="{ 'drag-over': dragOverIdx === idx }"
+            :class="{ 'drag-over': dragOverIdx === idx, 'is-missing': !entry.path_exists }"
             draggable="true"
+            role="button"
+            tabindex="0"
+            :aria-label="launcherEntryAriaLabel(entry)"
+            :title="launcherEntryTitle(entry)"
             @click="launchApp(entry)"
+            @keydown.enter.prevent="launchApp(entry)"
+            @keydown.space.prevent="launchApp(entry)"
+            @keydown.alt.up.prevent="moveEntryByKeyboard(entry, -1)"
+            @keydown.alt.down.prevent="moveEntryByKeyboard(entry, 1)"
             @dragstart="onDragStart(idx, $event)"
             @dragover.prevent="onDragOver(idx)"
             @drop="onDrop(idx)"
@@ -65,6 +78,7 @@
             />
             <img v-else :src="defaultIcon" class="app-icon" />
             <span class="app-name" :title="entry.name">{{ entry.name }}</span>
+            <span v-if="!entry.path_exists" class="entry-warning">路径失效</span>
           </div>
         </div>
 
@@ -74,9 +88,17 @@
             v-for="(entry, idx) in filteredEntries"
             :key="entry.id"
             class="list-row"
-            :class="{ 'drag-over': dragOverIdx === idx }"
+            :class="{ 'drag-over': dragOverIdx === idx, 'is-missing': !entry.path_exists }"
             draggable="true"
+            role="button"
+            tabindex="0"
+            :aria-label="launcherEntryAriaLabel(entry)"
+            :title="launcherEntryTitle(entry)"
             @click="launchApp(entry)"
+            @keydown.enter.prevent="launchApp(entry)"
+            @keydown.space.prevent="launchApp(entry)"
+            @keydown.alt.up.prevent="moveEntryByKeyboard(entry, -1)"
+            @keydown.alt.down.prevent="moveEntryByKeyboard(entry, 1)"
             @dragstart="onDragStart(idx, $event)"
             @dragover.prevent="onDragOver(idx)"
             @drop="onDrop(idx)"
@@ -91,6 +113,7 @@
             <img v-else :src="defaultIcon" class="list-icon" />
             <span class="list-name">{{ entry.name }}</span>
             <span class="list-path">{{ entry.exe_path }}</span>
+            <el-tag v-if="!entry.path_exists" size="small" type="danger">路径失效</el-tag>
           </div>
         </div>
       </div>
@@ -149,6 +172,21 @@
           <el-select v-model="editForm.group_name" filterable allow-create default-first-option style="width: 100%;">
             <el-option v-for="g in userGroups" :key="g" :label="g" :value="g" />
           </el-select>
+        </el-form-item>
+        <el-form-item label="程序路径">
+          <div class="edit-path-row">
+            <el-input v-model="editForm.exe_path" placeholder="可执行文件或文件夹路径" />
+            <el-button @click="chooseEditPath">选择</el-button>
+          </div>
+        </el-form-item>
+        <el-form-item label="启动参数">
+          <el-input
+            v-model="editForm.arguments"
+            type="textarea"
+            :rows="3"
+            placeholder='例如 --profile "work" --safe-mode'
+          />
+          <div class="form-hint">参数会原样保存；普通启动会按 Windows 命令行引号规则拆分。</div>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -221,6 +259,7 @@ interface LauncherEntry {
   group_name: string;
   sort_order: number;
   launch_count: number;
+  path_exists: boolean;
 }
 
 interface ScanItem {
@@ -252,7 +291,7 @@ const scanTableRef = ref();
 
 // Edit dialog
 const editDialogVisible = ref(false);
-const editForm = ref({ id: 0, name: "", group_name: "" });
+const editForm = ref({ id: 0, name: "", group_name: "", exe_path: "", arguments: "" });
 
 // Settings dialog
 const settingsDialogVisible = ref(false);
@@ -329,6 +368,10 @@ onBeforeUnmount(() => { document.removeEventListener("click", hideCtx); });
 // Launch
 async function launchApp(entry: LauncherEntry, admin = false) {
   if (justDragged.value) { justDragged.value = false; return; }
+  if (!entry.path_exists) {
+    ElMessage.warning("程序路径已失效，请右键编辑后重新选择");
+    return;
+  }
   const launched = await invokeWithLoading<Record<string, unknown>>(
     "tool:launcher:launch",
     {
@@ -458,9 +501,23 @@ function ctxEdit() {
     id: ctxEntry.value.id,
     name: ctxEntry.value.name,
     group_name: ctxEntry.value.group_name,
+    exe_path: ctxEntry.value.exe_path,
+    arguments: ctxEntry.value.arguments,
   };
   editDialogVisible.value = true;
   hideCtx();
+}
+
+async function chooseEditPath() {
+  try {
+    const selected = await open({
+      multiple: false,
+      filters: [{ name: "可执行文件", extensions: ["exe"] }],
+    });
+    if (typeof selected === "string") editForm.value.exe_path = selected;
+  } catch (error) {
+    ElMessage.error(`选择路径失败：${(error as Error).message}`);
+  }
 }
 
 async function ctxRemove() {
@@ -486,18 +543,57 @@ async function ctxRemove() {
 
 // Edit save
 async function saveEdit() {
+  const name = editForm.value.name.trim();
+  const exePath = editForm.value.exe_path.trim();
+  if (!name) {
+    ElMessage.warning("名称不能为空");
+    return;
+  }
+  if (!exePath) {
+    ElMessage.warning("程序路径不能为空");
+    return;
+  }
   const saved = await invokeWithLoading<Record<string, unknown>>(
     "tool:launcher:update",
     {
       id: editForm.value.id,
-      name: editForm.value.name,
-      group_name: editForm.value.group_name,
+      name,
+      group_name: editForm.value.group_name.trim(),
+      exe_path: exePath,
+      arguments: editForm.value.arguments,
     },
     { errorPrefix: "保存失败：" },
   );
   if (!saved) return;
   editDialogVisible.value = false;
   ElMessage.success("已保存");
+  await loadEntries();
+}
+
+function launcherEntryAriaLabel(entry: LauncherEntry): string {
+  const status = entry.path_exists ? "" : "，路径已失效";
+  return `启动 ${entry.name}${status}。按 Alt 加上下方向键调整顺序`;
+}
+
+function launcherEntryTitle(entry: LauncherEntry): string {
+  const args = entry.arguments.trim() ? `\n参数：${entry.arguments}` : "";
+  const status = entry.path_exists ? "" : "\n路径已失效，请右键编辑";
+  return `${entry.exe_path}${args}${status}\nAlt+↑/↓ 调整顺序`;
+}
+
+async function moveEntryByKeyboard(entry: LauncherEntry, direction: -1 | 1) {
+  const list = [...filteredEntries.value];
+  const currentIndex = list.findIndex((item) => item.id === entry.id);
+  const targetIndex = currentIndex + direction;
+  if (currentIndex < 0 || targetIndex < 0 || targetIndex >= list.length) return;
+  const [moved] = list.splice(currentIndex, 1);
+  list.splice(targetIndex, 0, moved);
+  const reordered = await invokeWithLoading<Record<string, unknown>>(
+    "tool:launcher:reorder",
+    { orders: list.map((item, index) => ({ id: item.id, sort_order: index })) },
+    { errorPrefix: "排序失败：" },
+  );
+  if (!reordered) return;
   await loadEntries();
 }
 
@@ -722,6 +818,20 @@ async function deleteGroup(groupName: string) {
 .grid-card:hover {
   background: var(--lc-accent-dim);
 }
+.group-item:focus-visible {
+  outline: 2px solid var(--lc-accent);
+  outline-offset: -2px;
+}
+.grid-card:focus-visible,
+.list-row:focus-visible {
+  outline: 2px solid var(--lc-accent);
+  outline-offset: 2px;
+}
+.grid-card.is-missing,
+.list-row.is-missing {
+  border: 1px dashed color-mix(in srgb, var(--el-color-danger) 55%, transparent);
+  background: color-mix(in srgb, var(--el-color-danger) 5%, transparent);
+}
 .grid-card:active {
   transform: scale(0.96);
 }
@@ -738,6 +848,11 @@ async function deleteGroup(groupName: string) {
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--lc-text);
+}
+.entry-warning {
+  color: var(--el-color-danger);
+  font-size: 11px;
+  line-height: 1;
 }
 
 /* List */
@@ -760,6 +875,17 @@ async function deleteGroup(groupName: string) {
 .list-row:active {
   background: var(--lc-accent-dim);
   transform: scale(0.995);
+}
+.edit-path-row {
+  display: flex;
+  width: 100%;
+  gap: 8px;
+}
+.form-hint {
+  margin-top: 4px;
+  color: var(--lc-text-muted);
+  font-size: 12px;
+  line-height: 1.45;
 }
 .list-icon {
   width: 32px;
