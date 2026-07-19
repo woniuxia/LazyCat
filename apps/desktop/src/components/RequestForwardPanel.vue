@@ -44,6 +44,7 @@ import {
 } from "../utils/requestForward";
 import type { RequestForwardCommandExamples } from "../utils/requestForward";
 import RequestForwardEndpointActions from "./request-forward/RequestForwardEndpointActions.vue";
+import RequestForwardBatchResultDialog from "./request-forward/RequestForwardBatchResultDialog.vue";
 import RequestForwardLogList from "./request-forward/RequestForwardLogList.vue";
 import RequestForwardLogInspector from "./request-forward/RequestForwardLogInspector.vue";
 import RequestForwardRuleDialog from "./request-forward/RequestForwardRuleDialog.vue";
@@ -119,6 +120,9 @@ const loadingMore = ref(false);
 const logError = ref("");
 const logRefreshError = ref("");
 const observabilityMutating = ref(false);
+const batchDialogVisible = ref(false);
+const batchResults = ref<RequestForwardBatchOperationResult[]>([]);
+const batchOperation = ref<"start" | "stop">("start");
 
 let refreshRequestToken = 0;
 let recoveryPreflightRequestToken = 0;
@@ -1051,11 +1055,23 @@ async function handleEditorStopAndEdit() {
   }
 }
 
-async function runBatch(operation: "start" | "stop") {
+async function runBatch(operation: "start" | "stop", ids: number[], scopeLabel: string) {
+  if (!ids.length || interactionBusy.value) return;
+  if (operation === "stop") {
+    try {
+      await ElMessageBox.confirm(
+        `将停止${scopeLabel}，是否继续？`,
+        "确认批量停止",
+        { type: "warning", confirmButtonText: "停止", cancelButtonText: "取消" },
+      );
+    } catch {
+      return;
+    }
+  }
   operating.value = true;
   try {
     const channel = `tool:request-forward:${operation}-all`;
-    const result = await invoke<BatchEnvelope>(channel, {});
+    const result = await invoke<BatchEnvelope>(channel, { ids });
     const summary = {
       requested: result.results.length,
       succeeded: result.results.filter((item) => item.ok).length,
@@ -1063,12 +1079,40 @@ async function runBatch(operation: "start" | "stop") {
     };
     const message = getRequestForwardBatchMessage(operation, summary);
     summary.failed ? ElMessage.warning(message) : ElMessage.success(message);
+    batchOperation.value = operation;
+    batchResults.value = result.results;
     await refreshRules();
+    batchDialogVisible.value = true;
   } catch (error) {
     ElMessage.error(`${operation === "start" ? "全部启动" : "全部停止"}失败：${errorMessage(error)}`);
   } finally {
     operating.value = false;
   }
+}
+
+function runBatchStart(ids: number[], scopeLabel: string) {
+  return runBatch("start", ids, scopeLabel);
+}
+
+function runBatchStop(ids: number[], scopeLabel: string) {
+  return runBatch("stop", ids, scopeLabel);
+}
+
+function locateBatchRule(ruleId: number) {
+  batchDialogVisible.value = false;
+  selectRule(ruleId);
+}
+
+function editBatchRule(ruleId: number) {
+  batchDialogVisible.value = false;
+  selectRule(ruleId);
+  openEditDialog(ruleId);
+}
+
+async function retryBatchRule(ruleId: number) {
+  batchDialogVisible.value = false;
+  if (batchOperation.value === "start") await startRule(ruleId);
+  else await stopRule(ruleId);
 }
 
 async function deleteRule(id: number) {
@@ -1310,8 +1354,8 @@ onUnmounted(() => {
       @edit="openEditDialog"
       @duplicate="openDuplicateDialog"
       @delete="deleteRule"
-      @start-all="runBatch('start')"
-      @stop-all="runBatch('stop')"
+      @batch-start="runBatchStart"
+      @batch-stop="runBatchStop"
     />
 
     <div
@@ -1584,6 +1628,16 @@ onUnmounted(() => {
       @apply-suggested-port="applySuggestedListenPort"
       @stop-and-edit="handleEditorStopAndEdit"
       @delete="deleteEditorRule"
+    />
+
+    <RequestForwardBatchResultDialog
+      v-model:visible="batchDialogVisible"
+      :operation="batchOperation"
+      :results="batchResults"
+      :rules="rules"
+      @locate="locateBatchRule"
+      @retry="retryBatchRule"
+      @edit="editBatchRule"
     />
   </div>
 </template>

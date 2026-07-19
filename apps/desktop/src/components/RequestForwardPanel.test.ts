@@ -65,6 +65,13 @@ const endpointActionsUrl = new URL(
 const endpointActionsSource = existsSync(fileURLToPath(endpointActionsUrl))
   ? readFileSync(fileURLToPath(endpointActionsUrl), "utf8")
   : "";
+const batchResultDialogUrl = new URL(
+  "./request-forward/RequestForwardBatchResultDialog.vue",
+  import.meta.url,
+);
+const batchResultDialogSource = existsSync(fileURLToPath(batchResultDialogUrl))
+  ? readFileSync(fileURLToPath(batchResultDialogUrl), "utf8")
+  : "";
 
 describe("RequestForwardPanel source structure", () => {
   it("renders structured runtime recovery without bypassing panel orchestration", () => {
@@ -201,8 +208,34 @@ describe("RequestForwardPanel source structure", () => {
   it("provides single-rule and batch start-stop controls", () => {
     expect(listSource).toMatch(/emit\(["']start["']/);
     expect(listSource).toMatch(/emit\(["']stop["']/);
-    expect(listSource).toMatch(/emit\(["']start-all["']/);
-    expect(listSource).toMatch(/emit\(["']stop-all["']/);
+    expect(listSource).toContain('"batch-start"');
+    expect(listSource).toContain('"batch-stop"');
+    expect(listSource).toContain("启动{{ batchScope.label }}");
+    expect(listSource).toContain("停止{{ batchScope.label }}");
+  });
+
+  it("uses visible multi-selection as the explicit batch range", () => {
+    expect(listSource).toContain("filterRequestForwardRules");
+    expect(listSource).toContain("getRequestForwardBatchScope");
+    expect(listSource).toContain("stateFilter");
+    expect(listSource).toContain("selectedIds");
+    expect(listSource).toContain("全选当前");
+    expect(listSource).toContain("clearSelection");
+    expect(listSource).toContain("visibleIds.has(id)");
+    expect(listSource).toContain("@click.stop");
+  });
+
+  it("submits explicit ids, confirms stops and renders per-rule batch results", () => {
+    expect(source).toMatch(/async function runBatch\([\s\S]*?\{ ids \}/);
+    expect(source).toContain("确认批量停止");
+    expect(source).toContain("batchDialogVisible.value = true");
+    expect(source).toContain("RequestForwardBatchResultDialog");
+    expect(batchResultDialogSource).toContain("parseRequestForwardError");
+    expect(batchResultDialogSource).toContain("定位规则");
+    expect(batchResultDialogSource).toContain("重试");
+    expect(batchResultDialogSource).toContain("编辑规则");
+    expect(batchResultDialogSource).toContain("row.details.code");
+    expect(batchResultDialogSource).toContain("row.details.message");
   });
 
   it("warns when a listener is exposed beyond loopback", () => {

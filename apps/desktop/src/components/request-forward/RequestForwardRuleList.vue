@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import {
   CopyDocument,
   Delete,
@@ -16,9 +16,12 @@ import type {
   RequestForwardRuntimeStatus,
 } from "../../types/request-forward";
 import {
+  filterRequestForwardRules,
   formatRequestForwardEndpoint,
   formatRequestForwardRuleSummary,
+  getRequestForwardBatchScope,
 } from "../../utils/requestForward";
+import type { RequestForwardRuleStateFilter } from "../../utils/requestForward";
 
 const props = defineProps<{
   rules: RequestForwardRule[];
@@ -40,30 +43,73 @@ const emit = defineEmits<{
   edit: [id: number];
   duplicate: [id: number];
   delete: [id: number];
-  "start-all": [];
-  "stop-all": [];
+  "batch-start": [ids: number[], scopeLabel: string];
+  "batch-stop": [ids: number[], scopeLabel: string];
 }>();
 
 type RuleMenuHandle = { handleOpen: () => void };
 
 const keyword = ref("");
+const stateFilter = ref<RequestForwardRuleStateFilter>("all");
+const selectedIds = ref<number[]>([]);
 const menuRefs = new Map<number, RuleMenuHandle>();
 
 const statusById = computed(
   () => new Map(props.statuses.map((status) => [status.ruleId, status])),
 );
 const filteredRules = computed(() => {
-  const query = keyword.value.trim().toLowerCase();
-  if (!query) return props.rules;
-  return props.rules.filter((rule) =>
-    `${rule.name} ${rule.protocol} ${formatRequestForwardRuleSummary(rule)}`
-      .toLowerCase()
-      .includes(query),
+  return filterRequestForwardRules(
+    props.rules,
+    props.statuses,
+    keyword.value,
+    stateFilter.value,
   );
 });
+const filterActive = computed(
+  () => Boolean(keyword.value.trim()) || stateFilter.value !== "all",
+);
+const batchScope = computed(() =>
+  getRequestForwardBatchScope(
+    props.rules,
+    filteredRules.value,
+    selectedIds.value,
+    filterActive.value,
+  ),
+);
+const allFilteredSelected = computed(
+  () => filteredRules.value.length > 0 && filteredRules.value.every((rule) => selectedIds.value.includes(rule.id)),
+);
+const someFilteredSelected = computed(
+  () => filteredRules.value.some((rule) => selectedIds.value.includes(rule.id)) && !allFilteredSelected.value,
+);
 const runningCount = computed(
   () => props.statuses.filter((status) => status.state === "running").length,
 );
+
+watch(filteredRules, (visibleRules) => {
+  const visibleIds = new Set(visibleRules.map((rule) => rule.id));
+  selectedIds.value = selectedIds.value.filter((id) => visibleIds.has(id));
+});
+
+function toggleRuleSelection(ruleId: number, selected: boolean) {
+  const next = new Set(selectedIds.value);
+  if (selected) next.add(ruleId);
+  else next.delete(ruleId);
+  selectedIds.value = [...next];
+}
+
+function toggleFilteredSelection(selected: boolean) {
+  selectedIds.value = selected ? filteredRules.value.map((rule) => rule.id) : [];
+}
+
+function clearSelection() {
+  selectedIds.value = [];
+}
+
+function runBatch(operation: "start" | "stop") {
+  const event = operation === "start" ? "batch-start" : "batch-stop";
+  emit(event, batchScope.value.ids, batchScope.value.label);
+}
 
 function setMenuRef(ruleId: number, value: unknown) {
   if (value) menuRefs.set(ruleId, value as RuleMenuHandle);
@@ -136,22 +182,45 @@ function targetEndpoint(rule: RequestForwardRule): string {
       </el-tooltip>
     </div>
 
-    <el-input
-      v-model="keyword"
-      clearable
-      :prefix-icon="Search"
-      placeholder="搜索名称、协议或端点"
-      aria-label="搜索规则"
-    />
+    <div class="rule-list__filters">
+      <el-input
+        v-model="keyword"
+        clearable
+        :prefix-icon="Search"
+        placeholder="搜索规则"
+        aria-label="搜索规则"
+      />
+      <el-select v-model="stateFilter" aria-label="按运行状态筛选">
+        <el-option label="全部状态" value="all" />
+        <el-option label="已停止" value="stopped" />
+        <el-option label="运行中" value="running" />
+        <el-option label="失败" value="failed" />
+        <el-option label="启动中" value="starting" />
+        <el-option label="停止中" value="stopping" />
+      </el-select>
+    </div>
 
     <div class="rule-list__batch" aria-label="批量操作">
-      <el-button size="small" :disabled="busy || !rules.length" @click="emit('start-all')">
-        全部启动
-      </el-button>
-      <el-button size="small" :disabled="busy || !rules.length" @click="emit('stop-all')">
-        全部停止
-      </el-button>
-      <span>{{ filteredRules.length }} / {{ rules.length }}</span>
+      <div class="rule-list__batch-scope">
+        <el-checkbox
+          :model-value="allFilteredSelected"
+          :indeterminate="someFilteredSelected"
+          :disabled="busy || !filteredRules.length"
+          @update:model-value="toggleFilteredSelection(Boolean($event))"
+        >全选当前</el-checkbox>
+        <el-button v-if="selectedIds.length" text size="small" :disabled="busy" @click="clearSelection">
+          清除选择
+        </el-button>
+        <span>{{ batchScope.label }}</span>
+      </div>
+      <div class="rule-list__batch-actions">
+        <el-button size="small" :disabled="busy || !batchScope.ids.length" @click="runBatch('start')">
+          启动{{ batchScope.label }}
+        </el-button>
+        <el-button size="small" :disabled="busy || !batchScope.ids.length" @click="runBatch('stop')">
+          停止{{ batchScope.label }}
+        </el-button>
+      </div>
     </div>
 
     <div v-loading="loading" class="rule-list__scroll">
@@ -168,6 +237,14 @@ function targetEndpoint(rule: RequestForwardRule): string {
           :class="{ 'is-selected': rule.id === selectedId }"
           :aria-current="rule.id === selectedId ? 'true' : undefined"
         >
+          <el-checkbox
+            class="rule-row__check"
+            :model-value="selectedIds.includes(rule.id)"
+            :disabled="busy"
+            :aria-label="`选择规则${rule.name}`"
+            @click.stop
+            @update:model-value="toggleRuleSelection(rule.id, Boolean($event))"
+          />
           <button
             type="button"
             class="rule-row__select"
@@ -300,7 +377,6 @@ function targetEndpoint(rule: RequestForwardRule): string {
 }
 
 .rule-list__header,
-.rule-list__batch,
 .rule-row__topline,
 .rule-row__summary,
 .rule-row__summary-line,
@@ -329,8 +405,13 @@ function targetEndpoint(rule: RequestForwardRule): string {
   font-size: 12px;
 }
 
-.rule-list__batch { gap: 5px; }
-.rule-list__batch span { margin-left: auto; color: #657386; font-size: 12px; }
+.rule-list__filters { display: grid; grid-template-columns: minmax(0, 1fr) 104px; gap: 6px; }
+.rule-list__batch { display: grid; gap: 5px; }
+.rule-list__batch-scope,
+.rule-list__batch-actions { display: flex; align-items: center; gap: 5px; }
+.rule-list__batch-scope span { margin-left: auto; color: #657386; font-size: 12px; white-space: nowrap; }
+.rule-list__batch-scope :deep(.el-button) { margin-left: 0; padding-inline: 3px; }
+.rule-list__batch-actions :deep(.el-button) { min-width: 0; flex: 1; margin-left: 0; }
 
 .rule-list__scroll {
   display: flex;
@@ -363,12 +444,14 @@ function targetEndpoint(rule: RequestForwardRule): string {
   box-sizing: border-box;
   gap: 6px;
   border: 0;
-  padding: 9px 5px 9px 9px;
+  padding: 9px 5px 9px 34px;
   background: transparent;
   color: inherit;
   cursor: pointer;
   text-align: left;
 }
+
+.rule-row__check { position: absolute; z-index: 2; top: 10px; left: 8px; }
 
 .rule-row__select:disabled { cursor: not-allowed; opacity: .68; }
 .rule-row__select:focus-visible { outline: 2px solid var(--el-color-primary, #409eff); outline-offset: -2px; }

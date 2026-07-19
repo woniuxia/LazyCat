@@ -7,6 +7,7 @@ import type {
   RequestForwardRuleForm,
   RequestForwardRuleWriteInput,
   RequestForwardRuntimeState,
+  RequestForwardRuntimeStatus,
   RequestForwardRecoveryAction,
 } from "../types/request-forward";
 
@@ -422,6 +423,59 @@ export function getForwardEventLabel(protocol: RequestForwardProtocol): string {
 }
 
 type RequestForwardBatchOperation = "start" | "stop";
+
+export type RequestForwardRuleStateFilter = "all" | RequestForwardRuntimeState;
+
+export type RequestForwardBatchScope = {
+  kind: "selected" | "filtered" | "all";
+  ids: number[];
+  label: string;
+};
+
+export function filterRequestForwardRules(
+  rules: RequestForwardRule[],
+  statuses: ReadonlyArray<Pick<RequestForwardRuntimeStatus, "ruleId" | "state">>,
+  keyword: string,
+  stateFilter: RequestForwardRuleStateFilter,
+): RequestForwardRule[] {
+  const normalizedKeyword = keyword.trim().toLowerCase();
+  const statusById = new Map(statuses.map((status) => [status.ruleId, status.state]));
+  return rules.filter((rule) => {
+    if (stateFilter !== "all" && (statusById.get(rule.id) ?? "stopped") !== stateFilter) {
+      return false;
+    }
+    if (!normalizedKeyword) return true;
+    return `${rule.name} ${rule.protocol} ${formatRequestForwardRuleSummary(rule)}`
+      .toLowerCase()
+      .includes(normalizedKeyword);
+  });
+}
+
+export function getRequestForwardBatchScope(
+  allRules: RequestForwardRule[],
+  filteredRules: RequestForwardRule[],
+  selectedIds: ReadonlyArray<number>,
+  filterActive: boolean,
+): RequestForwardBatchScope {
+  const filteredIds = new Set(filteredRules.map((rule) => rule.id));
+  const selected: number[] = [];
+  const seen = new Set<number>();
+  for (const id of selectedIds) {
+    if (filteredIds.has(id) && !seen.has(id)) {
+      seen.add(id);
+      selected.push(id);
+    }
+  }
+  if (selected.length > 0) {
+    return { kind: "selected", ids: selected, label: `选中 ${selected.length} 条` };
+  }
+  if (filterActive) {
+    const ids = filteredRules.map((rule) => rule.id);
+    return { kind: "filtered", ids, label: `当前筛选 ${ids.length} 条` };
+  }
+  const ids = allRules.map((rule) => rule.id);
+  return { kind: "all", ids, label: `全部 ${ids.length} 条` };
+}
 
 export function getRequestForwardBatchMessage(
   operation: RequestForwardBatchOperation,

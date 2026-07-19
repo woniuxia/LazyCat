@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use serde_json::{json, Value};
 
 use super::helpers::db_conn;
@@ -89,10 +91,13 @@ pub(crate) fn supported_actions() -> &'static [&'static str] {
 }
 
 #[cfg(test)]
-mod task6_red_tests {
+mod action_contract_tests {
     use serde_json::json;
 
-    use super::{parse_auto_start_enabled, supported_actions};
+    use super::{
+        parse_auto_start_enabled, parse_batch_rule_ids, resolve_batch_rule_ids,
+        supported_actions,
+    };
 
     #[test]
     fn supports_explicit_auto_start_update_action() {
@@ -105,6 +110,32 @@ mod task6_red_tests {
         assert!(!parse_auto_start_enabled(&json!({ "enabled": false })).unwrap());
         assert!(parse_auto_start_enabled(&json!({})).is_err());
         assert!(parse_auto_start_enabled(&json!({ "enabled": 1 })).is_err());
+    }
+
+    #[test]
+    fn batch_ids_are_optional_positive_unique_integers() {
+        assert_eq!(parse_batch_rule_ids(&json!({})).unwrap(), None);
+        assert_eq!(
+            parse_batch_rule_ids(&json!({ "ids": [3, 3, 0, -1, "2", 5] })).unwrap(),
+            Some(vec![3, 5])
+        );
+        assert_eq!(parse_batch_rule_ids(&json!({ "ids": [] })).unwrap(), Some(vec![]));
+        assert!(parse_batch_rule_ids(&json!({ "ids": "all" })).is_err());
+    }
+
+    #[test]
+    fn explicit_batch_ids_bypass_the_legacy_all_rules_scope() {
+        assert_eq!(
+            resolve_batch_rule_ids(&json!({ "ids": [3, 1, 3] }), || {
+                panic!("explicit scope must not load all rule ids")
+            })
+            .unwrap(),
+            vec![3, 1]
+        );
+        assert_eq!(
+            resolve_batch_rule_ids(&json!({}), || Ok(vec![8, 9])).unwrap(),
+            vec![8, 9]
+        );
     }
 }
 
@@ -177,10 +208,12 @@ fn execute_inner(action: &str, payload: &Value) -> Result<Value, String> {
         }
         "start_all" => {
             let conn = db_conn()?;
-            let rule_ids = repository::list_with_conn(&conn)?
-                .into_iter()
-                .map(|rule| rule.id)
-                .collect::<Vec<_>>();
+            let rule_ids = resolve_batch_rule_ids(payload, || {
+                Ok(repository::list_with_conn(&conn)?
+                    .into_iter()
+                    .map(|rule| rule.id)
+                    .collect::<Vec<_>>())
+            })?;
             let results =
                 runtime::global_manager().start_all_loaded(&rule_ids, |id| {
                     repository::get_with_conn(&conn, id)
@@ -189,10 +222,12 @@ fn execute_inner(action: &str, payload: &Value) -> Result<Value, String> {
         }
         "stop_all" => {
             let conn = db_conn()?;
-            let rule_ids = repository::list_with_conn(&conn)?
-                .into_iter()
-                .map(|rule| rule.id)
-                .collect::<Vec<_>>();
+            let rule_ids = resolve_batch_rule_ids(payload, || {
+                Ok(repository::list_with_conn(&conn)?
+                    .into_iter()
+                    .map(|rule| rule.id)
+                    .collect::<Vec<_>>())
+            })?;
             let results =
                 runtime::global_manager().stop_all_loaded(&rule_ids, |id| {
                     repository::get_with_conn(&conn, id)
@@ -256,6 +291,32 @@ fn parse_auto_start_enabled(payload: &Value) -> Result<bool, String> {
         .get("enabled")
         .and_then(Value::as_bool)
         .ok_or_else(|| "自动恢复开关参数无效".to_string())
+}
+
+fn parse_batch_rule_ids(payload: &Value) -> Result<Option<Vec<i64>>, String> {
+    let Some(value) = payload.get("ids") else {
+        return Ok(None);
+    };
+    let values = value
+        .as_array()
+        .ok_or_else(|| "批量规则 ID 必须是数组".to_string())?;
+    let mut seen = HashSet::new();
+    let ids = values
+        .iter()
+        .filter_map(Value::as_i64)
+        .filter(|id| *id > 0 && seen.insert(*id))
+        .collect();
+    Ok(Some(ids))
+}
+
+fn resolve_batch_rule_ids(
+    payload: &Value,
+    load_all_rule_ids: impl FnOnce() -> Result<Vec<i64>, String>,
+) -> Result<Vec<i64>, String> {
+    match parse_batch_rule_ids(payload)? {
+        Some(ids) => Ok(ids),
+        None => load_all_rule_ids(),
+    }
 }
 
 fn parse_rule_input(payload: &Value) -> Result<RuleWriteInput, String> {

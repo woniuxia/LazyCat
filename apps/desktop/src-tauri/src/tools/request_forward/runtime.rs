@@ -1933,6 +1933,34 @@ mod tests {
     }
 
     #[test]
+    fn batch_start_preserves_explicit_scope_and_reports_missing_rules() {
+        let runner = Arc::new(FakeRunner::default());
+        let manager = RuntimeManager::new(runner.clone());
+
+        let results = manager.start_all_loaded(&[3, 99, 1], |id| {
+            if id == 99 {
+                Err("转发规则不存在".into())
+            } else {
+                Ok(rule(id))
+            }
+        });
+
+        assert_eq!(
+            results.iter().map(|result| result.rule_id).collect::<Vec<_>>(),
+            vec![3, 99, 1]
+        );
+        assert!(results[0].ok);
+        assert!(!results[1].ok);
+        assert!(results[1]
+            .error
+            .as_deref()
+            .expect("missing rule error")
+            .contains("转发规则不存在"));
+        assert!(results[2].ok);
+        assert_eq!(runner.start_calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
     fn failed_stop_normalizes_to_stopped_without_changing_auto_start() {
         let runner = Arc::new(FakeRunner::default());
         runner.fail_start_for(1, "runner start failed");

@@ -22,6 +22,8 @@ import {
   getDefaultRequestForwardForm,
   getForwardEventLabel,
   getRequestForwardBatchMessage,
+  getRequestForwardBatchScope,
+  filterRequestForwardRules,
   getRequestForwardCommandExamples,
   getRequestForwardLocalEndpoint,
   getRequestForwardLocalUrl,
@@ -588,6 +590,39 @@ describe("request forward utilities", () => {
     expect(getRequestForwardBatchMessage("stop", { requested: 0, succeeded: 0, failed: 0 })).toBe(
       "没有可停止的规则",
     );
+  });
+
+  it("filters rules and resolves a stable batch scope", () => {
+    const rules: RequestForwardRule[] = [
+      { ...baseForm, id: 1, name: "API", autoStart: false, createdAt: "", updatedAt: "" },
+      { ...baseForm, id: 2, name: "数据库", protocol: "tcp", autoStart: false, createdAt: "", updatedAt: "" },
+      { ...baseForm, id: 3, name: "失败 API", autoStart: false, createdAt: "", updatedAt: "" },
+    ];
+    const statuses = [
+      { ruleId: 1, state: "running", lastError: null, lastObservabilityError: null },
+      { ruleId: 2, state: "stopped", lastError: null, lastObservabilityError: null },
+      { ruleId: 3, state: "failed", lastError: "bad", lastObservabilityError: null },
+    ] as const;
+
+    expect(filterRequestForwardRules(rules, statuses, "api", "all").map((rule) => rule.id)).toEqual([
+      1, 3,
+    ]);
+    expect(filterRequestForwardRules(rules, statuses, "", "failed").map((rule) => rule.id)).toEqual([
+      3,
+    ]);
+    expect(
+      getRequestForwardBatchScope(rules, [rules[0], rules[2]], [3, 3, 99], true),
+    ).toEqual({ kind: "selected", ids: [3], label: "选中 1 条" });
+    expect(getRequestForwardBatchScope(rules, [rules[0], rules[2]], [], true)).toEqual({
+      kind: "filtered",
+      ids: [1, 3],
+      label: "当前筛选 2 条",
+    });
+    expect(getRequestForwardBatchScope(rules, rules, [], false)).toEqual({
+      kind: "all",
+      ids: [1, 2, 3],
+      label: "全部 3 条",
+    });
   });
 
   it("maps log outcome to success or danger tone", () => {
