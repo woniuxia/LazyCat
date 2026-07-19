@@ -110,6 +110,12 @@ describe("RequestForwardPanel source structure", () => {
     expect(bridgeSource).toContain(
       'invoke<unknown>("request_forward_preflight", { payload })',
     );
+    expect(tauriMainSource).toContain(
+      "tools::request_forward::encode_preflight_task_error",
+    );
+    expect(tauriMainSource).toMatch(
+      /spawn_blocking[\s\S]*?\.await[\s\S]*?encode_preflight_task_error/,
+    );
   });
 
   it("renders accessible preflight stages and applies suggestions only by explicit click", () => {

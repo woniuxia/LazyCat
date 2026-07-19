@@ -27,10 +27,22 @@ struct RequestForwardErrorEnvelope<'a> {
 }
 
 pub(crate) fn encode_request_forward_error(message: &str, state: &str) -> String {
+    encode_request_forward_error_with_code(
+        message,
+        state,
+        classify_request_forward_error(message),
+    )
+}
+
+pub(crate) fn encode_request_forward_error_with_code(
+    message: &str,
+    state: &str,
+    code: RequestForwardErrorCode,
+) -> String {
     let envelope = RequestForwardErrorEnvelope {
         marker: REQUEST_FORWARD_ERROR_MARKER,
         version: REQUEST_FORWARD_ERROR_VERSION,
-        code: classify_request_forward_error(message),
+        code,
         message,
         state,
     };
@@ -105,6 +117,8 @@ pub(crate) fn classify_request_forward_error(message: &str) -> RequestForwardErr
     if normalized.contains("参数无效")
         || normalized.contains("配置")
         || normalized.contains("格式不正确")
+        || normalized.contains("目标 url 不能包含 query 或 fragment")
+        || normalized.contains("已保存规则不能修改协议")
         || normalized.contains("必须")
         || normalized.contains("缺少")
         || normalized.contains("不能为空")

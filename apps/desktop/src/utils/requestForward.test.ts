@@ -99,6 +99,8 @@ describe("request forward utilities", () => {
       "历史纯文本错误",
       '{"code":"dns_failed","message":"not marked","state":"failed"}',
       '{"marker":"lazycat.request_forward.error","version":1,"code":"dns_failed","message":"bad state","state":"broken"}',
+      '{"marker":"lazycat.request_forward.error","version":2,"code":"dns_failed","message":"bad version","state":"failed"}',
+      '{"marker":"lazycat.request_forward.error","version":1,"code":"not_a_code","message":"bad code","state":"failed"}',
       '{"marker":"lazycat.request_forward.error",',
     ]) {
       expect(parseRequestForwardError(input, "failed")).toEqual({
@@ -137,7 +139,13 @@ describe("request forward utilities", () => {
         { code: "invalid_config", message: "配置错误", state: "stopped" },
         null,
       ),
-    ).toEqual(["edit", "check_target"]);
+    ).toEqual(["edit"]);
+    expect(
+      getRequestForwardRecoveryActions(
+        { code: "self_forward", message: "目标指向自身", state: "failed" },
+        null,
+      ),
+    ).toEqual(["edit"]);
   });
   it("clamps the preferred rule list width without consuming the workbench", () => {
     expect(clampRequestForwardRuleListWidth(undefined, 1200)).toBe(260);

@@ -1,7 +1,10 @@
 use serde_json::{json, Value};
 
 use super::helpers::db_conn;
-use model::{encode_request_forward_error, RuleWriteInput};
+use model::{
+    encode_request_forward_error, encode_request_forward_error_with_code,
+    RequestForwardErrorCode, RuleWriteInput,
+};
 use runtime::{AutoStartPersistence, LifecycleRepository};
 
 pub use runtime::RestoreResult;
@@ -33,6 +36,14 @@ const ACTIONS: &[&str] = &[
     "stats_get",
     "stats_reset",
 ];
+
+pub fn encode_preflight_task_error(message: &str) -> String {
+    encode_request_forward_error_with_code(
+        message,
+        runtime::RuntimeState::Stopped.as_str(),
+        RequestForwardErrorCode::Unknown,
+    )
+}
 
 struct DatabaseLifecycleRepository;
 
@@ -354,10 +365,26 @@ mod tests {
             ),
             ("HTTP 目标 URL 格式不正确", RequestForwardErrorCode::InvalidConfig),
             (
+                "HTTP 目标 URL 不能包含 query 或 fragment",
+                RequestForwardErrorCode::InvalidConfig,
+            ),
+            (
+                "已保存规则不能修改协议，请新建规则",
+                RequestForwardErrorCode::InvalidConfig,
+            ),
+            (
                 "已启动的转发规则不能修改或删除",
                 RequestForwardErrorCode::LifecycleConflict,
             ),
             ("创建转发规则失败: 磁盘只读", RequestForwardErrorCode::PersistenceFailed),
+            (
+                "failed to persist request forward rule: disk is read-only",
+                RequestForwardErrorCode::PersistenceFailed,
+            ),
+            (
+                "连接下游 10.0.0.8:443 失败: OS error 10048",
+                RequestForwardErrorCode::TargetUnreachable,
+            ),
         ];
 
         for (message, expected) in cases {
@@ -386,6 +413,20 @@ mod tests {
         assert_eq!(decoded["code"], "unknown");
         assert_eq!(decoded["message"], original);
         assert_eq!(decoded["state"], "running");
+    }
+
+    #[test]
+    fn preflight_task_error_is_an_unknown_stopped_envelope() {
+        let original = "配置预检任务异常结束: task 17 panicked";
+        let encoded = super::encode_preflight_task_error(original);
+        let decoded: serde_json::Value =
+            serde_json::from_str(&encoded).expect("valid preflight task envelope");
+
+        assert_eq!(decoded["marker"], "lazycat.request_forward.error");
+        assert_eq!(decoded["version"], 1);
+        assert_eq!(decoded["code"], "unknown");
+        assert_eq!(decoded["message"], original);
+        assert_eq!(decoded["state"], "stopped");
     }
 
     #[test]

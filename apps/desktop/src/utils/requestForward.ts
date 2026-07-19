@@ -75,7 +75,7 @@ export function getRequestForwardRecoveryActions(
       return ["restart", "edit", "check_target"];
     case "self_forward":
     case "invalid_config":
-      return ["edit", "check_target"];
+      return ["edit"];
     case "lifecycle_conflict":
     case "persistence_failed":
     case "unknown":

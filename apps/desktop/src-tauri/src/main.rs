@@ -298,10 +298,15 @@ async fn request_forward_preflight(payload: Value) -> Result<Value, ToolError> {
         tools::request_forward::execute("preflight", &payload)
     })
     .await
-    .map_err(|error| ToolError {
-        code: "REQUEST_FORWARD_PREFLIGHT_TASK_FAILED".to_string(),
-        message: format!("配置预检任务异常结束: {error}"),
-        details: None,
+    .map_err(|error| {
+        let message = tools::request_forward::encode_preflight_task_error(&format!(
+            "配置预检任务异常结束: {error}"
+        ));
+        ToolError {
+            code: "REQUEST_FORWARD_PREFLIGHT_TASK_FAILED".to_string(),
+            message,
+            details: None,
+        }
     })?;
 
     result.map_err(|message| ToolError {
