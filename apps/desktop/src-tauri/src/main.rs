@@ -1478,6 +1478,7 @@ fn main() {
         .run(|app_handle, event| {
             // 应用退出时取消长任务并销毁挂件窗口
             if let RunEvent::ExitRequested { .. } = event {
+                tools::release_package_runtime::on_app_exit();
                 tools::access_path_diagnostics::runtime::on_app_exit();
                 tools::request_forward::on_app_exit();
                 tools::widget::on_app_exit(app_handle);

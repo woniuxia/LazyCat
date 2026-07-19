@@ -165,3 +165,16 @@ export type {
   AccessPathDiagnosisCancelResponse,
 } from "./access-path-diagnostics";
 export { ACCESS_PATH_REPORT_SCHEMA_VERSION } from "./access-path-diagnostics";
+export type {
+  ReleasePackageArtifactMode,
+  ReleasePackagePhase,
+  ReleasePackageRunStatus,
+  ReleasePackageProjectDraft,
+  ReleasePackageProject,
+  ReleasePackageProjectListResult,
+  ReleasePackagePrepareResult,
+  ReleasePackageStartResult,
+  ReleasePackageCancelResult,
+  ReleasePackageLogEvent,
+  ReleasePackageStatusEvent,
+} from "./release-package";

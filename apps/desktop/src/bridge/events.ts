@@ -26,4 +26,6 @@ export const APP_EVENTS = {
   WIDGET_NAVIGATE: "widget://navigate",
   /** Rust -> 启动诊断的窗口：访问链路诊断运行快照 */
   ACCESS_PATH_DIAGNOSIS_SNAPSHOT: "access-path-diagnosis://snapshot",
+  RELEASE_PACKAGE_LOG: "release-package://log",
+  RELEASE_PACKAGE_STATUS: "release-package://status",
 } as const;
