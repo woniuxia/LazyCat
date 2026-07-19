@@ -6,7 +6,7 @@
 
 **Architecture:** 保留 `RequestForwardPanel.vue` 的编排职责，但把纯格式化、筛选、错误映射和导出逻辑放入 `utils/requestForward.ts`；Rust `request_forward` 域继续作为运行真值，新增小而明确的 preflight/lifecycle API。前后端契约集中在 `types/request-forward.ts` 和 `bridge/tauri.ts`，所有行为按 TDD 逐项落地。
 
-**Tech Stack:** Vue 3、TypeScript、Element Plus、Tauri 2、Rust、Tokio、Hyper、OpenSSL、Vitest、Rust unit/integration tests。
+**Tech Stack:** Vue 3、TypeScript、Element Plus、Tauri 2、Rust、Tokio、Hyper、hyper-rustls、Vitest、Rust unit/integration tests。
 
 ---
 
@@ -22,10 +22,11 @@
 - `apps/desktop/src/components/RequestForwardPanel.vue`: 页面编排、preflight、快捷操作、批量结果、日志实时状态。
 - `apps/desktop/src/components/request-forward/RequestForwardRuleList.vue`: 规则筛选、多选、复制、批量范围和自动恢复标记。
 - `apps/desktop/src/components/request-forward/RequestForwardRuleDialog.vue`: 检测、仅本次启动、启动并自动恢复。
+- `apps/desktop/src/components/request-forward/RequestForwardEndpointActions.vue`: 监听/目标复制、打开与命令示例入口。
 - `apps/desktop/src/components/request-forward/RequestForwardLogList.vue`: 键盘选择和实时暂停反馈。
 - `apps/desktop/src/components/request-forward/RequestForwardLogInspector.vue`: JSON 格式化和复制动作。
 - `apps/desktop/src/components/request-forward/RequestForwardPreflightResult.vue`: 预检分阶段结果。
-- `apps/desktop/src/components/request-forward/RequestForwardBatchResult.vue`: 批量逐条结果。
+- `apps/desktop/src/components/request-forward/RequestForwardBatchResultDialog.vue`: 批量逐条结果。
 - `apps/desktop/src/utils/requestForward.test.ts`、`apps/desktop/src/components/RequestForwardPanel.test.ts`: 前端回归测试。
 
 ### Task 1: 支持 HTTPS 下游并消除协议误导
@@ -41,7 +42,7 @@
 
 - [ ] 先新增失败测试：本地测试 CA/证书启动 HTTPS 下游，规则能转发 method/path/query/header/body，TLS 验证失败返回明确错误；表单协议标签为“HTTP”，目标 URL 说明支持 HTTP/HTTPS 下游。
 - [ ] 运行 `cargo test request_forward::http -- --nocapture`，确认新增 HTTPS 用例因连接器缺失失败。
-- [ ] 使用现有 OpenSSL 依赖构造支持 HTTP/HTTPS 的 Hyper connector；系统根证书正常校验，不提供忽略证书开关；删除 `当前版本暂不支持 HTTPS 下游` 的提前拒绝。
+- [ ] 使用 `hyper-rustls` 的 native roots 构造支持 HTTP/HTTPS 的 Hyper connector；系统根证书正常校验，不提供忽略证书开关；删除 `当前版本暂不支持 HTTPS 下游` 的提前拒绝。测试通过注入只信任本地 fixture CA 的 TLS config 完成，不修改系统证书库。
 - [ ] 保持本地监听仍为明文 HTTP，修正文案，避免让用户误认为监听端支持 HTTPS。
 - [ ] 运行 `cargo test request_forward -- --nocapture` 和 `pnpm test src/components/RequestForwardPanel.test.ts`。
 
@@ -71,11 +72,13 @@
 - Modify: `apps/desktop/src/utils/requestForward.ts`
 - Modify: `apps/desktop/src/utils/requestForward.test.ts`
 - Modify: `apps/desktop/src/components/RequestForwardPanel.vue`
+- Create: `apps/desktop/src/components/request-forward/RequestForwardEndpointActions.vue`
 - Test: `apps/desktop/src/components/RequestForwardPanel.test.ts`
 
 - [ ] 先写纯函数失败测试：HTTP 本地 URL、IPv6 URL、TCP/UDP `host:port`、PowerShell `Invoke-WebRequest` 与 curl 示例均正确转义；非 HTTP 不生成浏览器 URL。
 - [ ] 实现 `getRequestForwardLocalEndpoint()`、`getRequestForwardLocalUrl()`、`getRequestForwardCommandExamples()`。
 - [ ] 工作台标题区加入“复制监听地址”“复制目标地址”；HTTP 增加“浏览器打开”和命令下拉。剪贴板/打开失败必须显示错误，不吞异常。
+- [ ] HTTP 访问通配监听时把 `0.0.0.0` 映射为 `127.0.0.1`、`::` 映射为 `::1`；TCP/UDP 不显示浏览器和 HTTP 命令操作。
 - [ ] 运行 utils 与组件测试。
 
 ### Task 4: 增加复制规则
@@ -121,9 +124,9 @@
 - Modify: `apps/desktop/src/components/RequestForwardPanel.vue`
 - Test: Rust runtime/mod tests and front-end tests
 
-- [ ] 先写失败测试：`start { id, autoStart: false }` 运行但不写自动恢复；`start { id, autoStart: true }` 保持既有语义；运行中可通过 `auto-start-update` 修改下次启动期望；stop 只停止运行，不再隐式改变明确设置的期望，应用退出仍不改变期望。
-- [ ] 为向后兼容，缺失 `autoStart` 的旧 start payload 按 `true` 处理；`stop` 增加可选 `disableAutoStart`，旧 payload 按 `true`，新 UI 明确传值。
-- [ ] 列表展示“随应用启动”标记；弹窗和单条启动入口提供“仅本次启动”“启动并自动恢复”；运行中允许切换下次启动自动恢复。
+- [ ] 先写失败测试：`start/stop/start_all/stop_all` 只改变本次 runtime，不再隐式写 `auto_start`；`auto-start-update { id, enabled }` 只改变下次启动期望；应用退出仍不改变期望。
+- [ ] 从 runtime 启停路径移除 `AutoStartPersistence` 和持久化失败补偿分支；保留恢复启动、停止清理、状态串行化和实际状态真值。
+- [ ] 列表展示“随应用启动”标记；弹窗和单条启动入口提供“仅本次启动”（先设 false 再 start）与“启动并自动恢复”（先设 true 再 start）；运行中允许切换下次启动自动恢复；停止默认保留期望，并提供“停止并取消自动恢复”。
 - [ ] 自动恢复失败继续保留 `autoStart=true` 和 failed 状态。
 - [ ] 运行完整 request_forward Rust 测试与前端测试。
 
@@ -136,7 +139,7 @@
 - Modify: `apps/desktop/src/utils/requestForward.test.ts`
 - Modify: `apps/desktop/src/components/request-forward/RequestForwardRuleList.vue`
 - Modify: `apps/desktop/src/components/RequestForwardPanel.vue`
-- Create: `apps/desktop/src/components/request-forward/RequestForwardBatchResult.vue`
+- Create: `apps/desktop/src/components/request-forward/RequestForwardBatchResultDialog.vue`
 - Test: Rust mod tests and front-end tests
 
 - [ ] 先写失败测试：显式 ID 列表批量启停只作用于指定规则；非法/重复 ID 归一化；筛选结果和多选范围计算稳定；失败结果包含规则名、错误码、原文与状态。
@@ -164,7 +167,7 @@
 - [ ] 工具栏增加清空筛选、Method、状态码、时间范围；规则切换后按当前规则重新查询，不让旧响应覆盖。
 - [ ] 日志列表支持上下方向键移动选择并保持焦点语义。
 - [ ] 详情对 JSON Content-Type 正文做安全 pretty print，原始非 JSON 文本不变；增加复制错误、headers、body、完整日志。
-- [ ] 使用现有 Tauri dialog/save 模式导出“当前筛选的已加载结果”为 JSON 或 CSV，文件名带规则名和本地时间；导出内容明确只是已加载窗口，避免伪装全量。
+- [ ] 使用现有 Tauri dialog/save 模式按当前筛选重新查询并导出 JSON 或 CSV，最多导出后端保留上限 1000 条；文件名带规则名和本地时间，JSON 元数据包含 `total/exported/truncated/filters`，界面明确提示截断。
 - [ ] 运行 `cargo test request_forward -- --nocapture`、前端针对性测试、`pnpm typecheck` 和 `pnpm --filter @lazycat/desktop build:web`。
 
 ## Final verification
