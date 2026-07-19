@@ -199,8 +199,16 @@
           <h3>运行日志</h3>
           <p>按执行顺序记录构建、归档及异常输出。</p>
         </div>
-        <el-tag class="log-status" :type="statusTagTypes[status]" effect="plain" size="small">
-          {{ statusLabels[status] }}
+        <el-tag
+          class="log-status"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          :type="statusTagTypes[status]"
+          effect="plain"
+          size="small"
+        >
+          {{ statusLabel }}
         </el-tag>
       </header>
       <div ref="logContainer" class="release-package-log" aria-live="polite" aria-label="打包日志">
@@ -250,7 +258,9 @@ import {
   createEmptyReleasePackageDraft,
   isReleasePackageDraftDirty,
   projectToReleasePackageDraft,
+  releasePackageRunStatusLabel,
   validateReleasePackageDraft,
+  writeReleasePackageCommand,
 } from "../utils/releasePackage";
 
 const projects = ref<ReleasePackageProject[]>([]);
@@ -269,13 +279,6 @@ const runtime = useReleasePackageRuntime();
 const logs = runtime.logs;
 const status = runtime.status;
 const archivePath = runtime.archivePath;
-const statusLabels: Record<ReleasePackageRunStatus, string> = {
-  idle: "未运行",
-  running: "运行中",
-  succeeded: "已完成",
-  failed: "失败",
-  cancelled: "已终止",
-};
 const statusTagTypes: Record<ReleasePackageRunStatus, "primary" | "success" | "info" | "warning" | "danger"> = {
   idle: "info",
   running: "primary",
@@ -287,6 +290,7 @@ const statusTagTypes: Record<ReleasePackageRunStatus, "primary" | "success" | "i
 const selectedProject = computed(() => projects.value.find((item) => item.id === selectedId.value) ?? null);
 const dirty = computed(() => isReleasePackageDraftDirty(selectedProject.value, draft));
 const running = computed(() => runtime.status.value === "running");
+const statusLabel = computed(() => releasePackageRunStatusLabel(status.value));
 const archivePathPreview = computed(() => {
   const preparedRoot = prepareResult.value?.outputRoot;
   if (!preparedRoot || !folderName.value) return "";
@@ -302,7 +306,7 @@ function showError(error: unknown): void {
 
 async function copyCommandExample(command: string): Promise<void> {
   try {
-    await navigator.clipboard.writeText(command);
+    await writeReleasePackageCommand(command, (value) => navigator.clipboard.writeText(value));
     ElMessage.success("命令示例已复制");
   } catch (error) {
     showError(error);

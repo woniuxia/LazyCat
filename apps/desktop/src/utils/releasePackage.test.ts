@@ -1,13 +1,20 @@
+import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
-import type { ReleasePackageLogEvent, ReleasePackageProject } from "../types/release-package";
+import type {
+  ReleasePackageLogEvent,
+  ReleasePackageProject,
+  ReleasePackageRunStatus,
+} from "../types/release-package";
 import {
   acceptReleasePackageEvent,
   appendReleasePackageLog,
   createEmptyReleasePackageDraft,
   isReleasePackageDraftDirty,
   projectToReleasePackageDraft,
+  releasePackageRunStatusLabel,
   RELEASE_PACKAGE_COMMAND_EXAMPLES,
   validateReleasePackageDraft,
+  writeReleasePackageCommand,
 } from "./releasePackage";
 
 const project: ReleasePackageProject = {
@@ -55,9 +62,33 @@ describe("release package view helpers", () => {
     expect(commands["java-maven-env"]).toContain('$env:JAVA_HOME\\bin');
     expect(commands["java-maven-env"]).toContain('$env:MAVEN_HOME\\bin');
     expect(commands["java-maven-env"]).toContain('$env:Path');
-    expect(commands["maven-build"]).toMatch(
-      /mvn clean package -Pprod\r?\nif \(\$LASTEXITCODE -ne 0\) \{ exit \$LASTEXITCODE \}/u,
-    );
+    expect(commands["maven-build"]).toBe(`mvn clean package -Pprod
+if (-not $?) {
+  $code = if ($null -ne $LASTEXITCODE -and $LASTEXITCODE -ne 0) { $LASTEXITCODE } else { 1 }
+  exit $code
+}`);
+  });
+
+  describe.runIf(process.platform === "win32")("Maven PowerShell command failure propagation", () => {
+    const mavenCommand = RELEASE_PACKAGE_COMMAND_EXAMPLES.find((example) => example.id === "maven-build")!.command;
+
+    it("returns a non-zero status when the Maven command cannot be resolved", () => {
+      const script = mavenCommand.replace("mvn clean package -Pprod", "__lazycat_missing_maven_command__");
+      const result = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], {
+        encoding: "utf8",
+      });
+
+      expect(result.status).not.toBe(0);
+    });
+
+    it("preserves a native command's non-zero exit code", () => {
+      const script = mavenCommand.replace("mvn clean package -Pprod", "cmd.exe /c exit 7");
+      const result = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], {
+        encoding: "utf8",
+      });
+
+      expect(result.status).toBe(7);
+    });
   });
 
   it("provides complete file copy and move commands", () => {
@@ -121,5 +152,35 @@ Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force
   it("bounds logs without reordering accepted lines", () => {
     expect(appendReleasePackageLog([log("run-1", "a"), log("run-1", "b")], log("run-1", "c"), 2))
       .toEqual([log("run-1", "b"), log("run-1", "c")]);
+  });
+
+  it.each([
+    ["idle", "未运行"],
+    ["running", "运行中"],
+    ["succeeded", "已完成"],
+    ["failed", "失败"],
+    ["cancelled", "已终止"],
+  ] satisfies readonly [ReleasePackageRunStatus, string][])("maps %s status to %s", (status, label) => {
+    expect(releasePackageRunStatusLabel(status)).toBe(label);
+  });
+
+  it("writes the exact command once", async () => {
+    const written: string[] = [];
+    const writeText = async (value: string): Promise<void> => {
+      written.push(value);
+    };
+
+    await writeReleasePackageCommand("mvn clean package -Pprod", writeText);
+
+    expect(written).toEqual(["mvn clean package -Pprod"]);
+  });
+
+  it("propagates the original clipboard write error", async () => {
+    const originalError = new Error("clipboard denied");
+    const writeText = async (): Promise<void> => {
+      throw originalError;
+    };
+
+    await expect(writeReleasePackageCommand("pnpm build", writeText)).rejects.toBe(originalError);
   });
 });

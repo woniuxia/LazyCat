@@ -3507,7 +3507,7 @@ Cron 工具原先仅提供基础 6 字段输入与简单预览，缺少规范化
 
 **关键点**:
 1. 不能在前端逐行拆分脚本，否则会破坏环境变量复用和 PowerShell 语句块；多行内容必须作为单段交给后端执行。
-2. 外部工具失败可能被后续 PowerShell 命令掩盖，关键命令后应检查 `$LASTEXITCODE` 并显式退出。
+2. 关键外部命令失败既要检查 `$?`，又要在可用时保留 `$LASTEXITCODE`；command-not-found 时 `$LASTEXITCODE` 可能为空，必须回退到明确的非零退出码。
 3. Teleport 浮层使用专属 `popper-class` 和全局限定样式，避免 `scoped` 样式失效或污染其他 Popover。
 4. 小字号状态和 meta 文本的颜色对比度至少达到 4.5:1，白底下不能只依赖低对比灰色区分层级。
 
@@ -3520,7 +3520,7 @@ Cron 工具原先仅提供基础 6 字段输入与简单预览，缺少规范化
 **验证**:
 - `pnpm typecheck`：exit 0，2 个工作区项目完成 TypeScript 检查。
 - `pnpm --filter @lazycat/desktop build:web`：exit 0，Vite 转换 3299 个模块并成功产出 `dist-renderer`；仅有现有 chunk 大小警告。
-- `pnpm test`：exit 0，71 个测试文件、689 个测试通过；`data-dictionary` provider 的失败路径用例按设计主动写入 stderr（`Error: boom`），不影响通过结论。
+- `pnpm test`：exit 0，71 个测试文件、698 个测试通过；`data-dictionary` provider 的失败路径用例按设计主动写入 stderr（`Error: boom`），不影响通过结论。
 - `git diff --check`：exit 0，无空白错误。
 
 **使用次数**: 0

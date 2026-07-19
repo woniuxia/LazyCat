@@ -94,7 +94,8 @@ describe("ReleasePackagePanel", () => {
     expect(source).toContain("CopyDocument");
     expect(copyFunctionStart).toBeGreaterThan(-1);
     expect(nextAsyncFunction).toBeGreaterThan(copyFunctionStart);
-    expect(copyFunctionSource).toContain("await navigator.clipboard.writeText(command)");
+    expect(copyFunctionSource).toContain("await writeReleasePackageCommand(");
+    expect(copyFunctionSource).toContain("(value) => navigator.clipboard.writeText(value)");
     expect(copyFunctionSource).toContain('ElMessage.success("命令示例已复制")');
     expect(copyFunctionSource).toContain("showError(error)");
     expect(source.match(/popper-class="release-package-command-examples"/g) ?? []).toHaveLength(2);
@@ -105,10 +106,11 @@ describe("ReleasePackagePanel", () => {
   it("wraps logs in a white status card", () => {
     expect(source).toContain('class="release-package-log-card"');
     expect(source).toContain('class="log-status"');
-    expect(source).toContain("statusLabels");
-    for (const label of ["未运行", "运行中", "已完成", "失败", "已终止"]) {
-      expect(source).toContain(label);
-    }
+    expect(source).toContain("computed(() => releasePackageRunStatusLabel(status.value))");
+    expect(source).toContain("{{ statusLabel }}");
+    expect(source).toMatch(
+      /<el-tag\s+class="log-status"\s+role="status"\s+aria-live="polite"\s+aria-atomic="true"/u,
+    );
     expect(source).toMatch(/\.release-package-log\s*\{[^}]*background:\s*#fff;/s);
     expect(source).toMatch(/\.log-card-header p\s*\{[^}]*color:\s*#5f6b7a;/s);
     expect(source).toMatch(/\.log-meta\s*\{[^}]*color:\s*#5f6b7a;/s);

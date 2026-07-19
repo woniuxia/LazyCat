@@ -2,6 +2,7 @@ import type {
   ReleasePackageLogEvent,
   ReleasePackageProject,
   ReleasePackageProjectDraft,
+  ReleasePackageRunStatus,
 } from "../types/release-package";
 
 export interface ReleasePackageCommandExample {
@@ -25,7 +26,10 @@ $env:Path = "$env:JAVA_HOME\\bin;$env:MAVEN_HOME\\bin;$env:Path"`,
     title: "执行 Maven 生产构建",
     description: "使用生产配置构建，并在 Maven 命令失败时立即退出脚本。",
     command: `mvn clean package -Pprod
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }`,
+if (-not $?) {
+  $code = if ($null -ne $LASTEXITCODE -and $LASTEXITCODE -ne 0) { $LASTEXITCODE } else { 1 }
+  exit $code
+}`,
   },
   {
     id: "copy-file",
@@ -122,4 +126,22 @@ export function appendReleasePackageLog(
 ): ReleasePackageLogEvent[] {
   const next = [...current, event];
   return next.length > limit ? next.slice(next.length - limit) : next;
+}
+
+export function releasePackageRunStatusLabel(status: ReleasePackageRunStatus): string {
+  const labels: Record<ReleasePackageRunStatus, string> = {
+    idle: "未运行",
+    running: "运行中",
+    succeeded: "已完成",
+    failed: "失败",
+    cancelled: "已终止",
+  };
+  return labels[status];
+}
+
+export async function writeReleasePackageCommand(
+  command: string,
+  writeText: (value: string) => Promise<void>,
+): Promise<void> {
+  await writeText(command);
 }
