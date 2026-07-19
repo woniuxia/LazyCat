@@ -70,6 +70,7 @@ export function validateReleasePackageTargets(targets: readonly ReleasePackageTa
 export function createEmptyReleasePackageDraft(): ReleasePackageProjectDraft {
   return {
     name: "",
+    outputRoot: "",
     frontendProjectPath: "",
     frontendBuildCommand: "",
     frontendArtifactPath: "",
@@ -83,6 +84,7 @@ export function createEmptyReleasePackageDraft(): ReleasePackageProjectDraft {
 export function projectToReleasePackageDraft(project: ReleasePackageProject): ReleasePackageProjectDraft {
   return {
     name: project.name,
+    outputRoot: project.outputRoot,
     frontendProjectPath: project.frontendProjectPath,
     frontendBuildCommand: project.frontendBuildCommand,
     frontendArtifactPath: project.frontendArtifactPath,
@@ -102,6 +104,7 @@ export function normalizeReleasePackageDraft(draft: ReleasePackageProjectDraft):
 export function validateReleasePackageDraft(draft: ReleasePackageProjectDraft): string | null {
   const value = normalizeReleasePackageDraft(draft);
   if (!value.name) return "请输入项目名";
+  if (!value.outputRoot) return "请选择归档根目录";
   if (!value.frontendProjectPath) return "请选择前端工程目录";
   if (!value.frontendBuildCommand) return "请输入前端构建命令";
   if (!value.frontendArtifactPath) return "请输入前端产物路径";

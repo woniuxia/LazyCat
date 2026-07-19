@@ -1,17 +1,13 @@
 <template>
   <section class="release-package-panel">
-    <div class="release-package-toolbar">
-      <span class="toolbar-label">归档根目录</span>
-      <el-input v-model="outputRoot" class="release-package-root" placeholder="选择所有上线包的归档根目录" readonly :disabled="running" />
-      <el-button :icon="FolderOpened" :disabled="running" @click="chooseOutputRoot">选择目录</el-button>
-      <el-button :icon="Refresh" :disabled="running || loading" @click="loadProjects">刷新</el-button>
-    </div>
-
     <div class="release-package-workspace">
       <aside class="release-package-projects" aria-label="项目列表">
         <div class="projects-heading">
           <strong>项目配置</strong>
-          <el-button :icon="Plus" size="small" text :disabled="running" @click="newProject">新建</el-button>
+          <div class="projects-actions">
+            <el-button :icon="Refresh" size="small" text :disabled="running || loading" aria-label="刷新项目配置" @click="loadProjects" />
+            <el-button :icon="Plus" size="small" text :disabled="running" @click="newProject">新建</el-button>
+          </div>
         </div>
         <div v-if="projects.length === 0" class="projects-empty">暂无项目配置</div>
         <button
@@ -47,9 +43,18 @@
 
         <el-form label-position="top" class="release-package-form">
           <div class="project-basics">
-            <el-form-item label="项目名称" required>
-              <el-input v-model="draft.name" :disabled="running" placeholder="例如：订单管理系统" />
-            </el-form-item>
+            <div class="project-basics-grid">
+              <el-form-item label="项目名称" required>
+                <el-input v-model="draft.name" :disabled="running" placeholder="例如：订单管理系统" />
+              </el-form-item>
+              <el-form-item label="归档根目录" required>
+                <el-input v-model="draft.outputRoot" :disabled="running" placeholder="当前项目的上线包归档目录" readonly>
+                  <template #append>
+                    <el-button :icon="FolderOpened" :disabled="running" @click="chooseOutputRoot">选择</el-button>
+                  </template>
+                </el-input>
+              </el-form-item>
+            </div>
           </div>
 
           <div class="engineering-grid">
@@ -280,7 +285,6 @@ import { CopyDocument, Delete, Document, DocumentChecked, FolderOpened, Plus, Re
 import { ElMessage, ElMessageBox } from "element-plus";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invokeToolByChannel } from "../bridge/tauri";
-import { getSetting, initSettings, setSettingAndWait } from "../composables/useSettings";
 import { useReleasePackageRuntime } from "../composables/useReleasePackageRuntime";
 import type {
   ReleasePackagePrepareResult,
@@ -289,6 +293,7 @@ import type {
   ReleasePackageRunStatus,
   ReleasePackageStartResult,
   ReleasePackageTarget,
+  ReleasePackageTargetCheckResult,
   ReleasePackageTargetStatus,
 } from "../types/release-package";
 import {
@@ -306,7 +311,6 @@ import {
 const projects = ref<ReleasePackageProject[]>([]);
 const selectedId = ref<number | null>(null);
 const draft = reactive<ReleasePackageProjectDraft>(createEmptyReleasePackageDraft());
-const outputRoot = ref("");
 const loading = ref(false);
 const saving = ref(false);
 const starting = ref(false);
@@ -490,9 +494,7 @@ async function chooseOutputRoot(): Promise<void> {
   try {
     const path = await chooseDirectory("选择归档根目录");
     if (!path) return;
-    await setSettingAndWait("release_package.output_root", path);
-    outputRoot.value = path;
-    ElMessage.success("归档根目录已保存");
+    draft.outputRoot = path;
   } catch (error) {
     showError(error);
   }
@@ -552,6 +554,29 @@ async function prepareStart(): Promise<void> {
   }
 }
 
+async function confirmArchiveOverwrite(projectId: number): Promise<boolean | null> {
+  const target = (await invokeToolByChannel("tool:release-package:target-check", {
+    projectId,
+    folderName: folderName.value,
+  })) as ReleasePackageTargetCheckResult;
+  if (!target.exists) return false;
+  try {
+    await ElMessageBox.confirm(
+      "目标归档目录已存在。直接覆盖将完整替换其中的所有文件，此操作无法撤销。",
+      "目标归档目录已存在",
+      {
+        type: "warning",
+        confirmButtonText: "直接覆盖",
+        cancelButtonText: "取消",
+      },
+    );
+    return true;
+  } catch (error) {
+    if (error === "cancel" || error === "close") return null;
+    throw error;
+  }
+}
+
 async function confirmStart(): Promise<void> {
   const projectId = selectedProject.value?.id;
   const folderNameError = validateArchiveFolderName(folderName.value);
@@ -562,7 +587,10 @@ async function confirmStart(): Promise<void> {
   }
   starting.value = true;
   cancelPendingStart.value = false;
+  let runtimeStartBegun = false;
   try {
+    const overwriteExisting = await confirmArchiveOverwrite(projectId);
+    if (overwriteExisting === null) return;
     await runtime.ensureListeners();
     if (cancelPendingStart.value) {
       confirmVisible.value = false;
@@ -570,10 +598,12 @@ async function confirmStart(): Promise<void> {
       return;
     }
     runtime.beginStart(projectId, selectedTargets.value);
+    runtimeStartBegun = true;
     const result = (await invokeToolByChannel("tool:release-package:start", {
       projectId,
       folderName: folderName.value,
       targets: [...selectedTargets.value],
+      overwriteExisting,
     })) as ReleasePackageStartResult;
     runtime.bindStartedRun(result.runId, projectId);
     confirmVisible.value = false;
@@ -587,7 +617,9 @@ async function confirmStart(): Promise<void> {
       }
     }
   } catch (error) {
-    runtime.abortStart(error instanceof Error ? error.message : String(error));
+    if (runtimeStartBegun) {
+      runtime.abortStart(error instanceof Error ? error.message : String(error));
+    }
     showError(error);
   } finally {
     starting.value = false;
@@ -644,8 +676,6 @@ watch(() => backendLogs.value.length, () => scrollLogToBottom(backendLogContaine
 
 onMounted(async () => {
   try {
-    await initSettings();
-    outputRoot.value = getSetting("release_package.output_root") ?? "";
     await runtime.ensureListeners();
     await loadProjects();
   } catch (error) {
@@ -657,27 +687,17 @@ onMounted(async () => {
 <style scoped>
 .release-package-panel {
   display: flex;
+  flex: 0 0 auto;
   flex-direction: column;
   gap: 14px;
-  min-height: 0;
+  width: 100%;
+  min-height: 100%;
 }
-.release-package-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 14px;
-  border: 1px solid #e4e7ed;
-  border-radius: 10px;
-  background: #fff;
-  box-shadow: 0 2px 10px rgb(31 45 61 / 4%);
-}
-.toolbar-label { flex: none; color: var(--lc-text-secondary, #606266); font-size: 13px; font-weight: 600; }
-.release-package-root { flex: 1; min-width: 0; }
 .release-package-workspace {
   display: grid;
   grid-template-columns: 220px minmax(0, 1fr);
   min-height: 0;
-  overflow: hidden;
+  overflow: visible;
   border: 1px solid #e4e7ed;
   border-radius: 10px;
   background: #f7f8fa;
@@ -688,7 +708,7 @@ onMounted(async () => {
   border-right: 1px solid #e4e7ed;
   background: #fbfcfd;
 }
-.projects-heading, .editor-header, .editor-actions, .engineering-card-header, .command-label-row, .log-card-header, .command-example-heading {
+.projects-heading, .projects-actions, .editor-header, .editor-actions, .engineering-card-header, .command-label-row, .log-card-header, .command-example-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -729,6 +749,11 @@ onMounted(async () => {
   box-shadow: 0 2px 10px rgb(31 45 61 / 4%);
 }
 .project-basics { margin-bottom: 14px; padding: 14px 16px 0; }
+.project-basics-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, .65fr) minmax(320px, 1.35fr);
+  gap: 14px;
+}
 .engineering-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr));
@@ -863,8 +888,6 @@ onMounted(async () => {
   word-break: break-word;
 }
 @media (max-width: 960px) {
-  .release-package-toolbar { flex-wrap: wrap; }
-  .release-package-root { flex-basis: calc(100% - 84px); }
   .release-package-workspace { grid-template-columns: 1fr; }
   .release-package-projects { display: flex; gap: 8px; overflow-x: auto; border-right: 0; border-bottom: 1px solid #e4e7ed; }
   .projects-heading { flex: none; flex-direction: column; align-items: flex-start; }
@@ -875,7 +898,7 @@ onMounted(async () => {
   .editor-header { flex-direction: column; }
   .editor-actions { justify-content: flex-start; }
   .artifact-grid { grid-template-columns: 1fr; gap: 0; }
-  .release-package-toolbar { padding: 10px; }
+  .project-basics-grid { grid-template-columns: 1fr; gap: 0; }
   .release-package-editor { padding: 10px; }
   .engineering-card { padding: 14px 12px 0; }
   .log-card-header { align-items: flex-start; }

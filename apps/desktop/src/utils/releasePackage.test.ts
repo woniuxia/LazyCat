@@ -22,6 +22,7 @@ import {
 const project: ReleasePackageProject = {
   id: 7,
   name: "客户门户",
+  outputRoot: "D:\\releases",
   frontendProjectPath: "D:\\work\\portal-web",
   frontendBuildCommand: "pnpm build",
   frontendArtifactPath: "dist",
@@ -120,6 +121,7 @@ Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force
   it("creates a blank project draft with copy mode", () => {
     expect(createEmptyReleasePackageDraft()).toEqual({
       name: "",
+      outputRoot: "",
       frontendProjectPath: "",
       frontendBuildCommand: "",
       frontendArtifactPath: "",
@@ -148,6 +150,8 @@ Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force
     const draft = createEmptyReleasePackageDraft();
     expect(validateReleasePackageDraft(draft)).toBe("请输入项目名");
     draft.name = "客户门户";
+    expect(validateReleasePackageDraft(draft)).toBe("请选择归档根目录");
+    draft.outputRoot = "D:\\releases";
     expect(validateReleasePackageDraft(draft)).toBe("请选择前端工程目录");
   });
 

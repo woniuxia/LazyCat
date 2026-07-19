@@ -179,6 +179,10 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
         .map_err(|e| format!("create sql entity schema failed: {e}"))?;
     conn.execute_batch(super::release_package::RELEASE_PACKAGE_SCHEMA_SQL)
         .map_err(|e| format!("create release package schema failed: {e}"))?;
+    let _ = conn.execute_batch(
+        "ALTER TABLE release_package_projects
+         ADD COLUMN output_root TEXT NOT NULL DEFAULT '';",
+    );
 
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS hosts_profiles (
@@ -748,6 +752,21 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
         )
         .map_err(|e| format!("seed todo types failed: {e}"))?;
     }
+
+    conn.execute(
+        "UPDATE release_package_projects
+         SET output_root = (
+             SELECT value FROM user_settings
+             WHERE key = ?1
+         )
+         WHERE TRIM(output_root) = ''
+           AND EXISTS (
+               SELECT 1 FROM user_settings
+               WHERE key = ?1 AND TRIM(value) <> ''
+           )",
+        [super::release_package::LEGACY_OUTPUT_ROOT_KEY],
+    )
+    .map_err(|e| format!("migrate release package output root failed: {e}"))?;
 
     ensure_request_forward_schema(conn)?;
 

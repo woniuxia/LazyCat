@@ -12,36 +12,49 @@ describe("ReleasePackagePanel", () => {
     expect(source).toContain("终止打包");
   });
 
-  it("uses all release-package actions and awaited global setting persistence", () => {
+  it("uses all release-package actions without global setting persistence", () => {
     for (const channel of [
       "project-list",
       "project-create",
       "project-update",
       "project-delete",
       "prepare",
+      "target-check",
       "start",
     ]) {
       expect(source).toContain(`tool:release-package:${channel}`);
     }
-    expect(source).toContain("setSettingAndWait");
+    expect(source).not.toContain("setSettingAndWait");
+    expect(source).not.toContain("release_package.output_root");
     expect(source).toContain("useReleasePackageRuntime");
     expect(source).toContain("tool:system:open-local-path");
   });
 
   it("keeps runtime listeners alive across panel navigation", () => {
-    expect(source).toContain("await initSettings()");
     expect(source).toContain("await runtime.ensureListeners()");
     expect(source).not.toContain("onUnmounted");
   });
 
-  it("does not persist logs or silently overwrite archives", () => {
+  it("does not persist logs or expose a persistent overwrite preference", () => {
     expect(source).not.toContain("localStorage");
-    expect(source).not.toContain("overwrite");
+    expect(source).not.toContain('v-model="overwriteExisting"');
   });
 
-  it("keeps the archive root chooser authoritative and validates Windows folder names", () => {
-    expect(source).toContain('v-model="outputRoot"');
+  it("checks an existing target before start and requires explicit overwrite confirmation", () => {
+    expect(source).toContain("tool:release-package:target-check");
+    expect(source).toContain("目标归档目录已存在。直接覆盖将完整替换其中的所有文件，此操作无法撤销。");
+    expect(source).toContain('confirmButtonText: "直接覆盖"');
+    expect(source).toContain('cancelButtonText: "取消"');
+    expect(source).toContain("overwriteExisting");
+    expect(source.indexOf("tool:release-package:target-check")).toBeLessThan(
+      source.indexOf("runtime.beginStart"),
+    );
+  });
+
+  it("stores the archive root in each project and validates Windows folder names", () => {
+    expect(source).toContain('v-model="draft.outputRoot"');
     expect(source).toContain("readonly");
+    expect(source).toContain("draft.outputRoot = path");
     expect(source).toContain("validateArchiveFolderName");
     expect(source).toContain("COM[1-9]");
     expect(source).toContain("cancelPendingStart");
@@ -82,6 +95,11 @@ describe("ReleasePackagePanel", () => {
     expect(source.match(/:autosize="\{ minRows: 4, maxRows: 9 \}"/g)).toHaveLength(2);
     expect(source).toContain("同一 PowerShell 会话中顺序执行");
     expect(source).toContain("$LASTEXITCODE");
+  });
+
+  it("lets the outer page scroll through the full workspace", () => {
+    expect(source).toMatch(/\.release-package-panel\s*\{[^}]*flex:\s*0 0 auto;/s);
+    expect(source).toMatch(/\.release-package-workspace\s*\{[^}]*overflow:\s*visible;/s);
   });
 
   it("renders command examples and reports clipboard failures", () => {

@@ -72,6 +72,8 @@ struct StagingGuard {
 pub struct ArchiveSession {
     staging_path: PathBuf,
     final_path: PathBuf,
+    backup_path: PathBuf,
+    overwrite_existing: bool,
     committed: bool,
 }
 
@@ -80,6 +82,7 @@ impl ArchiveSession {
         output_root: &Path,
         folder_name: &str,
         run_id: &str,
+        overwrite_existing: bool,
         cancelled: &AtomicBool,
     ) -> Result<Self, ArchiveError> {
         validate_folder_name(folder_name).map_err(ArchiveError::Failed)?;
@@ -89,18 +92,30 @@ impl ArchiveSession {
         }
         let final_path = output_root.join(folder_name);
         if final_path.exists() {
-            return Err(ArchiveError::Failed("目标归档目录已存在".into()));
+            if !final_path.is_dir() {
+                return Err(ArchiveError::Failed(
+                    "目标归档路径已存在且不是文件夹".into(),
+                ));
+            }
+            if !overwrite_existing {
+                return Err(ArchiveError::Failed("目标归档目录已存在".into()));
+            }
         }
         let staging_path = output_root.join(format!(".lazycat-release-package-{run_id}.tmp"));
         if staging_path.exists() {
             return Err(ArchiveError::Failed("本次运行临时目录已存在".into()));
         }
-        fs::create_dir(&staging_path).map_err(|error| {
-            io_error("创建归档临时目录", output_root, &staging_path, error)
-        })?;
+        let backup_path = output_root.join(format!(".lazycat-release-package-{run_id}.backup"));
+        if backup_path.exists() {
+            return Err(ArchiveError::Failed("本次运行备份目录已存在".into()));
+        }
+        fs::create_dir(&staging_path)
+            .map_err(|error| io_error("创建归档临时目录", output_root, &staging_path, error))?;
         Ok(Self {
             staging_path,
             final_path,
+            backup_path,
+            overwrite_existing,
             committed: false,
         })
     }
@@ -111,20 +126,52 @@ impl ArchiveSession {
 
     pub fn commit(&mut self, cancelled: &AtomicBool) -> Result<PathBuf, ArchiveError> {
         check_cancel(cancelled)?;
+        let mut backup_created = false;
         if self.final_path.exists() {
-            return Err(ArchiveError::Failed(
-                "目标归档目录在执行期间被创建".into(),
-            ));
+            if !self.final_path.is_dir() {
+                return Err(ArchiveError::Failed(
+                    "目标归档路径已存在且不是文件夹".into(),
+                ));
+            }
+            if !self.overwrite_existing {
+                return Err(ArchiveError::Failed("目标归档目录在执行期间被创建".into()));
+            }
+            if self.backup_path.exists() {
+                return Err(ArchiveError::Failed("本次运行备份目录已存在".into()));
+            }
+            fs::rename(&self.final_path, &self.backup_path).map_err(|error| {
+                io_error(
+                    "备份已有归档目录",
+                    &self.final_path,
+                    &self.backup_path,
+                    error,
+                )
+            })?;
+            backup_created = true;
         }
-        fs::rename(&self.staging_path, &self.final_path).map_err(|error| {
-            io_error(
-                "提交最终归档目录",
-                &self.staging_path,
-                &self.final_path,
-                error,
-            )
-        })?;
+        if let Err(error) = fs::rename(&self.staging_path, &self.final_path) {
+            let mut message = format!(
+                "提交最终归档目录失败（源：{}，目标：{}）：{error}",
+                self.staging_path.display(),
+                self.final_path.display()
+            );
+            if backup_created {
+                if let Err(rollback_error) = fs::rename(&self.backup_path, &self.final_path) {
+                    message.push_str(&format!(
+                        "；恢复原归档目录失败（源：{}，目标：{}）：{rollback_error}",
+                        self.backup_path.display(),
+                        self.final_path.display()
+                    ));
+                }
+            }
+            return Err(ArchiveError::Failed(message));
+        }
         self.committed = true;
+        if backup_created {
+            fs::remove_dir_all(&self.backup_path).map_err(|error| {
+                io_error("清理旧归档备份", &self.backup_path, &self.final_path, error)
+            })?;
+        }
         Ok(self.final_path.clone())
     }
 }
@@ -644,6 +691,7 @@ mod tests {
             &output,
             "20260723-部分成功",
             "run-partial",
+            false,
             &cancelled,
         )
         .unwrap();
@@ -668,6 +716,72 @@ mod tests {
         let final_path = session.commit(&cancelled).unwrap();
         assert!(final_path.join("dist/index.html").is_file());
         assert!(!final_path.join("missing.jar").exists());
+    }
+
+    #[test]
+    fn overwrite_replaces_existing_directory_without_stale_files() {
+        let root = TestDir::new();
+        let output = root.0.join("output");
+        let final_path = output.join("release");
+        fs::create_dir_all(&final_path).unwrap();
+        fs::write(final_path.join("stale.txt"), "old").unwrap();
+        let cancelled = AtomicBool::new(false);
+        let mut session =
+            ArchiveSession::create(&output, "release", "run-overwrite", true, &cancelled).unwrap();
+        fs::write(session.staging_path().join("new.txt"), "new").unwrap();
+
+        session.commit(&cancelled).unwrap();
+
+        assert!(!final_path.join("stale.txt").exists());
+        assert_eq!(
+            fs::read_to_string(final_path.join("new.txt")).unwrap(),
+            "new"
+        );
+        assert!(!output
+            .join(".lazycat-release-package-run-overwrite.backup")
+            .exists());
+    }
+
+    #[test]
+    fn failed_overwrite_commit_restores_existing_directory() {
+        let root = TestDir::new();
+        let output = root.0.join("output");
+        let final_path = output.join("release");
+        fs::create_dir_all(&final_path).unwrap();
+        fs::write(final_path.join("old.txt"), "old").unwrap();
+        let cancelled = AtomicBool::new(false);
+        let mut session =
+            ArchiveSession::create(&output, "release", "run-rollback", true, &cancelled).unwrap();
+        fs::remove_dir_all(session.staging_path()).unwrap();
+
+        assert!(session.commit(&cancelled).is_err());
+        assert_eq!(
+            fs::read_to_string(final_path.join("old.txt")).unwrap(),
+            "old"
+        );
+        assert!(!output
+            .join(".lazycat-release-package-run-rollback.backup")
+            .exists());
+    }
+
+    #[test]
+    fn overwrite_rejects_existing_file_target() {
+        let root = TestDir::new();
+        let output = root.0.join("output");
+        fs::create_dir_all(&output).unwrap();
+        fs::write(output.join("release"), "file").unwrap();
+
+        let result = ArchiveSession::create(
+            &output,
+            "release",
+            "run-file-target",
+            true,
+            &AtomicBool::new(false),
+        );
+
+        assert!(
+            matches!(result, Err(ArchiveError::Failed(message)) if message.contains("不是文件夹"))
+        );
     }
 
     #[test]

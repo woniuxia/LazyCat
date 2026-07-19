@@ -269,12 +269,8 @@ impl EventSink for TauriEventSink {
 
 #[derive(Debug)]
 enum PipelineError {
-    Cancelled {
-        phase: &'static str,
-    },
-    Failed {
-        message: String,
-    },
+    Cancelled { phase: &'static str },
+    Failed { message: String },
 }
 
 fn emit_status(
@@ -349,7 +345,9 @@ fn run_command_phase(
     )
     .map_err(|error| match error {
         CommandError::Cancelled => PipelineError::Cancelled { phase },
-        error => PipelineError::Failed { message: error.message() },
+        error => PipelineError::Failed {
+            message: error.message(),
+        },
     })
 }
 
@@ -409,12 +407,9 @@ fn run_target(
             cancelled.as_ref(),
             emit,
         ),
-        ReleaseTarget::Backend => archive_backend_artifact(
-            &artifact,
-            staging_path,
-            cancelled.as_ref(),
-            emit,
-        ),
+        ReleaseTarget::Backend => {
+            archive_backend_artifact(&artifact, staging_path, cancelled.as_ref(), emit)
+        }
     }
     .map_err(|error| archive_pipeline_error(error, phase))
 }
@@ -457,6 +452,7 @@ fn run_pipeline(
     output_root: PathBuf,
     folder_name: String,
     targets: Vec<ReleaseTarget>,
+    overwrite_existing: bool,
     cancelled: Arc<AtomicBool>,
     process_slots: ProcessSlots,
     sink: Arc<dyn EventSink>,
@@ -478,6 +474,7 @@ fn run_pipeline(
         &output_root,
         &folder_name,
         run_id,
+        overwrite_existing,
         cancelled.as_ref(),
     )
     .map_err(|error| archive_pipeline_error(error, "overall"))?;
@@ -593,6 +590,7 @@ pub fn start(
     output_root: PathBuf,
     folder_name: String,
     targets: Vec<ReleaseTarget>,
+    overwrite_existing: bool,
 ) -> Result<Value, String> {
     let run_id = uuid::Uuid::new_v4().to_string();
     let cancelled = Arc::new(AtomicBool::new(false));
@@ -639,17 +637,12 @@ pub fn start(
             output_root,
             folder_name,
             targets,
+            overwrite_existing,
             cancelled.clone(),
             process_slots,
             sink.clone(),
         );
-        let result = claim_pipeline_result(
-            result,
-            &cancelled,
-            &finished,
-            &cancel_won,
-            &claim_lock,
-        );
+        let result = claim_pipeline_result(result, &cancelled, &finished, &cancel_won, &claim_lock);
         match result {
             Ok(summary) => emit_status(
                 sink.as_ref(),
@@ -856,6 +849,7 @@ mod pipeline_tests {
         ReleasePackageProjectConfig {
             id: 7,
             name: "test".into(),
+            output_root: "Z:\\output".into(),
             frontend_project_path: "Z:\\missing".into(),
             frontend_build_command: "exit 0".into(),
             frontend_artifact_path: "dist".into(),
@@ -876,6 +870,7 @@ mod pipeline_tests {
             PathBuf::from("Z:\\output"),
             "folder".into(),
             vec![ReleaseTarget::Frontend],
+            false,
             Arc::new(AtomicBool::new(true)),
             ProcessSlots::new(),
             Arc::new(Sink),
@@ -944,6 +939,7 @@ mod pipeline_tests {
         let project = ReleasePackageProjectConfig {
             id: 1,
             name: "冒烟项目".into(),
+            output_root: output_root.to_string_lossy().into_owned(),
             frontend_project_path: frontend_project.to_string_lossy().into_owned(),
             frontend_build_command: "New-Item -ItemType Directory -Force dist | Out-Null; Set-Content dist/index.html web".into(),
             frontend_artifact_path: "dist".into(),
@@ -961,6 +957,7 @@ mod pipeline_tests {
             output_root,
             "20260723-冒烟项目".into(),
             vec![ReleaseTarget::Frontend, ReleaseTarget::Backend],
+            false,
             Arc::new(AtomicBool::new(false)),
             ProcessSlots::new(),
             sink.clone(),
@@ -987,6 +984,7 @@ mod pipeline_tests {
         let project = ReleasePackageProjectConfig {
             id: 2,
             name: "冒烟项目".into(),
+            output_root: output_root.to_string_lossy().into_owned(),
             frontend_project_path: frontend_project.to_string_lossy().into_owned(),
             frontend_build_command: "exit 9".into(),
             frontend_artifact_path: "dist".into(),
@@ -1003,6 +1001,7 @@ mod pipeline_tests {
             output_root.clone(),
             "20260723-冒烟项目".into(),
             vec![ReleaseTarget::Frontend, ReleaseTarget::Backend],
+            false,
             Arc::new(AtomicBool::new(false)),
             ProcessSlots::new(),
             Arc::new(CollectingSink::default()),
@@ -1010,10 +1009,6 @@ mod pipeline_tests {
         .unwrap();
         assert_eq!(summary.status, "partially_succeeded");
         assert!(backend_project.join("target/app.jar").is_file());
-        assert!(summary
-            .archive_path
-            .unwrap()
-            .join("app.jar")
-            .is_file());
+        assert!(summary.archive_path.unwrap().join("app.jar").is_file());
     }
 }

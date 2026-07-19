@@ -7,11 +7,12 @@ use std::path::PathBuf;
 use super::helpers::db_conn;
 use super::release_package_archive::{default_folder_name, validate_folder_name};
 
-pub const OUTPUT_ROOT_KEY: &str = "release_package.output_root";
+pub const LEGACY_OUTPUT_ROOT_KEY: &str = "release_package.output_root";
 pub const RELEASE_PACKAGE_SCHEMA_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS release_package_projects (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
+    output_root TEXT NOT NULL,
     frontend_project_path TEXT NOT NULL,
     frontend_build_command TEXT NOT NULL,
     frontend_artifact_path TEXT NOT NULL,
@@ -30,6 +31,7 @@ const ACTIONS: &[&str] = &[
     "project_update",
     "project_delete",
     "prepare",
+    "target_check",
     "start",
     "cancel",
 ];
@@ -39,6 +41,7 @@ const ACTIONS: &[&str] = &[
 pub struct ReleasePackageProjectConfig {
     pub id: i64,
     pub name: String,
+    pub output_root: String,
     pub frontend_project_path: String,
     pub frontend_build_command: String,
     pub frontend_artifact_path: String,
@@ -67,6 +70,7 @@ pub enum ReleaseTarget {
 
 struct ProjectPayload {
     name: String,
+    output_root: String,
     frontend_project_path: String,
     frontend_build_command: String,
     frontend_artifact_path: String,
@@ -106,9 +110,18 @@ fn parse_targets(value: &Value) -> Result<Vec<ReleaseTarget>, String> {
     Ok(targets)
 }
 
+fn parse_overwrite_existing(payload: &Value) -> Result<bool, String> {
+    match payload.get("overwriteExisting") {
+        None => Ok(false),
+        Some(Value::Bool(value)) => Ok(*value),
+        Some(_) => Err("overwriteExisting must be a boolean".into()),
+    }
+}
+
 fn parse_project_payload(payload: &Value) -> Result<ProjectPayload, String> {
     let project = ProjectPayload {
         name: required_string(payload, "name")?,
+        output_root: required_string(payload, "outputRoot")?,
         frontend_project_path: required_string(payload, "frontendProjectPath")?,
         frontend_build_command: required_string(payload, "frontendBuildCommand")?,
         frontend_artifact_path: required_string(payload, "frontendArtifactPath")?,
@@ -131,22 +144,23 @@ fn project_from_row(row: &Row<'_>) -> rusqlite::Result<ReleasePackageProjectConf
     Ok(ReleasePackageProjectConfig {
         id: row.get(0)?,
         name: row.get(1)?,
-        frontend_project_path: row.get(2)?,
-        frontend_build_command: row.get(3)?,
-        frontend_artifact_path: row.get(4)?,
-        frontend_artifact_mode: row.get(5)?,
-        backend_project_path: row.get(6)?,
-        backend_build_command: row.get(7)?,
-        backend_artifact_path: row.get(8)?,
-        created_at: row.get(9)?,
-        updated_at: row.get(10)?,
+        output_root: row.get(2)?,
+        frontend_project_path: row.get(3)?,
+        frontend_build_command: row.get(4)?,
+        frontend_artifact_path: row.get(5)?,
+        frontend_artifact_mode: row.get(6)?,
+        backend_project_path: row.get(7)?,
+        backend_build_command: row.get(8)?,
+        backend_artifact_path: row.get(9)?,
+        created_at: row.get(10)?,
+        updated_at: row.get(11)?,
     })
 }
 
 fn project_list_with_conn(conn: &Connection) -> Result<Value, String> {
     let mut stmt = conn
         .prepare(
-            "SELECT id, name, frontend_project_path, frontend_build_command, frontend_artifact_path,
+            "SELECT id, name, output_root, frontend_project_path, frontend_build_command, frontend_artifact_path,
                     frontend_artifact_mode, backend_project_path, backend_build_command,
                     backend_artifact_path, created_at, updated_at
              FROM release_package_projects
@@ -165,11 +179,12 @@ fn project_create_with_conn(conn: &Connection, payload: &Value) -> Result<Value,
     let project = parse_project_payload(payload)?;
     conn.execute(
         "INSERT INTO release_package_projects(
-            name, frontend_project_path, frontend_build_command, frontend_artifact_path,
+            name, output_root, frontend_project_path, frontend_build_command, frontend_artifact_path,
             frontend_artifact_mode, backend_project_path, backend_build_command, backend_artifact_path
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         params![
             project.name,
+            project.output_root,
             project.frontend_project_path,
             project.frontend_build_command,
             project.frontend_artifact_path,
@@ -189,13 +204,14 @@ fn project_update_with_conn(conn: &Connection, payload: &Value) -> Result<Value,
     let changed = conn
         .execute(
             "UPDATE release_package_projects SET
-                name=?1, frontend_project_path=?2, frontend_build_command=?3,
-                frontend_artifact_path=?4, frontend_artifact_mode=?5,
-                backend_project_path=?6, backend_build_command=?7, backend_artifact_path=?8,
+                name=?1, output_root=?2, frontend_project_path=?3, frontend_build_command=?4,
+                frontend_artifact_path=?5, frontend_artifact_mode=?6,
+                backend_project_path=?7, backend_build_command=?8, backend_artifact_path=?9,
                 updated_at=CURRENT_TIMESTAMP
-             WHERE id=?9",
+             WHERE id=?10",
             params![
                 project.name,
+                project.output_root,
                 project.frontend_project_path,
                 project.frontend_build_command,
                 project.frontend_artifact_path,
@@ -229,7 +245,7 @@ pub(crate) fn load_project(
     id: i64,
 ) -> Result<ReleasePackageProjectConfig, String> {
     conn.query_row(
-        "SELECT id, name, frontend_project_path, frontend_build_command, frontend_artifact_path,
+        "SELECT id, name, output_root, frontend_project_path, frontend_build_command, frontend_artifact_path,
                 frontend_artifact_mode, backend_project_path, backend_build_command,
                 backend_artifact_path, created_at, updated_at
          FROM release_package_projects
@@ -242,31 +258,15 @@ pub(crate) fn load_project(
     .ok_or_else(|| "release package project not found".into())
 }
 
-pub(crate) fn load_output_root(conn: &Connection) -> Result<String, String> {
-    let output_root = conn
-        .query_row(
-            "SELECT value FROM user_settings WHERE key=?1",
-            [OUTPUT_ROOT_KEY],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()
-        .map_err(|e| format!("load release package output root failed: {e}"))?
-        .ok_or("release package output root is required")?;
-    if output_root.trim().is_empty() {
-        return Err("release package output root is required".into());
-    }
-    Ok(output_root)
-}
-
 fn validate_run_inputs(
     project: &ReleasePackageProjectConfig,
-    output_root: &str,
     folder_name: &str,
     targets: &[ReleaseTarget],
+    overwrite_existing: bool,
 ) -> Result<(), String> {
-    let output_root = PathBuf::from(output_root);
+    let output_root = PathBuf::from(&project.output_root);
     if !output_root.is_dir() {
-        return Err("全局归档根目录不存在或不是文件夹".into());
+        return Err("归档根目录不存在或不是文件夹".into());
     }
     if targets.contains(&ReleaseTarget::Frontend)
         && !PathBuf::from(&project.frontend_project_path).is_dir()
@@ -278,8 +278,14 @@ fn validate_run_inputs(
     {
         return Err("后端工程目录不存在或不是文件夹".into());
     }
-    if output_root.join(folder_name).exists() {
-        return Err("目标归档目录已存在".into());
+    let final_path = output_root.join(folder_name);
+    if final_path.exists() {
+        if !final_path.is_dir() {
+            return Err("目标归档路径已存在且不是文件夹".into());
+        }
+        if !overwrite_existing {
+            return Err("目标归档目录已存在".into());
+        }
     }
     Ok(())
 }
@@ -290,7 +296,10 @@ fn prepare_with_conn(
     today: NaiveDate,
 ) -> Result<Value, String> {
     let project = load_project(conn, project_id)?;
-    let output_root = load_output_root(conn)?;
+    if project.output_root.trim().is_empty() {
+        return Err("请先为当前项目配置归档根目录".into());
+    }
+    let output_root = project.output_root.clone();
     let folder_name = default_folder_name(today, &project.name);
     validate_folder_name(&folder_name)?;
     let archive_path = PathBuf::from(&output_root)
@@ -304,6 +313,27 @@ fn prepare_with_conn(
         frontend_artifact_mode: project.frontend_artifact_mode,
     })
     .map_err(|e| format!("serialize release package prepare result failed: {e}"))
+}
+
+fn target_check_with_conn(
+    conn: &Connection,
+    project_id: i64,
+    folder_name: &str,
+) -> Result<Value, String> {
+    validate_folder_name(folder_name)?;
+    let project = load_project(conn, project_id)?;
+    let output_root = PathBuf::from(&project.output_root);
+    if !output_root.is_dir() {
+        return Err("归档根目录不存在或不是文件夹".into());
+    }
+    let archive_path = output_root.join(folder_name);
+    if archive_path.exists() && !archive_path.is_dir() {
+        return Err("目标归档路径已存在且不是文件夹".into());
+    }
+    Ok(json!({
+        "archivePath": archive_path.to_string_lossy().into_owned(),
+        "exists": archive_path.is_dir(),
+    }))
 }
 
 #[cfg(test)]
@@ -330,6 +360,15 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
                 .ok_or("projectId is required")?;
             prepare_with_conn(&conn, id, Local::now().date_naive())
         }
+        "target_check" => {
+            let id = payload["projectId"]
+                .as_i64()
+                .ok_or("projectId is required")?;
+            let folder_name = payload["folderName"]
+                .as_str()
+                .ok_or("folderName is required")?;
+            target_check_with_conn(&conn, id, folder_name)
+        }
         _ => unreachable!(),
     }
 }
@@ -351,15 +390,17 @@ pub fn execute_with_app(
             validate_folder_name(&folder_name)?;
             let conn = db_conn()?;
             let project = load_project(&conn, project_id)?;
-            let output_root = load_output_root(&conn)?;
+            let output_root = project.output_root.clone();
             let targets = parse_targets(payload.get("targets").unwrap_or(&Value::Null))?;
-            validate_run_inputs(&project, &output_root, &folder_name, &targets)?;
+            let overwrite_existing = parse_overwrite_existing(payload)?;
+            validate_run_inputs(&project, &folder_name, &targets, overwrite_existing)?;
             super::release_package_runtime::start(
                 app,
                 project,
                 output_root.into(),
                 folder_name,
                 targets,
+                overwrite_existing,
             )
         }
         "cancel" => {
@@ -381,13 +422,13 @@ mod tests {
     fn test_conn() -> Connection {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch(RELEASE_PACKAGE_SCHEMA_SQL).unwrap();
-        conn.execute_batch("CREATE TABLE user_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);").unwrap();
         conn
     }
 
     fn payload() -> Value {
         json!({
             "name": "客户门户",
+            "outputRoot": r"D:\releases",
             "frontendProjectPath": r"D:\work\web",
             "frontendBuildCommand": "pnpm build",
             "frontendArtifactPath": "dist",
@@ -415,16 +456,11 @@ mod tests {
     }
 
     #[test]
-    fn prepare_uses_global_output_root_and_inclusive_thursday() {
+    fn prepare_uses_project_output_root_and_inclusive_thursday() {
         let conn = test_conn();
         let id = project_create_with_conn(&conn, &payload()).unwrap()["id"]
             .as_i64()
             .unwrap();
-        conn.execute(
-            "INSERT INTO user_settings(key, value) VALUES (?1, ?2)",
-            [OUTPUT_ROOT_KEY, r"D:\releases"],
-        )
-        .unwrap();
         let out =
             prepare_with_conn(&conn, id, NaiveDate::from_ymd_opt(2026, 7, 23).unwrap()).unwrap();
         assert_eq!(out["defaultFolderName"], "20260723-客户门户");
@@ -443,6 +479,79 @@ mod tests {
     }
 
     #[test]
+    fn overwrite_requires_an_explicit_boolean_and_controls_existing_targets() {
+        assert!(!parse_overwrite_existing(&json!({})).unwrap());
+        assert!(parse_overwrite_existing(&json!({ "overwriteExisting": true })).unwrap());
+        assert!(parse_overwrite_existing(&json!({ "overwriteExisting": "true" })).is_err());
+
+        let root = std::env::temp_dir().join(format!(
+            "lazycat-release-overwrite-input-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let backend = root.join("backend");
+        let output = root.join("output");
+        fs::create_dir_all(&backend).unwrap();
+        fs::create_dir_all(output.join("release")).unwrap();
+        let project = ReleasePackageProjectConfig {
+            id: 1,
+            name: "test".into(),
+            output_root: output.to_string_lossy().into_owned(),
+            frontend_project_path: root.join("missing-frontend").to_string_lossy().into_owned(),
+            frontend_build_command: "exit 0".into(),
+            frontend_artifact_path: "dist".into(),
+            frontend_artifact_mode: "copy_directory".into(),
+            backend_project_path: backend.to_string_lossy().into_owned(),
+            backend_build_command: "exit 0".into(),
+            backend_artifact_path: "app.jar".into(),
+            created_at: String::new(),
+            updated_at: String::new(),
+        };
+
+        assert!(
+            validate_run_inputs(&project, "release", &[ReleaseTarget::Backend], false,).is_err()
+        );
+        assert!(validate_run_inputs(&project, "release", &[ReleaseTarget::Backend], true,).is_ok());
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn target_check_reports_existing_directory_and_rejects_file() {
+        assert!(supported_actions().contains(&"target_check"));
+        let root = std::env::temp_dir().join(format!(
+            "lazycat-release-target-check-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let output = root.join("output");
+        fs::create_dir_all(&output).unwrap();
+        let conn = test_conn();
+        let mut project = payload();
+        project["outputRoot"] = json!(output.to_string_lossy());
+        let id = project_create_with_conn(&conn, &project).unwrap()["id"]
+            .as_i64()
+            .unwrap();
+
+        let missing = target_check_with_conn(&conn, id, "release").unwrap();
+        assert_eq!(missing["exists"], false);
+        assert_eq!(
+            missing["archivePath"],
+            output.join("release").to_string_lossy().as_ref()
+        );
+
+        fs::create_dir(output.join("release")).unwrap();
+        let existing = target_check_with_conn(&conn, id, "release").unwrap();
+        assert_eq!(existing["exists"], true);
+
+        fs::remove_dir(output.join("release")).unwrap();
+        fs::write(output.join("release"), "file").unwrap();
+        assert!(target_check_with_conn(&conn, id, "release")
+            .unwrap_err()
+            .contains("不是文件夹"));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn run_validation_only_checks_selected_project_directory() {
         let root = std::env::temp_dir().join(format!(
             "lazycat-release-input-test-{}",
@@ -455,6 +564,7 @@ mod tests {
         let project = ReleasePackageProjectConfig {
             id: 1,
             name: "test".into(),
+            output_root: output.to_string_lossy().into_owned(),
             frontend_project_path: root.join("missing-frontend").to_string_lossy().into_owned(),
             frontend_build_command: "exit 0".into(),
             frontend_artifact_path: "dist".into(),
@@ -466,12 +576,7 @@ mod tests {
             updated_at: String::new(),
         };
 
-        let result = validate_run_inputs(
-            &project,
-            output.to_string_lossy().as_ref(),
-            "release",
-            &[ReleaseTarget::Backend],
-        );
+        let result = validate_run_inputs(&project, "release", &[ReleaseTarget::Backend], false);
         let _ = fs::remove_dir_all(&root);
 
         assert!(result.is_ok());

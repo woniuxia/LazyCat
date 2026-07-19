@@ -19,6 +19,7 @@ export type ReleasePackageTargetStatus =
 
 export interface ReleasePackageProjectDraft {
   name: string;
+  outputRoot: string;
   frontendProjectPath: string;
   frontendBuildCommand: string;
   frontendArtifactPath: string;
@@ -41,6 +42,11 @@ export interface ReleasePackagePrepareResult {
   outputRoot: string;
   archivePath: string;
   frontendArtifactMode: ReleasePackageArtifactMode;
+}
+
+export interface ReleasePackageTargetCheckResult {
+  archivePath: string;
+  exists: boolean;
 }
 
 export interface ReleasePackageStartResult { runId: string }
