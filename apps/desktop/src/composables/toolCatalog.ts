@@ -28,6 +28,7 @@ const SIDEBAR_ITEMS: SidebarItem[] = [
         { id: "weekly-work", name: "本周工作", desc: "按本周时间范围汇总工作项" },
         { id: "inbox", name: "收纳箱", desc: "后台剪贴板收件箱与历史整理" },
         { id: "widget", name: "桌面挂件", desc: "在桌面挂件中显示今日仪表盘" },
+        { id: "release-package", name: "上线包打包", desc: "按项目构建前后端并归档上线产物" },
       ],
     },
   },

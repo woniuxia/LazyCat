@@ -24,3 +24,12 @@ describe("toolCatalog retired workbenches", () => {
     expect(isRealToolId("capture")).toBe(false);
   });
 });
+
+describe("toolCatalog release package", () => {
+  it("registers the release package tool", () => {
+    expect(getAllTools()).toContainEqual(
+      expect.objectContaining({ id: "release-package", name: "上线包打包" }),
+    );
+    expect(isRealToolId("release-package")).toBe(true);
+  });
+});
