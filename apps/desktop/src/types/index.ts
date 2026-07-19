@@ -167,6 +167,8 @@ export type {
 export { ACCESS_PATH_REPORT_SCHEMA_VERSION } from "./access-path-diagnostics";
 export type {
   ReleasePackageArtifactMode,
+  ReleasePackageTarget,
+  ReleasePackageTargetStatus,
   ReleasePackagePhase,
   ReleasePackageRunStatus,
   ReleasePackageProjectDraft,

@@ -41,7 +41,7 @@
             <el-button :icon="DocumentChecked" :loading="saving" :disabled="running" @click="saveProject">保存配置</el-button>
             <el-button :icon="VideoPlay" type="primary" :disabled="running || !selectedProject || dirty" @click="prepareStart">开始打包</el-button>
             <el-button v-if="running" :icon="VideoPause" type="danger" @click="cancelRun">终止打包</el-button>
-            <el-button v-else-if="status === 'succeeded' && archivePath" :icon="FolderOpened" @click="openArchive">打开归档目录</el-button>
+            <el-button v-else-if="(status === 'succeeded' || status === 'partially_succeeded') && archivePath" :icon="FolderOpened" @click="openArchive">打开归档目录</el-button>
           </div>
         </div>
 
@@ -113,7 +113,9 @@
               </el-form-item>
               <div class="artifact-grid">
                 <el-form-item label="产物路径" required>
-                  <el-input v-model="draft.frontendArtifactPath" :disabled="running" placeholder="相对工程目录，可为文件或目录" />
+                  <el-input v-model="draft.frontendArtifactPath" :disabled="running" placeholder="相对工程目录或绝对目录路径">
+                    <template #append><el-button :icon="FolderOpened" :disabled="running" @click="chooseFrontendArtifact">选择目录</el-button></template>
+                  </el-input>
                 </el-form-item>
                 <el-form-item label="产物处理方式" required>
                   <el-select v-model="draft.frontendArtifactMode" :disabled="running" class="full-width">
@@ -185,40 +187,67 @@
                 </p>
               </el-form-item>
               <el-form-item label="产物路径" required>
-                <el-input v-model="draft.backendArtifactPath" :disabled="running" placeholder="相对工程目录，可为文件或目录" />
+                <el-input v-model="draft.backendArtifactPath" :disabled="running" placeholder="相对工程目录或绝对文件路径">
+                  <template #append><el-button :icon="Document" :disabled="running" @click="chooseBackendArtifact">选择文件</el-button></template>
+                </el-input>
               </el-form-item>
             </section>
           </div>
         </el-form>
+
+        <section v-if="selectedProject" class="release-package-log-card release-package-project-log">
+          <header class="log-card-header">
+            <div>
+              <h3>{{ selectedProject.name }} · 运行日志</h3>
+              <p>日志归属于当前项目，前后端任务独立执行和滚动。</p>
+            </div>
+            <el-tag
+              class="log-status"
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+              :type="statusTagTypes[status]"
+              effect="plain"
+              size="small"
+            >
+              {{ statusLabel }}
+            </el-tag>
+          </header>
+          <div class="release-package-log-columns">
+            <section class="release-package-log-lane">
+              <header class="log-lane-header">
+                <strong>前端</strong>
+                <el-tag size="small" effect="plain" :type="targetStatusTagTypes[frontendStatus]">
+                  {{ targetStatusLabels[frontendStatus] }}
+                </el-tag>
+              </header>
+              <div ref="frontendLogContainer" class="release-package-log" aria-live="polite" aria-label="前端打包日志">
+                <div v-if="frontendLogs.length === 0" class="log-empty">暂无前端日志</div>
+                <div v-for="(entry, index) in frontendLogs" :key="`${entry.runId}-frontend-${index}`" class="log-line" :class="{ stderr: entry.stream === 'stderr' }">
+                  <span class="log-meta">[{{ entry.stream }}]</span>
+                  <span>{{ entry.line }}</span>
+                </div>
+              </div>
+            </section>
+            <section class="release-package-log-lane">
+              <header class="log-lane-header">
+                <strong>后端</strong>
+                <el-tag size="small" effect="plain" :type="targetStatusTagTypes[backendStatus]">
+                  {{ targetStatusLabels[backendStatus] }}
+                </el-tag>
+              </header>
+              <div ref="backendLogContainer" class="release-package-log" aria-live="polite" aria-label="后端打包日志">
+                <div v-if="backendLogs.length === 0" class="log-empty">暂无后端日志</div>
+                <div v-for="(entry, index) in backendLogs" :key="`${entry.runId}-backend-${index}`" class="log-line" :class="{ stderr: entry.stream === 'stderr' }">
+                  <span class="log-meta">[{{ entry.stream }}]</span>
+                  <span>{{ entry.line }}</span>
+                </div>
+              </div>
+            </section>
+          </div>
+        </section>
       </main>
     </div>
-
-    <section class="release-package-log-card">
-      <header class="log-card-header">
-        <div>
-          <h3>运行日志</h3>
-          <p>按执行顺序记录构建、归档及异常输出。</p>
-        </div>
-        <el-tag
-          class="log-status"
-          role="status"
-          aria-live="polite"
-          aria-atomic="true"
-          :type="statusTagTypes[status]"
-          effect="plain"
-          size="small"
-        >
-          {{ statusLabel }}
-        </el-tag>
-      </header>
-      <div ref="logContainer" class="release-package-log" aria-live="polite" aria-label="打包日志">
-        <div v-if="logs.length === 0" class="log-empty">暂无运行日志</div>
-        <div v-for="(entry, index) in logs" :key="`${entry.runId}-${index}`" class="log-line" :class="{ stderr: entry.stream === 'stderr' }">
-          <span class="log-meta">[{{ entry.phase }}] [{{ entry.stream }}]</span>
-          <span>{{ entry.line }}</span>
-        </div>
-      </div>
-    </section>
 
     <el-dialog v-model="confirmVisible" title="确认打包" width="min(560px, calc(100vw - 32px))" :close-on-click-modal="false">
       <el-form label-position="top">
@@ -227,6 +256,13 @@
         </el-form-item>
       </el-form>
       <p class="archive-preview">完整归档路径：{{ archivePathPreview || "请先设置归档根目录" }}</p>
+      <div class="package-targets">
+        <span class="package-targets-label">本次打包内容（默认全选）</span>
+        <el-checkbox-group v-model="selectedTargets" :disabled="starting">
+          <el-checkbox label="前端包" value="frontend" />
+          <el-checkbox label="后端包" value="backend" />
+        </el-checkbox-group>
+      </div>
       <template #footer>
         <el-button v-if="starting" type="danger" :disabled="cancelPendingStart" @click="cancelRun">
           {{ cancelPendingStart ? "等待终止" : "终止打包" }}
@@ -240,7 +276,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
-import { CopyDocument, Delete, DocumentChecked, FolderOpened, Plus, Refresh, VideoPause, VideoPlay } from "@element-plus/icons-vue";
+import { CopyDocument, Delete, Document, DocumentChecked, FolderOpened, Plus, Refresh, VideoPause, VideoPlay } from "@element-plus/icons-vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invokeToolByChannel } from "../bridge/tauri";
@@ -252,14 +288,18 @@ import type {
   ReleasePackageProjectDraft,
   ReleasePackageRunStatus,
   ReleasePackageStartResult,
+  ReleasePackageTarget,
+  ReleasePackageTargetStatus,
 } from "../types/release-package";
 import {
   RELEASE_PACKAGE_COMMAND_EXAMPLES,
+  createDefaultReleasePackageTargets,
   createEmptyReleasePackageDraft,
   isReleasePackageDraftDirty,
   projectToReleasePackageDraft,
   releasePackageRunStatusLabel,
   validateReleasePackageDraft,
+  validateReleasePackageTargets,
   writeReleasePackageCommand,
 } from "../utils/releasePackage";
 
@@ -274,22 +314,47 @@ const cancelPendingStart = ref(false);
 const confirmVisible = ref(false);
 const prepareResult = ref<ReleasePackagePrepareResult | null>(null);
 const folderName = ref("");
-const logContainer = ref<HTMLElement | null>(null);
+const selectedTargets = ref<ReleasePackageTarget[]>(createDefaultReleasePackageTargets());
+const frontendLogContainer = ref<HTMLElement | null>(null);
+const backendLogContainer = ref<HTMLElement | null>(null);
 const runtime = useReleasePackageRuntime();
-const logs = runtime.logs;
-const status = runtime.status;
-const archivePath = runtime.archivePath;
 const statusTagTypes: Record<ReleasePackageRunStatus, "primary" | "success" | "info" | "warning" | "danger"> = {
   idle: "info",
   running: "primary",
   succeeded: "success",
+  partially_succeeded: "warning",
   failed: "danger",
   cancelled: "warning",
+};
+const targetStatusTagTypes: Record<ReleasePackageTargetStatus, "primary" | "success" | "info" | "warning" | "danger"> = {
+  idle: "info",
+  pending: "info",
+  running: "primary",
+  succeeded: "success",
+  failed: "danger",
+  cancelled: "warning",
+  skipped: "info",
+};
+const targetStatusLabels: Record<ReleasePackageTargetStatus, string> = {
+  idle: "未运行",
+  pending: "等待中",
+  running: "运行中",
+  succeeded: "成功",
+  failed: "失败",
+  cancelled: "已终止",
+  skipped: "未选择",
 };
 
 const selectedProject = computed(() => projects.value.find((item) => item.id === selectedId.value) ?? null);
 const dirty = computed(() => isReleasePackageDraftDirty(selectedProject.value, draft));
-const running = computed(() => runtime.status.value === "running");
+const currentProjectRuntime = computed(() => selectedId.value === null ? null : runtime.getProjectRuntime(selectedId.value));
+const status = computed<ReleasePackageRunStatus>(() => currentProjectRuntime.value?.status ?? "idle");
+const archivePath = computed(() => currentProjectRuntime.value?.archivePath ?? "");
+const frontendLogs = computed(() => currentProjectRuntime.value?.frontendLogs ?? []);
+const backendLogs = computed(() => currentProjectRuntime.value?.backendLogs ?? []);
+const frontendStatus = computed<ReleasePackageTargetStatus>(() => currentProjectRuntime.value?.targetStatus.frontend ?? "idle");
+const backendStatus = computed<ReleasePackageTargetStatus>(() => currentProjectRuntime.value?.targetStatus.backend ?? "idle");
+const running = runtime.isRunning;
 const statusLabel = computed(() => releasePackageRunStatusLabel(status.value));
 const archivePathPreview = computed(() => {
   const preparedRoot = prepareResult.value?.outputRoot;
@@ -411,14 +476,19 @@ async function deleteProject(): Promise<void> {
   }
 }
 
-async function chooseDirectory(): Promise<string | null> {
-  const selected = await open({ directory: true, multiple: false });
+async function chooseDirectory(title: string): Promise<string | null> {
+  const selected = await open({ directory: true, multiple: false, title });
+  return typeof selected === "string" ? selected : null;
+}
+
+async function chooseFile(title: string): Promise<string | null> {
+  const selected = await open({ directory: false, multiple: false, title });
   return typeof selected === "string" ? selected : null;
 }
 
 async function chooseOutputRoot(): Promise<void> {
   try {
-    const path = await chooseDirectory();
+    const path = await chooseDirectory("选择归档根目录");
     if (!path) return;
     await setSettingAndWait("release_package.output_root", path);
     outputRoot.value = path;
@@ -430,7 +500,7 @@ async function chooseOutputRoot(): Promise<void> {
 
 async function chooseFrontendProject(): Promise<void> {
   try {
-    const path = await chooseDirectory();
+    const path = await chooseDirectory("选择前端工程目录");
     if (path) draft.frontendProjectPath = path;
   } catch (error) {
     showError(error);
@@ -439,8 +509,26 @@ async function chooseFrontendProject(): Promise<void> {
 
 async function chooseBackendProject(): Promise<void> {
   try {
-    const path = await chooseDirectory();
+    const path = await chooseDirectory("选择后端工程目录");
     if (path) draft.backendProjectPath = path;
+  } catch (error) {
+    showError(error);
+  }
+}
+
+async function chooseFrontendArtifact(): Promise<void> {
+  try {
+    const path = await chooseDirectory("选择前端产物目录");
+    if (path) draft.frontendArtifactPath = path;
+  } catch (error) {
+    showError(error);
+  }
+}
+
+async function chooseBackendArtifact(): Promise<void> {
+  try {
+    const path = await chooseFile("选择后端产物文件");
+    if (path) draft.backendArtifactPath = path;
   } catch (error) {
     showError(error);
   }
@@ -452,6 +540,7 @@ async function prepareStart(): Promise<void> {
     return;
   }
   if (running.value) return;
+  selectedTargets.value = createDefaultReleasePackageTargets();
   try {
     prepareResult.value = (await invokeToolByChannel("tool:release-package:prepare", {
       projectId: selectedProject.value.id,
@@ -466,8 +555,9 @@ async function prepareStart(): Promise<void> {
 async function confirmStart(): Promise<void> {
   const projectId = selectedProject.value?.id;
   const folderNameError = validateArchiveFolderName(folderName.value);
-  if (!projectId || folderNameError) {
-    ElMessage.warning(folderNameError ?? "请先选择项目");
+  const targetsError = validateReleasePackageTargets(selectedTargets.value);
+  if (!projectId || folderNameError || targetsError) {
+    ElMessage.warning(folderNameError ?? targetsError ?? "请先选择项目");
     return;
   }
   starting.value = true;
@@ -479,10 +569,11 @@ async function confirmStart(): Promise<void> {
       ElMessage.info("已取消打包");
       return;
     }
-    runtime.beginStart(projectId);
+    runtime.beginStart(projectId, selectedTargets.value);
     const result = (await invokeToolByChannel("tool:release-package:start", {
       projectId,
       folderName: folderName.value,
+      targets: [...selectedTargets.value],
     })) as ReleasePackageStartResult;
     runtime.bindStartedRun(result.runId, projectId);
     confirmVisible.value = false;
@@ -541,16 +632,15 @@ async function openArchive(): Promise<void> {
   }
 }
 
-watch(
-  () => runtime.logs.value.length,
-  async () => {
-    await nextTick();
-    const element = logContainer.value;
-    if (!element) return;
-    const nearBottom = element.scrollHeight - element.scrollTop - element.clientHeight < 48;
-    if (nearBottom) element.scrollTop = element.scrollHeight;
-  },
-);
+async function scrollLogToBottom(container: HTMLElement | null): Promise<void> {
+  await nextTick();
+  if (!container) return;
+  const nearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 48;
+  if (nearBottom) container.scrollTop = container.scrollHeight;
+}
+
+watch(() => frontendLogs.value.length, () => scrollLogToBottom(frontendLogContainer.value));
+watch(() => backendLogs.value.length, () => scrollLogToBottom(backendLogContainer.value));
 
 onMounted(async () => {
   try {
@@ -668,6 +758,7 @@ onMounted(async () => {
   background: #fff;
   box-shadow: 0 2px 12px rgb(31 45 61 / 5%);
 }
+.release-package-project-log { margin-top: 14px; }
 .log-card-header { padding: 12px 14px; border-bottom: 1px solid #ebeef5; }
 .log-card-header h3 { margin: 0 0 3px; color: #303133; font-size: 15px; }
 .log-card-header p { margin: 0; color: #5f6b7a; font-size: 12px; }
@@ -697,6 +788,18 @@ onMounted(async () => {
   --el-tag-bg-color: #fff1f0;
   --el-tag-border-color: #fecaca;
 }
+.release-package-log-columns { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.release-package-log-lane + .release-package-log-lane { border-left: 1px solid #ebeef5; }
+.log-lane-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 9px 14px;
+  border-bottom: 1px solid #ebeef5;
+  color: #303133;
+  background: #fafbfc;
+}
 .release-package-log {
   min-height: 180px;
   max-height: 320px;
@@ -710,6 +813,19 @@ onMounted(async () => {
 .log-line.stderr { color: #d03050; }
 .log-meta { flex: none; color: #5f6b7a; }
 .archive-preview { margin: 0; overflow-wrap: anywhere; color: var(--lc-text-secondary, #606266); font-size: 13px; }
+.package-targets { display: grid; gap: 8px; margin-top: 16px; }
+.package-targets-label { color: #303133; font-size: 14px; font-weight: 600; }
+.package-targets :deep(.el-checkbox-group) { display: flex; flex-wrap: wrap; gap: 10px; }
+.package-targets :deep(.el-checkbox) {
+  flex: 1 1 180px;
+  height: auto;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid #dcdfe6;
+  border-radius: 8px;
+  background: #fff;
+}
+.package-targets :deep(.el-checkbox.is-checked) { border-color: #a8c7fa; background: #f5f9ff; }
 
 :global(.release-package-command-examples) {
   max-width: calc(100vw - 32px);
@@ -763,5 +879,7 @@ onMounted(async () => {
   .release-package-editor { padding: 10px; }
   .engineering-card { padding: 14px 12px 0; }
   .log-card-header { align-items: flex-start; }
+  .release-package-log-columns { grid-template-columns: 1fr; }
+  .release-package-log-lane + .release-package-log-lane { border-top: 1px solid #ebeef5; border-left: 0; }
 }
 </style>

@@ -104,7 +104,7 @@ describe("ReleasePackagePanel", () => {
   });
 
   it("wraps logs in a white status card", () => {
-    expect(source).toContain('class="release-package-log-card"');
+    expect(source).toContain('class="release-package-log-card release-package-project-log"');
     expect(source).toContain('class="log-status"');
     expect(source).toContain("computed(() => releasePackageRunStatusLabel(status.value))");
     expect(source).toContain("{{ statusLabel }}");
@@ -124,7 +124,24 @@ describe("ReleasePackagePanel", () => {
       expect(source).toContain(`:deep(.log-status.el-tag--${variant})`);
       expect(source).toContain(`--el-tag-text-color: ${textColor};`);
     }
-    expect(source).toContain('ref="logContainer"');
+    expect(source).toContain('ref="frontendLogContainer"');
+    expect(source).toContain('ref="backendLogContainer"');
     expect(source).toContain('aria-live="polite"');
+  });
+
+  it("selects artifact paths, run targets, and renders project-scoped log columns", () => {
+    expect(source).toContain("chooseFrontendArtifact");
+    expect(source).toContain("chooseBackendArtifact");
+    expect(source).toContain('chooseDirectory("选择前端产物目录")');
+    expect(source).toContain('chooseFile("选择后端产物文件")');
+    expect(source.indexOf("归档目录名")).toBeLessThan(source.indexOf("本次打包内容"));
+    expect(source).toContain('label="前端包"');
+    expect(source).toContain('label="后端包"');
+    expect(source).toContain("createDefaultReleasePackageTargets()");
+    expect(source).toContain("targets: [...selectedTargets.value]");
+    expect(source).toContain("release-package-project-log");
+    expect(source).toContain('class="release-package-log-columns"');
+    expect(source).toContain('ref="frontendLogContainer"');
+    expect(source).toContain('ref="backendLogContainer"');
   });
 });
