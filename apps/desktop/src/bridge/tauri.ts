@@ -431,13 +431,22 @@ export async function invokeToolByChannel(
     if (typeof invoke !== "function") {
       throw new Error("IPC bridge unavailable");
     }
+    if (channel === "tool:request-forward:preflight") {
+      return await invoke<unknown>("request_forward_preflight", { payload });
+    }
     const response = await invoke<ToolResponse>("tool_execute", { request });
     if (!response.ok) {
       throw new Error(response.error?.message ?? "调用失败");
     }
     return response.data;
   } catch (error) {
-    const message = (error as Error).message ?? "";
+    const rawMessage =
+      error instanceof Error
+        ? error.message
+        : error && typeof error === "object" && "message" in error
+          ? (error as { message?: unknown }).message
+          : "";
+    const message = typeof rawMessage === "string" ? rawMessage : "";
     if (
       message.includes("unknown IPC") ||
       message.includes("failed to fetch") ||
@@ -445,6 +454,9 @@ export async function invokeToolByChannel(
       message.includes("reading 'invoke'")
     ) {
       throw new Error("IPC bridge 未加载，请在 Tauri 环境运行。请使用 `pnpm dev` 或 `pnpm --filter @lazycat/desktop dev` 启动。");
+    }
+    if (channel === "tool:request-forward:preflight" && message) {
+      throw new Error(message);
     }
     throw error;
   }

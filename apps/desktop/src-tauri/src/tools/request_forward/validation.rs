@@ -52,7 +52,7 @@ fn validate_start_target_with_resolver(
     Ok(())
 }
 
-pub(crate) fn resolve_target_addrs_bounded(
+fn resolve_target_addrs_bounded(
     host: String,
     port: u16,
 ) -> Result<Vec<SocketAddr>, String> {

@@ -10,6 +10,10 @@ const bridgeSource = readFileSync(
   fileURLToPath(new URL("../bridge/tauri.ts", import.meta.url)),
   "utf8",
 );
+const tauriMainSource = readFileSync(
+  fileURLToPath(new URL("../../src-tauri/src/main.rs", import.meta.url)),
+  "utf8",
+);
 const typesSource = readFileSync(
   fileURLToPath(new URL("../types/request-forward.ts", import.meta.url)),
   "utf8",
@@ -69,6 +73,20 @@ describe("RequestForwardPanel source structure", () => {
     expect(typesSource).toContain("interface RequestForwardPreflightCheck");
     expect(typesSource).toContain("interface RequestForwardPreflightResult");
     expect(typesSource).toContain("suggestedListenPort: number | null");
+  });
+
+  it("routes preflight through a dedicated blocking-safe async command", () => {
+    expect(tauriMainSource).toContain("async fn request_forward_preflight");
+    expect(tauriMainSource).toContain("tauri::async_runtime::spawn_blocking");
+    expect(tauriMainSource).toMatch(
+      /tauri::generate_handler!\[[\s\S]*?request_forward_preflight/,
+    );
+    expect(bridgeSource).toContain(
+      'channel === "tool:request-forward:preflight"',
+    );
+    expect(bridgeSource).toContain(
+      'invoke<unknown>("request_forward_preflight", { payload })',
+    );
   });
 
   it("renders accessible preflight stages and applies suggestions only by explicit click", () => {
@@ -175,6 +193,11 @@ describe("RequestForwardPanel source structure", () => {
     expect(source).toContain("pollInFlight");
     expect(source).toContain("onUnmounted");
     expect(source).toContain("clearTimeout");
+  });
+
+  it("invalidates pending preflight responses when unmounted", () => {
+    const body = source.match(/onUnmounted\(\(\) => \{[\s\S]*?\n}\);/)?.[0] ?? "";
+    expect(body).toContain("preflightRequestToken += 1");
   });
 
   it("uses observability as the default workspace without tabs", () => {

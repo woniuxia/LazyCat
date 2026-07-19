@@ -1082,6 +1082,7 @@ onUnmounted(() => {
   refreshRequestToken += 1;
   statsRequestToken += 1;
   logRequestToken += 1;
+  preflightRequestToken += 1;
   pendingLogRefresh = null;
   clearLogDebounce();
   clearPolling();

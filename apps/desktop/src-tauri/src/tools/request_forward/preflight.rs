@@ -204,14 +204,39 @@ fn socket_address(host: &str, port: u16) -> Result<SocketAddr, String> {
 }
 
 fn resolve_target_addrs(host: String, port: u16) -> Result<Vec<SocketAddr>, String> {
-    resolve_target_addrs_with(host, port, TARGET_RESOLUTION_TIMEOUT, |host| async move {
-        let (config, options) = read_system_conf()
-            .unwrap_or_else(|_| (ResolverConfig::default(), ResolverOpts::default()));
-        TokioAsyncResolver::tokio(config, options)
-            .lookup_ip(host)
-            .await
-            .map(|lookup| lookup.iter().collect())
-            .map_err(|error| error.to_string())
+    resolve_target_addrs_with_system_config(
+        host,
+        port,
+        || read_system_conf().map_err(|error| error.to_string()),
+        |config, options, host| async move {
+            TokioAsyncResolver::tokio(config, options)
+                .lookup_ip(host)
+                .await
+                .map(|lookup| lookup.iter().collect())
+                .map_err(|error| error.to_string())
+        },
+    )
+}
+
+fn resolve_target_addrs_with_system_config<C, R, Fut>(
+    host: String,
+    port: u16,
+    system_config: C,
+    resolver: R,
+) -> Result<Vec<SocketAddr>, String>
+where
+    C: FnOnce() -> Result<(ResolverConfig, ResolverOpts), String>,
+    R: FnOnce(ResolverConfig, ResolverOpts, String) -> Fut,
+    Fut: Future<Output = Result<Vec<IpAddr>, String>>,
+{
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        return Ok(vec![SocketAddr::new(ip, port)]);
+    }
+
+    let (config, options) =
+        system_config().map_err(|error| format!("读取系统 DNS 配置失败: {error}"))?;
+    resolve_target_addrs_with(host, port, TARGET_RESOLUTION_TIMEOUT, move |host| {
+        resolver(config, options, host)
     })
 }
 
@@ -266,12 +291,9 @@ fn bind_temporarily(protocol: ForwardProtocol, address: SocketAddr) -> io::Resul
 }
 
 fn suggest_listen_port(protocol: ForwardProtocol, host: IpAddr, original_port: u16) -> Option<u16> {
-    (1..=PORT_SUGGESTION_SCAN_LIMIT).find_map(|offset| {
-        let candidate = original_port.checked_add(offset).unwrap_or(offset);
-        (candidate != original_port
-            && bind_temporarily(protocol, SocketAddr::new(host, candidate)).is_ok())
-        .then_some(candidate)
-    })
+    (1..=PORT_SUGGESTION_SCAN_LIMIT)
+        .filter_map(|offset| original_port.checked_add(offset))
+        .find(|candidate| bind_temporarily(protocol, SocketAddr::new(host, *candidate)).is_ok())
 }
 
 fn target_endpoint(input: &ValidatedRuleWriteInput) -> Result<TargetEndpoint, String> {
@@ -396,8 +418,9 @@ mod tests {
     use rustls::{ClientConfig, RootCertStore};
 
     use super::{
-        preflight, preflight_with_tls_config, resolve_target_addrs_with, target_endpoint,
-        CheckKind, CheckState,
+        preflight, preflight_with_tls_config, resolve_target_addrs_with,
+        resolve_target_addrs_with_system_config, suggest_listen_port, target_endpoint, CheckKind,
+        CheckState,
     };
     use crate::tools::request_forward::http::integration_tests::accept_tls_once;
     use crate::tools::request_forward::model::{ForwardProtocol, RuleWriteInput};
@@ -514,6 +537,35 @@ mod tests {
         assert!(
             dropped.load(Ordering::SeqCst),
             "lookup future was not dropped"
+        );
+    }
+
+    #[test]
+    fn system_dns_config_failure_does_not_create_a_public_resolver() {
+        let resolver_called = Arc::new(AtomicBool::new(false));
+        let called = Arc::clone(&resolver_called);
+
+        let error = resolve_target_addrs_with_system_config(
+            "internal.example".into(),
+            443,
+            || Err("系统 DNS 配置不可用".into()),
+            move |_, _, _| {
+                called.store(true, Ordering::SeqCst);
+                async { Ok(vec![IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)]) }
+            },
+        )
+        .expect_err("missing system DNS config must fail closed");
+
+        assert!(error.contains("读取系统 DNS 配置失败"));
+        assert!(error.contains("系统 DNS 配置不可用"));
+        assert!(!resolver_called.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn port_suggestion_does_not_wrap_after_maximum_port() {
+        assert_eq!(
+            suggest_listen_port(ForwardProtocol::Tcp, "127.0.0.1".parse().unwrap(), u16::MAX),
+            None
         );
     }
 

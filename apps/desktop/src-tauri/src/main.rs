@@ -292,6 +292,25 @@ fn tool_execute(app: tauri::AppHandle, request: ToolRequest) -> ToolResponse {
     }
 }
 
+#[tauri::command]
+async fn request_forward_preflight(payload: Value) -> Result<Value, ToolError> {
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        tools::request_forward::execute("preflight", &payload)
+    })
+    .await
+    .map_err(|error| ToolError {
+        code: "REQUEST_FORWARD_PREFLIGHT_TASK_FAILED".to_string(),
+        message: format!("配置预检任务异常结束: {error}"),
+        details: None,
+    })?;
+
+    result.map_err(|message| ToolError {
+        code: "TOOL_EXECUTION_FAILED".to_string(),
+        message,
+        details: None,
+    })
+}
+
 /// Bring the main window to foreground/focus.
 /// Keep tray/hotkey/single-instance behavior consistent.
 fn reveal_main_window(app: &tauri::AppHandle) {
@@ -1457,6 +1476,7 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             tool_execute,
+            request_forward_preflight,
             register_hotkey,
             unregister_hotkey,
             register_named_hotkey,
