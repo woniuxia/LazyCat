@@ -45,7 +45,7 @@ describe("release package view helpers", () => {
     ).toBe(true);
   });
 
-  it("includes the required PowerShell command fragments", () => {
+  it("includes the required environment and Maven command fragments", () => {
     const commands = Object.fromEntries(
       RELEASE_PACKAGE_COMMAND_EXAMPLES.map((example) => [example.id, example.command]),
     );
@@ -58,13 +58,30 @@ describe("release package view helpers", () => {
     expect(commands["maven-build"]).toMatch(
       /mvn clean package -Pprod\r?\nif \(\$LASTEXITCODE -ne 0\) \{ exit \$LASTEXITCODE \}/u,
     );
-    expect(commands["copy-file"]).toContain('Copy-Item -LiteralPath');
-    expect(commands["copy-directory"]).toContain('Copy-Item -LiteralPath');
-    expect(commands["copy-directory"]).toContain('-Recurse -Force');
-    expect(commands["move-file"]).toContain('Move-Item -LiteralPath');
-    expect(commands["move-file"]).toContain('-Force');
-    expect(commands["move-directory"]).toContain('Move-Item -LiteralPath');
-    expect(commands["move-directory"]).toContain('-Force');
+  });
+
+  it("provides complete file copy and move commands", () => {
+    expect(RELEASE_PACKAGE_COMMAND_EXAMPLES.find((example) => example.id === "copy-file")).toMatchObject({
+      command: 'Copy-Item -LiteralPath "D:\\release\\app.jar" -Destination "D:\\deploy\\app.jar" -Force',
+    });
+    expect(RELEASE_PACKAGE_COMMAND_EXAMPLES.find((example) => example.id === "move-file")).toMatchObject({
+      command: 'Move-Item -LiteralPath "D:\\release\\app.jar" -Destination "D:\\deploy\\app.jar" -Force',
+    });
+  });
+
+  it("copies directory contents into an existing destination directory", () => {
+    expect(RELEASE_PACKAGE_COMMAND_EXAMPLES.find((example) => example.id === "copy-directory")).toMatchObject({
+      description: "递归复制目录内容到目标目录，并覆盖同名文件。",
+      command: `New-Item -ItemType Directory -Path '.\\release\\config' -Force | Out-Null
+Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force`,
+    });
+  });
+
+  it("moves a directory only when the complete destination does not exist", () => {
+    expect(RELEASE_PACKAGE_COMMAND_EXAMPLES.find((example) => example.id === "move-directory")).toMatchObject({
+      description: "将指定目录移动到完整目标路径，目标目录需不存在。",
+      command: "Move-Item -LiteralPath '.\\release' -Destination '.\\deploy\\release' -Force",
+    });
   });
 
   it("creates a blank project draft with copy mode", () => {

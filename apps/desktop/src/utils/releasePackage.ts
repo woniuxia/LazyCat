@@ -36,8 +36,9 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }`,
   {
     id: "copy-directory",
     title: "复制目录",
-    description: "递归复制整个目录到目标路径，并覆盖已存在的内容。",
-    command: `Copy-Item -LiteralPath "D:\\release\\dist" -Destination "D:\\deploy\\dist" -Recurse -Force`,
+    description: "递归复制目录内容到目标目录，并覆盖同名文件。",
+    command: `New-Item -ItemType Directory -Path '.\\release\\config' -Force | Out-Null
+Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force`,
   },
   {
     id: "move-file",
@@ -48,8 +49,8 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }`,
   {
     id: "move-directory",
     title: "移动目录",
-    description: "将指定目录移动到目标路径，并覆盖已存在的目标。",
-    command: `Move-Item -LiteralPath "D:\\release\\dist" -Destination "D:\\deploy\\dist" -Force`,
+    description: "将指定目录移动到完整目标路径，目标目录需不存在。",
+    command: `Move-Item -LiteralPath '.\\release' -Destination '.\\deploy\\release' -Force`,
   },
 ] as const satisfies readonly ReleasePackageCommandExample[];
 
