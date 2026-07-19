@@ -3334,3 +3334,27 @@ Cron 工具原先仅提供基础 6 字段输入与简单预览，缺少规范化
 - `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml tools::network::tests -- --nocapture`（8 通过）
 
 **使用次数**: 0
+
+## 2026-07-18: 上线包打包采用构建与归档两阶段提交
+
+**场景**: 外部项目需要在桌面工具中串行执行前后端构建，并把不同形态的产物合并归档到可编辑的周四日期目录。
+
+**问题**:
+1. 构建命令、产物复制和 UI 日志如果分散到前端，会形成多份运行状态并难以可靠终止子进程。
+2. 直接向最终目录复制会在失败或取消后留下看似可用的不完整上线包。
+3. 面板切换会卸载 Vue 组件，组件局部状态无法持续接收长任务事件。
+
+**方案**:
+1. Rust 统一编排 PowerShell、stdout/stderr、进程树取消和产物归档；所有事件绑定唯一 runId。
+2. 前后端均成功后才写同卷临时目录，复制/ZIP 全部完成后原子重命名；失败由 staging guard 清理。
+3. 前端运行态放在 module-level composable，日志有界保留，旧 runId 事件不能覆盖当前任务。
+
+**涉及文件**:
+- `apps/desktop/src-tauri/src/tools/release_package*.rs`
+- `apps/desktop/src/components/ReleasePackagePanel.vue`
+- `apps/desktop/src/composables/useReleasePackageRuntime.ts`
+
+**验证**:
+- `cargo test release_package --manifest-path apps/desktop/src-tauri/Cargo.toml -- --nocapture`
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
