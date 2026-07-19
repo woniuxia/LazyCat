@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
+import { useRequestForwardPreflight } from "../composables/useRequestForwardPreflight";
 import { getSetting, setSetting } from "../composables/useSettings";
 import { useToolInvoke } from "../composables/useToolInvoke";
 import type {
@@ -75,8 +76,23 @@ const formDirty = ref(false);
 const fieldErrors = ref<Partial<Record<keyof RequestForwardRuleForm, string>>>({});
 const saving = ref(false);
 const operating = ref(false);
-const preflightResult = ref<RequestForwardPreflightResult | null>(null);
-const preflighting = ref(false);
+const {
+  result: preflightResult,
+  loading: preflighting,
+  run: executePreflight,
+  invalidate: invalidatePreflight,
+  isAcceptedCurrent: isAcceptedPreflightCurrent,
+} = useRequestForwardPreflight({
+  currentContext: () => ({
+    intent: currentEditorIntent(),
+    payload: toRequestForwardRuleWriteInput(form.value),
+  }),
+  execute: (payload) =>
+    invoke<RequestForwardPreflightResult>("tool:request-forward:preflight", payload),
+  onError: (error) => {
+    ElMessage.error(`检测配置失败：${errorMessage(error)}`);
+  },
+});
 const stats = ref<RequestForwardStats | null>(null);
 const statsLoading = ref(false);
 const statsError = ref("");
@@ -94,9 +110,6 @@ const observabilityMutating = ref(false);
 let refreshRequestToken = 0;
 let selectionIntentToken = 0;
 let editorIntentToken = 0;
-let preflightRequestToken = 0;
-let preflightPayloadSnapshot: string | null = null;
-let preflightEditorIntentToken: number | null = null;
 let pollTimer: ReturnType<typeof setTimeout> | undefined;
 let pollGeneration = 0;
 let pollInFlight = false;
@@ -205,41 +218,6 @@ function currentEditorIntent() {
     selectedId: editorRuleId.value,
     draft: editorMode.value === "create",
   };
-}
-
-function currentPreflightPayloadSnapshot(): string {
-  return JSON.stringify(toRequestForwardRuleWriteInput(form.value));
-}
-
-function clearPreflightState() {
-  preflightRequestToken += 1;
-  preflightResult.value = null;
-  preflightPayloadSnapshot = null;
-  preflightEditorIntentToken = null;
-  preflighting.value = false;
-}
-
-function isPreflightContextCurrent(
-  requestToken: number,
-  intent: ReturnType<typeof currentEditorIntent>,
-  payloadSnapshot: string,
-): boolean {
-  const currentIntent = currentEditorIntent();
-  return (
-    requestToken === preflightRequestToken &&
-    intent.selectionToken === currentIntent.selectionToken &&
-    intent.selectedId === currentIntent.selectedId &&
-    intent.draft === currentIntent.draft &&
-    payloadSnapshot === currentPreflightPayloadSnapshot()
-  );
-}
-
-function isAcceptedPreflightCurrent(): boolean {
-  return (
-    preflightResult.value != null &&
-    preflightEditorIntentToken === editorIntentToken &&
-    preflightPayloadSnapshot === currentPreflightPayloadSnapshot()
-  );
 }
 
 function formatBytes(value: number): string {
@@ -619,7 +597,7 @@ function selectRule(id: number) {
 function openCreateDialog() {
   if (interactionBusy.value) return;
   editorIntentToken += 1;
-  clearPreflightState();
+  invalidatePreflight();
   editorMode.value = "create";
   editorRuleId.value = null;
   form.value = getDefaultRequestForwardForm();
@@ -632,7 +610,7 @@ function openEditDialog(id: number) {
   const rule = rules.value.find((item) => item.id === id);
   if (!rule) return;
   editorIntentToken += 1;
-  clearPreflightState();
+  invalidatePreflight();
   editorMode.value = "edit";
   editorRuleId.value = id;
   form.value = { ...rule };
@@ -642,7 +620,7 @@ function openEditDialog(id: number) {
 
 function closeEditor() {
   editorIntentToken += 1;
-  clearPreflightState();
+  invalidatePreflight();
   editorMode.value = null;
   editorRuleId.value = null;
   formDirty.value = false;
@@ -671,7 +649,7 @@ async function requestEditorClose() {
 
 function handleFormUpdate(value: RequestForwardRuleForm) {
   if (interactionBusy.value || readonly.value) return;
-  clearPreflightState();
+  invalidatePreflight();
   form.value = value;
   formDirty.value = true;
 }
@@ -686,7 +664,7 @@ function applySuggestedListenPort(port: number) {
   ) return;
   form.value = { ...form.value, listenPort: port };
   formDirty.value = true;
-  clearPreflightState();
+  invalidatePreflight();
 }
 
 function validateForm(): boolean {
@@ -712,33 +690,7 @@ function validateForm(): boolean {
 async function runPreflight(): Promise<RequestForwardPreflightResult | null> {
   if (interactionBusy.value || readonly.value || editorMode.value == null) return null;
   if (!validateForm()) return null;
-
-  const intent = currentEditorIntent();
-  const payload = toRequestForwardRuleWriteInput(form.value);
-  const payloadSnapshot = JSON.stringify(payload);
-  const requestToken = ++preflightRequestToken;
-  preflightResult.value = null;
-  preflightPayloadSnapshot = null;
-  preflightEditorIntentToken = null;
-  preflighting.value = true;
-  try {
-    const result = await invoke<RequestForwardPreflightResult>(
-      "tool:request-forward:preflight",
-      payload,
-    );
-    if (!isPreflightContextCurrent(requestToken, intent, payloadSnapshot)) return null;
-    preflightResult.value = result;
-    preflightPayloadSnapshot = payloadSnapshot;
-    preflightEditorIntentToken = intent.selectionToken;
-    return result;
-  } catch (error) {
-    if (isPreflightContextCurrent(requestToken, intent, payloadSnapshot)) {
-      ElMessage.error(`检测配置失败：${errorMessage(error)}`);
-    }
-    return null;
-  } finally {
-    if (requestToken === preflightRequestToken) preflighting.value = false;
-  }
+  return executePreflight();
 }
 
 async function preflightAndStart() {
@@ -1082,7 +1034,7 @@ onUnmounted(() => {
   refreshRequestToken += 1;
   statsRequestToken += 1;
   logRequestToken += 1;
-  preflightRequestToken += 1;
+  invalidatePreflight();
   pendingLogRefresh = null;
   clearLogDebounce();
   clearPolling();

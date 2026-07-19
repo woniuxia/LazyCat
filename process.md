@@ -37,6 +37,34 @@
 
 **使用次数**: 0
 
+## 2026-07-19: 请求转发预检状态机行为化测试
+
+**场景**: 预检请求需要同时绑定当前编辑意图和规范化表单，并保证并发、切换规则与组件卸载后的晚响应不会污染界面。
+
+**解决**:
+1. 把预检的 token、接受快照、loading 和 result 收口到独立 composable，面板只保留表单校验、busy gate、提示文案与“检测并启动”的 ready gate。
+2. 上下文快照显式覆盖 selection token、编辑目标、草稿状态和规范化写入 payload 的全部字段；只有请求 token 与当前上下文都一致时才应用结果或上报错误。
+3. 用 deferred Promise 行为测试覆盖当前响应、过期成功/失败、A/B 并发解锁、已接受结果失效和卸载失效，组件源码测试只验证接线边界。
+
+**关键点**:
+1. 旧请求的 `finally` 也可能破坏新请求的 loading，解锁必须额外校验最新 token。
+2. `invalidate` 必须同时推进 token、清空结果与接受快照并立即解锁；不能只清 UI 结果。
+3. 是否允许“检测并启动”必须验证接受快照仍匹配当前上下文，不能只依赖最近一次结果的 `ready`。
+
+**涉及文件**:
+- `apps/desktop/src/composables/useRequestForwardPreflight.ts`
+- `apps/desktop/src/composables/useRequestForwardPreflight.test.ts`
+- `apps/desktop/src/components/RequestForwardPanel.vue`
+- `apps/desktop/src/components/RequestForwardPanel.test.ts`
+
+**验证**:
+- `pnpm test src/composables/useRequestForwardPreflight.test.ts src/components/RequestForwardPanel.test.ts src/utils/requestForward.test.ts`
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+- `git diff --check`
+
+**使用次数**: 0
+
 ## 2026-07-19: Cron 方言兼容与输出校验
 
 **场景**: Cron 工具生成的表达式被复制到 Linux Crontab、Spring 和 Quartz 等不同运行环境后频繁报字段数或日/周字段错误。

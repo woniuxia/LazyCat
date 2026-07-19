@@ -117,18 +117,22 @@ describe("RequestForwardPanel source structure", () => {
     expect(dialogSource).toContain("RequestForwardPreflightResult");
   });
 
-  it("guards preflight responses by token, editor intent and normalized payload snapshot", () => {
-    expect(source).toContain("preflightRequestToken");
-    expect(source).toContain("preflightPayloadSnapshot");
-    expect(source).toContain("preflightEditorIntentToken");
+  it("delegates preflight concurrency and acceptance to the composable", () => {
+    expect(source).toContain("useRequestForwardPreflight");
+    expect(source).toContain("result: preflightResult");
+    expect(source).toContain("loading: preflighting");
+    expect(source).toContain("run: executePreflight");
+    expect(source).toContain("invalidate: invalidatePreflight");
+    expect(source).toContain("isAcceptedCurrent: isAcceptedPreflightCurrent");
     expect(source).toContain("tool:request-forward:preflight");
     expect(source).toContain("toRequestForwardRuleWriteInput(form.value)");
-    expect(source).toContain("currentPreflightPayloadSnapshot");
-    expect(source).toContain("isPreflightContextCurrent");
-    expect(source).toMatch(/function handleFormUpdate[\s\S]*?clearPreflightState\(\)/);
-    expect(source).toMatch(/function openCreateDialog[\s\S]*?clearPreflightState\(\)/);
-    expect(source).toMatch(/function openEditDialog[\s\S]*?clearPreflightState\(\)/);
-    expect(source).toMatch(/function closeEditor[\s\S]*?clearPreflightState\(\)/);
+    expect(source).not.toContain("preflightRequestToken");
+    expect(source).not.toContain("preflightPayloadSnapshot");
+    expect(source).not.toContain("preflightEditorIntentToken");
+    expect(source).toMatch(/function handleFormUpdate[\s\S]*?invalidatePreflight\(\)/);
+    expect(source).toMatch(/function openCreateDialog[\s\S]*?invalidatePreflight\(\)/);
+    expect(source).toMatch(/function openEditDialog[\s\S]*?invalidatePreflight\(\)/);
+    expect(source).toMatch(/function closeEditor[\s\S]*?invalidatePreflight\(\)/);
   });
 
   it("starts from the tested snapshot only when the backend result is ready", () => {
@@ -139,7 +143,6 @@ describe("RequestForwardPanel source structure", () => {
     expect(body).toMatch(/!result\?\.ready|!result\.ready/);
     expect(body).toContain("isAcceptedPreflightCurrent");
     expect(body).toContain("await saveAndStart()");
-    expect(source).toContain("preflighting.value");
     expect(source).toMatch(/const interactionBusy = computed\([\s\S]*?preflighting\.value/);
   });
 
@@ -149,7 +152,7 @@ describe("RequestForwardPanel source structure", () => {
     )?.[0] ?? "";
     expect(body).toContain("listenPort: port");
     expect(body).toContain("formDirty.value = true");
-    expect(body).toContain("clearPreflightState()");
+    expect(body).toContain("invalidatePreflight()");
     expect(source).toContain('@apply-suggested-port="applySuggestedListenPort"');
   });
 
@@ -197,7 +200,7 @@ describe("RequestForwardPanel source structure", () => {
 
   it("invalidates pending preflight responses when unmounted", () => {
     const body = source.match(/onUnmounted\(\(\) => \{[\s\S]*?\n}\);/)?.[0] ?? "";
-    expect(body).toContain("preflightRequestToken += 1");
+    expect(body).toContain("invalidatePreflight()");
   });
 
   it("uses observability as the default workspace without tabs", () => {
