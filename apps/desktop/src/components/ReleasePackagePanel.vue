@@ -179,7 +179,8 @@ async function loadProjects(): Promise<boolean> {
     projects.value = result.projects ?? [];
     const current = projects.value.find((project) => project.id === selectedId.value);
     const active = projects.value.find((project) => project.id === runtime.activeProjectId.value);
-    const target = active ?? current ?? projects.value[0];
+    const preferActiveProject = selectedId.value === null || runtime.status.value === "running";
+    const target = preferActiveProject ? active ?? current ?? projects.value[0] : current ?? active ?? projects.value[0];
     if (target) {
       const selectionChanged = selectedId.value !== target.id;
       selectedId.value = target.id;

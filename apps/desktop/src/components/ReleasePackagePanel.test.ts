@@ -49,8 +49,21 @@ describe("ReleasePackagePanel", () => {
 
   it("restores the active runtime project and uses prepare paths after refresh", () => {
     expect(source).toContain("runtime.activeProjectId");
+    expect(source).toContain('const preferActiveProject = selectedId.value === null || runtime.status.value === "running"');
     expect(source).toContain("prepareResult.value?.outputRoot");
     expect(source).toContain("prepareResult.value.archivePath");
     expect(source).toContain("const refreshed = await loadProjects()");
+  });
+
+  it("clears a deleted project before attempting to refresh", () => {
+    const deleteStart = source.indexOf("async function deleteProject");
+    const clearSelection = source.indexOf("selectedId.value = null", deleteStart);
+    const clearDraft = source.indexOf("Object.assign(draft, createEmptyReleasePackageDraft())", deleteStart);
+    const refresh = source.indexOf("const refreshed = await loadProjects()", deleteStart);
+
+    expect(deleteStart).toBeGreaterThan(-1);
+    expect(clearSelection).toBeGreaterThan(deleteStart);
+    expect(clearDraft).toBeGreaterThan(clearSelection);
+    expect(refresh).toBeGreaterThan(clearDraft);
   });
 });

@@ -72,3 +72,9 @@ PASS
 - `loadProjects` 显式返回成功状态；保存或删除后的刷新失败不再误报成功，并提前维护新建 ID、删除后的选择和 draft 状态。
 - 确认 Dialog 的路径预览只使用 `prepare` 返回的 `outputRoot` / `archivePath`，避免本地设置状态参与执行确认。
 - review 修复后 focused Vitest 为 4 个文件、17 个测试全部通过；`pnpm typecheck` 和 `git diff --check` 通过。
+
+### 复审补充
+
+- active 项目只在面板首次无选中项或 runtime 确实处于 running 状态时优先；普通刷新保持已有 selectedId 和脏草稿，保存后仍显式恢复 savedId。
+- 删除 IPC 成功后先清空 selectedId 与 draft，再刷新项目列表；即使刷新失败，也不会继续把已删除配置显示为有效选中项。
+- 新增源码契约测试固定 active 选择条件与删除清空顺序；focused 测试更新为 4 个文件、18 个测试全部通过。
