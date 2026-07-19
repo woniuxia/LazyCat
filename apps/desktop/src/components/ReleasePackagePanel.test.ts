@@ -38,4 +38,19 @@ describe("ReleasePackagePanel", () => {
     expect(source).not.toContain("localStorage");
     expect(source).not.toContain("overwrite");
   });
+
+  it("keeps the archive root chooser authoritative and validates Windows folder names", () => {
+    expect(source).toContain('v-model="outputRoot"');
+    expect(source).toContain("readonly");
+    expect(source).toContain("validateArchiveFolderName");
+    expect(source).toContain("COM[1-9]");
+    expect(source).toContain("cancelPendingStart");
+  });
+
+  it("restores the active runtime project and uses prepare paths after refresh", () => {
+    expect(source).toContain("runtime.activeProjectId");
+    expect(source).toContain("prepareResult.value?.outputRoot");
+    expect(source).toContain("prepareResult.value.archivePath");
+    expect(source).toContain("const refreshed = await loadProjects()");
+  });
 });

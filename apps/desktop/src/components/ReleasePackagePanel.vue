@@ -2,7 +2,7 @@
   <section class="release-package-panel">
     <div class="release-package-toolbar">
       <span class="toolbar-label">归档根目录</span>
-      <el-input v-model="outputRoot" class="release-package-root" placeholder="选择所有上线包的归档根目录" :disabled="running" />
+      <el-input v-model="outputRoot" class="release-package-root" placeholder="选择所有上线包的归档根目录" readonly :disabled="running" />
       <el-button :icon="FolderOpened" :disabled="running" @click="chooseOutputRoot">选择目录</el-button>
       <el-button :icon="Refresh" :disabled="running || loading" @click="loadProjects">刷新</el-button>
     </div>
@@ -108,8 +108,11 @@
       </el-form>
       <p class="archive-preview">完整归档路径：{{ archivePathPreview || "请先设置归档根目录" }}</p>
       <template #footer>
-        <el-button @click="confirmVisible = false">取消</el-button>
-        <el-button type="primary" :loading="starting" @click="confirmStart">确认打包</el-button>
+        <el-button v-if="starting" type="danger" :disabled="cancelPendingStart" @click="cancelRun">
+          {{ cancelPendingStart ? "等待终止" : "终止打包" }}
+        </el-button>
+        <el-button v-else @click="confirmVisible = false">取消</el-button>
+        <el-button type="primary" :loading="starting" :disabled="starting" @click="confirmStart">确认打包</el-button>
       </template>
     </el-dialog>
   </section>
@@ -143,6 +146,7 @@ const outputRoot = ref("");
 const loading = ref(false);
 const saving = ref(false);
 const starting = ref(false);
+const cancelPendingStart = ref(false);
 const confirmVisible = ref(false);
 const prepareResult = ref<ReleasePackagePrepareResult | null>(null);
 const folderName = ref("");
@@ -156,31 +160,38 @@ const selectedProject = computed(() => projects.value.find((item) => item.id ===
 const dirty = computed(() => isReleasePackageDraftDirty(selectedProject.value, draft));
 const running = computed(() => runtime.status.value === "running");
 const archivePathPreview = computed(() => {
-  if (!outputRoot.value || !folderName.value) return "";
-  return `${outputRoot.value.replace(/[\\/]+$/, "")}/${folderName.value}`;
+  const preparedRoot = prepareResult.value?.outputRoot;
+  if (!preparedRoot || !folderName.value) return "";
+  if (folderName.value === prepareResult.value?.defaultFolderName) {
+    return prepareResult.value.archivePath;
+  }
+  return `${preparedRoot.replace(/[\\/]+$/, "")}/${folderName.value}`;
 });
 
 function showError(error: unknown): void {
   ElMessage.error(error instanceof Error ? error.message : String(error));
 }
 
-async function loadProjects(): Promise<void> {
+async function loadProjects(): Promise<boolean> {
   loading.value = true;
   try {
     const result = (await invokeToolByChannel("tool:release-package:project-list", {})) as { projects?: ReleasePackageProject[] };
     projects.value = result.projects ?? [];
-    if (selectedId.value && projects.value.some((project) => project.id === selectedId.value)) {
-      const current = projects.value.find((project) => project.id === selectedId.value);
-      if (current && !dirty.value) Object.assign(draft, projectToReleasePackageDraft(current));
-    } else if (projects.value[0]) {
-      selectedId.value = projects.value[0].id;
-      Object.assign(draft, projectToReleasePackageDraft(projects.value[0]));
+    const current = projects.value.find((project) => project.id === selectedId.value);
+    const active = projects.value.find((project) => project.id === runtime.activeProjectId.value);
+    const target = active ?? current ?? projects.value[0];
+    if (target) {
+      const selectionChanged = selectedId.value !== target.id;
+      selectedId.value = target.id;
+      if (selectionChanged || !dirty.value) Object.assign(draft, projectToReleasePackageDraft(target));
     } else {
       selectedId.value = null;
       Object.assign(draft, createEmptyReleasePackageDraft());
     }
+    return true;
   } catch (error) {
     showError(error);
+    return false;
   } finally {
     loading.value = false;
   }
@@ -220,7 +231,9 @@ async function saveProject(): Promise<void> {
     const channel = selectedId.value ? "tool:release-package:project-update" : "tool:release-package:project-create";
     const result = (await invokeToolByChannel(channel, selectedId.value ? { id: selectedId.value, ...payload } : payload)) as { id?: number };
     const savedId = result.id ?? selectedId.value;
-    await loadProjects();
+    if (savedId) selectedId.value = savedId;
+    const refreshed = await loadProjects();
+    if (!refreshed) return;
     if (savedId) {
       selectedId.value = savedId;
       const saved = projects.value.find((project) => project.id === savedId);
@@ -245,7 +258,9 @@ async function deleteProject(): Promise<void> {
     );
     await invokeToolByChannel("tool:release-package:project-delete", { id: project.id });
     selectedId.value = null;
-    await loadProjects();
+    Object.assign(draft, createEmptyReleasePackageDraft());
+    const refreshed = await loadProjects();
+    if (!refreshed) return;
     ElMessage.success("项目配置已删除");
   } catch (error) {
     if (error !== "cancel" && error !== "close") showError(error);
@@ -306,35 +321,71 @@ async function prepareStart(): Promise<void> {
 
 async function confirmStart(): Promise<void> {
   const projectId = selectedProject.value?.id;
-  if (!projectId || !folderName.value || /[\\/]/.test(folderName.value)) {
-    ElMessage.warning("请输入不含路径分隔符的归档目录名");
+  const folderNameError = validateArchiveFolderName(folderName.value);
+  if (!projectId || folderNameError) {
+    ElMessage.warning(folderNameError ?? "请先选择项目");
     return;
   }
   starting.value = true;
-  await runtime.ensureListeners();
-  runtime.beginStart(projectId);
+  cancelPendingStart.value = false;
   try {
+    await runtime.ensureListeners();
+    if (cancelPendingStart.value) {
+      confirmVisible.value = false;
+      ElMessage.info("已取消打包");
+      return;
+    }
+    runtime.beginStart(projectId);
     const result = (await invokeToolByChannel("tool:release-package:start", {
       projectId,
       folderName: folderName.value,
     })) as ReleasePackageStartResult;
     runtime.bindStartedRun(result.runId, projectId);
     confirmVisible.value = false;
+    if (cancelPendingStart.value) {
+      try {
+        await runtime.cancel();
+        cancelPendingStart.value = false;
+        ElMessage.info("已请求终止打包");
+      } catch (error) {
+        showError(error);
+      }
+    }
   } catch (error) {
     runtime.abortStart(error instanceof Error ? error.message : String(error));
     showError(error);
   } finally {
     starting.value = false;
+    cancelPendingStart.value = false;
   }
 }
 
 async function cancelRun(): Promise<void> {
+  if (starting.value && !runtime.activeRunId.value) {
+    cancelPendingStart.value = true;
+    ElMessage.info("启动完成后将立即终止打包");
+    return;
+  }
   try {
     await runtime.cancel();
+    cancelPendingStart.value = false;
     ElMessage.info("已请求终止打包");
   } catch (error) {
     showError(error);
   }
+}
+
+function validateArchiveFolderName(value: string): string | null {
+  if (!value.trim()) return "请输入归档目录名";
+  if (value !== value.trim()) return "归档目录名首尾不能包含空格";
+  if (value === "." || value === "..") return "归档目录名不能为 . 或 ..";
+  if (value.length > 255) return "归档目录名不能超过 255 个字符";
+  if (/[<>:\"/\\|?*\u0000-\u001f]/.test(value)) return "归档目录名包含 Windows 非法字符";
+  if (/[. ]$/.test(value)) return "归档目录名不能以点或空格结尾";
+  if (/^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\..*)?$/i.test(value)) {
+    return "归档目录名不能使用 Windows 保留设备名";
+  }
+  return null;
 }
 
 async function openArchive(): Promise<void> {

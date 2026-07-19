@@ -2,7 +2,7 @@
 
 ## Status
 
-完成。实现提交：待提交 `feat(release-package): 添加上线包打包工作台`。
+完成。实现提交：`4bcd750 feat(release-package): 添加上线包打包工作台`；review 修复提交：`fix(release-package): 收紧工作台启动与路径状态`。
 
 ## TDD
 
@@ -61,3 +61,14 @@ PASS
 ## Concerns
 
 - 未启动正式 dev server 或执行 UI/E2E；本任务验证覆盖源码契约、runtime/纯函数回归和 TypeScript 类型检查。
+
+## Review 修复
+
+- 全局归档根目录改为只读输入，只能通过目录选择器和 `setSettingAndWait` 更新，消除 UI 与后端设置双真值。
+- 启动请求等待期间提供“终止打包”，`runId` 尚未返回时记录待取消状态，返回后立即调用 runtime cancel；事件已先绑定 `runId` 时直接取消。
+- 将 listener 初始化纳入启动 `try/finally`，初始化失败会 `abortStart`、显示错误并恢复 starting 状态。
+- 首次加载优先恢复 singleton runtime 的 `activeProjectId` 项目，不再固定选择列表首项。
+- 前端增加 Windows 目录名校验：空值、首尾空格、`.` / `..`、控制字符、非法字符、尾点/空格、超长名称和保留设备名。
+- `loadProjects` 显式返回成功状态；保存或删除后的刷新失败不再误报成功，并提前维护新建 ID、删除后的选择和 draft 状态。
+- 确认 Dialog 的路径预览只使用 `prepare` 返回的 `outputRoot` / `archivePath`，避免本地设置状态参与执行确认。
+- review 修复后 focused Vitest 为 4 个文件、17 个测试全部通过；`pnpm typecheck` 和 `git diff --check` 通过。
