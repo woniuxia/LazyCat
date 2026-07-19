@@ -3494,3 +3494,33 @@ Cron 工具原先仅提供基础 6 字段输入与简单预览，缺少规范化
 - `cargo test release_package --manifest-path apps/desktop/src-tauri/Cargo.toml -- --nocapture`
 - `pnpm typecheck`
 - `pnpm --filter @lazycat/desktop build:web`
+
+## 2026-07-19: 上线包多命令编辑与紧凑工作台
+
+**场景**: 编辑多行 PowerShell 构建脚本，同时对照前后端配置，并提升白底日志的可读性。
+
+**解决**:
+1. 保持后端单段脚本、同一 PowerShell 会话的执行语义，让多行命令共享环境变量和上下文。
+2. 前端采用响应式双栏卡片，让前后端工程、命令与产物配置可以并排对照，窄窗口下再收为单栏。
+3. 提供只读、可测试的 PowerShell 示例数据，通过带专属 `popper-class` 的 Popover 展示并支持一键复制。
+4. 日志区域改为白色卡片，并分别提高状态标签、正文、meta 与 stderr 的对比度。
+
+**关键点**:
+1. 不能在前端逐行拆分脚本，否则会破坏环境变量复用和 PowerShell 语句块；多行内容必须作为单段交给后端执行。
+2. 外部工具失败可能被后续 PowerShell 命令掩盖，关键命令后应检查 `$LASTEXITCODE` 并显式退出。
+3. Teleport 浮层使用专属 `popper-class` 和全局限定样式，避免 `scoped` 样式失效或污染其他 Popover。
+4. 小字号状态和 meta 文本的颜色对比度至少达到 4.5:1，白底下不能只依赖低对比灰色区分层级。
+
+**涉及文件**:
+- `apps/desktop/src/utils/releasePackage.ts`
+- `apps/desktop/src/utils/releasePackage.test.ts`
+- `apps/desktop/src/components/ReleasePackagePanel.vue`
+- `apps/desktop/src/components/ReleasePackagePanel.test.ts`
+
+**验证**:
+- `pnpm typecheck`：exit 0，2 个工作区项目完成 TypeScript 检查。
+- `pnpm --filter @lazycat/desktop build:web`：exit 0，Vite 转换 3299 个模块并成功产出 `dist-renderer`；仅有现有 chunk 大小警告。
+- `pnpm test`：exit 0，71 个测试文件、689 个测试通过；`data-dictionary` provider 的失败路径用例按设计主动写入 stderr（`Error: boom`），不影响通过结论。
+- `git diff --check`：exit 0，无空白错误。
+
+**使用次数**: 0
