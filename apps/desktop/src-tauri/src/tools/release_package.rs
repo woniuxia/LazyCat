@@ -354,7 +354,13 @@ pub fn execute_with_app(
             let output_root = load_output_root(&conn)?;
             let targets = parse_targets(payload.get("targets").unwrap_or(&Value::Null))?;
             validate_run_inputs(&project, &output_root, &folder_name, &targets)?;
-            super::release_package_runtime::start(app, project, output_root.into(), folder_name)
+            super::release_package_runtime::start(
+                app,
+                project,
+                output_root.into(),
+                folder_name,
+                targets,
+            )
         }
         "cancel" => {
             let run_id = payload["runId"].as_str().ok_or("runId is required")?;

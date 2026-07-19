@@ -9,9 +9,10 @@ use std::thread;
 use std::time::Duration;
 use tauri::Emitter;
 
-use super::release_package::ReleasePackageProjectConfig;
+use super::release_package::{ReleasePackageProjectConfig, ReleaseTarget};
 use super::release_package_archive::{
-    archive_artifacts, resolve_artifact_path, ArchiveError, ArchiveRequest,
+    archive_backend_artifact, archive_frontend_artifact, resolve_artifact_path,
+    validate_artifact_target_collision, ArchiveError, ArchiveSession,
 };
 use crate::events::{EVENT_RELEASE_PACKAGE_LOG, EVENT_RELEASE_PACKAGE_STATUS};
 
@@ -178,12 +179,43 @@ fn terminate_process_tree(_pid: u32) -> Result<(), String> {
     Err("当前仅支持 Windows PowerShell 打包".into())
 }
 
+#[derive(Clone)]
+struct ProcessSlots {
+    frontend: Arc<Mutex<Option<u32>>>,
+    backend: Arc<Mutex<Option<u32>>>,
+}
+
+impl ProcessSlots {
+    fn new() -> Self {
+        Self {
+            frontend: Arc::new(Mutex::new(None)),
+            backend: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    fn for_target(&self, target: ReleaseTarget) -> Arc<Mutex<Option<u32>>> {
+        match target {
+            ReleaseTarget::Frontend => self.frontend.clone(),
+            ReleaseTarget::Backend => self.backend.clone(),
+        }
+    }
+
+    fn terminate_all(&self) {
+        for slot in [&self.frontend, &self.backend] {
+            if let Some(pid) = *slot.lock().unwrap() {
+                let _ = terminate_process_tree(pid);
+            }
+        }
+    }
+}
+
 struct ActiveRun {
     run_id: String,
     cancelled: Arc<AtomicBool>,
-    pid: Arc<Mutex<Option<u32>>>,
+    process_slots: ProcessSlots,
     finished: Arc<AtomicBool>,
     cancel_won: Arc<AtomicBool>,
+    claim_lock: Arc<Mutex<()>>,
 }
 
 static ACTIVE_RUN: OnceLock<Mutex<Option<ActiveRun>>> = OnceLock::new();
@@ -241,7 +273,6 @@ enum PipelineError {
         phase: &'static str,
     },
     Failed {
-        phase: &'static str,
         message: String,
     },
 }
@@ -318,11 +349,106 @@ fn run_command_phase(
     )
     .map_err(|error| match error {
         CommandError::Cancelled => PipelineError::Cancelled { phase },
-        error => PipelineError::Failed {
-            phase,
-            message: error.message(),
-        },
+        error => PipelineError::Failed { message: error.message() },
     })
+}
+
+fn target_phase(target: ReleaseTarget) -> &'static str {
+    match target {
+        ReleaseTarget::Frontend => "frontend",
+        ReleaseTarget::Backend => "backend",
+    }
+}
+
+fn archive_pipeline_error(error: ArchiveError, phase: &'static str) -> PipelineError {
+    match error {
+        ArchiveError::Cancelled => PipelineError::Cancelled { phase },
+        ArchiveError::Failed(message) => PipelineError::Failed { message },
+    }
+}
+
+fn run_target(
+    target: ReleaseTarget,
+    run_id: &str,
+    project: &ReleasePackageProjectConfig,
+    staging_path: &Path,
+    cancelled: Arc<AtomicBool>,
+    pid: Arc<Mutex<Option<u32>>>,
+    sink: Arc<dyn EventSink>,
+) -> Result<(), PipelineError> {
+    let phase = target_phase(target);
+    let (project_path, command, artifact_path) = match target {
+        ReleaseTarget::Frontend => (
+            PathBuf::from(&project.frontend_project_path),
+            project.frontend_build_command.as_str(),
+            project.frontend_artifact_path.as_str(),
+        ),
+        ReleaseTarget::Backend => (
+            PathBuf::from(&project.backend_project_path),
+            project.backend_build_command.as_str(),
+            project.backend_artifact_path.as_str(),
+        ),
+    };
+    run_command_phase(
+        run_id,
+        project.id,
+        phase,
+        &project_path,
+        command,
+        cancelled.clone(),
+        pid,
+        sink.clone(),
+    )?;
+    let artifact = resolve_artifact_path(&project_path, artifact_path);
+    let emit = |line: &str| emit_system_log(sink.as_ref(), run_id, project.id, phase, line);
+    match target {
+        ReleaseTarget::Frontend => archive_frontend_artifact(
+            &artifact,
+            &project.frontend_artifact_mode,
+            staging_path,
+            cancelled.as_ref(),
+            emit,
+        ),
+        ReleaseTarget::Backend => archive_backend_artifact(
+            &artifact,
+            staging_path,
+            cancelled.as_ref(),
+            emit,
+        ),
+    }
+    .map_err(|error| archive_pipeline_error(error, phase))
+}
+
+fn emit_target_result(
+    sink: &dyn EventSink,
+    run_id: &str,
+    project_id: i64,
+    target: ReleaseTarget,
+    result: &Result<(), PipelineError>,
+) {
+    let phase = target_phase(target);
+    match result {
+        Ok(()) => emit_status(sink, run_id, project_id, "succeeded", phase, None, None),
+        Err(PipelineError::Cancelled { .. }) => {
+            emit_status(sink, run_id, project_id, "cancelled", phase, None, None)
+        }
+        Err(PipelineError::Failed { message }) => emit_status(
+            sink,
+            run_id,
+            project_id,
+            "failed",
+            phase,
+            None,
+            Some(message.clone()),
+        ),
+    }
+}
+
+#[derive(Debug)]
+struct PipelineSummary {
+    status: &'static str,
+    archive_path: Option<PathBuf>,
+    error: Option<String>,
 }
 
 fn run_pipeline(
@@ -330,108 +456,116 @@ fn run_pipeline(
     project: ReleasePackageProjectConfig,
     output_root: PathBuf,
     folder_name: String,
+    targets: Vec<ReleaseTarget>,
     cancelled: Arc<AtomicBool>,
-    pid: Arc<Mutex<Option<u32>>>,
+    process_slots: ProcessSlots,
     sink: Arc<dyn EventSink>,
-) -> Result<PathBuf, PipelineError> {
+) -> Result<PipelineSummary, PipelineError> {
     let frontend_project = PathBuf::from(&project.frontend_project_path);
-    run_command_phase(
-        run_id,
-        project.id,
-        "frontend",
-        &frontend_project,
-        &project.frontend_build_command,
-        cancelled.clone(),
-        pid.clone(),
-        sink.clone(),
-    )?;
+    let backend_project = PathBuf::from(&project.backend_project_path);
     let frontend_artifact =
         resolve_artifact_path(&frontend_project, &project.frontend_artifact_path);
-    if !frontend_artifact.is_dir() {
-        return Err(PipelineError::Failed {
-            phase: "frontend",
-            message: "前端产物必须是文件夹".into(),
-        });
-    }
-
-    let backend_project = PathBuf::from(&project.backend_project_path);
-    run_command_phase(
-        run_id,
-        project.id,
-        "backend",
-        &backend_project,
-        &project.backend_build_command,
-        cancelled.clone(),
-        pid,
-        sink.clone(),
-    )?;
     let backend_artifact = resolve_artifact_path(&backend_project, &project.backend_artifact_path);
-    if !backend_artifact.exists() {
-        return Err(PipelineError::Failed {
-            phase: "backend",
-            message: "后端产物不存在".into(),
+    if targets.contains(&ReleaseTarget::Frontend) && targets.contains(&ReleaseTarget::Backend) {
+        validate_artifact_target_collision(
+            &frontend_artifact,
+            &project.frontend_artifact_mode,
+            &backend_artifact,
+        )
+        .map_err(|error| archive_pipeline_error(error, "overall"))?;
+    }
+    let mut archive = ArchiveSession::create(
+        &output_root,
+        &folder_name,
+        run_id,
+        cancelled.as_ref(),
+    )
+    .map_err(|error| archive_pipeline_error(error, "overall"))?;
+    let staging_path = archive.staging_path().to_path_buf();
+    let selected_count = targets.len();
+    let mut handles = Vec::with_capacity(selected_count);
+    for target in targets {
+        let thread_run_id = run_id.to_owned();
+        let thread_project = project.clone();
+        let thread_staging_path = staging_path.clone();
+        let thread_cancelled = cancelled.clone();
+        let thread_sink = sink.clone();
+        let pid = process_slots.for_target(target);
+        handles.push((
+            target,
+            thread::spawn(move || {
+                let result = run_target(
+                    target,
+                    &thread_run_id,
+                    &thread_project,
+                    &thread_staging_path,
+                    thread_cancelled,
+                    pid,
+                    thread_sink.clone(),
+                );
+                emit_target_result(
+                    thread_sink.as_ref(),
+                    &thread_run_id,
+                    thread_project.id,
+                    target,
+                    &result,
+                );
+                result
+            }),
+        ));
+    }
+
+    let mut success_count = 0;
+    let mut errors = Vec::new();
+    for (target, handle) in handles {
+        let result = handle.join().unwrap_or_else(|_| {
+            Err(PipelineError::Failed {
+                message: "打包工作线程异常退出".into(),
+            })
+        });
+        match result {
+            Ok(()) => success_count += 1,
+            Err(PipelineError::Cancelled { .. }) => {}
+            Err(PipelineError::Failed { message }) => {
+                errors.push(format!("{}：{message}", target_phase(target)));
+            }
+        }
+    }
+    if cancelled.load(Ordering::Acquire) {
+        return Err(PipelineError::Cancelled { phase: "overall" });
+    }
+    if success_count == 0 {
+        return Ok(PipelineSummary {
+            status: "failed",
+            archive_path: None,
+            error: Some(errors.join("；")),
         });
     }
-
-    if cancelled.load(Ordering::Acquire) {
-        return Err(PipelineError::Cancelled { phase: "archive" });
-    }
-    emit_status(
-        sink.as_ref(),
-        run_id,
-        project.id,
-        "running",
-        "archive",
-        None,
-        None,
-    );
-    emit_system_log(
-        sink.as_ref(),
-        run_id,
-        project.id,
-        "archive",
-        "开始归档构建产物",
-    );
-    let request = ArchiveRequest {
-        frontend_artifact,
-        frontend_mode: project.frontend_artifact_mode,
-        backend_artifact,
-        output_root,
-        folder_name,
-        run_id: run_id.into(),
-    };
-    archive_artifacts(&request, &cancelled, |line| {
-        emit_system_log(sink.as_ref(), run_id, project.id, "archive", line)
-    })
-    .map_err(|error| match error {
-        ArchiveError::Cancelled => PipelineError::Cancelled { phase: "archive" },
-        ArchiveError::Failed(message) => PipelineError::Failed {
-            phase: "archive",
-            message,
+    let archive_path = archive
+        .commit(cancelled.as_ref())
+        .map_err(|error| archive_pipeline_error(error, "overall"))?;
+    Ok(PipelineSummary {
+        status: if success_count == selected_count {
+            "succeeded"
+        } else {
+            "partially_succeeded"
         },
+        archive_path: Some(archive_path),
+        error: (!errors.is_empty()).then(|| errors.join("；")),
     })
-}
-
-fn pipeline_phase(result: &Result<PathBuf, PipelineError>) -> &'static str {
-    match result {
-        Ok(_) => "archive",
-        Err(PipelineError::Cancelled { phase }) | Err(PipelineError::Failed { phase, .. }) => phase,
-    }
 }
 
 fn claim_pipeline_result(
-    result: Result<PathBuf, PipelineError>,
+    result: Result<PipelineSummary, PipelineError>,
     cancelled: &AtomicBool,
     finished: &AtomicBool,
     cancel_won: &AtomicBool,
-    pid: &Mutex<Option<u32>>,
-) -> Result<PathBuf, PipelineError> {
-    let _guard = pid.lock().unwrap();
+    claim_lock: &Mutex<()>,
+) -> Result<PipelineSummary, PipelineError> {
+    let _guard = claim_lock.lock().unwrap();
     let result = if cancelled.load(Ordering::Acquire) {
         cancel_won.store(true, Ordering::Release);
-        Err(PipelineError::Cancelled {
-            phase: pipeline_phase(&result),
-        })
+        Err(PipelineError::Cancelled { phase: "overall" })
     } else {
         result
     };
@@ -440,8 +574,8 @@ fn claim_pipeline_result(
 }
 
 fn request_cancel(active: &ActiveRun) -> bool {
+    let _guard = active.claim_lock.lock().unwrap();
     active.cancelled.store(true, Ordering::Release);
-    let pid = active.pid.lock().unwrap();
     if active.finished.load(Ordering::Acquire) {
         if active.cancel_won.load(Ordering::Acquire) {
             return true;
@@ -449,9 +583,7 @@ fn request_cancel(active: &ActiveRun) -> bool {
         active.cancelled.store(false, Ordering::Release);
         return false;
     }
-    if let Some(pid) = *pid {
-        let _ = terminate_process_tree(pid);
-    }
+    active.process_slots.terminate_all();
     true
 }
 
@@ -460,12 +592,14 @@ pub fn start(
     project: ReleasePackageProjectConfig,
     output_root: PathBuf,
     folder_name: String,
+    targets: Vec<ReleaseTarget>,
 ) -> Result<Value, String> {
     let run_id = uuid::Uuid::new_v4().to_string();
     let cancelled = Arc::new(AtomicBool::new(false));
-    let pid = Arc::new(Mutex::new(None));
+    let process_slots = ProcessSlots::new();
     let finished = Arc::new(AtomicBool::new(false));
     let cancel_won = Arc::new(AtomicBool::new(false));
+    let claim_lock = Arc::new(Mutex::new(()));
     {
         let mut active = active_run()
             .lock()
@@ -479,9 +613,10 @@ pub fn start(
         *active = Some(ActiveRun {
             run_id: run_id.clone(),
             cancelled: cancelled.clone(),
-            pid: pid.clone(),
+            process_slots: process_slots.clone(),
             finished: finished.clone(),
             cancel_won: cancel_won.clone(),
+            claim_lock: claim_lock.clone(),
         });
     }
 
@@ -489,41 +624,59 @@ pub fn start(
     let project_id = project.id;
     let sink: Arc<dyn EventSink> = Arc::new(TauriEventSink { app: app.clone() });
     thread::spawn(move || {
+        emit_status(
+            sink.as_ref(),
+            &thread_run_id,
+            project_id,
+            "running",
+            "overall",
+            None,
+            None,
+        );
         let result = run_pipeline(
             &thread_run_id,
             project,
             output_root,
             folder_name,
+            targets,
             cancelled.clone(),
-            pid.clone(),
+            process_slots,
             sink.clone(),
         );
-        let result = claim_pipeline_result(result, &cancelled, &finished, &cancel_won, &pid);
+        let result = claim_pipeline_result(
+            result,
+            &cancelled,
+            &finished,
+            &cancel_won,
+            &claim_lock,
+        );
         match result {
-            Ok(path) => emit_status(
+            Ok(summary) => emit_status(
                 sink.as_ref(),
                 &thread_run_id,
                 project_id,
-                "succeeded",
-                "archive",
-                Some(path.to_string_lossy().into_owned()),
-                None,
+                summary.status,
+                "overall",
+                summary
+                    .archive_path
+                    .map(|path| path.to_string_lossy().into_owned()),
+                summary.error,
             ),
-            Err(PipelineError::Cancelled { phase }) => emit_status(
+            Err(PipelineError::Cancelled { .. }) => emit_status(
                 sink.as_ref(),
                 &thread_run_id,
                 project_id,
                 "cancelled",
-                phase,
+                "overall",
                 None,
                 None,
             ),
-            Err(PipelineError::Failed { phase, message }) => emit_status(
+            Err(PipelineError::Failed { message }) => emit_status(
                 sink.as_ref(),
                 &thread_run_id,
                 project_id,
                 "failed",
-                phase,
+                "overall",
                 None,
                 Some(message),
             ),
@@ -722,13 +875,14 @@ mod pipeline_tests {
             project(),
             PathBuf::from("Z:\\output"),
             "folder".into(),
+            vec![ReleaseTarget::Frontend],
             Arc::new(AtomicBool::new(true)),
-            Arc::new(Mutex::new(None)),
+            ProcessSlots::new(),
             Arc::new(Sink),
         );
         assert!(matches!(
             result,
-            Err(PipelineError::Cancelled { phase: "frontend" })
+            Err(PipelineError::Cancelled { phase: "overall" })
         ));
     }
 
@@ -736,17 +890,18 @@ mod pipeline_tests {
     fn completed_run_rejects_late_cancellation() {
         let cancelled = Arc::new(AtomicBool::new(false));
         let finished = Arc::new(AtomicBool::new(false));
-        let pid = Arc::new(Mutex::new(None));
+        let claim_lock = Arc::new(Mutex::new(()));
         {
-            let _guard = pid.lock().unwrap();
+            let _guard = claim_lock.lock().unwrap();
             finished.store(true, Ordering::Release);
         }
         let active = ActiveRun {
             run_id: "finished".into(),
             cancelled: cancelled.clone(),
-            pid,
+            process_slots: ProcessSlots::new(),
             finished,
             cancel_won: Arc::new(AtomicBool::new(false)),
+            claim_lock,
         };
         assert!(!request_cancel(&active));
         assert!(!cancelled.load(Ordering::Acquire));
@@ -758,15 +913,19 @@ mod pipeline_tests {
         let finished = Arc::new(AtomicBool::new(false));
         let cancel_won = Arc::new(AtomicBool::new(false));
         let result = claim_pipeline_result(
-            Ok(PathBuf::from("archive")),
+            Ok(PipelineSummary {
+                status: "succeeded",
+                archive_path: Some(PathBuf::from("archive")),
+                error: None,
+            }),
             &cancelled,
             &finished,
             &cancel_won,
-            &Mutex::new(None),
+            &Mutex::new(()),
         );
         assert!(matches!(
             result,
-            Err(PipelineError::Cancelled { phase: "archive" })
+            Err(PipelineError::Cancelled { phase: "overall" })
         ));
         assert!(finished.load(Ordering::Acquire));
         assert!(cancel_won.load(Ordering::Acquire));
@@ -801,19 +960,23 @@ mod pipeline_tests {
             project,
             output_root,
             "20260723-冒烟项目".into(),
+            vec![ReleaseTarget::Frontend, ReleaseTarget::Backend],
             Arc::new(AtomicBool::new(false)),
-            Arc::new(Mutex::new(None)),
+            ProcessSlots::new(),
             sink.clone(),
         )
         .unwrap();
-        assert!(result.join("dist/index.html").is_file());
-        assert!(result.join("app.jar").is_file());
-        assert_eq!(sink.phases(), vec!["frontend", "backend", "archive"]);
+        let archive_path = result.archive_path.unwrap();
+        assert!(archive_path.join("dist/index.html").is_file());
+        assert!(archive_path.join("app.jar").is_file());
+        let phases = sink.phases();
+        assert!(phases.contains(&"frontend".into()));
+        assert!(phases.contains(&"backend".into()));
     }
 
     #[cfg(windows)]
     #[test]
-    fn failed_frontend_never_runs_backend_or_creates_final_directory() {
+    fn failed_frontend_does_not_stop_backend_and_commits_backend_artifact() {
         let root = TestDir::new();
         let frontend_project = root.0.join("web");
         let backend_project = root.0.join("server");
@@ -829,29 +992,28 @@ mod pipeline_tests {
             frontend_artifact_path: "dist".into(),
             frontend_artifact_mode: "copy_directory".into(),
             backend_project_path: backend_project.to_string_lossy().into_owned(),
-            backend_build_command: "Set-Content marker.txt should-not-run".into(),
-            backend_artifact_path: "marker.txt".into(),
+            backend_build_command: "New-Item -ItemType Directory -Force target | Out-Null; Set-Content target/app.jar backend-ok".into(),
+            backend_artifact_path: "target/app.jar".into(),
             created_at: String::new(),
             updated_at: String::new(),
         };
-        let error = run_pipeline(
+        let summary = run_pipeline(
             "failed-run",
             project,
             output_root.clone(),
             "20260723-冒烟项目".into(),
+            vec![ReleaseTarget::Frontend, ReleaseTarget::Backend],
             Arc::new(AtomicBool::new(false)),
-            Arc::new(Mutex::new(None)),
+            ProcessSlots::new(),
             Arc::new(CollectingSink::default()),
         )
-        .unwrap_err();
-        assert!(matches!(
-            error,
-            PipelineError::Failed {
-                phase: "frontend",
-                ..
-            }
-        ));
-        assert!(!backend_project.join("marker.txt").exists());
-        assert!(!output_root.join("20260723-冒烟项目").exists());
+        .unwrap();
+        assert_eq!(summary.status, "partially_succeeded");
+        assert!(backend_project.join("target/app.jar").is_file());
+        assert!(summary
+            .archive_path
+            .unwrap()
+            .join("app.jar")
+            .is_file());
     }
 }
