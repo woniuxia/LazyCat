@@ -20,17 +20,28 @@ function emit(name: string, payload: unknown): void {
   listeners.get(name)?.({ payload });
 }
 
-function status(runId: string, projectId: number, value: ReleasePackageStatusEvent["status"]): ReleasePackageStatusEvent {
-  return { runId, projectId, status: value, phase: value === "succeeded" ? "archive" : "frontend" };
+function status(
+  runId: string,
+  projectId: number,
+  value: ReleasePackageStatusEvent["status"],
+  phase: ReleasePackageStatusEvent["phase"] = "overall",
+): ReleasePackageStatusEvent {
+  return { runId, projectId, status: value, phase };
 }
 
-function log(runId: string, projectId: number, line: string): ReleasePackageLogEvent {
-  return { runId, projectId, phase: "frontend", stream: "stdout", line };
+function log(
+  runId: string,
+  projectId: number,
+  line: string,
+  phase: ReleasePackageLogEvent["phase"] = "frontend",
+): ReleasePackageLogEvent {
+  return { runId, projectId, phase, stream: "stdout", line };
 }
 
 describe("release package runtime state", () => {
   beforeEach(() => {
     invokeMock.mockReset().mockResolvedValue({ cancelRequested: true });
+    useReleasePackageRuntime().reset();
   });
 
   it("binds the first event while start is pending and rejects stale runs", () => {
@@ -55,6 +66,19 @@ describe("release package runtime state", () => {
     });
     expect(state.status).toBe("succeeded");
     expect(state.archivePath).toContain("20260723-客户门户");
+  });
+
+  it("keeps the overall run active when one target reaches a terminal state", () => {
+    const state = createReleasePackageRuntimeState();
+    state.activeRunId = "run-1";
+    state.activeProjectId = 7;
+    state.pendingProjectId = 7;
+    state.status = "running";
+
+    reduceReleasePackageStatus(state, status("run-1", 7, "succeeded", "frontend"));
+
+    expect(state.status).toBe("running");
+    expect(state.pendingProjectId).toBe(7);
   });
 
   it("registers singleton listeners, filters stale events, and retains terminal state", async () => {
@@ -83,5 +107,31 @@ describe("release package runtime state", () => {
     runtime.reset();
     expect(runtime.status.value).toBe("idle");
     expect(runtime.logs.value).toEqual([]);
+  });
+
+  it("keeps the latest runtime isolated by project and log column", async () => {
+    listenMock.mockImplementation(async (name: string, handler: (event: { payload: unknown }) => void) => {
+      listeners.set(name, handler);
+      return vi.fn();
+    });
+    const runtime = useReleasePackageRuntime();
+    await runtime.ensureListeners();
+
+    runtime.beginStart(7, ["frontend", "backend"]);
+    runtime.bindStartedRun("run-1", 7);
+    emit("release-package://log", log("run-1", 7, "web"));
+    emit("release-package://status", status("run-1", 7, "succeeded", "frontend"));
+    emit("release-package://status", status("run-1", 7, "partially_succeeded"));
+
+    runtime.beginStart(8, ["backend"]);
+    runtime.bindStartedRun("run-2", 8);
+    emit("release-package://log", log("run-2", 8, "server", "backend"));
+    emit("release-package://log", log("run-1", 7, "late"));
+
+    expect(runtime.getProjectRuntime(7).status).toBe("partially_succeeded");
+    expect(runtime.getProjectRuntime(7).targetStatus.frontend).toBe("succeeded");
+    expect(runtime.getProjectRuntime(7).frontendLogs.map((entry) => entry.line)).toEqual(["web"]);
+    expect(runtime.getProjectRuntime(8).targetStatus.frontend).toBe("skipped");
+    expect(runtime.getProjectRuntime(8).backendLogs.map((entry) => entry.line)).toEqual(["server"]);
   });
 });
