@@ -8,6 +8,34 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-07-20: 上线包已有归档采用确认后完整替换
+
+**场景**: 目标归档目录已存在时，用户需要在取消和直接覆盖之间做一次明确选择，同时保证新包生成失败不会破坏旧归档。
+
+**解决**:
+1. 启动前通过独立 `target_check` action 查询当前项目目标路径；存在时使用二次确认框，覆盖授权不持久化。
+2. `overwriteExisting` 从前端显式传入 Rust，缺失或非布尔值均按安全路径处理；后端启动前和最终提交时都重新校验目标状态。
+3. 新产物始终先写 staging；覆盖提交把旧目录重命名到 runId 专属 backup，再原子切换 staging，切换失败恢复旧目录，成功后清理 backup。
+
+**关键点**:
+- 目录检查只服务于交互，不能替代提交时校验，避免检查与启动之间的竞态静默覆盖。
+- “完整替换”不能用复制覆盖实现，否则旧文件会残留；同卷 `rename` 到备份后再提交才能保证旧目录不被半成品直接删除。
+- 覆盖目标必须是目录；文件目标、预先存在的 staging/backup 路径都要显式失败。
+
+**涉及文件**:
+- `apps/desktop/src-tauri/src/tools/release_package.rs`
+- `apps/desktop/src-tauri/src/tools/release_package_archive.rs`
+- `apps/desktop/src-tauri/src/tools/release_package_runtime.rs`
+- `apps/desktop/src/components/ReleasePackagePanel.vue`
+
+**验证**:
+- `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml release_package -- --nocapture`
+- `pnpm --filter @lazycat/desktop exec vitest run src/utils/releasePackage.test.ts src/components/ReleasePackagePanel.test.ts`
+- `pnpm typecheck`
+
+**使用次数**: 0
+
+
 ## 2026-07-19: 请求转发结构化错误与恢复动作
 
 **场景**: 运行错误需要同时服务即时 IPC 失败、运行状态展示和后续批量操作，并兼容历史纯文本错误。
@@ -3633,5 +3661,67 @@ Cron 工具原先仅提供基础 6 字段输入与简单预览，缺少规范化
 - `pnpm --filter @lazycat/desktop build:web`：exit 0，Vite 转换 3299 个模块并成功产出 `dist-renderer`；仅有现有 chunk 大小警告。
 - `pnpm test`：exit 0，71 个测试文件、698 个测试通过；`data-dictionary` provider 的失败路径用例按设计主动写入 stderr（`Error: boom`），不影响通过结论。
 - `git diff --check`：exit 0，无空白错误。
+
+**使用次数**: 0
+
+## 2026-07-19: 上线包归档目录改为项目级配置
+
+**场景**: 不同项目需要归档到不同位置，同时修复上线包配置内容超出视口后无法继续向下浏览。
+
+**解决**:
+1. 将归档根目录纳入项目配置模型，创建、更新、准备和启动任务均只读取当前项目的目录。
+2. 为已有项目新增字段迁移，并把旧的全局归档根目录一次性回填到尚未配置目录的项目。
+3. 取消面板 flex 收缩和工作区内容裁剪，让外层内容容器按页面完整高度滚动。
+
+**关键点**:
+- 运行时路径只能来自已保存的项目快照，避免切换项目后使用另一项目的目录。
+- 新增项目字段时需同时覆盖新库建表、旧库加列和历史配置回填三条路径。
+
+**涉及文件**:
+- `apps/desktop/src-tauri/src/tools/helpers.rs`
+- `apps/desktop/src-tauri/src/tools/release_package.rs`
+- `apps/desktop/src/components/ReleasePackagePanel.vue`
+- `apps/desktop/src/types/release-package.ts`
+- `apps/desktop/src/utils/releasePackage.ts`
+
+**验证**:
+- `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml release_package -- --nocapture`
+- `pnpm --filter @lazycat/desktop exec vitest run src/utils/releasePackage.test.ts src/components/ReleasePackagePanel.test.ts`
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+
+**使用次数**: 0
+
+## 2026-07-20: 请求转发实时日志筛选、暂停与导出
+
+**场景**: 请求转发日志需要在持续写入时支持精确筛选、暂停检查、键盘浏览、详情复制和可追溯导出，同时不能让旧响应或后台刷新破坏当前可见窗口。
+
+**解决**:
+1. 后端将 Method、状态码和 UTC 时间边界纳入同一 SQL 条件，先筛选并统计，再按 created_at DESC, id DESC 稳定排序和分页；HTTP 专属字段使用精确条件，使 TCP/UDP 日志在该条件下自然返回空集。
+2. 前端把筛选值、规则 ID 和选择意图组成请求快照；本地 datetime-local 在请求前转换为 RFC3339 UTC，避免把本地时间直接当成数据库 UTC 文本比较。
+3. 暂停状态只用 limit=1 探测筛选结果的 latestId/total，不替换可见日志；恢复实时后从 offset=0 重建连续窗口。total 差值只作为新增下界展示为“至少 N 条”，不把保留淘汰后的差值包装成精确数量。
+4. 导出前按当前筛选重新查询最多 1000 条；JSON 带 total/exported/truncated/filters 元数据，CSV 防公式注入，文件名清理 Windows 非法字符并带本地时间。
+5. 日志列表使用 roving tabindex 和上下/Home/End 导航；详情仅在 JSON Content-Type 且正文可解析时格式化，并为错误、headers、body 和完整日志提供显式复制反馈。
+
+**关键点**:
+- 实时刷新、暂停探测和用户筛选必须共用请求序号与参数快照，旧响应不能覆盖新规则或新筛选。
+- 每规则日志存在 1000 条保留上限时，total 不足以单独判断新增；应同时比较最新稳定 ID，并避免伪造精确新增数。
+- 时间筛选的 UI 语义是本地时间，数据库事实是 UTC 文本；边界转换只能集中在查询构造处完成。
+
+**涉及文件**:
+- apps/desktop/src-tauri/src/tools/request_forward/mod.rs
+- apps/desktop/src-tauri/src/tools/request_forward/repository.rs
+- apps/desktop/src/components/RequestForwardPanel.vue
+- apps/desktop/src/components/request-forward/RequestForwardLogList.vue
+- apps/desktop/src/components/request-forward/RequestForwardLogInspector.vue
+- apps/desktop/src/types/request-forward.ts
+- apps/desktop/src/utils/requestForward.ts
+
+**验证**:
+- cargo test --target-dir E:\tmp\lazycat-task1-target request_forward -- --nocapture（112 通过）
+- pnpm test src/utils/requestForward.test.ts src/components/RequestForwardPanel.test.ts（94 通过）
+- pnpm test（72 个测试文件、751 个测试通过）
+- pnpm typecheck
+- pnpm --filter @lazycat/desktop build:web
 
 **使用次数**: 0
