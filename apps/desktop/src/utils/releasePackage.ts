@@ -4,6 +4,55 @@ import type {
   ReleasePackageProjectDraft,
 } from "../types/release-package";
 
+export interface ReleasePackageCommandExample {
+  readonly id: string;
+  readonly title: string;
+  readonly description: string;
+  readonly command: string;
+}
+
+export const RELEASE_PACKAGE_COMMAND_EXAMPLES = [
+  {
+    id: "java-maven-env",
+    title: "配置 Java 与 Maven 环境",
+    description: "在当前 PowerShell 会话中设置 Java、Maven 环境变量和命令搜索路径。",
+    command: `$env:JAVA_HOME = "C:\\Program Files\\Java\\jdk-17"
+$env:MAVEN_HOME = "C:\\Tools\\apache-maven-3.9.9"
+$env:Path = "$env:JAVA_HOME\\bin;$env:MAVEN_HOME\\bin;$env:Path"`,
+  },
+  {
+    id: "maven-build",
+    title: "执行 Maven 生产构建",
+    description: "使用生产配置构建，并在 Maven 命令失败时立即退出脚本。",
+    command: `mvn clean package -Pprod
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }`,
+  },
+  {
+    id: "copy-file",
+    title: "复制文件",
+    description: "将指定文件复制到目标路径，并覆盖已存在的文件。",
+    command: `Copy-Item -LiteralPath "D:\\release\\app.jar" -Destination "D:\\deploy\\app.jar" -Force`,
+  },
+  {
+    id: "copy-directory",
+    title: "复制目录",
+    description: "递归复制整个目录到目标路径，并覆盖已存在的内容。",
+    command: `Copy-Item -LiteralPath "D:\\release\\dist" -Destination "D:\\deploy\\dist" -Recurse -Force`,
+  },
+  {
+    id: "move-file",
+    title: "移动文件",
+    description: "将指定文件移动到目标路径，并覆盖已存在的文件。",
+    command: `Move-Item -LiteralPath "D:\\release\\app.jar" -Destination "D:\\deploy\\app.jar" -Force`,
+  },
+  {
+    id: "move-directory",
+    title: "移动目录",
+    description: "将指定目录移动到目标路径，并覆盖已存在的目标。",
+    command: `Move-Item -LiteralPath "D:\\release\\dist" -Destination "D:\\deploy\\dist" -Force`,
+  },
+] as const satisfies readonly ReleasePackageCommandExample[];
+
 export function createEmptyReleasePackageDraft(): ReleasePackageProjectDraft {
   return {
     name: "",

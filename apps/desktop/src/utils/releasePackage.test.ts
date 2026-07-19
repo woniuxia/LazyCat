@@ -6,6 +6,7 @@ import {
   createEmptyReleasePackageDraft,
   isReleasePackageDraftDirty,
   projectToReleasePackageDraft,
+  RELEASE_PACKAGE_COMMAND_EXAMPLES,
   validateReleasePackageDraft,
 } from "./releasePackage";
 
@@ -28,6 +29,44 @@ function log(runId: string, line: string): ReleasePackageLogEvent {
 }
 
 describe("release package view helpers", () => {
+  it("provides PowerShell command examples in the expected order", () => {
+    expect(RELEASE_PACKAGE_COMMAND_EXAMPLES.map((example) => example.id)).toEqual([
+      "java-maven-env",
+      "maven-build",
+      "copy-file",
+      "copy-directory",
+      "move-file",
+      "move-directory",
+    ]);
+    expect(
+      RELEASE_PACKAGE_COMMAND_EXAMPLES.every(
+        (example) => /[\u4e00-\u9fff]/u.test(example.title) && /[\u4e00-\u9fff]/u.test(example.description),
+      ),
+    ).toBe(true);
+  });
+
+  it("includes the required PowerShell command fragments", () => {
+    const commands = Object.fromEntries(
+      RELEASE_PACKAGE_COMMAND_EXAMPLES.map((example) => [example.id, example.command]),
+    );
+
+    expect(commands["java-maven-env"]).toContain('$env:JAVA_HOME =');
+    expect(commands["java-maven-env"]).toContain('$env:MAVEN_HOME =');
+    expect(commands["java-maven-env"]).toContain('$env:JAVA_HOME\\bin');
+    expect(commands["java-maven-env"]).toContain('$env:MAVEN_HOME\\bin');
+    expect(commands["java-maven-env"]).toContain('$env:Path');
+    expect(commands["maven-build"]).toMatch(
+      /mvn clean package -Pprod\r?\nif \(\$LASTEXITCODE -ne 0\) \{ exit \$LASTEXITCODE \}/u,
+    );
+    expect(commands["copy-file"]).toContain('Copy-Item -LiteralPath');
+    expect(commands["copy-directory"]).toContain('Copy-Item -LiteralPath');
+    expect(commands["copy-directory"]).toContain('-Recurse -Force');
+    expect(commands["move-file"]).toContain('Move-Item -LiteralPath');
+    expect(commands["move-file"]).toContain('-Force');
+    expect(commands["move-directory"]).toContain('Move-Item -LiteralPath');
+    expect(commands["move-directory"]).toContain('-Force');
+  });
+
   it("creates a blank project draft with copy mode", () => {
     expect(createEmptyReleasePackageDraft()).toEqual({
       name: "",
