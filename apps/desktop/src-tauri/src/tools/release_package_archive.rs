@@ -69,6 +69,92 @@ struct StagingGuard {
     committed: bool,
 }
 
+pub struct ArchiveSession {
+    staging_path: PathBuf,
+    final_path: PathBuf,
+    committed: bool,
+}
+
+impl ArchiveSession {
+    pub fn create(
+        output_root: &Path,
+        folder_name: &str,
+        run_id: &str,
+        cancelled: &AtomicBool,
+    ) -> Result<Self, ArchiveError> {
+        validate_folder_name(folder_name).map_err(ArchiveError::Failed)?;
+        check_cancel(cancelled)?;
+        if !output_root.is_dir() {
+            return Err(ArchiveError::Failed("全局归档根目录不存在".into()));
+        }
+        let final_path = output_root.join(folder_name);
+        if final_path.exists() {
+            return Err(ArchiveError::Failed("目标归档目录已存在".into()));
+        }
+        let staging_path = output_root.join(format!(".lazycat-release-package-{run_id}.tmp"));
+        if staging_path.exists() {
+            return Err(ArchiveError::Failed("本次运行临时目录已存在".into()));
+        }
+        fs::create_dir(&staging_path).map_err(|error| {
+            io_error("创建归档临时目录", output_root, &staging_path, error)
+        })?;
+        Ok(Self {
+            staging_path,
+            final_path,
+            committed: false,
+        })
+    }
+
+    pub fn staging_path(&self) -> &Path {
+        &self.staging_path
+    }
+
+    pub fn commit(&mut self, cancelled: &AtomicBool) -> Result<PathBuf, ArchiveError> {
+        check_cancel(cancelled)?;
+        if self.final_path.exists() {
+            return Err(ArchiveError::Failed(
+                "目标归档目录在执行期间被创建".into(),
+            ));
+        }
+        fs::rename(&self.staging_path, &self.final_path).map_err(|error| {
+            io_error(
+                "提交最终归档目录",
+                &self.staging_path,
+                &self.final_path,
+                error,
+            )
+        })?;
+        self.committed = true;
+        Ok(self.final_path.clone())
+    }
+}
+
+impl Drop for ArchiveSession {
+    fn drop(&mut self) {
+        if !self.committed {
+            let _ = fs::remove_dir_all(&self.staging_path);
+        }
+    }
+}
+
+struct TargetGuard {
+    path: PathBuf,
+    committed: bool,
+}
+
+impl Drop for TargetGuard {
+    fn drop(&mut self) {
+        if self.committed || !self.path.exists() {
+            return;
+        }
+        if self.path.is_dir() {
+            let _ = fs::remove_dir_all(&self.path);
+        } else {
+            let _ = fs::remove_file(&self.path);
+        }
+    }
+}
+
 impl Drop for StagingGuard {
     fn drop(&mut self) {
         if !self.committed {
@@ -310,6 +396,75 @@ fn zip_directory_with_root(
     Ok(())
 }
 
+pub fn archive_frontend_artifact(
+    source: &Path,
+    mode: &str,
+    staging_path: &Path,
+    cancelled: &AtomicBool,
+    mut emit: impl FnMut(&str),
+) -> Result<(), ArchiveError> {
+    if !source.is_dir() {
+        return Err(ArchiveError::Failed("前端产物必须是文件夹".into()));
+    }
+    let source_name = source_name(source)?;
+    let target_name = match mode {
+        "copy_directory" => source_name,
+        "zip_directory" => format!("{source_name}.zip"),
+        _ => return Err(ArchiveError::Failed("未知的前端产物处理模式".into())),
+    };
+    let mut guard = TargetGuard {
+        path: staging_path.join(&target_name),
+        committed: false,
+    };
+    emit("正在归档前端产物");
+    if mode == "zip_directory" {
+        zip_directory_with_root(source, &guard.path, cancelled)?;
+    } else {
+        copy_path_with_root(source, staging_path, cancelled)?;
+    }
+    guard.committed = true;
+    Ok(())
+}
+
+pub fn archive_backend_artifact(
+    source: &Path,
+    staging_path: &Path,
+    cancelled: &AtomicBool,
+    mut emit: impl FnMut(&str),
+) -> Result<(), ArchiveError> {
+    if !source.is_file() {
+        return Err(ArchiveError::Failed("后端产物必须是文件".into()));
+    }
+    let mut guard = TargetGuard {
+        path: staging_path.join(source_name(source)?),
+        committed: false,
+    };
+    emit("正在归档后端产物");
+    copy_path_with_root(source, staging_path, cancelled)?;
+    guard.committed = true;
+    Ok(())
+}
+
+pub fn validate_artifact_target_collision(
+    frontend_source: &Path,
+    frontend_mode: &str,
+    backend_source: &Path,
+) -> Result<(), ArchiveError> {
+    let frontend_name = source_name(frontend_source)?;
+    let frontend_target = match frontend_mode {
+        "copy_directory" => frontend_name,
+        "zip_directory" => format!("{frontend_name}.zip"),
+        _ => return Err(ArchiveError::Failed("未知的前端产物处理模式".into())),
+    };
+    let backend_target = source_name(backend_source)?;
+    if basename_eq_ignore_case(&frontend_target, &backend_target) {
+        return Err(ArchiveError::Failed(format!(
+            "前后端归档名称冲突：{frontend_target}"
+        )));
+    }
+    Ok(())
+}
+
 pub fn archive_artifacts(
     request: &ArchiveRequest,
     cancelled: &AtomicBool,
@@ -326,18 +481,17 @@ pub fn archive_artifacts(
     if !request.backend_artifact.exists() {
         return Err(ArchiveError::Failed("后端产物不存在".into()));
     }
+    validate_artifact_target_collision(
+        &request.frontend_artifact,
+        &request.frontend_mode,
+        &request.backend_artifact,
+    )?;
     let frontend_name = source_name(&request.frontend_artifact)?;
     let frontend_target = match request.frontend_mode.as_str() {
         "copy_directory" => frontend_name.clone(),
         "zip_directory" => format!("{frontend_name}.zip"),
         _ => return Err(ArchiveError::Failed("未知的前端产物处理模式".into())),
     };
-    let backend_target = source_name(&request.backend_artifact)?;
-    if basename_eq_ignore_case(&frontend_target, &backend_target) {
-        return Err(ArchiveError::Failed(format!(
-            "前后端归档名称冲突：{frontend_target}"
-        )));
-    }
     let final_path = request.output_root.join(&request.folder_name);
     if final_path.exists() {
         return Err(ArchiveError::Failed("目标归档目录已存在".into()));
@@ -475,6 +629,45 @@ mod tests {
 
         assert!(result.join("dist/index.html").is_file());
         assert!(result.join("portal.jar").is_file());
+    }
+
+    #[test]
+    fn independent_targets_commit_only_successful_artifacts() {
+        let root = TestDir::new();
+        let frontend = root.0.join("dist");
+        let output = root.0.join("output");
+        fs::create_dir_all(&frontend).unwrap();
+        fs::create_dir_all(&output).unwrap();
+        fs::write(frontend.join("index.html"), "ok").unwrap();
+        let cancelled = AtomicBool::new(false);
+        let mut session = ArchiveSession::create(
+            &output,
+            "20260723-部分成功",
+            "run-partial",
+            &cancelled,
+        )
+        .unwrap();
+
+        archive_frontend_artifact(
+            &frontend,
+            "copy_directory",
+            session.staging_path(),
+            &cancelled,
+            |_| {},
+        )
+        .unwrap();
+        let backend_error = archive_backend_artifact(
+            &root.0.join("missing.jar"),
+            session.staging_path(),
+            &cancelled,
+            |_| {},
+        )
+        .unwrap_err();
+        assert!(matches!(backend_error, ArchiveError::Failed(_)));
+
+        let final_path = session.commit(&cancelled).unwrap();
+        assert!(final_path.join("dist/index.html").is_file());
+        assert!(!final_path.join("missing.jar").exists());
     }
 
     #[test]
