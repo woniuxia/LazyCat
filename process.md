@@ -36,6 +36,34 @@
 
 **使用次数**: 0
 
+## 2026-07-19: 上线包按目标并行与项目级日志
+
+**场景**: 同一次上线包任务需要按需构建前端或后端，两端并行执行且允许一端失败后保留另一端成功产物，同时让运行日志归属于具体项目。
+
+**解决**:
+1. 由轻量协调器创建共享 staging、派生前后端工作线程并统一提交最终目录；工作线程只归档自己的独立顶层目标。
+2. 工作线程的业务失败只汇总为失败目标，不传播共享取消；只有用户取消才设置共享取消标记、终止两个 PID 槽并清理本次 staging。
+3. 有成功目标时统一提交并返回 `succeeded` 或 `partially_succeeded`；全部失败不生成最终目录，用户取消不保留半成品。
+4. 前端运行态按 `projectId` 保存当前会话最近一次结果，按 `frontend` / `backend` 分列有界保存日志；运行目标每次打开确认弹窗时恢复为全选。
+
+**关键点**:
+- 并行工作线程不能分别提交最终目录，否则会产生覆盖、半成品可见和取消竞态；协调器只负责生命周期与最终提交，不承担目标内构建逻辑。
+- 业务失败和用户取消是不同控制信号：前者允许另一端继续，后者必须传播到全部工作线程。
+- 长任务日志需要同时绑定 `runId` 和业务实体 `projectId`，避免项目切换或迟到事件覆盖当前视图。
+
+**涉及文件**:
+- `apps/desktop/src-tauri/src/tools/release_package*.rs`
+- `apps/desktop/src/composables/useReleasePackageRuntime.ts`
+- `apps/desktop/src/components/ReleasePackagePanel.vue`
+
+**验证**:
+- `cargo test release_package --manifest-path apps/desktop/src-tauri/Cargo.toml -- --nocapture`（24 项通过）
+- `pnpm test src/components/ReleasePackagePanel.test.ts src/composables/useReleasePackageRuntime.test.ts src/utils/releasePackage.test.ts`（37 项通过）
+- `pnpm typecheck`
+- `pnpm --filter @lazycat/desktop build:web`
+
+**使用次数**: 0
+
 ## 2026-07-19: 请求转发监听端点快捷操作
 
 **场景**: 在请求转发观测工作台中补充监听与目标地址复制、HTTP 本地访问和命令示例，减少手工拼接地址与命令。
