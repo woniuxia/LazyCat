@@ -1,5 +1,21 @@
 export type RequestForwardProtocol = "http" | "tcp" | "udp";
 
+export type RequestForwardPreflightCheckKind = "listener" | "dns" | "connect" | "tls";
+
+export type RequestForwardPreflightCheckState = "passed" | "failed" | "warning";
+
+export interface RequestForwardPreflightCheck {
+  kind: RequestForwardPreflightCheckKind;
+  state: RequestForwardPreflightCheckState;
+  message: string;
+}
+
+export interface RequestForwardPreflightResult {
+  checks: RequestForwardPreflightCheck[];
+  suggestedListenPort: number | null;
+  ready: boolean;
+}
+
 export type RequestForwardRuntimeState =
   | "stopped"
   | "starting"

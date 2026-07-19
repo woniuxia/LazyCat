@@ -145,6 +145,7 @@ declare module 'vue' {
     RequestForwardLogInspector: typeof import('./src/components/request-forward/RequestForwardLogInspector.vue')['default']
     RequestForwardLogList: typeof import('./src/components/request-forward/RequestForwardLogList.vue')['default']
     RequestForwardPanel: typeof import('./src/components/RequestForwardPanel.vue')['default']
+    RequestForwardPreflightResult: typeof import('./src/components/request-forward/RequestForwardPreflightResult.vue')['default']
     RequestForwardRuleDialog: typeof import('./src/components/request-forward/RequestForwardRuleDialog.vue')['default']
     RequestForwardRuleForm: typeof import('./src/components/request-forward/RequestForwardRuleForm.vue')['default']
     RequestForwardRuleList: typeof import('./src/components/request-forward/RequestForwardRuleList.vue')['default']

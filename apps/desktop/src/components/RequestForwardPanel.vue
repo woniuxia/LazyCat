@@ -8,6 +8,7 @@ import type {
   RequestForwardLogOutcome,
   RequestForwardLogPage,
   RequestForwardLogRow,
+  RequestForwardPreflightResult,
   RequestForwardRule,
   RequestForwardRuleForm,
   RequestForwardRuntimeState,
@@ -74,6 +75,8 @@ const formDirty = ref(false);
 const fieldErrors = ref<Partial<Record<keyof RequestForwardRuleForm, string>>>({});
 const saving = ref(false);
 const operating = ref(false);
+const preflightResult = ref<RequestForwardPreflightResult | null>(null);
+const preflighting = ref(false);
 const stats = ref<RequestForwardStats | null>(null);
 const statsLoading = ref(false);
 const statsError = ref("");
@@ -91,6 +94,9 @@ const observabilityMutating = ref(false);
 let refreshRequestToken = 0;
 let selectionIntentToken = 0;
 let editorIntentToken = 0;
+let preflightRequestToken = 0;
+let preflightPayloadSnapshot: string | null = null;
+let preflightEditorIntentToken: number | null = null;
 let pollTimer: ReturnType<typeof setTimeout> | undefined;
 let pollGeneration = 0;
 let pollInFlight = false;
@@ -127,7 +133,7 @@ const readonly = computed(
     isRequestForwardRuleReadonly(editorStatus.value?.state ?? "stopped"),
 );
 const interactionBusy = computed(
-  () => operating.value || saving.value || observabilityMutating.value,
+  () => operating.value || saving.value || preflighting.value || observabilityMutating.value,
 );
 const hasActiveRuntimeRule = computed(() =>
   statuses.value.some((status) => isRequestForwardRuleReadonly(status.state)),
@@ -199,6 +205,41 @@ function currentEditorIntent() {
     selectedId: editorRuleId.value,
     draft: editorMode.value === "create",
   };
+}
+
+function currentPreflightPayloadSnapshot(): string {
+  return JSON.stringify(toRequestForwardRuleWriteInput(form.value));
+}
+
+function clearPreflightState() {
+  preflightRequestToken += 1;
+  preflightResult.value = null;
+  preflightPayloadSnapshot = null;
+  preflightEditorIntentToken = null;
+  preflighting.value = false;
+}
+
+function isPreflightContextCurrent(
+  requestToken: number,
+  intent: ReturnType<typeof currentEditorIntent>,
+  payloadSnapshot: string,
+): boolean {
+  const currentIntent = currentEditorIntent();
+  return (
+    requestToken === preflightRequestToken &&
+    intent.selectionToken === currentIntent.selectionToken &&
+    intent.selectedId === currentIntent.selectedId &&
+    intent.draft === currentIntent.draft &&
+    payloadSnapshot === currentPreflightPayloadSnapshot()
+  );
+}
+
+function isAcceptedPreflightCurrent(): boolean {
+  return (
+    preflightResult.value != null &&
+    preflightEditorIntentToken === editorIntentToken &&
+    preflightPayloadSnapshot === currentPreflightPayloadSnapshot()
+  );
 }
 
 function formatBytes(value: number): string {
@@ -578,6 +619,7 @@ function selectRule(id: number) {
 function openCreateDialog() {
   if (interactionBusy.value) return;
   editorIntentToken += 1;
+  clearPreflightState();
   editorMode.value = "create";
   editorRuleId.value = null;
   form.value = getDefaultRequestForwardForm();
@@ -590,6 +632,7 @@ function openEditDialog(id: number) {
   const rule = rules.value.find((item) => item.id === id);
   if (!rule) return;
   editorIntentToken += 1;
+  clearPreflightState();
   editorMode.value = "edit";
   editorRuleId.value = id;
   form.value = { ...rule };
@@ -599,6 +642,7 @@ function openEditDialog(id: number) {
 
 function closeEditor() {
   editorIntentToken += 1;
+  clearPreflightState();
   editorMode.value = null;
   editorRuleId.value = null;
   formDirty.value = false;
@@ -627,8 +671,22 @@ async function requestEditorClose() {
 
 function handleFormUpdate(value: RequestForwardRuleForm) {
   if (interactionBusy.value || readonly.value) return;
+  clearPreflightState();
   form.value = value;
   formDirty.value = true;
+}
+
+function applySuggestedListenPort(port: number) {
+  if (
+    interactionBusy.value ||
+    readonly.value ||
+    !Number.isInteger(port) ||
+    port < 1 ||
+    port > 65535
+  ) return;
+  form.value = { ...form.value, listenPort: port };
+  formDirty.value = true;
+  clearPreflightState();
 }
 
 function validateForm(): boolean {
@@ -645,10 +703,52 @@ function validateForm(): boolean {
     invalidFields.map((field) => [field, labels[field as keyof RequestForwardRuleForm] ?? "字段无效"]),
   );
   if (invalidFields.length) {
-    ElMessage.error("请修正表单中的错误后再保存");
+    ElMessage.error("请修正表单中的错误后再继续");
     return false;
   }
   return true;
+}
+
+async function runPreflight(): Promise<RequestForwardPreflightResult | null> {
+  if (interactionBusy.value || readonly.value || editorMode.value == null) return null;
+  if (!validateForm()) return null;
+
+  const intent = currentEditorIntent();
+  const payload = toRequestForwardRuleWriteInput(form.value);
+  const payloadSnapshot = JSON.stringify(payload);
+  const requestToken = ++preflightRequestToken;
+  preflightResult.value = null;
+  preflightPayloadSnapshot = null;
+  preflightEditorIntentToken = null;
+  preflighting.value = true;
+  try {
+    const result = await invoke<RequestForwardPreflightResult>(
+      "tool:request-forward:preflight",
+      payload,
+    );
+    if (!isPreflightContextCurrent(requestToken, intent, payloadSnapshot)) return null;
+    preflightResult.value = result;
+    preflightPayloadSnapshot = payloadSnapshot;
+    preflightEditorIntentToken = intent.selectionToken;
+    return result;
+  } catch (error) {
+    if (isPreflightContextCurrent(requestToken, intent, payloadSnapshot)) {
+      ElMessage.error(`检测配置失败：${errorMessage(error)}`);
+    }
+    return null;
+  } finally {
+    if (requestToken === preflightRequestToken) preflighting.value = false;
+  }
+}
+
+async function preflightAndStart() {
+  const result = await runPreflight();
+  if (!result?.ready) {
+    if (result) ElMessage.warning("配置预检未通过，请先处理阻断项");
+    return;
+  }
+  if (!isAcceptedPreflightCurrent()) return;
+  await saveAndStart();
 }
 
 async function saveRule(): Promise<RequestForwardRule | null> {
@@ -1203,10 +1303,15 @@ onUnmounted(() => {
       :disabled="interactionBusy"
       :saving="saving"
       :operating="operating"
+      :preflight-result="preflightResult"
+      :preflighting="preflighting"
       @update:form="handleFormUpdate"
       @request-close="requestEditorClose"
       @save="saveRule"
       @save-and-start="saveAndStart"
+      @preflight="runPreflight"
+      @preflight-and-start="preflightAndStart"
+      @apply-suggested-port="applySuggestedListenPort"
       @stop-and-edit="handleEditorStopAndEdit"
       @delete="deleteEditorRule"
     />

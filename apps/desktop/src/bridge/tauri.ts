@@ -153,6 +153,7 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:network:http-status-lookup": { domain: "network", action: "http_status_lookup" },
   "tool:network:chmod-calc": { domain: "network", action: "chmod_calc" },
   "tool:request-forward:list": { domain: "request_forward", action: "list" },
+  "tool:request-forward:preflight": { domain: "request_forward", action: "preflight" },
   "tool:request-forward:get": { domain: "request_forward", action: "get" },
   "tool:request-forward:create": { domain: "request_forward", action: "create" },
   "tool:request-forward:update": { domain: "request_forward", action: "update" },

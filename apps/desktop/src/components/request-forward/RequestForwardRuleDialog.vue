@@ -1,7 +1,11 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { Delete } from "@element-plus/icons-vue";
-import type { RequestForwardRuleForm } from "../../types/request-forward";
+import type {
+  RequestForwardPreflightResult,
+  RequestForwardRuleForm,
+} from "../../types/request-forward";
+import RequestForwardPreflightResultView from "./RequestForwardPreflightResult.vue";
 import RequestForwardRuleFormEditor from "./RequestForwardRuleForm.vue";
 
 const props = defineProps<{
@@ -14,6 +18,8 @@ const props = defineProps<{
   disabled: boolean;
   saving: boolean;
   operating: boolean;
+  preflightResult: RequestForwardPreflightResult | null;
+  preflighting: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -21,6 +27,9 @@ const emit = defineEmits<{
   "request-close": [];
   save: [];
   "save-and-start": [];
+  preflight: [];
+  "preflight-and-start": [];
+  "apply-suggested-port": [port: number];
   "stop-and-edit": [];
   delete: [];
 }>();
@@ -29,6 +38,10 @@ const title = computed(() => props.mode === "create" ? "新建转发规则" : "�
 
 function handleBeforeClose() {
   emit("request-close");
+}
+
+function handleSaveCommand(command: "save" | "save-and-start") {
+  emit(command);
 }
 </script>
 
@@ -64,6 +77,12 @@ function handleBeforeClose() {
         :errors="errors"
         @update:model-value="emit('update:form', $event)"
       />
+      <RequestForwardPreflightResultView
+        v-if="preflightResult"
+        :result="preflightResult"
+        :disabled="disabled"
+        @apply-suggested-port="emit('apply-suggested-port', $event)"
+      />
     </div>
 
     <template #footer>
@@ -80,20 +99,33 @@ function handleBeforeClose() {
         </el-button>
         <span class="dialog-footer__spacer" />
         <el-button :disabled="disabled" @click="emit('request-close')">取消</el-button>
+        <el-dropdown
+          :disabled="readonly || disabled"
+          trigger="click"
+          @command="handleSaveCommand"
+        >
+          <el-button :disabled="readonly || disabled">保存选项</el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="save">仅保存</el-dropdown-item>
+              <el-dropdown-item command="save-and-start">保存并启动</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
         <el-button
           :disabled="readonly || disabled"
-          :loading="saving"
-          @click="emit('save')"
+          :loading="preflighting"
+          @click="emit('preflight')"
         >
-          仅保存
+          检测配置
         </el-button>
         <el-button
           type="primary"
           :disabled="readonly || disabled"
-          :loading="saving"
-          @click="emit('save-and-start')"
+          :loading="preflighting || saving || operating"
+          @click="emit('preflight-and-start')"
         >
-          保存并启动
+          检测并启动
         </el-button>
       </div>
     </template>

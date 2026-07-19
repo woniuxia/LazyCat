@@ -6,6 +6,14 @@ const source = readFileSync(
   fileURLToPath(new URL("./RequestForwardPanel.vue", import.meta.url)),
   "utf8",
 );
+const bridgeSource = readFileSync(
+  fileURLToPath(new URL("../bridge/tauri.ts", import.meta.url)),
+  "utf8",
+);
+const typesSource = readFileSync(
+  fileURLToPath(new URL("../types/request-forward.ts", import.meta.url)),
+  "utf8",
+);
 const listSource = readFileSync(
   fileURLToPath(
     new URL("./request-forward/RequestForwardRuleList.vue", import.meta.url),
@@ -39,8 +47,94 @@ const inspectorUrl = new URL(
 const inspectorSource = existsSync(fileURLToPath(inspectorUrl))
   ? readFileSync(fileURLToPath(inspectorUrl), "utf8")
   : "";
+const preflightResultUrl = new URL(
+  "./request-forward/RequestForwardPreflightResult.vue",
+  import.meta.url,
+);
+const preflightResultSource = existsSync(fileURLToPath(preflightResultUrl))
+  ? readFileSync(fileURLToPath(preflightResultUrl), "utf8")
+  : "";
 
 describe("RequestForwardPanel source structure", () => {
+  it("registers the preflight channel and exact result contract", () => {
+    expect(bridgeSource).toContain(
+      '"tool:request-forward:preflight": { domain: "request_forward", action: "preflight" }',
+    );
+    expect(typesSource).toContain(
+      'RequestForwardPreflightCheckKind = "listener" | "dns" | "connect" | "tls"',
+    );
+    expect(typesSource).toContain(
+      'RequestForwardPreflightCheckState = "passed" | "failed" | "warning"',
+    );
+    expect(typesSource).toContain("interface RequestForwardPreflightCheck");
+    expect(typesSource).toContain("interface RequestForwardPreflightResult");
+    expect(typesSource).toContain("suggestedListenPort: number | null");
+  });
+
+  it("renders accessible preflight stages and applies suggestions only by explicit click", () => {
+    expect(existsSync(fileURLToPath(preflightResultUrl))).toBe(true);
+    expect(preflightResultSource).toContain("PreflightCheck");
+    expect(preflightResultSource).toContain('role="status"');
+    expect(preflightResultSource).toContain('role="alert"');
+    expect(preflightResultSource).toContain("使用建议端口");
+    expect(preflightResultSource).toMatch(/apply-suggested-port/);
+    expect(preflightResultSource).toMatch(/@click=.*apply-suggested-port/);
+    expect(preflightResultSource).toContain("disabled: boolean");
+    expect(preflightResultSource).toContain(':disabled="disabled"');
+    expect(dialogSource).toMatch(
+      /RequestForwardPreflightResultView[\s\S]*?:disabled="disabled"/,
+    );
+  });
+
+  it("keeps preflight, preflight-and-start and legacy save paths discoverable", () => {
+    expect(dialogSource).toContain("preflightResult");
+    expect(dialogSource).toContain("preflighting");
+    expect(dialogSource).toMatch(/preflight: \[\]/);
+    expect(dialogSource).toMatch(/"preflight-and-start": \[\]/);
+    expect(dialogSource).toMatch(/"apply-suggested-port": \[port: number\]/);
+    expect(dialogSource).toContain("检测配置");
+    expect(dialogSource).toContain("检测并启动");
+    expect(dialogSource).toContain("仅保存");
+    expect(dialogSource).toContain("保存并启动");
+    expect(dialogSource).toContain("RequestForwardPreflightResult");
+  });
+
+  it("guards preflight responses by token, editor intent and normalized payload snapshot", () => {
+    expect(source).toContain("preflightRequestToken");
+    expect(source).toContain("preflightPayloadSnapshot");
+    expect(source).toContain("preflightEditorIntentToken");
+    expect(source).toContain("tool:request-forward:preflight");
+    expect(source).toContain("toRequestForwardRuleWriteInput(form.value)");
+    expect(source).toContain("currentPreflightPayloadSnapshot");
+    expect(source).toContain("isPreflightContextCurrent");
+    expect(source).toMatch(/function handleFormUpdate[\s\S]*?clearPreflightState\(\)/);
+    expect(source).toMatch(/function openCreateDialog[\s\S]*?clearPreflightState\(\)/);
+    expect(source).toMatch(/function openEditDialog[\s\S]*?clearPreflightState\(\)/);
+    expect(source).toMatch(/function closeEditor[\s\S]*?clearPreflightState\(\)/);
+  });
+
+  it("starts from the tested snapshot only when the backend result is ready", () => {
+    const body = source.match(
+      /async function preflightAndStart\(\)[\s\S]*?\n}\n\nasync function/,
+    )?.[0] ?? "";
+    expect(body).toContain("await runPreflight()");
+    expect(body).toMatch(/!result\?\.ready|!result\.ready/);
+    expect(body).toContain("isAcceptedPreflightCurrent");
+    expect(body).toContain("await saveAndStart()");
+    expect(source).toContain("preflighting.value");
+    expect(source).toMatch(/const interactionBusy = computed\([\s\S]*?preflighting\.value/);
+  });
+
+  it("applies suggested ports by updating the draft, marking dirty and clearing the result", () => {
+    const body = source.match(
+      /function applySuggestedListenPort\(port: number\)[\s\S]*?\n}/,
+    )?.[0] ?? "";
+    expect(body).toContain("listenPort: port");
+    expect(body).toContain("formDirty.value = true");
+    expect(body).toContain("clearPreflightState()");
+    expect(source).toContain('@apply-suggested-port="applySuggestedListenPort"');
+  });
+
   it("keeps running rules readonly and exposes stop-and-edit", () => {
     expect(dialogSource).toContain("停止并编辑");
     expect(source).toContain("handleEditorStopAndEdit");
