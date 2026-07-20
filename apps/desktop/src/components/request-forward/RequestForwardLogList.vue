@@ -59,9 +59,9 @@ function formatTime(value: string): string {
   return date.toLocaleTimeString([], { hour12: false });
 }
 
-function requestTitle(log: RequestForwardLogRow): string {
+function requestLabel(log: RequestForwardLogRow): string {
   if (log.protocol !== "http") return `${log.protocol.toUpperCase()} 转发`;
-  return [log.method, log.path].filter(Boolean).join(" ") || "HTTP 请求";
+  return log.path || "HTTP 请求";
 }
 
 function outcomeLabel(log: RequestForwardLogRow): string {
@@ -84,12 +84,13 @@ function outcomeLabel(log: RequestForwardLogRow): string {
       class="log-table"
       role="grid"
       aria-label="转发日志"
-      :aria-colcount="8"
+      :aria-colcount="9"
       :aria-rowcount="items.length + 1"
     >
       <div class="log-table__header" role="row" aria-rowindex="1">
         <span role="columnheader">结果</span>
-        <span role="columnheader">请求 / 协议</span>
+        <span role="columnheader">请求方式</span>
+        <span role="columnheader">路径 / 协议</span>
         <span role="columnheader">客户端</span>
         <span role="columnheader">目标</span>
         <span role="columnheader">上传</span>
@@ -107,7 +108,7 @@ function outcomeLabel(log: RequestForwardLogRow): string {
         :aria-selected="log.id === selectedId"
         :aria-rowindex="index + 2"
         :tabindex="rowTabIndex(index)"
-        :title="log.error || requestTitle(log)"
+        :title="log.error || [log.method, requestLabel(log)].filter(Boolean).join(' ')"
         role="row"
         @click="$emit('select', log.id)"
         @keydown.down.prevent="moveSelectionTo(Math.min(index + 1, items.length - 1))"
@@ -116,7 +117,8 @@ function outcomeLabel(log: RequestForwardLogRow): string {
         @keydown.end.prevent="moveSelectionTo(items.length - 1)"
       >
         <span role="gridcell"><b class="outcome" :class="log.error ? 'is-error' : 'is-success'">{{ outcomeLabel(log) }}</b></span>
-        <span class="request-cell" role="gridcell"><i>{{ log.protocol.toUpperCase() }}</i>{{ requestTitle(log) }}</span>
+        <span class="method-cell" role="gridcell">{{ log.protocol === "http" ? log.method || "—" : "—" }}</span>
+        <span class="request-cell" role="gridcell"><i>{{ log.protocol.toUpperCase() }}</i>{{ requestLabel(log) }}</span>
         <span role="gridcell">{{ log.clientAddr ?? "未知" }}</span>
         <span role="gridcell">{{ log.targetAddr }}</span>
         <span role="gridcell">{{ formatBytes(log.uploadBytes) }}</span>
@@ -144,7 +146,7 @@ function outcomeLabel(log: RequestForwardLogRow): string {
 .log-table__header,
 .log-table__row {
   display: grid;
-  grid-template-columns: 58px minmax(180px, 1.5fr) minmax(118px, 1fr) minmax(118px, 1fr) 68px 68px 68px 84px;
+  grid-template-columns: 58px 76px minmax(160px, 1.5fr) minmax(118px, 1fr) minmax(118px, 1fr) 68px 68px 68px 84px;
   align-items: center;
 }
 .log-table__header { min-height: 36px; border-bottom: 1px solid #dfe4e9; background: #f5f7f9; color: #5f6e81; font-size: 14px; font-weight: 700; }
@@ -158,6 +160,7 @@ function outcomeLabel(log: RequestForwardLogRow): string {
 .log-table__row > time { min-width: 0; overflow: hidden; padding: 0 6px; text-overflow: ellipsis; white-space: nowrap; }
 .request-cell { display: flex; align-items: center; gap: 6px; color: #273548; font-size: 16px; }
 .request-cell i { flex: none; color: #45627b; font-size: 12px; font-style: normal; font-weight: 800; }
+.method-cell { color: #37556f; font-size: 12px; font-weight: 800; }
 .outcome { display: inline-block; min-width: 36px; border-radius: 3px; padding: 3px 5px; font-size: 12px; text-align: center; }
 .outcome.is-success { background: #e8f6ef; color: #16724e; }
 .outcome.is-error { background: #fdeceb; color: #ad3731; }
@@ -165,19 +168,21 @@ function outcomeLabel(log: RequestForwardLogRow): string {
 
 @container forward-log-list (max-width: 820px) {
   .log-table__header,
-  .log-table__row { grid-template-columns: 58px minmax(150px, 1.5fr) minmax(96px, 1fr) 64px 68px 80px; }
-  .log-table__header > :nth-child(4),
-  .log-table__row > :nth-child(4),
-  .log-table__header > :nth-child(6),
-  .log-table__row > :nth-child(6) { display: none; }
+  .log-table__row { grid-template-columns: 58px 64px minmax(140px, 1.5fr) minmax(96px, 1fr) 64px 68px 80px; }
+  .log-table__header > :nth-child(5),
+  .log-table__row > :nth-child(5),
+  .log-table__header > :nth-child(7),
+  .log-table__row > :nth-child(7) { display: none; }
 }
 
 @container forward-log-list (max-width: 620px) {
   .log-table__header,
-  .log-table__row { grid-template-columns: 54px minmax(0, 1fr) 66px 80px; }
-  .log-table__header > :nth-child(3),
-  .log-table__row > :nth-child(3),
-  .log-table__header > :nth-child(5),
-  .log-table__row > :nth-child(5) { display: none; }
+  .log-table__row { grid-template-columns: 54px 62px minmax(0, 1fr) 80px; }
+  .log-table__header > :nth-child(4),
+  .log-table__row > :nth-child(4),
+  .log-table__header > :nth-child(6),
+  .log-table__row > :nth-child(6),
+  .log-table__header > :nth-child(8),
+  .log-table__row > :nth-child(8) { display: none; }
 }
 </style>

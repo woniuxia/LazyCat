@@ -1,6 +1,6 @@
 {
   "name": "lazycat",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "private": true,
   "description": "Lazycat - offline developer toolbox desktop app",
   "packageManager": "pnpm@9.15.0",

@@ -8,6 +8,36 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-07-20: 请求转发日志工作台布局与时间筛选优化
+
+**场景**: 请求转发在宽屏/全屏下需要稳定排列日志筛选控件，同时提升规则导航和 HTTP 日志表的扫描效率，并降低时间范围输入成本。
+
+**解决**:
+1. 规则条目将标题独占首行，协议、运行状态和自动启动标识下移到独立元信息行，避免标题与状态互相挤压。
+2. 日志工具栏改为基于观测区域容器宽度的网格布局，宽屏保持固定列位，780px 以下使用等宽双列，480px 以下降为单列；Select 和 InputNumber 显式约束为网格列宽，避免内部最小宽度造成叠加。
+3. 两个原生 datetime-local 输入合并为 Element Plus 日期时间范围选择器，默认值为当前时间前一小时至当天 23:59:59，仍在查询入口统一转为 UTC。
+4. HTTP 请求方式从路径文本中拆出为独立日志列；响应式降级按列索引同步调整，窄栏仍保留结果、请求方式、路径和时间。
+
+**关键点**:
+- 日期选择器持有本地时间字符串，默认区间由纯函数生成，避免把本地日期语义和 UTC 查询语义混在组件模板中。
+- 可拖拽三栏布局的工具栏断点应基于实际中栏容器宽度，而不是只看浏览器视口。
+- 新增表格列时必须同步更新 aria-colcount、各容器断点的 grid-template-columns 和隐藏列索引。
+
+**涉及文件**:
+- apps/desktop/src/components/RequestForwardPanel.vue
+- apps/desktop/src/components/request-forward/RequestForwardRuleList.vue
+- apps/desktop/src/components/request-forward/RequestForwardLogList.vue
+- apps/desktop/src/components/RequestForwardPanel.test.ts
+- apps/desktop/src/utils/requestForward.ts
+- apps/desktop/src/utils/requestForward.test.ts
+
+**验证**:
+- pnpm test src/utils/requestForward.test.ts src/components/RequestForwardPanel.test.ts（98 通过）
+- pnpm typecheck
+- pnpm --filter @lazycat/desktop build:web
+
+**使用次数**: 0
+
 ## 2026-07-20: 上线包已有归档采用确认后完整替换
 
 **场景**: 目标归档目录已存在时，用户需要在取消和直接覆盖之间做一次明确选择，同时保证新包生成失败不会破坏旧归档。
@@ -34,7 +64,6 @@
 - `pnpm typecheck`
 
 **使用次数**: 0
-
 
 ## 2026-07-19: 请求转发结构化错误与恢复动作
 

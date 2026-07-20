@@ -27,6 +27,7 @@ import {
   formatRequestForwardEndpoint,
   formatRequestForwardRuleSummary,
   getDefaultRequestForwardForm,
+  getDefaultRequestForwardLogTimeRange,
   getForwardEventLabel,
   getRequestForwardBatchMessage,
   getRequestForwardBatchScope,
@@ -720,6 +721,21 @@ describe("request forward utilities", () => {
       offset: undefined,
       limit: undefined,
     });
+  });
+
+  it("defaults the log time range to one hour ago through local end of day", () => {
+    expect(
+      getDefaultRequestForwardLogTimeRange(new Date(2026, 6, 20, 10, 15, 30)),
+    ).toEqual([
+      "2026-07-20T09:15:30",
+      "2026-07-20T23:59:59",
+    ]);
+    expect(
+      getDefaultRequestForwardLogTimeRange(new Date(2026, 6, 20, 0, 30, 0)),
+    ).toEqual([
+      "2026-07-19T23:30:00",
+      "2026-07-20T23:59:59",
+    ]);
   });
 
   it("pretty prints only valid JSON bodies with a JSON content type", () => {

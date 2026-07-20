@@ -32,6 +32,7 @@ import {
   exportRequestForwardLogsJson,
   formatRequestForwardEndpoint,
   getDefaultRequestForwardForm,
+  getDefaultRequestForwardLogTimeRange,
   getRequestForwardBatchMessage,
   getRequestForwardCommandExamples,
   getRequestForwardLocalEndpoint,
@@ -127,8 +128,23 @@ const logKeyword = ref("");
 const logMode = ref<"all" | RequestForwardLogOutcome>("all");
 const logMethod = ref("");
 const logStatusCode = ref<number | null>(null);
-const logStartedAt = ref("");
-const logEndedAt = ref("");
+const defaultLogTimeRange = getDefaultRequestForwardLogTimeRange();
+const logStartedAt = ref(defaultLogTimeRange[0]);
+const logEndedAt = ref(defaultLogTimeRange[1]);
+const logTimeRange = computed<[string, string] | []>({
+  get: () =>
+    logStartedAt.value && logEndedAt.value
+      ? [logStartedAt.value, logEndedAt.value]
+      : [],
+  set: (value) => {
+    logStartedAt.value = value[0] ?? "";
+    logEndedAt.value = value[1] ?? "";
+  },
+});
+const logRangeDefaultTime: [Date, Date] = [
+  new Date(2000, 0, 1, 0, 0, 0),
+  new Date(2000, 0, 1, 23, 59, 59),
+];
 const logLive = ref(true);
 const pausedNewCount = ref(0);
 const pausedHasNew = ref(false);
@@ -1767,6 +1783,7 @@ onUnmounted(() => {
                       >失败</button>
                     </div>
                     <el-button
+                      class="log-clear-filters"
                       size="small"
                       :disabled="!hasLogFilters"
                       @click="clearLogFilters"
@@ -1776,13 +1793,20 @@ onUnmounted(() => {
                   </div>
 
                   <div class="log-time-filters">
-                    <label class="log-filter is-time">
-                      <span>开始时间</span>
-                      <el-input v-model="logStartedAt" type="datetime-local" step="1" />
-                    </label>
-                    <label class="log-filter is-time">
-                      <span>结束时间</span>
-                      <el-input v-model="logEndedAt" type="datetime-local" step="1" />
+                    <label class="log-time-filter">
+                      <span>时间范围</span>
+                      <el-date-picker
+                        v-model="logTimeRange"
+                        type="datetimerange"
+                        format="YYYY-MM-DD HH:mm:ss"
+                        value-format="YYYY-MM-DDTHH:mm:ss"
+                        range-separator="至"
+                        start-placeholder="开始时间"
+                        end-placeholder="结束时间"
+                        :default-time="logRangeDefaultTime"
+                        unlink-panels
+                        clearable
+                      />
                     </label>
                     <span class="log-result-summary">
                       {{ logItems.length }} / {{ logTotal }} 条
@@ -2020,7 +2044,11 @@ onUnmounted(() => {
   padding: 14px 20px 18px;
 }
 
-.observability { min-width: 0; }
+.observability {
+  min-width: 0;
+  container-name: request-forward-observability;
+  container-type: inline-size;
+}
 .observability-warning {
   display: grid;
   gap: 3px;
@@ -2053,16 +2081,26 @@ onUnmounted(() => {
 .log-mode button.is-active { background: #fff; color: #245b83; box-shadow: 0 1px 2px rgb(31 41 55 / 12%); font-weight: 700; }
 .log-live-mode button:focus-visible,
 .log-mode button:focus-visible { outline: 2px solid var(--el-color-primary, #409eff); outline-offset: 2px; }
-.log-toolbar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; margin-bottom: 8px; }
+.log-toolbar {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) 124px 92px auto auto;
+  align-items: end;
+  gap: 8px;
+  margin-bottom: 8px;
+}
 .log-search,
 .log-filter { display: grid; gap: 4px; }
-.log-search { min-width: 220px; flex: 1; }
-.log-filter { width: 124px; }
+.log-search { min-width: 0; }
+.log-filter { width: 124px; min-width: 0; }
 .log-filter.is-status { width: 92px; }
+.log-filter :deep(.el-select),
+.log-filter :deep(.el-input-number) { width: 100%; min-width: 0; }
 .log-search > span,
-.log-filter > span { color: #56667a; font-size: 14px; font-weight: 600; }
+.log-filter > span,
+.log-time-filter > span { color: #56667a; font-size: 14px; font-weight: 600; }
 .log-time-filters { display: flex; align-items: flex-end; gap: 8px; margin-bottom: 10px; }
-.log-filter.is-time { width: 218px; }
+.log-time-filter { display: grid; width: min(100%, 480px); gap: 4px; }
+.log-time-filter :deep(.el-date-editor) { width: 100%; }
 .log-result-summary { margin-left: auto; padding-bottom: 8px; color: #657386; font-size: 13px; white-space: nowrap; }
 .log-paused-status {
   display: flex;
@@ -2091,6 +2129,21 @@ onUnmounted(() => {
   background: #fffaf0;
   color: #85672f;
   font-size: 14px;
+}
+
+@container request-forward-observability (max-width: 780px) {
+  .log-toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .log-search { grid-column: 1 / -1; }
+  .log-filter,
+  .log-filter.is-status { width: 100%; }
+  .log-mode { justify-self: start; }
+  .log-clear-filters { justify-self: end; margin-left: 0; }
+}
+
+@container request-forward-observability (max-width: 480px) {
+  .log-toolbar { grid-template-columns: minmax(0, 1fr); }
+  .log-search { grid-column: auto; }
+  .log-clear-filters { justify-self: start; }
 }
 
 .workbench-empty {
@@ -2154,13 +2207,13 @@ onUnmounted(() => {
   .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .log-header { align-items: flex-start; }
   .log-header__actions { flex-wrap: wrap; justify-content: flex-end; }
-  .log-toolbar { align-items: stretch; flex-direction: column; }
-  .log-search { min-width: 0; }
+  .log-toolbar { grid-template-columns: minmax(0, 1fr); align-items: stretch; }
+  .log-search { min-width: 0; grid-column: auto; }
   .log-filter,
-  .log-filter.is-status,
-  .log-filter.is-time { width: 100%; }
+  .log-filter.is-status { width: 100%; }
   .log-mode { align-self: flex-start; }
   .log-time-filters { align-items: stretch; flex-direction: column; }
+  .log-time-filter { width: 100%; }
   .log-result-summary { margin-left: 0; padding-bottom: 0; }
   .log-paused-status { align-items: flex-start; flex-wrap: wrap; }
 }

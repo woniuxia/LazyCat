@@ -530,6 +530,35 @@ export function buildRequestForwardLogQuery(input: {
   };
 }
 
+function formatRequestForwardLocalDateTime(date: Date): string {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return [
+    date.getFullYear(),
+    "-",
+    pad(date.getMonth() + 1),
+    "-",
+    pad(date.getDate()),
+    "T",
+    pad(date.getHours()),
+    ":",
+    pad(date.getMinutes()),
+    ":",
+    pad(date.getSeconds()),
+  ].join("");
+}
+
+export function getDefaultRequestForwardLogTimeRange(
+  now = new Date(),
+): [string, string] {
+  const startedAt = new Date(now.getTime() - 60 * 60 * 1000);
+  const endedAt = new Date(now);
+  endedAt.setHours(23, 59, 59, 0);
+  return [
+    formatRequestForwardLocalDateTime(startedAt),
+    formatRequestForwardLocalDateTime(endedAt),
+  ];
+}
+
 function requestForwardHeaderValue(
   headers: [string, string][] | null | undefined,
   name: string,

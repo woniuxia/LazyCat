@@ -506,6 +506,22 @@ describe("RequestForwardPanel source structure", () => {
     expect(inspectorSource).toContain("内容已截断");
   });
 
+  it("uses a direct date-time range picker with a local default window", () => {
+    expect(source).toContain("getDefaultRequestForwardLogTimeRange");
+    expect(source).toContain('type="datetimerange"');
+    expect(source).toContain('value-format="YYYY-MM-DDTHH:mm:ss"');
+    expect(source).toContain(':default-time="logRangeDefaultTime"');
+    expect(source).not.toContain('type="datetime-local"');
+  });
+
+  it("keeps rule titles and HTTP methods in dedicated rows and columns", () => {
+    expect(listSource).toContain('class="rule-row__title"');
+    expect(listSource).toMatch(/class="rule-row__title"[\s\S]*?<strong>\{\{ rule\.name \}\}<\/strong>[\s\S]*?<\/span>[\s\S]*?class="rule-row__meta"/);
+    expect(logListSource).toContain('role="columnheader">请求方式');
+    expect(logListSource).toContain('class="method-cell"');
+    expect(logListSource).toContain(':aria-colcount="9"');
+  });
+
   it("renders selectable dense log rows and a separate inspector", () => {
     expect(logListSource).toContain("selectedId: number | null");
     expect(logListSource).toMatch(/select: \[id: number\]/);
@@ -524,6 +540,17 @@ describe("RequestForwardPanel source structure", () => {
     expect(logListSource).toContain("container-type: inline-size");
     expect(logListSource).toContain("@container forward-log-list");
     expect(logListSource).not.toMatch(/\.log-table\s*\{[^}]*min-width:\s*(?:720|570|430)px/s);
+  });
+
+  it("uses a stable toolbar grid for wide and constrained workbench sizes", () => {
+    expect(source).toMatch(/\.log-toolbar\s*\{[^}]*display:\s*grid/s);
+    expect(source).toContain("container-name: request-forward-observability");
+    expect(source).toContain("@container request-forward-observability");
+    expect(source).toMatch(
+      /@container request-forward-observability \(max-width: 780px\)[\s\S]*?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/,
+    );
+    expect(source).toMatch(/\.log-filter :deep\(\.el-input-number\)[^}]*width:\s*100%/s);
+    expect(source).toContain("@container request-forward-observability (max-width: 480px)");
   });
 
   it("splits listening and forwarding details without reserving an action column", () => {
@@ -561,11 +588,27 @@ describe("RequestForwardPanel source structure", () => {
     expect(formSource).toContain('aria-label="目标 URL 提示"');
   });
 
+  it("uses an unnumbered compact rule form with side-by-side endpoints", () => {
+    expect(formSource).toContain('class="form-identity"');
+    expect(formSource).toContain('class="form-endpoints"');
+    expect(formSource).toContain('class="form-group__title">本地监听');
+    expect(formSource).toContain('class="form-group__title">转发目标');
+    expect(formSource).toContain('class="form-group__title">采集选项');
+    expect(formSource).not.toContain('class="form-section__heading"');
+    expect(formSource).not.toMatch(/<span>0[1-4]<\/span>/);
+    expect(formSource).toMatch(
+      /\.form-endpoints\s*\{[^}]*grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\)/s,
+    );
+    expect(formSource).toMatch(
+      /@media \(max-width: 680px\)[\s\S]*?\.form-endpoints\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)/,
+    );
+  });
+
   it("distinguishes the local HTTP listener from HTTP or HTTPS targets", () => {
     expect(formSource).toContain('<el-option label="HTTP" value="http" />');
     expect(formSource).not.toContain('label="HTTP / HTTPS"');
     expect(formSource).toContain("HTTP 规则在本地以 HTTP 接收，目标可为 HTTP 或 HTTPS。");
-    expect(formSource).toContain("HTTP 规则的本地监听使用 HTTP，目标 URL 支持 HTTP/HTTPS。");
+    expect(formSource).not.toContain("HTTP 规则的本地监听使用 HTTP，目标 URL 支持 HTTP/HTTPS。");
     expect(formSource).toContain("仅支持 HTTP/HTTPS 基础地址");
   });
 
@@ -629,8 +672,9 @@ describe("RequestForwardPanel source structure", () => {
     expect(source).toContain("<span>关键字</span>");
     expect(source).toContain("<span>Method</span>");
     expect(source).toContain("<span>状态码</span>");
-    expect(source).toContain("<span>开始时间</span>");
-    expect(source).toContain("<span>结束时间</span>");
+    expect(source).toContain("<span>时间范围</span>");
+    expect(source).toContain('start-placeholder="开始时间"');
+    expect(source).toContain('end-placeholder="结束时间"');
     expect(source).toContain("clearLogFilters");
     expect(source).toContain('label="全部"');
     expect(source).toContain('label="成功"');

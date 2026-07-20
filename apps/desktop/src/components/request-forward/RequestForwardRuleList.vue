@@ -252,15 +252,15 @@ function targetEndpoint(rule: RequestForwardRule): string {
             :title="`${rule.name}，左键查看日志，右键编辑规则`"
             @click="emit('select', rule.id)"
           >
-            <span class="rule-row__topline">
+            <span class="rule-row__title">
               <strong>{{ rule.name }}</strong>
-              <span class="rule-row__meta">
-                <b class="protocol-label">{{ rule.protocol.toUpperCase() }}</b>
-                <span class="state-label" :class="`is-${stateOf(rule.id)}`">
-                  {{ stateLabel(stateOf(rule.id)) }}
-                </span>
-                <span v-if="rule.autoStart" class="auto-start-label">随应用启动</span>
+            </span>
+            <span class="rule-row__meta">
+              <b class="protocol-label">{{ rule.protocol.toUpperCase() }}</b>
+              <span class="state-label" :class="`is-${stateOf(rule.id)}`">
+                {{ stateLabel(stateOf(rule.id)) }}
               </span>
+              <span v-if="rule.autoStart" class="auto-start-label">随应用启动</span>
             </span>
             <span
               class="rule-row__summary"
@@ -377,7 +377,7 @@ function targetEndpoint(rule: RequestForwardRule): string {
 }
 
 .rule-list__header,
-.rule-row__topline,
+.rule-row__title,
 .rule-row__summary,
 .rule-row__summary-line,
 .rule-row__meta,
@@ -455,9 +455,9 @@ function targetEndpoint(rule: RequestForwardRule): string {
 
 .rule-row__select:disabled { cursor: not-allowed; opacity: .68; }
 .rule-row__select:focus-visible { outline: 2px solid var(--el-color-primary, #409eff); outline-offset: -2px; }
-.rule-row__topline { min-width: 0; justify-content: space-between; gap: 7px; padding-right: 92px; }
-.rule-row__topline strong { overflow: hidden; color: #273548; font-size: 16px; text-overflow: ellipsis; white-space: nowrap; }
-.rule-row__meta { flex: none; gap: 7px; }
+.rule-row__title { min-width: 0; padding-right: 92px; }
+.rule-row__title strong { overflow: hidden; color: #273548; font-size: 16px; text-overflow: ellipsis; white-space: nowrap; }
+.rule-row__meta { min-width: 0; flex-wrap: wrap; gap: 7px; }
 .protocol-label { color: #45627b; font-size: 12px; }
 .auto-start-label { color: #2f7b59; font-size: 11px; font-weight: 600; }
 .rule-row__summary { display: grid; min-width: 0; gap: 3px; color: #56667a; font-size: 14px; line-height: 1.5; }
