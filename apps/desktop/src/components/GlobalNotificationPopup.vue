@@ -290,7 +290,7 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .notification-popup {
-  min-height: 100vh;
+  height: 100vh;
   display: flex;
   flex-direction: column;
   padding: 14px;
@@ -298,6 +298,7 @@ onBeforeUnmount(() => {
   background: linear-gradient(180deg, #fff 0%, #f7f9fc 100%);
   color: #1f2937;
   user-select: none;
+  overflow: hidden;
 }
 .popup-header,
 .header-main,
@@ -375,11 +376,14 @@ onBeforeUnmount(() => {
 }
 .popup-body {
   flex: 1;
+  min-height: 0;
   display: flex;
   align-items: flex-start;
 }
 .notification-card {
   width: 100%;
+  max-height: 100%;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
