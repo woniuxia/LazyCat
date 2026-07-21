@@ -28,6 +28,7 @@
 - UI 默认保持干净浅色/白色风格，除非用户明确要求其他视觉方向。
 - Windows 环境注意：控制台可能为 GBK 编码；运行中的 `.exe` 会持有文件锁，重建前需先结束进程。
 - 便携包/绿色包交付优先 `zip` 形态；`pnpm release:win -- -Tag vX.Y.Z` 默认只构建 lite portable，完整四包使用 `pnpm release:all:win -- -Tag vX.Y.Z`。
+- 用户未指定产物类型、只说“打包”或“本地打包”时，必须执行 `pnpm package:win`；只有明确要求安装包、正式 GitHub Release 或完整四包时，才使用对应的 `build:win`、`release:win` 或 `release:all:win`。
 
 ## 02. 快速检索
 
@@ -128,6 +129,7 @@ scripts/                         构建与发布脚本
 | `pnpm build:win:precheck` | Windows 构建预检 |
 | `pnpm build:win` | Windows NSIS 打包 |
 | `pnpm build:portable` | 当前与 `build:win` 同底层（NSIS）；便携 `zip` 需额外封装 |
+| `pnpm package:win` | 本地构建 lite portable zip 和 SHA256，不上传 GitHub |
 | `pnpm release:win -- -Tag vX.Y.Z` | 默认构建 lite portable、生成 SHA256、推送 tag 并上传 GitHub Release |
 | `pnpm release:all:win -- -Tag vX.Y.Z` | 构建 lite/full 安装包与绿色包、生成 SHA256、推送 tag 并上传 GitHub Release |
 
@@ -315,6 +317,7 @@ PM 域：
 - 规则：必须使用 `tauri build`，不要用 `cargo build --release`。
 - 原因：后者不会嵌入前端资源，最终会白屏。
 - `release-all-win.ps1` 默认通过 `tauri build --no-bundle` 只生成 lite portable；传 `-AllPackages` 时才执行完整流程：带 fixed WebView2 的 tauri build → 从完整 NSIS 脚本裁剪轻量 NSIS（`New-LiteNsisFromFull`） → 打包 lite/full portable。
+- `pnpm package:win` 是日常“打包”的唯一默认入口：自动读取当前版本并调用 `release:win` 的本地 lite portable 流程，不创建 tag、不推送、不上传。
 - `pnpm release:win` 是默认 lite portable 入口；`pnpm release:all:win` 会向同一脚本传 `-AllPackages`，保留原四包逻辑。
 - `pnpm build:portable` 仍是历史命名，当前等价于 NSIS 构建流程；需要便携 `zip` 时使用上述 release 命令。
 - `main.rs` 启动时会扫描 exe 同级 `Microsoft.WebView2.FixedVersionRuntime.*`；若存在则自动切换到本地 WebView2。

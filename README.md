@@ -223,6 +223,7 @@ pnpm dev
 | `pnpm build` | 构建全部 packages + 桌面端 |
 | `pnpm test` | 运行全部单元测试 |
 | `pnpm test:e2e` | 运行端到端测试 |
+| `pnpm package:win` | 本地构建 lite portable zip 和 SHA256，不上传 GitHub |
 | `pnpm build:win` | 构建 Windows NSIS 安装包 |
 | `pnpm build:portable` | 构建 Windows 便携版 |
 | `pnpm release:win -- -Tag vX.Y.Z` | 默认构建 lite portable、生成 SHA256、推送 tag 并上传 GitHub Release |

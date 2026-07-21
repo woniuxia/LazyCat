@@ -8,6 +8,40 @@
 
 <!-- 新记录添加在此处，最新的在最上面 -->
 
+## 2026-07-21: Windows 本地打包使用唯一防呆入口
+
+**场景**: 用户只说“打包”时，代理误把 Windows 打包理解为 NSIS 安装包，执行了名称含 `precheck` 但实际会完整构建 NSIS 的脚本。
+
+**问题**:
+1. `release:win` 虽已默认生成 lite portable，但本地打包仍需调用者手动传版本和 `-SkipUpload`，通用“打包”缺少唯一入口。
+2. `build:win:precheck` 的名称容易被理解为轻量检查，实际会继续执行 `tauri build --bundles nsis`。
+
+**解决**:
+1. 新增 `pnpm package:win`，自动读取根版本并固定调用 `release-all-win.ps1 -SkipUpload`，默认只生成 lite portable zip 和 SHA256。
+2. 保留旧命令行为，在 NSIS 构建脚本入口增加纠错提示。
+3. 在 `AGENTS.md`、`CLAUDE.md` 和 README 中统一命令决策：未指定产物类型的“打包”必须走 `package:win`。
+
+**关键点**:
+- 通过唯一命令表达用户意图，比继续堆叠文档提醒更可靠。
+- 本地打包与正式发布必须分开：前者禁止上传，后者继续显式要求 tag。
+
+**涉及文件**:
+- scripts/package-lite-win.ps1
+- scripts/build-tauri-win.ps1
+- package.json
+- AGENTS.md
+- CLAUDE.md
+- README.md
+- apps/desktop/src/utils/windowsPackagingCommand.test.ts
+
+**验证**:
+- pnpm --filter @lazycat/desktop test -- src/utils/windowsPackagingCommand.test.ts
+- PowerShell AST 解析
+- pnpm test
+- pnpm typecheck
+
+**使用次数**: 0
+
 ## 2026-07-20: 请求转发日志工作台布局与时间筛选优化
 
 **场景**: 请求转发在宽屏/全屏下需要稳定排列日志筛选控件，同时提升规则导航和 HTTP 日志表的扫描效率，并降低时间范围输入成本。

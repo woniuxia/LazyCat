@@ -1,5 +1,7 @@
 $ErrorActionPreference = "Stop"
 
+Write-Warning "This command builds a Windows NSIS installer. For the default lite portable zip, run: pnpm package:win"
+
 function Resolve-VsDevCmd {
   $candidates = @(
     "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat",

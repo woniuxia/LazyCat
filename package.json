@@ -15,6 +15,7 @@
     "test:e2e": "pnpm --filter @lazycat/desktop test:e2e",
     "build:win": "pnpm --filter @lazycat/desktop build",
     "build:portable": "pnpm --filter @lazycat/desktop build:portable",
+    "package:win": "powershell -ExecutionPolicy Bypass -File scripts/package-lite-win.ps1",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write \"**/*.{ts,vue,json,md,mjs,cjs}\"",
