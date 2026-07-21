@@ -15,6 +15,7 @@ use super::release_package_archive::{
     validate_artifact_target_collision, ArchiveError, ArchiveSession,
 };
 use crate::events::{EVENT_RELEASE_PACKAGE_LOG, EVENT_RELEASE_PACKAGE_STATUS};
+use crate::global_notification::{build_release_package_notification, GlobalNotification};
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
@@ -251,6 +252,7 @@ struct StatusEvent {
 trait EventSink: Send + Sync {
     fn log(&self, event: LogEvent);
     fn status(&self, event: StatusEvent);
+    fn notification(&self, event: GlobalNotification);
 }
 
 struct TauriEventSink {
@@ -264,6 +266,10 @@ impl EventSink for TauriEventSink {
 
     fn status(&self, event: StatusEvent) {
         let _ = self.app.emit(EVENT_RELEASE_PACKAGE_STATUS, event);
+    }
+
+    fn notification(&self, event: GlobalNotification) {
+        crate::global_notification::show_notifications(&self.app, vec![event]);
     }
 }
 
@@ -290,6 +296,45 @@ fn emit_status(
         archive_path,
         error,
     });
+}
+
+fn emit_terminal_result(
+    sink: &dyn EventSink,
+    run_id: &str,
+    project: &ReleasePackageProjectConfig,
+    result: Result<PipelineSummary, PipelineError>,
+) {
+    let (status, archive_path, error) = match result {
+        Ok(summary) => (
+            summary.status,
+            summary
+                .archive_path
+                .map(|path| path.to_string_lossy().into_owned()),
+            summary.error,
+        ),
+        Err(PipelineError::Cancelled { .. }) => ("cancelled", None, None),
+        Err(PipelineError::Failed { message }) => ("failed", None, Some(message)),
+    };
+    emit_status(
+        sink,
+        run_id,
+        project.id,
+        status,
+        "overall",
+        archive_path.clone(),
+        error.clone(),
+    );
+    if let Some(notification) = build_release_package_notification(
+        run_id,
+        project.id,
+        &project.name,
+        "overall",
+        status,
+        archive_path,
+        error,
+    ) {
+        sink.notification(notification);
+    }
 }
 
 fn emit_system_log(sink: &dyn EventSink, run_id: &str, project_id: i64, phase: &str, line: &str) {
@@ -620,6 +665,7 @@ pub fn start(
 
     let thread_run_id = run_id.clone();
     let project_id = project.id;
+    let terminal_project = project.clone();
     let sink: Arc<dyn EventSink> = Arc::new(TauriEventSink { app: app.clone() });
     thread::spawn(move || {
         emit_status(
@@ -643,37 +689,7 @@ pub fn start(
             sink.clone(),
         );
         let result = claim_pipeline_result(result, &cancelled, &finished, &cancel_won, &claim_lock);
-        match result {
-            Ok(summary) => emit_status(
-                sink.as_ref(),
-                &thread_run_id,
-                project_id,
-                summary.status,
-                "overall",
-                summary
-                    .archive_path
-                    .map(|path| path.to_string_lossy().into_owned()),
-                summary.error,
-            ),
-            Err(PipelineError::Cancelled { .. }) => emit_status(
-                sink.as_ref(),
-                &thread_run_id,
-                project_id,
-                "cancelled",
-                "overall",
-                None,
-                None,
-            ),
-            Err(PipelineError::Failed { message }) => emit_status(
-                sink.as_ref(),
-                &thread_run_id,
-                project_id,
-                "failed",
-                "overall",
-                None,
-                Some(message),
-            ),
-        }
+        emit_terminal_result(sink.as_ref(), &thread_run_id, &terminal_project, result);
         if let Ok(mut active) = active_run().lock() {
             if active.as_ref().map(|run| run.run_id.as_str()) == Some(thread_run_id.as_str()) {
                 *active = None;
@@ -818,6 +834,8 @@ mod pipeline_tests {
         fn status(&self, event: StatusEvent) {
             self.statuses.lock().unwrap().push(event);
         }
+
+        fn notification(&self, _event: GlobalNotification) {}
     }
 
     #[cfg(windows)]
@@ -843,6 +861,25 @@ mod pipeline_tests {
     impl EventSink for Sink {
         fn log(&self, _event: LogEvent) {}
         fn status(&self, _event: StatusEvent) {}
+        fn notification(&self, _event: GlobalNotification) {}
+    }
+
+    #[derive(Default)]
+    struct TerminalSink {
+        statuses: Mutex<Vec<StatusEvent>>,
+        notifications: Mutex<Vec<GlobalNotification>>,
+    }
+
+    impl EventSink for TerminalSink {
+        fn log(&self, _event: LogEvent) {}
+
+        fn status(&self, event: StatusEvent) {
+            self.statuses.lock().unwrap().push(event);
+        }
+
+        fn notification(&self, event: GlobalNotification) {
+            self.notifications.lock().unwrap().push(event);
+        }
     }
 
     fn project() -> ReleasePackageProjectConfig {
@@ -860,6 +897,36 @@ mod pipeline_tests {
             created_at: String::new(),
             updated_at: String::new(),
         }
+    }
+
+    #[test]
+    fn terminal_result_emits_status_and_one_package_notification() {
+        let sink = TerminalSink::default();
+        emit_terminal_result(
+            &sink,
+            "run-1",
+            &project(),
+            Ok(PipelineSummary {
+                status: "succeeded",
+                archive_path: Some(PathBuf::from("D:\\release\\target")),
+                error: None,
+            }),
+        );
+        assert_eq!(sink.statuses.lock().unwrap().len(), 1);
+        assert_eq!(sink.notifications.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn cancelled_result_emits_status_without_notification() {
+        let sink = TerminalSink::default();
+        emit_terminal_result(
+            &sink,
+            "run-1",
+            &project(),
+            Err(PipelineError::Cancelled { phase: "overall" }),
+        );
+        assert_eq!(sink.statuses.lock().unwrap()[0].status, "cancelled");
+        assert!(sink.notifications.lock().unwrap().is_empty());
     }
 
     #[test]
