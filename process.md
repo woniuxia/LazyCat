@@ -3754,3 +3754,31 @@ Cron 工具原先仅提供基础 6 字段输入与简单预览，缺少规范化
 - pnpm --filter @lazycat/desktop build:web
 
 **使用次数**: 0
+
+## 2026-07-21: 全局通知窗口统一任务提醒与长任务终态
+
+**场景**: 在既有任务提醒独立窗口基础上增加上线包终态通知，并允许直接打开功能页和归档目录。
+
+**解决**:
+1. 将窗口生命周期和 FIFO 去重队列提升为全局通知能力，任务提醒与打包结果使用判别联合类型提供各自动作。
+2. 打包运行时在真实 overall 终态落定后旁路发送通知；成功、部分成功、失败通知，主动取消不通知。
+3. 打开工具页复用主窗口导航事件，打开目录复用 system 域绝对路径校验；操作失败保留通知供重试。
+
+**关键点**:
+- 长任务通知是结果旁路，窗口创建或事件发送失败不能改变真实任务终态或回滚产物。
+- 通知唯一键来自稳定业务 ID；任务提醒使用 eventId，打包使用 runId，避免初始化与运行期事件重复入队。
+- 类型专属动作留在展示层，窗口管理层只负责通知传输、聚焦、定位和生命周期。
+
+**涉及文件**:
+- apps/desktop/src-tauri/src/global_notification.rs
+- apps/desktop/src-tauri/src/tools/release_package_runtime.rs
+- apps/desktop/src/components/GlobalNotificationPopup.vue
+- apps/desktop/src/utils/globalNotification.ts
+
+**验证**:
+- cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml release_package -- --nocapture
+- pnpm --filter @lazycat/desktop exec vitest run src/utils/globalNotification.test.ts src/components/GlobalNotificationPopup.test.ts src/composables/useReleasePackageRuntime.test.ts src/components/ReleasePackagePanel.test.ts
+- pnpm typecheck
+- pnpm --filter @lazycat/desktop build:web
+
+**使用次数**: 0
