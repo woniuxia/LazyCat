@@ -1,0 +1,43 @@
+import type { TodoPriority, TodoReminderPreset } from "./todo";
+
+export type ReleasePackageNotificationStatus =
+  | "succeeded"
+  | "partially_succeeded"
+  | "failed";
+
+export type GlobalNotificationAction =
+  | "complete"
+  | "dismiss"
+  | "snooze"
+  | "open-tool"
+  | "open-directory"
+  | "acknowledge";
+
+interface GlobalNotificationBase {
+  id: string;
+  createdAt: string;
+}
+
+export interface TodoReminderNotification extends GlobalNotificationBase {
+  kind: "todo-reminder";
+  eventId: number;
+  taskId: number;
+  taskReminderId: number;
+  title: string;
+  body: string;
+  fireAt: string;
+  reminderPreset: TodoReminderPreset;
+  priority: TodoPriority;
+}
+
+export interface ReleasePackageNotification extends GlobalNotificationBase {
+  kind: "release-package";
+  runId: string;
+  projectId: number;
+  projectName: string;
+  status: ReleasePackageNotificationStatus;
+  archivePath?: string;
+  error?: string;
+}
+
+export type GlobalNotification = TodoReminderNotification | ReleasePackageNotification;
