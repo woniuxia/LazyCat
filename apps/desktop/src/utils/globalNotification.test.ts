@@ -10,7 +10,7 @@ import {
 
 const todoNotification = {
   kind: "todo-reminder" as const,
-  id: "todo:41",
+  id: "todo-reminder:41",
   createdAt: "2026-07-21T08:00:00.000Z",
   eventId: 41,
   taskId: 7,
@@ -24,7 +24,7 @@ const todoNotification = {
 
 const succeededNotification = {
   kind: "release-package" as const,
-  id: "release:run-1",
+  id: "release-package:run-1",
   createdAt: "2026-07-21T08:10:00.000Z",
   runId: "run-1",
   projectId: 9,
@@ -60,13 +60,69 @@ describe("normalizeGlobalNotificationPayload", () => {
 
     expect(() => normalizeGlobalNotificationPayload(invalid)).toThrow("无效的全局通知");
   });
+
+  it("accepts the empty reminder preset used by the existing reminder contract", () => {
+    expect(normalizeGlobalNotificationPayload({ ...todoNotification, reminderPreset: "" })).toEqual([
+      { ...todoNotification, reminderPreset: "" },
+    ]);
+  });
+
+  it.each([
+    ["eventId", 0],
+    ["eventId", -1],
+    ["eventId", 1.5],
+    ["eventId", Number.MAX_SAFE_INTEGER + 1],
+    ["taskId", 0],
+    ["taskId", -1],
+    ["taskId", 1.5],
+    ["taskId", Number.MAX_SAFE_INTEGER + 1],
+    ["taskReminderId", 0],
+    ["taskReminderId", -1],
+    ["taskReminderId", 1.5],
+    ["taskReminderId", Number.MAX_SAFE_INTEGER + 1],
+  ] as const)("rejects invalid todo identifier %s=%s", (field, value) => {
+    const id = field === "eventId" ? `todo-reminder:${value}` : todoNotification.id;
+
+    expect(() => normalizeGlobalNotificationPayload({ ...todoNotification, id, [field]: value }))
+      .toThrow("无效的全局通知");
+  });
+
+  it.each([0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1])(
+    "rejects invalid release projectId=%s",
+    (projectId) => {
+      expect(() => normalizeGlobalNotificationPayload({ ...succeededNotification, projectId })).toThrow(
+        "无效的全局通知",
+      );
+    },
+  );
+
+  it.each<{ notification: unknown; label: string }>([
+    {
+      notification: { ...todoNotification, id: "todo-reminder:42" },
+      label: "mismatched todo identity",
+    },
+    {
+      notification: { ...succeededNotification, id: "release-package:run-2" },
+      label: "mismatched release identity",
+    },
+    {
+      notification: { ...todoNotification, id: succeededNotification.id },
+      label: "release id on a todo notification",
+    },
+    {
+      notification: { ...succeededNotification, id: todoNotification.id },
+      label: "todo id on a release notification",
+    },
+  ])("rejects $label", ({ notification }) => {
+    expect(() => normalizeGlobalNotificationPayload(notification)).toThrow("无效的全局通知");
+  });
 });
 
 describe("mergeGlobalNotificationQueue", () => {
   it("preserves FIFO order and de-duplicates notifications by id", () => {
     const incoming = {
       ...succeededNotification,
-      id: "release:run-2",
+      id: "release-package:run-2",
       runId: "run-2",
     };
 
@@ -75,7 +131,7 @@ describe("mergeGlobalNotificationQueue", () => {
         [todoNotification],
         [todoNotification, incoming, incoming],
       ).map((notification) => notification.id),
-    ).toEqual(["todo:41", "release:run-2"]);
+    ).toEqual(["todo-reminder:41", "release-package:run-2"]);
   });
 });
 
@@ -125,8 +181,20 @@ describe("releasePackageNotificationCopy", () => {
 });
 
 describe("summarizeNotificationError", () => {
+  it("returns an empty string for a missing error", () => {
+    expect(summarizeNotificationError(undefined)).toBe("");
+  });
+
+  it("returns an empty error unchanged", () => {
+    expect(summarizeNotificationError("")).toBe("");
+  });
+
   it("returns a short error unchanged", () => {
     expect(summarizeNotificationError("构建命令退出码为 1", 30)).toBe("构建命令退出码为 1");
+  });
+
+  it("returns an error exactly at maxLength unchanged", () => {
+    expect(summarizeNotificationError("12345", 5)).toBe("12345");
   });
 
   it("truncates a long error and includes the ellipsis in maxLength", () => {
@@ -134,5 +202,17 @@ describe("summarizeNotificationError", () => {
 
     expect(summary).toBe("abcde...");
     expect(summary).toHaveLength(8);
+  });
+
+  it.each([
+    [0, ""],
+    [1, "."],
+    [2, ".."],
+    [3, "..."],
+  ] as const)("does not exceed maxLength=%s", (maxLength, expected) => {
+    const summary = summarizeNotificationError("abcdef", maxLength);
+
+    expect(summary).toBe(expected);
+    expect(summary.length).toBeLessThanOrEqual(maxLength);
   });
 });

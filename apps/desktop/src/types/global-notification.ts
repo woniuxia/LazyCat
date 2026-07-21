@@ -26,7 +26,7 @@ export interface TodoReminderNotification extends GlobalNotificationBase {
   title: string;
   body: string;
   fireAt: string;
-  reminderPreset: TodoReminderPreset;
+  reminderPreset: TodoReminderPreset | "";
   priority: TodoPriority;
 }
 

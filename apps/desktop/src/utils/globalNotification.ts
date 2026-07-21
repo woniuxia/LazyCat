@@ -7,7 +7,7 @@ import type {
 } from "../types/global-notification";
 
 const TODO_PRIORITIES = new Set(["P0", "P1", "P2", "P3"]);
-const TODO_REMINDER_PRESETS = new Set(["0m", "none", "5m", "10m", "30m", "1h", "1d", "2d"]);
+const TODO_REMINDER_PRESETS = new Set(["", "0m", "none", "5m", "10m", "30m", "1h", "1d", "2d"]);
 const RELEASE_PACKAGE_STATUSES = new Set(["succeeded", "partially_succeeded", "failed"]);
 
 function invalidNotification(): never {
@@ -22,8 +22,8 @@ function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
 
-function isInteger(value: unknown): value is number {
-  return typeof value === "number" && Number.isInteger(value);
+function isPositiveSafeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
 }
 
 function hasValidCommonFields(value: Record<string, unknown>): boolean {
@@ -34,9 +34,10 @@ function isTodoReminderNotification(value: unknown): value is TodoReminderNotifi
   if (!isRecord(value)) return false;
   return value.kind === "todo-reminder"
     && hasValidCommonFields(value)
-    && isInteger(value.eventId)
-    && isInteger(value.taskId)
-    && isInteger(value.taskReminderId)
+    && isPositiveSafeInteger(value.eventId)
+    && value.id === `todo-reminder:${value.eventId}`
+    && isPositiveSafeInteger(value.taskId)
+    && isPositiveSafeInteger(value.taskReminderId)
     && typeof value.title === "string"
     && typeof value.body === "string"
     && isNonEmptyString(value.fireAt)
@@ -51,7 +52,8 @@ function isReleasePackageNotification(value: unknown): value is ReleasePackageNo
   return value.kind === "release-package"
     && hasValidCommonFields(value)
     && isNonEmptyString(value.runId)
-    && isInteger(value.projectId)
+    && value.id === `release-package:${value.runId}`
+    && isPositiveSafeInteger(value.projectId)
     && isNonEmptyString(value.projectName)
     && typeof value.status === "string"
     && RELEASE_PACKAGE_STATUSES.has(value.status)
@@ -72,8 +74,8 @@ export function normalizeGlobalNotificationPayload(payload: unknown): GlobalNoti
 }
 
 export function mergeGlobalNotificationQueue(
-  current: GlobalNotification[],
-  incoming: GlobalNotification[],
+  current: readonly GlobalNotification[],
+  incoming: readonly GlobalNotification[],
 ): GlobalNotification[] {
   const next = [...current];
   const knownIds = new Set(current.map((notification) => notification.id));
@@ -114,7 +116,8 @@ export function releasePackageNotificationCopy(
   return { title: "上线包打包失败", detail: "未生成可用归档，请查看打包日志" };
 }
 
-export function summarizeNotificationError(error: string, maxLength = 180): string {
+export function summarizeNotificationError(error: string | undefined, maxLength = 180): string {
+  if (!error) return "";
   if (error.length <= maxLength) return error;
   if (maxLength <= 3) return "...".slice(0, Math.max(0, maxLength));
   return `${error.slice(0, maxLength - 3)}...`;
