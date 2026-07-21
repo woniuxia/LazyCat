@@ -22,10 +22,16 @@
             </div>
             <el-tag v-if="isOverdue(item)" size="small" effect="light" type="danger">已逾期</el-tag>
           </div>
-          <div class="detail-item-title">
+          <button
+            type="button"
+            class="detail-item-title"
+            title="点击复制编号和标题"
+            aria-label="复制编号和标题"
+            @click="copyItemTitle"
+          >
             <span v-if="item.refCode" class="detail-ref-code">{{ item.refCode }}</span>
             {{ item.title }}
-          </div>
+          </button>
           <div class="detail-field-inline">
             <el-tag
               size="small"
@@ -249,6 +255,19 @@ function normalizeItemLinkUrl(value: string | null | undefined): string {
   return url;
 }
 
+async function copyItemTitle(): Promise<void> {
+  const item = props.item;
+  if (!item) return;
+
+  const copyText = [item.refCode?.trim(), item.title.trim()].filter(Boolean).join(" ");
+  try {
+    await navigator.clipboard.writeText(copyText);
+    ElMessage.success("已复制编号和标题");
+  } catch {
+    ElMessage.error("复制失败");
+  }
+}
+
 async function openItemLink(url: string | null | undefined) {
   const normalized = normalizeItemLinkUrl(url);
   if (!normalized) return;
@@ -461,15 +480,38 @@ async function openItemLink(url: string | null | undefined) {
 }
 
 .detail-item-title {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  appearance: none;
+  background: transparent;
+  text-align: left;
+  font-family: inherit;
   font-size: 18px;
   font-weight: 700;
+  line-height: 1.4;
   color: var(--pm-text-main);
+  word-break: break-word;
+  cursor: pointer;
+  transition: color 0.15s ease, opacity 0.15s ease;
 }
+
+.detail-item-title:hover {
+  color: var(--el-color-primary);
+}
+
+.detail-item-title:focus-visible {
+  outline: 2px solid var(--el-color-primary-light-5);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+.detail-item-title:active {
+  opacity: 0.72;
+}
+
 .detail-ref-code {
-  font-size: 12px;
-  font-weight: 400;
-  color: var(--el-text-color-secondary);
-  font-family: monospace;
   margin-right: 6px;
 }
 
