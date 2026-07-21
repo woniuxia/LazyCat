@@ -16,9 +16,10 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 use events::{
     EVENT_CLIPBOARD_CHANGED, EVENT_HOTKEY_NAVIGATE, EVENT_MAIN_WINDOW_TOGGLE,
-    EVENT_POMODORO_STATE_CHANGED, EVENT_QUICK_CAPTURE_RESET, EVENT_REMINDER_PUSH,
-    EVENT_SPOTLIGHT_RESET, EVENT_TODO_REMINDER_FIRED,
+    EVENT_POMODORO_STATE_CHANGED, EVENT_QUICK_CAPTURE_RESET, EVENT_SPOTLIGHT_RESET,
+    EVENT_TODO_REMINDER_FIRED,
 };
+use global_notification::{GLOBAL_NOTIFICATION_LABEL, GLOBAL_NOTIFICATION_TITLE};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -342,18 +343,7 @@ fn clamp_i64_to_i32(value: i64) -> i32 {
 
 const MAIN_WINDOW_LABEL: &str = "main";
 const MAIN_WINDOW_TITLE: &str = "Lazycat 懒猫";
-const REMINDER_POPUP_LABEL: &str = "reminder-popup";
-const REMINDER_POPUP_TITLE: &str = "待办提醒";
-const REMINDER_POPUP_WIDTH: i64 = 400;
-const REMINDER_POPUP_HEIGHT: i64 = 320;
-const REMINDER_POPUP_MARGIN: i64 = 16;
-const REMINDER_POPUP_VIEW_SCRIPT: &str = r#"
-window.__LAZYCAT_VIEW__ = 'reminder-popup';
-if (!window.location.search.includes('view=reminder-popup')) {
-  const hash = window.location.hash || '';
-  window.history.replaceState(window.history.state, '', `${window.location.pathname}?view=reminder-popup${hash}`);
-}
-"#;
+const POMODORO_PROMPT_MARGIN: i64 = 16;
 
 const POMODORO_PROMPT_LABEL: &str = "pomodoro-prompt";
 const POMODORO_PROMPT_TITLE: &str = "番茄钟";
@@ -387,7 +377,7 @@ const SPOTLIGHT_HEIGHT: i64 = 420;
 fn expected_window_title(window_label: &str) -> Option<&'static str> {
     match window_label {
         MAIN_WINDOW_LABEL => Some(MAIN_WINDOW_TITLE),
-        REMINDER_POPUP_LABEL => Some(REMINDER_POPUP_TITLE),
+        GLOBAL_NOTIFICATION_LABEL => Some(GLOBAL_NOTIFICATION_TITLE),
         POMODORO_PROMPT_LABEL => Some(POMODORO_PROMPT_TITLE),
         QUICK_CAPTURE_LABEL => Some(QUICK_CAPTURE_TITLE),
         SPOTLIGHT_LABEL => Some(SPOTLIGHT_TITLE),
@@ -395,90 +385,10 @@ fn expected_window_title(window_label: &str) -> Option<&'static str> {
     }
 }
 
-fn reminder_popup_init_script(reminders: &[tools::todo::ReminderDispatch]) -> String {
-    let serialized = serde_json::to_string(reminders).unwrap_or_else(|_| "[]".to_string());
-    format!("{REMINDER_POPUP_VIEW_SCRIPT}\nwindow.__LAZYCAT_REMINDER_BOOTSTRAP__ = {serialized};")
-}
-
-fn reminder_popup_url() -> WebviewUrl {
-    if cfg!(debug_assertions) {
-        WebviewUrl::External(
-            "http://localhost:5173/?view=reminder-popup"
-                .parse()
-                .expect("valid reminder popup dev url"),
-        )
-    } else {
-        WebviewUrl::App("index.html".into())
-    }
-}
-
-fn position_reminder_popup(window: &WebviewWindow) {
-    let Ok(Some(monitor)) = window.primary_monitor() else {
-        return;
-    };
-
-    let work_area = monitor.work_area();
-    let relative_x =
-        (work_area.size.width as i64 - REMINDER_POPUP_WIDTH - REMINDER_POPUP_MARGIN).max(0);
-    let relative_y =
-        (work_area.size.height as i64 - REMINDER_POPUP_HEIGHT - REMINDER_POPUP_MARGIN).max(0);
-    let x = clamp_i64_to_i32(work_area.position.x as i64 + relative_x);
-    let y = clamp_i64_to_i32(work_area.position.y as i64 + relative_y);
-    let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
-}
-
 fn emit_todo_refresh_event(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.emit(EVENT_TODO_REMINDER_FIRED, json!({ "refresh": true }));
     }
-}
-
-fn show_reminder_popup(app: &AppHandle, reminders: Vec<tools::todo::ReminderDispatch>) {
-    if reminders.is_empty() {
-        return;
-    }
-
-    let app_handle = app.clone();
-    let _ = app.run_on_main_thread(move || {
-        if let Some(window) = app_handle.get_webview_window(REMINDER_POPUP_LABEL) {
-            position_reminder_popup(&window);
-            let _ = window.show();
-            let _ = window.set_focus();
-            #[cfg(windows)]
-            force_foreground(&window);
-            let _ = window.emit(EVENT_REMINDER_PUSH, &reminders);
-            return;
-        }
-
-        let initial_reminders = reminders.clone();
-        let builder =
-            WebviewWindowBuilder::new(&app_handle, REMINDER_POPUP_LABEL, reminder_popup_url())
-                .title(REMINDER_POPUP_TITLE)
-                .inner_size(REMINDER_POPUP_WIDTH as f64, REMINDER_POPUP_HEIGHT as f64)
-                .decorations(false)
-                .always_on_top(true)
-                .resizable(false)
-                .skip_taskbar(true)
-                .focused(true)
-                .transparent(false)
-                .visible(false)
-                .initialization_script(reminder_popup_init_script(&reminders))
-                .on_page_load(move |window, payload| {
-                    if let PageLoadEvent::Finished = payload.event() {
-                        let _ = window.emit(EVENT_REMINDER_PUSH, &initial_reminders);
-                    }
-                });
-
-        let Ok(window) = builder.build() else {
-            return;
-        };
-
-        position_reminder_popup(&window);
-        let _ = window.show();
-        let _ = window.set_focus();
-        #[cfg(windows)]
-        force_foreground(&window);
-    });
 }
 
 fn pomodoro_prompt_url() -> WebviewUrl {
@@ -500,9 +410,9 @@ fn position_pomodoro_prompt(window: &WebviewWindow) {
 
     let work_area = monitor.work_area();
     let relative_x =
-        (work_area.size.width as i64 - POMODORO_PROMPT_WIDTH - REMINDER_POPUP_MARGIN).max(0);
+        (work_area.size.width as i64 - POMODORO_PROMPT_WIDTH - POMODORO_PROMPT_MARGIN).max(0);
     let relative_y =
-        (work_area.size.height as i64 - POMODORO_PROMPT_HEIGHT - REMINDER_POPUP_MARGIN).max(0);
+        (work_area.size.height as i64 - POMODORO_PROMPT_HEIGHT - POMODORO_PROMPT_MARGIN).max(0);
     let x = clamp_i64_to_i32(work_area.position.x as i64 + relative_x);
     let y = clamp_i64_to_i32(work_area.position.y as i64 + relative_y);
     let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
@@ -835,6 +745,37 @@ fn handle_main_window_shortcut(app: &tauri::AppHandle, shortcut_name: &str) {
     }
 }
 
+pub(crate) fn navigate_main_window_to_tool(
+    app: &tauri::AppHandle,
+    tool_id: &str,
+) -> Result<(), String> {
+    let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) else {
+        return Err("主窗口不可用".into());
+    };
+    let visible = window.is_visible().unwrap_or(false);
+    let focused = window.is_focused().unwrap_or(false);
+    let cursor_monitor_relation = move_window_to_cursor_monitor(&window);
+    let did_move_to_cursor_monitor =
+        cursor_monitor_relation == CursorMonitorRelation::MovedToCursorMonitor;
+    reveal_main_window(app);
+    window
+        .emit(
+            EVENT_HOTKEY_NAVIGATE,
+            HotkeyNavigatePayload {
+                target: tool_id.to_string(),
+                did_move_to_cursor_monitor,
+                was_window_visible: visible,
+                was_window_focused: focused,
+                text: None,
+                source: None,
+                item_id: None,
+                project_id: None,
+                view: None,
+            },
+        )
+        .map_err(|error| error.to_string())
+}
+
 /// Re-register all shortcuts from the global map.
 /// Called after any add/remove to keep the shortcut manager in sync.
 fn sync_all_shortcuts(app: &tauri::AppHandle) -> Result<(), String> {
@@ -919,7 +860,7 @@ fn unregister_named_hotkey(app: tauri::AppHandle, name: String) -> Result<(), St
 /// this workaround temporarily attaches our thread's input queue to the foreground
 /// thread so that the call succeeds reliably.
 #[cfg(windows)]
-fn force_foreground(window: &tauri::WebviewWindow) {
+pub(crate) fn force_foreground(window: &tauri::WebviewWindow) {
     use windows_sys::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
     use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
         SendInput, INPUT, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP,
@@ -1135,7 +1076,10 @@ fn start_todo_scheduler(app: tauri::AppHandle) {
         match tools::todo::scheduler_tick() {
             Ok(reminders) => {
                 if !reminders.is_empty() {
-                    show_reminder_popup(&app, reminders.clone());
+                    global_notification::show_notifications(
+                        &app,
+                        global_notification::todo_notifications(reminders.clone()),
+                    );
 
                     if let Some(window) = app.get_webview_window("main") {
                         for reminder in reminders {
@@ -1492,6 +1436,7 @@ fn main() {
             reminder_popup_complete,
             reminder_popup_snooze,
             reminder_popup_dismiss,
+            global_notification::global_notification_open_tool,
             suppress_clipboard_capture,
             spotlight_pick,
             spotlight_close,
