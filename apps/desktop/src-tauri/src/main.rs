@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod events;
+mod global_notification;
 mod tools;
 
 use tauri::{
