@@ -831,7 +831,7 @@ async function ensureHostTrusted(projectId: number): Promise<boolean> {
     if (error === "cancel" || error === "close") return false;
     throw error;
   }
-  await uploadPreflight.trustHost(probe.trust === "changed");
+  await uploadPreflight.trustHost(projectId, probe.trust === "changed");
   return true;
 }
 

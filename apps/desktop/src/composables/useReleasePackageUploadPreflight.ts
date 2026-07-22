@@ -40,6 +40,7 @@ export function useReleasePackageUploadPreflight() {
   }
 
   async function trustHost(
+    projectId: number,
     replaceExisting: boolean,
   ): Promise<ReleasePackageRemoteProbeResult | null> {
     const probeToken = probeResult.value?.probeToken;
@@ -50,6 +51,7 @@ export function useReleasePackageUploadPreflight() {
     checking.value = true;
     try {
       const result = await invokeToolByChannel("tool:release-package:host-trust", {
+        projectId,
         probeToken,
         replaceExisting,
       }) as ReleasePackageRemoteProbeResult;

@@ -38,8 +38,9 @@ describe("useReleasePackageUploadPreflight", () => {
     expect(invokeMock).toHaveBeenNthCalledWith(1, "tool:release-package:remote-probe", {
       projectId: 7,
     });
-    await preflight.trustHost(true);
+    await preflight.trustHost(7, true);
     expect(invokeMock).toHaveBeenNthCalledWith(2, "tool:release-package:host-trust", {
+      projectId: 7,
       probeToken: "probe-1",
       replaceExisting: true,
     });
