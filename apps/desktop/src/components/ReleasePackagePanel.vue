@@ -37,7 +37,7 @@
             <el-button :icon="DocumentChecked" :loading="saving" :disabled="running" @click="saveProject">保存配置</el-button>
             <el-button :icon="VideoPlay" type="primary" :disabled="running || !selectedProject || dirty" @click="prepareStart">开始打包</el-button>
             <el-button v-if="running" :icon="VideoPause" type="danger" @click="cancelRun">终止打包</el-button>
-            <el-button v-else-if="(status === 'succeeded' || status === 'partially_succeeded') && archivePath" :icon="FolderOpened" @click="openArchive">打开归档目录</el-button>
+            <el-button v-else-if="hasCommittedArchive" :icon="FolderOpened" @click="openArchive">打开归档目录</el-button>
           </div>
         </div>
 
@@ -198,6 +198,63 @@
               </el-form-item>
             </section>
           </div>
+
+          <el-collapse v-model="serverConfigSections" class="server-config-collapse">
+            <el-collapse-item name="server">
+              <template #title>
+                <div class="server-config-heading">
+                  <div>
+                    <strong>Linux 服务器上传</strong>
+                    <span>通过 SSH/SFTP 在打包成功后替换远程产物</span>
+                  </div>
+                  <el-tag :type="draft.uploadEnabled ? 'success' : 'info'" effect="plain" size="small">
+                    {{ draft.uploadEnabled ? "默认上传" : "仅保存配置" }}
+                  </el-tag>
+                </div>
+              </template>
+
+              <div class="server-config-body">
+                <div class="server-config-switch">
+                  <div>
+                    <strong>打包后上传</strong>
+                    <p>控制确认弹窗的默认模式，仍可在每次打包时单独切换。</p>
+                  </div>
+                  <el-switch v-model="draft.uploadEnabled" :disabled="running" />
+                </div>
+
+                <div class="server-config-grid">
+                  <el-form-item label="服务器地址" :required="draft.uploadEnabled">
+                    <el-input v-model="draft.sshHost" :disabled="running" placeholder="例如：10.0.0.8" />
+                  </el-form-item>
+                  <el-form-item label="SSH 端口" :required="draft.uploadEnabled">
+                    <el-input-number v-model="draft.sshPort" :disabled="running" :min="1" :max="65535" controls-position="right" class="full-width" />
+                  </el-form-item>
+                  <el-form-item label="SSH 用户名" :required="draft.uploadEnabled">
+                    <el-input v-model="draft.sshUsername" :disabled="running" placeholder="例如：deploy" />
+                  </el-form-item>
+                  <el-form-item label="认证方式" :required="draft.uploadEnabled">
+                    <el-radio-group v-model="draft.sshAuthType" :disabled="running" class="auth-type-group">
+                      <el-radio-button value="password">账户密码</el-radio-button>
+                      <el-radio-button value="private_key">私钥文件</el-radio-button>
+                    </el-radio-group>
+                  </el-form-item>
+                  <el-form-item v-if="draft.sshAuthType === 'private_key'" label="私钥文件" :required="draft.uploadEnabled" class="server-config-span-2">
+                    <el-input v-model="draft.sshPrivateKeyPath" :disabled="running" placeholder="选择 OpenSSH 私钥文件" readonly>
+                      <template #append>
+                        <el-button :icon="Document" :disabled="running" @click="choosePrivateKey">选择私钥</el-button>
+                      </template>
+                    </el-input>
+                  </el-form-item>
+                  <el-form-item label="前端远程目录" :required="draft.uploadEnabled">
+                    <el-input v-model="draft.frontendRemoteDir" :disabled="running" placeholder="例如：/srv/portal/web" />
+                  </el-form-item>
+                  <el-form-item label="后端远程文件" :required="draft.uploadEnabled">
+                    <el-input v-model="draft.backendRemotePath" :disabled="running" placeholder="例如：/srv/portal/app.jar" />
+                  </el-form-item>
+                </div>
+              </div>
+            </el-collapse-item>
+          </el-collapse>
         </el-form>
 
         <section v-if="selectedProject" class="release-package-log-card release-package-project-log">
@@ -227,7 +284,7 @@
                     {{ targetStatusLabels[frontendStatus] }}
                   </el-tag>
                   <el-button
-                    v-if="(status === 'succeeded' || status === 'partially_succeeded') && archivePath"
+                    v-if="hasCommittedArchive"
                     :icon="FolderOpened"
                     size="small"
                     text
@@ -253,7 +310,7 @@
                     {{ targetStatusLabels[backendStatus] }}
                   </el-tag>
                   <el-button
-                    v-if="(status === 'succeeded' || status === 'partially_succeeded') && archivePath"
+                    v-if="hasCommittedArchive"
                     :icon="FolderOpened"
                     size="small"
                     text
@@ -271,48 +328,122 @@
                 </div>
               </div>
             </section>
+            <section class="release-package-log-lane upload-log-lane">
+              <header class="log-lane-header upload-lane-header">
+                <div>
+                  <strong>上传日志</strong>
+                  <span v-if="uploadProgress.currentPath" class="upload-current-path">{{ uploadProgress.currentPath }}</span>
+                </div>
+                <el-button
+                  v-if="status === 'package_succeeded_upload_failed' && retryToken"
+                  :icon="Refresh"
+                  size="small"
+                  type="primary"
+                  plain
+                  :disabled="running"
+                  @click="prepareUploadRetry"
+                >
+                  重试上传
+                </el-button>
+              </header>
+              <div v-if="uploadProgress.totalBytes > 0" class="upload-progress" aria-live="polite">
+                <el-progress :percentage="uploadPercentage" :stroke-width="6" />
+                <span>{{ formatUploadBytes(uploadProgress.uploadedBytes) }} / {{ formatUploadBytes(uploadProgress.totalBytes) }}</span>
+              </div>
+              <div ref="uploadLogContainer" class="release-package-log" aria-live="polite" aria-label="服务器上传日志">
+                <div v-if="uploadLogs.length === 0" class="log-empty">暂无上传日志</div>
+                <div v-for="(entry, index) in uploadLogs" :key="`${entry.runId}-upload-${index}`" class="log-line" :class="{ stderr: entry.stream === 'stderr' }">
+                  <span class="log-meta">[{{ entry.stream }}]</span>
+                  <span>{{ entry.line }}</span>
+                </div>
+              </div>
+            </section>
           </div>
         </section>
       </main>
     </div>
 
-    <el-dialog v-model="confirmVisible" title="确认打包" width="min(560px, calc(100vw - 32px))" :close-on-click-modal="false">
+    <el-dialog
+      v-model="confirmVisible"
+      :title="retryMode ? '重试上传' : '确认打包'"
+      width="min(640px, calc(100vw - 32px))"
+      :close-on-click-modal="false"
+      :close-on-press-escape="!starting"
+      :show-close="!starting"
+      @closed="resetStartDialog"
+    >
       <el-form label-position="top">
-        <el-form-item label="归档目录名" required>
+        <el-form-item v-if="!retryMode" label="归档目录名" required>
           <el-input v-model="folderName" placeholder="例如：20260723-订单管理系统" />
         </el-form-item>
+        <el-form-item v-if="!retryMode" label="执行方式" required>
+          <el-radio-group v-model="startMode" :disabled="starting" class="start-mode-group">
+            <el-radio-button value="package_only">仅打包</el-radio-button>
+            <el-radio-button value="package_and_upload">打包并上传</el-radio-button>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item v-if="startMode === 'package_and_upload'" :label="credentialLabel" :required="draft.sshAuthType === 'password'">
+          <el-input
+            v-model="credentialSecret"
+            type="password"
+            show-password
+            autocomplete="new-password"
+            :disabled="starting"
+            :placeholder="draft.sshAuthType === 'password' ? '仅用于本次 SSH 认证' : '私钥未加密时可留空'"
+          />
+        </el-form-item>
       </el-form>
-      <p class="archive-preview">完整归档路径：{{ archivePathPreview || "请先设置归档根目录" }}</p>
-      <div class="package-targets">
+      <p v-if="!retryMode" class="archive-preview">完整归档路径：{{ archivePathPreview || "请先设置归档根目录" }}</p>
+      <div v-if="!retryMode" class="package-targets">
         <span class="package-targets-label">本次打包内容（默认全选）</span>
         <el-checkbox-group v-model="selectedTargets" :disabled="starting">
           <el-checkbox label="前端包" value="frontend" />
           <el-checkbox label="后端包" value="backend" />
         </el-checkbox-group>
       </div>
+      <div v-if="startMode === 'package_and_upload' && uploadPreflight.probeResult.value" class="preflight-summary">
+        <div class="preflight-host">
+          <span>主机指纹</span>
+          <code>{{ uploadPreflight.probeResult.value.fingerprintSha256 }}</code>
+        </div>
+        <div v-if="uploadPreflight.preflightResult.value" class="preflight-targets">
+          <div v-for="target in uploadPreflight.preflightResult.value.targets" :key="target.target" class="preflight-target-row">
+            <span>{{ target.target === "frontend" ? "前端" : "后端" }}</span>
+            <code>{{ target.remotePath }}</code>
+            <el-tag :type="target.exists ? 'warning' : 'success'" effect="plain" size="small">
+              {{ target.exists ? "将替换" : "新建" }}
+            </el-tag>
+          </div>
+        </div>
+      </div>
       <template #footer>
         <el-button v-if="starting" type="danger" :disabled="cancelPendingStart" @click="cancelRun">
-          {{ cancelPendingStart ? "等待终止" : "终止打包" }}
+          {{ cancelPendingStart ? "等待终止" : retryMode ? "终止上传" : "终止打包" }}
         </el-button>
-        <el-button v-else @click="confirmVisible = false">取消</el-button>
-        <el-button type="primary" :loading="starting" :disabled="starting" @click="confirmStart">确认打包</el-button>
+        <el-button v-else @click="closeStartDialog">取消</el-button>
+        <el-button type="primary" :loading="starting" :disabled="starting" @click="confirmStart">
+          {{ retryMode ? "确认重试" : startMode === "package_and_upload" ? "确认打包并上传" : "确认打包" }}
+        </el-button>
       </template>
     </el-dialog>
   </section>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
+import { computed, h, nextTick, onMounted, reactive, ref, watch } from "vue";
 import { CopyDocument, Delete, Document, DocumentChecked, FolderOpened, Plus, Refresh, VideoPause, VideoPlay } from "@element-plus/icons-vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invokeToolByChannel } from "../bridge/tauri";
 import { useReleasePackageRuntime } from "../composables/useReleasePackageRuntime";
+import { useReleasePackageUploadPreflight } from "../composables/useReleasePackageUploadPreflight";
 import type {
   ReleasePackagePrepareResult,
   ReleasePackageProject,
   ReleasePackageProjectDraft,
+  ReleasePackageRemoteProbeResult,
   ReleasePackageRunStatus,
+  ReleasePackageStartMode,
   ReleasePackageStartResult,
   ReleasePackageTarget,
   ReleasePackageTargetCheckResult,
@@ -326,6 +457,7 @@ import {
   projectToReleasePackageDraft,
   releasePackageRunStatusLabel,
   validateReleasePackageDraft,
+  validateReleasePackageUpload,
   validateReleasePackageTargets,
   writeReleasePackageCommand,
 } from "../utils/releasePackage";
@@ -341,14 +473,24 @@ const confirmVisible = ref(false);
 const prepareResult = ref<ReleasePackagePrepareResult | null>(null);
 const folderName = ref("");
 const selectedTargets = ref<ReleasePackageTarget[]>(createDefaultReleasePackageTargets());
+const startMode = ref<ReleasePackageStartMode>("package_only");
+const credentialSecret = ref("");
+const overwriteRemoteTargets = ref<ReleasePackageTarget[]>([]);
+const retryMode = ref(false);
+const serverConfigSections = ref<string[]>([]);
 const frontendLogContainer = ref<HTMLElement | null>(null);
 const backendLogContainer = ref<HTMLElement | null>(null);
+const uploadLogContainer = ref<HTMLElement | null>(null);
 const runtime = useReleasePackageRuntime();
+const uploadPreflight = useReleasePackageUploadPreflight();
 const statusTagTypes: Record<ReleasePackageRunStatus, "primary" | "success" | "info" | "warning" | "danger"> = {
   idle: "info",
+  prechecking: "primary",
   running: "primary",
+  uploading: "primary",
   succeeded: "success",
   partially_succeeded: "warning",
+  package_succeeded_upload_failed: "danger",
   failed: "danger",
   cancelled: "warning",
 };
@@ -378,10 +520,29 @@ const status = computed<ReleasePackageRunStatus>(() => currentProjectRuntime.val
 const archivePath = computed(() => currentProjectRuntime.value?.archivePath ?? "");
 const frontendLogs = computed(() => currentProjectRuntime.value?.frontendLogs ?? []);
 const backendLogs = computed(() => currentProjectRuntime.value?.backendLogs ?? []);
+const uploadLogs = computed(() => currentProjectRuntime.value?.uploadLogs ?? []);
+const uploadProgress = computed(() => currentProjectRuntime.value?.uploadProgress ?? {
+  uploadedBytes: 0,
+  totalBytes: 0,
+  currentPath: "",
+});
+const retryToken = computed(() => currentProjectRuntime.value?.retryToken ?? "");
 const frontendStatus = computed<ReleasePackageTargetStatus>(() => currentProjectRuntime.value?.targetStatus.frontend ?? "idle");
 const backendStatus = computed<ReleasePackageTargetStatus>(() => currentProjectRuntime.value?.targetStatus.backend ?? "idle");
 const running = runtime.isRunning;
 const statusLabel = computed(() => releasePackageRunStatusLabel(status.value));
+const hasCommittedArchive = computed(() => Boolean(archivePath.value) && [
+  "succeeded",
+  "partially_succeeded",
+  "package_succeeded_upload_failed",
+].includes(status.value));
+const uploadPercentage = computed(() => {
+  if (uploadProgress.value.totalBytes <= 0) return 0;
+  return Math.min(100, Math.round(
+    uploadProgress.value.uploadedBytes / uploadProgress.value.totalBytes * 100,
+  ));
+});
+const credentialLabel = computed(() => draft.sshAuthType === "password" ? "服务器密码" : "私钥口令（可选）");
 const archivePathPreview = computed(() => {
   const preparedRoot = prepareResult.value?.outputRoot;
   if (!preparedRoot || !folderName.value) return "";
@@ -411,7 +572,7 @@ async function loadProjects(): Promise<boolean> {
     projects.value = result.projects ?? [];
     const current = projects.value.find((project) => project.id === selectedId.value);
     const active = projects.value.find((project) => project.id === runtime.activeProjectId.value);
-    const preferActiveProject = (selectedId.value === null && !dirty.value) || runtime.status.value === "running";
+    const preferActiveProject = (selectedId.value === null && !dirty.value) || runtime.status.value === "running" || runtime.status.value === "uploading";
     const preserveUnsavedDraft = selectedId.value === null && dirty.value && !preferActiveProject;
     const target = preferActiveProject ? active ?? current ?? projects.value[0] : current;
     if (target) {
@@ -558,13 +719,40 @@ async function chooseBackendArtifact(): Promise<void> {
   }
 }
 
+async function choosePrivateKey(): Promise<void> {
+  try {
+    const path = await chooseFile("选择 SSH 私钥文件");
+    if (path) draft.sshPrivateKeyPath = path;
+  } catch (error) {
+    showError(error);
+  }
+}
+
+function clearSensitiveStartState(): void {
+  credentialSecret.value = "";
+  uploadPreflight.reset();
+  overwriteRemoteTargets.value = [];
+}
+
+function resetStartDialog(): void {
+  clearSensitiveStartState();
+  retryMode.value = false;
+}
+
+function closeStartDialog(): void {
+  confirmVisible.value = false;
+  clearSensitiveStartState();
+}
+
 async function prepareStart(): Promise<void> {
   if (!selectedProject.value || dirty.value) {
     ElMessage.warning(dirty.value ? "请先保存项目配置" : "请先选择项目");
     return;
   }
   if (running.value) return;
+  resetStartDialog();
   selectedTargets.value = createDefaultReleasePackageTargets();
+  startMode.value = selectedProject.value.uploadEnabled ? "package_and_upload" : "package_only";
   try {
     prepareResult.value = (await invokeToolByChannel("tool:release-package:prepare", {
       projectId: selectedProject.value.id,
@@ -574,6 +762,23 @@ async function prepareStart(): Promise<void> {
   } catch (error) {
     showError(error);
   }
+}
+
+function retryUploadTargets(): ReleasePackageTarget[] {
+  const projectRuntime = currentProjectRuntime.value;
+  if (!projectRuntime) return [];
+  return (["frontend", "backend"] as const).filter(
+    (target) => projectRuntime.targetStatus[target] !== "skipped",
+  );
+}
+
+function prepareUploadRetry(): void {
+  if (!selectedProject.value || !retryToken.value || running.value) return;
+  resetStartDialog();
+  retryMode.value = true;
+  startMode.value = "package_and_upload";
+  selectedTargets.value = retryUploadTargets();
+  confirmVisible.value = true;
 }
 
 async function confirmArchiveOverwrite(projectId: number): Promise<boolean | null> {
@@ -599,9 +804,98 @@ async function confirmArchiveOverwrite(projectId: number): Promise<boolean | nul
   }
 }
 
+function hostTrustMessage(probe: ReleasePackageRemoteProbeResult) {
+  const rows = [
+    ["服务器", `${probe.host}:${probe.port}`],
+    ["密钥类型", probe.keyType],
+    ["当前指纹", probe.fingerprintSha256],
+  ];
+  if (probe.trust === "changed" && probe.previousFingerprintSha256) {
+    rows.push(["原指纹", probe.previousFingerprintSha256]);
+  }
+  return h("div", { class: "release-package-host-trust" }, rows.map(([label, value]) =>
+    h("div", { class: "host-trust-row" }, [
+      h("span", label),
+      h("code", value),
+    ]),
+  ));
+}
+
+async function ensureHostTrusted(projectId: number): Promise<boolean> {
+  const probe = await uploadPreflight.probe(projectId);
+  if (!probe || probe.trust === "trusted") return Boolean(probe);
+  try {
+    await ElMessageBox.confirm(
+      hostTrustMessage(probe),
+      probe.trust === "changed" ? "SSH 主机指纹已变化" : "确认 SSH 主机指纹",
+      {
+        type: "warning",
+        confirmButtonText: probe.trust === "changed" ? "更新信任并继续" : "信任并继续",
+        cancelButtonText: "取消",
+      },
+    );
+  } catch (error) {
+    if (error === "cancel" || error === "close") return false;
+    throw error;
+  }
+  await uploadPreflight.trustHost(probe.trust === "changed");
+  return true;
+}
+
+async function confirmRemoteOverwrite(): Promise<boolean> {
+  const existingTargets = uploadPreflight.preflightResult.value?.targets.filter(
+    (target) => target.exists,
+  ) ?? [];
+  overwriteRemoteTargets.value = existingTargets.map((target) => target.target);
+  if (existingTargets.length === 0) return true;
+  try {
+    await ElMessageBox.confirm(
+      h("div", { class: "release-package-remote-overwrite" }, [
+        h("p", "完整替换以上远程目标"),
+        h("ul", existingTargets.map((target) => h("li", [
+          h("strong", target.target === "frontend" ? "前端：" : "后端："),
+          h("code", target.remotePath),
+        ]))),
+        h("p", "替换失败时会尝试恢复原目标，但仍应确认服务器上没有并行发布。"),
+      ]),
+      "远程目标已存在",
+      {
+        type: "warning",
+        confirmButtonText: "确认完整替换",
+        cancelButtonText: "取消",
+      },
+    );
+    return true;
+  } catch (error) {
+    overwriteRemoteTargets.value = [];
+    if (error === "cancel" || error === "close") return false;
+    throw error;
+  }
+}
+
+async function runUploadPreflight(
+  projectId: number,
+  targets: ReleasePackageTarget[],
+): Promise<boolean> {
+  const uploadError = validateReleasePackageUpload({ ...draft, uploadEnabled: true });
+  if (uploadError) throw new Error(uploadError);
+  if (draft.sshAuthType === "password" && !credentialSecret.value) {
+    throw new Error("请输入服务器密码");
+  }
+  if (!(await ensureHostTrusted(projectId))) return false;
+  await uploadPreflight.check({
+    projectId,
+    targets: [...targets],
+    ...(draft.sshAuthType === "password"
+      ? { password: credentialSecret.value }
+      : { privateKeyPassphrase: credentialSecret.value || undefined }),
+  });
+  return confirmRemoteOverwrite();
+}
+
 async function confirmStart(): Promise<void> {
   const projectId = selectedProject.value?.id;
-  const folderNameError = validateArchiveFolderName(folderName.value);
+  const folderNameError = retryMode.value ? null : validateArchiveFolderName(folderName.value);
   const targetsError = validateReleasePackageTargets(selectedTargets.value);
   if (!projectId || folderNameError || targetsError) {
     ElMessage.warning(folderNameError ?? targetsError ?? "请先选择项目");
@@ -610,23 +904,45 @@ async function confirmStart(): Promise<void> {
   starting.value = true;
   cancelPendingStart.value = false;
   let runtimeStartBegun = false;
+  const isRetry = retryMode.value;
+  const retryTokenValue = retryToken.value;
   try {
-    const overwriteExisting = await confirmArchiveOverwrite(projectId);
-    if (overwriteExisting === null) return;
+    let overwriteExisting = false;
+    if (!isRetry) {
+      const overwriteDecision = await confirmArchiveOverwrite(projectId);
+      if (overwriteDecision === null) return;
+      overwriteExisting = overwriteDecision;
+    }
+    if (startMode.value === "package_and_upload") {
+      const preflightAccepted = await runUploadPreflight(projectId, selectedTargets.value);
+      if (!preflightAccepted) return;
+    }
     await runtime.ensureListeners();
     if (cancelPendingStart.value) {
       confirmVisible.value = false;
-      ElMessage.info("已取消打包");
+      ElMessage.info(isRetry ? "已取消上传" : "已取消打包");
       return;
     }
     runtime.beginStart(projectId, selectedTargets.value);
     runtimeStartBegun = true;
-    const result = (await invokeToolByChannel("tool:release-package:start", {
-      projectId,
-      folderName: folderName.value,
-      targets: [...selectedTargets.value],
-      overwriteExisting,
-    })) as ReleasePackageStartResult;
+    const result = isRetry
+      ? await invokeToolByChannel("tool:release-package:upload-retry", {
+          projectId,
+          retryToken: retryTokenValue,
+          preflightToken: uploadPreflight.preflightToken.value,
+          overwriteRemoteTargets: [...overwriteRemoteTargets.value],
+        }) as ReleasePackageStartResult
+      : await invokeToolByChannel("tool:release-package:start", {
+          projectId,
+          folderName: folderName.value,
+          targets: [...selectedTargets.value],
+          overwriteExisting,
+          mode: startMode.value,
+          preflightToken: startMode.value === "package_and_upload"
+            ? uploadPreflight.preflightToken.value
+            : undefined,
+          overwriteRemoteTargets: [...overwriteRemoteTargets.value],
+        }) as ReleasePackageStartResult;
     runtime.bindStartedRun(result.runId, projectId);
     confirmVisible.value = false;
     if (cancelPendingStart.value) {
@@ -646,6 +962,7 @@ async function confirmStart(): Promise<void> {
   } finally {
     starting.value = false;
     cancelPendingStart.value = false;
+    clearSensitiveStartState();
   }
 }
 
@@ -677,6 +994,13 @@ function validateArchiveFolderName(value: string): string | null {
   return null;
 }
 
+function formatUploadBytes(value: number): string {
+  if (value < 1_024) return `${value} B`;
+  if (value < 1_048_576) return `${(value / 1_024).toFixed(1)} KB`;
+  if (value < 1_073_741_824) return `${(value / 1_048_576).toFixed(1)} MB`;
+  return `${(value / 1_073_741_824).toFixed(1)} GB`;
+}
+
 async function openArchive(): Promise<void> {
   if (!archivePath.value) return;
   try {
@@ -695,6 +1019,12 @@ async function scrollLogToBottom(container: HTMLElement | null): Promise<void> {
 
 watch(() => frontendLogs.value.length, () => scrollLogToBottom(frontendLogContainer.value));
 watch(() => backendLogs.value.length, () => scrollLogToBottom(backendLogContainer.value));
+watch(() => uploadLogs.value.length, () => scrollLogToBottom(uploadLogContainer.value));
+watch(startMode, () => {
+  credentialSecret.value = "";
+  uploadPreflight.reset();
+  overwriteRemoteTargets.value = [];
+});
 
 onMounted(async () => {
   try {
@@ -798,6 +1128,54 @@ onMounted(async () => {
 .command-hint { margin: 7px 0 0; color: #909399; font-size: 12px; line-height: 1.55; }
 .artifact-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(150px, .65fr); gap: 12px; }
 .full-width { width: 100%; }
+.server-config-collapse {
+  margin-top: 14px;
+  border: 1px solid #e4e7ed;
+  border-radius: 9px;
+  background: #fff;
+  box-shadow: 0 2px 10px rgb(31 45 61 / 4%);
+}
+.server-config-collapse :deep(.el-collapse-item__header) {
+  height: auto;
+  min-height: 54px;
+  padding: 0 16px;
+  border-bottom: 0;
+  border-radius: 9px;
+}
+.server-config-collapse :deep(.el-collapse-item__wrap) { border-bottom: 0; }
+.server-config-collapse :deep(.el-collapse-item__content) { padding: 0; }
+.server-config-heading {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  padding-right: 10px;
+  color: #303133;
+}
+.server-config-heading > div { display: grid; min-width: 0; line-height: 1.45; }
+.server-config-heading span { color: #606266; font-size: 12px; font-weight: 400; }
+.server-config-body { padding: 0 16px 2px; border-top: 1px solid #ebeef5; }
+.server-config-switch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0 -16px 14px;
+  padding: 12px 16px;
+  background: #fafbfc;
+}
+.server-config-switch p { margin: 3px 0 0; color: #606266; font-size: 12px; }
+.server-config-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(130px, .35fr) minmax(0, 1fr) minmax(240px, .8fr);
+  gap: 0 12px;
+}
+.server-config-span-2 { grid-column: span 2; }
+.auth-type-group, .start-mode-group { display: flex; width: 100%; }
+.auth-type-group :deep(.el-radio-button), .start-mode-group :deep(.el-radio-button) { flex: 1; }
+.auth-type-group :deep(.el-radio-button__inner), .start-mode-group :deep(.el-radio-button__inner) { width: 100%; }
 .release-package-log-card {
   overflow: hidden;
   border: 1px solid #e4e7ed;
@@ -835,7 +1213,7 @@ onMounted(async () => {
   --el-tag-bg-color: #fff1f0;
   --el-tag-border-color: #fecaca;
 }
-.release-package-log-columns { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.release-package-log-columns { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .release-package-log-lane + .release-package-log-lane { border-left: 1px solid #ebeef5; }
 .log-lane-header {
   display: flex;
@@ -848,6 +1226,26 @@ onMounted(async () => {
   background: #fafbfc;
 }
 .log-lane-actions { display: inline-flex; align-items: center; gap: 4px; }
+.upload-lane-header > div { display: grid; min-width: 0; gap: 2px; }
+.upload-current-path {
+  overflow: hidden;
+  max-width: 100%;
+  color: #606266;
+  font: 11px/1.4 var(--lc-font-mono, Consolas, monospace);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.upload-progress {
+  display: grid;
+  gap: 5px;
+  padding: 9px 14px;
+  border-bottom: 1px solid #ebeef5;
+  color: #606266;
+  background: #fbfcfd;
+  font-size: 11px;
+}
+.upload-progress :deep(.el-progress-bar) { margin-right: 0; padding-right: 0; }
+.upload-progress :deep(.el-progress__text) { display: none; }
 .release-package-log {
   min-height: 180px;
   max-height: 320px;
@@ -874,6 +1272,22 @@ onMounted(async () => {
   background: #fff;
 }
 .package-targets :deep(.el-checkbox.is-checked) { border-color: #a8c7fa; background: #f5f9ff; }
+.preflight-summary { display: grid; gap: 8px; margin-top: 16px; }
+.preflight-host, .preflight-target-row {
+  display: grid;
+  grid-template-columns: 80px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px;
+  border: 1px solid #e4e7ed;
+  border-radius: 7px;
+  color: #606266;
+  background: #fafbfc;
+  font-size: 12px;
+}
+.preflight-host { grid-template-columns: 80px minmax(0, 1fr); }
+.preflight-host code, .preflight-target-row code { overflow-wrap: anywhere; color: #303133; }
+.preflight-targets { display: grid; gap: 6px; }
 
 :global(.release-package-command-examples) {
   max-width: calc(100vw - 32px);
@@ -910,22 +1324,50 @@ onMounted(async () => {
   white-space: pre-wrap;
   word-break: break-word;
 }
+:global(.release-package-host-trust), :global(.release-package-remote-overwrite) {
+  display: grid;
+  gap: 8px;
+  color: #303133;
+  font-size: 13px;
+}
+:global(.release-package-host-trust .host-trust-row) {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 8px;
+}
+:global(.release-package-host-trust code), :global(.release-package-remote-overwrite code) {
+  overflow-wrap: anywhere;
+  color: #303133;
+  font: 12px/1.5 var(--lc-font-mono, Consolas, monospace);
+}
+:global(.release-package-remote-overwrite p) { margin: 0; }
+:global(.release-package-remote-overwrite ul) { display: grid; gap: 6px; margin: 0; padding-left: 18px; }
 @media (max-width: 960px) {
   .release-package-workspace { grid-template-columns: 1fr; }
   .release-package-projects { display: flex; gap: 8px; overflow-x: auto; border-right: 0; border-bottom: 1px solid #e4e7ed; }
   .projects-heading { flex: none; flex-direction: column; align-items: flex-start; }
   .project-item { flex: 0 0 150px; }
   .release-package-editor { padding: 14px; }
+  .server-config-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .server-config-span-2 { grid-column: auto; }
+  .release-package-log-columns { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .upload-log-lane { grid-column: 1 / -1; border-top: 1px solid #ebeef5; border-left: 0 !important; }
 }
 @media (max-width: 640px) {
   .editor-header { flex-direction: column; }
   .editor-actions { justify-content: flex-start; }
   .artifact-grid { grid-template-columns: 1fr; gap: 0; }
   .project-basics-grid { grid-template-columns: 1fr; gap: 0; }
+  .server-config-heading { align-items: flex-start; }
+  .server-config-grid { grid-template-columns: 1fr; }
+  .server-config-switch { align-items: flex-start; }
   .release-package-editor { padding: 10px; }
   .engineering-card { padding: 14px 12px 0; }
   .log-card-header { align-items: flex-start; }
   .release-package-log-columns { grid-template-columns: 1fr; }
+  .upload-log-lane { grid-column: auto; }
   .release-package-log-lane + .release-package-log-lane { border-top: 1px solid #ebeef5; border-left: 0; }
+  .preflight-target-row { grid-template-columns: 58px minmax(0, 1fr); }
+  .preflight-target-row :deep(.el-tag) { grid-column: 2; justify-self: start; }
 }
 </style>
