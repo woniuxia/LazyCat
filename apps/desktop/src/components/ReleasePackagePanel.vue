@@ -890,10 +890,14 @@ async function confirmStart(): Promise<void> {
   const targetsError = validateReleasePackageTargets(selectedTargets.value);
   const isRetry = retryMode.value;
   const packageType = isRetry ? "server_upload" : prepareResult.value?.packageType;
+  if (packageType !== "local_archive" && packageType !== "server_upload") {
+    ElMessage.warning("打包类型无效，请重新打开确认窗口");
+    return;
+  }
   const folderNameError = packageType === "local_archive"
     ? validateArchiveFolderName(folderName.value)
     : null;
-  if (!projectId || !packageType || folderNameError || targetsError) {
+  if (!projectId || folderNameError || targetsError) {
     ElMessage.warning(folderNameError ?? targetsError ?? "打包类型无效，请重新打开确认窗口");
     return;
   }
@@ -902,14 +906,23 @@ async function confirmStart(): Promise<void> {
   let runtimeStartBegun = false;
   const retryTokenValue = retryToken.value;
   try {
-    let overwriteExisting = false;
+    let startPayload:
+      | { folderName: string; overwriteExisting: boolean }
+      | { preflightToken: string; overwriteRemoteTargets: ReleasePackageTarget[] };
     if (packageType === "local_archive") {
       const overwriteDecision = await confirmArchiveOverwrite(projectId);
       if (overwriteDecision === null) return;
-      overwriteExisting = overwriteDecision;
+      startPayload = {
+        folderName: folderName.value,
+        overwriteExisting: overwriteDecision,
+      };
     } else if (packageType === "server_upload") {
       const preflightAccepted = await runUploadPreflight(projectId, selectedTargets.value);
       if (!preflightAccepted) return;
+      startPayload = {
+        preflightToken: uploadPreflight.preflightToken.value,
+        overwriteRemoteTargets: [...overwriteRemoteTargets.value],
+      };
     }
     await runtime.ensureListeners();
     if (cancelPendingStart.value) {
@@ -929,15 +942,7 @@ async function confirmStart(): Promise<void> {
       : await invokeToolByChannel("tool:release-package:start", {
           projectId,
           targets: [...selectedTargets.value],
-          ...(packageType === "local_archive"
-            ? {
-                folderName: folderName.value,
-                overwriteExisting,
-              }
-            : {
-                preflightToken: uploadPreflight.preflightToken.value,
-                overwriteRemoteTargets: [...overwriteRemoteTargets.value],
-              }),
+          ...startPayload,
         }) as ReleasePackageStartResult;
     runtime.bindStartedRun(result.runId, projectId);
     confirmVisible.value = false;
