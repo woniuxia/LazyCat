@@ -222,9 +222,20 @@
             <section class="release-package-log-lane">
               <header class="log-lane-header">
                 <strong>前端</strong>
-                <el-tag size="small" effect="plain" :type="targetStatusTagTypes[frontendStatus]">
-                  {{ targetStatusLabels[frontendStatus] }}
-                </el-tag>
+                <div class="log-lane-actions">
+                  <el-tag size="small" effect="plain" :type="targetStatusTagTypes[frontendStatus]">
+                    {{ targetStatusLabels[frontendStatus] }}
+                  </el-tag>
+                  <el-button
+                    v-if="(status === 'succeeded' || status === 'partially_succeeded') && archivePath"
+                    :icon="FolderOpened"
+                    size="small"
+                    text
+                    :disabled="running"
+                    aria-label="打开归档目录"
+                    @click="openArchive"
+                  />
+                </div>
               </header>
               <div ref="frontendLogContainer" class="release-package-log" aria-live="polite" aria-label="前端打包日志">
                 <div v-if="frontendLogs.length === 0" class="log-empty">暂无前端日志</div>
@@ -237,9 +248,20 @@
             <section class="release-package-log-lane">
               <header class="log-lane-header">
                 <strong>后端</strong>
-                <el-tag size="small" effect="plain" :type="targetStatusTagTypes[backendStatus]">
-                  {{ targetStatusLabels[backendStatus] }}
-                </el-tag>
+                <div class="log-lane-actions">
+                  <el-tag size="small" effect="plain" :type="targetStatusTagTypes[backendStatus]">
+                    {{ targetStatusLabels[backendStatus] }}
+                  </el-tag>
+                  <el-button
+                    v-if="(status === 'succeeded' || status === 'partially_succeeded') && archivePath"
+                    :icon="FolderOpened"
+                    size="small"
+                    text
+                    :disabled="running"
+                    aria-label="打开归档目录"
+                    @click="openArchive"
+                  />
+                </div>
               </header>
               <div ref="backendLogContainer" class="release-package-log" aria-live="polite" aria-label="后端打包日志">
                 <div v-if="backendLogs.length === 0" class="log-empty">暂无后端日志</div>
@@ -825,6 +847,7 @@ onMounted(async () => {
   color: #303133;
   background: #fafbfc;
 }
+.log-lane-actions { display: inline-flex; align-items: center; gap: 4px; }
 .release-package-log {
   min-height: 180px;
   max-height: 320px;

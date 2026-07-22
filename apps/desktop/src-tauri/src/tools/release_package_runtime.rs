@@ -315,6 +315,11 @@ fn emit_terminal_result(
         Err(PipelineError::Cancelled { .. }) => ("cancelled", None, None),
         Err(PipelineError::Failed { message }) => ("failed", None, Some(message)),
     };
+    if archive_path.is_some() && matches!(status, "succeeded" | "partially_succeeded") {
+        for phase in ["frontend", "backend"] {
+            emit_system_log(sink, run_id, project.id, phase, "已完成打包");
+        }
+    }
     emit_status(
         sink,
         run_id,
@@ -866,12 +871,15 @@ mod pipeline_tests {
 
     #[derive(Default)]
     struct TerminalSink {
+        logs: Mutex<Vec<LogEvent>>,
         statuses: Mutex<Vec<StatusEvent>>,
         notifications: Mutex<Vec<GlobalNotification>>,
     }
 
     impl EventSink for TerminalSink {
-        fn log(&self, _event: LogEvent) {}
+        fn log(&self, event: LogEvent) {
+            self.logs.lock().unwrap().push(event);
+        }
 
         fn status(&self, event: StatusEvent) {
             self.statuses.lock().unwrap().push(event);
@@ -912,6 +920,14 @@ mod pipeline_tests {
                 error: None,
             }),
         );
+        let logs = sink.logs.lock().unwrap();
+        assert_eq!(logs.len(), 2);
+        assert!(logs.iter().any(|event| {
+            event.phase == "frontend" && event.stream == "system" && event.line == "已完成打包"
+        }));
+        assert!(logs.iter().any(|event| {
+            event.phase == "backend" && event.stream == "system" && event.line == "已完成打包"
+        }));
         assert_eq!(sink.statuses.lock().unwrap().len(), 1);
         assert_eq!(sink.notifications.lock().unwrap().len(), 1);
     }

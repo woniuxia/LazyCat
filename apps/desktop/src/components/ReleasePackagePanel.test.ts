@@ -162,4 +162,10 @@ describe("ReleasePackagePanel", () => {
     expect(source).toContain('ref="frontendLogContainer"');
     expect(source).toContain('ref="backendLogContainer"');
   });
+
+  it("adds an accessible archive shortcut to both log lanes after a successful archive", () => {
+    expect(source.match(/class="log-lane-actions"/g) ?? []).toHaveLength(2);
+    expect(source.match(/aria-label="打开归档目录"/g) ?? []).toHaveLength(2);
+    expect(source.match(/@click="openArchive"/g) ?? []).toHaveLength(3);
+  });
 });
