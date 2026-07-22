@@ -315,7 +315,7 @@ fn upload_target(
     target: &DeploymentTarget,
     transaction: &TransactionTarget,
     cancelled: &AtomicBool,
-    progress: &mut dyn FnMut(u64),
+    progress: &mut dyn FnMut(u64, &str),
 ) -> Result<(), DeployError> {
     target
         .manifest
@@ -333,11 +333,12 @@ fn upload_target(
                 }
                 let remote_path = format!("{}/{}", transaction.temp_path, entry.relative_path);
                 ensure_remote_dir(remote, remote_parent(&remote_path)?)?;
+                let mut file_progress = |bytes| progress(bytes, entry.relative_path.as_str());
                 remote.write_file(
                     &remote_path,
                     &local_entry_path(&target.manifest, entry),
                     cancelled,
-                    progress,
+                    &mut file_progress,
                 )?;
             }
         }
@@ -347,11 +348,12 @@ fn upload_target(
                 .entries
                 .first()
                 .ok_or_else(|| DeployError::failed("后端部署清单缺少文件"))?;
+            let mut file_progress = |bytes| progress(bytes, entry.relative_path.as_str());
             remote.write_file(
                 &transaction.temp_path,
                 &local_entry_path(&target.manifest, entry),
                 cancelled,
-                progress,
+                &mut file_progress,
             )?;
         }
     }
@@ -504,7 +506,7 @@ pub fn deploy(
     remote: &mut dyn RemoteFs,
     request: &DeploymentRequest,
     cancelled: &AtomicBool,
-    mut progress: impl FnMut(u64),
+    mut progress: impl FnMut(u64, &str),
 ) -> Result<(), DeployError> {
     if request.targets.is_empty() {
         return Err(DeployError::failed("没有可部署的目标"));
@@ -937,7 +939,7 @@ mod transaction_tests {
         let (root, mut request) = two_target_request();
         request.run_id = "../escape".into();
         let mut remote = FakeRemoteFs::with_existing_release();
-        let error = deploy(&mut remote, &request, &AtomicBool::new(false), |_| {}).unwrap_err();
+        let error = deploy(&mut remote, &request, &AtomicBool::new(false), |_, _| {}).unwrap_err();
         drop(root);
 
         assert!(error.message.contains("runId"));
@@ -950,7 +952,7 @@ mod transaction_tests {
         let (root, mut request) = two_target_request();
         request.targets[0].remote_path = "/srv/app/web/".into();
         let mut remote = FakeRemoteFs::with_existing_release();
-        let error = deploy(&mut remote, &request, &AtomicBool::new(false), |_| {}).unwrap_err();
+        let error = deploy(&mut remote, &request, &AtomicBool::new(false), |_, _| {}).unwrap_err();
         drop(root);
 
         assert!(error.message.contains("规范的 Linux 绝对路径"));
@@ -963,7 +965,7 @@ mod transaction_tests {
         let (root, mut request) = two_target_request();
         request.targets[0].remote_path = "/srv/app".into();
         let mut remote = FakeRemoteFs::with_existing_release();
-        let error = deploy(&mut remote, &request, &AtomicBool::new(false), |_| {}).unwrap_err();
+        let error = deploy(&mut remote, &request, &AtomicBool::new(false), |_, _| {}).unwrap_err();
         drop(root);
 
         assert!(error.message.contains("不能互相包含"));
@@ -976,7 +978,7 @@ mod transaction_tests {
     fn deployment_replaces_targets_without_mixing_old_files() {
         let (root, request) = two_target_request();
         let mut remote = FakeRemoteFs::with_existing_release();
-        deploy(&mut remote, &request, &AtomicBool::new(false), |_| {}).unwrap();
+        deploy(&mut remote, &request, &AtomicBool::new(false), |_, _| {}).unwrap();
         drop(root);
 
         assert!(!remote.exists("/srv/app/web/old.js"));
@@ -986,11 +988,29 @@ mod transaction_tests {
     }
 
     #[test]
+    fn deployment_progress_includes_the_current_remote_path() {
+        let (root, request) = two_target_request();
+        let mut remote = FakeRemoteFs::with_existing_release();
+        let mut progress = Vec::new();
+        deploy(
+            &mut remote,
+            &request,
+            &AtomicBool::new(false),
+            |bytes, path| progress.push((bytes, path.to_string())),
+        )
+        .unwrap();
+        drop(root);
+
+        assert!(progress.iter().any(|(_, path)| path == "index.html"));
+        assert!(progress.iter().any(|(_, path)| path == "app.jar"));
+    }
+
+    #[test]
     fn second_target_commit_failure_restores_first_target() {
         let (root, request) = two_target_request();
         let mut remote = FakeRemoteFs::with_existing_release();
         remote.fail_rename_to("/srv/app/app.jar");
-        let error = deploy(&mut remote, &request, &AtomicBool::new(false), |_| {}).unwrap_err();
+        let error = deploy(&mut remote, &request, &AtomicBool::new(false), |_, _| {}).unwrap_err();
         drop(root);
 
         assert!(error.message.contains("远端提交失败"));
@@ -1004,7 +1024,7 @@ mod transaction_tests {
         let mut remote = FakeRemoteFs::with_existing_release();
         remote.fail_rename_to("/srv/app/app.jar");
         remote.fail_rename_to("/srv/app/web");
-        let error = deploy(&mut remote, &request, &AtomicBool::new(false), |_| {}).unwrap_err();
+        let error = deploy(&mut remote, &request, &AtomicBool::new(false), |_, _| {}).unwrap_err();
         drop(root);
 
         assert!(error.message.contains("回滚失败"));
@@ -1019,7 +1039,7 @@ mod transaction_tests {
         let (root, request) = two_target_request();
         let mut remote = FakeRemoteFs::with_existing_release();
         remote.cancel_during_write = true;
-        let error = deploy(&mut remote, &request, &AtomicBool::new(false), |_| {}).unwrap_err();
+        let error = deploy(&mut remote, &request, &AtomicBool::new(false), |_, _| {}).unwrap_err();
         drop(root);
 
         assert!(error.cancelled);

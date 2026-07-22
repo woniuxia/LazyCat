@@ -4,7 +4,7 @@ use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use base64::engine::general_purpose::STANDARD_NO_PAD;
@@ -73,10 +73,9 @@ pub enum AuthSecret {
     PrivateKeyPassphrase(Option<Zeroizing<String>>),
 }
 
-// The deployment runtime consumes these values in the upload phase.
-#[allow(dead_code)]
 pub struct ConsumedPreflight {
     pub binding: PreflightBinding,
+    pub expected_fingerprint: String,
     pub secret: AuthSecret,
     pub expected_existing_targets: Vec<RemoteTarget>,
 }
@@ -108,6 +107,7 @@ impl PreflightStore {
     pub fn insert(
         &self,
         binding: PreflightBinding,
+        expected_fingerprint: String,
         secret: AuthSecret,
         expected_existing_targets: Vec<RemoteTarget>,
     ) -> Result<IssuedPreflight, String> {
@@ -126,6 +126,7 @@ impl PreflightStore {
             ExpiringPreflight {
                 value: ConsumedPreflight {
                     binding,
+                    expected_fingerprint,
                     secret,
                     expected_existing_targets,
                 },
@@ -184,14 +185,14 @@ pub fn classify_trust(previous: Option<&str>, current: &str) -> HostTrust {
 }
 
 pub fn validate_remote_dir(path: &str) -> Result<String, String> {
-    validate_remote_path(path, false)
+    validate_remote_path(path)
 }
 
 pub fn validate_remote_file(path: &str) -> Result<String, String> {
-    validate_remote_path(path, true)
+    validate_remote_path(path)
 }
 
-fn validate_remote_path(path: &str, file: bool) -> Result<String, String> {
+fn validate_remote_path(path: &str) -> Result<String, String> {
     let value = path.trim();
     if value.is_empty() {
         return Err("远程路径不能为空".into());
@@ -202,14 +203,14 @@ fn validate_remote_path(path: &str, file: bool) -> Result<String, String> {
     if value.contains('\0') {
         return Err("远程路径不能包含 NUL".into());
     }
+    if value.ends_with('/') || value.contains("//") || value.contains('\\') {
+        return Err("远程路径必须使用规范的 Linux 绝对路径".into());
+    }
     if value
         .split('/')
         .any(|segment| segment == "." || segment == "..")
     {
         return Err("远程路径不能包含 . 或 .. 片段".into());
-    }
-    if file && value.ends_with('/') {
-        return Err("远程文件路径必须包含文件名".into());
     }
     Ok(value.to_string())
 }
@@ -253,6 +254,13 @@ fn connect_tcp(endpoint: &RemoteEndpoint) -> Result<TcpStream, String> {
 }
 
 fn handshake_session(endpoint: &RemoteEndpoint) -> Result<Session, String> {
+    handshake_session_with_socket(endpoint, None)
+}
+
+fn handshake_session_with_socket(
+    endpoint: &RemoteEndpoint,
+    socket_slot: Option<&Arc<Mutex<Option<TcpStream>>>>,
+) -> Result<Session, String> {
     let stream = connect_tcp(endpoint)?;
     stream
         .set_read_timeout(Some(SSH_TIMEOUT))
@@ -260,6 +268,14 @@ fn handshake_session(endpoint: &RemoteEndpoint) -> Result<Session, String> {
     stream
         .set_write_timeout(Some(SSH_TIMEOUT))
         .map_err(|error| format!("设置 SSH 写超时失败：{error}"))?;
+    if let Some(socket_slot) = socket_slot {
+        let socket = stream
+            .try_clone()
+            .map_err(|error| format!("保存 SSH 连接失败：{error}"))?;
+        *socket_slot
+            .lock()
+            .map_err(|_| "SSH 连接状态不可用".to_string())? = Some(socket);
+    }
     let mut session = create_session()?;
     session.set_tcp_stream(stream);
     session
@@ -452,13 +468,10 @@ pub fn run_remote_preflight(
         .collect()
 }
 
-// Wired into the release runtime in the upload orchestration phase.
-#[allow(dead_code)]
 pub struct SftpRemoteFs {
     sftp: Sftp,
 }
 
-#[allow(dead_code)]
 fn remote_kind(file_type: FileType) -> RemoteKind {
     match file_type {
         FileType::RegularFile => RemoteKind::File,
@@ -468,14 +481,15 @@ fn remote_kind(file_type: FileType) -> RemoteKind {
     }
 }
 
-#[allow(dead_code)]
 impl SftpRemoteFs {
     pub fn connect(
         binding: &PreflightBinding,
         expected_fingerprint: &str,
         secret: &AuthSecret,
+        socket_slot: &Arc<Mutex<Option<TcpStream>>>,
     ) -> Result<Self, DeployError> {
-        let session = handshake_session(&binding.endpoint).map_err(DeployError::failed)?;
+        let session = handshake_session_with_socket(&binding.endpoint, Some(socket_slot))
+            .map_err(DeployError::failed)?;
         if session_fingerprint(&session).map_err(DeployError::failed)? != expected_fingerprint {
             return Err(DeployError::failed("SSH 主机指纹与已信任记录不一致"));
         }
@@ -607,6 +621,7 @@ impl RemoteFs for SftpRemoteFs {
 }
 pub fn issue_preflight(
     binding: PreflightBinding,
+    expected_fingerprint: String,
     secret: AuthSecret,
     checks: &[RemoteTargetCheck],
 ) -> Result<IssuedPreflight, String> {
@@ -615,10 +630,14 @@ pub fn issue_preflight(
         .filter(|check| check.exists)
         .map(|check| check.target)
         .collect();
-    preflight_store().insert(binding, secret, expected_existing_targets)
+    preflight_store().insert(
+        binding,
+        expected_fingerprint,
+        secret,
+        expected_existing_targets,
+    )
 }
 
-#[allow(dead_code)]
 pub fn consume_preflight(
     token: &str,
     binding: &PreflightBinding,
@@ -720,6 +739,9 @@ mod tests {
             "relative/path",
             "/srv/../root",
             "/srv/./app",
+            "/srv/app/web/",
+            "/srv//app",
+            r"/srv\app",
             "/srv/app\0x",
         ] {
             assert!(
@@ -766,11 +788,13 @@ mod tests {
         let issued = store
             .insert(
                 binding.clone(),
+                "SHA256:trusted".into(),
                 AuthSecret::Password(Zeroizing::new("secret".into())),
                 vec![],
             )
             .unwrap();
-        assert!(store.consume(&issued.token, &binding).is_ok());
+        let consumed = store.consume(&issued.token, &binding).unwrap();
+        assert_eq!(consumed.expected_fingerprint, "SHA256:trusted");
         assert!(store.consume(&issued.token, &binding).is_err());
     }
 
@@ -781,6 +805,7 @@ mod tests {
         let issued = store
             .insert(
                 binding.clone(),
+                "SHA256:trusted".into(),
                 AuthSecret::Password(Zeroizing::new("secret".into())),
                 vec![],
             )

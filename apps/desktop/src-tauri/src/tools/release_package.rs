@@ -91,6 +91,7 @@ const ACTIONS: &[&str] = &[
     "host_trust",
     "remote_preflight",
     "start",
+    "upload_retry",
     "cancel",
 ];
 
@@ -215,6 +216,57 @@ fn parse_overwrite_existing(payload: &Value) -> Result<bool, String> {
         None => Ok(false),
         Some(Value::Bool(value)) => Ok(*value),
         Some(_) => Err("overwriteExisting must be a boolean".into()),
+    }
+}
+
+#[derive(Debug)]
+struct DeployStartInput {
+    preflight_token: Option<String>,
+    overwrite_remote_targets: Vec<ReleaseTarget>,
+}
+
+fn parse_deploy_start_input(payload: &Value) -> Result<DeployStartInput, String> {
+    let mode = payload
+        .get("mode")
+        .map(|value| value.as_str().ok_or("mode must be a string"))
+        .transpose()?
+        .unwrap_or("package_only");
+    let preflight_token = payload
+        .get("preflightToken")
+        .map(|value| {
+            value
+                .as_str()
+                .filter(|token| !token.is_empty())
+                .map(str::to_owned)
+                .ok_or("preflightToken must be a non-empty string")
+        })
+        .transpose()?;
+    let overwrite_remote_targets = match payload.get("overwriteRemoteTargets") {
+        None => Vec::new(),
+        Some(Value::Array(values)) if values.is_empty() => Vec::new(),
+        Some(value) => parse_targets(value)?,
+    };
+
+    match mode {
+        "package_only" => {
+            if preflight_token.is_some() || !overwrite_remote_targets.is_empty() {
+                return Err("仅打包模式不能携带远端预检或覆盖参数".into());
+            }
+            Ok(DeployStartInput {
+                preflight_token: None,
+                overwrite_remote_targets: Vec::new(),
+            })
+        }
+        "package_and_upload" => {
+            if preflight_token.is_none() {
+                return Err("preflightToken is required for package_and_upload".into());
+            }
+            Ok(DeployStartInput {
+                preflight_token,
+                overwrite_remote_targets,
+            })
+        }
+        _ => Err("mode must be package_only or package_and_upload".into()),
     }
 }
 
@@ -537,13 +589,27 @@ fn probe_result_with_conn(conn: &Connection, snapshot: ProbeSnapshot) -> Result<
     Ok(result)
 }
 
-fn remote_probe_with_conn(conn: &Connection, project_id: i64) -> Result<Value, String> {
-    let project = load_project(conn, project_id)?;
-    if !project.upload_enabled {
-        return Err("当前项目未启用服务器上传".into());
+fn validate_upload_project(project: &ReleasePackageProjectConfig) -> Result<(), String> {
+    if project.ssh_host.trim().is_empty() || project.ssh_username.trim().is_empty() {
+        return Err("SSH 服务器地址和用户名不能为空".into());
+    }
+    if project.ssh_port == 0 {
+        return Err("SSH 端口必须在 1 到 65535 之间".into());
+    }
+    if !matches!(project.ssh_auth_type.as_str(), "password" | "private_key") {
+        return Err("不支持的 SSH 认证方式".into());
+    }
+    if project.ssh_auth_type == "private_key" && project.ssh_private_key_path.trim().is_empty() {
+        return Err("私钥认证必须配置 SSH 私钥文件".into());
     }
     validate_remote_dir(&project.frontend_remote_dir)?;
     validate_remote_file(&project.backend_remote_path)?;
+    Ok(())
+}
+
+fn remote_probe_with_conn(conn: &Connection, project_id: i64) -> Result<Value, String> {
+    let project = load_project(conn, project_id)?;
+    validate_upload_project(&project)?;
     let endpoint = RemoteEndpoint {
         host: project.ssh_host.trim().to_ascii_lowercase(),
         port: project.ssh_port,
@@ -672,9 +738,7 @@ fn remote_preflight_with_conn(conn: &Connection, payload: &Value) -> Result<Valu
         .as_str()
         .ok_or("probeToken is required")?;
     let project = load_project(conn, project_id)?;
-    if !project.upload_enabled {
-        return Err("当前项目未启用服务器上传".into());
-    }
+    validate_upload_project(&project)?;
     let binding = preflight_binding(&project, &targets);
     let probe = load_probe(probe_token)?;
     if probe.endpoint != binding.endpoint {
@@ -687,7 +751,7 @@ fn remote_preflight_with_conn(conn: &Connection, payload: &Value) -> Result<Valu
     }
     let secret = parse_auth_secret(&project, payload)?;
     let checks = run_remote_preflight(&binding, &known.1, &secret)?;
-    let issued = issue_preflight(binding, secret, &checks)?;
+    let issued = issue_preflight(binding, known.1, secret, &checks)?;
     Ok(json!({
         "preflightToken": issued.token,
         "expiresAt": issued.expires_at.to_rfc3339(),
@@ -703,7 +767,7 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
     if !ACTIONS.contains(&action) {
         return Err(format!("unsupported release_package action: {action}"));
     }
-    if matches!(action, "start" | "cancel") {
+    if matches!(action, "start" | "upload_retry" | "cancel") {
         return Err("release_package action requires app context".into());
     }
     let conn = db_conn()?;
@@ -769,7 +833,21 @@ pub fn execute_with_app(
             let output_root = project.output_root.clone();
             let targets = parse_targets(payload.get("targets").unwrap_or(&Value::Null))?;
             let overwrite_existing = parse_overwrite_existing(payload)?;
+            let deploy_input = parse_deploy_start_input(payload)?;
             validate_run_inputs(&project, &folder_name, &targets, overwrite_existing)?;
+            let deploy_authorization = if let Some(token) = deploy_input.preflight_token {
+                validate_upload_project(&project)?;
+                let binding = preflight_binding(&project, &targets);
+                Some(
+                    super::release_package_runtime::consume_deploy_authorization(
+                        &token,
+                        &binding,
+                        &deploy_input.overwrite_remote_targets,
+                    )?,
+                )
+            } else {
+                None
+            };
             super::release_package_runtime::start(
                 app,
                 project,
@@ -777,6 +855,42 @@ pub fn execute_with_app(
                 folder_name,
                 targets,
                 overwrite_existing,
+                deploy_authorization,
+            )
+        }
+        "upload_retry" => {
+            let project_id = payload["projectId"]
+                .as_i64()
+                .ok_or("projectId is required")?;
+            let retry_token = payload["retryToken"]
+                .as_str()
+                .filter(|token| !token.is_empty())
+                .ok_or("retryToken is required")?;
+            let preflight_token = payload["preflightToken"]
+                .as_str()
+                .filter(|token| !token.is_empty())
+                .ok_or("preflightToken is required")?;
+            let overwrite_remote_targets = match payload.get("overwriteRemoteTargets") {
+                None => Vec::new(),
+                Some(Value::Array(values)) if values.is_empty() => Vec::new(),
+                Some(value) => parse_targets(value)?,
+            };
+            let targets = super::release_package_runtime::retry_targets(retry_token, project_id)?;
+            let conn = db_conn()?;
+            let project = load_project(&conn, project_id)?;
+            validate_upload_project(&project)?;
+            let binding = preflight_binding(&project, &targets);
+            let deploy_authorization =
+                super::release_package_runtime::consume_deploy_authorization(
+                    preflight_token,
+                    &binding,
+                    &overwrite_remote_targets,
+                )?;
+            super::release_package_runtime::upload_retry(
+                app,
+                project,
+                retry_token,
+                deploy_authorization,
             )
         }
         "cancel" => {
@@ -971,6 +1085,59 @@ mod tests {
         assert!(parse_targets(&json!([])).unwrap_err().contains("至少选择"));
         assert!(parse_targets(&json!(["frontend", "frontend"])).is_err());
         assert!(parse_targets(&json!(["mobile"])).is_err());
+    }
+
+    #[test]
+    fn deploy_start_input_defaults_to_package_only_and_rejects_ambiguous_tokens() {
+        let package_only = parse_deploy_start_input(&json!({})).unwrap();
+        assert!(package_only.preflight_token.is_none());
+        assert!(package_only.overwrite_remote_targets.is_empty());
+
+        let error = parse_deploy_start_input(&json!({
+            "mode": "package_only",
+            "preflightToken": "token"
+        }))
+        .unwrap_err();
+        assert!(error.contains("仅打包"));
+    }
+
+    #[test]
+    fn package_and_upload_requires_a_preflight_token_and_valid_overwrite_targets() {
+        assert!(parse_deploy_start_input(&json!({
+            "mode": "package_and_upload"
+        }))
+        .unwrap_err()
+        .contains("preflightToken"));
+
+        let input = parse_deploy_start_input(&json!({
+            "mode": "package_and_upload",
+            "preflightToken": "token",
+            "overwriteRemoteTargets": ["frontend"]
+        }))
+        .unwrap();
+        assert_eq!(input.preflight_token.as_deref(), Some("token"));
+        assert_eq!(
+            input.overwrite_remote_targets,
+            vec![ReleaseTarget::Frontend]
+        );
+        assert!(parse_deploy_start_input(&json!({
+            "mode": "package_and_upload",
+            "preflightToken": "token",
+            "overwriteRemoteTargets": ["frontend", "frontend"]
+        }))
+        .is_err());
+    }
+
+    #[test]
+    fn upload_enabled_only_controls_the_default_mode() {
+        let conn = test_conn();
+        let id = project_create_with_conn(&conn, &payload()).unwrap()["id"]
+            .as_i64()
+            .unwrap();
+        let mut project = load_project(&conn, id).unwrap();
+        project.upload_enabled = false;
+
+        assert!(validate_upload_project(&project).is_ok());
     }
 
     #[test]
