@@ -14,6 +14,7 @@ use super::release_package_archive::{
     archive_backend_artifact, archive_frontend_artifact, resolve_artifact_path,
     validate_artifact_target_collision, ArchiveError, ArchiveSession,
 };
+use super::release_package_deploy::ArchivedTarget;
 use crate::events::{EVENT_RELEASE_PACKAGE_LOG, EVENT_RELEASE_PACKAGE_STATUS};
 use crate::global_notification::{build_release_package_notification, GlobalNotification};
 
@@ -423,7 +424,7 @@ fn run_target(
     cancelled: Arc<AtomicBool>,
     pid: Arc<Mutex<Option<u32>>>,
     sink: Arc<dyn EventSink>,
-) -> Result<(), PipelineError> {
+) -> Result<ArchivedTarget, PipelineError> {
     let phase = target_phase(target);
     let (project_path, command, artifact_path) = match target {
         ReleaseTarget::Frontend => (
@@ -449,7 +450,7 @@ fn run_target(
     )?;
     let artifact = resolve_artifact_path(&project_path, artifact_path);
     let emit = |line: &str| emit_system_log(sink.as_ref(), run_id, project.id, phase, line);
-    match target {
+    let archive_entry_name = match target {
         ReleaseTarget::Frontend => archive_frontend_artifact(
             &artifact,
             &project.frontend_artifact_mode,
@@ -461,7 +462,15 @@ fn run_target(
             archive_backend_artifact(&artifact, staging_path, cancelled.as_ref(), emit)
         }
     }
-    .map_err(|error| archive_pipeline_error(error, phase))
+    .map_err(|error| archive_pipeline_error(error, phase))?;
+    Ok(ArchivedTarget {
+        target,
+        archive_entry_name,
+        artifact_mode: match target {
+            ReleaseTarget::Frontend => project.frontend_artifact_mode.clone(),
+            ReleaseTarget::Backend => "file".into(),
+        },
+    })
 }
 
 fn emit_target_result(
@@ -469,11 +478,11 @@ fn emit_target_result(
     run_id: &str,
     project_id: i64,
     target: ReleaseTarget,
-    result: &Result<(), PipelineError>,
+    result: &Result<ArchivedTarget, PipelineError>,
 ) {
     let phase = target_phase(target);
     match result {
-        Ok(()) => emit_status(sink, run_id, project_id, "succeeded", phase, None, None),
+        Ok(_) => emit_status(sink, run_id, project_id, "succeeded", phase, None, None),
         Err(PipelineError::Cancelled { .. }) => {
             emit_status(sink, run_id, project_id, "cancelled", phase, None, None)
         }
@@ -493,6 +502,7 @@ fn emit_target_result(
 struct PipelineSummary {
     status: &'static str,
     archive_path: Option<PathBuf>,
+    archived_targets: Vec<ArchivedTarget>,
     error: Option<String>,
 }
 
@@ -563,6 +573,7 @@ fn run_pipeline(
     }
 
     let mut success_count = 0;
+    let mut archived_targets = Vec::new();
     let mut errors = Vec::new();
     for (target, handle) in handles {
         let result = handle.join().unwrap_or_else(|_| {
@@ -571,7 +582,10 @@ fn run_pipeline(
             })
         });
         match result {
-            Ok(()) => success_count += 1,
+            Ok(archived_target) => {
+                success_count += 1;
+                archived_targets.push(archived_target);
+            }
             Err(PipelineError::Cancelled { .. }) => {}
             Err(PipelineError::Failed { message }) => {
                 errors.push(format!("{}：{message}", target_phase(target)));
@@ -585,6 +599,7 @@ fn run_pipeline(
         return Ok(PipelineSummary {
             status: "failed",
             archive_path: None,
+            archived_targets: Vec::new(),
             error: Some(errors.join("；")),
         });
     }
@@ -598,6 +613,7 @@ fn run_pipeline(
             "partially_succeeded"
         },
         archive_path: Some(archive_path),
+        archived_targets,
         error: (!errors.is_empty()).then(|| errors.join("；")),
     })
 }
@@ -926,6 +942,7 @@ mod pipeline_tests {
             Ok(PipelineSummary {
                 status: "succeeded",
                 archive_path: Some(PathBuf::from("D:\\release\\target")),
+                archived_targets: Vec::new(),
                 error: None,
             }),
         );
@@ -1003,6 +1020,7 @@ mod pipeline_tests {
             Ok(PipelineSummary {
                 status: "succeeded",
                 archive_path: Some(PathBuf::from("archive")),
+                archived_targets: Vec::new(),
                 error: None,
             }),
             &cancelled,
@@ -1063,6 +1081,13 @@ mod pipeline_tests {
             sink.clone(),
         )
         .unwrap();
+        assert_eq!(result.archived_targets.len(), 2);
+        assert!(result.archived_targets.iter().any(|target| {
+            target.target == ReleaseTarget::Frontend && target.archive_entry_name == "dist"
+        }));
+        assert!(result.archived_targets.iter().any(|target| {
+            target.target == ReleaseTarget::Backend && target.archive_entry_name == "app.jar"
+        }));
         let archive_path = result.archive_path.unwrap();
         assert!(archive_path.join("dist/index.html").is_file());
         assert!(archive_path.join("app.jar").is_file());
