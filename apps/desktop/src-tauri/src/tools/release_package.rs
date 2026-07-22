@@ -143,6 +143,20 @@ impl ReleasePackageType {
     }
 }
 
+fn require_package_type(
+    project: &ReleasePackageProjectConfig,
+    expected: ReleasePackageType,
+    action: &str,
+) -> Result<(), String> {
+    if project.package_type != expected {
+        return Err(format!(
+            "{action} only supports {} projects",
+            expected.as_str()
+        ));
+    }
+    Ok(())
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ReleasePackageProjectConfig {
@@ -171,6 +185,7 @@ pub struct ReleasePackageProjectConfig {
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PrepareResult {
+    pub package_type: ReleasePackageType,
     pub default_folder_name: String,
     pub output_root: String,
     pub archive_path: String,
@@ -260,53 +275,50 @@ fn parse_overwrite_existing(payload: &Value) -> Result<bool, String> {
 }
 
 #[derive(Debug)]
-struct DeployStartInput {
-    preflight_token: Option<String>,
-    overwrite_remote_targets: Vec<ReleaseTarget>,
+enum ReleaseStartInput {
+    LocalArchive {
+        folder_name: String,
+        overwrite_existing: bool,
+    },
+    ServerUpload {
+        preflight_token: String,
+        overwrite_remote_targets: Vec<ReleaseTarget>,
+    },
 }
 
-fn parse_deploy_start_input(payload: &Value) -> Result<DeployStartInput, String> {
-    let mode = payload
-        .get("mode")
-        .map(|value| value.as_str().ok_or("mode must be a string"))
-        .transpose()?
-        .unwrap_or("package_only");
-    let preflight_token = payload
-        .get("preflightToken")
-        .map(|value| {
-            value
-                .as_str()
-                .filter(|token| !token.is_empty())
-                .map(str::to_owned)
-                .ok_or("preflightToken must be a non-empty string")
-        })
-        .transpose()?;
-    let overwrite_remote_targets = match payload.get("overwriteRemoteTargets") {
-        None => Vec::new(),
-        Some(Value::Array(values)) if values.is_empty() => Vec::new(),
-        Some(value) => parse_targets(value)?,
-    };
-
-    match mode {
-        "package_only" => {
-            if preflight_token.is_some() || !overwrite_remote_targets.is_empty() {
-                return Err("仅打包模式不能携带远端预检或覆盖参数".into());
+fn parse_start_input(
+    package_type: ReleasePackageType,
+    payload: &Value,
+) -> Result<ReleaseStartInput, String> {
+    if payload.get("mode").is_some() {
+        return Err("mode is no longer supported".into());
+    }
+    match package_type {
+        ReleasePackageType::LocalArchive => {
+            if payload.get("preflightToken").is_some()
+                || payload.get("overwriteRemoteTargets").is_some()
+            {
+                return Err("local_archive cannot include server upload parameters".into());
             }
-            Ok(DeployStartInput {
-                preflight_token: None,
-                overwrite_remote_targets: Vec::new(),
+            Ok(ReleaseStartInput::LocalArchive {
+                folder_name: required_string(payload, "folderName")?,
+                overwrite_existing: parse_overwrite_existing(payload)?,
             })
         }
-        "package_and_upload" => {
-            if preflight_token.is_none() {
-                return Err("preflightToken is required for package_and_upload".into());
+        ReleasePackageType::ServerUpload => {
+            if payload.get("folderName").is_some() || payload.get("overwriteExisting").is_some() {
+                return Err("server_upload cannot include local archive parameters".into());
             }
-            Ok(DeployStartInput {
-                preflight_token,
+            let overwrite_remote_targets = match payload.get("overwriteRemoteTargets") {
+                None => Vec::new(),
+                Some(Value::Array(values)) if values.is_empty() => Vec::new(),
+                Some(value) => parse_targets(value)?,
+            };
+            Ok(ReleaseStartInput::ServerUpload {
+                preflight_token: required_string(payload, "preflightToken")?,
                 overwrite_remote_targets,
             })
         }
-        _ => Err("mode must be package_only or package_and_upload".into()),
     }
 }
 
@@ -526,16 +538,7 @@ fn validate_run_inputs(
     if !output_root.is_dir() {
         return Err("归档根目录不存在或不是文件夹".into());
     }
-    if targets.contains(&ReleaseTarget::Frontend)
-        && !PathBuf::from(&project.frontend_project_path).is_dir()
-    {
-        return Err("前端工程目录不存在或不是文件夹".into());
-    }
-    if targets.contains(&ReleaseTarget::Backend)
-        && !PathBuf::from(&project.backend_project_path).is_dir()
-    {
-        return Err("后端工程目录不存在或不是文件夹".into());
-    }
+    validate_project_directories(project, targets)?;
     let final_path = output_root.join(folder_name);
     if final_path.exists() {
         if !final_path.is_dir() {
@@ -548,12 +551,32 @@ fn validate_run_inputs(
     Ok(())
 }
 
+fn validate_project_directories(
+    project: &ReleasePackageProjectConfig,
+    targets: &[ReleaseTarget],
+) -> Result<(), String> {
+    if targets.contains(&ReleaseTarget::Frontend)
+        && !PathBuf::from(&project.frontend_project_path).is_dir()
+    {
+        return Err("前端工程目录不存在或不是文件夹".into());
+    }
+    if targets.contains(&ReleaseTarget::Backend)
+        && !PathBuf::from(&project.backend_project_path).is_dir()
+    {
+        return Err("后端工程目录不存在或不是文件夹".into());
+    }
+    Ok(())
+}
+
 fn prepare_with_conn(
     conn: &Connection,
     project_id: i64,
     today: NaiveDate,
 ) -> Result<Value, String> {
     let project = load_project(conn, project_id)?;
+    if project.package_type == ReleasePackageType::ServerUpload {
+        return Ok(json!({ "packageType": "server_upload" }));
+    }
     if project.output_root.trim().is_empty() {
         return Err("请先为当前项目配置归档根目录".into());
     }
@@ -565,6 +588,7 @@ fn prepare_with_conn(
         .to_string_lossy()
         .into_owned();
     serde_json::to_value(PrepareResult {
+        package_type: project.package_type,
         default_folder_name: folder_name,
         output_root,
         archive_path,
@@ -578,8 +602,9 @@ fn target_check_with_conn(
     project_id: i64,
     folder_name: &str,
 ) -> Result<Value, String> {
-    validate_folder_name(folder_name)?;
     let project = load_project(conn, project_id)?;
+    require_package_type(&project, ReleasePackageType::LocalArchive, "target_check")?;
+    validate_folder_name(folder_name)?;
     let output_root = PathBuf::from(&project.output_root);
     if !output_root.is_dir() {
         return Err("归档根目录不存在或不是文件夹".into());
@@ -654,6 +679,7 @@ fn validate_upload_project(project: &ReleasePackageProjectConfig) -> Result<(), 
 
 fn remote_probe_with_conn(conn: &Connection, project_id: i64) -> Result<Value, String> {
     let project = load_project(conn, project_id)?;
+    require_package_type(&project, ReleasePackageType::ServerUpload, "remote_probe")?;
     validate_upload_project(&project)?;
     let endpoint = RemoteEndpoint {
         host: project.ssh_host.trim().to_ascii_lowercase(),
@@ -778,11 +804,16 @@ fn remote_preflight_with_conn(conn: &Connection, payload: &Value) -> Result<Valu
     let project_id = payload["projectId"]
         .as_i64()
         .ok_or("projectId is required")?;
+    let project = load_project(conn, project_id)?;
+    require_package_type(
+        &project,
+        ReleasePackageType::ServerUpload,
+        "remote_preflight",
+    )?;
     let targets = parse_targets(payload.get("targets").unwrap_or(&Value::Null))?;
     let probe_token = payload["probeToken"]
         .as_str()
         .ok_or("probeToken is required")?;
-    let project = load_project(conn, project_id)?;
     validate_upload_project(&project)?;
     let binding = preflight_binding(&project, &targets);
     let probe = load_probe(probe_token)?;
@@ -868,45 +899,59 @@ pub fn execute_with_app(
             let project_id = payload["projectId"]
                 .as_i64()
                 .ok_or("projectId is required")?;
-            let folder_name = payload["folderName"]
-                .as_str()
-                .ok_or("folderName is required")?
-                .to_string();
-            validate_folder_name(&folder_name)?;
             let conn = db_conn()?;
             let project = load_project(&conn, project_id)?;
-            let output_root = project.output_root.clone();
             let targets = parse_targets(payload.get("targets").unwrap_or(&Value::Null))?;
-            let overwrite_existing = parse_overwrite_existing(payload)?;
-            let deploy_input = parse_deploy_start_input(payload)?;
-            validate_run_inputs(&project, &folder_name, &targets, overwrite_existing)?;
-            let deploy_authorization = if let Some(token) = deploy_input.preflight_token {
-                validate_upload_project(&project)?;
-                let binding = preflight_binding(&project, &targets);
-                Some(
-                    super::release_package_runtime::consume_deploy_authorization(
-                        &token,
-                        &binding,
-                        &deploy_input.overwrite_remote_targets,
-                    )?,
-                )
-            } else {
-                None
-            };
-            super::release_package_runtime::start(
-                app,
-                project,
-                output_root.into(),
-                folder_name,
-                targets,
-                overwrite_existing,
-                deploy_authorization,
-            )
+            match parse_start_input(project.package_type, payload)? {
+                ReleaseStartInput::LocalArchive {
+                    folder_name,
+                    overwrite_existing,
+                } => {
+                    validate_folder_name(&folder_name)?;
+                    validate_run_inputs(&project, &folder_name, &targets, overwrite_existing)?;
+                    let output_root = PathBuf::from(&project.output_root);
+                    super::release_package_runtime::start(
+                        app,
+                        project,
+                        output_root,
+                        folder_name,
+                        targets,
+                        overwrite_existing,
+                        None,
+                    )
+                }
+                ReleaseStartInput::ServerUpload {
+                    preflight_token,
+                    overwrite_remote_targets,
+                } => {
+                    validate_project_directories(&project, &targets)?;
+                    validate_upload_project(&project)?;
+                    let binding = preflight_binding(&project, &targets);
+                    let deploy_authorization =
+                        super::release_package_runtime::consume_deploy_authorization(
+                            &preflight_token,
+                            &binding,
+                            &overwrite_remote_targets,
+                        )?;
+                    super::release_package_runtime::start(
+                        app,
+                        project,
+                        PathBuf::new(),
+                        String::new(),
+                        targets,
+                        false,
+                        Some(deploy_authorization),
+                    )
+                }
+            }
         }
         "upload_retry" => {
             let project_id = payload["projectId"]
                 .as_i64()
                 .ok_or("projectId is required")?;
+            let conn = db_conn()?;
+            let project = load_project(&conn, project_id)?;
+            require_package_type(&project, ReleasePackageType::ServerUpload, "upload_retry")?;
             let retry_token = payload["retryToken"]
                 .as_str()
                 .filter(|token| !token.is_empty())
@@ -921,8 +966,6 @@ pub fn execute_with_app(
                 Some(value) => parse_targets(value)?,
             };
             let targets = super::release_package_runtime::retry_targets(retry_token, project_id)?;
-            let conn = db_conn()?;
-            let project = load_project(&conn, project_id)?;
             validate_upload_project(&project)?;
             let binding = preflight_binding(&project, &targets);
             let deploy_authorization =
@@ -1196,13 +1239,31 @@ mod tests {
     #[test]
     fn prepare_uses_project_output_root_and_inclusive_thursday() {
         let conn = test_conn();
-        let id = project_create_with_conn(&conn, &payload()).unwrap()["id"]
+        let mut project = payload();
+        project["packageType"] = json!("local_archive");
+        let id = project_create_with_conn(&conn, &project).unwrap()["id"]
             .as_i64()
             .unwrap();
         let out =
             prepare_with_conn(&conn, id, NaiveDate::from_ymd_opt(2026, 7, 23).unwrap()).unwrap();
+        assert_eq!(out["packageType"], "local_archive");
         assert_eq!(out["defaultFolderName"], "20260723-客户门户");
         assert_eq!(out["archivePath"], r"D:\releases\20260723-客户门户");
+    }
+
+    #[test]
+    fn prepare_returns_a_discriminated_result_without_archive_for_upload() {
+        let conn = test_conn();
+        let mut project = payload();
+        project["outputRoot"] = json!("");
+        let id = project_create_with_conn(&conn, &project).unwrap()["id"]
+            .as_i64()
+            .unwrap();
+
+        let out =
+            prepare_with_conn(&conn, id, NaiveDate::from_ymd_opt(2026, 7, 23).unwrap()).unwrap();
+
+        assert_eq!(out, json!({ "packageType": "server_upload" }));
     }
 
     #[test]
@@ -1217,44 +1278,110 @@ mod tests {
     }
 
     #[test]
-    fn deploy_start_input_defaults_to_package_only_and_rejects_ambiguous_tokens() {
-        let package_only = parse_deploy_start_input(&json!({})).unwrap();
-        assert!(package_only.preflight_token.is_none());
-        assert!(package_only.overwrite_remote_targets.is_empty());
+    fn start_input_parses_only_parameters_for_the_project_type() {
+        let local = parse_start_input(
+            ReleasePackageType::LocalArchive,
+            &json!({ "folderName": "release", "overwriteExisting": true }),
+        )
+        .unwrap();
+        assert!(matches!(
+            local,
+            ReleaseStartInput::LocalArchive {
+                folder_name,
+                overwrite_existing: true,
+            } if folder_name == "release"
+        ));
 
-        let error = parse_deploy_start_input(&json!({
-            "mode": "package_only",
-            "preflightToken": "token"
-        }))
-        .unwrap_err();
-        assert!(error.contains("仅打包"));
+        let upload = parse_start_input(
+            ReleasePackageType::ServerUpload,
+            &json!({
+                "preflightToken": "token",
+                "overwriteRemoteTargets": ["frontend"]
+            }),
+        )
+        .unwrap();
+        assert!(matches!(
+            upload,
+            ReleaseStartInput::ServerUpload {
+                preflight_token,
+                overwrite_remote_targets,
+            } if preflight_token == "token"
+                && overwrite_remote_targets == vec![ReleaseTarget::Frontend]
+        ));
+
+        assert!(parse_start_input(
+            ReleasePackageType::ServerUpload,
+            &json!({ "overwriteRemoteTargets": [] }),
+        )
+        .unwrap_err()
+        .contains("preflightToken"));
+        assert!(parse_start_input(
+            ReleasePackageType::ServerUpload,
+            &json!({
+                "preflightToken": "token",
+                "overwriteRemoteTargets": ["frontend", "frontend"]
+            }),
+        )
+        .is_err());
     }
 
     #[test]
-    fn package_and_upload_requires_a_preflight_token_and_valid_overwrite_targets() {
-        assert!(parse_deploy_start_input(&json!({
-            "mode": "package_and_upload"
-        }))
-        .unwrap_err()
-        .contains("preflightToken"));
-
-        let input = parse_deploy_start_input(&json!({
-            "mode": "package_and_upload",
-            "preflightToken": "token",
-            "overwriteRemoteTargets": ["frontend"]
-        }))
-        .unwrap();
-        assert_eq!(input.preflight_token.as_deref(), Some("token"));
-        assert_eq!(
-            input.overwrite_remote_targets,
-            vec![ReleaseTarget::Frontend]
-        );
-        assert!(parse_deploy_start_input(&json!({
-            "mode": "package_and_upload",
-            "preflightToken": "token",
-            "overwriteRemoteTargets": ["frontend", "frontend"]
-        }))
+    fn start_input_rejects_parameters_from_the_other_package_type() {
+        assert!(parse_start_input(
+            ReleasePackageType::LocalArchive,
+            &json!({ "folderName": "release", "preflightToken": "token" }),
+        )
         .is_err());
+        assert!(parse_start_input(
+            ReleasePackageType::ServerUpload,
+            &json!({ "folderName": "release", "preflightToken": "token" }),
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn start_input_rejects_the_obsolete_mode_parameter() {
+        assert!(parse_start_input(
+            ReleasePackageType::LocalArchive,
+            &json!({ "folderName": "release", "mode": "package_only" }),
+        )
+        .is_err());
+        assert!(parse_start_input(
+            ReleasePackageType::ServerUpload,
+            &json!({ "preflightToken": "token", "mode": "package_and_upload" }),
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn type_specific_actions_reject_the_other_package_type() {
+        let conn = test_conn();
+        let upload_id = project_create_with_conn(&conn, &payload()).unwrap()["id"]
+            .as_i64()
+            .unwrap();
+        assert!(target_check_with_conn(&conn, upload_id, "release")
+            .unwrap_err()
+            .contains("local_archive"));
+
+        let mut local = payload();
+        local["packageType"] = json!("local_archive");
+        local["sshHost"] = json!("");
+        let local_id = project_create_with_conn(&conn, &local).unwrap()["id"]
+            .as_i64()
+            .unwrap();
+        assert!(remote_probe_with_conn(&conn, local_id)
+            .unwrap_err()
+            .contains("server_upload"));
+        assert!(remote_preflight_with_conn(
+            &conn,
+            &json!({
+                "projectId": local_id,
+                "targets": ["frontend"],
+                "probeToken": "unused"
+            }),
+        )
+        .unwrap_err()
+        .contains("server_upload"));
     }
 
     #[test]
@@ -1324,6 +1451,7 @@ mod tests {
         fs::create_dir_all(&output).unwrap();
         let conn = test_conn();
         let mut project = payload();
+        project["packageType"] = json!("local_archive");
         project["outputRoot"] = json!(output.to_string_lossy());
         let id = project_create_with_conn(&conn, &project).unwrap()["id"]
             .as_i64()
