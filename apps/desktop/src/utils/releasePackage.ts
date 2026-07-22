@@ -78,6 +78,14 @@ export function createEmptyReleasePackageDraft(): ReleasePackageProjectDraft {
     backendProjectPath: "",
     backendBuildCommand: "",
     backendArtifactPath: "",
+    uploadEnabled: false,
+    sshHost: "",
+    sshPort: 22,
+    sshUsername: "",
+    sshAuthType: "password",
+    sshPrivateKeyPath: "",
+    frontendRemoteDir: "",
+    backendRemotePath: "",
   };
 }
 
@@ -92,6 +100,14 @@ export function projectToReleasePackageDraft(project: ReleasePackageProject): Re
     backendProjectPath: project.backendProjectPath,
     backendBuildCommand: project.backendBuildCommand,
     backendArtifactPath: project.backendArtifactPath,
+    uploadEnabled: project.uploadEnabled,
+    sshHost: project.sshHost,
+    sshPort: project.sshPort,
+    sshUsername: project.sshUsername,
+    sshAuthType: project.sshAuthType,
+    sshPrivateKeyPath: project.sshPrivateKeyPath,
+    frontendRemoteDir: project.frontendRemoteDir,
+    backendRemotePath: project.backendRemotePath,
   };
 }
 
@@ -101,6 +117,39 @@ export function normalizeReleasePackageDraft(draft: ReleasePackageProjectDraft):
   ) as unknown as ReleasePackageProjectDraft;
 }
 
+export function validateReleasePackageUpload(draft: ReleasePackageProjectDraft): string | null {
+  const value = normalizeReleasePackageDraft(draft);
+  if (!value.uploadEnabled) return null;
+  if (!value.sshHost) return "请输入服务器地址";
+  if (!Number.isInteger(value.sshPort) || value.sshPort < 1 || value.sshPort > 65_535) {
+    return "SSH 端口必须在 1 到 65535 之间";
+  }
+  if (!value.sshUsername) return "请输入 SSH 用户名";
+  if (value.sshAuthType === "private_key" && !value.sshPrivateKeyPath) return "请选择 SSH 私钥文件";
+  if (!value.frontendRemoteDir) return "请输入前端远程目录";
+  if (!value.frontendRemoteDir.startsWith("/") || value.frontendRemoteDir === "/") {
+    return "前端远程目录必须是 Linux 绝对路径";
+  }
+  if (!isCanonicalLinuxPath(value.frontendRemoteDir)) {
+    return "前端远程目录必须是规范的 Linux 绝对路径";
+  }
+  if (!value.backendRemotePath) return "请输入后端远程文件路径";
+  if (!value.backendRemotePath.startsWith("/") || value.backendRemotePath === "/") {
+    return "后端远程文件路径必须是 Linux 绝对路径";
+  }
+  if (!isCanonicalLinuxPath(value.backendRemotePath)) {
+    return "后端远程文件路径必须是规范的 Linux 绝对路径";
+  }
+  return null;
+}
+
+function isCanonicalLinuxPath(value: string): boolean {
+  return !value.endsWith("/")
+    && !value.includes("//")
+    && !value.includes("\\")
+    && !value.includes("\0")
+    && !value.split("/").some((segment) => segment === "." || segment === "..");
+}
 export function validateReleasePackageDraft(draft: ReleasePackageProjectDraft): string | null {
   const value = normalizeReleasePackageDraft(draft);
   if (!value.name) return "请输入项目名";
@@ -111,7 +160,7 @@ export function validateReleasePackageDraft(draft: ReleasePackageProjectDraft): 
   if (!value.backendProjectPath) return "请选择后端工程目录";
   if (!value.backendBuildCommand) return "请输入后端构建命令";
   if (!value.backendArtifactPath) return "请输入后端产物路径";
-  return null;
+  return validateReleasePackageUpload(value);
 }
 
 export function isReleasePackageDraftDirty(
@@ -143,9 +192,12 @@ export function appendReleasePackageLog(
 export function releasePackageRunStatusLabel(status: ReleasePackageRunStatus): string {
   const labels: Record<ReleasePackageRunStatus, string> = {
     idle: "未运行",
+    prechecking: "预检中",
     running: "运行中",
+    uploading: "上传中",
     succeeded: "已完成",
     partially_succeeded: "部分成功",
+    package_succeeded_upload_failed: "打包完成，上传失败",
     failed: "失败",
     cancelled: "已终止",
   };

@@ -1,11 +1,16 @@
 export type ReleasePackageArtifactMode = "copy_directory" | "zip_directory";
+export type ReleasePackageSshAuthType = "password" | "private_key";
 export type ReleasePackageTarget = "frontend" | "backend";
-export type ReleasePackagePhase = ReleasePackageTarget | "overall";
+export type ReleasePackagePhase = ReleasePackageTarget | "upload" | "overall";
+export type ReleasePackageStartMode = "package_only" | "package_and_upload";
 export type ReleasePackageRunStatus =
   | "idle"
+  | "prechecking"
   | "running"
+  | "uploading"
   | "succeeded"
   | "partially_succeeded"
+  | "package_succeeded_upload_failed"
   | "failed"
   | "cancelled";
 export type ReleasePackageTargetStatus =
@@ -17,7 +22,18 @@ export type ReleasePackageTargetStatus =
   | "cancelled"
   | "skipped";
 
-export interface ReleasePackageProjectDraft {
+export interface ReleasePackageUploadConfig {
+  uploadEnabled: boolean;
+  sshHost: string;
+  sshPort: number;
+  sshUsername: string;
+  sshAuthType: ReleasePackageSshAuthType;
+  sshPrivateKeyPath: string;
+  frontendRemoteDir: string;
+  backendRemotePath: string;
+}
+
+export interface ReleasePackageProjectDraft extends ReleasePackageUploadConfig {
   name: string;
   outputRoot: string;
   frontendProjectPath: string;
@@ -49,8 +65,44 @@ export interface ReleasePackageTargetCheckResult {
   exists: boolean;
 }
 
+export interface ReleasePackageRemoteProbeResult {
+  probeToken: string;
+  host: string;
+  port: number;
+  keyType: string;
+  fingerprintSha256: string;
+  trust: "trusted" | "unknown" | "changed";
+  previousFingerprintSha256?: string;
+}
+export interface ReleasePackageRemotePreflightInput {
+  projectId: number;
+  targets: ReleasePackageTarget[];
+  probeToken: string;
+  password?: string;
+  privateKeyPassphrase?: string;
+}
+
+export interface ReleasePackageRemoteTargetCheck {
+  target: ReleasePackageTarget;
+  remotePath: string;
+  exists: boolean;
+  parentReady: boolean;
+  writable: boolean;
+}
+
+export interface ReleasePackageRemotePreflightResult {
+  preflightToken: string;
+  expiresAt: string;
+  targets: ReleasePackageRemoteTargetCheck[];
+}
 export interface ReleasePackageStartResult { runId: string }
 export interface ReleasePackageCancelResult { cancelRequested: boolean }
+
+export interface ReleasePackageUploadProgress {
+  uploadedBytes: number;
+  totalBytes: number;
+  currentPath: string;
+}
 
 export interface ReleasePackageLogEvent {
   runId: string;
@@ -67,4 +119,8 @@ export interface ReleasePackageStatusEvent {
   phase: ReleasePackagePhase;
   archivePath?: string;
   error?: string;
+  uploadedBytes?: number;
+  totalBytes?: number;
+  currentPath?: string;
+  retryToken?: string;
 }

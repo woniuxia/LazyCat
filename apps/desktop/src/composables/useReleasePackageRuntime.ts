@@ -9,6 +9,7 @@ import type {
   ReleasePackageStatusEvent,
   ReleasePackageTarget,
   ReleasePackageTargetStatus,
+  ReleasePackageUploadProgress,
 } from "../types/release-package";
 import { acceptReleasePackageEvent, appendReleasePackageLog } from "../utils/releasePackage";
 
@@ -31,6 +32,9 @@ export interface ReleasePackageProjectRuntime {
   targetErrors: Partial<Record<ReleasePackageTarget, string>>;
   frontendLogs: ReleasePackageLogEvent[];
   backendLogs: ReleasePackageLogEvent[];
+  uploadLogs: ReleasePackageLogEvent[];
+  uploadProgress: ReleasePackageUploadProgress;
+  retryToken: string;
 }
 
 export function createReleasePackageRuntimeState(): ReleasePackageRuntimeState {
@@ -55,6 +59,10 @@ export function reduceReleasePackageStatus(
   if (!acceptReleasePackageEvent(state.activeRunId, event)) return;
   state.activeProjectId = event.projectId;
   state.phase = event.phase;
+  if (event.phase === "upload") {
+    state.status = event.status;
+    return;
+  }
   if (event.phase !== "overall") return;
   state.status = event.status;
   state.archivePath = event.archivePath ?? state.archivePath;
@@ -67,7 +75,9 @@ const projectRuntimes = reactive(new Map<number, ReleasePackageProjectRuntime>()
 const logs = computed(() => {
   if (state.activeProjectId === null) return [];
   const runtime = projectRuntimes.get(state.activeProjectId);
-  return runtime ? [...runtime.frontendLogs, ...runtime.backendLogs] : [];
+  return runtime
+    ? [...runtime.frontendLogs, ...runtime.backendLogs, ...runtime.uploadLogs]
+    : [];
 });
 let listenerPromise: Promise<UnlistenFn[]> | null = null;
 
@@ -86,6 +96,13 @@ function createProjectRuntime(
     targetErrors: {},
     frontendLogs: [],
     backendLogs: [],
+    uploadLogs: [],
+    uploadProgress: {
+      uploadedBytes: 0,
+      totalBytes: 0,
+      currentPath: "",
+    },
+    retryToken: "",
   };
 }
 
@@ -102,15 +119,30 @@ function applyProjectStatus(event: ReleasePackageStatusEvent): void {
   const runtime = getProjectRuntime(event.projectId);
   runtime.runId = event.runId;
   if (event.phase === "frontend" || event.phase === "backend") {
-    if (event.status !== "partially_succeeded") {
+    if (
+      event.status !== "partially_succeeded"
+      && event.status !== "prechecking"
+      && event.status !== "uploading"
+      && event.status !== "package_succeeded_upload_failed"
+    ) {
       runtime.targetStatus[event.phase] = event.status;
     }
     if (event.error) runtime.targetErrors[event.phase] = event.error;
     return;
   }
+  if (event.phase === "upload") {
+    runtime.status = event.status;
+    runtime.uploadProgress = {
+      uploadedBytes: event.uploadedBytes ?? runtime.uploadProgress.uploadedBytes,
+      totalBytes: event.totalBytes ?? runtime.uploadProgress.totalBytes,
+      currentPath: event.currentPath ?? runtime.uploadProgress.currentPath,
+    };
+    return;
+  }
   runtime.status = event.status;
   runtime.archivePath = event.archivePath ?? runtime.archivePath;
   runtime.error = event.error ?? "";
+  runtime.retryToken = event.retryToken ?? "";
 }
 
 function acceptPendingEvent(runId: string, projectId: number): boolean {
@@ -131,7 +163,11 @@ function ensureListeners(): Promise<void> {
         state.activeProjectId = payload.projectId;
         if (payload.phase === "overall") return;
         const runtime = getProjectRuntime(payload.projectId);
-        const key = payload.phase === "frontend" ? "frontendLogs" : "backendLogs";
+        const key = payload.phase === "frontend"
+          ? "frontendLogs"
+          : payload.phase === "backend"
+            ? "backendLogs"
+            : "uploadLogs";
         runtime[key] = appendReleasePackageLog(runtime[key], payload, 1_000);
       }),
       listen<ReleasePackageStatusEvent>(APP_EVENTS.RELEASE_PACKAGE_STATUS, ({ payload }) => {
@@ -190,7 +226,7 @@ export function useReleasePackageRuntime() {
   return {
     ...toRefs(state),
     logs,
-    isRunning: computed(() => state.status === "running"),
+    isRunning: computed(() => state.status === "running" || state.status === "uploading"),
     ensureListeners,
     beginStart,
     bindStartedRun,

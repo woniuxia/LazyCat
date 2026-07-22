@@ -175,7 +175,11 @@ const packageStatusLabel = computed(() =>
     ? "成功"
     : currentPackage.value?.status === "partially_succeeded"
       ? "部分成功"
-      : "失败",
+      : currentPackage.value?.status === "package_succeeded_upload_failed"
+        ? "上传失败"
+        : currentPackage.value?.status === "cancelled"
+          ? "已终止"
+          : "失败",
 );
 const packageError = computed(() => summarizeNotificationError(currentPackage.value?.error));
 const canOpenDirectory = computed(() =>
@@ -187,7 +191,11 @@ const headerSubtitle = computed(() =>
 );
 const headerIcon = computed(() => {
   if (currentTodo.value) return AlarmClock;
-  if (currentPackage.value?.status === "failed") return WarningFilled;
+  if (
+    currentPackage.value?.status === "failed"
+    || currentPackage.value?.status === "package_succeeded_upload_failed"
+    || currentPackage.value?.status === "cancelled"
+  ) return WarningFilled;
   return CircleCheckFilled;
 });
 const headerTone = computed(() =>
@@ -339,6 +347,11 @@ onBeforeUnmount(() => {
   background: #fff4df;
   color: #8a4b08;
 }
+.tone-package_succeeded_upload_failed,
+.tone-cancelled {
+  background: #fff4df;
+  color: #8a4b08;
+}
 .tone-failed {
   background: #fee4e2;
   color: #b42318;
@@ -427,6 +440,11 @@ onBeforeUnmount(() => {
   background: #eaf8ef;
 }
 .package-partially_succeeded {
+  color: #8a4b08;
+  background: #fff4df;
+}
+.package-package_succeeded_upload_failed,
+.package-cancelled {
   color: #8a4b08;
   background: #fff4df;
 }

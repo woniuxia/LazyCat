@@ -35,6 +35,8 @@ pub mod port;
 pub mod regex;
 pub mod release_package;
 pub mod release_package_archive;
+pub mod release_package_deploy;
+pub mod release_package_remote;
 pub mod release_package_runtime;
 pub mod request_forward;
 pub mod schema;

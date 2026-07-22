@@ -49,6 +49,15 @@ describe("normalizeGlobalNotificationPayload", () => {
     expect(normalizeGlobalNotificationPayload(null)).toEqual([]);
   });
 
+  it.each(["package_succeeded_upload_failed", "cancelled"] as const)(
+    "accepts release terminal status %s",
+    (status) => {
+      expect(normalizeGlobalNotificationPayload({ ...succeededNotification, status })).toEqual([
+        { ...succeededNotification, status },
+      ]);
+    },
+  );
+
   it("throws explicitly for an invalid notification kind", () => {
     expect(() => normalizeGlobalNotificationPayload({ ...todoNotification, kind: "unknown" })).toThrow(
       "无效的全局通知",
@@ -168,13 +177,23 @@ describe("globalNotificationActions", () => {
       }),
     ).toEqual(["open-tool", "acknowledge"]);
   });
+
+  it("keeps the local archive action when upload fails after packaging", () => {
+    expect(globalNotificationActions({
+      ...succeededNotification,
+      status: "package_succeeded_upload_failed",
+      error: "上传失败",
+    })).toEqual(["open-tool", "open-directory", "acknowledge"]);
+  });
 });
 
 describe("releasePackageNotificationCopy", () => {
   it.each([
     ["succeeded", "上线包打包成功", "所选产物已完成归档"],
     ["partially_succeeded", "上线包部分成功", "可用产物已归档，请查看失败日志"],
+    ["package_succeeded_upload_failed", "上线包上传失败", "本地归档已完成，服务器上传失败"],
     ["failed", "上线包打包失败", "未生成可用归档，请查看打包日志"],
+    ["cancelled", "上线包任务已终止", "任务已终止，请查看日志确认产物状态"],
   ] as const)("returns the Chinese copy for %s", (status, title, detail) => {
     expect(releasePackageNotificationCopy(status)).toEqual({ title, detail });
   });

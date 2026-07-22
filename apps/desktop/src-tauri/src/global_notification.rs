@@ -67,7 +67,16 @@ pub(crate) fn build_release_package_notification(
     archive_path: Option<String>,
     error: Option<String>,
 ) -> Option<GlobalNotification> {
-    if phase != "overall" || !matches!(status, "succeeded" | "partially_succeeded" | "failed") {
+    if phase != "overall"
+        || !matches!(
+            status,
+            "succeeded"
+                | "partially_succeeded"
+                | "package_succeeded_upload_failed"
+                | "failed"
+                | "cancelled"
+        )
+    {
         return None;
     }
 
@@ -220,7 +229,13 @@ mod tests {
 
     #[test]
     fn overall_notification_statuses_are_mapped() {
-        for status in ["succeeded", "partially_succeeded", "failed"] {
+        for status in [
+            "succeeded",
+            "partially_succeeded",
+            "package_succeeded_upload_failed",
+            "failed",
+            "cancelled",
+        ] {
             assert!(build_release_package_notification(
                 "run-42",
                 7,
@@ -240,7 +255,6 @@ mod tests {
             ("frontend", "succeeded"),
             ("backend", "failed"),
             ("overall", "running"),
-            ("overall", "cancelled"),
         ] {
             assert!(build_release_package_notification(
                 "run-42",

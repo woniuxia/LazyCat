@@ -168,4 +168,35 @@ describe("ReleasePackagePanel", () => {
     expect(source.match(/aria-label="打开归档目录"/g) ?? []).toHaveLength(2);
     expect(source.match(/@click="openArchive"/g) ?? []).toHaveLength(3);
   });
+
+  it("configures upload separately and preflights before runtime start", () => {
+    for (const model of [
+      "draft.uploadEnabled",
+      "draft.sshHost",
+      "draft.sshPort",
+      "draft.sshUsername",
+      "draft.sshAuthType",
+      "draft.sshPrivateKeyPath",
+      "draft.frontendRemoteDir",
+      "draft.backendRemotePath",
+    ]) {
+      expect(source).toContain(`v-model="${model}"`);
+    }
+    expect(source).toContain("useReleasePackageUploadPreflight");
+    expect(source).toContain("tool:release-package:upload-retry");
+    expect(source.indexOf("await uploadPreflight.check")).toBeLessThan(
+      source.indexOf("runtime.beginStart"),
+    );
+    expect(source).toContain('type="password"');
+    expect(source).toContain('credentialSecret.value = ""');
+    expect(source).not.toContain("draft.password");
+  });
+
+  it("renders a separate upload lane and explicit remote replacement confirmation", () => {
+    expect(source).toContain("上传日志");
+    expect(source).toContain("uploadProgress");
+    expect(source).toContain("完整替换以上远程目标");
+    expect(source).toContain("package_succeeded_upload_failed");
+    expect(source).toContain("重试上传");
+  });
 });

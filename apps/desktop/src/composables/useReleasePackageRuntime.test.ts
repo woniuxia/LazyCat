@@ -134,4 +134,40 @@ describe("release package runtime state", () => {
     expect(runtime.getProjectRuntime(8).targetStatus.frontend).toBe("skipped");
     expect(runtime.getProjectRuntime(8).backendLogs.map((entry) => entry.line)).toEqual(["server"]);
   });
+
+  it("tracks upload logs, progress, failure retry token, and terminal running state", async () => {
+    listenMock.mockImplementation(async (name: string, handler: (event: { payload: unknown }) => void) => {
+      listeners.set(name, handler);
+      return vi.fn();
+    });
+    const runtime = useReleasePackageRuntime();
+    await runtime.ensureListeners();
+    runtime.beginStart(7, ["frontend", "backend"]);
+    runtime.bindStartedRun("run-1", 7);
+
+    emit("release-package://log", log("run-1", 7, "上传中", "upload"));
+    emit("release-package://status", {
+      ...status("run-1", 7, "uploading", "upload"),
+      uploadedBytes: 50,
+      totalBytes: 100,
+      currentPath: "assets/app.js",
+    });
+    expect(runtime.isRunning.value).toBe(true);
+    emit("release-package://status", {
+      ...status("run-1", 7, "package_succeeded_upload_failed"),
+      archivePath: "D:\\release\\portal",
+      retryToken: "retry-1",
+      error: "服务器上传失败",
+    });
+
+    const projectRuntime = runtime.getProjectRuntime(7);
+    expect(projectRuntime.uploadLogs.map((entry) => entry.line)).toEqual(["上传中"]);
+    expect(projectRuntime.uploadProgress).toEqual({
+      uploadedBytes: 50,
+      totalBytes: 100,
+      currentPath: "assets/app.js",
+    });
+    expect(projectRuntime.retryToken).toBe("retry-1");
+    expect(runtime.isRunning.value).toBe(false);
+  });
 });
