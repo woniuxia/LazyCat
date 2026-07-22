@@ -1129,11 +1129,8 @@ fn run_local_archive_pipeline(
             &frontend.artifact_mode,
             &backend.source_path,
         ) {
-            let error = merge_pipeline_error(
-                summary.error.as_deref(),
-                archive_pipeline_error(error, "overall"),
-            );
-            let (status, message) = match &error {
+            let archive_error = archive_pipeline_error(error, "overall");
+            let (status, message) = match &archive_error {
                 PipelineError::Cancelled { .. } => ("cancelled", None),
                 PipelineError::Failed { message } => ("failed", Some(message.clone())),
             };
@@ -1147,7 +1144,10 @@ fn run_local_archive_pipeline(
                     message.clone(),
                 );
             }
-            return Err(error);
+            return Err(merge_pipeline_error(
+                summary.error.as_deref(),
+                archive_error,
+            ));
         }
     }
 
@@ -1160,11 +1160,8 @@ fn run_local_archive_pipeline(
     ) {
         Ok(archive) => archive,
         Err(error) => {
-            let error = merge_pipeline_error(
-                summary.error.as_deref(),
-                archive_pipeline_error(error, "overall"),
-            );
-            let (status, message) = match &error {
+            let archive_error = archive_pipeline_error(error, "overall");
+            let (status, message) = match &archive_error {
                 PipelineError::Cancelled { .. } => ("cancelled", None),
                 PipelineError::Failed { message } => ("failed", Some(message.clone())),
             };
@@ -1178,7 +1175,10 @@ fn run_local_archive_pipeline(
                     message.clone(),
                 );
             }
-            return Err(error);
+            return Err(merge_pipeline_error(
+                summary.error.as_deref(),
+                archive_error,
+            ));
         }
     };
     let staging_path = archive.staging_path().to_path_buf();
@@ -1257,11 +1257,8 @@ fn run_local_archive_pipeline(
         Ok(path) => path,
         Err(error) => {
             let accumulated_error = errors.join("；");
-            let error = merge_pipeline_error(
-                (!accumulated_error.is_empty()).then_some(accumulated_error.as_str()),
-                archive_pipeline_error(error, "overall"),
-            );
-            let (status, message) = match &error {
+            let archive_error = archive_pipeline_error(error, "overall");
+            let (status, message) = match &archive_error {
                 PipelineError::Cancelled { .. } => ("cancelled", None),
                 PipelineError::Failed { message } => ("failed", Some(message.clone())),
             };
@@ -1275,7 +1272,10 @@ fn run_local_archive_pipeline(
                     message.clone(),
                 );
             }
-            return Err(error);
+            return Err(merge_pipeline_error(
+                (!accumulated_error.is_empty()).then_some(accumulated_error.as_str()),
+                archive_error,
+            ));
         }
     };
     Ok(PipelineSummary {
@@ -1697,6 +1697,16 @@ mod pipeline_tests {
                 .rev()
                 .find(|event| event.phase == phase)
                 .map(|event| event.status.clone())
+        }
+
+        fn last_error(&self, phase: &str) -> Option<String> {
+            self.statuses
+                .lock()
+                .unwrap()
+                .iter()
+                .rev()
+                .find(|event| event.phase == phase)
+                .and_then(|event| event.error.clone())
         }
     }
 
@@ -2297,6 +2307,7 @@ mod pipeline_tests {
             selected_count: 2,
             error: Some("frontend：PowerShell 命令退出码：9".into()),
         };
+        let sink = Arc::new(CollectingSink::default());
 
         let error = run_local_archive_pipeline(
             "archive-setup-failed",
@@ -2306,7 +2317,7 @@ mod pipeline_tests {
             "release".into(),
             false,
             Arc::new(AtomicBool::new(false)),
-            Arc::new(Sink),
+            sink.clone(),
         )
         .unwrap_err();
 
@@ -2315,6 +2326,9 @@ mod pipeline_tests {
         };
         assert!(message.contains("frontend：PowerShell 命令退出码：9"));
         assert!(message.contains("全局归档根目录不存在"));
+        let backend_error = sink.last_error("backend").unwrap();
+        assert!(backend_error.contains("全局归档根目录不存在"));
+        assert!(!backend_error.contains("frontend：PowerShell 命令退出码：9"));
     }
 
     #[cfg(windows)]
