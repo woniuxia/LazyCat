@@ -3,7 +3,9 @@ import type { TodoPriority, TodoReminderPreset } from "./todo";
 export type ReleasePackageNotificationStatus =
   | "succeeded"
   | "partially_succeeded"
-  | "failed";
+  | "package_succeeded_upload_failed"
+  | "failed"
+  | "cancelled";
 
 export type GlobalNotificationAction =
   | "complete"

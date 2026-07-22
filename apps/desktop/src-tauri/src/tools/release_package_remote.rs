@@ -703,10 +703,20 @@ pub fn consume_probe(token: &str) -> Result<ProbeSnapshot, String> {
 mod tests {
     use super::{
         authenticate_for_test, classify_trust, consume_probe, create_session, load_probe,
-        store_probe, validate_remote_dir, validate_remote_file, AuthSecret, HostTrust,
+        probe_host, store_probe, validate_remote_dir, validate_remote_file, AuthSecret, HostTrust,
         PreflightBinding, PreflightStore, ProbeSnapshot, RemoteEndpoint, RemoteTarget,
+        SftpRemoteFs,
     };
+    use crate::tools::release_package::ReleaseTarget;
+    use crate::tools::release_package_deploy::{
+        deploy, ArtifactManifest, DeploymentRequest, DeploymentTarget, RemoteFs, RemoteKind,
+    };
+    use std::fs;
+    use std::path::{Path, PathBuf};
+    use std::sync::atomic::AtomicBool;
+    use std::sync::{Arc, Mutex};
     use std::time::Duration;
+    use uuid::Uuid;
     use zeroize::Zeroizing;
 
     fn snapshot() -> ProbeSnapshot {
@@ -837,5 +847,246 @@ mod tests {
         let token = store_probe(snapshot()).unwrap();
         assert_eq!(consume_probe(&token).unwrap(), snapshot());
         assert!(consume_probe(&token).is_err());
+    }
+
+    struct SshTestFixture {
+        endpoint: RemoteEndpoint,
+        password: String,
+        private_key_path: String,
+        private_key_passphrase: Option<String>,
+    }
+
+    impl SshTestFixture {
+        fn from_env() -> Result<Self, String> {
+            let required = |name: &str| std::env::var(name).map_err(|_| format!("missing {name}"));
+            let host = required("LAZYCAT_SSH_TEST_HOST")?;
+            if !matches!(host.as_str(), "127.0.0.1" | "localhost" | "::1") {
+                return Err("LAZYCAT_SSH_TEST_HOST must be loopback".into());
+            }
+            let port = required("LAZYCAT_SSH_TEST_PORT")?
+                .parse::<u16>()
+                .map_err(|error| format!("invalid LAZYCAT_SSH_TEST_PORT: {error}"))?;
+            Ok(Self {
+                endpoint: RemoteEndpoint {
+                    host,
+                    port,
+                    username: required("LAZYCAT_SSH_TEST_USERNAME")?,
+                },
+                password: required("LAZYCAT_SSH_TEST_PASSWORD")?,
+                private_key_path: required("LAZYCAT_SSH_TEST_PRIVATE_KEY_PATH")?,
+                private_key_passphrase: std::env::var("LAZYCAT_SSH_TEST_PRIVATE_KEY_PASSPHRASE")
+                    .ok()
+                    .filter(|value| !value.is_empty()),
+            })
+        }
+
+        fn binding(&self, remote_root: &str, auth_type: &str) -> PreflightBinding {
+            PreflightBinding {
+                project_id: 1,
+                endpoint: self.endpoint.clone(),
+                auth_type: auth_type.into(),
+                private_key_path: self.private_key_path.clone(),
+                targets: vec![RemoteTarget::Frontend, RemoteTarget::Backend],
+                frontend_remote_dir: format!("{remote_root}/web"),
+                backend_remote_path: format!("{remote_root}/app.jar"),
+            }
+        }
+
+        fn password_auth(&self) -> AuthSecret {
+            AuthSecret::Password(Zeroizing::new(self.password.clone()))
+        }
+
+        fn private_key_auth(&self) -> AuthSecret {
+            AuthSecret::PrivateKeyPassphrase(
+                self.private_key_passphrase.clone().map(Zeroizing::new),
+            )
+        }
+    }
+
+    struct LocalFixtureDir(PathBuf);
+
+    impl LocalFixtureDir {
+        fn create() -> Result<Self, String> {
+            let path = std::env::temp_dir().join(format!(
+                "lazycat-release-package-test-{}",
+                Uuid::new_v4().simple()
+            ));
+            fs::create_dir_all(&path).map_err(|error| error.to_string())?;
+            Ok(Self(path))
+        }
+    }
+
+    impl Drop for LocalFixtureDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn write_local_fixture(
+        root: &Path,
+        empty_frontend: bool,
+    ) -> Result<(PathBuf, PathBuf), String> {
+        let frontend = root.join("frontend");
+        let backend = root.join("app.jar");
+        fs::create_dir_all(&frontend).map_err(|error| error.to_string())?;
+        if !empty_frontend {
+            let assets = frontend.join("assets");
+            fs::create_dir_all(assets.join("empty")).map_err(|error| error.to_string())?;
+            fs::write(assets.join("app.js"), b"console.log('lazycat');")
+                .map_err(|error| error.to_string())?;
+        }
+        let backend_bytes = if empty_frontend {
+            b"replacement".to_vec()
+        } else {
+            vec![0x5a; 2 * 1024 * 1024 + 17]
+        };
+        fs::write(&backend, backend_bytes).map_err(|error| error.to_string())?;
+        Ok((frontend, backend))
+    }
+
+    fn deployment_request(
+        local_root: &Path,
+        remote_root: &str,
+        run_id: &str,
+        expected_exists: bool,
+        empty_frontend: bool,
+    ) -> Result<DeploymentRequest, String> {
+        let (frontend, backend) = write_local_fixture(local_root, empty_frontend)?;
+        Ok(DeploymentRequest {
+            run_id: run_id.into(),
+            targets: vec![
+                DeploymentTarget {
+                    manifest: ArtifactManifest::from_directory(ReleaseTarget::Frontend, &frontend)?,
+                    remote_path: format!("{remote_root}/web"),
+                    expected_exists,
+                },
+                DeploymentTarget {
+                    manifest: ArtifactManifest::from_file(ReleaseTarget::Backend, &backend)?,
+                    remote_path: format!("{remote_root}/app.jar"),
+                    expected_exists,
+                },
+            ],
+        })
+    }
+
+    fn run_fixture_deployment(
+        fixture: &SshTestFixture,
+        fingerprint: &str,
+        auth_type: &str,
+        auth: AuthSecret,
+    ) -> Result<(), String> {
+        let suffix = Uuid::new_v4().simple().to_string();
+        let remote_root = format!("/tmp/lazycat-release-package-test-{suffix}");
+        let binding = fixture.binding(&remote_root, auth_type);
+        let socket_slot = Arc::new(Mutex::new(None));
+        let mut remote = SftpRemoteFs::connect(&binding, fingerprint, &auth, &socket_slot)
+            .map_err(|error| error.to_string())?;
+        let local = LocalFixtureDir::create()?;
+
+        let scenario = (|| -> Result<(), String> {
+            let initial = deployment_request(&local.0, &remote_root, "initial", false, false)?;
+            let mut uploaded = 0_u64;
+            deploy(
+                &mut remote,
+                &initial,
+                &AtomicBool::new(false),
+                |bytes, _| uploaded += bytes,
+            )
+            .map_err(|error| error.to_string())?;
+            if uploaded
+                != initial
+                    .targets
+                    .iter()
+                    .map(|target| target.manifest.total_bytes)
+                    .sum::<u64>()
+            {
+                return Err("uploaded byte count mismatch".into());
+            }
+            let nested = remote
+                .metadata(&format!("{remote_root}/web/assets/app.js"))
+                .map_err(|error| error.to_string())?
+                .ok_or("recursive frontend file missing")?;
+            if nested.kind != RemoteKind::File {
+                return Err("recursive frontend path is not a file".into());
+            }
+
+            fs::remove_dir_all(local.0.join("frontend")).map_err(|error| error.to_string())?;
+            let replacement =
+                deployment_request(&local.0, &remote_root, "replacement", true, true)?;
+            deploy(
+                &mut remote,
+                &replacement,
+                &AtomicBool::new(false),
+                |_, _| {},
+            )
+            .map_err(|error| error.to_string())?;
+            if !remote
+                .read_dir(&format!("{remote_root}/web"))
+                .map_err(|error| error.to_string())?
+                .is_empty()
+            {
+                return Err("empty frontend directory was not preserved".into());
+            }
+
+            let cancelled = deployment_request(&local.0, &remote_root, "cancelled", true, true)?;
+            let error = deploy(&mut remote, &cancelled, &AtomicBool::new(true), |_, _| {})
+                .expect_err("cancelled deployment should fail");
+            let formal_target = remote
+                .metadata(&format!("{remote_root}/web"))
+                .map_err(|error| error.to_string())?;
+            if !error.cancelled
+                || !matches!(formal_target, Some(metadata) if metadata.kind == RemoteKind::Directory)
+            {
+                return Err("cancelled deployment damaged the formal target".into());
+            }
+            Ok(())
+        })();
+
+        let cleanup = remote
+            .remove_tree(&remote_root)
+            .map_err(|error| error.to_string());
+        scenario?;
+        cleanup
+    }
+
+    #[test]
+    #[ignore = "requires LAZYCAT_SSH_TEST_* variables and a loopback SSH fixture"]
+    fn password_and_private_key_upload_to_local_fixture() {
+        let fixture = SshTestFixture::from_env().unwrap();
+        let probe = probe_host(&fixture.endpoint).unwrap();
+
+        let password_binding =
+            fixture.binding("/tmp/lazycat-release-package-test-auth", "password");
+        let socket_slot = Arc::new(Mutex::new(None));
+        assert!(SftpRemoteFs::connect(
+            &password_binding,
+            "SHA256:untrusted",
+            &fixture.password_auth(),
+            &socket_slot,
+        )
+        .is_err());
+        let wrong_password = AuthSecret::Password(Zeroizing::new("definitely-wrong".into()));
+        assert!(SftpRemoteFs::connect(
+            &password_binding,
+            &probe.fingerprint_sha256,
+            &wrong_password,
+            &Arc::new(Mutex::new(None)),
+        )
+        .is_err());
+
+        run_fixture_deployment(
+            &fixture,
+            &probe.fingerprint_sha256,
+            "password",
+            fixture.password_auth(),
+        )
+        .unwrap();
+        run_fixture_deployment(
+            &fixture,
+            &probe.fingerprint_sha256,
+            "private_key",
+            fixture.private_key_auth(),
+        )
+        .unwrap();
     }
 }

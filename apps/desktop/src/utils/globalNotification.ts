@@ -8,7 +8,13 @@ import type {
 
 const TODO_PRIORITIES = new Set(["P0", "P1", "P2", "P3"]);
 const TODO_REMINDER_PRESETS = new Set(["", "0m", "none", "5m", "10m", "30m", "1h", "1d", "2d"]);
-const RELEASE_PACKAGE_STATUSES = new Set(["succeeded", "partially_succeeded", "failed"]);
+const RELEASE_PACKAGE_STATUSES = new Set([
+  "succeeded",
+  "partially_succeeded",
+  "package_succeeded_upload_failed",
+  "failed",
+  "cancelled",
+]);
 
 function invalidNotification(): never {
   throw new Error("无效的全局通知");
@@ -112,6 +118,12 @@ export function releasePackageNotificationCopy(
   }
   if (status === "partially_succeeded") {
     return { title: "上线包部分成功", detail: "可用产物已归档，请查看失败日志" };
+  }
+  if (status === "package_succeeded_upload_failed") {
+    return { title: "上线包上传失败", detail: "本地归档已完成，服务器上传失败" };
+  }
+  if (status === "cancelled") {
+    return { title: "上线包任务已终止", detail: "任务已终止，请查看日志确认产物状态" };
   }
   return { title: "上线包打包失败", detail: "未生成可用归档，请查看打包日志" };
 }
