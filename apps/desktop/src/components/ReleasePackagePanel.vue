@@ -28,7 +28,7 @@
         <div class="editor-header">
           <div>
             <h2>{{ selectedProject ? selectedProject.name : "新建上线包项目" }}</h2>
-            <span class="editor-hint">构建前端与后端工程，并将产物归档到新目录</span>
+            <span class="editor-hint">构建前端与后端工程，并归档到本地或上传到服务器</span>
           </div>
           <div class="editor-actions">
             <el-button v-if="selectedProject" :icon="Delete" type="danger" text :disabled="running || saving" @click="deleteProject">
@@ -47,7 +47,13 @@
               <el-form-item label="项目名称" required>
                 <el-input v-model="draft.name" :disabled="running" placeholder="例如：订单管理系统" />
               </el-form-item>
-              <el-form-item label="归档根目录" required>
+              <el-form-item label="打包类型" required>
+                <el-radio-group v-model="draft.packageType" :disabled="running" class="package-type-group">
+                  <el-radio-button value="local_archive">本地归档</el-radio-button>
+                  <el-radio-button value="server_upload">上传服务器</el-radio-button>
+                </el-radio-group>
+              </el-form-item>
+              <el-form-item v-if="draft.packageType === 'local_archive'" label="归档根目录" required>
                 <el-input v-model="draft.outputRoot" :disabled="running" placeholder="当前项目的上线包归档目录" readonly>
                   <template #append>
                     <el-button :icon="FolderOpened" :disabled="running" @click="chooseOutputRoot">选择</el-button>
@@ -122,7 +128,7 @@
                     <template #append><el-button :icon="FolderOpened" :disabled="running" @click="chooseFrontendArtifact">选择目录</el-button></template>
                   </el-input>
                 </el-form-item>
-                <el-form-item label="产物处理方式" required>
+                <el-form-item v-if="draft.packageType === 'local_archive'" label="本地归档处理" required>
                   <el-select v-model="draft.frontendArtifactMode" :disabled="running" class="full-width">
                     <el-option label="直接复制目录" value="copy_directory" />
                     <el-option label="压缩为 ZIP" value="zip_directory" />
@@ -199,56 +205,46 @@
             </section>
           </div>
 
-          <el-collapse v-model="serverConfigSections" class="server-config-collapse">
+          <el-collapse v-if="draft.packageType === 'server_upload'" v-model="serverConfigSections" class="server-config-collapse">
             <el-collapse-item name="server">
               <template #title>
                 <div class="server-config-heading">
                   <div>
                     <strong>Linux 服务器上传</strong>
-                    <span>通过 SSH/SFTP 在打包成功后替换远程产物</span>
+                    <span>通过 SSH/SFTP 将构建产物内容替换到远程目标</span>
                   </div>
-                  <el-tag :type="draft.uploadEnabled ? 'success' : 'info'" effect="plain" size="small">
-                    {{ draft.uploadEnabled ? "默认上传" : "仅保存配置" }}
-                  </el-tag>
+                  <el-tag type="success" effect="plain" size="small">当前类型</el-tag>
                 </div>
               </template>
 
               <div class="server-config-body">
-                <div class="server-config-switch">
-                  <div>
-                    <strong>打包后上传</strong>
-                    <p>控制确认弹窗的默认模式，仍可在每次打包时单独切换。</p>
-                  </div>
-                  <el-switch v-model="draft.uploadEnabled" :disabled="running" />
-                </div>
-
                 <div class="server-config-grid">
-                  <el-form-item label="服务器地址" :required="draft.uploadEnabled">
+                  <el-form-item label="服务器地址" required>
                     <el-input v-model="draft.sshHost" :disabled="running" placeholder="例如：10.0.0.8" />
                   </el-form-item>
-                  <el-form-item label="SSH 端口" :required="draft.uploadEnabled">
+                  <el-form-item label="SSH 端口" required>
                     <el-input-number v-model="draft.sshPort" :disabled="running" :min="1" :max="65535" controls-position="right" class="full-width" />
                   </el-form-item>
-                  <el-form-item label="SSH 用户名" :required="draft.uploadEnabled">
+                  <el-form-item label="SSH 用户名" required>
                     <el-input v-model="draft.sshUsername" :disabled="running" placeholder="例如：deploy" />
                   </el-form-item>
-                  <el-form-item label="认证方式" :required="draft.uploadEnabled">
+                  <el-form-item label="认证方式" required>
                     <el-radio-group v-model="draft.sshAuthType" :disabled="running" class="auth-type-group">
                       <el-radio-button value="password">账户密码</el-radio-button>
                       <el-radio-button value="private_key">私钥文件</el-radio-button>
                     </el-radio-group>
                   </el-form-item>
-                  <el-form-item v-if="draft.sshAuthType === 'private_key'" label="私钥文件" :required="draft.uploadEnabled" class="server-config-span-2">
+                  <el-form-item v-if="draft.sshAuthType === 'private_key'" label="私钥文件" required class="server-config-span-2">
                     <el-input v-model="draft.sshPrivateKeyPath" :disabled="running" placeholder="选择 OpenSSH 私钥文件" readonly>
                       <template #append>
                         <el-button :icon="Document" :disabled="running" @click="choosePrivateKey">选择私钥</el-button>
                       </template>
                     </el-input>
                   </el-form-item>
-                  <el-form-item label="前端远程目录" :required="draft.uploadEnabled">
+                  <el-form-item label="前端远程目录" required>
                     <el-input v-model="draft.frontendRemoteDir" :disabled="running" placeholder="例如：/srv/portal/web" />
                   </el-form-item>
-                  <el-form-item label="后端远程文件" :required="draft.uploadEnabled">
+                  <el-form-item label="后端远程文件" required>
                     <el-input v-model="draft.backendRemotePath" :disabled="running" placeholder="例如：/srv/portal/app.jar" />
                   </el-form-item>
                 </div>
@@ -365,7 +361,7 @@
 
     <el-dialog
       v-model="confirmVisible"
-      :title="retryMode ? '重试上传' : '确认打包'"
+      :title="retryMode ? '重试上传' : isUploadStart ? '确认上传' : '确认本地归档'"
       width="min(640px, calc(100vw - 32px))"
       :close-on-click-modal="false"
       :close-on-press-escape="!starting"
@@ -373,16 +369,10 @@
       @closed="resetStartDialog"
     >
       <el-form label-position="top">
-        <el-form-item v-if="!retryMode" label="归档目录名" required>
+        <el-form-item v-if="isLocalArchiveStart" label="归档目录名" required>
           <el-input v-model="folderName" placeholder="例如：20260723-订单管理系统" />
         </el-form-item>
-        <el-form-item v-if="!retryMode" label="执行方式" required>
-          <el-radio-group v-model="startMode" :disabled="starting" class="start-mode-group">
-            <el-radio-button value="package_only">仅打包</el-radio-button>
-            <el-radio-button value="package_and_upload">打包并上传</el-radio-button>
-          </el-radio-group>
-        </el-form-item>
-        <el-form-item v-if="startMode === 'package_and_upload'" :label="credentialLabel" :required="draft.sshAuthType === 'password'">
+        <el-form-item v-if="isUploadStart" :label="credentialLabel" :required="draft.sshAuthType === 'password'">
           <el-input
             v-model="credentialSecret"
             type="password"
@@ -393,7 +383,7 @@
           />
         </el-form-item>
       </el-form>
-      <p v-if="!retryMode" class="archive-preview">完整归档路径：{{ archivePathPreview || "请先设置归档根目录" }}</p>
+      <p v-if="isLocalArchiveStart" class="archive-preview">完整归档路径：{{ archivePathPreview || "请先设置归档根目录" }}</p>
       <div v-if="!retryMode" class="package-targets">
         <span class="package-targets-label">本次打包内容（默认全选）</span>
         <el-checkbox-group v-model="selectedTargets" :disabled="starting">
@@ -401,7 +391,7 @@
           <el-checkbox label="后端包" value="backend" />
         </el-checkbox-group>
       </div>
-      <div v-if="startMode === 'package_and_upload' && uploadPreflight.probeResult.value" class="preflight-summary">
+      <div v-if="isUploadStart && uploadPreflight.probeResult.value" class="preflight-summary">
         <div class="preflight-host">
           <span>主机指纹</span>
           <code>{{ uploadPreflight.probeResult.value.fingerprintSha256 }}</code>
@@ -422,7 +412,7 @@
         </el-button>
         <el-button v-else @click="closeStartDialog">取消</el-button>
         <el-button type="primary" :loading="starting" :disabled="starting" @click="confirmStart">
-          {{ retryMode ? "确认重试" : startMode === "package_and_upload" ? "确认打包并上传" : "确认打包" }}
+          {{ retryMode ? "确认重试" : isUploadStart ? "确认构建并上传" : "确认归档" }}
         </el-button>
       </template>
     </el-dialog>
@@ -443,7 +433,6 @@ import type {
   ReleasePackageProjectDraft,
   ReleasePackageRemoteProbeResult,
   ReleasePackageRunStatus,
-  ReleasePackageStartMode,
   ReleasePackageStartResult,
   ReleasePackageTarget,
   ReleasePackageTargetCheckResult,
@@ -473,7 +462,6 @@ const confirmVisible = ref(false);
 const prepareResult = ref<ReleasePackagePrepareResult | null>(null);
 const folderName = ref("");
 const selectedTargets = ref<ReleasePackageTarget[]>(createDefaultReleasePackageTargets());
-const startMode = ref<ReleasePackageStartMode>("package_only");
 const credentialSecret = ref("");
 const overwriteRemoteTargets = ref<ReleasePackageTarget[]>([]);
 const retryMode = ref(false);
@@ -543,10 +531,13 @@ const uploadPercentage = computed(() => {
   ));
 });
 const credentialLabel = computed(() => draft.sshAuthType === "password" ? "服务器密码" : "私钥口令（可选）");
+const isUploadStart = computed(() => retryMode.value || prepareResult.value?.packageType === "server_upload");
+const isLocalArchiveStart = computed(() => !retryMode.value && prepareResult.value?.packageType === "local_archive");
 const archivePathPreview = computed(() => {
-  const preparedRoot = prepareResult.value?.outputRoot;
+  if (prepareResult.value?.packageType !== "local_archive") return "";
+  const preparedRoot = prepareResult.value.outputRoot;
   if (!preparedRoot || !folderName.value) return "";
-  if (folderName.value === prepareResult.value?.defaultFolderName) {
+  if (folderName.value === prepareResult.value.defaultFolderName) {
     return prepareResult.value.archivePath;
   }
   return `${preparedRoot.replace(/[\\/]+$/, "")}/${folderName.value}`;
@@ -752,12 +743,13 @@ async function prepareStart(): Promise<void> {
   if (running.value) return;
   resetStartDialog();
   selectedTargets.value = createDefaultReleasePackageTargets();
-  startMode.value = selectedProject.value.uploadEnabled ? "package_and_upload" : "package_only";
   try {
     prepareResult.value = (await invokeToolByChannel("tool:release-package:prepare", {
       projectId: selectedProject.value.id,
     })) as ReleasePackagePrepareResult;
-    folderName.value = prepareResult.value.defaultFolderName;
+    folderName.value = prepareResult.value.packageType === "local_archive"
+      ? prepareResult.value.defaultFolderName
+      : "";
     confirmVisible.value = true;
   } catch (error) {
     showError(error);
@@ -776,7 +768,7 @@ function prepareUploadRetry(): void {
   if (!selectedProject.value || !retryToken.value || running.value) return;
   resetStartDialog();
   retryMode.value = true;
-  startMode.value = "package_and_upload";
+  prepareResult.value = { packageType: "server_upload" };
   selectedTargets.value = retryUploadTargets();
   confirmVisible.value = true;
 }
@@ -877,7 +869,7 @@ async function runUploadPreflight(
   projectId: number,
   targets: ReleasePackageTarget[],
 ): Promise<boolean> {
-  const uploadError = validateReleasePackageUpload({ ...draft, uploadEnabled: true });
+  const uploadError = validateReleasePackageUpload(draft);
   if (uploadError) throw new Error(uploadError);
   if (draft.sshAuthType === "password" && !credentialSecret.value) {
     throw new Error("请输入服务器密码");
@@ -895,25 +887,27 @@ async function runUploadPreflight(
 
 async function confirmStart(): Promise<void> {
   const projectId = selectedProject.value?.id;
-  const folderNameError = retryMode.value ? null : validateArchiveFolderName(folderName.value);
   const targetsError = validateReleasePackageTargets(selectedTargets.value);
-  if (!projectId || folderNameError || targetsError) {
-    ElMessage.warning(folderNameError ?? targetsError ?? "请先选择项目");
+  const isRetry = retryMode.value;
+  const packageType = isRetry ? "server_upload" : prepareResult.value?.packageType;
+  const folderNameError = packageType === "local_archive"
+    ? validateArchiveFolderName(folderName.value)
+    : null;
+  if (!projectId || !packageType || folderNameError || targetsError) {
+    ElMessage.warning(folderNameError ?? targetsError ?? "打包类型无效，请重新打开确认窗口");
     return;
   }
   starting.value = true;
   cancelPendingStart.value = false;
   let runtimeStartBegun = false;
-  const isRetry = retryMode.value;
   const retryTokenValue = retryToken.value;
   try {
     let overwriteExisting = false;
-    if (!isRetry) {
+    if (packageType === "local_archive") {
       const overwriteDecision = await confirmArchiveOverwrite(projectId);
       if (overwriteDecision === null) return;
       overwriteExisting = overwriteDecision;
-    }
-    if (startMode.value === "package_and_upload") {
+    } else if (packageType === "server_upload") {
       const preflightAccepted = await runUploadPreflight(projectId, selectedTargets.value);
       if (!preflightAccepted) return;
     }
@@ -934,14 +928,16 @@ async function confirmStart(): Promise<void> {
         }) as ReleasePackageStartResult
       : await invokeToolByChannel("tool:release-package:start", {
           projectId,
-          folderName: folderName.value,
           targets: [...selectedTargets.value],
-          overwriteExisting,
-          mode: startMode.value,
-          preflightToken: startMode.value === "package_and_upload"
-            ? uploadPreflight.preflightToken.value
-            : undefined,
-          overwriteRemoteTargets: [...overwriteRemoteTargets.value],
+          ...(packageType === "local_archive"
+            ? {
+                folderName: folderName.value,
+                overwriteExisting,
+              }
+            : {
+                preflightToken: uploadPreflight.preflightToken.value,
+                overwriteRemoteTargets: [...overwriteRemoteTargets.value],
+              }),
         }) as ReleasePackageStartResult;
     runtime.bindStartedRun(result.runId, projectId);
     confirmVisible.value = false;
@@ -1020,10 +1016,8 @@ async function scrollLogToBottom(container: HTMLElement | null): Promise<void> {
 watch(() => frontendLogs.value.length, () => scrollLogToBottom(frontendLogContainer.value));
 watch(() => backendLogs.value.length, () => scrollLogToBottom(backendLogContainer.value));
 watch(() => uploadLogs.value.length, () => scrollLogToBottom(uploadLogContainer.value));
-watch(startMode, () => {
-  credentialSecret.value = "";
-  uploadPreflight.reset();
-  overwriteRemoteTargets.value = [];
+watch(() => draft.packageType, (packageType) => {
+  serverConfigSections.value = packageType === "server_upload" ? ["server"] : [];
 });
 
 onMounted(async () => {
@@ -1103,7 +1097,7 @@ onMounted(async () => {
 .project-basics { margin-bottom: 14px; padding: 14px 16px 0; }
 .project-basics-grid {
   display: grid;
-  grid-template-columns: minmax(220px, .65fr) minmax(320px, 1.35fr);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
   gap: 14px;
 }
 .engineering-grid {
@@ -1157,25 +1151,15 @@ onMounted(async () => {
 .server-config-heading > div { display: grid; min-width: 0; line-height: 1.45; }
 .server-config-heading span { color: #606266; font-size: 12px; font-weight: 400; }
 .server-config-body { padding: 0 16px 2px; border-top: 1px solid #ebeef5; }
-.server-config-switch {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  margin: 0 -16px 14px;
-  padding: 12px 16px;
-  background: #fafbfc;
-}
-.server-config-switch p { margin: 3px 0 0; color: #606266; font-size: 12px; }
 .server-config-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(130px, .35fr) minmax(0, 1fr) minmax(240px, .8fr);
   gap: 0 12px;
 }
 .server-config-span-2 { grid-column: span 2; }
-.auth-type-group, .start-mode-group { display: flex; width: 100%; }
-.auth-type-group :deep(.el-radio-button), .start-mode-group :deep(.el-radio-button) { flex: 1; }
-.auth-type-group :deep(.el-radio-button__inner), .start-mode-group :deep(.el-radio-button__inner) { width: 100%; }
+.auth-type-group, .package-type-group { display: flex; width: 100%; }
+.auth-type-group :deep(.el-radio-button), .package-type-group :deep(.el-radio-button) { flex: 1; }
+.auth-type-group :deep(.el-radio-button__inner), .package-type-group :deep(.el-radio-button__inner) { width: 100%; }
 .release-package-log-card {
   overflow: hidden;
   border: 1px solid #e4e7ed;
@@ -1360,7 +1344,6 @@ onMounted(async () => {
   .project-basics-grid { grid-template-columns: 1fr; gap: 0; }
   .server-config-heading { align-items: flex-start; }
   .server-config-grid { grid-template-columns: 1fr; }
-  .server-config-switch { align-items: flex-start; }
   .release-package-editor { padding: 10px; }
   .engineering-card { padding: 14px 12px 0; }
   .log-card-header { align-items: flex-start; }

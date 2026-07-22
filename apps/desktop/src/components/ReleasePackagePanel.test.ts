@@ -8,7 +8,8 @@ describe("ReleasePackagePanel", () => {
     expect(source).toContain('class="release-package-projects"');
     expect(source).toContain('class="release-package-editor"');
     expect(source).toContain('class="release-package-log"');
-    expect(source).toContain("确认打包");
+    expect(source).toContain("确认本地归档");
+    expect(source).toContain("确认上传");
     expect(source).toContain("终止打包");
   });
 
@@ -65,7 +66,8 @@ describe("ReleasePackagePanel", () => {
     expect(source).toContain(
       'const preferActiveProject = (selectedId.value === null && !dirty.value) || runtime.status.value === "running"',
     );
-    expect(source).toContain("prepareResult.value?.outputRoot");
+    expect(source).toContain('prepareResult.value?.packageType !== "local_archive"');
+    expect(source).toContain("prepareResult.value.outputRoot");
     expect(source).toContain("prepareResult.value.archivePath");
     expect(source).toContain("const refreshed = await loadProjects()");
   });
@@ -170,8 +172,8 @@ describe("ReleasePackagePanel", () => {
   });
 
   it("configures upload separately and preflights before runtime start", () => {
+    expect(source).toContain('v-model="draft.packageType"');
     for (const model of [
-      "draft.uploadEnabled",
       "draft.sshHost",
       "draft.sshPort",
       "draft.sshUsername",
@@ -198,5 +200,24 @@ describe("ReleasePackagePanel", () => {
     expect(source).toContain("完整替换以上远程目标");
     expect(source).toContain("package_succeeded_upload_failed");
     expect(source).toContain("重试上传");
+  });
+
+  it("renders mutually exclusive package types and type-specific fields", () => {
+    expect(source).toContain('v-model="draft.packageType"');
+    expect(source).toContain('value="local_archive"');
+    expect(source).toContain('value="server_upload"');
+    expect(source).toContain("draft.packageType === 'local_archive'");
+    expect(source).toContain("draft.packageType === 'server_upload'");
+    expect(source).not.toContain("draft.uploadEnabled");
+    expect(source).not.toContain("startMode");
+  });
+
+  it("runs only the delivery checks required by the prepared package type", () => {
+    const start = source.slice(source.indexOf("async function confirmStart"));
+    expect(start).toContain('packageType === "local_archive"');
+    expect(start).toContain('packageType === "server_upload"');
+    expect(start).toContain("confirmArchiveOverwrite");
+    expect(start).toContain("runUploadPreflight");
+    expect(source).not.toContain("mode: startMode.value");
   });
 });
