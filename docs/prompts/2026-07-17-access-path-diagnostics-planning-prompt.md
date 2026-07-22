@@ -11,7 +11,7 @@
 - Windows 优先、本地优先、本地存储
 - “离线”表示应用运行不依赖 LazyCat 云服务、公网 CDN 或第三方查询服务；诊断过程可以按用户明确输入访问目标、代理、DNS、PAC、AIA/CRL 等网络端点，并必须在报告中说明这些外部访问
 - 开始前完整阅读根目录 AGENTS.md、CLAUDE.md
-- 检查 process.md 是否有代理、DNS、Hosts、证书、网络诊断相关经验
+- 先查 `process.md` 总索引，再检查 `docs/experience/api-and-network-tools.md` 是否有 DNS、Hosts、证书和网络诊断相关经验
 - 阅读现有 Hosts 工具、Tauri bridge、Rust tools、SQLite 持久化、工具注册和 UI 结构
 - 基于真实代码规划，不要只依赖本提示
 - 不启动 dev server
