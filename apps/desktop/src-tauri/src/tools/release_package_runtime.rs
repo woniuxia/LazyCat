@@ -480,15 +480,29 @@ fn archive_pipeline_error(error: ArchiveError, phase: &'static str) -> PipelineE
     }
 }
 
+#[derive(Clone, Debug)]
+struct BuiltTarget {
+    target: ReleaseTarget,
+    source_path: PathBuf,
+    artifact_mode: String,
+}
+
+#[derive(Debug)]
+struct BuildSummary {
+    status: &'static str,
+    built_targets: Vec<BuiltTarget>,
+    selected_count: usize,
+    error: Option<String>,
+}
+
 fn run_target(
     target: ReleaseTarget,
     run_id: &str,
     project: &ReleasePackageProjectConfig,
-    staging_path: &Path,
     cancelled: Arc<AtomicBool>,
     pid: Arc<Mutex<Option<u32>>>,
     sink: Arc<dyn EventSink>,
-) -> Result<ArchivedTarget, PipelineError> {
+) -> Result<BuiltTarget, PipelineError> {
     let phase = target_phase(target);
     let (project_path, command, artifact_path) = match target {
         ReleaseTarget::Frontend => (
@@ -513,23 +527,22 @@ fn run_target(
         sink.clone(),
     )?;
     let artifact = resolve_artifact_path(&project_path, artifact_path);
-    let emit = |line: &str| emit_system_log(sink.as_ref(), run_id, project.id, phase, line);
-    let archive_entry_name = match target {
-        ReleaseTarget::Frontend => archive_frontend_artifact(
-            &artifact,
-            &project.frontend_artifact_mode,
-            staging_path,
-            cancelled.as_ref(),
-            emit,
-        ),
-        ReleaseTarget::Backend => {
-            archive_backend_artifact(&artifact, staging_path, cancelled.as_ref(), emit)
+    match target {
+        ReleaseTarget::Frontend if !artifact.is_dir() => {
+            return Err(PipelineError::Failed {
+                message: "前端产物必须是文件夹".into(),
+            });
         }
+        ReleaseTarget::Backend if !artifact.is_file() => {
+            return Err(PipelineError::Failed {
+                message: "后端产物必须是文件".into(),
+            });
+        }
+        _ => {}
     }
-    .map_err(|error| archive_pipeline_error(error, phase))?;
-    Ok(ArchivedTarget {
+    Ok(BuiltTarget {
         target,
-        archive_entry_name,
+        source_path: artifact,
         artifact_mode: match target {
             ReleaseTarget::Frontend => project.frontend_artifact_mode.clone(),
             ReleaseTarget::Backend => "file".into(),
@@ -542,7 +555,7 @@ fn emit_target_result(
     run_id: &str,
     project_id: i64,
     target: ReleaseTarget,
-    result: &Result<ArchivedTarget, PipelineError>,
+    result: &Result<BuiltTarget, PipelineError>,
 ) {
     let phase = target_phase(target);
     match result {
@@ -954,45 +967,19 @@ fn run_retry_deployment_phase(
     )
 }
 
-fn run_pipeline(
+fn run_build_pipeline(
     run_id: &str,
     project: ReleasePackageProjectConfig,
-    output_root: PathBuf,
-    folder_name: String,
     targets: Vec<ReleaseTarget>,
-    overwrite_existing: bool,
     cancelled: Arc<AtomicBool>,
     process_slots: ProcessSlots,
     sink: Arc<dyn EventSink>,
-) -> Result<PipelineSummary, PipelineError> {
-    let frontend_project = PathBuf::from(&project.frontend_project_path);
-    let backend_project = PathBuf::from(&project.backend_project_path);
-    let frontend_artifact =
-        resolve_artifact_path(&frontend_project, &project.frontend_artifact_path);
-    let backend_artifact = resolve_artifact_path(&backend_project, &project.backend_artifact_path);
-    if targets.contains(&ReleaseTarget::Frontend) && targets.contains(&ReleaseTarget::Backend) {
-        validate_artifact_target_collision(
-            &frontend_artifact,
-            &project.frontend_artifact_mode,
-            &backend_artifact,
-        )
-        .map_err(|error| archive_pipeline_error(error, "overall"))?;
-    }
-    let mut archive = ArchiveSession::create(
-        &output_root,
-        &folder_name,
-        run_id,
-        overwrite_existing,
-        cancelled.as_ref(),
-    )
-    .map_err(|error| archive_pipeline_error(error, "overall"))?;
-    let staging_path = archive.staging_path().to_path_buf();
+) -> Result<BuildSummary, PipelineError> {
     let selected_count = targets.len();
     let mut handles = Vec::with_capacity(selected_count);
     for target in targets {
         let thread_run_id = run_id.to_owned();
         let thread_project = project.clone();
-        let thread_staging_path = staging_path.clone();
         let thread_cancelled = cancelled.clone();
         let thread_sink = sink.clone();
         let pid = process_slots.for_target(target);
@@ -1003,7 +990,6 @@ fn run_pipeline(
                     target,
                     &thread_run_id,
                     &thread_project,
-                    &thread_staging_path,
                     thread_cancelled,
                     pid,
                     thread_sink.clone(),
@@ -1020,8 +1006,7 @@ fn run_pipeline(
         ));
     }
 
-    let mut success_count = 0;
-    let mut archived_targets = Vec::new();
+    let mut built_targets = Vec::new();
     let mut errors = Vec::new();
     for (target, handle) in handles {
         let result = handle.join().unwrap_or_else(|_| {
@@ -1030,10 +1015,7 @@ fn run_pipeline(
             })
         });
         match result {
-            Ok(archived_target) => {
-                success_count += 1;
-                archived_targets.push(archived_target);
-            }
+            Ok(built_target) => built_targets.push(built_target),
             Err(PipelineError::Cancelled { .. }) => {}
             Err(PipelineError::Failed { message }) => {
                 errors.push(format!("{}：{message}", target_phase(target)));
@@ -1043,12 +1025,113 @@ fn run_pipeline(
     if cancelled.load(Ordering::Acquire) {
         return Err(PipelineError::Cancelled { phase: "overall" });
     }
+    let success_count = built_targets.len();
+    Ok(BuildSummary {
+        status: if success_count == 0 {
+            "failed"
+        } else if success_count == selected_count {
+            "succeeded"
+        } else {
+            "partially_succeeded"
+        },
+        built_targets,
+        selected_count,
+        error: (!errors.is_empty()).then(|| errors.join("；")),
+    })
+}
+
+fn run_local_archive_pipeline(
+    run_id: &str,
+    project_id: i64,
+    summary: BuildSummary,
+    output_root: PathBuf,
+    folder_name: String,
+    overwrite_existing: bool,
+    cancelled: Arc<AtomicBool>,
+    sink: Arc<dyn EventSink>,
+) -> Result<PipelineSummary, PipelineError> {
+    if cancelled.load(Ordering::Acquire) {
+        return Err(PipelineError::Cancelled { phase: "overall" });
+    }
+    if summary.built_targets.is_empty() {
+        return Ok(PipelineSummary {
+            status: summary.status,
+            archive_path: None,
+            archived_targets: Vec::new(),
+            error: summary.error,
+            retry_descriptor: None,
+            remote_committed: false,
+        });
+    }
+
+    let frontend = summary
+        .built_targets
+        .iter()
+        .find(|target| target.target == ReleaseTarget::Frontend);
+    let backend = summary
+        .built_targets
+        .iter()
+        .find(|target| target.target == ReleaseTarget::Backend);
+    if let (Some(frontend), Some(backend)) = (frontend, backend) {
+        validate_artifact_target_collision(
+            &frontend.source_path,
+            &frontend.artifact_mode,
+            &backend.source_path,
+        )
+        .map_err(|error| archive_pipeline_error(error, "overall"))?;
+    }
+
+    let mut archive = ArchiveSession::create(
+        &output_root,
+        &folder_name,
+        run_id,
+        overwrite_existing,
+        cancelled.as_ref(),
+    )
+    .map_err(|error| archive_pipeline_error(error, "overall"))?;
+    let staging_path = archive.staging_path().to_path_buf();
+    let mut archived_targets = Vec::new();
+    let mut errors = summary.error.into_iter().collect::<Vec<_>>();
+    for built_target in summary.built_targets {
+        let phase = target_phase(built_target.target);
+        let emit = |line: &str| emit_system_log(sink.as_ref(), run_id, project_id, phase, line);
+        let archive_result = match built_target.target {
+            ReleaseTarget::Frontend => archive_frontend_artifact(
+                &built_target.source_path,
+                &built_target.artifact_mode,
+                &staging_path,
+                cancelled.as_ref(),
+                emit,
+            ),
+            ReleaseTarget::Backend => archive_backend_artifact(
+                &built_target.source_path,
+                &staging_path,
+                cancelled.as_ref(),
+                emit,
+            ),
+        };
+        match archive_result {
+            Ok(archive_entry_name) => archived_targets.push(ArchivedTarget {
+                target: built_target.target,
+                archive_entry_name,
+                artifact_mode: built_target.artifact_mode,
+            }),
+            Err(ArchiveError::Cancelled) => {}
+            Err(ArchiveError::Failed(message)) => {
+                errors.push(format!("{phase}：{message}"));
+            }
+        }
+    }
+    if cancelled.load(Ordering::Acquire) {
+        return Err(PipelineError::Cancelled { phase: "overall" });
+    }
+    let success_count = archived_targets.len();
     if success_count == 0 {
         return Ok(PipelineSummary {
             status: "failed",
             archive_path: None,
-            archived_targets: Vec::new(),
-            error: Some(errors.join("；")),
+            archived_targets,
+            error: (!errors.is_empty()).then(|| errors.join("；")),
             retry_descriptor: None,
             remote_committed: false,
         });
@@ -1057,7 +1140,7 @@ fn run_pipeline(
         .commit(cancelled.as_ref())
         .map_err(|error| archive_pipeline_error(error, "overall"))?;
     Ok(PipelineSummary {
-        status: if success_count == selected_count {
+        status: if success_count == summary.selected_count {
             "succeeded"
         } else {
             "partially_succeeded"
@@ -1165,17 +1248,26 @@ pub fn start(
             None,
             None,
         );
-        let result = run_pipeline(
+        let result = run_build_pipeline(
             &thread_run_id,
             project,
-            output_root,
-            folder_name,
             targets,
-            overwrite_existing,
             cancelled.clone(),
             process_slots,
             sink.clone(),
         );
+        let result = result.and_then(|summary| {
+            run_local_archive_pipeline(
+                &thread_run_id,
+                project_id,
+                summary,
+                output_root,
+                folder_name,
+                overwrite_existing,
+                cancelled.clone(),
+                sink.clone(),
+            )
+        });
         let result = match (result, deploy_authorization) {
             (Ok(summary), Some(authorization)) => Ok(run_deployment_phase(
                 &thread_run_id,
@@ -1701,13 +1793,10 @@ mod pipeline_tests {
 
     #[test]
     fn pipeline_cancellation_reports_the_active_phase() {
-        let result = run_pipeline(
+        let result = run_build_pipeline(
             "run-phase",
             project(),
-            PathBuf::from("Z:\\output"),
-            "folder".into(),
             vec![ReleaseTarget::Frontend],
-            false,
             Arc::new(AtomicBool::new(true)),
             ProcessSlots::new(),
             Arc::new(Sink),
@@ -1925,6 +2014,60 @@ mod pipeline_tests {
 
     #[cfg(windows)]
     #[test]
+    fn build_targets_returns_sources_without_archiving() {
+        let root = TestDir::new();
+        let frontend_project = root.0.join("web");
+        let backend_project = root.0.join("server");
+        let output_root = root.0.join("output");
+        fs::create_dir_all(&frontend_project).unwrap();
+        fs::create_dir_all(&backend_project).unwrap();
+        let project = ReleasePackageProjectConfig {
+            id: 1,
+            name: "构建项目".into(),
+            output_root: output_root.to_string_lossy().into_owned(),
+            package_type: ReleasePackageType::LocalArchive,
+            frontend_project_path: frontend_project.to_string_lossy().into_owned(),
+            frontend_build_command: "New-Item -ItemType Directory -Force dist | Out-Null; Set-Content dist/index.html web".into(),
+            frontend_artifact_path: "dist".into(),
+            frontend_artifact_mode: "copy_directory".into(),
+            backend_project_path: backend_project.to_string_lossy().into_owned(),
+            backend_build_command: "New-Item -ItemType Directory -Force target | Out-Null; Set-Content target/app.jar jar".into(),
+            backend_artifact_path: "target/app.jar".into(),
+            ssh_host: String::new(),
+            ssh_port: 22,
+            ssh_username: String::new(),
+            ssh_auth_type: "password".into(),
+            ssh_private_key_path: String::new(),
+            frontend_remote_dir: String::new(),
+            backend_remote_path: String::new(),
+            created_at: String::new(),
+            updated_at: String::new(),
+        };
+
+        let summary = run_build_pipeline(
+            "build-run",
+            project,
+            vec![ReleaseTarget::Frontend, ReleaseTarget::Backend],
+            Arc::new(AtomicBool::new(false)),
+            ProcessSlots::new(),
+            Arc::new(CollectingSink::default()),
+        )
+        .unwrap();
+
+        assert_eq!(summary.built_targets.len(), 2);
+        assert!(summary.built_targets.iter().any(|target| {
+            target.target == ReleaseTarget::Frontend
+                && target.source_path == frontend_project.join("dist")
+        }));
+        assert!(summary.built_targets.iter().any(|target| {
+            target.target == ReleaseTarget::Backend
+                && target.source_path == backend_project.join("target/app.jar")
+        }));
+        assert!(!output_root.exists());
+    }
+
+    #[cfg(windows)]
+    #[test]
     fn pipeline_builds_frontend_then_backend_and_archives_both() {
         let root = TestDir::new();
         let frontend_project = root.0.join("web");
@@ -1956,15 +2099,23 @@ mod pipeline_tests {
             updated_at: String::new(),
         };
         let sink = Arc::new(CollectingSink::default());
-        let result = run_pipeline(
+        let build = run_build_pipeline(
             "smoke-run",
-            project,
-            output_root,
-            "20260723-冒烟项目".into(),
+            project.clone(),
             vec![ReleaseTarget::Frontend, ReleaseTarget::Backend],
-            false,
             Arc::new(AtomicBool::new(false)),
             ProcessSlots::new(),
+            sink.clone(),
+        )
+        .unwrap();
+        let result = run_local_archive_pipeline(
+            "smoke-run",
+            project.id,
+            build,
+            output_root,
+            "20260723-冒烟项目".into(),
+            false,
+            Arc::new(AtomicBool::new(false)),
             sink.clone(),
         )
         .unwrap();
@@ -2015,15 +2166,23 @@ mod pipeline_tests {
             created_at: String::new(),
             updated_at: String::new(),
         };
-        let summary = run_pipeline(
+        let build = run_build_pipeline(
             "failed-run",
-            project,
-            output_root.clone(),
-            "20260723-冒烟项目".into(),
+            project.clone(),
             vec![ReleaseTarget::Frontend, ReleaseTarget::Backend],
-            false,
             Arc::new(AtomicBool::new(false)),
             ProcessSlots::new(),
+            Arc::new(CollectingSink::default()),
+        )
+        .unwrap();
+        let summary = run_local_archive_pipeline(
+            "failed-run",
+            project.id,
+            build,
+            output_root.clone(),
+            "20260723-冒烟项目".into(),
+            false,
+            Arc::new(AtomicBool::new(false)),
             Arc::new(CollectingSink::default()),
         )
         .unwrap();
