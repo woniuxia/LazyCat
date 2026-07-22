@@ -11,7 +11,7 @@ use std::thread;
 use std::time::Duration;
 use tauri::Emitter;
 
-use super::release_package::{ReleasePackageProjectConfig, ReleaseTarget};
+use super::release_package::{ReleasePackageProjectConfig, ReleasePackageType, ReleaseTarget};
 use super::release_package_archive::{
     archive_backend_artifact, archive_frontend_artifact, extract_retry_zip, resolve_artifact_path,
     validate_artifact_target_collision, ArchiveError, ArchiveSession, RetryExtraction,
@@ -1479,6 +1479,7 @@ mod pipeline_tests {
             id: 7,
             name: "test".into(),
             output_root: "Z:\\output".into(),
+            package_type: ReleasePackageType::LocalArchive,
             frontend_project_path: "Z:\\missing".into(),
             frontend_build_command: "exit 0".into(),
             frontend_artifact_path: "dist".into(),
@@ -1486,7 +1487,6 @@ mod pipeline_tests {
             backend_project_path: "Z:\\missing".into(),
             backend_build_command: "exit 0".into(),
             backend_artifact_path: "server.jar".into(),
-            upload_enabled: false,
             ssh_host: String::new(),
             ssh_port: 22,
             ssh_username: String::new(),
@@ -1937,6 +1937,7 @@ mod pipeline_tests {
             id: 1,
             name: "冒烟项目".into(),
             output_root: output_root.to_string_lossy().into_owned(),
+            package_type: ReleasePackageType::LocalArchive,
             frontend_project_path: frontend_project.to_string_lossy().into_owned(),
             frontend_build_command: "New-Item -ItemType Directory -Force dist | Out-Null; Set-Content dist/index.html web".into(),
             frontend_artifact_path: "dist".into(),
@@ -1944,7 +1945,6 @@ mod pipeline_tests {
             backend_project_path: backend_project.to_string_lossy().into_owned(),
             backend_build_command: "New-Item -ItemType Directory -Force target | Out-Null; Set-Content target/app.jar jar".into(),
             backend_artifact_path: "target/app.jar".into(),
-            upload_enabled: false,
             ssh_host: String::new(),
             ssh_port: 22,
             ssh_username: String::new(),
@@ -1997,6 +1997,7 @@ mod pipeline_tests {
             id: 2,
             name: "冒烟项目".into(),
             output_root: output_root.to_string_lossy().into_owned(),
+            package_type: ReleasePackageType::LocalArchive,
             frontend_project_path: frontend_project.to_string_lossy().into_owned(),
             frontend_build_command: "exit 9".into(),
             frontend_artifact_path: "dist".into(),
@@ -2004,7 +2005,6 @@ mod pipeline_tests {
             backend_project_path: backend_project.to_string_lossy().into_owned(),
             backend_build_command: "New-Item -ItemType Directory -Force target | Out-Null; Set-Content target/app.jar backend-ok".into(),
             backend_artifact_path: "target/app.jar".into(),
-            upload_enabled: false,
             ssh_host: String::new(),
             ssh_port: 22,
             ssh_username: String::new(),

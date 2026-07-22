@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS release_package_projects (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
     output_root TEXT NOT NULL,
+    package_type TEXT NOT NULL DEFAULT 'local_archive' CHECK (package_type IN ('local_archive', 'server_upload')),
     frontend_project_path TEXT NOT NULL,
     frontend_build_command TEXT NOT NULL,
     frontend_artifact_path TEXT NOT NULL,
@@ -77,6 +78,29 @@ pub fn ensure_schema(conn: &Connection) -> Result<(), String> {
             })?;
         }
     }
+    let package_type_exists = conn
+        .prepare("PRAGMA table_info(release_package_projects)")
+        .and_then(|mut query| {
+            query
+                .query_map([], |row| row.get::<_, String>(1))?
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .map_err(|error| format!("inspect release package type schema failed: {error}"))?
+        .iter()
+        .any(|name| name == "package_type");
+    if !package_type_exists {
+        conn.execute_batch(
+            "ALTER TABLE release_package_projects
+             ADD COLUMN package_type TEXT NOT NULL DEFAULT 'local_archive'
+             CHECK (package_type IN ('local_archive', 'server_upload'));
+             UPDATE release_package_projects
+             SET package_type = CASE
+                WHEN upload_enabled = 1 THEN 'server_upload'
+                ELSE 'local_archive'
+             END;",
+        )
+        .map_err(|error| format!("migrate release package type failed: {error}"))?;
+    }
     Ok(())
 }
 
@@ -95,12 +119,37 @@ const ACTIONS: &[&str] = &[
     "cancel",
 ];
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReleasePackageType {
+    LocalArchive,
+    ServerUpload,
+}
+
+impl ReleasePackageType {
+    fn parse(value: &str) -> Result<Self, String> {
+        match value {
+            "local_archive" => Ok(Self::LocalArchive),
+            "server_upload" => Ok(Self::ServerUpload),
+            _ => Err("packageType must be local_archive or server_upload".into()),
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::LocalArchive => "local_archive",
+            Self::ServerUpload => "server_upload",
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ReleasePackageProjectConfig {
     pub id: i64,
     pub name: String,
     pub output_root: String,
+    pub package_type: ReleasePackageType,
     pub frontend_project_path: String,
     pub frontend_build_command: String,
     pub frontend_artifact_path: String,
@@ -108,7 +157,6 @@ pub struct ReleasePackageProjectConfig {
     pub backend_project_path: String,
     pub backend_build_command: String,
     pub backend_artifact_path: String,
-    pub upload_enabled: bool,
     pub ssh_host: String,
     pub ssh_port: u16,
     pub ssh_username: String,
@@ -139,6 +187,7 @@ pub enum ReleaseTarget {
 struct ProjectPayload {
     name: String,
     output_root: String,
+    package_type: ReleasePackageType,
     frontend_project_path: String,
     frontend_build_command: String,
     frontend_artifact_path: String,
@@ -146,7 +195,6 @@ struct ProjectPayload {
     backend_project_path: String,
     backend_build_command: String,
     backend_artifact_path: String,
-    upload_enabled: bool,
     ssh_host: String,
     ssh_port: u16,
     ssh_username: String,
@@ -170,14 +218,6 @@ fn optional_string(payload: &Value, key: &str) -> Result<String, String> {
         None | Some(Value::Null) => Ok(String::new()),
         Some(Value::String(value)) => Ok(value.trim().to_owned()),
         Some(_) => Err(format!("{key} must be a string")),
-    }
-}
-
-fn optional_bool(payload: &Value, key: &str, default: bool) -> Result<bool, String> {
-    match payload.get(key) {
-        None => Ok(default),
-        Some(Value::Bool(value)) => Ok(*value),
-        Some(_) => Err(format!("{key} must be a boolean")),
     }
 }
 
@@ -273,7 +313,8 @@ fn parse_deploy_start_input(payload: &Value) -> Result<DeployStartInput, String>
 fn parse_project_payload(payload: &Value) -> Result<ProjectPayload, String> {
     let mut project = ProjectPayload {
         name: required_string(payload, "name")?,
-        output_root: required_string(payload, "outputRoot")?,
+        output_root: optional_string(payload, "outputRoot")?,
+        package_type: ReleasePackageType::parse(&required_string(payload, "packageType")?)?,
         frontend_project_path: required_string(payload, "frontendProjectPath")?,
         frontend_build_command: required_string(payload, "frontendBuildCommand")?,
         frontend_artifact_path: required_string(payload, "frontendArtifactPath")?,
@@ -281,7 +322,6 @@ fn parse_project_payload(payload: &Value) -> Result<ProjectPayload, String> {
         backend_project_path: required_string(payload, "backendProjectPath")?,
         backend_build_command: required_string(payload, "backendBuildCommand")?,
         backend_artifact_path: required_string(payload, "backendArtifactPath")?,
-        upload_enabled: optional_bool(payload, "uploadEnabled", false)?,
         ssh_host: optional_string(payload, "sshHost")?,
         ssh_port: optional_port(payload, "sshPort", 22)?,
         ssh_username: optional_string(payload, "sshUsername")?,
@@ -291,18 +331,21 @@ fn parse_project_payload(payload: &Value) -> Result<ProjectPayload, String> {
         backend_remote_path: optional_string(payload, "backendRemotePath")?,
     };
     validate_folder_name(&project.name)?;
+    if project.package_type == ReleasePackageType::LocalArchive && project.output_root.is_empty() {
+        return Err("outputRoot is required for local_archive".into());
+    }
     if project.ssh_auth_type.is_empty() {
         project.ssh_auth_type = "password".into();
     }
     if !matches!(project.ssh_auth_type.as_str(), "password" | "private_key") {
         return Err("sshAuthType must be password or private_key".into());
     }
-    if project.upload_enabled {
+    if project.package_type == ReleasePackageType::ServerUpload {
         if project.ssh_host.is_empty() {
-            return Err("sshHost is required when upload is enabled".into());
+            return Err("sshHost is required for server_upload".into());
         }
         if project.ssh_username.is_empty() {
-            return Err("sshUsername is required when upload is enabled".into());
+            return Err("sshUsername is required for server_upload".into());
         }
         if project.ssh_auth_type == "private_key" && project.ssh_private_key_path.is_empty() {
             return Err("sshPrivateKeyPath is required for private_key authentication".into());
@@ -324,6 +367,8 @@ fn parse_project_payload(payload: &Value) -> Result<ProjectPayload, String> {
 }
 
 fn project_from_row(row: &Row<'_>) -> rusqlite::Result<ReleasePackageProjectConfig> {
+    let package_type = ReleasePackageType::parse(&row.get::<_, String>(10)?)
+        .map_err(|_| rusqlite::Error::InvalidQuery)?;
     Ok(ReleasePackageProjectConfig {
         id: row.get(0)?,
         name: row.get(1)?,
@@ -335,7 +380,7 @@ fn project_from_row(row: &Row<'_>) -> rusqlite::Result<ReleasePackageProjectConf
         backend_project_path: row.get(7)?,
         backend_build_command: row.get(8)?,
         backend_artifact_path: row.get(9)?,
-        upload_enabled: row.get(10)?,
+        package_type,
         ssh_host: row.get(11)?,
         ssh_port: row.get(12)?,
         ssh_username: row.get(13)?,
@@ -353,7 +398,7 @@ fn project_list_with_conn(conn: &Connection) -> Result<Value, String> {
         .prepare(
             "SELECT id, name, output_root, frontend_project_path, frontend_build_command, frontend_artifact_path,
                     frontend_artifact_mode, backend_project_path, backend_build_command,
-                    backend_artifact_path, upload_enabled, ssh_host, ssh_port, ssh_username, ssh_auth_type,
+                    backend_artifact_path, package_type, ssh_host, ssh_port, ssh_username, ssh_auth_type,
                     ssh_private_key_path, frontend_remote_dir, backend_remote_path, created_at, updated_at
              FROM release_package_projects
              ORDER BY name COLLATE NOCASE ASC, id ASC",
@@ -373,7 +418,7 @@ fn project_create_with_conn(conn: &Connection, payload: &Value) -> Result<Value,
         "INSERT INTO release_package_projects(
             name, output_root, frontend_project_path, frontend_build_command, frontend_artifact_path,
             frontend_artifact_mode, backend_project_path, backend_build_command, backend_artifact_path,
-            upload_enabled, ssh_host, ssh_port, ssh_username, ssh_auth_type,
+            package_type, ssh_host, ssh_port, ssh_username, ssh_auth_type,
             ssh_private_key_path, frontend_remote_dir, backend_remote_path
          ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
         params![
@@ -386,7 +431,7 @@ fn project_create_with_conn(conn: &Connection, payload: &Value) -> Result<Value,
             project.backend_project_path,
             project.backend_build_command,
             project.backend_artifact_path,
-            project.upload_enabled,
+            project.package_type.as_str(),
             project.ssh_host,
             project.ssh_port,
             project.ssh_username,
@@ -409,7 +454,7 @@ fn project_update_with_conn(conn: &Connection, payload: &Value) -> Result<Value,
                 name=?1, output_root=?2, frontend_project_path=?3, frontend_build_command=?4,
                 frontend_artifact_path=?5, frontend_artifact_mode=?6,
                 backend_project_path=?7, backend_build_command=?8, backend_artifact_path=?9,
-                upload_enabled=?10, ssh_host=?11, ssh_port=?12, ssh_username=?13,
+                package_type=?10, ssh_host=?11, ssh_port=?12, ssh_username=?13,
                 ssh_auth_type=?14, ssh_private_key_path=?15, frontend_remote_dir=?16,
                 backend_remote_path=?17, updated_at=CURRENT_TIMESTAMP
              WHERE id=?18",
@@ -423,7 +468,7 @@ fn project_update_with_conn(conn: &Connection, payload: &Value) -> Result<Value,
                 project.backend_project_path,
                 project.backend_build_command,
                 project.backend_artifact_path,
-                project.upload_enabled,
+                project.package_type.as_str(),
                 project.ssh_host,
                 project.ssh_port,
                 project.ssh_username,
@@ -459,7 +504,7 @@ pub(crate) fn load_project(
     conn.query_row(
         "SELECT id, name, output_root, frontend_project_path, frontend_build_command, frontend_artifact_path,
                 frontend_artifact_mode, backend_project_path, backend_build_command,
-                backend_artifact_path, upload_enabled, ssh_host, ssh_port, ssh_username, ssh_auth_type,
+                backend_artifact_path, package_type, ssh_host, ssh_port, ssh_username, ssh_auth_type,
                     ssh_private_key_path, frontend_remote_dir, backend_remote_path, created_at, updated_at
          FROM release_package_projects
          WHERE id=?1",
@@ -919,6 +964,7 @@ mod tests {
         json!({
             "name": "客户门户",
             "outputRoot": r"D:\releases",
+            "packageType": "server_upload",
             "frontendProjectPath": r"D:\work\web",
             "frontendBuildCommand": "pnpm build",
             "frontendArtifactPath": "dist",
@@ -926,7 +972,6 @@ mod tests {
             "backendProjectPath": r"D:\work\server",
             "backendBuildCommand": "mvn clean package -Pprod",
             "backendArtifactPath": r"target\portal.jar",
-            "uploadEnabled": true,
             "sshHost": "deploy.example.internal",
             "sshPort": 2222,
             "sshUsername": "deploy",
@@ -967,11 +1012,95 @@ mod tests {
         ensure_schema(&conn).unwrap();
         let projects = project_list_with_conn(&conn).unwrap();
         let project = &projects["projects"][0];
-        assert_eq!(project["uploadEnabled"], false);
+        assert_eq!(project["packageType"], "local_archive");
         assert_eq!(project["sshPort"], 22);
         assert_eq!(project["sshAuthType"], "password");
         assert!(project.get("password").is_none());
         assert!(project.get("privateKeyPassphrase").is_none());
+    }
+
+    #[test]
+    fn schema_migrates_legacy_upload_flag_to_package_type_once() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE release_package_projects (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                output_root TEXT NOT NULL,
+                frontend_project_path TEXT NOT NULL,
+                frontend_build_command TEXT NOT NULL,
+                frontend_artifact_path TEXT NOT NULL,
+                frontend_artifact_mode TEXT NOT NULL,
+                backend_project_path TEXT NOT NULL,
+                backend_build_command TEXT NOT NULL,
+                backend_artifact_path TEXT NOT NULL,
+                upload_enabled INTEGER NOT NULL DEFAULT 0,
+                ssh_host TEXT NOT NULL DEFAULT '',
+                ssh_port INTEGER NOT NULL DEFAULT 22,
+                ssh_username TEXT NOT NULL DEFAULT '',
+                ssh_auth_type TEXT NOT NULL DEFAULT 'password',
+                ssh_private_key_path TEXT NOT NULL DEFAULT '',
+                frontend_remote_dir TEXT NOT NULL DEFAULT '',
+                backend_remote_path TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            INSERT INTO release_package_projects(
+                name, output_root, frontend_project_path, frontend_build_command,
+                frontend_artifact_path, frontend_artifact_mode, backend_project_path,
+                backend_build_command, backend_artifact_path, upload_enabled
+            ) VALUES
+                ('local', 'D:\\release', 'D:\\web', 'pnpm build', 'dist',
+                 'copy_directory', 'D:\\server', 'mvn package', 'target/app.jar', 0),
+                ('upload', '', 'D:\\web', 'pnpm build', 'dist',
+                 'copy_directory', 'D:\\server', 'mvn package', 'target/app.jar', 1);",
+        )
+        .unwrap();
+
+        ensure_schema(&conn).unwrap();
+        let local = load_project(&conn, 1).unwrap();
+        let upload = load_project(&conn, 2).unwrap();
+        assert_eq!(local.package_type, ReleasePackageType::LocalArchive);
+        assert_eq!(upload.package_type, ReleasePackageType::ServerUpload);
+
+        conn.execute(
+            "UPDATE release_package_projects SET package_type='local_archive' WHERE id=2",
+            [],
+        )
+        .unwrap();
+        ensure_schema(&conn).unwrap();
+        assert_eq!(
+            load_project(&conn, 2).unwrap().package_type,
+            ReleasePackageType::LocalArchive
+        );
+    }
+
+    #[test]
+    fn project_validation_depends_on_package_type() {
+        let mut upload = payload();
+        upload["packageType"] = json!("server_upload");
+        upload["outputRoot"] = json!("");
+        assert!(parse_project_payload(&upload).is_ok());
+
+        upload["sshHost"] = json!("");
+        assert_eq!(
+            parse_project_payload(&upload).err().unwrap(),
+            "sshHost is required for server_upload"
+        );
+
+        let mut local = payload();
+        local["packageType"] = json!("local_archive");
+        local["sshHost"] = json!("");
+        local["sshUsername"] = json!("");
+        local["frontendRemoteDir"] = json!("");
+        local["backendRemotePath"] = json!("");
+        assert!(parse_project_payload(&local).is_ok());
+
+        local["outputRoot"] = json!("");
+        assert_eq!(
+            parse_project_payload(&local).err().unwrap(),
+            "outputRoot is required for local_archive"
+        );
     }
     #[test]
     fn trusted_host_requires_explicit_replacement_when_fingerprint_changes() {
@@ -1129,13 +1258,12 @@ mod tests {
     }
 
     #[test]
-    fn upload_enabled_only_controls_the_default_mode() {
+    fn server_upload_config_is_validated_independently() {
         let conn = test_conn();
         let id = project_create_with_conn(&conn, &payload()).unwrap()["id"]
             .as_i64()
             .unwrap();
-        let mut project = load_project(&conn, id).unwrap();
-        project.upload_enabled = false;
+        let project = load_project(&conn, id).unwrap();
 
         assert!(validate_upload_project(&project).is_ok());
     }
@@ -1158,6 +1286,7 @@ mod tests {
             id: 1,
             name: "test".into(),
             output_root: output.to_string_lossy().into_owned(),
+            package_type: ReleasePackageType::LocalArchive,
             frontend_project_path: root.join("missing-frontend").to_string_lossy().into_owned(),
             frontend_build_command: "exit 0".into(),
             frontend_artifact_path: "dist".into(),
@@ -1165,7 +1294,6 @@ mod tests {
             backend_project_path: backend.to_string_lossy().into_owned(),
             backend_build_command: "exit 0".into(),
             backend_artifact_path: "app.jar".into(),
-            upload_enabled: false,
             ssh_host: String::new(),
             ssh_port: 22,
             ssh_username: String::new(),
@@ -1235,6 +1363,7 @@ mod tests {
             id: 1,
             name: "test".into(),
             output_root: output.to_string_lossy().into_owned(),
+            package_type: ReleasePackageType::LocalArchive,
             frontend_project_path: root.join("missing-frontend").to_string_lossy().into_owned(),
             frontend_build_command: "exit 0".into(),
             frontend_artifact_path: "dist".into(),
@@ -1242,7 +1371,6 @@ mod tests {
             backend_project_path: backend.to_string_lossy().into_owned(),
             backend_build_command: "exit 0".into(),
             backend_artifact_path: "app.jar".into(),
-            upload_enabled: false,
             ssh_host: String::new(),
             ssh_port: 22,
             ssh_username: String::new(),
