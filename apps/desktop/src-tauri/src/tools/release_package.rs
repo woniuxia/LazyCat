@@ -725,9 +725,12 @@ fn trust_host_with_conn(
 
 fn host_trust_with_conn(
     conn: &Connection,
+    project_id: i64,
     probe_token: &str,
     replace_existing: bool,
 ) -> Result<Value, String> {
+    let project = load_project(conn, project_id)?;
+    require_package_type(&project, ReleasePackageType::ServerUpload, "host_trust")?;
     let snapshot = consume_probe(probe_token)?;
     trust_host_with_conn(conn, &snapshot, replace_existing)?;
     let next_token = store_probe(snapshot.clone())?;
@@ -874,6 +877,9 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
             remote_probe_with_conn(&conn, id)
         }
         "host_trust" => {
+            let project_id = payload["projectId"]
+                .as_i64()
+                .ok_or("projectId is required")?;
             let probe_token = payload["probeToken"]
                 .as_str()
                 .ok_or("probeToken is required")?;
@@ -882,7 +888,7 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
                 Some(Value::Bool(value)) => *value,
                 Some(_) => return Err("replaceExisting must be a boolean".into()),
             };
-            host_trust_with_conn(&conn, probe_token, replace_existing)
+            host_trust_with_conn(&conn, project_id, probe_token, replace_existing)
         }
         "remote_preflight" => remote_preflight_with_conn(&conn, payload),
         _ => unreachable!(),
@@ -1174,6 +1180,9 @@ mod tests {
     #[test]
     fn host_trust_rotates_the_probe_token_and_rejects_reuse() {
         let conn = test_conn();
+        let project_id = project_create_with_conn(&conn, &payload()).unwrap()["id"]
+            .as_i64()
+            .unwrap();
         let snapshot = ProbeSnapshot {
             endpoint: RemoteEndpoint {
                 host: "server.example.internal".into(),
@@ -1184,12 +1193,38 @@ mod tests {
             fingerprint_sha256: "SHA256:new".into(),
         };
         let old_token = store_probe(snapshot.clone()).unwrap();
-        let result = host_trust_with_conn(&conn, &old_token, false).unwrap();
+        let result = host_trust_with_conn(&conn, project_id, &old_token, false).unwrap();
         let next_token = result["probeToken"].as_str().unwrap();
         assert_ne!(next_token, old_token);
-        assert!(host_trust_with_conn(&conn, &old_token, false).is_err());
+        assert!(host_trust_with_conn(&conn, project_id, &old_token, false).is_err());
         assert_eq!(consume_probe(next_token).unwrap(), snapshot);
     }
+
+    #[test]
+    fn local_archive_cannot_trust_a_host_and_does_not_consume_the_probe_token() {
+        let conn = test_conn();
+        let mut local = payload();
+        local["packageType"] = json!("local_archive");
+        let project_id = project_create_with_conn(&conn, &local).unwrap()["id"]
+            .as_i64()
+            .unwrap();
+        let snapshot = ProbeSnapshot {
+            endpoint: RemoteEndpoint {
+                host: "server.example.internal".into(),
+                port: 22,
+                username: "deploy".into(),
+            },
+            key_type: "ed25519".into(),
+            fingerprint_sha256: "SHA256:local".into(),
+        };
+        let probe_token = store_probe(snapshot.clone()).unwrap();
+
+        assert!(host_trust_with_conn(&conn, project_id, &probe_token, false)
+            .unwrap_err()
+            .contains("server_upload"));
+        assert_eq!(consume_probe(&probe_token).unwrap(), snapshot);
+    }
+
     #[test]
     fn authentication_payload_must_match_the_configured_mode() {
         let conn = test_conn();
