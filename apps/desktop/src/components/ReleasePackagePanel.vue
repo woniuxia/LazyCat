@@ -442,6 +442,7 @@ import {
   RELEASE_PACKAGE_COMMAND_EXAMPLES,
   createDefaultReleasePackageTargets,
   createEmptyReleasePackageDraft,
+  createReleasePackageStartPayload,
   isReleasePackageDraftDirty,
   projectToReleasePackageDraft,
   releasePackageRunStatusLabel,
@@ -906,23 +907,14 @@ async function confirmStart(): Promise<void> {
   let runtimeStartBegun = false;
   const retryTokenValue = retryToken.value;
   try {
-    let startPayload:
-      | { folderName: string; overwriteExisting: boolean }
-      | { preflightToken: string; overwriteRemoteTargets: ReleasePackageTarget[] };
+    let overwriteExisting = false;
     if (packageType === "local_archive") {
       const overwriteDecision = await confirmArchiveOverwrite(projectId);
       if (overwriteDecision === null) return;
-      startPayload = {
-        folderName: folderName.value,
-        overwriteExisting: overwriteDecision,
-      };
+      overwriteExisting = overwriteDecision;
     } else if (packageType === "server_upload") {
       const preflightAccepted = await runUploadPreflight(projectId, selectedTargets.value);
       if (!preflightAccepted) return;
-      startPayload = {
-        preflightToken: uploadPreflight.preflightToken.value,
-        overwriteRemoteTargets: [...overwriteRemoteTargets.value],
-      };
     }
     await runtime.ensureListeners();
     if (cancelPendingStart.value) {
@@ -939,11 +931,17 @@ async function confirmStart(): Promise<void> {
           preflightToken: uploadPreflight.preflightToken.value,
           overwriteRemoteTargets: [...overwriteRemoteTargets.value],
         }) as ReleasePackageStartResult
-      : await invokeToolByChannel("tool:release-package:start", {
-          projectId,
-          targets: [...selectedTargets.value],
-          ...startPayload,
-        }) as ReleasePackageStartResult;
+      : await invokeToolByChannel(
+          "tool:release-package:start",
+          createReleasePackageStartPayload(packageType, {
+            projectId,
+            targets: selectedTargets.value,
+            folderName: folderName.value,
+            overwriteExisting,
+            preflightToken: uploadPreflight.preflightToken.value,
+            overwriteRemoteTargets: overwriteRemoteTargets.value,
+          }),
+        ) as ReleasePackageStartResult;
     runtime.bindStartedRun(result.runId, projectId);
     confirmVisible.value = false;
     if (cancelPendingStart.value) {

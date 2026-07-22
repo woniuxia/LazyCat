@@ -4,10 +4,12 @@ import type {
   ReleasePackageLogEvent,
   ReleasePackageProject,
   ReleasePackageRunStatus,
+  ReleasePackageType,
 } from "../types/release-package";
 import {
   acceptReleasePackageEvent,
   appendReleasePackageLog,
+  createReleasePackageStartPayload,
   createDefaultReleasePackageTargets,
   createEmptyReleasePackageDraft,
   isReleasePackageDraftDirty,
@@ -220,6 +222,51 @@ Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force
     draft.packageType = "local_archive";
     expect(validateReleasePackageDraft(draft)).toBe("请选择归档根目录");
   });
+
+  it.each([
+    {
+      packageType: "local_archive",
+      expected: {
+        projectId: 7,
+        targets: ["frontend", "backend"],
+        folderName: "portal-20260722",
+        overwriteExisting: true,
+      },
+    },
+    {
+      packageType: "server_upload",
+      expected: {
+        projectId: 7,
+        targets: ["frontend", "backend"],
+        preflightToken: "preflight-1",
+        overwriteRemoteTargets: ["frontend"],
+      },
+    },
+  ] satisfies ReadonlyArray<{
+    packageType: ReleasePackageType;
+    expected: Record<string, unknown>;
+  }>)("builds only $packageType start parameters", ({ packageType, expected }) => {
+    expect(createReleasePackageStartPayload(packageType, {
+      projectId: 7,
+      targets: ["frontend", "backend"],
+      folderName: "portal-20260722",
+      overwriteExisting: true,
+      preflightToken: "preflight-1",
+      overwriteRemoteTargets: ["frontend"],
+    })).toEqual(expected);
+  });
+
+  it.each([undefined, "", "legacy_upload"])("rejects invalid start package type %s", (packageType) => {
+    expect(() => createReleasePackageStartPayload(packageType, {
+      projectId: 7,
+      targets: ["frontend"],
+      folderName: "portal-20260722",
+      overwriteExisting: false,
+      preflightToken: "preflight-1",
+      overwriteRemoteTargets: [],
+    })).toThrow("打包类型无效，请重新打开确认窗口");
+  });
+
   it("accepts events only for the active run", () => {
     expect(acceptReleasePackageEvent("run-1", { runId: "run-1" })).toBe(true);
     expect(acceptReleasePackageEvent("run-1", { runId: "run-2" })).toBe(false);

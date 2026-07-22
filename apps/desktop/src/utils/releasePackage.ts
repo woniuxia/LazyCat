@@ -67,6 +67,54 @@ export function validateReleasePackageTargets(targets: readonly ReleasePackageTa
   return targets.length === 0 ? "请至少选择前端包或后端包" : null;
 }
 
+export interface ReleasePackageStartPayloadInput {
+  projectId: number;
+  targets: readonly ReleasePackageTarget[];
+  folderName: string;
+  overwriteExisting: boolean;
+  preflightToken: string;
+  overwriteRemoteTargets: readonly ReleasePackageTarget[];
+}
+
+export type ReleasePackageStartPayload =
+  | {
+      projectId: number;
+      targets: ReleasePackageTarget[];
+      folderName: string;
+      overwriteExisting: boolean;
+    }
+  | {
+      projectId: number;
+      targets: ReleasePackageTarget[];
+      preflightToken: string;
+      overwriteRemoteTargets: ReleasePackageTarget[];
+    };
+
+export function createReleasePackageStartPayload(
+  packageType: string | null | undefined,
+  input: ReleasePackageStartPayloadInput,
+): ReleasePackageStartPayload {
+  const common = {
+    projectId: input.projectId,
+    targets: [...input.targets],
+  };
+  if (packageType === "local_archive") {
+    return {
+      ...common,
+      folderName: input.folderName,
+      overwriteExisting: input.overwriteExisting,
+    };
+  }
+  if (packageType === "server_upload") {
+    return {
+      ...common,
+      preflightToken: input.preflightToken,
+      overwriteRemoteTargets: [...input.overwriteRemoteTargets],
+    };
+  }
+  throw new Error("打包类型无效，请重新打开确认窗口");
+}
+
 export function createEmptyReleasePackageDraft(): ReleasePackageProjectDraft {
   return {
     name: "",

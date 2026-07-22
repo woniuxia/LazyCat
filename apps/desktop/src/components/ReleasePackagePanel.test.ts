@@ -158,7 +158,8 @@ describe("ReleasePackagePanel", () => {
     expect(source).toContain('label="前端包"');
     expect(source).toContain('label="后端包"');
     expect(source).toContain("createDefaultReleasePackageTargets()");
-    expect(source).toContain("targets: [...selectedTargets.value]");
+    expect(source).toContain("createReleasePackageStartPayload(packageType");
+    expect(source).toContain("targets: selectedTargets.value");
     expect(source).toContain("release-package-project-log");
     expect(source).toContain('class="release-package-log-columns"');
     expect(source).toContain('ref="frontendLogContainer"');
@@ -214,27 +215,8 @@ describe("ReleasePackagePanel", () => {
 
   it("runs only the delivery checks required by the prepared package type", () => {
     const start = source.slice(source.indexOf("async function confirmStart"));
-    expect(start).toContain('packageType === "local_archive"');
-    expect(start).toContain('packageType === "server_upload"');
     expect(start).toContain("confirmArchiveOverwrite");
     expect(start).toContain("runUploadPreflight");
     expect(source).not.toContain("mode: startMode.value");
-  });
-
-  it("rejects unknown package types instead of falling back to upload parameters", () => {
-    const start = source.slice(source.indexOf("async function confirmStart"));
-    const invalidTypeGuard = start.indexOf(
-      'packageType !== "local_archive" && packageType !== "server_upload"',
-    );
-    const startInvoke = start.indexOf('invokeToolByChannel("tool:release-package:start"');
-
-    expect(invalidTypeGuard).toBeGreaterThan(-1);
-    expect(invalidTypeGuard).toBeLessThan(startInvoke);
-    expect(start).toContain('ElMessage.warning("打包类型无效，请重新打开确认窗口")');
-    expect(start).toMatch(/if \(packageType === "local_archive"\)[\s\S]*startPayload\s*=/u);
-    expect(start).toMatch(/else if \(packageType === "server_upload"\)[\s\S]*startPayload\s*=/u);
-    expect(start).not.toMatch(
-      /\.\.\.\(packageType === "local_archive"[\s\S]*?:\s*\{\s*preflightToken:/u,
-    );
   });
 });
