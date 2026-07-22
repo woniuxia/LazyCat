@@ -1059,6 +1059,28 @@ fn emit_local_archive_target_status(
     );
 }
 
+fn merge_pipeline_error(existing: Option<&str>, error: PipelineError) -> PipelineError {
+    match error {
+        PipelineError::Cancelled { phase } => PipelineError::Cancelled { phase },
+        PipelineError::Failed { message } => {
+            let mut messages = Vec::new();
+            for message in existing
+                .into_iter()
+                .flat_map(|message| message.split('；'))
+                .chain(message.split('；'))
+                .filter(|message| !message.is_empty())
+            {
+                if !messages.contains(&message) {
+                    messages.push(message);
+                }
+            }
+            PipelineError::Failed {
+                message: messages.join("；"),
+            }
+        }
+    }
+}
+
 fn run_local_archive_pipeline(
     run_id: &str,
     project_id: i64,
@@ -1107,7 +1129,10 @@ fn run_local_archive_pipeline(
             &frontend.artifact_mode,
             &backend.source_path,
         ) {
-            let error = archive_pipeline_error(error, "overall");
+            let error = merge_pipeline_error(
+                summary.error.as_deref(),
+                archive_pipeline_error(error, "overall"),
+            );
             let (status, message) = match &error {
                 PipelineError::Cancelled { .. } => ("cancelled", None),
                 PipelineError::Failed { message } => ("failed", Some(message.clone())),
@@ -1135,7 +1160,10 @@ fn run_local_archive_pipeline(
     ) {
         Ok(archive) => archive,
         Err(error) => {
-            let error = archive_pipeline_error(error, "overall");
+            let error = merge_pipeline_error(
+                summary.error.as_deref(),
+                archive_pipeline_error(error, "overall"),
+            );
             let (status, message) = match &error {
                 PipelineError::Cancelled { .. } => ("cancelled", None),
                 PipelineError::Failed { message } => ("failed", Some(message.clone())),
@@ -1228,7 +1256,11 @@ fn run_local_archive_pipeline(
     let archive_path = match archive.commit(cancelled.as_ref()) {
         Ok(path) => path,
         Err(error) => {
-            let error = archive_pipeline_error(error, "overall");
+            let accumulated_error = errors.join("；");
+            let error = merge_pipeline_error(
+                (!accumulated_error.is_empty()).then_some(accumulated_error.as_str()),
+                archive_pipeline_error(error, "overall"),
+            );
             let (status, message) = match &error {
                 PipelineError::Cancelled { .. } => ("cancelled", None),
                 PipelineError::Failed { message } => ("failed", Some(message.clone())),
@@ -2247,6 +2279,42 @@ mod pipeline_tests {
 
         assert_eq!(summary.status, "failed");
         assert_eq!(sink.last_status("frontend").as_deref(), Some("failed"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn local_archive_setup_failure_preserves_the_build_error() {
+        let root = TestDir::new();
+        let backend = root.0.join("app.jar");
+        fs::write(&backend, "jar").unwrap();
+        let build = BuildSummary {
+            status: "partially_succeeded",
+            built_targets: vec![BuiltTarget {
+                target: ReleaseTarget::Backend,
+                source_path: backend,
+                artifact_mode: "file".into(),
+            }],
+            selected_count: 2,
+            error: Some("frontend：PowerShell 命令退出码：9".into()),
+        };
+
+        let error = run_local_archive_pipeline(
+            "archive-setup-failed",
+            7,
+            build,
+            root.0.join("missing-output"),
+            "release".into(),
+            false,
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(Sink),
+        )
+        .unwrap_err();
+
+        let PipelineError::Failed { message } = error else {
+            panic!("expected archive failure");
+        };
+        assert!(message.contains("frontend：PowerShell 命令退出码：9"));
+        assert!(message.contains("全局归档根目录不存在"));
     }
 
     #[cfg(windows)]
