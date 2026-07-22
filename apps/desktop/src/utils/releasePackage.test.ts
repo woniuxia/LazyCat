@@ -190,6 +190,20 @@ Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force
     draft.sshPort = 0;
     expect(validateReleasePackageUpload(draft)).toBe("SSH 端口必须在 1 到 65535 之间");
   });
+  it("rejects non-canonical Linux deployment paths before preflight", () => {
+    const draft = createEmptyReleasePackageDraft();
+    Object.assign(draft, {
+      uploadEnabled: true,
+      sshHost: "10.0.0.8",
+      sshUsername: "deploy",
+      frontendRemoteDir: "/srv/app/web/",
+      backendRemotePath: "/srv/app/app.jar",
+    });
+    expect(validateReleasePackageUpload(draft)).toBe("前端远程目录必须是规范的 Linux 绝对路径");
+    draft.frontendRemoteDir = "/srv/app/web";
+    draft.backendRemotePath = "/srv//app.jar";
+    expect(validateReleasePackageUpload(draft)).toBe("后端远程文件路径必须是规范的 Linux 绝对路径");
+  });
   it("accepts events only for the active run", () => {
     expect(acceptReleasePackageEvent("run-1", { runId: "run-1" })).toBe(true);
     expect(acceptReleasePackageEvent("run-1", { runId: "run-2" })).toBe(false);
@@ -204,8 +218,11 @@ Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force
   it.each([
     ["idle", "未运行"],
     ["running", "运行中"],
+    ["prechecking", "预检中"],
+    ["uploading", "上传中"],
     ["succeeded", "已完成"],
     ["partially_succeeded", "部分成功"],
+    ["package_succeeded_upload_failed", "打包完成，上传失败"],
     ["failed", "失败"],
     ["cancelled", "已终止"],
   ] satisfies readonly [ReleasePackageRunStatus, string][])("maps %s status to %s", (status, label) => {

@@ -183,6 +183,7 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:release-package:host-trust": { domain: "release_package", action: "host_trust" },
   "tool:release-package:remote-preflight": { domain: "release_package", action: "remote_preflight" },
   "tool:release-package:start": { domain: "release_package", action: "start" },
+  "tool:release-package:upload-retry": { domain: "release_package", action: "upload_retry" },
   "tool:release-package:cancel": { domain: "release_package", action: "cancel" },
   "tool:api-mock:route-list": { domain: "api_mock", action: "route_list" },
   "tool:api-mock:route-get": { domain: "api_mock", action: "route_get" },

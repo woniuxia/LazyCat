@@ -1,12 +1,16 @@
 export type ReleasePackageArtifactMode = "copy_directory" | "zip_directory";
 export type ReleasePackageSshAuthType = "password" | "private_key";
 export type ReleasePackageTarget = "frontend" | "backend";
-export type ReleasePackagePhase = ReleasePackageTarget | "overall";
+export type ReleasePackagePhase = ReleasePackageTarget | "upload" | "overall";
+export type ReleasePackageStartMode = "package_only" | "package_and_upload";
 export type ReleasePackageRunStatus =
   | "idle"
+  | "prechecking"
   | "running"
+  | "uploading"
   | "succeeded"
   | "partially_succeeded"
+  | "package_succeeded_upload_failed"
   | "failed"
   | "cancelled";
 export type ReleasePackageTargetStatus =
@@ -94,6 +98,12 @@ export interface ReleasePackageRemotePreflightResult {
 export interface ReleasePackageStartResult { runId: string }
 export interface ReleasePackageCancelResult { cancelRequested: boolean }
 
+export interface ReleasePackageUploadProgress {
+  uploadedBytes: number;
+  totalBytes: number;
+  currentPath: string;
+}
+
 export interface ReleasePackageLogEvent {
   runId: string;
   projectId: number;
@@ -109,4 +119,8 @@ export interface ReleasePackageStatusEvent {
   phase: ReleasePackagePhase;
   archivePath?: string;
   error?: string;
+  uploadedBytes?: number;
+  totalBytes?: number;
+  currentPath?: string;
+  retryToken?: string;
 }

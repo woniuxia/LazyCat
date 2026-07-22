@@ -130,11 +130,25 @@ export function validateReleasePackageUpload(draft: ReleasePackageProjectDraft):
   if (!value.frontendRemoteDir.startsWith("/") || value.frontendRemoteDir === "/") {
     return "前端远程目录必须是 Linux 绝对路径";
   }
+  if (!isCanonicalLinuxPath(value.frontendRemoteDir)) {
+    return "前端远程目录必须是规范的 Linux 绝对路径";
+  }
   if (!value.backendRemotePath) return "请输入后端远程文件路径";
   if (!value.backendRemotePath.startsWith("/") || value.backendRemotePath === "/") {
     return "后端远程文件路径必须是 Linux 绝对路径";
   }
+  if (!isCanonicalLinuxPath(value.backendRemotePath)) {
+    return "后端远程文件路径必须是规范的 Linux 绝对路径";
+  }
   return null;
+}
+
+function isCanonicalLinuxPath(value: string): boolean {
+  return !value.endsWith("/")
+    && !value.includes("//")
+    && !value.includes("\\")
+    && !value.includes("\0")
+    && !value.split("/").some((segment) => segment === "." || segment === "..");
 }
 export function validateReleasePackageDraft(draft: ReleasePackageProjectDraft): string | null {
   const value = normalizeReleasePackageDraft(draft);
@@ -178,9 +192,12 @@ export function appendReleasePackageLog(
 export function releasePackageRunStatusLabel(status: ReleasePackageRunStatus): string {
   const labels: Record<ReleasePackageRunStatus, string> = {
     idle: "未运行",
+    prechecking: "预检中",
     running: "运行中",
+    uploading: "上传中",
     succeeded: "已完成",
     partially_succeeded: "部分成功",
+    package_succeeded_upload_failed: "打包完成，上传失败",
     failed: "失败",
     cancelled: "已终止",
   };
