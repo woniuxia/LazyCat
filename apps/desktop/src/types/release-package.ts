@@ -61,6 +61,15 @@ export interface ReleasePackageTargetCheckResult {
   exists: boolean;
 }
 
+export interface ReleasePackageRemoteProbeResult {
+  probeToken: string;
+  host: string;
+  port: number;
+  keyType: string;
+  fingerprintSha256: string;
+  trust: "trusted" | "unknown" | "changed";
+  previousFingerprintSha256?: string;
+}
 export interface ReleasePackageStartResult { runId: string }
 export interface ReleasePackageCancelResult { cancelRequested: boolean }
 

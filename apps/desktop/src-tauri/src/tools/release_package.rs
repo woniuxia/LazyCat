@@ -6,6 +6,10 @@ use std::path::PathBuf;
 
 use super::helpers::db_conn;
 use super::release_package_archive::{default_folder_name, validate_folder_name};
+use super::release_package_remote::{
+    classify_trust, consume_probe, probe_host, store_probe, validate_remote_dir,
+    validate_remote_file, HostTrust, ProbeSnapshot, RemoteEndpoint,
+};
 
 pub const LEGACY_OUTPUT_ROOT_KEY: &str = "release_package.output_root";
 pub const RELEASE_PACKAGE_SCHEMA_SQL: &str = r#"
@@ -81,6 +85,8 @@ const ACTIONS: &[&str] = &[
     "project_delete",
     "prepare",
     "target_check",
+    "remote_probe",
+    "host_trust",
     "start",
     "cancel",
 ];
@@ -106,7 +112,8 @@ pub struct ReleasePackageProjectConfig {
     pub ssh_private_key_path: String,
     pub frontend_remote_dir: String,
     pub backend_remote_path: String,
-    pub created_at: String,    pub updated_at: String,
+    pub created_at: String,
+    pub updated_at: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -250,7 +257,8 @@ fn parse_project_payload(payload: &Value) -> Result<ProjectPayload, String> {
         if !project.backend_remote_path.starts_with('/') || project.backend_remote_path == "/" {
             return Err("backendRemotePath must be an absolute Linux path".into());
         }
-    }    if !matches!(
+    }
+    if !matches!(
         project.frontend_artifact_mode.as_str(),
         "copy_directory" | "zip_directory"
     ) {
@@ -485,6 +493,112 @@ fn target_check_with_conn(
     }))
 }
 
+fn known_host_with_conn(
+    conn: &Connection,
+    endpoint: &RemoteEndpoint,
+) -> Result<Option<(String, String)>, String> {
+    conn.query_row(
+        "SELECT key_type, fingerprint_sha256
+         FROM release_package_known_hosts
+         WHERE host=?1 AND port=?2",
+        params![endpoint.host, endpoint.port],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )
+    .optional()
+    .map_err(|error| format!("读取 SSH 主机信任记录失败：{error}"))
+}
+
+fn probe_result_with_conn(conn: &Connection, snapshot: ProbeSnapshot) -> Result<Value, String> {
+    let previous = known_host_with_conn(conn, &snapshot.endpoint)?;
+    let trust = classify_trust(
+        previous
+            .as_ref()
+            .map(|(_, fingerprint)| fingerprint.as_str()),
+        &snapshot.fingerprint_sha256,
+    );
+    let probe_token = store_probe(snapshot.clone())?;
+    let mut result = json!({
+        "probeToken": probe_token,
+        "host": snapshot.endpoint.host,
+        "port": snapshot.endpoint.port,
+        "keyType": snapshot.key_type,
+        "fingerprintSha256": snapshot.fingerprint_sha256,
+        "trust": trust,
+    });
+    if let Some((_, fingerprint)) = previous {
+        if trust == HostTrust::Changed {
+            result["previousFingerprintSha256"] = json!(fingerprint);
+        }
+    }
+    Ok(result)
+}
+
+fn remote_probe_with_conn(conn: &Connection, project_id: i64) -> Result<Value, String> {
+    let project = load_project(conn, project_id)?;
+    if !project.upload_enabled {
+        return Err("当前项目未启用服务器上传".into());
+    }
+    validate_remote_dir(&project.frontend_remote_dir)?;
+    validate_remote_file(&project.backend_remote_path)?;
+    let endpoint = RemoteEndpoint {
+        host: project.ssh_host.trim().to_ascii_lowercase(),
+        port: project.ssh_port,
+        username: project.ssh_username,
+    };
+    if endpoint.host.is_empty() || endpoint.username.trim().is_empty() {
+        return Err("SSH 服务器地址和用户名不能为空".into());
+    }
+    let snapshot = probe_host(&endpoint)?;
+    probe_result_with_conn(conn, snapshot)
+}
+
+fn trust_host_with_conn(
+    conn: &Connection,
+    snapshot: &ProbeSnapshot,
+    replace_existing: bool,
+) -> Result<(), String> {
+    let previous = known_host_with_conn(conn, &snapshot.endpoint)?;
+    if let Some((_, fingerprint)) = &previous {
+        if fingerprint != &snapshot.fingerprint_sha256 && !replace_existing {
+            return Err("SSH 主机指纹已变化，必须显式确认重新信任".into());
+        }
+    }
+    conn.execute(
+        "INSERT INTO release_package_known_hosts(
+            host, port, key_type, fingerprint_sha256
+         ) VALUES (?1, ?2, ?3, ?4)
+         ON CONFLICT(host, port) DO UPDATE SET
+            key_type=excluded.key_type,
+            fingerprint_sha256=excluded.fingerprint_sha256,
+            updated_at=CURRENT_TIMESTAMP",
+        params![
+            snapshot.endpoint.host,
+            snapshot.endpoint.port,
+            snapshot.key_type,
+            snapshot.fingerprint_sha256,
+        ],
+    )
+    .map_err(|error| format!("保存 SSH 主机信任记录失败：{error}"))?;
+    Ok(())
+}
+
+fn host_trust_with_conn(
+    conn: &Connection,
+    probe_token: &str,
+    replace_existing: bool,
+) -> Result<Value, String> {
+    let snapshot = consume_probe(probe_token)?;
+    trust_host_with_conn(conn, &snapshot, replace_existing)?;
+    let next_token = store_probe(snapshot.clone())?;
+    Ok(json!({
+        "probeToken": next_token,
+        "host": snapshot.endpoint.host,
+        "port": snapshot.endpoint.port,
+        "keyType": snapshot.key_type,
+        "fingerprintSha256": snapshot.fingerprint_sha256,
+        "trust": HostTrust::Trusted,
+    }))
+}
 #[cfg(test)]
 pub(crate) fn supported_actions() -> &'static [&'static str] {
     ACTIONS
@@ -517,6 +631,23 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
                 .as_str()
                 .ok_or("folderName is required")?;
             target_check_with_conn(&conn, id, folder_name)
+        }
+        "remote_probe" => {
+            let id = payload["projectId"]
+                .as_i64()
+                .ok_or("projectId is required")?;
+            remote_probe_with_conn(&conn, id)
+        }
+        "host_trust" => {
+            let probe_token = payload["probeToken"]
+                .as_str()
+                .ok_or("probeToken is required")?;
+            let replace_existing = match payload.get("replaceExisting") {
+                None => false,
+                Some(Value::Bool(value)) => *value,
+                Some(_) => return Err("replaceExisting must be a boolean".into()),
+            };
+            host_trust_with_conn(&conn, probe_token, replace_existing)
         }
         _ => unreachable!(),
     }
@@ -619,8 +750,9 @@ mod tests {
                 frontend_artifact_path, frontend_artifact_mode, backend_project_path,
                 backend_build_command, backend_artifact_path
             ) VALUES ('portal', 'D:\\release', 'D:\\web', 'pnpm build', 'dist',
-                      'copy_directory', 'D:\\server', 'mvn package', 'target/app.jar');"
-        ).unwrap();
+                      'copy_directory', 'D:\\server', 'mvn package', 'target/app.jar');",
+        )
+        .unwrap();
 
         ensure_schema(&conn).unwrap();
         let projects = project_list_with_conn(&conn).unwrap();
@@ -630,6 +762,51 @@ mod tests {
         assert_eq!(project["sshAuthType"], "password");
         assert!(project.get("password").is_none());
         assert!(project.get("privateKeyPassphrase").is_none());
+    }
+    #[test]
+    fn trusted_host_requires_explicit_replacement_when_fingerprint_changes() {
+        let conn = test_conn();
+        let probe = ProbeSnapshot {
+            endpoint: RemoteEndpoint {
+                host: "deploy.example.internal".into(),
+                port: 22,
+                username: "deploy".into(),
+            },
+            key_type: "ed25519".into(),
+            fingerprint_sha256: "SHA256:first".into(),
+        };
+        trust_host_with_conn(&conn, &probe, false).unwrap();
+        trust_host_with_conn(&conn, &probe, false).unwrap();
+
+        let changed_probe = ProbeSnapshot {
+            fingerprint_sha256: "SHA256:changed".into(),
+            ..probe
+        };
+        assert!(trust_host_with_conn(&conn, &changed_probe, false).is_err());
+        trust_host_with_conn(&conn, &changed_probe, true).unwrap();
+        let stored = known_host_with_conn(&conn, &changed_probe.endpoint)
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored.1, "SHA256:changed");
+    }
+    #[test]
+    fn host_trust_rotates_the_probe_token_and_rejects_reuse() {
+        let conn = test_conn();
+        let snapshot = ProbeSnapshot {
+            endpoint: RemoteEndpoint {
+                host: "server.example.internal".into(),
+                port: 22,
+                username: "deploy".into(),
+            },
+            key_type: "ed25519".into(),
+            fingerprint_sha256: "SHA256:new".into(),
+        };
+        let old_token = store_probe(snapshot.clone()).unwrap();
+        let result = host_trust_with_conn(&conn, &old_token, false).unwrap();
+        let next_token = result["probeToken"].as_str().unwrap();
+        assert_ne!(next_token, old_token);
+        assert!(host_trust_with_conn(&conn, &old_token, false).is_err());
+        assert_eq!(consume_probe(next_token).unwrap(), snapshot);
     }
     #[test]
     fn project_crud_round_trip() {
