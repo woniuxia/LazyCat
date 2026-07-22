@@ -1,6 +1,9 @@
 use std::collections::HashMap;
+use std::fs::File;
+use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -8,9 +11,13 @@ use base64::engine::general_purpose::STANDARD_NO_PAD;
 use base64::Engine;
 use chrono::{DateTime, Utc};
 use serde::Serialize;
-use ssh2::{ErrorCode, HostKeyType, Session, Sftp};
+use ssh2::{ErrorCode, FileType, HostKeyType, Session, Sftp};
 use uuid::Uuid;
 use zeroize::Zeroizing;
+
+use super::release_package_deploy::{
+    DeployError, RemoteDirEntry, RemoteFs, RemoteKind, RemoteMetadata,
+};
 
 const SSH_TIMEOUT: Duration = Duration::from_secs(10);
 const PROBE_TTL: Duration = Duration::from_secs(300);
@@ -445,6 +452,159 @@ pub fn run_remote_preflight(
         .collect()
 }
 
+// Wired into the release runtime in the upload orchestration phase.
+#[allow(dead_code)]
+pub struct SftpRemoteFs {
+    sftp: Sftp,
+}
+
+#[allow(dead_code)]
+fn remote_kind(file_type: FileType) -> RemoteKind {
+    match file_type {
+        FileType::RegularFile => RemoteKind::File,
+        FileType::Directory => RemoteKind::Directory,
+        FileType::Symlink => RemoteKind::Symlink,
+        _ => RemoteKind::Other,
+    }
+}
+
+#[allow(dead_code)]
+impl SftpRemoteFs {
+    pub fn connect(
+        binding: &PreflightBinding,
+        expected_fingerprint: &str,
+        secret: &AuthSecret,
+    ) -> Result<Self, DeployError> {
+        let session = handshake_session(&binding.endpoint).map_err(DeployError::failed)?;
+        if session_fingerprint(&session).map_err(DeployError::failed)? != expected_fingerprint {
+            return Err(DeployError::failed("SSH 主机指纹与已信任记录不一致"));
+        }
+        authenticate_session(
+            &session,
+            &binding.endpoint,
+            &binding.private_key_path,
+            secret,
+        )
+        .map_err(DeployError::failed)?;
+        let sftp = session
+            .sftp()
+            .map_err(|_| DeployError::failed("初始化 SFTP 会话失败"))?;
+        Ok(Self { sftp })
+    }
+
+    fn metadata_inner(&self, path: &str) -> Result<Option<RemoteMetadata>, DeployError> {
+        match self.sftp.lstat(Path::new(path)) {
+            Ok(stat) => Ok(Some(RemoteMetadata {
+                kind: remote_kind(stat.file_type()),
+                size: stat.size.unwrap_or(0),
+            })),
+            Err(error) if is_remote_missing(&error) => Ok(None),
+            Err(error) => Err(DeployError::failed(format!(
+                "读取远端路径失败（{path}）：{error}"
+            ))),
+        }
+    }
+}
+
+impl RemoteFs for SftpRemoteFs {
+    fn metadata(&self, path: &str) -> Result<Option<RemoteMetadata>, DeployError> {
+        self.metadata_inner(path)
+    }
+
+    fn create_dir(&mut self, path: &str) -> Result<(), DeployError> {
+        self.sftp
+            .mkdir(Path::new(path), 0o755)
+            .map_err(|error| DeployError::failed(format!("创建远端目录失败（{path}）：{error}")))
+    }
+
+    fn read_dir(&self, path: &str) -> Result<Vec<RemoteDirEntry>, DeployError> {
+        self.sftp
+            .readdir(Path::new(path))
+            .map_err(|error| DeployError::failed(format!("读取远端目录失败（{path}）：{error}")))?
+            .into_iter()
+            .map(|(entry_path, stat)| {
+                let entry_path = entry_path
+                    .to_str()
+                    .ok_or_else(|| DeployError::failed("远端路径不是有效 UTF-8"))?
+                    .replace('\\', "/");
+                Ok(RemoteDirEntry {
+                    path: entry_path,
+                    metadata: RemoteMetadata {
+                        kind: remote_kind(stat.file_type()),
+                        size: stat.size.unwrap_or(0),
+                    },
+                })
+            })
+            .collect()
+    }
+
+    fn write_file(
+        &mut self,
+        remote_path: &str,
+        local_path: &Path,
+        cancelled: &AtomicBool,
+        progress: &mut dyn FnMut(u64),
+    ) -> Result<(), DeployError> {
+        let mut local = File::open(local_path).map_err(DeployError::local_io)?;
+        let mut remote = self.sftp.create(Path::new(remote_path)).map_err(|error| {
+            DeployError::failed(format!("创建远端文件失败（{remote_path}）：{error}"))
+        })?;
+        let mut buffer = [0_u8; 64 * 1024];
+        loop {
+            if cancelled.load(Ordering::Acquire) {
+                return Err(DeployError::cancelled());
+            }
+            let size = local.read(&mut buffer).map_err(DeployError::local_io)?;
+            if size == 0 {
+                break;
+            }
+            remote.write_all(&buffer[..size]).map_err(|error| {
+                DeployError::failed(format!("写入远端文件失败（{remote_path}）：{error}"))
+            })?;
+            if cancelled.load(Ordering::Acquire) {
+                return Err(DeployError::cancelled());
+            }
+            progress(size as u64);
+        }
+        remote.flush().map_err(|error| {
+            DeployError::failed(format!("完成远端文件失败（{remote_path}）：{error}"))
+        })
+    }
+
+    fn rename(&mut self, source: &str, target: &str) -> Result<(), DeployError> {
+        self.sftp
+            .rename(Path::new(source), Path::new(target), None)
+            .map_err(|error| {
+                DeployError::failed(format!(
+                    "重命名远端路径失败（{source} → {target}）：{error}"
+                ))
+            })
+    }
+
+    fn remove_tree(&mut self, path: &str) -> Result<(), DeployError> {
+        let Some(metadata) = self.metadata_inner(path)? else {
+            return Ok(());
+        };
+        match metadata.kind {
+            RemoteKind::Directory => {
+                for entry in self.read_dir(path)? {
+                    self.remove_tree(&entry.path)?;
+                }
+                self.sftp.rmdir(Path::new(path)).map_err(|error| {
+                    DeployError::failed(format!("删除远端目录失败（{path}）：{error}"))
+                })
+            }
+            RemoteKind::File | RemoteKind::Symlink => {
+                self.sftp.unlink(Path::new(path)).map_err(|error| {
+                    DeployError::failed(format!("删除远端文件失败（{path}）：{error}"))
+                })
+            }
+            RemoteKind::Other => Err(DeployError::failed(format!(
+                "拒绝删除未知类型的远端路径：{path}"
+            ))),
+        }
+    }
+}
 pub fn issue_preflight(
     binding: PreflightBinding,
     secret: AuthSecret,

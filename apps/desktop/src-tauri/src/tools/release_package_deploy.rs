@@ -1,4 +1,5 @@
 use std::path::{Component, Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde::Serialize;
 use walkdir::WalkDir;
@@ -137,6 +138,492 @@ impl ArtifactManifest {
         Ok(())
     }
 }
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RemoteKind {
+    File,
+    Directory,
+    Symlink,
+    Other,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RemoteMetadata {
+    pub kind: RemoteKind,
+    pub size: u64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RemoteDirEntry {
+    pub path: String,
+    pub metadata: RemoteMetadata,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub struct DeployError {
+    pub message: String,
+    pub cancelled: bool,
+    pub recovery_paths: Vec<String>,
+}
+
+impl std::fmt::Display for DeployError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for DeployError {}
+impl DeployError {
+    pub fn failed(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            cancelled: false,
+            recovery_paths: Vec::new(),
+        }
+    }
+
+    pub fn cancelled() -> Self {
+        Self {
+            message: "远端上传已取消".into(),
+            cancelled: true,
+            recovery_paths: Vec::new(),
+        }
+    }
+
+    pub fn local_io(error: std::io::Error) -> Self {
+        Self::failed(format!("读取本地部署产物失败：{error}"))
+    }
+}
+
+pub trait RemoteFs {
+    fn metadata(&self, path: &str) -> Result<Option<RemoteMetadata>, DeployError>;
+    fn create_dir(&mut self, path: &str) -> Result<(), DeployError>;
+    fn read_dir(&self, path: &str) -> Result<Vec<RemoteDirEntry>, DeployError>;
+    fn write_file(
+        &mut self,
+        remote_path: &str,
+        local_path: &Path,
+        cancelled: &AtomicBool,
+        progress: &mut dyn FnMut(u64),
+    ) -> Result<(), DeployError>;
+    fn rename(&mut self, source: &str, target: &str) -> Result<(), DeployError>;
+    fn remove_tree(&mut self, path: &str) -> Result<(), DeployError>;
+}
+
+#[derive(Clone, Debug)]
+pub struct DeploymentTarget {
+    pub manifest: ArtifactManifest,
+    pub remote_path: String,
+    pub expected_exists: bool,
+}
+
+#[derive(Clone, Debug)]
+pub struct DeploymentRequest {
+    pub run_id: String,
+    pub targets: Vec<DeploymentTarget>,
+}
+
+#[derive(Clone, Debug)]
+struct TransactionTarget {
+    final_path: String,
+    temp_path: String,
+    backup_path: String,
+    expected_exists: bool,
+    backed_up: bool,
+    committed: bool,
+}
+
+fn transaction_path(final_path: &str, kind: &str, run_id: &str) -> String {
+    format!("{final_path}.__lazycat_{kind}_{run_id}")
+}
+
+fn validate_remote_target_paths(targets: &[DeploymentTarget]) -> Result<(), DeployError> {
+    for target in targets {
+        let path = target.remote_path.as_str();
+        if !path.starts_with('/')
+            || path == "/"
+            || path.ends_with('/')
+            || path.contains("//")
+            || path.contains('\\')
+            || path.contains('\0')
+            || path
+                .split('/')
+                .any(|segment| segment == "." || segment == "..")
+        {
+            return Err(DeployError::failed(format!(
+                "远端部署目标必须是规范的 Linux 绝对路径：{path}"
+            )));
+        }
+    }
+
+    for (index, target) in targets.iter().enumerate() {
+        for other in &targets[index + 1..] {
+            let target_prefix = format!("{}/", target.remote_path);
+            let other_prefix = format!("{}/", other.remote_path);
+            if target.remote_path == other.remote_path
+                || other.remote_path.starts_with(&target_prefix)
+                || target.remote_path.starts_with(&other_prefix)
+            {
+                return Err(DeployError::failed("远端部署目标不能互相包含或重复"));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn remote_parent(path: &str) -> Result<&str, DeployError> {
+    path.rsplit_once('/')
+        .map(|(parent, _)| parent)
+        .filter(|parent| !parent.is_empty())
+        .ok_or_else(|| DeployError::failed(format!("远端路径缺少父目录：{path}")))
+}
+
+fn ensure_remote_dir(remote: &mut dyn RemoteFs, path: &str) -> Result<(), DeployError> {
+    if path == "/" {
+        return Ok(());
+    }
+    let mut current = String::new();
+    for segment in path.split('/').filter(|segment| !segment.is_empty()) {
+        current.push('/');
+        current.push_str(segment);
+        match remote.metadata(&current)? {
+            Some(metadata) if metadata.kind == RemoteKind::Directory => {}
+            Some(_) => {
+                return Err(DeployError::failed(format!(
+                    "远端目录路径已被非目录占用：{current}"
+                )))
+            }
+            None => remote.create_dir(&current)?,
+        }
+    }
+    Ok(())
+}
+
+fn local_entry_path(manifest: &ArtifactManifest, entry: &ArtifactEntry) -> PathBuf {
+    if manifest.target == ReleaseTarget::Backend {
+        return manifest.source_path.clone();
+    }
+    entry
+        .relative_path
+        .split('/')
+        .fold(manifest.source_path.clone(), |path, segment| {
+            path.join(segment)
+        })
+}
+
+fn upload_target(
+    remote: &mut dyn RemoteFs,
+    target: &DeploymentTarget,
+    transaction: &TransactionTarget,
+    cancelled: &AtomicBool,
+    progress: &mut dyn FnMut(u64),
+) -> Result<(), DeployError> {
+    target
+        .manifest
+        .verify_source()
+        .map_err(DeployError::failed)?;
+    if cancelled.load(Ordering::Acquire) {
+        return Err(DeployError::cancelled());
+    }
+    match target.manifest.target {
+        ReleaseTarget::Frontend => {
+            ensure_remote_dir(remote, &transaction.temp_path)?;
+            for entry in &target.manifest.entries {
+                if cancelled.load(Ordering::Acquire) {
+                    return Err(DeployError::cancelled());
+                }
+                let remote_path = format!("{}/{}", transaction.temp_path, entry.relative_path);
+                ensure_remote_dir(remote, remote_parent(&remote_path)?)?;
+                remote.write_file(
+                    &remote_path,
+                    &local_entry_path(&target.manifest, entry),
+                    cancelled,
+                    progress,
+                )?;
+            }
+        }
+        ReleaseTarget::Backend => {
+            let entry = target
+                .manifest
+                .entries
+                .first()
+                .ok_or_else(|| DeployError::failed("后端部署清单缺少文件"))?;
+            remote.write_file(
+                &transaction.temp_path,
+                &local_entry_path(&target.manifest, entry),
+                cancelled,
+                progress,
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn collect_remote_files(
+    remote: &dyn RemoteFs,
+    root: &str,
+    current: &str,
+    files: &mut Vec<ArtifactEntry>,
+) -> Result<(), DeployError> {
+    for entry in remote.read_dir(current)? {
+        match entry.metadata.kind {
+            RemoteKind::Directory => collect_remote_files(remote, root, &entry.path, files)?,
+            RemoteKind::File => {
+                let relative = entry
+                    .path
+                    .strip_prefix(root)
+                    .and_then(|value| value.strip_prefix('/'))
+                    .ok_or_else(|| DeployError::failed("远端清单路径逃逸"))?;
+                files.push(ArtifactEntry {
+                    relative_path: relative.to_string(),
+                    size: entry.metadata.size,
+                });
+            }
+            RemoteKind::Symlink | RemoteKind::Other => {
+                return Err(DeployError::failed(format!(
+                    "远端临时目标包含不支持的文件类型：{}",
+                    entry.path
+                )))
+            }
+        }
+    }
+    Ok(())
+}
+
+fn verify_remote_target(
+    remote: &dyn RemoteFs,
+    target: &DeploymentTarget,
+    transaction: &TransactionTarget,
+) -> Result<(), DeployError> {
+    match target.manifest.target {
+        ReleaseTarget::Frontend => {
+            let metadata = remote
+                .metadata(&transaction.temp_path)?
+                .ok_or_else(|| DeployError::failed("远端前端临时目录不存在"))?;
+            if metadata.kind != RemoteKind::Directory {
+                return Err(DeployError::failed("远端前端临时目标不是目录"));
+            }
+            let mut files = Vec::new();
+            collect_remote_files(
+                remote,
+                &transaction.temp_path,
+                &transaction.temp_path,
+                &mut files,
+            )?;
+            files.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
+            if files != target.manifest.entries {
+                return Err(DeployError::failed("远端前端临时目录校验失败"));
+            }
+        }
+        ReleaseTarget::Backend => {
+            let metadata = remote
+                .metadata(&transaction.temp_path)?
+                .ok_or_else(|| DeployError::failed("远端后端临时文件不存在"))?;
+            if metadata.kind != RemoteKind::File || metadata.size != target.manifest.total_bytes {
+                return Err(DeployError::failed("远端后端临时文件校验失败"));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_formal_target(
+    remote: &dyn RemoteFs,
+    target: &DeploymentTarget,
+) -> Result<(), DeployError> {
+    let metadata = remote.metadata(&target.remote_path)?;
+    if metadata.is_some() != target.expected_exists {
+        return Err(DeployError::failed(format!(
+            "远端目标状态在预检后发生变化：{}",
+            target.remote_path
+        )));
+    }
+    if let Some(metadata) = metadata {
+        let expected_kind = match target.manifest.target {
+            ReleaseTarget::Frontend => RemoteKind::Directory,
+            ReleaseTarget::Backend => RemoteKind::File,
+        };
+        if metadata.kind != expected_kind {
+            return Err(DeployError::failed(format!(
+                "远端正式目标类型不符合配置：{}",
+                target.remote_path
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn cleanup_temps(remote: &mut dyn RemoteFs, transactions: &[TransactionTarget]) -> Vec<String> {
+    let mut recovery_paths = Vec::new();
+    for transaction in transactions {
+        match remote.metadata(&transaction.temp_path) {
+            Ok(Some(_)) => {
+                if remote.remove_tree(&transaction.temp_path).is_err() {
+                    recovery_paths.push(transaction.temp_path.clone());
+                }
+            }
+            Ok(None) => {}
+            Err(_) => recovery_paths.push(transaction.temp_path.clone()),
+        }
+    }
+    recovery_paths
+}
+
+fn rollback(remote: &mut dyn RemoteFs, transactions: &mut [TransactionTarget]) -> Vec<String> {
+    let mut recovery_paths = Vec::new();
+    for transaction in transactions.iter_mut().rev() {
+        if transaction.committed {
+            if remote.remove_tree(&transaction.final_path).is_err() {
+                recovery_paths.push(transaction.final_path.clone());
+                if transaction.backed_up {
+                    recovery_paths.push(transaction.backup_path.clone());
+                }
+                continue;
+            }
+            if transaction.backed_up
+                && remote
+                    .rename(&transaction.backup_path, &transaction.final_path)
+                    .is_err()
+            {
+                recovery_paths.push(transaction.backup_path.clone());
+            }
+        } else if transaction.backed_up
+            && remote
+                .rename(&transaction.backup_path, &transaction.final_path)
+                .is_err()
+        {
+            recovery_paths.push(transaction.backup_path.clone());
+        }
+    }
+    recovery_paths.extend(cleanup_temps(remote, transactions));
+    recovery_paths.sort();
+    recovery_paths.dedup();
+    recovery_paths
+}
+
+pub fn deploy(
+    remote: &mut dyn RemoteFs,
+    request: &DeploymentRequest,
+    cancelled: &AtomicBool,
+    mut progress: impl FnMut(u64),
+) -> Result<(), DeployError> {
+    if request.targets.is_empty() {
+        return Err(DeployError::failed("没有可部署的目标"));
+    }
+    if request.run_id.is_empty()
+        || request.run_id.len() > 64
+        || !request
+            .run_id
+            .bytes()
+            .all(|value| value.is_ascii_alphanumeric() || value == b'-')
+    {
+        return Err(DeployError::failed("runId 包含不安全字符"));
+    }
+    validate_remote_target_paths(&request.targets)?;
+    let mut transactions = request
+        .targets
+        .iter()
+        .map(|target| TransactionTarget {
+            final_path: target.remote_path.clone(),
+            temp_path: transaction_path(&target.remote_path, "tmp", &request.run_id),
+            backup_path: transaction_path(&target.remote_path, "backup", &request.run_id),
+            expected_exists: target.expected_exists,
+            backed_up: false,
+            committed: false,
+        })
+        .collect::<Vec<_>>();
+
+    for transaction in &transactions {
+        if remote.metadata(&transaction.temp_path)?.is_some()
+            || remote.metadata(&transaction.backup_path)?.is_some()
+        {
+            return Err(DeployError::failed(format!(
+                "远端部署临时或备份路径已存在：{}",
+                transaction.final_path
+            )));
+        }
+    }
+
+    for (target, transaction) in request.targets.iter().zip(&transactions) {
+        if let Err(mut error) = upload_target(remote, target, transaction, cancelled, &mut progress)
+        {
+            error
+                .recovery_paths
+                .extend(cleanup_temps(remote, &transactions));
+            return Err(error);
+        }
+        if let Err(mut error) = verify_remote_target(remote, target, transaction) {
+            error
+                .recovery_paths
+                .extend(cleanup_temps(remote, &transactions));
+            return Err(error);
+        }
+    }
+
+    if cancelled.load(Ordering::Acquire) {
+        let mut error = DeployError::cancelled();
+        error
+            .recovery_paths
+            .extend(cleanup_temps(remote, &transactions));
+        return Err(error);
+    }
+    for target in &request.targets {
+        if let Err(mut error) = validate_formal_target(remote, target) {
+            error
+                .recovery_paths
+                .extend(cleanup_temps(remote, &transactions));
+            return Err(error);
+        }
+    }
+
+    for index in 0..transactions.len() {
+        if transactions[index].expected_exists {
+            if let Err(error) = remote.rename(
+                &transactions[index].final_path,
+                &transactions[index].backup_path,
+            ) {
+                let recovery_paths = rollback(remote, &mut transactions[..=index]);
+                return Err(DeployError {
+                    message: format!("远端提交失败：{error:?}"),
+                    cancelled: false,
+                    recovery_paths,
+                });
+            }
+            transactions[index].backed_up = true;
+        }
+        if let Err(error) = remote.rename(
+            &transactions[index].temp_path,
+            &transactions[index].final_path,
+        ) {
+            let recovery_paths = rollback(remote, &mut transactions[..=index]);
+            let rollback_failed = !recovery_paths.is_empty();
+            return Err(DeployError {
+                message: if rollback_failed {
+                    format!("远端提交失败且回滚失败：{error:?}")
+                } else {
+                    format!("远端提交失败：{error:?}")
+                },
+                cancelled: false,
+                recovery_paths,
+            });
+        }
+        transactions[index].committed = true;
+    }
+
+    let mut recovery_paths = Vec::new();
+    for transaction in &transactions {
+        if transaction.backed_up && remote.remove_tree(&transaction.backup_path).is_err() {
+            recovery_paths.push(transaction.backup_path.clone());
+        }
+    }
+    if !recovery_paths.is_empty() {
+        return Err(DeployError {
+            message: "远端提交成功，但旧版本备份清理失败".into(),
+            cancelled: false,
+            recovery_paths,
+        });
+    }
+    Ok(())
+}
 #[cfg(test)]
 mod tests {
     use std::fs::{self, File};
@@ -148,10 +635,10 @@ mod tests {
     use crate::tools::release_package_archive::extract_retry_zip;
     use zip::write::FileOptions;
 
-    struct TestDir(PathBuf);
+    pub(super) struct TestDir(PathBuf);
 
     impl TestDir {
-        fn new() -> Self {
+        pub(super) fn new() -> Self {
             let path = std::env::temp_dir().join(format!(
                 "lazycat-release-deploy-test-{}",
                 uuid::Uuid::new_v4()
@@ -160,7 +647,7 @@ mod tests {
             Self(path)
         }
 
-        fn path(&self) -> &Path {
+        pub(super) fn path(&self) -> &Path {
             &self.0
         }
     }
@@ -227,5 +714,317 @@ mod tests {
         write_test_zip(&zip_path, "../escape.txt", b"bad");
         assert!(extract_retry_zip(&zip_path, &root.path().join("extract")).is_err());
         assert!(!root.path().join("escape.txt").exists());
+    }
+}
+
+#[cfg(test)]
+mod transaction_tests {
+    use std::collections::{BTreeMap, VecDeque};
+    use std::fs;
+    use std::path::Path;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    use super::{
+        deploy, ArtifactManifest, DeployError, DeploymentRequest, DeploymentTarget, RemoteDirEntry,
+        RemoteFs, RemoteKind, RemoteMetadata,
+    };
+    use crate::tools::release_package::ReleaseTarget;
+
+    #[derive(Clone)]
+    enum Node {
+        Directory,
+        File(Vec<u8>),
+    }
+
+    struct FakeRemoteFs {
+        nodes: BTreeMap<String, Node>,
+        fail_rename_targets: VecDeque<String>,
+        cancel_during_write: bool,
+    }
+
+    impl FakeRemoteFs {
+        fn base() -> Self {
+            let mut nodes = BTreeMap::new();
+            for path in ["/", "/srv", "/srv/app"] {
+                nodes.insert(path.into(), Node::Directory);
+            }
+            Self {
+                nodes,
+                fail_rename_targets: VecDeque::new(),
+                cancel_during_write: false,
+            }
+        }
+
+        fn with_existing_release() -> Self {
+            let mut remote = Self::base();
+            remote.nodes.insert("/srv/app/web".into(), Node::Directory);
+            remote
+                .nodes
+                .insert("/srv/app/web/old.js".into(), Node::File(b"old".to_vec()));
+            remote
+                .nodes
+                .insert("/srv/app/app.jar".into(), Node::File(b"old-jar".to_vec()));
+            remote
+        }
+
+        fn exists(&self, path: &str) -> bool {
+            self.nodes.contains_key(path)
+        }
+
+        fn read(&self, path: &str) -> Vec<u8> {
+            match self.nodes.get(path).unwrap() {
+                Node::File(value) => value.clone(),
+                Node::Directory => panic!("not a file: {path}"),
+            }
+        }
+
+        fn any_path_contains(&self, value: &str) -> bool {
+            self.nodes.keys().any(|path| path.contains(value))
+        }
+
+        fn fail_rename_to(&mut self, path: &str) {
+            self.fail_rename_targets.push_back(path.into());
+        }
+    }
+
+    impl RemoteFs for FakeRemoteFs {
+        fn metadata(&self, path: &str) -> Result<Option<RemoteMetadata>, DeployError> {
+            Ok(self.nodes.get(path).map(|node| match node {
+                Node::Directory => RemoteMetadata {
+                    kind: RemoteKind::Directory,
+                    size: 0,
+                },
+                Node::File(value) => RemoteMetadata {
+                    kind: RemoteKind::File,
+                    size: value.len() as u64,
+                },
+            }))
+        }
+
+        fn create_dir(&mut self, path: &str) -> Result<(), DeployError> {
+            if let Some(node) = self.nodes.get(path) {
+                return match node {
+                    Node::Directory => Ok(()),
+                    Node::File(_) => Err(DeployError::failed("远端目录路径已被文件占用")),
+                };
+            }
+            self.nodes.insert(path.into(), Node::Directory);
+            Ok(())
+        }
+
+        fn read_dir(&self, path: &str) -> Result<Vec<RemoteDirEntry>, DeployError> {
+            let prefix = format!("{}/", path.trim_end_matches('/'));
+            let mut entries = Vec::new();
+            for (entry_path, node) in &self.nodes {
+                let Some(relative) = entry_path.strip_prefix(&prefix) else {
+                    continue;
+                };
+                if relative.is_empty() || relative.contains('/') {
+                    continue;
+                }
+                let metadata = match node {
+                    Node::Directory => RemoteMetadata {
+                        kind: RemoteKind::Directory,
+                        size: 0,
+                    },
+                    Node::File(value) => RemoteMetadata {
+                        kind: RemoteKind::File,
+                        size: value.len() as u64,
+                    },
+                };
+                entries.push(RemoteDirEntry {
+                    path: entry_path.clone(),
+                    metadata,
+                });
+            }
+            Ok(entries)
+        }
+
+        fn write_file(
+            &mut self,
+            remote_path: &str,
+            local_path: &Path,
+            cancelled: &AtomicBool,
+            progress: &mut dyn FnMut(u64),
+        ) -> Result<(), DeployError> {
+            if self.cancel_during_write {
+                cancelled.store(true, Ordering::Release);
+                return Err(DeployError::cancelled());
+            }
+            if cancelled.load(Ordering::Acquire) {
+                return Err(DeployError::cancelled());
+            }
+            let content = fs::read(local_path).map_err(DeployError::local_io)?;
+            progress(content.len() as u64);
+            self.nodes.insert(remote_path.into(), Node::File(content));
+            Ok(())
+        }
+
+        fn rename(&mut self, source: &str, target: &str) -> Result<(), DeployError> {
+            if self.fail_rename_targets.front().map(String::as_str) == Some(target) {
+                self.fail_rename_targets.pop_front();
+                return Err(DeployError::failed("injected rename failure"));
+            }
+            let affected = self
+                .nodes
+                .keys()
+                .filter(|path| *path == source || path.starts_with(&format!("{source}/")))
+                .cloned()
+                .collect::<Vec<_>>();
+            if affected.is_empty() {
+                return Err(DeployError::failed("rename source missing"));
+            }
+            for old_path in affected {
+                let node = self.nodes.remove(&old_path).unwrap();
+                let suffix = &old_path[source.len()..];
+                self.nodes.insert(format!("{target}{suffix}"), node);
+            }
+            Ok(())
+        }
+
+        fn remove_tree(&mut self, path: &str) -> Result<(), DeployError> {
+            let affected = self
+                .nodes
+                .keys()
+                .filter(|candidate| {
+                    *candidate == path || candidate.starts_with(&format!("{path}/"))
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+            for candidate in affected {
+                self.nodes.remove(&candidate);
+            }
+            Ok(())
+        }
+    }
+
+    fn local_manifests() -> (super::tests::TestDir, ArtifactManifest, ArtifactManifest) {
+        let root = super::tests::TestDir::new();
+        let frontend = root.path().join("dist");
+        let backend = root.path().join("app.jar");
+        fs::create_dir(&frontend).unwrap();
+        fs::write(frontend.join("index.html"), "new-web").unwrap();
+        fs::write(&backend, "new-jar").unwrap();
+        let frontend_manifest =
+            ArtifactManifest::from_directory(ReleaseTarget::Frontend, &frontend).unwrap();
+        let backend_manifest =
+            ArtifactManifest::from_file(ReleaseTarget::Backend, &backend).unwrap();
+        (root, frontend_manifest, backend_manifest)
+    }
+
+    fn two_target_request() -> (super::tests::TestDir, DeploymentRequest) {
+        let (root, frontend, backend) = local_manifests();
+        let request = DeploymentRequest {
+            run_id: "run-1".into(),
+            targets: vec![
+                DeploymentTarget {
+                    manifest: frontend,
+                    remote_path: "/srv/app/web".into(),
+                    expected_exists: true,
+                },
+                DeploymentTarget {
+                    manifest: backend,
+                    remote_path: "/srv/app/app.jar".into(),
+                    expected_exists: true,
+                },
+            ],
+        };
+        (root, request)
+    }
+
+    #[test]
+    fn deployment_rejects_an_unsafe_run_id_before_remote_changes() {
+        let (root, mut request) = two_target_request();
+        request.run_id = "../escape".into();
+        let mut remote = FakeRemoteFs::with_existing_release();
+        let error = deploy(&mut remote, &request, &AtomicBool::new(false), |_| {}).unwrap_err();
+        drop(root);
+
+        assert!(error.message.contains("runId"));
+        assert_eq!(remote.read("/srv/app/web/old.js"), b"old");
+        assert!(!remote.any_path_contains("__lazycat_tmp_"));
+    }
+
+    #[test]
+    fn deployment_rejects_a_non_canonical_remote_path_before_remote_changes() {
+        let (root, mut request) = two_target_request();
+        request.targets[0].remote_path = "/srv/app/web/".into();
+        let mut remote = FakeRemoteFs::with_existing_release();
+        let error = deploy(&mut remote, &request, &AtomicBool::new(false), |_| {}).unwrap_err();
+        drop(root);
+
+        assert!(error.message.contains("规范的 Linux 绝对路径"));
+        assert_eq!(remote.read("/srv/app/web/old.js"), b"old");
+        assert!(!remote.any_path_contains("__lazycat_tmp_"));
+    }
+
+    #[test]
+    fn deployment_rejects_nested_formal_targets_before_remote_changes() {
+        let (root, mut request) = two_target_request();
+        request.targets[0].remote_path = "/srv/app".into();
+        let mut remote = FakeRemoteFs::with_existing_release();
+        let error = deploy(&mut remote, &request, &AtomicBool::new(false), |_| {}).unwrap_err();
+        drop(root);
+
+        assert!(error.message.contains("不能互相包含"));
+        assert_eq!(remote.read("/srv/app/web/old.js"), b"old");
+        assert_eq!(remote.read("/srv/app/app.jar"), b"old-jar");
+        assert!(!remote.any_path_contains("__lazycat_tmp_"));
+    }
+
+    #[test]
+    fn deployment_replaces_targets_without_mixing_old_files() {
+        let (root, request) = two_target_request();
+        let mut remote = FakeRemoteFs::with_existing_release();
+        deploy(&mut remote, &request, &AtomicBool::new(false), |_| {}).unwrap();
+        drop(root);
+
+        assert!(!remote.exists("/srv/app/web/old.js"));
+        assert!(remote.exists("/srv/app/web/index.html"));
+        assert!(!remote.any_path_contains("__lazycat_tmp_"));
+        assert!(!remote.any_path_contains("__lazycat_backup_"));
+    }
+
+    #[test]
+    fn second_target_commit_failure_restores_first_target() {
+        let (root, request) = two_target_request();
+        let mut remote = FakeRemoteFs::with_existing_release();
+        remote.fail_rename_to("/srv/app/app.jar");
+        let error = deploy(&mut remote, &request, &AtomicBool::new(false), |_| {}).unwrap_err();
+        drop(root);
+
+        assert!(error.message.contains("远端提交失败"));
+        assert_eq!(remote.read("/srv/app/web/old.js"), b"old");
+        assert_eq!(remote.read("/srv/app/app.jar"), b"old-jar");
+    }
+
+    #[test]
+    fn rollback_failure_reports_recovery_paths_without_deleting_backup() {
+        let (root, request) = two_target_request();
+        let mut remote = FakeRemoteFs::with_existing_release();
+        remote.fail_rename_to("/srv/app/app.jar");
+        remote.fail_rename_to("/srv/app/web");
+        let error = deploy(&mut remote, &request, &AtomicBool::new(false), |_| {}).unwrap_err();
+        drop(root);
+
+        assert!(error.message.contains("回滚失败"));
+        assert!(error
+            .recovery_paths
+            .iter()
+            .any(|path| path.contains("__lazycat_backup_")));
+    }
+
+    #[test]
+    fn cancellation_keeps_formal_targets_and_cleans_temporary_paths() {
+        let (root, request) = two_target_request();
+        let mut remote = FakeRemoteFs::with_existing_release();
+        remote.cancel_during_write = true;
+        let error = deploy(&mut remote, &request, &AtomicBool::new(false), |_| {}).unwrap_err();
+        drop(root);
+
+        assert!(error.cancelled);
+        assert_eq!(remote.read("/srv/app/web/old.js"), b"old");
+        assert_eq!(remote.read("/srv/app/app.jar"), b"old-jar");
+        assert!(!remote.any_path_contains("__lazycat_tmp_"));
     }
 }
