@@ -20,10 +20,59 @@ CREATE TABLE IF NOT EXISTS release_package_projects (
     backend_project_path TEXT NOT NULL,
     backend_build_command TEXT NOT NULL,
     backend_artifact_path TEXT NOT NULL,
+    upload_enabled INTEGER NOT NULL DEFAULT 0,
+    ssh_host TEXT NOT NULL DEFAULT '',
+    ssh_port INTEGER NOT NULL DEFAULT 22,
+    ssh_username TEXT NOT NULL DEFAULT '',
+    ssh_auth_type TEXT NOT NULL DEFAULT 'password' CHECK (ssh_auth_type IN ('password', 'private_key')),
+    ssh_private_key_path TEXT NOT NULL DEFAULT '',
+    frontend_remote_dir TEXT NOT NULL DEFAULT '',
+    backend_remote_path TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+CREATE TABLE IF NOT EXISTS release_package_known_hosts (
+    host TEXT NOT NULL,
+    port INTEGER NOT NULL,
+    key_type TEXT NOT NULL,
+    fingerprint_sha256 TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY(host, port)
+);
 "#;
+
+pub fn ensure_schema(conn: &Connection) -> Result<(), String> {
+    conn.execute_batch(RELEASE_PACKAGE_SCHEMA_SQL)
+        .map_err(|error| format!("create release package schema failed: {error}"))?;
+    for (column, statement) in [
+        ("output_root", "ALTER TABLE release_package_projects ADD COLUMN output_root TEXT NOT NULL DEFAULT ''"),
+        ("upload_enabled", "ALTER TABLE release_package_projects ADD COLUMN upload_enabled INTEGER NOT NULL DEFAULT 0"),
+        ("ssh_host", "ALTER TABLE release_package_projects ADD COLUMN ssh_host TEXT NOT NULL DEFAULT ''"),
+        ("ssh_port", "ALTER TABLE release_package_projects ADD COLUMN ssh_port INTEGER NOT NULL DEFAULT 22"),
+        ("ssh_username", "ALTER TABLE release_package_projects ADD COLUMN ssh_username TEXT NOT NULL DEFAULT ''"),
+        ("ssh_auth_type", "ALTER TABLE release_package_projects ADD COLUMN ssh_auth_type TEXT NOT NULL DEFAULT 'password'"),
+        ("ssh_private_key_path", "ALTER TABLE release_package_projects ADD COLUMN ssh_private_key_path TEXT NOT NULL DEFAULT ''"),
+        ("frontend_remote_dir", "ALTER TABLE release_package_projects ADD COLUMN frontend_remote_dir TEXT NOT NULL DEFAULT ''"),
+        ("backend_remote_path", "ALTER TABLE release_package_projects ADD COLUMN backend_remote_path TEXT NOT NULL DEFAULT ''"),
+    ] {
+        let mut query = conn
+            .prepare("PRAGMA table_info(release_package_projects)")
+            .map_err(|error| format!("inspect release package schema failed: {error}"))?;
+        let columns = query
+            .query_map([], |row| row.get::<_, String>(1))
+            .map_err(|error| format!("query release package schema failed: {error}"))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| format!("read release package schema failed: {error}"))?;
+        let exists = columns.iter().any(|name| name == column);
+        if !exists {
+            conn.execute_batch(statement).map_err(|error| {
+                format!("migrate release package column {column} failed: {error}")
+            })?;
+        }
+    }
+    Ok(())
+}
 
 const ACTIONS: &[&str] = &[
     "project_list",
@@ -49,8 +98,15 @@ pub struct ReleasePackageProjectConfig {
     pub backend_project_path: String,
     pub backend_build_command: String,
     pub backend_artifact_path: String,
-    pub created_at: String,
-    pub updated_at: String,
+    pub upload_enabled: bool,
+    pub ssh_host: String,
+    pub ssh_port: u16,
+    pub ssh_username: String,
+    pub ssh_auth_type: String,
+    pub ssh_private_key_path: String,
+    pub frontend_remote_dir: String,
+    pub backend_remote_path: String,
+    pub created_at: String,    pub updated_at: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -78,8 +134,15 @@ struct ProjectPayload {
     backend_project_path: String,
     backend_build_command: String,
     backend_artifact_path: String,
+    upload_enabled: bool,
+    ssh_host: String,
+    ssh_port: u16,
+    ssh_username: String,
+    ssh_auth_type: String,
+    ssh_private_key_path: String,
+    frontend_remote_dir: String,
+    backend_remote_path: String,
 }
-
 fn required_string(payload: &Value, key: &str) -> Result<String, String> {
     payload
         .get(key)
@@ -90,6 +153,32 @@ fn required_string(payload: &Value, key: &str) -> Result<String, String> {
         .ok_or_else(|| format!("{key} is required"))
 }
 
+fn optional_string(payload: &Value, key: &str) -> Result<String, String> {
+    match payload.get(key) {
+        None | Some(Value::Null) => Ok(String::new()),
+        Some(Value::String(value)) => Ok(value.trim().to_owned()),
+        Some(_) => Err(format!("{key} must be a string")),
+    }
+}
+
+fn optional_bool(payload: &Value, key: &str, default: bool) -> Result<bool, String> {
+    match payload.get(key) {
+        None => Ok(default),
+        Some(Value::Bool(value)) => Ok(*value),
+        Some(_) => Err(format!("{key} must be a boolean")),
+    }
+}
+
+fn optional_port(payload: &Value, key: &str, default: u16) -> Result<u16, String> {
+    match payload.get(key) {
+        None => Ok(default),
+        Some(value) => value
+            .as_u64()
+            .filter(|port| (1..=u16::MAX as u64).contains(port))
+            .map(|port| port as u16)
+            .ok_or_else(|| format!("{key} must be between 1 and 65535")),
+    }
+}
 fn parse_targets(value: &Value) -> Result<Vec<ReleaseTarget>, String> {
     let values = value.as_array().ok_or("targets is required")?;
     if values.is_empty() {
@@ -119,7 +208,7 @@ fn parse_overwrite_existing(payload: &Value) -> Result<bool, String> {
 }
 
 fn parse_project_payload(payload: &Value) -> Result<ProjectPayload, String> {
-    let project = ProjectPayload {
+    let mut project = ProjectPayload {
         name: required_string(payload, "name")?,
         output_root: required_string(payload, "outputRoot")?,
         frontend_project_path: required_string(payload, "frontendProjectPath")?,
@@ -129,9 +218,39 @@ fn parse_project_payload(payload: &Value) -> Result<ProjectPayload, String> {
         backend_project_path: required_string(payload, "backendProjectPath")?,
         backend_build_command: required_string(payload, "backendBuildCommand")?,
         backend_artifact_path: required_string(payload, "backendArtifactPath")?,
+        upload_enabled: optional_bool(payload, "uploadEnabled", false)?,
+        ssh_host: optional_string(payload, "sshHost")?,
+        ssh_port: optional_port(payload, "sshPort", 22)?,
+        ssh_username: optional_string(payload, "sshUsername")?,
+        ssh_auth_type: optional_string(payload, "sshAuthType")?,
+        ssh_private_key_path: optional_string(payload, "sshPrivateKeyPath")?,
+        frontend_remote_dir: optional_string(payload, "frontendRemoteDir")?,
+        backend_remote_path: optional_string(payload, "backendRemotePath")?,
     };
     validate_folder_name(&project.name)?;
-    if !matches!(
+    if project.ssh_auth_type.is_empty() {
+        project.ssh_auth_type = "password".into();
+    }
+    if !matches!(project.ssh_auth_type.as_str(), "password" | "private_key") {
+        return Err("sshAuthType must be password or private_key".into());
+    }
+    if project.upload_enabled {
+        if project.ssh_host.is_empty() {
+            return Err("sshHost is required when upload is enabled".into());
+        }
+        if project.ssh_username.is_empty() {
+            return Err("sshUsername is required when upload is enabled".into());
+        }
+        if project.ssh_auth_type == "private_key" && project.ssh_private_key_path.is_empty() {
+            return Err("sshPrivateKeyPath is required for private_key authentication".into());
+        }
+        if !project.frontend_remote_dir.starts_with('/') || project.frontend_remote_dir == "/" {
+            return Err("frontendRemoteDir must be an absolute Linux path".into());
+        }
+        if !project.backend_remote_path.starts_with('/') || project.backend_remote_path == "/" {
+            return Err("backendRemotePath must be an absolute Linux path".into());
+        }
+    }    if !matches!(
         project.frontend_artifact_mode.as_str(),
         "copy_directory" | "zip_directory"
     ) {
@@ -152,8 +271,16 @@ fn project_from_row(row: &Row<'_>) -> rusqlite::Result<ReleasePackageProjectConf
         backend_project_path: row.get(7)?,
         backend_build_command: row.get(8)?,
         backend_artifact_path: row.get(9)?,
-        created_at: row.get(10)?,
-        updated_at: row.get(11)?,
+        upload_enabled: row.get(10)?,
+        ssh_host: row.get(11)?,
+        ssh_port: row.get(12)?,
+        ssh_username: row.get(13)?,
+        ssh_auth_type: row.get(14)?,
+        ssh_private_key_path: row.get(15)?,
+        frontend_remote_dir: row.get(16)?,
+        backend_remote_path: row.get(17)?,
+        created_at: row.get(18)?,
+        updated_at: row.get(19)?,
     })
 }
 
@@ -162,7 +289,8 @@ fn project_list_with_conn(conn: &Connection) -> Result<Value, String> {
         .prepare(
             "SELECT id, name, output_root, frontend_project_path, frontend_build_command, frontend_artifact_path,
                     frontend_artifact_mode, backend_project_path, backend_build_command,
-                    backend_artifact_path, created_at, updated_at
+                    backend_artifact_path, upload_enabled, ssh_host, ssh_port, ssh_username, ssh_auth_type,
+                    ssh_private_key_path, frontend_remote_dir, backend_remote_path, created_at, updated_at
              FROM release_package_projects
              ORDER BY name COLLATE NOCASE ASC, id ASC",
         )
@@ -180,8 +308,10 @@ fn project_create_with_conn(conn: &Connection, payload: &Value) -> Result<Value,
     conn.execute(
         "INSERT INTO release_package_projects(
             name, output_root, frontend_project_path, frontend_build_command, frontend_artifact_path,
-            frontend_artifact_mode, backend_project_path, backend_build_command, backend_artifact_path
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            frontend_artifact_mode, backend_project_path, backend_build_command, backend_artifact_path,
+            upload_enabled, ssh_host, ssh_port, ssh_username, ssh_auth_type,
+            ssh_private_key_path, frontend_remote_dir, backend_remote_path
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
         params![
             project.name,
             project.output_root,
@@ -192,6 +322,14 @@ fn project_create_with_conn(conn: &Connection, payload: &Value) -> Result<Value,
             project.backend_project_path,
             project.backend_build_command,
             project.backend_artifact_path,
+            project.upload_enabled,
+            project.ssh_host,
+            project.ssh_port,
+            project.ssh_username,
+            project.ssh_auth_type,
+            project.ssh_private_key_path,
+            project.frontend_remote_dir,
+            project.backend_remote_path,
         ],
     )
     .map_err(|e| format!("create release package project failed: {e}"))?;
@@ -207,8 +345,10 @@ fn project_update_with_conn(conn: &Connection, payload: &Value) -> Result<Value,
                 name=?1, output_root=?2, frontend_project_path=?3, frontend_build_command=?4,
                 frontend_artifact_path=?5, frontend_artifact_mode=?6,
                 backend_project_path=?7, backend_build_command=?8, backend_artifact_path=?9,
-                updated_at=CURRENT_TIMESTAMP
-             WHERE id=?10",
+                upload_enabled=?10, ssh_host=?11, ssh_port=?12, ssh_username=?13,
+                ssh_auth_type=?14, ssh_private_key_path=?15, frontend_remote_dir=?16,
+                backend_remote_path=?17, updated_at=CURRENT_TIMESTAMP
+             WHERE id=?18",
             params![
                 project.name,
                 project.output_root,
@@ -219,6 +359,14 @@ fn project_update_with_conn(conn: &Connection, payload: &Value) -> Result<Value,
                 project.backend_project_path,
                 project.backend_build_command,
                 project.backend_artifact_path,
+                project.upload_enabled,
+                project.ssh_host,
+                project.ssh_port,
+                project.ssh_username,
+                project.ssh_auth_type,
+                project.ssh_private_key_path,
+                project.frontend_remote_dir,
+                project.backend_remote_path,
                 id,
             ],
         )
@@ -247,7 +395,8 @@ pub(crate) fn load_project(
     conn.query_row(
         "SELECT id, name, output_root, frontend_project_path, frontend_build_command, frontend_artifact_path,
                 frontend_artifact_mode, backend_project_path, backend_build_command,
-                backend_artifact_path, created_at, updated_at
+                backend_artifact_path, upload_enabled, ssh_host, ssh_port, ssh_username, ssh_auth_type,
+                    ssh_private_key_path, frontend_remote_dir, backend_remote_path, created_at, updated_at
          FROM release_package_projects
          WHERE id=?1",
         [id],
@@ -435,10 +584,53 @@ mod tests {
             "frontendArtifactMode": "copy_directory",
             "backendProjectPath": r"D:\work\server",
             "backendBuildCommand": "mvn clean package -Pprod",
-            "backendArtifactPath": r"target\portal.jar"
+            "backendArtifactPath": r"target\portal.jar",
+            "uploadEnabled": true,
+            "sshHost": "deploy.example.internal",
+            "sshPort": 2222,
+            "sshUsername": "deploy",
+            "sshAuthType": "private_key",
+            "sshPrivateKeyPath": r"C:\Users\tester\.ssh\lazycat",
+            "frontendRemoteDir": "/srv/portal/web",
+            "backendRemotePath": "/srv/portal/app.jar"
         })
     }
 
+    #[test]
+    fn schema_migrates_existing_projects_and_never_persists_passwords() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE release_package_projects (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                output_root TEXT NOT NULL,
+                frontend_project_path TEXT NOT NULL,
+                frontend_build_command TEXT NOT NULL,
+                frontend_artifact_path TEXT NOT NULL,
+                frontend_artifact_mode TEXT NOT NULL,
+                backend_project_path TEXT NOT NULL,
+                backend_build_command TEXT NOT NULL,
+                backend_artifact_path TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            INSERT INTO release_package_projects(
+                name, output_root, frontend_project_path, frontend_build_command,
+                frontend_artifact_path, frontend_artifact_mode, backend_project_path,
+                backend_build_command, backend_artifact_path
+            ) VALUES ('portal', 'D:\\release', 'D:\\web', 'pnpm build', 'dist',
+                      'copy_directory', 'D:\\server', 'mvn package', 'target/app.jar');"
+        ).unwrap();
+
+        ensure_schema(&conn).unwrap();
+        let projects = project_list_with_conn(&conn).unwrap();
+        let project = &projects["projects"][0];
+        assert_eq!(project["uploadEnabled"], false);
+        assert_eq!(project["sshPort"], 22);
+        assert_eq!(project["sshAuthType"], "password");
+        assert!(project.get("password").is_none());
+        assert!(project.get("privateKeyPassphrase").is_none());
+    }
     #[test]
     fn project_crud_round_trip() {
         let conn = test_conn();
@@ -446,6 +638,10 @@ mod tests {
         let id = created["id"].as_i64().unwrap();
         let listed = project_list_with_conn(&conn).unwrap();
         assert_eq!(listed["projects"][0]["name"], "客户门户");
+        assert_eq!(listed["projects"][0]["sshHost"], "deploy.example.internal");
+        assert_eq!(listed["projects"][0]["sshPort"], 2222);
+        assert!(listed["projects"][0].get("password").is_none());
+        assert!(listed["projects"][0].get("privateKeyPassphrase").is_none());
         let mut update = payload();
         update["id"] = json!(id);
         update["name"] = json!("客户门户 Pro");
@@ -503,6 +699,14 @@ mod tests {
             backend_project_path: backend.to_string_lossy().into_owned(),
             backend_build_command: "exit 0".into(),
             backend_artifact_path: "app.jar".into(),
+            upload_enabled: false,
+            ssh_host: String::new(),
+            ssh_port: 22,
+            ssh_username: String::new(),
+            ssh_auth_type: "password".into(),
+            ssh_private_key_path: String::new(),
+            frontend_remote_dir: String::new(),
+            backend_remote_path: String::new(),
             created_at: String::new(),
             updated_at: String::new(),
         };
@@ -572,6 +776,14 @@ mod tests {
             backend_project_path: backend.to_string_lossy().into_owned(),
             backend_build_command: "exit 0".into(),
             backend_artifact_path: "app.jar".into(),
+            upload_enabled: false,
+            ssh_host: String::new(),
+            ssh_port: 22,
+            ssh_username: String::new(),
+            ssh_auth_type: "password".into(),
+            ssh_private_key_path: String::new(),
+            frontend_remote_dir: String::new(),
+            backend_remote_path: String::new(),
             created_at: String::new(),
             updated_at: String::new(),
         };

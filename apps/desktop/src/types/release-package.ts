@@ -1,4 +1,5 @@
 export type ReleasePackageArtifactMode = "copy_directory" | "zip_directory";
+export type ReleasePackageSshAuthType = "password" | "private_key";
 export type ReleasePackageTarget = "frontend" | "backend";
 export type ReleasePackagePhase = ReleasePackageTarget | "overall";
 export type ReleasePackageRunStatus =
@@ -17,7 +18,18 @@ export type ReleasePackageTargetStatus =
   | "cancelled"
   | "skipped";
 
-export interface ReleasePackageProjectDraft {
+export interface ReleasePackageUploadConfig {
+  uploadEnabled: boolean;
+  sshHost: string;
+  sshPort: number;
+  sshUsername: string;
+  sshAuthType: ReleasePackageSshAuthType;
+  sshPrivateKeyPath: string;
+  frontendRemoteDir: string;
+  backendRemotePath: string;
+}
+
+export interface ReleasePackageProjectDraft extends ReleasePackageUploadConfig {
   name: string;
   outputRoot: string;
   frontendProjectPath: string;
