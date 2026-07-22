@@ -1,8 +1,8 @@
 export type ReleasePackageArtifactMode = "copy_directory" | "zip_directory";
 export type ReleasePackageSshAuthType = "password" | "private_key";
+export type ReleasePackageType = "local_archive" | "server_upload";
 export type ReleasePackageTarget = "frontend" | "backend";
 export type ReleasePackagePhase = ReleasePackageTarget | "upload" | "overall";
-export type ReleasePackageStartMode = "package_only" | "package_and_upload";
 export type ReleasePackageRunStatus =
   | "idle"
   | "prechecking"
@@ -23,7 +23,6 @@ export type ReleasePackageTargetStatus =
   | "skipped";
 
 export interface ReleasePackageUploadConfig {
-  uploadEnabled: boolean;
   sshHost: string;
   sshPort: number;
   sshUsername: string;
@@ -35,6 +34,7 @@ export interface ReleasePackageUploadConfig {
 
 export interface ReleasePackageProjectDraft extends ReleasePackageUploadConfig {
   name: string;
+  packageType: ReleasePackageType;
   outputRoot: string;
   frontendProjectPath: string;
   frontendBuildCommand: string;
@@ -53,12 +53,14 @@ export interface ReleasePackageProject extends ReleasePackageProjectDraft {
 
 export interface ReleasePackageProjectListResult { projects: ReleasePackageProject[] }
 
-export interface ReleasePackagePrepareResult {
-  defaultFolderName: string;
-  outputRoot: string;
-  archivePath: string;
-  frontendArtifactMode: ReleasePackageArtifactMode;
-}
+export type ReleasePackagePrepareResult =
+  | {
+      packageType: "local_archive";
+      defaultFolderName: string;
+      outputRoot: string;
+      archivePath: string;
+    }
+  | { packageType: "server_upload" };
 
 export interface ReleasePackageTargetCheckResult {
   archivePath: string;

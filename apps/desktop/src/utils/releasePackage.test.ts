@@ -31,7 +31,7 @@ const project: ReleasePackageProject = {
   backendProjectPath: "D:\\work\\portal-server",
   backendBuildCommand: "mvn clean package -Pprod",
   backendArtifactPath: "target\\portal.jar",
-  uploadEnabled: false,
+  packageType: "local_archive",
   sshHost: "",
   sshPort: 22,
   sshUsername: "",
@@ -138,7 +138,7 @@ Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force
       backendProjectPath: "",
       backendBuildCommand: "",
       backendArtifactPath: "",
-      uploadEnabled: false,
+      packageType: "local_archive",
       sshHost: "",
       sshPort: 22,
       sshUsername: "",
@@ -174,7 +174,7 @@ Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force
 
   it("validates enabled server upload settings", () => {
     const draft = createEmptyReleasePackageDraft();
-    draft.uploadEnabled = true;
+    draft.packageType = "server_upload";
     expect(validateReleasePackageUpload(draft)).toBe("请输入服务器地址");
     draft.sshHost = "10.0.0.8";
     draft.sshUsername = "deploy";
@@ -193,7 +193,7 @@ Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force
   it("rejects non-canonical Linux deployment paths before preflight", () => {
     const draft = createEmptyReleasePackageDraft();
     Object.assign(draft, {
-      uploadEnabled: true,
+      packageType: "server_upload",
       sshHost: "10.0.0.8",
       sshUsername: "deploy",
       frontendRemoteDir: "/srv/app/web/",
@@ -203,6 +203,22 @@ Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force
     draft.frontendRemoteDir = "/srv/app/web";
     draft.backendRemotePath = "/srv//app.jar";
     expect(validateReleasePackageUpload(draft)).toBe("后端远程文件路径必须是规范的 Linux 绝对路径");
+  });
+  it("validates only fields required by the selected package type", () => {
+    const draft = projectToReleasePackageDraft(project);
+    draft.packageType = "server_upload";
+    draft.outputRoot = "";
+    draft.sshHost = "10.0.0.8";
+    draft.sshUsername = "deploy";
+    draft.frontendRemoteDir = "/srv/app/web";
+    draft.backendRemotePath = "/srv/app/app.jar";
+    expect(validateReleasePackageDraft(draft)).toBeNull();
+
+    draft.sshHost = "";
+    expect(validateReleasePackageDraft(draft)).toBe("请输入服务器地址");
+
+    draft.packageType = "local_archive";
+    expect(validateReleasePackageDraft(draft)).toBe("请选择归档根目录");
   });
   it("accepts events only for the active run", () => {
     expect(acceptReleasePackageEvent("run-1", { runId: "run-1" })).toBe(true);
@@ -222,7 +238,7 @@ Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force
     ["uploading", "上传中"],
     ["succeeded", "已完成"],
     ["partially_succeeded", "部分成功"],
-    ["package_succeeded_upload_failed", "打包完成，上传失败"],
+    ["package_succeeded_upload_failed", "构建完成，上传失败"],
     ["failed", "失败"],
     ["cancelled", "已终止"],
   ] satisfies readonly [ReleasePackageRunStatus, string][])("maps %s status to %s", (status, label) => {

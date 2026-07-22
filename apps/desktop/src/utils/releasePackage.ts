@@ -70,6 +70,7 @@ export function validateReleasePackageTargets(targets: readonly ReleasePackageTa
 export function createEmptyReleasePackageDraft(): ReleasePackageProjectDraft {
   return {
     name: "",
+    packageType: "local_archive",
     outputRoot: "",
     frontendProjectPath: "",
     frontendBuildCommand: "",
@@ -78,7 +79,6 @@ export function createEmptyReleasePackageDraft(): ReleasePackageProjectDraft {
     backendProjectPath: "",
     backendBuildCommand: "",
     backendArtifactPath: "",
-    uploadEnabled: false,
     sshHost: "",
     sshPort: 22,
     sshUsername: "",
@@ -92,6 +92,7 @@ export function createEmptyReleasePackageDraft(): ReleasePackageProjectDraft {
 export function projectToReleasePackageDraft(project: ReleasePackageProject): ReleasePackageProjectDraft {
   return {
     name: project.name,
+    packageType: project.packageType,
     outputRoot: project.outputRoot,
     frontendProjectPath: project.frontendProjectPath,
     frontendBuildCommand: project.frontendBuildCommand,
@@ -100,7 +101,6 @@ export function projectToReleasePackageDraft(project: ReleasePackageProject): Re
     backendProjectPath: project.backendProjectPath,
     backendBuildCommand: project.backendBuildCommand,
     backendArtifactPath: project.backendArtifactPath,
-    uploadEnabled: project.uploadEnabled,
     sshHost: project.sshHost,
     sshPort: project.sshPort,
     sshUsername: project.sshUsername,
@@ -119,7 +119,6 @@ export function normalizeReleasePackageDraft(draft: ReleasePackageProjectDraft):
 
 export function validateReleasePackageUpload(draft: ReleasePackageProjectDraft): string | null {
   const value = normalizeReleasePackageDraft(draft);
-  if (!value.uploadEnabled) return null;
   if (!value.sshHost) return "请输入服务器地址";
   if (!Number.isInteger(value.sshPort) || value.sshPort < 1 || value.sshPort > 65_535) {
     return "SSH 端口必须在 1 到 65535 之间";
@@ -153,14 +152,14 @@ function isCanonicalLinuxPath(value: string): boolean {
 export function validateReleasePackageDraft(draft: ReleasePackageProjectDraft): string | null {
   const value = normalizeReleasePackageDraft(draft);
   if (!value.name) return "请输入项目名";
-  if (!value.outputRoot) return "请选择归档根目录";
+  if (value.packageType === "local_archive" && !value.outputRoot) return "请选择归档根目录";
   if (!value.frontendProjectPath) return "请选择前端工程目录";
   if (!value.frontendBuildCommand) return "请输入前端构建命令";
   if (!value.frontendArtifactPath) return "请输入前端产物路径";
   if (!value.backendProjectPath) return "请选择后端工程目录";
   if (!value.backendBuildCommand) return "请输入后端构建命令";
   if (!value.backendArtifactPath) return "请输入后端产物路径";
-  return validateReleasePackageUpload(value);
+  return value.packageType === "server_upload" ? validateReleasePackageUpload(value) : null;
 }
 
 export function isReleasePackageDraftDirty(
@@ -197,7 +196,7 @@ export function releasePackageRunStatusLabel(status: ReleasePackageRunStatus): s
     uploading: "上传中",
     succeeded: "已完成",
     partially_succeeded: "部分成功",
-    package_succeeded_upload_failed: "打包完成，上传失败",
+    package_succeeded_upload_failed: "构建完成，上传失败",
     failed: "失败",
     cancelled: "已终止",
   };
