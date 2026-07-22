@@ -1040,6 +1040,25 @@ fn run_build_pipeline(
     })
 }
 
+fn emit_local_archive_target_status(
+    sink: &dyn EventSink,
+    run_id: &str,
+    project_id: i64,
+    target: ReleaseTarget,
+    status: &str,
+    error: Option<String>,
+) {
+    emit_status(
+        sink,
+        run_id,
+        project_id,
+        status,
+        target_phase(target),
+        None,
+        error,
+    );
+}
+
 fn run_local_archive_pipeline(
     run_id: &str,
     project_id: i64,
@@ -1051,6 +1070,16 @@ fn run_local_archive_pipeline(
     sink: Arc<dyn EventSink>,
 ) -> Result<PipelineSummary, PipelineError> {
     if cancelled.load(Ordering::Acquire) {
+        for target in &summary.built_targets {
+            emit_local_archive_target_status(
+                sink.as_ref(),
+                run_id,
+                project_id,
+                target.target,
+                "cancelled",
+                None,
+            );
+        }
         return Err(PipelineError::Cancelled { phase: "overall" });
     }
     if summary.built_targets.is_empty() {
@@ -1073,22 +1102,57 @@ fn run_local_archive_pipeline(
         .iter()
         .find(|target| target.target == ReleaseTarget::Backend);
     if let (Some(frontend), Some(backend)) = (frontend, backend) {
-        validate_artifact_target_collision(
+        if let Err(error) = validate_artifact_target_collision(
             &frontend.source_path,
             &frontend.artifact_mode,
             &backend.source_path,
-        )
-        .map_err(|error| archive_pipeline_error(error, "overall"))?;
+        ) {
+            let error = archive_pipeline_error(error, "overall");
+            let (status, message) = match &error {
+                PipelineError::Cancelled { .. } => ("cancelled", None),
+                PipelineError::Failed { message } => ("failed", Some(message.clone())),
+            };
+            for target in &summary.built_targets {
+                emit_local_archive_target_status(
+                    sink.as_ref(),
+                    run_id,
+                    project_id,
+                    target.target,
+                    status,
+                    message.clone(),
+                );
+            }
+            return Err(error);
+        }
     }
 
-    let mut archive = ArchiveSession::create(
+    let mut archive = match ArchiveSession::create(
         &output_root,
         &folder_name,
         run_id,
         overwrite_existing,
         cancelled.as_ref(),
-    )
-    .map_err(|error| archive_pipeline_error(error, "overall"))?;
+    ) {
+        Ok(archive) => archive,
+        Err(error) => {
+            let error = archive_pipeline_error(error, "overall");
+            let (status, message) = match &error {
+                PipelineError::Cancelled { .. } => ("cancelled", None),
+                PipelineError::Failed { message } => ("failed", Some(message.clone())),
+            };
+            for target in &summary.built_targets {
+                emit_local_archive_target_status(
+                    sink.as_ref(),
+                    run_id,
+                    project_id,
+                    target.target,
+                    status,
+                    message.clone(),
+                );
+            }
+            return Err(error);
+        }
+    };
     let staging_path = archive.staging_path().to_path_buf();
     let mut archived_targets = Vec::new();
     let mut errors = summary.error.into_iter().collect::<Vec<_>>();
@@ -1116,13 +1180,38 @@ fn run_local_archive_pipeline(
                 archive_entry_name,
                 artifact_mode: built_target.artifact_mode,
             }),
-            Err(ArchiveError::Cancelled) => {}
+            Err(ArchiveError::Cancelled) => emit_local_archive_target_status(
+                sink.as_ref(),
+                run_id,
+                project_id,
+                built_target.target,
+                "cancelled",
+                None,
+            ),
             Err(ArchiveError::Failed(message)) => {
+                emit_local_archive_target_status(
+                    sink.as_ref(),
+                    run_id,
+                    project_id,
+                    built_target.target,
+                    "failed",
+                    Some(message.clone()),
+                );
                 errors.push(format!("{phase}：{message}"));
             }
         }
     }
     if cancelled.load(Ordering::Acquire) {
+        for target in &archived_targets {
+            emit_local_archive_target_status(
+                sink.as_ref(),
+                run_id,
+                project_id,
+                target.target,
+                "cancelled",
+                None,
+            );
+        }
         return Err(PipelineError::Cancelled { phase: "overall" });
     }
     let success_count = archived_targets.len();
@@ -1136,9 +1225,27 @@ fn run_local_archive_pipeline(
             remote_committed: false,
         });
     }
-    let archive_path = archive
-        .commit(cancelled.as_ref())
-        .map_err(|error| archive_pipeline_error(error, "overall"))?;
+    let archive_path = match archive.commit(cancelled.as_ref()) {
+        Ok(path) => path,
+        Err(error) => {
+            let error = archive_pipeline_error(error, "overall");
+            let (status, message) = match &error {
+                PipelineError::Cancelled { .. } => ("cancelled", None),
+                PipelineError::Failed { message } => ("failed", Some(message.clone())),
+            };
+            for target in &archived_targets {
+                emit_local_archive_target_status(
+                    sink.as_ref(),
+                    run_id,
+                    project_id,
+                    target.target,
+                    status,
+                    message.clone(),
+                );
+            }
+            return Err(error);
+        }
+    };
     Ok(PipelineSummary {
         status: if success_count == summary.selected_count {
             "succeeded"
@@ -1506,11 +1613,18 @@ mod pipeline_tests {
     #[derive(Default)]
     struct CollectingSink {
         statuses: Mutex<Vec<StatusEvent>>,
+        cancel_on_archive: Option<Arc<AtomicBool>>,
     }
 
     #[cfg(windows)]
     impl EventSink for CollectingSink {
-        fn log(&self, _event: LogEvent) {}
+        fn log(&self, event: LogEvent) {
+            if event.line == "正在归档前端产物" {
+                if let Some(cancelled) = &self.cancel_on_archive {
+                    cancelled.store(true, Ordering::Release);
+                }
+            }
+        }
 
         fn status(&self, event: StatusEvent) {
             self.statuses.lock().unwrap().push(event);
@@ -1521,6 +1635,13 @@ mod pipeline_tests {
 
     #[cfg(windows)]
     impl CollectingSink {
+        fn cancelling_during_archive(cancelled: Arc<AtomicBool>) -> Self {
+            Self {
+                statuses: Mutex::new(Vec::new()),
+                cancel_on_archive: Some(cancelled),
+            }
+        }
+
         fn phases(&self) -> Vec<String> {
             self.statuses
                 .lock()
@@ -1534,6 +1655,16 @@ mod pipeline_tests {
                     }
                     phases
                 })
+        }
+
+        fn last_status(&self, phase: &str) -> Option<String> {
+            self.statuses
+                .lock()
+                .unwrap()
+                .iter()
+                .rev()
+                .find(|event| event.phase == phase)
+                .map(|event| event.status.clone())
         }
     }
 
@@ -1589,6 +1720,23 @@ mod pipeline_tests {
             created_at: String::new(),
             updated_at: String::new(),
         }
+    }
+
+    #[cfg(windows)]
+    fn frontend_build_project(root: &Path, artifact_mode: &str) -> ReleasePackageProjectConfig {
+        let frontend_project = root.join("web");
+        let backend_project = root.join("server");
+        fs::create_dir_all(&frontend_project).unwrap();
+        fs::create_dir_all(&backend_project).unwrap();
+        let mut project = project();
+        project.frontend_project_path = frontend_project.to_string_lossy().into_owned();
+        project.frontend_build_command =
+            "New-Item -ItemType Directory -Force dist | Out-Null; Set-Content dist/index.html web"
+                .into();
+        project.frontend_artifact_path = "dist".into();
+        project.frontend_artifact_mode = artifact_mode.into();
+        project.backend_project_path = backend_project.to_string_lossy().into_owned();
+        project
     }
 
     fn consumed_preflight_with_existing(
@@ -2064,6 +2212,150 @@ mod pipeline_tests {
                 && target.source_path == backend_project.join("target/app.jar")
         }));
         assert!(!output_root.exists());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn local_archive_failure_overrides_the_build_target_status() {
+        let root = TestDir::new();
+        let output_root = root.0.join("output");
+        fs::create_dir(&output_root).unwrap();
+        let project = frontend_build_project(&root.0, "invalid_mode");
+        let sink = Arc::new(CollectingSink::default());
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let build = run_build_pipeline(
+            "archive-failed",
+            project.clone(),
+            vec![ReleaseTarget::Frontend],
+            cancelled.clone(),
+            ProcessSlots::new(),
+            sink.clone(),
+        )
+        .unwrap();
+
+        let summary = run_local_archive_pipeline(
+            "archive-failed",
+            project.id,
+            build,
+            output_root,
+            "release".into(),
+            false,
+            cancelled,
+            sink.clone(),
+        )
+        .unwrap();
+
+        assert_eq!(summary.status, "failed");
+        assert_eq!(sink.last_status("frontend").as_deref(), Some("failed"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn local_zip_archive_contains_the_frontend_directory() {
+        let root = TestDir::new();
+        let output_root = root.0.join("output");
+        fs::create_dir(&output_root).unwrap();
+        let project = frontend_build_project(&root.0, "zip_directory");
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let build = run_build_pipeline(
+            "zip-run",
+            project.clone(),
+            vec![ReleaseTarget::Frontend],
+            cancelled.clone(),
+            ProcessSlots::new(),
+            Arc::new(Sink),
+        )
+        .unwrap();
+        let summary = run_local_archive_pipeline(
+            "zip-run",
+            project.id,
+            build,
+            output_root,
+            "release".into(),
+            false,
+            cancelled,
+            Arc::new(Sink),
+        )
+        .unwrap();
+
+        let archive_path = summary.archive_path.unwrap();
+        let zip = fs::File::open(archive_path.join("dist.zip")).unwrap();
+        let mut zip = zip::ZipArchive::new(zip).unwrap();
+        assert!(zip.by_name("dist/index.html").is_ok());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn local_archive_overwrite_replaces_the_existing_directory() {
+        let root = TestDir::new();
+        let output_root = root.0.join("output");
+        let existing = output_root.join("release");
+        fs::create_dir_all(&existing).unwrap();
+        fs::write(existing.join("stale.txt"), "stale").unwrap();
+        let project = frontend_build_project(&root.0, "copy_directory");
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let build = run_build_pipeline(
+            "overwrite-run",
+            project.clone(),
+            vec![ReleaseTarget::Frontend],
+            cancelled.clone(),
+            ProcessSlots::new(),
+            Arc::new(Sink),
+        )
+        .unwrap();
+        let summary = run_local_archive_pipeline(
+            "overwrite-run",
+            project.id,
+            build,
+            output_root,
+            "release".into(),
+            true,
+            cancelled,
+            Arc::new(Sink),
+        )
+        .unwrap();
+
+        let archive_path = summary.archive_path.unwrap();
+        assert!(archive_path.join("dist/index.html").is_file());
+        assert!(!archive_path.join("stale.txt").exists());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn local_archive_cancellation_does_not_commit_and_marks_the_target_cancelled() {
+        let root = TestDir::new();
+        let output_root = root.0.join("output");
+        fs::create_dir(&output_root).unwrap();
+        let project = frontend_build_project(&root.0, "copy_directory");
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let sink = Arc::new(CollectingSink::cancelling_during_archive(cancelled.clone()));
+        let build = run_build_pipeline(
+            "cancel-archive",
+            project.clone(),
+            vec![ReleaseTarget::Frontend],
+            cancelled.clone(),
+            ProcessSlots::new(),
+            sink.clone(),
+        )
+        .unwrap();
+
+        let result = run_local_archive_pipeline(
+            "cancel-archive",
+            project.id,
+            build,
+            output_root.clone(),
+            "release".into(),
+            false,
+            cancelled,
+            sink.clone(),
+        );
+
+        assert!(matches!(
+            result,
+            Err(PipelineError::Cancelled { phase: "overall" })
+        ));
+        assert!(!output_root.join("release").exists());
+        assert_eq!(sink.last_status("frontend").as_deref(), Some("cancelled"));
     }
 
     #[cfg(windows)]
