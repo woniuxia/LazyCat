@@ -715,6 +715,7 @@ pub fn cancel(run_id: &str) -> Result<Value, String> {
 }
 
 pub fn on_app_exit() {
+    super::release_package_remote::clear_temporary_stores();
     SHUTTING_DOWN.store(true, Ordering::Release);
     if let Ok(active) = active_run().lock() {
         if let Some(active) = active.as_ref() {

@@ -70,6 +70,27 @@ export interface ReleasePackageRemoteProbeResult {
   trust: "trusted" | "unknown" | "changed";
   previousFingerprintSha256?: string;
 }
+export interface ReleasePackageRemotePreflightInput {
+  projectId: number;
+  targets: ReleasePackageTarget[];
+  probeToken: string;
+  password?: string;
+  privateKeyPassphrase?: string;
+}
+
+export interface ReleasePackageRemoteTargetCheck {
+  target: ReleasePackageTarget;
+  remotePath: string;
+  exists: boolean;
+  parentReady: boolean;
+  writable: boolean;
+}
+
+export interface ReleasePackageRemotePreflightResult {
+  preflightToken: string;
+  expiresAt: string;
+  targets: ReleasePackageRemoteTargetCheck[];
+}
 export interface ReleasePackageStartResult { runId: string }
 export interface ReleasePackageCancelResult { cancelRequested: boolean }
 

@@ -181,6 +181,7 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:release-package:target-check": { domain: "release_package", action: "target_check" },
   "tool:release-package:remote-probe": { domain: "release_package", action: "remote_probe" },
   "tool:release-package:host-trust": { domain: "release_package", action: "host_trust" },
+  "tool:release-package:remote-preflight": { domain: "release_package", action: "remote_preflight" },
   "tool:release-package:start": { domain: "release_package", action: "start" },
   "tool:release-package:cancel": { domain: "release_package", action: "cancel" },
   "tool:api-mock:route-list": { domain: "api_mock", action: "route_list" },
