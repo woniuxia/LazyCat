@@ -53,11 +53,24 @@ describe("normalizeGlobalNotificationPayload", () => {
   it.each(["package_succeeded_upload_failed", "cancelled"] as const)(
     "accepts release terminal status %s",
     (status) => {
-      expect(normalizeGlobalNotificationPayload({ ...succeededNotification, status })).toEqual([
-        { ...succeededNotification, status },
-      ]);
+      const packageType = status === "package_succeeded_upload_failed"
+        ? "server_upload"
+        : "local_archive";
+      const notification = {
+        ...succeededNotification,
+        packageType,
+        status,
+      };
+      expect(normalizeGlobalNotificationPayload(notification)).toEqual([notification]);
     },
   );
+
+  it("rejects an upload failure status for a local archive notification", () => {
+    expect(() => normalizeGlobalNotificationPayload({
+      ...succeededNotification,
+      status: "package_succeeded_upload_failed",
+    })).toThrow("无效的全局通知");
+  });
 
   it.each([undefined, "archive_then_upload", ""])("rejects invalid package type %s", (packageType) => {
     expect(() => normalizeGlobalNotificationPayload({ ...succeededNotification, packageType }))
@@ -201,14 +214,37 @@ describe("releasePackageNotificationCopy", () => {
       .toContain("构建成功、上传失败");
   });
 
+  it("describes partial server uploads as not uploaded", () => {
+    const detail = releasePackageNotificationCopy("partially_succeeded", "server_upload").detail;
+
+    expect(detail).toContain("未上传服务器");
+    expect(detail).not.toContain("已上传服务器");
+  });
+
+  it("rejects impossible local archive upload failures", () => {
+    expect(() => releasePackageNotificationCopy(
+      "package_succeeded_upload_failed",
+      "local_archive",
+    )).toThrow("无效的上线包终态组合");
+  });
+
   it.each([
     ["succeeded", "上线包打包成功", "所选产物本地归档完成"],
     ["partially_succeeded", "上线包部分成功", "可用产物本地归档完成，请查看失败日志"],
-    ["package_succeeded_upload_failed", "上线包上传失败", "构建成功、上传失败，请查看上传日志"],
     ["failed", "上线包打包失败", "未生成可用归档，请查看打包日志"],
     ["cancelled", "上线包任务已终止", "任务已终止，请查看日志确认产物状态"],
   ] as const)("returns the Chinese copy for %s", (status, title, detail) => {
     expect(releasePackageNotificationCopy(status, "local_archive")).toEqual({ title, detail });
+  });
+
+  it.each([
+    ["succeeded", "上线包上传成功", "所选产物服务器上传完成"],
+    ["partially_succeeded", "上线包部分成功", "部分产物构建失败，未上传服务器"],
+    ["package_succeeded_upload_failed", "上线包上传失败", "构建成功、上传失败，请查看上传日志"],
+    ["failed", "上线包上传失败", "未完成可用服务器上传，请查看打包日志"],
+    ["cancelled", "上线包任务已终止", "任务已终止，请查看日志确认产物状态"],
+  ] as const)("returns the Chinese copy for server upload %s", (status, title, detail) => {
+    expect(releasePackageNotificationCopy(status, "server_upload")).toEqual({ title, detail });
   });
 });
 

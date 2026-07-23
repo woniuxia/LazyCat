@@ -9,7 +9,7 @@ import type { ReleasePackageType } from "../types/release-package";
 
 const TODO_PRIORITIES = new Set(["P0", "P1", "P2", "P3"]);
 const TODO_REMINDER_PRESETS = new Set(["", "0m", "none", "5m", "10m", "30m", "1h", "1d", "2d"]);
-const RELEASE_PACKAGE_STATUSES = new Set([
+const RELEASE_PACKAGE_STATUSES = new Set<ReleasePackageNotificationStatus>([
   "succeeded",
   "partially_succeeded",
   "package_succeeded_upload_failed",
@@ -22,6 +22,14 @@ function invalidNotification(): never {
   throw new Error("无效的全局通知");
 }
 
+function assertNever(value: never): never {
+  throw new Error(`无效的上线包通知值：${String(value)}`);
+}
+
+function invalidReleasePackageStatusCombination(): never {
+  throw new Error("无效的上线包终态组合");
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -32,6 +40,23 @@ function isNonEmptyString(value: unknown): value is string {
 
 function isPositiveSafeInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+}
+
+function isReleasePackageType(value: unknown): value is ReleasePackageType {
+  return typeof value === "string" && RELEASE_PACKAGE_TYPES.has(value as ReleasePackageType);
+}
+
+function isReleasePackageNotificationStatus(
+  value: unknown,
+): value is ReleasePackageNotificationStatus {
+  return typeof value === "string" && RELEASE_PACKAGE_STATUSES.has(value as ReleasePackageNotificationStatus);
+}
+
+function isValidReleasePackageStatusCombination(
+  packageType: ReleasePackageType,
+  status: ReleasePackageNotificationStatus,
+): boolean {
+  return packageType !== "local_archive" || status !== "package_succeeded_upload_failed";
 }
 
 function hasValidCommonFields(value: Record<string, unknown>): boolean {
@@ -63,10 +88,9 @@ function isReleasePackageNotification(value: unknown): value is ReleasePackageNo
     && value.id === `release-package:${value.runId}`
     && isPositiveSafeInteger(value.projectId)
     && isNonEmptyString(value.projectName)
-    && typeof value.packageType === "string"
-    && RELEASE_PACKAGE_TYPES.has(value.packageType as ReleasePackageType)
-    && typeof value.status === "string"
-    && RELEASE_PACKAGE_STATUSES.has(value.status)
+    && isReleasePackageType(value.packageType)
+    && isReleasePackageNotificationStatus(value.status)
+    && isValidReleasePackageStatusCombination(value.packageType, value.status)
     && (value.archivePath === undefined || typeof value.archivePath === "string")
     && (value.error === undefined || typeof value.error === "string");
 }
@@ -118,25 +142,52 @@ export function releasePackageNotificationCopy(
   status: ReleasePackageNotificationStatus,
   packageType: ReleasePackageType,
 ): { title: string; detail: string } {
-  if (status === "succeeded") {
-    return packageType === "server_upload"
-      ? { title: "上线包上传成功", detail: "所选产物服务器上传完成" }
-      : { title: "上线包打包成功", detail: "所选产物本地归档完成" };
+  switch (packageType) {
+    case "local_archive":
+      return localArchiveNotificationCopy(status);
+    case "server_upload":
+      return serverUploadNotificationCopy(status);
+    default:
+      return assertNever(packageType);
   }
-  if (status === "partially_succeeded") {
-    return packageType === "server_upload"
-      ? { title: "上线包部分成功", detail: "可用产物已上传服务器，请查看失败日志" }
-      : { title: "上线包部分成功", detail: "可用产物本地归档完成，请查看失败日志" };
+}
+
+function localArchiveNotificationCopy(
+  status: ReleasePackageNotificationStatus,
+): { title: string; detail: string } {
+  switch (status) {
+    case "succeeded":
+      return { title: "上线包打包成功", detail: "所选产物本地归档完成" };
+    case "partially_succeeded":
+      return { title: "上线包部分成功", detail: "可用产物本地归档完成，请查看失败日志" };
+    case "package_succeeded_upload_failed":
+      return invalidReleasePackageStatusCombination();
+    case "failed":
+      return { title: "上线包打包失败", detail: "未生成可用归档，请查看打包日志" };
+    case "cancelled":
+      return { title: "上线包任务已终止", detail: "任务已终止，请查看日志确认产物状态" };
+    default:
+      return assertNever(status);
   }
-  if (status === "package_succeeded_upload_failed") {
-    return { title: "上线包上传失败", detail: "构建成功、上传失败，请查看上传日志" };
+}
+
+function serverUploadNotificationCopy(
+  status: ReleasePackageNotificationStatus,
+): { title: string; detail: string } {
+  switch (status) {
+    case "succeeded":
+      return { title: "上线包上传成功", detail: "所选产物服务器上传完成" };
+    case "partially_succeeded":
+      return { title: "上线包部分成功", detail: "部分产物构建失败，未上传服务器" };
+    case "package_succeeded_upload_failed":
+      return { title: "上线包上传失败", detail: "构建成功、上传失败，请查看上传日志" };
+    case "failed":
+      return { title: "上线包上传失败", detail: "未完成可用服务器上传，请查看打包日志" };
+    case "cancelled":
+      return { title: "上线包任务已终止", detail: "任务已终止，请查看日志确认产物状态" };
+    default:
+      return assertNever(status);
   }
-  if (status === "cancelled") {
-    return { title: "上线包任务已终止", detail: "任务已终止，请查看日志确认产物状态" };
-  }
-  return packageType === "server_upload"
-    ? { title: "上线包上传失败", detail: "未完成可用服务器上传，请查看打包日志" }
-    : { title: "上线包打包失败", detail: "未生成可用归档，请查看打包日志" };
 }
 
 export function summarizeNotificationError(error: string | undefined, maxLength = 180): string {
