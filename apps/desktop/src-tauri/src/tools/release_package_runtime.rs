@@ -13,8 +13,8 @@ use tauri::Emitter;
 
 use super::release_package::{ReleasePackageProjectConfig, ReleasePackageType, ReleaseTarget};
 use super::release_package_archive::{
-    archive_backend_artifact, archive_frontend_artifact, extract_retry_zip, resolve_artifact_path,
-    validate_artifact_target_collision, ArchiveError, ArchiveSession, RetryExtraction,
+    archive_backend_artifact, archive_frontend_artifact, resolve_artifact_path,
+    validate_artifact_target_collision, ArchiveError, ArchiveSession,
 };
 use super::release_package_deploy::{
     deploy, ArchivedTarget, ArtifactManifest, DeployError, DeploymentRequest, DeploymentTarget,
@@ -580,6 +580,7 @@ struct PipelineSummary {
     status: &'static str,
     archive_path: Option<PathBuf>,
     archived_targets: Vec<ArchivedTarget>,
+    manifests: Vec<ArtifactManifest>,
     error: Option<String>,
     retry_descriptor: Option<RetryDescriptor>,
     remote_committed: bool,
@@ -587,14 +588,22 @@ struct PipelineSummary {
 
 #[derive(Clone, Debug)]
 struct RetryDescriptor {
-    archive_path: PathBuf,
-    archived_targets: Vec<ArchivedTarget>,
+    manifests: Vec<ArtifactManifest>,
 }
 
 #[derive(Clone, Debug)]
 struct RetryJob {
     project_id: i64,
     descriptor: RetryDescriptor,
+}
+
+impl RetryJob {
+    fn from_manifests(project_id: i64, manifests: Vec<ArtifactManifest>) -> Self {
+        Self {
+            project_id,
+            descriptor: RetryDescriptor { manifests },
+        }
+    }
 }
 
 static RETRY_JOBS: OnceLock<Mutex<HashMap<String, RetryJob>>> = OnceLock::new();
@@ -640,16 +649,37 @@ pub(crate) fn retry_targets(token: &str, project_id: i64) -> Result<Vec<ReleaseT
         .ok_or_else(|| "上传重试令牌无效或与当前项目不匹配".to_string())?;
     Ok(retry
         .descriptor
-        .archived_targets
+        .manifests
         .iter()
-        .map(|target| target.target)
+        .map(|manifest| manifest.target)
         .collect())
 }
 
 fn package_can_upload(summary: &PipelineSummary) -> bool {
-    summary.status == "succeeded"
-        && summary.archive_path.is_some()
-        && !summary.archived_targets.is_empty()
+    summary.status == "succeeded" && !summary.manifests.is_empty()
+}
+
+fn build_upload_summary(summary: BuildSummary) -> Result<PipelineSummary, PipelineError> {
+    let mut manifests = Vec::with_capacity(summary.built_targets.len());
+    for built in summary.built_targets {
+        let manifest = match built.target {
+            ReleaseTarget::Frontend => {
+                ArtifactManifest::from_directory(built.target, &built.source_path)
+            }
+            ReleaseTarget::Backend => ArtifactManifest::from_file(built.target, &built.source_path),
+        }
+        .map_err(|message| PipelineError::Failed { message })?;
+        manifests.push(manifest);
+    }
+    Ok(PipelineSummary {
+        status: summary.status,
+        archive_path: None,
+        archived_targets: Vec::new(),
+        manifests,
+        error: summary.error,
+        retry_descriptor: None,
+        remote_committed: false,
+    })
 }
 
 fn combine_package_and_deploy(
@@ -676,14 +706,9 @@ fn combine_package_and_deploy(
             };
             summary.status = "package_succeeded_upload_failed";
             summary.error = Some(format!("{}{recovery}", error.message));
-            summary.retry_descriptor =
-                summary
-                    .archive_path
-                    .clone()
-                    .map(|archive_path| RetryDescriptor {
-                        archive_path,
-                        archived_targets: summary.archived_targets.clone(),
-                    });
+            summary.retry_descriptor = Some(RetryDescriptor {
+                manifests: summary.manifests.clone(),
+            });
             summary.remote_committed = false;
             summary
         }
@@ -714,6 +739,17 @@ pub(crate) struct DeployAuthorization {
     consumed: ConsumedPreflight,
 }
 
+pub(crate) enum RuntimeStartRequest {
+    LocalArchive {
+        output_root: PathBuf,
+        folder_name: String,
+        overwrite_existing: bool,
+    },
+    ServerUpload {
+        deploy_authorization: DeployAuthorization,
+    },
+}
+
 pub(crate) fn consume_deploy_authorization(
     token: &str,
     binding: &PreflightBinding,
@@ -726,52 +762,39 @@ pub(crate) fn consume_deploy_authorization(
 
 fn build_deployment_request(
     run_id: &str,
-    project: &ReleasePackageProjectConfig,
     summary: &PipelineSummary,
     consumed: &ConsumedPreflight,
 ) -> Result<DeploymentRequest, DeployError> {
-    if summary.archived_targets.len() != consumed.binding.targets.len() {
+    build_manifest_deployment_request(run_id, &summary.manifests, consumed)
+}
+
+fn build_manifest_deployment_request(
+    run_id: &str,
+    manifests: &[ArtifactManifest],
+    consumed: &ConsumedPreflight,
+) -> Result<DeploymentRequest, DeployError> {
+    if manifests.len() != consumed.binding.targets.len() {
         return Err(DeployError::failed(
-            "本地归档目标与远端预检目标不一致，请重新预检",
+            "部署产物目标与远端预检目标不一致，请重新预检",
         ));
     }
-    let mut targets = Vec::with_capacity(summary.archived_targets.len());
-    for archived in &summary.archived_targets {
-        let remote_target = match archived.target {
+    let mut targets = Vec::with_capacity(manifests.len());
+    for manifest in manifests {
+        let remote_target = match manifest.target {
             ReleaseTarget::Frontend => RemoteTarget::Frontend,
             ReleaseTarget::Backend => RemoteTarget::Backend,
         };
         if !consumed.binding.targets.contains(&remote_target) {
             return Err(DeployError::failed(
-                "本地归档目标与远端预检目标不一致，请重新预检",
+                "部署产物目标与远端预检目标不一致，请重新预检",
             ));
         }
-        let (manifest, remote_path) = match archived.target {
-            ReleaseTarget::Frontend => {
-                let source = resolve_artifact_path(
-                    Path::new(&project.frontend_project_path),
-                    &project.frontend_artifact_path,
-                );
-                (
-                    ArtifactManifest::from_directory(ReleaseTarget::Frontend, &source)
-                        .map_err(DeployError::failed)?,
-                    consumed.binding.frontend_remote_dir.clone(),
-                )
-            }
-            ReleaseTarget::Backend => {
-                let source = resolve_artifact_path(
-                    Path::new(&project.backend_project_path),
-                    &project.backend_artifact_path,
-                );
-                (
-                    ArtifactManifest::from_file(ReleaseTarget::Backend, &source)
-                        .map_err(DeployError::failed)?,
-                    consumed.binding.backend_remote_path.clone(),
-                )
-            }
+        let remote_path = match manifest.target {
+            ReleaseTarget::Frontend => consumed.binding.frontend_remote_dir.clone(),
+            ReleaseTarget::Backend => consumed.binding.backend_remote_path.clone(),
         };
         targets.push(DeploymentTarget {
-            manifest,
+            manifest: manifest.clone(),
             remote_path,
             expected_exists: consumed.expected_existing_targets.contains(&remote_target),
         });
@@ -782,79 +805,17 @@ fn build_deployment_request(
     })
 }
 
-struct RetryDeployment {
-    request: DeploymentRequest,
-    _extractions: Vec<RetryExtraction>,
-}
-
 fn build_retry_deployment_request(
     run_id: &str,
     retry: &RetryJob,
     consumed: &ConsumedPreflight,
-) -> Result<RetryDeployment, DeployError> {
-    if retry.descriptor.archived_targets.len() != consumed.binding.targets.len() {
-        return Err(DeployError::failed(
-            "重试归档目标与远端预检目标不一致，请重新预检",
-        ));
-    }
-    let mut targets = Vec::with_capacity(retry.descriptor.archived_targets.len());
-    let mut extractions = Vec::new();
-    for archived in &retry.descriptor.archived_targets {
-        let remote_target = match archived.target {
-            ReleaseTarget::Frontend => RemoteTarget::Frontend,
-            ReleaseTarget::Backend => RemoteTarget::Backend,
-        };
-        if !consumed.binding.targets.contains(&remote_target) {
-            return Err(DeployError::failed(
-                "重试归档目标与远端预检目标不一致，请重新预检",
-            ));
+) -> Result<DeploymentRequest, DeployError> {
+    for manifest in &retry.descriptor.manifests {
+        if manifest.verify_source().is_err() {
+            return Err(DeployError::failed("部署产物在打包后发生变化，请重新打包"));
         }
-        let archived_path = retry
-            .descriptor
-            .archive_path
-            .join(&archived.archive_entry_name);
-        let (manifest, remote_path) = match archived.target {
-            ReleaseTarget::Frontend if archived.artifact_mode == "copy_directory" => (
-                ArtifactManifest::from_directory(ReleaseTarget::Frontend, &archived_path)
-                    .map_err(DeployError::failed)?,
-                consumed.binding.frontend_remote_dir.clone(),
-            ),
-            ReleaseTarget::Frontend if archived.artifact_mode == "zip_directory" => {
-                let root_name = archived
-                    .archive_entry_name
-                    .strip_suffix(".zip")
-                    .filter(|name| !name.is_empty())
-                    .ok_or_else(|| DeployError::failed("重试前端 ZIP 归档名称无效"))?;
-                let destination =
-                    std::env::temp_dir().join(format!(".lazycat-upload-retry-{run_id}"));
-                let extraction =
-                    extract_retry_zip(&archived_path, &destination).map_err(DeployError::failed)?;
-                let source = extraction.path().join(root_name);
-                let manifest = ArtifactManifest::from_directory(ReleaseTarget::Frontend, &source)
-                    .map_err(DeployError::failed)?;
-                extractions.push(extraction);
-                (manifest, consumed.binding.frontend_remote_dir.clone())
-            }
-            ReleaseTarget::Frontend => return Err(DeployError::failed("重试前端归档模式无效")),
-            ReleaseTarget::Backend => (
-                ArtifactManifest::from_file(ReleaseTarget::Backend, &archived_path)
-                    .map_err(DeployError::failed)?,
-                consumed.binding.backend_remote_path.clone(),
-            ),
-        };
-        targets.push(DeploymentTarget {
-            manifest,
-            remote_path,
-            expected_exists: consumed.expected_existing_targets.contains(&remote_target),
-        });
     }
-    Ok(RetryDeployment {
-        request: DeploymentRequest {
-            run_id: run_id.to_owned(),
-            targets,
-        },
-        _extractions: extractions,
-    })
+    build_manifest_deployment_request(run_id, &retry.descriptor.manifests, consumed)
 }
 
 fn run_deployment_phase(
@@ -869,8 +830,7 @@ fn run_deployment_phase(
     if !package_can_upload(&summary) {
         return summary;
     }
-    let request = match build_deployment_request(run_id, project, &summary, &authorization.consumed)
-    {
+    let request = match build_deployment_request(run_id, &summary, &authorization.consumed) {
         Ok(request) => request,
         Err(error) => return combine_package_and_deploy(summary, Err(error)),
     };
@@ -945,21 +905,22 @@ fn run_retry_deployment_phase(
 ) -> PipelineSummary {
     let summary = PipelineSummary {
         status: "succeeded",
-        archive_path: Some(retry.descriptor.archive_path.clone()),
-        archived_targets: retry.descriptor.archived_targets.clone(),
+        archive_path: None,
+        archived_targets: Vec::new(),
+        manifests: retry.descriptor.manifests.clone(),
         error: None,
         retry_descriptor: None,
         remote_committed: false,
     };
-    let deployment = match build_retry_deployment_request(run_id, &retry, &authorization.consumed) {
-        Ok(deployment) => deployment,
+    let request = match build_retry_deployment_request(run_id, &retry, &authorization.consumed) {
+        Ok(request) => request,
         Err(error) => return combine_package_and_deploy(summary, Err(error)),
     };
     execute_deployment_request(
         run_id,
         retry.project_id,
         summary,
-        deployment.request,
+        request,
         &authorization.consumed,
         cancelled,
         ssh_socket,
@@ -1109,6 +1070,7 @@ fn run_local_archive_pipeline(
             status: summary.status,
             archive_path: None,
             archived_targets: Vec::new(),
+            manifests: Vec::new(),
             error: summary.error,
             retry_descriptor: None,
             remote_committed: false,
@@ -1248,6 +1210,7 @@ fn run_local_archive_pipeline(
             status: "failed",
             archive_path: None,
             archived_targets,
+            manifests: Vec::new(),
             error: (!errors.is_empty()).then(|| errors.join("；")),
             retry_descriptor: None,
             remote_committed: false,
@@ -1286,6 +1249,7 @@ fn run_local_archive_pipeline(
         },
         archive_path: Some(archive_path),
         archived_targets,
+        manifests: Vec::new(),
         error: (!errors.is_empty()).then(|| errors.join("；")),
         retry_descriptor: None,
         remote_committed: false,
@@ -1339,11 +1303,8 @@ fn request_cancel(active: &ActiveRun) -> bool {
 pub fn start(
     app: &tauri::AppHandle,
     project: ReleasePackageProjectConfig,
-    output_root: PathBuf,
-    folder_name: String,
     targets: Vec<ReleaseTarget>,
-    overwrite_existing: bool,
-    deploy_authorization: Option<DeployAuthorization>,
+    request: RuntimeStartRequest,
 ) -> Result<Value, String> {
     let run_id = uuid::Uuid::new_v4().to_string();
     let cancelled = Arc::new(AtomicBool::new(false));
@@ -1376,6 +1337,7 @@ pub fn start(
     let thread_run_id = run_id.clone();
     let project_id = project.id;
     let terminal_project = project.clone();
+    let emit_package_logs = matches!(&request, RuntimeStartRequest::LocalArchive { .. });
     let sink: Arc<dyn EventSink> = Arc::new(TauriEventSink { app: app.clone() });
     thread::spawn(move || {
         emit_status(
@@ -1395,29 +1357,36 @@ pub fn start(
             process_slots,
             sink.clone(),
         );
-        let result = result.and_then(|summary| {
-            run_local_archive_pipeline(
-                &thread_run_id,
-                project_id,
-                summary,
+        let result = match request {
+            RuntimeStartRequest::LocalArchive {
                 output_root,
                 folder_name,
                 overwrite_existing,
-                cancelled.clone(),
-                sink.clone(),
-            )
-        });
-        let result = match (result, deploy_authorization) {
-            (Ok(summary), Some(authorization)) => Ok(run_deployment_phase(
-                &thread_run_id,
-                &terminal_project,
-                summary,
-                authorization,
-                cancelled.as_ref(),
-                &ssh_socket,
-                sink.as_ref(),
-            )),
-            (result, _) => result,
+            } => result.and_then(|summary| {
+                run_local_archive_pipeline(
+                    &thread_run_id,
+                    project_id,
+                    summary,
+                    output_root,
+                    folder_name,
+                    overwrite_existing,
+                    cancelled.clone(),
+                    sink.clone(),
+                )
+            }),
+            RuntimeStartRequest::ServerUpload {
+                deploy_authorization,
+            } => result.and_then(build_upload_summary).map(|summary| {
+                run_deployment_phase(
+                    &thread_run_id,
+                    &terminal_project,
+                    summary,
+                    deploy_authorization,
+                    cancelled.as_ref(),
+                    &ssh_socket,
+                    sink.as_ref(),
+                )
+            }),
         };
         let result = claim_pipeline_result(result, &cancelled, &finished, &cancel_won, &claim_lock);
         emit_terminal_result(
@@ -1425,7 +1394,7 @@ pub fn start(
             &thread_run_id,
             &terminal_project,
             result,
-            true,
+            emit_package_logs,
         );
         if let Ok(mut active) = active_run().lock() {
             if active.as_ref().map(|run| run.run_id.as_str()) == Some(thread_run_id.as_str()) {
@@ -1817,6 +1786,7 @@ mod pipeline_tests {
                 status: "succeeded",
                 archive_path: Some(PathBuf::from("D:\\release\\target")),
                 archived_targets: Vec::new(),
+                manifests: Vec::new(),
                 error: None,
                 retry_descriptor: None,
                 remote_committed: false,
@@ -1850,17 +1820,20 @@ mod pipeline_tests {
     }
 
     #[test]
-    fn upload_failure_preserves_archive_and_returns_retry_descriptor() {
-        let archive = PathBuf::from(r"D:\release\portal");
+    fn upload_failure_keeps_source_manifests_without_archive_path() {
+        let manifest = ArtifactManifest {
+            target: ReleaseTarget::Backend,
+            source_path: PathBuf::from(r"D:\build\app.jar"),
+            entries: Vec::new(),
+            file_count: 0,
+            total_bytes: 0,
+        };
         let summary = combine_package_and_deploy(
             PipelineSummary {
                 status: "succeeded",
-                archive_path: Some(archive.clone()),
-                archived_targets: vec![ArchivedTarget {
-                    target: ReleaseTarget::Backend,
-                    archive_entry_name: "app.jar".into(),
-                    artifact_mode: "file".into(),
-                }],
+                archive_path: None,
+                archived_targets: Vec::new(),
+                manifests: vec![manifest.clone()],
                 error: None,
                 retry_descriptor: None,
                 remote_committed: false,
@@ -1869,8 +1842,8 @@ mod pipeline_tests {
         );
 
         assert_eq!(summary.status, "package_succeeded_upload_failed");
-        assert_eq!(summary.archive_path, Some(archive));
-        assert!(summary.retry_descriptor.is_some());
+        assert!(summary.archive_path.is_none());
+        assert_eq!(summary.retry_descriptor.unwrap().manifests, vec![manifest]);
     }
 
     #[test]
@@ -1878,11 +1851,14 @@ mod pipeline_tests {
         let sink = TerminalSink::default();
         let package = PipelineSummary {
             status: "succeeded",
-            archive_path: Some(PathBuf::from(r"D:\release\portal")),
-            archived_targets: vec![ArchivedTarget {
+            archive_path: None,
+            archived_targets: Vec::new(),
+            manifests: vec![ArtifactManifest {
                 target: ReleaseTarget::Backend,
-                archive_entry_name: "app.jar".into(),
-                artifact_mode: "file".into(),
+                source_path: PathBuf::from(r"D:\build\app.jar"),
+                entries: Vec::new(),
+                file_count: 0,
+                total_bytes: 0,
             }],
             error: None,
             retry_descriptor: None,
@@ -1914,8 +1890,9 @@ mod pipeline_tests {
             &project(),
             Ok(PipelineSummary {
                 status: "succeeded",
-                archive_path: Some(PathBuf::from(r"D:\release\portal")),
+                archive_path: None,
                 archived_targets: Vec::new(),
+                manifests: Vec::new(),
                 error: None,
                 retry_descriptor: None,
                 remote_committed: true,
@@ -1932,6 +1909,7 @@ mod pipeline_tests {
             status: "partially_succeeded",
             archive_path: Some(PathBuf::from(r"D:\release\portal")),
             archived_targets: Vec::new(),
+            manifests: Vec::new(),
             error: Some("frontend failed".into()),
             retry_descriptor: None,
             remote_committed: false,
@@ -1941,31 +1919,31 @@ mod pipeline_tests {
     }
 
     #[test]
-    fn upload_cancellation_preserves_the_committed_archive() {
-        let archive = PathBuf::from(r"D:\release\portal");
+    fn upload_cancellation_has_no_archive_path() {
         let summary = combine_package_and_deploy(
             PipelineSummary {
                 status: "succeeded",
-                archive_path: Some(archive.clone()),
+                archive_path: None,
                 archived_targets: Vec::new(),
+                manifests: Vec::new(),
                 error: None,
                 retry_descriptor: None,
                 remote_committed: false,
             },
             Err(DeployError::cancelled()),
         );
-        let summary = claim_pipeline_result(
+        let result = claim_pipeline_result(
             Ok(summary),
             &AtomicBool::new(true),
             &AtomicBool::new(false),
             &AtomicBool::new(false),
             &Mutex::new(()),
-        )
-        .unwrap();
+        );
 
-        assert_eq!(summary.status, "cancelled");
-        assert_eq!(summary.archive_path, Some(archive));
-        assert!(summary.retry_descriptor.is_none());
+        assert!(matches!(
+            result,
+            Err(PipelineError::Cancelled { phase: "overall" })
+        ));
     }
 
     #[test]
@@ -2049,6 +2027,7 @@ mod pipeline_tests {
                 status: "succeeded",
                 archive_path: Some(PathBuf::from("archive")),
                 archived_targets: Vec::new(),
+                manifests: Vec::new(),
                 error: None,
                 retry_descriptor: None,
                 remote_committed: false,
@@ -2079,6 +2058,7 @@ mod pipeline_tests {
                 archive_entry_name: "app.jar".into(),
                 artifact_mode: "file".into(),
             }],
+            manifests: Vec::new(),
             error: None,
             retry_descriptor: None,
             remote_committed: false,
@@ -2098,108 +2078,62 @@ mod pipeline_tests {
 
     #[cfg(windows)]
     #[test]
-    fn initial_deployment_uses_the_original_frontend_directory_for_zip_archives() {
+    fn upload_summary_uses_built_sources_without_archive_path() {
         let root = TestDir::new();
-        let frontend_project = root.0.join("web");
-        let backend_project = root.0.join("server");
-        let frontend = frontend_project.join("dist");
-        let backend = backend_project.join("target/app.jar");
-        fs::create_dir_all(&frontend).unwrap();
-        fs::create_dir_all(backend.parent().unwrap()).unwrap();
-        fs::write(frontend.join("index.html"), "web").unwrap();
-        fs::write(&backend, "jar").unwrap();
-        let mut project = project();
-        project.frontend_project_path = frontend_project.to_string_lossy().into_owned();
-        project.frontend_artifact_path = "dist".into();
-        project.frontend_artifact_mode = "zip_directory".into();
-        project.backend_project_path = backend_project.to_string_lossy().into_owned();
-        project.backend_artifact_path = "target/app.jar".into();
-        let package = PipelineSummary {
+        let source = root.0.join("dist");
+        fs::create_dir(&source).unwrap();
+        fs::write(source.join("index.html"), "web").unwrap();
+        let built = BuildSummary {
             status: "succeeded",
-            archive_path: Some(root.0.join("archive")),
-            archived_targets: vec![
-                ArchivedTarget {
-                    target: ReleaseTarget::Frontend,
-                    archive_entry_name: "dist.zip".into(),
-                    artifact_mode: "zip_directory".into(),
-                },
-                ArchivedTarget {
-                    target: ReleaseTarget::Backend,
-                    archive_entry_name: "app.jar".into(),
-                    artifact_mode: "file".into(),
-                },
-            ],
+            built_targets: vec![BuiltTarget {
+                target: ReleaseTarget::Frontend,
+                source_path: source.clone(),
+                artifact_mode: "zip_directory".into(),
+            }],
+            selected_count: 1,
             error: None,
-            retry_descriptor: None,
-            remote_committed: false,
         };
-        let consumed = consumed_preflight_with_existing(Vec::new());
 
-        let request = build_deployment_request("run-1", &project, &package, &consumed).unwrap();
+        let summary = build_upload_summary(built).unwrap();
 
-        assert_eq!(request.targets[0].manifest.source_path, frontend);
-        assert!(request.targets[0].manifest.source_path.is_dir());
-        assert_eq!(request.targets[1].manifest.source_path, backend);
+        assert!(summary.archive_path.is_none());
+        assert_eq!(summary.manifests[0].source_path, source);
+        assert_eq!(summary.manifests[0].entries[0].relative_path, "index.html");
+        assert!(!summary.manifests[0].entries[0]
+            .relative_path
+            .starts_with("dist/"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn retry_rejects_changed_live_artifacts() {
+        let root = TestDir::new();
+        let source = root.0.join("dist");
+        fs::create_dir(&source).unwrap();
+        fs::write(source.join("index.html"), "v1").unwrap();
+        let manifest = ArtifactManifest::from_directory(ReleaseTarget::Frontend, &source).unwrap();
+        fs::write(source.join("index.html"), "changed-size").unwrap();
+        let retry = RetryJob::from_manifests(7, vec![manifest]);
+        let mut consumed = consumed_preflight_with_existing(Vec::new());
+        consumed.binding.targets = vec![RemoteTarget::Frontend];
+
+        let error = build_retry_deployment_request("retry", &retry, &consumed)
+            .err()
+            .unwrap();
+
+        assert_eq!(error.message, "部署产物在打包后发生变化，请重新打包");
     }
 
     #[test]
     fn retry_tokens_are_consumed_once_and_bound_to_the_project() {
         let descriptor = RetryDescriptor {
-            archive_path: PathBuf::from(r"D:\release\portal"),
-            archived_targets: vec![ArchivedTarget {
-                target: ReleaseTarget::Backend,
-                archive_entry_name: "app.jar".into(),
-                artifact_mode: "file".into(),
-            }],
+            manifests: Vec::new(),
         };
         let token = issue_retry(7, descriptor).unwrap();
 
         let retry = consume_retry(&token, 7).unwrap();
         assert_eq!(retry.project_id, 7);
         assert!(consume_retry(&token, 7).is_err());
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn zip_retry_builds_the_manifest_from_the_committed_archive() {
-        use std::io::Write;
-        use zip::write::FileOptions;
-
-        let root = TestDir::new();
-        let archive = root.0.join("archive");
-        fs::create_dir(&archive).unwrap();
-        let zip_path = archive.join("dist.zip");
-        let mut zip = zip::ZipWriter::new(fs::File::create(&zip_path).unwrap());
-        zip.start_file("dist/index.html", FileOptions::default())
-            .unwrap();
-        zip.write_all(b"archived-web").unwrap();
-        zip.finish().unwrap();
-        let retry = RetryJob {
-            project_id: 7,
-            descriptor: RetryDescriptor {
-                archive_path: archive,
-                archived_targets: vec![ArchivedTarget {
-                    target: ReleaseTarget::Frontend,
-                    archive_entry_name: "dist.zip".into(),
-                    artifact_mode: "zip_directory".into(),
-                }],
-            },
-        };
-        let mut consumed = consumed_preflight_with_existing(Vec::new());
-        consumed.binding.targets = vec![RemoteTarget::Frontend];
-
-        let deployment = build_retry_deployment_request("retry-1", &retry, &consumed).unwrap();
-
-        assert_eq!(deployment.request.targets[0].manifest.file_count, 1);
-        assert!(deployment.request.targets[0]
-            .manifest
-            .source_path
-            .join("index.html")
-            .is_file());
-        assert_ne!(
-            deployment.request.targets[0].manifest.source_path,
-            PathBuf::from(&project().frontend_artifact_path)
-        );
     }
 
     #[cfg(windows)]

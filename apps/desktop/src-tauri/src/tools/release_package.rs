@@ -919,11 +919,12 @@ pub fn execute_with_app(
                     super::release_package_runtime::start(
                         app,
                         project,
-                        output_root,
-                        folder_name,
                         targets,
-                        overwrite_existing,
-                        None,
+                        super::release_package_runtime::RuntimeStartRequest::LocalArchive {
+                            output_root,
+                            folder_name,
+                            overwrite_existing,
+                        },
                     )
                 }
                 ReleaseStartInput::ServerUpload {
@@ -942,11 +943,10 @@ pub fn execute_with_app(
                     super::release_package_runtime::start(
                         app,
                         project,
-                        PathBuf::new(),
-                        String::new(),
                         targets,
-                        false,
-                        Some(deploy_authorization),
+                        super::release_package_runtime::RuntimeStartRequest::ServerUpload {
+                            deploy_authorization,
+                        },
                     )
                 }
             }

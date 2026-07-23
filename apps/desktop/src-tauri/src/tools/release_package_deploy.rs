@@ -628,14 +628,11 @@ pub fn deploy(
 }
 #[cfg(test)]
 mod tests {
-    use std::fs::{self, File};
-    use std::io::Write;
+    use std::fs;
     use std::path::{Path, PathBuf};
 
     use super::ArtifactManifest;
     use crate::tools::release_package::ReleaseTarget;
-    use crate::tools::release_package_archive::extract_retry_zip;
-    use zip::write::FileOptions;
 
     pub(super) struct TestDir(PathBuf);
 
@@ -658,16 +655,6 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
-    }
-
-    fn write_test_zip(path: &Path, entry_name: &str, content: &[u8]) {
-        let file = File::create(path).unwrap();
-        let mut writer = zip::ZipWriter::new(file);
-        writer
-            .start_file(entry_name, FileOptions::default())
-            .unwrap();
-        writer.write_all(content).unwrap();
-        writer.finish().unwrap();
     }
 
     #[test]
@@ -695,27 +682,6 @@ mod tests {
         let backend = ArtifactManifest::from_file(ReleaseTarget::Backend, &jar).unwrap();
         assert_eq!(backend.file_count, 1);
         assert_eq!(backend.total_bytes, 3);
-    }
-
-    #[test]
-    fn retry_zip_extraction_is_cleaned_when_the_guard_drops() {
-        let root = TestDir::new();
-        let zip_path = root.path().join("good.zip");
-        let destination = root.path().join("extract");
-        write_test_zip(&zip_path, "dist/index.html", b"ok");
-
-        let extraction = extract_retry_zip(&zip_path, &destination).unwrap();
-        assert!(extraction.path().join("dist/index.html").is_file());
-        drop(extraction);
-        assert!(!destination.exists());
-    }
-    #[test]
-    fn retry_zip_extraction_rejects_path_escape() {
-        let root = TestDir::new();
-        let zip_path = root.path().join("bad.zip");
-        write_test_zip(&zip_path, "../escape.txt", b"bad");
-        assert!(extract_retry_zip(&zip_path, &root.path().join("extract")).is_err());
-        assert!(!root.path().join("escape.txt").exists());
     }
 }
 
@@ -904,8 +870,9 @@ mod transaction_tests {
         let root = super::tests::TestDir::new();
         let frontend = root.path().join("dist");
         let backend = root.path().join("app.jar");
-        fs::create_dir(&frontend).unwrap();
+        fs::create_dir_all(frontend.join("assets")).unwrap();
         fs::write(frontend.join("index.html"), "new-web").unwrap();
+        fs::write(frontend.join("assets/app.js"), "new-js").unwrap();
         fs::write(&backend, "new-jar").unwrap();
         let frontend_manifest =
             ArtifactManifest::from_directory(ReleaseTarget::Frontend, &frontend).unwrap();
@@ -983,6 +950,9 @@ mod transaction_tests {
 
         assert!(!remote.exists("/srv/app/web/old.js"));
         assert!(remote.exists("/srv/app/web/index.html"));
+        assert!(remote.exists("/srv/app/web/assets/app.js"));
+        assert!(!remote.exists("/srv/app/web/dist/index.html"));
+        assert!(!remote.exists("/srv/app/web/dist/assets/app.js"));
         assert!(!remote.any_path_contains("__lazycat_tmp_"));
         assert!(!remote.any_path_contains("__lazycat_backup_"));
     }
