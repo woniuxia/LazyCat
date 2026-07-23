@@ -183,7 +183,11 @@ const packageStatusLabel = computed(() =>
 );
 const packageError = computed(() => summarizeNotificationError(currentPackage.value?.error));
 const canOpenDirectory = computed(() =>
-  Boolean(currentPackage.value?.status !== "failed" && currentPackage.value?.archivePath),
+  Boolean(
+    currentPackage.value?.packageType === "local_archive"
+    && currentPackage.value.status !== "failed"
+    && currentPackage.value.archivePath,
+  ),
 );
 const headerTitle = computed(() => (currentTodo.value ? "任务提醒" : packageCopy.value.title));
 const headerSubtitle = computed(() =>

@@ -91,6 +91,7 @@ function isReleasePackageNotification(value: unknown): value is ReleasePackageNo
     && isReleasePackageType(value.packageType)
     && isReleasePackageNotificationStatus(value.status)
     && isValidReleasePackageStatusCombination(value.packageType, value.status)
+    && (value.packageType !== "server_upload" || value.archivePath === undefined)
     && (value.archivePath === undefined || typeof value.archivePath === "string")
     && (value.error === undefined || typeof value.error === "string");
 }
@@ -131,7 +132,11 @@ export function globalNotificationActions(
   }
 
   const actions: GlobalNotificationAction[] = ["open-tool"];
-  if (notification.status !== "failed" && notification.archivePath?.trim()) {
+  if (
+    notification.packageType === "local_archive"
+    && notification.status !== "failed"
+    && notification.archivePath?.trim()
+  ) {
     actions.push("open-directory");
   }
   actions.push("acknowledge");

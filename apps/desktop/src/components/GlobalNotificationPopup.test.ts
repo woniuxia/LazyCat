@@ -32,6 +32,10 @@ describe("GlobalNotificationPopup", () => {
     expect(source).toContain("releasePackageNotificationCopy(currentPackage.value.status, currentPackage.value.packageType)");
   });
 
+  it("shows the directory action only for local archives", () => {
+    expect(source).toContain('currentPackage.value?.packageType === "local_archive"');
+  });
+
   it("removes only the current item after a successful action", () => {
     expect(source).toContain("async function removeCurrentNotification");
     expect(source).toMatch(

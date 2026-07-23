@@ -91,7 +91,7 @@ pub(crate) fn build_release_package_notification(
         project_name: project_name.to_string(),
         package_type,
         status: status.to_string(),
-        archive_path: if status == "failed" {
+        archive_path: if package_type == ReleasePackageType::ServerUpload || status == "failed" {
             None
         } else {
             archive_path
@@ -313,7 +313,7 @@ mod tests {
             ReleasePackageType::ServerUpload,
             "overall",
             "succeeded",
-            None,
+            Some("E:\\unexpected-upload-archive".to_string()),
             None,
         )
         .unwrap();

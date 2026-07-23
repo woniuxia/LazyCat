@@ -50,25 +50,39 @@ describe("normalizeGlobalNotificationPayload", () => {
     expect(normalizeGlobalNotificationPayload(null)).toEqual([]);
   });
 
-  it.each(["package_succeeded_upload_failed", "cancelled"] as const)(
+  it.each(["cancelled"] as const)(
     "accepts release terminal status %s",
     (status) => {
-      const packageType = status === "package_succeeded_upload_failed"
-        ? "server_upload"
-        : "local_archive";
       const notification = {
         ...succeededNotification,
-        packageType,
         status,
       };
       expect(normalizeGlobalNotificationPayload(notification)).toEqual([notification]);
     },
   );
 
+  it("accepts an upload failure notification without an archive path", () => {
+    const { archivePath: _archivePath, ...uploadNotification } = succeededNotification;
+    const notification = {
+      ...uploadNotification,
+      packageType: "server_upload" as const,
+      status: "package_succeeded_upload_failed" as const,
+    };
+
+    expect(normalizeGlobalNotificationPayload(notification)).toEqual([notification]);
+  });
+
   it("rejects an upload failure status for a local archive notification", () => {
     expect(() => normalizeGlobalNotificationPayload({
       ...succeededNotification,
       status: "package_succeeded_upload_failed",
+    })).toThrow("无效的全局通知");
+  });
+
+  it("rejects an archive path on a server upload notification", () => {
+    expect(() => normalizeGlobalNotificationPayload({
+      ...succeededNotification,
+      packageType: "server_upload",
     })).toThrow("无效的全局通知");
   });
 
@@ -197,13 +211,16 @@ describe("globalNotificationActions", () => {
     ).toEqual(["open-tool", "acknowledge"]);
   });
 
-  it("keeps the local archive action when upload fails after packaging", () => {
-    expect(globalNotificationActions({
+  it.each(["succeeded", "failed"] as const)(
+    "never returns the directory action for a server upload with status %s",
+    (status) => {
+      expect(globalNotificationActions({
       ...succeededNotification,
-      status: "package_succeeded_upload_failed",
-      error: "上传失败",
-    })).toEqual(["open-tool", "open-directory", "acknowledge"]);
-  });
+        packageType: "server_upload",
+        status,
+      })).toEqual(["open-tool", "acknowledge"]);
+    },
+  );
 });
 
 describe("releasePackageNotificationCopy", () => {

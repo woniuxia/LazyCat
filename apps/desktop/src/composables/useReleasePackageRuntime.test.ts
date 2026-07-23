@@ -182,7 +182,6 @@ describe("release package runtime state", () => {
     expect(runtime.isRunning.value).toBe(true);
     emit("release-package://status", {
       ...status("run-1", 7, "package_succeeded_upload_failed"),
-      archivePath: "D:\\release\\portal",
       retryToken: "retry-1",
       error: "服务器上传失败",
     });
@@ -195,6 +194,8 @@ describe("release package runtime state", () => {
       currentPath: "assets/app.js",
     });
     expect(projectRuntime.retryToken).toBe("retry-1");
+    expect(projectRuntime.archivePath).toBe("");
+    expect(runtime.archivePath.value).toBe("");
     expect(runtime.isRunning.value).toBe(false);
   });
 });
