@@ -1,8 +1,9 @@
 use chrono::{Datelike, Days, NaiveDate, Weekday};
 use std::fs::{self, File};
-use std::io::{BufReader, BufWriter, Read, Write};
+use std::io::{self, BufReader, BufWriter, Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 use walkdir::WalkDir;
 use zip::write::SimpleFileOptions;
 
@@ -215,6 +216,52 @@ fn check_cancel(cancelled: &AtomicBool) -> Result<(), ArchiveError> {
         Err(ArchiveError::Cancelled)
     } else {
         Ok(())
+    }
+}
+
+#[derive(Debug)]
+enum RenameFailure {
+    Cancelled,
+    Io(io::Error),
+}
+
+#[cfg(windows)]
+fn is_retryable_rename_error(error: &io::Error) -> bool {
+    error.raw_os_error() == Some(5)
+}
+
+#[cfg(not(windows))]
+fn is_retryable_rename_error(_error: &io::Error) -> bool {
+    false
+}
+
+fn rename_with_retry_using<R, S>(
+    source: &Path,
+    target: &Path,
+    cancelled: Option<&AtomicBool>,
+    retry_delays: &[Duration],
+    mut rename: R,
+    mut sleep: S,
+) -> Result<(), RenameFailure>
+where
+    R: FnMut(&Path, &Path) -> io::Result<()>,
+    S: FnMut(Duration),
+{
+    let mut retry_delays = retry_delays.iter().copied();
+    loop {
+        match rename(source, target) {
+            Ok(()) => return Ok(()),
+            Err(error) if is_retryable_rename_error(&error) => {
+                let Some(delay) = retry_delays.next() else {
+                    return Err(RenameFailure::Io(error));
+                };
+                if cancelled.is_some_and(|flag| flag.load(Ordering::Acquire)) {
+                    return Err(RenameFailure::Cancelled);
+                }
+                sleep(delay);
+            }
+            Err(error) => return Err(RenameFailure::Io(error)),
+        }
     }
 }
 
@@ -591,6 +638,7 @@ mod tests {
     use std::fs;
     use std::path::Path;
     use std::sync::atomic::AtomicBool;
+    use std::time::Duration;
     use uuid::Uuid;
     use zip::ZipArchive;
 
@@ -783,6 +831,102 @@ mod tests {
         assert!(
             matches!(result, Err(ArchiveError::Failed(message)) if message.contains("不是文件夹"))
         );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn access_denied_rename_retries_until_success() {
+        let cancelled = AtomicBool::new(false);
+        let mut attempts = 0;
+        let mut sleeps = 0;
+
+        let result = rename_with_retry_using(
+            Path::new("source"),
+            Path::new("target"),
+            Some(&cancelled),
+            &[Duration::ZERO, Duration::ZERO],
+            |_, _| {
+                attempts += 1;
+                if attempts < 3 {
+                    Err(std::io::Error::from_raw_os_error(5))
+                } else {
+                    Ok(())
+                }
+            },
+            |_| sleeps += 1,
+        );
+
+        assert!(result.is_ok());
+        assert_eq!(attempts, 3);
+        assert_eq!(sleeps, 2);
+    }
+
+    #[test]
+    fn non_access_denied_rename_error_is_not_retried() {
+        let mut attempts = 0;
+
+        let result = rename_with_retry_using(
+            Path::new("source"),
+            Path::new("target"),
+            None,
+            &[Duration::ZERO],
+            |_, _| {
+                attempts += 1;
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "missing source",
+                ))
+            },
+            |_| panic!("non-retryable error must not sleep"),
+        );
+
+        assert!(matches!(result, Err(RenameFailure::Io(_))));
+        assert_eq!(attempts, 1);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn access_denied_rename_stops_after_retry_budget() {
+        let mut attempts = 0;
+
+        let result = rename_with_retry_using(
+            Path::new("source"),
+            Path::new("target"),
+            None,
+            &[Duration::ZERO, Duration::ZERO],
+            |_, _| {
+                attempts += 1;
+                Err(std::io::Error::from_raw_os_error(5))
+            },
+            |_| {},
+        );
+
+        assert!(
+            matches!(result, Err(RenameFailure::Io(error)) if error.raw_os_error() == Some(5))
+        );
+        assert_eq!(attempts, 3);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn access_denied_rename_honors_cancellation_before_waiting() {
+        let cancelled = AtomicBool::new(true);
+        let mut attempts = 0;
+
+        let result = rename_with_retry_using(
+            Path::new("source"),
+            Path::new("target"),
+            Some(&cancelled),
+            &[Duration::ZERO],
+            |_, _| {
+                attempts += 1;
+                Err(std::io::Error::from_raw_os_error(5))
+            },
+            |_| panic!("cancelled retry must not sleep"),
+        );
+
+        assert!(matches!(result, Err(RenameFailure::Cancelled)));
+        assert_eq!(attempts, 1);
     }
 
     #[test]
