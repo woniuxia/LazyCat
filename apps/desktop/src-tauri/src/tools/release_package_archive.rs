@@ -3,6 +3,7 @@ use std::fs::{self, File};
 use std::io::{self, BufReader, BufWriter, Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread;
 use std::time::Duration;
 use walkdir::WalkDir;
 use zip::write::SimpleFileOptions;
@@ -126,6 +127,17 @@ impl ArchiveSession {
     }
 
     pub fn commit(&mut self, cancelled: &AtomicBool) -> Result<PathBuf, ArchiveError> {
+        self.commit_with_rename(cancelled, rename_with_retry)
+    }
+
+    fn commit_with_rename<R>(
+        &mut self,
+        cancelled: &AtomicBool,
+        mut rename: R,
+    ) -> Result<PathBuf, ArchiveError>
+    where
+        R: FnMut(&Path, &Path, Option<&AtomicBool>) -> Result<(), RenameFailure>,
+    {
         check_cancel(cancelled)?;
         let mut backup_created = false;
         if self.final_path.exists() {
@@ -140,32 +152,52 @@ impl ArchiveSession {
             if self.backup_path.exists() {
                 return Err(ArchiveError::Failed("本次运行备份目录已存在".into()));
             }
-            fs::rename(&self.final_path, &self.backup_path).map_err(|error| {
-                io_error(
-                    "备份已有归档目录",
-                    &self.final_path,
-                    &self.backup_path,
-                    error,
-                )
-            })?;
-            backup_created = true;
+            match rename(&self.final_path, &self.backup_path, Some(cancelled)) {
+                Ok(()) => backup_created = true,
+                Err(RenameFailure::Cancelled) => return Err(ArchiveError::Cancelled),
+                Err(RenameFailure::Io(error)) => {
+                    return Err(io_error(
+                        "备份已有归档目录",
+                        &self.final_path,
+                        &self.backup_path,
+                        error,
+                    ));
+                }
+            }
         }
-        if let Err(error) = fs::rename(&self.staging_path, &self.final_path) {
-            let mut message = format!(
-                "提交最终归档目录失败（源：{}，目标：{}）：{error}",
-                self.staging_path.display(),
-                self.final_path.display()
-            );
+        let commit_error = match rename(&self.staging_path, &self.final_path, Some(cancelled)) {
+            Ok(()) => None,
+            Err(error) => Some(error),
+        };
+        if let Some(commit_error) = commit_error {
+            let was_cancelled = matches!(commit_error, RenameFailure::Cancelled);
+            let mut message = match commit_error {
+                RenameFailure::Cancelled => "提交最终归档目录已取消".to_string(),
+                RenameFailure::Io(error) => format!(
+                    "提交最终归档目录失败（源：{}，目标：{}）：{error}",
+                    self.staging_path.display(),
+                    self.final_path.display()
+                ),
+            };
             if backup_created {
-                if let Err(rollback_error) = fs::rename(&self.backup_path, &self.final_path) {
+                if let Err(rollback_error) = rename(&self.backup_path, &self.final_path, None) {
+                    let rollback_error = match rollback_error {
+                        RenameFailure::Cancelled => "回滚不应被取消".to_string(),
+                        RenameFailure::Io(error) => error.to_string(),
+                    };
                     message.push_str(&format!(
                         "；恢复原归档目录失败（源：{}，目标：{}）：{rollback_error}",
                         self.backup_path.display(),
                         self.final_path.display()
                     ));
+                    return Err(ArchiveError::Failed(message));
                 }
             }
-            return Err(ArchiveError::Failed(message));
+            return if was_cancelled {
+                Err(ArchiveError::Cancelled)
+            } else {
+                Err(ArchiveError::Failed(message))
+            };
         }
         self.committed = true;
         if backup_created {
@@ -263,6 +295,29 @@ where
             Err(error) => return Err(RenameFailure::Io(error)),
         }
     }
+}
+
+const RENAME_RETRY_DELAYS: [Duration; 5] = [
+    Duration::from_millis(50),
+    Duration::from_millis(100),
+    Duration::from_millis(200),
+    Duration::from_millis(400),
+    Duration::from_millis(800),
+];
+
+fn rename_with_retry(
+    source: &Path,
+    target: &Path,
+    cancelled: Option<&AtomicBool>,
+) -> Result<(), RenameFailure> {
+    rename_with_retry_using(
+        source,
+        target,
+        cancelled,
+        &RENAME_RETRY_DELAYS,
+        |source, target| fs::rename(source, target),
+        |delay| thread::sleep(delay),
+    )
 }
 
 fn source_name(path: &Path) -> Result<String, ArchiveError> {
@@ -813,6 +868,41 @@ mod tests {
             .exists());
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn cancelled_commit_retry_restores_existing_directory() {
+        let root = TestDir::new();
+        let output = root.0.join("output");
+        let final_path = output.join("release");
+        fs::create_dir_all(&final_path).unwrap();
+        fs::write(final_path.join("old.txt"), "old").unwrap();
+        let cancelled = AtomicBool::new(false);
+        let mut session =
+            ArchiveSession::create(&output, "release", "run-cancel-retry", true, &cancelled)
+                .unwrap();
+        fs::write(session.staging_path().join("new.txt"), "new").unwrap();
+        let mut rename_count = 0;
+
+        let result = session.commit_with_rename(&cancelled, |source, target, retry_cancelled| {
+            rename_count += 1;
+            if rename_count == 1 {
+                fs::rename(source, target).map_err(RenameFailure::Io)
+            } else if rename_count == 2 {
+                cancelled.store(true, Ordering::Release);
+                Err(RenameFailure::Cancelled)
+            } else {
+                rename_with_retry(source, target, retry_cancelled)
+            }
+        });
+
+        assert!(matches!(result, Err(ArchiveError::Cancelled)));
+        assert_eq!(
+            fs::read_to_string(final_path.join("old.txt")).unwrap(),
+            "old"
+        );
+        assert!(!final_path.join("new.txt").exists());
+    }
+
     #[test]
     fn overwrite_rejects_existing_file_target() {
         let root = TestDir::new();
@@ -901,9 +991,7 @@ mod tests {
             |_| {},
         );
 
-        assert!(
-            matches!(result, Err(RenameFailure::Io(error)) if error.raw_os_error() == Some(5))
-        );
+        assert!(matches!(result, Err(RenameFailure::Io(error)) if error.raw_os_error() == Some(5)));
         assert_eq!(attempts, 3);
     }
 
