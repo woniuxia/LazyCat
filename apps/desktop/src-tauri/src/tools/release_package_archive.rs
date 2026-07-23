@@ -4,7 +4,7 @@ use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use walkdir::WalkDir;
-use zip::write::FileOptions;
+use zip::write::SimpleFileOptions;
 
 pub fn validate_folder_name(raw: &str) -> Result<(), String> {
     if raw.is_empty() || raw.trim() != raw || matches!(raw, "." | "..") {
@@ -389,7 +389,7 @@ fn zip_directory_with_root(
     let file = File::create(destination_zip)
         .map_err(|error| io_error("创建 ZIP", source, destination_zip, error))?;
     let mut writer = zip::ZipWriter::new(file);
-    let options = FileOptions::default()
+    let options = SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated)
         .unix_permissions(0o644);
     let root_name = source_name(source)?;

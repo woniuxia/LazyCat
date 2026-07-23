@@ -33,7 +33,7 @@ calamine = "0.26"
 serde_yml = "0.0.12"
 toml = "0.8"
 quick-xml = { version = "0.37", features = ["serialize"] }
-zip = { version = "0.6", default-features = false, features = ["deflate"] }
+zip = { version = "2.4.2", default-features = false, features = ["deflate"] }
 qrcode = "0.14"
 image = { version = "0.25", default-features = true }
 rusqlite = { version = "0.32", features = ["bundled"] }
