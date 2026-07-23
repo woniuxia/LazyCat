@@ -135,6 +135,34 @@ describe("release package runtime state", () => {
     expect(runtime.getProjectRuntime(8).backendLogs.map((entry) => entry.line)).toEqual(["server"]);
   });
 
+  it("clears previous archive paths before a new upload run and on a pathless overall result", async () => {
+    listenMock.mockImplementation(async (name: string, handler: (event: { payload: unknown }) => void) => {
+      listeners.set(name, handler);
+      return vi.fn();
+    });
+    const runtime = useReleasePackageRuntime();
+    await runtime.ensureListeners();
+    runtime.beginStart(7);
+    runtime.bindStartedRun("archive-run", 7);
+    emit("release-package://status", {
+      ...status("archive-run", 7, "succeeded"),
+      archivePath: "D:\\releases\\portal",
+    });
+    expect(runtime.archivePath.value).toBe("D:\\releases\\portal");
+    expect(runtime.getProjectRuntime(7).archivePath).toBe("D:\\releases\\portal");
+
+    emit("release-package://status", status("archive-run", 7, "succeeded"));
+    expect(runtime.archivePath.value).toBe("");
+    expect(runtime.getProjectRuntime(7).archivePath).toBe("");
+
+    runtime.beginStart(7);
+    runtime.bindStartedRun("upload-run", 7);
+    emit("release-package://status", status("upload-run", 7, "succeeded"));
+
+    expect(runtime.archivePath.value).toBe("");
+    expect(runtime.getProjectRuntime(7).archivePath).toBe("");
+  });
+
   it("tracks upload logs, progress, failure retry token, and terminal running state", async () => {
     listenMock.mockImplementation(async (name: string, handler: (event: { payload: unknown }) => void) => {
       listeners.set(name, handler);

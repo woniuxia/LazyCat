@@ -65,7 +65,7 @@ export function reduceReleasePackageStatus(
   }
   if (event.phase !== "overall") return;
   state.status = event.status;
-  state.archivePath = event.archivePath ?? state.archivePath;
+  state.archivePath = event.archivePath ?? "";
   state.error = event.error ?? "";
   if (event.status !== "running") state.pendingProjectId = null;
 }
@@ -140,7 +140,7 @@ function applyProjectStatus(event: ReleasePackageStatusEvent): void {
     return;
   }
   runtime.status = event.status;
-  runtime.archivePath = event.archivePath ?? runtime.archivePath;
+  runtime.archivePath = event.archivePath ?? "";
   runtime.error = event.error ?? "";
   runtime.retryToken = event.retryToken ?? "";
 }

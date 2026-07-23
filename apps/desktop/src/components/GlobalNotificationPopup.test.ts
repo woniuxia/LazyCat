@@ -28,6 +28,10 @@ describe("GlobalNotificationPopup", () => {
     expect(source).toContain("summarizeNotificationError");
   });
 
+  it("uses the package type when rendering the delivery result", () => {
+    expect(source).toContain("releasePackageNotificationCopy(currentPackage.value.status, currentPackage.value.packageType)");
+  });
+
   it("removes only the current item after a successful action", () => {
     expect(source).toContain("async function removeCurrentNotification");
     expect(source).toMatch(

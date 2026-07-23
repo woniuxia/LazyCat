@@ -398,6 +398,7 @@ fn emit_terminal_result(
         run_id,
         project.id,
         &project.name,
+        project.package_type,
         "overall",
         status,
         archive_path,

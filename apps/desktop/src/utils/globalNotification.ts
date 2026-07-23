@@ -5,6 +5,7 @@ import type {
   ReleasePackageNotificationStatus,
   TodoReminderNotification,
 } from "../types/global-notification";
+import type { ReleasePackageType } from "../types/release-package";
 
 const TODO_PRIORITIES = new Set(["P0", "P1", "P2", "P3"]);
 const TODO_REMINDER_PRESETS = new Set(["", "0m", "none", "5m", "10m", "30m", "1h", "1d", "2d"]);
@@ -15,6 +16,7 @@ const RELEASE_PACKAGE_STATUSES = new Set([
   "failed",
   "cancelled",
 ]);
+const RELEASE_PACKAGE_TYPES = new Set<ReleasePackageType>(["local_archive", "server_upload"]);
 
 function invalidNotification(): never {
   throw new Error("无效的全局通知");
@@ -61,6 +63,8 @@ function isReleasePackageNotification(value: unknown): value is ReleasePackageNo
     && value.id === `release-package:${value.runId}`
     && isPositiveSafeInteger(value.projectId)
     && isNonEmptyString(value.projectName)
+    && typeof value.packageType === "string"
+    && RELEASE_PACKAGE_TYPES.has(value.packageType as ReleasePackageType)
     && typeof value.status === "string"
     && RELEASE_PACKAGE_STATUSES.has(value.status)
     && (value.archivePath === undefined || typeof value.archivePath === "string")
@@ -112,20 +116,27 @@ export function globalNotificationActions(
 
 export function releasePackageNotificationCopy(
   status: ReleasePackageNotificationStatus,
+  packageType: ReleasePackageType,
 ): { title: string; detail: string } {
   if (status === "succeeded") {
-    return { title: "上线包打包成功", detail: "所选产物已完成归档" };
+    return packageType === "server_upload"
+      ? { title: "上线包上传成功", detail: "所选产物服务器上传完成" }
+      : { title: "上线包打包成功", detail: "所选产物本地归档完成" };
   }
   if (status === "partially_succeeded") {
-    return { title: "上线包部分成功", detail: "可用产物已归档，请查看失败日志" };
+    return packageType === "server_upload"
+      ? { title: "上线包部分成功", detail: "可用产物已上传服务器，请查看失败日志" }
+      : { title: "上线包部分成功", detail: "可用产物本地归档完成，请查看失败日志" };
   }
   if (status === "package_succeeded_upload_failed") {
-    return { title: "上线包上传失败", detail: "本地归档已完成，服务器上传失败" };
+    return { title: "上线包上传失败", detail: "构建成功、上传失败，请查看上传日志" };
   }
   if (status === "cancelled") {
     return { title: "上线包任务已终止", detail: "任务已终止，请查看日志确认产物状态" };
   }
-  return { title: "上线包打包失败", detail: "未生成可用归档，请查看打包日志" };
+  return packageType === "server_upload"
+    ? { title: "上线包上传失败", detail: "未完成可用服务器上传，请查看打包日志" }
+    : { title: "上线包打包失败", detail: "未生成可用归档，请查看打包日志" };
 }
 
 export function summarizeNotificationError(error: string | undefined, maxLength = 180): string {

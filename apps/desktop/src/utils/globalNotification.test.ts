@@ -29,6 +29,7 @@ const succeededNotification = {
   runId: "run-1",
   projectId: 9,
   projectName: "客户门户",
+  packageType: "local_archive" as const,
   status: "succeeded" as const,
   archivePath: "D:\\releases\\customer-portal",
 };
@@ -57,6 +58,11 @@ describe("normalizeGlobalNotificationPayload", () => {
       ]);
     },
   );
+
+  it.each([undefined, "archive_then_upload", ""])("rejects invalid package type %s", (packageType) => {
+    expect(() => normalizeGlobalNotificationPayload({ ...succeededNotification, packageType }))
+      .toThrow("无效的全局通知");
+  });
 
   it("throws explicitly for an invalid notification kind", () => {
     expect(() => normalizeGlobalNotificationPayload({ ...todoNotification, kind: "unknown" })).toThrow(
@@ -188,14 +194,21 @@ describe("globalNotificationActions", () => {
 });
 
 describe("releasePackageNotificationCopy", () => {
+  it("uses the delivery type in release notification copy", () => {
+    expect(releasePackageNotificationCopy("succeeded", "local_archive").detail).toContain("本地归档完成");
+    expect(releasePackageNotificationCopy("succeeded", "server_upload").detail).toContain("服务器上传完成");
+    expect(releasePackageNotificationCopy("package_succeeded_upload_failed", "server_upload").detail)
+      .toContain("构建成功、上传失败");
+  });
+
   it.each([
-    ["succeeded", "上线包打包成功", "所选产物已完成归档"],
-    ["partially_succeeded", "上线包部分成功", "可用产物已归档，请查看失败日志"],
-    ["package_succeeded_upload_failed", "上线包上传失败", "本地归档已完成，服务器上传失败"],
+    ["succeeded", "上线包打包成功", "所选产物本地归档完成"],
+    ["partially_succeeded", "上线包部分成功", "可用产物本地归档完成，请查看失败日志"],
+    ["package_succeeded_upload_failed", "上线包上传失败", "构建成功、上传失败，请查看上传日志"],
     ["failed", "上线包打包失败", "未生成可用归档，请查看打包日志"],
     ["cancelled", "上线包任务已终止", "任务已终止，请查看日志确认产物状态"],
   ] as const)("returns the Chinese copy for %s", (status, title, detail) => {
-    expect(releasePackageNotificationCopy(status)).toEqual({ title, detail });
+    expect(releasePackageNotificationCopy(status, "local_archive")).toEqual({ title, detail });
   });
 });
 

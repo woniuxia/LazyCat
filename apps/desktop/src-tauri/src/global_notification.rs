@@ -6,6 +6,7 @@ use tauri::{
 };
 
 use crate::events::EVENT_GLOBAL_NOTIFICATION_PUSH;
+use crate::tools::release_package::ReleasePackageType;
 use crate::tools::todo::ReminderDispatch;
 
 pub(crate) const GLOBAL_NOTIFICATION_LABEL: &str = "global-notification";
@@ -50,6 +51,7 @@ pub(crate) enum GlobalNotification {
         run_id: String,
         project_id: i64,
         project_name: String,
+        package_type: ReleasePackageType,
         status: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         archive_path: Option<String>,
@@ -62,6 +64,7 @@ pub(crate) fn build_release_package_notification(
     run_id: &str,
     project_id: i64,
     project_name: &str,
+    package_type: ReleasePackageType,
     phase: &str,
     status: &str,
     archive_path: Option<String>,
@@ -86,6 +89,7 @@ pub(crate) fn build_release_package_notification(
         run_id: run_id.to_string(),
         project_id,
         project_name: project_name.to_string(),
+        package_type,
         status: status.to_string(),
         archive_path: if status == "failed" {
             None
@@ -210,6 +214,7 @@ pub(crate) fn global_notification_open_tool(app: AppHandle, tool_id: String) -> 
 #[cfg(test)]
 mod tests {
     use super::{build_release_package_notification, GlobalNotification};
+    use crate::tools::release_package::ReleasePackageType;
     use serde_json::{json, Value};
 
     fn release_payload(status: &str) -> Value {
@@ -217,6 +222,7 @@ mod tests {
             "run-42",
             7,
             "  LazyCat Desktop  ",
+            ReleasePackageType::LocalArchive,
             "overall",
             status,
             Some("E:\\releases\\LazyCat.zip".to_string()),
@@ -240,6 +246,7 @@ mod tests {
                 "run-42",
                 7,
                 "LazyCat Desktop",
+                ReleasePackageType::LocalArchive,
                 "overall",
                 status,
                 None,
@@ -260,6 +267,7 @@ mod tests {
                 "run-42",
                 7,
                 "LazyCat Desktop",
+                ReleasePackageType::LocalArchive,
                 phase,
                 status,
                 None,
@@ -278,6 +286,7 @@ mod tests {
         assert_eq!(payload["runId"], "run-42");
         assert_eq!(payload["projectId"], 7);
         assert_eq!(payload["projectName"], "  LazyCat Desktop  ");
+        assert_eq!(payload["packageType"], "local_archive");
         assert_eq!(payload["status"], "partially_succeeded");
         assert_eq!(payload["archivePath"], "E:\\releases\\LazyCat.zip");
         assert_eq!(payload["error"], "packaging failed");
@@ -296,11 +305,31 @@ mod tests {
     }
 
     #[test]
+    fn upload_release_serializes_type_without_archive_path() {
+        let notification = build_release_package_notification(
+            "run-upload",
+            7,
+            "LazyCat Desktop",
+            ReleasePackageType::ServerUpload,
+            "overall",
+            "succeeded",
+            None,
+            None,
+        )
+        .unwrap();
+        let payload = serde_json::to_value(notification).unwrap();
+
+        assert_eq!(payload["packageType"], "server_upload");
+        assert!(!payload.as_object().unwrap().contains_key("archivePath"));
+    }
+
+    #[test]
     fn absent_optional_release_fields_are_not_serialized() {
         let notification = build_release_package_notification(
             "run-42",
             7,
             "LazyCat Desktop",
+            ReleasePackageType::LocalArchive,
             "overall",
             "succeeded",
             None,
@@ -340,7 +369,7 @@ mod tests {
                 "title": "Review release",
                 "body": "Check the packaged application",
                 "fireAt": "2026-07-21T10:05:00+08:00",
-                "priority": "high",
+                "priority": "P1",
                 "reminderPreset": "5m",
             })
         );

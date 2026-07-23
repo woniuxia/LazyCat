@@ -167,7 +167,7 @@ const currentPackage = computed(() =>
 const currentIndexLabel = computed(() => `1/${queue.value.length}`);
 const packageCopy = computed(() =>
   currentPackage.value
-    ? releasePackageNotificationCopy(currentPackage.value.status)
+    ? releasePackageNotificationCopy(currentPackage.value.status, currentPackage.value.packageType)
     : { title: "", detail: "" },
 );
 const packageStatusLabel = computed(() =>
