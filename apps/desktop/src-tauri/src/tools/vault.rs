@@ -277,6 +277,7 @@ fn aes256_decrypt(
 pub(crate) struct VaultServerCredentialMetadata {
     pub entry_id: i64,
     pub address: String,
+    pub port: u16,
     pub account: String,
 }
 
@@ -309,10 +310,19 @@ pub(crate) fn server_credential_metadata(
     if address.is_empty() || account.is_empty() {
         return Err("vault_entry_incomplete".to_string());
     }
+    let port = match fields.get("port") {
+        None => 22,
+        Some(value) => value
+            .as_u64()
+            .filter(|port| (1..=u16::MAX as u64).contains(port))
+            .map(|port| port as u16)
+            .ok_or_else(|| "vault_entry_incomplete".to_string())?,
+    };
 
     Ok(VaultServerCredentialMetadata {
         entry_id,
         address,
+        port,
         account,
     })
 }
@@ -1613,6 +1623,51 @@ mod tests {
     }
 
     #[test]
+    fn server_metadata_reads_explicit_port_and_defaults_legacy_to_22() {
+        let conn = vault_test_conn();
+        insert_vault_entry(
+            &conn,
+            1,
+            "server",
+            r#"{"address":"10.0.0.8","port":2200,"account":"deploy"}"#,
+            "secret",
+        );
+        insert_vault_entry(
+            &conn,
+            2,
+            "server",
+            r#"{"address":"10.0.0.9","account":"legacy"}"#,
+            "secret",
+        );
+
+        assert_eq!(server_credential_metadata(&conn, 1).unwrap().port, 2200);
+        assert_eq!(server_credential_metadata(&conn, 2).unwrap().port, 22);
+    }
+
+    #[test]
+    fn server_metadata_rejects_explicit_invalid_ports() {
+        let conn = vault_test_conn();
+        for (offset, port) in [json!(0), json!(65536), json!(22.5), json!("22"), Value::Null]
+            .into_iter()
+            .enumerate()
+        {
+            let id = offset as i64 + 1;
+            let plain = json!({
+                "address": "10.0.0.8",
+                "port": port,
+                "account": "deploy"
+            })
+            .to_string();
+            insert_vault_entry(&conn, id, "server", &plain, "secret");
+
+            assert_eq!(
+                server_credential_metadata(&conn, id).unwrap_err(),
+                "vault_entry_incomplete"
+            );
+        }
+    }
+
+    #[test]
     fn resolved_server_credential_requires_session_and_keeps_password_out_of_metadata() {
         let conn = vault_test_conn();
         insert_test_server_entry(&conn, 1, "10.0.0.8", "deploy", "secret");
@@ -1629,6 +1684,7 @@ mod tests {
         assert_eq!(credential.metadata.entry_id, 1);
         assert_eq!(credential.metadata.address.as_str(), "10.0.0.8");
         assert_eq!(credential.metadata.account.as_str(), "deploy");
+        assert_eq!(credential.metadata.port, 22);
         assert_eq!(&*credential.password, "secret");
         assert!(!format!("{:?}", credential.metadata).contains("secret"));
         force_lock();
