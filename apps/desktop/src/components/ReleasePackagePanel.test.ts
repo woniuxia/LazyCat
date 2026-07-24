@@ -221,6 +221,8 @@ describe("ReleasePackagePanel", () => {
   });
 
   it("uses the Vault server port for password auth and keeps manual port input private-key only", () => {
+    const mobileStyles = source.slice(source.indexOf("@media (max-width: 640px)"));
+
     expect(source).toContain(
       '<el-form-item v-if="draft.sshAuthType === \'private_key\'" label="SSH 端口" required>',
     );
@@ -228,8 +230,18 @@ describe("ReleasePackagePanel", () => {
     expect(source).toContain("port?: unknown");
     expect(source).toContain("normalizeVaultServerPort(entry.plainFields?.port)");
     expect(source).toContain("complete: Boolean(address && account && port !== null)");
+    expect(source).toContain(':disabled="!option.complete"');
+    expect(source).toContain(
+      "&& (!selectedVaultCredential.value || !selectedVaultCredential.value.complete)",
+    );
     expect(source).toContain("{{ selectedVaultCredential.port }}");
     expect(source).toContain("缺少地址、端口、账号或密码");
+    expect(source).toMatch(
+      /\.vault-credential-summary\s*\{[^}]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\);/s,
+    );
+    expect(mobileStyles).toMatch(
+      /\.vault-credential-summary\s*\{[^}]*grid-template-columns:\s*1fr;/s,
+    );
   });
 
   it("keeps only the private-key passphrase input in the start dialog", () => {
