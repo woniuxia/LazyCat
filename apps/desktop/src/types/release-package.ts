@@ -27,6 +27,7 @@ export interface ReleasePackageUploadConfig {
   sshPort: number;
   sshUsername: string;
   sshAuthType: ReleasePackageSshAuthType;
+  vaultEntryId: number | null;
   sshPrivateKeyPath: string;
   frontendRemoteDir: string;
   backendRemotePath: string;
@@ -80,7 +81,6 @@ export interface ReleasePackageRemotePreflightInput {
   projectId: number;
   targets: ReleasePackageTarget[];
   probeToken: string;
-  password?: string;
   privateKeyPassphrase?: string;
 }
 

@@ -1,12 +1,16 @@
 import { ref } from "vue";
 import { invokeToolByChannel } from "../bridge/tauri";
 import type {
-  ReleasePackageRemotePreflightInput,
   ReleasePackageRemotePreflightResult,
   ReleasePackageRemoteProbeResult,
+  ReleasePackageTarget,
 } from "../types/release-package";
 
-type PreflightInput = Omit<ReleasePackageRemotePreflightInput, "probeToken">;
+interface PreflightInput {
+  projectId: number;
+  targets: ReleasePackageTarget[];
+  privateKeyPassphrase?: string;
+}
 
 export function useReleasePackageUploadPreflight() {
   const probeResult = ref<ReleasePackageRemoteProbeResult | null>(null);

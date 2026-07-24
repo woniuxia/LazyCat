@@ -38,6 +38,7 @@ const project: ReleasePackageProject = {
   sshPort: 22,
   sshUsername: "",
   sshAuthType: "password",
+  vaultEntryId: null,
   sshPrivateKeyPath: "",
   frontendRemoteDir: "",
   backendRemotePath: "",
@@ -145,6 +146,7 @@ Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force
       sshPort: 22,
       sshUsername: "",
       sshAuthType: "password",
+      vaultEntryId: null,
       sshPrivateKeyPath: "",
       frontendRemoteDir: "",
       backendRemotePath: "",
@@ -177,9 +179,8 @@ Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force
   it("validates enabled server upload settings", () => {
     const draft = createEmptyReleasePackageDraft();
     draft.packageType = "server_upload";
-    expect(validateReleasePackageUpload(draft)).toBe("请输入服务器地址");
-    draft.sshHost = "10.0.0.8";
-    draft.sshUsername = "deploy";
+    expect(validateReleasePackageUpload(draft)).toBe("请选择密码库服务器凭据");
+    draft.vaultEntryId = 17;
     draft.frontendRemoteDir = "/srv/app/web";
     draft.backendRemotePath = "/srv/app/app.jar";
     expect(validateReleasePackageUpload(draft)).toBeNull();
@@ -187,10 +188,45 @@ Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force
     expect(validateReleasePackageUpload(draft)).toBe("前端远程目录必须是 Linux 绝对路径");
     draft.frontendRemoteDir = "/srv/app/web";
     draft.sshAuthType = "private_key";
+    expect(validateReleasePackageUpload(draft)).toBe("请输入服务器地址");
+    draft.sshHost = "10.0.0.8";
+    expect(validateReleasePackageUpload(draft)).toBe("请输入 SSH 用户名");
+    draft.sshUsername = "deploy";
     expect(validateReleasePackageUpload(draft)).toBe("请选择 SSH 私钥文件");
     draft.sshAuthType = "password";
     draft.sshPort = 0;
     expect(validateReleasePackageUpload(draft)).toBe("SSH 端口必须在 1 到 65535 之间");
+  });
+
+  it("requires a Vault credential only for password upload", () => {
+    const draft = createEmptyReleasePackageDraft();
+    Object.assign(draft, {
+      packageType: "server_upload",
+      sshAuthType: "password",
+      frontendRemoteDir: "/srv/portal/web",
+      backendRemotePath: "/srv/portal/app.jar",
+    });
+
+    expect(validateReleasePackageUpload(draft)).toBe("请选择密码库服务器凭据");
+    draft.vaultEntryId = 42;
+    expect(validateReleasePackageUpload(draft)).toBeNull();
+
+    draft.sshAuthType = "private_key";
+    draft.vaultEntryId = null;
+    expect(validateReleasePackageUpload(draft)).toBe("请输入服务器地址");
+    draft.sshHost = "deploy.example.internal";
+    expect(validateReleasePackageUpload(draft)).toBe("请输入 SSH 用户名");
+    draft.sshUsername = "deploy";
+    expect(validateReleasePackageUpload(draft)).toBe("请选择 SSH 私钥文件");
+  });
+
+  it("maps and compares vaultEntryId as part of the project draft", () => {
+    const withBinding = { ...project, vaultEntryId: 9 };
+    const draft = projectToReleasePackageDraft(withBinding);
+    expect(draft.vaultEntryId).toBe(9);
+    expect(isReleasePackageDraftDirty(withBinding, draft)).toBe(false);
+    draft.vaultEntryId = 10;
+    expect(isReleasePackageDraftDirty(withBinding, draft)).toBe(true);
   });
   it("rejects non-canonical Linux deployment paths before preflight", () => {
     const draft = createEmptyReleasePackageDraft();
@@ -198,6 +234,7 @@ Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force
       packageType: "server_upload",
       sshHost: "10.0.0.8",
       sshUsername: "deploy",
+      vaultEntryId: 17,
       frontendRemoteDir: "/srv/app/web/",
       backendRemotePath: "/srv/app/app.jar",
     });
@@ -210,14 +247,13 @@ Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force
     const draft = projectToReleasePackageDraft(project);
     draft.packageType = "server_upload";
     draft.outputRoot = "";
-    draft.sshHost = "10.0.0.8";
-    draft.sshUsername = "deploy";
+    draft.vaultEntryId = 17;
     draft.frontendRemoteDir = "/srv/app/web";
     draft.backendRemotePath = "/srv/app/app.jar";
     expect(validateReleasePackageDraft(draft)).toBeNull();
 
-    draft.sshHost = "";
-    expect(validateReleasePackageDraft(draft)).toBe("请输入服务器地址");
+    draft.vaultEntryId = null;
+    expect(validateReleasePackageDraft(draft)).toBe("请选择密码库服务器凭据");
 
     draft.packageType = "local_archive";
     expect(validateReleasePackageDraft(draft)).toBe("请选择归档根目录");
