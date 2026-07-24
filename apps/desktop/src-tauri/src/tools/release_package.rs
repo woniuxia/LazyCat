@@ -723,19 +723,47 @@ fn validate_upload_project(project: &ReleasePackageProjectConfig) -> Result<(), 
     Ok(())
 }
 
+struct UploadEndpoint {
+    endpoint: RemoteEndpoint,
+    vault_entry_id: Option<i64>,
+}
+
+fn upload_endpoint_with_conn(
+    conn: &Connection,
+    project: &ReleasePackageProjectConfig,
+) -> Result<UploadEndpoint, String> {
+    if project.ssh_auth_type == "password" {
+        let entry_id = project
+            .vault_entry_id
+            .ok_or("vault_entry_id_missing")?;
+        let metadata = super::vault::server_credential_metadata(conn, entry_id)?;
+        super::vault::require_unlocked(conn)?;
+        return Ok(UploadEndpoint {
+            endpoint: RemoteEndpoint {
+                host: metadata.address.to_ascii_lowercase(),
+                port: project.ssh_port,
+                username: metadata.account,
+            },
+            vault_entry_id: Some(metadata.entry_id),
+        });
+    }
+
+    Ok(UploadEndpoint {
+        endpoint: RemoteEndpoint {
+            host: project.ssh_host.trim().to_ascii_lowercase(),
+            port: project.ssh_port,
+            username: project.ssh_username.clone(),
+        },
+        vault_entry_id: None,
+    })
+}
+
 fn remote_probe_with_conn(conn: &Connection, project_id: i64) -> Result<Value, String> {
     let project = load_project(conn, project_id)?;
     require_package_type(&project, ReleasePackageType::ServerUpload, "remote_probe")?;
     validate_upload_project(&project)?;
-    let endpoint = RemoteEndpoint {
-        host: project.ssh_host.trim().to_ascii_lowercase(),
-        port: project.ssh_port,
-        username: project.ssh_username,
-    };
-    if endpoint.host.is_empty() || endpoint.username.trim().is_empty() {
-        return Err("SSH 服务器地址和用户名不能为空".into());
-    }
-    let snapshot = probe_host(&endpoint)?;
+    let upload = upload_endpoint_with_conn(conn, &project)?;
+    let snapshot = probe_host(&upload.endpoint)?;
     probe_result_with_conn(conn, snapshot)
 }
 
@@ -799,49 +827,29 @@ fn remote_targets(targets: &[ReleaseTarget]) -> Vec<RemoteTarget> {
         .collect()
 }
 
-fn parse_auth_secret(
-    project: &ReleasePackageProjectConfig,
-    payload: &Value,
-) -> Result<AuthSecret, String> {
-    match project.ssh_auth_type.as_str() {
-        "password" => {
-            if payload.get("privateKeyPassphrase").is_some() {
-                return Err("密码认证不能提交私钥口令".into());
-            }
-            let password = payload
-                .get("password")
-                .and_then(Value::as_str)
-                .ok_or("password is required for password authentication")?;
-            Ok(AuthSecret::Password(Zeroizing::new(password.to_string())))
-        }
-        "private_key" => {
-            if payload.get("password").is_some() {
-                return Err("私钥认证不能提交密码".into());
-            }
-            let passphrase = match payload.get("privateKeyPassphrase") {
-                None | Some(Value::Null) => None,
-                Some(Value::String(value)) if value.is_empty() => None,
-                Some(Value::String(value)) => Some(Zeroizing::new(value.clone())),
-                Some(_) => return Err("privateKeyPassphrase must be a string".into()),
-            };
-            Ok(AuthSecret::PrivateKeyPassphrase(passphrase))
-        }
-        _ => Err("不支持的 SSH 认证方式".into()),
+fn parse_private_key_auth_secret(payload: &Value) -> Result<AuthSecret, String> {
+    if payload.get("password").is_some() {
+        return Err("私钥认证不能提交密码".into());
     }
+    let passphrase = match payload.get("privateKeyPassphrase") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(value)) if value.is_empty() => None,
+        Some(Value::String(value)) => Some(Zeroizing::new(value.clone())),
+        Some(_) => return Err("privateKeyPassphrase must be a string".into()),
+    };
+    Ok(AuthSecret::PrivateKeyPassphrase(passphrase))
 }
 
 fn preflight_binding(
     project: &ReleasePackageProjectConfig,
+    upload: &UploadEndpoint,
     targets: &[ReleaseTarget],
 ) -> PreflightBinding {
     PreflightBinding {
         project_id: project.id,
-        endpoint: RemoteEndpoint {
-            host: project.ssh_host.trim().to_ascii_lowercase(),
-            port: project.ssh_port,
-            username: project.ssh_username.clone(),
-        },
+        endpoint: upload.endpoint.clone(),
         auth_type: project.ssh_auth_type.clone(),
+        vault_entry_id: upload.vault_entry_id,
         private_key_path: project.ssh_private_key_path.clone(),
         targets: remote_targets(targets),
         frontend_remote_dir: project.frontend_remote_dir.clone(),
@@ -864,7 +872,8 @@ fn remote_preflight_with_conn(conn: &Connection, payload: &Value) -> Result<Valu
         .as_str()
         .ok_or("probeToken is required")?;
     validate_upload_project(&project)?;
-    let binding = preflight_binding(&project, &targets);
+    let upload = upload_endpoint_with_conn(conn, &project)?;
+    let binding = preflight_binding(&project, &upload, &targets);
     let probe = load_probe(probe_token)?;
     if probe.endpoint != binding.endpoint {
         return Err("SSH 探测令牌与当前项目服务器配置不匹配".into());
@@ -874,7 +883,19 @@ fn remote_preflight_with_conn(conn: &Connection, payload: &Value) -> Result<Valu
     if known.0 != probe.key_type || known.1 != probe.fingerprint_sha256 {
         return Err("SSH 主机指纹未受信任或已变化".into());
     }
-    let secret = parse_auth_secret(&project, payload)?;
+    let secret = if project.ssh_auth_type == "password" {
+        if payload.get("password").is_some()
+            || payload.get("privateKeyPassphrase").is_some()
+        {
+            return Err("密码库认证不接受前端认证秘密".into());
+        }
+        let entry_id = project.vault_entry_id.ok_or("vault_entry_id_missing")?;
+        let credential = super::vault::resolve_server_credential(conn, entry_id)?;
+        let _metadata = credential.metadata;
+        AuthSecret::Password(credential.password)
+    } else {
+        parse_private_key_auth_secret(payload)?
+    };
     let checks = run_remote_preflight(&binding, &known.1, &secret)?;
     let issued = issue_preflight(binding, known.1, secret, &checks)?;
     Ok(json!({
@@ -979,7 +1000,8 @@ pub fn execute_with_app(
                 } => {
                     validate_project_directories(&project, &targets)?;
                     validate_upload_project(&project)?;
-                    let binding = preflight_binding(&project, &targets);
+                    let upload = upload_endpoint_with_conn(&conn, &project)?;
+                    let binding = preflight_binding(&project, &upload, &targets);
                     let deploy_authorization =
                         super::release_package_runtime::consume_deploy_authorization(
                             &preflight_token,
@@ -1019,7 +1041,8 @@ pub fn execute_with_app(
             };
             let targets = super::release_package_runtime::retry_targets(retry_token, project_id)?;
             validate_upload_project(&project)?;
-            let binding = preflight_binding(&project, &targets);
+            let upload = upload_endpoint_with_conn(&conn, &project)?;
+            let binding = preflight_binding(&project, &upload, &targets);
             let deploy_authorization =
                 super::release_package_runtime::consume_deploy_authorization(
                     preflight_token,
@@ -1147,6 +1170,52 @@ mod tests {
         assert_eq!(listed["projects"][0]["vaultEntryId"], 17);
         assert!(listed["projects"][0].get("password").is_none());
         assert!(listed["projects"][0].get("privateKeyPassphrase").is_none());
+    }
+
+    #[test]
+    fn password_preflight_uses_bound_vault_credential_and_rejects_password_payload() {
+        let conn = test_conn();
+        conn.execute_batch(
+            "CREATE TABLE user_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
+            INSERT INTO user_settings(key, value) VALUES
+                ('vault_activity_lock_enabled', 'false'),
+                ('vault_system_idle_lock_enabled', 'false');
+            CREATE TABLE vault_entries (
+                id INTEGER PRIMARY KEY, category TEXT NOT NULL, plain_fields TEXT,
+                iv TEXT NOT NULL, encrypted_blob TEXT NOT NULL
+            );",
+        )
+        .unwrap();
+        super::super::vault::insert_test_server_entry(
+            &conn,
+            11,
+            "deploy.example",
+            "deploy",
+            "secret",
+        );
+        let mut input = payload();
+        input["sshAuthType"] = json!("password");
+        input["vaultEntryId"] = json!(11);
+        input["sshHost"] = json!("");
+        input["sshUsername"] = json!("");
+        let project_id = project_create_with_conn(&conn, &input).unwrap()["id"]
+            .as_i64()
+            .unwrap();
+        super::super::vault::install_test_session([7u8; 32]);
+
+        let endpoint =
+            upload_endpoint_with_conn(&conn, &load_project(&conn, project_id).unwrap()).unwrap();
+        assert_eq!(endpoint.endpoint.host, "deploy.example");
+        assert_eq!(endpoint.endpoint.username, "deploy");
+
+        let error = parse_private_key_auth_secret(&json!({ "password": "injected" }))
+            .err()
+            .unwrap();
+        assert_eq!(error, "私钥认证不能提交密码");
+        super::super::vault::force_lock();
     }
 
     #[test]
@@ -1344,30 +1413,12 @@ mod tests {
     }
 
     #[test]
-    fn authentication_payload_must_match_the_configured_mode() {
-        let conn = test_conn();
-        let id = project_create_with_conn(&conn, &payload()).unwrap()["id"]
-            .as_i64()
-            .unwrap();
-        let mut project = load_project(&conn, id).unwrap();
-
-        project.ssh_auth_type = "password".into();
+    fn private_key_authentication_payload_rejects_passwords() {
         assert!(matches!(
-            parse_auth_secret(&project, &json!({ "password": "secret" })).unwrap(),
-            AuthSecret::Password(_)
-        ));
-        assert!(parse_auth_secret(
-            &project,
-            &json!({ "password": "secret", "privateKeyPassphrase": "wrong" })
-        )
-        .is_err());
-
-        project.ssh_auth_type = "private_key".into();
-        assert!(matches!(
-            parse_auth_secret(&project, &json!({ "privateKeyPassphrase": "secret" })).unwrap(),
+            parse_private_key_auth_secret(&json!({ "privateKeyPassphrase": "secret" })).unwrap(),
             AuthSecret::PrivateKeyPassphrase(Some(_))
         ));
-        assert!(parse_auth_secret(&project, &json!({ "password": "wrong" })).is_err());
+        assert!(parse_private_key_auth_secret(&json!({ "password": "wrong" })).is_err());
     }
     #[test]
     fn project_crud_round_trip() {

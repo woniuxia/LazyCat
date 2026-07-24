@@ -1764,6 +1764,7 @@ mod pipeline_tests {
                     username: "deploy".into(),
                 },
                 auth_type: "password".into(),
+                vault_entry_id: None,
                 private_key_path: String::new(),
                 targets: vec![RemoteTarget::Frontend, RemoteTarget::Backend],
                 frontend_remote_dir: "/srv/app/web".into(),
