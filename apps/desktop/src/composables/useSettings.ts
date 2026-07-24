@@ -157,6 +157,17 @@ export function getVaultLockSettings(): VaultLockSettings {
   return resolveVaultLockSettings(settings);
 }
 
+function getCommittedVaultLockSettings(): VaultLockSettings {
+  const committed = { ...settings };
+  for (const key of Object.values(VAULT_LOCK_SETTING_KEYS)) {
+    if (!committedSettings.has(key)) continue;
+    const value = committedSettings.get(key);
+    if (value === undefined) delete committed[key];
+    else committed[key] = value;
+  }
+  return resolveVaultLockSettings(committed);
+}
+
 export function subscribeVaultLockSettings(listener: VaultLockSettingsListener): () => void {
   vaultLockSettingsListeners.add(listener);
   return () => vaultLockSettingsListeners.delete(listener);
@@ -167,7 +178,7 @@ export async function setVaultLockSettingAndWait<K extends keyof VaultLockSettin
   value: VaultLockSettings[K],
 ): Promise<void> {
   await setSettingAndWait(VAULT_LOCK_SETTING_KEYS[name], String(value));
-  const current = getVaultLockSettings();
+  const current = getCommittedVaultLockSettings();
   for (const listener of vaultLockSettingsListeners) {
     listener(current);
   }

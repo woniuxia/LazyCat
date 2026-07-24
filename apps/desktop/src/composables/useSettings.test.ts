@@ -172,4 +172,23 @@ describe("setSettingAndWait", () => {
     expect(listener).not.toHaveBeenCalled();
     unsubscribe();
   });
+
+  it("does not expose another pending Vault setting in a committed notification", async () => {
+    const pending = deferred<{ ok: boolean }>();
+    invokeMock.mockReturnValueOnce(pending.promise).mockResolvedValueOnce({ ok: true });
+    const listener = vi.fn();
+    const unsubscribe = subscribeVaultLockSettings(listener);
+
+    const pendingWrite = setVaultLockSettingAndWait("activityLockMinutes", 5);
+    await setVaultLockSettingAndWait("systemIdleLockEnabled", false);
+
+    expect(listener).toHaveBeenCalledWith(expect.objectContaining({
+      activityLockMinutes: 30,
+      systemIdleLockEnabled: false,
+    }));
+
+    pending.reject(new Error("write failed"));
+    await expect(pendingWrite).rejects.toThrow("write failed");
+    unsubscribe();
+  });
 });
