@@ -373,6 +373,7 @@ pub(crate) fn insert_test_server_entry(
     conn: &Connection,
     entry_id: i64,
     address: &str,
+    port: u16,
     account: &str,
     password: &str,
 ) {
@@ -387,7 +388,7 @@ pub(crate) fn insert_test_server_entry(
             entry_id,
             BASE64.encode(iv),
             BASE64.encode(encrypted),
-            json!({ "address": address, "account": account }).to_string(),
+            json!({ "address": address, "port": port, "account": account }).to_string(),
         ],
     )
     .unwrap();
@@ -1670,7 +1671,7 @@ mod tests {
     #[test]
     fn resolved_server_credential_requires_session_and_keeps_password_out_of_metadata() {
         let conn = vault_test_conn();
-        insert_test_server_entry(&conn, 1, "10.0.0.8", "deploy", "secret");
+        insert_test_server_entry(&conn, 1, "10.0.0.8", 22, "deploy", "secret");
 
         force_lock();
         assert!(resolve_server_credential(&conn, 1)

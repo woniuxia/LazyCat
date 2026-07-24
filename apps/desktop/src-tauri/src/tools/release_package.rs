@@ -338,7 +338,20 @@ fn parse_start_input(
 }
 
 fn parse_project_payload(payload: &Value) -> Result<ProjectPayload, String> {
-    let mut project = ProjectPayload {
+    let mut ssh_auth_type = optional_string(payload, "sshAuthType")?;
+    if ssh_auth_type.is_empty() {
+        ssh_auth_type = "password".into();
+    }
+    if !matches!(ssh_auth_type.as_str(), "password" | "private_key") {
+        return Err("sshAuthType must be password or private_key".into());
+    }
+    let ssh_port = if ssh_auth_type == "private_key" {
+        optional_port(payload, "sshPort", 22)?
+    } else {
+        22
+    };
+
+    let project = ProjectPayload {
         name: required_string(payload, "name")?,
         output_root: optional_string(payload, "outputRoot")?,
         package_type: ReleasePackageType::parse(&required_string(payload, "packageType")?)?,
@@ -350,9 +363,9 @@ fn parse_project_payload(payload: &Value) -> Result<ProjectPayload, String> {
         backend_build_command: required_string(payload, "backendBuildCommand")?,
         backend_artifact_path: required_string(payload, "backendArtifactPath")?,
         ssh_host: optional_string(payload, "sshHost")?,
-        ssh_port: optional_port(payload, "sshPort", 22)?,
+        ssh_port,
         ssh_username: optional_string(payload, "sshUsername")?,
-        ssh_auth_type: optional_string(payload, "sshAuthType")?,
+        ssh_auth_type,
         vault_entry_id: optional_i64(payload, "vaultEntryId")?,
         ssh_private_key_path: optional_string(payload, "sshPrivateKeyPath")?,
         frontend_remote_dir: optional_string(payload, "frontendRemoteDir")?,
@@ -361,12 +374,6 @@ fn parse_project_payload(payload: &Value) -> Result<ProjectPayload, String> {
     validate_folder_name(&project.name)?;
     if project.package_type == ReleasePackageType::LocalArchive && project.output_root.is_empty() {
         return Err("outputRoot is required for local_archive".into());
-    }
-    if project.ssh_auth_type.is_empty() {
-        project.ssh_auth_type = "password".into();
-    }
-    if !matches!(project.ssh_auth_type.as_str(), "password" | "private_key") {
-        return Err("sshAuthType must be password or private_key".into());
     }
     if project.package_type == ReleasePackageType::ServerUpload {
         if project.ssh_auth_type == "password" {
@@ -700,9 +707,6 @@ fn probe_result_with_conn(conn: &Connection, snapshot: ProbeSnapshot) -> Result<
 }
 
 fn validate_upload_project(project: &ReleasePackageProjectConfig) -> Result<(), String> {
-    if project.ssh_port == 0 {
-        return Err("SSH 端口必须在 1 到 65535 之间".into());
-    }
     if !matches!(project.ssh_auth_type.as_str(), "password" | "private_key") {
         return Err("不支持的 SSH 认证方式".into());
     }
@@ -711,6 +715,9 @@ fn validate_upload_project(project: &ReleasePackageProjectConfig) -> Result<(), 
             return Err("密码认证必须绑定密码库服务器凭据".into());
         }
     } else {
+        if project.ssh_port == 0 {
+            return Err("SSH 端口必须在 1 到 65535 之间".into());
+        }
         if project.ssh_host.trim().is_empty() || project.ssh_username.trim().is_empty() {
             return Err("SSH 服务器地址和用户名不能为空".into());
         }
@@ -741,7 +748,7 @@ fn upload_endpoint_with_conn(
         return Ok(UploadEndpoint {
             endpoint: RemoteEndpoint {
                 host: metadata.address.to_ascii_lowercase(),
-                port: project.ssh_port,
+                port: metadata.port,
                 username: metadata.account,
             },
             vault_entry_id: Some(metadata.entry_id),
@@ -1145,6 +1152,49 @@ mod tests {
     }
 
     #[test]
+    fn project_port_is_only_validated_for_private_key_authentication() {
+        let conn = test_conn();
+        conn.execute_batch(
+            "CREATE TABLE vault_entries (
+                id INTEGER PRIMARY KEY, category TEXT NOT NULL, plain_fields TEXT
+            );
+            INSERT INTO vault_entries(id, category, plain_fields)
+            VALUES (17, 'server', '{\"address\":\"10.0.0.8\",\"port\":2200,\"account\":\"deploy\"}');",
+        )
+        .unwrap();
+        let mut password = payload();
+        password["sshAuthType"] = json!("password");
+        password["vaultEntryId"] = json!(17);
+        password["sshPort"] = json!(0);
+
+        let parsed_password = parse_project_payload(&password).unwrap();
+        assert_eq!(parsed_password.ssh_port, 22);
+        let password_id = project_create_with_conn(&conn, &password).unwrap()["id"]
+            .as_i64()
+            .unwrap();
+        let mut password_project = load_project(&conn, password_id).unwrap();
+        password_project.ssh_port = 0;
+        assert!(validate_upload_project(&password_project).is_ok());
+
+        let mut invalid_private_key = payload();
+        invalid_private_key["sshPort"] = json!(0);
+        assert_eq!(
+            parse_project_payload(&invalid_private_key).err().unwrap(),
+            "sshPort must be between 1 and 65535"
+        );
+
+        let private_key_id = project_create_with_conn(&conn, &payload()).unwrap()["id"]
+            .as_i64()
+            .unwrap();
+        let mut private_key_project = load_project(&conn, private_key_id).unwrap();
+        private_key_project.ssh_port = 0;
+        assert_eq!(
+            validate_upload_project(&private_key_project).err().unwrap(),
+            "SSH 端口必须在 1 到 65535 之间"
+        );
+    }
+
+    #[test]
     fn password_project_round_trips_only_the_vault_entry_id() {
         let conn = test_conn();
         conn.execute_batch(
@@ -1193,6 +1243,7 @@ mod tests {
             &conn,
             11,
             "deploy.example",
+            2200,
             "deploy",
             "secret",
         );
@@ -1209,6 +1260,7 @@ mod tests {
         let endpoint =
             upload_endpoint_with_conn(&conn, &load_project(&conn, project_id).unwrap()).unwrap();
         assert_eq!(endpoint.endpoint.host, "deploy.example");
+        assert_eq!(endpoint.endpoint.port, 2200);
         assert_eq!(endpoint.endpoint.username, "deploy");
 
         let error = parse_private_key_auth_secret(&json!({ "password": "injected" }))
@@ -1216,6 +1268,22 @@ mod tests {
             .unwrap();
         assert_eq!(error, "私钥认证不能提交密码");
         super::super::vault::force_lock();
+    }
+
+    #[test]
+    fn private_key_endpoint_keeps_using_the_project_port() {
+        let conn = test_conn();
+        let project_id = project_create_with_conn(&conn, &payload()).unwrap()["id"]
+            .as_i64()
+            .unwrap();
+
+        let endpoint =
+            upload_endpoint_with_conn(&conn, &load_project(&conn, project_id).unwrap()).unwrap();
+
+        assert_eq!(endpoint.endpoint.host, "deploy.example.internal");
+        assert_eq!(endpoint.endpoint.port, 2222);
+        assert_eq!(endpoint.endpoint.username, "deploy");
+        assert_eq!(endpoint.vault_entry_id, None);
     }
 
     #[test]
