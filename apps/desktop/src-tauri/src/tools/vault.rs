@@ -1342,6 +1342,7 @@ fn build_fields(category: &str, payload: &Value) -> Value {
         }),
         "server" => json!({
             "address": payload["address"].as_str().unwrap_or(""),
+            "port": payload["port"].as_u64().unwrap_or(22),
             "serverType": payload["serverType"].as_str().unwrap_or("Linux"),
             "account": payload["account"].as_str().unwrap_or(""),
             "password": payload["password"].as_str().unwrap_or(""),
@@ -1679,9 +1680,22 @@ mod tests {
 
     #[test]
     fn test_build_fields_server() {
-        let p = json!({ "address": "10.0.0.1", "serverType": "Windows", "account": "root", "password": "p" });
+        let p = json!({
+            "address": "10.0.0.1",
+            "port": 2200,
+            "serverType": "Windows",
+            "account": "root",
+            "password": "p"
+        });
         let f = build_fields("server", &p);
         assert_eq!(f["serverType"], "Windows");
+        assert_eq!(f["port"], 2200);
+    }
+
+    #[test]
+    fn test_build_fields_server_defaults_port_to_22() {
+        let f = build_fields("server", &json!({}));
+        assert_eq!(f["port"], 22);
     }
 
     #[test]
@@ -1831,11 +1845,12 @@ mod tests {
     fn test_split_fields_server() {
         let fields = build_fields(
             "server",
-            &json!({ "address": "10.0.0.1", "serverType": "Windows", "account": "root", "password": "p" }),
+            &json!({ "address": "10.0.0.1", "port": 2200, "serverType": "Windows", "account": "root", "password": "p" }),
         );
         let (secret, plain) = split_fields(&fields);
         assert_eq!(secret, json!({ "password": "p" }));
         assert_eq!(plain["address"], "10.0.0.1");
+        assert_eq!(plain["port"], 2200);
         assert_eq!(plain["serverType"], "Windows");
         assert!(plain.get("password").is_none());
     }
