@@ -828,6 +828,27 @@ mod tests {
     }
 
     #[test]
+    fn preflight_token_rejects_changed_endpoint_port() {
+        let store = PreflightStore::new(Duration::from_secs(300));
+        let binding = binding(vec![RemoteTarget::Frontend]);
+        let issued = store
+            .insert(
+                binding.clone(),
+                "SHA256:trusted".into(),
+                AuthSecret::Password(Zeroizing::new("secret".into())),
+                vec![],
+            )
+            .unwrap();
+        let mut changed = binding;
+        changed.endpoint.port = 2200;
+
+        assert_eq!(
+            store.consume(&issued.token, &changed).err().unwrap(),
+            "项目或远程上传配置已变化，请重新预检"
+        );
+    }
+
+    #[test]
     fn preflight_binding_changes_when_vault_credential_changes() {
         let mut first = binding(vec![RemoteTarget::Frontend]);
         first.vault_entry_id = Some(1);
