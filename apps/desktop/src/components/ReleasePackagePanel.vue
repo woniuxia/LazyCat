@@ -219,20 +219,62 @@
 
               <div class="server-config-body">
                 <div class="server-config-grid">
-                  <el-form-item label="服务器地址" required>
-                    <el-input v-model="draft.sshHost" :disabled="running" placeholder="例如：10.0.0.8" />
-                  </el-form-item>
-                  <el-form-item label="SSH 端口" required>
-                    <el-input-number v-model="draft.sshPort" :disabled="running" :min="1" :max="65535" controls-position="right" class="full-width" />
-                  </el-form-item>
-                  <el-form-item label="SSH 用户名" required>
-                    <el-input v-model="draft.sshUsername" :disabled="running" placeholder="例如：deploy" />
-                  </el-form-item>
                   <el-form-item label="认证方式" required>
                     <el-radio-group v-model="draft.sshAuthType" :disabled="running" class="auth-type-group">
                       <el-radio-button value="password">账户密码</el-radio-button>
                       <el-radio-button value="private_key">私钥文件</el-radio-button>
                     </el-radio-group>
+                  </el-form-item>
+                  <el-form-item label="SSH 端口" required>
+                    <el-input-number v-model="draft.sshPort" :disabled="running" :min="1" :max="65535" controls-position="right" class="full-width" />
+                  </el-form-item>
+                  <el-form-item
+                    v-if="draft.sshAuthType === 'password'"
+                    label="密码库凭据"
+                    required
+                    class="vault-credential-field server-config-span-2"
+                  >
+                    <div class="vault-credential-picker">
+                      <el-select
+                        v-model="draft.vaultEntryId"
+                        :disabled="running"
+                        :loading="vaultOptionsLoading"
+                        filterable
+                        clearable
+                        class="full-width"
+                        placeholder="选择服务器凭据"
+                      >
+                        <el-option
+                          v-for="option in vaultServerOptions"
+                          :key="option.id"
+                          :label="vaultCredentialLabel(option)"
+                          :value="option.id"
+                          :disabled="!option.complete"
+                        />
+                      </el-select>
+                      <el-button :icon="Refresh" :loading="vaultOptionsLoading" :disabled="running" @click="loadVaultServerOptions">刷新</el-button>
+                      <el-button :disabled="running" @click="openVault">密码管理</el-button>
+                    </div>
+                    <p class="vault-credential-hint">密码由密码库提供，上线包配置只保存凭据引用，不保存或展示服务器密码。</p>
+                    <div v-if="vaultBindingInvalid" class="vault-binding-invalid" role="alert">
+                      绑定的密码库凭据已失效，请重新选择
+                    </div>
+                    <div v-else-if="selectedVaultCredential" class="vault-credential-summary">
+                      <div>
+                        <span>服务器地址</span>
+                        <code>{{ selectedVaultCredential.address }}</code>
+                      </div>
+                      <div>
+                        <span>SSH 用户名</span>
+                        <code>{{ selectedVaultCredential.account }}</code>
+                      </div>
+                    </div>
+                  </el-form-item>
+                  <el-form-item v-if="draft.sshAuthType === 'private_key'" label="服务器地址" required>
+                    <el-input v-model="draft.sshHost" :disabled="running" placeholder="例如：10.0.0.8" />
+                  </el-form-item>
+                  <el-form-item v-if="draft.sshAuthType === 'private_key'" label="SSH 用户名" required>
+                    <el-input v-model="draft.sshUsername" :disabled="running" placeholder="例如：deploy" />
                   </el-form-item>
                   <el-form-item v-if="draft.sshAuthType === 'private_key'" label="私钥文件" required class="server-config-span-2">
                     <el-input v-model="draft.sshPrivateKeyPath" :disabled="running" placeholder="选择 OpenSSH 私钥文件" readonly>
@@ -372,16 +414,21 @@
         <el-form-item v-if="isLocalArchiveStart" label="归档目录名" required>
           <el-input v-model="folderName" placeholder="例如：20260723-订单管理系统" />
         </el-form-item>
-        <el-form-item v-if="isUploadStart" :label="credentialLabel" :required="draft.sshAuthType === 'password'">
+        <el-form-item v-if="isUploadStart && draft.sshAuthType === 'private_key'" label="私钥口令（可选）">
           <el-input
             v-model="credentialSecret"
             type="password"
             show-password
             autocomplete="new-password"
             :disabled="starting"
-            :placeholder="draft.sshAuthType === 'password' ? '仅用于本次 SSH 认证' : '私钥未加密时可留空'"
+            placeholder="私钥未加密时可留空"
           />
         </el-form-item>
+        <div v-if="isUploadStart && draft.sshAuthType === 'password'" class="vault-start-summary">
+          <span>密码库凭据</span>
+          <strong>{{ selectedVaultCredential?.title || `凭据 #${draft.vaultEntryId ?? "-"}` }}</strong>
+          <p>密码由密码库提供，仅在已信任主机后由本地 Rust 进程读取。</p>
+        </div>
       </el-form>
       <p v-if="isLocalArchiveStart" class="archive-preview">完整归档路径：{{ archivePathPreview || "请先设置归档根目录" }}</p>
       <div v-if="!retryMode" class="package-targets">
@@ -452,6 +499,30 @@ import {
   writeReleasePackageCommand,
 } from "../utils/releasePackage";
 
+interface VaultServerOption {
+  id: number;
+  title: string;
+  environment: string;
+  address: string;
+  account: string;
+  complete: boolean;
+}
+
+interface VaultMetaEntry {
+  id: number;
+  category: string;
+  title: string;
+  environment?: string;
+  plainFields?: {
+    address?: string;
+    account?: string;
+  } | null;
+}
+
+const emit = defineEmits<{
+  (event: "open-tool", toolId: string): void;
+}>();
+
 const projects = ref<ReleasePackageProject[]>([]);
 const selectedId = ref<number | null>(null);
 const draft = reactive<ReleasePackageProjectDraft>(createEmptyReleasePackageDraft());
@@ -467,6 +538,9 @@ const credentialSecret = ref("");
 const overwriteRemoteTargets = ref<ReleasePackageTarget[]>([]);
 const retryMode = ref(false);
 const serverConfigSections = ref<string[]>([]);
+const vaultServerOptions = ref<VaultServerOption[]>([]);
+const vaultOptionsLoading = ref(false);
+const vaultOptionsLoaded = ref(false);
 const frontendLogContainer = ref<HTMLElement | null>(null);
 const backendLogContainer = ref<HTMLElement | null>(null);
 const uploadLogContainer = ref<HTMLElement | null>(null);
@@ -531,7 +605,15 @@ const uploadPercentage = computed(() => {
     uploadProgress.value.uploadedBytes / uploadProgress.value.totalBytes * 100,
   ));
 });
-const credentialLabel = computed(() => draft.sshAuthType === "password" ? "服务器密码" : "私钥口令（可选）");
+const selectedVaultCredential = computed(() => vaultServerOptions.value.find(
+  (option) => option.id === draft.vaultEntryId,
+) ?? null);
+const vaultBindingInvalid = computed(() => (
+  draft.sshAuthType === "password"
+  && draft.vaultEntryId !== null
+  && vaultOptionsLoaded.value
+  && selectedVaultCredential.value === null
+));
 const isUploadStart = computed(() => retryMode.value || prepareResult.value?.packageType === "server_upload");
 const isLocalArchiveStart = computed(() => !retryMode.value && prepareResult.value?.packageType === "local_archive");
 const archivePathPreview = computed(() => {
@@ -546,6 +628,77 @@ const archivePathPreview = computed(() => {
 
 function showError(error: unknown): void {
   ElMessage.error(error instanceof Error ? error.message : String(error));
+}
+
+function vaultCredentialLabel(option: VaultServerOption): string {
+  const suffix = [option.environment, option.account, option.address].filter(Boolean).join(" · ");
+  return suffix ? `${option.title} · ${suffix}` : option.title;
+}
+
+async function loadVaultServerOptions(): Promise<void> {
+  if (vaultOptionsLoading.value) return;
+  vaultOptionsLoading.value = true;
+  try {
+    const result = await invokeToolByChannel("tool:vault:meta-list", { category: "server" }) as VaultMetaEntry[];
+    if (!Array.isArray(result)) throw new Error("密码库服务器凭据列表格式无效");
+    vaultServerOptions.value = result
+      .filter((entry) => entry.category === "server")
+      .map((entry) => {
+        const address = entry.plainFields?.address?.trim() ?? "";
+        const account = entry.plainFields?.account?.trim() ?? "";
+        return {
+          id: entry.id,
+          title: entry.title || `(未命名凭据 #${entry.id})`,
+          environment: entry.environment?.trim() ?? "",
+          address,
+          account,
+          complete: Boolean(address && account),
+        };
+      });
+    vaultOptionsLoaded.value = true;
+  } catch (error) {
+    showError(error);
+  } finally {
+    vaultOptionsLoading.value = false;
+  }
+}
+
+function openVault(): void {
+  emit("open-tool", "vault");
+}
+
+async function handleUploadIntegrationError(error: unknown): Promise<void> {
+  const message = error instanceof Error ? error.message : String(error);
+  if (message.includes("vault_locked")) {
+    try {
+      await ElMessageBox.confirm(
+        "密码库当前已锁定。请先打开密码管理并解锁，再重新发起上传。",
+        "需要解锁密码库",
+        {
+          type: "warning",
+          confirmButtonText: "打开密码管理",
+          cancelButtonText: "稍后处理",
+        },
+      );
+      openVault();
+    } catch (confirmError) {
+      if (confirmError !== "cancel" && confirmError !== "close") showError(confirmError);
+    }
+    return;
+  }
+  if (message.includes("vault_entry_not_found")) {
+    ElMessage.error("绑定的密码库凭据不存在，请重新选择并保存配置");
+    return;
+  }
+  if (message.includes("vault_entry_invalid_category")) {
+    ElMessage.error("绑定的密码库条目不是服务器凭据，请重新选择");
+    return;
+  }
+  if (message.includes("vault_entry_incomplete")) {
+    ElMessage.error("绑定的服务器凭据缺少地址、账号或密码，请在密码管理中补充");
+    return;
+  }
+  showError(error);
 }
 
 async function copyCommandExample(command: string): Promise<void> {
@@ -872,16 +1025,16 @@ async function runUploadPreflight(
 ): Promise<boolean> {
   const uploadError = validateReleasePackageUpload(draft);
   if (uploadError) throw new Error(uploadError);
-  if (draft.sshAuthType === "password" && !credentialSecret.value) {
-    throw new Error("请输入服务器密码");
+  if (draft.sshAuthType === "password" && draft.vaultEntryId === null) {
+    throw new Error("请选择密码库服务器凭据");
   }
   if (!(await ensureHostTrusted(projectId))) return false;
   await uploadPreflight.check({
     projectId,
     targets: [...targets],
-    ...(draft.sshAuthType === "password"
-      ? { password: credentialSecret.value }
-      : { privateKeyPassphrase: credentialSecret.value || undefined }),
+    ...(draft.sshAuthType === "private_key"
+      ? { privateKeyPassphrase: credentialSecret.value || undefined }
+      : {}),
   });
   return confirmRemoteOverwrite();
 }
@@ -957,7 +1110,7 @@ async function confirmStart(): Promise<void> {
     if (runtimeStartBegun) {
       runtime.abortStart(error instanceof Error ? error.message : String(error));
     }
-    showError(error);
+    await handleUploadIntegrationError(error);
   } finally {
     starting.value = false;
     cancelPendingStart.value = false;
@@ -1024,6 +1177,7 @@ watch(() => draft.packageType, (packageType) => {
 });
 
 onMounted(async () => {
+  void loadVaultServerOptions();
   try {
     await runtime.ensureListeners();
     await loadProjects();
@@ -1160,6 +1314,30 @@ onMounted(async () => {
   gap: 0 12px;
 }
 .server-config-span-2 { grid-column: span 2; }
+.vault-credential-field :deep(.el-form-item__content) { display: grid; gap: 8px; }
+.vault-credential-picker { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; }
+.vault-credential-picker :deep(.el-select) { min-width: 180px; }
+.vault-credential-hint { margin: 0; color: #606266; font-size: 12px; line-height: 1.5; }
+.vault-binding-invalid {
+  padding: 8px 10px;
+  border: 1px solid #f3c4c4;
+  border-radius: 6px;
+  color: #b42318;
+  background: #fff5f5;
+  font-size: 12px;
+}
+.vault-credential-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.vault-credential-summary > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+  padding: 8px 10px;
+  border: 1px solid #e4e7ed;
+  border-radius: 6px;
+  background: #fafbfc;
+}
+.vault-credential-summary span { color: #909399; font-size: 11px; }
+.vault-credential-summary code { overflow-wrap: anywhere; color: #303133; font: 12px/1.4 var(--lc-font-mono, Consolas, monospace); }
 .auth-type-group, .package-type-group { display: flex; width: 100%; }
 .auth-type-group :deep(.el-radio-button), .package-type-group :deep(.el-radio-button) { flex: 1; }
 .auth-type-group :deep(.el-radio-button__inner), .package-type-group :deep(.el-radio-button__inner) { width: 100%; }
@@ -1246,6 +1424,17 @@ onMounted(async () => {
 .log-line.stderr { color: #d03050; }
 .log-meta { flex: none; color: #5f6b7a; }
 .archive-preview { margin: 0; overflow-wrap: anywhere; color: var(--lc-text-secondary, #606266); font-size: 13px; }
+.vault-start-summary {
+  display: grid;
+  gap: 4px;
+  padding: 11px 12px;
+  border: 1px solid #d9e8fb;
+  border-radius: 8px;
+  color: #303133;
+  background: #f5f9ff;
+}
+.vault-start-summary span { color: #606266; font-size: 12px; }
+.vault-start-summary p { margin: 0; color: #606266; font-size: 12px; line-height: 1.5; }
 .package-targets { display: grid; gap: 8px; margin-top: 16px; }
 .package-targets-label { color: #303133; font-size: 14px; font-weight: 600; }
 .package-targets :deep(.el-checkbox-group) { display: flex; flex-wrap: wrap; gap: 10px; }
@@ -1337,6 +1526,7 @@ onMounted(async () => {
   .release-package-editor { padding: 14px; }
   .server-config-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .server-config-span-2 { grid-column: auto; }
+  .vault-credential-field { grid-column: 1 / -1; }
   .release-package-log-columns { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .upload-log-lane { grid-column: 1 / -1; border-top: 1px solid #ebeef5; border-left: 0 !important; }
 }
@@ -1347,6 +1537,10 @@ onMounted(async () => {
   .project-basics-grid { grid-template-columns: 1fr; gap: 0; }
   .server-config-heading { align-items: flex-start; }
   .server-config-grid { grid-template-columns: 1fr; }
+  .vault-credential-field { grid-column: auto; }
+  .vault-credential-picker { flex-wrap: wrap; }
+  .vault-credential-picker :deep(.el-select) { flex: 1 1 100%; }
+  .vault-credential-summary { grid-template-columns: 1fr; }
   .release-package-editor { padding: 10px; }
   .engineering-card { padding: 14px 12px 0; }
   .log-card-header { align-items: flex-start; }
