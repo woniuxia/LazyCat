@@ -6,11 +6,15 @@ use openssl::symm::{decrypt, encrypt, Cipher};
 use rusqlite::{params, Connection};
 use serde_json::{json, Value};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
+use tauri::Emitter;
 use zeroize::Zeroize;
 
 use super::helpers::db_conn;
+use super::vault_lock::{expired_reason, load_config, LockReason, VaultLockConfig};
+use super::widget::guards::{try_system_input_snapshot, SystemInputSnapshot};
 
 // --- Tag helper functions ---
 
@@ -98,9 +102,6 @@ const PBKDF2_ITERATIONS: usize = 600_000;
 const SALT_LEN: usize = 32;
 const KEY_LEN: usize = 32;
 const IV_LEN: usize = 16;
-const VAULT_LOCK_PROFILE_KEY: &str = "vault_lock_profile";
-const DEFAULT_LOCK_PROFILE: &str = "balanced";
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum VaultLockState {
     Unlocked,
@@ -119,40 +120,9 @@ impl VaultLockState {
 struct VaultSession {
     key: Option<[u8; 32]>,
     last_activity: Instant,
-    hard_lock_after_secs: u64,
 }
 
 static VAULT_SESSION: Mutex<Option<VaultSession>> = Mutex::new(None);
-
-fn normalize_lock_profile(value: &str) -> &'static str {
-    match value {
-        "strict" => "strict",
-        "convenient" => "convenient",
-        _ => DEFAULT_LOCK_PROFILE,
-    }
-}
-
-fn resolve_hard_lock_after_secs(lock_profile: &str) -> u64 {
-    match normalize_lock_profile(lock_profile) {
-        "strict" => 600,
-        "convenient" => 3600,
-        _ => 1800,
-    }
-}
-
-fn load_lock_profile(conn: &Connection) -> String {
-    conn.query_row(
-        "SELECT value FROM user_settings WHERE key = ?1",
-        params![VAULT_LOCK_PROFILE_KEY],
-        |row| row.get::<_, String>(0),
-    )
-    .map(|value| normalize_lock_profile(value.trim()).to_string())
-    .unwrap_or_else(|_| DEFAULT_LOCK_PROFILE.to_string())
-}
-
-fn load_hard_lock_after_secs(conn: &Connection) -> u64 {
-    resolve_hard_lock_after_secs(&load_lock_profile(conn))
-}
 
 fn clear_session_key(session: &mut VaultSession) {
     if let Some(key) = session.key.as_mut() {
@@ -168,29 +138,102 @@ fn hard_lock_session(guard: &mut Option<VaultSession>) {
     *guard = None;
 }
 
-fn session_expired(session: &VaultSession) -> bool {
-    session.last_activity.elapsed().as_secs() > session.hard_lock_after_secs
-}
-
-fn ensure_session_alive(guard: &mut Option<VaultSession>) -> Result<(), String> {
-    match guard.as_ref() {
-        None => Err("vault_locked".to_string()),
-        Some(session) if session_expired(session) => {
-            hard_lock_session(guard);
-            Err("vault_locked_timeout".to_string())
-        }
-        Some(_) => Ok(()),
+fn ensure_session_alive(
+    guard: &mut Option<VaultSession>,
+    config: VaultLockConfig,
+    current: Option<SystemInputSnapshot>,
+    previous: Option<SystemInputSnapshot>,
+) -> Result<(), String> {
+    let Some(session) = guard.as_ref() else {
+        return Err("vault_locked".to_string());
+    };
+    if expired_reason(
+        config,
+        session.last_activity.elapsed().as_secs(),
+        current,
+        previous,
+    )
+    .is_some()
+    {
+        hard_lock_session(guard);
+        return Err("vault_locked_timeout".to_string());
     }
+    Ok(())
 }
 
-fn current_lock_state() -> VaultLockState {
+fn current_lock_state(
+    config: VaultLockConfig,
+    current: Option<SystemInputSnapshot>,
+) -> VaultLockState {
     VAULT_SESSION
         .lock()
-        .map(|mut guard| match ensure_session_alive(&mut guard) {
+        .map(|mut guard| match ensure_session_alive(&mut guard, config, current, None) {
             Ok(()) => VaultLockState::Unlocked,
             Err(_) => VaultLockState::Locked,
         })
         .unwrap_or(VaultLockState::Locked)
+}
+
+fn check_session_for_monitor(
+    config: VaultLockConfig,
+    current: Option<SystemInputSnapshot>,
+    previous: Option<SystemInputSnapshot>,
+) -> Option<LockReason> {
+    let mut guard = VAULT_SESSION.lock().ok()?;
+    let session = guard.as_ref()?;
+    let reason = expired_reason(
+        config,
+        session.last_activity.elapsed().as_secs(),
+        current,
+        previous,
+    );
+    if reason.is_some() {
+        hard_lock_session(&mut guard);
+    }
+    reason
+}
+
+fn monitor_once(
+    previous: Option<SystemInputSnapshot>,
+) -> Result<(Option<SystemInputSnapshot>, Option<LockReason>), String> {
+    let unlocked = VAULT_SESSION
+        .lock()
+        .map(|guard| guard.is_some())
+        .unwrap_or(false);
+    if !unlocked {
+        return Ok((None, None));
+    }
+
+    let conn = db_conn()?;
+    let config = load_config(&conn)?;
+    let current = try_system_input_snapshot();
+    let reason = check_session_for_monitor(config, current, previous);
+    Ok((if reason.is_some() { None } else { current }, reason))
+}
+
+pub fn start_auto_lock_monitor(app: tauri::AppHandle) {
+    static RUNNING: AtomicBool = AtomicBool::new(false);
+    if RUNNING.swap(true, Ordering::SeqCst) {
+        return;
+    }
+
+    std::thread::spawn(move || {
+        let mut previous = None;
+        loop {
+            std::thread::sleep(Duration::from_secs(30));
+            match monitor_once(previous) {
+                Ok((_, Some(reason))) => {
+                    previous = None;
+                    let _ = app.emit(
+                        crate::events::EVENT_VAULT_LOCKED,
+                        json!({ "reason": reason }),
+                    );
+                }
+                Ok((next, None)) => previous = next,
+                Err(error) => eprintln!("vault auto-lock monitor failed: {error}"),
+            }
+        }
+    });
 }
 
 fn derive_key(password: &str, salt: &[u8]) -> Result<[u8; KEY_LEN], String> {
@@ -231,10 +274,13 @@ fn aes256_decrypt(
 }
 
 fn get_session_key() -> Result<[u8; KEY_LEN], String> {
+    let conn = db_conn()?;
+    let config = load_config(&conn)?;
+    let current = try_system_input_snapshot();
     let mut guard = VAULT_SESSION
         .lock()
         .map_err(|e| format!("session lock: {e}"))?;
-    ensure_session_alive(&mut guard)?;
+    ensure_session_alive(&mut guard, config, current, None)?;
 
     match guard.as_mut() {
         None => Err("vault_locked".to_string()),
@@ -255,7 +301,8 @@ fn cmd_status(_payload: &Value) -> Result<Value, String> {
         )
         .unwrap_or(false);
 
-    let lock_state = current_lock_state();
+    let config = load_config(&conn)?;
+    let lock_state = current_lock_state(config, try_system_input_snapshot());
 
     Ok(json!({
         "setup": setup,
@@ -300,8 +347,6 @@ fn cmd_setup(payload: &Value) -> Result<Value, String> {
     )
     .map_err(|e| format!("save canary failed: {e}"))?;
 
-    let hard_lock_after_secs = load_hard_lock_after_secs(&conn);
-
     // 初始化后自动解锁
     let mut guard = VAULT_SESSION
         .lock()
@@ -309,7 +354,6 @@ fn cmd_setup(payload: &Value) -> Result<Value, String> {
     *guard = Some(VaultSession {
         key: Some(key),
         last_activity: Instant::now(),
-        hard_lock_after_secs,
     });
 
     Ok(json!({ "ok": true }))
@@ -350,15 +394,12 @@ fn cmd_unlock(payload: &Value) -> Result<Value, String> {
     // 先回填迁移、再建立会话：关闭并发 IPC 在回填中途经 list 读到混合状态的理论窗口
     backfill_plain_fields(&conn, &key);
 
-    let hard_lock_after_secs = load_hard_lock_after_secs(&conn);
-
     let mut guard = VAULT_SESSION
         .lock()
         .map_err(|e| format!("session lock: {e}"))?;
     *guard = Some(VaultSession {
         key: Some(key),
         last_activity: Instant::now(),
-        hard_lock_after_secs,
     });
 
     Ok(json!({ "unlocked": true, "lockState": VaultLockState::Unlocked.as_str() }))
@@ -373,10 +414,13 @@ fn cmd_lock(_payload: &Value) -> Result<Value, String> {
 }
 
 fn cmd_touch(_payload: &Value) -> Result<Value, String> {
+    let conn = db_conn()?;
+    let config = load_config(&conn)?;
+    let current = try_system_input_snapshot();
     let mut guard = VAULT_SESSION
         .lock()
         .map_err(|e| format!("session lock: {e}"))?;
-    ensure_session_alive(&mut guard)?;
+    ensure_session_alive(&mut guard, config, current, None)?;
 
     match guard.as_mut() {
         Some(session) => {
@@ -501,8 +545,6 @@ fn cmd_change_password(payload: &Value) -> Result<Value, String> {
 
     tx.commit().map_err(|e| format!("commit: {e}"))?;
 
-    let hard_lock_after_secs = load_hard_lock_after_secs(&conn);
-
     // 改密后刷新当前会话，继续保持已解锁状态
     let mut guard = VAULT_SESSION
         .lock()
@@ -510,7 +552,6 @@ fn cmd_change_password(payload: &Value) -> Result<Value, String> {
     *guard = Some(VaultSession {
         key: Some(new_key),
         last_activity: Instant::now(),
-        hard_lock_after_secs,
     });
 
     Ok(json!({ "ok": true, "reEncrypted": re_encrypted_count }))
@@ -1346,6 +1387,8 @@ pub fn force_lock() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tools::vault_lock::{LockReason, VaultLockConfig};
+    use crate::tools::widget::guards::SystemInputSnapshot;
     use serde_json::json;
     use std::time::Duration;
 
@@ -1409,25 +1452,10 @@ mod tests {
     }
 
     #[test]
-    fn test_normalize_lock_profile_defaults_to_balanced() {
-        assert_eq!(normalize_lock_profile("strict"), "strict");
-        assert_eq!(normalize_lock_profile("convenient"), "convenient");
-        assert_eq!(normalize_lock_profile("unexpected"), DEFAULT_LOCK_PROFILE);
-    }
-
-    #[test]
-    fn test_resolve_hard_lock_after_secs_matches_profiles() {
-        assert_eq!(resolve_hard_lock_after_secs("strict"), 600);
-        assert_eq!(resolve_hard_lock_after_secs("balanced"), 1800);
-        assert_eq!(resolve_hard_lock_after_secs("convenient"), 3600);
-    }
-
-    #[test]
     fn test_hard_lock_session_clears_key_and_guard() {
         let mut guard = Some(VaultSession {
             key: Some([7u8; KEY_LEN]),
             last_activity: Instant::now(),
-            hard_lock_after_secs: 1800,
         });
 
         hard_lock_session(&mut guard);
@@ -1442,13 +1470,75 @@ mod tests {
             last_activity: Instant::now()
                 .checked_sub(Duration::from_secs(16))
                 .expect("checked_sub"),
-            hard_lock_after_secs: 15,
         });
+        let config = VaultLockConfig {
+            activity_enabled: true,
+            activity_after_secs: 15,
+            system_idle_enabled: false,
+            system_idle_after_secs: 900,
+        };
 
-        let err = ensure_session_alive(&mut guard).expect_err("session should expire");
+        let err = ensure_session_alive(&mut guard, config, None, None)
+            .expect_err("session should expire");
 
         assert_eq!(err, "vault_locked_timeout");
         assert!(guard.is_none());
+    }
+
+    #[test]
+    fn test_system_idle_expiry_clears_session_key() {
+        let mut guard = Some(VaultSession {
+            key: Some([7u8; KEY_LEN]),
+            last_activity: Instant::now(),
+        });
+        let config = VaultLockConfig {
+            activity_enabled: false,
+            activity_after_secs: 1_800,
+            system_idle_enabled: true,
+            system_idle_after_secs: 900,
+        };
+        let current = SystemInputSnapshot {
+            last_input_tick_ms: 10,
+            idle_secs: 900,
+        };
+
+        let error = ensure_session_alive(&mut guard, config, Some(current), None)
+            .expect_err("system idle must lock");
+
+        assert_eq!(error, "vault_locked_timeout");
+        assert!(guard.is_none());
+    }
+
+    #[test]
+    fn test_monitor_locks_once_after_input_resets() {
+        *VAULT_SESSION.lock().expect("session lock") = Some(VaultSession {
+            key: Some([9u8; KEY_LEN]),
+            last_activity: Instant::now(),
+        });
+        let config = VaultLockConfig {
+            activity_enabled: false,
+            activity_after_secs: 1_800,
+            system_idle_enabled: true,
+            system_idle_after_secs: 900,
+        };
+        let previous = SystemInputSnapshot {
+            last_input_tick_ms: 1_000,
+            idle_secs: 870,
+        };
+        let current = SystemInputSnapshot {
+            last_input_tick_ms: 901_000,
+            idle_secs: 1,
+        };
+
+        assert_eq!(
+            check_session_for_monitor(config, Some(current), Some(previous)),
+            Some(LockReason::SystemIdle)
+        );
+        assert!(VAULT_SESSION.lock().expect("session lock").is_none());
+        assert_eq!(
+            check_session_for_monitor(config, Some(current), None),
+            None
+        );
     }
 
     #[test]

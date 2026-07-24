@@ -12,6 +12,7 @@ pub const EVENT_WIDGET_NAVIGATE: &str = "widget://navigate";
 pub const EVENT_ACCESS_PATH_DIAGNOSIS_SNAPSHOT: &str = "access-path-diagnosis://snapshot";
 pub const EVENT_RELEASE_PACKAGE_LOG: &str = "release-package://log";
 pub const EVENT_RELEASE_PACKAGE_STATUS: &str = "release-package://status";
+pub const EVENT_VAULT_LOCKED: &str = "vault://locked";
 
 /// 供契约对账测试使用；由具名常量引用组成，无双写漂移。
 #[cfg(test)]
@@ -30,4 +31,5 @@ pub const ALL: &[&str] = &[
     EVENT_ACCESS_PATH_DIAGNOSIS_SNAPSHOT,
     EVENT_RELEASE_PACKAGE_LOG,
     EVENT_RELEASE_PACKAGE_STATUS,
+    EVENT_VAULT_LOCKED,
 ];
