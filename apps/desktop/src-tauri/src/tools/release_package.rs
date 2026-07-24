@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS release_package_projects (
     ssh_port INTEGER NOT NULL DEFAULT 22,
     ssh_username TEXT NOT NULL DEFAULT '',
     ssh_auth_type TEXT NOT NULL DEFAULT 'password' CHECK (ssh_auth_type IN ('password', 'private_key')),
+    vault_entry_id INTEGER NULL,
     ssh_private_key_path TEXT NOT NULL DEFAULT '',
     frontend_remote_dir TEXT NOT NULL DEFAULT '',
     backend_remote_path TEXT NOT NULL DEFAULT '',
@@ -59,6 +60,7 @@ pub fn ensure_schema(conn: &Connection) -> Result<(), String> {
         ("ssh_port", "ALTER TABLE release_package_projects ADD COLUMN ssh_port INTEGER NOT NULL DEFAULT 22"),
         ("ssh_username", "ALTER TABLE release_package_projects ADD COLUMN ssh_username TEXT NOT NULL DEFAULT ''"),
         ("ssh_auth_type", "ALTER TABLE release_package_projects ADD COLUMN ssh_auth_type TEXT NOT NULL DEFAULT 'password'"),
+        ("vault_entry_id", "ALTER TABLE release_package_projects ADD COLUMN vault_entry_id INTEGER NULL"),
         ("ssh_private_key_path", "ALTER TABLE release_package_projects ADD COLUMN ssh_private_key_path TEXT NOT NULL DEFAULT ''"),
         ("frontend_remote_dir", "ALTER TABLE release_package_projects ADD COLUMN frontend_remote_dir TEXT NOT NULL DEFAULT ''"),
         ("backend_remote_path", "ALTER TABLE release_package_projects ADD COLUMN backend_remote_path TEXT NOT NULL DEFAULT ''"),
@@ -175,6 +177,7 @@ pub struct ReleasePackageProjectConfig {
     pub ssh_port: u16,
     pub ssh_username: String,
     pub ssh_auth_type: String,
+    pub vault_entry_id: Option<i64>,
     pub ssh_private_key_path: String,
     pub frontend_remote_dir: String,
     pub backend_remote_path: String,
@@ -214,6 +217,7 @@ struct ProjectPayload {
     ssh_port: u16,
     ssh_username: String,
     ssh_auth_type: String,
+    vault_entry_id: Option<i64>,
     ssh_private_key_path: String,
     frontend_remote_dir: String,
     backend_remote_path: String,
@@ -244,6 +248,17 @@ fn optional_port(payload: &Value, key: &str, default: u16) -> Result<u16, String
             .filter(|port| (1..=u16::MAX as u64).contains(port))
             .map(|port| port as u16)
             .ok_or_else(|| format!("{key} must be between 1 and 65535")),
+    }
+}
+
+fn optional_i64(payload: &Value, key: &str) -> Result<Option<i64>, String> {
+    match payload.get(key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(value) => value
+            .as_i64()
+            .filter(|id| *id > 0)
+            .map(Some)
+            .ok_or_else(|| format!("{key} must be a positive integer")),
     }
 }
 fn parse_targets(value: &Value) -> Result<Vec<ReleaseTarget>, String> {
@@ -338,6 +353,7 @@ fn parse_project_payload(payload: &Value) -> Result<ProjectPayload, String> {
         ssh_port: optional_port(payload, "sshPort", 22)?,
         ssh_username: optional_string(payload, "sshUsername")?,
         ssh_auth_type: optional_string(payload, "sshAuthType")?,
+        vault_entry_id: optional_i64(payload, "vaultEntryId")?,
         ssh_private_key_path: optional_string(payload, "sshPrivateKeyPath")?,
         frontend_remote_dir: optional_string(payload, "frontendRemoteDir")?,
         backend_remote_path: optional_string(payload, "backendRemotePath")?,
@@ -353,14 +369,20 @@ fn parse_project_payload(payload: &Value) -> Result<ProjectPayload, String> {
         return Err("sshAuthType must be password or private_key".into());
     }
     if project.package_type == ReleasePackageType::ServerUpload {
-        if project.ssh_host.is_empty() {
-            return Err("sshHost is required for server_upload".into());
-        }
-        if project.ssh_username.is_empty() {
-            return Err("sshUsername is required for server_upload".into());
-        }
-        if project.ssh_auth_type == "private_key" && project.ssh_private_key_path.is_empty() {
-            return Err("sshPrivateKeyPath is required for private_key authentication".into());
+        if project.ssh_auth_type == "password" {
+            if project.vault_entry_id.is_none() {
+                return Err("vaultEntryId is required for password authentication".into());
+            }
+        } else {
+            if project.ssh_host.is_empty() {
+                return Err("sshHost is required for private_key authentication".into());
+            }
+            if project.ssh_username.is_empty() {
+                return Err("sshUsername is required for private_key authentication".into());
+            }
+            if project.ssh_private_key_path.is_empty() {
+                return Err("sshPrivateKeyPath is required for private_key authentication".into());
+            }
         }
         if !project.frontend_remote_dir.starts_with('/') || project.frontend_remote_dir == "/" {
             return Err("frontendRemoteDir must be an absolute Linux path".into());
@@ -376,6 +398,19 @@ fn parse_project_payload(payload: &Value) -> Result<ProjectPayload, String> {
         return Err("frontendArtifactMode must be copy_directory or zip_directory".into());
     }
     Ok(project)
+}
+
+fn validate_vault_binding(conn: &Connection, project: &ProjectPayload) -> Result<(), String> {
+    if project.package_type != ReleasePackageType::ServerUpload
+        || project.ssh_auth_type != "password"
+    {
+        return Ok(());
+    }
+    let entry_id = project
+        .vault_entry_id
+        .ok_or("vaultEntryId is required for password authentication")?;
+    super::vault::server_credential_metadata(conn, entry_id)?;
+    Ok(())
 }
 
 fn project_from_row(row: &Row<'_>) -> rusqlite::Result<ReleasePackageProjectConfig> {
@@ -397,11 +432,12 @@ fn project_from_row(row: &Row<'_>) -> rusqlite::Result<ReleasePackageProjectConf
         ssh_port: row.get(12)?,
         ssh_username: row.get(13)?,
         ssh_auth_type: row.get(14)?,
-        ssh_private_key_path: row.get(15)?,
-        frontend_remote_dir: row.get(16)?,
-        backend_remote_path: row.get(17)?,
-        created_at: row.get(18)?,
-        updated_at: row.get(19)?,
+        vault_entry_id: row.get(15)?,
+        ssh_private_key_path: row.get(16)?,
+        frontend_remote_dir: row.get(17)?,
+        backend_remote_path: row.get(18)?,
+        created_at: row.get(19)?,
+        updated_at: row.get(20)?,
     })
 }
 
@@ -411,7 +447,7 @@ fn project_list_with_conn(conn: &Connection) -> Result<Value, String> {
             "SELECT id, name, output_root, frontend_project_path, frontend_build_command, frontend_artifact_path,
                     frontend_artifact_mode, backend_project_path, backend_build_command,
                     backend_artifact_path, package_type, ssh_host, ssh_port, ssh_username, ssh_auth_type,
-                    ssh_private_key_path, frontend_remote_dir, backend_remote_path, created_at, updated_at
+                    vault_entry_id, ssh_private_key_path, frontend_remote_dir, backend_remote_path, created_at, updated_at
              FROM release_package_projects
              ORDER BY name COLLATE NOCASE ASC, id ASC",
         )
@@ -426,13 +462,14 @@ fn project_list_with_conn(conn: &Connection) -> Result<Value, String> {
 
 fn project_create_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
     let project = parse_project_payload(payload)?;
+    validate_vault_binding(conn, &project)?;
     conn.execute(
         "INSERT INTO release_package_projects(
             name, output_root, frontend_project_path, frontend_build_command, frontend_artifact_path,
             frontend_artifact_mode, backend_project_path, backend_build_command, backend_artifact_path,
-            package_type, ssh_host, ssh_port, ssh_username, ssh_auth_type,
+            package_type, ssh_host, ssh_port, ssh_username, ssh_auth_type, vault_entry_id,
             ssh_private_key_path, frontend_remote_dir, backend_remote_path
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
         params![
             project.name,
             project.output_root,
@@ -448,6 +485,7 @@ fn project_create_with_conn(conn: &Connection, payload: &Value) -> Result<Value,
             project.ssh_port,
             project.ssh_username,
             project.ssh_auth_type,
+            project.vault_entry_id,
             project.ssh_private_key_path,
             project.frontend_remote_dir,
             project.backend_remote_path,
@@ -460,6 +498,7 @@ fn project_create_with_conn(conn: &Connection, payload: &Value) -> Result<Value,
 fn project_update_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
     let id = payload["id"].as_i64().ok_or("id is required")?;
     let project = parse_project_payload(payload)?;
+    validate_vault_binding(conn, &project)?;
     let changed = conn
         .execute(
             "UPDATE release_package_projects SET
@@ -467,9 +506,9 @@ fn project_update_with_conn(conn: &Connection, payload: &Value) -> Result<Value,
                 frontend_artifact_path=?5, frontend_artifact_mode=?6,
                 backend_project_path=?7, backend_build_command=?8, backend_artifact_path=?9,
                 package_type=?10, ssh_host=?11, ssh_port=?12, ssh_username=?13,
-                ssh_auth_type=?14, ssh_private_key_path=?15, frontend_remote_dir=?16,
-                backend_remote_path=?17, updated_at=CURRENT_TIMESTAMP
-             WHERE id=?18",
+                ssh_auth_type=?14, vault_entry_id=?15, ssh_private_key_path=?16,
+                frontend_remote_dir=?17, backend_remote_path=?18, updated_at=CURRENT_TIMESTAMP
+             WHERE id=?19",
             params![
                 project.name,
                 project.output_root,
@@ -485,6 +524,7 @@ fn project_update_with_conn(conn: &Connection, payload: &Value) -> Result<Value,
                 project.ssh_port,
                 project.ssh_username,
                 project.ssh_auth_type,
+                project.vault_entry_id,
                 project.ssh_private_key_path,
                 project.frontend_remote_dir,
                 project.backend_remote_path,
@@ -517,7 +557,7 @@ pub(crate) fn load_project(
         "SELECT id, name, output_root, frontend_project_path, frontend_build_command, frontend_artifact_path,
                 frontend_artifact_mode, backend_project_path, backend_build_command,
                 backend_artifact_path, package_type, ssh_host, ssh_port, ssh_username, ssh_auth_type,
-                    ssh_private_key_path, frontend_remote_dir, backend_remote_path, created_at, updated_at
+                vault_entry_id, ssh_private_key_path, frontend_remote_dir, backend_remote_path, created_at, updated_at
          FROM release_package_projects
          WHERE id=?1",
         [id],
@@ -660,36 +700,70 @@ fn probe_result_with_conn(conn: &Connection, snapshot: ProbeSnapshot) -> Result<
 }
 
 fn validate_upload_project(project: &ReleasePackageProjectConfig) -> Result<(), String> {
-    if project.ssh_host.trim().is_empty() || project.ssh_username.trim().is_empty() {
-        return Err("SSH 服务器地址和用户名不能为空".into());
-    }
     if project.ssh_port == 0 {
         return Err("SSH 端口必须在 1 到 65535 之间".into());
     }
     if !matches!(project.ssh_auth_type.as_str(), "password" | "private_key") {
         return Err("不支持的 SSH 认证方式".into());
     }
-    if project.ssh_auth_type == "private_key" && project.ssh_private_key_path.trim().is_empty() {
-        return Err("私钥认证必须配置 SSH 私钥文件".into());
+    if project.ssh_auth_type == "password" {
+        if project.vault_entry_id.is_none() {
+            return Err("密码认证必须绑定密码库服务器凭据".into());
+        }
+    } else {
+        if project.ssh_host.trim().is_empty() || project.ssh_username.trim().is_empty() {
+            return Err("SSH 服务器地址和用户名不能为空".into());
+        }
+        if project.ssh_private_key_path.trim().is_empty() {
+            return Err("私钥认证必须配置 SSH 私钥文件".into());
+        }
     }
     validate_remote_dir(&project.frontend_remote_dir)?;
     validate_remote_file(&project.backend_remote_path)?;
     Ok(())
 }
 
+struct UploadEndpoint {
+    endpoint: RemoteEndpoint,
+    vault_entry_id: Option<i64>,
+}
+
+fn upload_endpoint_with_conn(
+    conn: &Connection,
+    project: &ReleasePackageProjectConfig,
+) -> Result<UploadEndpoint, String> {
+    if project.ssh_auth_type == "password" {
+        let entry_id = project
+            .vault_entry_id
+            .ok_or("vault_entry_id_missing")?;
+        let metadata = super::vault::server_credential_metadata(conn, entry_id)?;
+        super::vault::require_unlocked(conn)?;
+        return Ok(UploadEndpoint {
+            endpoint: RemoteEndpoint {
+                host: metadata.address.to_ascii_lowercase(),
+                port: project.ssh_port,
+                username: metadata.account,
+            },
+            vault_entry_id: Some(metadata.entry_id),
+        });
+    }
+
+    Ok(UploadEndpoint {
+        endpoint: RemoteEndpoint {
+            host: project.ssh_host.trim().to_ascii_lowercase(),
+            port: project.ssh_port,
+            username: project.ssh_username.clone(),
+        },
+        vault_entry_id: None,
+    })
+}
+
 fn remote_probe_with_conn(conn: &Connection, project_id: i64) -> Result<Value, String> {
     let project = load_project(conn, project_id)?;
     require_package_type(&project, ReleasePackageType::ServerUpload, "remote_probe")?;
     validate_upload_project(&project)?;
-    let endpoint = RemoteEndpoint {
-        host: project.ssh_host.trim().to_ascii_lowercase(),
-        port: project.ssh_port,
-        username: project.ssh_username,
-    };
-    if endpoint.host.is_empty() || endpoint.username.trim().is_empty() {
-        return Err("SSH 服务器地址和用户名不能为空".into());
-    }
-    let snapshot = probe_host(&endpoint)?;
+    let upload = upload_endpoint_with_conn(conn, &project)?;
+    let snapshot = probe_host(&upload.endpoint)?;
     probe_result_with_conn(conn, snapshot)
 }
 
@@ -753,49 +827,29 @@ fn remote_targets(targets: &[ReleaseTarget]) -> Vec<RemoteTarget> {
         .collect()
 }
 
-fn parse_auth_secret(
-    project: &ReleasePackageProjectConfig,
-    payload: &Value,
-) -> Result<AuthSecret, String> {
-    match project.ssh_auth_type.as_str() {
-        "password" => {
-            if payload.get("privateKeyPassphrase").is_some() {
-                return Err("密码认证不能提交私钥口令".into());
-            }
-            let password = payload
-                .get("password")
-                .and_then(Value::as_str)
-                .ok_or("password is required for password authentication")?;
-            Ok(AuthSecret::Password(Zeroizing::new(password.to_string())))
-        }
-        "private_key" => {
-            if payload.get("password").is_some() {
-                return Err("私钥认证不能提交密码".into());
-            }
-            let passphrase = match payload.get("privateKeyPassphrase") {
-                None | Some(Value::Null) => None,
-                Some(Value::String(value)) if value.is_empty() => None,
-                Some(Value::String(value)) => Some(Zeroizing::new(value.clone())),
-                Some(_) => return Err("privateKeyPassphrase must be a string".into()),
-            };
-            Ok(AuthSecret::PrivateKeyPassphrase(passphrase))
-        }
-        _ => Err("不支持的 SSH 认证方式".into()),
+fn parse_private_key_auth_secret(payload: &Value) -> Result<AuthSecret, String> {
+    if payload.get("password").is_some() {
+        return Err("私钥认证不能提交密码".into());
     }
+    let passphrase = match payload.get("privateKeyPassphrase") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(value)) if value.is_empty() => None,
+        Some(Value::String(value)) => Some(Zeroizing::new(value.clone())),
+        Some(_) => return Err("privateKeyPassphrase must be a string".into()),
+    };
+    Ok(AuthSecret::PrivateKeyPassphrase(passphrase))
 }
 
 fn preflight_binding(
     project: &ReleasePackageProjectConfig,
+    upload: &UploadEndpoint,
     targets: &[ReleaseTarget],
 ) -> PreflightBinding {
     PreflightBinding {
         project_id: project.id,
-        endpoint: RemoteEndpoint {
-            host: project.ssh_host.trim().to_ascii_lowercase(),
-            port: project.ssh_port,
-            username: project.ssh_username.clone(),
-        },
+        endpoint: upload.endpoint.clone(),
         auth_type: project.ssh_auth_type.clone(),
+        vault_entry_id: upload.vault_entry_id,
         private_key_path: project.ssh_private_key_path.clone(),
         targets: remote_targets(targets),
         frontend_remote_dir: project.frontend_remote_dir.clone(),
@@ -818,7 +872,8 @@ fn remote_preflight_with_conn(conn: &Connection, payload: &Value) -> Result<Valu
         .as_str()
         .ok_or("probeToken is required")?;
     validate_upload_project(&project)?;
-    let binding = preflight_binding(&project, &targets);
+    let upload = upload_endpoint_with_conn(conn, &project)?;
+    let binding = preflight_binding(&project, &upload, &targets);
     let probe = load_probe(probe_token)?;
     if probe.endpoint != binding.endpoint {
         return Err("SSH 探测令牌与当前项目服务器配置不匹配".into());
@@ -828,7 +883,19 @@ fn remote_preflight_with_conn(conn: &Connection, payload: &Value) -> Result<Valu
     if known.0 != probe.key_type || known.1 != probe.fingerprint_sha256 {
         return Err("SSH 主机指纹未受信任或已变化".into());
     }
-    let secret = parse_auth_secret(&project, payload)?;
+    let secret = if project.ssh_auth_type == "password" {
+        if payload.get("password").is_some()
+            || payload.get("privateKeyPassphrase").is_some()
+        {
+            return Err("密码库认证不接受前端认证秘密".into());
+        }
+        let entry_id = project.vault_entry_id.ok_or("vault_entry_id_missing")?;
+        let credential = super::vault::resolve_server_credential(conn, entry_id)?;
+        let _metadata = credential.metadata;
+        AuthSecret::Password(credential.password)
+    } else {
+        parse_private_key_auth_secret(payload)?
+    };
     let checks = run_remote_preflight(&binding, &known.1, &secret)?;
     let issued = issue_preflight(binding, known.1, secret, &checks)?;
     Ok(json!({
@@ -933,7 +1000,8 @@ pub fn execute_with_app(
                 } => {
                     validate_project_directories(&project, &targets)?;
                     validate_upload_project(&project)?;
-                    let binding = preflight_binding(&project, &targets);
+                    let upload = upload_endpoint_with_conn(&conn, &project)?;
+                    let binding = preflight_binding(&project, &upload, &targets);
                     let deploy_authorization =
                         super::release_package_runtime::consume_deploy_authorization(
                             &preflight_token,
@@ -973,7 +1041,8 @@ pub fn execute_with_app(
             };
             let targets = super::release_package_runtime::retry_targets(retry_token, project_id)?;
             validate_upload_project(&project)?;
-            let binding = preflight_binding(&project, &targets);
+            let upload = upload_endpoint_with_conn(&conn, &project)?;
+            let binding = preflight_binding(&project, &upload, &targets);
             let deploy_authorization =
                 super::release_package_runtime::consume_deploy_authorization(
                     preflight_token,
@@ -1029,6 +1098,124 @@ mod tests {
             "frontendRemoteDir": "/srv/portal/web",
             "backendRemotePath": "/srv/portal/app.jar"
         })
+    }
+
+    #[test]
+    fn schema_migrates_vault_entry_id_and_project_round_trips_it() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE release_package_projects (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL,
+                output_root TEXT NOT NULL, frontend_project_path TEXT NOT NULL,
+                frontend_build_command TEXT NOT NULL, frontend_artifact_path TEXT NOT NULL,
+                frontend_artifact_mode TEXT NOT NULL, backend_project_path TEXT NOT NULL,
+                backend_build_command TEXT NOT NULL, backend_artifact_path TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );",
+        )
+        .unwrap();
+
+        ensure_schema(&conn).unwrap();
+
+        let columns = conn
+            .prepare("PRAGMA table_info(release_package_projects)")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert!(columns.contains(&"vault_entry_id".to_string()));
+    }
+
+    #[test]
+    fn password_project_requires_vault_entry_but_private_key_keeps_host_and_username() {
+        let mut password = payload();
+        password["sshAuthType"] = json!("password");
+        password["vaultEntryId"] = Value::Null;
+        password["sshHost"] = json!("");
+        password["sshUsername"] = json!("");
+        assert_eq!(
+            parse_project_payload(&password).err().unwrap(),
+            "vaultEntryId is required for password authentication"
+        );
+
+        let private_key = parse_project_payload(&payload()).unwrap();
+        assert_eq!(private_key.vault_entry_id, None);
+    }
+
+    #[test]
+    fn password_project_round_trips_only_the_vault_entry_id() {
+        let conn = test_conn();
+        conn.execute_batch(
+            "CREATE TABLE vault_entries (
+                id INTEGER PRIMARY KEY, category TEXT NOT NULL, plain_fields TEXT
+            );
+            INSERT INTO vault_entries(id, category, plain_fields)
+            VALUES (17, 'server', '{\"address\":\"10.0.0.8\",\"account\":\"deploy\"}');",
+        )
+        .unwrap();
+        let mut input = payload();
+        input["sshAuthType"] = json!("password");
+        input["vaultEntryId"] = json!(17);
+        input["sshHost"] = json!("");
+        input["sshUsername"] = json!("");
+
+        let id = project_create_with_conn(&conn, &input).unwrap()["id"]
+            .as_i64()
+            .unwrap();
+        let saved = load_project(&conn, id).unwrap();
+        assert_eq!(saved.vault_entry_id, Some(17));
+        let listed = project_list_with_conn(&conn).unwrap();
+        assert_eq!(listed["projects"][0]["vaultEntryId"], 17);
+        assert!(listed["projects"][0].get("password").is_none());
+        assert!(listed["projects"][0].get("privateKeyPassphrase").is_none());
+    }
+
+    #[test]
+    fn password_preflight_uses_bound_vault_credential_and_rejects_password_payload() {
+        let conn = test_conn();
+        conn.execute_batch(
+            "CREATE TABLE user_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
+            INSERT INTO user_settings(key, value) VALUES
+                ('vault_activity_lock_enabled', 'false'),
+                ('vault_system_idle_lock_enabled', 'false');
+            CREATE TABLE vault_entries (
+                id INTEGER PRIMARY KEY, category TEXT NOT NULL, plain_fields TEXT,
+                iv TEXT NOT NULL, encrypted_blob TEXT NOT NULL
+            );",
+        )
+        .unwrap();
+        super::super::vault::insert_test_server_entry(
+            &conn,
+            11,
+            "deploy.example",
+            "deploy",
+            "secret",
+        );
+        let mut input = payload();
+        input["sshAuthType"] = json!("password");
+        input["vaultEntryId"] = json!(11);
+        input["sshHost"] = json!("");
+        input["sshUsername"] = json!("");
+        let project_id = project_create_with_conn(&conn, &input).unwrap()["id"]
+            .as_i64()
+            .unwrap();
+        super::super::vault::install_test_session([7u8; 32]);
+
+        let endpoint =
+            upload_endpoint_with_conn(&conn, &load_project(&conn, project_id).unwrap()).unwrap();
+        assert_eq!(endpoint.endpoint.host, "deploy.example");
+        assert_eq!(endpoint.endpoint.username, "deploy");
+
+        let error = parse_private_key_auth_secret(&json!({ "password": "injected" }))
+            .err()
+            .unwrap();
+        assert_eq!(error, "私钥认证不能提交密码");
+        super::super::vault::force_lock();
     }
 
     #[test]
@@ -1134,7 +1321,7 @@ mod tests {
         upload["sshHost"] = json!("");
         assert_eq!(
             parse_project_payload(&upload).err().unwrap(),
-            "sshHost is required for server_upload"
+            "sshHost is required for private_key authentication"
         );
 
         let mut local = payload();
@@ -1226,30 +1413,12 @@ mod tests {
     }
 
     #[test]
-    fn authentication_payload_must_match_the_configured_mode() {
-        let conn = test_conn();
-        let id = project_create_with_conn(&conn, &payload()).unwrap()["id"]
-            .as_i64()
-            .unwrap();
-        let mut project = load_project(&conn, id).unwrap();
-
-        project.ssh_auth_type = "password".into();
+    fn private_key_authentication_payload_rejects_passwords() {
         assert!(matches!(
-            parse_auth_secret(&project, &json!({ "password": "secret" })).unwrap(),
-            AuthSecret::Password(_)
-        ));
-        assert!(parse_auth_secret(
-            &project,
-            &json!({ "password": "secret", "privateKeyPassphrase": "wrong" })
-        )
-        .is_err());
-
-        project.ssh_auth_type = "private_key".into();
-        assert!(matches!(
-            parse_auth_secret(&project, &json!({ "privateKeyPassphrase": "secret" })).unwrap(),
+            parse_private_key_auth_secret(&json!({ "privateKeyPassphrase": "secret" })).unwrap(),
             AuthSecret::PrivateKeyPassphrase(Some(_))
         ));
-        assert!(parse_auth_secret(&project, &json!({ "password": "wrong" })).is_err());
+        assert!(parse_private_key_auth_secret(&json!({ "password": "wrong" })).is_err());
     }
     #[test]
     fn project_crud_round_trip() {
@@ -1460,6 +1629,7 @@ mod tests {
             ssh_port: 22,
             ssh_username: String::new(),
             ssh_auth_type: "password".into(),
+            vault_entry_id: None,
             ssh_private_key_path: String::new(),
             frontend_remote_dir: String::new(),
             backend_remote_path: String::new(),
@@ -1538,6 +1708,7 @@ mod tests {
             ssh_port: 22,
             ssh_username: String::new(),
             ssh_auth_type: "password".into(),
+            vault_entry_id: None,
             ssh_private_key_path: String::new(),
             frontend_remote_dir: String::new(),
             backend_remote_path: String::new(),

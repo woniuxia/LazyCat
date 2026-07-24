@@ -131,6 +131,7 @@ export function createEmptyReleasePackageDraft(): ReleasePackageProjectDraft {
     sshPort: 22,
     sshUsername: "",
     sshAuthType: "password",
+    vaultEntryId: null,
     sshPrivateKeyPath: "",
     frontendRemoteDir: "",
     backendRemotePath: "",
@@ -153,6 +154,7 @@ export function projectToReleasePackageDraft(project: ReleasePackageProject): Re
     sshPort: project.sshPort,
     sshUsername: project.sshUsername,
     sshAuthType: project.sshAuthType,
+    vaultEntryId: project.vaultEntryId,
     sshPrivateKeyPath: project.sshPrivateKeyPath,
     frontendRemoteDir: project.frontendRemoteDir,
     backendRemotePath: project.backendRemotePath,
@@ -167,12 +169,17 @@ export function normalizeReleasePackageDraft(draft: ReleasePackageProjectDraft):
 
 export function validateReleasePackageUpload(draft: ReleasePackageProjectDraft): string | null {
   const value = normalizeReleasePackageDraft(draft);
-  if (!value.sshHost) return "请输入服务器地址";
   if (!Number.isInteger(value.sshPort) || value.sshPort < 1 || value.sshPort > 65_535) {
     return "SSH 端口必须在 1 到 65535 之间";
   }
-  if (!value.sshUsername) return "请输入 SSH 用户名";
-  if (value.sshAuthType === "private_key" && !value.sshPrivateKeyPath) return "请选择 SSH 私钥文件";
+  if (value.sshAuthType === "password" && value.vaultEntryId === null) {
+    return "请选择密码库服务器凭据";
+  }
+  if (value.sshAuthType === "private_key") {
+    if (!value.sshHost) return "请输入服务器地址";
+    if (!value.sshUsername) return "请输入 SSH 用户名";
+    if (!value.sshPrivateKeyPath) return "请选择 SSH 私钥文件";
+  }
   if (!value.frontendRemoteDir) return "请输入前端远程目录";
   if (!value.frontendRemoteDir.startsWith("/") || value.frontendRemoteDir === "/") {
     return "前端远程目录必须是 Linux 绝对路径";

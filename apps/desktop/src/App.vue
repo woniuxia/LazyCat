@@ -51,6 +51,7 @@
             :is="currentComponent"
             :key="activeTool"
             v-bind="currentComponentProps"
+            @open-tool="onSelect"
           />
         </Transition>
       </div>

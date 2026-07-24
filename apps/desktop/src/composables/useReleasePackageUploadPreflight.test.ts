@@ -44,13 +44,18 @@ describe("useReleasePackageUploadPreflight", () => {
       probeToken: "probe-1",
       replaceExisting: true,
     });
-    await preflight.check({ projectId: 7, targets: ["frontend"], password: "secret" });
+    await preflight.check({
+      projectId: 7,
+      targets: ["frontend"],
+      privateKeyPassphrase: "key-passphrase",
+    });
     expect(invokeMock).toHaveBeenNthCalledWith(3, "tool:release-package:remote-preflight", {
       projectId: 7,
       targets: ["frontend"],
       probeToken: "probe-2",
-      password: "secret",
+      privateKeyPassphrase: "key-passphrase",
     });
+    expect(JSON.stringify(invokeMock.mock.calls)).not.toContain('"password"');
     expect(preflight.preflightToken.value).toBe("preflight-1");
     expect(Object.keys(preflight)).not.toContain("password");
     expect(Object.keys(preflight)).not.toContain("privateKeyPassphrase");
@@ -79,10 +84,10 @@ describe("useReleasePackageUploadPreflight", () => {
       .mockRejectedValueOnce(new Error("认证失败"));
     const preflight = useReleasePackageUploadPreflight();
     await preflight.probe(7);
-    await preflight.check({ projectId: 7, targets: ["frontend"], password: "secret" });
+    await preflight.check({ projectId: 7, targets: ["frontend"], privateKeyPassphrase: "secret" });
 
     await expect(
-      preflight.check({ projectId: 7, targets: ["frontend"], password: "wrong" }),
+      preflight.check({ projectId: 7, targets: ["frontend"], privateKeyPassphrase: "wrong" }),
     ).rejects.toThrow("认证失败");
     expect(preflight.preflightToken.value).toBe("");
     expect(preflight.preflightResult.value).toBeNull();

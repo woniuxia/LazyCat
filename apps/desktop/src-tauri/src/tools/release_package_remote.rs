@@ -62,6 +62,7 @@ pub struct PreflightBinding {
     pub project_id: i64,
     pub endpoint: RemoteEndpoint,
     pub auth_type: String,
+    pub vault_entry_id: Option<i64>,
     pub private_key_path: String,
     pub targets: Vec<RemoteTarget>,
     pub frontend_remote_dir: String,
@@ -784,6 +785,7 @@ mod tests {
                 username: "deploy".into(),
             },
             auth_type: "password".into(),
+            vault_entry_id: None,
             private_key_path: String::new(),
             targets,
             frontend_remote_dir: "/srv/app/web".into(),
@@ -823,6 +825,16 @@ mod tests {
         let mut changed = binding;
         changed.backend_remote_path = "/srv/other/app.jar".into();
         assert!(store.consume(&issued.token, &changed).is_err());
+    }
+
+    #[test]
+    fn preflight_binding_changes_when_vault_credential_changes() {
+        let mut first = binding(vec![RemoteTarget::Frontend]);
+        first.vault_entry_id = Some(1);
+        let mut second = first.clone();
+        second.vault_entry_id = Some(2);
+
+        assert_ne!(first, second);
     }
 
     #[test]
@@ -885,6 +897,7 @@ mod tests {
                 project_id: 1,
                 endpoint: self.endpoint.clone(),
                 auth_type: auth_type.into(),
+                vault_entry_id: None,
                 private_key_path: self.private_key_path.clone(),
                 targets: vec![RemoteTarget::Frontend, RemoteTarget::Backend],
                 frontend_remote_dir: format!("{remote_root}/web"),

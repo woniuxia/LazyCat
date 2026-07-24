@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const source = readFileSync(new URL("./ReleasePackagePanel.vue", import.meta.url), "utf8");
+const appSource = readFileSync(new URL("../App.vue", import.meta.url), "utf8");
 
 describe("ReleasePackagePanel", () => {
   it("uses a master-detail workspace and explicit run confirmation", () => {
@@ -193,6 +194,31 @@ describe("ReleasePackagePanel", () => {
     expect(source).toContain('type="password"');
     expect(source).toContain('credentialSecret.value = ""');
     expect(source).not.toContain("draft.password");
+  });
+
+  it("binds a Vault server credential for password auth without rendering a password field", () => {
+    expect(source).toContain('label="密码库凭据"');
+    expect(source).toContain('v-model="draft.vaultEntryId"');
+    expect(source).toContain('tool:vault:meta-list');
+    expect(source).toContain('v-if="draft.sshAuthType === \'password\'"');
+    expect(source).toContain("密码由密码库提供");
+    expect(source).not.toContain("请输入服务器密码");
+    expect(source).not.toContain("? { password: credentialSecret.value }");
+  });
+
+  it("keeps only the private-key passphrase input in the start dialog", () => {
+    expect(source).toContain("draft.sshAuthType === 'private_key'");
+    expect(source).toContain("privateKeyPassphrase: credentialSecret.value || undefined");
+  });
+
+  it("opens the Vault through the application tool navigation event", () => {
+    expect(source).toContain('emit("open-tool", "vault")');
+    expect(appSource).toContain('@open-tool="onSelect"');
+  });
+
+  it("renders an explicit state when the saved Vault binding no longer exists", () => {
+    expect(source).toContain('class="vault-binding-invalid"');
+    expect(source).toContain("绑定的密码库凭据已失效，请重新选择");
   });
 
   it("renders a separate upload lane and explicit remote replacement confirmation", () => {

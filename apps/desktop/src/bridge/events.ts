@@ -28,4 +28,6 @@ export const APP_EVENTS = {
   ACCESS_PATH_DIAGNOSIS_SNAPSHOT: "access-path-diagnosis://snapshot",
   RELEASE_PACKAGE_LOG: "release-package://log",
   RELEASE_PACKAGE_STATUS: "release-package://status",
+  /** Rust -> 主窗口：密码库因空闲策略进入锁定状态 */
+  VAULT_LOCKED: "vault://locked",
 } as const;
