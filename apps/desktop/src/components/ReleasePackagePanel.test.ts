@@ -8,10 +8,24 @@ describe("ReleasePackagePanel", () => {
   it("uses a master-detail workspace and explicit run confirmation", () => {
     expect(source).toContain('class="release-package-projects"');
     expect(source).toContain('class="release-package-editor"');
+    expect(source).toMatch(
+      /<section class="project-overview">[\s\S]*<header class="editor-header">[\s\S]*<div class="project-basics">/u,
+    );
     expect(source).toContain('class="release-package-log"');
     expect(source).toContain("确认本地归档");
     expect(source).toContain("确认上传");
     expect(source).toContain("终止打包");
+  });
+
+  it("edits the project name from the header without a duplicate basics field", () => {
+    expect(source).not.toContain('class="editor-hint"');
+    expect(source).not.toContain('<el-form-item label="项目名称"');
+    expect(source).toContain('ref="projectTitleInput"');
+    expect(source).toContain('v-model="draft.name"');
+    expect(source).toContain('@dblclick="startTitleEdit"');
+    expect(source).toContain('@keydown.enter.prevent="startTitleEdit"');
+    expect(source).toContain('@blur="finishTitleEdit"');
+    expect(source).toContain('@keydown.enter.stop.prevent="finishTitleEdit"');
   });
 
   it("uses all release-package actions without global setting persistence", () => {
@@ -223,6 +237,10 @@ describe("ReleasePackagePanel", () => {
 
   it("renders a separate upload lane and explicit remote replacement confirmation", () => {
     expect(source).toContain("上传日志");
+    expect(source).toContain(
+      '<section v-if="draft.packageType === \'server_upload\'" class="release-package-log-lane upload-log-lane">',
+    );
+    expect(source).toContain(":class=\"{ 'has-upload-lane': draft.packageType === 'server_upload' }\"");
     expect(source).toContain("uploadProgress");
     expect(source).toContain("完整替换以上远程目标");
     expect(source).toContain("package_succeeded_upload_failed");

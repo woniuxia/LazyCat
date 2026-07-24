@@ -25,43 +25,64 @@
       </aside>
 
       <main class="release-package-editor">
-        <div class="editor-header">
-          <div>
-            <h2>{{ selectedProject ? selectedProject.name : "新建上线包项目" }}</h2>
-            <span class="editor-hint">构建前端与后端工程，并归档到本地或上传到服务器</span>
-          </div>
-          <div class="editor-actions">
-            <el-button v-if="selectedProject" :icon="Delete" type="danger" text :disabled="running || saving" @click="deleteProject">
-              删除配置
-            </el-button>
-            <el-button :icon="DocumentChecked" :loading="saving" :disabled="running" @click="saveProject">保存配置</el-button>
-            <el-button :icon="VideoPlay" type="primary" :disabled="running || !selectedProject || dirty" @click="prepareStart">开始打包</el-button>
-            <el-button v-if="running" :icon="VideoPause" type="danger" @click="cancelRun">终止打包</el-button>
-            <el-button v-else-if="hasCommittedArchive" :icon="FolderOpened" @click="openArchive">打开归档目录</el-button>
-          </div>
-        </div>
-
         <el-form label-position="top" class="release-package-form">
-          <div class="project-basics">
-            <div class="project-basics-grid">
-              <el-form-item label="项目名称" required>
-                <el-input v-model="draft.name" :disabled="running" placeholder="例如：订单管理系统" />
-              </el-form-item>
-              <el-form-item label="打包类型" required>
-                <el-radio-group v-model="draft.packageType" :disabled="running" class="package-type-group">
-                  <el-radio-button value="local_archive">本地归档</el-radio-button>
-                  <el-radio-button value="server_upload">上传服务器</el-radio-button>
-                </el-radio-group>
-              </el-form-item>
-              <el-form-item v-if="draft.packageType === 'local_archive'" label="归档根目录" required>
-                <el-input v-model="draft.outputRoot" :disabled="running" placeholder="当前项目的上线包归档目录" readonly>
-                  <template #append>
-                    <el-button :icon="FolderOpened" :disabled="running" @click="chooseOutputRoot">选择</el-button>
-                  </template>
-                </el-input>
-              </el-form-item>
+          <section class="project-overview">
+            <header class="editor-header">
+              <div class="editor-title">
+                <el-input
+                  v-if="titleEditing"
+                  ref="projectTitleInput"
+                  v-model="draft.name"
+                  class="project-title-input"
+                  :disabled="running"
+                  aria-label="项目名称"
+                  placeholder="请输入项目名称"
+                  @blur="finishTitleEdit"
+                  @keydown.enter.stop.prevent="finishTitleEdit"
+                  @keydown.esc.stop.prevent="finishTitleEdit"
+                />
+                <h2 v-else>
+                  <button
+                    type="button"
+                    class="project-title"
+                    :disabled="running"
+                    title="双击编辑项目标题"
+                    @dblclick="startTitleEdit"
+                    @keydown.enter.prevent="startTitleEdit"
+                  >
+                    {{ draft.name || "新建上线包项目" }}
+                  </button>
+                </h2>
+              </div>
+              <div class="editor-actions">
+                <el-button v-if="selectedProject" :icon="Delete" type="danger" text :disabled="running || saving" @click="deleteProject">
+                  删除配置
+                </el-button>
+                <el-button :icon="DocumentChecked" :loading="saving" :disabled="running" @click="saveProject">保存配置</el-button>
+                <el-button :icon="VideoPlay" type="primary" :disabled="running || !selectedProject || dirty" @click="prepareStart">开始打包</el-button>
+                <el-button v-if="running" :icon="VideoPause" type="danger" @click="cancelRun">终止打包</el-button>
+                <el-button v-else-if="hasCommittedArchive" :icon="FolderOpened" @click="openArchive">打开归档目录</el-button>
+              </div>
+            </header>
+
+            <div class="project-basics">
+              <div class="project-basics-grid">
+                <el-form-item label="打包类型" required>
+                  <el-radio-group v-model="draft.packageType" :disabled="running" class="package-type-group">
+                    <el-radio-button value="local_archive">本地归档</el-radio-button>
+                    <el-radio-button value="server_upload">上传服务器</el-radio-button>
+                  </el-radio-group>
+                </el-form-item>
+                <el-form-item v-if="draft.packageType === 'local_archive'" label="归档根目录" required>
+                  <el-input v-model="draft.outputRoot" :disabled="running" placeholder="当前项目的上线包归档目录" readonly>
+                    <template #append>
+                      <el-button :icon="FolderOpened" :disabled="running" @click="chooseOutputRoot">选择</el-button>
+                    </template>
+                  </el-input>
+                </el-form-item>
+              </div>
             </div>
-          </div>
+          </section>
 
           <div class="engineering-grid">
             <section class="engineering-card frontend-card">
@@ -313,7 +334,7 @@
               {{ statusLabel }}
             </el-tag>
           </header>
-          <div class="release-package-log-columns">
+          <div class="release-package-log-columns" :class="{ 'has-upload-lane': draft.packageType === 'server_upload' }">
             <section class="release-package-log-lane">
               <header class="log-lane-header">
                 <strong>前端</strong>
@@ -366,7 +387,7 @@
                 </div>
               </div>
             </section>
-            <section class="release-package-log-lane upload-log-lane">
+            <section v-if="draft.packageType === 'server_upload'" class="release-package-log-lane upload-log-lane">
               <header class="log-lane-header upload-lane-header">
                 <div>
                   <strong>上传日志</strong>
@@ -470,6 +491,7 @@
 import { computed, h, nextTick, onMounted, reactive, ref, watch } from "vue";
 import { CopyDocument, Delete, Document, DocumentChecked, FolderOpened, Plus, Refresh, VideoPause, VideoPlay } from "@element-plus/icons-vue";
 import { ElMessage, ElMessageBox } from "element-plus";
+import type { InputInstance } from "element-plus";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invokeToolByChannel } from "../bridge/tauri";
 import { useReleasePackageRuntime } from "../composables/useReleasePackageRuntime";
@@ -541,6 +563,8 @@ const serverConfigSections = ref<string[]>([]);
 const vaultServerOptions = ref<VaultServerOption[]>([]);
 const vaultOptionsLoading = ref(false);
 const vaultOptionsLoaded = ref(false);
+const titleEditing = ref(false);
+const projectTitleInput = ref<InputInstance | null>(null);
 const frontendLogContainer = ref<HTMLElement | null>(null);
 const backendLogContainer = ref<HTMLElement | null>(null);
 const uploadLogContainer = ref<HTMLElement | null>(null);
@@ -699,6 +723,18 @@ async function handleUploadIntegrationError(error: unknown): Promise<void> {
     return;
   }
   showError(error);
+}
+
+async function startTitleEdit(): Promise<void> {
+  if (running.value) return;
+  titleEditing.value = true;
+  await nextTick();
+  projectTitleInput.value?.focus();
+  projectTitleInput.value?.select();
+}
+
+function finishTitleEdit(): void {
+  titleEditing.value = false;
 }
 
 async function copyCommandExample(command: string): Promise<void> {
@@ -1175,6 +1211,9 @@ watch(() => uploadLogs.value.length, () => scrollLogToBottom(uploadLogContainer.
 watch(() => draft.packageType, (packageType) => {
   serverConfigSections.value = packageType === "server_upload" ? ["server"] : [];
 });
+watch(selectedId, () => {
+  titleEditing.value = false;
+});
 
 onMounted(async () => {
   void loadVaultServerOptions();
@@ -1218,7 +1257,7 @@ onMounted(async () => {
   gap: 8px;
 }
 .projects-heading { margin-bottom: 8px; color: #303133; }
-.projects-empty, .log-empty, .editor-hint { color: var(--lc-text-secondary, #909399); font-size: 13px; }
+.projects-empty, .log-empty { color: var(--lc-text-secondary, #909399); font-size: 13px; }
 .project-item {
   display: flex;
   width: 100%;
@@ -1240,18 +1279,46 @@ onMounted(async () => {
 .project-name { overflow: hidden; max-width: 100%; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .project-updated { color: var(--lc-text-secondary, #909399); font-size: 11px; }
 .release-package-editor { min-width: 0; padding: 18px; }
-.editor-header { align-items: flex-start; margin-bottom: 14px; }
-.editor-header h2 { margin: 0 0 4px; color: #303133; font-size: 18px; }
+.editor-header {
+  align-items: flex-start;
+  padding: 16px;
+  border-bottom: 1px solid #ebeef5;
+}
+.editor-title { min-width: 0; flex: 1; }
+.editor-header h2 { margin: 0; color: #303133; font-size: 18px; }
+.project-title {
+  overflow: hidden;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  cursor: text;
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.project-title:disabled { cursor: default; }
+.project-title:focus-visible {
+  border-radius: 3px;
+  outline: 2px solid var(--el-color-primary, #409eff);
+  outline-offset: 3px;
+}
+.project-title-input { width: min(360px, 100%); }
+.project-title-input :deep(.el-input__inner) { font-size: 18px; font-weight: 600; }
 .editor-actions { flex-wrap: wrap; justify-content: flex-end; }
 .release-package-form { min-width: 0; }
 .release-package-form :deep(.el-form-item) { margin-bottom: 14px; }
-.project-basics, .engineering-card {
+.project-overview, .engineering-card {
   border: 1px solid #e4e7ed;
   border-radius: 9px;
   background: #fff;
   box-shadow: 0 2px 10px rgb(31 45 61 / 4%);
 }
-.project-basics { margin-bottom: 14px; padding: 14px 16px 0; }
+.project-overview { margin-bottom: 14px; overflow: hidden; }
+.project-basics { padding: 14px 16px 0; }
 .project-basics-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
@@ -1378,7 +1445,8 @@ onMounted(async () => {
   --el-tag-bg-color: #fff1f0;
   --el-tag-border-color: #fecaca;
 }
-.release-package-log-columns { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.release-package-log-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.release-package-log-columns.has-upload-lane { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .release-package-log-lane + .release-package-log-lane { border-left: 1px solid #ebeef5; }
 .log-lane-header {
   display: flex;
@@ -1527,7 +1595,7 @@ onMounted(async () => {
   .server-config-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .server-config-span-2 { grid-column: auto; }
   .vault-credential-field { grid-column: 1 / -1; }
-  .release-package-log-columns { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .release-package-log-columns.has-upload-lane { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .upload-log-lane { grid-column: 1 / -1; border-top: 1px solid #ebeef5; border-left: 0 !important; }
 }
 @media (max-width: 640px) {
