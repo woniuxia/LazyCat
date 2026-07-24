@@ -138,6 +138,13 @@ export function createEmptyReleasePackageDraft(): ReleasePackageProjectDraft {
   };
 }
 
+export function normalizeVaultServerPort(value: unknown): number | null {
+  if (value === undefined) return 22;
+  return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 65_535
+    ? value
+    : null;
+}
+
 export function projectToReleasePackageDraft(project: ReleasePackageProject): ReleasePackageProjectDraft {
   return {
     name: project.name,
@@ -169,13 +176,13 @@ export function normalizeReleasePackageDraft(draft: ReleasePackageProjectDraft):
 
 export function validateReleasePackageUpload(draft: ReleasePackageProjectDraft): string | null {
   const value = normalizeReleasePackageDraft(draft);
-  if (!Number.isInteger(value.sshPort) || value.sshPort < 1 || value.sshPort > 65_535) {
-    return "SSH 端口必须在 1 到 65535 之间";
-  }
   if (value.sshAuthType === "password" && value.vaultEntryId === null) {
     return "请选择密码库服务器凭据";
   }
   if (value.sshAuthType === "private_key") {
+    if (!Number.isInteger(value.sshPort) || value.sshPort < 1 || value.sshPort > 65_535) {
+      return "SSH 端口必须在 1 到 65535 之间";
+    }
     if (!value.sshHost) return "请输入服务器地址";
     if (!value.sshUsername) return "请输入 SSH 用户名";
     if (!value.sshPrivateKeyPath) return "请选择 SSH 私钥文件";

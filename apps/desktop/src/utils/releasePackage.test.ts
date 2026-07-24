@@ -13,6 +13,7 @@ import {
   createDefaultReleasePackageTargets,
   createEmptyReleasePackageDraft,
   isReleasePackageDraftDirty,
+  normalizeVaultServerPort,
   projectToReleasePackageDraft,
   releasePackageRunStatusLabel,
   RELEASE_PACKAGE_COMMAND_EXAMPLES,
@@ -153,6 +154,19 @@ Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force
     });
   });
 
+  it.each([
+    [undefined, 22],
+    [2200, 2200],
+    [null, null],
+    [0, null],
+    [65_536, null],
+    [22.5, null],
+    ["22", null],
+    [Number.NaN, null],
+  ])("normalizes Vault server port %s to %s", (value, expected) => {
+    expect(normalizeVaultServerPort(value)).toBe(expected);
+  });
+
   it("defaults each run to both package targets and rejects an empty selection", () => {
     expect(createDefaultReleasePackageTargets()).toEqual(["frontend", "backend"]);
     expect(validateReleasePackageTargets([])).toBe("请至少选择前端包或后端包");
@@ -193,8 +207,27 @@ Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force
     expect(validateReleasePackageUpload(draft)).toBe("请输入 SSH 用户名");
     draft.sshUsername = "deploy";
     expect(validateReleasePackageUpload(draft)).toBe("请选择 SSH 私钥文件");
-    draft.sshAuthType = "password";
-    draft.sshPort = 0;
+  });
+
+  it("validates the project SSH port only for private-key upload", () => {
+    const draft = createEmptyReleasePackageDraft();
+    Object.assign(draft, {
+      packageType: "server_upload",
+      sshAuthType: "password",
+      vaultEntryId: 17,
+      sshPort: 0,
+      frontendRemoteDir: "/srv/portal/web",
+      backendRemotePath: "/srv/portal/app.jar",
+    });
+
+    expect(validateReleasePackageUpload(draft)).toBeNull();
+
+    Object.assign(draft, {
+      sshAuthType: "private_key",
+      sshHost: "deploy.example.internal",
+      sshUsername: "deploy",
+      sshPrivateKeyPath: "C:\\Users\\deploy\\.ssh\\id_ed25519",
+    });
     expect(validateReleasePackageUpload(draft)).toBe("SSH 端口必须在 1 到 65535 之间");
   });
 
