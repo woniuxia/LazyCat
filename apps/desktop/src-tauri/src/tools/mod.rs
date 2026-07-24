@@ -47,6 +47,7 @@ pub mod text;
 pub mod time;
 pub mod todo;
 pub mod vault;
+mod vault_lock;
 pub mod attachments;
 pub mod access_path_diagnostics;
 pub mod system;

@@ -5,16 +5,23 @@
 //! - `fullscreen_busy_app()` — 全屏切净检测，返回触发的进程名/原因；None = 未触发
 //! - `is_fullscreen_busy()` — `fullscreen_busy_app().is_some()` 的快捷封装
 //! - `is_locked()` — 锁屏检测（OpenInputDesktop）
-//! - `seconds_idle()` — 用户空闲秒数（GetLastInputInfo）
+//! - `try_system_input_snapshot()` — 最近输入 tick 与用户空闲秒数
+//! - `seconds_idle()` — 用户空闲秒数兼容接口
 
 #![allow(dead_code)]
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SystemInputSnapshot {
+    pub last_input_tick_ms: u32,
+    pub idle_secs: u64,
+}
 
 #[cfg(windows)]
 pub use imp::fullscreen_busy_app;
 #[cfg(windows)]
 pub use imp::is_locked;
 #[cfg(windows)]
-pub use imp::seconds_idle;
+pub use imp::try_system_input_snapshot;
 
 #[cfg(windows)]
 pub fn is_fullscreen_busy() -> bool {
@@ -34,8 +41,14 @@ pub fn is_locked() -> bool {
     false
 }
 #[cfg(not(windows))]
+pub fn try_system_input_snapshot() -> Option<SystemInputSnapshot> {
+    None
+}
+
 pub fn seconds_idle() -> u32 {
-    0
+    try_system_input_snapshot()
+        .map(|value| value.idle_secs.min(u32::MAX as u64) as u32)
+        .unwrap_or(0)
 }
 
 // ── Windows 实现 ────────────────────────────────
@@ -69,6 +82,7 @@ mod imp {
     };
 
     use crate::tools::widget::config;
+    use super::SystemInputSnapshot;
 
     // ── 全屏切净检测（原 fullscreen.rs） ──────────
 
@@ -226,20 +240,23 @@ mod imp {
 
     // ── 空闲检测（原 idle.rs） ─────────────────────
 
-    /// 距上次用户输入的秒数；失败回退 0。
-    pub fn seconds_idle() -> u32 {
+    /// 最近输入 tick 与距该输入的秒数；失败时返回 None。
+    pub fn try_system_input_snapshot() -> Option<SystemInputSnapshot> {
         unsafe {
             let mut info = LASTINPUTINFO {
                 cbSize: std::mem::size_of::<LASTINPUTINFO>() as u32,
                 dwTime: 0,
             };
             if !GetLastInputInfo(&mut info).as_bool() {
-                return 0;
+                return None;
             }
             let now_ms = GetTickCount64() as u32;
             let last_ms = info.dwTime;
             let diff_ms = now_ms.wrapping_sub(last_ms);
-            diff_ms / 1000
+            Some(SystemInputSnapshot {
+                last_input_tick_ms: last_ms,
+                idle_secs: (diff_ms / 1000) as u64,
+            })
         }
     }
 }
