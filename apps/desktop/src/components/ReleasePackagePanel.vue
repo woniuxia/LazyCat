@@ -246,7 +246,7 @@
                       <el-radio-button value="private_key">私钥文件</el-radio-button>
                     </el-radio-group>
                   </el-form-item>
-                  <el-form-item label="SSH 端口" required>
+                  <el-form-item v-if="draft.sshAuthType === 'private_key'" label="SSH 端口" required>
                     <el-input-number v-model="draft.sshPort" :disabled="running" :min="1" :max="65535" controls-position="right" class="full-width" />
                   </el-form-item>
                   <el-form-item
@@ -284,6 +284,10 @@
                       <div>
                         <span>服务器地址</span>
                         <code>{{ selectedVaultCredential.address }}</code>
+                      </div>
+                      <div>
+                        <span>SSH 端口</span>
+                        <code>{{ selectedVaultCredential.port }}</code>
                       </div>
                       <div>
                         <span>SSH 用户名</span>
@@ -513,6 +517,7 @@ import {
   createEmptyReleasePackageDraft,
   createReleasePackageStartPayload,
   isReleasePackageDraftDirty,
+  normalizeVaultServerPort,
   projectToReleasePackageDraft,
   releasePackageRunStatusLabel,
   validateReleasePackageDraft,
@@ -526,6 +531,7 @@ interface VaultServerOption {
   title: string;
   environment: string;
   address: string;
+  port: number | null;
   account: string;
   complete: boolean;
 }
@@ -537,6 +543,7 @@ interface VaultMetaEntry {
   environment?: string;
   plainFields?: {
     address?: string;
+    port?: unknown;
     account?: string;
   } | null;
 }
@@ -636,7 +643,7 @@ const vaultBindingInvalid = computed(() => (
   draft.sshAuthType === "password"
   && draft.vaultEntryId !== null
   && vaultOptionsLoaded.value
-  && selectedVaultCredential.value === null
+  && (!selectedVaultCredential.value || !selectedVaultCredential.value.complete)
 ));
 const isUploadStart = computed(() => retryMode.value || prepareResult.value?.packageType === "server_upload");
 const isLocalArchiveStart = computed(() => !retryMode.value && prepareResult.value?.packageType === "local_archive");
@@ -669,14 +676,16 @@ async function loadVaultServerOptions(): Promise<void> {
       .filter((entry) => entry.category === "server")
       .map((entry) => {
         const address = entry.plainFields?.address?.trim() ?? "";
+        const port = normalizeVaultServerPort(entry.plainFields?.port);
         const account = entry.plainFields?.account?.trim() ?? "";
         return {
           id: entry.id,
           title: entry.title || `(未命名凭据 #${entry.id})`,
           environment: entry.environment?.trim() ?? "",
           address,
+          port,
           account,
-          complete: Boolean(address && account),
+          complete: Boolean(address && account && port !== null),
         };
       });
     vaultOptionsLoaded.value = true;
@@ -719,7 +728,7 @@ async function handleUploadIntegrationError(error: unknown): Promise<void> {
     return;
   }
   if (message.includes("vault_entry_incomplete")) {
-    ElMessage.error("绑定的服务器凭据缺少地址、账号或密码，请在密码管理中补充");
+    ElMessage.error("绑定的服务器凭据缺少地址、端口、账号或密码，请在密码管理中补充");
     return;
   }
   showError(error);
@@ -1393,7 +1402,7 @@ onMounted(async () => {
   background: #fff5f5;
   font-size: 12px;
 }
-.vault-credential-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.vault-credential-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .vault-credential-summary > div {
   display: grid;
   min-width: 0;

@@ -220,6 +220,18 @@ describe("ReleasePackagePanel", () => {
     expect(source).not.toContain("? { password: credentialSecret.value }");
   });
 
+  it("uses the Vault server port for password auth and keeps manual port input private-key only", () => {
+    expect(source).toContain(
+      '<el-form-item v-if="draft.sshAuthType === \'private_key\'" label="SSH 端口" required>',
+    );
+    expect(source).not.toContain('<el-form-item label="SSH 端口" required>');
+    expect(source).toContain("port?: unknown");
+    expect(source).toContain("normalizeVaultServerPort(entry.plainFields?.port)");
+    expect(source).toContain("complete: Boolean(address && account && port !== null)");
+    expect(source).toContain("{{ selectedVaultCredential.port }}");
+    expect(source).toContain("缺少地址、端口、账号或密码");
+  });
+
   it("keeps only the private-key passphrase input in the start dialog", () => {
     expect(source).toContain("draft.sshAuthType === 'private_key'");
     expect(source).toContain("privateKeyPassphrase: credentialSecret.value || undefined");
