@@ -99,18 +99,6 @@
         <!-- Server fields -->
         <template v-if="form.category === 'server'">
           <div class="vault-form-row">
-            <el-form-item label="地址" class="vault-form-item-flex">
-              <el-input v-model="form.address" placeholder="IP 或域名">
-                <template #prefix>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="vault-input-icon">
-                    <rect x="2" y="2" width="20" height="8" rx="2" />
-                    <rect x="2" y="14" width="20" height="8" rx="2" />
-                    <circle cx="6" cy="6" r="1" fill="currentColor" />
-                    <circle cx="6" cy="18" r="1" fill="currentColor" />
-                  </svg>
-                </template>
-              </el-input>
-            </el-form-item>
             <el-form-item label="服务器类型" class="vault-form-item-select">
               <el-select v-model="form.serverType" style="width: 100%">
                 <el-option value="Linux" />
@@ -118,7 +106,22 @@
                 <el-option value="macOS" />
               </el-select>
             </el-form-item>
+            <el-form-item label="端口" class="vault-form-item-port">
+              <el-input-number v-model="form.port" :min="1" :max="65535" controls-position="right" style="width: 100%" />
+            </el-form-item>
           </div>
+          <el-form-item label="地址">
+            <el-input v-model="form.address" placeholder="IP 或域名">
+              <template #prefix>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="vault-input-icon">
+                  <rect x="2" y="2" width="20" height="8" rx="2" />
+                  <rect x="2" y="14" width="20" height="8" rx="2" />
+                  <circle cx="6" cy="6" r="1" fill="currentColor" />
+                  <circle cx="6" cy="18" r="1" fill="currentColor" />
+                </svg>
+              </template>
+            </el-input>
+          </el-form-item>
           <div class="vault-form-row">
             <el-form-item label="账号" class="vault-form-item-flex">
               <el-input v-model="form.account" placeholder="用户名">
@@ -257,6 +260,8 @@ import { ElMessageBox, ElMessage } from "element-plus";
 import { invokeToolByChannel } from "../bridge/tauri";
 import PasswordStrengthIndicator from "./PasswordStrengthIndicator.vue";
 
+const SERVER_DEFAULT_PORT = 22;
+
 const DB_DEFAULT_PORT: Record<string, number> = {
   Kingbase: 54321,
   DaMeng: 5236,
@@ -324,7 +329,7 @@ const defaultForm = (): FormState => ({
   address: "",
   serverType: "Linux",
   dbType: "Kingbase",
-  port: DB_DEFAULT_PORT["Kingbase"],
+  port: SERVER_DEFAULT_PORT,
   dbName: "",
   schema: "",
   tags: [],
@@ -345,21 +350,23 @@ watch(() => form.dbType, (newType) => {
   if (form.category === "database" && newType in DB_DEFAULT_PORT) {
     form.port = DB_DEFAULT_PORT[newType];
   }
-});
+}, { flush: "sync" });
 
 watch(() => form.category, (newCat, oldCat) => {
-  if (!isEdit.value) return;
-  // app <-> server/database: 互迁 url <-> address
-  if (oldCat === "app" && (newCat === "server" || newCat === "database")) {
-    if (!form.address && form.url) form.address = form.url;
-  } else if ((oldCat === "server" || oldCat === "database") && newCat === "app") {
-    if (!form.url && form.address) form.url = form.address;
+  if (isEdit.value) {
+    // app <-> server/database: 互迁 url <-> address
+    if (oldCat === "app" && (newCat === "server" || newCat === "database")) {
+      if (!form.address && form.url) form.address = form.url;
+    } else if ((oldCat === "server" || oldCat === "database") && newCat === "app") {
+      if (!form.url && form.address) form.url = form.address;
+    }
   }
-  // 切换到 database 时填充默认端口
-  if (newCat === "database" && form.dbType in DB_DEFAULT_PORT) {
+  if (newCat === "server") {
+    form.port = SERVER_DEFAULT_PORT;
+  } else if (newCat === "database" && form.dbType in DB_DEFAULT_PORT) {
     form.port = DB_DEFAULT_PORT[form.dbType];
   }
-});
+}, { flush: "sync" });
 
 const emit = defineEmits<{
   (e: "saved"): void;
@@ -389,7 +396,11 @@ function show(entry?: {
     form.address = (f.address as string) || "";
     form.serverType = (f.serverType as string) || "Linux";
     form.dbType = (f.dbType as string) || "MySQL";
-    form.port = (f.port as number) || 3306;
+    form.port = typeof f.port === "number"
+      ? f.port
+      : form.category === "server"
+        ? SERVER_DEFAULT_PORT
+        : 3306;
     form.dbName = (f.dbName as string) || "";
     form.schema = (f.schema as string) || "";
     form.tags = entry.tags || [];
@@ -407,10 +418,12 @@ function show(entry?: {
       form.address = (fields.address as string) || "";
       form.serverType = (fields.serverType as string) || "Linux";
       form.dbType = (fields.dbType as string) || form.dbType;
-      form.port =
-        typeof fields.port === "number"
-          ? fields.port
-          : Number(fields.port || form.port);
+      const seedPort = Number(fields.port);
+      form.port = Number.isInteger(seedPort) && seedPort >= 1 && seedPort <= 65535
+        ? seedPort
+        : form.category === "server"
+          ? SERVER_DEFAULT_PORT
+          : form.port;
       form.dbName = (fields.dbName as string) || "";
       form.schema = (fields.schema as string) || "";
       form.tags = seed.tags || [];
@@ -460,6 +473,7 @@ async function onSave() {
       payload.url = form.url;
     } else if (form.category === "server") {
       payload.address = form.address;
+      payload.port = form.port;
       payload.serverType = form.serverType;
     } else if (form.category === "database") {
       payload.dbType = form.dbType;

@@ -67,6 +67,14 @@ describe("vault provider buildItem", () => {
     expect(item.searchFields.every((f) => f.text.length > 0)).toBe(true);
   });
 
+  it("port 不进入搜索索引", () => {
+    const item = buildItem(
+      entry({ category: "server", plainFields: { address: "10.0.0.8", port: 22 } }),
+      true,
+    );
+    expect(item.searchFields.some((field) => field.text === "22")).toBe(false);
+  });
+
   it("plainFields 为 null（未迁移）时字段集合与现状一致（空串过滤除外）", () => {
     const item = buildItem(entry({ title: "测试", environment: "", tags: ["a"] }), false);
     expect(item.searchFields.map((f) => [f.text, f.weight])).toEqual([
