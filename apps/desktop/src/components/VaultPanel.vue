@@ -426,7 +426,11 @@ import {
   type PendingToolInput,
   type VaultPendingDraft,
 } from "../composables/useClipboardSuggestion";
-import { getVaultLockProfile, getVaultLockProfilePolicy } from "../composables/useSettings";
+import {
+  getVaultLockSettings,
+  subscribeVaultLockSettings,
+} from "../composables/useSettings";
+import { toVaultLockRuntimePolicy } from "../utils/vaultLock";
 import VaultLockScreen from "./VaultLockScreen.vue";
 import VaultEntryDialog from "./VaultEntryDialog.vue";
 
@@ -470,7 +474,8 @@ interface VaultStatus {
 
 interface VaultLockPolicy {
   hideSensitiveAfterSecs: number;
-  hardLockAfterSecs: number;
+  activityLockEnabled: boolean;
+  activityLockAfterSecs: number;
 }
 
 interface VaultEntrySeed extends VaultPendingDraft {
@@ -523,6 +528,8 @@ let latestListRequestToken = 0;
 let latestTagStatsRequestToken = 0;
 let unlistenFocus: (() => void) | null = null;
 let unlistenBlur: (() => void) | null = null;
+let unlistenVaultLocked: (() => void) | null = null;
+let unsubscribeVaultLockSettings: (() => void) | null = null;
 let relockFinalizeTimer: ReturnType<typeof setTimeout> | null = null;
 
 // Password reveal/copy state
@@ -727,7 +734,7 @@ async function applyPendingVaultInput(input: PendingToolInput) {
 }
 
 function getLockPolicy(): VaultLockPolicy {
-  return getVaultLockProfilePolicy(getVaultLockProfile());
+  return toVaultLockRuntimePolicy(getVaultLockSettings());
 }
 
 function clearSensitiveUiState() {
@@ -854,9 +861,11 @@ function startInactivityTimers() {
   hideSensitiveTimer = setTimeout(() => {
     hideSensitiveContent();
   }, currentLockPolicy.hideSensitiveAfterSecs * 1000);
-  hardLockTimer = setTimeout(() => {
-    void onLock();
-  }, currentLockPolicy.hardLockAfterSecs * 1000);
+  if (currentLockPolicy.activityLockEnabled) {
+    hardLockTimer = setTimeout(() => {
+      void onLock();
+    }, currentLockPolicy.activityLockAfterSecs * 1000);
+  }
 }
 
 async function touchSession() {
@@ -1482,6 +1491,18 @@ onMounted(() => {
   }).catch(() => {
     unlistenBlur = null;
   });
+  void listen("vault://locked", () => {
+    setLockState("locked");
+  }).then((unlisten) => {
+    unlistenVaultLocked = unlisten;
+  }).catch(() => {
+    unlistenVaultLocked = null;
+  });
+  unsubscribeVaultLockSettings = subscribeVaultLockSettings((settings) => {
+    currentLockPolicy = toVaultLockRuntimePolicy(settings);
+    startInactivityTimers();
+    void reconcileVaultSessionOnFocus();
+  });
 });
 
 onBeforeUnmount(() => {
@@ -1496,6 +1517,8 @@ onBeforeUnmount(() => {
   document.removeEventListener("wheel", recordVaultActivity);
   unlistenFocus?.();
   unlistenBlur?.();
+  unlistenVaultLocked?.();
+  unsubscribeVaultLockSettings?.();
 });
 </script>
 

@@ -161,32 +161,75 @@
         <div class="section-content">
           <div class="setting-item">
             <div class="setting-label">
-              <span class="label-text">密码库锁定预设</span>
-              <span class="label-desc">推荐使用“平衡”，兼顾临时离开时的保护与连续使用体验</span>
+              <span class="label-text">敏感信息隐藏</span>
+              <span class="label-desc">窗口失焦时仍会立即恢复密码掩码</span>
             </div>
-            <div class="setting-control setting-control-column vault-lock-profile-control">
-              <el-radio-group v-model="vaultLockProfile" @change="handleVaultLockProfileChange">
-                <el-radio-button value="strict">严格</el-radio-button>
-                <el-radio-button value="balanced">平衡</el-radio-button>
-                <el-radio-button value="convenient">便捷</el-radio-button>
-              </el-radio-group>
-              <span class="setting-inline-hint">{{ vaultLockProfileHint }}</span>
-              <div class="vault-lock-explainer">
-                <div class="vault-lock-explainer-item">
-                  <span class="vault-lock-explainer-title">敏感信息隐藏</span>
-                  <span class="vault-lock-explainer-desc">隐藏当前已展示的密码等敏感内容，减少明文在屏幕上停留的时间。</span>
-                </div>
-                <div class="vault-lock-explainer-item">
-                  <span class="vault-lock-explainer-title">自动硬锁</span>
-                  <span class="vault-lock-explainer-desc">空闲达到阈值后彻底锁定密码库并清空当前解锁会话，需要重新解锁后才能继续访问。</span>
-                </div>
-                <div class="vault-lock-explainer-item">
-                  <span class="vault-lock-explainer-title">失焦隐藏</span>
-                  <span class="vault-lock-explainer-desc">窗口失去焦点时立即恢复密码等敏感内容的掩码显示，但不会触发锁定。</span>
-                </div>
-              </div>
+            <div class="setting-control vault-lock-rule-control">
+              <el-select
+                v-model="vaultLockSettings.sensitiveHideMinutes"
+                class="vault-lock-minutes-select"
+                @change="saveVaultLockSetting('sensitiveHideMinutes')"
+              >
+                <el-option
+                  v-for="minutes in VAULT_SENSITIVE_HIDE_MINUTES"
+                  :key="minutes"
+                  :label="`${minutes} 分钟`"
+                  :value="minutes"
+                />
+              </el-select>
             </div>
           </div>
+          <div class="setting-item">
+            <div class="setting-label">
+              <span class="label-text">Vault 无活动自动锁定</span>
+              <span class="label-desc">没有操作密码库达到时长后清除解锁会话</span>
+            </div>
+            <div class="setting-control vault-lock-rule-control">
+              <el-switch
+                v-model="vaultLockSettings.activityLockEnabled"
+                @change="saveVaultLockSetting('activityLockEnabled')"
+              />
+              <el-select
+                v-model="vaultLockSettings.activityLockMinutes"
+                class="vault-lock-minutes-select"
+                :disabled="!vaultLockSettings.activityLockEnabled"
+                @change="saveVaultLockSetting('activityLockMinutes')"
+              >
+                <el-option
+                  v-for="minutes in VAULT_HARD_LOCK_MINUTES"
+                  :key="minutes"
+                  :label="`${minutes} 分钟`"
+                  :value="minutes"
+                />
+              </el-select>
+            </div>
+          </div>
+          <div class="setting-item">
+            <div class="setting-label">
+              <span class="label-text">电脑无操作自动锁定</span>
+              <span class="label-desc">整台电脑没有键盘或鼠标输入达到时长后锁定</span>
+            </div>
+            <div class="setting-control vault-lock-rule-control">
+              <el-switch
+                v-model="vaultLockSettings.systemIdleLockEnabled"
+                @change="saveVaultLockSetting('systemIdleLockEnabled')"
+              />
+              <el-select
+                v-model="vaultLockSettings.systemIdleLockMinutes"
+                class="vault-lock-minutes-select"
+                :disabled="!vaultLockSettings.systemIdleLockEnabled"
+                @change="saveVaultLockSetting('systemIdleLockMinutes')"
+              >
+                <el-option
+                  v-for="minutes in VAULT_HARD_LOCK_MINUTES"
+                  :key="minutes"
+                  :label="`${minutes} 分钟`"
+                  :value="minutes"
+                />
+              </el-select>
+            </div>
+          </div>
+          <span class="setting-inline-hint vault-lock-summary">{{ vaultLockSummary }}</span>
         </div>
       </section>
 
@@ -424,20 +467,23 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, onMounted } from "vue";
+import { computed, reactive, ref, onMounted } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { save, open } from "@tauri-apps/plugin-dialog";
 import { registerHotkey, unregisterHotkey, registerNamedHotkey, unregisterNamedHotkey, invokeToolByChannel } from "../bridge/tauri";
 import {
-  DEFAULT_VAULT_LOCK_PROFILE,
   getSetting,
-  getVaultLockProfile,
-  getVaultLockProfilePolicy,
+  getVaultLockSettings,
   setSetting,
-  setVaultLockProfile,
+  setVaultLockSettingAndWait,
   useAutostartSettings,
-  type VaultLockProfile,
 } from "../composables/useSettings";
+import {
+  summarizeVaultHardLockRules,
+  VAULT_HARD_LOCK_MINUTES,
+  VAULT_SENSITIVE_HIDE_MINUTES,
+  type VaultLockSettings,
+} from "../utils/vaultLock";
 import type { SidebarItem, ToolSearchMetaMap } from "../types";
 import MenuVisibilityDialog from "./MenuVisibilityDialog.vue";
 import ShortcutRecorder from "./ShortcutRecorder.vue";
@@ -490,13 +536,10 @@ const inboxCaptureWhenHidden = ref(true);
 const inboxHistoryRetentionDays = ref(14);
 const inboxPaused = ref(false);
 const inboxPausedUntil = ref("");
-const vaultLockProfile = ref<VaultLockProfile>(DEFAULT_VAULT_LOCK_PROFILE);
+const vaultLockSettings = reactive(getVaultLockSettings());
 const menuVisibilityDialog = ref<InstanceType<typeof MenuVisibilityDialog>>();
 
-const vaultLockProfileHint = computed(() => {
-  const policy = getVaultLockProfilePolicy(vaultLockProfile.value);
-  return `敏感信息 ${policy.hideSensitiveAfterSecs}s 隐藏，${Math.round(policy.hardLockAfterSecs / 60)} 分钟自动硬锁，失焦立即隐藏敏感信息`;
-});
+const vaultLockSummary = computed(() => summarizeVaultHardLockRules(vaultLockSettings));
 
 const inboxPausedLabel = computed(() => {
   if (!inboxPaused.value || !inboxPausedUntil.value) return "";
@@ -529,7 +572,6 @@ onMounted(async () => {
   clipboardDetection.value = getSetting("clipboard_detection") !== "false";
   focusSearchOnShow.value = getSetting("focus_search_on_show") === "true";
   await loadInboxCaptureStatus();
-  vaultLockProfile.value = getVaultLockProfile();
 });
 
 async function loadInboxCaptureStatus() {
@@ -798,11 +840,21 @@ async function handleResumeInboxCapture() {
   }
 }
 
-function handleVaultLockProfileChange(value: string | number | boolean) {
-  const nextProfile = (value || DEFAULT_VAULT_LOCK_PROFILE) as VaultLockProfile;
-  vaultLockProfile.value = nextProfile;
-  setVaultLockProfile(nextProfile);
-  ElMessage.success("密码库锁定预设已更新");
+async function saveVaultLockSetting<K extends keyof VaultLockSettings>(name: K) {
+  try {
+    await setVaultLockSettingAndWait(name, vaultLockSettings[name]);
+    Object.assign(vaultLockSettings, getVaultLockSettings());
+    ElMessage.success("密码库锁定设置已更新");
+  } catch (error) {
+    Object.assign(vaultLockSettings, getVaultLockSettings());
+    ElMessage.error(`设置失败：${(error as Error).message}`);
+    return;
+  }
+  try {
+    await invokeToolByChannel("tool:vault:status", {});
+  } catch {
+    // 设置已保存，Vault 面板仍会通过订阅和状态轮询同步。
+  }
 }
 </script>
 
@@ -922,36 +974,18 @@ function handleVaultLockProfileChange(value: string | number | boolean) {
   align-items: stretch;
 }
 
-.vault-lock-profile-control {
-  gap: 10px;
+.vault-lock-rule-control {
+  min-width: 190px;
+  justify-content: flex-end;
 }
 
-.vault-lock-explainer {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 10px 12px;
-  border: 1px solid var(--el-border-color-lighter);
-  border-radius: 10px;
-  background: var(--el-fill-color-extra-light);
+.vault-lock-minutes-select {
+  width: 120px;
 }
 
-.vault-lock-explainer-item {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.vault-lock-explainer-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--el-text-color-primary);
-}
-
-.vault-lock-explainer-desc {
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--el-text-color-secondary);
+.vault-lock-summary {
+  display: block;
+  text-align: right;
 }
 
 .setting-inline-hint {

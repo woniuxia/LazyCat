@@ -75,4 +75,15 @@ describe("vaultLock", () => {
       systemIdleLockEnabled: false,
     })).toBe("仅手动或关闭到托盘时锁定");
   });
+
+  it("keeps masking while activity hard lock is disabled", () => {
+    const settings = resolveVaultLockSettings({
+      vault_activity_lock_enabled: "false",
+    });
+    expect(toVaultLockRuntimePolicy(settings)).toEqual({
+      hideSensitiveAfterSecs: 120,
+      activityLockEnabled: false,
+      activityLockAfterSecs: 1_800,
+    });
+  });
 });
