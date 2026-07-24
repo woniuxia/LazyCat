@@ -3,8 +3,11 @@ import { invokeToolByChannel } from "../bridge/tauri";
 import {
   getVaultLockPolicy,
   normalizeVaultLockProfile,
+  resolveVaultLockSettings,
+  VAULT_LOCK_SETTING_KEYS,
   type VaultLockPolicy,
   type VaultLockProfile,
+  type VaultLockSettings,
 } from "../utils/vaultLock";
 
 export interface VaultLockProfilePolicy {
@@ -20,6 +23,8 @@ const loadPromise = ref<Promise<void> | null>(null);
 const settingPersistenceQueues = new Map<string, Promise<void>>();
 const committedSettings = new Map<string, string | undefined>();
 const settingVersions = new Map<string, number>();
+type VaultLockSettingsListener = (value: VaultLockSettings) => void;
+const vaultLockSettingsListeners = new Set<VaultLockSettingsListener>();
 
 // 新增：开机自启动相关状态
 const autostartEnabled = ref(false);
@@ -146,6 +151,26 @@ function clearSettingPersistenceQueue(key: string, operation: Promise<void>): vo
 export function setVaultLockProfile(profile: VaultLockProfile): void {
   const normalizedProfile = normalizeVaultLockProfile(profile);
   setSetting("vault_lock_profile", normalizedProfile);
+}
+
+export function getVaultLockSettings(): VaultLockSettings {
+  return resolveVaultLockSettings(settings);
+}
+
+export function subscribeVaultLockSettings(listener: VaultLockSettingsListener): () => void {
+  vaultLockSettingsListeners.add(listener);
+  return () => vaultLockSettingsListeners.delete(listener);
+}
+
+export async function setVaultLockSettingAndWait<K extends keyof VaultLockSettings>(
+  name: K,
+  value: VaultLockSettings[K],
+): Promise<void> {
+  await setSettingAndWait(VAULT_LOCK_SETTING_KEYS[name], String(value));
+  const current = getVaultLockSettings();
+  for (const listener of vaultLockSettingsListeners) {
+    listener(current);
+  }
 }
 
 /**

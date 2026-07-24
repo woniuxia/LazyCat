@@ -6,7 +6,14 @@ vi.mock("../bridge/tauri", () => ({
   invokeToolByChannel: invokeMock,
 }));
 
-import { getSetting, setSetting, setSettingAndWait } from "./useSettings";
+import {
+  getSetting,
+  getVaultLockSettings,
+  setSetting,
+  setSettingAndWait,
+  setVaultLockSettingAndWait,
+  subscribeVaultLockSettings,
+} from "./useSettings";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -137,5 +144,32 @@ describe("setSettingAndWait", () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(getSetting("release_package.background_failure")).toBe("value");
+  });
+
+  it("notifies after a typed Vault setting commits", async () => {
+    const listener = vi.fn();
+    const unsubscribe = subscribeVaultLockSettings(listener);
+
+    await setVaultLockSettingAndWait("systemIdleLockMinutes", 30);
+
+    expect(invokeMock).toHaveBeenCalledWith("tool:settings:set", {
+      key: "vault_system_idle_lock_minutes",
+      value: "30",
+    });
+    expect(getVaultLockSettings().systemIdleLockMinutes).toBe(30);
+    expect(listener).toHaveBeenCalledTimes(1);
+    unsubscribe();
+  });
+
+  it("does not notify when Vault setting persistence fails", async () => {
+    const listener = vi.fn();
+    const unsubscribe = subscribeVaultLockSettings(listener);
+    invokeMock.mockRejectedValueOnce(new Error("write failed"));
+
+    await expect(setVaultLockSettingAndWait("activityLockEnabled", false))
+      .rejects.toThrow("write failed");
+
+    expect(listener).not.toHaveBeenCalled();
+    unsubscribe();
   });
 });
