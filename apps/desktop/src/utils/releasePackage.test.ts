@@ -156,13 +156,17 @@ Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force
 
   it.each([
     [undefined, 22],
+    [1, 1],
     [2200, 2200],
+    [65_535, 65_535],
     [null, null],
+    [-1, null],
     [0, null],
     [65_536, null],
     [22.5, null],
     ["22", null],
     [Number.NaN, null],
+    [Number.POSITIVE_INFINITY, null],
   ])("normalizes Vault server port %s to %s", (value, expected) => {
     expect(normalizeVaultServerPort(value)).toBe(expected);
   });
