@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tauri::Emitter;
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
 
 use super::helpers::db_conn;
 use super::vault_lock::{expired_reason, load_config, LockReason, VaultLockConfig};
@@ -273,9 +273,123 @@ fn aes256_decrypt(
         .map_err(|e| format!("AES decrypt failed: {e}"))
 }
 
+#[derive(Debug)]
+pub(crate) struct VaultServerCredentialMetadata {
+    pub entry_id: i64,
+    pub address: String,
+    pub account: String,
+}
+
+pub(crate) struct VaultServerCredential {
+    pub metadata: VaultServerCredentialMetadata,
+    pub password: Zeroizing<String>,
+}
+
+pub(crate) fn server_credential_metadata(
+    conn: &Connection,
+    entry_id: i64,
+) -> Result<VaultServerCredentialMetadata, String> {
+    let (category, plain_fields): (String, Option<String>) = conn
+        .query_row(
+            "SELECT category, plain_fields FROM vault_entries WHERE id = ?1",
+            [entry_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(|_| "vault_entry_not_found".to_string())?;
+    if category != "server" {
+        return Err("vault_entry_invalid_category".to_string());
+    }
+
+    let fields: Value = plain_fields
+        .as_deref()
+        .and_then(|text| serde_json::from_str(text).ok())
+        .unwrap_or(Value::Null);
+    let address = fields["address"].as_str().unwrap_or("").trim().to_owned();
+    let account = fields["account"].as_str().unwrap_or("").trim().to_owned();
+    if address.is_empty() || account.is_empty() {
+        return Err("vault_entry_incomplete".to_string());
+    }
+
+    Ok(VaultServerCredentialMetadata {
+        entry_id,
+        address,
+        account,
+    })
+}
+
+pub(crate) fn resolve_server_credential(
+    conn: &Connection,
+    entry_id: i64,
+) -> Result<VaultServerCredential, String> {
+    #[derive(serde::Deserialize)]
+    struct SecretFields {
+        password: String,
+    }
+
+    let metadata = server_credential_metadata(conn, entry_id)?;
+    let mut key = get_session_key_with_conn(conn)?;
+    let result = (|| -> Result<Zeroizing<String>, String> {
+        let (iv_b64, blob_b64): (String, String) = conn
+            .query_row(
+                "SELECT iv, encrypted_blob FROM vault_entries WHERE id = ?1",
+                [entry_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .map_err(|_| "vault_entry_not_found".to_string())?;
+        let iv = BASE64
+            .decode(iv_b64)
+            .map_err(|error| format!("vault credential iv: {error}"))?;
+        let blob = BASE64
+            .decode(blob_b64)
+            .map_err(|error| format!("vault credential blob: {error}"))?;
+        let decrypted = Zeroizing::new(aes256_decrypt(&key, &iv, &blob)?);
+        let fields: SecretFields = serde_json::from_slice(&decrypted)
+            .map_err(|error| format!("vault credential fields: {error}"))?;
+        if fields.password.is_empty() {
+            return Err("vault_entry_incomplete".to_string());
+        }
+        Ok(Zeroizing::new(fields.password))
+    })();
+    key.zeroize();
+
+    Ok(VaultServerCredential {
+        metadata,
+        password: result?,
+    })
+}
+
+#[cfg(test)]
+pub(crate) fn insert_test_server_entry(
+    conn: &Connection,
+    entry_id: i64,
+    address: &str,
+    account: &str,
+    password: &str,
+) {
+    let key = [7u8; KEY_LEN];
+    let iv = vec![9u8; IV_LEN];
+    let secret = serde_json::to_vec(&json!({ "password": password })).unwrap();
+    let encrypted = aes256_encrypt(&key, &iv, &secret).unwrap();
+    conn.execute(
+        "INSERT INTO vault_entries(id, category, iv, encrypted_blob, plain_fields)
+         VALUES (?1, 'server', ?2, ?3, ?4)",
+        params![
+            entry_id,
+            BASE64.encode(iv),
+            BASE64.encode(encrypted),
+            json!({ "address": address, "account": account }).to_string(),
+        ],
+    )
+    .unwrap();
+}
+
 fn get_session_key() -> Result<[u8; KEY_LEN], String> {
     let conn = db_conn()?;
-    let config = load_config(&conn)?;
+    get_session_key_with_conn(&conn)
+}
+
+fn get_session_key_with_conn(conn: &Connection) -> Result<[u8; KEY_LEN], String> {
+    let config = load_config(conn)?;
     let current = try_system_input_snapshot();
     let mut guard = VAULT_SESSION
         .lock()
@@ -289,6 +403,24 @@ fn get_session_key() -> Result<[u8; KEY_LEN], String> {
             session.key.ok_or_else(|| "vault_locked".to_string())
         }
     }
+}
+
+pub(crate) fn require_unlocked(conn: &Connection) -> Result<(), String> {
+    let config = load_config(conn)?;
+    let current = try_system_input_snapshot();
+    let mut guard = VAULT_SESSION
+        .lock()
+        .map_err(|error| format!("session lock: {error}"))?;
+    ensure_session_alive(&mut guard, config, current, None)
+}
+
+#[cfg(test)]
+pub(crate) fn install_test_session(key: [u8; KEY_LEN]) {
+    let mut guard = VAULT_SESSION.lock().expect("session lock");
+    *guard = Some(VaultSession {
+        key: Some(key),
+        last_activity: Instant::now(),
+    });
 }
 
 fn cmd_status(_payload: &Value) -> Result<Value, String> {
@@ -1391,6 +1523,115 @@ mod tests {
     use crate::tools::widget::guards::SystemInputSnapshot;
     use serde_json::json;
     use std::time::Duration;
+
+    fn vault_test_conn() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE vault_entries (
+                id INTEGER PRIMARY KEY, category TEXT NOT NULL,
+                title TEXT NOT NULL DEFAULT '', environment TEXT NOT NULL DEFAULT '',
+                iv TEXT NOT NULL, encrypted_blob TEXT NOT NULL, plain_fields TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );\n
+            CREATE TABLE user_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
+            INSERT INTO user_settings(key, value) VALUES
+                ('vault_activity_lock_enabled', 'false'),
+                ('vault_system_idle_lock_enabled', 'false');",
+        )
+        .unwrap();
+        conn
+    }
+
+    fn insert_vault_entry(
+        conn: &Connection,
+        id: i64,
+        category: &str,
+        plain: &str,
+        password: &str,
+    ) {
+        let key = [7u8; KEY_LEN];
+        let iv = vec![9u8; IV_LEN];
+        let secret = serde_json::to_vec(&json!({ "password": password })).unwrap();
+        let encrypted = aes256_encrypt(&key, &iv, &secret).unwrap();
+        conn.execute(
+            "INSERT INTO vault_entries(id, category, iv, encrypted_blob, plain_fields)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                id,
+                category,
+                BASE64.encode(iv),
+                BASE64.encode(encrypted),
+                plain
+            ],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn server_metadata_rejects_missing_wrong_type_and_incomplete_entry() {
+        let conn = vault_test_conn();
+        insert_vault_entry(
+            &conn,
+            1,
+            "server",
+            r#"{"address":"10.0.0.8","account":"deploy"}"#,
+            "secret",
+        );
+        assert_eq!(
+            server_credential_metadata(&conn, 999).unwrap_err(),
+            "vault_entry_not_found"
+        );
+
+        insert_vault_entry(
+            &conn,
+            2,
+            "app",
+            r#"{"address":"10.0.0.9","account":"deploy"}"#,
+            "secret",
+        );
+        assert_eq!(
+            server_credential_metadata(&conn, 2).unwrap_err(),
+            "vault_entry_invalid_category"
+        );
+
+        insert_vault_entry(
+            &conn,
+            3,
+            "server",
+            r#"{"address":"","account":"deploy"}"#,
+            "secret",
+        );
+        assert_eq!(
+            server_credential_metadata(&conn, 3).unwrap_err(),
+            "vault_entry_incomplete"
+        );
+    }
+
+    #[test]
+    fn resolved_server_credential_requires_session_and_keeps_password_out_of_metadata() {
+        let conn = vault_test_conn();
+        insert_test_server_entry(&conn, 1, "10.0.0.8", "deploy", "secret");
+
+        force_lock();
+        assert!(resolve_server_credential(&conn, 1)
+            .err()
+            .expect("locked Vault must reject credential resolution")
+            .contains("vault_locked"));
+
+        install_test_session([7u8; KEY_LEN]);
+        require_unlocked(&conn).unwrap();
+        let credential = resolve_server_credential(&conn, 1).unwrap();
+        assert_eq!(credential.metadata.entry_id, 1);
+        assert_eq!(credential.metadata.address.as_str(), "10.0.0.8");
+        assert_eq!(credential.metadata.account.as_str(), "deploy");
+        assert_eq!(&*credential.password, "secret");
+        assert!(!format!("{:?}", credential.metadata).contains("secret"));
+        force_lock();
+    }
 
     #[test]
     fn test_derive_key_consistency() {
