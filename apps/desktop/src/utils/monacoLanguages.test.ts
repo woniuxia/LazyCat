@@ -18,11 +18,18 @@ describe("Monaco language catalog", () => {
   it.each([
     ['{"port":8080}', "json"],
     ["<html><body>demo</body></html>", "html"],
+    ['<?xml version="1.0"?><note><message>demo</message></note>', "xml"],
     ["SELECT * FROM users WHERE id = 1", "sql"],
     ["public class Demo { private int id; }", "java"],
+    ["1710000000", "plaintext"],
     ["普通临时参考文字", "plaintext"],
   ])("maps clipboard content %s to %s", (text, language) => {
     expect(detectClipboardMonacoLanguage(text)).toBe(language);
+  });
+
+  it("falls back to plaintext beyond the clipboard detection length limit", () => {
+    const text = "a".repeat(100_001);
+    expect(detectClipboardMonacoLanguage(text)).toBe("plaintext");
   });
 
   it("accepts non-empty text", () => {
