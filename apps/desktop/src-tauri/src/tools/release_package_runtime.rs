@@ -392,23 +392,20 @@ impl UploadProgressReporter {
     }
 
     fn report_at(&self, bytes: u64, path: &str, now: Instant) {
-        let event = {
-            let mut state = self.state.lock().unwrap();
-            state.uploaded_bytes = state.uploaded_bytes.saturating_add(bytes);
-            state.current_path = Some(path.to_owned());
-            if !should_emit_upload_progress(state.last_emitted_at, now, false) {
-                return;
-            }
-            state.last_emitted_at = Some(now);
-            (state.uploaded_bytes, state.current_path.clone())
-        };
+        let mut state = self.state.lock().unwrap();
+        state.uploaded_bytes = state.uploaded_bytes.saturating_add(bytes);
+        state.current_path = Some(path.to_owned());
+        if !should_emit_upload_progress(state.last_emitted_at, now, false) {
+            return;
+        }
+        state.last_emitted_at = Some(now);
         emit_upload_status(
             self.sink.as_ref(),
             &self.run_id,
             self.project_id,
-            event.0,
+            state.uploaded_bytes,
             self.total_bytes,
-            event.1,
+            state.current_path.clone(),
         );
     }
 
@@ -417,22 +414,19 @@ impl UploadProgressReporter {
     }
 
     fn force_emit_at(&self, now: Instant, success: bool) {
-        let event = {
-            let mut state = self.state.lock().unwrap();
-            if success {
-                debug_assert_eq!(state.uploaded_bytes, self.total_bytes);
-                state.uploaded_bytes = self.total_bytes;
-            }
-            state.last_emitted_at = Some(now);
-            (state.uploaded_bytes, state.current_path.clone())
-        };
+        let mut state = self.state.lock().unwrap();
+        if success {
+            debug_assert_eq!(state.uploaded_bytes, self.total_bytes);
+            state.uploaded_bytes = self.total_bytes;
+        }
+        state.last_emitted_at = Some(now);
         emit_upload_status(
             self.sink.as_ref(),
             &self.run_id,
             self.project_id,
-            event.0,
+            state.uploaded_bytes,
             self.total_bytes,
-            event.1,
+            state.current_path.clone(),
         );
     }
 
@@ -1939,6 +1933,47 @@ mod pipeline_tests {
         }
     }
 
+    #[derive(Default)]
+    struct BlockingProgressSink {
+        statuses: Mutex<Vec<StatusEvent>>,
+        first_entered: Mutex<bool>,
+        first_ready: std::sync::Condvar,
+        release_first: Mutex<bool>,
+        release_ready: std::sync::Condvar,
+    }
+
+    impl BlockingProgressSink {
+        fn wait_until_first_event_blocks(&self) {
+            let mut entered = self.first_entered.lock().unwrap();
+            while !*entered {
+                entered = self.first_ready.wait(entered).unwrap();
+            }
+        }
+
+        fn release_first_event(&self) {
+            *self.release_first.lock().unwrap() = true;
+            self.release_ready.notify_all();
+        }
+    }
+
+    impl EventSink for BlockingProgressSink {
+        fn log(&self, _event: LogEvent) {}
+
+        fn status(&self, event: StatusEvent) {
+            if event.uploaded_bytes == Some(10) {
+                *self.first_entered.lock().unwrap() = true;
+                self.first_ready.notify_all();
+                let mut release = self.release_first.lock().unwrap();
+                while !*release {
+                    release = self.release_ready.wait(release).unwrap();
+                }
+            }
+            self.statuses.lock().unwrap().push(event);
+        }
+
+        fn notification(&self, _event: GlobalNotification) {}
+    }
+
     #[test]
     fn upload_progress_is_initially_and_finally_forced_but_middle_is_throttled() {
         let start = Instant::now();
@@ -1991,6 +2026,45 @@ mod pipeline_tests {
         assert_eq!(statuses[0].uploaded_bytes, Some(0));
         assert_eq!(statuses[1].uploaded_bytes, Some(200));
         assert_eq!(reporter.uploaded_bytes(), 200);
+    }
+
+    #[test]
+    fn upload_progress_events_never_regress_when_the_first_sink_delivery_blocks() {
+        let sink = Arc::new(BlockingProgressSink::default());
+        let reporter = Arc::new(UploadProgressReporter::new(
+            sink.clone(),
+            "run-order",
+            7,
+            20,
+        ));
+        let start = Instant::now();
+        let first = {
+            let reporter = Arc::clone(&reporter);
+            thread::spawn(move || reporter.report_at(10, "first", start))
+        };
+        sink.wait_until_first_event_blocks();
+
+        let (attempted_tx, attempted_rx) = std::sync::mpsc::channel();
+        let second = {
+            let reporter = Arc::clone(&reporter);
+            thread::spawn(move || {
+                attempted_tx.send(()).unwrap();
+                reporter.report_at(10, "second", start + Duration::from_millis(100));
+            })
+        };
+        attempted_rx.recv().unwrap();
+        sink.release_first_event();
+        first.join().unwrap();
+        second.join().unwrap();
+
+        let progress = sink
+            .statuses
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|event| event.uploaded_bytes.unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(progress, vec![10, 20]);
     }
 
     fn project() -> ReleasePackageProjectConfig {
