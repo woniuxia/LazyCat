@@ -2,7 +2,47 @@
 
 适用范围：上线包命令编排、互斥打包类型、并行目标、构建/归档事务、SSH/SFTP 上传、目录配置、覆盖和终态反馈。
 
-关键词：`release_package`、`archive`、`runtime`、`parallel`、`SSH`、`SFTP`、`notification`
+关键词：`release_package`、`archive`、`runtime`、`dispatch`、`parallel`、`SSH`、`SFTP`、`notification`
+
+## 目录
+
+- [2026-07-26：外部动作在线程启动前关联运行](#2026-07-26外部动作在线程启动前关联运行)
+- [构建与归档是两阶段提交](#构建与归档是两阶段提交)
+- [多目标并行但状态独立](#多目标并行但状态独立)
+- [SSH 上传采用目标级有界并发](#ssh-上传采用目标级有界并发)
+- [归档目录是项目配置](#归档目录是项目配置)
+- [已有归档完整替换](#已有归档完整替换)
+- [终态反馈在交付提交之后](#终态反馈在交付提交之后)
+- [上传前必须完成真实预检](#上传前必须完成真实预检)
+- [主机指纹先于认证](#主机指纹先于认证)
+- [认证秘密只存在于一次性链路](#认证秘密只存在于一次性链路)
+- [密码库绑定只保存引用](#密码库绑定只保存引用)
+- [远端目标使用完整替换事务](#远端目标使用完整替换事务)
+- [本地归档与服务器上传是互斥类型](#本地归档与服务器上传是互斥类型)
+
+## 2026-07-26：外部动作在线程启动前关联运行
+
+**场景**：动作中心确认请求复用上线包现有确认链启动打包，并需要在打包结束后收口 dispatch 和上游 Todo。
+
+**问题**：若 worker 启动后才关联 `dispatchId + runId`，快速失败可能先产生终态，留下永久 `running` 或待确认 dispatch；若在多个分支分别回写，部分成功、上传失败和取消容易映射不一致。
+
+**解决**：后端 `start` 严格解析可选 `actionDispatchId`，占用运行槽后、`thread::spawn` 前校验动作、目标和状态并关联 run；关联失败释放运行槽且不启动命令。所有原始终态在统一 `emit_terminal_result` 中、状态事件和通知发出前回写动作中心。
+
+**关键点**：只有 `succeeded` 映射成功并自动完成 Todo；`partially_succeeded`、`package_succeeded_upload_failed` 和 `failed` 都映射失败，`cancelled` 映射取消。普通手动打包没有 external run 关联，保持原通知和重试行为。动作中心只保存项目 ID，不接收 SSH 配置、密码或 Vault 秘密。
+
+**涉及文件**：
+
+- `apps/desktop/src-tauri/src/tools/release_package.rs`
+- `apps/desktop/src-tauri/src/tools/release_package_runtime.rs`
+- `apps/desktop/src-tauri/src/tools/action_center/dispatches.rs`
+
+**验证**：
+
+- `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml release_package -- --nocapture`
+- `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml action_center -- --nocapture`
+- `pnpm --filter @lazycat/desktop test -- src/components/ReleasePackagePanel.test.ts src/utils/releasePackage.test.ts`
+
+**使用次数**：0
 
 ## 构建与归档是两阶段提交
 
