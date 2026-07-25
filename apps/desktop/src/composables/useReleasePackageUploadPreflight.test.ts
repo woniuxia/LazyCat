@@ -140,6 +140,75 @@ describe("useReleasePackageUploadPreflight", () => {
     expect(preflight.probeResult.value).toBeNull();
   });
 
+  it("does not revive a probe after reset wins during preflight cleanup", async () => {
+    let resolveDiscard!: (value: unknown) => void;
+    invokeMock
+      .mockResolvedValueOnce({
+        probeToken: "old-probe",
+        host: "server.example",
+        port: 22,
+        keyType: "ed25519",
+        fingerprintSha256: "SHA256:key",
+        trust: "trusted",
+      })
+      .mockImplementationOnce(() => new Promise((resolve) => {
+        resolveDiscard = resolve;
+      }))
+      .mockResolvedValueOnce({ ok: true });
+    const preflight = useReleasePackageUploadPreflight();
+    await preflight.probe(7);
+
+    const pendingProbe = preflight.probe(8);
+    await vi.waitFor(() => expect(invokeMock).toHaveBeenCalledTimes(2));
+    const pendingReset = preflight.reset();
+    resolveDiscard({ ok: true });
+    await pendingReset;
+
+    await expect(pendingProbe).resolves.toBeNull();
+    expect(invokeMock).toHaveBeenCalledTimes(2);
+    expect(preflight.probeResult.value).toBeNull();
+  });
+
+  it("does not revive a check after reset wins during preflight cleanup", async () => {
+    let resolveDiscard!: (value: unknown) => void;
+    invokeMock
+      .mockResolvedValueOnce({
+        probeToken: "probe-1",
+        host: "server.example",
+        port: 22,
+        keyType: "ed25519",
+        fingerprintSha256: "SHA256:key",
+        trust: "trusted",
+      })
+      .mockResolvedValueOnce({
+        preflightToken: "preflight-1",
+        expiresAt: "2026-07-22T12:00:00Z",
+        targets: [],
+      })
+      .mockImplementationOnce(() => new Promise((resolve) => {
+        resolveDiscard = resolve;
+      }))
+      .mockResolvedValueOnce({ ok: true });
+    const preflight = useReleasePackageUploadPreflight();
+    await preflight.probe(7);
+    await preflight.check({ projectId: 7, targets: ["frontend"], privateKeyPassphrase: "secret" });
+
+    const pendingCheck = preflight.check({
+      projectId: 7,
+      targets: ["frontend"],
+      privateKeyPassphrase: "secret",
+    });
+    await vi.waitFor(() => expect(invokeMock).toHaveBeenCalledTimes(3));
+    const pendingReset = preflight.reset();
+    resolveDiscard({ ok: true });
+    await pendingReset;
+
+    await expect(pendingCheck).resolves.toBeNull();
+    expect(invokeMock).toHaveBeenCalledTimes(4);
+    expect(preflight.preflightResult.value).toBeNull();
+    expect(preflight.preflightToken.value).toBe("");
+  });
+
   it("does not let an older reset completion clear a newer probe result", async () => {
     let resolveDiscard!: (value: unknown) => void;
     invokeMock
