@@ -30,6 +30,18 @@
           <h1 class="notification-title">{{ currentTodo.title }}</h1>
         </div>
         <p v-if="currentTodo.body" class="notification-body">{{ currentTodo.body }}</p>
+        <div v-if="currentTodo.action" class="reminder-action-summary">
+          <div class="reminder-action-heading">
+            <span>{{ currentTodo.action.actionLabel }}</span>
+            <strong>{{ currentTodo.action.targetLabel }}</strong>
+          </div>
+          <p v-if="!currentTodo.action.available" class="error-summary">
+            {{ currentTodo.action.unavailableReason || "动作目标不可用" }}
+          </p>
+          <p v-else-if="currentTodo.action.activeDispatchStatus" class="reminder-action-status">
+            {{ todoPrimaryLabel }}
+          </p>
+        </div>
         <div class="notification-footer">
           <span>提醒时间</span><strong>{{ formatFireTime(currentTodo.fireAt) }}</strong>
         </div>
@@ -54,10 +66,10 @@
       <button
         class="action-btn action-primary"
         type="button"
-        :disabled="actionPending"
-        @click="completeCurrentReminder"
+        :disabled="actionPending || todoPrimaryDisabled"
+        @click="runCurrentTodoPrimaryAction"
       >
-        完成
+        {{ todoPrimaryLabel }}
       </button>
       <button
         class="action-btn"
@@ -205,6 +217,17 @@ const headerIcon = computed(() => {
 const headerTone = computed(() =>
   currentTodo.value ? "tone-reminder" : `tone-${currentPackage.value?.status ?? "failed"}`,
 );
+const todoPrimaryLabel = computed(() => {
+  const action = currentTodo.value?.action;
+  if (!action) return "完成";
+  if (action.activeDispatchStatus === "pending_confirmation") return "打包待确认";
+  if (action.activeDispatchStatus === "running") return "打包进行中";
+  return action.actionLabel || "开始打包";
+});
+const todoPrimaryDisabled = computed(() => {
+  const action = currentTodo.value?.action;
+  return Boolean(action && (!action.available || action.activeDispatchStatus));
+});
 
 function mergeQueue(incoming: GlobalNotification[]) {
   queue.value = mergeGlobalNotificationQueue(queue.value, incoming);
@@ -252,6 +275,24 @@ async function runAction(action: () => Promise<void>) {
 async function completeCurrentReminder() {
   const item = currentTodo.value;
   if (item) await runAction(() => invoke("reminder_popup_complete", { taskId: item.taskId }));
+}
+async function runCurrentReminderAction() {
+  const item = currentTodo.value;
+  if (!item?.action?.available || item.action.activeDispatchStatus) return;
+  await runAction(() =>
+    invokeToolByChannel("tool:action-center:dispatch", {
+      triggerType: "todo_item",
+      triggerId: String(item.taskId),
+      triggerEventId: String(item.eventId),
+    }).then(() => undefined),
+  );
+}
+async function runCurrentTodoPrimaryAction() {
+  if (currentTodo.value?.action) {
+    await runCurrentReminderAction();
+    return;
+  }
+  await completeCurrentReminder();
 }
 async function dismissCurrentReminder() {
   const item = currentTodo.value;
@@ -494,6 +535,33 @@ onBeforeUnmount(() => {
   font-size: 12px;
   line-height: 1.5;
   word-break: break-word;
+}
+.reminder-action-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #f4f7f9;
+}
+.reminder-action-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: #52606d;
+  font-size: 12px;
+}
+.reminder-action-heading strong {
+  overflow: hidden;
+  color: #111827;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.reminder-action-status {
+  margin: 0;
+  color: #8a4b08;
+  font-size: 12px;
 }
 .path-box {
   overflow: hidden;

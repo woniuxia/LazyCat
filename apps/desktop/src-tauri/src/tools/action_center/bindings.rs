@@ -23,6 +23,13 @@ struct BindingRow {
     target_id: String,
 }
 
+struct BindingPresentation {
+    action_label: String,
+    target_label: String,
+    available: bool,
+    unavailable_reason: Option<String>,
+}
+
 pub(crate) fn parse_binding_patch(payload: &Value) -> Result<BindingPatch, String> {
     match payload.get("actionBinding") {
         None => Ok(BindingPatch::Preserve),
@@ -182,12 +189,16 @@ pub(crate) fn ensure_todo_can_become_recurring(
     Ok(())
 }
 
-fn binding_summary(conn: &Connection, binding: BindingRow) -> Result<Value, String> {
+fn binding_presentation(
+    conn: &Connection,
+    binding: &BindingRow,
+) -> Result<BindingPresentation, String> {
     let action = definition(&binding.action_type);
     let action_label = action
         .as_ref()
         .map(|value| value.label)
-        .unwrap_or(binding.action_type.as_str());
+        .unwrap_or(binding.action_type.as_str())
+        .to_string();
 
     let (target_label, available, unavailable_reason) = match binding.action_type.as_str() {
         RELEASE_PACKAGE_RUN => {
@@ -201,24 +212,87 @@ fn binding_summary(conn: &Connection, binding: BindingRow) -> Result<Value, Stri
                 None => (
                     format!("配置 #{}", binding.target_id),
                     false,
-                    Some("上线包配置不存在"),
+                    Some("上线包配置不存在".to_string()),
                 ),
             }
         }
-        _ => (binding.target_id.clone(), false, Some("动作定义不存在")),
+        _ => (
+            binding.target_id.clone(),
+            false,
+            Some("动作定义不存在".to_string()),
+        ),
     };
+
+    Ok(BindingPresentation {
+        action_label,
+        target_label,
+        available,
+        unavailable_reason,
+    })
+}
+
+fn binding_summary(conn: &Connection, binding: BindingRow) -> Result<Value, String> {
+    let presentation = binding_presentation(conn, &binding)?;
 
     let mut summary = Map::new();
     summary.insert("id".into(), json!(binding.id));
     summary.insert("actionType".into(), json!(binding.action_type));
-    summary.insert("actionLabel".into(), json!(action_label));
+    summary.insert("actionLabel".into(), json!(presentation.action_label));
     summary.insert("targetId".into(), json!(binding.target_id));
-    summary.insert("targetLabel".into(), json!(target_label));
-    summary.insert("available".into(), json!(available));
-    if let Some(reason) = unavailable_reason {
+    summary.insert("targetLabel".into(), json!(presentation.target_label));
+    summary.insert("available".into(), json!(presentation.available));
+    if let Some(reason) = presentation.unavailable_reason {
         summary.insert("unavailableReason".into(), json!(reason));
     }
     Ok(Value::Object(summary))
+}
+
+pub(crate) fn todo_reminder_action_summary(
+    conn: &Connection,
+    item_id: i64,
+) -> Result<Option<crate::tools::todo::ReminderActionSummary>, String> {
+    let binding = conn
+        .query_row(
+            "SELECT id, action_type, target_id
+             FROM action_bindings
+             WHERE trigger_type='todo_item' AND trigger_id=?1 AND enabled=1",
+            [item_id.to_string()],
+            |row| {
+                Ok(BindingRow {
+                    id: row.get(0)?,
+                    action_type: row.get(1)?,
+                    target_id: row.get(2)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(|error| format!("查询提醒动作绑定失败: {error}"))?;
+    let Some(binding) = binding else {
+        return Ok(None);
+    };
+    let presentation = binding_presentation(conn, &binding)?;
+    let active_dispatch_status = conn
+        .query_row(
+            "SELECT status
+             FROM action_dispatches
+             WHERE binding_id=?1 AND status IN ('pending_confirmation','running')
+             ORDER BY created_at DESC
+             LIMIT 1",
+            [binding.id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|error| format!("查询提醒动作状态失败: {error}"))?;
+
+    Ok(Some(crate::tools::todo::ReminderActionSummary {
+        binding_id: binding.id,
+        action_type: binding.action_type,
+        action_label: presentation.action_label,
+        target_label: presentation.target_label,
+        available: presentation.available,
+        unavailable_reason: presentation.unavailable_reason,
+        active_dispatch_status,
+    }))
 }
 
 pub(crate) fn get_binding_summary(

@@ -131,6 +131,17 @@ export interface TodoReminderDispatch {
   fireAt: string;
   reminderPreset: TodoReminderPreset | "";
   priority: TodoPriority;
+  action?: TodoReminderActionSummary;
+}
+
+export interface TodoReminderActionSummary {
+  bindingId: number;
+  actionType: string;
+  actionLabel: string;
+  targetLabel: string;
+  available: boolean;
+  unavailableReason?: string;
+  activeDispatchStatus?: "pending_confirmation" | "running";
 }
 
 export interface TodoRecurrenceInput {

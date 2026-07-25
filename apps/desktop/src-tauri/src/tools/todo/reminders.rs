@@ -524,6 +524,7 @@ pub(crate) fn dispatch_due_reminders(
             fire_at,
             priority,
             reminder_preset,
+            action: crate::tools::action_center::todo_reminder_action_summary(conn, item_id)?,
         });
     }
     Ok(reminders)

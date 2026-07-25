@@ -19,6 +19,7 @@ use taxonomy::*;
 pub use helpers::is_open_status;
 pub use reminders::{compute_remind_at, reminder_configs_from_presets, sync_item_reminders};
 pub use types::ReminderDispatch;
+pub(crate) use types::ReminderActionSummary;
 
 
 // ── Entry points ──────────────────────────────────────────
@@ -585,6 +586,7 @@ mod tests {
     #[test]
     fn dispatch_due_reminders_should_include_priority_in_payload() {
         let conn = create_test_conn();
+        seed_release_project(&conn, 7, "客户门户");
         conn.execute(
             "INSERT INTO todo_items(id, title, priority, description, status, event_at, kind, completed_at)
              VALUES(1, ?1, ?2, ?3, ?4, ?5, ?6, NULL)",
@@ -604,6 +606,13 @@ mod tests {
             params![REMINDER_PRESET_ON_TIME, "2026-03-08T09:00:00+00:00"],
         )
         .expect("seed reminder");
+        conn.execute(
+            "INSERT INTO action_bindings(
+                id, trigger_type, trigger_id, action_type, target_id, enabled
+             ) VALUES(21, 'todo_item', '1', 'release_package.run', '7', 1)",
+            [],
+        )
+        .expect("seed action binding");
 
         let reminders = dispatch_due_reminders(
             &conn,
@@ -616,6 +625,93 @@ mod tests {
         assert_eq!(reminders.len(), 1);
         assert_eq!(reminders[0].priority, "P0");
         assert_eq!(reminders[0].body, "");
+        let action = reminders[0].action.as_ref().expect("action summary");
+        assert_eq!(action.binding_id, 21);
+        assert_eq!(action.action_type, "release_package.run");
+        assert_eq!(action.target_label, "客户门户");
+        assert!(action.available);
+        assert_eq!(action.active_dispatch_status, None);
+    }
+
+    #[test]
+    fn dispatch_due_reminders_should_include_active_action_status() {
+        for status in ["pending_confirmation", "running"] {
+            let conn = create_test_conn();
+            seed_one_off(&conn, 1, "发布客户门户");
+            seed_release_project(&conn, 7, "客户门户");
+            conn.execute(
+                "INSERT INTO todo_item_reminders(
+                    id, item_id, reminder_preset, offset_minutes, remind_at
+                 ) VALUES(11, 1, '0m', 0, '2026-03-08T09:00:00+00:00')",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO action_bindings(
+                    id, trigger_type, trigger_id, action_type, target_id, enabled
+                 ) VALUES(21, 'todo_item', '1', 'release_package.run', '7', 1)",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO action_dispatches(
+                    id, binding_id, trigger_type, trigger_id, trigger_event_id,
+                    action_type, target_id, status
+                 ) VALUES('dispatch-1', 21, 'todo_item', '1', 'event-1',
+                          'release_package.run', '7', ?1)",
+                [status],
+            )
+            .unwrap();
+
+            let reminders = dispatch_due_reminders(
+                &conn,
+                DateTime::parse_from_rfc3339("2026-03-08T09:00:00+00:00")
+                    .unwrap()
+                    .with_timezone(&Utc),
+            )
+            .unwrap();
+
+            assert_eq!(
+                reminders[0]
+                    .action
+                    .as_ref()
+                    .and_then(|action| action.active_dispatch_status.as_deref()),
+                Some(status),
+            );
+        }
+    }
+
+    #[test]
+    fn dispatch_due_reminders_should_keep_deleted_action_target_unavailable() {
+        let conn = create_test_conn();
+        seed_one_off(&conn, 1, "发布已删除项目");
+        conn.execute(
+            "INSERT INTO todo_item_reminders(
+                id, item_id, reminder_preset, offset_minutes, remind_at
+             ) VALUES(11, 1, '0m', 0, '2026-03-08T09:00:00+00:00')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO action_bindings(
+                id, trigger_type, trigger_id, action_type, target_id, enabled
+             ) VALUES(21, 'todo_item', '1', 'release_package.run', '404', 1)",
+            [],
+        )
+        .unwrap();
+
+        let reminders = dispatch_due_reminders(
+            &conn,
+            DateTime::parse_from_rfc3339("2026-03-08T09:00:00+00:00")
+                .unwrap()
+                .with_timezone(&Utc),
+        )
+        .unwrap();
+        let action = reminders[0].action.as_ref().expect("action summary");
+
+        assert!(!action.available);
+        assert_eq!(action.target_label, "配置 #404");
+        assert_eq!(action.unavailable_reason.as_deref(), Some("上线包配置不存在"));
     }
 
     #[test]

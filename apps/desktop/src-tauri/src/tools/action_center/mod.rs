@@ -7,7 +7,8 @@ use serde_json::{json, Value};
 
 pub(crate) use bindings::{
     apply_todo_binding_patch, attach_todo_binding_summaries, delete_todo_binding,
-    ensure_todo_can_become_recurring, parse_binding_patch, BindingPatch,
+    ensure_todo_can_become_recurring, parse_binding_patch, todo_reminder_action_summary,
+    BindingPatch,
 };
 pub(crate) use dispatches::recover_interrupted_dispatches;
 

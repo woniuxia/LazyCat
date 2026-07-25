@@ -1,4 +1,8 @@
-import type { TodoPriority, TodoReminderPreset } from "./todo";
+import type {
+  TodoPriority,
+  TodoReminderActionSummary,
+  TodoReminderPreset,
+} from "./todo";
 import type { ReleasePackageType } from "./release-package";
 
 export type ReleasePackageNotificationStatus =
@@ -10,6 +14,7 @@ export type ReleasePackageNotificationStatus =
 
 export type GlobalNotificationAction =
   | "complete"
+  | "dispatch-action"
   | "dismiss"
   | "snooze"
   | "open-tool"
@@ -31,6 +36,7 @@ export interface TodoReminderNotification extends GlobalNotificationBase {
   fireAt: string;
   reminderPreset: TodoReminderPreset | "";
   priority: TodoPriority;
+  action?: TodoReminderActionSummary;
 }
 
 export interface ReleasePackageNotification extends GlobalNotificationBase {

@@ -31,6 +31,20 @@ pub(crate) const REMINDER_PRESET_OFFSETS: [(&str, i64); 7] = [
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ReminderActionSummary {
+    pub binding_id: i64,
+    pub action_type: String,
+    pub action_label: String,
+    pub target_label: String,
+    pub available: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unavailable_reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub active_dispatch_status: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ReminderDispatch {
     pub event_id: i64,
     pub task_id: i64,
@@ -40,6 +54,8 @@ pub struct ReminderDispatch {
     pub fire_at: String,
     pub priority: String,
     pub reminder_preset: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub action: Option<ReminderActionSummary>,
 }
 
 pub(crate) struct SeriesRuleRow {

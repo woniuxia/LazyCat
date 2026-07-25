@@ -7,7 +7,7 @@ use tauri::{
 
 use crate::events::EVENT_GLOBAL_NOTIFICATION_PUSH;
 use crate::tools::release_package::ReleasePackageType;
-use crate::tools::todo::ReminderDispatch;
+use crate::tools::todo::{ReminderActionSummary, ReminderDispatch};
 
 pub(crate) const GLOBAL_NOTIFICATION_LABEL: &str = "global-notification";
 pub(crate) const GLOBAL_NOTIFICATION_TITLE: &str = "Lazycat 通知";
@@ -44,6 +44,8 @@ pub(crate) enum GlobalNotification {
         fire_at: String,
         priority: String,
         reminder_preset: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        action: Option<ReminderActionSummary>,
     },
     ReleasePackage {
         id: String,
@@ -115,6 +117,7 @@ pub(crate) fn todo_notifications(reminders: Vec<ReminderDispatch>) -> Vec<Global
             fire_at: reminder.fire_at,
             priority: reminder.priority,
             reminder_preset: reminder.reminder_preset,
+            action: reminder.action,
         })
         .collect()
 }
@@ -213,8 +216,9 @@ pub(crate) fn global_notification_open_tool(app: AppHandle, tool_id: String) -> 
 
 #[cfg(test)]
 mod tests {
-    use super::{build_release_package_notification, GlobalNotification};
+    use super::{build_release_package_notification, todo_notifications, GlobalNotification};
     use crate::tools::release_package::ReleasePackageType;
+    use crate::tools::todo::{ReminderActionSummary, ReminderDispatch};
     use serde_json::{json, Value};
 
     fn release_payload(status: &str) -> Value {
@@ -355,6 +359,7 @@ mod tests {
             fire_at: "2026-07-21T10:05:00+08:00".to_string(),
             priority: "P1".to_string(),
             reminder_preset: "5m".to_string(),
+            action: None,
         };
 
         assert_eq!(
@@ -372,6 +377,43 @@ mod tests {
                 "priority": "P1",
                 "reminderPreset": "5m",
             })
+        );
+    }
+
+    #[test]
+    fn todo_action_reminder_keeps_the_read_only_action_summary() {
+        let notification = todo_notifications(vec![ReminderDispatch {
+            event_id: 12,
+            task_id: 11,
+            task_reminder_id: 9,
+            title: "Review release".to_string(),
+            body: String::new(),
+            fire_at: "2026-07-21T10:05:00+08:00".to_string(),
+            priority: "P1".to_string(),
+            reminder_preset: "5m".to_string(),
+            action: Some(ReminderActionSummary {
+                binding_id: 3,
+                action_type: "release_package.run".to_string(),
+                action_label: "开始打包".to_string(),
+                target_label: "客户门户".to_string(),
+                available: true,
+                unavailable_reason: None,
+                active_dispatch_status: None,
+            }),
+        }])
+        .pop()
+        .expect("todo notification");
+        let payload = serde_json::to_value(notification).unwrap();
+
+        assert_eq!(
+            payload["action"],
+            json!({
+                "bindingId": 3,
+                "actionType": "release_package.run",
+                "actionLabel": "开始打包",
+                "targetLabel": "客户门户",
+                "available": true,
+            }),
         );
     }
 }

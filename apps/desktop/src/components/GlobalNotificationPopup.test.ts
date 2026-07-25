@@ -19,6 +19,22 @@ describe("GlobalNotificationPopup", () => {
     expect(source).toContain('invoke("reminder_popup_snooze"');
   });
 
+  it("dispatches an available Todo action from the reminder event", () => {
+    expect(source).toContain("开始打包");
+    expect(source).toContain("runCurrentReminderAction");
+    expect(source).toContain('"tool:action-center:dispatch"');
+    expect(source).toContain('triggerType: "todo_item"');
+    expect(source).toContain("triggerId: String(item.taskId)");
+    expect(source).toContain("triggerEventId: String(item.eventId)");
+  });
+
+  it("disables active or unavailable reminder actions with an explicit reason", () => {
+    expect(source).toContain("打包待确认");
+    expect(source).toContain("打包进行中");
+    expect(source).toContain("unavailableReason");
+    expect(source).toContain("todoPrimaryDisabled");
+  });
+
   it("exposes package page, directory, and acknowledge actions", () => {
     expect(source).toContain('invoke("global_notification_open_tool"');
     expect(source).toContain('"tool:system:open-local-path"');

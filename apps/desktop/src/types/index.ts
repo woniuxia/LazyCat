@@ -67,6 +67,8 @@ export type {
   TodoLink,
   TodoItem,
   TodoReminderEvent,
+  TodoReminderDispatch,
+  TodoReminderActionSummary,
   TodoRecurrenceInput,
   TodoItemUpsertPayload,
 } from "./todo";
