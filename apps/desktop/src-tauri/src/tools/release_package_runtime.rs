@@ -478,6 +478,9 @@ fn archive_pipeline_error(error: ArchiveError, phase: &'static str) -> PipelineE
     match error {
         ArchiveError::Cancelled => PipelineError::Cancelled { phase },
         ArchiveError::Failed(message) => PipelineError::Failed { message },
+        ArchiveError::CommittedWithWarning { warning, .. } => {
+            PipelineError::Failed { message: warning }
+        }
     }
 }
 
@@ -689,6 +692,21 @@ fn combine_package_and_deploy(
 ) -> PipelineSummary {
     match deploy_result {
         Ok(()) => {
+            summary.remote_committed = true;
+            summary
+        }
+        Err(error) if error.committed => {
+            let recovery = if error.recovery_paths.is_empty() {
+                String::new()
+            } else {
+                format!("；需人工检查：{}", error.recovery_paths.join("、"))
+            };
+            let warning = format!("{}{recovery}", error.message);
+            summary.error = Some(match summary.error.take() {
+                Some(existing) => format!("{existing}；{warning}"),
+                None => warning,
+            });
+            summary.retry_descriptor = None;
             summary.remote_committed = true;
             summary
         }
@@ -1190,6 +1208,17 @@ fn run_local_archive_pipeline(
                 );
                 errors.push(format!("{phase}：{message}"));
             }
+            Err(ArchiveError::CommittedWithWarning { warning, .. }) => {
+                emit_local_archive_target_status(
+                    sink.as_ref(),
+                    run_id,
+                    project_id,
+                    built_target.target,
+                    "failed",
+                    Some(warning.clone()),
+                );
+                errors.push(format!("{phase}：{warning}"));
+            }
         }
     }
     if cancelled.load(Ordering::Acquire) {
@@ -1217,8 +1246,12 @@ fn run_local_archive_pipeline(
             remote_committed: false,
         });
     }
-    let archive_path = match archive.commit(cancelled.as_ref()) {
-        Ok(path) => path,
+    let (archive_path, cleanup_warning) = match archive.commit(cancelled.as_ref()) {
+        Ok(path) => (path, None),
+        Err(ArchiveError::CommittedWithWarning {
+            final_path,
+            warning,
+        }) => (final_path, Some(warning)),
         Err(error) => {
             let accumulated_error = errors.join("；");
             let archive_error = archive_pipeline_error(error, "overall");
@@ -1242,6 +1275,7 @@ fn run_local_archive_pipeline(
             ));
         }
     };
+    errors.extend(cleanup_warning);
     Ok(PipelineSummary {
         status: if success_count == summary.selected_count {
             "succeeded"
@@ -1847,6 +1881,35 @@ mod pipeline_tests {
         assert_eq!(summary.status, "package_succeeded_upload_failed");
         assert!(summary.archive_path.is_none());
         assert_eq!(summary.retry_descriptor.unwrap().manifests, vec![manifest]);
+    }
+
+    #[test]
+    fn committed_cleanup_warning_preserves_success_without_retry() {
+        let backup_path = "/srv/app/app.jar.__lazycat_backup_run-1";
+        let summary = combine_package_and_deploy(
+            PipelineSummary {
+                status: "succeeded",
+                archive_path: None,
+                archived_targets: Vec::new(),
+                manifests: Vec::new(),
+                error: None,
+                retry_descriptor: None,
+                remote_committed: false,
+            },
+            Err(DeployError {
+                message: "远端提交成功，但旧版本备份清理失败".into(),
+                cancelled: false,
+                committed: true,
+                recovery_paths: vec![backup_path.into()],
+            }),
+        );
+
+        assert_eq!(summary.status, "succeeded");
+        assert!(summary.remote_committed);
+        assert!(summary.retry_descriptor.is_none());
+        let error = summary.error.unwrap();
+        assert!(error.contains("旧版本备份清理失败"));
+        assert!(error.contains(backup_path));
     }
 
     #[test]
