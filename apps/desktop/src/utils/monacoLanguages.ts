@@ -8,7 +8,9 @@ export const MONACO_LANGUAGE_OPTIONS = [
   "php", "ruby", "swift", "kotlin", "scala", "lua", "r", "dart", "dockerfile", "graphql", "toml",
 ] as const;
 
-export const MONACO_LANGUAGE_EXTENSIONS: Record<string, string> = {
+export type MonacoLanguage = (typeof MONACO_LANGUAGE_OPTIONS)[number];
+
+const MONACO_LANGUAGE_EXTENSIONS_BY_LANGUAGE = {
   javascript: "js",
   typescript: "ts",
   python: "py",
@@ -39,7 +41,10 @@ export const MONACO_LANGUAGE_EXTENSIONS: Record<string, string> = {
   dockerfile: "dockerfile",
   graphql: "graphql",
   toml: "toml",
-};
+} satisfies Record<MonacoLanguage, string>;
+
+export const MONACO_LANGUAGE_EXTENSIONS: Readonly<Record<string, string>> =
+  MONACO_LANGUAGE_EXTENSIONS_BY_LANGUAGE;
 
 const CLIPBOARD_LANGUAGE_MAP: Partial<Record<ClipboardContentType, string>> = {
   json: "json",
