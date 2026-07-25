@@ -2,6 +2,7 @@ use std::collections::BTreeSet;
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::thread;
 
 use serde::Serialize;
 use walkdir::WalkDir;
@@ -532,6 +533,9 @@ impl DeploymentPlan {
             return self.cancel_and_cleanup(remote);
         }
         for index in 0..self.transactions.len() {
+            if cancelled.load(Ordering::Acquire) {
+                return self.cancel_during_commit(remote, index);
+            }
             if self.transactions[index].expected_exists {
                 if let Err(error) = remote.rename(
                     &self.transactions[index].final_path,
@@ -549,6 +553,9 @@ impl DeploymentPlan {
                     });
                 }
                 self.transactions[index].backed_up = true;
+            }
+            if cancelled.load(Ordering::Acquire) {
+                return self.cancel_during_commit(remote, index + 1);
             }
             if let Err(error) = remote.rename(
                 &self.transactions[index].temp_path,
@@ -588,6 +595,21 @@ impl DeploymentPlan {
             });
         }
         Ok(())
+    }
+
+    fn cancel_during_commit(
+        &self,
+        remote: &mut dyn RemoteFs,
+        transaction_count: usize,
+    ) -> Result<(), DeployError> {
+        let mut error = DeployError::cancelled();
+        error
+            .recovery_paths
+            .extend(rollback(remote, &self.transactions[..transaction_count]));
+        error.recovery_paths.extend(self.cleanup_temps(remote));
+        error.recovery_paths.sort();
+        error.recovery_paths.dedup();
+        Err(error)
     }
 }
 
@@ -793,6 +815,167 @@ pub fn deploy(
     }
     plan.commit(remote, cancelled)
 }
+
+pub(crate) fn deploy_parallel(
+    remotes: Vec<Box<dyn RemoteFs>>,
+    plan: DeploymentPlan,
+    user_cancelled: Arc<AtomicBool>,
+    stop_requested: Arc<AtomicBool>,
+    progress: Arc<dyn Fn(u64, &str) + Send + Sync>,
+) -> Result<(), DeployError> {
+    if remotes.len() != plan.target_count() || remotes.is_empty() || remotes.len() > 2 {
+        return Err(DeployError::failed("SSH 会话数量与部署目标不一致"));
+    }
+
+    let mut remotes = remotes;
+    let mut control = remotes.remove(0);
+    if let Err(mut error) = plan.prepare_remote(control.as_mut(), user_cancelled.as_ref()) {
+        error
+            .recovery_paths
+            .extend(plan.cleanup_temps(control.as_mut()));
+        error.recovery_paths.sort();
+        error.recovery_paths.dedup();
+        return Err(error);
+    }
+
+    if plan.target_count() == 1 {
+        let mut plan = plan;
+        let upload = plan
+            .upload_target(
+                0,
+                control.as_mut(),
+                stop_requested.as_ref(),
+                &mut |bytes, path| progress(bytes, path),
+            )
+            .and_then(|()| plan.verify_target(0, control.as_ref()))
+            .and_then(|()| plan.validate_formal_targets(control.as_ref()));
+        if let Err(mut error) = upload {
+            if error.cancelled && !user_cancelled.load(Ordering::Acquire) {
+                error = DeployError::failed("并行上传因其他目标失败而停止");
+            }
+            error
+                .recovery_paths
+                .extend(plan.cleanup_temps(control.as_mut()));
+            error.recovery_paths.sort();
+            error.recovery_paths.dedup();
+            return Err(error);
+        }
+        if user_cancelled.load(Ordering::Acquire) {
+            return plan.cancel_and_cleanup(control.as_mut());
+        }
+        if stop_requested.load(Ordering::Acquire) {
+            let mut error = DeployError::failed("并行上传因其他目标失败而停止");
+            error
+                .recovery_paths
+                .extend(plan.cleanup_temps(control.as_mut()));
+            error.recovery_paths.sort();
+            error.recovery_paths.dedup();
+            return Err(error);
+        }
+        return plan.commit(control.as_mut(), user_cancelled.as_ref());
+    }
+
+    let plan = Arc::new(plan);
+    let mut workers = vec![control];
+    workers.extend(remotes);
+    let mut handles = Vec::with_capacity(workers.len());
+    for (index, mut remote) in workers.into_iter().enumerate() {
+        let plan = Arc::clone(&plan);
+        let stop_requested = Arc::clone(&stop_requested);
+        let user_cancelled = Arc::clone(&user_cancelled);
+        let progress = Arc::clone(&progress);
+        handles.push(thread::spawn(move || {
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                plan.upload_target(
+                    index,
+                    remote.as_mut(),
+                    stop_requested.as_ref(),
+                    &mut |bytes, path| progress(bytes, path),
+                )
+                .and_then(|()| plan.verify_target(index, remote.as_ref()))
+            }))
+            .unwrap_or_else(|_| Err(DeployError::failed("远端上传工作线程异常退出")));
+            if result.is_err() && !user_cancelled.load(Ordering::Acquire) {
+                stop_requested.store(true, Ordering::Release);
+            }
+            (remote, result)
+        }));
+    }
+
+    let mut returned_remotes = Vec::with_capacity(handles.len());
+    let mut primary_error = None;
+    for handle in handles {
+        match handle.join() {
+            Ok((remote, result)) => {
+                returned_remotes.push(remote);
+                if let Err(error) = result {
+                    if !error.cancelled && primary_error.is_none() {
+                        primary_error = Some(error);
+                    }
+                }
+            }
+            Err(_) => {
+                if primary_error.is_none() {
+                    primary_error = Some(DeployError::failed("远端上传工作线程异常退出"));
+                }
+            }
+        }
+    }
+
+    let mut plan = match Arc::try_unwrap(plan) {
+        Ok(plan) => plan,
+        Err(plan) => {
+            let mut error = DeployError::failed("远端上传计划仍被工作线程占用");
+            if let Some(control) = returned_remotes.first_mut() {
+                error
+                    .recovery_paths
+                    .extend(plan.cleanup_temps(control.as_mut()));
+            } else {
+                error.recovery_paths.extend(plan.temp_paths());
+            }
+            error.recovery_paths.sort();
+            error.recovery_paths.dedup();
+            return Err(error);
+        }
+    };
+    let Some(mut control) = returned_remotes.into_iter().next() else {
+        let mut error = primary_error
+            .unwrap_or_else(|| DeployError::failed("没有可用于清理远端临时目标的 SSH 会话"));
+        error.recovery_paths.extend(plan.temp_paths());
+        error.recovery_paths.sort();
+        error.recovery_paths.dedup();
+        return Err(error);
+    };
+    if let Some(mut error) = primary_error {
+        error
+            .recovery_paths
+            .extend(plan.cleanup_temps(control.as_mut()));
+        error.recovery_paths.sort();
+        error.recovery_paths.dedup();
+        return Err(error);
+    }
+    if user_cancelled.load(Ordering::Acquire) {
+        return plan.cancel_and_cleanup(control.as_mut());
+    }
+    if stop_requested.load(Ordering::Acquire) {
+        let mut error = DeployError::failed("并行上传因其他目标失败而停止");
+        error
+            .recovery_paths
+            .extend(plan.cleanup_temps(control.as_mut()));
+        error.recovery_paths.sort();
+        error.recovery_paths.dedup();
+        return Err(error);
+    }
+    if let Err(mut error) = plan.validate_formal_targets(control.as_ref()) {
+        error
+            .recovery_paths
+            .extend(plan.cleanup_temps(control.as_mut()));
+        error.recovery_paths.sort();
+        error.recovery_paths.dedup();
+        return Err(error);
+    }
+    plan.commit(control.as_mut(), user_cancelled.as_ref())
+}
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -858,8 +1041,9 @@ mod transaction_tests {
     use std::collections::{BTreeMap, VecDeque};
     use std::fs;
     use std::path::Path;
-    use std::sync::atomic::{AtomicBool, Ordering};
-    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::{Arc, Barrier, Mutex};
+    use std::thread;
 
     use super::{
         deploy, ArtifactManifest, DeployError, DeploymentRequest, DeploymentTarget, RemoteDirEntry,
@@ -1059,6 +1243,269 @@ mod transaction_tests {
                 self.nodes.remove(&candidate);
             }
             Ok(())
+        }
+    }
+
+    struct ParallelProbe {
+        active: AtomicUsize,
+        max_active: AtomicUsize,
+        entered: Barrier,
+        uploads_finished: AtomicUsize,
+        commit_started: AtomicBool,
+    }
+
+    impl ParallelProbe {
+        fn new(worker_count: usize) -> Self {
+            Self {
+                active: AtomicUsize::new(0),
+                max_active: AtomicUsize::new(0),
+                entered: Barrier::new(worker_count),
+                uploads_finished: AtomicUsize::new(0),
+                commit_started: AtomicBool::new(false),
+            }
+        }
+    }
+
+    #[derive(Default)]
+    struct FailureProbe {
+        sibling_started: AtomicBool,
+        sibling_stopped: AtomicBool,
+    }
+
+    enum SharedWriteBehavior {
+        Normal,
+        FailAfterSiblingStarts(Arc<FailureProbe>),
+        StopWhenRequested(Arc<FailureProbe>),
+        Panic,
+    }
+
+    struct SharedFakeRemoteFs {
+        nodes: Arc<Mutex<BTreeMap<String, Node>>>,
+        parallel_probe: Option<Arc<ParallelProbe>>,
+        behavior: SharedWriteBehavior,
+        entered_first_write: bool,
+        cancel_after_backup: Option<Arc<AtomicBool>>,
+        expected_thread: Option<(thread::ThreadId, Arc<AtomicBool>)>,
+    }
+
+    impl SharedFakeRemoteFs {
+        fn new(nodes: Arc<Mutex<BTreeMap<String, Node>>>, behavior: SharedWriteBehavior) -> Self {
+            Self {
+                nodes,
+                parallel_probe: None,
+                behavior,
+                entered_first_write: false,
+                cancel_after_backup: None,
+                expected_thread: None,
+            }
+        }
+
+        fn with_parallel_probe(
+            nodes: Arc<Mutex<BTreeMap<String, Node>>>,
+            probe: Arc<ParallelProbe>,
+        ) -> Self {
+            let mut remote = Self::new(nodes, SharedWriteBehavior::Normal);
+            remote.parallel_probe = Some(probe);
+            remote
+        }
+
+        fn cancel_after_backup(mut self, cancelled: Arc<AtomicBool>) -> Self {
+            self.cancel_after_backup = Some(cancelled);
+            self
+        }
+
+        fn expect_thread(mut self, expected: thread::ThreadId, observed: Arc<AtomicBool>) -> Self {
+            self.expected_thread = Some((expected, observed));
+            self
+        }
+    }
+
+    impl RemoteFs for SharedFakeRemoteFs {
+        fn metadata(&self, path: &str) -> Result<Option<RemoteMetadata>, DeployError> {
+            Ok(self.nodes.lock().unwrap().get(path).map(|node| match node {
+                Node::Directory => RemoteMetadata {
+                    kind: RemoteKind::Directory,
+                    size: 0,
+                },
+                Node::File(value) => RemoteMetadata {
+                    kind: RemoteKind::File,
+                    size: value.len() as u64,
+                },
+            }))
+        }
+
+        fn create_dir(&mut self, path: &str) -> Result<(), DeployError> {
+            let mut nodes = self.nodes.lock().unwrap();
+            if let Some(node) = nodes.get(path) {
+                return match node {
+                    Node::Directory => Ok(()),
+                    Node::File(_) => Err(DeployError::failed("远端目录路径已被文件占用")),
+                };
+            }
+            nodes.insert(path.to_string(), Node::Directory);
+            Ok(())
+        }
+
+        fn read_dir(&self, path: &str) -> Result<Vec<RemoteDirEntry>, DeployError> {
+            let prefix = format!("{}/", path.trim_end_matches('/'));
+            let nodes = self.nodes.lock().unwrap();
+            let mut entries = Vec::new();
+            for (entry_path, node) in nodes.iter() {
+                let Some(relative) = entry_path.strip_prefix(&prefix) else {
+                    continue;
+                };
+                if relative.is_empty() || relative.contains('/') {
+                    continue;
+                }
+                entries.push(RemoteDirEntry {
+                    path: entry_path.clone(),
+                    metadata: match node {
+                        Node::Directory => RemoteMetadata {
+                            kind: RemoteKind::Directory,
+                            size: 0,
+                        },
+                        Node::File(value) => RemoteMetadata {
+                            kind: RemoteKind::File,
+                            size: value.len() as u64,
+                        },
+                    },
+                });
+            }
+            Ok(entries)
+        }
+
+        fn write_file(
+            &mut self,
+            remote_path: &str,
+            local_path: &Path,
+            cancelled: &AtomicBool,
+            progress: &mut dyn FnMut(u64),
+        ) -> Result<(), DeployError> {
+            if cancelled.load(Ordering::Acquire) {
+                return Err(DeployError::cancelled());
+            }
+            if let Some((expected, observed)) = &self.expected_thread {
+                observed.store(thread::current().id() == *expected, Ordering::Release);
+            }
+            match &self.behavior {
+                SharedWriteBehavior::FailAfterSiblingStarts(probe) => {
+                    while !probe.sibling_started.load(Ordering::Acquire) {
+                        thread::yield_now();
+                    }
+                    return Err(DeployError::failed("injected upload failure"));
+                }
+                SharedWriteBehavior::StopWhenRequested(probe) => {
+                    probe.sibling_started.store(true, Ordering::Release);
+                    while !cancelled.load(Ordering::Acquire) {
+                        thread::yield_now();
+                    }
+                    probe.sibling_stopped.store(true, Ordering::Release);
+                    return Err(DeployError::cancelled());
+                }
+                SharedWriteBehavior::Panic => panic!("injected worker panic"),
+                SharedWriteBehavior::Normal => {}
+            }
+            if !self.entered_first_write {
+                if let Some(probe) = &self.parallel_probe {
+                    self.entered_first_write = true;
+                    let active = probe.active.fetch_add(1, Ordering::AcqRel) + 1;
+                    probe.max_active.fetch_max(active, Ordering::AcqRel);
+                    probe.entered.wait();
+                    probe.active.fetch_sub(1, Ordering::AcqRel);
+                    probe.uploads_finished.fetch_add(1, Ordering::AcqRel);
+                }
+            }
+            let content = fs::read(local_path).map_err(DeployError::local_io)?;
+            progress(content.len() as u64);
+            self.nodes
+                .lock()
+                .unwrap()
+                .insert(remote_path.to_string(), Node::File(content));
+            Ok(())
+        }
+
+        fn rename(&mut self, source: &str, target: &str) -> Result<(), DeployError> {
+            if target == "/srv/app/web" || target == "/srv/app/app.jar" {
+                if let Some(probe) = &self.parallel_probe {
+                    assert_eq!(probe.uploads_finished.load(Ordering::Acquire), 2);
+                    probe.commit_started.store(true, Ordering::Release);
+                }
+            }
+            let mut nodes = self.nodes.lock().unwrap();
+            let affected = nodes
+                .keys()
+                .filter(|path| *path == source || path.starts_with(&format!("{source}/")))
+                .cloned()
+                .collect::<Vec<_>>();
+            if affected.is_empty() {
+                return Err(DeployError::failed("rename source missing"));
+            }
+            for old_path in affected {
+                let node = nodes.remove(&old_path).unwrap();
+                let suffix = &old_path[source.len()..];
+                nodes.insert(format!("{target}{suffix}"), node);
+            }
+            drop(nodes);
+            if target.contains(".__lazycat_backup_") {
+                if let Some(cancelled) = &self.cancel_after_backup {
+                    cancelled.store(true, Ordering::Release);
+                }
+            }
+            Ok(())
+        }
+
+        fn remove_tree(&mut self, path: &str) -> Result<(), DeployError> {
+            let mut nodes = self.nodes.lock().unwrap();
+            let affected = nodes
+                .keys()
+                .filter(|candidate| {
+                    *candidate == path || candidate.starts_with(&format!("{path}/"))
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+            for candidate in affected {
+                nodes.remove(&candidate);
+            }
+            Ok(())
+        }
+    }
+
+    fn shared_existing_release() -> Arc<Mutex<BTreeMap<String, Node>>> {
+        let mut nodes = BTreeMap::new();
+        for path in ["/", "/srv", "/srv/app", "/srv/app/web"] {
+            nodes.insert(path.to_string(), Node::Directory);
+        }
+        nodes.insert(
+            "/srv/app/web/old.js".to_string(),
+            Node::File(b"old".to_vec()),
+        );
+        nodes.insert(
+            "/srv/app/app.jar".to_string(),
+            Node::File(b"old-jar".to_vec()),
+        );
+        Arc::new(Mutex::new(nodes))
+    }
+
+    fn shared_read(nodes: &Arc<Mutex<BTreeMap<String, Node>>>, path: &str) -> Vec<u8> {
+        match nodes.lock().unwrap().get(path).unwrap() {
+            Node::File(value) => value.clone(),
+            Node::Directory => panic!("not a file: {path}"),
+        }
+    }
+
+    fn assert_temps_cleaned_or_reported(
+        nodes: &Arc<Mutex<BTreeMap<String, Node>>>,
+        error: &DeployError,
+    ) {
+        for path in [
+            "/srv/app/web.__lazycat_tmp_run-1",
+            "/srv/app/app.jar.__lazycat_tmp_run-1",
+        ] {
+            assert!(
+                !nodes.lock().unwrap().contains_key(path)
+                    || error.recovery_paths.iter().any(|recovery| recovery == path),
+                "temporary path was neither removed nor reported: {path}",
+            );
         }
     }
 
@@ -1372,5 +1819,150 @@ mod transaction_tests {
         assert_eq!(remote.read("/srv/app/web/old.js"), b"old");
         assert_eq!(remote.read("/srv/app/app.jar"), b"old-jar");
         assert!(!remote.any_path_contains("__lazycat_tmp_"));
+    }
+
+    #[test]
+    fn parallel_deploy_overlaps_two_target_uploads_and_commits_serially() {
+        let (root, request) = two_target_request();
+        let nodes = shared_existing_release();
+        let probe = Arc::new(ParallelProbe::new(2));
+        let remotes = vec![
+            Box::new(SharedFakeRemoteFs::with_parallel_probe(
+                Arc::clone(&nodes),
+                Arc::clone(&probe),
+            )) as Box<dyn RemoteFs>,
+            Box::new(SharedFakeRemoteFs::with_parallel_probe(
+                Arc::clone(&nodes),
+                Arc::clone(&probe),
+            )) as Box<dyn RemoteFs>,
+        ];
+
+        super::deploy_parallel(
+            remotes,
+            super::DeploymentPlan::new(request).unwrap(),
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(|_, _| {}),
+        )
+        .unwrap();
+        drop(root);
+
+        assert_eq!(probe.max_active.load(Ordering::Acquire), 2);
+        assert!(probe.commit_started.load(Ordering::Acquire));
+        assert_eq!(shared_read(&nodes, "/srv/app/web/index.html"), b"new-web");
+        assert_eq!(shared_read(&nodes, "/srv/app/app.jar"), b"new-jar");
+    }
+
+    #[test]
+    fn parallel_deploy_stops_sibling_after_upload_failure() {
+        let (root, request) = two_target_request();
+        let nodes = shared_existing_release();
+        let probe = Arc::new(FailureProbe::default());
+        let stop_requested = Arc::new(AtomicBool::new(false));
+        let remotes = vec![
+            Box::new(SharedFakeRemoteFs::new(
+                Arc::clone(&nodes),
+                SharedWriteBehavior::FailAfterSiblingStarts(Arc::clone(&probe)),
+            )) as Box<dyn RemoteFs>,
+            Box::new(SharedFakeRemoteFs::new(
+                Arc::clone(&nodes),
+                SharedWriteBehavior::StopWhenRequested(Arc::clone(&probe)),
+            )) as Box<dyn RemoteFs>,
+        ];
+
+        let error = super::deploy_parallel(
+            remotes,
+            super::DeploymentPlan::new(request).unwrap(),
+            Arc::new(AtomicBool::new(false)),
+            Arc::clone(&stop_requested),
+            Arc::new(|_, _| {}),
+        )
+        .unwrap_err();
+        drop(root);
+
+        assert!(error.message.contains("injected upload failure"));
+        assert!(stop_requested.load(Ordering::Acquire));
+        assert!(probe.sibling_stopped.load(Ordering::Acquire));
+        assert_eq!(shared_read(&nodes, "/srv/app/web/old.js"), b"old");
+        assert_eq!(shared_read(&nodes, "/srv/app/app.jar"), b"old-jar");
+        assert_temps_cleaned_or_reported(&nodes, &error);
+    }
+
+    #[test]
+    fn parallel_worker_panic_returns_remote_and_cleans_temps() {
+        let (root, request) = two_target_request();
+        let nodes = shared_existing_release();
+        let remotes = vec![
+            Box::new(SharedFakeRemoteFs::new(
+                Arc::clone(&nodes),
+                SharedWriteBehavior::Panic,
+            )) as Box<dyn RemoteFs>,
+            Box::new(SharedFakeRemoteFs::new(
+                Arc::clone(&nodes),
+                SharedWriteBehavior::Normal,
+            )) as Box<dyn RemoteFs>,
+        ];
+
+        let error = super::deploy_parallel(
+            remotes,
+            super::DeploymentPlan::new(request).unwrap(),
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(|_, _| {}),
+        )
+        .unwrap_err();
+        drop(root);
+
+        assert!(error.message.contains("工作线程异常退出"));
+        assert_eq!(shared_read(&nodes, "/srv/app/web/old.js"), b"old");
+        assert_eq!(shared_read(&nodes, "/srv/app/app.jar"), b"old-jar");
+        assert_temps_cleaned_or_reported(&nodes, &error);
+    }
+
+    #[test]
+    fn single_target_parallel_deploy_uploads_on_the_calling_thread() {
+        let (root, mut request) = two_target_request();
+        request.targets.remove(0);
+        let nodes = shared_existing_release();
+        let observed = Arc::new(AtomicBool::new(false));
+        let remote = SharedFakeRemoteFs::new(Arc::clone(&nodes), SharedWriteBehavior::Normal)
+            .expect_thread(thread::current().id(), Arc::clone(&observed));
+
+        super::deploy_parallel(
+            vec![Box::new(remote)],
+            super::DeploymentPlan::new(request).unwrap(),
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(|_, _| {}),
+        )
+        .unwrap();
+        drop(root);
+
+        assert!(observed.load(Ordering::Acquire));
+        assert_eq!(shared_read(&nodes, "/srv/app/app.jar"), b"new-jar");
+    }
+
+    #[test]
+    fn cancellation_between_commit_renames_rolls_back_the_formal_target() {
+        let (root, mut request) = two_target_request();
+        request.targets.remove(0);
+        let nodes = shared_existing_release();
+        let user_cancelled = Arc::new(AtomicBool::new(false));
+        let remote = SharedFakeRemoteFs::new(Arc::clone(&nodes), SharedWriteBehavior::Normal)
+            .cancel_after_backup(Arc::clone(&user_cancelled));
+
+        let error = super::deploy_parallel(
+            vec![Box::new(remote)],
+            super::DeploymentPlan::new(request).unwrap(),
+            user_cancelled,
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(|_, _| {}),
+        )
+        .unwrap_err();
+        drop(root);
+
+        assert!(error.cancelled);
+        assert_eq!(shared_read(&nodes, "/srv/app/app.jar"), b"old-jar");
+        assert_temps_cleaned_or_reported(&nodes, &error);
     }
 }
