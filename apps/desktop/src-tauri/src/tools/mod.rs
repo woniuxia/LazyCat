@@ -217,6 +217,7 @@ pub fn execute_tool_with_app(
     app: &tauri::AppHandle,
 ) -> Result<Value, String> {
     match domain {
+        "action_center" => action_center::execute_with_app(action, payload, app),
         "release_package" => release_package::execute_with_app(action, payload, app),
         "settings" => settings::execute_with_app(action, payload, app),
         "widget" => widget::execute_with_app(action, payload, app),

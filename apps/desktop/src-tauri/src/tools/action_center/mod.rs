@@ -9,8 +9,16 @@ pub(crate) use bindings::{
     apply_todo_binding_patch, attach_todo_binding_summaries, delete_todo_binding,
     ensure_todo_can_become_recurring, parse_binding_patch, BindingPatch,
 };
+pub(crate) use dispatches::recover_interrupted_dispatches;
 
-const ACTIONS: &[&str] = &["definition_list", "target_list", "binding_get"];
+const ACTIONS: &[&str] = &[
+    "definition_list",
+    "target_list",
+    "binding_get",
+    "dispatch",
+    "dispatch_cancel",
+    "dispatch_latest",
+];
 
 pub(crate) const ACTION_CENTER_SCHEMA_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS action_bindings (
@@ -78,7 +86,22 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
             }))
         }
         "binding_get" => bindings::binding_get(payload),
+        "dispatch" => Err("action_center dispatch requires app context".into()),
+        "dispatch_cancel" => dispatches::dispatch_cancel(payload),
+        "dispatch_latest" => dispatches::dispatch_latest(payload),
         _ => unreachable!("action center action whitelist and dispatcher must stay in sync"),
+    }
+}
+
+pub fn execute_with_app(
+    action: &str,
+    payload: &Value,
+    app: &tauri::AppHandle,
+) -> Result<Value, String> {
+    if action == "dispatch" {
+        dispatches::dispatch_with_app(app, payload)
+    } else {
+        execute(action, payload)
     }
 }
 

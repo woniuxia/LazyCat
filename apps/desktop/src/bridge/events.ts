@@ -30,4 +30,6 @@ export const APP_EVENTS = {
   RELEASE_PACKAGE_STATUS: "release-package://status",
   /** Rust -> 主窗口：密码库因空闲策略进入锁定状态 */
   VAULT_LOCKED: "vault://locked",
+  /** Rust -> 主窗口：动作中心打开目标工具并请求确认 */
+  ACTION_CENTER_DISPATCH_REQUEST: "action-center://dispatch-request",
 } as const;

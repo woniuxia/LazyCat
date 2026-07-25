@@ -79,7 +79,7 @@ fn has_active_dispatch(conn: &Connection, binding_id: i64) -> Result<bool, Strin
     .map_err(|error| format!("检查事项动作执行状态失败: {error}"))
 }
 
-fn validate_binding_target(
+pub(crate) fn validate_binding_target(
     conn: &Connection,
     action_type: &str,
     target_id: &str,
