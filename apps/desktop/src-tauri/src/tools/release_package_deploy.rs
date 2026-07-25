@@ -832,6 +832,21 @@ pub(crate) fn deploy_parallel(
     let mut remotes = remotes;
     let mut control = remotes.remove(0);
     if let Err(mut error) = plan.prepare_remote(control.as_mut(), user_cancelled.as_ref()) {
+        if user_cancelled.load(Ordering::Acquire) {
+            return match recover_remote() {
+                Ok(mut recovery) => plan.cancel_and_cleanup(recovery.as_mut()),
+                Err(recovery_error) => {
+                    error.message = format!(
+                        "{}；无法建立恢复 SSH 会话清理临时目标：{}",
+                        error.message, recovery_error.message
+                    );
+                    error.recovery_paths.extend(plan.temp_paths());
+                    error.recovery_paths.sort();
+                    error.recovery_paths.dedup();
+                    Err(error)
+                }
+            };
+        }
         error
             .recovery_paths
             .extend(plan.cleanup_temps(control.as_mut()));
@@ -1355,6 +1370,7 @@ mod transaction_tests {
         behavior: SharedWriteBehavior,
         entered_first_write: bool,
         cancel_after_backup: Option<Arc<AtomicBool>>,
+        cancel_after_temp_root: Option<Arc<AtomicBool>>,
         expected_thread: Option<(thread::ThreadId, Arc<AtomicBool>)>,
     }
 
@@ -1366,6 +1382,7 @@ mod transaction_tests {
                 behavior,
                 entered_first_write: false,
                 cancel_after_backup: None,
+                cancel_after_temp_root: None,
                 expected_thread: None,
             }
         }
@@ -1384,6 +1401,22 @@ mod transaction_tests {
             self
         }
 
+        fn cancel_after_temp_root(mut self, cancelled: Arc<AtomicBool>) -> Self {
+            self.cancel_after_temp_root = Some(cancelled);
+            self
+        }
+
+        fn ensure_transport_available(&self) -> Result<(), DeployError> {
+            if self
+                .cancel_after_temp_root
+                .as_ref()
+                .is_some_and(|cancelled| cancelled.load(Ordering::Acquire))
+            {
+                return Err(DeployError::failed("transport interrupted"));
+            }
+            Ok(())
+        }
+
         fn expect_thread(mut self, expected: thread::ThreadId, observed: Arc<AtomicBool>) -> Self {
             self.expected_thread = Some((expected, observed));
             self
@@ -1392,6 +1425,7 @@ mod transaction_tests {
 
     impl RemoteFs for SharedFakeRemoteFs {
         fn metadata(&self, path: &str) -> Result<Option<RemoteMetadata>, DeployError> {
+            self.ensure_transport_available()?;
             Ok(self.nodes.lock().unwrap().get(path).map(|node| match node {
                 Node::Directory => RemoteMetadata {
                     kind: RemoteKind::Directory,
@@ -1405,6 +1439,7 @@ mod transaction_tests {
         }
 
         fn create_dir(&mut self, path: &str) -> Result<(), DeployError> {
+            self.ensure_transport_available()?;
             let mut nodes = self.nodes.lock().unwrap();
             if let Some(node) = nodes.get(path) {
                 return match node {
@@ -1413,10 +1448,17 @@ mod transaction_tests {
                 };
             }
             nodes.insert(path.to_string(), Node::Directory);
+            drop(nodes);
+            if path.contains(".__lazycat_tmp_") {
+                if let Some(cancelled) = &self.cancel_after_temp_root {
+                    cancelled.store(true, Ordering::Release);
+                }
+            }
             Ok(())
         }
 
         fn read_dir(&self, path: &str) -> Result<Vec<RemoteDirEntry>, DeployError> {
+            self.ensure_transport_available()?;
             let prefix = format!("{}/", path.trim_end_matches('/'));
             let nodes = self.nodes.lock().unwrap();
             let mut entries = Vec::new();
@@ -1451,6 +1493,7 @@ mod transaction_tests {
             cancelled: &AtomicBool,
             progress: &mut dyn FnMut(u64),
         ) -> Result<(), DeployError> {
+            self.ensure_transport_available()?;
             if cancelled.load(Ordering::Acquire) {
                 return Err(DeployError::cancelled());
             }
@@ -1521,6 +1564,7 @@ mod transaction_tests {
         }
 
         fn rename(&mut self, source: &str, target: &str) -> Result<(), DeployError> {
+            self.ensure_transport_available()?;
             if target == "/srv/app/web" || target == "/srv/app/app.jar" {
                 if let Some(probe) = &self.parallel_probe {
                     assert_eq!(probe.uploads_finished.load(Ordering::Acquire), 2);
@@ -1551,6 +1595,7 @@ mod transaction_tests {
         }
 
         fn remove_tree(&mut self, path: &str) -> Result<(), DeployError> {
+            self.ensure_transport_available()?;
             let mut nodes = self.nodes.lock().unwrap();
             let affected = nodes
                 .keys()
@@ -2130,6 +2175,52 @@ mod transaction_tests {
         assert_eq!(shared_read(&nodes, "/srv/app/web/old.js"), b"old");
         assert_eq!(shared_read(&nodes, "/srv/app/app.jar"), b"old-jar");
         assert_temps_cleaned_or_reported(&nodes, &error);
+    }
+
+    #[test]
+    fn parallel_prepare_cancellation_uses_recovery_session_when_control_transport_is_closed() {
+        let (root, request) = two_target_request();
+        let nodes = shared_existing_release();
+        let user_cancelled = Arc::new(AtomicBool::new(false));
+        let recovery_nodes = Arc::clone(&nodes);
+        let recovery_used = Arc::new(AtomicBool::new(false));
+        let recovery_used_for_closure = Arc::clone(&recovery_used);
+        let control = SharedFakeRemoteFs::new(Arc::clone(&nodes), SharedWriteBehavior::Normal)
+            .cancel_after_temp_root(Arc::clone(&user_cancelled));
+
+        let error = super::deploy_parallel(
+            vec![
+                Box::new(control) as Box<dyn RemoteFs>,
+                Box::new(SharedFakeRemoteFs::new(
+                    Arc::clone(&nodes),
+                    SharedWriteBehavior::Normal,
+                )) as Box<dyn RemoteFs>,
+            ],
+            super::DeploymentPlan::new(request).unwrap(),
+            user_cancelled,
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(|_, _| {}),
+            Arc::new(|| {}),
+            Arc::new(move || {
+                recovery_used_for_closure.store(true, Ordering::Release);
+                Ok(Box::new(SharedFakeRemoteFs::new(
+                    Arc::clone(&recovery_nodes),
+                    SharedWriteBehavior::Normal,
+                )) as Box<dyn RemoteFs>)
+            }),
+        )
+        .unwrap_err();
+        drop(root);
+
+        assert!(error.cancelled);
+        assert!(recovery_used.load(Ordering::Acquire));
+        assert_eq!(shared_read(&nodes, "/srv/app/web/old.js"), b"old");
+        assert_eq!(shared_read(&nodes, "/srv/app/app.jar"), b"old-jar");
+        assert!(!nodes
+            .lock()
+            .unwrap()
+            .keys()
+            .any(|path| path.contains("__lazycat_tmp_")));
     }
 
     #[test]
