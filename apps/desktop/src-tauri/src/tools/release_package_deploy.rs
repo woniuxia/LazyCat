@@ -1,6 +1,7 @@
 use std::collections::BTreeSet;
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
 use walkdir::WalkDir;
@@ -241,6 +242,7 @@ pub(crate) struct DeploymentPlan {
     request: DeploymentRequest,
     transactions: Vec<TransactionTarget>,
     frontend_directories: Vec<String>,
+    owned_temp_paths: Arc<Mutex<BTreeSet<String>>>,
 }
 
 impl DeploymentPlan {
@@ -269,6 +271,7 @@ impl DeploymentPlan {
             request,
             transactions,
             frontend_directories,
+            owned_temp_paths: Arc::new(Mutex::new(BTreeSet::new())),
         })
     }
 
@@ -291,11 +294,18 @@ impl DeploymentPlan {
             .collect()
     }
 
-    pub(crate) fn prepare_remote(&self, remote: &mut dyn RemoteFs) -> Result<(), DeployError> {
+    pub(crate) fn prepare_remote(
+        &self,
+        remote: &mut dyn RemoteFs,
+        cancelled: &AtomicBool,
+    ) -> Result<(), DeployError> {
         for transaction in &self.transactions {
-            if remote.metadata(&transaction.temp_path)?.is_some()
-                || remote.metadata(&transaction.backup_path)?.is_some()
-            {
+            check_cancelled(cancelled)?;
+            let temp_exists = remote.metadata(&transaction.temp_path)?.is_some();
+            check_cancelled(cancelled)?;
+            let backup_exists = remote.metadata(&transaction.backup_path)?.is_some();
+            check_cancelled(cancelled)?;
+            if temp_exists || backup_exists {
                 return Err(DeployError::failed(format!(
                     "远端部署临时或备份路径已存在：{}",
                     transaction.final_path
@@ -312,9 +322,13 @@ impl DeploymentPlan {
             .map(|(_, transaction)| transaction.temp_path.as_str())
             .collect::<BTreeSet<_>>();
         for directory in &self.frontend_directories {
+            check_cancelled(cancelled)?;
             if !frontend_roots.contains(directory.as_str()) {
                 match remote.metadata(directory)? {
-                    Some(metadata) if metadata.kind == RemoteKind::Directory => continue,
+                    Some(metadata) if metadata.kind == RemoteKind::Directory => {
+                        check_cancelled(cancelled)?;
+                        continue;
+                    }
                     Some(_) => {
                         return Err(DeployError::failed(format!(
                             "远端目录路径已被非目录占用：{directory}"
@@ -322,8 +336,13 @@ impl DeploymentPlan {
                     }
                     None => {}
                 }
+                check_cancelled(cancelled)?;
             }
             remote.create_dir(directory)?;
+            if frontend_roots.contains(directory.as_str()) {
+                self.mark_temp_owned(directory);
+            }
+            check_cancelled(cancelled)?;
         }
         Ok(())
     }
@@ -369,6 +388,7 @@ impl DeploymentPlan {
                     .entries
                     .first()
                     .ok_or_else(|| DeployError::failed("后端部署清单缺少文件"))?;
+                self.mark_temp_owned(&transaction.temp_path);
                 let mut file_progress = |bytes| progress(bytes, entry.relative_path.as_str());
                 remote.write_file(
                     &transaction.temp_path,
@@ -455,18 +475,44 @@ impl DeploymentPlan {
 
     pub(crate) fn cleanup_temps(&self, remote: &mut dyn RemoteFs) -> Vec<String> {
         let mut recovery_paths = Vec::new();
-        for transaction in &self.transactions {
-            match remote.metadata(&transaction.temp_path) {
+        let owned_temp_paths = self
+            .owned_temp_paths
+            .lock()
+            .expect("owned temp paths lock poisoned")
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>();
+        for temp_path in owned_temp_paths {
+            let cleaned = match remote.metadata(&temp_path) {
                 Ok(Some(_)) => {
-                    if remote.remove_tree(&transaction.temp_path).is_err() {
-                        recovery_paths.push(transaction.temp_path.clone());
+                    if remote.remove_tree(&temp_path).is_err() {
+                        recovery_paths.push(temp_path.clone());
+                        false
+                    } else {
+                        true
                     }
                 }
-                Ok(None) => {}
-                Err(_) => recovery_paths.push(transaction.temp_path.clone()),
+                Ok(None) => true,
+                Err(_) => {
+                    recovery_paths.push(temp_path.clone());
+                    false
+                }
+            };
+            if cleaned {
+                self.owned_temp_paths
+                    .lock()
+                    .expect("owned temp paths lock poisoned")
+                    .remove(&temp_path);
             }
         }
         recovery_paths
+    }
+
+    fn mark_temp_owned(&self, temp_path: &str) {
+        self.owned_temp_paths
+            .lock()
+            .expect("owned temp paths lock poisoned")
+            .insert(temp_path.to_string());
     }
 
     pub(crate) fn cancel_and_cleanup(&self, remote: &mut dyn RemoteFs) -> Result<(), DeployError> {
@@ -547,6 +593,14 @@ impl DeploymentPlan {
 
 fn transaction_path(final_path: &str, kind: &str, run_id: &str) -> String {
     format!("{final_path}.__lazycat_{kind}_{run_id}")
+}
+
+fn check_cancelled(cancelled: &AtomicBool) -> Result<(), DeployError> {
+    if cancelled.load(Ordering::Acquire) {
+        Err(DeployError::cancelled())
+    } else {
+        Ok(())
+    }
 }
 
 fn validate_request(request: &DeploymentRequest) -> Result<(), DeployError> {
@@ -708,7 +762,7 @@ pub fn deploy(
     mut progress: impl FnMut(u64, &str),
 ) -> Result<(), DeployError> {
     let mut plan = DeploymentPlan::new(request.clone())?;
-    if let Err(mut error) = plan.prepare_remote(remote) {
+    if let Err(mut error) = plan.prepare_remote(remote, cancelled) {
         error.recovery_paths.extend(plan.cleanup_temps(remote));
         error.recovery_paths.sort();
         error.recovery_paths.dedup();
@@ -805,6 +859,7 @@ mod transaction_tests {
     use std::fs;
     use std::path::Path;
     use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
 
     use super::{
         deploy, ArtifactManifest, DeployError, DeploymentRequest, DeploymentTarget, RemoteDirEntry,
@@ -824,6 +879,7 @@ mod transaction_tests {
         create_dir_calls: Vec<String>,
         fail_rename_targets: VecDeque<String>,
         fail_remove_targets: VecDeque<String>,
+        cancel_after_create_dirs: Option<(usize, Arc<AtomicBool>)>,
         cancel_during_write: bool,
     }
 
@@ -839,6 +895,7 @@ mod transaction_tests {
                 create_dir_calls: Vec::new(),
                 fail_rename_targets: VecDeque::new(),
                 fail_remove_targets: VecDeque::new(),
+                cancel_after_create_dirs: None,
                 cancel_during_write: false,
             }
         }
@@ -877,6 +934,10 @@ mod transaction_tests {
         fn fail_remove_tree(&mut self, path: &str) {
             self.fail_remove_targets.push_back(path.into());
         }
+
+        fn cancel_after_create_dirs(&mut self, count: usize, cancelled: Arc<AtomicBool>) {
+            self.cancel_after_create_dirs = Some((count, cancelled));
+        }
     }
 
     impl RemoteFs for FakeRemoteFs {
@@ -903,6 +964,11 @@ mod transaction_tests {
                 };
             }
             self.nodes.insert(path.into(), Node::Directory);
+            if let Some((count, cancelled)) = &self.cancel_after_create_dirs {
+                if self.create_dir_calls.len() == *count {
+                    cancelled.store(true, Ordering::Release);
+                }
+            }
             Ok(())
         }
 
@@ -1073,7 +1139,8 @@ mod transaction_tests {
         let plan = super::DeploymentPlan::new(request).unwrap();
         let mut remote = FakeRemoteFs::with_existing_release();
 
-        plan.prepare_remote(&mut remote).unwrap();
+        plan.prepare_remote(&mut remote, &AtomicBool::new(false))
+            .unwrap();
         drop(root);
 
         assert_eq!(
@@ -1115,9 +1182,56 @@ mod transaction_tests {
         let plan = super::DeploymentPlan::new(request).unwrap();
         let mut remote = FakeRemoteFs::base();
 
-        plan.prepare_remote(&mut remote).unwrap();
+        plan.prepare_remote(&mut remote, &AtomicBool::new(false))
+            .unwrap();
 
         assert!(remote.exists("/srv/app/empty-web.__lazycat_tmp_run-empty"));
+    }
+
+    #[test]
+    fn deployment_keeps_preexisting_temp_path_after_prepare_conflict() {
+        let (root, request) = two_target_request();
+        let temp_path = "/srv/app/web.__lazycat_tmp_run-1";
+        let mut remote = FakeRemoteFs::with_existing_release();
+        remote
+            .nodes
+            .insert(temp_path.into(), Node::File(b"other-run".to_vec()));
+
+        let error = deploy(&mut remote, &request, &AtomicBool::new(false), |_, _| {}).unwrap_err();
+        drop(root);
+
+        assert!(error.message.contains("临时或备份路径已存在"));
+        assert_eq!(remote.read(temp_path), b"other-run");
+    }
+
+    #[test]
+    fn cancellation_before_prepare_does_not_create_remote_directories() {
+        let (root, request) = two_target_request();
+        let mut remote = FakeRemoteFs::with_existing_release();
+
+        let error = deploy(&mut remote, &request, &AtomicBool::new(true), |_, _| {}).unwrap_err();
+        drop(root);
+
+        assert!(error.cancelled);
+        assert!(remote.create_dir_calls.is_empty());
+        assert!(!remote.any_path_contains("__lazycat_tmp_"));
+    }
+
+    #[test]
+    fn cancellation_during_prepare_cleans_only_the_created_temp_root() {
+        let (root, request) = two_target_request();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let mut remote = FakeRemoteFs::with_existing_release();
+        remote.cancel_after_create_dirs(1, Arc::clone(&cancelled));
+
+        let error = deploy(&mut remote, &request, cancelled.as_ref(), |_, _| {}).unwrap_err();
+        drop(root);
+
+        assert!(error.cancelled);
+        assert_eq!(remote.create_dir_calls.len(), 1);
+        assert_eq!(remote.read("/srv/app/web/old.js"), b"old");
+        assert_eq!(remote.read("/srv/app/app.jar"), b"old-jar");
+        assert!(!remote.any_path_contains("__lazycat_tmp_"));
     }
 
     #[test]
