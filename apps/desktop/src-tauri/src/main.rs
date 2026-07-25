@@ -1,9 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod clipboard;
 mod events;
 mod global_notification;
-mod clipboard;
-#[cfg(test)]
 mod reference_card;
 mod tools;
 

@@ -12,12 +12,18 @@ pub(crate) enum ResolveCard {
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct ResolveError {
     message: String,
-    pub(crate) recent_label: Option<String>,
+    recent_label: Option<String>,
 }
 
 impl std::fmt::Display for ResolveError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(&self.message)
+    }
+}
+
+impl ResolveError {
+    pub(crate) fn recent_label(&self) -> Option<&str> {
+        self.recent_label.as_deref()
     }
 }
 
@@ -32,19 +38,20 @@ pub(crate) struct CardRegistry {
     sources: HashMap<String, String>,
     pending: HashMap<String, String>,
     usage: u64,
+    next_id: u64,
 }
 
 impl CardRegistry {
-    pub(crate) fn resolve(&mut self, text: String) -> Result<ResolveCard, ResolveError> {
+    pub(crate) fn resolve(&mut self, text: &str) -> Result<ResolveCard, ResolveError> {
         if text.trim().is_empty() {
             return Err(ResolveError {
-                message: "参考卡内容不能为空".to_string(),
+                message: "剪贴板中没有可用文本".to_string(),
                 recent_label: None,
             });
         }
         if text.len() > MAX_TEXT_BYTES {
             return Err(ResolveError {
-                message: "参考卡内容不能超过 8 MiB".to_string(),
+                message: "参考文本不能超过 8 MiB".to_string(),
                 recent_label: None,
             });
         }
@@ -72,10 +79,8 @@ impl CardRegistry {
             });
         }
 
-        let number = (1..=MAX_CARDS)
-            .find(|number| !self.cards.contains_key(&format!("reference-card-{number}")))
-            .expect("available reference card label");
-        let label = format!("reference-card-{number}");
+        self.next_id += 1;
+        let label = format!("reference-card-{}", self.next_id);
         let ordinal = self.cards.len();
         self.sources.insert(source_hash.clone(), label.clone());
         self.cards.insert(
@@ -85,7 +90,7 @@ impl CardRegistry {
                 last_used: self.usage,
             },
         );
-        self.pending.insert(label.clone(), text);
+        self.pending.insert(label.clone(), text.to_string());
         Ok(ResolveCard::Create { label, ordinal })
     }
     pub(crate) fn take_pending(&mut self, label: &str) -> Option<String> {
@@ -115,7 +120,7 @@ impl CardRegistry {
 mod tests {
     use super::{CardRegistry, ResolveCard, MAX_CARDS, MAX_TEXT_BYTES};
     fn created(registry: &mut CardRegistry, text: &str) -> (String, usize) {
-        match registry.resolve(text.to_string()).expect("create card") {
+        match registry.resolve(text).expect("create card") {
             ResolveCard::Create { label, ordinal } => (label, ordinal),
             ResolveCard::Focus { .. } => panic!("expected create"),
         }
@@ -128,19 +133,23 @@ mod tests {
         assert_eq!(registry.take_pending(&label).as_deref(), Some(original));
         assert_eq!(registry.take_pending(&label), None);
         assert_eq!(
-            registry.resolve("第一行\n第二行".to_string()).unwrap(),
+            registry.resolve("第一行\n第二行").unwrap(),
             ResolveCard::Focus { label }
         );
     }
     #[test]
-    fn removed_source_can_be_created_again() {
+    fn removed_source_gets_next_monotonic_label() {
         let mut registry = CardRegistry::default();
         let (label, _) = created(&mut registry, "alpha");
+        assert_eq!(label, "reference-card-1");
         registry.remove_label(&label);
-        assert!(matches!(
-            registry.resolve("alpha".to_string()).unwrap(),
-            ResolveCard::Create { .. }
-        ));
+        assert_eq!(
+            registry.resolve("alpha").unwrap(),
+            ResolveCard::Create {
+                label: "reference-card-2".to_string(),
+                ordinal: 0,
+            }
+        );
     }
     #[test]
     fn capacity_error_reports_recent_label() {
@@ -150,26 +159,23 @@ mod tests {
             assert_eq!(label, format!("reference-card-{index}"));
             assert_eq!(ordinal, index - 1);
         }
-        let error = registry.resolve("overflow".to_string()).unwrap_err();
+        let error = registry.resolve("overflow").unwrap_err();
         assert_eq!(error.to_string(), "最多同时打开 6 张参考卡，请先关闭一张");
-        assert_eq!(error.recent_label.as_deref(), Some("reference-card-6"));
+        assert_eq!(error.recent_label(), Some("reference-card-6"));
     }
     #[test]
     fn rejects_blank_and_more_than_eight_mibibytes() {
         let mut registry = CardRegistry::default();
         assert_eq!(
-            registry
-                .resolve(" \r\n\t".to_string())
-                .unwrap_err()
-                .to_string(),
-            "参考卡内容不能为空"
+            registry.resolve(" \r\n\t").unwrap_err().to_string(),
+            "剪贴板中没有可用文本"
         );
         assert_eq!(
             registry
-                .resolve("a".repeat(MAX_TEXT_BYTES + 1))
+                .resolve(&"a".repeat(MAX_TEXT_BYTES + 1))
                 .unwrap_err()
                 .to_string(),
-            "参考卡内容不能超过 8 MiB"
+            "参考文本不能超过 8 MiB"
         );
     }
     #[test]
@@ -178,12 +184,12 @@ mod tests {
         let exact = format!("{}aa", "你".repeat((MAX_TEXT_BYTES - 2) / 3));
         assert_eq!(exact.len(), MAX_TEXT_BYTES);
         assert!(matches!(
-            registry.resolve(exact),
+            registry.resolve(&exact),
             Ok(ResolveCard::Create { .. })
         ));
         let mut registry = CardRegistry::default();
         let over = format!("{}aaa", "你".repeat((MAX_TEXT_BYTES - 2) / 3));
-        assert!(registry.resolve(over).is_err());
+        assert!(registry.resolve(&over).is_err());
     }
     #[test]
     fn retain_labels_removes_stale_cards_and_sources() {
@@ -192,11 +198,11 @@ mod tests {
         let (second, _) = created(&mut registry, "second");
         registry.retain_labels([second.as_str()]);
         assert!(matches!(
-            registry.resolve("first".to_string()),
+            registry.resolve("first"),
             Ok(ResolveCard::Create { .. })
         ));
         assert_eq!(
-            registry.resolve("second".to_string()).unwrap(),
+            registry.resolve("second").unwrap(),
             ResolveCard::Focus { label: second }
         );
         assert_ne!(first, "");

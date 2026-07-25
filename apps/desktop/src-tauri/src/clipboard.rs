@@ -1,4 +1,3 @@
-#[cfg(test)]
 use std::time::Duration;
 
 #[cfg(windows)]
@@ -61,7 +60,6 @@ pub(crate) fn read_unicode_text_from_open_clipboard() -> Result<Option<String>, 
     Ok(None)
 }
 
-#[cfg(test)]
 pub(crate) fn retry_read<T, F>(attempts: usize, mut read: F) -> Result<T, String>
 where
     F: FnMut() -> Result<T, String>,
@@ -79,7 +77,6 @@ where
     Err(last_error.unwrap_or_else(|| "读取剪贴板失败".to_string()))
 }
 
-#[cfg(test)]
 pub(crate) fn read_unicode_text_with_retry() -> Result<Option<String>, String> {
     retry_read(3, || {
         #[cfg(windows)]
