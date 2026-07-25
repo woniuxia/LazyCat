@@ -161,7 +161,7 @@ pub struct RemoteDirEntry {
     pub metadata: RemoteMetadata,
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DeployError {
     pub message: String,
     pub cancelled: bool,
@@ -910,6 +910,7 @@ pub(crate) fn deploy_parallel(
     let mut workers = vec![control];
     workers.extend(remotes);
     let transport_interrupted = Arc::new(AtomicBool::new(false));
+    let first_worker_error = Arc::new(Mutex::new(None));
     let mut handles = Vec::with_capacity(workers.len());
     for (index, mut remote) in workers.into_iter().enumerate() {
         let plan = Arc::clone(&plan);
@@ -918,6 +919,7 @@ pub(crate) fn deploy_parallel(
         let progress = Arc::clone(&progress);
         let interrupt_transport = Arc::clone(&interrupt_transport);
         let transport_interrupted = Arc::clone(&transport_interrupted);
+        let first_worker_error = Arc::clone(&first_worker_error);
         handles.push(thread::spawn(move || {
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 plan.upload_target(
@@ -931,6 +933,9 @@ pub(crate) fn deploy_parallel(
             .unwrap_or_else(|_| Err(DeployError::failed("远端上传工作线程异常退出")));
             if result.is_err() && !user_cancelled.load(Ordering::Acquire) {
                 if !stop_requested.swap(true, Ordering::AcqRel) {
+                    if let Err(error) = &result {
+                        *first_worker_error.lock().unwrap() = Some(error.clone());
+                    }
                     transport_interrupted.store(true, Ordering::Release);
                     interrupt_transport();
                 }
@@ -957,6 +962,9 @@ pub(crate) fn deploy_parallel(
                 }
             }
         }
+    }
+    if let Some(error) = first_worker_error.lock().unwrap().take() {
+        primary_error = Some(error);
     }
 
     let mut plan = match Arc::try_unwrap(plan) {
@@ -1336,6 +1344,7 @@ mod transaction_tests {
         FailAfterSiblingStarts(Arc<FailureProbe>),
         CancelAfterSiblingStarts(Arc<FailureProbe>, Arc<AtomicBool>),
         StopWhenRequested(Arc<FailureProbe>),
+        FailWhenStopRequested(Arc<FailureProbe>),
         BlockUntilTransportInterrupted(Arc<FailureProbe>),
         Panic,
     }
@@ -1469,6 +1478,14 @@ mod transaction_tests {
                     }
                     probe.sibling_stopped.store(true, Ordering::Release);
                     return Err(DeployError::cancelled());
+                }
+                SharedWriteBehavior::FailWhenStopRequested(probe) => {
+                    probe.sibling_started.store(true, Ordering::Release);
+                    while !cancelled.load(Ordering::Acquire) {
+                        thread::yield_now();
+                    }
+                    probe.sibling_stopped.store(true, Ordering::Release);
+                    return Err(DeployError::failed("sibling transport interrupted"));
                 }
                 SharedWriteBehavior::BlockUntilTransportInterrupted(probe) => {
                     probe.sibling_started.store(true, Ordering::Release);
@@ -1974,6 +1991,46 @@ mod transaction_tests {
         assert!(probe.sibling_stopped.load(Ordering::Acquire));
         assert_eq!(shared_read(&nodes, "/srv/app/web/old.js"), b"old");
         assert_eq!(shared_read(&nodes, "/srv/app/app.jar"), b"old-jar");
+        assert_temps_cleaned_or_reported(&nodes, &error);
+    }
+
+    #[test]
+    fn parallel_deploy_preserves_the_first_worker_failure_over_a_lower_index_sibling_error() {
+        let (root, request) = two_target_request();
+        let nodes = shared_existing_release();
+        let probe = Arc::new(FailureProbe::default());
+        let recovery_nodes = Arc::clone(&nodes);
+        let remotes = vec![
+            Box::new(SharedFakeRemoteFs::new(
+                Arc::clone(&nodes),
+                SharedWriteBehavior::FailWhenStopRequested(Arc::clone(&probe)),
+            )) as Box<dyn RemoteFs>,
+            Box::new(SharedFakeRemoteFs::new(
+                Arc::clone(&nodes),
+                SharedWriteBehavior::FailAfterSiblingStarts(Arc::clone(&probe)),
+            )) as Box<dyn RemoteFs>,
+        ];
+
+        let error = super::deploy_parallel(
+            remotes,
+            super::DeploymentPlan::new(request).unwrap(),
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(|_, _| {}),
+            Arc::new(|| {}),
+            Arc::new(move || {
+                Ok(Box::new(SharedFakeRemoteFs::new(
+                    Arc::clone(&recovery_nodes),
+                    SharedWriteBehavior::Normal,
+                )) as Box<dyn RemoteFs>)
+            }),
+        )
+        .unwrap_err();
+        drop(root);
+
+        assert!(probe.sibling_stopped.load(Ordering::Acquire));
+        assert!(error.message.contains("injected upload failure"));
+        assert!(!error.message.contains("sibling transport interrupted"));
         assert_temps_cleaned_or_reported(&nodes, &error);
     }
 
