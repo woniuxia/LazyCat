@@ -2,10 +2,11 @@
 
 适用范围：跨前后端结构、IPC、Tauri 窗口能力、工具接入、富文本、数据目录、模块拆分和删除功能。
 
-关键词：`IPC`、`Tauri capabilities`、`结构治理`、`attachments`、`数据目录`
+关键词：`IPC`、`Tauri capabilities`、`结构治理`、`动作中心`、`dispatch`、`attachments`、`数据目录`
 
 ## 目录
 
+- [2026-07-26：跨工具动作使用注册表、适配器与派发状态机](#2026-07-26跨工具动作使用注册表适配器与派发状态机)
 - [Tauri 窗口必须同步声明 capability](#tauri-窗口必须同步声明-capability)
 - [IPC 契约按唯一事实源治理](#ipc-契约按唯一事实源治理)
 - [新增工具沿既有注册链路接入](#新增工具沿既有注册链路接入)
@@ -14,6 +15,30 @@
 - [行为保持的结构拆分](#行为保持的结构拆分)
 - [完整删除跨层功能](#完整删除跨层功能)
 - [测试专用接口必须隔离到测试编译](#测试专用接口必须隔离到测试编译)
+
+## 2026-07-26：跨工具动作使用注册表、适配器与派发状态机
+
+**场景**：Todo、提醒等触发源需要启动上线包、开发环境或浏览器身份等其他工具能力。
+
+**问题**：若触发源直接保存目标工具配置、拼装执行参数或调用内部实现，会形成配置双重真值，绕过目标工具已有的确认、安全和运行态约束。
+
+**解决**：动作中心只注册可信动作定义，保存 `trigger + actionType + targetId` 通用绑定，并用 dispatch 状态机跟踪一次执行；目标适配器只提供目标列表和摘要，真正执行仍由目标工具完成。前端通过独立 intent 导航到目标工具，不复用剪贴板或页面草稿状态。
+
+**关键点**：动作定义来自代码注册表，不允许数据库注入任意命令；触发时重新校验绑定、目标和活动 dispatch；动作中心只持有目标引用、运行关联和结果，不复制目标配置或秘密。
+
+**涉及文件**：
+
+- `apps/desktop/src-tauri/src/tools/action_center/`
+- `apps/desktop/src/composables/useActionDispatchIntent.ts`
+- `apps/desktop/src/types/action-center.ts`
+
+**验证**：
+
+- `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml action_center -- --nocapture`
+- `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml contract_tests -- --nocapture`
+- `pnpm --filter @lazycat/desktop test -- src/composables/useActionDispatchIntent.test.ts`
+
+**使用次数**：0
 
 ## Tauri 窗口必须同步声明 capability
 

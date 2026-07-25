@@ -67,9 +67,20 @@ export type {
   TodoLink,
   TodoItem,
   TodoReminderEvent,
+  TodoReminderDispatch,
+  TodoReminderActionSummary,
   TodoRecurrenceInput,
   TodoItemUpsertPayload,
 } from "./todo";
+export type {
+  ActionDispatchStatus,
+  ActionDefinition,
+  ActionTargetOption,
+  ActionBindingInput,
+  ActionBindingSummary,
+  ActionDispatchSummary,
+  ActionDispatchRequest,
+} from "./action-center";
 export type {
   PomodoroSessionStatus,
   PomodoroSession,

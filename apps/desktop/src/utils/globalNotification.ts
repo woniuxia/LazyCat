@@ -9,6 +9,7 @@ import type { ReleasePackageType } from "../types/release-package";
 
 const TODO_PRIORITIES = new Set(["P0", "P1", "P2", "P3"]);
 const TODO_REMINDER_PRESETS = new Set(["", "0m", "none", "5m", "10m", "30m", "1h", "1d", "2d"]);
+const TODO_ACTIVE_ACTION_STATUSES = new Set(["pending_confirmation", "running"]);
 const RELEASE_PACKAGE_STATUSES = new Set<ReleasePackageNotificationStatus>([
   "succeeded",
   "partially_succeeded",
@@ -63,6 +64,23 @@ function hasValidCommonFields(value: Record<string, unknown>): boolean {
   return isNonEmptyString(value.id) && isNonEmptyString(value.createdAt);
 }
 
+function isTodoReminderAction(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  return isPositiveSafeInteger(value.bindingId)
+    && isNonEmptyString(value.actionType)
+    && isNonEmptyString(value.actionLabel)
+    && isNonEmptyString(value.targetLabel)
+    && typeof value.available === "boolean"
+    && (value.unavailableReason === undefined || isNonEmptyString(value.unavailableReason))
+    && (
+      value.activeDispatchStatus === undefined
+      || (
+        typeof value.activeDispatchStatus === "string"
+        && TODO_ACTIVE_ACTION_STATUSES.has(value.activeDispatchStatus)
+      )
+    );
+}
+
 function isTodoReminderNotification(value: unknown): value is TodoReminderNotification {
   if (!isRecord(value)) return false;
   return value.kind === "todo-reminder"
@@ -77,7 +95,8 @@ function isTodoReminderNotification(value: unknown): value is TodoReminderNotifi
     && typeof value.reminderPreset === "string"
     && TODO_REMINDER_PRESETS.has(value.reminderPreset)
     && typeof value.priority === "string"
-    && TODO_PRIORITIES.has(value.priority);
+    && TODO_PRIORITIES.has(value.priority)
+    && (value.action === undefined || isTodoReminderAction(value.action));
 }
 
 function isReleasePackageNotification(value: unknown): value is ReleasePackageNotification {
@@ -128,7 +147,11 @@ export function globalNotificationActions(
   notification: GlobalNotification,
 ): GlobalNotificationAction[] {
   if (notification.kind === "todo-reminder") {
-    return ["complete", "dismiss", "snooze"];
+    return [
+      notification.action ? "dispatch-action" : "complete",
+      "dismiss",
+      "snooze",
+    ];
   }
 
   const actions: GlobalNotificationAction[] = ["open-tool"];

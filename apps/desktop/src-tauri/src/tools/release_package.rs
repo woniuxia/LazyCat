@@ -338,6 +338,16 @@ fn parse_start_input(
     }
 }
 
+fn parse_action_dispatch_id(payload: &Value) -> Result<Option<String>, String> {
+    match payload.get("actionDispatchId") {
+        None => Ok(None),
+        Some(Value::String(value)) if !value.trim().is_empty() => {
+            Ok(Some(value.trim().to_string()))
+        }
+        Some(_) => Err("actionDispatchId must be a non-empty string".into()),
+    }
+}
+
 fn parse_project_payload(payload: &Value) -> Result<ProjectPayload, String> {
     let mut ssh_auth_type = optional_string(payload, "sshAuthType")?;
     if ssh_auth_type.is_empty() {
@@ -466,6 +476,37 @@ fn project_list_with_conn(conn: &Connection) -> Result<Value, String> {
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| format!("read release package project failed: {e}"))?;
     Ok(json!({ "projects": projects }))
+}
+
+pub(crate) fn list_action_target_rows(
+    conn: &Connection,
+) -> Result<Vec<(i64, String)>, String> {
+    let mut statement = conn
+        .prepare(
+            "SELECT id, name
+             FROM release_package_projects
+             ORDER BY name COLLATE NOCASE ASC, id ASC",
+        )
+        .map_err(|error| format!("prepare release package action targets failed: {error}"))?;
+    let rows = statement
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .map_err(|error| format!("query release package action targets failed: {error}"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| format!("read release package action target failed: {error}"))?;
+    Ok(rows)
+}
+
+pub(crate) fn load_action_target_label(
+    conn: &Connection,
+    id: i64,
+) -> Result<Option<String>, String> {
+    conn.query_row(
+        "SELECT name FROM release_package_projects WHERE id=?1",
+        [id],
+        |row| row.get(0),
+    )
+    .optional()
+    .map_err(|error| format!("load release package action target failed: {error}"))
 }
 
 fn project_create_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
@@ -1004,6 +1045,7 @@ pub fn execute_with_app(
             let project_id = payload["projectId"]
                 .as_i64()
                 .ok_or("projectId is required")?;
+            let action_dispatch_id = parse_action_dispatch_id(payload)?;
             let conn = db_conn()?;
             let project = load_project(&conn, project_id)?;
             let targets = parse_targets(payload.get("targets").unwrap_or(&Value::Null))?;
@@ -1024,6 +1066,7 @@ pub fn execute_with_app(
                             folder_name,
                             overwrite_existing,
                         },
+                        action_dispatch_id,
                     )
                 }
                 ReleaseStartInput::ServerUpload {
@@ -1047,6 +1090,7 @@ pub fn execute_with_app(
                         super::release_package_runtime::RuntimeStartRequest::ServerUpload {
                             deploy_authorization,
                         },
+                        action_dispatch_id,
                     )
                 }
             }
@@ -1620,6 +1664,18 @@ mod tests {
             }),
         )
         .is_err());
+    }
+
+    #[test]
+    fn action_dispatch_id_is_optional_but_strict() {
+        assert_eq!(parse_action_dispatch_id(&json!({})).unwrap(), None);
+        assert_eq!(
+            parse_action_dispatch_id(&json!({ "actionDispatchId": "dispatch-1" })).unwrap(),
+            Some("dispatch-1".into())
+        );
+        assert!(parse_action_dispatch_id(&json!({ "actionDispatchId": "" })).is_err());
+        assert!(parse_action_dispatch_id(&json!({ "actionDispatchId": 1 })).is_err());
+        assert!(parse_action_dispatch_id(&json!({ "actionDispatchId": null })).is_err());
     }
 
     #[test]

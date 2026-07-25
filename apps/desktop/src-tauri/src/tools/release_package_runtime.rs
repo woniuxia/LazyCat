@@ -455,6 +455,10 @@ fn emit_terminal_result(
         Err(PipelineError::Cancelled { .. }) => ("cancelled", None, None, None),
         Err(PipelineError::Failed { message }) => ("failed", None, Some(message), None),
     };
+    #[cfg(not(test))]
+    if let Err(error) = crate::tools::action_center::finish_release_package_run(run_id, status) {
+        eprintln!("action-center terminal update failed for run {run_id}: {error}");
+    }
     if emit_package_logs
         && archive_path.is_some()
         && matches!(status, "succeeded" | "partially_succeeded")
@@ -1524,6 +1528,7 @@ pub fn start(
     project: ReleasePackageProjectConfig,
     targets: Vec<ReleaseTarget>,
     request: RuntimeStartRequest,
+    action_dispatch_id: Option<String>,
 ) -> Result<Value, String> {
     let run_id = uuid::Uuid::new_v4().to_string();
     let cancelled = Arc::new(AtomicBool::new(false));
@@ -1553,6 +1558,21 @@ pub fn start(
             cancel_won: cancel_won.clone(),
             claim_lock: claim_lock.clone(),
         });
+    }
+
+    if let Some(dispatch_id) = action_dispatch_id.as_deref() {
+        if let Err(error) = crate::tools::action_center::associate_release_package_run(
+            dispatch_id,
+            &run_id,
+            project.id,
+        ) {
+            if let Ok(mut active) = active_run().lock() {
+                if active.as_ref().map(|run| run.run_id.as_str()) == Some(run_id.as_str()) {
+                    *active = None;
+                }
+            }
+            return Err(error);
+        }
     }
 
     let thread_run_id = run_id.clone();
@@ -1739,6 +1759,27 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
+
+    #[test]
+    fn action_dispatch_is_bound_before_worker_spawn_and_finished_before_status_emit() {
+        let source = include_str!("release_package_runtime.rs");
+        let start = &source[source.find("pub fn start(").unwrap()..];
+        assert!(
+            start.find("associate_release_package_run").unwrap()
+                < start.find("thread::spawn").unwrap()
+        );
+
+        let terminal_start = source.find("fn emit_terminal_result(").unwrap();
+        let terminal_end = source[terminal_start..]
+            .find("\nfn emit_system_log")
+            .map(|offset| terminal_start + offset)
+            .unwrap();
+        let terminal = &source[terminal_start..terminal_end];
+        assert!(
+            terminal.find("finish_release_package_run").unwrap()
+                < terminal.find("sink.status").unwrap()
+        );
+    }
 
     #[test]
     fn powershell_reports_both_streams_and_nonzero_exit() {

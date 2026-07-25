@@ -491,6 +491,7 @@
       :close-on-click-modal="false"
       :close-on-press-escape="!starting"
       :show-close="!starting"
+      :before-close="beforeCloseStartDialog"
       @closed="resetStartDialog"
     >
       <el-form label-position="top">
@@ -556,8 +557,10 @@ import { ElMessage, ElMessageBox } from "element-plus";
 import type { InputInstance } from "element-plus";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invokeToolByChannel } from "../bridge/tauri";
+import { useActionDispatchIntent } from "../composables/useActionDispatchIntent";
 import { useReleasePackageRuntime } from "../composables/useReleasePackageRuntime";
 import { useReleasePackageUploadPreflight } from "../composables/useReleasePackageUploadPreflight";
+import type { ActionDispatchRequest } from "../types";
 import type {
   ReleasePackagePrepareResult,
   ReleasePackageProject,
@@ -618,6 +621,7 @@ const saving = ref(false);
 const starting = ref(false);
 const cancelPendingStart = ref(false);
 const confirmVisible = ref(false);
+const pendingActionDispatchId = ref<string | null>(null);
 const prepareResult = ref<ReleasePackagePrepareResult | null>(null);
 const folderName = ref("");
 const selectedTargets = ref<ReleasePackageTarget[]>(createDefaultReleasePackageTargets());
@@ -635,6 +639,7 @@ const backendLogContainer = ref<HTMLElement | null>(null);
 const uploadLogContainer = ref<HTMLElement | null>(null);
 const runtime = useReleasePackageRuntime();
 const uploadPreflight = useReleasePackageUploadPreflight();
+const { watchPendingIntent } = useActionDispatchIntent();
 const statusTagTypes: Record<ReleasePackageRunStatus, "primary" | "success" | "info" | "warning" | "danger"> = {
   idle: "info",
   prechecking: "primary",
@@ -816,11 +821,14 @@ async function copyCommandExample(command: string): Promise<void> {
   }
 }
 
-async function loadProjects(): Promise<boolean> {
+async function loadProjects(
+  options: { preserveEditor?: boolean } = {},
+): Promise<boolean> {
   loading.value = true;
   try {
     const result = (await invokeToolByChannel("tool:release-package:project-list", {})) as { projects?: ReleasePackageProject[] };
     projects.value = result.projects ?? [];
+    if (options.preserveEditor) return true;
     const current = projects.value.find((project) => project.id === selectedId.value);
     const active = projects.value.find((project) => project.id === runtime.activeProjectId.value);
     const preferActiveProject = (selectedId.value === null && !dirty.value) || runtime.status.value === "running" || runtime.status.value === "uploading";
@@ -994,20 +1002,46 @@ async function resetStartDialog(): Promise<void> {
   await clearSensitiveStartState();
 }
 
+async function stopPendingActionDispatch(
+  outcome: "cancelled" | "failed",
+  error?: string,
+): Promise<void> {
+  const dispatchId = pendingActionDispatchId.value;
+  if (!dispatchId) return;
+  await invokeToolByChannel("tool:action-center:dispatch-cancel", {
+    dispatchId,
+    outcome,
+    ...(error ? { error } : {}),
+  });
+  pendingActionDispatchId.value = null;
+}
+
 async function closeStartDialog(): Promise<void> {
+  await stopPendingActionDispatch("cancelled");
   confirmVisible.value = false;
   await clearSensitiveStartState();
 }
 
-async function prepareStart(): Promise<void> {
-  if (!selectedProject.value || dirty.value) {
-    ElMessage.warning(dirty.value ? "请先保存项目配置" : "请先选择项目");
-    return;
+async function beforeCloseStartDialog(done: () => void): Promise<void> {
+  if (starting.value) return;
+  try {
+    await stopPendingActionDispatch("cancelled");
+    done();
+  } catch (error) {
+    showError(error);
   }
-  if (running.value) return;
-  await resetStartDialog();
+}
+
+async function prepareStart(): Promise<Error | null> {
+  if (!selectedProject.value || dirty.value) {
+    const error = new Error(dirty.value ? "请先保存项目配置" : "请先选择项目");
+    ElMessage.warning(error.message);
+    return error;
+  }
+  if (running.value) return new Error("已有发布打包任务正在运行");
   selectedTargets.value = createDefaultReleasePackageTargets();
   try {
+    await resetStartDialog();
     prepareResult.value = (await invokeToolByChannel("tool:release-package:prepare", {
       projectId: selectedProject.value.id,
     })) as ReleasePackagePrepareResult;
@@ -1015,6 +1049,44 @@ async function prepareStart(): Promise<void> {
       ? prepareResult.value.defaultFolderName
       : "";
     confirmVisible.value = true;
+    return null;
+  } catch (error) {
+    showError(error);
+    return error instanceof Error ? error : new Error(String(error));
+  }
+}
+
+async function applyActionDispatchIntent(intent: ActionDispatchRequest): Promise<void> {
+  if (intent.actionType !== "release_package.run") return;
+  pendingActionDispatchId.value = intent.dispatchId;
+  try {
+    if (dirty.value) {
+      await stopPendingActionDispatch("failed", "上线包页面有未保存配置，未切换打包项目");
+      ElMessage.error("上线包页面有未保存配置，动作已停止");
+      return;
+    }
+    if (running.value) {
+      await stopPendingActionDispatch("failed", "已有发布打包任务正在运行");
+      ElMessage.error("已有发布打包任务正在运行，动作已停止");
+      return;
+    }
+    const loaded = await loadProjects({ preserveEditor: true });
+    if (!loaded) {
+      await stopPendingActionDispatch("failed", "加载上线包配置失败");
+      return;
+    }
+    const target = projects.value.find((project) => String(project.id) === intent.targetId);
+    if (!target) {
+      await stopPendingActionDispatch("failed", "上线包配置不存在");
+      ElMessage.error("上线包配置不存在，动作已停止");
+      return;
+    }
+    selectedId.value = target.id;
+    Object.assign(draft, projectToReleasePackageDraft(target));
+    const prepareError = await prepareStart();
+    if (prepareError) {
+      await stopPendingActionDispatch("failed", prepareError.message);
+    }
   } catch (error) {
     showError(error);
   }
@@ -1173,14 +1245,21 @@ async function confirmStart(): Promise<void> {
     let overwriteExisting = false;
     if (packageType === "local_archive") {
       const overwriteDecision = await confirmArchiveOverwrite(projectId);
-      if (overwriteDecision === null) return;
+      if (overwriteDecision === null) {
+        await stopPendingActionDispatch("cancelled");
+        return;
+      }
       overwriteExisting = overwriteDecision;
     } else if (packageType === "server_upload") {
       const preflightAccepted = await runUploadPreflight(projectId, selectedTargets.value);
-      if (!preflightAccepted) return;
+      if (!preflightAccepted) {
+        await stopPendingActionDispatch("cancelled");
+        return;
+      }
     }
     await runtime.ensureListeners();
     if (cancelPendingStart.value) {
+      await stopPendingActionDispatch("cancelled");
       confirmVisible.value = false;
       ElMessage.info(isRetry ? "已取消上传" : "已取消打包");
       return;
@@ -1203,8 +1282,10 @@ async function confirmStart(): Promise<void> {
             overwriteExisting,
             preflightToken: uploadPreflight.preflightToken.value,
             overwriteRemoteTargets: overwriteRemoteTargets.value,
+            actionDispatchId: pendingActionDispatchId.value ?? undefined,
           }),
         ) as ReleasePackageStartResult;
+    pendingActionDispatchId.value = null;
     runtime.bindStartedRun(result.runId, projectId);
     confirmVisible.value = false;
     if (cancelPendingStart.value) {
@@ -1219,6 +1300,14 @@ async function confirmStart(): Promise<void> {
   } catch (error) {
     if (runtimeStartBegun) {
       runtime.abortStart(error instanceof Error ? error.message : String(error));
+    }
+    try {
+      await stopPendingActionDispatch(
+        "failed",
+        error instanceof Error ? error.message : String(error),
+      );
+    } catch (dispatchError) {
+      showError(dispatchError);
     }
     await handleUploadIntegrationError(error);
   } finally {
@@ -1288,6 +1377,7 @@ watch(() => draft.packageType, (packageType) => {
 watch(selectedId, () => {
   titleEditing.value = false;
 });
+watchPendingIntent("release-package", applyActionDispatchIntent);
 
 onMounted(async () => {
   void loadVaultServerOptions();

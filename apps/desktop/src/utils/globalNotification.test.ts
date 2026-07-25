@@ -22,6 +22,17 @@ const todoNotification = {
   priority: "P1" as const,
 };
 
+const actionTodoNotification = {
+  ...todoNotification,
+  action: {
+    bindingId: 9,
+    actionType: "release_package.run",
+    actionLabel: "开始打包",
+    targetLabel: "客户门户",
+    available: true,
+  },
+};
+
 const succeededNotification = {
   kind: "release-package" as const,
   id: "release-package:run-1",
@@ -109,6 +120,24 @@ describe("normalizeGlobalNotificationPayload", () => {
     ]);
   });
 
+  it("accepts a complete Todo action summary", () => {
+    expect(normalizeGlobalNotificationPayload(actionTodoNotification)).toEqual([
+      actionTodoNotification,
+    ]);
+  });
+
+  it.each(["bindingId", "actionType", "actionLabel", "targetLabel", "available"] as const)(
+    "rejects a Todo action summary without %s",
+    (field) => {
+      const action = { ...actionTodoNotification.action };
+      delete action[field];
+
+      expect(() =>
+        normalizeGlobalNotificationPayload({ ...actionTodoNotification, action }),
+      ).toThrow("无效的全局通知");
+    },
+  );
+
   it.each([
     ["eventId", 0],
     ["eventId", -1],
@@ -180,6 +209,14 @@ describe("mergeGlobalNotificationQueue", () => {
 describe("globalNotificationActions", () => {
   it("returns todo reminder actions", () => {
     expect(globalNotificationActions(todoNotification)).toEqual(["complete", "dismiss", "snooze"]);
+  });
+
+  it("replaces complete with dispatch-action for an action reminder", () => {
+    expect(globalNotificationActions(actionTodoNotification)).toEqual([
+      "dispatch-action",
+      "dismiss",
+      "snooze",
+    ]);
   });
 
   it("returns archive actions for a successful package with a non-empty archive path", () => {

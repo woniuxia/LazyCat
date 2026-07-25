@@ -110,6 +110,8 @@ export function useTodoDetailState(deps: TodoDetailStateDeps) {
       eventTime: itemDraft.eventTime,
       reminderPresets: normalizeReminderPresets(itemDraft.reminderPresets),
       repeatPreset: itemDraft.repeatPreset,
+      actionType: itemDraft.actionType,
+      actionTargetId: itemDraft.actionTargetId,
       ruleMode: itemDraft.ruleMode,
       timezone: itemDraft.timezone,
       cronExpression: itemDraft.cronExpression.trim(),
@@ -272,6 +274,8 @@ export function useTodoDetailState(deps: TodoDetailStateDeps) {
     itemDraft.pmItemTitle = null;
     itemDraft.pmItemProjectId = null;
     itemDraft.pmItemStatus = null;
+    itemDraft.actionType = null;
+    itemDraft.actionTargetId = null;
     todoPmLinkItemId.value = null;
     todoPmCandidates.value = [];
     todoLinkedPmItem.value = null;
@@ -317,6 +321,8 @@ export function useTodoDetailState(deps: TodoDetailStateDeps) {
     itemDraft.pmItemTitle = item.pmItemTitle ?? null;
     itemDraft.pmItemProjectId = item.pmItemProjectId ?? null;
     itemDraft.pmItemStatus = item.pmItemStatus ?? null;
+    itemDraft.actionType = item.actionBinding?.actionType ?? null;
+    itemDraft.actionTargetId = item.actionBinding?.targetId ?? null;
     todoPmLinkItemId.value = item.pmItemId ?? null;
     // Populate linked PM item info for display in dropdown
     if (item.pmItemId) {
@@ -354,7 +360,8 @@ export function useTodoDetailState(deps: TodoDetailStateDeps) {
       target.assignees.length > 0 ||
       !!target.eventAt ||
       effectiveReminderPresets(target.reminderPresets).length > 0 ||
-      hasRepeatRule(target);
+      hasRepeatRule(target) ||
+      !!target.actionBinding;
     markDraftBaseline();
     if (options.focusTitle !== false) {
       await focusTitleInputWhenActive("edit", "edit_item");

@@ -2,6 +2,10 @@ use chrono::{DateTime, Duration, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{json, Value};
 
+use crate::tools::action_center::{
+    apply_todo_binding_patch, attach_todo_binding_summaries, delete_todo_binding,
+    ensure_todo_can_become_recurring, parse_binding_patch, BindingPatch,
+};
 use crate::tools::helpers::db_conn;
 
 use super::helpers::*;
@@ -112,6 +116,13 @@ pub(crate) fn load_item_event_at(conn: &Connection, item_id: i64) -> Result<Opti
 
 pub(crate) fn item_list(payload: &Value) -> Result<Value, String> {
     let conn = db_conn()?;
+    item_list_with_conn(&conn, payload)
+}
+
+pub(crate) fn item_list_with_conn(
+    conn: &Connection,
+    payload: &Value,
+) -> Result<Value, String> {
     let status_filter = parse_string(payload, "status");
     let include_inactive = payload
         .get("includeInactive")
@@ -403,6 +414,7 @@ pub(crate) fn item_list(payload: &Value) -> Result<Value, String> {
         }
     }
 
+    attach_todo_binding_summaries(conn, &mut items)?;
     sort_item_rows(&mut items);
     Ok(json!({ "items": items }))
 }
@@ -410,6 +422,15 @@ pub(crate) fn item_list(payload: &Value) -> Result<Value, String> {
 // ── item_create ───────────────────────────────────────────
 
 pub(crate) fn item_create(payload: &Value) -> Result<Value, String> {
+    let mut conn = db_conn()?;
+    item_create_with_conn(&mut conn, payload)
+}
+
+pub(crate) fn item_create_with_conn(
+    conn: &mut Connection,
+    payload: &Value,
+) -> Result<Value, String> {
+    let binding_patch = parse_binding_patch(payload)?;
     let title = parse_string(payload, "title").ok_or("标题不能为空")?;
     let type_id = parse_i64(payload, "typeId");
     let priority = normalize_priority(payload.get("priority").and_then(Value::as_str))?;
@@ -423,9 +444,14 @@ pub(crate) fn item_create(payload: &Value) -> Result<Value, String> {
     let assignee_ids = parse_assignee_ids(payload);
     let reminder_presets = parse_reminder_presets(payload)?.unwrap_or_default();
 
-    let mut conn = db_conn()?;
+    if kind == SERIES_KIND_RECURRING && matches!(binding_patch, BindingPatch::Set { .. }) {
+        return Err("周期事项暂不支持执行动作".into());
+    }
 
-    if kind == SERIES_KIND_RECURRING {
+    let tx = conn
+        .transaction()
+        .map_err(|error| format!("开启事务失败: {error}"))?;
+    let item_id = if kind == SERIES_KIND_RECURRING {
         // Recurring: create item + series rule
         let recurrence = recurrence_payload(payload);
         let rule_mode = normalize_rule_mode(payload, "simple");
@@ -442,10 +468,6 @@ pub(crate) fn item_create(payload: &Value) -> Result<Value, String> {
         let (end_mode, end_value) = parse_end_rule(payload)?;
 
         let event_at = start_at.clone();
-
-        let tx = conn
-            .transaction()
-            .map_err(|e| format!("开启事务失败: {e}"))?;
 
         // Insert item (series_id=NULL temporarily)
         tx.execute(
@@ -486,17 +508,15 @@ pub(crate) fn item_create(payload: &Value) -> Result<Value, String> {
             sync_item_links(&tx, item_id, &links)?;
         }
 
-        tx.commit().map_err(|e| format!("提交事务失败: {e}"))?;
-
         // Set project_id if provided
         if let Some(project_id) = parse_i64(payload, "projectId") {
-            let _ = conn.execute(
+            tx.execute(
                 "UPDATE todo_items SET project_id = ?1 WHERE id = ?2",
                 params![project_id, item_id],
-            );
+            )
+            .map_err(|error| format!("更新事项项目失败: {error}"))?;
         }
-
-        Ok(json!({ "ok": true, "id": item_id, "rootId": item_id }))
+        item_id
     } else {
         // One-off
         let event_at = parse_event_datetime(payload, "eventAt")?;
@@ -508,39 +528,56 @@ pub(crate) fn item_create(payload: &Value) -> Result<Value, String> {
             }
         }
 
-        conn.execute(
+        tx.execute(
             "INSERT INTO todo_items(title, type_id, priority, description, kind, status, event_at, pinned)
              VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, 0)",
             params![title, type_id, priority, description, SERIES_KIND_ONE_OFF, STATUS_PENDING, event_at],
         )
         .map_err(|e| format!("创建事项失败: {e}"))?;
-        let id = conn.last_insert_rowid();
+        let id = tx.last_insert_rowid();
 
-        sync_item_assignees(&conn, id, &assignee_ids)?;
+        sync_item_assignees(&tx, id, &assignee_ids)?;
         if event_at.is_some() {
-            sync_item_reminders(&conn, id, event_at.as_deref(), &reminder_presets)?;
+            sync_item_reminders(&tx, id, event_at.as_deref(), &reminder_presets)?;
         }
         if let Some(links) = parse_links(payload) {
-            sync_item_links(&conn, id, &links)?;
+            sync_item_links(&tx, id, &links)?;
         }
 
         // Set project_id if provided
         if let Some(project_id) = parse_i64(payload, "projectId") {
-            let _ = conn.execute(
+            tx.execute(
                 "UPDATE todo_items SET project_id = ?1 WHERE id = ?2",
                 params![project_id, id],
-            );
+            )
+            .map_err(|error| format!("更新事项项目失败: {error}"))?;
         }
+        id
+    };
 
-        Ok(json!({ "ok": true, "id": id, "rootId": id }))
-    }
+    apply_todo_binding_patch(&tx, item_id, &kind, binding_patch, true)?;
+    tx.commit()
+        .map_err(|error| format!("提交事务失败: {error}"))?;
+    Ok(json!({ "ok": true, "id": item_id, "rootId": item_id }))
 }
 
 // ── item_update ───────────────────────────────────────────
 
 pub(crate) fn item_update(payload: &Value) -> Result<Value, String> {
+    let mut conn = db_conn()?;
+    item_update_with_conn(&mut conn, payload)
+}
+
+pub(crate) fn item_update_with_conn(
+    database: &mut Connection,
+    payload: &Value,
+) -> Result<Value, String> {
+    let binding_patch = parse_binding_patch(payload)?;
     let id = parse_i64(payload, "id").ok_or("缺少事项 id")?;
-    let conn = db_conn()?;
+    let tx = database
+        .transaction()
+        .map_err(|error| format!("开启事务失败: {error}"))?;
+    let conn: &Connection = &tx;
 
     // Verify item exists and get kind + series_id
     let (kind, mut series_id): (String, Option<i64>) = conn
@@ -553,6 +590,9 @@ pub(crate) fn item_update(payload: &Value) -> Result<Value, String> {
 
     // Detect kind change
     let new_kind = parse_item_kind(payload);
+    if kind == SERIES_KIND_ONE_OFF && new_kind == SERIES_KIND_RECURRING {
+        ensure_todo_can_become_recurring(conn, id, &binding_patch)?;
+    }
     if kind == SERIES_KIND_RECURRING && new_kind == SERIES_KIND_ONE_OFF {
         // recurring -> one_off: delete series rule, clear series_id and parent_id
         if let Some(sid) = series_id {
@@ -670,10 +710,11 @@ pub(crate) fn item_update(payload: &Value) -> Result<Value, String> {
                 ));
             }
         }
-        let _ = conn.execute(
+        conn.execute(
             "UPDATE todo_items SET project_id = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2",
             params![new_project_id, id],
-        );
+        )
+        .map_err(|error| format!("更新事项项目失败: {error}"))?;
     }
 
     // Update event_at and reminders
@@ -802,6 +843,9 @@ pub(crate) fn item_update(payload: &Value) -> Result<Value, String> {
         }
     }
 
+    apply_todo_binding_patch(conn, id, &new_kind, binding_patch, false)?;
+    tx.commit()
+        .map_err(|error| format!("提交事务失败: {error}"))?;
     Ok(json!({ "ok": true }))
 }
 
@@ -825,6 +869,14 @@ pub(crate) fn item_change_status(payload: &Value) -> Result<Value, String> {
     )?;
 
     let conn = db_conn()?;
+    change_item_status_with_conn(&conn, id, &next)
+}
+
+pub(crate) fn change_item_status_with_conn(
+    conn: &Connection,
+    id: i64,
+    next: &str,
+) -> Result<Value, String> {
     let (current, kind, series_id): (String, String, Option<i64>) = conn
         .query_row(
             "SELECT status, kind, series_id FROM todo_items WHERE id=?1",
@@ -874,9 +926,22 @@ pub(crate) fn item_change_status(payload: &Value) -> Result<Value, String> {
 // ── item_delete ───────────────────────────────────────────
 
 pub(crate) fn item_delete(payload: &Value) -> Result<Value, String> {
+    let mut database = db_conn()?;
+    let tx = database
+        .transaction()
+        .map_err(|error| format!("开启事务失败: {error}"))?;
+    let result = item_delete_with_conn(&tx, payload)?;
+    tx.commit()
+        .map_err(|error| format!("提交事务失败: {error}"))?;
+    Ok(result)
+}
+
+pub(crate) fn item_delete_with_conn(
+    conn: &Connection,
+    payload: &Value,
+) -> Result<Value, String> {
     let id = parse_i64(payload, "id").ok_or("缺少事项 id")?;
     let scope = parse_scope(payload);
-    let conn = db_conn()?;
 
     let item = conn
         .query_row(
@@ -894,6 +959,7 @@ pub(crate) fn item_delete(payload: &Value) -> Result<Value, String> {
         .map_err(|e| format!("查询事项失败: {e}"))?
         .ok_or("事项不存在")?;
     let (kind, series_id, status) = item;
+    delete_todo_binding(conn, id)?;
 
     if scope == SCOPE_FUTURE_INSTANCES && kind == SERIES_KIND_RECURRING {
         // 暂停规则 + 删除当前项
@@ -980,10 +1046,11 @@ pub(crate) fn item_delete(payload: &Value) -> Result<Value, String> {
                                     let new_id = conn.last_insert_rowid();
 
                                     // Inherit project_id from template item
-                                    let _ = conn.execute(
+                                    conn.execute(
                                         "UPDATE todo_items SET project_id = (SELECT project_id FROM todo_items WHERE id = ?1) WHERE id = ?2",
                                         params![tmpl_id, new_id],
-                                    );
+                                    )
+                                    .map_err(|error| format!("继承事项项目失败: {error}"))?;
 
                                     // 使用缓存的支撑表数据
                                     sync_item_assignees(&conn, new_id, &cached_assignee_ids)?;

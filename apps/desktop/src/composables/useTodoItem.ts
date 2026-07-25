@@ -3,6 +3,7 @@
  * Pure functions with no reactive state dependencies.
  */
 import type {
+  ActionBindingSummary,
   TodoAssignee,
   TodoEndMode,
   TodoItem,
@@ -216,6 +217,24 @@ function normalizeLinks(value: unknown): TodoLink[] {
     .filter((item): item is TodoLink => Boolean(item));
 }
 
+function normalizeActionBinding(value: unknown): ActionBindingSummary | null {
+  if (!value || typeof value !== "object") return null;
+  const record = asRecord(value);
+  const actionType = readString(record, ["actionType"]);
+  const targetId = readNullableString(record, ["targetId"]);
+  if (!actionType || !targetId) return null;
+  const unavailableReason = readString(record, ["unavailableReason"]);
+  return {
+    id: readNumber(record, ["id"], 0),
+    actionType,
+    actionLabel: readString(record, ["actionLabel"], actionType),
+    targetId,
+    targetLabel: readString(record, ["targetLabel"], `配置 #${targetId}`),
+    available: readBoolean(record, ["available"], false),
+    ...(unavailableReason ? { unavailableReason } : {}),
+  };
+}
+
 function normalizeRule(
   rawRule: unknown,
   ruleMode: TodoRuleMode,
@@ -348,6 +367,7 @@ export function normalizeTodoItem(raw: unknown): TodoItem {
     pmItemTitle: typeof record.pmItemTitle === "string" ? record.pmItemTitle : null,
     pmItemProjectId: typeof record.pmItemProjectId === "number" ? record.pmItemProjectId : null,
     pmItemStatus: typeof record.pmItemStatus === "string" ? record.pmItemStatus : null,
+    actionBinding: normalizeActionBinding(record.actionBinding),
   };
 }
 

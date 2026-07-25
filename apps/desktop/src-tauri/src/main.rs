@@ -1365,6 +1365,9 @@ fn main() {
                 .build(app)?;
 
             // 启动待办调度线程（周期实例生成 + 到期提醒派发）
+            if let Err(error) = tools::action_center::recover_interrupted_dispatches() {
+                eprintln!("action-center recovery failed: {error}");
+            }
             start_todo_scheduler(app.handle().clone());
             start_pomodoro_scheduler(app.handle().clone());
             start_clipboard_monitor(app.handle().clone());

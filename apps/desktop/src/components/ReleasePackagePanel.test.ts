@@ -297,6 +297,94 @@ describe("ReleasePackagePanel", () => {
     expect(appSource).toContain('@open-tool="onSelect"');
   });
 
+  it("routes action dispatch intents before selecting the target tool", () => {
+    const listenerStart = appSource.indexOf("APP_EVENTS.ACTION_CENTER_DISPATCH_REQUEST");
+    const listenerEnd = appSource.indexOf("\n  } catch", listenerStart);
+    const listenerSource = appSource.slice(listenerStart, listenerEnd);
+
+    expect(listenerStart).toBeGreaterThan(-1);
+    expect(listenerSource).toContain("setPendingIntent(payload)");
+    expect(listenerSource).toContain("onSelect(payload.targetToolId)");
+    expect(listenerSource.indexOf("setPendingIntent(payload)")).toBeLessThan(
+      listenerSource.indexOf("onSelect(payload.targetToolId)"),
+    );
+    expect(listenerSource).not.toContain("setPendingToolInput");
+  });
+
+  it("consumes release-package intents without overwriting a dirty or running editor", () => {
+    const applyStart = source.indexOf("async function applyActionDispatchIntent");
+    const applyEnd = source.indexOf("\nasync function", applyStart + 1);
+    const applySource = source.slice(applyStart, applyEnd);
+    const dirtyStart = applySource.indexOf("if (dirty.value)");
+    const runningStart = applySource.indexOf("if (running.value)");
+    const dirtyBranch = applySource.slice(dirtyStart, runningStart);
+
+    expect(source).toContain('watchPendingIntent("release-package", applyActionDispatchIntent)');
+    expect(applySource).toContain('intent.actionType !== "release_package.run"');
+    expect(dirtyBranch).toContain('stopPendingActionDispatch("failed"');
+    expect(dirtyBranch).not.toContain("selectedId.value =");
+    expect(dirtyBranch).not.toContain("Object.assign(draft");
+    expect(applySource).toContain('stopPendingActionDispatch("failed", "已有发布打包任务正在运行")');
+  });
+
+  it("reloads and selects the exact intent target before using the existing prepare flow", () => {
+    const applyStart = source.indexOf("async function applyActionDispatchIntent");
+    const applyEnd = source.indexOf("\nasync function", applyStart + 1);
+    const applySource = source.slice(applyStart, applyEnd);
+
+    expect(applySource).toContain("const loaded = await loadProjects({ preserveEditor: true })");
+    expect(applySource).toContain("String(project.id) === intent.targetId");
+    expect(applySource).toContain('stopPendingActionDispatch("failed", "上线包配置不存在")');
+    expect(applySource).not.toContain("projects.value[0]");
+    expect(applySource).toContain("selectedId.value = target.id");
+    expect(applySource).toContain("Object.assign(draft, projectToReleasePackageDraft(target))");
+    expect(applySource).toContain("const prepareError = await prepareStart()");
+  });
+
+  it("finishes pending dispatches explicitly on cancellation, failure, or successful start", () => {
+    const stopStart = source.indexOf("async function stopPendingActionDispatch");
+    const stopEnd = source.indexOf("\nasync function", stopStart + 1);
+    const stopSource = source.slice(stopStart, stopEnd);
+    const confirmStart = source.slice(
+      source.indexOf("async function confirmStart"),
+      source.indexOf("async function cancelRun"),
+    );
+
+    expect(stopSource).toContain('"tool:action-center:dispatch-cancel"');
+    expect(stopSource).toContain("dispatchId");
+    expect(stopSource).toContain("outcome");
+    expect(source).toContain(':before-close="beforeCloseStartDialog"');
+    expect(source).toContain('await stopPendingActionDispatch("cancelled")');
+    expect(confirmStart).toMatch(/await stopPendingActionDispatch\(\s*"failed"/u);
+    expect(confirmStart).toContain("pendingActionDispatchId.value = null");
+  });
+
+  it("passes the dispatch id only to a fresh package start", () => {
+    const confirmStart = source.slice(
+      source.indexOf("async function confirmStart"),
+      source.indexOf("async function cancelRun"),
+    );
+    const retryStart = confirmStart.indexOf('"tool:release-package:upload-retry"');
+    const normalStart = confirmStart.indexOf('"tool:release-package:start"');
+
+    expect(confirmStart).toContain("actionDispatchId: pendingActionDispatchId.value ?? undefined");
+    expect(retryStart).toBeGreaterThan(-1);
+    expect(normalStart).toBeGreaterThan(retryStart);
+    expect(confirmStart.slice(retryStart, normalStart)).not.toContain("actionDispatchId");
+  });
+
+  it("returns dialog reset failures to the pending dispatch flow", () => {
+    const prepareStart = source.slice(
+      source.indexOf("async function prepareStart"),
+      source.indexOf("async function applyActionDispatchIntent"),
+    );
+
+    expect(prepareStart.indexOf("try {")).toBeLessThan(
+      prepareStart.indexOf("await resetStartDialog()"),
+    );
+    expect(prepareStart).toContain("return error instanceof Error ? error : new Error(String(error))");
+  });
+
   it("renders an explicit state when the saved Vault binding no longer exists", () => {
     expect(source).toContain('class="vault-binding-invalid"');
     expect(source).toContain("绑定的密码库凭据已失效，请重新选择");

@@ -1,4 +1,5 @@
 pub mod api_mock;
+pub mod action_center;
 pub mod browser_profiles;
 pub mod convert;
 pub mod cron;
@@ -66,6 +67,7 @@ pub fn execute_tool(domain: &str, action: &str, payload: &Value) -> Result<Value
 
 fn dispatch_tool(domain: &str, action: &str, payload: &Value) -> Result<Value, String> {
     match domain {
+        "action_center" => action_center::execute(action, payload),
         "api_mock" => api_mock::execute(action, payload),
         "browser_profiles" => browser_profiles::execute(action, payload),
         "encode" => encode::execute(action, payload),
@@ -114,6 +116,7 @@ fn dispatch_tool(domain: &str, action: &str, payload: &Value) -> Result<Value, S
 #[cfg(test)]
 pub fn supported_actions(domain: &str) -> Option<&'static [&'static str]> {
     match domain {
+        "action_center" => Some(action_center::supported_actions()),
         "api_mock" => Some(api_mock::supported_actions()),
         "browser_profiles" => Some(browser_profiles::supported_actions()),
         "encode" => Some(encode::supported_actions()),
@@ -214,6 +217,7 @@ pub fn execute_tool_with_app(
     app: &tauri::AppHandle,
 ) -> Result<Value, String> {
     match domain {
+        "action_center" => action_center::execute_with_app(action, payload, app),
         "release_package" => release_package::execute_with_app(action, payload, app),
         "settings" => settings::execute_with_app(action, payload, app),
         "widget" => widget::execute_with_app(action, payload, app),

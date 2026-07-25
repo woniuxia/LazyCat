@@ -224,6 +224,57 @@
             </el-form-item>
           </div>
 
+          <div v-if="draft.repeatPreset === 'none'" class="todo-form-section action-binding-section">
+            <el-form-item label="执行动作">
+              <el-select
+                v-model="draft.actionType"
+                clearable
+                placeholder="不执行动作"
+                style="width: 100%"
+                @change="$emit('actionTypeChange', $event || null)"
+              >
+                <el-option
+                  v-for="definition in actionDefinitions"
+                  :key="definition.actionType"
+                  :label="definition.label"
+                  :value="definition.actionType"
+                />
+              </el-select>
+            </el-form-item>
+            <el-form-item v-if="draft.actionType" label="打包配置">
+              <el-select
+                v-if="actionTargets.length > 0 || unavailableSelectedTarget"
+                v-model="draft.actionTargetId"
+                clearable
+                placeholder="请选择已有打包配置"
+                style="width: 100%"
+              >
+                <el-option
+                  v-if="unavailableSelectedTarget"
+                  :label="unavailableSelectedTarget.targetLabel"
+                  :value="unavailableSelectedTarget.targetId"
+                  disabled
+                />
+                <el-option
+                  v-for="target in actionTargets"
+                  :key="target.id"
+                  :label="target.label"
+                  :value="target.id"
+                  :disabled="!target.available"
+                />
+              </el-select>
+              <div v-else class="action-target-empty">
+                <span>暂无上线包配置</span>
+                <el-button link type="primary" @click="$emit('navigateToTool', 'release-package')">
+                  前往上线包
+                </el-button>
+              </div>
+              <div v-if="unavailableSelectedTarget" class="action-target-error">
+                {{ unavailableSelectedTarget.unavailableReason || "上线包配置不存在" }}
+              </div>
+            </el-form-item>
+          </div>
+
           <div class="todo-form-section">
             <el-form-item label="重复方式">
               <el-radio-group
@@ -421,7 +472,16 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { Plus } from "@element-plus/icons-vue";
-import type { TodoAssignee, TodoItem, TodoPriority, TodoReminderPreset, TodoRepeatPreset, TodoSimpleRule } from "../../types";
+import type {
+  ActionDefinition,
+  ActionTargetOption,
+  TodoAssignee,
+  TodoItem,
+  TodoPriority,
+  TodoReminderPreset,
+  TodoRepeatPreset,
+  TodoSimpleRule,
+} from "../../types";
 import type { PmCandidateItem } from "../../types/pm";
 import { effectiveReminderPresets } from "../../composables/useTodoItem";
 import InlinePmSelector from "../InlinePmSelector.vue";
@@ -454,6 +514,8 @@ interface DraftShape {
   endValueDate: string | null;
   endValueCount: number;
   links: { url: string; title: string }[];
+  actionType: string | null;
+  actionTargetId: string | null;
 }
 
 const props = defineProps<{
@@ -474,6 +536,8 @@ const props = defineProps<{
   minuteOptions: { value: string; label: string }[];
   timeHour: string;
   timeMinute: string;
+  actionDefinitions: ActionDefinition[];
+  actionTargets: ActionTargetOption[];
 }>();
 
 defineEmits<{
@@ -492,6 +556,8 @@ defineEmits<{
   clearEventSchedule: [];
   reminderPresetsChange: [values: TodoReminderPreset[]];
   repeatPresetChange: [preset: TodoRepeatPreset];
+  actionTypeChange: [actionType: string | null];
+  navigateToTool: [toolId: string];
   customFrequencyChange: [];
   togglePin: [id: number];
   changeStatus: [id: number, status: string];
@@ -614,7 +680,17 @@ const moreFieldsSummary = computed(() => {
   if (props.draft.eventDate || props.draft.eventTime) parts.push("日期");
   if (effectiveReminderPresets(props.draft.reminderPresets).length > 0) parts.push("提醒");
   if (props.draft.repeatPreset !== "none") parts.push("重复");
+  if (props.draft.actionType) parts.push("动作");
   return parts.length > 0 ? `已设${parts.join("、")}` : "";
+});
+
+const unavailableSelectedTarget = computed(() => {
+  const binding = props.selectedItem?.actionBinding;
+  if (!binding || binding.available) return null;
+  if (binding.actionType !== props.draft.actionType) return null;
+  if (binding.targetId !== props.draft.actionTargetId) return null;
+  if (props.actionTargets.some((target) => target.id === binding.targetId)) return null;
+  return binding;
 });
 
 // --- Helpers ---
@@ -727,6 +803,30 @@ function disabledAllSeconds(..._args: unknown[]) {
 }
 .todo-form-section:last-child {
   margin-bottom: 0;
+}
+.action-binding-section {
+  padding: 12px;
+  border: 1px solid var(--lc-border);
+  border-radius: var(--lc-radius-md, 8px);
+  background: var(--lc-surface-1);
+}
+.action-binding-section :deep(.el-form-item:last-child) {
+  margin-bottom: 0;
+}
+.action-target-empty {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+}
+.action-target-error {
+  width: 100%;
+  margin-top: 6px;
+  color: var(--el-color-danger);
+  font-size: 12px;
+  line-height: 1.5;
 }
 .todo-form-more-toggle {
   display: flex;
