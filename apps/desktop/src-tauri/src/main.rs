@@ -2,6 +2,9 @@
 
 mod events;
 mod global_notification;
+mod clipboard;
+#[cfg(test)]
+mod reference_card;
 mod tools;
 
 use tauri::{
