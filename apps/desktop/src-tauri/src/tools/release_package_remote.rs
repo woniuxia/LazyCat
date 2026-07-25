@@ -819,11 +819,13 @@ mod tests {
     };
     use crate::tools::release_package::ReleaseTarget;
     use crate::tools::release_package_deploy::{
-        deploy, ArtifactManifest, DeploymentRequest, DeploymentTarget, RemoteFs, RemoteKind,
+        deploy, deploy_parallel, ArtifactManifest, DeployError, DeploymentPlan, DeploymentRequest,
+        DeploymentTarget, RemoteFs, RemoteKind,
     };
     use std::fs;
     use std::path::{Path, PathBuf};
-    use std::sync::atomic::AtomicBool;
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+    use std::sync::Arc;
     use std::time::Duration;
     use uuid::Uuid;
     use zeroize::Zeroizing;
@@ -1316,6 +1318,91 @@ mod tests {
             .map_err(|error| error.to_string());
         scenario?;
         cleanup
+    }
+
+    #[test]
+    #[ignore = "requires LAZYCAT_SSH_TEST_* variables and a loopback SSH fixture"]
+    fn parallel_targets_upload_to_local_fixture() {
+        let fixture = SshTestFixture::from_env().unwrap();
+        let probe = probe_host(&fixture.endpoint).unwrap();
+        let suffix = Uuid::new_v4().simple().to_string();
+        let remote_root = format!("/tmp/lazycat-release-package-parallel-test-{suffix}");
+        let binding = Arc::new(fixture.binding(&remote_root, "password"));
+        let expected_fingerprint = Arc::new(probe.fingerprint_sha256);
+        let auth = Arc::new(fixture.password_auth());
+        let sockets = Arc::new(SshSocketRegistry::new());
+        let local = LocalFixtureDir::create().unwrap();
+        let request = deployment_request(&local.0, &remote_root, "parallel", false, false).unwrap();
+        let plan = DeploymentPlan::new(request).unwrap();
+        assert_eq!(plan.target_count(), 2);
+        let expected_uploaded = plan
+            .request()
+            .targets
+            .iter()
+            .map(|target| target.manifest.total_bytes)
+            .sum::<u64>();
+        let connect_remote = {
+            let binding = Arc::clone(&binding);
+            let expected_fingerprint = Arc::clone(&expected_fingerprint);
+            let auth = Arc::clone(&auth);
+            let sockets = Arc::clone(&sockets);
+            Arc::new(move || -> Result<Box<dyn RemoteFs>, DeployError> {
+                Ok(Box::new(SftpRemoteFs::connect(
+                    binding.as_ref(),
+                    expected_fingerprint.as_str(),
+                    auth.as_ref(),
+                    sockets.as_ref(),
+                )?))
+            }) as Arc<dyn Fn() -> Result<Box<dyn RemoteFs>, DeployError> + Send + Sync>
+        };
+        let mut remotes = Vec::with_capacity(plan.target_count());
+        for _ in 0..plan.target_count() {
+            remotes.push(connect_remote().unwrap());
+        }
+        let uploaded = Arc::new(AtomicU64::new(0));
+        let progress = {
+            let uploaded = Arc::clone(&uploaded);
+            Arc::new(move |bytes, _path: &str| {
+                uploaded.fetch_add(bytes, Ordering::AcqRel);
+            }) as Arc<dyn Fn(u64, &str) + Send + Sync>
+        };
+        let interrupt_transport = {
+            let sockets = Arc::clone(&sockets);
+            Arc::new(move || sockets.shutdown_all()) as Arc<dyn Fn() + Send + Sync>
+        };
+        let recover_remote = {
+            let connect_remote = Arc::clone(&connect_remote);
+            let sockets = Arc::clone(&sockets);
+            Arc::new(move || {
+                sockets.reset_after_shutdown();
+                connect_remote()
+            }) as Arc<dyn Fn() -> Result<Box<dyn RemoteFs>, DeployError> + Send + Sync>
+        };
+
+        let deployment = deploy_parallel(
+            remotes,
+            plan,
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(AtomicBool::new(false)),
+            progress,
+            interrupt_transport,
+            recover_remote,
+        );
+        sockets.clear();
+
+        let cleanup_sockets = SshSocketRegistry::new();
+        let cleanup = SftpRemoteFs::connect(
+            binding.as_ref(),
+            expected_fingerprint.as_str(),
+            auth.as_ref(),
+            &cleanup_sockets,
+        )
+        .and_then(|mut remote| remote.remove_tree(&remote_root));
+        cleanup_sockets.clear();
+
+        deployment.unwrap();
+        cleanup.unwrap();
+        assert_eq!(uploaded.load(Ordering::Acquire), expected_uploaded);
     }
 
     #[test]
