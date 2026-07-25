@@ -823,6 +823,8 @@ mod tests {
         DeploymentTarget, RemoteFs, RemoteKind,
     };
     use std::fs;
+    use std::net::{SocketAddr, ToSocketAddrs};
+    use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
     use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
     use std::sync::Arc;
@@ -1119,6 +1121,47 @@ mod tests {
         discard_preflight(&issued.token).unwrap();
     }
 
+    #[test]
+    fn ssh_fixture_addresses_accept_loopback_only() {
+        let addresses = [
+            "127.0.0.1:22".parse::<SocketAddr>().unwrap(),
+            "[::1]:22".parse::<SocketAddr>().unwrap(),
+        ];
+
+        assert_eq!(validate_ssh_fixture_addresses(&addresses), Ok(()));
+    }
+
+    #[test]
+    fn ssh_fixture_addresses_reject_an_empty_set() {
+        assert_eq!(
+            validate_ssh_fixture_addresses(&[]),
+            Err("LAZYCAT_SSH_TEST_HOST resolved to no addresses".into())
+        );
+    }
+
+    #[test]
+    fn ssh_fixture_addresses_reject_non_loopback_addresses() {
+        let addresses = [
+            "127.0.0.1:22".parse::<SocketAddr>().unwrap(),
+            "192.0.2.1:22".parse::<SocketAddr>().unwrap(),
+        ];
+
+        assert_eq!(
+            validate_ssh_fixture_addresses(&addresses),
+            Err("LAZYCAT_SSH_TEST_HOST must resolve only to loopback addresses".into())
+        );
+    }
+
+    fn validate_ssh_fixture_addresses(addresses: &[SocketAddr]) -> Result<(), String> {
+        if addresses.is_empty() {
+            return Err("LAZYCAT_SSH_TEST_HOST resolved to no addresses".into());
+        }
+        if addresses.iter().any(|address| !address.ip().is_loopback()) {
+            return Err("LAZYCAT_SSH_TEST_HOST must resolve only to loopback addresses".into());
+        }
+        Ok(())
+    }
+
     struct SshTestFixture {
         endpoint: RemoteEndpoint,
         password: String,
@@ -1136,6 +1179,11 @@ mod tests {
             let port = required("LAZYCAT_SSH_TEST_PORT")?
                 .parse::<u16>()
                 .map_err(|error| format!("invalid LAZYCAT_SSH_TEST_PORT: {error}"))?;
+            let addresses = (host.as_str(), port)
+                .to_socket_addrs()
+                .map_err(|error| format!("failed to resolve LAZYCAT_SSH_TEST_HOST: {error}"))?
+                .collect::<Vec<_>>();
+            validate_ssh_fixture_addresses(&addresses)?;
             Ok(Self {
                 endpoint: RemoteEndpoint {
                     host,
@@ -1379,15 +1427,17 @@ mod tests {
             }) as Arc<dyn Fn() -> Result<Box<dyn RemoteFs>, DeployError> + Send + Sync>
         };
 
-        let deployment = deploy_parallel(
-            remotes,
-            plan,
-            Arc::new(AtomicBool::new(false)),
-            Arc::new(AtomicBool::new(false)),
-            progress,
-            interrupt_transport,
-            recover_remote,
-        );
+        let deployment = catch_unwind(AssertUnwindSafe(|| {
+            deploy_parallel(
+                remotes,
+                plan,
+                Arc::new(AtomicBool::new(false)),
+                Arc::new(AtomicBool::new(false)),
+                progress,
+                interrupt_transport,
+                recover_remote,
+            )
+        }));
         sockets.clear();
 
         let cleanup_sockets = SshSocketRegistry::new();
@@ -1400,9 +1450,17 @@ mod tests {
         .and_then(|mut remote| remote.remove_tree(&remote_root));
         cleanup_sockets.clear();
 
-        deployment.unwrap();
-        cleanup.unwrap();
-        assert_eq!(uploaded.load(Ordering::Acquire), expected_uploaded);
+        match deployment {
+            Ok(deployment) => {
+                deployment.unwrap();
+                cleanup.unwrap();
+                assert_eq!(uploaded.load(Ordering::Acquire), expected_uploaded);
+            }
+            Err(panic) => {
+                let _ = cleanup;
+                resume_unwind(panic);
+            }
+        }
     }
 
     #[test]
