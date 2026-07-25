@@ -210,6 +210,23 @@ describe("ReleasePackagePanel", () => {
     expect(source).not.toContain("draft.password");
   });
 
+  it("awaits remote token revocation on dialog reset and terminal paths", () => {
+    const clearStart = source.slice(
+      source.indexOf("async function clearSensitiveStartState"),
+      source.indexOf("async function prepareStart"),
+    );
+    const confirmStart = source.slice(
+      source.indexOf("async function confirmStart"),
+      source.indexOf("async function cancelRun"),
+    );
+
+    expect(clearStart).toContain("await uploadPreflight.reset()");
+    expect(clearStart).toContain("async function resetStartDialog");
+    expect(clearStart).toContain("async function closeStartDialog");
+    expect(source).toContain("await resetStartDialog()");
+    expect(confirmStart).toMatch(/finally\s*\{[\s\S]*await clearSensitiveStartState\(\)/u);
+  });
+
   it("binds a Vault server credential for password auth without rendering a password field", () => {
     expect(source).toContain('label="密码库凭据"');
     expect(source).toContain('v-model="draft.vaultEntryId"');

@@ -7,9 +7,9 @@ use std::path::PathBuf;
 use super::helpers::db_conn;
 use super::release_package_archive::{default_folder_name, validate_folder_name};
 use super::release_package_remote::{
-    classify_trust, consume_probe, issue_preflight, load_probe, probe_host, run_remote_preflight,
-    store_probe, validate_remote_dir, validate_remote_file, AuthSecret, HostTrust,
-    PreflightBinding, ProbeSnapshot, RemoteEndpoint, RemoteTarget,
+    classify_trust, consume_probe, discard_preflight, discard_probe, issue_preflight, load_probe,
+    probe_host, run_remote_preflight, store_probe, validate_remote_dir, validate_remote_file,
+    AuthSecret, HostTrust, PreflightBinding, ProbeSnapshot, RemoteEndpoint, RemoteTarget,
 };
 use zeroize::Zeroizing;
 
@@ -116,6 +116,7 @@ const ACTIONS: &[&str] = &[
     "remote_probe",
     "host_trust",
     "remote_preflight",
+    "remote_discard",
     "start",
     "upload_retry",
     "cancel",
@@ -911,6 +912,27 @@ fn remote_preflight_with_conn(conn: &Connection, payload: &Value) -> Result<Valu
         "targets": checks,
     }))
 }
+
+fn optional_token<'a>(payload: &'a Value, key: &str) -> Result<Option<&'a str>, String> {
+    match payload.get(key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(value)) if value.is_empty() => Ok(None),
+        Some(Value::String(value)) => Ok(Some(value)),
+        Some(_) => Err(format!("{key} must be a string")),
+    }
+}
+
+fn remote_discard(payload: &Value) -> Result<Value, String> {
+    let preflight_token = optional_token(payload, "preflightToken")?;
+    let probe_token = optional_token(payload, "probeToken")?;
+    if let Some(token) = preflight_token {
+        discard_preflight(token)?;
+    }
+    if let Some(token) = probe_token {
+        discard_probe(token)?;
+    }
+    Ok(json!({ "ok": true }))
+}
 #[cfg(test)]
 pub(crate) fn supported_actions() -> &'static [&'static str] {
     ACTIONS
@@ -922,6 +944,9 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
     }
     if matches!(action, "start" | "upload_retry" | "cancel") {
         return Err("release_package action requires app context".into());
+    }
+    if action == "remote_discard" {
+        return remote_discard(payload);
     }
     let conn = db_conn()?;
     match action {
@@ -1748,6 +1773,56 @@ mod tests {
             .contains("不是文件夹"));
 
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn remote_discard_action_revokes_both_token_types_idempotently() {
+        assert!(supported_actions().contains(&"remote_discard"));
+        let snapshot = ProbeSnapshot {
+            endpoint: RemoteEndpoint {
+                host: "server.example.internal".into(),
+                port: 22,
+                username: "deploy".into(),
+            },
+            key_type: "ed25519".into(),
+            fingerprint_sha256: "SHA256:key".into(),
+        };
+        let probe_token = store_probe(snapshot).unwrap();
+        let binding = PreflightBinding {
+            project_id: 7,
+            endpoint: RemoteEndpoint {
+                host: "server.example.internal".into(),
+                port: 22,
+                username: "deploy".into(),
+            },
+            auth_type: "private_key".into(),
+            vault_entry_id: None,
+            private_key_path: r"C:\Users\tester\.ssh\lazycat".into(),
+            targets: vec![RemoteTarget::Backend],
+            frontend_remote_dir: "/srv/app/web".into(),
+            backend_remote_path: "/srv/app/app.jar".into(),
+        };
+        let preflight = issue_preflight(
+            binding.clone(),
+            "SHA256:key".into(),
+            AuthSecret::PrivateKeyPassphrase(Some(Zeroizing::new("secret".into()))),
+            &[],
+        )
+        .unwrap();
+        let payload = json!({
+            "probeToken": probe_token,
+            "preflightToken": preflight.token,
+        });
+
+        remote_discard(&payload).unwrap();
+
+        assert!(consume_probe(payload["probeToken"].as_str().unwrap()).is_err());
+        assert!(crate::tools::release_package_remote::consume_preflight(
+            payload["preflightToken"].as_str().unwrap(),
+            &binding,
+        )
+        .is_err());
+        remote_discard(&payload).unwrap();
     }
 
     #[test]

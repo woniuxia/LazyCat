@@ -918,20 +918,24 @@ async function choosePrivateKey(): Promise<void> {
   }
 }
 
-function clearSensitiveStartState(): void {
+async function clearSensitiveStartState(): Promise<void> {
   credentialSecret.value = "";
-  uploadPreflight.reset();
   overwriteRemoteTargets.value = [];
+  try {
+    await uploadPreflight.reset();
+  } catch (error) {
+    showError(error);
+  }
 }
 
-function resetStartDialog(): void {
-  clearSensitiveStartState();
+async function resetStartDialog(): Promise<void> {
   retryMode.value = false;
+  await clearSensitiveStartState();
 }
 
-function closeStartDialog(): void {
+async function closeStartDialog(): Promise<void> {
   confirmVisible.value = false;
-  clearSensitiveStartState();
+  await clearSensitiveStartState();
 }
 
 async function prepareStart(): Promise<void> {
@@ -940,7 +944,7 @@ async function prepareStart(): Promise<void> {
     return;
   }
   if (running.value) return;
-  resetStartDialog();
+  await resetStartDialog();
   selectedTargets.value = createDefaultReleasePackageTargets();
   try {
     prepareResult.value = (await invokeToolByChannel("tool:release-package:prepare", {
@@ -963,9 +967,9 @@ function retryUploadTargets(): ReleasePackageTarget[] {
   );
 }
 
-function prepareUploadRetry(): void {
+async function prepareUploadRetry(): Promise<void> {
   if (!selectedProject.value || !retryToken.value || running.value) return;
-  resetStartDialog();
+  await resetStartDialog();
   retryMode.value = true;
   prepareResult.value = { packageType: "server_upload" };
   selectedTargets.value = retryUploadTargets();
@@ -1159,7 +1163,7 @@ async function confirmStart(): Promise<void> {
   } finally {
     starting.value = false;
     cancelPendingStart.value = false;
-    clearSensitiveStartState();
+    await clearSensitiveStartState();
   }
 }
 

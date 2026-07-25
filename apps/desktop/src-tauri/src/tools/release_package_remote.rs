@@ -158,6 +158,15 @@ impl PreflightStore {
         Ok(value.value)
     }
 
+    pub fn discard(&self, token: &str) -> Result<(), String> {
+        let mut values = self
+            .values
+            .lock()
+            .map_err(|_| "SSH 预检令牌存储不可用".to_string())?;
+        drop(values.remove(token));
+        Ok(())
+    }
+
     fn clear(&self) {
         if let Ok(mut values) = self.values.lock() {
             values.clear();
@@ -677,6 +686,10 @@ pub fn consume_preflight(
     preflight_store().consume(token, binding)
 }
 
+pub fn discard_preflight(token: &str) -> Result<(), String> {
+    preflight_store().discard(token)
+}
+
 pub fn clear_temporary_stores() {
     if let Some(probes) = PROBES.get() {
         if let Ok(mut probes) = probes.lock() {
@@ -731,13 +744,23 @@ pub fn consume_probe(token: &str) -> Result<ProbeSnapshot, String> {
     Ok(probe.snapshot)
 }
 
+pub fn discard_probe(token: &str) -> Result<(), String> {
+    let mut probes = PROBES
+        .get_or_init(|| Mutex::new(HashMap::new()))
+        .lock()
+        .map_err(|_| "SSH 探测令牌存储不可用".to_string())?;
+    drop(probes.remove(token));
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        authenticate_for_test, classify_trust, consume_probe, create_session, load_probe,
-        probe_host, store_probe, validate_remote_dir, validate_remote_file,
-        validate_target_relationships, AuthSecret, HostTrust, PreflightBinding, PreflightStore,
-        ProbeSnapshot, RemoteEndpoint, RemoteTarget, SftpRemoteFs,
+        authenticate_for_test, classify_trust, consume_preflight, consume_probe, create_session,
+        discard_preflight, discard_probe, issue_preflight, load_probe, probe_host, store_probe,
+        validate_remote_dir, validate_remote_file, validate_target_relationships, AuthSecret,
+        HostTrust, PreflightBinding, PreflightStore, ProbeSnapshot, RemoteEndpoint, RemoteTarget,
+        SftpRemoteFs,
     };
     use crate::tools::release_package::ReleaseTarget;
     use crate::tools::release_package_deploy::{
@@ -829,6 +852,7 @@ mod tests {
         for (frontend, backend) in [
             ("/srv/app", "/srv/app"),
             ("/srv/app", "/srv/app/app.jar"),
+            ("/srv/app/app.jar", "/srv/app"),
             ("/srv/app/web", "/srv/app"),
         ] {
             let mut binding = binding(vec![RemoteTarget::Frontend, RemoteTarget::Backend]);
@@ -955,6 +979,33 @@ mod tests {
         let token = store_probe(snapshot()).unwrap();
         assert_eq!(consume_probe(&token).unwrap(), snapshot());
         assert!(consume_probe(&token).is_err());
+    }
+
+    #[test]
+    fn probe_tokens_can_be_discarded_idempotently() {
+        let token = store_probe(snapshot()).unwrap();
+
+        discard_probe(&token).unwrap();
+
+        assert!(load_probe(&token).is_err());
+        discard_probe(&token).unwrap();
+    }
+
+    #[test]
+    fn preflight_tokens_with_secrets_can_be_discarded_idempotently() {
+        let binding = binding(vec![RemoteTarget::Backend]);
+        let issued = issue_preflight(
+            binding.clone(),
+            "SHA256:trusted".into(),
+            AuthSecret::PrivateKeyPassphrase(Some(Zeroizing::new("secret".into()))),
+            &[],
+        )
+        .unwrap();
+
+        discard_preflight(&issued.token).unwrap();
+
+        assert!(consume_preflight(&issued.token, &binding).is_err());
+        discard_preflight(&issued.token).unwrap();
     }
 
     struct SshTestFixture {

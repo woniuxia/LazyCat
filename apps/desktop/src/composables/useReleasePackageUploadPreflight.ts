@@ -24,15 +24,32 @@ export function useReleasePackageUploadPreflight() {
     preflightToken.value = "";
   }
 
-  async function probe(projectId: number): Promise<ReleasePackageRemoteProbeResult | null> {
-    const token = ++requestToken;
+  async function discardTokens(tokens: {
+    probeToken?: string;
+    preflightToken?: string;
+  }): Promise<void> {
+    if (!tokens.probeToken && !tokens.preflightToken) return;
+    await invokeToolByChannel("tool:release-package:remote-discard", tokens);
+  }
+
+  async function discardCurrentPreflight(): Promise<void> {
+    const token = preflightToken.value;
     clearPreflight();
+    await discardTokens({ preflightToken: token || undefined });
+  }
+
+  async function probe(projectId: number): Promise<ReleasePackageRemoteProbeResult | null> {
+    await reset();
+    const token = ++requestToken;
     checking.value = true;
     try {
       const result = await invokeToolByChannel("tool:release-package:remote-probe", {
         projectId,
       }) as ReleasePackageRemoteProbeResult;
-      if (token !== requestToken) return null;
+      if (token !== requestToken) {
+        await discardTokens({ probeToken: result.probeToken });
+        return null;
+      }
       probeResult.value = result;
       return result;
     } catch (error) {
@@ -50,8 +67,8 @@ export function useReleasePackageUploadPreflight() {
     const probeToken = probeResult.value?.probeToken;
     if (!probeToken) throw new Error("请先探测服务器主机指纹");
 
+    await discardCurrentPreflight();
     const token = ++requestToken;
-    clearPreflight();
     checking.value = true;
     try {
       const result = await invokeToolByChannel("tool:release-package:host-trust", {
@@ -59,7 +76,10 @@ export function useReleasePackageUploadPreflight() {
         probeToken,
         replaceExisting,
       }) as ReleasePackageRemoteProbeResult;
-      if (token !== requestToken) return null;
+      if (token !== requestToken) {
+        await discardTokens({ probeToken: result.probeToken });
+        return null;
+      }
       probeResult.value = result;
       return result;
     } catch (error) {
@@ -75,15 +95,18 @@ export function useReleasePackageUploadPreflight() {
     const probeToken = probeResult.value?.probeToken;
     if (!probeToken) throw new Error("请先探测并信任服务器主机指纹");
 
+    await discardCurrentPreflight();
     const token = ++requestToken;
-    clearPreflight();
     checking.value = true;
     try {
       const result = await invokeToolByChannel("tool:release-package:remote-preflight", {
         ...input,
         probeToken,
       }) as ReleasePackageRemotePreflightResult;
-      if (token !== requestToken) return null;
+      if (token !== requestToken) {
+        await discardTokens({ preflightToken: result.preflightToken });
+        return null;
+      }
       preflightResult.value = result;
       preflightToken.value = result.preflightToken;
       return result;
@@ -94,11 +117,24 @@ export function useReleasePackageUploadPreflight() {
     }
   }
 
-  function reset(): void {
-    requestToken += 1;
+  async function reset(): Promise<void> {
+    const tokens = {
+      probeToken: probeResult.value?.probeToken,
+      preflightToken: preflightToken.value || undefined,
+    };
+    const token = ++requestToken;
     probeResult.value = null;
     clearPreflight();
     checking.value = false;
+    try {
+      await discardTokens(tokens);
+    } finally {
+      if (token === requestToken) {
+        probeResult.value = null;
+        clearPreflight();
+        checking.value = false;
+      }
+    }
   }
 
   return {
