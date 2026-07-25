@@ -479,6 +479,8 @@ fn archive_pipeline_error(error: ArchiveError, phase: &'static str) -> PipelineE
         ArchiveError::Cancelled => PipelineError::Cancelled { phase },
         ArchiveError::Failed(message) => PipelineError::Failed { message },
         ArchiveError::CommittedWithWarning { warning, .. } => {
+            // 该变体只由 ArchiveSession::commit 产生，并在本地归档提交点单独消费。
+            // 此处保留防御性降级，避免未来新增调用方静默丢失警告。
             PipelineError::Failed { message: warning }
         }
     }
@@ -1071,6 +1073,33 @@ fn run_local_archive_pipeline(
     cancelled: Arc<AtomicBool>,
     sink: Arc<dyn EventSink>,
 ) -> Result<PipelineSummary, PipelineError> {
+    run_local_archive_pipeline_with_commit(
+        run_id,
+        project_id,
+        summary,
+        output_root,
+        folder_name,
+        overwrite_existing,
+        cancelled,
+        sink,
+        ArchiveSession::commit,
+    )
+}
+
+fn run_local_archive_pipeline_with_commit<C>(
+    run_id: &str,
+    project_id: i64,
+    summary: BuildSummary,
+    output_root: PathBuf,
+    folder_name: String,
+    overwrite_existing: bool,
+    cancelled: Arc<AtomicBool>,
+    sink: Arc<dyn EventSink>,
+    commit_archive: C,
+) -> Result<PipelineSummary, PipelineError>
+where
+    C: FnOnce(&mut ArchiveSession, &AtomicBool) -> Result<PathBuf, ArchiveError>,
+{
     if cancelled.load(Ordering::Acquire) {
         for target in &summary.built_targets {
             emit_local_archive_target_status(
@@ -1246,7 +1275,7 @@ fn run_local_archive_pipeline(
             remote_committed: false,
         });
     }
-    let (archive_path, cleanup_warning) = match archive.commit(cancelled.as_ref()) {
+    let (archive_path, cleanup_warning) = match commit_archive(&mut archive, cancelled.as_ref()) {
         Ok(path) => (path, None),
         Err(ArchiveError::CommittedWithWarning {
             final_path,
@@ -1786,6 +1815,62 @@ mod pipeline_tests {
         project
     }
 
+    #[cfg(windows)]
+    fn run_local_cleanup_warning_case(
+        selected_count: usize,
+        build_error: Option<&str>,
+    ) -> (TestDir, PathBuf, PipelineSummary) {
+        let root = TestDir::new();
+        let output = root.0.join("output");
+        let final_path = output.join("release");
+        let backup_path = output.join(".lazycat-release-package-run-local-cleanup.backup");
+        let source = root.0.join("dist");
+        fs::create_dir_all(&final_path).unwrap();
+        fs::write(final_path.join("old.txt"), "old").unwrap();
+        fs::create_dir_all(&source).unwrap();
+        fs::write(source.join("index.html"), "new").unwrap();
+
+        let summary = run_local_archive_pipeline_with_commit(
+            "run-local-cleanup",
+            7,
+            BuildSummary {
+                status: if build_error.is_some() {
+                    "partially_succeeded"
+                } else {
+                    "succeeded"
+                },
+                built_targets: vec![BuiltTarget {
+                    target: ReleaseTarget::Frontend,
+                    source_path: source,
+                    artifact_mode: "copy_directory".into(),
+                }],
+                selected_count,
+                error: build_error.map(str::to_owned),
+            },
+            output,
+            "release".into(),
+            true,
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(Sink),
+            move |archive, cancelled| {
+                let mut rename_count = 0;
+                archive.commit_with_rename(cancelled, |source, target, _| {
+                    rename_count += 1;
+                    fs::rename(source, target)
+                        .map_err(crate::tools::release_package_archive::RenameFailure::Io)?;
+                    if rename_count == 2 {
+                        fs::remove_dir_all(&backup_path).unwrap();
+                        fs::write(&backup_path, "cannot remove as directory").unwrap();
+                    }
+                    Ok(())
+                })
+            },
+        )
+        .unwrap();
+
+        (root, final_path, summary)
+    }
+
     fn consumed_preflight_with_existing(
         expected_existing_targets: Vec<RemoteTarget>,
     ) -> ConsumedPreflight {
@@ -1884,7 +1969,7 @@ mod pipeline_tests {
     }
 
     #[test]
-    fn committed_cleanup_warning_preserves_success_without_retry() {
+    fn committed_cleanup_warning_survives_terminal_result_without_retry_token() {
         let backup_path = "/srv/app/app.jar.__lazycat_backup_run-1";
         let summary = combine_package_and_deploy(
             PipelineSummary {
@@ -1903,13 +1988,53 @@ mod pipeline_tests {
                 recovery_paths: vec![backup_path.into()],
             }),
         );
+        let mut upload_project = project();
+        upload_project.package_type = ReleasePackageType::ServerUpload;
+        let sink = TerminalSink::default();
+        emit_terminal_result(
+            &sink,
+            "run-upload-cleanup",
+            &upload_project,
+            Ok(summary),
+            false,
+        );
 
-        assert_eq!(summary.status, "succeeded");
-        assert!(summary.remote_committed);
-        assert!(summary.retry_descriptor.is_none());
-        let error = summary.error.unwrap();
+        let status = &sink.statuses.lock().unwrap()[0];
+        assert_eq!(status.status, "succeeded");
+        assert!(status.archive_path.is_none());
+        assert!(status.retry_token.is_none());
+        let error = status.error.as_ref().unwrap();
         assert!(error.contains("旧版本备份清理失败"));
         assert!(error.contains(backup_path));
+        assert_eq!(sink.notifications.lock().unwrap().len(), 1);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn local_committed_cleanup_warning_preserves_success_summary() {
+        let (_root, final_path, summary) = run_local_cleanup_warning_case(1, None);
+
+        assert_eq!(summary.status, "succeeded");
+        assert_eq!(summary.archive_path.as_deref(), Some(final_path.as_path()));
+        assert!(summary.retry_descriptor.is_none());
+        let error = summary.error.unwrap();
+        assert!(error.contains("清理旧归档备份"));
+        assert!(error.contains("run-local-cleanup.backup"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn local_committed_cleanup_warning_preserves_partial_summary() {
+        let (_root, final_path, summary) =
+            run_local_cleanup_warning_case(2, Some("backend：构建失败"));
+
+        assert_eq!(summary.status, "partially_succeeded");
+        assert_eq!(summary.archive_path.as_deref(), Some(final_path.as_path()));
+        assert!(summary.retry_descriptor.is_none());
+        let error = summary.error.unwrap();
+        assert!(error.contains("backend：构建失败"));
+        assert!(error.contains("清理旧归档备份"));
+        assert!(error.contains("run-local-cleanup.backup"));
     }
 
     #[test]

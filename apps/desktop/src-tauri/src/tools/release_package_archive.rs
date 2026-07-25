@@ -134,7 +134,7 @@ impl ArchiveSession {
         self.commit_with_rename(cancelled, rename_with_retry)
     }
 
-    fn commit_with_rename<R>(
+    pub(super) fn commit_with_rename<R>(
         &mut self,
         cancelled: &AtomicBool,
         mut rename: R,
@@ -263,7 +263,7 @@ fn check_cancel(cancelled: &AtomicBool) -> Result<(), ArchiveError> {
 }
 
 #[derive(Debug)]
-enum RenameFailure {
+pub(super) enum RenameFailure {
     Cancelled,
     Io(io::Error),
 }
