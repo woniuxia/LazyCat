@@ -822,6 +822,8 @@ pub(crate) fn deploy_parallel(
     user_cancelled: Arc<AtomicBool>,
     stop_requested: Arc<AtomicBool>,
     progress: Arc<dyn Fn(u64, &str) + Send + Sync>,
+    interrupt_transport: Arc<dyn Fn() + Send + Sync>,
+    recover_remote: Arc<dyn Fn() -> Result<Box<dyn RemoteFs>, DeployError> + Send + Sync>,
 ) -> Result<(), DeployError> {
     if remotes.len() != plan.target_count() || remotes.is_empty() || remotes.len() > 2 {
         return Err(DeployError::failed("SSH 会话数量与部署目标不一致"));
@@ -850,18 +852,47 @@ pub(crate) fn deploy_parallel(
             .and_then(|()| plan.verify_target(0, control.as_ref()))
             .and_then(|()| plan.validate_formal_targets(control.as_ref()));
         if let Err(mut error) = upload {
+            if user_cancelled.load(Ordering::Acquire) {
+                match recover_remote() {
+                    Ok(mut recovery) => error
+                        .recovery_paths
+                        .extend(plan.cleanup_temps(recovery.as_mut())),
+                    Err(recovery_error) => {
+                        error.message = format!(
+                            "{}；无法建立恢复 SSH 会话清理临时目标：{}",
+                            error.message, recovery_error.message
+                        );
+                        error.recovery_paths.extend(plan.temp_paths());
+                    }
+                }
+            } else {
+                error
+                    .recovery_paths
+                    .extend(plan.cleanup_temps(control.as_mut()));
+            }
             if error.cancelled && !user_cancelled.load(Ordering::Acquire) {
                 error = DeployError::failed("并行上传因其他目标失败而停止");
             }
-            error
-                .recovery_paths
-                .extend(plan.cleanup_temps(control.as_mut()));
             error.recovery_paths.sort();
             error.recovery_paths.dedup();
             return Err(error);
         }
         if user_cancelled.load(Ordering::Acquire) {
-            return plan.cancel_and_cleanup(control.as_mut());
+            let mut recovery = match recover_remote() {
+                Ok(remote) => remote,
+                Err(recovery_error) => {
+                    let mut error = DeployError::cancelled();
+                    error.message = format!(
+                        "{}；无法建立恢复 SSH 会话清理临时目标：{}",
+                        error.message, recovery_error.message
+                    );
+                    error.recovery_paths.extend(plan.temp_paths());
+                    error.recovery_paths.sort();
+                    error.recovery_paths.dedup();
+                    return Err(error);
+                }
+            };
+            return plan.cancel_and_cleanup(recovery.as_mut());
         }
         if stop_requested.load(Ordering::Acquire) {
             let mut error = DeployError::failed("并行上传因其他目标失败而停止");
@@ -878,12 +909,15 @@ pub(crate) fn deploy_parallel(
     let plan = Arc::new(plan);
     let mut workers = vec![control];
     workers.extend(remotes);
+    let transport_interrupted = Arc::new(AtomicBool::new(false));
     let mut handles = Vec::with_capacity(workers.len());
     for (index, mut remote) in workers.into_iter().enumerate() {
         let plan = Arc::clone(&plan);
         let stop_requested = Arc::clone(&stop_requested);
         let user_cancelled = Arc::clone(&user_cancelled);
         let progress = Arc::clone(&progress);
+        let interrupt_transport = Arc::clone(&interrupt_transport);
+        let transport_interrupted = Arc::clone(&transport_interrupted);
         handles.push(thread::spawn(move || {
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 plan.upload_target(
@@ -896,7 +930,10 @@ pub(crate) fn deploy_parallel(
             }))
             .unwrap_or_else(|_| Err(DeployError::failed("远端上传工作线程异常退出")));
             if result.is_err() && !user_cancelled.load(Ordering::Acquire) {
-                stop_requested.store(true, Ordering::Release);
+                if !stop_requested.swap(true, Ordering::AcqRel) {
+                    transport_interrupted.store(true, Ordering::Release);
+                    interrupt_transport();
+                }
             }
             (remote, result)
         }));
@@ -938,7 +975,27 @@ pub(crate) fn deploy_parallel(
             return Err(error);
         }
     };
-    let Some(mut control) = returned_remotes.into_iter().next() else {
+    let mut control = if transport_interrupted.load(Ordering::Acquire)
+        || user_cancelled.load(Ordering::Acquire)
+    {
+        match recover_remote() {
+            Ok(remote) => remote,
+            Err(recovery_error) => {
+                let mut error = primary_error
+                    .unwrap_or_else(|| DeployError::failed("并行上传因其他目标失败而停止"));
+                error.message = format!(
+                    "{}；无法建立恢复 SSH 会话清理临时目标：{}",
+                    error.message, recovery_error.message
+                );
+                error.recovery_paths.extend(plan.temp_paths());
+                error.recovery_paths.sort();
+                error.recovery_paths.dedup();
+                return Err(error);
+            }
+        }
+    } else if let Some(remote) = returned_remotes.into_iter().next() {
+        remote
+    } else {
         let mut error = primary_error
             .unwrap_or_else(|| DeployError::failed("没有可用于清理远端临时目标的 SSH 会话"));
         error.recovery_paths.extend(plan.temp_paths());
@@ -1270,12 +1327,16 @@ mod transaction_tests {
     struct FailureProbe {
         sibling_started: AtomicBool,
         sibling_stopped: AtomicBool,
+        sibling_blocked_in_write: AtomicBool,
+        transport_interrupted: AtomicBool,
     }
 
     enum SharedWriteBehavior {
         Normal,
         FailAfterSiblingStarts(Arc<FailureProbe>),
+        CancelAfterSiblingStarts(Arc<FailureProbe>, Arc<AtomicBool>),
         StopWhenRequested(Arc<FailureProbe>),
+        BlockUntilTransportInterrupted(Arc<FailureProbe>),
         Panic,
     }
 
@@ -1394,6 +1455,13 @@ mod transaction_tests {
                     }
                     return Err(DeployError::failed("injected upload failure"));
                 }
+                SharedWriteBehavior::CancelAfterSiblingStarts(probe, user_cancelled) => {
+                    while !probe.sibling_started.load(Ordering::Acquire) {
+                        thread::yield_now();
+                    }
+                    user_cancelled.store(true, Ordering::Release);
+                    return Err(DeployError::cancelled());
+                }
                 SharedWriteBehavior::StopWhenRequested(probe) => {
                     probe.sibling_started.store(true, Ordering::Release);
                     while !cancelled.load(Ordering::Acquire) {
@@ -1401,6 +1469,17 @@ mod transaction_tests {
                     }
                     probe.sibling_stopped.store(true, Ordering::Release);
                     return Err(DeployError::cancelled());
+                }
+                SharedWriteBehavior::BlockUntilTransportInterrupted(probe) => {
+                    probe.sibling_started.store(true, Ordering::Release);
+                    probe
+                        .sibling_blocked_in_write
+                        .store(true, Ordering::Release);
+                    while !probe.transport_interrupted.load(Ordering::Acquire) {
+                        thread::yield_now();
+                    }
+                    probe.sibling_stopped.store(true, Ordering::Release);
+                    return Err(DeployError::failed("transport interrupted"));
                 }
                 SharedWriteBehavior::Panic => panic!("injected worker panic"),
                 SharedWriteBehavior::Normal => {}
@@ -1843,6 +1922,8 @@ mod transaction_tests {
             Arc::new(AtomicBool::new(false)),
             Arc::new(AtomicBool::new(false)),
             Arc::new(|_, _| {}),
+            Arc::new(|| {}),
+            Arc::new(|| Err(DeployError::failed("unexpected recovery"))),
         )
         .unwrap();
         drop(root);
@@ -1859,6 +1940,7 @@ mod transaction_tests {
         let nodes = shared_existing_release();
         let probe = Arc::new(FailureProbe::default());
         let stop_requested = Arc::new(AtomicBool::new(false));
+        let recovery_nodes = Arc::clone(&nodes);
         let remotes = vec![
             Box::new(SharedFakeRemoteFs::new(
                 Arc::clone(&nodes),
@@ -1876,6 +1958,13 @@ mod transaction_tests {
             Arc::new(AtomicBool::new(false)),
             Arc::clone(&stop_requested),
             Arc::new(|_, _| {}),
+            Arc::new(|| {}),
+            Arc::new(move || {
+                Ok(Box::new(SharedFakeRemoteFs::new(
+                    Arc::clone(&recovery_nodes),
+                    SharedWriteBehavior::Normal,
+                )) as Box<dyn RemoteFs>)
+            }),
         )
         .unwrap_err();
         drop(root);
@@ -1889,9 +1978,108 @@ mod transaction_tests {
     }
 
     #[test]
+    fn parallel_deploy_interrupts_blocked_sibling_and_uses_recovery_session_for_cleanup() {
+        let (root, request) = two_target_request();
+        let nodes = shared_existing_release();
+        let probe = Arc::new(FailureProbe::default());
+        let interrupt_probe = Arc::clone(&probe);
+        let recovery_nodes = Arc::clone(&nodes);
+        let remotes = vec![
+            Box::new(SharedFakeRemoteFs::new(
+                Arc::clone(&nodes),
+                SharedWriteBehavior::FailAfterSiblingStarts(Arc::clone(&probe)),
+            )) as Box<dyn RemoteFs>,
+            Box::new(SharedFakeRemoteFs::new(
+                Arc::clone(&nodes),
+                SharedWriteBehavior::BlockUntilTransportInterrupted(Arc::clone(&probe)),
+            )) as Box<dyn RemoteFs>,
+        ];
+
+        let error = super::deploy_parallel(
+            remotes,
+            super::DeploymentPlan::new(request).unwrap(),
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(|_, _| {}),
+            Arc::new(move || {
+                interrupt_probe
+                    .transport_interrupted
+                    .store(true, Ordering::Release);
+            }),
+            Arc::new(move || {
+                Ok(Box::new(SharedFakeRemoteFs::new(
+                    Arc::clone(&recovery_nodes),
+                    SharedWriteBehavior::Normal,
+                )) as Box<dyn RemoteFs>)
+            }),
+        )
+        .unwrap_err();
+        drop(root);
+
+        assert!(error.message.contains("injected upload failure"));
+        assert!(!error.cancelled);
+        assert!(probe.sibling_blocked_in_write.load(Ordering::Acquire));
+        assert!(probe.transport_interrupted.load(Ordering::Acquire));
+        assert!(probe.sibling_stopped.load(Ordering::Acquire));
+        assert_eq!(shared_read(&nodes, "/srv/app/web/old.js"), b"old");
+        assert_eq!(shared_read(&nodes, "/srv/app/app.jar"), b"old-jar");
+        assert_temps_cleaned_or_reported(&nodes, &error);
+    }
+
+    #[test]
+    fn parallel_deploy_uses_recovery_session_to_clean_up_after_user_cancellation() {
+        let (root, request) = two_target_request();
+        let nodes = shared_existing_release();
+        let probe = Arc::new(FailureProbe::default());
+        let user_cancelled = Arc::new(AtomicBool::new(false));
+        let recovery_nodes = Arc::clone(&nodes);
+        let recovery_used = Arc::new(AtomicBool::new(false));
+        let recovery_used_for_closure = Arc::clone(&recovery_used);
+        let remotes = vec![
+            Box::new(SharedFakeRemoteFs::new(
+                Arc::clone(&nodes),
+                SharedWriteBehavior::CancelAfterSiblingStarts(
+                    Arc::clone(&probe),
+                    Arc::clone(&user_cancelled),
+                ),
+            )) as Box<dyn RemoteFs>,
+            Box::new(SharedFakeRemoteFs::new(
+                Arc::clone(&nodes),
+                SharedWriteBehavior::StopWhenRequested(Arc::clone(&probe)),
+            )) as Box<dyn RemoteFs>,
+        ];
+
+        let error = super::deploy_parallel(
+            remotes,
+            super::DeploymentPlan::new(request).unwrap(),
+            Arc::clone(&user_cancelled),
+            user_cancelled,
+            Arc::new(|_, _| {}),
+            Arc::new(|| {}),
+            Arc::new(move || {
+                recovery_used_for_closure.store(true, Ordering::Release);
+                Ok(Box::new(SharedFakeRemoteFs::new(
+                    Arc::clone(&recovery_nodes),
+                    SharedWriteBehavior::Normal,
+                )) as Box<dyn RemoteFs>)
+            }),
+        )
+        .unwrap_err();
+        drop(root);
+
+        assert!(error.cancelled);
+        assert!(recovery_used.load(Ordering::Acquire));
+        assert!(probe.sibling_stopped.load(Ordering::Acquire));
+        assert_eq!(shared_read(&nodes, "/srv/app/web/old.js"), b"old");
+        assert_eq!(shared_read(&nodes, "/srv/app/app.jar"), b"old-jar");
+        assert_temps_cleaned_or_reported(&nodes, &error);
+    }
+
+    #[test]
     fn parallel_worker_panic_returns_remote_and_cleans_temps() {
         let (root, request) = two_target_request();
         let nodes = shared_existing_release();
+        let recovery_nodes = Arc::clone(&nodes);
         let remotes = vec![
             Box::new(SharedFakeRemoteFs::new(
                 Arc::clone(&nodes),
@@ -1909,6 +2097,13 @@ mod transaction_tests {
             Arc::new(AtomicBool::new(false)),
             Arc::new(AtomicBool::new(false)),
             Arc::new(|_, _| {}),
+            Arc::new(|| {}),
+            Arc::new(move || {
+                Ok(Box::new(SharedFakeRemoteFs::new(
+                    Arc::clone(&recovery_nodes),
+                    SharedWriteBehavior::Normal,
+                )) as Box<dyn RemoteFs>)
+            }),
         )
         .unwrap_err();
         drop(root);
@@ -1934,6 +2129,8 @@ mod transaction_tests {
             Arc::new(AtomicBool::new(false)),
             Arc::new(AtomicBool::new(false)),
             Arc::new(|_, _| {}),
+            Arc::new(|| {}),
+            Arc::new(|| Err(DeployError::failed("unexpected recovery"))),
         )
         .unwrap();
         drop(root);
@@ -1957,6 +2154,8 @@ mod transaction_tests {
             user_cancelled,
             Arc::new(AtomicBool::new(false)),
             Arc::new(|_, _| {}),
+            Arc::new(|| {}),
+            Arc::new(|| Err(DeployError::failed("unexpected recovery"))),
         )
         .unwrap_err();
         drop(root);
