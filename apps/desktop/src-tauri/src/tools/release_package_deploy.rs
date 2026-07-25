@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -197,7 +198,7 @@ impl DeployError {
     }
 }
 
-pub trait RemoteFs {
+pub trait RemoteFs: Send {
     fn metadata(&self, path: &str) -> Result<Option<RemoteMetadata>, DeployError>;
     fn create_dir(&mut self, path: &str) -> Result<(), DeployError>;
     fn read_dir(&self, path: &str) -> Result<Vec<RemoteDirEntry>, DeployError>;
@@ -235,8 +236,108 @@ struct TransactionTarget {
     committed: bool,
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct DeploymentPlan {
+    request: DeploymentRequest,
+    transactions: Vec<TransactionTarget>,
+    frontend_directories: Vec<String>,
+}
+
+impl DeploymentPlan {
+    pub(crate) fn new(request: DeploymentRequest) -> Result<Self, DeployError> {
+        validate_request(&request)?;
+        for target in &request.targets {
+            target
+                .manifest
+                .verify_source()
+                .map_err(DeployError::failed)?;
+        }
+        let transactions = request
+            .targets
+            .iter()
+            .map(|target| TransactionTarget {
+                final_path: target.remote_path.clone(),
+                temp_path: transaction_path(&target.remote_path, "tmp", &request.run_id),
+                backup_path: transaction_path(&target.remote_path, "backup", &request.run_id),
+                expected_exists: target.expected_exists,
+                backed_up: false,
+                committed: false,
+            })
+            .collect::<Vec<_>>();
+        let frontend_directories = collect_frontend_directories(&request, &transactions)?;
+        Ok(Self {
+            request,
+            transactions,
+            frontend_directories,
+        })
+    }
+
+    pub(crate) fn request(&self) -> &DeploymentRequest {
+        &self.request
+    }
+
+    pub(crate) fn target_count(&self) -> usize {
+        self.request.targets.len()
+    }
+
+    pub(crate) fn frontend_directories(&self) -> &[String] {
+        &self.frontend_directories
+    }
+
+    pub(crate) fn temp_paths(&self) -> Vec<String> {
+        self.transactions
+            .iter()
+            .map(|transaction| transaction.temp_path.clone())
+            .collect()
+    }
+}
+
 fn transaction_path(final_path: &str, kind: &str, run_id: &str) -> String {
     format!("{final_path}.__lazycat_{kind}_{run_id}")
+}
+
+fn validate_request(request: &DeploymentRequest) -> Result<(), DeployError> {
+    if request.targets.is_empty() {
+        return Err(DeployError::failed("没有可部署的目标"));
+    }
+    if request.run_id.is_empty()
+        || request.run_id.len() > 64
+        || !request
+            .run_id
+            .bytes()
+            .all(|value| value.is_ascii_alphanumeric() || value == b'-')
+    {
+        return Err(DeployError::failed("runId 包含不安全字符"));
+    }
+    validate_remote_target_paths(&request.targets)
+}
+
+fn collect_frontend_directories(
+    request: &DeploymentRequest,
+    transactions: &[TransactionTarget],
+) -> Result<Vec<String>, DeployError> {
+    let mut directories = BTreeSet::new();
+    for (target, transaction) in request.targets.iter().zip(transactions) {
+        if target.manifest.target != ReleaseTarget::Frontend {
+            continue;
+        }
+        directories.insert(transaction.temp_path.clone());
+        for entry in &target.manifest.entries {
+            let mut current = transaction.temp_path.clone();
+            let mut segments = entry.relative_path.split('/').peekable();
+            while let Some(segment) = segments.next() {
+                if segments.peek().is_none() {
+                    break;
+                }
+                current.push('/');
+                current.push_str(segment);
+                directories.insert(current.clone());
+            }
+        }
+    }
+    let mut directories = directories.into_iter().collect::<Vec<_>>();
+    directories.sort_by_key(|path| (path.split('/').count(), path.clone()));
+    Ok(directories)
 }
 
 fn validate_remote_target_paths(targets: &[DeploymentTarget]) -> Result<(), DeployError> {
@@ -511,19 +612,7 @@ pub fn deploy(
     cancelled: &AtomicBool,
     mut progress: impl FnMut(u64, &str),
 ) -> Result<(), DeployError> {
-    if request.targets.is_empty() {
-        return Err(DeployError::failed("没有可部署的目标"));
-    }
-    if request.run_id.is_empty()
-        || request.run_id.len() > 64
-        || !request
-            .run_id
-            .bytes()
-            .all(|value| value.is_ascii_alphanumeric() || value == b'-')
-    {
-        return Err(DeployError::failed("runId 包含不安全字符"));
-    }
-    validate_remote_target_paths(&request.targets)?;
+    validate_request(request)?;
     let mut transactions = request
         .targets
         .iter()
@@ -915,6 +1004,49 @@ mod transaction_tests {
             ],
         };
         (root, request)
+    }
+
+    #[test]
+    fn deployment_plan_deduplicates_frontend_directories_parent_first() {
+        let (root, request) = two_target_request();
+        let plan = super::DeploymentPlan::new(request).unwrap();
+        drop(root);
+
+        assert_eq!(
+            plan.frontend_directories(),
+            &[
+                "/srv/app/web.__lazycat_tmp_run-1".to_string(),
+                "/srv/app/web.__lazycat_tmp_run-1/assets".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn deployment_plan_rejects_changed_sources_before_remote_prepare() {
+        let (root, request) = two_target_request();
+        fs::write(root.path().join("dist/index.html"), "changed-size").unwrap();
+
+        let error = super::DeploymentPlan::new(request).unwrap_err();
+        drop(root);
+
+        assert!(error.message.contains("部署产物在打包后发生变化"));
+    }
+
+    #[test]
+    fn deployment_plan_keeps_backend_without_frontend_directories() {
+        let (root, mut request) = two_target_request();
+        request.targets.remove(0);
+        let plan = super::DeploymentPlan::new(request).unwrap();
+        drop(root);
+
+        assert!(plan.frontend_directories().is_empty());
+    }
+
+    #[test]
+    fn sftp_remote_fs_is_send() {
+        fn assert_send<T: Send>() {}
+
+        assert_send::<crate::tools::release_package_remote::SftpRemoteFs>();
     }
 
     #[test]
