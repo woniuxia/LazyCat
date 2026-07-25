@@ -372,6 +372,8 @@
             :minute-options="minuteOptions"
             :time-hour="eventHour"
             :time-minute="eventMinute"
+            :action-definitions="actionDefinitions"
+            :action-targets="actionTargets"
             @title-enter="onTitleEnter"
             @toggle-more-fields="showMoreFields = !showMoreFields"
             @pm-select-change="handlePmSelectChange"
@@ -387,6 +389,8 @@
             @clear-event-schedule="clearEventSchedule"
             @reminder-presets-change="onReminderPresetsChange"
             @repeat-preset-change="onRepeatPresetChange"
+            @action-type-change="handleActionTypeChange"
+            @navigate-to-tool="navigateToTool"
             @custom-frequency-change="onCustomFrequencyChange"
             @toggle-pin="toggleItemPin"
             @change-status="(id, status) => changeItemStatus(id, status as TodoStatus)"
@@ -398,6 +402,7 @@
         <template v-else-if="detailMode === 'view' && selectedItem !== null">
           <TodoDetailView
             :item="selectedItem"
+            :latest-dispatch="latestDispatch"
             @edit="enterEditMode"
             @toggle-pin="toggleItemPin"
             @change-status="(id, status) => changeItemStatus(id, status as TodoStatus)"
@@ -405,6 +410,7 @@
             @copy-title="copyTitle"
             @open-link="openLink"
             @navigate-to-pm="navigateToPmItem"
+            @dispatch-action="handleDispatchAction"
           />
         </template>
         <TodoEmptyState
@@ -495,6 +501,7 @@ import { useTodoScheduleFields } from "../../composables/useTodoScheduleFields";
 import { useTodoCrudActions } from "../../composables/useTodoCrudActions";
 import { useTodoPmLink } from "../../composables/useTodoPmLink";
 import { useTodoDetailState } from "../../composables/useTodoDetailState";
+import { useTodoActionBinding } from "../../composables/useTodoActionBinding";
 import type { QuickAddContext } from "../../utils/todoQuickAdd";
 import { formatTodoRelativeDateTimeLabel } from "../../utils/todoRelativeDate";
 import {
@@ -681,7 +688,22 @@ const itemDraft = reactive({
   pmItemTitle: null as string | null,
   pmItemProjectId: null as number | null,
   pmItemStatus: null as string | null,
+  actionType: null as string | null,
+  actionTargetId: null as string | null,
 });
+
+const {
+  actionDefinitions,
+  actionTargets,
+  latestDispatch,
+  loadDefinitions,
+  loadTargets,
+  onActionTypeChange,
+  loadLatestDispatch,
+  clearLatestDispatch,
+  isAvailableTarget,
+  dispatchTodoAction,
+} = useTodoActionBinding(itemDraft);
 
 const {
   reminderPresetOptions,
@@ -970,6 +992,7 @@ const {
   buildEventAt,
   buildRulePayload,
   buildEndValue,
+  isAvailableActionTarget: isAvailableTarget,
 });
 
 const {
@@ -1014,7 +1037,7 @@ const {
   createOnDate,
   cancelDetailEdit,
   resetItemDraft,
-  enterEditMode,
+  enterEditMode: enterEditModeBase,
 } = useTodoDetailState({
   items,
   itemDraft,
@@ -1039,6 +1062,42 @@ const {
   getItemRecurrence,
 });
 
+async function enterEditMode(
+  item?: TodoItem | null,
+  options: { focusTitle?: boolean } = {},
+) {
+  await enterEditModeBase(item, options);
+  if (!itemDraft.actionType) return;
+  try {
+    await loadTargets(itemDraft.actionType);
+  } catch (error) {
+    ElMessage.error((error as Error).message);
+  }
+}
+
+async function handleActionTypeChange(actionType: string | null) {
+  try {
+    await onActionTypeChange(actionType);
+  } catch (error) {
+    ElMessage.error((error as Error).message);
+  }
+}
+
+function navigateToTool(toolId: string) {
+  if (toolId === "release-package") {
+    openTab("release-package", "上线包打包");
+  }
+}
+
+async function handleDispatchAction(item: TodoItem) {
+  try {
+    await dispatchTodoAction(item, { triggerEventId: undefined });
+    await loadLatestDispatch(item.id);
+  } catch (error) {
+    ElMessage.error((error as Error).message);
+  }
+}
+
 async function copyTitle(title: string) {
   await navigator.clipboard.writeText(title);
   ElMessage.success("标题已复制");
@@ -1061,6 +1120,21 @@ watch(todoContextMenuItem, (item) => {
   closeTodoContextMenu();
 });
 
+watch(
+  selectedItem,
+  (item) => {
+    if (!item?.actionBinding) {
+      clearLatestDispatch();
+      return;
+    }
+    void loadLatestDispatch(item.id).catch((error) => {
+      clearLatestDispatch();
+      ElMessage.error((error as Error).message);
+    });
+  },
+  { immediate: true },
+);
+
 watchPendingToolInput("todo", (input) => applyPendingTodoInput(input));
 
 const pendingTodoCreate = inject<ReturnType<typeof ref<boolean>>>("pendingTodoCreate", ref(false));
@@ -1072,7 +1146,13 @@ watch(pendingTodoCreate, (v) => {
 });
 
 onMounted(async () => {
-  await Promise.all([loadTypes(), loadAssignees(), loadItems(), loadProjects()]);
+  await Promise.all([
+    loadTypes(),
+    loadAssignees(),
+    loadItems(),
+    loadProjects(),
+    loadDefinitions(),
+  ]);
   initialLoading.value = false;
   const focus = consumeTodoFocus();
   if (focus) {

@@ -55,6 +55,8 @@ export interface TodoItemDraft {
   pmItemTitle: string | null;
   pmItemProjectId: number | null;
   pmItemStatus: string | null;
+  actionType: string | null;
+  actionTargetId: string | null;
   /** 历史遗留：面板从未写入该字段，运行时恒为 undefined，仅为兼容既有判断保留 */
   kind?: TodoKind;
 }
@@ -224,6 +226,20 @@ export function useTodoScheduleFields(options: TodoScheduleFieldsOptions) {
       itemDraft.repeatPreset = "none";
       itemDraft.ruleMode = "simple";
       return;
+    }
+    if (itemDraft.actionType) {
+      try {
+        await ElMessageBox.confirm(
+          "切换为重复事项会解除已配置的执行动作。确认吗？",
+          "解除执行动作",
+          { type: "warning" },
+        );
+      } catch {
+        itemDraft.repeatPreset = "none";
+        return;
+      }
+      itemDraft.actionType = null;
+      itemDraft.actionTargetId = null;
     }
     applyRepeatPresetRule(nextPreset);
   }

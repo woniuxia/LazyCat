@@ -1,3 +1,5 @@
+import type { ActionBindingInput, ActionBindingSummary } from "./action-center";
+
 export type TodoPriority = "P0" | "P1" | "P2" | "P3";
 
 export type TodoStatus = "pending" | "in_progress" | "completed";
@@ -105,6 +107,7 @@ export interface TodoItem {
   pmItemTitle?: string | null;
   pmItemProjectId?: number | null;
   pmItemStatus?: string | null;
+  actionBinding?: ActionBindingSummary | null;
 }
 
 export interface TodoReminderEvent {
@@ -155,4 +158,5 @@ export interface TodoItemUpsertPayload {
   links?: { url: string; title: string }[];
   recurrence?: TodoRecurrenceInput | null;
   projectId?: number | null;
+  actionBinding?: ActionBindingInput | null;
 }

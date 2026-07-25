@@ -155,6 +155,54 @@
           </div>
         </div>
 
+        <div v-if="item.actionBinding" class="detail-card action-card">
+          <div class="detail-card-header">
+            <div class="detail-card-icon primary">
+              <el-icon><VideoPlay /></el-icon>
+            </div>
+            <span class="detail-card-title">执行动作</span>
+          </div>
+          <div class="detail-card-body">
+            <div class="detail-grid">
+              <div class="detail-field">
+                <div class="detail-label">动作</div>
+                <div class="detail-value">{{ item.actionBinding.actionLabel }}</div>
+              </div>
+              <div class="detail-field">
+                <div class="detail-label">打包配置</div>
+                <div
+                  class="detail-value"
+                  :class="{ 'action-target-unavailable': !item.actionBinding.available }"
+                >
+                  {{ item.actionBinding.targetLabel }}
+                </div>
+                <div v-if="!item.actionBinding.available" class="detail-hint action-target-unavailable">
+                  {{ item.actionBinding.unavailableReason || "上线包配置不存在" }}
+                </div>
+              </div>
+              <div v-if="latestDispatch" class="detail-field detail-field--full">
+                <div class="detail-label">最近状态</div>
+                <div class="action-dispatch-status">
+                  <span class="detail-value">{{ actionDispatchStatusLabel }}</span>
+                  <span v-if="latestDispatch.error" class="detail-hint action-target-unavailable">
+                    {{ latestDispatch.error }}
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div class="action-card-footer">
+              <el-button
+                type="primary"
+                size="small"
+                :disabled="actionDispatchDisabled"
+                @click="$emit('dispatchAction', item)"
+              >
+                {{ actionDispatchActive ? "正在处理" : "开始打包" }}
+              </el-button>
+            </div>
+          </div>
+        </div>
+
         <!-- Info Card -->
         <div
           v-if="item.typeName || item.assignees.length > 0"
@@ -332,14 +380,16 @@ import {
   Top,
   User,
   UserFilled,
+  VideoPlay,
 } from "@element-plus/icons-vue";
 import { effectiveReminderPresets } from "../../composables/useTodoItem";
-import type { TodoItem, TodoPriority } from "../../types";
+import type { ActionDispatchSummary, TodoItem, TodoPriority } from "../../types";
 import { formatTodoRelativeDateTimeLabel } from "../../utils/todoRelativeDate";
 import RichDescriptionViewer from "../RichDescriptionViewer.vue";
 
 const props = defineProps<{
   item: TodoItem;
+  latestDispatch: ActionDispatchSummary | null;
 }>();
 
 const emit = defineEmits<{
@@ -350,6 +400,7 @@ const emit = defineEmits<{
   copyTitle: [title: string];
   openLink: [url: string];
   navigateToPm: [pmItemId: number, pmProjectId: number | null];
+  dispatchAction: [item: TodoItem];
 }>();
 
 // --- Formatter helpers ---
@@ -641,6 +692,30 @@ const reminderChips = computed(() => {
   }));
 });
 
+const actionDispatchActive = computed(
+  () =>
+    props.latestDispatch?.status === "pending_confirmation" ||
+    props.latestDispatch?.status === "running",
+);
+
+const actionDispatchDisabled = computed(
+  () =>
+    !props.item.actionBinding?.available ||
+    props.item.status === "completed" ||
+    actionDispatchActive.value,
+);
+
+const actionDispatchStatusLabel = computed(() => {
+  const labels: Record<string, string> = {
+    pending_confirmation: "待确认",
+    running: "打包中",
+    succeeded: "已成功",
+    failed: "失败",
+    cancelled: "已取消",
+  };
+  return props.latestDispatch ? labels[props.latestDispatch.status] || props.latestDispatch.status : "";
+});
+
 const hasDetailCards = computed(() => {
   const item = props.item;
   const hasSchedule = !!item.eventAt || effectiveReminderPresets(item.reminderPresets).length > 0;
@@ -651,7 +726,8 @@ const hasDetailCards = computed(() => {
     item.description ||
     (item.links?.length ?? 0) > 0 ||
     hasRepeatRule(item) ||
-    !!item.projectId
+    !!item.projectId ||
+    !!item.actionBinding
   );
 });
 
@@ -950,6 +1026,21 @@ const infoCardTitle = computed(() => {
   font-size: 11px;
   color: var(--el-text-color-placeholder);
   margin-top: 2px;
+}
+.action-card-footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--lc-border);
+}
+.action-dispatch-status {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.action-target-unavailable {
+  color: var(--el-color-danger);
 }
 .detail-description-card {
   margin-top: 4px;

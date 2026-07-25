@@ -40,6 +40,7 @@ export interface TodoCrudActionsDeps {
   buildEventAt: () => string | null;
   buildRulePayload: () => TodoRule;
   buildEndValue: () => string | number | null;
+  isAvailableActionTarget: (actionType: string | null, targetId: string | null) => boolean;
 }
 
 export function useTodoCrudActions(deps: TodoCrudActionsDeps) {
@@ -60,6 +61,7 @@ export function useTodoCrudActions(deps: TodoCrudActionsDeps) {
     buildEventAt,
     buildRulePayload,
     buildEndValue,
+    isAvailableActionTarget,
   } = deps;
 
   function normalizeName(value: string) {
@@ -166,6 +168,14 @@ export function useTodoCrudActions(deps: TodoCrudActionsDeps) {
       ElMessage.warning("请先填写日期和时间，再设置提醒方式");
       return { ok: false, id: null as number | null };
     }
+    if (
+      !isRepeating.value &&
+      itemDraft.actionType &&
+      !isAvailableActionTarget(itemDraft.actionType, itemDraft.actionTargetId)
+    ) {
+      ElMessage.warning("请选择打包配置");
+      return { ok: false, id: null as number | null };
+    }
     if (isRepeating.value && showRecurrenceFields.value) {
       if (!hasEventDate || !hasEventTime) {
         ElMessage.warning("重复事项需要同时填写日期和时间");
@@ -218,6 +228,13 @@ export function useTodoCrudActions(deps: TodoCrudActionsDeps) {
         ...commonPayload,
         kind,
         projectId: itemDraft.projectId,
+        actionBinding:
+          !isRepeating.value && itemDraft.actionType && itemDraft.actionTargetId
+            ? {
+                actionType: itemDraft.actionType,
+                targetId: itemDraft.actionTargetId,
+              }
+            : null,
       };
 
       if (!isRepeating.value) {
