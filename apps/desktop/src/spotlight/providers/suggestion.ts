@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { showReferenceCard } from "../../bridge/tauri";
 import { registerProvider } from "../registry";
 import type {
   ProviderDescriptor,
@@ -11,15 +12,38 @@ async function defaultAction(
   item: SpotlightItem,
   _ctx: SpotlightExecuteContext,
 ): Promise<SpotlightExecuteResult> {
-  const toolId = (item.payload?.toolId as string | undefined) ?? "";
-  const text = (item.payload?.text as string | undefined) ?? "";
-  if (!toolId) return { errorMessage: "建议项缺少工具 ID" };
-  await invoke("spotlight_pick", {
-    target: toolId,
-    text,
-    source: "clipboard-suggestion",
-  });
-  return { closeSpotlight: true };
+  const action = item.payload?.suggestionAction;
+  if (!action || typeof action !== "object") {
+    return { errorMessage: "无效的剪贴板建议" };
+  }
+
+  if (
+    "kind" in action &&
+    action.kind === "open-reference-card" &&
+    "text" in action &&
+    typeof action.text === "string"
+  ) {
+    await showReferenceCard(action.text);
+    return { closeSpotlight: true };
+  }
+
+  if (
+    "kind" in action &&
+    action.kind === "open-tool" &&
+    "toolId" in action &&
+    typeof action.toolId === "string" &&
+    "text" in action &&
+    typeof action.text === "string"
+  ) {
+    await invoke("spotlight_pick", {
+      target: action.toolId,
+      text: action.text,
+      source: "clipboard-suggestion",
+    });
+    return { closeSpotlight: true };
+  }
+
+  return { errorMessage: "无效的剪贴板建议" };
 }
 
 export const suggestionProvider: ProviderDescriptor = {

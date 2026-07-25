@@ -120,9 +120,8 @@ import {
 import { parseSpotlightQuery, parseQuickCommand, parseKeywordCommand } from "../utils/spotlight-query";
 import { nextSpotlightActiveIndex } from "../utils/spotlight-active-index";
 import { calculateExpression, getCalcPreview } from "../utils/calc";
-import { detectClipboardContent } from "../utils/clipboard-detect";
-import { isRealToolId } from "../composables/toolCatalog";
 import { initSettings, getSetting } from "../composables/useSettings";
+import { buildClipboardSuggestionItems } from "../spotlight/clipboard-suggestions";
 import { createTodoDraft } from "../spotlight/providers/todo";
 import {
   resolveKeywordInvocation,
@@ -179,49 +178,24 @@ const queryGuard = createQueryTimeResultGuard();
 const view = ref<SpotlightView | null>(null);
 const browserProfilesRefreshGuard = createBrowserProfilesRefreshGuard();
 
-interface ClipboardSuggestion {
-  toolId: string;
-  toolName: string;
-  text: string;
-  preview: string;
-}
-const clipboardSuggestion = ref<ClipboardSuggestion | null>(null);
+const clipboardSuggestionItems = ref<SpotlightItem[]>([]);
 
-async function refreshClipboardSuggestion() {
+async function refreshClipboardSuggestions() {
   try {
     await initSettings();
   } catch {
     /* ignore */
   }
   if (getSetting("clipboard_detection") === "false") {
-    clipboardSuggestion.value = null;
+    clipboardSuggestionItems.value = [];
     return;
   }
-  let text: string;
   try {
-    text = await navigator.clipboard.readText();
+    const text = await navigator.clipboard.readText();
+    clipboardSuggestionItems.value = buildClipboardSuggestionItems(text);
   } catch {
-    clipboardSuggestion.value = null;
-    return;
+    clipboardSuggestionItems.value = [];
   }
-  if (!text) {
-    clipboardSuggestion.value = null;
-    return;
-  }
-  const detected = detectClipboardContent(text);
-  const toolAction = detected?.actions.find((a) => a.kind === "tool");
-  if (!toolAction || !isRealToolId(toolAction.toolId)) {
-    clipboardSuggestion.value = null;
-    return;
-  }
-  const oneLine = text.replace(/\n/g, " ").trim();
-  const preview = oneLine.length > 32 ? oneLine.slice(0, 32) + "…" : oneLine;
-  clipboardSuggestion.value = {
-    toolId: toolAction.toolId,
-    toolName: toolAction.toolName,
-    text,
-    preview,
-  };
 }
 
 const parsed = computed(() =>
@@ -251,9 +225,15 @@ const enabledProviderIds = computed(() => {
   return new Set(v.providers.filter((p) => p.enabled).map((p) => p.id));
 });
 
-const searchableItemsByProvider = computed(() =>
-  mergeSpotlightProviderItems(itemsByProvider.value, queryItemsByProvider.value),
-);
+const searchableItemsByProvider = computed(() => {
+  const merged = mergeSpotlightProviderItems(
+    itemsByProvider.value,
+    queryItemsByProvider.value,
+  );
+  const next = new Map(merged);
+  next.set("suggestion", clipboardSuggestionItems.value);
+  return next;
+});
 
 const isLoadingView = computed(() => loading.value || keywordLoading.value || queryLoading.value);
 
@@ -434,8 +414,6 @@ const results = computed(() => {
     // - 整体按 provider.weight * item.weight 倒序,让重度使用的 launcher/vault 也能上首屏
     const SLOT_PER_OTHER = 2;
     const SLOT_TOOL = 8;
-    const baseLimit =
-      clipboardSuggestion.value && !scope.value ? RESULT_LIMIT - 1 : RESULT_LIMIT;
     const collected: { item: SpotlightItem; score: number }[] = [];
     const seen = new Set<string>();
     const providerWeight = (id: SpotlightProviderId) =>
@@ -454,19 +432,7 @@ const results = computed(() => {
       }
     }
     collected.sort((a, b) => b.score - a.score);
-    const baseEntries = collected.slice(0, baseLimit);
-    if (scope.value || !clipboardSuggestion.value) return baseEntries;
-    const s = clipboardSuggestion.value;
-    const suggestionItem: SpotlightItem = {
-      providerId: "suggestion",
-      itemId: `suggestion:${s.toolId}`,
-      title: `${s.toolName}（剪贴板：${s.preview}）`,
-      subtitle: "Enter 打开并预填剪贴板内容",
-      badge: { short: "建议", tone: "warn" },
-      searchFields: [],
-      payload: { toolId: s.toolId, text: s.text },
-    };
-    return [{ item: suggestionItem, score: 0 }, ...baseEntries].slice(0, RESULT_LIMIT);
+    return collected.slice(0, RESULT_LIMIT);
   }
   return searchItems(text, searchableItemsByProvider.value, {
     scope: scope.value,
@@ -928,7 +894,7 @@ onMounted(async () => {
         view.value = v;
         void prefetchAll();
         void refreshQueryProviders();
-        void refreshClipboardSuggestion();
+        void refreshClipboardSuggestions();
       });
       nextTick(() => focusInput());
     });
@@ -978,7 +944,7 @@ onMounted(async () => {
   });
   await prefetchAll();
   void refreshQueryProviders();
-  void refreshClipboardSuggestion();
+  void refreshClipboardSuggestions();
 });
 
 onBeforeUnmount(() => {
