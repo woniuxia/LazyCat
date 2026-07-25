@@ -1395,7 +1395,7 @@ onMounted(async () => {
 .project-basics { padding: 14px 16px 0; }
 .project-basics-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+  grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
   gap: 14px;
 }
 .engineering-grid {
@@ -1448,13 +1448,34 @@ onMounted(async () => {
 }
 .server-config-heading > div { display: grid; min-width: 0; line-height: 1.45; }
 .server-config-heading span { color: #606266; font-size: 12px; font-weight: 400; }
-.server-config-body { padding: 0 16px 2px; border-top: 1px solid #ebeef5; }
-.server-config-grid {
+.server-config-body {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(130px, .35fr) minmax(0, 1fr) minmax(240px, .8fr);
+  gap: 18px;
+  padding: 0 16px 2px;
+  border-top: 1px solid #ebeef5;
+}
+.server-config-section { display: grid; gap: 10px; min-width: 0; }
+.server-config-section-heading {
+  display: grid;
+  gap: 2px;
+  padding-top: 2px;
+}
+.server-config-section-heading strong { color: #303133; font-size: 13px; }
+.server-config-section-heading span { color: #606266; font-size: 12px; line-height: 1.45; }
+.server-auth-type-row { width: min(320px, 100%); }
+.server-auth-details,
+.server-auth-details-panel { min-width: 0; }
+.private-key-config-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0 12px;
 }
-.server-config-span-2 { grid-column: span 2; }
+.private-key-file-field { grid-column: 1 / -1; }
+.server-target-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 12px;
+}
 .vault-credential-field :deep(.el-form-item__content) { display: grid; gap: 8px; }
 .vault-credential-picker { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; }
 .vault-credential-picker :deep(.el-select) { min-width: 180px; }
@@ -1682,8 +1703,8 @@ onMounted(async () => {
   .projects-heading { flex: none; flex-direction: column; align-items: flex-start; }
   .project-item { flex: 0 0 150px; }
   .release-package-editor { padding: 14px; }
-  .server-config-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .server-config-span-2 { grid-column: auto; }
+  .private-key-config-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .server-target-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .vault-credential-field { grid-column: 1 / -1; }
   .release-package-log-columns.has-upload-lane { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .upload-log-lane { grid-column: 1 / -1; border-top: 1px solid #ebeef5; border-left: 0 !important; }
@@ -1693,8 +1714,11 @@ onMounted(async () => {
   .editor-actions { justify-content: flex-start; }
   .artifact-grid { grid-template-columns: 1fr; gap: 0; }
   .project-basics-grid { grid-template-columns: 1fr; gap: 0; }
+  .server-auth-type-row { width: 100%; }
   .server-config-heading { align-items: flex-start; }
-  .server-config-grid { grid-template-columns: 1fr; }
+  .private-key-config-grid { grid-template-columns: 1fr; }
+  .server-target-grid { grid-template-columns: 1fr; }
+  .private-key-file-field { grid-column: auto; }
   .vault-credential-field { grid-column: auto; }
   .vault-credential-picker { flex-wrap: wrap; }
   .vault-credential-picker :deep(.el-select) { flex: 1 1 100%; }
