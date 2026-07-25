@@ -216,6 +216,36 @@ fn validate_remote_path(path: &str) -> Result<String, String> {
     Ok(value.to_string())
 }
 
+fn validate_target_relationships(binding: &PreflightBinding) -> Result<(), String> {
+    let paths = binding
+        .targets
+        .iter()
+        .map(|target| match target {
+            RemoteTarget::Frontend => binding.frontend_remote_dir.as_str(),
+            RemoteTarget::Backend => binding.backend_remote_path.as_str(),
+        })
+        .collect::<Vec<_>>();
+
+    for (index, path) in paths.iter().enumerate() {
+        for other in &paths[index + 1..] {
+            let path_segments = path
+                .split('/')
+                .filter(|segment| !segment.is_empty())
+                .collect::<Vec<_>>();
+            let other_segments = other
+                .split('/')
+                .filter(|segment| !segment.is_empty())
+                .collect::<Vec<_>>();
+            if path_segments.starts_with(&other_segments)
+                || other_segments.starts_with(&path_segments)
+            {
+                return Err(format!("远端部署目标不能互相包含或重复：{path}；{other}"));
+            }
+        }
+    }
+    Ok(())
+}
+
 pub fn create_session() -> Result<Session, String> {
     Session::new().map_err(|error| format!("创建 SSH 会话失败：{error}"))
 }
@@ -441,6 +471,7 @@ pub fn run_remote_preflight(
     expected_fingerprint: &str,
     secret: &AuthSecret,
 ) -> Result<Vec<RemoteTargetCheck>, String> {
+    validate_target_relationships(binding)?;
     let session = handshake_session(&binding.endpoint)?;
     if session_fingerprint(&session)? != expected_fingerprint {
         return Err("SSH 主机指纹与已信任记录不一致".into());
@@ -704,9 +735,9 @@ pub fn consume_probe(token: &str) -> Result<ProbeSnapshot, String> {
 mod tests {
     use super::{
         authenticate_for_test, classify_trust, consume_probe, create_session, load_probe,
-        probe_host, store_probe, validate_remote_dir, validate_remote_file, AuthSecret, HostTrust,
-        PreflightBinding, PreflightStore, ProbeSnapshot, RemoteEndpoint, RemoteTarget,
-        SftpRemoteFs,
+        probe_host, store_probe, validate_remote_dir, validate_remote_file,
+        validate_target_relationships, AuthSecret, HostTrust, PreflightBinding, PreflightStore,
+        ProbeSnapshot, RemoteEndpoint, RemoteTarget, SftpRemoteFs,
     };
     use crate::tools::release_package::ReleaseTarget;
     use crate::tools::release_package_deploy::{
@@ -791,6 +822,50 @@ mod tests {
             frontend_remote_dir: "/srv/app/web".into(),
             backend_remote_path: "/srv/app/app.jar".into(),
         }
+    }
+
+    #[test]
+    fn rejects_duplicate_or_nested_selected_remote_targets() {
+        for (frontend, backend) in [
+            ("/srv/app", "/srv/app"),
+            ("/srv/app", "/srv/app/app.jar"),
+            ("/srv/app/web", "/srv/app"),
+        ] {
+            let mut binding = binding(vec![RemoteTarget::Frontend, RemoteTarget::Backend]);
+            binding.frontend_remote_dir = frontend.into();
+            binding.backend_remote_path = backend.into();
+
+            let error = validate_target_relationships(&binding).unwrap_err();
+
+            assert!(
+                error.contains(frontend),
+                "missing {frontend:?} in {error:?}"
+            );
+            assert!(error.contains(backend), "missing {backend:?} in {error:?}");
+        }
+    }
+
+    #[test]
+    fn accepts_sibling_and_similar_prefix_remote_targets() {
+        for (frontend, backend) in [
+            ("/srv/app/web", "/srv/app/app.jar"),
+            ("/srv/app", "/srv/app2"),
+        ] {
+            let mut binding = binding(vec![RemoteTarget::Frontend, RemoteTarget::Backend]);
+            binding.frontend_remote_dir = frontend.into();
+            binding.backend_remote_path = backend.into();
+
+            validate_target_relationships(&binding).unwrap();
+        }
+    }
+
+    #[test]
+    fn ignores_unselected_remote_target_when_validating_relationships() {
+        let mut binding = binding(vec![RemoteTarget::Frontend]);
+        binding.frontend_remote_dir = "/srv/app".into();
+        binding.backend_remote_path = "/srv/app/app.jar".into();
+
+        validate_target_relationships(&binding).unwrap();
     }
 
     #[test]
