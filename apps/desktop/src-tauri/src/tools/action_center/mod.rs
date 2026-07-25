@@ -5,7 +5,12 @@ mod dispatches;
 use rusqlite::Connection;
 use serde_json::{json, Value};
 
-const ACTIONS: &[&str] = &["definition_list", "target_list"];
+pub(crate) use bindings::{
+    apply_todo_binding_patch, attach_todo_binding_summaries, delete_todo_binding,
+    ensure_todo_can_become_recurring, parse_binding_patch, BindingPatch,
+};
+
+const ACTIONS: &[&str] = &["definition_list", "target_list", "binding_get"];
 
 pub(crate) const ACTION_CENTER_SCHEMA_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS action_bindings (
@@ -53,6 +58,9 @@ pub(crate) fn supported_actions() -> &'static [&'static str] {
 }
 
 pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
+    if !ACTIONS.contains(&action) {
+        return Err(format!("unsupported action_center action: {action}"));
+    }
     match action {
         "definition_list" => Ok(json!({
             "definitions": definitions::all_definitions(),
@@ -69,7 +77,8 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
                 "targets": definitions::list_targets(&conn, action_type)?,
             }))
         }
-        _ => Err(format!("unsupported action_center action: {action}")),
+        "binding_get" => bindings::binding_get(payload),
+        _ => unreachable!("action center action whitelist and dispatcher must stay in sync"),
     }
 }
 

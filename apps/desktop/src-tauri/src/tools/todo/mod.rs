@@ -170,10 +170,254 @@ mod tests {
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
+            CREATE TABLE todo_types (
+                id INTEGER PRIMARY KEY,
+                name TEXT NOT NULL,
+                color TEXT NOT NULL DEFAULT ''
+            );
+            CREATE TABLE todo_assignees (
+                id INTEGER PRIMARY KEY,
+                name TEXT NOT NULL
+            );
+            CREATE TABLE pm_projects (
+                id INTEGER PRIMARY KEY,
+                name TEXT NOT NULL,
+                color TEXT NOT NULL DEFAULT ''
+            );
+            CREATE TABLE pm_items (
+                id INTEGER PRIMARY KEY,
+                title TEXT NOT NULL,
+                project_id INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending'
+            );
+            CREATE TABLE pm_item_todo_links (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                pm_item_id INTEGER NOT NULL,
+                todo_item_id INTEGER NOT NULL
+            );
+            CREATE TABLE attachments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                owner_type TEXT NOT NULL,
+                owner_id TEXT NOT NULL,
+                rel_path TEXT NOT NULL,
+                original_name TEXT NOT NULL DEFAULT '',
+                mime TEXT NOT NULL DEFAULT '',
+                size INTEGER NOT NULL DEFAULT 0,
+                hash TEXT NOT NULL DEFAULT '',
+                kind TEXT NOT NULL DEFAULT 'file',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
             ",
         )
         .expect("create todo schema");
+        crate::tools::release_package::ensure_schema(&conn).expect("create release schema");
+        crate::tools::action_center::ensure_schema(&conn).expect("create action center schema");
         conn
+    }
+
+    fn table_count(conn: &Connection, table: &str) -> i64 {
+        conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| row.get(0))
+            .unwrap()
+    }
+
+    fn seed_one_off(conn: &Connection, id: i64, title: &str) {
+        conn.execute(
+            "INSERT INTO todo_items(id, title, priority, status, kind)
+             VALUES(?1, ?2, 'P2', 'pending', 'one_off')",
+            params![id, title],
+        )
+        .unwrap();
+    }
+
+    fn item_title(conn: &Connection, id: i64) -> String {
+        conn.query_row("SELECT title FROM todo_items WHERE id=?1", [id], |row| row.get(0))
+            .unwrap()
+    }
+
+    fn seed_release_project(conn: &Connection, id: i64, name: &str) {
+        conn.execute(
+            "INSERT INTO release_package_projects(
+                id, name, output_root, frontend_project_path, frontend_build_command,
+                frontend_artifact_path, frontend_artifact_mode, backend_project_path,
+                backend_build_command, backend_artifact_path
+             ) VALUES (?1, ?2, '', '', '', '', 'copy_directory', '', '', '')",
+            params![id, name],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn one_off_create_rolls_back_when_action_target_is_invalid() {
+        let mut conn = create_test_conn();
+        let error = item_create_with_conn(
+            &mut conn,
+            &json!({
+                "title": "发布客户门户",
+                "kind": "one_off",
+                "actionBinding": {
+                    "actionType": "release_package.run",
+                    "targetId": "999"
+                }
+            }),
+        )
+        .unwrap_err();
+
+        assert!(error.contains("上线包配置不存在"));
+        assert_eq!(table_count(&conn, "todo_items"), 0);
+        assert_eq!(table_count(&conn, "action_bindings"), 0);
+    }
+
+    #[test]
+    fn one_off_update_rolls_back_item_fields_when_binding_fails() {
+        let mut conn = create_test_conn();
+        seed_one_off(&conn, 1, "旧标题");
+
+        item_update_with_conn(
+            &mut conn,
+            &json!({
+                "id": 1,
+                "kind": "one_off",
+                "title": "新标题",
+                "actionBinding": {
+                    "actionType": "release_package.run",
+                    "targetId": "999"
+                }
+            }),
+        )
+        .unwrap_err();
+
+        assert_eq!(item_title(&conn, 1), "旧标题");
+    }
+
+    #[test]
+    fn recurring_item_rejects_action_binding() {
+        let mut conn = create_test_conn();
+        let error = item_create_with_conn(
+            &mut conn,
+            &json!({
+                "title": "周期发布",
+                "kind": "recurring",
+                "actionBinding": {
+                    "actionType": "release_package.run",
+                    "targetId": "7"
+                }
+            }),
+        )
+        .unwrap_err();
+
+        assert_eq!(error, "周期事项暂不支持执行动作");
+        assert_eq!(table_count(&conn, "todo_items"), 0);
+    }
+
+    #[test]
+    fn todo_binding_three_state_is_visible_in_item_list() {
+        let mut conn = create_test_conn();
+        seed_release_project(&conn, 7, "客户门户");
+        seed_release_project(&conn, 8, "管理后台");
+        let created = item_create_with_conn(
+            &mut conn,
+            &json!({
+                "title": "发布客户门户",
+                "kind": "one_off",
+                "actionBinding": {
+                    "actionType": "release_package.run",
+                    "targetId": "7"
+                }
+            }),
+        )
+        .unwrap();
+        let id = created["id"].as_i64().unwrap();
+
+        item_update_with_conn(
+            &mut conn,
+            &json!({ "id": id, "kind": "one_off", "title": "保留绑定" }),
+        )
+        .unwrap();
+        let list = item_list_with_conn(&conn, &json!({})).unwrap();
+        assert_eq!(list["items"][0]["actionBinding"]["targetId"], "7");
+
+        item_update_with_conn(
+            &mut conn,
+            &json!({
+                "id": id,
+                "kind": "one_off",
+                "actionBinding": {
+                    "actionType": "release_package.run",
+                    "targetId": "8"
+                }
+            }),
+        )
+        .unwrap();
+        let list = item_list_with_conn(&conn, &json!({})).unwrap();
+        assert_eq!(list["items"][0]["actionBinding"]["targetLabel"], "管理后台");
+
+        item_update_with_conn(
+            &mut conn,
+            &json!({ "id": id, "kind": "one_off", "actionBinding": null }),
+        )
+        .unwrap();
+        let list = item_list_with_conn(&conn, &json!({})).unwrap();
+        assert!(list["items"][0]["actionBinding"].is_null());
+    }
+
+    #[test]
+    fn deleting_todo_also_deletes_action_binding() {
+        let mut conn = create_test_conn();
+        seed_release_project(&conn, 7, "客户门户");
+        let created = item_create_with_conn(
+            &mut conn,
+            &json!({
+                "title": "发布客户门户",
+                "kind": "one_off",
+                "actionBinding": {
+                    "actionType": "release_package.run",
+                    "targetId": "7"
+                }
+            }),
+        )
+        .unwrap();
+        let id = created["id"].as_i64().unwrap();
+
+        item_delete_with_conn(&conn, &json!({ "id": id })).unwrap();
+
+        assert_eq!(table_count(&conn, "todo_items"), 0);
+        assert_eq!(table_count(&conn, "action_bindings"), 0);
+    }
+
+    #[test]
+    fn one_off_with_binding_must_be_unbound_before_becoming_recurring() {
+        let mut conn = create_test_conn();
+        seed_release_project(&conn, 7, "客户门户");
+        let created = item_create_with_conn(
+            &mut conn,
+            &json!({
+                "title": "发布客户门户",
+                "kind": "one_off",
+                "actionBinding": {
+                    "actionType": "release_package.run",
+                    "targetId": "7"
+                }
+            }),
+        )
+        .unwrap();
+        let id = created["id"].as_i64().unwrap();
+
+        let error = item_update_with_conn(
+            &mut conn,
+            &json!({
+                "id": id,
+                "kind": "recurring",
+                "actionBinding": null
+            }),
+        )
+        .unwrap_err();
+
+        assert!(error.contains("请先解除动作绑定"));
+        let kind: String = conn
+            .query_row("SELECT kind FROM todo_items WHERE id=?1", [id], |row| row.get(0))
+            .unwrap();
+        assert_eq!(kind, "one_off");
+        assert_eq!(table_count(&conn, "action_bindings"), 1);
     }
 
     fn seed_series_rule(

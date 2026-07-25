@@ -188,6 +188,7 @@ const CHANNEL_MAP: Record<string, { domain: string; action: string }> = {
   "tool:release-package:cancel": { domain: "release_package", action: "cancel" },
   "tool:action-center:definition-list": { domain: "action_center", action: "definition_list" },
   "tool:action-center:target-list": { domain: "action_center", action: "target_list" },
+  "tool:action-center:binding-get": { domain: "action_center", action: "binding_get" },
   "tool:api-mock:route-list": { domain: "api_mock", action: "route_list" },
   "tool:api-mock:route-get": { domain: "api_mock", action: "route_get" },
   "tool:api-mock:route-save": { domain: "api_mock", action: "route_save" },
