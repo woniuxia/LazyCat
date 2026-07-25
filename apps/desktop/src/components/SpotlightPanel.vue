@@ -121,7 +121,10 @@ import { parseSpotlightQuery, parseQuickCommand, parseKeywordCommand } from "../
 import { nextSpotlightActiveIndex } from "../utils/spotlight-active-index";
 import { calculateExpression, getCalcPreview } from "../utils/calc";
 import { initSettings, getSetting } from "../composables/useSettings";
-import { buildClipboardSuggestionItems } from "../spotlight/clipboard-suggestions";
+import {
+  createClipboardSuggestionRefreshCoordinator,
+  mergeClipboardSuggestionItems,
+} from "../spotlight/clipboard-suggestions";
 import { createTodoDraft } from "../spotlight/providers/todo";
 import {
   resolveKeywordInvocation,
@@ -179,23 +182,20 @@ const view = ref<SpotlightView | null>(null);
 const browserProfilesRefreshGuard = createBrowserProfilesRefreshGuard();
 
 const clipboardSuggestionItems = ref<SpotlightItem[]>([]);
+const clipboardSuggestionRefresh = createClipboardSuggestionRefreshCoordinator((items) => {
+  clipboardSuggestionItems.value = items;
+});
 
 async function refreshClipboardSuggestions() {
-  try {
-    await initSettings();
-  } catch {
-    /* ignore */
-  }
-  if (getSetting("clipboard_detection") === "false") {
-    clipboardSuggestionItems.value = [];
-    return;
-  }
-  try {
-    const text = await navigator.clipboard.readText();
-    clipboardSuggestionItems.value = buildClipboardSuggestionItems(text);
-  } catch {
-    clipboardSuggestionItems.value = [];
-  }
+  await clipboardSuggestionRefresh.refresh(async () => {
+    try {
+      await initSettings();
+    } catch {
+      /* ignore */
+    }
+    if (getSetting("clipboard_detection") === "false") return null;
+    return navigator.clipboard.readText();
+  });
 }
 
 const parsed = computed(() =>
@@ -231,7 +231,13 @@ const searchableItemsByProvider = computed(() => {
     queryItemsByProvider.value,
   );
   const next = new Map(merged);
-  next.set("suggestion", clipboardSuggestionItems.value);
+  next.set(
+    "suggestion",
+    mergeClipboardSuggestionItems(
+      merged.get("suggestion") ?? [],
+      clipboardSuggestionItems.value,
+    ),
+  );
   return next;
 });
 

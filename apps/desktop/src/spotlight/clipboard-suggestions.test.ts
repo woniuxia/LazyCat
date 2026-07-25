@@ -1,7 +1,31 @@
 import { describe, expect, it } from "vitest";
 
 import { MAX_REFERENCE_CARD_TEXT_BYTES } from "../utils/monacoLanguages";
-import { buildClipboardSuggestionItems } from "./clipboard-suggestions";
+import type { SpotlightItem } from "./types";
+import {
+  buildClipboardSuggestionItems,
+  createClipboardSuggestionRefreshCoordinator,
+  mergeClipboardSuggestionItems,
+} from "./clipboard-suggestions";
+
+function createItem(itemId: string, title: string): SpotlightItem {
+  return {
+    providerId: "suggestion",
+    itemId,
+    title,
+    searchFields: [],
+  };
+}
+
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
 
 describe("buildClipboardSuggestionItems", () => {
   it("为已识别 JSON 依次生成工具建议和参考卡建议", () => {
@@ -51,4 +75,58 @@ describe("buildClipboardSuggestionItems", () => {
       buildClipboardSuggestionItems("a".repeat(MAX_REFERENCE_CARD_TEXT_BYTES + 1)),
     ).toEqual([]);
   });
+
+  it("接近 8 MiB 的有效文本只生成带截断预览的参考卡", () => {
+    const text = "a".repeat(MAX_REFERENCE_CARD_TEXT_BYTES);
+
+    const items = buildClipboardSuggestionItems(text);
+
+    expect(items).toHaveLength(1);
+    expect(items[0].itemId).toBe("suggestion:reference-card");
+    expect(items[0].title).toBe(`创建置顶参考卡（剪贴板：${"a".repeat(32)}…）`);
+  });
+
+  it("合并时保留已有建议并用同 key 的剪贴板项更新旧快照", () => {
+    const existing = [
+      createItem("existing", "已有建议"),
+      createItem("suggestion:reference-card", "旧参考卡快照"),
+    ];
+    const clipboard = [createItem("suggestion:reference-card", "新参考卡快照")];
+
+    const merged = mergeClipboardSuggestionItems(existing, clipboard);
+
+    expect(merged.map((item) => item.title)).toEqual(["已有建议", "新参考卡快照"]);
+  });
+
+  it.each(["resolve", "reject"] as const)(
+    "刷新只允许最新请求写回，旧请求 %s 不得覆盖",
+    async (staleOutcome) => {
+      const snapshots: SpotlightItem[][] = [];
+      const coordinator = createClipboardSuggestionRefreshCoordinator((items) => {
+        snapshots.push(items);
+      });
+      const stale = createDeferred<string | null>();
+      const latest = createDeferred<string | null>();
+
+      const staleRefresh = coordinator.refresh(() => stale.promise);
+      expect(snapshots.at(-1)).toEqual([]);
+      const latestRefresh = coordinator.refresh(() => latest.promise);
+      latest.resolve("最新对照内容");
+      await latestRefresh;
+      const latestSnapshot = snapshots.at(-1);
+
+      if (staleOutcome === "resolve") {
+        stale.resolve("过期对照内容");
+      } else {
+        stale.reject(new Error("过期读取失败"));
+      }
+      await staleRefresh;
+
+      expect(snapshots.at(-1)).toBe(latestSnapshot);
+      expect(latestSnapshot?.[0].payload?.suggestionAction).toEqual({
+        kind: "open-reference-card",
+        text: "最新对照内容",
+      });
+    },
+  );
 });

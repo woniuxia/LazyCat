@@ -17,16 +17,38 @@ const REFERENCE_CARD_SEARCH_TERMS = [
   "reference",
 ] as const;
 
+// 必须与 detectClipboardContent 的文本长度上限保持一致，避免超长文本进入其全文 trim。
+const CLIPBOARD_DETECTION_MAX_CHARACTERS = 100_000;
+
+type ClipboardSuggestionItemsWriter = (items: SpotlightItem[]) => void;
+
 function buildPreview(text: string): string {
-  const oneLine = text.replace(/\s+/g, " ").trim();
-  return oneLine.length > 32 ? `${oneLine.slice(0, 32)}…` : oneLine;
+  const characters: string[] = [];
+  let pendingSpace = false;
+
+  for (const character of text) {
+    if (/\s/u.test(character)) {
+      pendingSpace = characters.length > 0;
+      continue;
+    }
+    if (pendingSpace && characters.length < 33) characters.push(" ");
+    pendingSpace = false;
+    if (characters.length < 33) characters.push(character);
+    if (characters.length >= 33) break;
+  }
+
+  return characters.length > 32
+    ? `${characters.slice(0, 32).join("")}…`
+    : characters.join("");
 }
 
 export function buildClipboardSuggestionItems(text: string): SpotlightItem[] {
   if (!validateReferenceCardText(text).ok) return [];
 
   const preview = buildPreview(text);
-  const detected = detectClipboardContent(text);
+  const detected = text.length <= CLIPBOARD_DETECTION_MAX_CHARACTERS
+    ? detectClipboardContent(text)
+    : null;
   const toolAction = detected?.actions.find(
     (action) => action.kind === "tool" && isRealToolId(action.toolId),
   );
@@ -72,4 +94,41 @@ export function buildClipboardSuggestionItems(text: string): SpotlightItem[] {
   });
 
   return items;
+}
+
+function suggestionItemKey(item: SpotlightItem): string {
+  return `${item.providerId}:${item.itemId}`;
+}
+
+export function mergeClipboardSuggestionItems(
+  existingItems: SpotlightItem[],
+  clipboardItems: SpotlightItem[],
+): SpotlightItem[] {
+  const merged = new Map(
+    existingItems.map((item) => [suggestionItemKey(item), item]),
+  );
+  for (const item of clipboardItems) {
+    merged.set(suggestionItemKey(item), item);
+  }
+  return Array.from(merged.values());
+}
+
+export function createClipboardSuggestionRefreshCoordinator(
+  writeItems: ClipboardSuggestionItemsWriter,
+) {
+  let latestRequestId = 0;
+
+  return {
+    async refresh(readText: () => Promise<string | null>): Promise<void> {
+      const requestId = ++latestRequestId;
+      writeItems([]);
+      try {
+        const text = await readText();
+        if (requestId !== latestRequestId) return;
+        writeItems(text === null ? [] : buildClipboardSuggestionItems(text));
+      } catch {
+        if (requestId === latestRequestId) writeItems([]);
+      }
+    },
+  };
 }

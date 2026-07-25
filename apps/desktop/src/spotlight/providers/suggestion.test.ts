@@ -9,6 +9,9 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 vi.mock("../../bridge/tauri", () => ({ showReferenceCard }));
 
 import type { SpotlightItem } from "../types";
+import { MAX_REFERENCE_CARD_TEXT_BYTES } from "../../utils/monacoLanguages";
+import { buildClipboardSuggestionItems } from "../clipboard-suggestions";
+import { searchItems } from "../registry";
 import { suggestionProvider } from "./suggestion";
 
 function createSuggestionItem(suggestionAction: unknown): SpotlightItem {
@@ -61,5 +64,63 @@ describe("suggestionProvider.defaultAction", () => {
     expect(result.errorMessage).toContain("无效");
     expect(invoke).not.toHaveBeenCalled();
     expect(showReferenceCard).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["虚构工具", { kind: "open-tool", toolId: "not-a-real-tool", text: "demo" }],
+    ["空白参考文本", { kind: "open-reference-card", text: " \r\n " }],
+    [
+      "超限工具文本",
+      {
+        kind: "open-tool",
+        toolId: "formatter",
+        text: "a".repeat(MAX_REFERENCE_CARD_TEXT_BYTES + 1),
+      },
+    ],
+  ])("拒绝%s", async (_name, action) => {
+    const result = await suggestionProvider.defaultAction(
+      createSuggestionItem(action),
+      {} as never,
+    );
+
+    expect(result.errorMessage).toContain("无效");
+    expect(invoke).not.toHaveBeenCalled();
+    expect(showReferenceCard).not.toHaveBeenCalled();
+  });
+
+  it("不吞掉参考卡 bridge 的 rejection", async () => {
+    showReferenceCard.mockRejectedValueOnce(new Error("bridge failed"));
+
+    await expect(
+      suggestionProvider.defaultAction(
+        createSuggestionItem({ kind: "open-reference-card", text: "demo" }),
+        {} as never,
+      ),
+    ).rejects.toThrow("bridge failed");
+  });
+
+  it.each(["参考", "置顶", "zdck", "reference"])(
+    "通过真实搜索路径用 %s 命中参考卡",
+    (query) => {
+      const items = buildClipboardSuggestionItems('{"port":8080}');
+      const itemsByProvider = new Map([["suggestion" as const, items]]);
+
+      const results = searchItems(query, itemsByProvider, {
+        scope: null,
+        limit: 9,
+      });
+
+      expect(results[0]?.item.itemId).toBe("suggestion:reference-card");
+    },
+  );
+
+  it("空查询建议按构建顺序和权重保持工具优先", () => {
+    const items = buildClipboardSuggestionItems('{"port":8080}');
+
+    expect(items.map((item) => item.itemId)).toEqual([
+      "suggestion:tool:formatter",
+      "suggestion:reference-card",
+    ]);
+    expect(items[0].weight).toBeGreaterThan(items[1].weight ?? 0);
   });
 });

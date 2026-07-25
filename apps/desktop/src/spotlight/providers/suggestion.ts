@@ -1,5 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { showReferenceCard } from "../../bridge/tauri";
+import { isRealToolId } from "../../composables/toolCatalog";
+import { validateReferenceCardText } from "../../utils/monacoLanguages";
 import { registerProvider } from "../registry";
 import type {
   ProviderDescriptor,
@@ -21,7 +23,8 @@ async function defaultAction(
     "kind" in action &&
     action.kind === "open-reference-card" &&
     "text" in action &&
-    typeof action.text === "string"
+    typeof action.text === "string" &&
+    validateReferenceCardText(action.text).ok
   ) {
     await showReferenceCard(action.text);
     return { closeSpotlight: true };
@@ -32,8 +35,10 @@ async function defaultAction(
     action.kind === "open-tool" &&
     "toolId" in action &&
     typeof action.toolId === "string" &&
+    isRealToolId(action.toolId) &&
     "text" in action &&
-    typeof action.text === "string"
+    typeof action.text === "string" &&
+    validateReferenceCardText(action.text).ok
   ) {
     await invoke("spotlight_pick", {
       target: action.toolId,
