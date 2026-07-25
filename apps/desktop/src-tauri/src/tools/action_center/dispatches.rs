@@ -329,6 +329,156 @@ pub(crate) fn stop_pending_with_conn(
     Ok(())
 }
 
+pub(crate) fn associate_release_package_run_with_conn(
+    conn: &mut Connection,
+    dispatch_id: &str,
+    run_id: &str,
+    project_id: i64,
+) -> Result<(), String> {
+    let dispatch_id = dispatch_id.trim();
+    let run_id = run_id.trim();
+    if dispatch_id.is_empty() {
+        return Err("动作派发 id 不能为空".into());
+    }
+    if run_id.is_empty() {
+        return Err("上线包 run id 不能为空".into());
+    }
+    if project_id <= 0 {
+        return Err("上线包项目 id 不合法".into());
+    }
+
+    let tx = conn
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(|error| format!("开启上线包动作关联事务失败: {error}"))?;
+    let (status, action_type, target_id, external_run_id): (
+        String,
+        String,
+        String,
+        Option<String>,
+    ) = tx
+        .query_row(
+            "SELECT status, action_type, target_id, external_run_id
+             FROM action_dispatches WHERE id=?1",
+            [dispatch_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .optional()
+        .map_err(|error| format!("查询上线包动作派发失败: {error}"))?
+        .ok_or("动作派发不存在")?;
+    if status != STATUS_PENDING_CONFIRMATION {
+        return Err("动作派发不在待确认状态".into());
+    }
+    if action_type != "release_package.run" {
+        return Err("动作派发不是上线包打包动作".into());
+    }
+    if target_id != project_id.to_string() {
+        return Err("动作派发目标与上线包项目不匹配".into());
+    }
+    if external_run_id.is_some() {
+        return Err("动作派发已关联上线包运行".into());
+    }
+
+    tx.execute(
+        "UPDATE action_dispatches
+         SET status='running', external_run_id=?1, started_at=CURRENT_TIMESTAMP,
+             result_code=NULL, error=NULL
+         WHERE id=?2 AND status='pending_confirmation' AND external_run_id IS NULL",
+        params![run_id, dispatch_id],
+    )
+    .map_err(|error| format!("关联上线包运行失败: {error}"))?;
+    tx.commit()
+        .map_err(|error| format!("提交上线包动作关联失败: {error}"))?;
+    Ok(())
+}
+
+pub(crate) fn finish_release_package_run_with_conn(
+    conn: &mut Connection,
+    run_id: &str,
+    result_code: &str,
+) -> Result<bool, String> {
+    let run_id = run_id.trim();
+    if run_id.is_empty() {
+        return Err("上线包 run id 不能为空".into());
+    }
+    let dispatch_status = match result_code {
+        "succeeded" => STATUS_SUCCEEDED,
+        "cancelled" => STATUS_CANCELLED,
+        "partially_succeeded" | "package_succeeded_upload_failed" | "failed" => STATUS_FAILED,
+        _ => return Err(format!("未知的上线包终态: {result_code}")),
+    };
+
+    let tx = conn
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(|error| format!("开启上线包动作终态事务失败: {error}"))?;
+    let dispatch: Option<(String, String, String)> = tx
+        .query_row(
+            "SELECT id, trigger_type, trigger_id
+             FROM action_dispatches
+             WHERE external_run_id=?1 AND status='running'
+               AND action_type='release_package.run'",
+            [run_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()
+        .map_err(|error| format!("查询上线包动作运行失败: {error}"))?;
+    let Some((dispatch_id, trigger_type, trigger_id)) = dispatch else {
+        return Ok(false);
+    };
+
+    let changed = tx
+        .execute(
+            "UPDATE action_dispatches
+             SET status=?1, result_code=?2, error=NULL, finished_at=CURRENT_TIMESTAMP
+             WHERE id=?3 AND status='running' AND external_run_id=?4
+               AND action_type='release_package.run'",
+            params![dispatch_status, result_code, dispatch_id, run_id],
+        )
+        .map_err(|error| format!("更新上线包动作终态失败: {error}"))?;
+    if changed != 1 {
+        return Ok(false);
+    }
+
+    if result_code == "succeeded" && trigger_type == "todo_item" {
+        let todo_id = trigger_id
+            .parse::<i64>()
+            .ok()
+            .filter(|id| *id > 0)
+            .ok_or("动作派发中的任务 id 不合法")?;
+        let todo_exists: bool = tx
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM todo_items WHERE id=?1)",
+                [todo_id],
+                |row| row.get(0),
+            )
+            .map_err(|error| format!("查询动作关联任务失败: {error}"))?;
+        if todo_exists {
+            crate::tools::todo::change_item_status_with_conn(&tx, todo_id, "completed")?;
+        }
+    }
+
+    tx.commit()
+        .map_err(|error| format!("提交上线包动作终态失败: {error}"))?;
+    Ok(true)
+}
+
+pub(crate) fn associate_release_package_run(
+    dispatch_id: &str,
+    run_id: &str,
+    project_id: i64,
+) -> Result<(), String> {
+    let mut conn = super::super::helpers::db_conn()?;
+    associate_release_package_run_with_conn(&mut conn, dispatch_id, run_id, project_id)
+}
+
+#[cfg(not(test))]
+pub(crate) fn finish_release_package_run(
+    run_id: &str,
+    result_code: &str,
+) -> Result<bool, String> {
+    let mut conn = super::super::helpers::db_conn()?;
+    finish_release_package_run_with_conn(&mut conn, run_id, result_code)
+}
+
 pub(crate) fn latest_dispatch_with_conn(
     conn: &Connection,
     trigger_type: &str,
@@ -468,12 +618,23 @@ mod tests {
                 id INTEGER PRIMARY KEY,
                 title TEXT NOT NULL,
                 status TEXT NOT NULL,
-                kind TEXT NOT NULL
+                kind TEXT NOT NULL,
+                series_id INTEGER,
+                completed_at TEXT,
+                snooze_until TEXT,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
              );
              CREATE TABLE todo_reminder_events (
                 id INTEGER PRIMARY KEY,
                 task_id INTEGER NOT NULL,
-                is_read INTEGER NOT NULL DEFAULT 0
+                is_read INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+             );
+             CREATE TABLE todo_item_reminders (
+                id INTEGER PRIMARY KEY,
+                item_id INTEGER NOT NULL,
+                snooze_until TEXT,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
              );
              INSERT INTO todo_items(id, title, status, kind)
              VALUES(1, '发布客户门户', 'pending', 'one_off'),
@@ -542,6 +703,24 @@ mod tests {
             "SELECT status, result_code, error FROM action_dispatches WHERE id=?1",
             [id],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .unwrap()
+    }
+
+    fn dispatch_run_state(conn: &Connection, id: &str) -> (String, Option<String>, Option<String>) {
+        conn.query_row(
+            "SELECT status, external_run_id, started_at FROM action_dispatches WHERE id=?1",
+            [id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .unwrap()
+    }
+
+    fn todo_state(conn: &Connection, id: i64) -> (String, Option<String>) {
+        conn.query_row(
+            "SELECT status, completed_at FROM todo_items WHERE id=?1",
+            [id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .unwrap()
     }
@@ -688,6 +867,141 @@ mod tests {
                 Some("首次失败".into())
             )
         );
+    }
+
+    #[test]
+    fn release_package_run_association_requires_matching_pending_dispatch() {
+        let mut conn = seeded_action_conn();
+        let dispatch = create_dispatch_with_conn(&mut conn, &manual_request(1)).unwrap();
+
+        assert!(associate_release_package_run_with_conn(
+            &mut conn,
+            &dispatch.id,
+            "run-wrong-target",
+            8,
+        )
+        .unwrap_err()
+        .contains("目标"));
+        assert_eq!(dispatch_run_state(&conn, &dispatch.id).0, "pending_confirmation");
+
+        conn.execute(
+            "UPDATE action_dispatches SET action_type='browser_profile.open' WHERE id=?1",
+            [&dispatch.id],
+        )
+        .unwrap();
+        assert!(associate_release_package_run_with_conn(
+            &mut conn,
+            &dispatch.id,
+            "run-wrong-action",
+            7,
+        )
+        .unwrap_err()
+        .contains("动作"));
+        conn.execute(
+            "UPDATE action_dispatches SET action_type='release_package.run' WHERE id=?1",
+            [&dispatch.id],
+        )
+        .unwrap();
+
+        associate_release_package_run_with_conn(&mut conn, &dispatch.id, "run-1", 7).unwrap();
+        let state = dispatch_run_state(&conn, &dispatch.id);
+        assert_eq!(state.0, "running");
+        assert_eq!(state.1.as_deref(), Some("run-1"));
+        assert!(state.2.is_some());
+        assert!(associate_release_package_run_with_conn(
+            &mut conn,
+            &dispatch.id,
+            "run-2",
+            7,
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn only_full_release_package_success_completes_the_todo() {
+        for (result_code, expected_dispatch, expected_todo) in [
+            ("succeeded", "succeeded", "completed"),
+            ("partially_succeeded", "failed", "pending"),
+            ("package_succeeded_upload_failed", "failed", "pending"),
+            ("failed", "failed", "pending"),
+            ("cancelled", "cancelled", "pending"),
+        ] {
+            let mut conn = seeded_action_conn();
+            let dispatch = create_dispatch_with_conn(&mut conn, &manual_request(1)).unwrap();
+            associate_release_package_run_with_conn(&mut conn, &dispatch.id, "run-1", 7)
+                .unwrap();
+
+            assert!(finish_release_package_run_with_conn(&mut conn, "run-1", result_code)
+                .unwrap());
+            assert_eq!(dispatch_state(&conn, &dispatch.id).0, expected_dispatch);
+            assert_eq!(todo_state(&conn, 1).0, expected_todo);
+        }
+    }
+
+    #[test]
+    fn wrong_or_repeated_run_terminal_is_idempotent() {
+        let mut conn = seeded_action_conn();
+        let dispatch = create_dispatch_with_conn(&mut conn, &manual_request(1)).unwrap();
+        associate_release_package_run_with_conn(&mut conn, &dispatch.id, "run-1", 7).unwrap();
+
+        assert!(!finish_release_package_run_with_conn(&mut conn, "other-run", "succeeded")
+            .unwrap());
+        assert!(finish_release_package_run_with_conn(&mut conn, "run-1", "succeeded").unwrap());
+        let completed_at = todo_state(&conn, 1).1;
+        assert!(completed_at.is_some());
+        assert!(!finish_release_package_run_with_conn(&mut conn, "run-1", "failed").unwrap());
+        assert_eq!(todo_state(&conn, 1).1, completed_at);
+    }
+
+    #[test]
+    fn release_package_terminal_ignores_other_action_runs() {
+        let mut conn = seeded_action_conn();
+        let dispatch = create_dispatch_with_conn(&mut conn, &manual_request(1)).unwrap();
+        associate_release_package_run_with_conn(&mut conn, &dispatch.id, "run-1", 7).unwrap();
+        conn.execute(
+            "UPDATE action_dispatches SET action_type='development_environment.start' WHERE id=?1",
+            [&dispatch.id],
+        )
+        .unwrap();
+
+        assert!(!finish_release_package_run_with_conn(&mut conn, "run-1", "succeeded").unwrap());
+        assert_eq!(dispatch_state(&conn, &dispatch.id).0, "running");
+        assert_eq!(todo_state(&conn, 1).0, "pending");
+    }
+
+    #[test]
+    fn success_preserves_manual_completion_and_tolerates_deleted_todo() {
+        let mut completed_conn = seeded_action_conn();
+        let dispatch = create_dispatch_with_conn(&mut completed_conn, &manual_request(1)).unwrap();
+        associate_release_package_run_with_conn(&mut completed_conn, &dispatch.id, "run-1", 7)
+            .unwrap();
+        completed_conn
+            .execute(
+                "UPDATE todo_items SET status='completed', completed_at='2026-07-25 12:00:00' WHERE id=1",
+                [],
+            )
+            .unwrap();
+        finish_release_package_run_with_conn(&mut completed_conn, "run-1", "succeeded")
+            .unwrap();
+        assert_eq!(
+            todo_state(&completed_conn, 1),
+            ("completed".into(), Some("2026-07-25 12:00:00".into()))
+        );
+
+        let mut deleted_conn = seeded_action_conn();
+        let deleted_dispatch =
+            create_dispatch_with_conn(&mut deleted_conn, &manual_request(1)).unwrap();
+        associate_release_package_run_with_conn(
+            &mut deleted_conn,
+            &deleted_dispatch.id,
+            "run-2",
+            7,
+        )
+        .unwrap();
+        deleted_conn.execute("DELETE FROM todo_items WHERE id=1", []).unwrap();
+        assert!(finish_release_package_run_with_conn(&mut deleted_conn, "run-2", "succeeded")
+            .unwrap());
+        assert_eq!(dispatch_state(&deleted_conn, &deleted_dispatch.id).0, "succeeded");
     }
 
     #[test]

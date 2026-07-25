@@ -12,6 +12,7 @@ mod taxonomy;
 mod types;
 
 use items::*;
+pub(crate) use items::change_item_status_with_conn;
 use pm_link::*;
 use reminders::*;
 use taxonomy::*;

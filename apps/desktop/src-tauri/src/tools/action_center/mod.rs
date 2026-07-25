@@ -10,7 +10,9 @@ pub(crate) use bindings::{
     ensure_todo_can_become_recurring, parse_binding_patch, todo_reminder_action_summary,
     BindingPatch,
 };
-pub(crate) use dispatches::recover_interrupted_dispatches;
+pub(crate) use dispatches::{associate_release_package_run, recover_interrupted_dispatches};
+#[cfg(not(test))]
+pub(crate) use dispatches::finish_release_package_run;
 
 const ACTIONS: &[&str] = &[
     "definition_list",

@@ -869,6 +869,14 @@ pub(crate) fn item_change_status(payload: &Value) -> Result<Value, String> {
     )?;
 
     let conn = db_conn()?;
+    change_item_status_with_conn(&conn, id, &next)
+}
+
+pub(crate) fn change_item_status_with_conn(
+    conn: &Connection,
+    id: i64,
+    next: &str,
+) -> Result<Value, String> {
     let (current, kind, series_id): (String, String, Option<i64>) = conn
         .query_row(
             "SELECT status, kind, series_id FROM todo_items WHERE id=?1",
