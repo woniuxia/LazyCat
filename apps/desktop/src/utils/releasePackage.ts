@@ -74,6 +74,7 @@ export interface ReleasePackageStartPayloadInput {
   overwriteExisting: boolean;
   preflightToken: string;
   overwriteRemoteTargets: readonly ReleasePackageTarget[];
+  actionDispatchId?: string;
 }
 
 export type ReleasePackageStartPayload =
@@ -82,12 +83,14 @@ export type ReleasePackageStartPayload =
       targets: ReleasePackageTarget[];
       folderName: string;
       overwriteExisting: boolean;
+      actionDispatchId?: string;
     }
   | {
       projectId: number;
       targets: ReleasePackageTarget[];
       preflightToken: string;
       overwriteRemoteTargets: ReleasePackageTarget[];
+      actionDispatchId?: string;
     };
 
 export function createReleasePackageStartPayload(
@@ -97,6 +100,9 @@ export function createReleasePackageStartPayload(
   const common = {
     projectId: input.projectId,
     targets: [...input.targets],
+    ...(input.actionDispatchId !== undefined
+      ? { actionDispatchId: input.actionDispatchId }
+      : {}),
   };
   if (packageType === "local_archive") {
     return {

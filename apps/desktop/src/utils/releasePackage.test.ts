@@ -340,6 +340,27 @@ Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force
     })).toThrow("打包类型无效，请重新打开确认窗口");
   });
 
+  it("adds a dispatch id only to action-triggered starts", () => {
+    expect(createReleasePackageStartPayload("local_archive", {
+      projectId: 7,
+      targets: ["frontend", "backend"],
+      folderName: "20260725-客户门户",
+      overwriteExisting: false,
+      preflightToken: "",
+      overwriteRemoteTargets: [],
+      actionDispatchId: "dispatch-1",
+    })).toMatchObject({ actionDispatchId: "dispatch-1" });
+
+    expect(createReleasePackageStartPayload("local_archive", {
+      projectId: 7,
+      targets: ["frontend"],
+      folderName: "manual",
+      overwriteExisting: false,
+      preflightToken: "",
+      overwriteRemoteTargets: [],
+    })).not.toHaveProperty("actionDispatchId");
+  });
+
   it("accepts events only for the active run", () => {
     expect(acceptReleasePackageEvent("run-1", { runId: "run-1" })).toBe(true);
     expect(acceptReleasePackageEvent("run-1", { runId: "run-2" })).toBe(false);
