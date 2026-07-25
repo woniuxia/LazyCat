@@ -468,6 +468,37 @@ fn project_list_with_conn(conn: &Connection) -> Result<Value, String> {
     Ok(json!({ "projects": projects }))
 }
 
+pub(crate) fn list_action_target_rows(
+    conn: &Connection,
+) -> Result<Vec<(i64, String)>, String> {
+    let mut statement = conn
+        .prepare(
+            "SELECT id, name
+             FROM release_package_projects
+             ORDER BY name COLLATE NOCASE ASC, id ASC",
+        )
+        .map_err(|error| format!("prepare release package action targets failed: {error}"))?;
+    let rows = statement
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .map_err(|error| format!("query release package action targets failed: {error}"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| format!("read release package action target failed: {error}"))?;
+    Ok(rows)
+}
+
+pub(crate) fn load_action_target_label(
+    conn: &Connection,
+    id: i64,
+) -> Result<Option<String>, String> {
+    conn.query_row(
+        "SELECT name FROM release_package_projects WHERE id=?1",
+        [id],
+        |row| row.get(0),
+    )
+    .optional()
+    .map_err(|error| format!("load release package action target failed: {error}"))
+}
+
 fn project_create_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
     let project = parse_project_payload(payload)?;
     validate_vault_binding(conn, &project)?;

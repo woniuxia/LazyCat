@@ -178,7 +178,7 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
         .execute_batch(super::sql_entity::SQL_ENTITY_SCHEMA_SQL)
         .map_err(|e| format!("create sql entity schema failed: {e}"))?;
     super::release_package::ensure_schema(conn)?;
-
+    super::action_center::ensure_schema(conn)?;
 
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS hosts_profiles (

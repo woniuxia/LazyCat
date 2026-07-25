@@ -8,6 +8,7 @@ const SYNC_GUIDE: &str =
     "新增 action 需同步：模块 supported_actions、bridge/tauri.ts CHANNEL_MAP、（写操作）mod.rs 挂件白名单";
 
 const DOMAINS: &[&str] = &[
+    "action_center",
     "api_mock",
     "browser_profiles",
     "encode",
