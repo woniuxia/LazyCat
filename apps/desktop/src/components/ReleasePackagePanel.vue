@@ -239,82 +239,118 @@
               </template>
 
               <div class="server-config-body">
-                <div class="server-config-grid">
-                  <el-form-item label="认证方式" required>
-                    <el-radio-group v-model="draft.sshAuthType" :disabled="running" class="auth-type-group">
-                      <el-radio-button value="password">账户密码</el-radio-button>
-                      <el-radio-button value="private_key">私钥文件</el-radio-button>
-                    </el-radio-group>
-                  </el-form-item>
-                  <el-form-item v-if="draft.sshAuthType === 'private_key'" label="SSH 端口" required>
-                    <el-input-number v-model="draft.sshPort" :disabled="running" :min="1" :max="65535" controls-position="right" class="full-width" />
-                  </el-form-item>
-                  <el-form-item
-                    v-if="draft.sshAuthType === 'password'"
-                    label="密码库凭据"
-                    required
-                    class="vault-credential-field server-config-span-2"
-                  >
-                    <div class="vault-credential-picker">
-                      <el-select
-                        v-model="draft.vaultEntryId"
-                        :disabled="running"
-                        :loading="vaultOptionsLoading"
-                        filterable
-                        clearable
-                        class="full-width"
-                        placeholder="选择服务器凭据"
+                <section class="server-config-section server-auth-section">
+                  <div class="server-config-section-heading">
+                    <div>
+                      <strong>连接认证</strong>
+                      <span>选择连接凭据，切换时只更新认证详情</span>
+                    </div>
+                  </div>
+
+                  <div class="server-auth-type-row">
+                    <el-form-item label="认证方式" required>
+                      <el-radio-group v-model="draft.sshAuthType" :disabled="running" class="auth-type-group">
+                        <el-radio-button value="password">账户密码</el-radio-button>
+                        <el-radio-button value="private_key">私钥文件</el-radio-button>
+                      </el-radio-group>
+                    </el-form-item>
+                  </div>
+
+                  <div class="server-auth-details">
+                    <div
+                      v-if="draft.sshAuthType === 'password'"
+                      class="server-auth-details-panel password-auth-panel"
+                    >
+                      <el-form-item
+                        v-if="draft.sshAuthType === 'password'"
+                        label="密码库凭据"
+                        required
+                        class="vault-credential-field"
                       >
-                        <el-option
-                          v-for="option in vaultServerOptions"
-                          :key="option.id"
-                          :label="vaultCredentialLabel(option)"
-                          :value="option.id"
-                          :disabled="!option.complete"
-                        />
-                      </el-select>
-                      <el-button :icon="Refresh" :loading="vaultOptionsLoading" :disabled="running" @click="loadVaultServerOptions">刷新</el-button>
-                      <el-button :disabled="running" @click="openVault">密码管理</el-button>
+                        <div class="vault-credential-picker">
+                          <el-select
+                            v-model="draft.vaultEntryId"
+                            :disabled="running"
+                            :loading="vaultOptionsLoading"
+                            filterable
+                            clearable
+                            class="full-width"
+                            placeholder="选择服务器凭据"
+                          >
+                            <el-option
+                              v-for="option in vaultServerOptions"
+                              :key="option.id"
+                              :label="vaultCredentialLabel(option)"
+                              :value="option.id"
+                              :disabled="!option.complete"
+                            />
+                          </el-select>
+                          <el-button :icon="Refresh" :loading="vaultOptionsLoading" :disabled="running" @click="loadVaultServerOptions">刷新</el-button>
+                          <el-button :disabled="running" @click="openVault">密码管理</el-button>
+                        </div>
+                        <p class="vault-credential-hint">密码由密码库提供，上线包配置只保存凭据引用，不保存或展示服务器密码。</p>
+                        <div v-if="vaultBindingInvalid" class="vault-binding-invalid" role="alert">
+                          绑定的密码库凭据已失效，请重新选择
+                        </div>
+                        <div v-else-if="selectedVaultCredential" class="vault-credential-summary">
+                          <div>
+                            <span>服务器地址</span>
+                            <code>{{ selectedVaultCredential.address }}</code>
+                          </div>
+                          <div>
+                            <span>SSH 端口</span>
+                            <code>{{ selectedVaultCredential.port }}</code>
+                          </div>
+                          <div>
+                            <span>SSH 用户名</span>
+                            <code>{{ selectedVaultCredential.account }}</code>
+                          </div>
+                        </div>
+                      </el-form-item>
                     </div>
-                    <p class="vault-credential-hint">密码由密码库提供，上线包配置只保存凭据引用，不保存或展示服务器密码。</p>
-                    <div v-if="vaultBindingInvalid" class="vault-binding-invalid" role="alert">
-                      绑定的密码库凭据已失效，请重新选择
+
+                    <div
+                      v-if="draft.sshAuthType === 'private_key'"
+                      class="server-auth-details-panel private-key-auth-panel"
+                    >
+                      <div class="private-key-config-grid">
+                        <el-form-item v-if="draft.sshAuthType === 'private_key'" label="服务器地址" required>
+                          <el-input v-model="draft.sshHost" :disabled="running" placeholder="例如：10.0.0.8" />
+                        </el-form-item>
+                        <el-form-item v-if="draft.sshAuthType === 'private_key'" label="SSH 端口" required>
+                          <el-input-number v-model="draft.sshPort" :disabled="running" :min="1" :max="65535" controls-position="right" class="full-width" />
+                        </el-form-item>
+                        <el-form-item v-if="draft.sshAuthType === 'private_key'" label="SSH 用户名" required>
+                          <el-input v-model="draft.sshUsername" :disabled="running" placeholder="例如：deploy" />
+                        </el-form-item>
+                        <el-form-item v-if="draft.sshAuthType === 'private_key'" label="私钥文件" required class="private-key-file-field">
+                          <el-input v-model="draft.sshPrivateKeyPath" :disabled="running" placeholder="选择 OpenSSH 私钥文件" readonly>
+                            <template #append>
+                              <el-button :icon="Document" :disabled="running" @click="choosePrivateKey">选择私钥</el-button>
+                            </template>
+                          </el-input>
+                        </el-form-item>
+                      </div>
                     </div>
-                    <div v-else-if="selectedVaultCredential" class="vault-credential-summary">
-                      <div>
-                        <span>服务器地址</span>
-                        <code>{{ selectedVaultCredential.address }}</code>
-                      </div>
-                      <div>
-                        <span>SSH 端口</span>
-                        <code>{{ selectedVaultCredential.port }}</code>
-                      </div>
-                      <div>
-                        <span>SSH 用户名</span>
-                        <code>{{ selectedVaultCredential.account }}</code>
-                      </div>
+                  </div>
+                </section>
+
+                <section class="server-config-section server-target-section">
+                  <div class="server-config-section-heading">
+                    <div>
+                      <strong>远程目标</strong>
+                      <span>认证方式切换不会改变目标位置</span>
                     </div>
-                  </el-form-item>
-                  <el-form-item v-if="draft.sshAuthType === 'private_key'" label="服务器地址" required>
-                    <el-input v-model="draft.sshHost" :disabled="running" placeholder="例如：10.0.0.8" />
-                  </el-form-item>
-                  <el-form-item v-if="draft.sshAuthType === 'private_key'" label="SSH 用户名" required>
-                    <el-input v-model="draft.sshUsername" :disabled="running" placeholder="例如：deploy" />
-                  </el-form-item>
-                  <el-form-item v-if="draft.sshAuthType === 'private_key'" label="私钥文件" required class="server-config-span-2">
-                    <el-input v-model="draft.sshPrivateKeyPath" :disabled="running" placeholder="选择 OpenSSH 私钥文件" readonly>
-                      <template #append>
-                        <el-button :icon="Document" :disabled="running" @click="choosePrivateKey">选择私钥</el-button>
-                      </template>
-                    </el-input>
-                  </el-form-item>
-                  <el-form-item label="前端远程目录" required>
-                    <el-input v-model="draft.frontendRemoteDir" :disabled="running" placeholder="例如：/srv/portal/web" />
-                  </el-form-item>
-                  <el-form-item label="后端远程文件" required>
-                    <el-input v-model="draft.backendRemotePath" :disabled="running" placeholder="例如：/srv/portal/app.jar" />
-                  </el-form-item>
-                </div>
+                  </div>
+                  <div class="server-target-grid">
+                    <el-form-item label="前端远程目录" required>
+                      <el-input v-model="draft.frontendRemoteDir" :disabled="running" placeholder="例如：/srv/portal/web" />
+                    </el-form-item>
+                    <el-form-item label="后端远程文件" required>
+                      <el-input v-model="draft.backendRemotePath" :disabled="running" placeholder="例如：/srv/portal/app.jar" />
+                    </el-form-item>
+                  </div>
+                </section>
               </div>
             </el-collapse-item>
           </el-collapse>
