@@ -590,6 +590,7 @@ struct PipelineSummary {
     error: Option<String>,
     retry_descriptor: Option<RetryDescriptor>,
     remote_committed: bool,
+    local_committed: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -685,6 +686,7 @@ fn build_upload_summary(summary: BuildSummary) -> Result<PipelineSummary, Pipeli
         error: summary.error,
         retry_descriptor: None,
         remote_committed: false,
+        local_committed: false,
     })
 }
 
@@ -932,6 +934,7 @@ fn run_retry_deployment_phase(
         error: None,
         retry_descriptor: None,
         remote_committed: false,
+        local_committed: false,
     };
     let request = match build_retry_deployment_request(run_id, &retry, &authorization.consumed) {
         Ok(request) => request,
@@ -1122,6 +1125,7 @@ where
             error: summary.error,
             retry_descriptor: None,
             remote_committed: false,
+            local_committed: false,
         });
     }
 
@@ -1273,6 +1277,7 @@ where
             error: (!errors.is_empty()).then(|| errors.join("；")),
             retry_descriptor: None,
             remote_committed: false,
+            local_committed: false,
         });
     }
     let (archive_path, cleanup_warning) = match commit_archive(&mut archive, cancelled.as_ref()) {
@@ -1317,6 +1322,7 @@ where
         error: (!errors.is_empty()).then(|| errors.join("；")),
         retry_descriptor: None,
         remote_committed: false,
+        local_committed: true,
     })
 }
 
@@ -1328,12 +1334,12 @@ fn claim_pipeline_result(
     claim_lock: &Mutex<()>,
 ) -> Result<PipelineSummary, PipelineError> {
     let _guard = claim_lock.lock().unwrap();
-    let remote_committed = matches!(&result, Ok(summary) if summary.remote_committed);
+    let committed = matches!(&result, Ok(summary) if summary.remote_committed || summary.local_committed);
     let archived_cancellation = matches!(
         &result,
         Ok(summary) if summary.status == "cancelled" && summary.archive_path.is_some()
     );
-    let result = if cancelled.load(Ordering::Acquire) && !remote_committed {
+    let result = if cancelled.load(Ordering::Acquire) && !committed {
         cancel_won.store(true, Ordering::Release);
         if archived_cancellation {
             result
@@ -1912,6 +1918,7 @@ mod pipeline_tests {
                 error: None,
                 retry_descriptor: None,
                 remote_committed: false,
+                local_committed: false,
             }),
             true,
         );
@@ -1959,6 +1966,7 @@ mod pipeline_tests {
                 error: None,
                 retry_descriptor: None,
                 remote_committed: false,
+                local_committed: false,
             },
             Err(DeployError::failed("SFTP 传输中断")),
         );
@@ -1980,6 +1988,7 @@ mod pipeline_tests {
                 error: None,
                 retry_descriptor: None,
                 remote_committed: false,
+                local_committed: false,
             },
             Err(DeployError {
                 message: "远端提交成功，但旧版本备份清理失败".into(),
@@ -2037,6 +2046,32 @@ mod pipeline_tests {
         assert!(error.contains("run-local-cleanup.backup"));
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn late_cancellation_does_not_override_local_committed_cleanup_warning() {
+        let (_root, final_path, summary) = run_local_cleanup_warning_case(1, None);
+        let cancelled = AtomicBool::new(true);
+        let finished = AtomicBool::new(false);
+        let cancel_won = AtomicBool::new(false);
+
+        let result = claim_pipeline_result(
+            Ok(summary),
+            &cancelled,
+            &finished,
+            &cancel_won,
+            &Mutex::new(()),
+        )
+        .unwrap();
+
+        assert_eq!(result.status, "succeeded");
+        assert_eq!(result.archive_path.as_deref(), Some(final_path.as_path()));
+        assert!(result
+            .error
+            .as_deref()
+            .is_some_and(|error| error.contains("清理旧归档备份")));
+        assert!(!cancel_won.load(Ordering::Acquire));
+    }
+
     #[test]
     fn upload_failure_status_contains_a_session_retry_token() {
         let sink = TerminalSink::default();
@@ -2054,6 +2089,7 @@ mod pipeline_tests {
             error: None,
             retry_descriptor: None,
             remote_committed: false,
+            local_committed: false,
         };
 
         emit_terminal_result(
@@ -2087,6 +2123,7 @@ mod pipeline_tests {
                 error: None,
                 retry_descriptor: None,
                 remote_committed: true,
+                local_committed: false,
             }),
             false,
         );
@@ -2104,6 +2141,7 @@ mod pipeline_tests {
             error: Some("frontend failed".into()),
             retry_descriptor: None,
             remote_committed: false,
+            local_committed: false,
         };
 
         assert!(!package_can_upload(&summary));
@@ -2120,6 +2158,7 @@ mod pipeline_tests {
                 error: None,
                 retry_descriptor: None,
                 remote_committed: false,
+                local_committed: false,
             },
             Err(DeployError::cancelled()),
         );
@@ -2222,6 +2261,7 @@ mod pipeline_tests {
                 error: None,
                 retry_descriptor: None,
                 remote_committed: false,
+                local_committed: false,
             }),
             &cancelled,
             &finished,
@@ -2253,6 +2293,7 @@ mod pipeline_tests {
             error: None,
             retry_descriptor: None,
             remote_committed: false,
+            local_committed: false,
         };
         let result = claim_pipeline_result(
             Ok(combine_package_and_deploy(package, Ok(()))),
