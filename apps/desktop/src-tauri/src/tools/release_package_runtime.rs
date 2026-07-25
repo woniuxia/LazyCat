@@ -2,7 +2,6 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read};
-use std::net::{Shutdown, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -21,6 +20,7 @@ use super::release_package_deploy::{
 };
 use super::release_package_remote::{
     consume_preflight, ConsumedPreflight, PreflightBinding, RemoteTarget, SftpRemoteFs,
+    SshSocketRegistry,
 };
 use crate::events::{EVENT_RELEASE_PACKAGE_LOG, EVENT_RELEASE_PACKAGE_STATUS};
 use crate::global_notification::{build_release_package_notification, GlobalNotification};
@@ -221,8 +221,9 @@ impl ProcessSlots {
 struct ActiveRun {
     run_id: String,
     cancelled: Arc<AtomicBool>,
+    upload_stop: Arc<AtomicBool>,
     process_slots: ProcessSlots,
-    ssh_socket: Arc<Mutex<Option<TcpStream>>>,
+    ssh_sockets: Arc<SshSocketRegistry>,
     finished: Arc<AtomicBool>,
     cancel_won: Arc<AtomicBool>,
     claim_lock: Arc<Mutex<()>>,
@@ -847,7 +848,7 @@ fn run_deployment_phase(
     summary: PipelineSummary,
     authorization: DeployAuthorization,
     cancelled: &AtomicBool,
-    ssh_socket: &Arc<Mutex<Option<TcpStream>>>,
+    ssh_sockets: &Arc<SshSocketRegistry>,
     sink: &dyn EventSink,
 ) -> PipelineSummary {
     if !package_can_upload(&summary) {
@@ -864,7 +865,7 @@ fn run_deployment_phase(
         request,
         &authorization.consumed,
         cancelled,
-        ssh_socket,
+        ssh_sockets,
         sink,
     )
 }
@@ -876,7 +877,7 @@ fn execute_deployment_request(
     request: DeploymentRequest,
     consumed: &ConsumedPreflight,
     cancelled: &AtomicBool,
-    ssh_socket: &Arc<Mutex<Option<TcpStream>>>,
+    ssh_sockets: &Arc<SshSocketRegistry>,
     sink: &dyn EventSink,
 ) -> PipelineSummary {
     let total_bytes = request
@@ -890,7 +891,7 @@ fn execute_deployment_request(
         &consumed.binding,
         &consumed.expected_fingerprint,
         &consumed.secret,
-        ssh_socket,
+        ssh_sockets,
     ) {
         Ok(mut remote) => {
             let mut uploaded_bytes = 0_u64;
@@ -908,9 +909,7 @@ fn execute_deployment_request(
         }
         Err(error) => Err(error),
     };
-    if let Ok(mut socket) = ssh_socket.lock() {
-        socket.take();
-    }
+    ssh_sockets.clear();
     let summary = combine_package_and_deploy(summary, deploy_result);
     if summary.remote_committed {
         emit_system_log(sink, run_id, project_id, "upload", "服务器上传完成");
@@ -923,7 +922,7 @@ fn run_retry_deployment_phase(
     retry: RetryJob,
     authorization: DeployAuthorization,
     cancelled: &AtomicBool,
-    ssh_socket: &Arc<Mutex<Option<TcpStream>>>,
+    ssh_sockets: &Arc<SshSocketRegistry>,
     sink: &dyn EventSink,
 ) -> PipelineSummary {
     let summary = PipelineSummary {
@@ -947,7 +946,7 @@ fn run_retry_deployment_phase(
         request,
         &authorization.consumed,
         cancelled,
-        ssh_socket,
+        ssh_sockets,
         sink,
     )
 }
@@ -1334,7 +1333,8 @@ fn claim_pipeline_result(
     claim_lock: &Mutex<()>,
 ) -> Result<PipelineSummary, PipelineError> {
     let _guard = claim_lock.lock().unwrap();
-    let committed = matches!(&result, Ok(summary) if summary.remote_committed || summary.local_committed);
+    let committed =
+        matches!(&result, Ok(summary) if summary.remote_committed || summary.local_committed);
     let archived_cancellation = matches!(
         &result,
         Ok(summary) if summary.status == "cancelled" && summary.archive_path.is_some()
@@ -1356,17 +1356,17 @@ fn claim_pipeline_result(
 fn request_cancel(active: &ActiveRun) -> bool {
     let _guard = active.claim_lock.lock().unwrap();
     active.cancelled.store(true, Ordering::Release);
+    active.upload_stop.store(true, Ordering::Release);
     if active.finished.load(Ordering::Acquire) {
         if active.cancel_won.load(Ordering::Acquire) {
             return true;
         }
         active.cancelled.store(false, Ordering::Release);
+        active.upload_stop.store(false, Ordering::Release);
         return false;
     }
     active.process_slots.terminate_all();
-    if let Some(socket) = active.ssh_socket.lock().unwrap().take() {
-        let _ = socket.shutdown(Shutdown::Both);
-    }
+    active.ssh_sockets.shutdown_all();
     true
 }
 
@@ -1378,8 +1378,9 @@ pub fn start(
 ) -> Result<Value, String> {
     let run_id = uuid::Uuid::new_v4().to_string();
     let cancelled = Arc::new(AtomicBool::new(false));
+    let upload_stop = Arc::new(AtomicBool::new(false));
     let process_slots = ProcessSlots::new();
-    let ssh_socket = Arc::new(Mutex::new(None));
+    let ssh_sockets = Arc::new(SshSocketRegistry::new());
     let finished = Arc::new(AtomicBool::new(false));
     let cancel_won = Arc::new(AtomicBool::new(false));
     let claim_lock = Arc::new(Mutex::new(()));
@@ -1396,8 +1397,9 @@ pub fn start(
         *active = Some(ActiveRun {
             run_id: run_id.clone(),
             cancelled: cancelled.clone(),
+            upload_stop: upload_stop.clone(),
             process_slots: process_slots.clone(),
-            ssh_socket: ssh_socket.clone(),
+            ssh_sockets: ssh_sockets.clone(),
             finished: finished.clone(),
             cancel_won: cancel_won.clone(),
             claim_lock: claim_lock.clone(),
@@ -1453,7 +1455,7 @@ pub fn start(
                     summary,
                     deploy_authorization,
                     cancelled.as_ref(),
-                    &ssh_socket,
+                    &ssh_sockets,
                     sink.as_ref(),
                 )
             }),
@@ -1483,8 +1485,9 @@ pub fn upload_retry(
 ) -> Result<Value, String> {
     let run_id = uuid::Uuid::new_v4().to_string();
     let cancelled = Arc::new(AtomicBool::new(false));
+    let upload_stop = Arc::new(AtomicBool::new(false));
     let process_slots = ProcessSlots::new();
-    let ssh_socket = Arc::new(Mutex::new(None));
+    let ssh_sockets = Arc::new(SshSocketRegistry::new());
     let finished = Arc::new(AtomicBool::new(false));
     let cancel_won = Arc::new(AtomicBool::new(false));
     let claim_lock = Arc::new(Mutex::new(()));
@@ -1501,8 +1504,9 @@ pub fn upload_retry(
         *active = Some(ActiveRun {
             run_id: run_id.clone(),
             cancelled: cancelled.clone(),
+            upload_stop: upload_stop.clone(),
             process_slots,
-            ssh_socket: ssh_socket.clone(),
+            ssh_sockets: ssh_sockets.clone(),
             finished: finished.clone(),
             cancel_won: cancel_won.clone(),
             claim_lock: claim_lock.clone(),
@@ -1537,7 +1541,7 @@ pub fn upload_retry(
             retry,
             deploy_authorization,
             cancelled.as_ref(),
-            &ssh_socket,
+            &ssh_sockets,
             sink.as_ref(),
         );
         let result =
@@ -2208,6 +2212,7 @@ mod pipeline_tests {
     #[test]
     fn completed_run_rejects_late_cancellation() {
         let cancelled = Arc::new(AtomicBool::new(false));
+        let upload_stop = Arc::new(AtomicBool::new(false));
         let finished = Arc::new(AtomicBool::new(false));
         let claim_lock = Arc::new(Mutex::new(()));
         {
@@ -2217,34 +2222,48 @@ mod pipeline_tests {
         let active = ActiveRun {
             run_id: "finished".into(),
             cancelled: cancelled.clone(),
+            upload_stop: upload_stop.clone(),
             process_slots: ProcessSlots::new(),
-            ssh_socket: Arc::new(Mutex::new(None)),
+            ssh_sockets: Arc::new(SshSocketRegistry::new()),
             finished,
             cancel_won: Arc::new(AtomicBool::new(false)),
             claim_lock,
         };
         assert!(!request_cancel(&active));
         assert!(!cancelled.load(Ordering::Acquire));
+        assert!(!upload_stop.load(Ordering::Acquire));
     }
 
     #[test]
     fn cancellation_closes_the_active_ssh_socket() {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let client = std::net::TcpStream::connect(listener.local_addr().unwrap()).unwrap();
-        let (_server, _) = listener.accept().unwrap();
-        let ssh_socket = Arc::new(Mutex::new(Some(client)));
+        let first = std::net::TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let second = std::net::TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (mut first_server, _) = listener.accept().unwrap();
+        let (mut second_server, _) = listener.accept().unwrap();
+        let ssh_sockets = Arc::new(SshSocketRegistry::new());
+        ssh_sockets.register(first).unwrap();
+        ssh_sockets.register(second).unwrap();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let upload_stop = Arc::new(AtomicBool::new(false));
         let active = ActiveRun {
             run_id: "uploading".into(),
-            cancelled: Arc::new(AtomicBool::new(false)),
+            cancelled: cancelled.clone(),
+            upload_stop: upload_stop.clone(),
             process_slots: ProcessSlots::new(),
-            ssh_socket: ssh_socket.clone(),
+            ssh_sockets: ssh_sockets.clone(),
             finished: Arc::new(AtomicBool::new(false)),
             cancel_won: Arc::new(AtomicBool::new(false)),
             claim_lock: Arc::new(Mutex::new(())),
         };
 
         assert!(request_cancel(&active));
-        assert!(ssh_socket.lock().unwrap().is_none());
+        assert!(cancelled.load(Ordering::Acquire));
+        assert!(upload_stop.load(Ordering::Acquire));
+        assert_eq!(ssh_sockets.len_for_test(), 0);
+        let mut byte = [0_u8; 1];
+        assert_eq!(first_server.read(&mut byte).unwrap(), 0);
+        assert_eq!(second_server.read(&mut byte).unwrap(), 0);
     }
 
     #[test]

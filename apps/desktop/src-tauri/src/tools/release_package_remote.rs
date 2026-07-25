@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Write};
-use std::net::{TcpStream, ToSocketAddrs};
+use std::net::{Shutdown, TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use base64::engine::general_purpose::STANDARD_NO_PAD;
@@ -22,6 +22,56 @@ use super::release_package_deploy::{
 const SSH_TIMEOUT: Duration = Duration::from_secs(10);
 const PROBE_TTL: Duration = Duration::from_secs(300);
 const PREFLIGHT_TTL: Duration = Duration::from_secs(300);
+
+#[derive(Default)]
+pub struct SshSocketRegistry {
+    sockets: Mutex<Vec<TcpStream>>,
+    shutdown_requested: AtomicBool,
+}
+
+impl SshSocketRegistry {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn register(&self, socket: TcpStream) -> Result<(), String> {
+        let mut sockets = self
+            .sockets
+            .lock()
+            .map_err(|_| "SSH 连接状态不可用".to_string())?;
+        if self.shutdown_requested.load(Ordering::Acquire) {
+            let _ = socket.shutdown(Shutdown::Both);
+            return Err("SSH 上传已取消".to_string());
+        }
+        sockets.push(socket);
+        Ok(())
+    }
+
+    pub fn shutdown_all(&self) {
+        self.shutdown_requested.store(true, Ordering::Release);
+        let sockets = match self.sockets.lock() {
+            Ok(mut sockets) => std::mem::take(&mut *sockets),
+            Err(_) => return,
+        };
+        for socket in sockets {
+            let _ = socket.shutdown(Shutdown::Both);
+        }
+    }
+
+    pub fn clear(&self) {
+        if let Ok(mut sockets) = self.sockets.lock() {
+            sockets.clear();
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn len_for_test(&self) -> usize {
+        self.sockets
+            .lock()
+            .map(|sockets| sockets.len())
+            .unwrap_or(0)
+    }
+}
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -299,7 +349,7 @@ fn handshake_session(endpoint: &RemoteEndpoint) -> Result<Session, String> {
 
 fn handshake_session_with_socket(
     endpoint: &RemoteEndpoint,
-    socket_slot: Option<&Arc<Mutex<Option<TcpStream>>>>,
+    sockets: Option<&SshSocketRegistry>,
 ) -> Result<Session, String> {
     let stream = connect_tcp(endpoint)?;
     stream
@@ -308,13 +358,11 @@ fn handshake_session_with_socket(
     stream
         .set_write_timeout(Some(SSH_TIMEOUT))
         .map_err(|error| format!("设置 SSH 写超时失败：{error}"))?;
-    if let Some(socket_slot) = socket_slot {
+    if let Some(sockets) = sockets {
         let socket = stream
             .try_clone()
             .map_err(|error| format!("保存 SSH 连接失败：{error}"))?;
-        *socket_slot
-            .lock()
-            .map_err(|_| "SSH 连接状态不可用".to_string())? = Some(socket);
+        sockets.register(socket)?;
     }
     let mut session = create_session()?;
     session.set_tcp_stream(stream);
@@ -527,9 +575,9 @@ impl SftpRemoteFs {
         binding: &PreflightBinding,
         expected_fingerprint: &str,
         secret: &AuthSecret,
-        socket_slot: &Arc<Mutex<Option<TcpStream>>>,
+        sockets: &SshSocketRegistry,
     ) -> Result<Self, DeployError> {
-        let session = handshake_session_with_socket(&binding.endpoint, Some(socket_slot))
+        let session = handshake_session_with_socket(&binding.endpoint, Some(sockets))
             .map_err(DeployError::failed)?;
         if session_fingerprint(&session).map_err(DeployError::failed)? != expected_fingerprint {
             return Err(DeployError::failed("SSH 主机指纹与已信任记录不一致"));
@@ -760,7 +808,7 @@ mod tests {
         discard_preflight, discard_probe, issue_preflight, load_probe, probe_host, store_probe,
         validate_remote_dir, validate_remote_file, validate_target_relationships, AuthSecret,
         HostTrust, PreflightBinding, PreflightStore, ProbeSnapshot, RemoteEndpoint, RemoteTarget,
-        SftpRemoteFs,
+        SftpRemoteFs, SshSocketRegistry,
     };
     use crate::tools::release_package::ReleaseTarget;
     use crate::tools::release_package_deploy::{
@@ -769,7 +817,6 @@ mod tests {
     use std::fs;
     use std::path::{Path, PathBuf};
     use std::sync::atomic::AtomicBool;
-    use std::sync::{Arc, Mutex};
     use std::time::Duration;
     use uuid::Uuid;
     use zeroize::Zeroizing;
@@ -789,6 +836,44 @@ mod tests {
     #[test]
     fn creates_an_ssh_session_without_network_access() {
         assert!(create_session().is_ok());
+    }
+
+    #[test]
+    fn sftp_remote_fs_is_send() {
+        fn assert_send<T: Send>() {}
+
+        assert_send::<SftpRemoteFs>();
+    }
+
+    #[test]
+    fn socket_registry_tracks_and_clears_all_connections() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let first = std::net::TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let second = std::net::TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let _ = listener.accept().unwrap();
+        let _ = listener.accept().unwrap();
+
+        let registry = SshSocketRegistry::new();
+        registry.register(first.try_clone().unwrap()).unwrap();
+        registry.register(second.try_clone().unwrap()).unwrap();
+        assert_eq!(registry.len_for_test(), 2);
+
+        registry.clear();
+        assert_eq!(registry.len_for_test(), 0);
+    }
+
+    #[test]
+    fn socket_registry_rejects_connections_registered_after_shutdown() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let client = std::net::TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let _ = listener.accept().unwrap();
+        let registry = SshSocketRegistry::new();
+
+        registry.shutdown_all();
+        let error = registry.register(client).unwrap_err();
+
+        assert_eq!(error, "SSH 上传已取消");
+        assert_eq!(registry.len_for_test(), 0);
     }
 
     #[test]
@@ -1138,8 +1223,8 @@ mod tests {
         let suffix = Uuid::new_v4().simple().to_string();
         let remote_root = format!("/tmp/lazycat-release-package-test-{suffix}");
         let binding = fixture.binding(&remote_root, auth_type);
-        let socket_slot = Arc::new(Mutex::new(None));
-        let mut remote = SftpRemoteFs::connect(&binding, fingerprint, &auth, &socket_slot)
+        let sockets = SshSocketRegistry::new();
+        let mut remote = SftpRemoteFs::connect(&binding, fingerprint, &auth, &sockets)
             .map_err(|error| error.to_string())?;
         let local = LocalFixtureDir::create()?;
 
@@ -1217,20 +1302,21 @@ mod tests {
 
         let password_binding =
             fixture.binding("/tmp/lazycat-release-package-test-auth", "password");
-        let socket_slot = Arc::new(Mutex::new(None));
+        let sockets = SshSocketRegistry::new();
         assert!(SftpRemoteFs::connect(
             &password_binding,
             "SHA256:untrusted",
             &fixture.password_auth(),
-            &socket_slot,
+            &sockets,
         )
         .is_err());
         let wrong_password = AuthSecret::Password(Zeroizing::new("definitely-wrong".into()));
+        let wrong_password_sockets = SshSocketRegistry::new();
         assert!(SftpRemoteFs::connect(
             &password_binding,
             &probe.fingerprint_sha256,
             &wrong_password,
-            &Arc::new(Mutex::new(None)),
+            &wrong_password_sockets,
         )
         .is_err());
 
