@@ -7,16 +7,19 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tauri::Emitter;
 
-use super::release_package::{ReleasePackageProjectConfig, ReleasePackageType, ReleaseTarget};
+#[cfg(test)]
+use super::release_package::ReleasePackageType;
+use super::release_package::{ReleasePackageProjectConfig, ReleaseTarget};
 use super::release_package_archive::{
     archive_backend_artifact, archive_frontend_artifact, resolve_artifact_path,
     validate_artifact_target_collision, ArchiveError, ArchiveSession,
 };
 use super::release_package_deploy::{
-    deploy, ArchivedTarget, ArtifactManifest, DeployError, DeploymentRequest, DeploymentTarget,
+    deploy_parallel, ArchivedTarget, ArtifactManifest, DeployError, DeploymentPlan,
+    DeploymentRequest, DeploymentTarget, RemoteFs,
 };
 use super::release_package_remote::{
     consume_preflight, ConsumedPreflight, PreflightBinding, RemoteTarget, SftpRemoteFs,
@@ -340,6 +343,103 @@ fn emit_upload_status(
         current_path,
         retry_token: None,
     });
+}
+
+#[derive(Default)]
+struct UploadProgressState {
+    uploaded_bytes: u64,
+    current_path: Option<String>,
+    last_emitted_at: Option<Instant>,
+}
+
+fn should_emit_upload_progress(
+    last_emitted_at: Option<Instant>,
+    now: Instant,
+    force: bool,
+) -> bool {
+    force
+        || last_emitted_at
+            .map(|last| now.duration_since(last) >= Duration::from_millis(100))
+            .unwrap_or(true)
+}
+
+struct UploadProgressReporter {
+    sink: Arc<dyn EventSink>,
+    run_id: String,
+    project_id: i64,
+    total_bytes: u64,
+    state: Mutex<UploadProgressState>,
+}
+
+impl UploadProgressReporter {
+    fn new(
+        sink: Arc<dyn EventSink>,
+        run_id: impl Into<String>,
+        project_id: i64,
+        total_bytes: u64,
+    ) -> Self {
+        Self {
+            sink,
+            run_id: run_id.into(),
+            project_id,
+            total_bytes,
+            state: Mutex::new(UploadProgressState::default()),
+        }
+    }
+
+    fn report(&self, bytes: u64, path: &str) {
+        self.report_at(bytes, path, Instant::now());
+    }
+
+    fn report_at(&self, bytes: u64, path: &str, now: Instant) {
+        let event = {
+            let mut state = self.state.lock().unwrap();
+            state.uploaded_bytes = state.uploaded_bytes.saturating_add(bytes);
+            state.current_path = Some(path.to_owned());
+            if !should_emit_upload_progress(state.last_emitted_at, now, false) {
+                return;
+            }
+            state.last_emitted_at = Some(now);
+            (state.uploaded_bytes, state.current_path.clone())
+        };
+        emit_upload_status(
+            self.sink.as_ref(),
+            &self.run_id,
+            self.project_id,
+            event.0,
+            self.total_bytes,
+            event.1,
+        );
+    }
+
+    fn force_emit(&self, success: bool) {
+        self.force_emit_at(Instant::now(), success);
+    }
+
+    fn force_emit_at(&self, now: Instant, success: bool) {
+        let event = {
+            let mut state = self.state.lock().unwrap();
+            if success {
+                debug_assert_eq!(state.uploaded_bytes, self.total_bytes);
+                state.uploaded_bytes = self.total_bytes;
+            }
+            state.last_emitted_at = Some(now);
+            (state.uploaded_bytes, state.current_path.clone())
+        };
+        emit_upload_status(
+            self.sink.as_ref(),
+            &self.run_id,
+            self.project_id,
+            event.0,
+            self.total_bytes,
+            event.1,
+        );
+    }
+
+    #[cfg(test)]
+    fn uploaded_bytes(&self) -> u64 {
+        self.state.lock().unwrap().uploaded_bytes
+    }
 }
 
 fn emit_terminal_result(
@@ -847,9 +947,10 @@ fn run_deployment_phase(
     project: &ReleasePackageProjectConfig,
     summary: PipelineSummary,
     authorization: DeployAuthorization,
-    cancelled: &AtomicBool,
+    cancelled: Arc<AtomicBool>,
+    upload_stop: Arc<AtomicBool>,
     ssh_sockets: &Arc<SshSocketRegistry>,
-    sink: &dyn EventSink,
+    sink: Arc<dyn EventSink>,
 ) -> PipelineSummary {
     if !package_can_upload(&summary) {
         return summary;
@@ -863,8 +964,9 @@ fn run_deployment_phase(
         project.id,
         summary,
         request,
-        &authorization.consumed,
+        authorization.consumed,
         cancelled,
+        upload_stop,
         ssh_sockets,
         sink,
     )
@@ -875,44 +977,95 @@ fn execute_deployment_request(
     project_id: i64,
     summary: PipelineSummary,
     request: DeploymentRequest,
-    consumed: &ConsumedPreflight,
-    cancelled: &AtomicBool,
+    consumed: ConsumedPreflight,
+    cancelled: Arc<AtomicBool>,
+    upload_stop: Arc<AtomicBool>,
     ssh_sockets: &Arc<SshSocketRegistry>,
-    sink: &dyn EventSink,
+    sink: Arc<dyn EventSink>,
 ) -> PipelineSummary {
     let total_bytes = request
         .targets
         .iter()
         .map(|target| target.manifest.total_bytes)
         .sum();
-    emit_system_log(sink, run_id, project_id, "upload", "开始上传服务器");
-    emit_upload_status(sink, run_id, project_id, 0, total_bytes, None);
-    let deploy_result = match SftpRemoteFs::connect(
-        &consumed.binding,
-        &consumed.expected_fingerprint,
-        &consumed.secret,
-        ssh_sockets,
-    ) {
-        Ok(mut remote) => {
-            let mut uploaded_bytes = 0_u64;
-            deploy(&mut remote, &request, cancelled, |bytes, current_path| {
-                uploaded_bytes = uploaded_bytes.saturating_add(bytes);
-                emit_upload_status(
-                    sink,
-                    run_id,
-                    project_id,
-                    uploaded_bytes,
-                    total_bytes,
-                    Some(current_path.to_owned()),
-                );
-            })
-        }
-        Err(error) => Err(error),
+    emit_system_log(
+        sink.as_ref(),
+        run_id,
+        project_id,
+        "upload",
+        "开始上传服务器",
+    );
+    let reporter = Arc::new(UploadProgressReporter::new(
+        Arc::clone(&sink),
+        run_id,
+        project_id,
+        total_bytes,
+    ));
+    reporter.force_emit(false);
+    let progress = {
+        let reporter = Arc::clone(&reporter);
+        Arc::new(move |bytes: u64, path: &str| reporter.report(bytes, path))
+            as Arc<dyn Fn(u64, &str) + Send + Sync>
     };
+    let binding = Arc::new(consumed.binding);
+    let expected_fingerprint = Arc::new(consumed.expected_fingerprint);
+    let secret = Arc::new(Mutex::new(consumed.secret));
+    let connect_remote = {
+        let binding = Arc::clone(&binding);
+        let expected_fingerprint = Arc::clone(&expected_fingerprint);
+        let secret = Arc::clone(&secret);
+        let ssh_sockets = Arc::clone(ssh_sockets);
+        Arc::new(move || -> Result<Box<dyn RemoteFs>, DeployError> {
+            let secret = secret
+                .lock()
+                .map_err(|_| DeployError::failed("SSH 认证状态不可用"))?;
+            Ok(Box::new(SftpRemoteFs::connect(
+                binding.as_ref(),
+                expected_fingerprint.as_ref(),
+                &secret,
+                ssh_sockets.as_ref(),
+            )?))
+        })
+    };
+    let deploy_result = (|| -> Result<(), DeployError> {
+        let plan = DeploymentPlan::new(request)?;
+        let mut remotes = Vec::with_capacity(plan.target_count());
+        for _ in 0..plan.target_count() {
+            remotes.push(connect_remote()?);
+        }
+        let interrupt_transport = {
+            let ssh_sockets = Arc::clone(ssh_sockets);
+            Arc::new(move || ssh_sockets.shutdown_all()) as Arc<dyn Fn() + Send + Sync>
+        };
+        let recover_remote = {
+            let connect_remote = Arc::clone(&connect_remote);
+            let ssh_sockets = Arc::clone(ssh_sockets);
+            Arc::new(move || {
+                ssh_sockets.reset_after_shutdown();
+                connect_remote()
+            }) as Arc<dyn Fn() -> Result<Box<dyn RemoteFs>, DeployError> + Send + Sync>
+        };
+        deploy_parallel(
+            remotes,
+            plan,
+            Arc::clone(&cancelled),
+            upload_stop,
+            progress,
+            interrupt_transport,
+            recover_remote,
+        )
+    })();
     ssh_sockets.clear();
+    reporter.force_emit(deploy_result.is_ok());
     let summary = combine_package_and_deploy(summary, deploy_result);
     if summary.remote_committed {
-        emit_system_log(sink, run_id, project_id, "upload", "服务器上传完成");
+        emit_system_log(
+            sink.as_ref(),
+            run_id,
+            project_id,
+            "upload",
+            "服务器上传完成",
+        );
     }
     summary
 }
@@ -921,9 +1074,10 @@ fn run_retry_deployment_phase(
     run_id: &str,
     retry: RetryJob,
     authorization: DeployAuthorization,
-    cancelled: &AtomicBool,
+    cancelled: Arc<AtomicBool>,
+    upload_stop: Arc<AtomicBool>,
     ssh_sockets: &Arc<SshSocketRegistry>,
-    sink: &dyn EventSink,
+    sink: Arc<dyn EventSink>,
 ) -> PipelineSummary {
     let summary = PipelineSummary {
         status: "succeeded",
@@ -944,8 +1098,9 @@ fn run_retry_deployment_phase(
         retry.project_id,
         summary,
         request,
-        &authorization.consumed,
+        authorization.consumed,
         cancelled,
+        upload_stop,
         ssh_sockets,
         sink,
     )
@@ -1454,9 +1609,10 @@ pub fn start(
                     &terminal_project,
                     summary,
                     deploy_authorization,
-                    cancelled.as_ref(),
+                    cancelled.clone(),
+                    upload_stop.clone(),
                     &ssh_sockets,
-                    sink.as_ref(),
+                    sink.clone(),
                 )
             }),
         };
@@ -1540,9 +1696,10 @@ pub fn upload_retry(
             &thread_run_id,
             retry,
             deploy_authorization,
-            cancelled.as_ref(),
+            cancelled.clone(),
+            upload_stop.clone(),
             &ssh_sockets,
-            sink.as_ref(),
+            sink.clone(),
         );
         let result =
             claim_pipeline_result(Ok(summary), &cancelled, &finished, &cancel_won, &claim_lock);
@@ -1780,6 +1937,60 @@ mod pipeline_tests {
         fn notification(&self, event: GlobalNotification) {
             self.notifications.lock().unwrap().push(event);
         }
+    }
+
+    #[test]
+    fn upload_progress_is_initially_and_finally_forced_but_middle_is_throttled() {
+        let start = Instant::now();
+        assert!(should_emit_upload_progress(None, start, false));
+        assert!(!should_emit_upload_progress(
+            Some(start),
+            start + Duration::from_millis(99),
+            false,
+        ));
+        assert!(should_emit_upload_progress(
+            Some(start),
+            start + Duration::from_millis(100),
+            false,
+        ));
+        assert!(should_emit_upload_progress(
+            Some(start),
+            start + Duration::from_millis(1),
+            true,
+        ));
+    }
+
+    #[test]
+    fn upload_progress_aggregates_concurrent_bytes_without_bypassing_throttle() {
+        let sink = Arc::new(TerminalSink::default());
+        let reporter = Arc::new(UploadProgressReporter::new(
+            sink.clone(),
+            "run-progress",
+            7,
+            200,
+        ));
+        let start = Instant::now();
+        reporter.force_emit_at(start, false);
+
+        let mut handles = Vec::new();
+        for path in ["index.html", "app.jar"] {
+            let reporter = Arc::clone(&reporter);
+            handles.push(thread::spawn(move || {
+                for _ in 0..100 {
+                    reporter.report_at(1, path, start + Duration::from_millis(50));
+                }
+            }));
+        }
+        for handle in handles {
+            handle.join().unwrap();
+        }
+        reporter.force_emit_at(start + Duration::from_millis(100), true);
+
+        let statuses = sink.statuses.lock().unwrap();
+        assert_eq!(statuses.len(), 2);
+        assert_eq!(statuses[0].uploaded_bytes, Some(0));
+        assert_eq!(statuses[1].uploaded_bytes, Some(200));
+        assert_eq!(reporter.uploaded_bytes(), 200);
     }
 
     fn project() -> ReleasePackageProjectConfig {
@@ -2178,6 +2389,36 @@ mod pipeline_tests {
             result,
             Err(PipelineError::Cancelled { phase: "overall" })
         ));
+    }
+
+    #[test]
+    fn internal_upload_stop_does_not_mark_user_cancelled() {
+        let cancelled = AtomicBool::new(false);
+        let upload_stop = AtomicBool::new(true);
+        let result = claim_pipeline_result(
+            Ok(combine_package_and_deploy(
+                PipelineSummary {
+                    status: "succeeded",
+                    archive_path: None,
+                    archived_targets: Vec::new(),
+                    manifests: Vec::new(),
+                    error: None,
+                    retry_descriptor: None,
+                    remote_committed: false,
+                    local_committed: false,
+                },
+                Err(DeployError::failed("并行上传因其他目标失败而停止")),
+            )),
+            &cancelled,
+            &AtomicBool::new(false),
+            &AtomicBool::new(false),
+            &Mutex::new(()),
+        )
+        .unwrap();
+
+        assert_eq!(result.status, "package_succeeded_upload_failed");
+        assert!(!cancelled.load(Ordering::Acquire));
+        assert!(upload_stop.load(Ordering::Acquire));
     }
 
     #[test]

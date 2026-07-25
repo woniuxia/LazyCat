@@ -64,6 +64,13 @@ impl SshSocketRegistry {
         }
     }
 
+    pub fn reset_after_shutdown(&self) {
+        if let Ok(mut sockets) = self.sockets.lock() {
+            sockets.clear();
+            self.shutdown_requested.store(false, Ordering::Release);
+        }
+    }
+
     #[cfg(test)]
     pub(crate) fn len_for_test(&self) -> usize {
         self.sockets
@@ -874,6 +881,23 @@ mod tests {
 
         assert_eq!(error, "SSH 上传已取消");
         assert_eq!(registry.len_for_test(), 0);
+    }
+
+    #[test]
+    fn socket_registry_allows_a_recovery_connection_after_reset() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let first = std::net::TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let _ = listener.accept().unwrap();
+        let registry = SshSocketRegistry::new();
+
+        registry.register(first).unwrap();
+        registry.shutdown_all();
+        registry.reset_after_shutdown();
+
+        let recovery = std::net::TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let _ = listener.accept().unwrap();
+        registry.register(recovery).unwrap();
+        assert_eq!(registry.len_for_test(), 1);
     }
 
     #[test]
