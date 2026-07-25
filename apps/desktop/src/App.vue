@@ -67,7 +67,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { Close, Plus } from "@element-plus/icons-vue";
-import type { SidebarItem } from "./types";
+import type { ActionDispatchRequest, SidebarItem } from "./types";
 import { APP_EVENTS } from "./bridge/events";
 import { useFavorites } from "./composables/useFavorites";
 import { useTabs } from "./composables/useTabs";
@@ -89,6 +89,7 @@ import TabBar from "./components/TabBar.vue";
 import ShortcutHelpOverlay from "./components/ShortcutHelpOverlay.vue";
 import ClipboardSuggestionBar from "./components/ClipboardSuggestionBar.vue";
 import { useClipboardSuggestion } from "./composables/useClipboardSuggestion";
+import { useActionDispatchIntent } from "./composables/useActionDispatchIntent";
 import { buildClipboardPathSuggestion, detectClipboardPath } from "./utils/clipboard-detect";
 import {
   shouldHideNamedHotkeyWindow,
@@ -96,6 +97,7 @@ import {
 } from "./utils/hotkeyNavigate";
 
 const { ensureClipboardListener, showSuggestion, setPendingToolInput } = useClipboardSuggestion();
+const { setPendingIntent } = useActionDispatchIntent();
 const isTauriEnv = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 const appWindow = isTauriEnv ? getCurrentWindow() : null;
 
@@ -355,6 +357,16 @@ onMounted(async () => {
       if (getSetting("focus_search_on_show") === "true") {
         focusSearch();
       }
+    });
+  } catch { /* ignore in non-Tauri env */ }
+  try {
+    await listen<ActionDispatchRequest>(APP_EVENTS.ACTION_CENTER_DISPATCH_REQUEST, ({ payload }) => {
+      if (!payload.dispatchId || !isRealToolId(payload.targetToolId)) {
+        ElMessage.error("动作请求的目标工具无效");
+        return;
+      }
+      setPendingIntent(payload);
+      onSelect(payload.targetToolId);
     });
   } catch { /* ignore in non-Tauri env */ }
   try {

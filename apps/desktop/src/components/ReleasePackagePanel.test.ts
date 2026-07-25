@@ -297,6 +297,20 @@ describe("ReleasePackagePanel", () => {
     expect(appSource).toContain('@open-tool="onSelect"');
   });
 
+  it("routes action dispatch intents before selecting the target tool", () => {
+    const listenerStart = appSource.indexOf("APP_EVENTS.ACTION_CENTER_DISPATCH_REQUEST");
+    const listenerEnd = appSource.indexOf("\n  } catch", listenerStart);
+    const listenerSource = appSource.slice(listenerStart, listenerEnd);
+
+    expect(listenerStart).toBeGreaterThan(-1);
+    expect(listenerSource).toContain("setPendingIntent(payload)");
+    expect(listenerSource).toContain("onSelect(payload.targetToolId)");
+    expect(listenerSource.indexOf("setPendingIntent(payload)")).toBeLessThan(
+      listenerSource.indexOf("onSelect(payload.targetToolId)"),
+    );
+    expect(listenerSource).not.toContain("setPendingToolInput");
+  });
+
   it("renders an explicit state when the saved Vault binding no longer exists", () => {
     expect(source).toContain('class="vault-binding-invalid"');
     expect(source).toContain("绑定的密码库凭据已失效，请重新选择");
