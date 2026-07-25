@@ -290,6 +290,259 @@ impl DeploymentPlan {
             .map(|transaction| transaction.temp_path.clone())
             .collect()
     }
+
+    pub(crate) fn prepare_remote(&self, remote: &mut dyn RemoteFs) -> Result<(), DeployError> {
+        for transaction in &self.transactions {
+            if remote.metadata(&transaction.temp_path)?.is_some()
+                || remote.metadata(&transaction.backup_path)?.is_some()
+            {
+                return Err(DeployError::failed(format!(
+                    "远端部署临时或备份路径已存在：{}",
+                    transaction.final_path
+                )));
+            }
+        }
+
+        let frontend_roots = self
+            .request
+            .targets
+            .iter()
+            .zip(&self.transactions)
+            .filter(|(target, _)| target.manifest.target == ReleaseTarget::Frontend)
+            .map(|(_, transaction)| transaction.temp_path.as_str())
+            .collect::<BTreeSet<_>>();
+        for directory in &self.frontend_directories {
+            if !frontend_roots.contains(directory.as_str()) {
+                match remote.metadata(directory)? {
+                    Some(metadata) if metadata.kind == RemoteKind::Directory => continue,
+                    Some(_) => {
+                        return Err(DeployError::failed(format!(
+                            "远端目录路径已被非目录占用：{directory}"
+                        )))
+                    }
+                    None => {}
+                }
+            }
+            remote.create_dir(directory)?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn upload_target(
+        &self,
+        index: usize,
+        remote: &mut dyn RemoteFs,
+        cancelled: &AtomicBool,
+        progress: &mut dyn FnMut(u64, &str),
+    ) -> Result<(), DeployError> {
+        let target = self
+            .request
+            .targets
+            .get(index)
+            .ok_or_else(|| DeployError::failed("部署目标索引无效"))?;
+        let transaction = self
+            .transactions
+            .get(index)
+            .ok_or_else(|| DeployError::failed("部署事务索引无效"))?;
+        if cancelled.load(Ordering::Acquire) {
+            return Err(DeployError::cancelled());
+        }
+        match target.manifest.target {
+            ReleaseTarget::Frontend => {
+                for entry in &target.manifest.entries {
+                    if cancelled.load(Ordering::Acquire) {
+                        return Err(DeployError::cancelled());
+                    }
+                    let remote_path = format!("{}/{}", transaction.temp_path, entry.relative_path);
+                    let mut file_progress = |bytes| progress(bytes, entry.relative_path.as_str());
+                    remote.write_file(
+                        &remote_path,
+                        &local_entry_path(&target.manifest, entry),
+                        cancelled,
+                        &mut file_progress,
+                    )?;
+                }
+            }
+            ReleaseTarget::Backend => {
+                let entry = target
+                    .manifest
+                    .entries
+                    .first()
+                    .ok_or_else(|| DeployError::failed("后端部署清单缺少文件"))?;
+                let mut file_progress = |bytes| progress(bytes, entry.relative_path.as_str());
+                remote.write_file(
+                    &transaction.temp_path,
+                    &local_entry_path(&target.manifest, entry),
+                    cancelled,
+                    &mut file_progress,
+                )?;
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn verify_target(
+        &self,
+        index: usize,
+        remote: &dyn RemoteFs,
+    ) -> Result<(), DeployError> {
+        let target = self
+            .request
+            .targets
+            .get(index)
+            .ok_or_else(|| DeployError::failed("部署目标索引无效"))?;
+        let transaction = self
+            .transactions
+            .get(index)
+            .ok_or_else(|| DeployError::failed("部署事务索引无效"))?;
+        match target.manifest.target {
+            ReleaseTarget::Frontend => {
+                let metadata = remote
+                    .metadata(&transaction.temp_path)?
+                    .ok_or_else(|| DeployError::failed("远端前端临时目录不存在"))?;
+                if metadata.kind != RemoteKind::Directory {
+                    return Err(DeployError::failed("远端前端临时目标不是目录"));
+                }
+                let mut files = Vec::new();
+                collect_remote_files(
+                    remote,
+                    &transaction.temp_path,
+                    &transaction.temp_path,
+                    &mut files,
+                )?;
+                files.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
+                if files != target.manifest.entries {
+                    return Err(DeployError::failed("远端前端临时目录校验失败"));
+                }
+            }
+            ReleaseTarget::Backend => {
+                let metadata = remote
+                    .metadata(&transaction.temp_path)?
+                    .ok_or_else(|| DeployError::failed("远端后端临时文件不存在"))?;
+                if metadata.kind != RemoteKind::File || metadata.size != target.manifest.total_bytes
+                {
+                    return Err(DeployError::failed("远端后端临时文件校验失败"));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn validate_formal_targets(&self, remote: &dyn RemoteFs) -> Result<(), DeployError> {
+        for target in &self.request.targets {
+            let metadata = remote.metadata(&target.remote_path)?;
+            if metadata.is_some() != target.expected_exists {
+                return Err(DeployError::failed(format!(
+                    "远端目标状态在预检后发生变化：{}",
+                    target.remote_path
+                )));
+            }
+            if let Some(metadata) = metadata {
+                let expected_kind = match target.manifest.target {
+                    ReleaseTarget::Frontend => RemoteKind::Directory,
+                    ReleaseTarget::Backend => RemoteKind::File,
+                };
+                if metadata.kind != expected_kind {
+                    return Err(DeployError::failed(format!(
+                        "远端正式目标类型不符合配置：{}",
+                        target.remote_path
+                    )));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn cleanup_temps(&self, remote: &mut dyn RemoteFs) -> Vec<String> {
+        let mut recovery_paths = Vec::new();
+        for transaction in &self.transactions {
+            match remote.metadata(&transaction.temp_path) {
+                Ok(Some(_)) => {
+                    if remote.remove_tree(&transaction.temp_path).is_err() {
+                        recovery_paths.push(transaction.temp_path.clone());
+                    }
+                }
+                Ok(None) => {}
+                Err(_) => recovery_paths.push(transaction.temp_path.clone()),
+            }
+        }
+        recovery_paths
+    }
+
+    pub(crate) fn cancel_and_cleanup(&self, remote: &mut dyn RemoteFs) -> Result<(), DeployError> {
+        let mut error = DeployError::cancelled();
+        error.recovery_paths.extend(self.cleanup_temps(remote));
+        error.recovery_paths.sort();
+        error.recovery_paths.dedup();
+        Err(error)
+    }
+
+    pub(crate) fn commit(
+        &mut self,
+        remote: &mut dyn RemoteFs,
+        cancelled: &AtomicBool,
+    ) -> Result<(), DeployError> {
+        if cancelled.load(Ordering::Acquire) {
+            return self.cancel_and_cleanup(remote);
+        }
+        for index in 0..self.transactions.len() {
+            if self.transactions[index].expected_exists {
+                if let Err(error) = remote.rename(
+                    &self.transactions[index].final_path,
+                    &self.transactions[index].backup_path,
+                ) {
+                    let mut recovery_paths = rollback(remote, &self.transactions[..=index]);
+                    recovery_paths.extend(self.cleanup_temps(remote));
+                    recovery_paths.sort();
+                    recovery_paths.dedup();
+                    return Err(DeployError {
+                        message: format!("远端提交失败：{error:?}"),
+                        cancelled: false,
+                        committed: false,
+                        recovery_paths,
+                    });
+                }
+                self.transactions[index].backed_up = true;
+            }
+            if let Err(error) = remote.rename(
+                &self.transactions[index].temp_path,
+                &self.transactions[index].final_path,
+            ) {
+                let mut recovery_paths = rollback(remote, &self.transactions[..=index]);
+                recovery_paths.extend(self.cleanup_temps(remote));
+                recovery_paths.sort();
+                recovery_paths.dedup();
+                let rollback_failed = !recovery_paths.is_empty();
+                return Err(DeployError {
+                    message: if rollback_failed {
+                        format!("远端提交失败且回滚失败：{error:?}")
+                    } else {
+                        format!("远端提交失败：{error:?}")
+                    },
+                    cancelled: false,
+                    committed: false,
+                    recovery_paths,
+                });
+            }
+            self.transactions[index].committed = true;
+        }
+
+        let mut recovery_paths = Vec::new();
+        for transaction in &self.transactions {
+            if transaction.backed_up && remote.remove_tree(&transaction.backup_path).is_err() {
+                recovery_paths.push(transaction.backup_path.clone());
+            }
+        }
+        if !recovery_paths.is_empty() {
+            return Err(DeployError {
+                message: "远端提交成功，但旧版本备份清理失败".into(),
+                cancelled: false,
+                committed: true,
+                recovery_paths,
+            });
+        }
+        Ok(())
+    }
 }
 
 fn transaction_path(final_path: &str, kind: &str, run_id: &str) -> String {
@@ -374,34 +627,6 @@ fn validate_remote_target_paths(targets: &[DeploymentTarget]) -> Result<(), Depl
     Ok(())
 }
 
-fn remote_parent(path: &str) -> Result<&str, DeployError> {
-    path.rsplit_once('/')
-        .map(|(parent, _)| parent)
-        .filter(|parent| !parent.is_empty())
-        .ok_or_else(|| DeployError::failed(format!("远端路径缺少父目录：{path}")))
-}
-
-fn ensure_remote_dir(remote: &mut dyn RemoteFs, path: &str) -> Result<(), DeployError> {
-    if path == "/" {
-        return Ok(());
-    }
-    let mut current = String::new();
-    for segment in path.split('/').filter(|segment| !segment.is_empty()) {
-        current.push('/');
-        current.push_str(segment);
-        match remote.metadata(&current)? {
-            Some(metadata) if metadata.kind == RemoteKind::Directory => {}
-            Some(_) => {
-                return Err(DeployError::failed(format!(
-                    "远端目录路径已被非目录占用：{current}"
-                )))
-            }
-            None => remote.create_dir(&current)?,
-        }
-    }
-    Ok(())
-}
-
 fn local_entry_path(manifest: &ArtifactManifest, entry: &ArtifactEntry) -> PathBuf {
     if manifest.target == ReleaseTarget::Backend {
         return manifest.source_path.clone();
@@ -412,56 +637,6 @@ fn local_entry_path(manifest: &ArtifactManifest, entry: &ArtifactEntry) -> PathB
         .fold(manifest.source_path.clone(), |path, segment| {
             path.join(segment)
         })
-}
-
-fn upload_target(
-    remote: &mut dyn RemoteFs,
-    target: &DeploymentTarget,
-    transaction: &TransactionTarget,
-    cancelled: &AtomicBool,
-    progress: &mut dyn FnMut(u64, &str),
-) -> Result<(), DeployError> {
-    target
-        .manifest
-        .verify_source()
-        .map_err(DeployError::failed)?;
-    if cancelled.load(Ordering::Acquire) {
-        return Err(DeployError::cancelled());
-    }
-    match target.manifest.target {
-        ReleaseTarget::Frontend => {
-            ensure_remote_dir(remote, &transaction.temp_path)?;
-            for entry in &target.manifest.entries {
-                if cancelled.load(Ordering::Acquire) {
-                    return Err(DeployError::cancelled());
-                }
-                let remote_path = format!("{}/{}", transaction.temp_path, entry.relative_path);
-                ensure_remote_dir(remote, remote_parent(&remote_path)?)?;
-                let mut file_progress = |bytes| progress(bytes, entry.relative_path.as_str());
-                remote.write_file(
-                    &remote_path,
-                    &local_entry_path(&target.manifest, entry),
-                    cancelled,
-                    &mut file_progress,
-                )?;
-            }
-        }
-        ReleaseTarget::Backend => {
-            let entry = target
-                .manifest
-                .entries
-                .first()
-                .ok_or_else(|| DeployError::failed("后端部署清单缺少文件"))?;
-            let mut file_progress = |bytes| progress(bytes, entry.relative_path.as_str());
-            remote.write_file(
-                &transaction.temp_path,
-                &local_entry_path(&target.manifest, entry),
-                cancelled,
-                &mut file_progress,
-            )?;
-        }
-    }
-    Ok(())
 }
 
 fn collect_remote_files(
@@ -495,88 +670,9 @@ fn collect_remote_files(
     Ok(())
 }
 
-fn verify_remote_target(
-    remote: &dyn RemoteFs,
-    target: &DeploymentTarget,
-    transaction: &TransactionTarget,
-) -> Result<(), DeployError> {
-    match target.manifest.target {
-        ReleaseTarget::Frontend => {
-            let metadata = remote
-                .metadata(&transaction.temp_path)?
-                .ok_or_else(|| DeployError::failed("远端前端临时目录不存在"))?;
-            if metadata.kind != RemoteKind::Directory {
-                return Err(DeployError::failed("远端前端临时目标不是目录"));
-            }
-            let mut files = Vec::new();
-            collect_remote_files(
-                remote,
-                &transaction.temp_path,
-                &transaction.temp_path,
-                &mut files,
-            )?;
-            files.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
-            if files != target.manifest.entries {
-                return Err(DeployError::failed("远端前端临时目录校验失败"));
-            }
-        }
-        ReleaseTarget::Backend => {
-            let metadata = remote
-                .metadata(&transaction.temp_path)?
-                .ok_or_else(|| DeployError::failed("远端后端临时文件不存在"))?;
-            if metadata.kind != RemoteKind::File || metadata.size != target.manifest.total_bytes {
-                return Err(DeployError::failed("远端后端临时文件校验失败"));
-            }
-        }
-    }
-    Ok(())
-}
-
-fn validate_formal_target(
-    remote: &dyn RemoteFs,
-    target: &DeploymentTarget,
-) -> Result<(), DeployError> {
-    let metadata = remote.metadata(&target.remote_path)?;
-    if metadata.is_some() != target.expected_exists {
-        return Err(DeployError::failed(format!(
-            "远端目标状态在预检后发生变化：{}",
-            target.remote_path
-        )));
-    }
-    if let Some(metadata) = metadata {
-        let expected_kind = match target.manifest.target {
-            ReleaseTarget::Frontend => RemoteKind::Directory,
-            ReleaseTarget::Backend => RemoteKind::File,
-        };
-        if metadata.kind != expected_kind {
-            return Err(DeployError::failed(format!(
-                "远端正式目标类型不符合配置：{}",
-                target.remote_path
-            )));
-        }
-    }
-    Ok(())
-}
-
-fn cleanup_temps(remote: &mut dyn RemoteFs, transactions: &[TransactionTarget]) -> Vec<String> {
+fn rollback(remote: &mut dyn RemoteFs, transactions: &[TransactionTarget]) -> Vec<String> {
     let mut recovery_paths = Vec::new();
-    for transaction in transactions {
-        match remote.metadata(&transaction.temp_path) {
-            Ok(Some(_)) => {
-                if remote.remove_tree(&transaction.temp_path).is_err() {
-                    recovery_paths.push(transaction.temp_path.clone());
-                }
-            }
-            Ok(None) => {}
-            Err(_) => recovery_paths.push(transaction.temp_path.clone()),
-        }
-    }
-    recovery_paths
-}
-
-fn rollback(remote: &mut dyn RemoteFs, transactions: &mut [TransactionTarget]) -> Vec<String> {
-    let mut recovery_paths = Vec::new();
-    for transaction in transactions.iter_mut().rev() {
+    for transaction in transactions.iter().rev() {
         if transaction.committed {
             if remote.remove_tree(&transaction.final_path).is_err() {
                 recovery_paths.push(transaction.final_path.clone());
@@ -600,7 +696,6 @@ fn rollback(remote: &mut dyn RemoteFs, transactions: &mut [TransactionTarget]) -
             recovery_paths.push(transaction.backup_path.clone());
         }
     }
-    recovery_paths.extend(cleanup_temps(remote, transactions));
     recovery_paths.sort();
     recovery_paths.dedup();
     recovery_paths
@@ -612,114 +707,37 @@ pub fn deploy(
     cancelled: &AtomicBool,
     mut progress: impl FnMut(u64, &str),
 ) -> Result<(), DeployError> {
-    validate_request(request)?;
-    let mut transactions = request
-        .targets
-        .iter()
-        .map(|target| TransactionTarget {
-            final_path: target.remote_path.clone(),
-            temp_path: transaction_path(&target.remote_path, "tmp", &request.run_id),
-            backup_path: transaction_path(&target.remote_path, "backup", &request.run_id),
-            expected_exists: target.expected_exists,
-            backed_up: false,
-            committed: false,
-        })
-        .collect::<Vec<_>>();
-
-    for transaction in &transactions {
-        if remote.metadata(&transaction.temp_path)?.is_some()
-            || remote.metadata(&transaction.backup_path)?.is_some()
-        {
-            return Err(DeployError::failed(format!(
-                "远端部署临时或备份路径已存在：{}",
-                transaction.final_path
-            )));
-        }
-    }
-
-    for (target, transaction) in request.targets.iter().zip(&transactions) {
-        if let Err(mut error) = upload_target(remote, target, transaction, cancelled, &mut progress)
-        {
-            error
-                .recovery_paths
-                .extend(cleanup_temps(remote, &transactions));
-            return Err(error);
-        }
-        if let Err(mut error) = verify_remote_target(remote, target, transaction) {
-            error
-                .recovery_paths
-                .extend(cleanup_temps(remote, &transactions));
-            return Err(error);
-        }
-    }
-
-    if cancelled.load(Ordering::Acquire) {
-        let mut error = DeployError::cancelled();
-        error
-            .recovery_paths
-            .extend(cleanup_temps(remote, &transactions));
+    let mut plan = DeploymentPlan::new(request.clone())?;
+    if let Err(mut error) = plan.prepare_remote(remote) {
+        error.recovery_paths.extend(plan.cleanup_temps(remote));
+        error.recovery_paths.sort();
+        error.recovery_paths.dedup();
         return Err(error);
     }
-    for target in &request.targets {
-        if let Err(mut error) = validate_formal_target(remote, target) {
-            error
-                .recovery_paths
-                .extend(cleanup_temps(remote, &transactions));
+    for index in 0..plan.target_count() {
+        if let Err(mut error) = plan.upload_target(index, remote, cancelled, &mut progress) {
+            error.recovery_paths.extend(plan.cleanup_temps(remote));
+            error.recovery_paths.sort();
+            error.recovery_paths.dedup();
+            return Err(error);
+        }
+        if let Err(mut error) = plan.verify_target(index, remote) {
+            error.recovery_paths.extend(plan.cleanup_temps(remote));
+            error.recovery_paths.sort();
+            error.recovery_paths.dedup();
             return Err(error);
         }
     }
-
-    for index in 0..transactions.len() {
-        if transactions[index].expected_exists {
-            if let Err(error) = remote.rename(
-                &transactions[index].final_path,
-                &transactions[index].backup_path,
-            ) {
-                let recovery_paths = rollback(remote, &mut transactions[..=index]);
-                return Err(DeployError {
-                    message: format!("远端提交失败：{error:?}"),
-                    cancelled: false,
-                    committed: false,
-                    recovery_paths,
-                });
-            }
-            transactions[index].backed_up = true;
-        }
-        if let Err(error) = remote.rename(
-            &transactions[index].temp_path,
-            &transactions[index].final_path,
-        ) {
-            let recovery_paths = rollback(remote, &mut transactions[..=index]);
-            let rollback_failed = !recovery_paths.is_empty();
-            return Err(DeployError {
-                message: if rollback_failed {
-                    format!("远端提交失败且回滚失败：{error:?}")
-                } else {
-                    format!("远端提交失败：{error:?}")
-                },
-                cancelled: false,
-                committed: false,
-                recovery_paths,
-            });
-        }
-        transactions[index].committed = true;
+    if cancelled.load(Ordering::Acquire) {
+        return plan.cancel_and_cleanup(remote);
     }
-
-    let mut recovery_paths = Vec::new();
-    for transaction in &transactions {
-        if transaction.backed_up && remote.remove_tree(&transaction.backup_path).is_err() {
-            recovery_paths.push(transaction.backup_path.clone());
-        }
+    if let Err(mut error) = plan.validate_formal_targets(remote) {
+        error.recovery_paths.extend(plan.cleanup_temps(remote));
+        error.recovery_paths.sort();
+        error.recovery_paths.dedup();
+        return Err(error);
     }
-    if !recovery_paths.is_empty() {
-        return Err(DeployError {
-            message: "远端提交成功，但旧版本备份清理失败".into(),
-            cancelled: false,
-            committed: true,
-            recovery_paths,
-        });
-    }
-    Ok(())
+    plan.commit(remote, cancelled)
 }
 #[cfg(test)]
 mod tests {
@@ -782,6 +800,7 @@ mod tests {
 
 #[cfg(test)]
 mod transaction_tests {
+    use std::cell::RefCell;
     use std::collections::{BTreeMap, VecDeque};
     use std::fs;
     use std::path::Path;
@@ -801,6 +820,8 @@ mod transaction_tests {
 
     struct FakeRemoteFs {
         nodes: BTreeMap<String, Node>,
+        metadata_calls: RefCell<Vec<String>>,
+        create_dir_calls: Vec<String>,
         fail_rename_targets: VecDeque<String>,
         fail_remove_targets: VecDeque<String>,
         cancel_during_write: bool,
@@ -814,6 +835,8 @@ mod transaction_tests {
             }
             Self {
                 nodes,
+                metadata_calls: RefCell::new(Vec::new()),
+                create_dir_calls: Vec::new(),
                 fail_rename_targets: VecDeque::new(),
                 fail_remove_targets: VecDeque::new(),
                 cancel_during_write: false,
@@ -858,6 +881,7 @@ mod transaction_tests {
 
     impl RemoteFs for FakeRemoteFs {
         fn metadata(&self, path: &str) -> Result<Option<RemoteMetadata>, DeployError> {
+            self.metadata_calls.borrow_mut().push(path.to_string());
             Ok(self.nodes.get(path).map(|node| match node {
                 Node::Directory => RemoteMetadata {
                     kind: RemoteKind::Directory,
@@ -871,6 +895,7 @@ mod transaction_tests {
         }
 
         fn create_dir(&mut self, path: &str) -> Result<(), DeployError> {
+            self.create_dir_calls.push(path.to_string());
             if let Some(node) = self.nodes.get(path) {
                 return match node {
                     Node::Directory => Ok(()),
@@ -1043,6 +1068,59 @@ mod transaction_tests {
     }
 
     #[test]
+    fn deployment_prepares_each_frontend_directory_once() {
+        let (root, request) = two_target_request();
+        let plan = super::DeploymentPlan::new(request).unwrap();
+        let mut remote = FakeRemoteFs::with_existing_release();
+
+        plan.prepare_remote(&mut remote).unwrap();
+        drop(root);
+
+        assert_eq!(
+            remote
+                .create_dir_calls
+                .iter()
+                .filter(|path| path.contains("__lazycat_tmp_run-1"))
+                .count(),
+            2
+        );
+        for directory in plan.frontend_directories() {
+            assert_eq!(
+                remote
+                    .metadata_calls
+                    .borrow()
+                    .iter()
+                    .filter(|path| *path == directory)
+                    .count(),
+                1,
+                "directory was checked more than once: {directory}",
+            );
+        }
+    }
+
+    #[test]
+    fn deployment_prepares_temp_root_for_empty_frontend() {
+        let root = super::tests::TestDir::new();
+        let source = root.path().join("empty");
+        fs::create_dir_all(&source).unwrap();
+        let request = DeploymentRequest {
+            run_id: "run-empty".into(),
+            targets: vec![DeploymentTarget {
+                manifest: ArtifactManifest::from_directory(ReleaseTarget::Frontend, &source)
+                    .unwrap(),
+                remote_path: "/srv/app/empty-web".into(),
+                expected_exists: false,
+            }],
+        };
+        let plan = super::DeploymentPlan::new(request).unwrap();
+        let mut remote = FakeRemoteFs::base();
+
+        plan.prepare_remote(&mut remote).unwrap();
+
+        assert!(remote.exists("/srv/app/empty-web.__lazycat_tmp_run-empty"));
+    }
+
+    #[test]
     fn sftp_remote_fs_is_send() {
         fn assert_send<T: Send>() {}
 
@@ -1140,7 +1218,7 @@ mod transaction_tests {
     }
 
     #[test]
-    fn second_target_commit_failure_restores_first_target() {
+    fn serial_deploy_still_rolls_back_after_second_commit_failure() {
         let (root, request) = two_target_request();
         let mut remote = FakeRemoteFs::with_existing_release();
         remote.fail_rename_to("/srv/app/app.jar");
