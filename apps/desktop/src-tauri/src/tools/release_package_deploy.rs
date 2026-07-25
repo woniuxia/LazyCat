@@ -162,6 +162,7 @@ pub struct RemoteDirEntry {
 pub struct DeployError {
     pub message: String,
     pub cancelled: bool,
+    pub committed: bool,
     pub recovery_paths: Vec<String>,
 }
 
@@ -177,6 +178,7 @@ impl DeployError {
         Self {
             message: message.into(),
             cancelled: false,
+            committed: false,
             recovery_paths: Vec::new(),
         }
     }
@@ -185,6 +187,7 @@ impl DeployError {
         Self {
             message: "远端上传已取消".into(),
             cancelled: true,
+            committed: false,
             recovery_paths: Vec::new(),
         }
     }
@@ -587,6 +590,7 @@ pub fn deploy(
                 return Err(DeployError {
                     message: format!("远端提交失败：{error:?}"),
                     cancelled: false,
+                    committed: false,
                     recovery_paths,
                 });
             }
@@ -605,6 +609,7 @@ pub fn deploy(
                     format!("远端提交失败：{error:?}")
                 },
                 cancelled: false,
+                committed: false,
                 recovery_paths,
             });
         }
@@ -621,6 +626,7 @@ pub fn deploy(
         return Err(DeployError {
             message: "远端提交成功，但旧版本备份清理失败".into(),
             cancelled: false,
+            committed: true,
             recovery_paths,
         });
     }
@@ -707,6 +713,7 @@ mod transaction_tests {
     struct FakeRemoteFs {
         nodes: BTreeMap<String, Node>,
         fail_rename_targets: VecDeque<String>,
+        fail_remove_targets: VecDeque<String>,
         cancel_during_write: bool,
     }
 
@@ -719,6 +726,7 @@ mod transaction_tests {
             Self {
                 nodes,
                 fail_rename_targets: VecDeque::new(),
+                fail_remove_targets: VecDeque::new(),
                 cancel_during_write: false,
             }
         }
@@ -752,6 +760,10 @@ mod transaction_tests {
 
         fn fail_rename_to(&mut self, path: &str) {
             self.fail_rename_targets.push_back(path.into());
+        }
+
+        fn fail_remove_tree(&mut self, path: &str) {
+            self.fail_remove_targets.push_back(path.into());
         }
     }
 
@@ -851,6 +863,10 @@ mod transaction_tests {
         }
 
         fn remove_tree(&mut self, path: &str) -> Result<(), DeployError> {
+            if self.fail_remove_targets.front().map(String::as_str) == Some(path) {
+                self.fail_remove_targets.pop_front();
+                return Err(DeployError::failed("injected remove failure"));
+            }
             let affected = self
                 .nodes
                 .keys()
@@ -955,6 +971,22 @@ mod transaction_tests {
         assert!(!remote.exists("/srv/app/web/dist/assets/app.js"));
         assert!(!remote.any_path_contains("__lazycat_tmp_"));
         assert!(!remote.any_path_contains("__lazycat_backup_"));
+    }
+
+    #[test]
+    fn committed_deployment_reports_backup_cleanup_recovery_paths() {
+        let (root, request) = two_target_request();
+        let backup_path = "/srv/app/web.__lazycat_backup_run-1";
+        let mut remote = FakeRemoteFs::with_existing_release();
+        remote.fail_remove_tree(backup_path);
+
+        let error = deploy(&mut remote, &request, &AtomicBool::new(false), |_, _| {}).unwrap_err();
+        drop(root);
+
+        assert!(error.committed);
+        assert_eq!(error.recovery_paths, vec![backup_path.to_string()]);
+        assert!(remote.exists("/srv/app/web/index.html"));
+        assert_eq!(remote.read("/srv/app/app.jar"), b"new-jar");
     }
 
     #[test]

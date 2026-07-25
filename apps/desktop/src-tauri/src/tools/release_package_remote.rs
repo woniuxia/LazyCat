@@ -158,6 +158,15 @@ impl PreflightStore {
         Ok(value.value)
     }
 
+    pub fn discard(&self, token: &str) -> Result<(), String> {
+        let mut values = self
+            .values
+            .lock()
+            .map_err(|_| "SSH 预检令牌存储不可用".to_string())?;
+        drop(values.remove(token));
+        Ok(())
+    }
+
     fn clear(&self) {
         if let Ok(mut values) = self.values.lock() {
             values.clear();
@@ -214,6 +223,36 @@ fn validate_remote_path(path: &str) -> Result<String, String> {
         return Err("远程路径不能包含 . 或 .. 片段".into());
     }
     Ok(value.to_string())
+}
+
+fn validate_target_relationships(binding: &PreflightBinding) -> Result<(), String> {
+    let paths = binding
+        .targets
+        .iter()
+        .map(|target| match target {
+            RemoteTarget::Frontend => binding.frontend_remote_dir.as_str(),
+            RemoteTarget::Backend => binding.backend_remote_path.as_str(),
+        })
+        .collect::<Vec<_>>();
+
+    for (index, path) in paths.iter().enumerate() {
+        for other in &paths[index + 1..] {
+            let path_segments = path
+                .split('/')
+                .filter(|segment| !segment.is_empty())
+                .collect::<Vec<_>>();
+            let other_segments = other
+                .split('/')
+                .filter(|segment| !segment.is_empty())
+                .collect::<Vec<_>>();
+            if path_segments.starts_with(&other_segments)
+                || other_segments.starts_with(&path_segments)
+            {
+                return Err(format!("远端部署目标不能互相包含或重复：{path}；{other}"));
+            }
+        }
+    }
+    Ok(())
 }
 
 pub fn create_session() -> Result<Session, String> {
@@ -441,6 +480,7 @@ pub fn run_remote_preflight(
     expected_fingerprint: &str,
     secret: &AuthSecret,
 ) -> Result<Vec<RemoteTargetCheck>, String> {
+    validate_target_relationships(binding)?;
     let session = handshake_session(&binding.endpoint)?;
     if session_fingerprint(&session)? != expected_fingerprint {
         return Err("SSH 主机指纹与已信任记录不一致".into());
@@ -646,6 +686,10 @@ pub fn consume_preflight(
     preflight_store().consume(token, binding)
 }
 
+pub fn discard_preflight(token: &str) -> Result<(), String> {
+    preflight_store().discard(token)
+}
+
 pub fn clear_temporary_stores() {
     if let Some(probes) = PROBES.get() {
         if let Ok(mut probes) = probes.lock() {
@@ -700,12 +744,22 @@ pub fn consume_probe(token: &str) -> Result<ProbeSnapshot, String> {
     Ok(probe.snapshot)
 }
 
+pub fn discard_probe(token: &str) -> Result<(), String> {
+    let mut probes = PROBES
+        .get_or_init(|| Mutex::new(HashMap::new()))
+        .lock()
+        .map_err(|_| "SSH 探测令牌存储不可用".to_string())?;
+    drop(probes.remove(token));
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        authenticate_for_test, classify_trust, consume_probe, create_session, load_probe,
-        probe_host, store_probe, validate_remote_dir, validate_remote_file, AuthSecret, HostTrust,
-        PreflightBinding, PreflightStore, ProbeSnapshot, RemoteEndpoint, RemoteTarget,
+        authenticate_for_test, classify_trust, consume_preflight, consume_probe, create_session,
+        discard_preflight, discard_probe, issue_preflight, load_probe, probe_host, store_probe,
+        validate_remote_dir, validate_remote_file, validate_target_relationships, AuthSecret,
+        HostTrust, PreflightBinding, PreflightStore, ProbeSnapshot, RemoteEndpoint, RemoteTarget,
         SftpRemoteFs,
     };
     use crate::tools::release_package::ReleaseTarget;
@@ -791,6 +845,51 @@ mod tests {
             frontend_remote_dir: "/srv/app/web".into(),
             backend_remote_path: "/srv/app/app.jar".into(),
         }
+    }
+
+    #[test]
+    fn rejects_duplicate_or_nested_selected_remote_targets() {
+        for (frontend, backend) in [
+            ("/srv/app", "/srv/app"),
+            ("/srv/app", "/srv/app/app.jar"),
+            ("/srv/app/app.jar", "/srv/app"),
+            ("/srv/app/web", "/srv/app"),
+        ] {
+            let mut binding = binding(vec![RemoteTarget::Frontend, RemoteTarget::Backend]);
+            binding.frontend_remote_dir = frontend.into();
+            binding.backend_remote_path = backend.into();
+
+            let error = validate_target_relationships(&binding).unwrap_err();
+
+            assert!(
+                error.contains(frontend),
+                "missing {frontend:?} in {error:?}"
+            );
+            assert!(error.contains(backend), "missing {backend:?} in {error:?}");
+        }
+    }
+
+    #[test]
+    fn accepts_sibling_and_similar_prefix_remote_targets() {
+        for (frontend, backend) in [
+            ("/srv/app/web", "/srv/app/app.jar"),
+            ("/srv/app", "/srv/app2"),
+        ] {
+            let mut binding = binding(vec![RemoteTarget::Frontend, RemoteTarget::Backend]);
+            binding.frontend_remote_dir = frontend.into();
+            binding.backend_remote_path = backend.into();
+
+            validate_target_relationships(&binding).unwrap();
+        }
+    }
+
+    #[test]
+    fn ignores_unselected_remote_target_when_validating_relationships() {
+        let mut binding = binding(vec![RemoteTarget::Frontend]);
+        binding.frontend_remote_dir = "/srv/app".into();
+        binding.backend_remote_path = "/srv/app/app.jar".into();
+
+        validate_target_relationships(&binding).unwrap();
     }
 
     #[test]
@@ -880,6 +979,33 @@ mod tests {
         let token = store_probe(snapshot()).unwrap();
         assert_eq!(consume_probe(&token).unwrap(), snapshot());
         assert!(consume_probe(&token).is_err());
+    }
+
+    #[test]
+    fn probe_tokens_can_be_discarded_idempotently() {
+        let token = store_probe(snapshot()).unwrap();
+
+        discard_probe(&token).unwrap();
+
+        assert!(load_probe(&token).is_err());
+        discard_probe(&token).unwrap();
+    }
+
+    #[test]
+    fn preflight_tokens_with_secrets_can_be_discarded_idempotently() {
+        let binding = binding(vec![RemoteTarget::Backend]);
+        let issued = issue_preflight(
+            binding.clone(),
+            "SHA256:trusted".into(),
+            AuthSecret::PrivateKeyPassphrase(Some(Zeroizing::new("secret".into()))),
+            &[],
+        )
+        .unwrap();
+
+        discard_preflight(&issued.token).unwrap();
+
+        assert!(consume_preflight(&issued.token, &binding).is_err());
+        discard_preflight(&issued.token).unwrap();
     }
 
     struct SshTestFixture {

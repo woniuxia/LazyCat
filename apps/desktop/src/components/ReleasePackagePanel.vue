@@ -337,6 +337,14 @@
             >
               {{ statusLabel }}
             </el-tag>
+            <div
+              v-if="overallError"
+              class="log-error-summary log-overall-error"
+              role="alert"
+              :class="{ warning: status === 'succeeded' || status === 'partially_succeeded' }"
+            >
+              {{ overallError }}
+            </div>
           </header>
           <div class="release-package-log-columns" :class="{ 'has-upload-lane': draft.packageType === 'server_upload' }">
             <section class="release-package-log-lane">
@@ -357,6 +365,9 @@
                   />
                 </div>
               </header>
+              <div v-if="frontendError" class="log-error-summary log-lane-error" role="alert">
+                {{ frontendError }}
+              </div>
               <div ref="frontendLogContainer" class="release-package-log" aria-live="polite" aria-label="前端打包日志">
                 <div v-if="frontendLogs.length === 0" class="log-empty">暂无前端日志</div>
                 <div v-for="(entry, index) in frontendLogs" :key="`${entry.runId}-frontend-${index}`" class="log-line" :class="{ stderr: entry.stream === 'stderr' }">
@@ -383,6 +394,9 @@
                   />
                 </div>
               </header>
+              <div v-if="backendError" class="log-error-summary log-lane-error" role="alert">
+                {{ backendError }}
+              </div>
               <div ref="backendLogContainer" class="release-package-log" aria-live="polite" aria-label="后端打包日志">
                 <div v-if="backendLogs.length === 0" class="log-empty">暂无后端日志</div>
                 <div v-for="(entry, index) in backendLogs" :key="`${entry.runId}-backend-${index}`" class="log-line" :class="{ stderr: entry.stream === 'stderr' }">
@@ -409,6 +423,14 @@
                   重试上传
                 </el-button>
               </header>
+              <div
+                v-if="overallError"
+                class="log-error-summary log-lane-error"
+                role="alert"
+                :class="{ warning: status === 'succeeded' || status === 'partially_succeeded' }"
+              >
+                {{ overallError }}
+              </div>
               <div v-if="uploadProgress.totalBytes > 0" class="upload-progress" aria-live="polite">
                 <el-progress :percentage="uploadPercentage" :stroke-width="6" />
                 <span>{{ formatUploadBytes(uploadProgress.uploadedBytes) }} / {{ formatUploadBytes(uploadProgress.totalBytes) }}</span>
@@ -621,6 +643,9 @@ const uploadProgress = computed(() => currentProjectRuntime.value?.uploadProgres
   currentPath: "",
 });
 const retryToken = computed(() => currentProjectRuntime.value?.retryToken ?? "");
+const overallError = computed(() => currentProjectRuntime.value?.error ?? "");
+const frontendError = computed(() => currentProjectRuntime.value?.targetErrors.frontend ?? "");
+const backendError = computed(() => currentProjectRuntime.value?.targetErrors.backend ?? "");
 const frontendStatus = computed<ReleasePackageTargetStatus>(() => currentProjectRuntime.value?.targetStatus.frontend ?? "idle");
 const backendStatus = computed<ReleasePackageTargetStatus>(() => currentProjectRuntime.value?.targetStatus.backend ?? "idle");
 const running = runtime.isRunning;
@@ -918,20 +943,24 @@ async function choosePrivateKey(): Promise<void> {
   }
 }
 
-function clearSensitiveStartState(): void {
+async function clearSensitiveStartState(): Promise<void> {
   credentialSecret.value = "";
-  uploadPreflight.reset();
   overwriteRemoteTargets.value = [];
+  try {
+    await uploadPreflight.reset();
+  } catch (error) {
+    showError(error);
+  }
 }
 
-function resetStartDialog(): void {
-  clearSensitiveStartState();
+async function resetStartDialog(): Promise<void> {
   retryMode.value = false;
+  await clearSensitiveStartState();
 }
 
-function closeStartDialog(): void {
+async function closeStartDialog(): Promise<void> {
   confirmVisible.value = false;
-  clearSensitiveStartState();
+  await clearSensitiveStartState();
 }
 
 async function prepareStart(): Promise<void> {
@@ -940,7 +969,7 @@ async function prepareStart(): Promise<void> {
     return;
   }
   if (running.value) return;
-  resetStartDialog();
+  await resetStartDialog();
   selectedTargets.value = createDefaultReleasePackageTargets();
   try {
     prepareResult.value = (await invokeToolByChannel("tool:release-package:prepare", {
@@ -963,9 +992,9 @@ function retryUploadTargets(): ReleasePackageTarget[] {
   );
 }
 
-function prepareUploadRetry(): void {
+async function prepareUploadRetry(): Promise<void> {
   if (!selectedProject.value || !retryToken.value || running.value) return;
-  resetStartDialog();
+  await resetStartDialog();
   retryMode.value = true;
   prepareResult.value = { packageType: "server_upload" };
   selectedTargets.value = retryUploadTargets();
@@ -1159,7 +1188,7 @@ async function confirmStart(): Promise<void> {
   } finally {
     starting.value = false;
     cancelPendingStart.value = false;
-    clearSensitiveStartState();
+    await clearSensitiveStartState();
   }
 }
 
@@ -1425,7 +1454,7 @@ onMounted(async () => {
   box-shadow: 0 2px 12px rgb(31 45 61 / 5%);
 }
 .release-package-project-log { margin-top: 14px; }
-.log-card-header { padding: 12px 14px; border-bottom: 1px solid #ebeef5; }
+.log-card-header { flex-wrap: wrap; padding: 12px 14px; border-bottom: 1px solid #ebeef5; }
 .log-card-header h3 { margin: 0 0 3px; color: #303133; font-size: 15px; }
 .log-card-header p { margin: 0; color: #5f6b7a; font-size: 12px; }
 .log-status { flex: none; }
@@ -1454,6 +1483,22 @@ onMounted(async () => {
   --el-tag-bg-color: #fff1f0;
   --el-tag-border-color: #fecaca;
 }
+.log-error-summary {
+  min-width: 0;
+  padding: 8px 10px;
+  border-left: 3px solid #dc2626;
+  overflow-wrap: anywhere;
+  color: #b42318;
+  background: #fff5f5;
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.log-error-summary.warning { border-left-color: #d97706; color: #8a4b08; background: #fff7ed; }
+.log-overall-error { flex: 1 0 100%; margin-top: 3px; }
+.log-lane-error { border-bottom: 1px solid #f3d1d1; }
+.log-lane-error.warning { border-bottom-color: #fed7aa; }
 .release-package-log-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .release-package-log-columns.has-upload-lane { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .release-package-log-lane + .release-package-log-lane { border-left: 1px solid #ebeef5; }

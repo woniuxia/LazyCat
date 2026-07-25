@@ -55,6 +55,10 @@ pub fn resolve_artifact_path(project_path: &Path, artifact_path: &str) -> PathBu
 pub enum ArchiveError {
     Cancelled,
     Failed(String),
+    CommittedWithWarning {
+        final_path: PathBuf,
+        warning: String,
+    },
 }
 
 pub struct ArchiveRequest {
@@ -130,7 +134,7 @@ impl ArchiveSession {
         self.commit_with_rename(cancelled, rename_with_retry)
     }
 
-    fn commit_with_rename<R>(
+    pub(super) fn commit_with_rename<R>(
         &mut self,
         cancelled: &AtomicBool,
         mut rename: R,
@@ -201,9 +205,16 @@ impl ArchiveSession {
         }
         self.committed = true;
         if backup_created {
-            fs::remove_dir_all(&self.backup_path).map_err(|error| {
-                io_error("清理旧归档备份", &self.backup_path, &self.final_path, error)
-            })?;
+            if let Err(error) = fs::remove_dir_all(&self.backup_path) {
+                return Err(ArchiveError::CommittedWithWarning {
+                    final_path: self.final_path.clone(),
+                    warning: format!(
+                        "清理旧归档备份失败（源：{}，目标：{}）：{error}",
+                        self.backup_path.display(),
+                        self.final_path.display()
+                    ),
+                });
+            }
         }
         Ok(self.final_path.clone())
     }
@@ -252,7 +263,7 @@ fn check_cancel(cancelled: &AtomicBool) -> Result<(), ArchiveError> {
 }
 
 #[derive(Debug)]
-enum RenameFailure {
+pub(super) enum RenameFailure {
     Cancelled,
     Io(io::Error),
 }
@@ -844,6 +855,49 @@ mod tests {
         assert!(!output
             .join(".lazycat-release-package-run-overwrite.backup")
             .exists());
+    }
+
+    #[test]
+    fn committed_overwrite_reports_backup_cleanup_warning_with_final_path() {
+        let root = TestDir::new();
+        let output = root.0.join("output");
+        let final_path = output.join("release");
+        let backup_path = output.join(".lazycat-release-package-run-cleanup.backup");
+        fs::create_dir_all(&final_path).unwrap();
+        fs::write(final_path.join("old.txt"), "old").unwrap();
+        let cancelled = AtomicBool::new(false);
+        let mut session =
+            ArchiveSession::create(&output, "release", "run-cleanup", true, &cancelled).unwrap();
+        fs::write(session.staging_path().join("new.txt"), "new").unwrap();
+        let mut rename_count = 0;
+
+        let result = session.commit_with_rename(&cancelled, |source, target, _| {
+            rename_count += 1;
+            fs::rename(source, target).map_err(RenameFailure::Io)?;
+            if rename_count == 2 {
+                fs::remove_dir_all(&backup_path).unwrap();
+                fs::write(&backup_path, "cannot remove as directory").unwrap();
+            }
+            Ok(())
+        });
+
+        match result {
+            Err(ArchiveError::CommittedWithWarning {
+                final_path: committed_path,
+                warning,
+            }) => {
+                assert_eq!(committed_path, final_path);
+                assert!(warning.contains("清理旧归档备份"));
+                assert!(warning.contains(&backup_path.display().to_string()));
+            }
+            other => panic!("expected committed cleanup warning, got {other:?}"),
+        }
+        assert_eq!(
+            fs::read_to_string(final_path.join("new.txt")).unwrap(),
+            "new"
+        );
+        assert!(!final_path.join("old.txt").exists());
+        assert!(backup_path.exists());
     }
 
     #[test]

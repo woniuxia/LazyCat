@@ -164,6 +164,32 @@ describe("ReleasePackagePanel", () => {
     expect(source).toContain('aria-live="polite"');
   });
 
+  it("keeps overall, target, and upload errors visible in the log card", () => {
+    expect(source).toContain(
+      'const overallError = computed(() => currentProjectRuntime.value?.error ?? "")',
+    );
+    expect(source).toContain(
+      'const frontendError = computed(() => currentProjectRuntime.value?.targetErrors.frontend ?? "")',
+    );
+    expect(source).toContain(
+      'const backendError = computed(() => currentProjectRuntime.value?.targetErrors.backend ?? "")',
+    );
+    expect(source).toMatch(
+      /<header class="log-card-header">[\s\S]*v-if="overallError"[\s\S]*\{\{ overallError \}\}[\s\S]*<\/header>/u,
+    );
+    expect(source).toMatch(
+      /<strong>前端<\/strong>[\s\S]*v-if="frontendError"[\s\S]*\{\{ frontendError \}\}/u,
+    );
+    expect(source).toMatch(
+      /<strong>后端<\/strong>[\s\S]*v-if="backendError"[\s\S]*\{\{ backendError \}\}/u,
+    );
+    expect(source).toMatch(
+      /class="release-package-log-lane upload-log-lane"[\s\S]*v-if="overallError"[\s\S]*\{\{ overallError \}\}/u,
+    );
+    expect(source.match(/class="log-error-summary[^"]*"\s+role="alert"/gu) ?? []).toHaveLength(4);
+    expect(source).toMatch(/\.log-error-summary\s*\{[^}]*white-space:\s*pre-wrap;/su);
+  });
+
   it("selects artifact paths, run targets, and renders project-scoped log columns", () => {
     expect(source).toContain("chooseFrontendArtifact");
     expect(source).toContain("chooseBackendArtifact");
@@ -208,6 +234,23 @@ describe("ReleasePackagePanel", () => {
     expect(source).toContain('type="password"');
     expect(source).toContain('credentialSecret.value = ""');
     expect(source).not.toContain("draft.password");
+  });
+
+  it("awaits remote token revocation on dialog reset and terminal paths", () => {
+    const clearStart = source.slice(
+      source.indexOf("async function clearSensitiveStartState"),
+      source.indexOf("async function prepareStart"),
+    );
+    const confirmStart = source.slice(
+      source.indexOf("async function confirmStart"),
+      source.indexOf("async function cancelRun"),
+    );
+
+    expect(clearStart).toContain("await uploadPreflight.reset()");
+    expect(clearStart).toContain("async function resetStartDialog");
+    expect(clearStart).toContain("async function closeStartDialog");
+    expect(source).toContain("await resetStartDialog()");
+    expect(confirmStart).toMatch(/finally\s*\{[\s\S]*await clearSensitiveStartState\(\)/u);
   });
 
   it("binds a Vault server credential for password auth without rendering a password field", () => {
