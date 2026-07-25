@@ -324,6 +324,41 @@ describe("ReleasePackagePanel", () => {
     expect(source).not.toContain("startMode");
   });
 
+  it("keeps conditional configuration inside stable layout sections", () => {
+    expect(source).toMatch(
+      /\.project-basics-grid\s*\{[^}]*grid-template-columns:\s*minmax\(240px,\s*320px\)\s+minmax\(0,\s*1fr\);/su,
+    );
+    expect(source).not.toMatch(/\.project-basics-grid\s*\{[^}]*auto-fit/su);
+
+    expect(source).toContain('class="server-config-section server-auth-section"');
+    expect(source).toContain('class="server-auth-details"');
+    expect(source).toContain('class="private-key-config-grid"');
+    expect(source).toContain('class="server-config-section server-target-section"');
+    expect(source).toContain('class="server-target-grid"');
+
+    const authDetailsStart = source.indexOf('class="server-auth-details"');
+    const targetSectionStart = source.indexOf('class="server-config-section server-target-section"');
+    expect(authDetailsStart).toBeGreaterThan(-1);
+    expect(targetSectionStart).toBeGreaterThan(authDetailsStart);
+    expect(source.slice(targetSectionStart)).toContain('label="前端远程目录"');
+    expect(source.slice(targetSectionStart)).toContain('label="后端远程文件"');
+
+    expect(source).toMatch(
+      /\.private-key-config-grid\s*\{[^}]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\);/su,
+    );
+    expect(source).toMatch(
+      /\.server-target-grid\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);/su,
+    );
+
+    const tabletStyles = source.slice(source.indexOf("@media (max-width: 960px)"));
+    expect(tabletStyles).toMatch(
+      /\.private-key-config-grid\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);/su,
+    );
+    const mobileStyles = source.slice(source.indexOf("@media (max-width: 640px)"));
+    expect(mobileStyles).toMatch(/\.private-key-config-grid\s*\{[^}]*grid-template-columns:\s*1fr;/su);
+    expect(mobileStyles).toMatch(/\.server-target-grid\s*\{[^}]*grid-template-columns:\s*1fr;/su);
+  });
+
   it("runs only the delivery checks required by the prepared package type", () => {
     const start = source.slice(source.indexOf("async function confirmStart"));
     expect(start).toContain("confirmArchiveOverwrite");
