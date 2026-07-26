@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 
 import { useActionCombinations } from "../composables/useActionCombinations";
@@ -22,6 +22,7 @@ const {
   activeRun,
   runHistory,
   runActive,
+  operationPending,
   start,
   stop,
   selectCombination: selectStoredCombination,
@@ -35,6 +36,7 @@ const {
 } = useActionCombinations();
 
 let notifiedRunId = "";
+const selecting = ref(false);
 
 const displayedRun = computed(() =>
   draft.value?.id !== undefined
@@ -42,6 +44,23 @@ const displayedRun = computed(() =>
     ? activeRun.value
     : null,
 );
+const interactionLocked = computed(
+  () => runActive.value || operationPending.value || selecting.value,
+);
+
+async function confirmDiscardChanges(title: string): Promise<boolean> {
+  if (!dirty.value) return true;
+  try {
+    await ElMessageBox.confirm("当前修改尚未保存，继续后将丢失。", title, {
+      type: "warning",
+      confirmButtonText: "继续",
+      cancelButtonText: "取消",
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 async function loadDraftTargets(): Promise<void> {
   if (!draft.value) return;
@@ -52,29 +71,30 @@ async function loadDraftTargets(): Promise<void> {
   );
 }
 
-async function selectCombination(id: number): Promise<void> {
-  if (runActive.value || id === selectedId.value) return;
-  if (dirty.value) {
-    try {
-      await ElMessageBox.confirm("当前修改尚未保存，切换后将丢失。", "切换组合", {
-        type: "warning",
-        confirmButtonText: "继续切换",
-        cancelButtonText: "取消",
-      });
-    } catch {
-      return;
-    }
-  }
+async function loadStoredCombination(id: number): Promise<void> {
   await selectStoredCombination(id);
   await loadDraftTargets();
 }
 
-function createCombination(): void {
-  if (runActive.value) return;
+async function selectCombination(id: number): Promise<void> {
+  if (interactionLocked.value || id === selectedId.value) return;
+  selecting.value = true;
+  try {
+    if (!(await confirmDiscardChanges("切换组合"))) return;
+    await loadStoredCombination(id);
+  } finally {
+    selecting.value = false;
+  }
+}
+
+async function createCombination(): Promise<void> {
+  if (interactionLocked.value) return;
+  if (!(await confirmDiscardChanges("新建组合"))) return;
   createDraft();
 }
 
 async function saveCombination(): Promise<void> {
+  if (interactionLocked.value) return;
   try {
     await persistCombination();
     await loadDraftTargets();
@@ -84,8 +104,14 @@ async function saveCombination(): Promise<void> {
   }
 }
 
+async function copyCombinationDraft(): Promise<void> {
+  if (interactionLocked.value) return;
+  copyCombination();
+  await loadDraftTargets();
+}
+
 async function confirmDeleteCombination(): Promise<void> {
-  if (!draft.value?.id) return;
+  if (interactionLocked.value || !draft.value?.id) return;
   try {
     await ElMessageBox.confirm(`确定删除“${draft.value.name}”吗？`, "删除组合", {
       type: "warning",
@@ -101,7 +127,7 @@ async function confirmDeleteCombination(): Promise<void> {
 }
 
 async function runCombination(): Promise<void> {
-  if (!draft.value?.id || dirty.value || runActive.value) return;
+  if (!draft.value?.id || dirty.value || interactionLocked.value) return;
   try {
     notifiedRunId = "";
     await startCombination(draft.value.id);
@@ -115,8 +141,8 @@ function openTool(toolId: string): void {
 }
 
 watch(
-  () => activeRun.value?.status,
-  (status) => {
+  () => [activeRun.value?.id, activeRun.value?.status] as const,
+  ([, status]) => {
     const run = activeRun.value;
     if (!run || !status || !isCombinationRunTerminal(status) || notifiedRunId === run.id) return;
     notifiedRunId = run.id;
@@ -134,8 +160,13 @@ onMounted(async () => {
   try {
     await start();
     if (combinations.value.length) {
-      await selectStoredCombination(combinations.value[0].id);
-      await loadDraftTargets();
+      const initialId = activeRun.value?.combinationId ?? combinations.value[0].id;
+      selecting.value = true;
+      try {
+        await loadStoredCombination(initialId);
+      } finally {
+        selecting.value = false;
+      }
     } else {
       createDraft();
     }
@@ -152,7 +183,7 @@ onUnmounted(stop);
     <ActionCombinationList
       :items="combinations"
       :selected-id="selectedId"
-      :run-active="runActive"
+      :run-active="interactionLocked"
       @create="createCombination"
       @select="selectCombination"
     />
@@ -163,10 +194,10 @@ onUnmounted(stop);
         :definitions="definitions"
         :targets="stepTargets"
         :dirty="dirty"
-        :run-active="runActive"
+        :run-active="interactionLocked"
         @load-targets="loadStepTargets"
         @save="saveCombination"
-        @copy="copyCombination"
+        @copy="copyCombinationDraft"
         @delete="confirmDeleteCombination"
         @run="runCombination"
         @reorder="reorderSteps"

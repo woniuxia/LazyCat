@@ -10,6 +10,7 @@ vi.mock("../bridge/tauri", () => ({ invokeToolByChannel: invokeMock }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: listenMock }));
 
 import type {
+  ActionCombinationDetail,
   ActionCombinationRunDetail,
   ActionCombinationTarget,
 } from "../types/action-center";
@@ -32,16 +33,27 @@ function target(id: string): ActionCombinationTarget {
   return { id, label: id, available: true };
 }
 
-function runningRun(id: string): ActionCombinationRunDetail {
+function runningRun(id: string, combinationId = 7): ActionCombinationRunDetail {
   return {
     id,
-    combinationId: 7,
+    combinationId,
     combinationName: "开发环境",
     executionMode: "serial",
     status: "running",
     createdAt: "2026-07-26 10:00:00",
     startedAt: "2026-07-26 10:00:01",
     steps: [],
+  };
+}
+
+function combinationDetail(id: number): ActionCombinationDetail {
+  return {
+    id,
+    name: `组合 ${id}`,
+    executionMode: "serial",
+    steps: [],
+    createdAt: "2026-07-26 10:00:00",
+    updatedAt: "2026-07-26 10:00:00",
   };
 }
 
@@ -75,6 +87,80 @@ describe("useActionCombinations", () => {
     await oldRequest;
 
     expect(state.stepTargets.value.get("step-1")?.[0].id).toBe("edge");
+  });
+
+  it("restores a running combination from summaries and recent runs", async () => {
+    const restored = runningRun("run-restored");
+    invokeMock
+      .mockResolvedValueOnce({ definitions: [] })
+      .mockResolvedValueOnce({ combinations: [{
+        id: 7, name: "开发环境", executionMode: "serial", stepCount: 2,
+        latestRunStatus: "running", updatedAt: "2026-07-26 10:00:00",
+      }] })
+      .mockResolvedValueOnce({ runs: [restored] });
+    const state = useActionCombinations({ pollIntervalMs: 10_000 });
+    await state.start();
+    expect(invokeMock).toHaveBeenCalledWith(
+      "tool:action-center:combination-run-list", { combinationId: 7 },
+    );
+    expect(state.activeRun.value?.id).toBe("run-restored");
+    expect(state.runActive.value).toBe(true);
+    state.stop();
+  });
+
+  it("does not let an older history response overwrite the current selection", async () => {
+    const oldHistory = deferred<{ runs: ActionCombinationRunDetail[] }>();
+    const runA = runningRun("run-a", 7);
+    const runB = runningRun("run-b", 8);
+    invokeMock
+      .mockResolvedValueOnce(combinationDetail(7))
+      .mockReturnValueOnce(oldHistory.promise)
+      .mockResolvedValueOnce(combinationDetail(8))
+      .mockResolvedValueOnce({ runs: [runB] });
+    const state = useActionCombinations();
+    const selectA = state.selectCombination(7);
+    await Promise.resolve();
+    await state.selectCombination(8);
+    oldHistory.resolve({ runs: [runA] });
+    await selectA;
+    expect(state.selectedId.value).toBe(8);
+    expect(state.runHistory.value.map((run) => run.id)).toEqual(["run-b"]);
+  });
+
+  it("sets operation pending synchronously and rejects a duplicate save", async () => {
+    const saveResponse = deferred<{ id: number }>();
+    invokeMock
+      .mockReturnValueOnce(saveResponse.promise)
+      .mockResolvedValueOnce({ combinations: [] })
+      .mockResolvedValueOnce(combinationDetail(7))
+      .mockResolvedValueOnce({ runs: [] });
+    const state = useActionCombinations();
+    state.createCombination();
+    const firstSave = state.saveCombination();
+    expect(state.saving.value).toBe(true);
+    expect(state.operationPending.value).toBe(true);
+    await expect(state.saveCombination()).rejects.toThrow("组合动作操作正在进行中");
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+    saveResponse.resolve({ id: 7 });
+    await firstSave;
+    expect(state.saving.value).toBe(false);
+    expect(state.operationPending.value).toBe(false);
+  });
+
+  it("sets operation pending synchronously and rejects a duplicate run", async () => {
+    const runResponse = deferred<ActionCombinationRunDetail>();
+    invokeMock.mockReturnValueOnce(runResponse.promise);
+    const state = useActionCombinations({ pollIntervalMs: 10_000 });
+    const firstRun = state.runCombination(7);
+    expect(state.starting.value).toBe(true);
+    expect(state.operationPending.value).toBe(true);
+    await expect(state.runCombination(7)).rejects.toThrow("组合动作操作正在进行中");
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+    runResponse.resolve(runningRun("run-1"));
+    await firstRun;
+    expect(state.starting.value).toBe(false);
+    expect(state.operationPending.value).toBe(false);
+    state.stop();
   });
 
   it("reloads the active run from an event and stops polling at terminal state", async () => {

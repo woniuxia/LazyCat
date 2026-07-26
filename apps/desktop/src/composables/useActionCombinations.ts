@@ -41,17 +41,26 @@ export function useActionCombinations(options: UseActionCombinationsOptions = {}
   const stepTargets = ref(new Map<string, ActionCombinationTarget[]>());
   const activeRun = ref<ActionCombinationRunDetail | null>(null);
   const runHistory = ref<ActionCombinationRunDetail[]>([]);
+  const saving = ref(false);
+  const starting = ref(false);
+  const deleting = ref(false);
   const targetRequestVersions = new Map<string, number>();
   let selectionVersion = 0;
   let pollTimer: ReturnType<typeof setInterval> | null = null;
   let unlisten: UnlistenFn | null = null;
   let listenerPromise: Promise<void> | null = null;
   let runRefreshVersion = 0;
+  let historyRequestVersion = 0;
 
   const dirty = computed(() => draftFingerprint(draft.value) !== savedFingerprint.value);
   const runActive = computed(
     () => activeRun.value !== null && !isCombinationRunTerminal(activeRun.value.status),
   );
+  const operationPending = computed(() => saving.value || starting.value || deleting.value);
+
+  function ensureOperationIdle(): void {
+    if (operationPending.value) throw new Error("组合动作操作正在进行中");
+  }
 
   function replaceDraft(next: ActionCombinationDraft | null, markSaved: boolean): void {
     draft.value = next;
@@ -83,12 +92,31 @@ export function useActionCombinations(options: UseActionCombinationsOptions = {}
     combinations.value = response.combinations;
   }
 
-  async function loadRunHistory(combinationId: number): Promise<void> {
+  async function fetchRunHistory(combinationId: number): Promise<ActionCombinationRunDetail[]> {
     const response = (await invokeToolByChannel(
       "tool:action-center:combination-run-list",
       { combinationId },
     )) as { runs: ActionCombinationRunDetail[] };
-    runHistory.value = response.runs;
+    return response.runs;
+  }
+
+  async function loadRunHistory(combinationId: number): Promise<ActionCombinationRunDetail[]> {
+    const version = ++historyRequestVersion;
+    const runs = await fetchRunHistory(combinationId);
+    if (version === historyRequestVersion && selectedId.value === combinationId) {
+      runHistory.value = runs;
+    }
+    return runs;
+  }
+
+  async function restoreActiveRun(): Promise<void> {
+    const summary = combinations.value.find(
+      ({ latestRunStatus }) => latestRunStatus === "pending" || latestRunStatus === "running",
+    );
+    if (!summary) return;
+    const runs = await fetchRunHistory(summary.id);
+    const run = runs.find(({ status }) => !isCombinationRunTerminal(status)) ?? runs[0];
+    if (run) await trackRun(run);
   }
 
   async function refreshActiveRun(runId: string): Promise<void> {
@@ -101,7 +129,7 @@ export function useActionCombinations(options: UseActionCombinationsOptions = {}
     activeRun.value = run;
     if (!isCombinationRunTerminal(run.status)) return;
     clearPoll();
-    if (typeof run.combinationId === "number") {
+    if (typeof run.combinationId === "number" && selectedId.value === run.combinationId) {
       await loadRunHistory(run.combinationId);
     }
   }
@@ -118,7 +146,7 @@ export function useActionCombinations(options: UseActionCombinationsOptions = {}
     activeRun.value = run;
     if (isCombinationRunTerminal(run.status)) {
       clearPoll();
-      if (typeof run.combinationId === "number") {
+      if (typeof run.combinationId === "number" && selectedId.value === run.combinationId) {
         await loadRunHistory(run.combinationId);
       }
       return;
@@ -143,10 +171,12 @@ export function useActionCombinations(options: UseActionCombinationsOptions = {}
 
   async function start(): Promise<void> {
     await Promise.all([ensureListener(), loadDefinitions(), loadCombinations()]);
+    await restoreActiveRun();
   }
 
   function stop(): void {
     runRefreshVersion += 1;
+    historyRequestVersion += 1;
     clearPoll();
     if (unlisten) {
       unlisten();
@@ -162,6 +192,7 @@ export function useActionCombinations(options: UseActionCombinationsOptions = {}
 
   async function selectCombination(combinationId: number): Promise<void> {
     const version = ++selectionVersion;
+    historyRequestVersion += 1;
     const detail = (await invokeToolByChannel(
       "tool:action-center:combination-get",
       { combinationId },
@@ -175,6 +206,7 @@ export function useActionCombinations(options: UseActionCombinationsOptions = {}
 
   function createCombination(): void {
     selectionVersion += 1;
+    historyRequestVersion += 1;
     selectedId.value = null;
     selectedCombination.value = null;
     runHistory.value = [];
@@ -183,6 +215,7 @@ export function useActionCombinations(options: UseActionCombinationsOptions = {}
 
   function copyCombination(): void {
     if (!draft.value) return;
+    historyRequestVersion += 1;
     replaceDraft(
       {
         ...draft.value,
@@ -216,30 +249,48 @@ export function useActionCombinations(options: UseActionCombinationsOptions = {}
   }
 
   async function saveCombination(): Promise<number> {
+    ensureOperationIdle();
     if (!draft.value) throw new Error("没有可保存的组合动作");
-    const input = toCombinationSaveInput(draft.value);
-    const response = (await invokeToolByChannel(
-      "tool:action-center:combination-save",
-      { ...input },
-    )) as { id: number };
-    await loadCombinations();
-    await selectCombination(response.id);
-    return response.id;
+    saving.value = true;
+    try {
+      const input = toCombinationSaveInput(draft.value);
+      const response = (await invokeToolByChannel(
+        "tool:action-center:combination-save",
+        { ...input },
+      )) as { id: number };
+      await loadCombinations();
+      await selectCombination(response.id);
+      return response.id;
+    } finally {
+      saving.value = false;
+    }
   }
 
   async function deleteCombination(combinationId: number): Promise<void> {
-    await invokeToolByChannel("tool:action-center:combination-delete", { combinationId });
-    if (selectedId.value === combinationId) createCombination();
-    await loadCombinations();
+    ensureOperationIdle();
+    deleting.value = true;
+    try {
+      await invokeToolByChannel("tool:action-center:combination-delete", { combinationId });
+      if (selectedId.value === combinationId) createCombination();
+      await loadCombinations();
+    } finally {
+      deleting.value = false;
+    }
   }
 
   async function runCombination(combinationId: number): Promise<ActionCombinationRunDetail> {
-    const run = (await invokeToolByChannel(
-      "tool:action-center:combination-run",
-      { combinationId },
-    )) as ActionCombinationRunDetail;
-    await trackRun(run);
-    return run;
+    ensureOperationIdle();
+    starting.value = true;
+    try {
+      const run = (await invokeToolByChannel(
+        "tool:action-center:combination-run",
+        { combinationId },
+      )) as ActionCombinationRunDetail;
+      await trackRun(run);
+      return run;
+    } finally {
+      starting.value = false;
+    }
   }
 
   return {
@@ -253,6 +304,10 @@ export function useActionCombinations(options: UseActionCombinationsOptions = {}
     activeRun,
     runHistory,
     runActive,
+    saving,
+    starting,
+    deleting,
+    operationPending,
     start,
     stop,
     loadDefinitions,

@@ -108,6 +108,16 @@ function definitionFor(actionType: string): CombinationAtomicDefinition | undefi
   return props.definitions.find((definition) => definition.actionType === actionType);
 }
 
+function reorderStepWithKeyboard(index: number, event: KeyboardEvent): void {
+  if (props.runActive) return;
+  const offset = event.key === "ArrowUp" ? -1 : event.key === "ArrowDown" ? 1 : 0;
+  if (offset === 0) return;
+  const toIndex = index + offset;
+  if (toIndex < 0 || toIndex >= props.modelValue.steps.length) return;
+  event.preventDefault();
+  emit("reorder", index, toIndex);
+}
+
 function initSortable(): void {
   sortable?.destroy();
   sortable = null;
@@ -217,7 +227,9 @@ onUnmounted(() => {
           type="button"
           class="action-step-drag"
           title="拖动排序"
+          :aria-label="`拖动排序，第 ${index + 1} 步`"
           :disabled="runActive"
+          @keydown="reorderStepWithKeyboard(index, $event)"
         >
           <el-icon><Rank /></el-icon>
         </button>

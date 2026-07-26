@@ -52,4 +52,36 @@ describe("ActionCenterPanel contracts", () => {
     expect(source.match(/targetLabel: undefined/g)).toHaveLength(2);
     expect(source.match(/unavailableReason: undefined/g)).toHaveLength(2);
   });
+
+  it("locks interactions while operations are pending and confirms dirty create", () => {
+    const source = readFileSync(new URL("./ActionCenterPanel.vue", import.meta.url), "utf8");
+    expect(source).toContain("const interactionLocked = computed(");
+    expect(source).toContain("async function confirmDiscardChanges");
+    expect(source).toContain('await confirmDiscardChanges("新建组合")');
+    expect(source.match(/:run-active="interactionLocked"/g)).toHaveLength(2);
+    expect(source).toContain("const selecting = ref(false)");
+    expect(source).toContain("operationPending.value || selecting.value");
+    expect(source).toContain("selecting.value = true");
+    expect(source).toContain("selecting.value = false");
+  });
+
+  it("tracks terminal notifications by run id and reloads targets after copy", () => {
+    const source = readFileSync(new URL("./ActionCenterPanel.vue", import.meta.url), "utf8");
+    expect(source).toContain("[activeRun.value?.id, activeRun.value?.status] as const");
+    expect(source).toContain("async function copyCombinationDraft");
+    expect(source).toContain('@copy="copyCombinationDraft"');
+    expect(source).toContain("copyCombination();\n  await loadDraftTargets();");
+    expect(source).toContain("activeRun.value?.combinationId ?? combinations.value[0].id");
+  });
+
+  it("supports keyboard step reordering with accessible drag labels", () => {
+    const source = readFileSync(
+      new URL("./action-center/ActionCombinationEditor.vue", import.meta.url), "utf8",
+    );
+    expect(source).toContain("function reorderStepWithKeyboard(index: number, event: KeyboardEvent)");
+    expect(source).toContain('event.key === "ArrowUp"');
+    expect(source).toContain('event.key === "ArrowDown"');
+    expect(source).toContain('@keydown="reorderStepWithKeyboard(index, $event)"');
+    expect(source).toContain(':aria-label="`拖动排序，第 ${index + 1} 步`"');
+  });
 });
