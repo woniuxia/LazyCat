@@ -32,4 +32,6 @@ export const APP_EVENTS = {
   VAULT_LOCKED: "vault://locked",
   /** Rust -> 主窗口：动作中心打开目标工具并请求确认 */
   ACTION_CENTER_DISPATCH_REQUEST: "action-center://dispatch-request",
+  /** Rust -> 主窗口：组合动作运行状态变化，payload { runId, status } */
+  ACTION_CENTER_COMBINATION_RUN_UPDATED: "action-center://combination-run-updated",
 } as const;

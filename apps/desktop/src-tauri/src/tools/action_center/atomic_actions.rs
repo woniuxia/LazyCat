@@ -104,7 +104,7 @@ fn parse_numeric_target_id(target_id: &str) -> Result<i64, String> {
         .ok_or_else(|| format!("目标 ID 无效: {target_id}"))
 }
 
-fn list_targets_with_conn(
+pub(super) fn list_targets_with_conn(
     conn: &Connection,
     action_type: &str,
 ) -> Result<Vec<ActionTargetOption>, String> {
@@ -180,7 +180,7 @@ fn resolve_target_with_conn(
     }
 }
 
-fn validate_target_with_conn(
+pub(super) fn validate_target_with_conn(
     conn: &Connection,
     action_type: &str,
     target_id: &str,
@@ -218,7 +218,7 @@ pub(crate) fn validate_target(
     validate_target_with_conn(&conn, action_type, target_id)
 }
 
-fn snapshot_target_with_conn(
+pub(super) fn snapshot_target_with_conn(
     conn: &Connection,
     action_type: &str,
     target_id: &str,

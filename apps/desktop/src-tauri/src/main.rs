@@ -1368,6 +1368,9 @@ fn main() {
             if let Err(error) = tools::action_center::recover_interrupted_dispatches() {
                 eprintln!("action-center recovery failed: {error}");
             }
+            if let Err(error) = tools::action_center::recover_interrupted_combination_runs() {
+                eprintln!("action-center combination recovery failed: {error}");
+            }
             start_todo_scheduler(app.handle().clone());
             start_pomodoro_scheduler(app.handle().clone());
             start_clipboard_monitor(app.handle().clone());
