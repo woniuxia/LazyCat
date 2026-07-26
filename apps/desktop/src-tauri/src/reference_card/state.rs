@@ -30,6 +30,7 @@ impl ResolveError {
 struct CardState {
     source_hash: String,
     last_used: u64,
+    ordinal: usize,
 }
 
 #[derive(Default)]
@@ -79,15 +80,18 @@ impl CardRegistry {
             });
         }
 
+        let ordinal = (0..MAX_CARDS)
+            .find(|ordinal| !self.cards.values().any(|card| card.ordinal == *ordinal))
+            .expect("available reference card ordinal");
         self.next_id += 1;
         let label = format!("reference-card-{}", self.next_id);
-        let ordinal = self.cards.len();
         self.sources.insert(source_hash.clone(), label.clone());
         self.cards.insert(
             label.clone(),
             CardState {
                 source_hash,
                 last_used: self.usage,
+                ordinal,
             },
         );
         self.pending.insert(label.clone(), text.to_string());
@@ -95,6 +99,9 @@ impl CardRegistry {
     }
     pub(crate) fn take_pending(&mut self, label: &str) -> Option<String> {
         self.pending.remove(label)
+    }
+    pub(crate) fn is_pending(&self, label: &str) -> bool {
+        self.pending.contains_key(label)
     }
     pub(crate) fn remove_label(&mut self, label: &str) {
         if let Some(card) = self.cards.remove(label) {
@@ -106,7 +113,7 @@ impl CardRegistry {
         let removed = self
             .cards
             .keys()
-            .filter(|label| !exists(label.as_str()))
+            .filter(|label| !self.pending.contains_key(label.as_str()) && !exists(label.as_str()))
             .cloned()
             .collect::<Vec<_>>();
         for label in removed {
@@ -146,6 +153,22 @@ mod tests {
             registry.resolve("alpha").unwrap(),
             ResolveCard::Create {
                 label: "reference-card-2".to_string(),
+                ordinal: 0,
+            }
+        );
+    }
+    #[test]
+    fn new_card_reuses_lowest_available_ordinal() {
+        let mut registry = CardRegistry::default();
+        let mut labels = Vec::new();
+        for index in 1..=MAX_CARDS {
+            labels.push(created(&mut registry, &format!("card-{index}")).0);
+        }
+        registry.remove_label(&labels[0]);
+        assert_eq!(
+            registry.resolve("card-7").unwrap(),
+            ResolveCard::Create {
+                label: "reference-card-7".to_string(),
                 ordinal: 0,
             }
         );
@@ -195,6 +218,8 @@ mod tests {
         let mut registry = CardRegistry::default();
         let (first, _) = created(&mut registry, "first");
         let (second, _) = created(&mut registry, "second");
+        assert_eq!(registry.take_pending(&first).as_deref(), Some("first"));
+        assert_eq!(registry.take_pending(&second).as_deref(), Some("second"));
         registry.retain_labels(|label| label == second);
         assert!(matches!(
             registry.resolve("first"),
@@ -205,5 +230,28 @@ mod tests {
             ResolveCard::Focus { label: second }
         );
         assert_ne!(first, "");
+    }
+    #[test]
+    fn retain_labels_keeps_pending_card_until_content_is_taken() {
+        let mut registry = CardRegistry::default();
+        let (label, _) = created(&mut registry, "pending");
+        assert!(registry.is_pending(&label));
+
+        registry.retain_labels(|_| false);
+        assert_eq!(
+            registry.resolve("pending").unwrap(),
+            ResolveCard::Focus {
+                label: label.clone()
+            }
+        );
+        assert!(registry.is_pending(&label));
+
+        assert_eq!(registry.take_pending(&label).as_deref(), Some("pending"));
+        assert!(!registry.is_pending(&label));
+        registry.retain_labels(|_| false);
+        assert!(matches!(
+            registry.resolve("pending"),
+            Ok(ResolveCard::Create { .. })
+        ));
     }
 }

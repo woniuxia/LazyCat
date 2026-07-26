@@ -1,5 +1,23 @@
 use std::time::Duration;
 
+fn utf16_unit_count(byte_len: usize) -> Result<usize, String> {
+    if byte_len == 0 {
+        return Err("剪贴板文本缓冲区为空".to_string());
+    }
+    if byte_len % size_of::<u16>() != 0 {
+        return Err("剪贴板文本缓冲区字节长度必须为偶数".to_string());
+    }
+    Ok(byte_len / size_of::<u16>())
+}
+
+fn decode_null_terminated_utf16(units: &[u16]) -> Result<String, String> {
+    let length = units
+        .iter()
+        .position(|unit| *unit == 0)
+        .ok_or_else(|| "剪贴板文本缺少 NUL 终止符".to_string())?;
+    Ok(String::from_utf16_lossy(&units[..length]))
+}
+
 #[cfg(windows)]
 pub(crate) struct ClipboardGuard;
 
@@ -30,7 +48,7 @@ impl Drop for ClipboardGuard {
 #[cfg(windows)]
 pub(crate) fn read_unicode_text_from_open_clipboard() -> Result<Option<String>, String> {
     use windows_sys::Win32::System::DataExchange::{GetClipboardData, IsClipboardFormatAvailable};
-    use windows_sys::Win32::System::Memory::{GlobalLock, GlobalUnlock};
+    use windows_sys::Win32::System::Memory::{GlobalLock, GlobalSize, GlobalUnlock};
 
     const CF_UNICODETEXT: u32 = 13;
     unsafe {
@@ -41,17 +59,15 @@ pub(crate) fn read_unicode_text_from_open_clipboard() -> Result<Option<String>, 
         if handle.is_null() {
             return Err("读取剪贴板文本失败".to_string());
         }
+        let unit_count = utf16_unit_count(GlobalSize(handle))?;
         let pointer = GlobalLock(handle) as *const u16;
         if pointer.is_null() {
             return Err("锁定剪贴板文本失败".to_string());
         }
-        let mut length = 0usize;
-        while *pointer.add(length) != 0 {
-            length += 1;
-        }
-        let text = String::from_utf16_lossy(std::slice::from_raw_parts(pointer, length));
+        let units = std::slice::from_raw_parts(pointer, unit_count);
+        let result = decode_null_terminated_utf16(units);
         GlobalUnlock(handle);
-        Ok(Some(text))
+        result.map(Some)
     }
 }
 
@@ -87,8 +103,36 @@ pub(crate) fn read_unicode_text_with_retry() -> Result<Option<String>, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{read_unicode_text_with_retry, retry_read};
+    use super::{
+        decode_null_terminated_utf16, read_unicode_text_with_retry, retry_read, utf16_unit_count,
+    };
     const _: fn() -> Result<Option<String>, String> = read_unicode_text_with_retry;
+    #[test]
+    fn utf16_unit_count_rejects_empty_buffer() {
+        assert_eq!(utf16_unit_count(0).unwrap_err(), "剪贴板文本缓冲区为空");
+    }
+    #[test]
+    fn utf16_unit_count_rejects_odd_byte_length() {
+        assert_eq!(
+            utf16_unit_count(3).unwrap_err(),
+            "剪贴板文本缓冲区字节长度必须为偶数"
+        );
+        assert_eq!(utf16_unit_count(4), Ok(2));
+    }
+    #[test]
+    fn decode_utf16_accepts_nul_at_slice_boundary() {
+        assert_eq!(
+            decode_null_terminated_utf16(&[0x4f60, 0x597d, 0]),
+            Ok("你好".to_string())
+        );
+    }
+    #[test]
+    fn decode_utf16_rejects_missing_nul() {
+        assert_eq!(
+            decode_null_terminated_utf16(&[0x4f60, 0x597d]).unwrap_err(),
+            "剪贴板文本缺少 NUL 终止符"
+        );
+    }
     #[test]
     fn retry_read_succeeds_on_third_attempt() {
         let mut attempts = 0;

@@ -15,19 +15,13 @@ pub(crate) fn card_position(
     window: PhysicalSize,
     ordinal: usize,
 ) -> (i32, i32) {
-    let remaining_x = work_area.width.saturating_sub(window.width).max(0);
-    let remaining_y = work_area.height.saturating_sub(window.height).max(0);
-    let offset = (ordinal.min(5) as i32).saturating_mul(28);
-    let x = work_area.x.saturating_add(
-        (remaining_x.saturating_mul(2) / 3)
-            .saturating_add(offset)
-            .clamp(0, remaining_x),
-    );
-    let y = work_area.y.saturating_add(
-        (remaining_y / 3)
-            .saturating_add(offset)
-            .clamp(0, remaining_y),
-    );
+    let remaining_x = (i64::from(work_area.width) - i64::from(window.width)).max(0);
+    let remaining_y = (i64::from(work_area.height) - i64::from(window.height)).max(0);
+    let offset = ordinal.min(5) as i64 * 28;
+    let relative_x = (remaining_x * 2 / 3 + offset).clamp(0, remaining_x);
+    let relative_y = (remaining_y / 3 + offset).clamp(0, remaining_y);
+    let x = (i64::from(work_area.x) + relative_x).clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+    let y = (i64::from(work_area.y) + relative_y).clamp(i32::MIN as i64, i32::MAX as i64) as i32;
     (x, y)
 }
 
@@ -118,5 +112,20 @@ mod tests {
         let position = card_position(area, size, usize::MAX);
         assert_eq!(position.0, i32::MAX);
         assert!(position.1 >= i32::MIN);
+    }
+
+    #[test]
+    fn large_remaining_width_uses_exact_two_thirds_position() {
+        let area = PhysicalRect {
+            x: -1_000_000_000,
+            y: 0,
+            width: i32::MAX,
+            height: 360,
+        };
+        let size = PhysicalSize {
+            width: 0,
+            height: 360,
+        };
+        assert_eq!(card_position(area, size, 0).0, 431_655_764);
     }
 }
