@@ -107,8 +107,8 @@ Expected: PASS，无输出。
 Run:
 
 ```powershell
-$agents = (Get-Content -Raw AGENTS.md).Replace("AGENTS.md", "ROOT_AGENT_FILE").Replace("CLAUDE.md", "PEER_AGENT_FILE")
-$claude = (Get-Content -Raw CLAUDE.md).Replace("CLAUDE.md", "ROOT_AGENT_FILE").Replace("AGENTS.md", "PEER_AGENT_FILE")
+$agents = (Get-Content -Raw AGENTS.md).Replace("# AGENTS.md", "# ROOT_AGENT_FILE").Replace("更新 ``CLAUDE.md``", "更新 ``PEER_AGENT_FILE``")
+$claude = (Get-Content -Raw CLAUDE.md).Replace("# CLAUDE.md", "# ROOT_AGENT_FILE").Replace("更新 ``AGENTS.md``", "更新 ``PEER_AGENT_FILE``")
 if ($agents -cne $claude) { throw "AGENTS.md 与 CLAUDE.md 不同构" }
 ```
 
