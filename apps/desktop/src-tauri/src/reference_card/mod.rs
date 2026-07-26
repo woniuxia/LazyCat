@@ -276,13 +276,20 @@ fn target_monitor(window: &WebviewWindow) -> Option<Monitor> {
         .or_else(|| window.primary_monitor().ok().flatten())
 }
 
+fn logical_size_from_physical(width: u32, height: u32, scale: f64) -> CardSize {
+    CardSize {
+        width: width as f64 / scale,
+        height: height as f64 / scale,
+    }
+}
+
 fn logical_work_area(monitor: &Monitor) -> CardSize {
     let work_area = monitor.work_area();
-    let scale = monitor.scale_factor();
-    CardSize {
-        width: work_area.size.width as f64 / scale,
-        height: work_area.size.height as f64 / scale,
-    }
+    logical_size_from_physical(
+        work_area.size.width,
+        work_area.size.height,
+        monitor.scale_factor(),
+    )
 }
 
 fn physical_window_size(size: CardSize, scale: f64) -> PhysicalSize {
@@ -623,12 +630,62 @@ mod tests {
     use tokio::sync::Notify;
 
     use super::{
-        cleanup_window_with, wait_for_flight, wait_for_ready, ReferenceCardInitPayload,
-        ShowReservation, ShowSession, WindowCleanup,
+        cleanup_window_with, logical_size_from_physical, physical_window_size, wait_for_flight,
+        wait_for_ready, CardSize, PhysicalSize, ReferenceCardInitPayload, ShowReservation,
+        ShowSession, WindowCleanup,
     };
 
     const MAIN_SOURCE: &str = include_str!("../main.rs");
     const CAPABILITY_SOURCE: &str = include_str!("../../capabilities/default.json");
+
+    #[test]
+    fn physical_work_area_round_trips_across_common_scale_factors() {
+        for scale in [1.0, 1.25, 1.5, 2.0] {
+            let logical = logical_size_from_physical(1920, 1080, scale);
+
+            assert_eq!(
+                physical_window_size(logical, scale),
+                PhysicalSize {
+                    width: 1920,
+                    height: 1080,
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn physical_window_size_rounds_fractional_scaled_dimensions() {
+        assert_eq!(
+            physical_window_size(
+                CardSize {
+                    width: 100.4,
+                    height: 100.5,
+                },
+                1.25,
+            ),
+            PhysicalSize {
+                width: 126,
+                height: 126,
+            }
+        );
+    }
+
+    #[test]
+    fn physical_window_size_clamps_extreme_dimensions_to_i32_max() {
+        assert_eq!(
+            physical_window_size(
+                CardSize {
+                    width: f64::MAX,
+                    height: f64::MAX,
+                },
+                2.0,
+            ),
+            PhysicalSize {
+                width: i32::MAX,
+                height: i32::MAX,
+            }
+        );
+    }
 
     #[test]
     fn reference_card_init_payload_serializes_content_object() {

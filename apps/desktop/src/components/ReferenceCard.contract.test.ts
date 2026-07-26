@@ -52,6 +52,7 @@ describe("ReferenceCard window wiring", () => {
       "configure_initial_geometry(&window, &text, ordinal)",
     );
     expect(referenceCardBackend).toContain(".resizable(true)");
+    expect(referenceCardBackend.match(/\.set_size\(/g)).toHaveLength(1);
     expect(referenceCardBackend).not.toContain(".max_inner_size(");
     expect(component).not.toContain("setSize(");
     expect(component).not.toContain("onResized(");
