@@ -13,6 +13,8 @@
 - 保留 dirty worktree 中与当前任务无关的改动。目标文件已有未提交改动时先读 diff；直接冲突则停下确认。
 - 不自动启动产品 UI 或 `pnpm dev`；只有用户明确要求才启动。
 - 默认直接在 `main` 修改；只有用户要求隔离、并行冲突风险明显或任务流程强制时才创建 worktree。
+- 必要 worktree 初始化只运行 `pnpm install --frozen-lockfile --prefer-offline`；不得运行 `pnpm build`、Tauri build 或安装包构建。按任务范围执行定向验证。
+- 本机已安装 `sccache` 时，通过用户级 `RUSTC_WRAPPER=sccache` 复用 Rust 编译缓存；各 worktree 保持独立 `target`，不把 `sccache` 设为项目硬依赖。
 - 破坏性操作（删除文件、覆盖数据、迁移数据库）、批量修改、大范围资源变更或外部副作用前，先确认目标、影响和回退方式。
 - Windows 下运行中的 `.exe` 会持有文件锁，重建前先结束对应进程。
 - 复杂任务开始前查经验；改动涉及 3+ 文件后评估是否沉淀新经验。
@@ -36,6 +38,7 @@
 
 | 命令 | 用途 |
 |------|------|
+| `pnpm install --frozen-lockfile --prefer-offline` | worktree 依赖初始化，不执行构建 |
 | `pnpm test` | 单元测试 |
 | `pnpm typecheck` | 全工作区类型检查 |
 | `pnpm --filter @lazycat/desktop build:web` | 渲染层构建 |
