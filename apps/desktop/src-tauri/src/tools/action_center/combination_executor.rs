@@ -1,0 +1,569 @@
+use super::{
+    atomic_actions::{AtomicActionExecutor, AtomicStepSuccessStatus},
+    combinations::ExecutionMode,
+};
+use std::{
+    any::Any,
+    panic::{catch_unwind, AssertUnwindSafe},
+    sync::Arc,
+};
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct PlannedStep {
+    pub run_step_id: i64,
+    pub action_type: String,
+    pub target_id: String,
+    pub sort_order: i64,
+    pub validation_error: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum StepTerminalStatus {
+    Succeeded,
+    AlreadySatisfied,
+    Failed,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ExecutedStep {
+    pub run_step_id: i64,
+    pub sort_order: i64,
+    pub status: StepTerminalStatus,
+    pub result_code: Option<String>,
+    pub message: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum RunTerminalStatus {
+    Succeeded,
+    PartiallySucceeded,
+    Failed,
+}
+
+pub(crate) trait ExecutionObserver: Send + Sync + 'static {
+    fn step_started(&self, run_step_id: i64);
+    fn step_finished(&self, result: &ExecutedStep);
+}
+
+struct NoopExecutionObserver;
+
+impl ExecutionObserver for NoopExecutionObserver {
+    fn step_started(&self, _run_step_id: i64) {}
+
+    fn step_finished(&self, _result: &ExecutedStep) {}
+}
+
+pub(crate) fn execute_plan(
+    mode: ExecutionMode,
+    steps: Vec<PlannedStep>,
+    executor: Arc<dyn AtomicActionExecutor>,
+) -> Vec<ExecutedStep> {
+    execute_plan_with_observer(mode, steps, executor, Arc::new(NoopExecutionObserver))
+}
+
+pub(crate) fn execute_plan_with_observer(
+    mode: ExecutionMode,
+    steps: Vec<PlannedStep>,
+    executor: Arc<dyn AtomicActionExecutor>,
+    observer: Arc<dyn ExecutionObserver>,
+) -> Vec<ExecutedStep> {
+    match mode {
+        ExecutionMode::Serial => steps
+            .into_iter()
+            .map(|step| execute_step(step, &executor, &observer))
+            .collect(),
+        ExecutionMode::Parallel => execute_parallel(steps, executor, observer),
+    }
+}
+
+fn execute_parallel(
+    steps: Vec<PlannedStep>,
+    executor: Arc<dyn AtomicActionExecutor>,
+    observer: Arc<dyn ExecutionObserver>,
+) -> Vec<ExecutedStep> {
+    let workers = steps
+        .into_iter()
+        .map(|step| {
+            let fallback_step = step.clone();
+            let executor = executor.clone();
+            let observer = observer.clone();
+            let worker = std::thread::spawn(move || execute_step(step, &executor, &observer));
+            (fallback_step, worker)
+        })
+        .collect::<Vec<_>>();
+
+    let mut results = workers
+        .into_iter()
+        .map(|(step, worker)| match worker.join() {
+            Ok(result) => result,
+            Err(payload) => failed_step(
+                &step,
+                format!("parallel step worker panicked: {}", panic_message(payload)),
+            ),
+        })
+        .collect::<Vec<_>>();
+    results.sort_by_key(|result| (result.sort_order, result.run_step_id));
+    results
+}
+
+fn execute_step(
+    step: PlannedStep,
+    executor: &Arc<dyn AtomicActionExecutor>,
+    observer: &Arc<dyn ExecutionObserver>,
+) -> ExecutedStep {
+    observer.step_started(step.run_step_id);
+    let result = match &step.validation_error {
+        Some(error) => failed_step(&step, error.clone()),
+        None => execute_atomic_step(&step, executor),
+    };
+    observer.step_finished(&result);
+    result
+}
+
+fn execute_atomic_step(
+    step: &PlannedStep,
+    executor: &Arc<dyn AtomicActionExecutor>,
+) -> ExecutedStep {
+    match catch_unwind(AssertUnwindSafe(|| {
+        executor.execute(&step.action_type, &step.target_id)
+    })) {
+        Ok(Ok(success)) => ExecutedStep {
+            run_step_id: step.run_step_id,
+            sort_order: step.sort_order,
+            status: match success.status {
+                AtomicStepSuccessStatus::Succeeded => StepTerminalStatus::Succeeded,
+                AtomicStepSuccessStatus::AlreadySatisfied => StepTerminalStatus::AlreadySatisfied,
+            },
+            result_code: success.result_code,
+            message: success.message,
+        },
+        Ok(Err(error)) => failed_step(step, error),
+        Err(payload) => failed_step(
+            step,
+            format!(
+                "atomic action executor panicked: {}",
+                panic_message(payload)
+            ),
+        ),
+    }
+}
+
+fn failed_step(step: &PlannedStep, message: String) -> ExecutedStep {
+    ExecutedStep {
+        run_step_id: step.run_step_id,
+        sort_order: step.sort_order,
+        status: StepTerminalStatus::Failed,
+        result_code: None,
+        message: Some(message),
+    }
+}
+
+fn panic_message(payload: Box<dyn Any + Send>) -> String {
+    if let Some(message) = payload.downcast_ref::<&str>() {
+        (*message).to_string()
+    } else if let Some(message) = payload.downcast_ref::<String>() {
+        message.clone()
+    } else {
+        "unknown panic payload".into()
+    }
+}
+
+pub(crate) fn aggregate_status(results: &[ExecutedStep]) -> RunTerminalStatus {
+    if results.is_empty() {
+        return RunTerminalStatus::Failed;
+    }
+
+    let failed_count = results
+        .iter()
+        .filter(|result| result.status == StepTerminalStatus::Failed)
+        .count();
+    match failed_count {
+        0 => RunTerminalStatus::Succeeded,
+        count if count == results.len() => RunTerminalStatus::Failed,
+        _ => RunTerminalStatus::PartiallySucceeded,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tools::action_center::{
+        atomic_actions::{AtomicActionExecutor, AtomicStepSuccess, AtomicStepSuccessStatus},
+        combinations::ExecutionMode,
+    };
+    use std::{
+        collections::HashMap,
+        sync::{
+            mpsc::{self, Sender},
+            Arc, Condvar, Mutex,
+        },
+        time::Duration,
+    };
+
+    #[derive(Clone)]
+    enum Behavior {
+        Success(AtomicStepSuccess),
+        Error(String),
+        Panic(&'static str),
+    }
+
+    struct ParallelGate {
+        open: Mutex<bool>,
+        changed: Condvar,
+    }
+
+    impl ParallelGate {
+        fn closed() -> Self {
+            Self {
+                open: Mutex::new(false),
+                changed: Condvar::new(),
+            }
+        }
+
+        fn wait(&self) {
+            let mut open = self.open.lock().unwrap();
+            while !*open {
+                open = self.changed.wait(open).unwrap();
+            }
+        }
+
+        fn open(&self) {
+            *self.open.lock().unwrap() = true;
+            self.changed.notify_all();
+        }
+    }
+
+    struct ScriptedExecutor {
+        behaviors: HashMap<String, Behavior>,
+        calls: Arc<Mutex<Vec<String>>>,
+        entered: Option<Sender<String>>,
+        gate: Option<Arc<ParallelGate>>,
+    }
+
+    impl ScriptedExecutor {
+        fn new(behaviors: impl IntoIterator<Item = (&'static str, Behavior)>) -> Self {
+            Self {
+                behaviors: behaviors
+                    .into_iter()
+                    .map(|(target_id, behavior)| (target_id.to_string(), behavior))
+                    .collect(),
+                calls: Arc::new(Mutex::new(Vec::new())),
+                entered: None,
+                gate: None,
+            }
+        }
+
+        fn with_parallel_probe(mut self, entered: Sender<String>, gate: Arc<ParallelGate>) -> Self {
+            self.entered = Some(entered);
+            self.gate = Some(gate);
+            self
+        }
+    }
+
+    impl AtomicActionExecutor for ScriptedExecutor {
+        fn execute(
+            &self,
+            _action_type: &str,
+            target_id: &str,
+        ) -> Result<AtomicStepSuccess, String> {
+            self.calls.lock().unwrap().push(target_id.to_string());
+            if let Some(entered) = &self.entered {
+                entered.send(target_id.to_string()).unwrap();
+            }
+            if let Some(gate) = &self.gate {
+                gate.wait();
+            }
+
+            match self.behaviors.get(target_id).unwrap().clone() {
+                Behavior::Success(result) => Ok(result),
+                Behavior::Error(error) => Err(error),
+                Behavior::Panic(message) => panic!("{message}"),
+            }
+        }
+    }
+
+    fn succeeded(result_code: Option<&str>, message: Option<&str>) -> Behavior {
+        Behavior::Success(AtomicStepSuccess {
+            status: AtomicStepSuccessStatus::Succeeded,
+            result_code: result_code.map(str::to_string),
+            message: message.map(str::to_string),
+        })
+    }
+
+    fn already_satisfied(message: Option<&str>) -> Behavior {
+        Behavior::Success(AtomicStepSuccess {
+            status: AtomicStepSuccessStatus::AlreadySatisfied,
+            result_code: None,
+            message: message.map(str::to_string),
+        })
+    }
+
+    fn step(run_step_id: i64, target_id: &str, sort_order: i64) -> PlannedStep {
+        PlannedStep {
+            run_step_id,
+            action_type: "test.action".into(),
+            target_id: target_id.into(),
+            sort_order,
+            validation_error: None,
+        }
+    }
+
+    fn result(run_step_id: i64, sort_order: i64, status: StepTerminalStatus) -> ExecutedStep {
+        ExecutedStep {
+            run_step_id,
+            sort_order,
+            status,
+            result_code: None,
+            message: None,
+        }
+    }
+
+    #[test]
+    fn serial_keeps_order_continues_after_failure_and_aggregates_partial_success() {
+        let executor = Arc::new(ScriptedExecutor::new([
+            ("a", succeeded(Some("created"), Some("a done"))),
+            ("b", Behavior::Error("b failed".into())),
+            ("c", already_satisfied(Some("c unchanged"))),
+        ]));
+        let calls = executor.calls.clone();
+
+        let results = execute_plan(
+            ExecutionMode::Serial,
+            vec![step(10, "a", 0), step(11, "b", 1), step(12, "c", 2)],
+            executor,
+        );
+
+        assert_eq!(*calls.lock().unwrap(), ["a", "b", "c"]);
+        assert_eq!(
+            results,
+            vec![
+                ExecutedStep {
+                    run_step_id: 10,
+                    sort_order: 0,
+                    status: StepTerminalStatus::Succeeded,
+                    result_code: Some("created".into()),
+                    message: Some("a done".into()),
+                },
+                ExecutedStep {
+                    run_step_id: 11,
+                    sort_order: 1,
+                    status: StepTerminalStatus::Failed,
+                    result_code: None,
+                    message: Some("b failed".into()),
+                },
+                ExecutedStep {
+                    run_step_id: 12,
+                    sort_order: 2,
+                    status: StepTerminalStatus::AlreadySatisfied,
+                    result_code: None,
+                    message: Some("c unchanged".into()),
+                },
+            ]
+        );
+        assert_eq!(
+            aggregate_status(&results),
+            RunTerminalStatus::PartiallySucceeded
+        );
+    }
+
+    #[test]
+    fn parallel_workers_overlap_but_results_are_sorted() {
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let gate = Arc::new(ParallelGate::closed());
+        let executor = Arc::new(
+            ScriptedExecutor::new([
+                ("a", succeeded(None, None)),
+                ("b", succeeded(None, None)),
+                ("c", succeeded(None, None)),
+            ])
+            .with_parallel_probe(entered_tx, gate.clone()),
+        );
+
+        let execution = std::thread::spawn(move || {
+            execute_plan(
+                ExecutionMode::Parallel,
+                vec![step(12, "c", 2), step(10, "a", 0), step(11, "b", 1)],
+                executor,
+            )
+        });
+
+        let entered = (0..3)
+            .map(|_| entered_rx.recv_timeout(Duration::from_secs(5)))
+            .collect::<Result<Vec<_>, _>>();
+        gate.open();
+        let results = execution.join().unwrap();
+
+        assert_eq!(entered.unwrap().len(), 3);
+        assert_eq!(
+            results
+                .iter()
+                .map(|item| item.sort_order)
+                .collect::<Vec<_>>(),
+            vec![0, 1, 2]
+        );
+    }
+
+    #[test]
+    fn parallel_executor_panic_fails_only_that_step() {
+        let executor = Arc::new(ScriptedExecutor::new([
+            ("ok", succeeded(None, None)),
+            ("panic", Behavior::Panic("worker exploded")),
+        ]));
+
+        let results = execute_plan(
+            ExecutionMode::Parallel,
+            vec![step(1, "ok", 0), step(2, "panic", 1)],
+            executor,
+        );
+
+        assert_eq!(results[0].status, StepTerminalStatus::Succeeded);
+        assert_eq!(results[1].status, StepTerminalStatus::Failed);
+        assert!(results[1]
+            .message
+            .as_deref()
+            .unwrap()
+            .contains("worker exploded"));
+    }
+
+    struct PanicOnStartObserver {
+        panic_run_step_id: i64,
+    }
+
+    impl ExecutionObserver for PanicOnStartObserver {
+        fn step_started(&self, run_step_id: i64) {
+            if run_step_id == self.panic_run_step_id {
+                panic!("observer exploded");
+            }
+        }
+
+        fn step_finished(&self, _result: &ExecutedStep) {}
+    }
+
+    #[test]
+    fn parallel_worker_join_panic_fails_only_that_step() {
+        let executor = Arc::new(ScriptedExecutor::new([
+            ("skipped", succeeded(None, None)),
+            ("ok", succeeded(None, None)),
+        ]));
+
+        let results = execute_plan_with_observer(
+            ExecutionMode::Parallel,
+            vec![step(1, "skipped", 0), step(2, "ok", 1)],
+            executor,
+            Arc::new(PanicOnStartObserver {
+                panic_run_step_id: 1,
+            }),
+        );
+
+        assert_eq!(results[0].status, StepTerminalStatus::Failed);
+        assert!(results[0]
+            .message
+            .as_deref()
+            .unwrap()
+            .contains("observer exploded"));
+        assert_eq!(results[1].status, StepTerminalStatus::Succeeded);
+    }
+
+    #[test]
+    fn validation_error_skips_executor_and_other_steps_continue() {
+        let executor = Arc::new(ScriptedExecutor::new([("ok", succeeded(None, None))]));
+        let calls = executor.calls.clone();
+        let mut invalid = step(1, "invalid", 0);
+        invalid.validation_error = Some("target disappeared".into());
+
+        let results = execute_plan(
+            ExecutionMode::Serial,
+            vec![invalid, step(2, "ok", 1)],
+            executor,
+        );
+
+        assert_eq!(*calls.lock().unwrap(), ["ok"]);
+        assert_eq!(results[0].status, StepTerminalStatus::Failed);
+        assert_eq!(results[0].message.as_deref(), Some("target disappeared"));
+        assert_eq!(results[1].status, StepTerminalStatus::Succeeded);
+    }
+
+    #[test]
+    fn aggregate_status_covers_success_partial_failure_and_empty_plan() {
+        assert_eq!(aggregate_status(&[]), RunTerminalStatus::Failed);
+        assert_eq!(
+            aggregate_status(&[
+                result(1, 0, StepTerminalStatus::Succeeded),
+                result(2, 1, StepTerminalStatus::AlreadySatisfied),
+            ]),
+            RunTerminalStatus::Succeeded
+        );
+        assert_eq!(
+            aggregate_status(&[
+                result(1, 0, StepTerminalStatus::Succeeded),
+                result(2, 1, StepTerminalStatus::Failed),
+            ]),
+            RunTerminalStatus::PartiallySucceeded
+        );
+        assert_eq!(
+            aggregate_status(&[
+                result(1, 0, StepTerminalStatus::Failed),
+                result(2, 1, StepTerminalStatus::Failed),
+            ]),
+            RunTerminalStatus::Failed
+        );
+    }
+
+    #[derive(Clone, Debug, Eq, PartialEq)]
+    enum ObserverEvent {
+        Started(i64),
+        Finished(i64, StepTerminalStatus),
+    }
+
+    struct RecordingObserver {
+        events: Arc<Mutex<Vec<ObserverEvent>>>,
+    }
+
+    impl ExecutionObserver for RecordingObserver {
+        fn step_started(&self, run_step_id: i64) {
+            self.events
+                .lock()
+                .unwrap()
+                .push(ObserverEvent::Started(run_step_id));
+        }
+
+        fn step_finished(&self, result: &ExecutedStep) {
+            self.events
+                .lock()
+                .unwrap()
+                .push(ObserverEvent::Finished(result.run_step_id, result.status));
+        }
+    }
+
+    #[test]
+    fn serial_observer_records_started_then_finished_for_every_step() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let observer = Arc::new(RecordingObserver {
+            events: events.clone(),
+        });
+        let executor = Arc::new(ScriptedExecutor::new([
+            ("a", succeeded(None, None)),
+            ("b", Behavior::Error("failed".into())),
+            ("c", already_satisfied(None)),
+        ]));
+
+        execute_plan_with_observer(
+            ExecutionMode::Serial,
+            vec![step(1, "a", 0), step(2, "b", 1), step(3, "c", 2)],
+            executor,
+            observer,
+        );
+
+        assert_eq!(
+            *events.lock().unwrap(),
+            vec![
+                ObserverEvent::Started(1),
+                ObserverEvent::Finished(1, StepTerminalStatus::Succeeded),
+                ObserverEvent::Started(2),
+                ObserverEvent::Finished(2, StepTerminalStatus::Failed),
+                ObserverEvent::Started(3),
+                ObserverEvent::Finished(3, StepTerminalStatus::AlreadySatisfied),
+            ]
+        );
+    }
+}
