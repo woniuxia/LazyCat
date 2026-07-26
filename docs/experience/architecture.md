@@ -38,7 +38,7 @@
 - `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml contract_tests -- --nocapture`
 - `pnpm --filter @lazycat/desktop test -- src/composables/useActionDispatchIntent.test.ts`
 
-**使用次数**：1
+**使用次数**：1（2026-07-26）
 
 ## Tauri 窗口必须同步声明 capability
 
