@@ -33,3 +33,12 @@ describe("toolCatalog release package", () => {
     expect(isRealToolId("release-package")).toBe(true);
   });
 });
+
+describe("toolCatalog action center", () => {
+  it("registers the action center as a real tool", () => {
+    expect(getAllTools()).toContainEqual(
+      expect.objectContaining({ id: "action-center", name: "动作中心" }),
+    );
+    expect(isRealToolId("action-center")).toBe(true);
+  });
+});
