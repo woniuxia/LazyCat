@@ -81,7 +81,7 @@ impl AtomicActionExecutor for RegisteredAtomicActionExecutor {
 }
 
 type BrowserActionTarget = (String, String, bool, Option<String>);
-type BrowserTargetLoader = fn() -> Result<Vec<BrowserActionTarget>, String>;
+type BrowserTargetLoader = fn(&Connection) -> Result<Vec<BrowserActionTarget>, String>;
 
 fn composable_definition(
     action_type: &str,
@@ -128,7 +128,7 @@ pub(super) fn list_targets_with_conn(
                 .collect()
         }),
         BROWSER_PROFILE_LAUNCH => {
-            crate::tools::browser_profiles::list_action_targets().map(|rows| {
+            crate::tools::browser_profiles::list_action_targets_with_conn(conn).map(|rows| {
                 rows.into_iter()
                     .map(|(id, label, available, reason)| {
                         target_option(id, label, available, reason)
@@ -148,13 +148,6 @@ pub(super) fn list_targets_with_conn(
 
 pub(crate) fn list_targets(action_type: &str) -> Result<Vec<ActionTargetOption>, String> {
     composable_definition(action_type)?;
-    if action_type == BROWSER_PROFILE_LAUNCH {
-        return crate::tools::browser_profiles::list_action_targets().map(|rows| {
-            rows.into_iter()
-                .map(|(id, label, available, reason)| target_option(id, label, available, reason))
-                .collect()
-        });
-    }
     let conn = crate::tools::helpers::db_conn()?;
     list_targets_with_conn(&conn, action_type)
 }
@@ -175,7 +168,7 @@ fn resolve_target_with_conn(
         }
         BROWSER_PROFILE_LAUNCH => {
             let expected = crate::tools::browser_profiles::decode_action_target(target_id)?;
-            for (id, label, available, unavailable_reason) in load_browser_targets()? {
+            for (id, label, available, unavailable_reason) in load_browser_targets(conn)? {
                 let target = target_option(id, label, available, unavailable_reason);
                 if crate::tools::browser_profiles::decode_action_target(&target.id)? == expected {
                     return Ok(Some(target));
@@ -201,7 +194,7 @@ pub(super) fn validate_target_with_conn(
         conn,
         action_type,
         target_id,
-        crate::tools::browser_profiles::list_action_targets,
+        crate::tools::browser_profiles::list_action_targets_with_conn,
     )
 }
 
@@ -231,7 +224,7 @@ pub(super) fn snapshot_target_with_conn(
         conn,
         action_type,
         target_id,
-        crate::tools::browser_profiles::list_action_targets,
+        crate::tools::browser_profiles::list_action_targets_with_conn,
     )
 }
 
@@ -449,6 +442,7 @@ mod tests {
     #[test]
     fn unavailable_browser_target_is_rejected_and_snapshotted_with_identity() {
         fn unavailable_browser_targets(
+            _conn: &Connection,
         ) -> Result<Vec<(String, String, bool, Option<String>)>, String> {
             Ok(vec![(
                 crate::tools::browser_profiles::encode_action_target("edge", "Profile 1")?,
@@ -485,6 +479,44 @@ mod tests {
                 validation_error: Some("未找到 msedge.exe，无法启动该浏览器身份".into()),
             }
         );
+    }
+
+    #[test]
+    fn browser_target_validation_passes_the_supplied_connection_to_the_loader() {
+        fn browser_targets_from_connection(
+            conn: &Connection,
+        ) -> Result<Vec<(String, String, bool, Option<String>)>, String> {
+            let marker: String = conn
+                .query_row("SELECT value FROM browser_validation_marker", [], |row| {
+                    row.get(0)
+                })
+                .map_err(|error| format!("read browser validation marker failed: {error}"))?;
+            Ok(vec![(
+                crate::tools::browser_profiles::encode_action_target("edge", "Profile 1")?,
+                marker,
+                true,
+                None,
+            )])
+        }
+
+        let conn = test_conn();
+        conn.execute_batch(
+            "CREATE TABLE browser_validation_marker(value TEXT NOT NULL);
+             INSERT INTO browser_validation_marker(value) VALUES ('事务连接');",
+        )
+        .unwrap();
+        let target_id =
+            crate::tools::browser_profiles::encode_action_target("edge", "Profile 1").unwrap();
+
+        let target = validate_target_with_conn_using_browser_targets(
+            &conn,
+            BROWSER_PROFILE_LAUNCH,
+            &target_id,
+            browser_targets_from_connection,
+        )
+        .unwrap();
+
+        assert_eq!(target.label, "事务连接");
     }
 
     #[test]

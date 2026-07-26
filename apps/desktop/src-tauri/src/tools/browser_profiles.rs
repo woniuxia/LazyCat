@@ -479,12 +479,9 @@ where
     })
 }
 
-fn list_profiles() -> Result<Value, String> {
+fn list_profiles_with_conn(conn: &rusqlite::Connection) -> Result<Value, String> {
     let mut warnings = Vec::new();
-    let config = {
-        let conn = super::helpers::db_conn()?;
-        load_config_from_settings(&conn, &mut warnings)
-    };
+    let config = load_config_from_settings(conn, &mut warnings);
     let (edge_path, probed_paths) = find_edge_path(config.edge_path.as_deref());
     let (chrome_path, probed_chrome_paths) = find_chrome_path(config.chrome_path.as_deref());
     let edge_user_data_dir = edge_user_data_dir();
@@ -528,6 +525,11 @@ fn list_profiles() -> Result<Value, String> {
         "warnings": warnings,
         "profiles": profiles,
     }))
+}
+
+fn list_profiles() -> Result<Value, String> {
+    let conn = super::helpers::db_conn()?;
+    list_profiles_with_conn(&conn)
 }
 
 pub(crate) fn encode_action_target(browser: &str, profile_dir: &str) -> Result<String, String> {
@@ -587,8 +589,10 @@ fn build_action_targets(
         .collect()
 }
 
-pub(crate) fn list_action_targets() -> Result<Vec<(String, String, bool, Option<String>)>, String> {
-    let payload = list_profiles()?;
+pub(crate) fn list_action_targets_with_conn(
+    conn: &rusqlite::Connection,
+) -> Result<Vec<(String, String, bool, Option<String>)>, String> {
+    let payload = list_profiles_with_conn(conn)?;
     let edge_available = payload
         .get("edgeFound")
         .and_then(Value::as_bool)
