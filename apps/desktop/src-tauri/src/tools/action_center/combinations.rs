@@ -374,9 +374,6 @@ type ThreadHook = (ThreadId, Box<dyn FnOnce() + Send>);
 static DETAIL_READ_HOOK: Mutex<Option<ThreadHook>> = Mutex::new(None);
 
 #[cfg(test)]
-static DELETE_BEFORE_WRITE_HOOK: Mutex<Option<ThreadHook>> = Mutex::new(None);
-
-#[cfg(test)]
 static SAVE_BEFORE_COMMIT_HOOK: Mutex<Option<ThreadHook>> = Mutex::new(None);
 
 #[cfg(test)]
@@ -423,8 +420,6 @@ fn combination_step_from_joined_row(
 }
 
 pub(crate) fn delete_with_conn(conn: &Connection, id: i64) -> Result<(), String> {
-    #[cfg(test)]
-    run_thread_hook(&DELETE_BEFORE_WRITE_HOOK);
     let changed = conn
         .execute(
             "DELETE FROM action_combinations
@@ -464,8 +459,9 @@ mod tests {
         ffi::OsString,
         fs,
         path::{Path, PathBuf},
-        sync::mpsc,
+        sync::mpsc::{self, SyncSender},
         thread,
+        time::Duration,
     };
     use uuid::Uuid;
 
@@ -523,6 +519,34 @@ mod tests {
         let mut value = OsString::from(path.as_os_str());
         value.push(suffix);
         PathBuf::from(value)
+    }
+
+    static DELETE_BUSY_TEST_LOCK: Mutex<()> = Mutex::new(());
+    static DELETE_BUSY_NOTIFIER: Mutex<Option<SyncSender<()>>> = Mutex::new(None);
+
+    struct DeleteBusyNotifierGuard;
+
+    impl DeleteBusyNotifierGuard {
+        fn install(notifier: SyncSender<()>) -> Self {
+            let mut slot = DELETE_BUSY_NOTIFIER.lock().unwrap();
+            assert!(slot.is_none(), "delete busy notifier already installed");
+            *slot = Some(notifier);
+            Self
+        }
+    }
+
+    impl Drop for DeleteBusyNotifierGuard {
+        fn drop(&mut self) {
+            *DELETE_BUSY_NOTIFIER.lock().unwrap() = None;
+        }
+    }
+
+    fn notify_delete_busy(_: i32) -> bool {
+        if let Some(notifier) = DELETE_BUSY_NOTIFIER.lock().unwrap().as_ref() {
+            let _ = notifier.try_send(());
+        }
+        thread::yield_now();
+        true
     }
 
     fn test_conn() -> Connection {
@@ -904,6 +928,7 @@ mod tests {
 
     #[test]
     fn concurrent_active_run_commit_prevents_delete() {
+        let _serial_guard = DELETE_BUSY_TEST_LOCK.lock().unwrap();
         let (database, mut setup_conn) = TempDatabase::new();
         let id = save(
             &mut setup_conn,
@@ -917,30 +942,25 @@ mod tests {
         .unwrap();
         drop(setup_conn);
 
-        let run_conn = database.connect();
+        let mut blocker_conn = database.connect();
         let delete_conn = database.connect();
-        let (delete_start_tx, delete_start_rx) = mpsc::sync_channel(0);
-        let (before_delete_tx, before_delete_rx) = mpsc::sync_channel(0);
-        let (continue_delete_tx, continue_delete_rx) = mpsc::sync_channel(0);
+        delete_conn.busy_handler(Some(notify_delete_busy)).unwrap();
+        let blocker_tx = blocker_conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .unwrap();
+        let (busy_tx, busy_rx) = mpsc::sync_channel(1);
+        let _busy_notifier = DeleteBusyNotifierGuard::install(busy_tx);
         let (delete_result_tx, delete_result_rx) = mpsc::sync_channel(0);
         let delete_thread = thread::spawn(move || {
-            delete_start_rx.recv().unwrap();
             delete_result_tx
                 .send(delete_with_conn(&delete_conn, id))
                 .unwrap();
         });
-        install_thread_hook(
-            &DELETE_BEFORE_WRITE_HOOK,
-            delete_thread.thread().id(),
-            move || {
-                before_delete_tx.send(()).unwrap();
-                continue_delete_rx.recv().unwrap();
-            },
-        );
-        delete_start_tx.send(()).unwrap();
-        before_delete_rx.recv().unwrap();
+        busy_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("delete did not reach the blocker writer lock");
 
-        run_conn
+        blocker_tx
             .execute(
                 "INSERT INTO action_combination_runs
                  (id, combination_id, combination_name, execution_mode, status)
@@ -948,8 +968,11 @@ mod tests {
                 [id],
             )
             .unwrap();
-        continue_delete_tx.send(()).unwrap();
-        let delete_error = delete_result_rx.recv().unwrap().unwrap_err();
+        blocker_tx.commit().unwrap();
+        let delete_error = delete_result_rx
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap()
+            .unwrap_err();
         delete_thread.join().unwrap();
 
         assert!(delete_error.contains("active run"));
