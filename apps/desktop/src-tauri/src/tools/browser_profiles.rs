@@ -48,7 +48,7 @@ struct DiscoveredProfile {
     edge_display_name: String,
 }
 
-#[derive(Debug, Clone, serde::Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 struct BrowserProfileItem {
     browser: String,
@@ -517,6 +517,84 @@ fn list_profiles() -> Result<Value, String> {
     }))
 }
 
+pub(crate) fn encode_action_target(browser: &str, profile_dir: &str) -> Result<String, String> {
+    if !matches!(browser, BROWSER_EDGE | BROWSER_CHROME) {
+        return Err("浏览器身份目标仅支持 Edge 和 Chrome".into());
+    }
+    if profile_dir.trim().is_empty() {
+        return Err("浏览器身份 Profile 目录不能为空".into());
+    }
+    serde_json::to_string(&(browser, profile_dir))
+        .map_err(|error| format!("编码浏览器身份目标失败: {error}"))
+}
+
+pub(crate) fn decode_action_target(target_id: &str) -> Result<(String, String), String> {
+    let (browser, profile_dir): (String, String) = serde_json::from_str(target_id)
+        .map_err(|error| format!("浏览器身份目标 ID 无效: {error}"))?;
+    if !matches!(browser.as_str(), BROWSER_EDGE | BROWSER_CHROME) {
+        return Err("浏览器身份目标仅支持 Edge 和 Chrome".into());
+    }
+    if profile_dir.trim().is_empty() {
+        return Err("浏览器身份 Profile 目录不能为空".into());
+    }
+    Ok((browser, profile_dir))
+}
+
+fn build_action_targets(
+    profiles: Vec<BrowserProfileItem>,
+    edge_available: bool,
+    chrome_available: bool,
+) -> Result<Vec<(String, String, bool, Option<String>)>, String> {
+    profiles
+        .into_iter()
+        .map(|profile| {
+            let available = match profile.browser.as_str() {
+                BROWSER_EDGE => edge_available,
+                BROWSER_CHROME => chrome_available,
+                _ => false,
+            };
+            let unavailable_reason = (!available).then(|| {
+                format!(
+                    "未找到 {}，无法启动该浏览器身份",
+                    browser_executable_name(&profile.browser)
+                )
+            });
+            let browser_label = if profile.browser == BROWSER_CHROME {
+                "Chrome"
+            } else {
+                "Edge"
+            };
+            Ok((
+                encode_action_target(&profile.browser, &profile.profile_dir)?,
+                format!("{browser_label} · {}", profile_display_name(&profile)),
+                available,
+                unavailable_reason,
+            ))
+        })
+        .collect()
+}
+
+pub(crate) fn list_action_targets(
+) -> Result<Vec<(String, String, bool, Option<String>)>, String> {
+    let payload = list_profiles()?;
+    let edge_available = payload
+        .get("edgeFound")
+        .and_then(Value::as_bool)
+        .ok_or_else(|| "浏览器身份列表缺少 edgeFound".to_string())?;
+    let chrome_available = payload
+        .get("chromeFound")
+        .and_then(Value::as_bool)
+        .ok_or_else(|| "浏览器身份列表缺少 chromeFound".to_string())?;
+    let profiles = serde_json::from_value(
+        payload
+            .get("profiles")
+            .cloned()
+            .ok_or_else(|| "浏览器身份列表缺少 profiles".to_string())?,
+    )
+    .map_err(|error| format!("读取浏览器身份动作目标失败: {error}"))?;
+    build_action_targets(profiles, edge_available, chrome_available)
+}
+
 fn save_alias(payload: &Value) -> Result<Value, String> {
     let browser = require_supported_browser(payload)?;
     let profile_dir = require_profile_dir(payload)?;
@@ -734,13 +812,17 @@ fn compare_optional_desc(left: &Option<String>, right: &Option<String>) -> Order
 }
 
 fn display_name_for_sort(item: &BrowserProfileItem) -> String {
+    profile_display_name(item).to_lowercase()
+}
+
+fn profile_display_name(item: &BrowserProfileItem) -> &str {
     for candidate in [&item.alias, &item.edge_display_name, &item.profile_dir] {
         let trimmed = candidate.trim();
         if !trimmed.is_empty() {
-            return trimmed.to_lowercase();
+            return trimmed;
         }
     }
-    String::new()
+    ""
 }
 
 fn compare_profile_dir_name(left: &String, right: &String) -> Ordering {
@@ -783,6 +865,25 @@ mod tests {
             launch_count,
             last_launched_at: last_launched_at.map(str::to_string),
         }
+    }
+
+    #[test]
+    fn unavailable_browser_profiles_remain_action_targets_with_a_reason() {
+        let targets = build_action_targets(
+            vec![item("Profile 1", "工作", "", false, 0, None)],
+            false,
+            true,
+        )
+        .unwrap();
+
+        assert_eq!(targets.len(), 1);
+        assert_eq!(
+            decode_action_target(&targets[0].0).unwrap(),
+            ("edge".into(), "Profile 1".into())
+        );
+        assert_eq!(targets[0].1, "Edge · 工作");
+        assert!(!targets[0].2);
+        assert!(targets[0].3.as_deref().unwrap().contains("msedge.exe"));
     }
 
     #[test]

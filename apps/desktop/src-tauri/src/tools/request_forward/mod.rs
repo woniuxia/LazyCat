@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+use rusqlite::{Connection, OptionalExtension};
 use serde_json::{json, Value};
 
 use super::helpers::db_conn;
@@ -65,6 +66,34 @@ pub fn initialize_manager() -> Result<(), String> {
     // 工具分发当前是同步全局入口；进程级唯一 runtime 避免每个 action 都耦合 AppHandle。
     let _ = runtime::global_manager();
     Ok(())
+}
+
+pub(crate) fn list_action_targets_with_conn(
+    conn: &Connection,
+) -> Result<Vec<(String, String)>, String> {
+    let mut stmt = conn
+        .prepare("SELECT id, name FROM request_forward_rules ORDER BY id ASC")
+        .map_err(|error| format!("查询请求转发动作目标失败: {error}"))?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((row.get::<_, i64>(0)?.to_string(), row.get(1)?))
+        })
+        .map_err(|error| format!("查询请求转发动作目标失败: {error}"))?;
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|error| format!("读取请求转发动作目标失败: {error}"))
+}
+
+pub(crate) fn load_action_target_with_conn(
+    conn: &Connection,
+    id: i64,
+) -> Result<Option<String>, String> {
+    conn.query_row(
+        "SELECT name FROM request_forward_rules WHERE id = ?1",
+        [id],
+        |row| row.get(0),
+    )
+    .optional()
+    .map_err(|error| format!("读取请求转发动作目标失败: {error}"))
 }
 
 pub fn restore_auto_start_rules() -> Result<Vec<RestoreResult>, String> {

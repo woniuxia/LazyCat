@@ -1,5 +1,5 @@
 use chrono::Local;
-use rusqlite::params;
+use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{json, Value};
 use std::fs;
 use std::io;
@@ -49,6 +49,37 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         "backup_delete" => hosts_backup_delete(payload),
         _ => Err(format!("unsupported hosts action: {action}")),
     }
+}
+
+pub(crate) fn list_action_targets_with_conn(
+    conn: &Connection,
+) -> Result<Vec<(String, String)>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, name FROM hosts_profiles
+             ORDER BY enabled DESC, sort_order ASC, id ASC",
+        )
+        .map_err(|error| format!("查询 Hosts 动作目标失败: {error}"))?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((row.get::<_, i64>(0)?.to_string(), row.get(1)?))
+        })
+        .map_err(|error| format!("查询 Hosts 动作目标失败: {error}"))?;
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|error| format!("读取 Hosts 动作目标失败: {error}"))
+}
+
+pub(crate) fn load_action_target_with_conn(
+    conn: &Connection,
+    id: i64,
+) -> Result<Option<(String, String)>, String> {
+    conn.query_row(
+        "SELECT name, content FROM hosts_profiles WHERE id = ?1",
+        [id],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )
+    .optional()
+    .map_err(|error| format!("读取 Hosts 动作目标失败: {error}"))
 }
 
 fn hosts_save(payload: &Value) -> Result<Value, String> {

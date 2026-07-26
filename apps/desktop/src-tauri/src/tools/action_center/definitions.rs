@@ -2,6 +2,9 @@ use rusqlite::Connection;
 use serde::Serialize;
 
 pub(crate) const RELEASE_PACKAGE_RUN: &str = "release_package.run";
+pub(crate) const HOSTS_ACTIVATE: &str = "hosts.activate";
+pub(crate) const BROWSER_PROFILE_LAUNCH: &str = "browser_profile.launch";
+pub(crate) const REQUEST_FORWARD_START: &str = "request_forward.start";
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -13,6 +16,7 @@ pub(crate) struct ActionDefinition {
     pub target_tool_id: &'static str,
     pub execution_mode: &'static str,
     pub completion_policy: &'static str,
+    pub supports_combination: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -25,9 +29,8 @@ pub(crate) struct ActionTargetOption {
     pub unavailable_reason: Option<String>,
 }
 
-pub(crate) fn definition(action_type: &str) -> Option<ActionDefinition> {
-    match action_type {
-        RELEASE_PACKAGE_RUN => Some(ActionDefinition {
+const ACTION_DEFINITIONS: &[ActionDefinition] = &[
+    ActionDefinition {
             action_type: RELEASE_PACKAGE_RUN,
             label: "开始打包",
             trigger_types: &["todo_item"],
@@ -35,20 +38,71 @@ pub(crate) fn definition(action_type: &str) -> Option<ActionDefinition> {
             target_tool_id: "release-package",
             execution_mode: "open_and_confirm",
             completion_policy: "on_succeeded",
-        }),
-        _ => None,
-    }
+            supports_combination: false,
+    },
+    ActionDefinition {
+        action_type: HOSTS_ACTIVATE,
+        label: "切换 Hosts",
+        trigger_types: &[],
+        target_kind: "hosts_profile",
+        target_tool_id: "hosts",
+        execution_mode: "direct",
+        completion_policy: "on_succeeded",
+        supports_combination: true,
+    },
+    ActionDefinition {
+        action_type: BROWSER_PROFILE_LAUNCH,
+        label: "启动浏览器身份",
+        trigger_types: &[],
+        target_kind: "browser_profile",
+        target_tool_id: "browser-profiles",
+        execution_mode: "direct",
+        completion_policy: "on_succeeded",
+        supports_combination: true,
+    },
+    ActionDefinition {
+        action_type: REQUEST_FORWARD_START,
+        label: "启动请求转发",
+        trigger_types: &[],
+        target_kind: "request_forward_rule",
+        target_tool_id: "request-forward",
+        execution_mode: "direct",
+        completion_policy: "on_succeeded",
+        supports_combination: true,
+    },
+];
+
+pub(crate) fn definition(action_type: &str) -> Option<ActionDefinition> {
+    ACTION_DEFINITIONS
+        .iter()
+        .find(|item| item.action_type == action_type)
+        .cloned()
 }
 
 pub(crate) fn all_definitions() -> Vec<ActionDefinition> {
-    vec![definition(RELEASE_PACKAGE_RUN).expect("registered release package action")]
+    ACTION_DEFINITIONS
+        .iter()
+        .filter(|item| !item.trigger_types.is_empty())
+        .cloned()
+        .collect()
+}
+
+pub(crate) fn combination_definitions() -> Vec<ActionDefinition> {
+    ACTION_DEFINITIONS
+        .iter()
+        .filter(|item| item.supports_combination)
+        .cloned()
+        .collect()
 }
 
 pub(crate) fn list_targets(
     conn: &Connection,
     action_type: &str,
 ) -> Result<Vec<ActionTargetOption>, String> {
-    if definition(action_type).is_none() {
+    if !all_definitions()
+        .iter()
+        .any(|definition| definition.action_type == action_type)
+    {
         return Err(format!("动作类型不存在: {action_type}"));
     }
     match action_type {
