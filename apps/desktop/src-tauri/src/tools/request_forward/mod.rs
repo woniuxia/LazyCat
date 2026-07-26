@@ -106,20 +106,7 @@ fn start_action_target_with_conn_and_manager(
         .ok()
         .filter(|id| *id > 0)
         .ok_or_else(|| format!("请求转发动作目标 ID 无效: {target_id}"))?;
-    match manager.status(id).state {
-        runtime::RuntimeState::Running => {
-            repository::get_with_conn(conn, id)?;
-            Ok(false)
-        }
-        runtime::RuntimeState::Stopped | runtime::RuntimeState::Failed => {
-            manager.start_loaded(id, || repository::get_with_conn(conn, id))?;
-            Ok(true)
-        }
-        state => Err(format!(
-            "请求转发规则当前状态不允许启动: {}",
-            state.as_str()
-        )),
-    }
+    manager.start_loaded_if_needed(id, || repository::get_with_conn(conn, id))
 }
 
 pub(crate) fn start_action_target(target_id: &str) -> Result<bool, String> {

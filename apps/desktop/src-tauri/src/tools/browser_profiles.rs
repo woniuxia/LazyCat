@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::{Mutex, OnceLock};
 
 use rusqlite::params;
 use serde_json::json;
@@ -11,6 +12,8 @@ use serde_json::{Map, Value};
 const CONFIG_KEY: &str = "browser_profiles_config_v1";
 const BROWSER_EDGE: &str = "edge";
 const BROWSER_CHROME: &str = "chrome";
+
+static CONFIG_MUTATION_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -454,16 +457,26 @@ fn save_config_to_settings(
     Ok(())
 }
 
+fn with_config_mutation_lock<T>(mutation: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+    let lock = CONFIG_MUTATION_LOCK.get_or_init(|| Mutex::new(()));
+    let _guard = lock
+        .lock()
+        .map_err(|_| "浏览器身份配置写入锁已损坏".to_string())?;
+    mutation()
+}
+
 fn mutate_config<F>(f: F) -> Result<BrowserProfilesConfig, String>
 where
     F: FnOnce(&mut BrowserProfilesConfig) -> Result<(), String>,
 {
-    let conn = super::helpers::db_conn()?;
-    let mut warnings = Vec::new();
-    let mut config = load_config_from_settings(&conn, &mut warnings);
-    f(&mut config)?;
-    save_config_to_settings(&conn, &config)?;
-    Ok(config)
+    with_config_mutation_lock(|| {
+        let conn = super::helpers::db_conn()?;
+        let mut warnings = Vec::new();
+        let mut config = load_config_from_settings(&conn, &mut warnings);
+        f(&mut config)?;
+        save_config_to_settings(&conn, &config)?;
+        Ok(config)
+    })
 }
 
 fn list_profiles() -> Result<Value, String> {
@@ -878,6 +891,11 @@ fn profile_dir_sort_key(name: &str) -> (u8, u64) {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
+    use std::sync::{mpsc, Arc};
+    use std::thread;
+    use std::time::Duration;
+
     use super::*;
     use serde_json::json;
 
@@ -917,6 +935,69 @@ mod tests {
         assert_eq!(targets[0].1, "Edge · 工作");
         assert!(!targets[0].2);
         assert!(targets[0].3.as_deref().unwrap().contains("msedge.exe"));
+    }
+
+    #[test]
+    fn config_mutation_lock_allows_only_one_concurrent_critical_section() {
+        let active = Arc::new(AtomicUsize::new(0));
+        let max_active = Arc::new(AtomicUsize::new(0));
+        let (first_entered_tx, first_entered_rx) = mpsc::channel();
+        let (release_first_tx, release_first_rx) = mpsc::channel();
+
+        let first_active = active.clone();
+        let first_max_active = max_active.clone();
+        let first = thread::spawn(move || {
+            with_config_mutation_lock(|| {
+                let current = first_active.fetch_add(1, AtomicOrdering::SeqCst) + 1;
+                first_max_active.fetch_max(current, AtomicOrdering::SeqCst);
+                first_entered_tx.send(()).expect("signal first entry");
+                release_first_rx.recv().expect("release first entry");
+                first_active.fetch_sub(1, AtomicOrdering::SeqCst);
+                Ok(())
+            })
+        });
+        first_entered_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("first mutation enters critical section");
+
+        let second_active = active.clone();
+        let second_max_active = max_active.clone();
+        let (second_attempted_tx, second_attempted_rx) = mpsc::channel();
+        let (second_entered_tx, second_entered_rx) = mpsc::channel();
+        let second = thread::spawn(move || {
+            second_attempted_tx
+                .send(())
+                .expect("signal second mutation attempt");
+            with_config_mutation_lock(|| {
+                let current = second_active.fetch_add(1, AtomicOrdering::SeqCst) + 1;
+                second_max_active.fetch_max(current, AtomicOrdering::SeqCst);
+                second_entered_tx.send(()).expect("signal second entry");
+                second_active.fetch_sub(1, AtomicOrdering::SeqCst);
+                Ok(())
+            })
+        });
+        second_attempted_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("second mutation attempts critical section");
+        assert!(matches!(
+            second_entered_rx.recv_timeout(Duration::from_millis(100)),
+            Err(mpsc::RecvTimeoutError::Timeout)
+        ));
+
+        release_first_tx.send(()).expect("release first mutation");
+        first
+            .join()
+            .expect("join first mutation")
+            .expect("first mutation succeeds");
+        second_entered_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("second mutation enters after first exits");
+        second
+            .join()
+            .expect("join second mutation")
+            .expect("second mutation succeeds");
+
+        assert_eq!(max_active.load(AtomicOrdering::SeqCst), 1);
     }
 
     #[test]

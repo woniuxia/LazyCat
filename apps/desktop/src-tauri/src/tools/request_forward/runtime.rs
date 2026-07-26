@@ -247,6 +247,24 @@ impl RuntimeManager {
         })
     }
 
+    pub(crate) fn start_loaded_if_needed(
+        &self,
+        rule_id: i64,
+        load_rule: impl FnOnce() -> Result<ForwardRule, String>,
+    ) -> Result<bool, String> {
+        self.with_rule_lock(rule_id, || {
+            let rule = load_rule()?;
+            if rule.id != rule_id {
+                return Err("转发规则 ID 不匹配".into());
+            }
+            if self.status(rule_id).state == RuntimeState::Running {
+                return Ok(false);
+            }
+            self.start_locked(&rule)?;
+            Ok(true)
+        })
+    }
+
     pub(crate) fn stop(&self, rule: &ForwardRule) -> Result<RuntimeStatus, String> {
         self.with_rule_lock(rule.id, || self.stop_locked(rule))
     }
@@ -1030,7 +1048,7 @@ mod tests {
     use std::collections::{HashMap, HashSet};
     use std::net::{TcpListener, UdpSocket};
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::{mpsc, Arc, Mutex};
+    use std::sync::{mpsc, Arc, Barrier, Mutex};
     use std::thread;
     use std::time::Duration;
 
@@ -1868,6 +1886,57 @@ mod tests {
         assert!(second.join().expect("join second start").is_ok());
         assert_eq!(runner.start_calls.load(Ordering::SeqCst), 1);
         assert_eq!(manager.status(1).state, RuntimeState::Running);
+    }
+
+    #[test]
+    fn concurrent_start_loaded_if_needed_starts_once_and_reports_one_start() {
+        let runner = Arc::new(FakeRunner::default());
+        let manager = Arc::new(RuntimeManager::new(runner.clone()));
+        let barrier = Arc::new(Barrier::new(3));
+        let (entered_start, release_start) = runner.block_next_start();
+        let (result_tx, result_rx) = mpsc::channel();
+        let mut threads = Vec::new();
+
+        for _ in 0..2 {
+            let manager = manager.clone();
+            let barrier = barrier.clone();
+            let result_tx = result_tx.clone();
+            threads.push(thread::spawn(move || {
+                barrier.wait();
+                let result = manager.start_loaded_if_needed(1, || Ok(rule(1)));
+                result_tx.send(result).expect("send start result");
+            }));
+        }
+        drop(result_tx);
+
+        barrier.wait();
+        entered_start
+            .recv_timeout(Duration::from_secs(1))
+            .expect("one start reaches runner");
+        assert!(matches!(
+            result_rx.try_recv(),
+            Err(mpsc::TryRecvError::Empty)
+        ));
+        assert_eq!(runner.start_calls.load(Ordering::SeqCst), 1);
+
+        release_start.send(()).expect("release first start");
+        let mut results = vec![
+            result_rx
+                .recv_timeout(Duration::from_secs(1))
+                .expect("receive first result")
+                .expect("first start succeeds"),
+            result_rx
+                .recv_timeout(Duration::from_secs(1))
+                .expect("receive second result")
+                .expect("second start succeeds"),
+        ];
+        results.sort_unstable();
+        for thread in threads {
+            thread.join().expect("join start thread");
+        }
+
+        assert_eq!(results, vec![false, true]);
+        assert_eq!(runner.start_calls.load(Ordering::SeqCst), 1);
     }
 
     #[test]
