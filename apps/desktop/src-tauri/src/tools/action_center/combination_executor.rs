@@ -4,8 +4,10 @@ use super::{
 };
 use std::{
     any::Any,
+    io,
     panic::{catch_unwind, AssertUnwindSafe},
     sync::Arc,
+    thread::{self, JoinHandle},
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -81,23 +83,64 @@ fn execute_parallel(
     executor: Arc<dyn AtomicActionExecutor>,
     observer: Arc<dyn ExecutionObserver>,
 ) -> Vec<ExecutedStep> {
-    let workers = steps
-        .into_iter()
-        .map(|step| {
-            let fallback_step = step.clone();
-            let executor = executor.clone();
-            let observer = observer.clone();
-            let worker = std::thread::spawn(move || execute_step(step, &executor, &observer));
-            (fallback_step, worker)
-        })
-        .collect::<Vec<_>>();
+    execute_parallel_with_spawner(steps, executor, observer, |task| {
+        thread::Builder::new().spawn(task)
+    })
+}
 
-    let mut results = workers
-        .into_iter()
-        .map(|(step, worker)| join_worker(step, worker, &observer))
-        .collect::<Vec<_>>();
+type WorkerTask = Box<dyn FnOnce() -> ExecutedStep + Send>;
+
+fn execute_parallel_with_spawner<S>(
+    steps: Vec<PlannedStep>,
+    executor: Arc<dyn AtomicActionExecutor>,
+    observer: Arc<dyn ExecutionObserver>,
+    mut spawner: S,
+) -> Vec<ExecutedStep>
+where
+    S: FnMut(WorkerTask) -> io::Result<JoinHandle<ExecutedStep>>,
+{
+    let mut workers = Vec::with_capacity(steps.len());
+    let mut results = Vec::with_capacity(steps.len());
+    for step in steps {
+        let fallback_step = step.clone();
+        let executor = executor.clone();
+        let worker_observer = observer.clone();
+        let task: WorkerTask = Box::new(move || execute_step(step, &executor, &worker_observer));
+        match spawn_worker(fallback_step, task, &mut spawner, &observer) {
+            Ok(worker) => workers.push(worker),
+            Err(result) => results.push(result),
+        }
+    }
+
+    results.extend(
+        workers
+            .into_iter()
+            .map(|(step, worker)| join_worker(step, worker, &observer)),
+    );
     results.sort_by_key(|result| (result.sort_order, result.run_step_id));
     results
+}
+
+fn spawn_worker<S>(
+    step: PlannedStep,
+    task: WorkerTask,
+    spawner: &mut S,
+    observer: &Arc<dyn ExecutionObserver>,
+) -> Result<(PlannedStep, JoinHandle<ExecutedStep>), ExecutedStep>
+where
+    S: FnMut(WorkerTask) -> io::Result<JoinHandle<ExecutedStep>>,
+{
+    match spawner(task) {
+        Ok(worker) => Ok((step, worker)),
+        Err(error) => {
+            let result = failed_step(
+                &step,
+                format!("failed to spawn parallel step worker: {error}"),
+            );
+            notify_step_finished(observer, &result);
+            Err(result)
+        }
+    }
 }
 
 fn join_worker(
@@ -477,6 +520,72 @@ mod tests {
             .unwrap()
             .contains("join worker exploded"));
         assert_eq!(finished_calls.load(Ordering::SeqCst), 1);
+    }
+
+    struct RecordingPanicOnFinishObserver {
+        finished: Arc<Mutex<Vec<(i64, StepTerminalStatus)>>>,
+    }
+
+    impl ExecutionObserver for RecordingPanicOnFinishObserver {
+        fn step_started(&self, _run_step_id: i64) {}
+
+        fn step_finished(&self, result: &ExecutedStep) {
+            self.finished
+                .lock()
+                .unwrap()
+                .push((result.run_step_id, result.status));
+            panic!("finished observer exploded");
+        }
+    }
+
+    #[test]
+    fn parallel_spawn_failure_fails_step_notifies_once_and_joins_created_worker() {
+        let finished = Arc::new(Mutex::new(Vec::new()));
+        let executor = Arc::new(ScriptedExecutor::new([
+            ("created", succeeded(Some("joined"), None)),
+            ("not-spawned", succeeded(None, None)),
+        ]));
+        let calls = executor.calls.clone();
+        let mut spawn_attempt = 0;
+
+        let results = execute_parallel_with_spawner(
+            vec![step(1, "created", 0), step(2, "not-spawned", 1)],
+            executor,
+            Arc::new(RecordingPanicOnFinishObserver {
+                finished: finished.clone(),
+            }),
+            move |task| {
+                spawn_attempt += 1;
+                if spawn_attempt == 2 {
+                    Err(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        "simulated worker exhaustion",
+                    ))
+                } else {
+                    std::thread::Builder::new().spawn(task)
+                }
+            },
+        );
+
+        assert_eq!(*calls.lock().unwrap(), ["created"]);
+        assert_eq!(results[0].status, StepTerminalStatus::Succeeded);
+        assert_eq!(results[0].result_code.as_deref(), Some("joined"));
+        assert_eq!(results[1].status, StepTerminalStatus::Failed);
+        assert!(results[1]
+            .message
+            .as_deref()
+            .unwrap()
+            .contains("simulated worker exhaustion"));
+
+        let finished = finished.lock().unwrap();
+        assert_eq!(finished.len(), 2);
+        assert_eq!(
+            finished
+                .iter()
+                .filter(|event| **event == (2, StepTerminalStatus::Failed))
+                .count(),
+            1
+        );
     }
 
     struct PanicOnStartObserver {

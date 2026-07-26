@@ -1,3 +1,4 @@
+use super::definitions::definition;
 use std::collections::HashSet;
 #[cfg(test)]
 use std::{
@@ -163,6 +164,7 @@ where
     }
 
     let mut unique_targets = HashSet::with_capacity(input.steps.len());
+    let mut parallel_conflict_groups = HashSet::with_capacity(input.steps.len());
     let mut steps = Vec::with_capacity(input.steps.len());
     for step in input.steps {
         let action_type = step.action_type.trim();
@@ -174,6 +176,17 @@ where
             return Err("combination target id cannot be empty".into());
         }
         validate_target(action_type, target_id)?;
+        if input.execution_mode == ExecutionMode::Parallel {
+            if let Some(conflict_group) =
+                definition(action_type).and_then(|definition| definition.parallel_conflict_group)
+            {
+                if !parallel_conflict_groups.insert(conflict_group) {
+                    return Err(format!(
+                        "parallel combination actions conflict in group: {conflict_group}"
+                    ));
+                }
+            }
+        }
         if !unique_targets.insert((action_type.to_owned(), target_id.to_owned())) {
             return Err(format!(
                 "duplicate combination target: {action_type}/{target_id}"
@@ -726,6 +739,71 @@ mod tests {
                 .get::<_, i64>(0))
                 .unwrap(),
             0
+        );
+    }
+
+    #[test]
+    fn parallel_rejects_conflicting_hosts_targets_without_partial_write() {
+        let mut conn = test_conn();
+        let error = save_with_conn(
+            &mut conn,
+            input(
+                None,
+                "conflicting hosts",
+                ExecutionMode::Parallel,
+                &[("hosts.activate", "work"), ("hosts.activate", "personal")],
+            ),
+            |action_type, target_id| match (action_type, target_id) {
+                ("hosts.activate", "work" | "personal") => Ok(()),
+                _ => Err(format!("unknown target: {action_type}/{target_id}")),
+            },
+        )
+        .unwrap_err();
+
+        assert!(error.contains("parallel"));
+        assert!(error.contains("conflict"));
+        assert_eq!(
+            conn.query_row("SELECT COUNT(*) FROM action_combinations", [], |row| row
+                .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            conn.query_row("SELECT COUNT(*) FROM action_combination_steps", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .unwrap(),
+            0
+        );
+    }
+
+    #[test]
+    fn serial_allows_conflicting_hosts_targets_in_order() {
+        let mut conn = test_conn();
+        let id = save_with_conn(
+            &mut conn,
+            input(
+                None,
+                "ordered hosts",
+                ExecutionMode::Serial,
+                &[("hosts.activate", "work"), ("hosts.activate", "personal")],
+            ),
+            |action_type, target_id| match (action_type, target_id) {
+                ("hosts.activate", "work" | "personal") => Ok(()),
+                _ => Err(format!("unknown target: {action_type}/{target_id}")),
+            },
+        )
+        .unwrap();
+
+        let detail = get_with_conn(&conn, id).unwrap();
+        assert_eq!(detail.execution_mode, ExecutionMode::Serial);
+        assert_eq!(
+            detail
+                .steps
+                .iter()
+                .map(|step| (step.action_type.as_str(), step.target_id.as_str()))
+                .collect::<Vec<_>>(),
+            [("hosts.activate", "work"), ("hosts.activate", "personal"),]
         );
     }
 

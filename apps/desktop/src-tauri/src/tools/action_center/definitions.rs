@@ -17,6 +17,8 @@ pub(crate) struct ActionDefinition {
     pub execution_mode: &'static str,
     pub completion_policy: &'static str,
     pub supports_combination: bool,
+    #[serde(skip)]
+    pub parallel_conflict_group: Option<&'static str>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -31,14 +33,15 @@ pub(crate) struct ActionTargetOption {
 
 const ACTION_DEFINITIONS: &[ActionDefinition] = &[
     ActionDefinition {
-            action_type: RELEASE_PACKAGE_RUN,
-            label: "开始打包",
-            trigger_types: &["todo_item"],
-            target_kind: "release_package_project",
-            target_tool_id: "release-package",
-            execution_mode: "open_and_confirm",
-            completion_policy: "on_succeeded",
-            supports_combination: false,
+        action_type: RELEASE_PACKAGE_RUN,
+        label: "开始打包",
+        trigger_types: &["todo_item"],
+        target_kind: "release_package_project",
+        target_tool_id: "release-package",
+        execution_mode: "open_and_confirm",
+        completion_policy: "on_succeeded",
+        supports_combination: false,
+        parallel_conflict_group: None,
     },
     ActionDefinition {
         action_type: HOSTS_ACTIVATE,
@@ -49,6 +52,7 @@ const ACTION_DEFINITIONS: &[ActionDefinition] = &[
         execution_mode: "direct",
         completion_policy: "on_succeeded",
         supports_combination: true,
+        parallel_conflict_group: Some("hosts_state"),
     },
     ActionDefinition {
         action_type: BROWSER_PROFILE_LAUNCH,
@@ -59,6 +63,7 @@ const ACTION_DEFINITIONS: &[ActionDefinition] = &[
         execution_mode: "direct",
         completion_policy: "on_succeeded",
         supports_combination: true,
+        parallel_conflict_group: None,
     },
     ActionDefinition {
         action_type: REQUEST_FORWARD_START,
@@ -69,6 +74,7 @@ const ACTION_DEFINITIONS: &[ActionDefinition] = &[
         execution_mode: "direct",
         completion_policy: "on_succeeded",
         supports_combination: true,
+        parallel_conflict_group: None,
     },
 ];
 
