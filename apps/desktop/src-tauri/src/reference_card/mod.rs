@@ -7,21 +7,24 @@ use std::sync::{LazyLock, Mutex, MutexGuard};
 use std::time::Duration;
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri::{
+    AppHandle, Emitter, LogicalSize, Manager, Monitor, WebviewUrl, WebviewWindow,
+    WebviewWindowBuilder,
+};
 use tauri_plugin_notification::NotificationExt;
 use tokio::sync::watch;
 
 use crate::events::EVENT_REFERENCE_CARD_INIT;
 use position::{card_position, PhysicalRect, PhysicalSize};
+use size::{
+    adaptive_card_size, CardSize, REFERENCE_CARD_DEFAULT_HEIGHT, REFERENCE_CARD_DEFAULT_WIDTH,
+    REFERENCE_CARD_MIN_HEIGHT, REFERENCE_CARD_MIN_WIDTH,
+};
 use state::{CardRegistry, ResolveCard};
 
 pub(crate) const REFERENCE_CARD_PREFIX: &str = "reference-card-";
 pub(crate) const REFERENCE_CARD_TITLE: &str = "置顶参考";
 
-const REFERENCE_CARD_WIDTH: f64 = 560.0;
-const REFERENCE_CARD_HEIGHT: f64 = 360.0;
-const REFERENCE_CARD_MIN_WIDTH: f64 = 360.0;
-const REFERENCE_CARD_MIN_HEIGHT: f64 = 220.0;
 const READY_TIMEOUT: Duration = Duration::from_secs(5);
 const READY_CHANNEL_CLOSED: &str = "参考卡初始化通道已关闭";
 
@@ -264,34 +267,45 @@ fn reference_card_url() -> WebviewUrl {
     }
 }
 
-fn position_window(window: &WebviewWindow, ordinal: usize) {
-    let monitor = window
+fn target_monitor(window: &WebviewWindow) -> Option<Monitor> {
+    window
         .cursor_position()
         .ok()
         .and_then(|cursor| window.monitor_from_point(cursor.x, cursor.y).ok().flatten())
         .or_else(|| window.current_monitor().ok().flatten())
-        .or_else(|| window.primary_monitor().ok().flatten());
-    let Some(monitor) = monitor else {
-        return;
-    };
+        .or_else(|| window.primary_monitor().ok().flatten())
+}
 
+fn logical_work_area(monitor: &Monitor) -> CardSize {
     let work_area = monitor.work_area();
     let scale = monitor.scale_factor();
+    CardSize {
+        width: work_area.size.width as f64 / scale,
+        height: work_area.size.height as f64 / scale,
+    }
+}
+
+fn physical_window_size(size: CardSize, scale: f64) -> PhysicalSize {
+    PhysicalSize {
+        width: (size.width * scale).round().clamp(0.0, i32::MAX as f64) as i32,
+        height: (size.height * scale).round().clamp(0.0, i32::MAX as f64) as i32,
+    }
+}
+
+fn position_window(
+    window: &WebviewWindow,
+    monitor: &Monitor,
+    physical_size: PhysicalSize,
+    ordinal: usize,
+) {
+    let work_area = monitor.work_area();
     let area = PhysicalRect {
         x: work_area.position.x,
         y: work_area.position.y,
         width: i32::try_from(work_area.size.width).unwrap_or(i32::MAX),
         height: i32::try_from(work_area.size.height).unwrap_or(i32::MAX),
     };
-    let window_size = PhysicalSize {
-        width: (REFERENCE_CARD_WIDTH * scale)
-            .round()
-            .clamp(0.0, i32::MAX as f64) as i32,
-        height: (REFERENCE_CARD_HEIGHT * scale)
-            .round()
-            .clamp(0.0, i32::MAX as f64) as i32,
-    };
-    let (x, y) = card_position(area, window_size, ordinal);
+    let (x, y) = card_position(area, physical_size, ordinal);
     if let Err(error) = window.set_position(tauri::PhysicalPosition::new(x, y)) {
         eprintln!(
             "[reference-card] position {} failed: {error}",
@@ -300,15 +314,42 @@ fn position_window(window: &WebviewWindow, ordinal: usize) {
     }
 }
 
-async fn build_window(app: &AppHandle, label: &str, ordinal: usize) -> Result<(), String> {
+fn configure_initial_geometry(
+    window: &WebviewWindow,
+    text: &str,
+    ordinal: usize,
+) -> Result<(), String> {
+    let Some(monitor) = target_monitor(window) else {
+        eprintln!(
+            "[reference-card] target monitor {} unavailable; keeping default size",
+            window.label()
+        );
+        return Ok(());
+    };
+    let size = adaptive_card_size(text, logical_work_area(&monitor));
+    window
+        .set_size(LogicalSize::new(size.width, size.height))
+        .map_err(|error| format!("设置参考卡首次尺寸失败: {error}"))?;
+    let physical_size = physical_window_size(size, monitor.scale_factor());
+    position_window(window, &monitor, physical_size, ordinal);
+    Ok(())
+}
+
+async fn build_window(
+    app: &AppHandle,
+    label: &str,
+    ordinal: usize,
+    text: &str,
+) -> Result<(), String> {
     let app = app.clone();
     let label = label.to_string();
+    let text = text.to_string();
     let (sender, receiver) = tokio::sync::oneshot::channel();
     app.clone()
         .run_on_main_thread(move || {
             let result = WebviewWindowBuilder::new(&app, &label, reference_card_url())
                 .title(REFERENCE_CARD_TITLE)
-                .inner_size(REFERENCE_CARD_WIDTH, REFERENCE_CARD_HEIGHT)
+                .inner_size(REFERENCE_CARD_DEFAULT_WIDTH, REFERENCE_CARD_DEFAULT_HEIGHT)
                 .min_inner_size(REFERENCE_CARD_MIN_WIDTH, REFERENCE_CARD_MIN_HEIGHT)
                 .decorations(false)
                 .resizable(true)
@@ -318,7 +359,7 @@ async fn build_window(app: &AppHandle, label: &str, ordinal: usize) -> Result<()
                 .visible(false)
                 .build()
                 .map_err(|error| format!("创建参考卡窗口失败: {error}"))
-                .map(|window| position_window(&window, ordinal));
+                .and_then(|window| configure_initial_geometry(&window, &text, ordinal));
             let _ = sender.send(result);
         })
         .map_err(|error| format!("调度参考卡窗口创建失败: {error}"))?;
@@ -452,7 +493,7 @@ async fn show_text(app: AppHandle, text: String) -> Result<ReferenceCardShowResu
             ordinal,
             ready,
         } => {
-            if let Err(error) = build_window(&app, &label, ordinal).await {
+            if let Err(error) = build_window(&app, &label, ordinal, &text).await {
                 return Err(cancel_and_close(&app, &label, &error));
             }
             if let Err(error) = wait_for_window_flight(&app, &label, ready).await {

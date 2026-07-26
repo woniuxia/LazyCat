@@ -1,6 +1,4 @@
-#[allow(dead_code)]
 pub(crate) const REFERENCE_CARD_DEFAULT_WIDTH: f64 = 560.0;
-#[allow(dead_code)]
 pub(crate) const REFERENCE_CARD_DEFAULT_HEIGHT: f64 = 360.0;
 pub(crate) const REFERENCE_CARD_MIN_WIDTH: f64 = 360.0;
 pub(crate) const REFERENCE_CARD_MIN_HEIGHT: f64 = 220.0;

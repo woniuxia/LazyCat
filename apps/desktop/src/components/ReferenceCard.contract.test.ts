@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 const root = new URL("../", import.meta.url);
 const read = (path: string) => readFileSync(new URL(path, root), "utf-8");
+const referenceCardBackend = read("../src-tauri/src/reference_card/mod.rs");
 
 describe("ReferenceCard window wiring", () => {
   const component = read("components/ReferenceCard.vue");
@@ -43,6 +44,17 @@ describe("ReferenceCard window wiring", () => {
     expect(monaco).toContain("Monaco 初始化失败");
     expect(monaco).toContain("切换 Monaco 语言失败");
     expect(component).toContain('@error="handleEditorError"');
+  });
+
+  it("auto-sizes only during hidden creation and preserves manual resizing", () => {
+    expect(referenceCardBackend).toContain(".visible(false)");
+    expect(referenceCardBackend).toContain(
+      "configure_initial_geometry(&window, &text, ordinal)",
+    );
+    expect(referenceCardBackend).toContain(".resizable(true)");
+    expect(referenceCardBackend).not.toContain(".max_inner_size(");
+    expect(component).not.toContain("setSize(");
+    expect(component).not.toContain("onResized(");
   });
 });
 
