@@ -94,20 +94,28 @@ fn execute_parallel(
 
     let mut results = workers
         .into_iter()
-        .map(|(step, worker)| match worker.join() {
-            Ok(result) => result,
-            Err(payload) => {
-                let result = failed_step(
-                    &step,
-                    format!("parallel step worker panicked: {}", panic_message(payload)),
-                );
-                notify_step_finished(&observer, &result);
-                result
-            }
-        })
+        .map(|(step, worker)| join_worker(step, worker, &observer))
         .collect::<Vec<_>>();
     results.sort_by_key(|result| (result.sort_order, result.run_step_id));
     results
+}
+
+fn join_worker(
+    step: PlannedStep,
+    worker: std::thread::JoinHandle<ExecutedStep>,
+    observer: &Arc<dyn ExecutionObserver>,
+) -> ExecutedStep {
+    match worker.join() {
+        Ok(result) => result,
+        Err(payload) => {
+            let result = failed_step(
+                &step,
+                format!("parallel step worker panicked: {}", panic_message(payload)),
+            );
+            notify_step_finished(observer, &result);
+            result
+        }
+    }
 }
 
 fn execute_step(
@@ -392,6 +400,7 @@ mod tests {
                 ("a", succeeded(None, None)),
                 ("b", succeeded(None, None)),
                 ("c", succeeded(None, None)),
+                ("d", succeeded(None, None)),
             ])
             .with_parallel_probe(entered_tx, gate.clone()),
         );
@@ -399,24 +408,29 @@ mod tests {
         let execution = std::thread::spawn(move || {
             execute_plan(
                 ExecutionMode::Parallel,
-                vec![step(12, "c", 2), step(10, "a", 0), step(11, "b", 1)],
+                vec![
+                    step(12, "c", 2),
+                    step(10, "a", 0),
+                    step(11, "b", 1),
+                    step(9, "d", 1),
+                ],
                 executor,
             )
         });
 
-        let entered = (0..3)
+        let entered = (0..4)
             .map(|_| entered_rx.recv_timeout(Duration::from_secs(5)))
             .collect::<Result<Vec<_>, _>>();
         gate.open();
         let results = execution.join().unwrap();
 
-        assert_eq!(entered.unwrap().len(), 3);
+        assert_eq!(entered.unwrap().len(), 4);
         assert_eq!(
             results
                 .iter()
-                .map(|item| item.sort_order)
+                .map(|item| (item.sort_order, item.run_step_id))
                 .collect::<Vec<_>>(),
-            vec![0, 1, 2]
+            vec![(0, 10), (1, 9), (1, 11), (2, 12)]
         );
     }
 
@@ -440,6 +454,29 @@ mod tests {
             .as_deref()
             .unwrap()
             .contains("worker exploded"));
+    }
+
+    #[test]
+    fn join_worker_panic_returns_failed_and_notifies_finished_once() {
+        let finished_calls = Arc::new(AtomicUsize::new(0));
+        let observer: Arc<dyn ExecutionObserver> = Arc::new(PanicOnFinishObserver {
+            finished_calls: finished_calls.clone(),
+        });
+        let worker = std::thread::spawn(|| -> ExecutedStep {
+            panic!("join worker exploded");
+        });
+
+        let result = join_worker(step(7, "panic", 3), worker, &observer);
+
+        assert_eq!(result.run_step_id, 7);
+        assert_eq!(result.sort_order, 3);
+        assert_eq!(result.status, StepTerminalStatus::Failed);
+        assert!(result
+            .message
+            .as_deref()
+            .unwrap()
+            .contains("join worker exploded"));
+        assert_eq!(finished_calls.load(Ordering::SeqCst), 1);
     }
 
     struct PanicOnStartObserver {
