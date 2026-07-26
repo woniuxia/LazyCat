@@ -1,4 +1,5 @@
 mod bindings;
+mod combinations;
 mod definitions;
 mod dispatches;
 
@@ -60,7 +61,8 @@ ON action_dispatches(external_run_id) WHERE external_run_id IS NOT NULL;
 
 pub(crate) fn ensure_schema(conn: &Connection) -> Result<(), String> {
     conn.execute_batch(ACTION_CENTER_SCHEMA_SQL)
-        .map_err(|error| format!("create action center schema failed: {error}"))
+        .map_err(|error| format!("create action center schema failed: {error}"))?;
+    combinations::ensure_schema(conn)
 }
 
 #[cfg(test)]
@@ -118,7 +120,14 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         ensure_schema(&conn).unwrap();
 
-        for table in ["action_bindings", "action_dispatches"] {
+        for table in [
+            "action_bindings",
+            "action_dispatches",
+            "action_combinations",
+            "action_combination_steps",
+            "action_combination_runs",
+            "action_combination_run_steps",
+        ] {
             let count: i64 = conn
                 .query_row(
                     "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?1",
@@ -142,6 +151,21 @@ mod tests {
             )
             .unwrap();
         assert!(sql.contains("pending_confirmation"));
+        assert!(sql.contains("running"));
+    }
+
+    #[test]
+    fn action_center_schema_has_global_active_combination_run_uniqueness() {
+        let conn = Connection::open_in_memory().unwrap();
+        ensure_schema(&conn).unwrap();
+        let sql: String = conn
+            .query_row(
+                "SELECT sql FROM sqlite_master WHERE name='idx_action_combination_runs_one_active'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(sql.contains("pending"));
         assert!(sql.contains("running"));
     }
 }
