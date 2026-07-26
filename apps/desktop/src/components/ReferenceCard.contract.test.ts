@@ -24,6 +24,19 @@ describe("ReferenceCard window wiring", () => {
     expect(bridge).toContain('invoke("reference_card_ready")');
   });
 
+  it("closes the focused card on Escape before Monaco handles it", () => {
+    expect(component).toContain(
+      'window.addEventListener("keydown", onWindowKeydown, true)',
+    );
+    expect(component).toContain(
+      'window.removeEventListener("keydown", onWindowKeydown, true)',
+    );
+    expect(component).toContain('if (event.key !== "Escape") return;');
+    expect(component).toContain("event.preventDefault();");
+    expect(component).toContain("event.stopPropagation();");
+    expect(component).toContain("void closeCard();");
+  });
+
   it("uses Monaco and keeps transient content out of persistence", () => {
     expect(component).toContain("<MonacoPane");
     expect(component).toContain("data-tauri-drag-region");

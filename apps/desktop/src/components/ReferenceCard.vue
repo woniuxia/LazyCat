@@ -63,6 +63,7 @@ const editorRef = ref<MonacoPaneApi | null>(null);
 let unlistenInit: UnlistenFn | null = null;
 
 onMounted(async () => {
+  window.addEventListener("keydown", onWindowKeydown, true);
   try {
     unlistenInit = await listen<ReferenceCardInitPayload>(
       APP_EVENTS.REFERENCE_CARD_INIT,
@@ -79,7 +80,10 @@ onMounted(async () => {
   }
 });
 
-onBeforeUnmount(() => unlistenInit?.());
+onBeforeUnmount(() => {
+  window.removeEventListener("keydown", onWindowKeydown, true);
+  unlistenInit?.();
+});
 
 async function copyAll() {
   try {
@@ -89,6 +93,13 @@ async function copyAll() {
   } catch (error) {
     errorMessage.value = "复制失败：" + (error instanceof Error ? error.message : String(error));
   }
+}
+
+function onWindowKeydown(event: KeyboardEvent) {
+  if (event.key !== "Escape") return;
+  event.preventDefault();
+  event.stopPropagation();
+  void closeCard();
 }
 
 async function closeCard() {
