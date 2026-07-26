@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, watch } from "vue";
+import { computed, onMounted, onUnmounted, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 
 import { useActionCombinations } from "../composables/useActionCombinations";
@@ -35,6 +35,13 @@ const {
 } = useActionCombinations();
 
 let notifiedRunId = "";
+
+const displayedRun = computed(() =>
+  draft.value?.id !== undefined
+  && draft.value?.id === activeRun.value?.combinationId
+    ? activeRun.value
+    : null,
+);
 
 async function loadDraftTargets(): Promise<void> {
   if (!draft.value) return;
@@ -169,7 +176,7 @@ onUnmounted(stop);
         <el-empty description="请选择或新建组合动作" />
       </div>
       <ActionRunHistory
-        :active-run="activeRun"
+        :active-run="displayedRun"
         :history="runHistory"
       />
     </main>

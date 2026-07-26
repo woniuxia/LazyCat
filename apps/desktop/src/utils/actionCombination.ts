@@ -5,6 +5,7 @@ import type {
   ActionCombinationRunStatus,
   ActionCombinationSaveInput,
   ActionCombinationStepStatus,
+  ActionCombinationTarget,
 } from "../types/action-center";
 
 let localStepSequence = 0;
@@ -33,8 +34,28 @@ export function createCombinationDraft(
       localId: nextLocalStepId(),
       actionType: step.actionType,
       targetId: step.targetId,
+      targetLabel: step.targetLabel,
+      available: step.available,
+      unavailableReason: step.unavailableReason,
     })),
   };
+}
+
+export function resolveCombinationStepTargets(
+  step: ActionCombinationDraftStep,
+  liveTargets: readonly ActionCombinationTarget[],
+): { options: ActionCombinationTarget[]; selected?: ActionCombinationTarget } {
+  const options = [...liveTargets];
+  const selected = options.find((target) => target.id === step.targetId);
+  if (selected || !step.targetId) return { options, selected };
+
+  const snapshot = {
+    id: step.targetId,
+    label: step.targetLabel?.trim() || step.targetId,
+    available: false,
+    unavailableReason: step.unavailableReason || "目标已失效",
+  };
+  return { options: [snapshot, ...options], selected: snapshot };
 }
 
 export function createEmptyCombinationStep(): ActionCombinationDraftStep {

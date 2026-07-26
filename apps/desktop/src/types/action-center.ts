@@ -161,6 +161,9 @@ export interface ActionCombinationRunDetail {
 
 export interface ActionCombinationDraftStep extends ActionCombinationStepInput {
   localId: string;
+  targetLabel?: string;
+  available?: boolean;
+  unavailableReason?: string;
 }
 
 export interface ActionCombinationDraft {

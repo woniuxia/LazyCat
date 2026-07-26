@@ -8,7 +8,10 @@ import type {
   ActionCombinationTarget,
   CombinationAtomicDefinition,
 } from "../../types/action-center";
-import { createEmptyCombinationStep } from "../../utils/actionCombination";
+import {
+  createEmptyCombinationStep,
+  resolveCombinationStepTargets,
+} from "../../utils/actionCombination";
 
 const props = defineProps<{
   modelValue: ActionCombinationDraft;
@@ -32,15 +35,26 @@ const emit = defineEmits<{
 const stepListRef = ref<HTMLElement | null>(null);
 let sortable: Sortable | null = null;
 
+type StepTargetState = ReturnType<typeof resolveCombinationStepTargets>;
+const EMPTY_TARGET_STATE: StepTargetState = { options: [] };
+const stepTargetStates = computed(() => new Map(
+  props.modelValue.steps.map((step) => [
+    step.localId,
+    resolveCombinationStepTargets(step, props.targets.get(step.localId) ?? []),
+  ]),
+));
+
+function targetState(localStepId: string): StepTargetState {
+  return stepTargetStates.value.get(localStepId) ?? EMPTY_TARGET_STATE;
+}
+
 const canRun = computed(() =>
   Boolean(props.modelValue.id)
   && Boolean(props.modelValue.name.trim())
   && props.modelValue.steps.length > 0
   && props.modelValue.steps.every((step) => {
     if (!step.actionType || !step.targetId) return false;
-    return props.targets
-      .get(step.localId)
-      ?.some((target) => target.id === step.targetId && target.available) === true;
+    return targetState(step.localId).selected?.available === true;
   }),
 );
 
@@ -66,7 +80,13 @@ function removeStep(index: number): void {
 function changeAction(index: number, value: unknown): void {
   const actionType = typeof value === "string" ? value : "";
   const step = props.modelValue.steps[index];
-  updateStep(index, { actionType, targetId: "" });
+  updateStep(index, {
+    actionType,
+    targetId: "",
+    targetLabel: undefined,
+    available: undefined,
+    unavailableReason: undefined,
+  });
   if (actionType) emit("load-targets", step.localId, actionType);
 }
 
@@ -76,7 +96,12 @@ function changeExecutionMode(value: unknown): void {
 }
 
 function changeTarget(index: number, value: unknown): void {
-  updateStep(index, { targetId: typeof value === "string" ? value : "" });
+  updateStep(index, {
+    targetId: typeof value === "string" ? value : "",
+    targetLabel: undefined,
+    available: undefined,
+    unavailableReason: undefined,
+  });
 }
 
 function definitionFor(actionType: string): CombinationAtomicDefinition | undefined {
@@ -219,7 +244,7 @@ onUnmounted(() => {
             @update:model-value="changeTarget(index, $event)"
           >
             <el-option
-              v-for="target in targets.get(step.localId) ?? []"
+              v-for="target in targetState(step.localId).options"
               :key="target.id"
               :label="target.label"
               :value="target.id"
@@ -227,11 +252,11 @@ onUnmounted(() => {
             />
           </el-select>
           <div
-            v-if="step.targetId && targets.get(step.localId)?.find((item) => item.id === step.targetId)?.available === false"
+            v-if="targetState(step.localId).selected?.available === false"
             class="action-step__unavailable"
           >
             <span>
-              {{ targets.get(step.localId)?.find((item) => item.id === step.targetId)?.unavailableReason }}
+              {{ targetState(step.localId).selected?.unavailableReason }}
             </span>
             <el-button
               link
