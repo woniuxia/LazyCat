@@ -150,13 +150,7 @@ struct NormalizedCombinationSaveInput {
     steps: Vec<CombinationStepInput>,
 }
 
-fn normalize_input<F>(
-    input: CombinationSaveInput,
-    validate_target: F,
-) -> Result<NormalizedCombinationSaveInput, String>
-where
-    F: Fn(&str, &str) -> Result<(), String>,
-{
+fn normalize_input(input: CombinationSaveInput) -> Result<NormalizedCombinationSaveInput, String> {
     let name = input.name.trim();
     if name.is_empty() {
         return Err("combination name cannot be empty".into());
@@ -177,7 +171,6 @@ where
         if target_id.is_empty() {
             return Err("combination target id cannot be empty".into());
         }
-        validate_target(action_type, target_id)?;
         if input.execution_mode == ExecutionMode::Parallel {
             if let Some(conflict_group) =
                 definition(action_type).and_then(|definition| definition.parallel_conflict_group)
@@ -214,12 +207,15 @@ pub(crate) fn save_with_conn<F>(
     validate_target: F,
 ) -> Result<i64, String>
 where
-    F: Fn(&str, &str) -> Result<(), String>,
+    F: Fn(&Connection, &str, &str) -> Result<(), String>,
 {
-    let input = normalize_input(input, validate_target)?;
+    let input = normalize_input(input)?;
     let tx = conn
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(|error| format!("begin combination save transaction failed: {error}"))?;
+    for step in &input.steps {
+        validate_target(&tx, &step.action_type, &step.target_id)?;
+    }
 
     let combination_id = match input.id {
         Some(id) => {
@@ -635,7 +631,11 @@ mod tests {
         }
     }
 
-    fn validate_known_target(action_type: &str, target_id: &str) -> Result<(), String> {
+    fn validate_known_target(
+        _conn: &Connection,
+        action_type: &str,
+        target_id: &str,
+    ) -> Result<(), String> {
         match (action_type, target_id) {
             ("release_package", "1" | "2") | ("browser_profile", "work") => Ok(()),
             _ => Err(format!("unknown target: {action_type}/{target_id}")),
@@ -799,7 +799,7 @@ mod tests {
                 ExecutionMode::Parallel,
                 &[("hosts.activate", "work"), ("hosts.activate", "personal")],
             ),
-            |action_type, target_id| match (action_type, target_id) {
+            |_conn, action_type, target_id| match (action_type, target_id) {
                 ("hosts.activate", "work" | "personal") => Ok(()),
                 _ => Err(format!("unknown target: {action_type}/{target_id}")),
             },
@@ -834,7 +834,7 @@ mod tests {
                 ExecutionMode::Serial,
                 &[("hosts.activate", "work"), ("hosts.activate", "personal")],
             ),
-            |action_type, target_id| match (action_type, target_id) {
+            |_conn, action_type, target_id| match (action_type, target_id) {
                 ("hosts.activate", "work" | "personal") => Ok(()),
                 _ => Err(format!("unknown target: {action_type}/{target_id}")),
             },
@@ -883,6 +883,84 @@ mod tests {
         assert_eq!(detail.name, "stable");
         assert_eq!(detail.execution_mode, ExecutionMode::Serial);
         assert_eq!(detail.steps[0].target_id, "1");
+    }
+
+    #[test]
+    fn target_delete_cannot_commit_between_validation_and_combination_save() {
+        let _serial_guard = DELETE_BUSY_TEST_LOCK.lock().unwrap();
+        let (database, setup_conn) = TempDatabase::new();
+        setup_conn
+            .execute_batch(
+                "CREATE TABLE save_targets (
+                    id TEXT PRIMARY KEY
+                 );
+                 INSERT INTO save_targets(id) VALUES ('1');",
+            )
+            .unwrap();
+        drop(setup_conn);
+
+        let mut save_conn = database.connect();
+        let delete_conn = database.connect();
+        delete_conn.busy_handler(Some(notify_delete_busy)).unwrap();
+        let (validated_tx, validated_rx) = mpsc::sync_channel(0);
+        let (continue_tx, continue_rx) = mpsc::sync_channel(0);
+        let (save_result_tx, save_result_rx) = mpsc::sync_channel(0);
+        let save_thread = thread::spawn(move || {
+            let result = save_with_conn(
+                &mut save_conn,
+                input(
+                    None,
+                    "validated target",
+                    ExecutionMode::Serial,
+                    &[("release_package", "1")],
+                ),
+                move |validation_conn, action_type, target_id| {
+                    let exists = validation_conn
+                        .query_row(
+                            "SELECT EXISTS(SELECT 1 FROM save_targets WHERE id=?1)",
+                            [target_id],
+                            |row| row.get::<_, bool>(0),
+                        )
+                        .map_err(|error| format!("validate target failed: {error}"))?;
+                    validated_tx.send(()).unwrap();
+                    continue_rx.recv().unwrap();
+                    if exists && action_type == "release_package" {
+                        Ok(())
+                    } else {
+                        Err(format!("unknown target: {action_type}/{target_id}"))
+                    }
+                },
+            );
+            save_result_tx.send(result).unwrap();
+        });
+        validated_rx.recv().unwrap();
+
+        let (busy_tx, busy_rx) = mpsc::sync_channel(1);
+        let _busy_notifier = DeleteBusyNotifierGuard::install(busy_tx);
+        let (delete_result_tx, delete_result_rx) = mpsc::sync_channel(0);
+        let delete_thread = thread::spawn(move || {
+            delete_result_tx
+                .send(delete_conn.execute("DELETE FROM save_targets WHERE id='1'", []))
+                .unwrap();
+        });
+        busy_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("target delete committed before combination validation completed");
+
+        continue_tx.send(()).unwrap();
+        assert!(save_result_rx
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap()
+            .is_ok());
+        save_thread.join().unwrap();
+        assert_eq!(
+            delete_result_rx
+                .recv_timeout(Duration::from_secs(5))
+                .unwrap()
+                .unwrap(),
+            1
+        );
+        delete_thread.join().unwrap();
     }
 
     #[test]

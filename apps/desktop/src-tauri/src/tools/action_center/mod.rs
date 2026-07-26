@@ -132,7 +132,7 @@ fn execute_combination_with_conn<F>(
     validate_target: F,
 ) -> Result<Value, String>
 where
-    F: Fn(&str, &str) -> Result<(), String>,
+    F: Fn(&Connection, &str, &str) -> Result<(), String>,
 {
     match action {
         "combination_definition_list" => Ok(json!({
@@ -221,9 +221,19 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         "dispatch_latest" => dispatches::dispatch_latest(payload),
         action if action.starts_with("combination_") => {
             let mut conn = super::helpers::db_conn()?;
-            execute_combination_with_conn(action, payload, &mut conn, |action_type, target_id| {
-                atomic_actions::validate_target(action_type, target_id).map(|_| ())
-            })
+            execute_combination_with_conn(
+                action,
+                payload,
+                &mut conn,
+                |validation_conn, action_type, target_id| {
+                    atomic_actions::validate_target_with_conn(
+                        validation_conn,
+                        action_type,
+                        target_id,
+                    )
+                    .map(|_| ())
+                },
+            )
         }
         _ => unreachable!("action center action whitelist and dispatcher must stay in sync"),
     }
@@ -389,21 +399,23 @@ mod tests {
                 }],
             }),
             &mut conn,
-            |_, _| Ok(()),
+            |_, _, _| Ok(()),
         )
         .unwrap();
         let combination_id = saved["id"].as_i64().unwrap();
 
         let listed =
-            execute_combination_with_conn("combination_list", &json!({}), &mut conn, |_, _| Ok(()))
-                .unwrap();
+            execute_combination_with_conn("combination_list", &json!({}), &mut conn, |_, _, _| {
+                Ok(())
+            })
+            .unwrap();
         assert_eq!(listed["combinations"][0]["id"], combination_id);
 
         let detail = execute_combination_with_conn(
             "combination_get",
             &json!({ "combinationId": combination_id }),
             &mut conn,
-            |_, _| Ok(()),
+            |_, _, _| Ok(()),
         )
         .unwrap();
         assert_eq!(detail["steps"][0]["targetLabel"], "开发 Hosts");
@@ -416,7 +428,7 @@ mod tests {
             "combination_get",
             &json!({ "combinationId": combination_id }),
             &mut conn,
-            |_, _| Ok(()),
+            |_, _, _| Ok(()),
         )
         .unwrap();
         assert_eq!(unavailable["steps"][0]["targetLabel"], "1");
@@ -430,14 +442,14 @@ mod tests {
             "combination_delete",
             &json!({ "combinationId": combination_id }),
             &mut conn,
-            |_, _| Ok(()),
+            |_, _, _| Ok(()),
         )
         .unwrap();
         assert!(execute_combination_with_conn(
             "combination_get",
             &json!({ "combinationId": combination_id }),
             &mut conn,
-            |_, _| Ok(()),
+            |_, _, _| Ok(()),
         )
         .is_err());
     }
@@ -456,7 +468,7 @@ mod tests {
                     target_id: "1".into(),
                 }],
             },
-            |_, _| Ok(()),
+            |_, _, _| Ok(()),
         )
         .unwrap();
         let run = combination_runs::create_run_with_conn(
@@ -487,7 +499,7 @@ mod tests {
             "combination_run_get",
             &json!({ "runId": run.id }),
             &mut conn,
-            |_, _| Ok(()),
+            |_, _, _| Ok(()),
         )
         .unwrap();
         assert_eq!(detail["status"], "succeeded");
@@ -496,7 +508,7 @@ mod tests {
             "combination_run_list",
             &json!({ "combinationId": combination_id }),
             &mut conn,
-            |_, _| Ok(()),
+            |_, _, _| Ok(()),
         )
         .unwrap();
         assert_eq!(history["runs"].as_array().unwrap().len(), 1);

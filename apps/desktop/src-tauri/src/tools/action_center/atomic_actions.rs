@@ -222,14 +222,6 @@ fn validate_target_with_conn_using_browser_targets(
     Ok(target)
 }
 
-pub(crate) fn validate_target(
-    action_type: &str,
-    target_id: &str,
-) -> Result<ActionTargetOption, String> {
-    let conn = crate::tools::helpers::db_conn()?;
-    validate_target_with_conn(&conn, action_type, target_id)
-}
-
 pub(super) fn snapshot_target_with_conn(
     conn: &Connection,
     action_type: &str,
