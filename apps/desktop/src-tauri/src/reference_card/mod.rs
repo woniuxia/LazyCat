@@ -61,17 +61,19 @@ impl ShowSession {
             .resolve(text)
             .map_err(|error| error.to_string())?
         {
-            ResolveCard::Focus { label } if self.registry.is_pending(&label) => {
-                let ready = match self.flights.get(&label) {
-                    Some(sender) => sender.subscribe(),
-                    None => {
-                        self.registry.remove_label(&label);
-                        return Err("参考卡初始化状态不存在".to_string());
-                    }
-                };
-                Ok(ShowReservation::Wait { label, ready })
+            ResolveCard::Focus { label } => {
+                if let Some(sender) = self.flights.get(&label) {
+                    return Ok(ShowReservation::Wait {
+                        label,
+                        ready: sender.subscribe(),
+                    });
+                }
+                if self.registry.is_pending(&label) {
+                    self.registry.remove_label(&label);
+                    return Err("参考卡初始化状态不存在".to_string());
+                }
+                Ok(ShowReservation::Active { label })
             }
-            ResolveCard::Focus { label } => Ok(ShowReservation::Active { label }),
             ResolveCard::Create { label, ordinal } => {
                 let (sender, ready) = watch::channel(None);
                 self.flights.insert(label.clone(), sender);
@@ -108,21 +110,31 @@ impl ShowSession {
         Ok(())
     }
 
-    fn cancel(&mut self, label: &str, error: String) -> Result<(), String> {
-        self.registry.remove_label(label);
+    fn cancel_flight(&mut self, label: &str, error: String) -> bool {
         let Some(sender) = self.flights.remove(label) else {
-            return Ok(());
+            return false;
         };
-        sender
-            .send(Some(Err(error)))
-            .map_err(|_| "通知参考卡初始化状态失败".to_string())
+        self.registry.remove_label(label);
+        sender.send_replace(Some(Err(error)));
+        true
+    }
+
+    fn remove(&mut self, label: &str, error: String) {
+        self.registry.remove_label(label);
+        if let Some(sender) = self.flights.remove(label) {
+            sender.send_replace(Some(Err(error)));
+        }
     }
 }
 
 static SESSION: LazyLock<Mutex<ShowSession>> = LazyLock::new(|| Mutex::new(ShowSession::default()));
 
 fn lock_session() -> Result<MutexGuard<'static, ShowSession>, String> {
-    SESSION
+    lock_show_session(&SESSION)
+}
+
+fn lock_show_session(session: &Mutex<ShowSession>) -> Result<MutexGuard<'_, ShowSession>, String> {
+    session
         .lock()
         .map_err(|error| format!("参考卡会话锁定失败: {error}"))
 }
@@ -147,6 +159,49 @@ pub(crate) async fn wait_for_ready(mut receiver: ReadyReceiver, wait: Duration) 
     {
         Ok(result) => result,
         Err(_) => Err("参考卡初始化超时".to_string()),
+    }
+}
+
+struct FlightWait {
+    result: ReadyResult,
+    cancelled: bool,
+}
+
+async fn wait_for_flight(
+    session: &Mutex<ShowSession>,
+    label: &str,
+    receiver: ReadyReceiver,
+    wait: Duration,
+) -> FlightWait {
+    let observed = receiver.clone();
+    let result = wait_for_ready(receiver, wait).await;
+    let Err(error) = result else {
+        return FlightWait {
+            result,
+            cancelled: false,
+        };
+    };
+
+    let cancelled = match lock_show_session(session) {
+        Ok(mut session) => session.cancel_flight(label, error.clone()),
+        Err(lock_error) => {
+            return FlightWait {
+                result: Err(format!("{error}; {lock_error}")),
+                cancelled: false,
+            };
+        }
+    };
+    if !cancelled {
+        if let Some(shared_result) = observed.borrow().clone() {
+            return FlightWait {
+                result: shared_result,
+                cancelled: false,
+            };
+        }
+    }
+    FlightWait {
+        result: Err(error),
+        cancelled,
     }
 }
 
@@ -240,23 +295,33 @@ fn close_window(app: &AppHandle, label: &str) {
     }
 }
 
-fn cancel_flight(app: &AppHandle, label: &str, error: &str) -> String {
-    let signal_error = lock_session()
-        .and_then(|mut session| session.cancel(label, error.to_string()))
-        .err();
+fn cancel_and_close(app: &AppHandle, label: &str, error: &str) -> String {
+    let session_error = match lock_session() {
+        Ok(mut session) => {
+            session.cancel_flight(label, error.to_string());
+            None
+        }
+        Err(error) => Some(error),
+    };
     close_window(app, label);
-    match signal_error {
-        Some(signal_error) => format!("{error}; {signal_error}"),
+    match session_error {
+        Some(session_error) => format!("{error}; {session_error}"),
         None => error.to_string(),
     }
+}
+
+async fn wait_for_window_flight(app: &AppHandle, label: &str, ready: ReadyReceiver) -> ReadyResult {
+    let waited = wait_for_flight(&SESSION, label, ready, READY_TIMEOUT).await;
+    if waited.cancelled {
+        close_window(app, label);
+    }
+    waited.result
 }
 
 fn focus_window(app: &AppHandle, label: &str) -> Result<(), String> {
     let Some(window) = app.get_webview_window(label) else {
         let mut session = lock_session()?;
-        if let Err(error) = session.cancel(label, "参考卡窗口不存在".to_string()) {
-            return Err(format!("参考卡窗口不存在; {error}"));
-        }
+        session.remove(label, "参考卡窗口不存在".to_string());
         return Err("参考卡窗口不存在".to_string());
     };
     window
@@ -282,7 +347,7 @@ async fn show_text(app: AppHandle, text: String) -> Result<ReferenceCardShowResu
             })
         }
         ShowReservation::Wait { label, ready } => {
-            wait_for_ready(ready, READY_TIMEOUT).await?;
+            wait_for_window_flight(&app, &label, ready).await?;
             focus_window(&app, &label)?;
             Ok(ReferenceCardShowResult {
                 outcome: "focused",
@@ -295,10 +360,10 @@ async fn show_text(app: AppHandle, text: String) -> Result<ReferenceCardShowResu
             ready,
         } => {
             if let Err(error) = build_window(&app, &label, ordinal).await {
-                return Err(cancel_flight(&app, &label, &error));
+                return Err(cancel_and_close(&app, &label, &error));
             }
-            if let Err(error) = wait_for_ready(ready, READY_TIMEOUT).await {
-                return Err(cancel_flight(&app, &label, &error));
+            if let Err(error) = wait_for_window_flight(&app, &label, ready).await {
+                return Err(error);
             }
             Ok(ReferenceCardShowResult {
                 outcome: "created",
@@ -369,13 +434,10 @@ pub(crate) fn reference_card_ready(window: WebviewWindow) -> Result<(), String> 
             Some(text) => text,
             None => {
                 let error = "参考卡初始化正文不存在".to_string();
-                let cleanup_error = session.cancel(&label, error.clone()).err();
+                session.remove(&label, error.clone());
                 drop(session);
                 close_window(window.app_handle(), &label);
-                return match cleanup_error {
-                    Some(cleanup_error) => Err(format!("{error}; {cleanup_error}")),
-                    None => Err(error),
-                };
+                return Err(error);
             }
         }
     };
@@ -393,7 +455,7 @@ pub(crate) fn reference_card_ready(window: WebviewWindow) -> Result<(), String> 
         lock_session()?.complete(&label, Ok(()))
     };
     if let Err(error) = initialize() {
-        return Err(cancel_flight(window.app_handle(), &label, &error));
+        return Err(cancel_and_close(window.app_handle(), &label, &error));
     }
     Ok(())
 }
@@ -404,9 +466,7 @@ pub(crate) fn on_window_closed(label: &str) {
     }
     match lock_session() {
         Ok(mut session) => {
-            if let Err(error) = session.cancel(label, "参考卡窗口已关闭".to_string()) {
-                eprintln!("[reference-card] close signal {label} failed: {error}");
-            }
+            session.remove(label, "参考卡窗口已关闭".to_string());
         }
         Err(error) => eprintln!("[reference-card] close cleanup {label} failed: {error}"),
     }
@@ -422,7 +482,7 @@ mod tests {
 
     use tokio::sync::Notify;
 
-    use super::{wait_for_ready, ShowReservation, ShowSession};
+    use super::{wait_for_flight, wait_for_ready, ShowReservation, ShowSession};
 
     const MAIN_SOURCE: &str = include_str!("../main.rs");
     const CAPABILITY_SOURCE: &str = include_str!("../../capabilities/default.json");
@@ -582,6 +642,27 @@ mod tests {
         assert_eq!(focuses.load(Ordering::SeqCst), 1);
     }
 
+    #[test]
+    fn same_source_waits_after_pending_is_taken_until_flight_completes() {
+        let mut session = ShowSession::default();
+        let label = match session.reserve("ready gap", |_| false).unwrap() {
+            ShowReservation::Create { label, .. } => label,
+            _ => panic!("first caller must create"),
+        };
+        assert_eq!(session.take_pending(&label).as_deref(), Some("ready gap"));
+
+        match session.reserve("ready gap", |_| true).unwrap() {
+            ShowReservation::Wait {
+                label: waiting_label,
+                ..
+            } => assert_eq!(waiting_label, label),
+            ShowReservation::Active { .. } => {
+                panic!("in-flight card must not become active before ready completion")
+            }
+            ShowReservation::Create { .. } => panic!("in-flight card must not be recreated"),
+        }
+    }
+
     #[tokio::test]
     async fn creation_error_reaches_followers_and_allows_retry() {
         let mut session = ShowSession::default();
@@ -617,6 +698,53 @@ mod tests {
                 label: retry_label, ..
             } => assert_eq!(retry_label, "reference-card-2"),
             _ => panic!("failed flight must be cleared for retry"),
+        }
+    }
+
+    #[tokio::test]
+    async fn flight_timeout_notifies_waiters_and_allows_retry() {
+        let session = Mutex::new(ShowSession::default());
+        let (label, timing_out_ready) = {
+            let mut session = session.lock().expect("show session lock");
+            match session.reserve("timeout source", |_| false).unwrap() {
+                ShowReservation::Create { label, ready, .. } => (label, ready),
+                _ => panic!("first caller must create"),
+            }
+        };
+        let other_ready = {
+            let mut session = session.lock().expect("show session lock");
+            match session.reserve("timeout source", |_| false).unwrap() {
+                ShowReservation::Wait {
+                    label: waiting_label,
+                    ready,
+                } => {
+                    assert_eq!(waiting_label, label);
+                    ready
+                }
+                _ => panic!("second caller must wait"),
+            }
+        };
+
+        let timed_out = wait_for_flight(
+            &session,
+            &label,
+            timing_out_ready,
+            Duration::from_millis(10),
+        )
+        .await;
+        assert_eq!(timed_out.result, Err("参考卡初始化超时".to_string()));
+        assert!(timed_out.cancelled);
+        assert_eq!(
+            wait_for_ready(other_ready, Duration::from_millis(50)).await,
+            Err("参考卡初始化超时".to_string())
+        );
+
+        let mut session = session.lock().expect("show session lock");
+        match session.reserve("timeout source", |_| true).unwrap() {
+            ShowReservation::Create {
+                label: retry_label, ..
+            } => assert_eq!(retry_label, "reference-card-2"),
+            _ => panic!("timed-out flight must be cleared for retry"),
         }
     }
 }
