@@ -28,7 +28,25 @@ type ReadyResult = Result<(), String>;
 type ReadySender = watch::Sender<Option<ReadyResult>>;
 type ReadyReceiver = watch::Receiver<Option<ReadyResult>>;
 
-pub(crate) enum ShowReservation {
+#[derive(Debug)]
+struct ReserveError {
+    message: String,
+    recent_active_label: Option<String>,
+}
+
+impl ReserveError {
+    fn recent_active_label(&self) -> Option<&str> {
+        self.recent_active_label.as_deref()
+    }
+}
+
+impl std::fmt::Display for ReserveError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
+enum ShowReservation {
     Active {
         label: String,
     },
@@ -44,23 +62,35 @@ pub(crate) enum ShowReservation {
 }
 
 #[derive(Default)]
-pub(crate) struct ShowSession {
+struct ShowSession {
     registry: CardRegistry,
     flights: HashMap<String, ReadySender>,
 }
 
 impl ShowSession {
-    pub(crate) fn reserve(
+    fn reserve(
         &mut self,
         text: &str,
         exists: impl FnMut(&str) -> bool,
-    ) -> Result<ShowReservation, String> {
+    ) -> Result<ShowReservation, ReserveError> {
         self.registry.retain_labels(exists);
-        match self
-            .registry
-            .resolve(text)
-            .map_err(|error| error.to_string())?
-        {
+        let resolved = match self.registry.resolve(text) {
+            Ok(resolved) => resolved,
+            Err(error) => {
+                let recent_active_label = error.recent_label().and_then(|label| {
+                    if !self.flights.contains_key(label) && !self.registry.is_pending(label) {
+                        Some(label.to_string())
+                    } else {
+                        None
+                    }
+                });
+                return Err(ReserveError {
+                    message: error.to_string(),
+                    recent_active_label,
+                });
+            }
+        };
+        match resolved {
             ResolveCard::Focus { label } => {
                 if let Some(sender) = self.flights.get(&label) {
                     return Ok(ShowReservation::Wait {
@@ -70,7 +100,10 @@ impl ShowSession {
                 }
                 if self.registry.is_pending(&label) {
                     self.registry.remove_label(&label);
-                    return Err("参考卡初始化状态不存在".to_string());
+                    return Err(ReserveError {
+                        message: "参考卡初始化状态不存在".to_string(),
+                        recent_active_label: None,
+                    });
                 }
                 Ok(ShowReservation::Active { label })
             }
@@ -212,6 +245,12 @@ pub(crate) struct ReferenceCardShowResult {
     window_label: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ReferenceCardInitPayload {
+    content: String,
+}
+
 fn reference_card_url() -> WebviewUrl {
     if cfg!(debug_assertions) {
         WebviewUrl::External(
@@ -287,11 +326,43 @@ async fn build_window(app: &AppHandle, label: &str, ordinal: usize) -> Result<()
         .map_err(|_| "参考卡窗口创建结果通道已关闭".to_string())?
 }
 
-fn close_window(app: &AppHandle, label: &str) {
-    if let Some(window) = app.get_webview_window(label) {
-        if let Err(error) = window.close() {
-            eprintln!("[reference-card] close {label} failed: {error}");
+#[derive(Debug, PartialEq, Eq)]
+enum WindowCleanup {
+    Closed,
+    DestroyedAfterCloseFailure { close_error: String },
+}
+
+fn cleanup_window_with(
+    close: impl FnOnce() -> Result<(), String>,
+    destroy: impl FnOnce() -> Result<(), String>,
+) -> Result<WindowCleanup, String> {
+    match close() {
+        Ok(()) => Ok(WindowCleanup::Closed),
+        Err(close_error) => match destroy() {
+            Ok(()) => Ok(WindowCleanup::DestroyedAfterCloseFailure { close_error }),
+            Err(destroy_error) => Err(format!(
+                "关闭参考卡窗口失败: {close_error}; 强制销毁参考卡窗口失败: {destroy_error}"
+            )),
+        },
+    }
+}
+
+fn close_window(app: &AppHandle, label: &str) -> Result<(), String> {
+    let Some(window) = app.get_webview_window(label) else {
+        return Ok(());
+    };
+    match cleanup_window_with(
+        || window.close().map_err(|error| error.to_string()),
+        || window.destroy().map_err(|error| error.to_string()),
+    ) {
+        Ok(WindowCleanup::Closed) => Ok(()),
+        Ok(WindowCleanup::DestroyedAfterCloseFailure { close_error }) => {
+            eprintln!(
+                "[reference-card] close {label} failed, destroyed instead: {close_error}"
+            );
+            Ok(())
         }
+        Err(error) => Err(format!("清理参考卡窗口 {label} 失败: {error}")),
     }
 }
 
@@ -303,17 +374,26 @@ fn cancel_and_close(app: &AppHandle, label: &str, error: &str) -> String {
         }
         Err(error) => Some(error),
     };
-    close_window(app, label);
-    match session_error {
-        Some(session_error) => format!("{error}; {session_error}"),
-        None => error.to_string(),
+    let close_error = close_window(app, label).err();
+    match (session_error, close_error) {
+        (Some(session_error), Some(close_error)) => {
+            format!("{error}; {session_error}; {close_error}")
+        }
+        (Some(session_error), None) => format!("{error}; {session_error}"),
+        (None, Some(close_error)) => format!("{error}; {close_error}"),
+        (None, None) => error.to_string(),
     }
 }
 
 async fn wait_for_window_flight(app: &AppHandle, label: &str, ready: ReadyReceiver) -> ReadyResult {
     let waited = wait_for_flight(&SESSION, label, ready, READY_TIMEOUT).await;
     if waited.close_window {
-        close_window(app, label);
+        if let Err(close_error) = close_window(app, label) {
+            return match waited.result {
+                Ok(()) => Err(close_error),
+                Err(error) => Err(format!("{error}; {close_error}")),
+            };
+        }
     }
     waited.result
 }
@@ -333,9 +413,21 @@ fn focus_window(app: &AppHandle, label: &str) -> Result<(), String> {
 }
 
 async fn show_text(app: AppHandle, text: String) -> Result<ReferenceCardShowResult, String> {
-    let reservation = {
+    let reservation_result = {
         let mut session = lock_session()?;
-        session.reserve(&text, |label| app.get_webview_window(label).is_some())?
+        session.reserve(&text, |label| app.get_webview_window(label).is_some())
+    };
+    let reservation = match reservation_result {
+        Ok(reservation) => reservation,
+        Err(error) => {
+            let message = error.to_string();
+            if let Some(label) = error.recent_active_label() {
+                if let Err(focus_error) = focus_window(&app, label) {
+                    return Err(format!("{message}; {focus_error}"));
+                }
+            }
+            return Err(message);
+        }
     };
 
     match reservation {
@@ -381,7 +473,9 @@ fn notify_error(app: &AppHandle, error: &str) {
         .body(error)
         .show()
     {
-        eprintln!("[reference-card] notification failed: {notification_error}");
+        eprintln!(
+            "[reference-card] notification failed: {notification_error}; original error: {error}"
+        );
     }
 }
 
@@ -436,15 +530,17 @@ pub(crate) fn reference_card_ready(window: WebviewWindow) -> Result<(), String> 
                 let error = "参考卡初始化正文不存在".to_string();
                 session.remove(&label, error.clone());
                 drop(session);
-                close_window(window.app_handle(), &label);
-                return Err(error);
+                return match close_window(window.app_handle(), &label) {
+                    Ok(()) => Err(error),
+                    Err(close_error) => Err(format!("{error}; {close_error}")),
+                };
             }
         }
     };
 
     let initialize = || -> Result<(), String> {
         window
-            .emit(EVENT_REFERENCE_CARD_INIT, text)
+            .emit(EVENT_REFERENCE_CARD_INIT, ReferenceCardInitPayload { content: text })
             .map_err(|error| format!("发送参考卡初始化正文失败: {error}"))?;
         window
             .show()
@@ -474,18 +570,80 @@ pub(crate) fn on_window_closed(label: &str) {
 
 #[cfg(test)]
 mod tests {
+    use std::cell::Cell;
     use std::sync::{
         atomic::{AtomicUsize, Ordering},
         Arc, Mutex,
     };
     use std::time::Duration;
 
+    use serde_json::json;
     use tokio::sync::Notify;
 
-    use super::{wait_for_flight, wait_for_ready, ShowReservation, ShowSession};
+    use super::{
+        cleanup_window_with, wait_for_flight, wait_for_ready, ReferenceCardInitPayload,
+        ShowReservation, ShowSession, WindowCleanup,
+    };
 
     const MAIN_SOURCE: &str = include_str!("../main.rs");
     const CAPABILITY_SOURCE: &str = include_str!("../../capabilities/default.json");
+
+    #[test]
+    fn reference_card_init_payload_serializes_content_object() {
+        assert_eq!(
+            serde_json::to_value(ReferenceCardInitPayload {
+                content: "正文".to_string(),
+            })
+            .unwrap(),
+            json!({ "content": "正文" })
+        );
+    }
+
+    #[test]
+    fn cleanup_window_stops_after_successful_close() {
+        let destroy_calls = Cell::new(0);
+        let result = cleanup_window_with(
+            || Ok(()),
+            || {
+                destroy_calls.set(destroy_calls.get() + 1);
+                Ok(())
+            },
+        );
+
+        assert_eq!(result, Ok(WindowCleanup::Closed));
+        assert_eq!(destroy_calls.get(), 0);
+    }
+
+    #[test]
+    fn cleanup_window_falls_back_to_destroy_after_close_failure() {
+        let result = cleanup_window_with(
+            || Err("close failed".to_string()),
+            || Ok(()),
+        );
+
+        assert_eq!(
+            result,
+            Ok(WindowCleanup::DestroyedAfterCloseFailure {
+                close_error: "close failed".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn cleanup_window_reports_close_and_destroy_failures() {
+        let result = cleanup_window_with(
+            || Err("close failed".to_string()),
+            || Err("destroy failed".to_string()),
+        );
+
+        assert_eq!(
+            result,
+            Err(
+                "关闭参考卡窗口失败: close failed; 强制销毁参考卡窗口失败: destroy failed"
+                    .to_string()
+            )
+        );
+    }
 
     #[test]
     fn main_registers_reference_card_commands() {
@@ -562,7 +720,8 @@ mod tests {
         let reservation = session
             .lock()
             .expect("show session lock")
-            .reserve(text, |_| false)?;
+            .reserve(text, |_| false)
+            .map_err(|error| error.to_string())?;
         match reservation {
             ShowReservation::Create {
                 label,
@@ -661,6 +820,48 @@ mod tests {
             }
             ShowReservation::Create { .. } => panic!("in-flight card must not be recreated"),
         }
+    }
+
+    #[test]
+    fn capacity_error_exposes_only_a_recent_active_label() {
+        let mut session = ShowSession::default();
+        for index in 1..=6 {
+            let (label, ready) =
+                match session.reserve(&format!("active-{index}"), |_| true).unwrap() {
+                    ShowReservation::Create { label, ready, .. } => (label, ready),
+                    _ => panic!("card must be created"),
+                };
+            assert!(session.take_pending(&label).is_some());
+            session.complete(&label, Ok(())).unwrap();
+            drop(ready);
+        }
+
+        let error = match session.reserve("overflow", |_| true) {
+            Err(error) => error,
+            Ok(_) => panic!("seventh card must fail"),
+        };
+        assert_eq!(
+            error.to_string(),
+            "最多同时打开 6 张参考卡，请先关闭一张"
+        );
+        assert_eq!(error.recent_active_label(), Some("reference-card-6"));
+    }
+
+    #[test]
+    fn capacity_error_does_not_expose_a_pending_recent_label() {
+        let mut session = ShowSession::default();
+        for index in 1..=6 {
+            assert!(matches!(
+                session.reserve(&format!("pending-{index}"), |_| true),
+                Ok(ShowReservation::Create { .. })
+            ));
+        }
+
+        let error = match session.reserve("overflow", |_| true) {
+            Err(error) => error,
+            Ok(_) => panic!("seventh card must fail"),
+        };
+        assert_eq!(error.recent_active_label(), None);
     }
 
     #[tokio::test]
