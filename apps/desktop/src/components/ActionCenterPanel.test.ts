@@ -88,6 +88,35 @@ describe("ActionCenterPanel contracts", () => {
     expect(source).toContain("activeRun.value?.combinationId ?? combinations.value[0].id");
   });
 
+  it("separates save refresh warnings from write failures", () => {
+    const source = readFileSync(new URL("./ActionCenterPanel.vue", import.meta.url), "utf8");
+    expect(source).toContain("const result = await persistCombination();");
+    expect(source).toContain("result.refreshError");
+    expect(source).toContain("组合动作已保存，但刷新失败");
+  });
+
+  it("surfaces run-level errors in notifications and run history", () => {
+    const panelSource = readFileSync(new URL("./ActionCenterPanel.vue", import.meta.url), "utf8");
+    const historySource = readFileSync(
+      new URL("./action-center/ActionRunHistory.vue", import.meta.url), "utf8",
+    );
+    expect(panelSource).toContain("run.error?.trim()");
+    expect(panelSource).toContain('status === "succeeded" ? "组合动作运行完成"');
+    expect(panelSource).toContain('"组合动作运行失败"');
+    expect(historySource).toContain("activeRun.error");
+    expect(historySource).toContain("run.error");
+    expect(historySource.match(/class="run-history__error"/g)).toHaveLength(2);
+  });
+
+  it("offers the target tool when a loaded target list is empty", () => {
+    const source = readFileSync(
+      new URL("./action-center/ActionCombinationEditor.vue", import.meta.url), "utf8",
+    );
+    expect(source).toContain("targets.has(step.localId)");
+    expect(source).toContain("暂无可用目标，请先在对应工具中完成配置");
+    expect(source).toContain("definitionFor(step.actionType)?.targetToolId");
+  });
+
   it("supports keyboard step reordering with accessible drag labels", () => {
     const source = readFileSync(
       new URL("./action-center/ActionCombinationEditor.vue", import.meta.url), "utf8",

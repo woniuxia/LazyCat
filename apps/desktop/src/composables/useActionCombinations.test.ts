@@ -12,6 +12,7 @@ vi.mock("@tauri-apps/api/event", () => ({ listen: listenMock }));
 import type {
   ActionCombinationDetail,
   ActionCombinationRunDetail,
+  ActionCombinationSummary,
   ActionCombinationTarget,
 } from "../types/action-center";
 import { useActionCombinations } from "./useActionCombinations";
@@ -53,6 +54,19 @@ function combinationDetail(id: number): ActionCombinationDetail {
     executionMode: "serial",
     steps: [],
     createdAt: "2026-07-26 10:00:00",
+    updatedAt: "2026-07-26 10:00:00",
+  };
+}
+
+function combinationSummary(
+  latestRunStatus?: ActionCombinationSummary["latestRunStatus"],
+): ActionCombinationSummary {
+  return {
+    id: 7,
+    name: "开发环境",
+    executionMode: "serial",
+    stepCount: 2,
+    latestRunStatus,
     updatedAt: "2026-07-26 10:00:00",
   };
 }
@@ -209,6 +223,74 @@ describe("useActionCombinations", () => {
     expect(state.operationPending.value).toBe(false);
   });
 
+  it("keeps the saved identity when read refresh fails and retries as an update", async () => {
+    invokeMock
+      .mockResolvedValueOnce({ id: 7 })
+      .mockRejectedValueOnce(new Error("列表刷新失败"))
+      .mockResolvedValueOnce({ id: 7 })
+      .mockResolvedValueOnce({ combinations: [combinationSummary()] })
+      .mockResolvedValueOnce(combinationDetail(7))
+      .mockResolvedValueOnce({ runs: [] });
+    const state = useActionCombinations();
+    state.createCombination();
+    if (!state.draft.value) throw new Error("draft missing");
+    state.draft.value.name = "开发环境";
+
+    const firstResult = await state.saveCombination();
+
+    expect(firstResult).toEqual({ id: 7, refreshError: "列表刷新失败" });
+    expect(state.draft.value.id).toBe(7);
+    expect(state.selectedId.value).toBe(7);
+    expect(state.dirty.value).toBe(false);
+
+    const secondResult = await state.saveCombination();
+    const saveCalls = invokeMock.mock.calls.filter(
+      ([channel]) => channel === "tool:action-center:combination-save",
+    );
+    expect(secondResult).toEqual({ id: 7 });
+    expect(saveCalls).toHaveLength(2);
+    expect(saveCalls[0][1]).not.toHaveProperty("id");
+    expect(saveCalls[1][1]).toMatchObject({ id: 7 });
+    expect(state.draft.value.id).toBe(7);
+    expect(state.dirty.value).toBe(false);
+  });
+
+  it("keeps the saved identity when detail refresh fails", async () => {
+    invokeMock
+      .mockResolvedValueOnce({ id: 7 })
+      .mockResolvedValueOnce({ combinations: [combinationSummary()] })
+      .mockRejectedValueOnce(new Error("详情刷新失败"));
+    const state = useActionCombinations();
+    state.createCombination();
+    if (!state.draft.value) throw new Error("draft missing");
+    state.draft.value.name = "开发环境";
+
+    const result = await state.saveCombination();
+
+    expect(result).toEqual({ id: 7, refreshError: "详情刷新失败" });
+    expect(state.draft.value.id).toBe(7);
+    expect(state.selectedId.value).toBe(7);
+    expect(state.dirty.value).toBe(false);
+  });
+
+  it("updates a running summary and rejects an older list response", async () => {
+    const staleList = deferred<{ combinations: ActionCombinationSummary[] }>();
+    invokeMock
+      .mockReturnValueOnce(staleList.promise)
+      .mockResolvedValueOnce(runningRun("run-started"));
+    const state = useActionCombinations({ pollIntervalMs: 10_000 });
+    state.combinations.value = [combinationSummary()];
+    const loading = state.loadCombinations();
+    await state.runCombination(7);
+    const statusAfterStart = state.combinations.value[0].latestRunStatus;
+    staleList.resolve({ combinations: [combinationSummary()] });
+    await loading;
+    const statusAfterStaleList = state.combinations.value[0].latestRunStatus;
+    state.stop();
+    expect(statusAfterStart).toBe("running");
+    expect(statusAfterStaleList).toBe("running");
+  });
+
   it("sets operation pending synchronously and rejects a duplicate run", async () => {
     const runResponse = deferred<ActionCombinationRunDetail>();
     invokeMock.mockReturnValueOnce(runResponse.promise);
@@ -230,6 +312,7 @@ describe("useActionCombinations", () => {
     const runResponse = deferred<ActionCombinationRunDetail>();
     invokeMock.mockReturnValueOnce(runResponse.promise);
     const state = useActionCombinations({ pollIntervalMs: 5 });
+    state.combinations.value = [combinationSummary()];
 
     const running = state.runCombination(7);
     state.stop();
@@ -238,6 +321,7 @@ describe("useActionCombinations", () => {
 
     expect(state.activeRun.value).toBeNull();
     expect(state.runActive.value).toBe(false);
+    expect(state.combinations.value[0].latestRunStatus).toBeUndefined();
     const callsAfterStop = invokeMock.mock.calls.length;
     await vi.advanceTimersByTimeAsync(20);
     expect(invokeMock).toHaveBeenCalledTimes(callsAfterStop);
@@ -253,6 +337,7 @@ describe("useActionCombinations", () => {
       .mockResolvedValueOnce({ runs: [succeeded] });
     const state = useActionCombinations({ pollIntervalMs: 5 });
     await state.start();
+    state.combinations.value = [combinationSummary("running")];
     await state.trackRun(runningRun("run-1"));
 
     emitRunUpdate({ runId: "run-1", status: "succeeded" });
@@ -264,7 +349,26 @@ describe("useActionCombinations", () => {
       { runId: "run-1" },
     );
     expect(state.activeRun.value?.status).toBe("succeeded");
+    expect(state.combinations.value[0].latestRunStatus).toBe("succeeded");
 
+    const callsAfterTerminal = invokeMock.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(20);
+    expect(invokeMock).toHaveBeenCalledTimes(callsAfterTerminal);
+    state.stop();
+  });
+
+  it("updates the summary when polling reaches a terminal run", async () => {
+    vi.useFakeTimers();
+    const succeeded = { ...runningRun("run-poll"), status: "succeeded" as const };
+    invokeMock.mockResolvedValueOnce(succeeded);
+    const state = useActionCombinations({ pollIntervalMs: 5 });
+    state.combinations.value = [combinationSummary("running")];
+    await state.trackRun(runningRun("run-poll"));
+
+    await vi.advanceTimersByTimeAsync(5);
+
+    expect(state.activeRun.value?.status).toBe("succeeded");
+    expect(state.combinations.value[0].latestRunStatus).toBe("succeeded");
     const callsAfterTerminal = invokeMock.mock.calls.length;
     await vi.advanceTimersByTimeAsync(20);
     expect(invokeMock).toHaveBeenCalledTimes(callsAfterTerminal);

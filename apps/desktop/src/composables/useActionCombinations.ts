@@ -24,10 +24,19 @@ interface UseActionCombinationsOptions {
   pollIntervalMs?: number;
 }
 
+interface ActionCombinationSaveResult {
+  id: number;
+  refreshError?: string;
+}
+
 const DEFAULT_POLL_INTERVAL_MS = 1_000;
 
 function draftFingerprint(draft: ActionCombinationDraft | null): string {
   return draft ? JSON.stringify(toCombinationSaveInput(draft)) : "";
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 export function useActionCombinations(options: UseActionCombinationsOptions = {}) {
@@ -53,6 +62,7 @@ export function useActionCombinations(options: UseActionCombinationsOptions = {}
   let historyRequestVersion = 0;
   let listenerGeneration = 0;
   let lifecycleGeneration = 0;
+  let combinationListRequestVersion = 0;
 
   const dirty = computed(() => draftFingerprint(draft.value) !== savedFingerprint.value);
   const runActive = computed(
@@ -69,6 +79,24 @@ export function useActionCombinations(options: UseActionCombinationsOptions = {}
     savedFingerprint.value = markSaved ? draftFingerprint(next) : "";
     stepTargets.value = new Map();
     targetRequestVersions.clear();
+  }
+
+  function commitSavedDraft(id: number): void {
+    if (!draft.value) return;
+    const savedDraft = { ...draft.value, id };
+    draft.value = savedDraft;
+    selectedId.value = id;
+    savedFingerprint.value = draftFingerprint(savedDraft);
+  }
+
+  function updateCombinationRunStatus(run: ActionCombinationRunDetail): void {
+    if (typeof run.combinationId !== "number") return;
+    combinationListRequestVersion += 1;
+    combinations.value = combinations.value.map((summary) =>
+      summary.id === run.combinationId
+        ? { ...summary, latestRunStatus: run.status }
+        : summary,
+    );
   }
 
   function clearPoll(): void {
@@ -92,11 +120,15 @@ export function useActionCombinations(options: UseActionCombinationsOptions = {}
   async function loadCombinations(
     expectedGeneration = lifecycleGeneration,
   ): Promise<void> {
+    const requestVersion = ++combinationListRequestVersion;
     const response = (await invokeToolByChannel(
       "tool:action-center:combination-list",
       {},
     )) as { combinations: ActionCombinationSummary[] };
-    if (expectedGeneration !== lifecycleGeneration) return;
+    if (
+      expectedGeneration !== lifecycleGeneration
+      || requestVersion !== combinationListRequestVersion
+    ) return;
     combinations.value = response.combinations;
   }
 
@@ -142,6 +174,7 @@ export function useActionCombinations(options: UseActionCombinationsOptions = {}
     )) as ActionCombinationRunDetail;
     if (version !== runRefreshVersion || activeRun.value?.id !== runId) return;
     activeRun.value = run;
+    updateCombinationRunStatus(run);
     if (!isCombinationRunTerminal(run.status)) return;
     clearPoll();
     if (typeof run.combinationId === "number" && selectedId.value === run.combinationId) {
@@ -163,6 +196,7 @@ export function useActionCombinations(options: UseActionCombinationsOptions = {}
     if (expectedGeneration !== lifecycleGeneration) return;
     runRefreshVersion += 1;
     activeRun.value = run;
+    updateCombinationRunStatus(run);
     if (isCombinationRunTerminal(run.status)) {
       clearPoll();
       if (typeof run.combinationId === "number" && selectedId.value === run.combinationId) {
@@ -218,6 +252,7 @@ export function useActionCombinations(options: UseActionCombinationsOptions = {}
     selectionVersion += 1;
     runRefreshVersion += 1;
     historyRequestVersion += 1;
+    combinationListRequestVersion += 1;
     targetRequestVersions.clear();
     clearPoll();
     const dispose = unlisten;
@@ -289,7 +324,7 @@ export function useActionCombinations(options: UseActionCombinationsOptions = {}
     draft.value.steps = moveCombinationStep(draft.value.steps, fromIndex, toIndex);
   }
 
-  async function saveCombination(): Promise<number> {
+  async function saveCombination(): Promise<ActionCombinationSaveResult> {
     ensureOperationIdle();
     if (!draft.value) throw new Error("没有可保存的组合动作");
     const generation = lifecycleGeneration;
@@ -300,11 +335,17 @@ export function useActionCombinations(options: UseActionCombinationsOptions = {}
         "tool:action-center:combination-save",
         { ...input },
       )) as { id: number };
-      if (generation !== lifecycleGeneration) return response.id;
-      await loadCombinations(generation);
-      if (generation !== lifecycleGeneration) return response.id;
-      await selectCombination(response.id);
-      return response.id;
+      const result: ActionCombinationSaveResult = { id: response.id };
+      if (generation !== lifecycleGeneration) return result;
+      commitSavedDraft(response.id);
+      try {
+        await loadCombinations(generation);
+        if (generation !== lifecycleGeneration) return result;
+        await selectCombination(response.id);
+      } catch (error) {
+        result.refreshError = errorMessage(error);
+      }
+      return result;
     } finally {
       saving.value = false;
     }

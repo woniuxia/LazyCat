@@ -42,6 +42,9 @@ function tagType(status: string): "success" | "warning" | "danger" | "info" {
           {{ combinationRunStatusLabel(activeRun.status) }}
         </el-tag>
       </div>
+      <p v-if="activeRun.error" class="run-history__error">
+        {{ activeRun.error }}
+      </p>
       <ol class="run-step-results">
         <li v-for="step in activeRun.steps" :key="step.id">
           <span class="run-step-results__label">{{ step.actionLabel }} · {{ step.targetLabel }}</span>
@@ -65,6 +68,9 @@ function tagType(status: string): "success" | "warning" | "danger" | "info" {
             {{ combinationRunStatusLabel(run.status) }}
           </el-tag>
         </template>
+        <p v-if="run.error" class="run-history__error">
+          {{ run.error }}
+        </p>
         <ol class="run-step-results">
           <li v-for="step in run.steps" :key="step.id">
             <span class="run-step-results__label">{{ step.actionLabel }} · {{ step.targetLabel }}</span>
@@ -112,6 +118,13 @@ function tagType(status: string): "success" | "warning" | "danger" | "info" {
 .run-history__archive-title {
   color: var(--lc-text-muted);
   font-size: 12px;
+}
+
+.run-history__error {
+  margin: 8px 0 0;
+  color: var(--lc-danger);
+  font-size: 12px;
+  overflow-wrap: anywhere;
 }
 
 .run-history__active {

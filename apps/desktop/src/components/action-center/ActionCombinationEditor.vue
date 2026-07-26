@@ -264,11 +264,15 @@ onUnmounted(() => {
             />
           </el-select>
           <div
-            v-if="targetState(step.localId).selected?.available === false"
+            v-if="
+              targetState(step.localId).selected?.available === false
+              || (targets.has(step.localId) && targetState(step.localId).options.length === 0)
+            "
             class="action-step__unavailable"
           >
             <span>
-              {{ targetState(step.localId).selected?.unavailableReason }}
+              {{ targetState(step.localId).selected?.unavailableReason
+                ?? "暂无可用目标，请先在对应工具中完成配置" }}
             </span>
             <el-button
               link

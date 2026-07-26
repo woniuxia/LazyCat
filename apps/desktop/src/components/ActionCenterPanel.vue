@@ -100,9 +100,18 @@ async function createCombination(): Promise<void> {
 async function saveCombination(): Promise<void> {
   if (interactionLocked.value) return;
   try {
-    await persistCombination();
-    await loadDraftTargets();
-    ElMessage.success("组合动作已保存");
+    const result = await persistCombination();
+    const refreshErrors = result.refreshError ? [result.refreshError] : [];
+    try {
+      await loadDraftTargets();
+    } catch (error) {
+      refreshErrors.push(error instanceof Error ? error.message : String(error));
+    }
+    if (refreshErrors.length) {
+      ElMessage.warning("组合动作已保存，但刷新失败：" + refreshErrors.join("；"));
+    } else {
+      ElMessage.success("组合动作已保存");
+    }
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : String(error));
   }
@@ -153,7 +162,14 @@ watch(
     const failures = run.steps
       .filter((step) => step.status === "failed")
       .map((step) => `${step.actionLabel} · ${step.targetLabel}`);
-    const message = failures.length ? `失败步骤：${failures.join("、")}` : "组合动作运行完成";
+    const details = [
+      run.error?.trim(),
+      failures.length ? `失败步骤：${failures.join("、")}` : "",
+    ].filter(Boolean);
+    const fallback = status === "succeeded" ? "组合动作运行完成"
+      : status === "partially_succeeded" ? "组合动作部分完成"
+        : "组合动作运行失败";
+    const message = details.join("；") || fallback;
     if (status === "succeeded") ElMessage.success(message);
     else if (status === "partially_succeeded") ElMessage.warning(message);
     else ElMessage.error(message);
