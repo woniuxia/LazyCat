@@ -286,6 +286,64 @@ pub(crate) struct VaultServerCredential {
     pub password: Zeroizing<String>,
 }
 
+#[cfg(test)]
+std::thread_local! {
+    static SERVER_CREDENTIAL_METADATA_MUTATION:
+        std::cell::Cell<Option<(i64, i64)>> = const { std::cell::Cell::new(None) };
+}
+
+#[cfg(test)]
+struct ServerCredentialMetadataMutationGuard;
+
+#[cfg(test)]
+impl Drop for ServerCredentialMetadataMutationGuard {
+    fn drop(&mut self) {
+        SERVER_CREDENTIAL_METADATA_MUTATION.with(|mutation| mutation.set(None));
+    }
+}
+
+#[cfg(test)]
+fn arm_server_credential_metadata_mutation(
+    entry_id: i64,
+    source_entry_id: i64,
+) -> ServerCredentialMetadataMutationGuard {
+    SERVER_CREDENTIAL_METADATA_MUTATION.with(|mutation| {
+        mutation.set(Some((entry_id, source_entry_id)));
+    });
+    ServerCredentialMetadataMutationGuard
+}
+
+#[cfg(test)]
+fn maybe_mutate_server_credential_after_metadata_read(
+    conn: &Connection,
+    entry_id: i64,
+) -> Result<(), String> {
+    let source_entry_id = SERVER_CREDENTIAL_METADATA_MUTATION.with(|mutation| {
+        let Some((armed_entry_id, source_entry_id)) = mutation.get() else {
+            return None;
+        };
+        if armed_entry_id != entry_id {
+            return None;
+        }
+        mutation.set(None);
+        Some(source_entry_id)
+    });
+    let Some(source_entry_id) = source_entry_id else {
+        return Ok(());
+    };
+    conn.execute(
+        "UPDATE vault_entries
+         SET category = (SELECT category FROM vault_entries WHERE id = ?2),
+             plain_fields = (SELECT plain_fields FROM vault_entries WHERE id = ?2),
+             iv = (SELECT iv FROM vault_entries WHERE id = ?2),
+             encrypted_blob = (SELECT encrypted_blob FROM vault_entries WHERE id = ?2)
+         WHERE id = ?1",
+        params![entry_id, source_entry_id],
+    )
+    .map_err(|error| format!("mutate test vault entry: {error}"))?;
+    Ok(())
+}
+
 pub(crate) fn server_credential_metadata(
     conn: &Connection,
     entry_id: i64,
@@ -297,12 +355,23 @@ pub(crate) fn server_credential_metadata(
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .map_err(|_| "vault_entry_not_found".to_string())?;
+
+    #[cfg(test)]
+    maybe_mutate_server_credential_after_metadata_read(conn, entry_id)?;
+
+    parse_server_credential_metadata(entry_id, &category, plain_fields.as_deref())
+}
+
+fn parse_server_credential_metadata(
+    entry_id: i64,
+    category: &str,
+    plain_fields: Option<&str>,
+) -> Result<VaultServerCredentialMetadata, String> {
     if category != "server" {
         return Err("vault_entry_invalid_category".to_string());
     }
 
     let fields: Value = plain_fields
-        .as_deref()
         .and_then(|text| serde_json::from_str(text).ok())
         .unwrap_or(Value::Null);
     let address = fields["address"].as_str().unwrap_or("").trim().to_owned();
@@ -336,16 +405,29 @@ pub(crate) fn resolve_server_credential(
         password: String,
     }
 
-    let metadata = server_credential_metadata(conn, entry_id)?;
+    let (category, plain_fields, iv_b64, blob_b64): (
+        String,
+        Option<String>,
+        String,
+        String,
+    ) = conn
+        .query_row(
+            "SELECT category, plain_fields, iv, encrypted_blob
+             FROM vault_entries WHERE id = ?1",
+            [entry_id],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                ))
+            },
+        )
+        .map_err(|_| "vault_entry_not_found".to_string())?;
+    let metadata = parse_server_credential_metadata(entry_id, &category, plain_fields.as_deref())?;
     let mut key = get_session_key_with_conn(conn)?;
     let result = (|| -> Result<Zeroizing<String>, String> {
-        let (iv_b64, blob_b64): (String, String) = conn
-            .query_row(
-                "SELECT iv, encrypted_blob FROM vault_entries WHERE id = ?1",
-                [entry_id],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .map_err(|_| "vault_entry_not_found".to_string())?;
         let iv = BASE64
             .decode(iv_b64)
             .map_err(|error| format!("vault credential iv: {error}"))?;
@@ -1688,6 +1770,16 @@ mod tests {
         assert_eq!(credential.metadata.port, 22);
         assert_eq!(&*credential.password, "secret");
         assert!(!format!("{:?}", credential.metadata).contains("secret"));
+
+        insert_test_server_entry(&conn, 2, "new-host", 2200, "new-user", "new-secret");
+        let consistent = {
+            let _mutation_guard = arm_server_credential_metadata_mutation(1, 2);
+            resolve_server_credential(&conn, 1).expect("resolve credential from one row")
+        };
+        assert_eq!(consistent.metadata.address, "10.0.0.8");
+        assert_eq!(consistent.metadata.port, 22);
+        assert_eq!(consistent.metadata.account, "deploy");
+        assert_eq!(&*consistent.password, "secret");
         force_lock();
     }
 
