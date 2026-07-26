@@ -51,6 +51,7 @@ export function useActionCombinations(options: UseActionCombinationsOptions = {}
   let listenerPromise: Promise<void> | null = null;
   let runRefreshVersion = 0;
   let historyRequestVersion = 0;
+  let listenerGeneration = 0;
   let lifecycleGeneration = 0;
 
   const dirty = computed(() => draftFingerprint(draft.value) !== savedFingerprint.value);
@@ -174,18 +175,30 @@ export function useActionCombinations(options: UseActionCombinationsOptions = {}
   }
 
   async function ensureListener(): Promise<void> {
-    if (!listenerPromise) {
-      listenerPromise = listen<ActionCombinationRunUpdatedEvent>(
-        APP_EVENTS.ACTION_CENTER_COMBINATION_RUN_UPDATED,
-        ({ payload }) => {
-          if (activeRun.value?.id !== payload.runId) return;
-          void refreshActiveRun(payload.runId);
-        },
-      ).then((dispose) => {
-        unlisten = dispose;
-      });
+    if (unlisten) return;
+    if (listenerPromise) return listenerPromise;
+    const generation = listenerGeneration;
+    const registration = listen<ActionCombinationRunUpdatedEvent>(
+      APP_EVENTS.ACTION_CENTER_COMBINATION_RUN_UPDATED,
+      ({ payload }) => {
+        if (activeRun.value?.id !== payload.runId) return;
+        void refreshActiveRun(payload.runId);
+      },
+    ).then((dispose) => {
+      if (generation !== listenerGeneration) {
+        dispose();
+        return;
+      }
+      unlisten = dispose;
+    });
+    listenerPromise = registration;
+    try {
+      await registration;
+    } finally {
+      if (generation === listenerGeneration && listenerPromise === registration) {
+        listenerPromise = null;
+      }
     }
-    return listenerPromise;
   }
 
   async function start(): Promise<void> {
@@ -200,22 +213,17 @@ export function useActionCombinations(options: UseActionCombinationsOptions = {}
   }
 
   function stop(): void {
+    listenerGeneration += 1;
     lifecycleGeneration += 1;
     selectionVersion += 1;
     runRefreshVersion += 1;
     historyRequestVersion += 1;
     targetRequestVersions.clear();
     clearPoll();
-    if (unlisten) {
-      unlisten();
-      unlisten = null;
-    } else if (listenerPromise) {
-      void listenerPromise.then(() => {
-        unlisten?.();
-        unlisten = null;
-      });
-    }
+    const dispose = unlisten;
+    unlisten = null;
     listenerPromise = null;
+    dispose?.();
   }
 
   async function selectCombination(combinationId: number): Promise<void> {

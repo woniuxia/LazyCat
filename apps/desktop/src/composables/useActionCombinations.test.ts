@@ -138,6 +138,38 @@ describe("useActionCombinations", () => {
     expect(invokeMock).toHaveBeenCalledTimes(callsAfterStop);
   });
 
+  it("keeps listener disposers isolated across stop and restart", async () => {
+    const firstRegistration = deferred<() => void>();
+    const secondRegistration = deferred<() => void>();
+    const firstDispose = vi.fn();
+    const secondDispose = vi.fn();
+    listenMock
+      .mockReturnValueOnce(firstRegistration.promise)
+      .mockReturnValueOnce(secondRegistration.promise);
+    invokeMock
+      .mockResolvedValueOnce({ definitions: [] })
+      .mockResolvedValueOnce({ combinations: [] })
+      .mockResolvedValueOnce({ definitions: [] })
+      .mockResolvedValueOnce({ combinations: [] });
+    const state = useActionCombinations();
+
+    const firstStart = state.start();
+    state.stop();
+    const secondStart = state.start();
+
+    secondRegistration.resolve(secondDispose);
+    await secondStart;
+    firstRegistration.resolve(firstDispose);
+    await firstStart;
+
+    expect(firstDispose).toHaveBeenCalledTimes(1);
+    expect(secondDispose).not.toHaveBeenCalled();
+
+    state.stop();
+    expect(firstDispose).toHaveBeenCalledTimes(1);
+    expect(secondDispose).toHaveBeenCalledTimes(1);
+  });
+
   it("does not let an older history response overwrite the current selection", async () => {
     const oldHistory = deferred<{ runs: ActionCombinationRunDetail[] }>();
     const runA = runningRun("run-a", 7);
