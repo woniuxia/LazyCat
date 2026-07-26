@@ -265,8 +265,11 @@ onUnmounted(() => {
           </el-select>
           <div
             v-if="
-              targetState(step.localId).selected?.available === false
-              || (targets.has(step.localId) && targetState(step.localId).options.length === 0)
+              targets.has(step.localId)
+              && (
+                targetState(step.localId).selected?.available === false
+                || targetState(step.localId).options.length === 0
+              )
             "
             class="action-step__unavailable"
           >

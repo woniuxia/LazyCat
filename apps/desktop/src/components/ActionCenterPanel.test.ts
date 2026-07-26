@@ -112,7 +112,13 @@ describe("ActionCenterPanel contracts", () => {
     const source = readFileSync(
       new URL("./action-center/ActionCombinationEditor.vue", import.meta.url), "utf8",
     );
-    expect(source).toContain("targets.has(step.localId)");
+    expect(source).toContain(
+      `targets.has(step.localId)
+              && (
+                targetState(step.localId).selected?.available === false
+                || targetState(step.localId).options.length === 0
+              )`,
+    );
     expect(source).toContain("暂无可用目标，请先在对应工具中完成配置");
     expect(source).toContain("definitionFor(step.actionType)?.targetToolId");
   });
