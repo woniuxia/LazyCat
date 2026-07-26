@@ -11,6 +11,10 @@ export {}
 /* prettier-ignore */
 declare module 'vue' {
   export interface GlobalComponents {
+    ActionCenterPanel: typeof import('./src/components/ActionCenterPanel.vue')['default']
+    ActionCombinationEditor: typeof import('./src/components/action-center/ActionCombinationEditor.vue')['default']
+    ActionCombinationList: typeof import('./src/components/action-center/ActionCombinationList.vue')['default']
+    ActionRunHistory: typeof import('./src/components/action-center/ActionRunHistory.vue')['default']
     AesPanel: typeof import('./src/components/AesPanel.vue')['default']
     ApiMockLogList: typeof import('./src/components/api-mock/ApiMockLogList.vue')['default']
     ApiMockPanel: typeof import('./src/components/ApiMockPanel.vue')['default']
