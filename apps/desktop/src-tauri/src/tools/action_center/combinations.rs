@@ -1,4 +1,9 @@
 use std::collections::HashSet;
+#[cfg(test)]
+use std::{
+    sync::Mutex,
+    thread::{self, ThreadId},
+};
 
 use rusqlite::{params, Connection, TransactionBehavior};
 use serde::{Deserialize, Serialize};
@@ -244,6 +249,8 @@ where
         .map_err(|error| format!("save combination step failed: {error}"))?;
     }
 
+    #[cfg(test)]
+    run_thread_hook(&SAVE_BEFORE_COMMIT_HOOK);
     tx.commit()
         .map_err(|error| format!("commit combination save failed: {error}"))?;
     Ok(combination_id)
@@ -315,6 +322,8 @@ pub(crate) fn get_with_conn(conn: &Connection, id: i64) -> Result<CombinationDet
         .next()
         .map_err(|error| format!("read combination detail failed: {error}"))?
         .ok_or_else(|| format!("combination not found: {id}"))?;
+    #[cfg(test)]
+    run_thread_hook(&DETAIL_READ_HOOK);
 
     let combination_id = first
         .get(0)
@@ -358,6 +367,45 @@ pub(crate) fn get_with_conn(conn: &Connection, id: i64) -> Result<CombinationDet
     })
 }
 
+#[cfg(test)]
+type ThreadHook = (ThreadId, Box<dyn FnOnce() + Send>);
+
+#[cfg(test)]
+static DETAIL_READ_HOOK: Mutex<Option<ThreadHook>> = Mutex::new(None);
+
+#[cfg(test)]
+static DELETE_BEFORE_WRITE_HOOK: Mutex<Option<ThreadHook>> = Mutex::new(None);
+
+#[cfg(test)]
+static SAVE_BEFORE_COMMIT_HOOK: Mutex<Option<ThreadHook>> = Mutex::new(None);
+
+#[cfg(test)]
+fn install_thread_hook(
+    hook_slot: &Mutex<Option<ThreadHook>>,
+    thread_id: ThreadId,
+    hook: impl FnOnce() + Send + 'static,
+) {
+    let mut slot = hook_slot.lock().unwrap();
+    assert!(slot.is_none(), "thread hook already installed");
+    *slot = Some((thread_id, Box::new(hook)));
+}
+
+#[cfg(test)]
+fn run_thread_hook(hook_slot: &Mutex<Option<ThreadHook>>) {
+    let hook = {
+        let mut slot = hook_slot.lock().unwrap();
+        match slot.as_ref() {
+            Some((thread_id, _)) if *thread_id == thread::current().id() => {
+                slot.take().map(|(_, hook)| hook)
+            }
+            _ => None,
+        }
+    };
+    if let Some(hook) = hook {
+        hook();
+    }
+}
+
 fn combination_step_from_joined_row(
     row: &rusqlite::Row<'_>,
 ) -> rusqlite::Result<Option<CombinationStep>> {
@@ -375,6 +423,8 @@ fn combination_step_from_joined_row(
 }
 
 pub(crate) fn delete_with_conn(conn: &Connection, id: i64) -> Result<(), String> {
+    #[cfg(test)]
+    run_thread_hook(&DELETE_BEFORE_WRITE_HOOK);
     let changed = conn
         .execute(
             "DELETE FROM action_combinations
@@ -410,6 +460,70 @@ mod tests {
     use super::*;
     use rusqlite::{Connection, OptionalExtension};
     use serde_json::json;
+    use std::{
+        ffi::OsString,
+        fs,
+        path::{Path, PathBuf},
+        sync::mpsc,
+        thread,
+    };
+    use uuid::Uuid;
+
+    struct TempDatabase {
+        path: PathBuf,
+    }
+
+    impl TempDatabase {
+        fn new() -> (Self, Connection) {
+            let path = std::env::temp_dir().join(format!(
+                "lazycat-action-combinations-{}.sqlite",
+                Uuid::new_v4()
+            ));
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(
+                "PRAGMA foreign_keys = ON;
+                 PRAGMA journal_mode = WAL;
+                 PRAGMA busy_timeout = 5000;",
+            )
+            .unwrap();
+            super::super::ensure_schema(&conn).unwrap();
+            (Self { path }, conn)
+        }
+
+        fn connect(&self) -> Connection {
+            let conn = Connection::open(&self.path).unwrap();
+            conn.execute_batch(
+                "PRAGMA foreign_keys = ON;
+                 PRAGMA busy_timeout = 5000;",
+            )
+            .unwrap();
+            conn
+        }
+    }
+
+    impl Drop for TempDatabase {
+        fn drop(&mut self) {
+            for path in [
+                self.path.clone(),
+                sidecar_path(&self.path, "-wal"),
+                sidecar_path(&self.path, "-shm"),
+            ] {
+                match fs::remove_file(&path) {
+                    Ok(()) => {}
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(error) => {
+                        panic!("remove temporary sqlite file {}: {error}", path.display())
+                    }
+                }
+            }
+        }
+    }
+
+    fn sidecar_path(path: &Path, suffix: &str) -> PathBuf {
+        let mut value = OsString::from(path.as_os_str());
+        value.push(suffix);
+        PathBuf::from(value)
+    }
 
     fn test_conn() -> Connection {
         let conn = Connection::open_in_memory().unwrap();
@@ -786,6 +900,149 @@ mod tests {
             .unwrap_err()
             .contains("active run"));
         assert!(get_with_conn(&conn, id).is_ok());
+    }
+
+    #[test]
+    fn concurrent_active_run_commit_prevents_delete() {
+        let (database, mut setup_conn) = TempDatabase::new();
+        let id = save(
+            &mut setup_conn,
+            input(
+                None,
+                "concurrent delete",
+                ExecutionMode::Serial,
+                &[("release_package", "1")],
+            ),
+        )
+        .unwrap();
+        drop(setup_conn);
+
+        let run_conn = database.connect();
+        let delete_conn = database.connect();
+        let (delete_start_tx, delete_start_rx) = mpsc::sync_channel(0);
+        let (before_delete_tx, before_delete_rx) = mpsc::sync_channel(0);
+        let (continue_delete_tx, continue_delete_rx) = mpsc::sync_channel(0);
+        let (delete_result_tx, delete_result_rx) = mpsc::sync_channel(0);
+        let delete_thread = thread::spawn(move || {
+            delete_start_rx.recv().unwrap();
+            delete_result_tx
+                .send(delete_with_conn(&delete_conn, id))
+                .unwrap();
+        });
+        install_thread_hook(
+            &DELETE_BEFORE_WRITE_HOOK,
+            delete_thread.thread().id(),
+            move || {
+                before_delete_tx.send(()).unwrap();
+                continue_delete_rx.recv().unwrap();
+            },
+        );
+        delete_start_tx.send(()).unwrap();
+        before_delete_rx.recv().unwrap();
+
+        run_conn
+            .execute(
+                "INSERT INTO action_combination_runs
+                 (id, combination_id, combination_name, execution_mode, status)
+                 VALUES ('concurrent-run', ?1, 'concurrent delete', 'serial', 'pending')",
+                [id],
+            )
+            .unwrap();
+        continue_delete_tx.send(()).unwrap();
+        let delete_error = delete_result_rx.recv().unwrap().unwrap_err();
+        delete_thread.join().unwrap();
+
+        assert!(delete_error.contains("active run"));
+        let verify_conn = database.connect();
+        assert!(get_with_conn(&verify_conn, id).is_ok());
+        let linked_combination_id: Option<i64> = verify_conn
+            .query_row(
+                "SELECT combination_id FROM action_combination_runs
+                 WHERE id='concurrent-run'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(linked_combination_id, Some(id));
+    }
+
+    #[test]
+    fn concurrent_replacement_cannot_tear_combination_detail() {
+        let (database, mut setup_conn) = TempDatabase::new();
+        let id = save(
+            &mut setup_conn,
+            input(
+                None,
+                "old",
+                ExecutionMode::Serial,
+                &[("release_package", "1"), ("release_package", "2")],
+            ),
+        )
+        .unwrap();
+        drop(setup_conn);
+
+        let mut writer_conn = database.connect();
+        let (writer_start_tx, writer_start_rx) = mpsc::sync_channel(0);
+        let (replacement_ready_tx, replacement_ready_rx) = mpsc::sync_channel(0);
+        let (commit_tx, commit_rx) = mpsc::sync_channel(0);
+        let writer_thread = thread::spawn(move || {
+            writer_start_rx.recv().unwrap();
+            save(
+                &mut writer_conn,
+                input(
+                    Some(id),
+                    "new",
+                    ExecutionMode::Parallel,
+                    &[("browser_profile", "work")],
+                ),
+            )
+        });
+        install_thread_hook(
+            &SAVE_BEFORE_COMMIT_HOOK,
+            writer_thread.thread().id(),
+            move || {
+                replacement_ready_tx.send(()).unwrap();
+                commit_rx.recv().unwrap();
+            },
+        );
+        writer_start_tx.send(()).unwrap();
+        replacement_ready_rx.recv().unwrap();
+
+        let reader_conn = database.connect();
+        let (reader_start_tx, reader_start_rx) = mpsc::sync_channel(0);
+        let (first_row_tx, first_row_rx) = mpsc::sync_channel(0);
+        let (continue_tx, continue_rx) = mpsc::sync_channel(0);
+        let reader_thread = thread::spawn(move || {
+            reader_start_rx.recv().unwrap();
+            get_with_conn(&reader_conn, id)
+        });
+        install_thread_hook(&DETAIL_READ_HOOK, reader_thread.thread().id(), move || {
+            first_row_tx.send(()).unwrap();
+            continue_rx.recv().unwrap();
+        });
+        reader_start_tx.send(()).unwrap();
+        first_row_rx.recv().unwrap();
+
+        commit_tx.send(()).unwrap();
+        assert_eq!(writer_thread.join().unwrap().unwrap(), id);
+        continue_tx.send(()).unwrap();
+        let during_commit = reader_thread.join().unwrap().unwrap();
+        assert_eq!(during_commit.name, "old");
+        assert_eq!(during_commit.execution_mode, ExecutionMode::Serial);
+        assert_eq!(
+            during_commit
+                .steps
+                .iter()
+                .map(|step| step.target_id.as_str())
+                .collect::<Vec<_>>(),
+            ["1", "2"]
+        );
+
+        let after_commit = get_with_conn(&database.connect(), id).unwrap();
+        assert_eq!(after_commit.name, "new");
+        assert_eq!(after_commit.execution_mode, ExecutionMode::Parallel);
+        assert_eq!(after_commit.steps.len(), 1);
+        assert_eq!(after_commit.steps[0].target_id, "work");
     }
 
     #[test]
