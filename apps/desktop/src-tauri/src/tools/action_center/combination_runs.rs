@@ -28,7 +28,7 @@ type ConnectionFactory = Arc<dyn Fn() -> Result<Connection, String> + Send + Syn
 type EventEmitter = Arc<dyn Fn(&str, &str) -> Result<(), String> + Send + Sync>;
 type BackgroundTask = Box<dyn FnOnce() + Send + 'static>;
 
-static ACTIVE_RUN_SLOT: OnceLock<Mutex<Option<String>>> = OnceLock::new();
+static ACTIVE_RUN_SLOT: OnceLock<Mutex<Option<ActiveRunSlot>>> = OnceLock::new();
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -649,21 +649,50 @@ impl ExecutionObserver for DatabaseRunObserver {
     }
 }
 
+struct ActiveRunSlot {
+    run_id: String,
+    combination_name: String,
+}
+
 struct ActiveRunGuard {
     run_id: String,
 }
 
 impl ActiveRunGuard {
-    fn acquire(conn: &Connection, run_id: &str) -> Result<Self, String> {
+    fn acquire(conn: &Connection, run_id: &str, combination_name: &str) -> Result<Self, String> {
         let mut slot = active_run_slot()
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if let Some(active_run_id) = slot.as_deref() {
-            if let Some(active_error) = active_run_error_with_conn(conn, Some(active_run_id))? {
-                return Err(active_error);
+        if let Some(active) = slot.as_ref() {
+            let persisted = conn
+                .query_row(
+                    "SELECT combination_name, status
+                     FROM action_combination_runs
+                     WHERE id=?1",
+                    [&active.run_id],
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+                )
+                .optional()
+                .map_err(|error| format!("read active combination run failed: {error}"))?;
+            match persisted {
+                Some((persisted_name, status))
+                    if matches!(status.as_str(), "pending" | "running") =>
+                {
+                    return Err(format!("已有组合动作正在运行: {persisted_name} ({status})"));
+                }
+                None => {
+                    return Err(format!(
+                        "已有组合动作正在运行: {} (pending)",
+                        active.combination_name
+                    ));
+                }
+                Some(_) => {}
             }
         }
-        *slot = Some(run_id.to_string());
+        *slot = Some(ActiveRunSlot {
+            run_id: run_id.to_string(),
+            combination_name: combination_name.to_string(),
+        });
         Ok(Self {
             run_id: run_id.to_string(),
         })
@@ -675,13 +704,13 @@ impl Drop for ActiveRunGuard {
         let mut slot = active_run_slot()
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if slot.as_deref() == Some(&self.run_id) {
+        if slot.as_ref().map(|active| active.run_id.as_str()) == Some(&self.run_id) {
             *slot = None;
         }
     }
 }
 
-fn active_run_slot() -> &'static Mutex<Option<String>> {
+fn active_run_slot() -> &'static Mutex<Option<ActiveRunSlot>> {
     ACTIVE_RUN_SLOT.get_or_init(|| Mutex::new(None))
 }
 
@@ -732,15 +761,25 @@ where
     S: FnOnce(BackgroundTask) -> io::Result<()>,
 {
     let run_id = Uuid::new_v4().to_string();
-    let guard = ActiveRunGuard::acquire(conn, &run_id)?;
+    let combination_name = conn
+        .query_row(
+            "SELECT name FROM action_combinations WHERE id=?1",
+            [combination_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|error| format!("read combination for run failed: {error}"))?
+        .ok_or_else(|| format!("combination not found: {combination_id}"))?;
+    let guard = Arc::new(ActiveRunGuard::acquire(conn, &run_id, &combination_name)?);
     let (run, plan) =
         create_run_and_plan_with_conn(conn, combination_id, &run_id, snapshot_target)?;
 
     let background_run_id = run_id.clone();
     let background_factory = conn_factory.clone();
     let background_emitter = emitter.clone();
+    let background_guard = guard.clone();
     let task: BackgroundTask = Box::new(move || {
-        let _guard = guard;
+        let _guard = background_guard;
         let outcome = catch_unwind(AssertUnwindSafe(|| {
             coordinate_run(
                 &background_run_id,
@@ -870,7 +909,8 @@ fn active_run_slot_contains_for_test(run_id: &str) -> bool {
     active_run_slot()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .as_deref()
+        .as_ref()
+        .map(|active| active.run_id.as_str())
         == Some(run_id)
 }
 
@@ -890,7 +930,7 @@ mod tests {
         io,
         path::PathBuf,
         sync::{
-            atomic::{AtomicUsize, Ordering},
+            atomic::{AtomicBool, AtomicUsize, Ordering},
             Arc, Mutex,
         },
     };
@@ -1077,16 +1117,35 @@ mod tests {
             &[("hosts.activate", "1")],
         );
         let run = create_run_with_conn(&mut conn, combination_id, snapshot).unwrap();
-        let guard = ActiveRunGuard::acquire(&conn, &run.id).unwrap();
+        let guard = ActiveRunGuard::acquire(&conn, &run.id, &run.combination_name).unwrap();
         mark_run_started_with_conn(&conn, &run.id).unwrap();
 
-        let error = ActiveRunGuard::acquire(&conn, "new-run")
+        let error = ActiveRunGuard::acquire(&conn, "new-run", "new combination")
             .err()
             .expect("active slot must reject another run");
 
         assert!(error.contains("正在初始化开发环境"), "{error}");
         assert!(error.contains("running"), "{error}");
         drop(guard);
+        clear_active_run_slot_for_test();
+    }
+
+    #[test]
+    fn active_slot_rejects_another_run_while_first_is_only_reserved() {
+        let _serial = COORDINATOR_TEST_LOCK.lock().unwrap();
+        clear_active_run_slot_for_test();
+        let conn = test_conn();
+        let guard = ActiveRunGuard::acquire(&conn, "reserved-run", "first combination").unwrap();
+
+        let error = ActiveRunGuard::acquire(&conn, "second-run", "second combination")
+            .err()
+            .expect("reserved slot must reject another run before database insertion");
+
+        assert!(error.contains("first combination"), "{error}");
+        assert!(error.contains("pending"), "{error}");
+        assert!(active_run_slot_contains_for_test("reserved-run"));
+        drop(guard);
+        assert!(!active_run_slot_contains_for_test("reserved-run"));
         clear_active_run_slot_for_test();
     }
 
@@ -1358,7 +1417,8 @@ mod tests {
             &[("hosts.activate", "2")],
         );
         let first_run = create_run_with_conn(&mut conn, first, snapshot).unwrap();
-        let guard = ActiveRunGuard::acquire(&conn, &first_run.id).unwrap();
+        let guard =
+            ActiveRunGuard::acquire(&conn, &first_run.id, &first_run.combination_name).unwrap();
         conn.execute("DROP INDEX idx_action_combination_runs_one_active", [])
             .unwrap();
         let executor = Arc::new(FakeExecutor {
@@ -1530,6 +1590,67 @@ mod tests {
     }
 
     #[test]
+    fn spawn_failure_keeps_slot_reserved_until_failure_is_persisted() {
+        let _serial = COORDINATOR_TEST_LOCK.lock().unwrap();
+        clear_active_run_slot_for_test();
+        let (database, mut conn) = TempDatabase::new();
+        let combination_id = seed_combination(
+            &conn,
+            "spawn failure reservation",
+            ExecutionMode::Serial,
+            &[("hosts.activate", "1")],
+        );
+        let executor = Arc::new(FakeExecutor {
+            results: HashMap::from([("1".into(), success(AtomicStepSuccessStatus::Succeeded))]),
+        });
+        let contender_conn = (database.factory())().unwrap();
+        let contender_rejected = Arc::new(AtomicBool::new(false));
+        let contender_error = Arc::new(Mutex::new(None));
+
+        let error = start_with_dependencies(
+            &mut conn,
+            combination_id,
+            snapshot,
+            executor,
+            database.factory(),
+            Arc::new(|_, _| Ok(())),
+            {
+                let contender_rejected = contender_rejected.clone();
+                let contender_error = contender_error.clone();
+                move |task| {
+                    drop(task);
+                    match ActiveRunGuard::acquire(
+                        &contender_conn,
+                        "contender-run",
+                        "contender combination",
+                    ) {
+                        Ok(guard) => drop(guard),
+                        Err(error) => {
+                            contender_rejected.store(true, Ordering::SeqCst);
+                            *contender_error.lock().unwrap() = Some(error);
+                        }
+                    }
+                    Err(io::Error::other("injected spawn failure"))
+                }
+            },
+        )
+        .unwrap_err();
+
+        assert!(error.contains("injected spawn failure"), "{error}");
+        assert!(contender_rejected.load(Ordering::SeqCst));
+        let contender_error = contender_error.lock().unwrap().clone().unwrap();
+        assert!(
+            contender_error.contains("spawn failure reservation"),
+            "{contender_error}"
+        );
+        assert!(contender_error.contains("pending"), "{contender_error}");
+
+        let next_guard = ActiveRunGuard::acquire(&conn, "next-run", "next combination").unwrap();
+        drop(next_guard);
+        clear_active_run_slot_for_test();
+    }
+
+    #[test]
     fn observer_write_error_is_reconciled_from_execution_results() {
         let _serial = COORDINATOR_TEST_LOCK.lock().unwrap();
         clear_active_run_slot_for_test();
@@ -1591,7 +1712,8 @@ mod tests {
             &[("hosts.activate", "2")],
         );
         let first_run = create_run_with_conn(&mut conn, first, snapshot).unwrap();
-        let stale_guard = ActiveRunGuard::acquire(&conn, &first_run.id).unwrap();
+        let stale_guard =
+            ActiveRunGuard::acquire(&conn, &first_run.id, &first_run.combination_name).unwrap();
         finish_run_with_conn(&conn, &first_run.id, RunTerminalStatus::Succeeded).unwrap();
         let executor = Arc::new(FakeExecutor {
             results: HashMap::from([("2".into(), success(AtomicStepSuccessStatus::Succeeded))]),
