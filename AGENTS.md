@@ -2,8 +2,6 @@
 
 本文件是 LazyCat 的高频执行入口。用户明确指令优先；领域实现与排障细节查 [process.md](process.md) 和 [docs/experience/](docs/experience/README.md)。
 
-> **双文件同步**：修改本文件时必须同步检查并更新 `CLAUDE.md`；两份文件除文件名与互指外保持同构。
-
 ## 1. 核心规则
 
 - 先读当前任务相关文件和真实上下文，再做最小闭环改动；不顺手重构、不加无关功能。
@@ -30,7 +28,7 @@
 
 1. 判断任务：普通功能、UI/样式、文档/规范，还是高风险操作。
 2. 读取当前文件、相关测试和对应经验；新增工具先查架构经验。
-3. 检查联动：前端/bridge/Rust/类型/测试、Element Plus 双主题文件、`AGENTS.md`/`CLAUDE.md` 双文件同步。
+3. 检查联动：前端/bridge/Rust/类型/测试、Element Plus 双主题文件和 Agent 规则入口。
 4. 明确最低验证：定向测试优先，其后类型检查、构建或最小冒烟。
 5. 需要删除、迁移、批量覆盖或明显扩大视觉方向时，先向用户确认。
 
@@ -75,7 +73,7 @@
 
 ## 6. 验证与提交
 
-- 文档改动：检查链接、索引、双文件同步和关键规则完整性。
+- 文档改动：检查链接、索引、Agent 规则入口和关键规则完整性。
 - 功能改动：优先相关测试，再 `pnpm typecheck`；影响渲染层时补 `pnpm --filter @lazycat/desktop build:web`。
 - UI 改动：额外检查浅色主题、空态、交互态、弹窗态与 Teleport 作用域。
 - 数据字典改动：按 [data-dictionary.md](docs/experience/data-dictionary.md) 的定向测试执行。

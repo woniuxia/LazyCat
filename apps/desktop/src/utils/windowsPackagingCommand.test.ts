@@ -41,8 +41,13 @@ describe("Windows packaging command guardrails", () => {
   it("documents the same default command for agents and users", () => {
     const agentRule = "只说“打包”或“本地打包”时，必须执行 `pnpm package:win`";
     expect(agentsSource).toContain(agentRule);
-    expect(claudeSource).toContain(agentRule);
     expect(readmeSource).toContain("`pnpm package:win`");
     expect(readmeSource).toContain("本地构建 lite portable");
+  });
+
+  it("loads shared agent rules through the Claude adapter", () => {
+    expect(claudeSource.replaceAll("\r\n", "\n").trim()).toBe(
+      "# CLAUDE.md\n\n@AGENTS.md",
+    );
   });
 });

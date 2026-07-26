@@ -8,9 +8,9 @@
 
 根规范只保留高频、稳定、会改变执行决策的规则；领域架构和排障细节放入 `docs/experience/`。索引按任务类型组织，避免 agent 每次扫描整份历史。
 
-## 双文件同步用归一化比较
+## Agent 规则使用单一事实源
 
-修改 `AGENTS.md` 或 `CLAUDE.md` 时同步另一份。完成后将文件名和互指对象归一化，再用 `Compare-Object` 检查同构，不依赖肉眼。
+跨 Agent 的项目规则只维护在 `AGENTS.md`。`CLAUDE.md` 仅通过 `@AGENTS.md` 提供 Claude Code 加载适配；修改规则时检查适配入口仍有效，不复制规则正文。
 
 ## dirty worktree 先划定边界
 

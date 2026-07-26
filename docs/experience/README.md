@@ -4,7 +4,7 @@
 
 ## 使用方式
 
-1. 先从根目录 `AGENTS.md` / `CLAUDE.md` 判断任务类型。
+1. 先从根目录 `AGENTS.md` 判断任务类型；Claude Code 通过 `CLAUDE.md` 自动导入同一份规则。
 2. 通过 `process.md` 或下表进入领域文件。
 3. 使用 `rg -n "关键词" docs/experience` 定位具体规则。
 4. 新经验直接写入对应领域文件，不再把正文追加到 `process.md`。
