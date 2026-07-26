@@ -164,7 +164,7 @@ pub(crate) async fn wait_for_ready(mut receiver: ReadyReceiver, wait: Duration) 
 
 struct FlightWait {
     result: ReadyResult,
-    cancelled: bool,
+    close_window: bool,
 }
 
 async fn wait_for_flight(
@@ -178,30 +178,30 @@ async fn wait_for_flight(
     let Err(error) = result else {
         return FlightWait {
             result,
-            cancelled: false,
+            close_window: false,
         };
     };
 
-    let cancelled = match lock_show_session(session) {
+    let did_cancel = match lock_show_session(session) {
         Ok(mut session) => session.cancel_flight(label, error.clone()),
         Err(lock_error) => {
             return FlightWait {
                 result: Err(format!("{error}; {lock_error}")),
-                cancelled: false,
+                close_window: true,
             };
         }
     };
-    if !cancelled {
+    if !did_cancel {
         if let Some(shared_result) = observed.borrow().clone() {
             return FlightWait {
+                close_window: shared_result.is_err(),
                 result: shared_result,
-                cancelled: false,
             };
         }
     }
     FlightWait {
         result: Err(error),
-        cancelled,
+        close_window: true,
     }
 }
 
@@ -312,7 +312,7 @@ fn cancel_and_close(app: &AppHandle, label: &str, error: &str) -> String {
 
 async fn wait_for_window_flight(app: &AppHandle, label: &str, ready: ReadyReceiver) -> ReadyResult {
     let waited = wait_for_flight(&SESSION, label, ready, READY_TIMEOUT).await;
-    if waited.cancelled {
+    if waited.close_window {
         close_window(app, label);
     }
     waited.result
@@ -733,7 +733,7 @@ mod tests {
         )
         .await;
         assert_eq!(timed_out.result, Err("参考卡初始化超时".to_string()));
-        assert!(timed_out.cancelled);
+        assert!(timed_out.close_window);
         assert_eq!(
             wait_for_ready(other_ready, Duration::from_millis(50)).await,
             Err("参考卡初始化超时".to_string())
@@ -746,5 +746,69 @@ mod tests {
             } => assert_eq!(retry_label, "reference-card-2"),
             _ => panic!("timed-out flight must be cleared for retry"),
         }
+    }
+
+    #[tokio::test]
+    async fn creator_closes_window_built_after_follower_timeout() {
+        let session = Arc::new(Mutex::new(ShowSession::default()));
+        let (label, creator_ready) = {
+            let mut session = session.lock().expect("show session lock");
+            match session.reserve("late build", |_| false).unwrap() {
+                ShowReservation::Create { label, ready, .. } => (label, ready),
+                _ => panic!("first caller must create"),
+            }
+        };
+        let follower_ready = {
+            let mut session = session.lock().expect("show session lock");
+            match session.reserve("late build", |_| false).unwrap() {
+                ShowReservation::Wait { ready, .. } => ready,
+                _ => panic!("second caller must wait"),
+            }
+        };
+        let build_started = Arc::new(Notify::new());
+        let finish_build = Arc::new(Notify::new());
+        let closes = Arc::new(AtomicUsize::new(0));
+
+        let creator = {
+            let session = Arc::clone(&session);
+            let label = label.clone();
+            let build_started = Arc::clone(&build_started);
+            let finish_build = Arc::clone(&finish_build);
+            let closes = Arc::clone(&closes);
+            tokio::spawn(async move {
+                build_started.notify_one();
+                finish_build.notified().await;
+                let waited = wait_for_flight(
+                    session.as_ref(),
+                    &label,
+                    creator_ready,
+                    Duration::from_millis(200),
+                )
+                .await;
+                if waited.close_window {
+                    closes.fetch_add(1, Ordering::SeqCst);
+                }
+                waited.result
+            })
+        };
+        build_started.notified().await;
+
+        let follower = wait_for_flight(
+            session.as_ref(),
+            &label,
+            follower_ready,
+            Duration::from_millis(10),
+        )
+        .await;
+        assert_eq!(follower.result, Err("参考卡初始化超时".to_string()));
+        assert!(follower.close_window);
+        assert_eq!(closes.load(Ordering::SeqCst), 0);
+
+        finish_build.notify_one();
+        assert_eq!(
+            creator.await.expect("creator task joins"),
+            Err("参考卡初始化超时".to_string())
+        );
+        assert_eq!(closes.load(Ordering::SeqCst), 1);
     }
 }
