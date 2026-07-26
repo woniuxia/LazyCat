@@ -50,6 +50,18 @@ pub(crate) trait AtomicActionExecutor: Send + Sync + 'static {
     fn execute(&self, action_type: &str, target_id: &str) -> Result<AtomicStepSuccess, String>;
 }
 
+pub(crate) fn normalize_atomic_failure(
+    action_type: &str,
+    error: String,
+) -> (Option<String>, String) {
+    if action_type == REQUEST_FORWARD_START {
+        if let Some(error) = crate::tools::request_forward::decode_action_error(&error) {
+            return (Some(error.result_code), error.message);
+        }
+    }
+    (None, error)
+}
+
 pub(crate) struct RegisteredAtomicActionExecutor;
 
 impl AtomicActionExecutor for RegisteredAtomicActionExecutor {

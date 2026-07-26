@@ -5,7 +5,8 @@ use serde_json::{json, Value};
 
 use super::helpers::db_conn;
 use model::{
-    encode_request_forward_error, encode_request_forward_error_with_code, RequestForwardErrorCode,
+    decode_request_forward_error, encode_request_forward_error,
+    encode_request_forward_error_with_code, RequestForwardActionError, RequestForwardErrorCode,
     RuleWriteInput,
 };
 use runtime::LifecycleRepository;
@@ -47,6 +48,14 @@ pub fn encode_preflight_task_error(message: &str) -> String {
         runtime::RuntimeState::Stopped.as_str(),
         RequestForwardErrorCode::Unknown,
     )
+}
+
+pub(crate) fn encode_action_error(message: &str, state: &str) -> String {
+    encode_request_forward_error(message, state)
+}
+
+pub(crate) fn decode_action_error(encoded: &str) -> Option<RequestForwardActionError> {
+    decode_request_forward_error(encoded)
 }
 
 struct DatabaseLifecycleRepository;
@@ -105,13 +114,32 @@ fn start_action_target_with_conn_and_manager(
         .parse::<i64>()
         .ok()
         .filter(|id| *id > 0)
-        .ok_or_else(|| format!("请求转发动作目标 ID 无效: {target_id}"))?;
-    manager.start_loaded_if_needed(id, || repository::get_with_conn(conn, id))
+        .ok_or_else(|| format!("请求转发动作目标 ID 无效: {target_id}"))
+        .map_err(|message| encode_action_target_error(manager, target_id, &message))?;
+    manager
+        .start_loaded_if_needed(id, || repository::get_with_conn(conn, id))
+        .map_err(|message| encode_action_target_error(manager, target_id, &message))
+}
+
+fn encode_action_target_error(
+    manager: &runtime::RuntimeManager,
+    target_id: &str,
+    message: &str,
+) -> String {
+    let state = target_id
+        .parse::<i64>()
+        .ok()
+        .filter(|id| *id > 0)
+        .map(|id| manager.status(id).state)
+        .unwrap_or(runtime::RuntimeState::Stopped);
+    encode_action_error(message, state.as_str())
 }
 
 pub(crate) fn start_action_target(target_id: &str) -> Result<bool, String> {
-    let conn = db_conn()?;
-    start_action_target_with_conn_and_manager(&conn, runtime::global_manager(), target_id)
+    let manager = runtime::global_manager();
+    let conn =
+        db_conn().map_err(|message| encode_action_target_error(manager, target_id, &message))?;
+    start_action_target_with_conn_and_manager(&conn, manager, target_id)
 }
 
 pub fn restore_auto_start_rules() -> Result<Vec<RestoreResult>, String> {
@@ -929,6 +957,27 @@ mod tests {
         retry_manager
             .stop_loaded(rule.id, || repository::get_with_conn(&conn, rule.id))
             .unwrap();
+    }
+
+    #[test]
+    fn request_forward_action_target_failure_uses_structured_error_contract() {
+        let mut conn = test_conn();
+        let rule = repository::create_with_conn(&mut conn, http_input()).unwrap();
+        let runner = Arc::new(ActionTargetRunner::default());
+        runner.fail_next.store(true, Ordering::SeqCst);
+        let manager = RuntimeManager::new(runner);
+
+        let encoded =
+            super::start_action_target_with_conn_and_manager(&conn, &manager, &rule.id.to_string())
+                .unwrap_err();
+        let decoded: serde_json::Value =
+            serde_json::from_str(&encoded).expect("action target error envelope");
+
+        assert_eq!(decoded["marker"], "lazycat.request_forward.error");
+        assert_eq!(decoded["version"], 1);
+        assert_eq!(decoded["code"], "unknown");
+        assert_eq!(decoded["message"], "expected start failure");
+        assert_eq!(decoded["state"], "failed");
     }
 
     #[test]

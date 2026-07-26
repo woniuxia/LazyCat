@@ -21,7 +21,6 @@ use std::{
 use tauri::Emitter;
 use uuid::Uuid;
 
-const ACTIVE_RUN_ERROR: &str = "已有组合动作正在运行";
 const INTERRUPTED_ERROR: &str = "组合动作运行因应用中断而失败";
 const INTERRUPTED_STEP_MESSAGE: &str = "组合动作步骤因应用中断而失败";
 
@@ -103,6 +102,29 @@ fn run_terminal_status_as_str(status: RunTerminalStatus) -> &'static str {
     }
 }
 
+fn active_run_error_with_conn(
+    conn: &Connection,
+    run_id: Option<&str>,
+) -> Result<Option<String>, String> {
+    conn.query_row(
+        "SELECT combination_name, status
+         FROM action_combination_runs
+         WHERE status IN ('pending','running')
+           AND (?1 IS NULL OR id=?1)
+         ORDER BY created_at ASC, id ASC
+         LIMIT 1",
+        [run_id],
+        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+    )
+    .optional()
+    .map(|active| {
+        active.map(|(combination_name, status)| {
+            format!("已有组合动作正在运行: {combination_name} ({status})")
+        })
+    })
+    .map_err(|error| format!("read active combination run failed: {error}"))
+}
+
 pub(crate) fn create_run_with_conn<F>(
     conn: &mut Connection,
     combination_id: i64,
@@ -177,18 +199,8 @@ where
             execution_mode_as_str(execution_mode)
         ],
     ) {
-        let active_exists = tx
-            .query_row(
-                "SELECT EXISTS(
-                    SELECT 1 FROM action_combination_runs
-                    WHERE status IN ('pending','running')
-                 )",
-                [],
-                |row| row.get::<_, bool>(0),
-            )
-            .unwrap_or(false);
-        if active_exists {
-            return Err(ACTIVE_RUN_ERROR.into());
+        if let Some(active_error) = active_run_error_with_conn(&tx, None)? {
+            return Err(active_error);
         }
         return Err(format!("create combination run failed: {error}"));
     }
@@ -645,18 +657,8 @@ impl ActiveRunGuard {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         if let Some(active_run_id) = slot.as_deref() {
-            let active = conn
-                .query_row(
-                    "SELECT status IN ('pending','running')
-                     FROM action_combination_runs WHERE id=?1",
-                    [active_run_id],
-                    |row| row.get::<_, bool>(0),
-                )
-                .optional()
-                .map_err(|error| format!("read active combination run slot failed: {error}"))?
-                .unwrap_or(false);
-            if active {
-                return Err(ACTIVE_RUN_ERROR.into());
+            if let Some(active_error) = active_run_error_with_conn(conn, Some(active_run_id))? {
+                return Err(active_error);
             }
         }
         *slot = Some(run_id.to_string());
@@ -1048,11 +1050,47 @@ mod tests {
             &[("hosts.activate", "2")],
         );
 
-        create_run_with_conn(&mut conn, first, snapshot).unwrap();
-        for combination_id in [first, second] {
-            let error = create_run_with_conn(&mut conn, combination_id, snapshot).unwrap_err();
-            assert!(error.contains("已有组合动作正在运行"), "{error}");
-        }
+        let active = create_run_with_conn(&mut conn, first, snapshot).unwrap();
+        let pending_error = create_run_with_conn(&mut conn, first, snapshot).unwrap_err();
+        assert!(pending_error.contains("first"), "{pending_error}");
+        assert!(pending_error.contains("pending"), "{pending_error}");
+
+        mark_run_started_with_conn(&conn, &active.id).unwrap();
+        let running_error = create_run_with_conn(&mut conn, second, snapshot).unwrap_err();
+        assert!(running_error.contains("first"), "{running_error}");
+        assert!(running_error.contains("running"), "{running_error}");
+
+        let run_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM action_combination_runs", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(run_count, 1);
+    }
+
+    #[test]
+    fn active_slot_rejection_reports_database_combination_name_and_status() {
+        let _serial = COORDINATOR_TEST_LOCK.lock().unwrap();
+        clear_active_run_slot_for_test();
+        let mut conn = test_conn();
+        let combination_id = seed_combination(
+            &conn,
+            "正在初始化开发环境",
+            ExecutionMode::Serial,
+            &[("hosts.activate", "1")],
+        );
+        let run = create_run_with_conn(&mut conn, combination_id, snapshot).unwrap();
+        let guard = ActiveRunGuard::acquire(&conn, &run.id).unwrap();
+        mark_run_started_with_conn(&conn, &run.id).unwrap();
+
+        let error = ActiveRunGuard::acquire(&conn, "new-run")
+            .err()
+            .expect("active slot must reject another run");
+
+        assert!(error.contains("正在初始化开发环境"), "{error}");
+        assert!(error.contains("running"), "{error}");
+        drop(guard);
+        clear_active_run_slot_for_test();
     }
 
     #[test]

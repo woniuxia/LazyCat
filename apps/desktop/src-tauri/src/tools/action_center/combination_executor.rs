@@ -1,5 +1,5 @@
 use super::{
-    atomic_actions::{AtomicActionExecutor, AtomicStepSuccessStatus},
+    atomic_actions::{normalize_atomic_failure, AtomicActionExecutor, AtomicStepSuccessStatus},
     combinations::ExecutionMode,
 };
 use std::{
@@ -204,7 +204,10 @@ fn execute_atomic_step(
             result_code: success.result_code,
             message: success.message,
         },
-        Ok(Err(error)) => failed_step(step, error),
+        Ok(Err(error)) => {
+            let (result_code, message) = normalize_atomic_failure(&step.action_type, error);
+            failed_step_with_result_code(step, result_code, message)
+        }
         Err(payload) => failed_step(
             step,
             format!(
@@ -216,11 +219,19 @@ fn execute_atomic_step(
 }
 
 fn failed_step(step: &PlannedStep, message: String) -> ExecutedStep {
+    failed_step_with_result_code(step, None, message)
+}
+
+fn failed_step_with_result_code(
+    step: &PlannedStep,
+    result_code: Option<String>,
+    message: String,
+) -> ExecutedStep {
     ExecutedStep {
         run_step_id: step.run_step_id,
         sort_order: step.sort_order,
         status: StepTerminalStatus::Failed,
-        result_code: None,
+        result_code,
         message: Some(message),
     }
 }
@@ -432,6 +443,22 @@ mod tests {
             aggregate_status(&results),
             RunTerminalStatus::PartiallySucceeded
         );
+    }
+
+    #[test]
+    fn request_forward_failure_keeps_stable_result_code_and_original_message() {
+        let message = "TCP 监听绑定失败: address already in use";
+        let error = crate::tools::request_forward::encode_action_error(message, "failed");
+        let executor = Arc::new(ScriptedExecutor::new([("forward", Behavior::Error(error))]));
+        let mut forward_step = step(10, "forward", 0);
+        forward_step.action_type =
+            crate::tools::action_center::definitions::REQUEST_FORWARD_START.into();
+
+        let results = execute_plan(ExecutionMode::Serial, vec![forward_step], executor);
+
+        assert_eq!(results[0].status, StepTerminalStatus::Failed);
+        assert_eq!(results[0].result_code.as_deref(), Some("listener_in_use"));
+        assert_eq!(results[0].message.as_deref(), Some(message));
     }
 
     #[test]
