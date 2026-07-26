@@ -96,10 +96,14 @@ fn execute_parallel(
         .into_iter()
         .map(|(step, worker)| match worker.join() {
             Ok(result) => result,
-            Err(payload) => failed_step(
-                &step,
-                format!("parallel step worker panicked: {}", panic_message(payload)),
-            ),
+            Err(payload) => {
+                let result = failed_step(
+                    &step,
+                    format!("parallel step worker panicked: {}", panic_message(payload)),
+                );
+                notify_step_finished(&observer, &result);
+                result
+            }
         })
         .collect::<Vec<_>>();
     results.sort_by_key(|result| (result.sort_order, result.run_step_id));
@@ -111,13 +115,25 @@ fn execute_step(
     executor: &Arc<dyn AtomicActionExecutor>,
     observer: &Arc<dyn ExecutionObserver>,
 ) -> ExecutedStep {
-    observer.step_started(step.run_step_id);
-    let result = match &step.validation_error {
-        Some(error) => failed_step(&step, error.clone()),
-        None => execute_atomic_step(&step, executor),
+    let result = match catch_unwind(AssertUnwindSafe(|| observer.step_started(step.run_step_id))) {
+        Ok(()) => match &step.validation_error {
+            Some(error) => failed_step(&step, error.clone()),
+            None => execute_atomic_step(&step, executor),
+        },
+        Err(payload) => failed_step(
+            &step,
+            format!(
+                "execution observer step_started panicked: {}",
+                panic_message(payload)
+            ),
+        ),
     };
-    observer.step_finished(&result);
+    notify_step_finished(observer, &result);
     result
+}
+
+fn notify_step_finished(observer: &Arc<dyn ExecutionObserver>, result: &ExecutedStep) {
+    let _ = catch_unwind(AssertUnwindSafe(|| observer.step_finished(result)));
 }
 
 fn execute_atomic_step(
@@ -194,6 +210,7 @@ mod tests {
     use std::{
         collections::HashMap,
         sync::{
+            atomic::{AtomicUsize, Ordering},
             mpsc::{self, Sender},
             Arc, Condvar, Mutex,
         },
@@ -427,6 +444,7 @@ mod tests {
 
     struct PanicOnStartObserver {
         panic_run_step_id: i64,
+        finished: Arc<Mutex<Vec<(i64, StepTerminalStatus)>>>,
     }
 
     impl ExecutionObserver for PanicOnStartObserver {
@@ -436,11 +454,53 @@ mod tests {
             }
         }
 
-        fn step_finished(&self, _result: &ExecutedStep) {}
+        fn step_finished(&self, result: &ExecutedStep) {
+            self.finished
+                .lock()
+                .unwrap()
+                .push((result.run_step_id, result.status));
+        }
     }
 
     #[test]
-    fn parallel_worker_join_panic_fails_only_that_step() {
+    fn serial_started_observer_panic_fails_that_step_notifies_finished_and_continues() {
+        let finished = Arc::new(Mutex::new(Vec::new()));
+        let executor = Arc::new(ScriptedExecutor::new([
+            ("skipped", succeeded(None, None)),
+            ("ok", succeeded(None, None)),
+        ]));
+        let calls = executor.calls.clone();
+
+        let results = execute_plan_with_observer(
+            ExecutionMode::Serial,
+            vec![step(1, "skipped", 0), step(2, "ok", 1)],
+            executor,
+            Arc::new(PanicOnStartObserver {
+                panic_run_step_id: 1,
+                finished: finished.clone(),
+            }),
+        );
+
+        assert_eq!(*calls.lock().unwrap(), ["ok"]);
+        assert_eq!(results[0].status, StepTerminalStatus::Failed);
+        assert!(results[0]
+            .message
+            .as_deref()
+            .unwrap()
+            .contains("observer exploded"));
+        assert_eq!(results[1].status, StepTerminalStatus::Succeeded);
+        assert_eq!(
+            *finished.lock().unwrap(),
+            [
+                (1, StepTerminalStatus::Failed),
+                (2, StepTerminalStatus::Succeeded),
+            ]
+        );
+    }
+
+    #[test]
+    fn parallel_started_observer_panic_fails_that_step_and_notifies_finished() {
+        let finished = Arc::new(Mutex::new(Vec::new()));
         let executor = Arc::new(ScriptedExecutor::new([
             ("skipped", succeeded(None, None)),
             ("ok", succeeded(None, None)),
@@ -452,6 +512,7 @@ mod tests {
             executor,
             Arc::new(PanicOnStartObserver {
                 panic_run_step_id: 1,
+                finished: finished.clone(),
             }),
         );
 
@@ -462,6 +523,58 @@ mod tests {
             .unwrap()
             .contains("observer exploded"));
         assert_eq!(results[1].status, StepTerminalStatus::Succeeded);
+        let finished = finished.lock().unwrap();
+        assert!(finished.contains(&(1, StepTerminalStatus::Failed)));
+        assert!(finished.contains(&(2, StepTerminalStatus::Succeeded)));
+    }
+
+    struct PanicOnFinishObserver {
+        finished_calls: Arc<AtomicUsize>,
+    }
+
+    impl ExecutionObserver for PanicOnFinishObserver {
+        fn step_started(&self, _run_step_id: i64) {}
+
+        fn step_finished(&self, _result: &ExecutedStep) {
+            self.finished_calls.fetch_add(1, Ordering::SeqCst);
+            panic!("finished observer exploded");
+        }
+    }
+
+    fn assert_finished_observer_panic_does_not_change_results(mode: ExecutionMode) {
+        let finished_calls = Arc::new(AtomicUsize::new(0));
+        let executor = Arc::new(ScriptedExecutor::new([
+            ("a", succeeded(None, None)),
+            ("b", succeeded(None, None)),
+        ]));
+
+        let results = execute_plan_with_observer(
+            mode,
+            vec![step(1, "a", 0), step(2, "b", 1)],
+            executor,
+            Arc::new(PanicOnFinishObserver {
+                finished_calls: finished_calls.clone(),
+            }),
+        );
+
+        assert_eq!(
+            results
+                .iter()
+                .map(|result| result.status)
+                .collect::<Vec<_>>(),
+            [StepTerminalStatus::Succeeded, StepTerminalStatus::Succeeded,]
+        );
+        assert_eq!(finished_calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn serial_finished_observer_panic_does_not_stop_execution() {
+        assert_finished_observer_panic_does_not_change_results(ExecutionMode::Serial);
+    }
+
+    #[test]
+    fn parallel_finished_observer_panic_does_not_change_results() {
+        assert_finished_observer_panic_does_not_change_results(ExecutionMode::Parallel);
     }
 
     #[test]
