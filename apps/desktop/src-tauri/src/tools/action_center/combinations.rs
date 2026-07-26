@@ -43,6 +43,8 @@ CREATE TABLE IF NOT EXISTS action_combination_runs (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_action_combination_runs_one_active
 ON action_combination_runs((1))
 WHERE status IN ('pending','running');
+CREATE INDEX IF NOT EXISTS idx_action_combination_runs_combination_created
+ON action_combination_runs(combination_id, created_at DESC, id DESC);
 CREATE TABLE IF NOT EXISTS action_combination_run_steps (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     run_id TEXT NOT NULL REFERENCES action_combination_runs(id) ON DELETE CASCADE,
@@ -567,6 +569,22 @@ mod tests {
         conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
         super::super::ensure_schema(&conn).unwrap();
         conn
+    }
+
+    #[test]
+    fn schema_has_combination_run_history_index() {
+        let conn = test_conn();
+        let sql: String = conn
+            .query_row(
+                "SELECT sql FROM sqlite_master
+                 WHERE type='index' AND name='idx_action_combination_runs_combination_created'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(sql.contains("combination_id"));
+        assert!(sql.contains("created_at DESC"));
+        assert!(sql.contains("id DESC"));
     }
 
     fn input(
