@@ -377,6 +377,9 @@ const SPOTLIGHT_WIDTH: i64 = 560;
 const SPOTLIGHT_HEIGHT: i64 = 420;
 
 fn expected_window_title(window_label: &str) -> Option<&'static str> {
+    if window_label.starts_with(reference_card::REFERENCE_CARD_PREFIX) {
+        return Some(reference_card::REFERENCE_CARD_TITLE);
+    }
     match window_label {
         MAIN_WINDOW_LABEL => Some(MAIN_WINDOW_TITLE),
         GLOBAL_NOTIFICATION_LABEL => Some(GLOBAL_NOTIFICATION_TITLE),
@@ -804,6 +807,10 @@ fn sync_all_shortcuts(app: &tauri::AppHandle) -> Result<(), String> {
                 }
                 if name_owned == "spotlight" {
                     show_spotlight(app_handle);
+                    return;
+                }
+                if name_owned == "reference-card" {
+                    reference_card::show_from_clipboard(app_handle);
                     return;
                 }
                 handle_main_window_shortcut(app_handle, name_owned.as_str());
@@ -1394,6 +1401,7 @@ fn main() {
             match event {
                 WindowEvent::CloseRequested { api, .. } => {
                     if window.label() != MAIN_WINDOW_LABEL {
+                        reference_card::on_window_closed(window.label());
                         tools::access_path_diagnostics::runtime::on_window_closed(window.label());
                         return;
                     }
@@ -1424,6 +1432,9 @@ fn main() {
                         let _ = window.hide();
                     }
                 }
+                WindowEvent::Destroyed => {
+                    reference_card::on_window_closed(window.label());
+                }
                 _ => {}
             }
         })
@@ -1443,6 +1454,8 @@ fn main() {
             suppress_clipboard_capture,
             spotlight_pick,
             spotlight_close,
+            reference_card::reference_card_show,
+            reference_card::reference_card_ready,
             tools::access_path_diagnostics::runtime::diagnosis_start,
             tools::access_path_diagnostics::runtime::diagnosis_get,
             tools::access_path_diagnostics::runtime::diagnosis_cancel,

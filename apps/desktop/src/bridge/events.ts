@@ -30,4 +30,6 @@ export const APP_EVENTS = {
   RELEASE_PACKAGE_STATUS: "release-package://status",
   /** Rust -> 主窗口：密码库因空闲策略进入锁定状态 */
   VAULT_LOCKED: "vault://locked",
+  /** Rust -> 参考卡窗口：初始化正文 payload string */
+  REFERENCE_CARD_INIT: "reference-card://init",
 } as const;
