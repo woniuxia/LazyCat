@@ -65,6 +65,10 @@ export async function showReferenceCard(text: string): Promise<ReferenceCardShow
   return invoke<ReferenceCardShowResult>("reference_card_show", { text });
 }
 
+export async function referenceCardReady(): Promise<void> {
+  await invoke("reference_card_ready");
+}
+
 export async function diagnosisStart(
   request: AccessPathDiagnosisStartRequest,
 ): Promise<AccessPathDiagnosisStartResponse> {
