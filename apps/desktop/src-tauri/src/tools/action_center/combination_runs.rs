@@ -133,12 +133,15 @@ pub(crate) fn create_run_with_conn<F>(
 where
     F: Fn(&str, &str) -> AtomicTargetSnapshot,
 {
-    create_run_and_plan_with_conn(conn, combination_id, snapshot_target).map(|(run, _)| run)
+    let run_id = Uuid::new_v4().to_string();
+    create_run_and_plan_with_conn(conn, combination_id, &run_id, snapshot_target)
+        .map(|(run, _)| run)
 }
 
 fn create_run_and_plan_with_conn<F>(
     conn: &mut Connection,
     combination_id: i64,
+    run_id: &str,
     snapshot_target: F,
 ) -> Result<(CombinationRunDetail, Vec<PlannedStep>), String>
 where
@@ -187,7 +190,6 @@ where
         return Err(format!("combination has no steps: {combination_id}"));
     }
 
-    let run_id = Uuid::new_v4().to_string();
     if let Err(error) = tx.execute(
         "INSERT INTO action_combination_runs
          (id, combination_id, combination_name, execution_mode, status, created_at)
@@ -233,7 +235,7 @@ where
         });
     }
 
-    let detail = get_run_with_conn(&tx, &run_id)?;
+    let detail = get_run_with_conn(&tx, run_id)?;
     tx.commit()
         .map_err(|error| format!("commit combination run failed: {error}"))?;
     Ok((detail, plan))
@@ -729,16 +731,11 @@ where
     F: Fn(&str, &str) -> AtomicTargetSnapshot,
     S: FnOnce(BackgroundTask) -> io::Result<()>,
 {
-    let (run, plan) = create_run_and_plan_with_conn(conn, combination_id, snapshot_target)?;
-    let guard = match ActiveRunGuard::acquire(conn, &run.id) {
-        Ok(guard) => guard,
-        Err(error) => {
-            fail_run_and_unfinished_steps_with_conn(conn, &run.id, "start_failed", &error)?;
-            return Err(error);
-        }
-    };
+    let run_id = Uuid::new_v4().to_string();
+    let guard = ActiveRunGuard::acquire(conn, &run_id)?;
+    let (run, plan) =
+        create_run_and_plan_with_conn(conn, combination_id, &run_id, snapshot_target)?;
 
-    let run_id = run.id.clone();
     let background_run_id = run_id.clone();
     let background_factory = conn_factory.clone();
     let background_emitter = emitter.clone();
@@ -1109,14 +1106,16 @@ mod tests {
             ExecutionMode::Serial,
             &[("hosts.activate", "missing")],
         );
-        let (run, plan) = create_run_and_plan_with_conn(&mut conn, invalid, |action, target| {
-            AtomicTargetSnapshot {
-                action_label: action.into(),
-                target_label: target.into(),
-                validation_error: Some("目标不存在".into()),
-            }
-        })
-        .unwrap();
+        let run_id = Uuid::new_v4().to_string();
+        let (run, plan) =
+            create_run_and_plan_with_conn(&mut conn, invalid, &run_id, |action, target| {
+                AtomicTargetSnapshot {
+                    action_label: action.into(),
+                    target_label: target.into(),
+                    validation_error: Some("目标不存在".into()),
+                }
+            })
+            .unwrap();
         assert_eq!(run.status, "pending");
         assert_eq!(plan[0].validation_error.as_deref(), Some("目标不存在"));
     }
@@ -1339,6 +1338,54 @@ mod tests {
     fn inline_spawner(task: BackgroundTask) -> io::Result<()> {
         task();
         Ok(())
+    }
+
+    #[test]
+    fn start_rejects_occupied_process_slot_before_creating_run() {
+        let _serial = COORDINATOR_TEST_LOCK.lock().unwrap();
+        clear_active_run_slot_for_test();
+        let (database, mut conn) = TempDatabase::new();
+        let first = seed_combination(
+            &conn,
+            "first running combination",
+            ExecutionMode::Serial,
+            &[("hosts.activate", "1")],
+        );
+        let second = seed_combination(
+            &conn,
+            "second combination",
+            ExecutionMode::Serial,
+            &[("hosts.activate", "2")],
+        );
+        let first_run = create_run_with_conn(&mut conn, first, snapshot).unwrap();
+        let guard = ActiveRunGuard::acquire(&conn, &first_run.id).unwrap();
+        conn.execute("DROP INDEX idx_action_combination_runs_one_active", [])
+            .unwrap();
+        let executor = Arc::new(FakeExecutor {
+            results: HashMap::from([("2".into(), success(AtomicStepSuccessStatus::Succeeded))]),
+        });
+
+        let error = start_with_dependencies(
+            &mut conn,
+            second,
+            snapshot,
+            executor,
+            database.factory(),
+            Arc::new(|_, _| Ok(())),
+            |_task| panic!("occupied slot must reject before spawning"),
+        )
+        .unwrap_err();
+
+        assert!(error.contains("first running combination"), "{error}");
+        assert!(error.contains("pending"), "{error}");
+        let run_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM action_combination_runs", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(run_count, 1, "slot rejection must not create a second run");
+        drop(guard);
+        clear_active_run_slot_for_test();
     }
 
     #[test]
