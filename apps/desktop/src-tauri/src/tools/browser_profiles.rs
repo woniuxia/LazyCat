@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::{Mutex, OnceLock};
 
 use rusqlite::params;
 use serde_json::json;
@@ -11,6 +12,8 @@ use serde_json::{Map, Value};
 const CONFIG_KEY: &str = "browser_profiles_config_v1";
 const BROWSER_EDGE: &str = "edge";
 const BROWSER_CHROME: &str = "chrome";
+
+static CONFIG_MUTATION_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -48,7 +51,7 @@ struct DiscoveredProfile {
     edge_display_name: String,
 }
 
-#[derive(Debug, Clone, serde::Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 struct BrowserProfileItem {
     browser: String,
@@ -454,24 +457,31 @@ fn save_config_to_settings(
     Ok(())
 }
 
+fn with_config_mutation_lock<T>(mutation: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+    let lock = CONFIG_MUTATION_LOCK.get_or_init(|| Mutex::new(()));
+    let _guard = lock
+        .lock()
+        .map_err(|_| "浏览器身份配置写入锁已损坏".to_string())?;
+    mutation()
+}
+
 fn mutate_config<F>(f: F) -> Result<BrowserProfilesConfig, String>
 where
     F: FnOnce(&mut BrowserProfilesConfig) -> Result<(), String>,
 {
-    let conn = super::helpers::db_conn()?;
-    let mut warnings = Vec::new();
-    let mut config = load_config_from_settings(&conn, &mut warnings);
-    f(&mut config)?;
-    save_config_to_settings(&conn, &config)?;
-    Ok(config)
+    with_config_mutation_lock(|| {
+        let conn = super::helpers::db_conn()?;
+        let mut warnings = Vec::new();
+        let mut config = load_config_from_settings(&conn, &mut warnings);
+        f(&mut config)?;
+        save_config_to_settings(&conn, &config)?;
+        Ok(config)
+    })
 }
 
-fn list_profiles() -> Result<Value, String> {
+fn list_profiles_with_conn(conn: &rusqlite::Connection) -> Result<Value, String> {
     let mut warnings = Vec::new();
-    let config = {
-        let conn = super::helpers::db_conn()?;
-        load_config_from_settings(&conn, &mut warnings)
-    };
+    let config = load_config_from_settings(conn, &mut warnings);
     let (edge_path, probed_paths) = find_edge_path(config.edge_path.as_deref());
     let (chrome_path, probed_chrome_paths) = find_chrome_path(config.chrome_path.as_deref());
     let edge_user_data_dir = edge_user_data_dir();
@@ -515,6 +525,90 @@ fn list_profiles() -> Result<Value, String> {
         "warnings": warnings,
         "profiles": profiles,
     }))
+}
+
+fn list_profiles() -> Result<Value, String> {
+    let conn = super::helpers::db_conn()?;
+    list_profiles_with_conn(&conn)
+}
+
+pub(crate) fn encode_action_target(browser: &str, profile_dir: &str) -> Result<String, String> {
+    if !matches!(browser, BROWSER_EDGE | BROWSER_CHROME) {
+        return Err("浏览器身份目标仅支持 Edge 和 Chrome".into());
+    }
+    if profile_dir.trim().is_empty() {
+        return Err("浏览器身份 Profile 目录不能为空".into());
+    }
+    serde_json::to_string(&(browser, profile_dir))
+        .map_err(|error| format!("编码浏览器身份目标失败: {error}"))
+}
+
+pub(crate) fn decode_action_target(target_id: &str) -> Result<(String, String), String> {
+    let (browser, profile_dir): (String, String) = serde_json::from_str(target_id)
+        .map_err(|error| format!("浏览器身份目标 ID 无效: {error}"))?;
+    if !matches!(browser.as_str(), BROWSER_EDGE | BROWSER_CHROME) {
+        return Err("浏览器身份目标仅支持 Edge 和 Chrome".into());
+    }
+    if profile_dir.trim().is_empty() {
+        return Err("浏览器身份 Profile 目录不能为空".into());
+    }
+    Ok((browser, profile_dir))
+}
+
+fn build_action_targets(
+    profiles: Vec<BrowserProfileItem>,
+    edge_available: bool,
+    chrome_available: bool,
+) -> Result<Vec<(String, String, bool, Option<String>)>, String> {
+    profiles
+        .into_iter()
+        .map(|profile| {
+            let available = match profile.browser.as_str() {
+                BROWSER_EDGE => edge_available,
+                BROWSER_CHROME => chrome_available,
+                _ => false,
+            };
+            let unavailable_reason = (!available).then(|| {
+                format!(
+                    "未找到 {}，无法启动该浏览器身份",
+                    browser_executable_name(&profile.browser)
+                )
+            });
+            let browser_label = if profile.browser == BROWSER_CHROME {
+                "Chrome"
+            } else {
+                "Edge"
+            };
+            Ok((
+                encode_action_target(&profile.browser, &profile.profile_dir)?,
+                format!("{browser_label} · {}", profile_display_name(&profile)),
+                available,
+                unavailable_reason,
+            ))
+        })
+        .collect()
+}
+
+pub(crate) fn list_action_targets_with_conn(
+    conn: &rusqlite::Connection,
+) -> Result<Vec<(String, String, bool, Option<String>)>, String> {
+    let payload = list_profiles_with_conn(conn)?;
+    let edge_available = payload
+        .get("edgeFound")
+        .and_then(Value::as_bool)
+        .ok_or_else(|| "浏览器身份列表缺少 edgeFound".to_string())?;
+    let chrome_available = payload
+        .get("chromeFound")
+        .and_then(Value::as_bool)
+        .ok_or_else(|| "浏览器身份列表缺少 chromeFound".to_string())?;
+    let profiles = serde_json::from_value(
+        payload
+            .get("profiles")
+            .cloned()
+            .ok_or_else(|| "浏览器身份列表缺少 profiles".to_string())?,
+    )
+    .map_err(|error| format!("读取浏览器身份动作目标失败: {error}"))?;
+    build_action_targets(profiles, edge_available, chrome_available)
 }
 
 fn save_alias(payload: &Value) -> Result<Value, String> {
@@ -574,9 +668,13 @@ fn set_chrome_path(payload: &Value) -> Result<Value, String> {
     Ok(json!({ "ok": true }))
 }
 
-fn launch_profile(payload: &Value) -> Result<Value, String> {
-    let browser = require_supported_browser(payload)?;
-    let profile_dir = require_profile_dir(payload)?;
+struct LaunchProfileResult {
+    launch_count: i64,
+    last_launched_at: String,
+    warnings: Vec<String>,
+}
+
+fn launch_profile_inner(browser: &str, profile_dir: &str) -> Result<LaunchProfileResult, String> {
     let mut warnings = Vec::new();
     let config = {
         let conn = super::helpers::db_conn()?;
@@ -588,39 +686,69 @@ fn launch_profile(payload: &Value) -> Result<Value, String> {
         _ => None,
     }
     .ok_or_else(|| format!("未找到 {}", browser_executable_name(browser)))?;
-    ensure_browser_profile_exists(browser, &profile_dir)?;
+    ensure_browser_profile_exists(browser, profile_dir)?;
 
     Command::new(&executable)
-        .arg(build_edge_profile_arg(&profile_dir))
+        .arg(build_edge_profile_arg(profile_dir))
         .spawn()
         .map_err(|err| format!("launch failed: {err}"))?;
 
     let now = chrono::Local::now().to_rfc3339();
     let stats_result = mutate_config(|config| {
-        update_launch_stats_for_browser(config, browser, &profile_dir, &now);
+        update_launch_stats_for_browser(config, browser, profile_dir, &now);
         Ok(())
     });
     let launch_count = match stats_result {
         Ok(config) => config_entries(&config, browser)
-            .get(&profile_dir)
+            .get(profile_dir)
             .and_then(|entry| entry.launch_count)
             .unwrap_or_default(),
         Err(err) => {
             warnings.push(format!("启动成功，但使用统计保存失败：{err}"));
             config_entries(&config, browser)
-                .get(&profile_dir)
+                .get(profile_dir)
                 .and_then(|entry| entry.launch_count)
                 .unwrap_or_default()
                 + 1
         }
     };
 
+    Ok(LaunchProfileResult {
+        launch_count,
+        last_launched_at: now,
+        warnings,
+    })
+}
+
+fn launch_profile(payload: &Value) -> Result<Value, String> {
+    let browser = require_supported_browser(payload)?;
+    let profile_dir = require_profile_dir(payload)?;
+    let result = launch_profile_inner(browser, &profile_dir)?;
     Ok(json!({
         "ok": true,
-        "launchCount": launch_count,
-        "lastLaunchedAt": now,
-        "warnings": warnings,
+        "launchCount": result.launch_count,
+        "lastLaunchedAt": result.last_launched_at,
+        "warnings": result.warnings,
     }))
+}
+
+fn launch_action_target_with(
+    target_id: &str,
+    launch: impl FnOnce(&str, &str) -> Result<Vec<String>, String>,
+) -> Result<Option<String>, String> {
+    let (browser, profile_dir) = decode_action_target(target_id)?;
+    let warnings = launch(&browser, &profile_dir)?;
+    if warnings.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(warnings.join("\n")))
+    }
+}
+
+pub(crate) fn launch_action_target(target_id: &str) -> Result<Option<String>, String> {
+    launch_action_target_with(target_id, |browser, profile_dir| {
+        Ok(launch_profile_inner(browser, profile_dir)?.warnings)
+    })
 }
 
 fn require_supported_browser(payload: &Value) -> Result<&str, String> {
@@ -734,13 +862,17 @@ fn compare_optional_desc(left: &Option<String>, right: &Option<String>) -> Order
 }
 
 fn display_name_for_sort(item: &BrowserProfileItem) -> String {
+    profile_display_name(item).to_lowercase()
+}
+
+fn profile_display_name(item: &BrowserProfileItem) -> &str {
     for candidate in [&item.alias, &item.edge_display_name, &item.profile_dir] {
         let trimmed = candidate.trim();
         if !trimmed.is_empty() {
-            return trimmed.to_lowercase();
+            return trimmed;
         }
     }
-    String::new()
+    ""
 }
 
 fn compare_profile_dir_name(left: &String, right: &String) -> Ordering {
@@ -763,6 +895,11 @@ fn profile_dir_sort_key(name: &str) -> (u8, u64) {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
+    use std::sync::{mpsc, Arc};
+    use std::thread;
+    use std::time::Duration;
+
     use super::*;
     use serde_json::json;
 
@@ -783,6 +920,88 @@ mod tests {
             launch_count,
             last_launched_at: last_launched_at.map(str::to_string),
         }
+    }
+
+    #[test]
+    fn unavailable_browser_profiles_remain_action_targets_with_a_reason() {
+        let targets = build_action_targets(
+            vec![item("Profile 1", "工作", "", false, 0, None)],
+            false,
+            true,
+        )
+        .unwrap();
+
+        assert_eq!(targets.len(), 1);
+        assert_eq!(
+            decode_action_target(&targets[0].0).unwrap(),
+            ("edge".into(), "Profile 1".into())
+        );
+        assert_eq!(targets[0].1, "Edge · 工作");
+        assert!(!targets[0].2);
+        assert!(targets[0].3.as_deref().unwrap().contains("msedge.exe"));
+    }
+
+    #[test]
+    fn config_mutation_lock_allows_only_one_concurrent_critical_section() {
+        let active = Arc::new(AtomicUsize::new(0));
+        let max_active = Arc::new(AtomicUsize::new(0));
+        let (first_entered_tx, first_entered_rx) = mpsc::channel();
+        let (release_first_tx, release_first_rx) = mpsc::channel();
+
+        let first_active = active.clone();
+        let first_max_active = max_active.clone();
+        let first = thread::spawn(move || {
+            with_config_mutation_lock(|| {
+                let current = first_active.fetch_add(1, AtomicOrdering::SeqCst) + 1;
+                first_max_active.fetch_max(current, AtomicOrdering::SeqCst);
+                first_entered_tx.send(()).expect("signal first entry");
+                release_first_rx.recv().expect("release first entry");
+                first_active.fetch_sub(1, AtomicOrdering::SeqCst);
+                Ok(())
+            })
+        });
+        first_entered_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("first mutation enters critical section");
+
+        let second_active = active.clone();
+        let second_max_active = max_active.clone();
+        let (second_attempted_tx, second_attempted_rx) = mpsc::channel();
+        let (second_entered_tx, second_entered_rx) = mpsc::channel();
+        let second = thread::spawn(move || {
+            second_attempted_tx
+                .send(())
+                .expect("signal second mutation attempt");
+            with_config_mutation_lock(|| {
+                let current = second_active.fetch_add(1, AtomicOrdering::SeqCst) + 1;
+                second_max_active.fetch_max(current, AtomicOrdering::SeqCst);
+                second_entered_tx.send(()).expect("signal second entry");
+                second_active.fetch_sub(1, AtomicOrdering::SeqCst);
+                Ok(())
+            })
+        });
+        second_attempted_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("second mutation attempts critical section");
+        assert!(matches!(
+            second_entered_rx.recv_timeout(Duration::from_millis(100)),
+            Err(mpsc::RecvTimeoutError::Timeout)
+        ));
+
+        release_first_tx.send(()).expect("release first mutation");
+        first
+            .join()
+            .expect("join first mutation")
+            .expect("first mutation succeeds");
+        second_entered_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("second mutation enters after first exits");
+        second
+            .join()
+            .expect("join second mutation")
+            .expect("second mutation succeeds");
+
+        assert_eq!(max_active.load(AtomicOrdering::SeqCst), 1);
     }
 
     #[test]
@@ -1011,6 +1230,36 @@ mod tests {
         assert_eq!(
             entry.last_launched_at.as_deref(),
             Some("2026-07-02T10:30:00+08:00")
+        );
+    }
+
+    #[test]
+    fn browser_action_target_decodes_and_always_invokes_launch_core() {
+        let target_id = encode_action_target(BROWSER_EDGE, "Profile 1").unwrap();
+        let mut launches = Vec::new();
+
+        let first = launch_action_target_with(&target_id, |browser, profile_dir| {
+            launches.push((browser.to_string(), profile_dir.to_string()));
+            Ok(Vec::new())
+        })
+        .unwrap();
+        let second = launch_action_target_with(&target_id, |browser, profile_dir| {
+            launches.push((browser.to_string(), profile_dir.to_string()));
+            Ok(vec!["启动成功，但使用统计保存失败：磁盘只读".into()])
+        })
+        .unwrap();
+
+        assert_eq!(
+            launches,
+            vec![
+                (BROWSER_EDGE.to_string(), "Profile 1".to_string()),
+                (BROWSER_EDGE.to_string(), "Profile 1".to_string()),
+            ]
+        );
+        assert_eq!(first, None);
+        assert_eq!(
+            second.as_deref(),
+            Some("启动成功，但使用统计保存失败：磁盘只读")
         );
     }
 }

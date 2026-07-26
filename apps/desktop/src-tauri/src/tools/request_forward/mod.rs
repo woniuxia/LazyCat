@@ -1,11 +1,13 @@
 use std::collections::HashSet;
 
+use rusqlite::{Connection, OptionalExtension};
 use serde_json::{json, Value};
 
 use super::helpers::db_conn;
 use model::{
-    encode_request_forward_error, encode_request_forward_error_with_code,
-    RequestForwardErrorCode, RuleWriteInput,
+    decode_request_forward_error, encode_request_forward_error,
+    encode_request_forward_error_with_code, RequestForwardActionError, RequestForwardErrorCode,
+    RuleWriteInput,
 };
 use runtime::LifecycleRepository;
 
@@ -48,6 +50,14 @@ pub fn encode_preflight_task_error(message: &str) -> String {
     )
 }
 
+pub(crate) fn encode_action_error(message: &str, state: &str) -> String {
+    encode_request_forward_error(message, state)
+}
+
+pub(crate) fn decode_action_error(encoded: &str) -> Option<RequestForwardActionError> {
+    decode_request_forward_error(encoded)
+}
+
 struct DatabaseLifecycleRepository;
 
 impl LifecycleRepository for DatabaseLifecycleRepository {
@@ -65,6 +75,71 @@ pub fn initialize_manager() -> Result<(), String> {
     // 工具分发当前是同步全局入口；进程级唯一 runtime 避免每个 action 都耦合 AppHandle。
     let _ = runtime::global_manager();
     Ok(())
+}
+
+pub(crate) fn list_action_targets_with_conn(
+    conn: &Connection,
+) -> Result<Vec<(String, String)>, String> {
+    let mut stmt = conn
+        .prepare("SELECT id, name FROM request_forward_rules ORDER BY id ASC")
+        .map_err(|error| format!("查询请求转发动作目标失败: {error}"))?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((row.get::<_, i64>(0)?.to_string(), row.get(1)?))
+        })
+        .map_err(|error| format!("查询请求转发动作目标失败: {error}"))?;
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|error| format!("读取请求转发动作目标失败: {error}"))
+}
+
+pub(crate) fn load_action_target_with_conn(
+    conn: &Connection,
+    id: i64,
+) -> Result<Option<String>, String> {
+    conn.query_row(
+        "SELECT name FROM request_forward_rules WHERE id = ?1",
+        [id],
+        |row| row.get(0),
+    )
+    .optional()
+    .map_err(|error| format!("读取请求转发动作目标失败: {error}"))
+}
+
+fn start_action_target_with_conn_and_manager(
+    conn: &Connection,
+    manager: &runtime::RuntimeManager,
+    target_id: &str,
+) -> Result<bool, String> {
+    let id = target_id
+        .parse::<i64>()
+        .ok()
+        .filter(|id| *id > 0)
+        .ok_or_else(|| format!("请求转发动作目标 ID 无效: {target_id}"))
+        .map_err(|message| encode_action_target_error(manager, target_id, &message))?;
+    manager
+        .start_loaded_if_needed(id, || repository::get_with_conn(conn, id))
+        .map_err(|message| encode_action_target_error(manager, target_id, &message))
+}
+
+fn encode_action_target_error(
+    manager: &runtime::RuntimeManager,
+    target_id: &str,
+    message: &str,
+) -> String {
+    let state = target_id
+        .parse::<i64>()
+        .ok()
+        .filter(|id| *id > 0)
+        .map(|id| manager.status(id).state)
+        .unwrap_or(runtime::RuntimeState::Stopped);
+    encode_action_error(message, state.as_str())
+}
+
+pub(crate) fn start_action_target(target_id: &str) -> Result<bool, String> {
+    let manager = runtime::global_manager();
+    let conn =
+        db_conn().map_err(|message| encode_action_target_error(manager, target_id, &message))?;
+    start_action_target_with_conn_and_manager(&conn, manager, target_id)
 }
 
 pub fn restore_auto_start_rules() -> Result<Vec<RestoreResult>, String> {
@@ -95,8 +170,7 @@ mod action_contract_tests {
     use serde_json::json;
 
     use super::{
-        parse_auto_start_enabled, parse_batch_rule_ids, resolve_batch_rule_ids,
-        supported_actions,
+        parse_auto_start_enabled, parse_batch_rule_ids, resolve_batch_rule_ids, supported_actions,
     };
 
     #[test]
@@ -119,7 +193,10 @@ mod action_contract_tests {
             parse_batch_rule_ids(&json!({ "ids": [3, 3, 0, -1, "2", 5] })).unwrap(),
             Some(vec![3, 5])
         );
-        assert_eq!(parse_batch_rule_ids(&json!({ "ids": [] })).unwrap(), Some(vec![]));
+        assert_eq!(
+            parse_batch_rule_ids(&json!({ "ids": [] })).unwrap(),
+            Some(vec![])
+        );
         assert!(parse_batch_rule_ids(&json!({ "ids": "all" })).is_err());
     }
 
@@ -214,10 +291,8 @@ fn execute_inner(action: &str, payload: &Value) -> Result<Value, String> {
                     .map(|rule| rule.id)
                     .collect::<Vec<_>>())
             })?;
-            let results =
-                runtime::global_manager().start_all_loaded(&rule_ids, |id| {
-                    repository::get_with_conn(&conn, id)
-                });
+            let results = runtime::global_manager()
+                .start_all_loaded(&rule_ids, |id| repository::get_with_conn(&conn, id));
             Ok(json!({ "results": results }))
         }
         "stop_all" => {
@@ -228,10 +303,8 @@ fn execute_inner(action: &str, payload: &Value) -> Result<Value, String> {
                     .map(|rule| rule.id)
                     .collect::<Vec<_>>())
             })?;
-            let results =
-                runtime::global_manager().stop_all_loaded(&rule_ids, |id| {
-                    repository::get_with_conn(&conn, id)
-                });
+            let results = runtime::global_manager()
+                .stop_all_loaded(&rule_ids, |id| repository::get_with_conn(&conn, id));
             Ok(json!({ "results": results }))
         }
         "auto_start_update" => {
@@ -426,9 +499,7 @@ fn parse_optional_log_time(
     let parsed = chrono::NaiveDateTime::parse_from_str(&normalized, "%Y-%m-%d %H:%M:%S%.f")
         .or_else(|_| chrono::NaiveDateTime::parse_from_str(&normalized, "%Y-%m-%d %H:%M"))
         .map_err(|_| message.to_string())?;
-    Ok(Some(
-        parsed.format("%Y-%m-%d %H:%M:%S%.3f").to_string(),
-    ))
+    Ok(Some(parsed.format("%Y-%m-%d %H:%M:%S%.3f").to_string()))
 }
 
 #[cfg(test)]
@@ -437,11 +508,33 @@ mod tests {
         classify_request_forward_error, encode_request_forward_error, ForwardProtocol,
         RequestForwardErrorCode, RuleWriteInput,
     };
-    use super::runtime::{RuntimeState, RuntimeStatus};
+    use super::runtime::{RuleRunner, RunningHandle, RuntimeManager, RuntimeState, RuntimeStatus};
     use super::{repository, validation};
     use crate::tools::helpers::ensure_request_forward_schema_for_test;
     use rusqlite::{params, Connection};
     use serde_json::json;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    #[derive(Default)]
+    struct ActionTargetRunner {
+        fail_next: AtomicBool,
+        starts: AtomicUsize,
+    }
+
+    impl RuleRunner for ActionTargetRunner {
+        fn start(&self, _rule: &super::model::ForwardRule) -> Result<RunningHandle, String> {
+            let attempt = self.starts.fetch_add(1, Ordering::SeqCst) + 1;
+            if self.fail_next.swap(false, Ordering::SeqCst) {
+                return Err("expected start failure".into());
+            }
+            Ok(RunningHandle(attempt as u64))
+        }
+
+        fn stop(&self, _handle: RunningHandle) -> Result<(), String> {
+            Ok(())
+        }
+    }
 
     fn test_conn() -> Connection {
         let conn = Connection::open_in_memory().expect("open in-memory database");
@@ -772,18 +865,23 @@ mod tests {
         let updated = repository::update_with_conn(&conn, created.id, update).expect("update rule");
         assert_eq!(updated.name, "已更新规则");
         assert_eq!(updated.protocol, ForwardProtocol::Http);
-        assert_eq!(updated.target_url.as_deref(), Some("https://example.com/api"));
+        assert_eq!(
+            updated.target_url.as_deref(),
+            Some("https://example.com/api")
+        );
 
-        repository::set_auto_start_with_conn(&conn, created.id, true)
-            .expect("enable auto-start");
-        assert!(repository::get_with_conn(&conn, created.id)
-            .expect("read enabled auto-start")
-            .auto_start);
-        repository::set_auto_start_with_conn(&conn, created.id, false)
-            .expect("disable auto-start");
-        assert!(!repository::get_with_conn(&conn, created.id)
-            .expect("read disabled auto-start")
-            .auto_start);
+        repository::set_auto_start_with_conn(&conn, created.id, true).expect("enable auto-start");
+        assert!(
+            repository::get_with_conn(&conn, created.id)
+                .expect("read enabled auto-start")
+                .auto_start
+        );
+        repository::set_auto_start_with_conn(&conn, created.id, false).expect("disable auto-start");
+        assert!(
+            !repository::get_with_conn(&conn, created.id)
+                .expect("read disabled auto-start")
+                .auto_start
+        );
 
         repository::delete_with_conn(&conn, created.id).expect("delete rule");
         assert!(repository::list_with_conn(&conn).unwrap().is_empty());
@@ -798,9 +896,88 @@ mod tests {
         assert!(repository::delete_with_conn(&conn, created.id)
             .expect_err("missing delete")
             .contains("不存在"));
-        assert!(repository::set_auto_start_with_conn(&conn, created.id, true)
-            .expect_err("missing auto-start update")
-            .contains("不存在"));
+        assert!(
+            repository::set_auto_start_with_conn(&conn, created.id, true)
+                .expect_err("missing auto-start update")
+                .contains("不存在")
+        );
+    }
+
+    #[test]
+    fn request_forward_running_is_already_satisfied_without_auto_start_mutation() {
+        let mut conn = test_conn();
+        let rule = repository::create_with_conn(&mut conn, http_input()).unwrap();
+        assert!(!rule.auto_start);
+
+        let runner = Arc::new(ActionTargetRunner::default());
+        let manager = RuntimeManager::new(runner.clone());
+        assert!(super::start_action_target_with_conn_and_manager(
+            &conn,
+            &manager,
+            &rule.id.to_string(),
+        )
+        .unwrap());
+        assert_eq!(manager.status(rule.id).state, RuntimeState::Running);
+        assert!(!super::start_action_target_with_conn_and_manager(
+            &conn,
+            &manager,
+            &rule.id.to_string(),
+        )
+        .unwrap());
+        assert_eq!(runner.starts.load(Ordering::SeqCst), 1);
+        assert!(
+            !repository::get_with_conn(&conn, rule.id)
+                .unwrap()
+                .auto_start
+        );
+        manager
+            .stop_loaded(rule.id, || repository::get_with_conn(&conn, rule.id))
+            .unwrap();
+
+        let retry_runner = Arc::new(ActionTargetRunner::default());
+        retry_runner.fail_next.store(true, Ordering::SeqCst);
+        let retry_manager = RuntimeManager::new(retry_runner.clone());
+        assert!(retry_manager
+            .start_loaded(rule.id, || repository::get_with_conn(&conn, rule.id))
+            .is_err());
+        assert_eq!(retry_manager.status(rule.id).state, RuntimeState::Failed);
+        assert!(super::start_action_target_with_conn_and_manager(
+            &conn,
+            &retry_manager,
+            &rule.id.to_string(),
+        )
+        .unwrap());
+        assert_eq!(retry_manager.status(rule.id).state, RuntimeState::Running);
+        assert_eq!(retry_runner.starts.load(Ordering::SeqCst), 2);
+        assert!(
+            !repository::get_with_conn(&conn, rule.id)
+                .unwrap()
+                .auto_start
+        );
+        retry_manager
+            .stop_loaded(rule.id, || repository::get_with_conn(&conn, rule.id))
+            .unwrap();
+    }
+
+    #[test]
+    fn request_forward_action_target_failure_uses_structured_error_contract() {
+        let mut conn = test_conn();
+        let rule = repository::create_with_conn(&mut conn, http_input()).unwrap();
+        let runner = Arc::new(ActionTargetRunner::default());
+        runner.fail_next.store(true, Ordering::SeqCst);
+        let manager = RuntimeManager::new(runner);
+
+        let encoded =
+            super::start_action_target_with_conn_and_manager(&conn, &manager, &rule.id.to_string())
+                .unwrap_err();
+        let decoded: serde_json::Value =
+            serde_json::from_str(&encoded).expect("action target error envelope");
+
+        assert_eq!(decoded["marker"], "lazycat.request_forward.error");
+        assert_eq!(decoded["version"], 1);
+        assert_eq!(decoded["code"], "unknown");
+        assert_eq!(decoded["message"], "expected start failure");
+        assert_eq!(decoded["state"], "failed");
     }
 
     #[test]
@@ -820,9 +997,11 @@ mod tests {
 
         let mut blank_update = http_input();
         blank_update.name = "\r\n".into();
-        assert!(repository::update_with_conn(&conn, created.id, blank_update)
-            .expect_err("blank update name must fail")
-            .contains("名称"));
+        assert!(
+            repository::update_with_conn(&conn, created.id, blank_update)
+                .expect_err("blank update name must fail")
+                .contains("名称")
+        );
         assert_eq!(
             repository::get_with_conn(&conn, created.id)
                 .expect("read unchanged rule")
@@ -872,8 +1051,8 @@ mod tests {
 
     #[test]
     fn preflight_action_contract_serializes_camel_case_checks() {
-        let listener = std::net::UdpSocket::bind("127.0.0.1:0")
-            .expect("reserve temporary UDP listener port");
+        let listener =
+            std::net::UdpSocket::bind("127.0.0.1:0").expect("reserve temporary UDP listener port");
         let listen_port = listener
             .local_addr()
             .expect("read temporary UDP listener port")

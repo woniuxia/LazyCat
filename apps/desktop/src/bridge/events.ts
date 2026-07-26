@@ -34,4 +34,6 @@ export const APP_EVENTS = {
   ACTION_CENTER_DISPATCH_REQUEST: "action-center://dispatch-request",
   /** Rust -> 参考卡窗口：初始化正文 payload { content: string } */
   REFERENCE_CARD_INIT: "reference-card://init",
+  /** Rust -> 主窗口：组合动作运行状态变化，payload { runId, status } */
+  ACTION_CENTER_COMBINATION_RUN_UPDATED: "action-center://combination-run-updated",
 } as const;

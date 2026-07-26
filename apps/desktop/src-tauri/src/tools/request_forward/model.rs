@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 pub(crate) const REQUEST_FORWARD_ERROR_MARKER: &str = "lazycat.request_forward.error";
 pub(crate) const REQUEST_FORWARD_ERROR_VERSION: u8 = 1;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum RequestForwardErrorCode {
     ListenerInUse,
@@ -17,6 +17,22 @@ pub(crate) enum RequestForwardErrorCode {
     Unknown,
 }
 
+impl RequestForwardErrorCode {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::ListenerInUse => "listener_in_use",
+            Self::DnsFailed => "dns_failed",
+            Self::TargetUnreachable => "target_unreachable",
+            Self::TlsFailed => "tls_failed",
+            Self::SelfForward => "self_forward",
+            Self::InvalidConfig => "invalid_config",
+            Self::LifecycleConflict => "lifecycle_conflict",
+            Self::PersistenceFailed => "persistence_failed",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
 #[derive(Serialize)]
 struct RequestForwardErrorEnvelope<'a> {
     marker: &'static str,
@@ -26,12 +42,23 @@ struct RequestForwardErrorEnvelope<'a> {
     state: &'a str,
 }
 
+#[derive(Deserialize)]
+struct DecodedRequestForwardErrorEnvelope {
+    marker: String,
+    version: u8,
+    code: RequestForwardErrorCode,
+    message: String,
+    #[serde(rename = "state")]
+    _state: String,
+}
+
+pub(crate) struct RequestForwardActionError {
+    pub(crate) result_code: String,
+    pub(crate) message: String,
+}
+
 pub(crate) fn encode_request_forward_error(message: &str, state: &str) -> String {
-    encode_request_forward_error_with_code(
-        message,
-        state,
-        classify_request_forward_error(message),
-    )
+    encode_request_forward_error_with_code(message, state, classify_request_forward_error(message))
 }
 
 pub(crate) fn encode_request_forward_error_with_code(
@@ -47,6 +74,19 @@ pub(crate) fn encode_request_forward_error_with_code(
         state,
     };
     serde_json::to_string(&envelope).unwrap_or_else(|_| message.to_string())
+}
+
+pub(crate) fn decode_request_forward_error(encoded: &str) -> Option<RequestForwardActionError> {
+    let envelope: DecodedRequestForwardErrorEnvelope = serde_json::from_str(encoded).ok()?;
+    if envelope.marker != REQUEST_FORWARD_ERROR_MARKER
+        || envelope.version != REQUEST_FORWARD_ERROR_VERSION
+    {
+        return None;
+    }
+    Some(RequestForwardActionError {
+        result_code: envelope.code.as_str().to_string(),
+        message: envelope.message,
+    })
 }
 
 pub(crate) fn classify_request_forward_error(message: &str) -> RequestForwardErrorCode {

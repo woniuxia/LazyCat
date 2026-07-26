@@ -15,6 +15,8 @@ pub const EVENT_RELEASE_PACKAGE_STATUS: &str = "release-package://status";
 pub const EVENT_VAULT_LOCKED: &str = "vault://locked";
 pub const EVENT_ACTION_CENTER_DISPATCH_REQUEST: &str = "action-center://dispatch-request";
 pub const EVENT_REFERENCE_CARD_INIT: &str = "reference-card://init";
+pub const EVENT_ACTION_CENTER_COMBINATION_RUN_UPDATED: &str =
+    "action-center://combination-run-updated";
 
 /// 供契约对账测试使用；由具名常量引用组成，无双写漂移。
 #[cfg(test)]
@@ -36,4 +38,5 @@ pub const ALL: &[&str] = &[
     EVENT_VAULT_LOCKED,
     EVENT_ACTION_CENTER_DISPATCH_REQUEST,
     EVENT_REFERENCE_CARD_INIT,
+    EVENT_ACTION_CENTER_COMBINATION_RUN_UPDATED,
 ];

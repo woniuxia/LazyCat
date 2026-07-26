@@ -1,5 +1,5 @@
 use chrono::Local;
-use rusqlite::params;
+use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{json, Value};
 use std::fs;
 use std::io;
@@ -49,6 +49,69 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         "backup_delete" => hosts_backup_delete(payload),
         _ => Err(format!("unsupported hosts action: {action}")),
     }
+}
+
+pub(crate) fn list_action_targets_with_conn(
+    conn: &Connection,
+) -> Result<Vec<(String, String)>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, name FROM hosts_profiles
+             ORDER BY enabled DESC, sort_order ASC, id ASC",
+        )
+        .map_err(|error| format!("查询 Hosts 动作目标失败: {error}"))?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((row.get::<_, i64>(0)?.to_string(), row.get(1)?))
+        })
+        .map_err(|error| format!("查询 Hosts 动作目标失败: {error}"))?;
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|error| format!("读取 Hosts 动作目标失败: {error}"))
+}
+
+pub(crate) fn load_action_target_with_conn(
+    conn: &Connection,
+    id: i64,
+) -> Result<Option<(String, String)>, String> {
+    conn.query_row(
+        "SELECT name, content FROM hosts_profiles WHERE id = ?1",
+        [id],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )
+    .optional()
+    .map_err(|error| format!("读取 Hosts 动作目标失败: {error}"))
+}
+
+fn normalized_hosts_content_matches(left: &str, right: &str) -> bool {
+    left.replace("\r\n", "\n") == right.replace("\r\n", "\n")
+}
+
+fn validate_hosts_activation_content(content: &str) -> Result<(), String> {
+    if content.is_empty() {
+        Err("Hosts profile content is empty.".into())
+    } else {
+        Ok(())
+    }
+}
+
+pub(crate) fn activate_action_target(target_id: &str) -> Result<bool, String> {
+    let id = target_id
+        .parse::<i64>()
+        .ok()
+        .filter(|id| *id > 0)
+        .ok_or_else(|| format!("Hosts 动作目标 ID 无效: {target_id}"))?;
+    let conn = db_conn()?;
+    let (profile_name, content) = load_action_target_with_conn(&conn, id)?
+        .ok_or_else(|| format!("Hosts 动作目标不存在: {target_id}"))?;
+    validate_hosts_activation_content(&content)?;
+    let current = fs::read_to_string(system_hosts_path())
+        .map_err(|error| format!("read hosts failed: {error}"))?;
+    if normalized_hosts_content_matches(&current, &content) {
+        return Ok(false);
+    }
+
+    activate_hosts_profile(&conn, &profile_name, &content, EnabledProfile::Id(id))?;
+    Ok(true)
 }
 
 fn hosts_save(payload: &Value) -> Result<Value, String> {
@@ -181,9 +244,35 @@ fn hosts_activate(payload: &Value) -> Result<Value, String> {
             content = row.get::<_, String>(0).map_err(|e| e.to_string())?;
         }
     }
-    if content.is_empty() {
-        return Err("Hosts profile content is empty.".into());
-    }
+    let result = activate_hosts_profile(
+        &conn,
+        profile_name,
+        &content,
+        EnabledProfile::Name(profile_name),
+    )?;
+    Ok(json!({
+      "backupPath": result.backup_path.to_string_lossy().to_string(),
+      "digest": result.digest
+    }))
+}
+
+enum EnabledProfile<'a> {
+    Id(i64),
+    Name(&'a str),
+}
+
+struct HostsActivation {
+    backup_path: PathBuf,
+    digest: String,
+}
+
+fn activate_hosts_profile(
+    conn: &Connection,
+    profile_name: &str,
+    content: &str,
+    enabled_profile: EnabledProfile<'_>,
+) -> Result<HostsActivation, String> {
+    validate_hosts_activation_content(content)?;
     let backup_dir = get_data_dir()?.join("hosts-backups");
     fs::create_dir_all(&backup_dir).map_err(|e| format!("create backup dir failed: {e}"))?;
     let original =
@@ -192,18 +281,29 @@ fn hosts_activate(payload: &Value) -> Result<Value, String> {
     let safe_name = sanitize_filename(profile_name);
     let backup_path = backup_dir.join(format!("{stamp}-{safe_name}.hosts.bak"));
     fs::write(&backup_path, original).map_err(|e| format!("write backup failed: {e}"))?;
-    write_hosts_file(&content)?;
+    write_hosts_file(content)?;
+    let actual = fs::read_to_string(system_hosts_path())
+        .map_err(|e| format!("verify hosts write failed: {e}"))?;
+    if !normalized_hosts_content_matches(&actual, content) {
+        return Err("hosts 文件写入后校验失败".into());
+    }
     conn.execute("UPDATE hosts_profiles SET enabled = 0", [])
         .map_err(|e| format!("disable previous profiles failed: {e}"))?;
-    conn.execute(
-        "UPDATE hosts_profiles SET enabled = 1, updated_at = CURRENT_TIMESTAMP WHERE name = ?1",
-        params![profile_name],
-    )
+    match enabled_profile {
+        EnabledProfile::Id(id) => conn.execute(
+            "UPDATE hosts_profiles SET enabled = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?1",
+            [id],
+        ),
+        EnabledProfile::Name(name) => conn.execute(
+            "UPDATE hosts_profiles SET enabled = 1, updated_at = CURRENT_TIMESTAMP WHERE name = ?1",
+            [name],
+        ),
+    }
     .map_err(|e| format!("mark profile enabled failed: {e}"))?;
-    Ok(json!({
-      "backupPath": backup_path.to_string_lossy().to_string(),
-      "digest": format!("{:x}", md5::compute(content.as_bytes()))
-    }))
+    Ok(HostsActivation {
+        backup_path,
+        digest: format!("{:x}", md5::compute(content.as_bytes())),
+    })
 }
 
 /// Accepts { "ids": [3, 1, 2] } — new display order of profile IDs.
@@ -562,5 +662,25 @@ mod tests {
     fn sanitize_filename_caps_length() {
         let long = "a".repeat(200);
         assert_eq!(sanitize_filename(&long).chars().count(), 80);
+    }
+
+    #[test]
+    fn normalized_hosts_content_detects_already_satisfied_target() {
+        assert!(normalized_hosts_content_matches(
+            "127.0.0.1 localhost\r\n::1 localhost\r\n",
+            "127.0.0.1 localhost\n::1 localhost\n",
+        ));
+        assert!(!normalized_hosts_content_matches(
+            "127.0.0.1 localhost\r\n",
+            "127.0.0.1 api.local\n",
+        ));
+    }
+
+    #[test]
+    fn shared_hosts_activation_rejects_empty_content_before_side_effects() {
+        assert_eq!(
+            validate_hosts_activation_content("").unwrap_err(),
+            "Hosts profile content is empty."
+        );
     }
 }

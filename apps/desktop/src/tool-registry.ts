@@ -63,6 +63,7 @@ const toolRegistry: Record<string, Component> = {
   hotkey: defineAsyncComponent(() => import("./components/HotkeyPanel.vue")),
   widget: defineAsyncComponent(() => import("./components/WidgetPanel.vue")),
   "release-package": defineAsyncComponent(() => import("./components/ReleasePackagePanel.vue")),
+  "action-center": defineAsyncComponent(() => import("./components/ActionCenterPanel.vue")),
   settings: defineAsyncComponent(() => import("./components/SettingsPanel.vue")),
 };
 
