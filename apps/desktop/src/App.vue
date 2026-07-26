@@ -111,6 +111,7 @@ const vaultHotkeyInput = ref("");
 const launcherHotkeyInput = ref("");
 const todoHotkeyInput = ref("");
 const quickCaptureHotkeyInput = ref("");
+const referenceCardHotkeyInput = ref("");
 const spotlightHotkeyInput = ref("");
 const pendingTodoCreate = ref(false);
 provide("pendingTodoCreate", pendingTodoCreate);
@@ -211,6 +212,7 @@ const currentComponentProps = computed(() => {
     launcherHotkeyInput: launcherHotkeyInput.value,
     todoHotkeyInput: todoHotkeyInput.value,
     quickCaptureHotkeyInput: quickCaptureHotkeyInput.value,
+    referenceCardHotkeyInput: referenceCardHotkeyInput.value,
     spotlightHotkeyInput: spotlightHotkeyInput.value,
     homeTopLimit: homeTopLimit.value,
     sidebarItems,
@@ -224,6 +226,7 @@ const currentComponentProps = computed(() => {
     "onUpdate:launcherHotkeyInput": (v: string) => { launcherHotkeyInput.value = v; },
     "onUpdate:todoHotkeyInput": (v: string) => { todoHotkeyInput.value = v; },
     "onUpdate:quickCaptureHotkeyInput": (v: string) => { quickCaptureHotkeyInput.value = v; },
+    "onUpdate:referenceCardHotkeyInput": (v: string) => { referenceCardHotkeyInput.value = v; },
     "onUpdate:spotlightHotkeyInput": (v: string) => { spotlightHotkeyInput.value = v; },
     "onUpdate:homeTopLimit": (v: number) => { homeTopLimit.value = v; },
   };
@@ -343,6 +346,11 @@ onMounted(async () => {
   quickCaptureHotkeyInput.value = savedQuickCaptureHotkey;
   if (savedQuickCaptureHotkey) {
     try { await registerNamedHotkey("quick-capture", savedQuickCaptureHotkey); } catch { /* ignore */ }
+  }
+  const savedReferenceCardHotkey = getSetting("hotkey_reference_card") ?? "Ctrl+Alt+Space";
+  referenceCardHotkeyInput.value = savedReferenceCardHotkey;
+  if (savedReferenceCardHotkey) {
+    try { await registerNamedHotkey("reference-card", savedReferenceCardHotkey); } catch { /* ignore */ }
   }
   const savedSpotlightHotkey = getSetting("hotkey_spotlight") ?? "Ctrl+Shift+Space";
   spotlightHotkeyInput.value = savedSpotlightHotkey;

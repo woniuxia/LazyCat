@@ -45,3 +45,25 @@ describe("ReferenceCard window wiring", () => {
     expect(component).toContain('@error="handleEditorError"');
   });
 });
+
+describe("ReferenceCard shortcut settings", () => {
+  const app = read("App.vue");
+  const settings = read("components/SettingsPanel.vue");
+
+  it("loads and registers the default shortcut", () => {
+    expect(app).toContain('getSetting("hotkey_reference_card") ?? "Ctrl+Alt+Space"');
+    expect(app).toContain(
+      'registerNamedHotkey("reference-card", savedReferenceCardHotkey)',
+    );
+  });
+
+  it("includes the shortcut in conflict, save and clear flows", () => {
+    expect(settings).toContain(
+      '{ key: "referenceCardHotkeyInput" as const, label: "置顶参考卡" }',
+    );
+    expect(settings).toContain('registerNamedHotkey("reference-card", referenceCard)');
+    expect(settings).toContain('setSetting("hotkey_reference_card", referenceCard)');
+    expect(settings).toContain('unregisterNamedHotkey("reference-card")');
+    expect(settings).toContain('emit("update:referenceCardHotkeyInput", "")');
+  });
+});
