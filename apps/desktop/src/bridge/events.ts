@@ -32,4 +32,6 @@ export const APP_EVENTS = {
   VAULT_LOCKED: "vault://locked",
   /** Rust -> 主窗口：动作中心打开目标工具并请求确认 */
   ACTION_CENTER_DISPATCH_REQUEST: "action-center://dispatch-request",
+  /** Rust -> 参考卡窗口：初始化正文 payload { content: string } */
+  REFERENCE_CARD_INIT: "reference-card://init",
 } as const;

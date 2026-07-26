@@ -140,6 +140,7 @@ declare module 'vue' {
     PomodoroPrompt: typeof import('./src/components/PomodoroPrompt.vue')['default']
     PortsPanel: typeof import('./src/components/PortsPanel.vue')['default']
     QuickCapture: typeof import('./src/components/QuickCapture.vue')['default']
+    ReferenceCard: typeof import('./src/components/ReferenceCard.vue')['default']
     RegexPanel: typeof import('./src/components/RegexPanel.vue')['default']
     ReleasePackagePanel: typeof import('./src/components/ReleasePackagePanel.vue')['default']
     RequestForwardBatchResultDialog: typeof import('./src/components/request-forward/RequestForwardBatchResultDialog.vue')['default']

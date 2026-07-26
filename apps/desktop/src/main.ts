@@ -18,6 +18,8 @@ if (currentView === "global-notification") {
   import("./PomodoroPromptApp").then(({ default: mount }) => mount());
 } else if (currentView === "quick-capture") {
   import("./QuickCaptureApp").then(({ default: mount }) => mount());
+} else if (currentView === "reference-card") {
+  import("./ReferenceCardApp").then(({ default: mount }) => mount());
 } else if (currentView === "widget-canvas") {
   import("./WidgetCanvasApp").then(({ default: mount }) => mount());
 } else {

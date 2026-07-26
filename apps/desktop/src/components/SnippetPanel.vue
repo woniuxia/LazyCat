@@ -197,6 +197,7 @@ import { ElMessage } from "element-plus";
 import MonacoPane from "./MonacoPane.vue";
 import { useDebouncedKeyword } from "../composables/useListSearch";
 import { useToolInvoke } from "../composables/useToolInvoke";
+import { MONACO_LANGUAGE_EXTENSIONS, MONACO_LANGUAGE_OPTIONS } from "../utils/monacoLanguages";
 
 interface SnippetSummary {
   id: number;
@@ -234,45 +235,6 @@ interface TagStat {
   count: number;
 }
 
-const defaultLanguages = [
-  "javascript", "typescript", "python", "java", "go", "rust", "sql", "html", "css",
-  "json", "xml", "yaml", "bash", "shell", "markdown", "plaintext", "c", "cpp", "csharp",
-  "php", "ruby", "swift", "kotlin", "scala", "lua", "r", "dart", "dockerfile", "graphql", "toml"
-];
-
-const languageExtensionMap: Record<string, string> = {
-  javascript: "js",
-  typescript: "ts",
-  python: "py",
-  java: "java",
-  go: "go",
-  rust: "rs",
-  sql: "sql",
-  html: "html",
-  css: "css",
-  json: "json",
-  xml: "xml",
-  yaml: "yml",
-  bash: "sh",
-  shell: "sh",
-  markdown: "md",
-  plaintext: "txt",
-  c: "c",
-  cpp: "cpp",
-  csharp: "cs",
-  php: "php",
-  ruby: "rb",
-  swift: "swift",
-  kotlin: "kt",
-  scala: "scala",
-  lua: "lua",
-  r: "r",
-  dart: "dart",
-  dockerfile: "dockerfile",
-  graphql: "graphql",
-  toml: "toml",
-};
-
 const { keyword, debouncedKeyword } = useDebouncedKeyword();
 const selectedTag = ref("");
 const sortBy = ref<"last_used" | "updated_at" | "created_at" | "title">("last_used");
@@ -299,11 +261,8 @@ const activeFragment = computed(() => {
 });
 
 const languageOptions = computed(() => {
-  const used = new Set<string>();
-  if (current.value) {
-    for (const frag of current.value.fragments) used.add(frag.language);
-  }
-  return [...Array.from(used), ...defaultLanguages.filter((l) => !used.has(l))];
+  const used = new Set(current.value?.fragments.map((fragment) => fragment.language) ?? []);
+  return [...Array.from(used), ...MONACO_LANGUAGE_OPTIONS.filter((language) => !used.has(language))];
 });
 
 function buildQuery() {
@@ -510,7 +469,7 @@ function onFragmentLanguageChange() {
   const currentLabel = fragment.label.trim();
 
   if (currentLabel && !/\.[a-z0-9]+$/i.test(currentLabel)) {
-    const ext = languageExtensionMap[fragment.language.toLowerCase()] ?? fragment.language.toLowerCase();
+    const ext = MONACO_LANGUAGE_EXTENSIONS[fragment.language.toLowerCase()] ?? fragment.language.toLowerCase();
     fragment.label = `${currentLabel}.${ext}`;
   }
 

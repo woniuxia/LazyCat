@@ -28,6 +28,11 @@ export interface ToolResponse {
   meta?: { duration_ms: number; warnings?: string[] };
 }
 
+export interface ReferenceCardShowResult {
+  outcome: "created" | "focused";
+  windowLabel: string;
+}
+
 export async function registerHotkey(shortcut: string): Promise<void> {
   await invoke("register_hotkey", { shortcut });
 }
@@ -54,6 +59,14 @@ export async function resumeAllShortcuts(): Promise<void> {
 
 export async function suppressClipboardCapture(content: string): Promise<void> {
   await invoke("suppress_clipboard_capture", { content });
+}
+
+export async function showReferenceCard(text: string): Promise<ReferenceCardShowResult> {
+  return invoke<ReferenceCardShowResult>("reference_card_show", { text });
+}
+
+export async function referenceCardReady(): Promise<void> {
+  await invoke("reference_card_ready");
 }
 
 export async function diagnosisStart(

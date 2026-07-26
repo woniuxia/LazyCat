@@ -131,6 +131,19 @@
 
           <div class="setting-item">
             <div class="setting-label">
+              <span class="label-text">置顶参考卡</span>
+            </div>
+            <div class="setting-control">
+              <ShortcutRecorder
+                :model-value="referenceCardHotkeyInput"
+                :check-conflict="makeConflictChecker('referenceCardHotkeyInput')"
+                @update:model-value="emit('update:referenceCardHotkeyInput', $event)"
+              />
+            </div>
+          </div>
+
+          <div class="setting-item">
+            <div class="setting-label">
               <span class="label-text">Spotlight</span>
             </div>
             <div class="setting-control">
@@ -506,6 +519,7 @@ const props = defineProps<{
   launcherHotkeyInput: string;
   todoHotkeyInput: string;
   quickCaptureHotkeyInput: string;
+  referenceCardHotkeyInput: string;
   spotlightHotkeyInput: string;
   homeTopLimit: number;
   sidebarItems: SidebarItem[];
@@ -522,6 +536,7 @@ const emit = defineEmits<{
   (event: "update:launcherHotkeyInput", value: string): void;
   (event: "update:todoHotkeyInput", value: string): void;
   (event: "update:quickCaptureHotkeyInput", value: string): void;
+  (event: "update:referenceCardHotkeyInput", value: string): void;
   (event: "update:spotlightHotkeyInput", value: string): void;
   (event: "update:homeTopLimit", value: number): void;
 }>();
@@ -555,6 +570,7 @@ const HOTKEY_FIELDS = [
   { key: "launcherHotkeyInput" as const, label: "快捷启动" },
   { key: "todoHotkeyInput" as const, label: "任务清单" },
   { key: "quickCaptureHotkeyInput" as const, label: "快速捕获" },
+  { key: "referenceCardHotkeyInput" as const, label: "置顶参考卡" },
   { key: "spotlightHotkeyInput" as const, label: "Spotlight" },
 ] as const;
 
@@ -636,6 +652,10 @@ async function saveHotkeySettings() {
     await registerNamedHotkey("quick-capture", quickCapture);
     setSetting("hotkey_quick_capture", quickCapture);
 
+    const referenceCard = props.referenceCardHotkeyInput.trim();
+    await registerNamedHotkey("reference-card", referenceCard);
+    setSetting("hotkey_reference_card", referenceCard);
+
     const spotlight = props.spotlightHotkeyInput.trim();
     await registerNamedHotkey("spotlight", spotlight);
     setSetting("hotkey_spotlight", spotlight);
@@ -653,6 +673,7 @@ async function clearHotkeySettings() {
   emit("update:launcherHotkeyInput", "");
   emit("update:todoHotkeyInput", "");
   emit("update:quickCaptureHotkeyInput", "");
+  emit("update:referenceCardHotkeyInput", "");
   emit("update:spotlightHotkeyInput", "");
   try {
     await unregisterHotkey();
@@ -661,6 +682,7 @@ async function clearHotkeySettings() {
     await unregisterNamedHotkey("launcher");
     await unregisterNamedHotkey("todo");
     await unregisterNamedHotkey("quick-capture");
+    await unregisterNamedHotkey("reference-card");
     await unregisterNamedHotkey("spotlight");
     setSetting("hotkey", "");
     setSetting("hotkey_snippets", "");
@@ -668,6 +690,7 @@ async function clearHotkeySettings() {
     setSetting("hotkey_launcher", "");
     setSetting("hotkey_todo", "");
     setSetting("hotkey_quick_capture", "");
+    setSetting("hotkey_reference_card", "");
     setSetting("hotkey_spotlight", "");
     ElMessage.success("快捷键已清除");
   } catch (e) {

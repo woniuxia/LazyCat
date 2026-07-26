@@ -12,43 +12,55 @@ const props = withDefaults(
     language?: string;
     readOnly?: boolean;
     ariaLabel?: string;
+    wordWrap?: boolean;
   }>(),
   {
     language: "plaintext",
     readOnly: false,
-    ariaLabel: "代码编辑器"
-  }
+    ariaLabel: "代码编辑器",
+    wordWrap: false,
+  },
 );
 
 const emit = defineEmits<{
   (event: "update:modelValue", value: string): void;
+  (event: "error", message: string): void;
 }>();
 
 const container = ref<HTMLElement | null>(null);
 let editor: monaco.editor.IStandaloneCodeEditor | null = null;
 let suppressEmit = false;
 
-onMounted(() => {
-  editor = monaco.editor.create(container.value as HTMLElement, {
-    value: props.modelValue,
-    language: props.language,
-    theme: "vs",
-    readOnly: props.readOnly,
-    ariaLabel: props.ariaLabel,
-    automaticLayout: true,
-    minimap: { enabled: false },
-    // 编辑器滚动到边界后放行滚轮事件，避免吞掉外层容器的滚动
-    scrollbar: { alwaysConsumeMouseWheel: false },
-    guides: {
-      indentation: true,
-      bracketPairs: true
-    }
-  });
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
 
-  editor.onDidChangeModelContent(() => {
-    if (suppressEmit || !editor) return;
-    emit("update:modelValue", editor.getValue());
-  });
+onMounted(() => {
+  try {
+    editor = monaco.editor.create(container.value as HTMLElement, {
+      value: props.modelValue,
+      language: props.language,
+      theme: "vs",
+      readOnly: props.readOnly,
+      ariaLabel: props.ariaLabel,
+      automaticLayout: true,
+      minimap: { enabled: false },
+      wordWrap: props.wordWrap ? "on" : "off",
+      // 编辑器滚动到边界后放行滚轮事件，避免吞掉外层容器的滚动
+      scrollbar: { alwaysConsumeMouseWheel: false },
+      guides: {
+        indentation: true,
+        bracketPairs: true,
+      },
+    });
+
+    editor.onDidChangeModelContent(() => {
+      if (suppressEmit || !editor) return;
+      emit("update:modelValue", editor.getValue());
+    });
+  } catch (error) {
+    emit("error", "Monaco 初始化失败：" + errorMessage(error));
+  }
 });
 
 async function formatDocument() {
@@ -79,7 +91,11 @@ function focusText(text: string) {
   return true;
 }
 
-defineExpose({ formatDocument, focusLine, focusText });
+function focusEditor() {
+  editor?.focus();
+}
+
+defineExpose({ formatDocument, focusLine, focusText, focusEditor });
 
 watch(
   () => props.modelValue,
@@ -89,7 +105,7 @@ watch(
     suppressEmit = true;
     editor.setValue(value);
     suppressEmit = false;
-  }
+  },
 );
 
 watch(
@@ -98,8 +114,17 @@ watch(
     if (!editor) return;
     const model = editor.getModel();
     if (!model) return;
-    monaco.editor.setModelLanguage(model, language ?? "plaintext");
-  }
+    try {
+      monaco.editor.setModelLanguage(model, language ?? "plaintext");
+    } catch (error) {
+      emit("error", "切换 Monaco 语言失败：" + errorMessage(error));
+    }
+  },
+);
+
+watch(
+  () => props.wordWrap,
+  (enabled) => editor?.updateOptions({ wordWrap: enabled ? "on" : "off" }),
 );
 
 onBeforeUnmount(() => {

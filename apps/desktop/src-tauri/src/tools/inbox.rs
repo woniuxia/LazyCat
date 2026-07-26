@@ -1273,37 +1273,14 @@ fn hash_bytes(bytes: &[u8]) -> String {
 #[cfg(windows)]
 fn copy_image_file_to_clipboard(path: &Path) -> Result<(), String> {
     use std::{mem, ptr};
-    use windows_sys::Win32::Foundation::{GlobalFree, HWND};
+    use windows_sys::Win32::Foundation::GlobalFree;
     use windows_sys::Win32::Graphics::Gdi::{BITMAPINFOHEADER, BI_RGB};
-    use windows_sys::Win32::System::DataExchange::{
-        CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData,
-    };
+    use windows_sys::Win32::System::DataExchange::{EmptyClipboard, SetClipboardData};
     use windows_sys::Win32::System::Memory::{
         GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE,
     };
 
     const CF_DIB: u32 = 8;
-
-    struct ClipboardGuard;
-
-    impl ClipboardGuard {
-        fn open() -> Result<Self, String> {
-            unsafe {
-                if OpenClipboard(HWND::default()) == 0 {
-                    return Err("open clipboard failed".to_string());
-                }
-            }
-            Ok(Self)
-        }
-    }
-
-    impl Drop for ClipboardGuard {
-        fn drop(&mut self) {
-            unsafe {
-                CloseClipboard();
-            }
-        }
-    }
 
     let file_bytes = fs::read(path).map_err(|e| format!("read image file failed: {e}"))?;
     let image = image::load_from_memory(&file_bytes)
@@ -1369,7 +1346,7 @@ fn copy_image_file_to_clipboard(path: &Path) -> Result<(), String> {
         );
         GlobalUnlock(handle);
 
-        let _guard = ClipboardGuard::open()?;
+        let _guard = crate::clipboard::ClipboardGuard::open()?;
         if EmptyClipboard() == 0 {
             GlobalFree(handle);
             return Err("clear clipboard failed".to_string());
@@ -1529,14 +1506,14 @@ fn format_byte_size(byte_size: i64) -> String {
 #[cfg(windows)]
 fn read_clipboard_candidate() -> Result<Option<CaptureCandidate>, String> {
     use std::ffi::c_void;
-    use windows_sys::Win32::Foundation::{HANDLE, HWND};
+    use windows_sys::Win32::Foundation::HANDLE;
     use windows_sys::Win32::Graphics::Gdi::{
         CreateCompatibleDC, DeleteDC, GetDIBits, GetObjectW, BITMAP, BITMAPINFO, BITMAPINFOHEADER,
         BI_RGB, DIB_RGB_COLORS, HBITMAP,
     };
     use windows_sys::Win32::System::DataExchange::{
-        CloseClipboard, EnumClipboardFormats, GetClipboardData, GetClipboardFormatNameW,
-        IsClipboardFormatAvailable, OpenClipboard, RegisterClipboardFormatW,
+        EnumClipboardFormats, GetClipboardData, GetClipboardFormatNameW,
+        IsClipboardFormatAvailable, RegisterClipboardFormatW,
     };
     use windows_sys::Win32::System::Memory::{GlobalLock, GlobalSize, GlobalUnlock};
     use windows_sys::Win32::UI::Shell::DragQueryFileW;
@@ -1544,43 +1521,6 @@ fn read_clipboard_candidate() -> Result<Option<CaptureCandidate>, String> {
     const CF_BITMAP: u32 = 2;
     const CF_UNICODETEXT: u32 = 13;
     const CF_HDROP: u32 = 15;
-
-    struct ClipboardGuard;
-    impl ClipboardGuard {
-        fn open() -> Result<Self, String> {
-            unsafe {
-                if OpenClipboard(HWND::default()) == 0 {
-                    return Err("open clipboard failed".to_string());
-                }
-            }
-            Ok(Self)
-        }
-    }
-
-    impl Drop for ClipboardGuard {
-        fn drop(&mut self) {
-            unsafe {
-                CloseClipboard();
-            }
-        }
-    }
-
-    fn read_utf16_handle(handle: HANDLE) -> Option<String> {
-        unsafe {
-            let ptr = GlobalLock(handle) as *const u16;
-            if ptr.is_null() {
-                return None;
-            }
-            let mut len = 0usize;
-            while *ptr.add(len) != 0 {
-                len += 1;
-            }
-            let slice = std::slice::from_raw_parts(ptr, len);
-            let text = String::from_utf16_lossy(slice);
-            GlobalUnlock(handle);
-            Some(text)
-        }
-    }
 
     fn read_bytes_handle(handle: HANDLE) -> Option<Vec<u8>> {
         unsafe {
@@ -1877,26 +1817,17 @@ fn read_clipboard_candidate() -> Result<Option<CaptureCandidate>, String> {
     }
 
     fn read_text() -> Result<Option<CaptureCandidate>, String> {
-        unsafe {
-            if IsClipboardFormatAvailable(CF_UNICODETEXT) == 0 {
-                return Ok(None);
-            }
-            let handle = GetClipboardData(CF_UNICODETEXT);
-            if handle.is_null() {
-                return Ok(None);
-            }
-            let Some(text) = read_utf16_handle(handle) else {
-                return Ok(None);
-            };
-            if text.trim().is_empty() {
-                return Ok(None);
-            }
-            Ok(Some(build_text_candidate(
-                "text",
-                text.clone(),
-                text.trim().to_string(),
-            )))
+        let Some(text) = crate::clipboard::read_unicode_text_from_open_clipboard()? else {
+            return Ok(None);
+        };
+        if text.trim().is_empty() {
+            return Ok(None);
         }
+        Ok(Some(build_text_candidate(
+            "text",
+            text.clone(),
+            text.trim().to_string(),
+        )))
     }
 
     fn read_html() -> Result<Option<CaptureCandidate>, String> {
@@ -1981,7 +1912,7 @@ fn read_clipboard_candidate() -> Result<Option<CaptureCandidate>, String> {
         }
     }
 
-    let _guard = ClipboardGuard::open()?;
+    let _guard = crate::clipboard::ClipboardGuard::open()?;
     if let Some(candidate) = read_files()? {
         return Ok(Some(candidate));
     }
