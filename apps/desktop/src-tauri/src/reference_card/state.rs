@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 pub(crate) const MAX_CARDS: usize = 6;
 pub(crate) const MAX_TEXT_BYTES: usize = 8 * 1024 * 1024;
@@ -102,12 +102,11 @@ impl CardRegistry {
         }
         self.pending.remove(label);
     }
-    pub(crate) fn retain_labels<'a>(&mut self, labels: impl IntoIterator<Item = &'a str>) {
-        let retained = labels.into_iter().collect::<HashSet<_>>();
+    pub(crate) fn retain_labels(&mut self, mut exists: impl FnMut(&str) -> bool) {
         let removed = self
             .cards
             .keys()
-            .filter(|label| !retained.contains(label.as_str()))
+            .filter(|label| !exists(label.as_str()))
             .cloned()
             .collect::<Vec<_>>();
         for label in removed {
@@ -196,7 +195,7 @@ mod tests {
         let mut registry = CardRegistry::default();
         let (first, _) = created(&mut registry, "first");
         let (second, _) = created(&mut registry, "second");
-        registry.retain_labels([second.as_str()]);
+        registry.retain_labels(|label| label == second);
         assert!(matches!(
             registry.resolve("first"),
             Ok(ResolveCard::Create { .. })
