@@ -11,6 +11,63 @@ pub(crate) struct AtomicTargetSnapshot {
     pub validation_error: Option<String>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum AtomicStepSuccessStatus {
+    Succeeded,
+    AlreadySatisfied,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct AtomicStepSuccess {
+    pub status: AtomicStepSuccessStatus,
+    pub result_code: Option<String>,
+    pub message: Option<String>,
+}
+
+impl AtomicStepSuccess {
+    pub(crate) fn succeeded(message: Option<String>) -> Self {
+        Self {
+            status: AtomicStepSuccessStatus::Succeeded,
+            result_code: None,
+            message,
+        }
+    }
+
+    pub(crate) fn from_changed(changed: bool) -> Self {
+        if changed {
+            Self::succeeded(None)
+        } else {
+            Self {
+                status: AtomicStepSuccessStatus::AlreadySatisfied,
+                result_code: None,
+                message: None,
+            }
+        }
+    }
+}
+
+pub(crate) trait AtomicActionExecutor: Send + Sync + 'static {
+    fn execute(&self, action_type: &str, target_id: &str) -> Result<AtomicStepSuccess, String>;
+}
+
+pub(crate) struct RegisteredAtomicActionExecutor;
+
+impl AtomicActionExecutor for RegisteredAtomicActionExecutor {
+    fn execute(&self, action_type: &str, target_id: &str) -> Result<AtomicStepSuccess, String> {
+        match action_type {
+            HOSTS_ACTIVATE => crate::tools::hosts::activate_action_target(target_id)
+                .map(AtomicStepSuccess::from_changed),
+            BROWSER_PROFILE_LAUNCH => {
+                crate::tools::browser_profiles::launch_action_target(target_id)
+                    .map(AtomicStepSuccess::succeeded)
+            }
+            REQUEST_FORWARD_START => crate::tools::request_forward::start_action_target(target_id)
+                .map(AtomicStepSuccess::from_changed),
+            _ => Err(format!("组合动作类型不存在: {action_type}")),
+        }
+    }
+}
+
 type BrowserActionTarget = (String, String, bool, Option<String>);
 type BrowserTargetLoader = fn() -> Result<Vec<BrowserActionTarget>, String>;
 
@@ -142,13 +199,8 @@ fn validate_target_with_conn_using_browser_targets(
     target_id: &str,
     load_browser_targets: BrowserTargetLoader,
 ) -> Result<ActionTargetOption, String> {
-    let target = resolve_target_with_conn(
-        conn,
-        action_type,
-        target_id,
-        load_browser_targets,
-    )?
-    .ok_or_else(|| format!("目标不存在: {target_id}"))?;
+    let target = resolve_target_with_conn(conn, action_type, target_id, load_browser_targets)?
+        .ok_or_else(|| format!("目标不存在: {target_id}"))?;
     if !target.available {
         return Err(target
             .unavailable_reason
@@ -188,12 +240,7 @@ fn snapshot_target_with_conn_using_browser_targets(
     let action_label = definition(action_type)
         .map(|definition| definition.label.to_string())
         .unwrap_or_else(|| action_type.to_string());
-    match resolve_target_with_conn(
-        conn,
-        action_type,
-        target_id,
-        load_browser_targets,
-    ) {
+    match resolve_target_with_conn(conn, action_type, target_id, load_browser_targets) {
         Ok(Some(target)) => AtomicTargetSnapshot {
             action_label,
             target_label: target.label,
@@ -432,6 +479,26 @@ mod tests {
                 action_label: "启动浏览器身份".into(),
                 target_label: "Edge · 工作".into(),
                 validation_error: Some("未找到 msedge.exe，无法启动该浏览器身份".into()),
+            }
+        );
+    }
+
+    #[test]
+    fn atomic_executor_maps_domain_boolean_to_step_outcome() {
+        assert_eq!(
+            AtomicStepSuccess::from_changed(false),
+            AtomicStepSuccess {
+                status: AtomicStepSuccessStatus::AlreadySatisfied,
+                result_code: None,
+                message: None,
+            }
+        );
+        assert_eq!(
+            AtomicStepSuccess::from_changed(true),
+            AtomicStepSuccess {
+                status: AtomicStepSuccessStatus::Succeeded,
+                result_code: None,
+                message: None,
             }
         );
     }

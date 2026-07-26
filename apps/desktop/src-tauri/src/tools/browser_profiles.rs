@@ -574,8 +574,7 @@ fn build_action_targets(
         .collect()
 }
 
-pub(crate) fn list_action_targets(
-) -> Result<Vec<(String, String, bool, Option<String>)>, String> {
+pub(crate) fn list_action_targets() -> Result<Vec<(String, String, bool, Option<String>)>, String> {
     let payload = list_profiles()?;
     let edge_available = payload
         .get("edgeFound")
@@ -652,9 +651,13 @@ fn set_chrome_path(payload: &Value) -> Result<Value, String> {
     Ok(json!({ "ok": true }))
 }
 
-fn launch_profile(payload: &Value) -> Result<Value, String> {
-    let browser = require_supported_browser(payload)?;
-    let profile_dir = require_profile_dir(payload)?;
+struct LaunchProfileResult {
+    launch_count: i64,
+    last_launched_at: String,
+    warnings: Vec<String>,
+}
+
+fn launch_profile_inner(browser: &str, profile_dir: &str) -> Result<LaunchProfileResult, String> {
     let mut warnings = Vec::new();
     let config = {
         let conn = super::helpers::db_conn()?;
@@ -666,39 +669,69 @@ fn launch_profile(payload: &Value) -> Result<Value, String> {
         _ => None,
     }
     .ok_or_else(|| format!("未找到 {}", browser_executable_name(browser)))?;
-    ensure_browser_profile_exists(browser, &profile_dir)?;
+    ensure_browser_profile_exists(browser, profile_dir)?;
 
     Command::new(&executable)
-        .arg(build_edge_profile_arg(&profile_dir))
+        .arg(build_edge_profile_arg(profile_dir))
         .spawn()
         .map_err(|err| format!("launch failed: {err}"))?;
 
     let now = chrono::Local::now().to_rfc3339();
     let stats_result = mutate_config(|config| {
-        update_launch_stats_for_browser(config, browser, &profile_dir, &now);
+        update_launch_stats_for_browser(config, browser, profile_dir, &now);
         Ok(())
     });
     let launch_count = match stats_result {
         Ok(config) => config_entries(&config, browser)
-            .get(&profile_dir)
+            .get(profile_dir)
             .and_then(|entry| entry.launch_count)
             .unwrap_or_default(),
         Err(err) => {
             warnings.push(format!("启动成功，但使用统计保存失败：{err}"));
             config_entries(&config, browser)
-                .get(&profile_dir)
+                .get(profile_dir)
                 .and_then(|entry| entry.launch_count)
                 .unwrap_or_default()
                 + 1
         }
     };
 
+    Ok(LaunchProfileResult {
+        launch_count,
+        last_launched_at: now,
+        warnings,
+    })
+}
+
+fn launch_profile(payload: &Value) -> Result<Value, String> {
+    let browser = require_supported_browser(payload)?;
+    let profile_dir = require_profile_dir(payload)?;
+    let result = launch_profile_inner(browser, &profile_dir)?;
     Ok(json!({
         "ok": true,
-        "launchCount": launch_count,
-        "lastLaunchedAt": now,
-        "warnings": warnings,
+        "launchCount": result.launch_count,
+        "lastLaunchedAt": result.last_launched_at,
+        "warnings": result.warnings,
     }))
+}
+
+fn launch_action_target_with(
+    target_id: &str,
+    launch: impl FnOnce(&str, &str) -> Result<Vec<String>, String>,
+) -> Result<Option<String>, String> {
+    let (browser, profile_dir) = decode_action_target(target_id)?;
+    let warnings = launch(&browser, &profile_dir)?;
+    if warnings.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(warnings.join("\n")))
+    }
+}
+
+pub(crate) fn launch_action_target(target_id: &str) -> Result<Option<String>, String> {
+    launch_action_target_with(target_id, |browser, profile_dir| {
+        Ok(launch_profile_inner(browser, profile_dir)?.warnings)
+    })
 }
 
 fn require_supported_browser(payload: &Value) -> Result<&str, String> {
@@ -1112,6 +1145,36 @@ mod tests {
         assert_eq!(
             entry.last_launched_at.as_deref(),
             Some("2026-07-02T10:30:00+08:00")
+        );
+    }
+
+    #[test]
+    fn browser_action_target_decodes_and_always_invokes_launch_core() {
+        let target_id = encode_action_target(BROWSER_EDGE, "Profile 1").unwrap();
+        let mut launches = Vec::new();
+
+        let first = launch_action_target_with(&target_id, |browser, profile_dir| {
+            launches.push((browser.to_string(), profile_dir.to_string()));
+            Ok(Vec::new())
+        })
+        .unwrap();
+        let second = launch_action_target_with(&target_id, |browser, profile_dir| {
+            launches.push((browser.to_string(), profile_dir.to_string()));
+            Ok(vec!["启动成功，但使用统计保存失败：磁盘只读".into()])
+        })
+        .unwrap();
+
+        assert_eq!(
+            launches,
+            vec![
+                (BROWSER_EDGE.to_string(), "Profile 1".to_string()),
+                (BROWSER_EDGE.to_string(), "Profile 1".to_string()),
+            ]
+        );
+        assert_eq!(first, None);
+        assert_eq!(
+            second.as_deref(),
+            Some("启动成功，但使用统计保存失败：磁盘只读")
         );
     }
 }
