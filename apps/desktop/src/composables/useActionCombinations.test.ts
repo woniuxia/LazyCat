@@ -108,6 +108,36 @@ describe("useActionCombinations", () => {
     state.stop();
   });
 
+  it("does not restore an active run after stop", async () => {
+    vi.useFakeTimers();
+    const runListResponse = deferred<{ runs: ActionCombinationRunDetail[] }>();
+    invokeMock
+      .mockResolvedValueOnce({ definitions: [] })
+      .mockResolvedValueOnce({ combinations: [{
+        id: 7, name: "开发环境", executionMode: "serial", stepCount: 2,
+        latestRunStatus: "running", updatedAt: "2026-07-26 10:00:00",
+      }] })
+      .mockReturnValueOnce(runListResponse.promise);
+    const state = useActionCombinations({ pollIntervalMs: 5 });
+    const starting = state.start();
+    for (let attempt = 0; attempt < 10 && invokeMock.mock.calls.length < 3; attempt += 1) {
+      await Promise.resolve();
+    }
+    expect(invokeMock).toHaveBeenCalledWith(
+      "tool:action-center:combination-run-list", { combinationId: 7 },
+    );
+
+    state.stop();
+    runListResponse.resolve({ runs: [runningRun("run-restored")] });
+    await starting;
+
+    expect(state.activeRun.value).toBeNull();
+    expect(state.runActive.value).toBe(false);
+    const callsAfterStop = invokeMock.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(20);
+    expect(invokeMock).toHaveBeenCalledTimes(callsAfterStop);
+  });
+
   it("does not let an older history response overwrite the current selection", async () => {
     const oldHistory = deferred<{ runs: ActionCombinationRunDetail[] }>();
     const runA = runningRun("run-a", 7);
@@ -161,6 +191,24 @@ describe("useActionCombinations", () => {
     expect(state.starting.value).toBe(false);
     expect(state.operationPending.value).toBe(false);
     state.stop();
+  });
+
+  it("does not track or poll a run response that arrives after stop", async () => {
+    vi.useFakeTimers();
+    const runResponse = deferred<ActionCombinationRunDetail>();
+    invokeMock.mockReturnValueOnce(runResponse.promise);
+    const state = useActionCombinations({ pollIntervalMs: 5 });
+
+    const running = state.runCombination(7);
+    state.stop();
+    runResponse.resolve(runningRun("run-after-stop"));
+    await running;
+
+    expect(state.activeRun.value).toBeNull();
+    expect(state.runActive.value).toBe(false);
+    const callsAfterStop = invokeMock.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(20);
+    expect(invokeMock).toHaveBeenCalledTimes(callsAfterStop);
   });
 
   it("reloads the active run from an event and stops polling at terminal state", async () => {

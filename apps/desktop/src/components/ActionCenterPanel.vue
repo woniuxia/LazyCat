@@ -35,7 +35,9 @@ const {
   runCombination: startCombination,
 } = useActionCombinations();
 
+let panelMounted = true;
 let notifiedRunId = "";
+const initializing = ref(true);
 const selecting = ref(false);
 
 const displayedRun = computed(() =>
@@ -45,7 +47,8 @@ const displayedRun = computed(() =>
     : null,
 );
 const interactionLocked = computed(
-  () => runActive.value || operationPending.value || selecting.value,
+  () =>
+    runActive.value || operationPending.value || initializing.value || selecting.value,
 );
 
 async function confirmDiscardChanges(title: string): Promise<boolean> {
@@ -73,6 +76,7 @@ async function loadDraftTargets(): Promise<void> {
 
 async function loadStoredCombination(id: number): Promise<void> {
   await selectStoredCombination(id);
+  if (!panelMounted) return;
   await loadDraftTargets();
 }
 
@@ -159,23 +163,24 @@ watch(
 onMounted(async () => {
   try {
     await start();
+    if (!panelMounted) return;
     if (combinations.value.length) {
       const initialId = activeRun.value?.combinationId ?? combinations.value[0].id;
-      selecting.value = true;
-      try {
-        await loadStoredCombination(initialId);
-      } finally {
-        selecting.value = false;
-      }
+      await loadStoredCombination(initialId);
     } else {
       createDraft();
     }
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : String(error));
+  } finally {
+    initializing.value = false;
   }
 });
 
-onUnmounted(stop);
+onUnmounted(() => {
+  panelMounted = false;
+  stop();
+});
 </script>
 
 <template>

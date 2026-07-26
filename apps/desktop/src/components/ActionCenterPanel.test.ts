@@ -60,9 +60,23 @@ describe("ActionCenterPanel contracts", () => {
     expect(source).toContain('await confirmDiscardChanges("新建组合")');
     expect(source.match(/:run-active="interactionLocked"/g)).toHaveLength(2);
     expect(source).toContain("const selecting = ref(false)");
-    expect(source).toContain("operationPending.value || selecting.value");
     expect(source).toContain("selecting.value = true");
     expect(source).toContain("selecting.value = false");
+    expect(source).toContain("const initializing = ref(true)");
+    expect(source).toContain(
+      "runActive.value || operationPending.value || initializing.value || selecting.value",
+    );
+    expect(source).toContain("initializing.value = false");
+  });
+
+  it("stops initialization continuations after the panel is unmounted", () => {
+    const source = readFileSync(new URL("./ActionCenterPanel.vue", import.meta.url), "utf8");
+    expect(source).toContain("let panelMounted = true");
+    expect(source).toContain("await start();\n    if (!panelMounted) return;");
+    expect(source).toContain(
+      "await selectStoredCombination(id);\n  if (!panelMounted) return;\n  await loadDraftTargets();",
+    );
+    expect(source).toContain("panelMounted = false;\n  stop();");
   });
 
   it("tracks terminal notifications by run id and reloads targets after copy", () => {
