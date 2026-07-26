@@ -86,12 +86,12 @@ export function useActionCombinations(options: UseActionCombinationsOptions = {}
     const savedDraft = { ...draft.value, id };
     draft.value = savedDraft;
     selectedId.value = id;
+    selectedCombination.value = null;
     savedFingerprint.value = draftFingerprint(savedDraft);
   }
 
   function updateCombinationRunStatus(run: ActionCombinationRunDetail): void {
     if (typeof run.combinationId !== "number") return;
-    combinationListRequestVersion += 1;
     combinations.value = combinations.value.map((summary) =>
       summary.id === run.combinationId
         ? { ...summary, latestRunStatus: run.status }
@@ -129,7 +129,12 @@ export function useActionCombinations(options: UseActionCombinationsOptions = {}
       expectedGeneration !== lifecycleGeneration
       || requestVersion !== combinationListRequestVersion
     ) return;
-    combinations.value = response.combinations;
+    const currentRun = activeRun.value;
+    combinations.value = response.combinations.map((summary) =>
+      currentRun?.combinationId === summary.id
+        ? { ...summary, latestRunStatus: currentRun.status }
+        : summary,
+    );
   }
 
   async function fetchRunHistory(combinationId: number): Promise<ActionCombinationRunDetail[]> {
@@ -306,6 +311,9 @@ export function useActionCombinations(options: UseActionCombinationsOptions = {}
     const generation = lifecycleGeneration;
     const version = (targetRequestVersions.get(localStepId) ?? 0) + 1;
     targetRequestVersions.set(localStepId, version);
+    const clearedTargets = new Map(stepTargets.value);
+    clearedTargets.delete(localStepId);
+    stepTargets.value = clearedTargets;
     const response = (await invokeToolByChannel(
       "tool:action-center:combination-target-list",
       { actionType },

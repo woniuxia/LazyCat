@@ -103,6 +103,23 @@ describe("useActionCombinations", () => {
     expect(state.stepTargets.value.get("step-1")?.[0].id).toBe("edge");
   });
 
+  it("clears cached targets synchronously when the action changes", async () => {
+    const second = deferred<{ targets: ActionCombinationTarget[] }>();
+    invokeMock
+      .mockResolvedValueOnce({ targets: [target("hosts")] })
+      .mockReturnValueOnce(second.promise);
+    const state = useActionCombinations();
+    await state.loadStepTargets("step-1", "hosts.activate");
+    expect(state.stepTargets.value.get("step-1")?.[0].id).toBe("hosts");
+
+    const loading = state.loadStepTargets("step-1", "browser_profile.launch");
+
+    expect(state.stepTargets.value.has("step-1")).toBe(false);
+    second.resolve({ targets: [target("edge")] });
+    await loading;
+    expect(state.stepTargets.value.get("step-1")?.map((item) => item.id)).toEqual(["edge"]);
+  });
+
   it("restores a running combination from summaries and recent runs", async () => {
     const restored = runningRun("run-restored");
     invokeMock
@@ -273,22 +290,49 @@ describe("useActionCombinations", () => {
     expect(state.dirty.value).toBe(false);
   });
 
-  it("updates a running summary and rejects an older list response", async () => {
-    const staleList = deferred<{ combinations: ActionCombinationSummary[] }>();
+  it("clears a stale selected detail as soon as the write succeeds", async () => {
     invokeMock
-      .mockReturnValueOnce(staleList.promise)
-      .mockResolvedValueOnce(runningRun("run-started"));
+      .mockResolvedValueOnce(combinationDetail(7))
+      .mockResolvedValueOnce({ runs: [] })
+      .mockResolvedValueOnce({ id: 7 })
+      .mockRejectedValueOnce(new Error("列表刷新失败"));
+    const state = useActionCombinations();
+    await state.selectCombination(7);
+    if (!state.draft.value) throw new Error("draft missing");
+    state.draft.value.name = "已重命名";
+
+    const result = await state.saveCombination();
+
+    expect(result).toEqual({ id: 7, refreshError: "列表刷新失败" });
+    expect(state.selectedCombination.value).toBeNull();
+    expect(state.draft.value.id).toBe(7);
+    expect(state.dirty.value).toBe(false);
+  });
+
+  it("applies list structure while preserving the active run status", async () => {
+    const listResponse = deferred<{ combinations: ActionCombinationSummary[] }>();
+    invokeMock.mockReturnValueOnce(listResponse.promise);
     const state = useActionCombinations({ pollIntervalMs: 10_000 });
-    state.combinations.value = [combinationSummary()];
+    state.combinations.value = [
+      combinationSummary(),
+      { ...combinationSummary(), id: 8, name: "待删除" },
+    ];
     const loading = state.loadCombinations();
-    await state.runCombination(7);
-    const statusAfterStart = state.combinations.value[0].latestRunStatus;
-    staleList.resolve({ combinations: [combinationSummary()] });
+    await state.trackRun(runningRun("run-current"));
+    listResponse.resolve({
+      combinations: [
+        { ...combinationSummary("failed"), name: "已重命名" },
+        { ...combinationSummary(), id: 9, name: "新增组合" },
+      ],
+    });
     await loading;
-    const statusAfterStaleList = state.combinations.value[0].latestRunStatus;
+    const summaries = state.combinations.value;
     state.stop();
-    expect(statusAfterStart).toBe("running");
-    expect(statusAfterStaleList).toBe("running");
+
+    expect(summaries.map((summary) => summary.id)).toEqual([7, 9]);
+    expect(summaries[0]).toMatchObject({ name: "已重命名", latestRunStatus: "running" });
+    expect(summaries[1]).toMatchObject({ id: 9, name: "新增组合" });
+    expect(summaries.some((summary) => summary.id === 8)).toBe(false);
   });
 
   it("sets operation pending synchronously and rejects a duplicate run", async () => {
