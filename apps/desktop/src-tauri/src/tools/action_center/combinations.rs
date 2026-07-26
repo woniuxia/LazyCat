@@ -283,7 +283,7 @@ pub(crate) fn list_with_conn(conn: &Connection) -> Result<Vec<CombinationSummary
                     (SELECT r.status
                      FROM action_combination_runs r
                      WHERE r.combination_id=c.id
-                     ORDER BY r.created_at DESC, r.rowid DESC
+                     ORDER BY r.created_at DESC, r.id DESC
                      LIMIT 1) AS latest_run_status,
                     c.updated_at
              FROM action_combinations c
@@ -585,6 +585,34 @@ mod tests {
         assert!(sql.contains("combination_id"));
         assert!(sql.contains("created_at DESC"));
         assert!(sql.contains("id DESC"));
+    }
+
+    #[test]
+    fn summary_latest_status_uses_the_same_tie_breaker_as_run_history() {
+        let mut conn = test_conn();
+        let combination_id = save(
+            &mut conn,
+            input(
+                None,
+                "history order",
+                ExecutionMode::Serial,
+                &[("release_package", "1")],
+            ),
+        )
+        .unwrap();
+        for (id, status) in [("z-run", "succeeded"), ("a-run", "failed")] {
+            conn.execute(
+                "INSERT INTO action_combination_runs
+                 (id, combination_id, combination_name, execution_mode, status, created_at)
+                 VALUES (?1, ?2, 'history order', 'serial', ?3, '2026-01-01 00:00:00.000')",
+                params![id, combination_id, status],
+            )
+            .unwrap();
+        }
+
+        let summary = list_with_conn(&conn).unwrap().remove(0);
+
+        assert_eq!(summary.latest_run_status.as_deref(), Some("succeeded"));
     }
 
     fn input(

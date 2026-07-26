@@ -168,8 +168,8 @@ where
     let run_id = Uuid::new_v4().to_string();
     if let Err(error) = tx.execute(
         "INSERT INTO action_combination_runs
-         (id, combination_id, combination_name, execution_mode, status)
-         VALUES (?1, ?2, ?3, ?4, 'pending')",
+         (id, combination_id, combination_name, execution_mode, status, created_at)
+         VALUES (?1, ?2, ?3, ?4, 'pending', STRFTIME('%Y-%m-%d %H:%M:%f', 'now'))",
         params![
             run_id,
             combination_id,
@@ -477,6 +477,53 @@ fn finish_run_with_result(
     Ok(())
 }
 
+fn finalize_run_with_results(
+    conn: &Connection,
+    run_id: &str,
+    results: &[ExecutedStep],
+) -> Result<RunTerminalStatus, String> {
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|error| format!("begin combination result reconciliation failed: {error}"))?;
+    for result in results {
+        persist_step_finished_with_conn(&tx, result)?;
+    }
+    let status = aggregate_status(results);
+    finish_run_with_result(&tx, run_id, status, None, None)?;
+    tx.commit()
+        .map_err(|error| format!("commit combination result reconciliation failed: {error}"))?;
+    Ok(status)
+}
+
+fn fail_run_and_unfinished_steps_with_conn(
+    conn: &Connection,
+    run_id: &str,
+    result_code: &str,
+    error: &str,
+) -> Result<(), String> {
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|db_error| format!("begin combination failure finalization failed: {db_error}"))?;
+    tx.execute(
+        "UPDATE action_combination_run_steps
+         SET status='failed', result_code=?1, message=?2,
+             started_at=COALESCE(started_at, CURRENT_TIMESTAMP),
+             finished_at=CURRENT_TIMESTAMP
+         WHERE run_id=?3 AND status IN ('pending','running')",
+        params![result_code, error, run_id],
+    )
+    .map_err(|db_error| format!("finish unfinished combination steps failed: {db_error}"))?;
+    finish_run_with_result(
+        &tx,
+        run_id,
+        RunTerminalStatus::Failed,
+        Some(result_code),
+        Some(error),
+    )?;
+    tx.commit()
+        .map_err(|db_error| format!("commit combination failure finalization failed: {db_error}"))
+}
+
 pub(crate) fn recover_interrupted_with_conn(conn: &Connection) -> Result<usize, String> {
     let tx = conn
         .unchecked_transaction()
@@ -593,12 +640,24 @@ struct ActiveRunGuard {
 }
 
 impl ActiveRunGuard {
-    fn acquire(run_id: &str) -> Result<Self, String> {
+    fn acquire(conn: &Connection, run_id: &str) -> Result<Self, String> {
         let mut slot = active_run_slot()
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if slot.is_some() {
-            return Err(ACTIVE_RUN_ERROR.into());
+        if let Some(active_run_id) = slot.as_deref() {
+            let active = conn
+                .query_row(
+                    "SELECT status IN ('pending','running')
+                     FROM action_combination_runs WHERE id=?1",
+                    [active_run_id],
+                    |row| row.get::<_, bool>(0),
+                )
+                .optional()
+                .map_err(|error| format!("read active combination run slot failed: {error}"))?
+                .unwrap_or(false);
+            if active {
+                return Err(ACTIVE_RUN_ERROR.into());
+            }
         }
         *slot = Some(run_id.to_string());
         Ok(Self {
@@ -645,12 +704,12 @@ fn coordinate_run(
         executor,
         observer.clone() as Arc<dyn ExecutionObserver>,
     );
-    if let Some(error) = observer.take_error() {
-        return Err(error);
-    }
-    let status = aggregate_status(&results);
+    let observer_error = observer.take_error();
     let conn = conn_factory()?;
-    finish_run_with_conn(&conn, run_id, status)?;
+    let status = finalize_run_with_results(&conn, run_id, &results)?;
+    if let Some(error) = observer_error {
+        eprintln!("reconciled combination run after observer persistence error {run_id}: {error}");
+    }
     emit_safely(&emitter, run_id, run_terminal_status_as_str(status));
     Ok(())
 }
@@ -669,16 +728,10 @@ where
     S: FnOnce(BackgroundTask) -> io::Result<()>,
 {
     let (run, plan) = create_run_and_plan_with_conn(conn, combination_id, snapshot_target)?;
-    let guard = match ActiveRunGuard::acquire(&run.id) {
+    let guard = match ActiveRunGuard::acquire(conn, &run.id) {
         Ok(guard) => guard,
         Err(error) => {
-            finish_run_with_result(
-                conn,
-                &run.id,
-                RunTerminalStatus::Failed,
-                Some("start_failed"),
-                Some(&error),
-            )?;
+            fail_run_and_unfinished_steps_with_conn(conn, &run.id, "start_failed", &error)?;
             return Err(error);
         }
     };
@@ -725,13 +778,7 @@ where
 
     if let Err(error) = spawner(task) {
         let message = format!("启动组合动作后台线程失败: {error}");
-        finish_run_with_result(
-            conn,
-            &run_id,
-            RunTerminalStatus::Failed,
-            Some("start_failed"),
-            Some(&message),
-        )?;
+        fail_run_and_unfinished_steps_with_conn(conn, &run_id, "start_failed", &message)?;
         emit_safely(&emitter, &run_id, "failed");
         return Err(message);
     }
@@ -745,15 +792,9 @@ fn best_effort_fail_run(
     result_code: &str,
     error: &str,
 ) {
-    match conn_factory().and_then(|conn| {
-        finish_run_with_result(
-            &conn,
-            run_id,
-            RunTerminalStatus::Failed,
-            Some(result_code),
-            Some(error),
-        )
-    }) {
+    match conn_factory()
+        .and_then(|conn| fail_run_and_unfinished_steps_with_conn(&conn, run_id, result_code, error))
+    {
         Ok(()) => emit_safely(emitter, run_id, "failed"),
         Err(db_error) => {
             eprintln!("failed to persist combination run failure {run_id}: {db_error}")
@@ -1216,6 +1257,25 @@ mod tests {
         assert!(runs.windows(2).all(|pair| pair[0].id > pair[1].id));
     }
 
+    #[test]
+    fn new_runs_store_subsecond_creation_time() {
+        let mut conn = test_conn();
+        let combination_id = seed_combination(
+            &conn,
+            "precise time",
+            ExecutionMode::Serial,
+            &[("hosts.activate", "1")],
+        );
+
+        let run = create_run_with_conn(&mut conn, combination_id, snapshot).unwrap();
+
+        assert!(
+            run.created_at.contains('.'),
+            "created_at={}",
+            run.created_at
+        );
+    }
+
     struct FakeExecutor {
         results: HashMap<String, Result<AtomicStepSuccess, String>>,
     }
@@ -1376,7 +1436,99 @@ mod tests {
             .as_deref()
             .unwrap()
             .contains("injected spawn failure"));
+        assert!(failed.steps.iter().all(|step| step.status == "failed"));
+        assert!(failed
+            .steps
+            .iter()
+            .all(|step| step.result_code.as_deref() == Some("start_failed")));
         assert!(!active_run_slot_contains_for_test(&run_id));
+    }
+
+    #[test]
+    fn observer_write_error_is_reconciled_from_execution_results() {
+        let _serial = COORDINATOR_TEST_LOCK.lock().unwrap();
+        clear_active_run_slot_for_test();
+        let (database, mut conn) = TempDatabase::new();
+        let combination_id = seed_combination(
+            &conn,
+            "observer retry",
+            ExecutionMode::Serial,
+            &[("hosts.activate", "1")],
+        );
+        let executor = Arc::new(FakeExecutor {
+            results: HashMap::from([("1".into(), success(AtomicStepSuccessStatus::Succeeded))]),
+        });
+        let real_factory = database.factory();
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let flaky_factory: ConnectionFactory = Arc::new({
+            let attempts = attempts.clone();
+            move || {
+                if attempts.fetch_add(1, Ordering::SeqCst) == 2 {
+                    Err("injected observer finish error".into())
+                } else {
+                    real_factory()
+                }
+            }
+        });
+
+        let started = start_with_dependencies(
+            &mut conn,
+            combination_id,
+            snapshot,
+            executor,
+            flaky_factory,
+            Arc::new(|_, _| Ok(())),
+            inline_spawner,
+        )
+        .unwrap();
+
+        let run = get_run_with_conn(&conn, &started.id).unwrap();
+        assert_eq!(run.status, "succeeded");
+        assert_eq!(run.steps[0].status, "succeeded");
+        assert_eq!(run.steps[0].result_code.as_deref(), Some("fake"));
+    }
+
+    #[test]
+    fn terminal_database_run_can_replace_stale_memory_slot() {
+        let _serial = COORDINATOR_TEST_LOCK.lock().unwrap();
+        clear_active_run_slot_for_test();
+        let (database, mut conn) = TempDatabase::new();
+        let first = seed_combination(
+            &conn,
+            "first",
+            ExecutionMode::Serial,
+            &[("hosts.activate", "1")],
+        );
+        let second = seed_combination(
+            &conn,
+            "second",
+            ExecutionMode::Serial,
+            &[("hosts.activate", "2")],
+        );
+        let first_run = create_run_with_conn(&mut conn, first, snapshot).unwrap();
+        let stale_guard = ActiveRunGuard::acquire(&conn, &first_run.id).unwrap();
+        finish_run_with_conn(&conn, &first_run.id, RunTerminalStatus::Succeeded).unwrap();
+        let executor = Arc::new(FakeExecutor {
+            results: HashMap::from([("2".into(), success(AtomicStepSuccessStatus::Succeeded))]),
+        });
+
+        let second_run = start_with_dependencies(
+            &mut conn,
+            second,
+            snapshot,
+            executor,
+            database.factory(),
+            Arc::new(|_, _| Ok(())),
+            inline_spawner,
+        )
+        .unwrap();
+
+        assert_eq!(
+            get_run_with_conn(&conn, &second_run.id).unwrap().status,
+            "succeeded"
+        );
+        drop(stale_guard);
+        assert!(!active_run_slot_contains_for_test(&second_run.id));
     }
 
     #[test]
