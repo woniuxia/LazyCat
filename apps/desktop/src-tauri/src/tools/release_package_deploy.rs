@@ -162,6 +162,61 @@ pub struct RemoteDirEntry {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RemoteCommandResult {
+    pub exit_code: i32,
+}
+
+#[derive(Default)]
+pub(crate) struct RemoteCommandOutputDecoder {
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+}
+
+impl RemoteCommandOutputDecoder {
+    pub(crate) fn push(
+        &mut self,
+        stream: &'static str,
+        bytes: &[u8],
+        output: &mut dyn FnMut(&str, String),
+    ) {
+        let buffer = match stream {
+            "stderr" => &mut self.stderr,
+            _ => &mut self.stdout,
+        };
+        buffer.extend_from_slice(bytes);
+        while let Some(index) = buffer.iter().position(|byte| *byte == b'\n') {
+            let line = buffer.drain(..=index).collect::<Vec<_>>();
+            emit_command_line(stream, line, output);
+        }
+    }
+
+    pub(crate) fn flush(&mut self, output: &mut dyn FnMut(&str, String)) {
+        if !self.stdout.is_empty() {
+            let line = std::mem::take(&mut self.stdout);
+            emit_command_line("stdout", line, output);
+        }
+        if !self.stderr.is_empty() {
+            let line = std::mem::take(&mut self.stderr);
+            emit_command_line("stderr", line, output);
+        }
+    }
+}
+
+fn emit_command_line(
+    stream: &'static str,
+    mut line: Vec<u8>,
+    output: &mut dyn FnMut(&str, String),
+) {
+    if line.last() == Some(&b'\n') {
+        line.pop();
+    }
+    if line.last() == Some(&b'\r') {
+        line.pop();
+    }
+    output(stream, String::from_utf8_lossy(&line).into_owned());
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DeployError {
     pub message: String,
     pub cancelled: bool,
@@ -195,6 +250,15 @@ impl DeployError {
         }
     }
 
+    pub fn cancelled_command() -> Self {
+        Self {
+            message: "上传后命令已取消".into(),
+            cancelled: true,
+            committed: false,
+            recovery_paths: Vec::new(),
+        }
+    }
+
     pub fn local_io(error: std::io::Error) -> Self {
         Self::failed(format!("读取本地部署产物失败：{error}"))
     }
@@ -213,6 +277,12 @@ pub trait RemoteFs: Send {
     ) -> Result<(), DeployError>;
     fn rename(&mut self, source: &str, target: &str) -> Result<(), DeployError>;
     fn remove_tree(&mut self, path: &str) -> Result<(), DeployError>;
+    fn execute_command(
+        &mut self,
+        command: &str,
+        cancelled: &AtomicBool,
+        output: &mut dyn FnMut(&str, String),
+    ) -> Result<RemoteCommandResult, DeployError>;
 }
 
 #[derive(Clone, Debug)]
@@ -1126,8 +1196,9 @@ mod transaction_tests {
     use std::thread;
 
     use super::{
-        deploy, ArtifactManifest, DeployError, DeploymentRequest, DeploymentTarget, RemoteDirEntry,
-        RemoteFs, RemoteKind, RemoteMetadata,
+        deploy, ArtifactManifest, DeployError, DeploymentRequest, DeploymentTarget,
+        RemoteCommandOutputDecoder, RemoteCommandResult, RemoteDirEntry, RemoteFs, RemoteKind,
+        RemoteMetadata,
     };
     use crate::tools::release_package::ReleaseTarget;
 
@@ -1135,6 +1206,11 @@ mod transaction_tests {
     enum Node {
         Directory,
         File(Vec<u8>),
+    }
+
+    enum FakeCommandEvent {
+        Output(&'static str, Vec<u8>),
+        ReadError(String),
     }
 
     struct FakeRemoteFs {
@@ -1145,6 +1221,9 @@ mod transaction_tests {
         fail_remove_targets: VecDeque<String>,
         cancel_after_create_dirs: Option<(usize, Arc<AtomicBool>)>,
         cancel_during_write: bool,
+        command_exit_code: i32,
+        command_events: VecDeque<FakeCommandEvent>,
+        command_calls: Vec<String>,
     }
 
     impl FakeRemoteFs {
@@ -1161,7 +1240,27 @@ mod transaction_tests {
                 fail_remove_targets: VecDeque::new(),
                 cancel_after_create_dirs: None,
                 cancel_during_write: false,
+                command_exit_code: 0,
+                command_events: VecDeque::new(),
+                command_calls: Vec::new(),
             }
+        }
+
+        fn command_remote(exit_code: i32, events: Vec<(&'static str, Vec<u8>)>) -> Self {
+            let mut remote = Self::base();
+            remote.command_exit_code = exit_code;
+            remote.command_events = events
+                .into_iter()
+                .map(|(stream, bytes)| FakeCommandEvent::Output(stream, bytes))
+                .collect();
+            remote
+        }
+
+        fn command_remote_events(exit_code: i32, events: Vec<FakeCommandEvent>) -> Self {
+            let mut remote = Self::base();
+            remote.command_exit_code = exit_code;
+            remote.command_events = events.into();
+            remote
         }
 
         fn with_existing_release() -> Self {
@@ -1323,6 +1422,38 @@ mod transaction_tests {
                 self.nodes.remove(&candidate);
             }
             Ok(())
+        }
+
+        fn execute_command(
+            &mut self,
+            command: &str,
+            cancelled: &AtomicBool,
+            output: &mut dyn FnMut(&str, String),
+        ) -> Result<RemoteCommandResult, DeployError> {
+            if cancelled.load(Ordering::Acquire) {
+                return Err(DeployError::cancelled_command());
+            }
+            self.command_calls.push(command.to_string());
+            let mut decoder = RemoteCommandOutputDecoder::default();
+            while let Some(event) = self.command_events.pop_front() {
+                if cancelled.load(Ordering::Acquire) {
+                    return Err(DeployError::cancelled_command());
+                }
+                match event {
+                    FakeCommandEvent::Output(stream, bytes) => {
+                        decoder.push(stream, &bytes, output);
+                    }
+                    FakeCommandEvent::ReadError(message) => {
+                        return Err(DeployError::failed(format!(
+                            "读取上传后命令输出失败：{message}"
+                        )));
+                    }
+                }
+            }
+            decoder.flush(output);
+            Ok(RemoteCommandResult {
+                exit_code: self.command_exit_code,
+            })
         }
     }
 
@@ -1609,6 +1740,15 @@ mod transaction_tests {
             }
             Ok(())
         }
+
+        fn execute_command(
+            &mut self,
+            _command: &str,
+            _cancelled: &AtomicBool,
+            _output: &mut dyn FnMut(&str, String),
+        ) -> Result<RemoteCommandResult, DeployError> {
+            Err(DeployError::failed("该测试连接不支持远程命令"))
+        }
     }
 
     fn shared_existing_release() -> Arc<Mutex<BTreeMap<String, Node>>> {
@@ -1683,6 +1823,96 @@ mod transaction_tests {
             ],
         };
         (root, request)
+    }
+
+    #[test]
+    fn remote_command_reports_both_streams_and_exit_code() {
+        let mut remote = FakeRemoteFs::command_remote(
+            7,
+            vec![
+                ("stdout", b"ready\n".to_vec()),
+                ("stderr", b"warning\n".to_vec()),
+            ],
+        );
+        let mut lines = Vec::new();
+
+        let result = remote
+            .execute_command(
+                "./deploy.sh",
+                &AtomicBool::new(false),
+                &mut |stream, line| {
+                    lines.push((stream.to_string(), line));
+                },
+            )
+            .unwrap();
+
+        assert_eq!(result.exit_code, 7);
+        assert_eq!(remote.command_calls, vec!["./deploy.sh"]);
+        assert_eq!(
+            lines,
+            vec![
+                ("stdout".to_string(), "ready".to_string()),
+                ("stderr".to_string(), "warning".to_string()),
+            ]
+        );
+    }
+    #[test]
+    fn remote_command_decodes_lossy_utf8_and_tail_lines() {
+        let mut remote = FakeRemoteFs::command_remote(
+            0,
+            vec![
+                ("stdout", vec![0xff, b'o']),
+                ("stdout", b"k".to_vec()),
+                ("stderr", b"tail".to_vec()),
+            ],
+        );
+        let mut lines = Vec::new();
+
+        remote
+            .execute_command(
+                "deploy",
+                &AtomicBool::new(false),
+                &mut |stream: &str, line| {
+                    lines.push((stream.to_string(), line));
+                },
+            )
+            .unwrap();
+
+        assert_eq!(
+            lines,
+            vec![
+                ("stdout".to_string(), "�ok".to_string()),
+                ("stderr".to_string(), "tail".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn remote_command_read_error_is_not_treated_as_eof() {
+        let mut remote = FakeRemoteFs::command_remote_events(
+            0,
+            vec![FakeCommandEvent::ReadError("boom".into())],
+        );
+
+        let error = remote
+            .execute_command("deploy", &AtomicBool::new(false), &mut |_, _| {})
+            .unwrap_err();
+
+        assert!(error.message.contains("读取上传后命令输出失败：boom"));
+        assert!(!error.cancelled);
+    }
+
+    #[test]
+    fn remote_command_cancelled_before_start_is_cancelled_error() {
+        let mut remote = FakeRemoteFs::command_remote(0, vec![("stdout", b"ready\n".to_vec())]);
+        let cancelled = AtomicBool::new(true);
+
+        let error = remote
+            .execute_command("deploy", &cancelled, &mut |_, _| {})
+            .unwrap_err();
+
+        assert!(error.cancelled);
+        assert!(remote.command_calls.is_empty());
     }
 
     #[test]

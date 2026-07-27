@@ -1,10 +1,11 @@
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::{Read, Write};
+use std::io::{ErrorKind, Read, Write};
 use std::net::{Shutdown, TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
+use std::thread;
 use std::time::{Duration, Instant};
 
 use base64::engine::general_purpose::STANDARD_NO_PAD;
@@ -16,7 +17,8 @@ use uuid::Uuid;
 use zeroize::Zeroizing;
 
 use super::release_package_deploy::{
-    DeployError, RemoteDirEntry, RemoteFs, RemoteKind, RemoteMetadata,
+    DeployError, RemoteCommandOutputDecoder, RemoteCommandResult, RemoteDirEntry, RemoteFs,
+    RemoteKind, RemoteMetadata,
 };
 
 const SSH_TIMEOUT: Duration = Duration::from_secs(10);
@@ -565,6 +567,7 @@ pub fn run_remote_preflight(
 }
 
 pub struct SftpRemoteFs {
+    session: Session,
     sftp: Sftp,
 }
 
@@ -599,7 +602,7 @@ impl SftpRemoteFs {
         let sftp = session
             .sftp()
             .map_err(|_| DeployError::failed("初始化 SFTP 会话失败"))?;
-        Ok(Self { sftp })
+        Ok(Self { session, sftp })
     }
 
     fn metadata_inner(&self, path: &str) -> Result<Option<RemoteMetadata>, DeployError> {
@@ -616,6 +619,56 @@ impl SftpRemoteFs {
     }
 }
 
+fn read_command_stream<R: Read>(
+    reader: &mut R,
+    stream: &'static str,
+    decoder: &mut RemoteCommandOutputDecoder,
+    output: &mut dyn FnMut(&str, String),
+) -> Result<bool, DeployError> {
+    let mut buffer = [0_u8; 8192];
+    let mut read_any = false;
+    loop {
+        match reader.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(size) => {
+                read_any = true;
+                decoder.push(stream, &buffer[..size], output);
+            }
+            Err(error) if error.kind() == ErrorKind::WouldBlock => break,
+            Err(error) => {
+                return Err(DeployError::failed(format!(
+                    "读取上传后命令{stream}输出失败：{error}"
+                )));
+            }
+        }
+    }
+    Ok(read_any)
+}
+
+fn read_command_streams(
+    channel: &mut ssh2::Channel,
+    cancelled: &AtomicBool,
+    output: &mut dyn FnMut(&str, String),
+) -> Result<(), DeployError> {
+    let mut decoder = RemoteCommandOutputDecoder::default();
+    loop {
+        if cancelled.load(Ordering::Acquire) {
+            return Err(DeployError::cancelled_command());
+        }
+        let stdout_read = read_command_stream(channel, "stdout", &mut decoder, output)?;
+        let stderr_read = {
+            let mut stderr = channel.stderr();
+            read_command_stream(&mut stderr, "stderr", &mut decoder, output)?
+        };
+        if channel.eof() {
+            decoder.flush(output);
+            return Ok(());
+        }
+        if !stdout_read && !stderr_read {
+            thread::sleep(Duration::from_millis(10));
+        }
+    }
+}
 impl RemoteFs for SftpRemoteFs {
     fn metadata(&self, path: &str) -> Result<Option<RemoteMetadata>, DeployError> {
         self.metadata_inner(path)
@@ -713,6 +766,37 @@ impl RemoteFs for SftpRemoteFs {
                 "拒绝删除未知类型的远端路径：{path}"
             ))),
         }
+    }
+
+    fn execute_command(
+        &mut self,
+        command: &str,
+        cancelled: &AtomicBool,
+        output: &mut dyn FnMut(&str, String),
+    ) -> Result<RemoteCommandResult, DeployError> {
+        if cancelled.load(Ordering::Acquire) {
+            return Err(DeployError::cancelled_command());
+        }
+        let mut channel = self
+            .session
+            .channel_session()
+            .map_err(|error| DeployError::failed(format!("创建 SSH 命令通道失败：{error}")))?;
+        channel
+            .exec(command)
+            .map_err(|error| DeployError::failed(format!("发送上传后命令失败：{error}")))?;
+
+        self.session.set_blocking(false);
+        let read_result = read_command_streams(&mut channel, cancelled, output);
+        self.session.set_blocking(true);
+        read_result?;
+
+        channel
+            .wait_close()
+            .map_err(|error| DeployError::failed(format!("等待上传后命令结束失败：{error}")))?;
+        let exit_code = channel
+            .exit_status()
+            .map_err(|error| DeployError::failed(format!("读取上传后命令退出码失败：{error}")))?;
+        Ok(RemoteCommandResult { exit_code })
     }
 }
 pub fn issue_preflight(
