@@ -41,6 +41,11 @@ enum CommandError {
     Wait(String),
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct CommandOutcome {
+    success_keyword_matched: bool,
+}
+
 impl CommandError {
     fn message(&self) -> String {
         match self {
@@ -64,6 +69,8 @@ fn spawn_reader<R>(
     reader: R,
     stream: &'static str,
     emit: Arc<dyn Fn(&'static str, String) + Send + Sync>,
+    success_keyword: Option<Arc<String>>,
+    success_keyword_matched: Arc<AtomicBool>,
 ) -> thread::JoinHandle<()>
 where
     R: Read + Send + 'static,
@@ -75,7 +82,16 @@ where
             bytes.clear();
             match reader.read_until(b'\n', &mut bytes) {
                 Ok(0) | Err(_) => break,
-                Ok(_) => emit(stream, decode_console_line(&bytes)),
+                Ok(_) => {
+                    let line = decode_console_line(&bytes);
+                    if success_keyword
+                        .as_deref()
+                        .is_some_and(|keyword| line.contains(keyword.as_str()))
+                    {
+                        success_keyword_matched.store(true, Ordering::Release);
+                    }
+                    emit(stream, line);
+                }
             }
         }
     })
@@ -85,10 +101,11 @@ where
 fn run_powershell(
     cwd: &Path,
     command: &str,
+    success_keyword: Option<&str>,
     cancelled: Arc<AtomicBool>,
     pid_slot: Arc<Mutex<Option<u32>>>,
     emit: Arc<dyn Fn(&'static str, String) + Send + Sync>,
-) -> Result<(), CommandError> {
+) -> Result<CommandOutcome, CommandError> {
     let mut pid_guard = pid_slot.lock().unwrap();
     if cancelled.load(Ordering::Acquire) {
         return Err(CommandError::Cancelled);
@@ -112,8 +129,22 @@ fn run_powershell(
     *pid_guard = Some(child.id());
     drop(pid_guard);
 
-    let stdout = spawn_reader(child.stdout.take().unwrap(), "stdout", emit.clone());
-    let stderr = spawn_reader(child.stderr.take().unwrap(), "stderr", emit);
+    let success_keyword = success_keyword.map(|keyword| Arc::new(keyword.to_owned()));
+    let success_keyword_matched = Arc::new(AtomicBool::new(success_keyword.is_none()));
+    let stdout = spawn_reader(
+        child.stdout.take().unwrap(),
+        "stdout",
+        emit.clone(),
+        success_keyword.clone(),
+        Arc::clone(&success_keyword_matched),
+    );
+    let stderr = spawn_reader(
+        child.stderr.take().unwrap(),
+        "stderr",
+        emit,
+        success_keyword,
+        Arc::clone(&success_keyword_matched),
+    );
     let status = loop {
         if cancelled.load(Ordering::Acquire) {
             let _ = terminate_process_tree(child.id());
@@ -146,7 +177,9 @@ fn run_powershell(
         return Err(CommandError::Cancelled);
     }
     if status.success() {
-        Ok(())
+        Ok(CommandOutcome {
+            success_keyword_matched: success_keyword_matched.load(Ordering::Acquire),
+        })
     } else {
         Err(CommandError::ExitCode(status.code().unwrap_or(-1)))
     }
@@ -156,10 +189,11 @@ fn run_powershell(
 fn run_powershell(
     _cwd: &Path,
     _command: &str,
+    _success_keyword: Option<&str>,
     _cancelled: Arc<AtomicBool>,
     _pid_slot: Arc<Mutex<Option<u32>>>,
     _emit: Arc<dyn Fn(&'static str, String) + Send + Sync>,
-) -> Result<(), CommandError> {
+) -> Result<CommandOutcome, CommandError> {
     Err(CommandError::Spawn(
         "当前仅支持 Windows PowerShell 打包".into(),
     ))
@@ -523,10 +557,11 @@ fn run_command_phase(
     phase: &'static str,
     cwd: &Path,
     command: &str,
+    success_keyword: Option<&str>,
     cancelled: Arc<AtomicBool>,
     pid: Arc<Mutex<Option<u32>>>,
     sink: Arc<dyn EventSink>,
-) -> Result<(), PipelineError> {
+) -> Result<CommandOutcome, PipelineError> {
     if cancelled.load(Ordering::Acquire) {
         return Err(PipelineError::Cancelled { phase });
     }
@@ -546,6 +581,7 @@ fn run_command_phase(
     run_powershell(
         cwd,
         command,
+        success_keyword,
         cancelled,
         pid,
         Arc::new(move |stream, line| {
@@ -570,6 +606,13 @@ fn target_phase(target: ReleaseTarget) -> &'static str {
     match target {
         ReleaseTarget::Frontend => "frontend",
         ReleaseTarget::Backend => "backend",
+    }
+}
+
+fn target_label(target: ReleaseTarget) -> &'static str {
+    match target {
+        ReleaseTarget::Frontend => "\u{524d}\u{7aef}",
+        ReleaseTarget::Backend => "\u{540e}\u{7aef}",
     }
 }
 
@@ -609,28 +652,40 @@ fn run_target(
     sink: Arc<dyn EventSink>,
 ) -> Result<BuiltTarget, PipelineError> {
     let phase = target_phase(target);
-    let (project_path, command, artifact_path) = match target {
+    let (project_path, command, success_keyword, artifact_path) = match target {
         ReleaseTarget::Frontend => (
             PathBuf::from(&project.frontend_project_path),
             project.frontend_build_command.as_str(),
+            project.frontend_success_keyword.trim(),
             project.frontend_artifact_path.as_str(),
         ),
         ReleaseTarget::Backend => (
             PathBuf::from(&project.backend_project_path),
             project.backend_build_command.as_str(),
+            project.backend_success_keyword.trim(),
             project.backend_artifact_path.as_str(),
         ),
     };
-    run_command_phase(
+    let outcome = run_command_phase(
         run_id,
         project.id,
         phase,
         &project_path,
         command,
+        (!success_keyword.is_empty()).then_some(success_keyword),
         cancelled.clone(),
         pid,
         sink.clone(),
     )?;
+    if !outcome.success_keyword_matched {
+        return Err(PipelineError::Failed {
+            message: format!(
+                "{}\u{6784}\u{5efa}\u{547d}\u{4ee4}\u{9000}\u{51fa}\u{6210}\u{529f}\u{ff0c}\u{4f46}\u{65e5}\u{5fd7}\u{672a}\u{5339}\u{914d}\u{6210}\u{529f}\u{5173}\u{952e}\u{5b57}\u{ff1a}{}",
+                target_label(target),
+                success_keyword
+            ),
+        });
+    }
     let artifact = resolve_artifact_path(&project_path, artifact_path);
     match target {
         ReleaseTarget::Frontend if !artifact.is_dir() => {
@@ -1783,11 +1838,12 @@ mod tests {
 
     #[test]
     fn powershell_reports_both_streams_and_nonzero_exit() {
-        let logs = Arc::new(Mutex::new(Vec::new()));
+        let logs = Arc::new(Mutex::new(Vec::<(String, String)>::new()));
         let sink = logs.clone();
         let result = run_powershell(
             &std::env::temp_dir(),
             "Write-Output 'front-ok'; [Console]::Error.WriteLine('front-err'); exit 7",
+            None,
             Arc::new(AtomicBool::new(false)),
             Arc::new(Mutex::new(None)),
             Arc::new(move |stream, line| sink.lock().unwrap().push((stream.to_string(), line))),
@@ -1809,6 +1865,7 @@ mod tests {
                 run_powershell(
                     &std::env::temp_dir(),
                     "Start-Sleep -Seconds 30",
+                    None,
                     cancel,
                     pid,
                     Arc::new(|_, _| {}),
@@ -1833,6 +1890,7 @@ mod tests {
         let result = run_powershell(
             Path::new("Z:\\missing-cancelled-cwd"),
             "exit 0",
+            None,
             cancelled,
             pid.clone(),
             Arc::new(|_, _| {}),
@@ -2153,6 +2211,161 @@ mod pipeline_tests {
         project.frontend_artifact_mode = artifact_mode.into();
         project.backend_project_path = backend_project.to_string_lossy().into_owned();
         project
+    }
+
+    #[cfg(windows)]
+    fn keyword_build_project(root: &Path) -> ReleasePackageProjectConfig {
+        let frontend_project = root.join("web");
+        let backend_project = root.join("server");
+        fs::create_dir_all(&frontend_project).unwrap();
+        fs::create_dir_all(&backend_project).unwrap();
+        let mut project = project();
+        project.frontend_project_path = frontend_project.to_string_lossy().into_owned();
+        project.frontend_build_command =
+            "New-Item -ItemType Directory -Force dist | Out-Null; Set-Content dist/index.html web"
+                .into();
+        project.frontend_artifact_path = "dist".into();
+        project.backend_project_path = backend_project.to_string_lossy().into_owned();
+        project.backend_build_command =
+            "New-Item -ItemType Directory -Force target | Out-Null; Set-Content target/app.jar jar"
+                .into();
+        project.backend_artifact_path = "target/app.jar".into();
+        project
+    }
+
+    #[cfg(windows)]
+    fn run_keyword_build(
+        project: ReleasePackageProjectConfig,
+        targets: Vec<ReleaseTarget>,
+    ) -> BuildSummary {
+        run_build_pipeline(
+            "keyword-run",
+            project,
+            targets,
+            Arc::new(AtomicBool::new(false)),
+            ProcessSlots::new(),
+            Arc::new(CollectingSink::default()),
+        )
+        .unwrap()
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn empty_success_keyword_keeps_existing_build_success_behavior() {
+        let root = TestDir::new();
+        let project = keyword_build_project(&root.0);
+
+        let summary = run_keyword_build(project, vec![ReleaseTarget::Frontend]);
+
+        assert_eq!(summary.status, "succeeded");
+        assert_eq!(summary.built_targets.len(), 1);
+        assert!(summary.error.is_none());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn frontend_success_keyword_can_match_stdout_line() {
+        let root = TestDir::new();
+        let mut project = keyword_build_project(&root.0);
+        project.frontend_success_keyword = "Build completed".into();
+        project.frontend_build_command =
+            "Write-Output 'Build completed'; New-Item -ItemType Directory -Force dist | Out-Null; Set-Content dist/index.html web".into();
+
+        let summary = run_keyword_build(project, vec![ReleaseTarget::Frontend]);
+
+        assert_eq!(summary.status, "succeeded");
+        assert_eq!(summary.built_targets.len(), 1);
+        assert!(summary.error.is_none());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn backend_success_keyword_can_match_stderr_line() {
+        let root = TestDir::new();
+        let mut project = keyword_build_project(&root.0);
+        project.backend_success_keyword = "BUILD SUCCESS".into();
+        project.backend_build_command =
+            "[Console]::Error.WriteLine('BUILD SUCCESS'); New-Item -ItemType Directory -Force target | Out-Null; Set-Content target/app.jar jar".into();
+
+        let summary = run_keyword_build(project, vec![ReleaseTarget::Backend]);
+
+        assert_eq!(summary.status, "succeeded");
+        assert_eq!(summary.built_targets.len(), 1);
+        assert!(summary.error.is_none());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn success_keyword_matching_is_case_sensitive() {
+        let root = TestDir::new();
+        let mut project = keyword_build_project(&root.0);
+        project.frontend_success_keyword = "Build completed".into();
+        project.frontend_build_command =
+            "Write-Output 'build completed'; New-Item -ItemType Directory -Force dist | Out-Null; Set-Content dist/index.html web".into();
+
+        let summary = run_keyword_build(project, vec![ReleaseTarget::Frontend]);
+
+        assert_eq!(summary.status, "failed");
+        assert!(summary.built_targets.is_empty());
+        let error = summary.error.unwrap();
+        assert!(error.contains("frontend："));
+        assert!(error.contains("前端构建命令退出成功，但日志未匹配成功关键字：Build completed"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn nonzero_exit_code_fails_even_when_success_keyword_matches() {
+        let root = TestDir::new();
+        let mut project = keyword_build_project(&root.0);
+        project.frontend_success_keyword = "Build completed".into();
+        project.frontend_build_command =
+            "Write-Output 'Build completed'; New-Item -ItemType Directory -Force dist | Out-Null; Set-Content dist/index.html web; exit 9".into();
+
+        let summary = run_keyword_build(project, vec![ReleaseTarget::Frontend]);
+
+        assert_eq!(summary.status, "failed");
+        assert!(summary.built_targets.is_empty());
+        let error = summary.error.unwrap();
+        assert!(error.contains("frontend：PowerShell 命令退出码：9"));
+        assert!(!error.contains("日志未匹配成功关键字"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn matched_success_keyword_still_requires_valid_artifact() {
+        let root = TestDir::new();
+        let mut project = keyword_build_project(&root.0);
+        project.frontend_success_keyword = "Build completed".into();
+        project.frontend_build_command = "Write-Output 'Build completed'".into();
+
+        let summary = run_keyword_build(project, vec![ReleaseTarget::Frontend]);
+
+        assert_eq!(summary.status, "failed");
+        assert!(summary.built_targets.is_empty());
+        let error = summary.error.unwrap();
+        assert!(error.contains("frontend：前端产物必须是文件夹"));
+        assert!(!error.contains("日志未匹配成功关键字"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn unselected_target_success_keyword_is_not_checked() {
+        let root = TestDir::new();
+        let mut project = keyword_build_project(&root.0);
+        project.backend_success_keyword = "BACKEND_DONE".into();
+        project.backend_build_command =
+            "New-Item -ItemType Directory -Force target | Out-Null; Set-Content target/app.jar jar"
+                .into();
+
+        let summary = run_keyword_build(project, vec![ReleaseTarget::Frontend]);
+
+        assert_eq!(summary.status, "succeeded");
+        assert_eq!(summary.built_targets.len(), 1);
+        assert!(summary
+            .built_targets
+            .iter()
+            .all(|target| target.target == ReleaseTarget::Frontend));
+        assert!(summary.error.is_none());
     }
 
     #[cfg(windows)]
