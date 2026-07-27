@@ -22,10 +22,14 @@ CREATE TABLE IF NOT EXISTS release_package_projects (
     package_type TEXT NOT NULL DEFAULT 'local_archive' CHECK (package_type IN ('local_archive', 'server_upload')),
     frontend_project_path TEXT NOT NULL,
     frontend_build_command TEXT NOT NULL,
+    frontend_success_keyword TEXT NOT NULL DEFAULT '',
+    frontend_post_upload_command TEXT NOT NULL DEFAULT '',
     frontend_artifact_path TEXT NOT NULL,
     frontend_artifact_mode TEXT NOT NULL CHECK (frontend_artifact_mode IN ('copy_directory', 'zip_directory')),
     backend_project_path TEXT NOT NULL,
     backend_build_command TEXT NOT NULL,
+    backend_success_keyword TEXT NOT NULL DEFAULT '',
+    backend_post_upload_command TEXT NOT NULL DEFAULT '',
     backend_artifact_path TEXT NOT NULL,
     upload_enabled INTEGER NOT NULL DEFAULT 0,
     ssh_host TEXT NOT NULL DEFAULT '',
@@ -64,6 +68,10 @@ pub fn ensure_schema(conn: &Connection) -> Result<(), String> {
         ("ssh_private_key_path", "ALTER TABLE release_package_projects ADD COLUMN ssh_private_key_path TEXT NOT NULL DEFAULT ''"),
         ("frontend_remote_dir", "ALTER TABLE release_package_projects ADD COLUMN frontend_remote_dir TEXT NOT NULL DEFAULT ''"),
         ("backend_remote_path", "ALTER TABLE release_package_projects ADD COLUMN backend_remote_path TEXT NOT NULL DEFAULT ''"),
+        ("frontend_success_keyword", "ALTER TABLE release_package_projects ADD COLUMN frontend_success_keyword TEXT NOT NULL DEFAULT ''"),
+        ("backend_success_keyword", "ALTER TABLE release_package_projects ADD COLUMN backend_success_keyword TEXT NOT NULL DEFAULT ''"),
+        ("frontend_post_upload_command", "ALTER TABLE release_package_projects ADD COLUMN frontend_post_upload_command TEXT NOT NULL DEFAULT ''"),
+        ("backend_post_upload_command", "ALTER TABLE release_package_projects ADD COLUMN backend_post_upload_command TEXT NOT NULL DEFAULT ''"),
     ] {
         let mut query = conn
             .prepare("PRAGMA table_info(release_package_projects)")
@@ -169,10 +177,14 @@ pub struct ReleasePackageProjectConfig {
     pub package_type: ReleasePackageType,
     pub frontend_project_path: String,
     pub frontend_build_command: String,
+    pub frontend_success_keyword: String,
+    pub frontend_post_upload_command: String,
     pub frontend_artifact_path: String,
     pub frontend_artifact_mode: String,
     pub backend_project_path: String,
     pub backend_build_command: String,
+    pub backend_success_keyword: String,
+    pub backend_post_upload_command: String,
     pub backend_artifact_path: String,
     pub ssh_host: String,
     pub ssh_port: u16,
@@ -209,10 +221,14 @@ struct ProjectPayload {
     package_type: ReleasePackageType,
     frontend_project_path: String,
     frontend_build_command: String,
+    frontend_success_keyword: String,
+    frontend_post_upload_command: String,
     frontend_artifact_path: String,
     frontend_artifact_mode: String,
     backend_project_path: String,
     backend_build_command: String,
+    backend_success_keyword: String,
+    backend_post_upload_command: String,
     backend_artifact_path: String,
     ssh_host: String,
     ssh_port: u16,
@@ -368,10 +384,14 @@ fn parse_project_payload(payload: &Value) -> Result<ProjectPayload, String> {
         package_type: ReleasePackageType::parse(&required_string(payload, "packageType")?)?,
         frontend_project_path: required_string(payload, "frontendProjectPath")?,
         frontend_build_command: required_string(payload, "frontendBuildCommand")?,
+        frontend_success_keyword: optional_string(payload, "frontendSuccessKeyword")?,
+        frontend_post_upload_command: optional_string(payload, "frontendPostUploadCommand")?,
         frontend_artifact_path: required_string(payload, "frontendArtifactPath")?,
         frontend_artifact_mode: required_string(payload, "frontendArtifactMode")?,
         backend_project_path: required_string(payload, "backendProjectPath")?,
         backend_build_command: required_string(payload, "backendBuildCommand")?,
+        backend_success_keyword: optional_string(payload, "backendSuccessKeyword")?,
+        backend_post_upload_command: optional_string(payload, "backendPostUploadCommand")?,
         backend_artifact_path: required_string(payload, "backendArtifactPath")?,
         ssh_host: optional_string(payload, "sshHost")?,
         ssh_port,
@@ -454,8 +474,12 @@ fn project_from_row(row: &Row<'_>) -> rusqlite::Result<ReleasePackageProjectConf
         ssh_private_key_path: row.get(16)?,
         frontend_remote_dir: row.get(17)?,
         backend_remote_path: row.get(18)?,
-        created_at: row.get(19)?,
-        updated_at: row.get(20)?,
+        frontend_success_keyword: row.get(19)?,
+        backend_success_keyword: row.get(20)?,
+        frontend_post_upload_command: row.get(21)?,
+        backend_post_upload_command: row.get(22)?,
+        created_at: row.get(23)?,
+        updated_at: row.get(24)?,
     })
 }
 
@@ -465,7 +489,9 @@ fn project_list_with_conn(conn: &Connection) -> Result<Value, String> {
             "SELECT id, name, output_root, frontend_project_path, frontend_build_command, frontend_artifact_path,
                     frontend_artifact_mode, backend_project_path, backend_build_command,
                     backend_artifact_path, package_type, ssh_host, ssh_port, ssh_username, ssh_auth_type,
-                    vault_entry_id, ssh_private_key_path, frontend_remote_dir, backend_remote_path, created_at, updated_at
+                    vault_entry_id, ssh_private_key_path, frontend_remote_dir, backend_remote_path,
+                    frontend_success_keyword, backend_success_keyword, frontend_post_upload_command,
+                    backend_post_upload_command, created_at, updated_at
              FROM release_package_projects
              ORDER BY name COLLATE NOCASE ASC, id ASC",
         )
@@ -517,8 +543,10 @@ fn project_create_with_conn(conn: &Connection, payload: &Value) -> Result<Value,
             name, output_root, frontend_project_path, frontend_build_command, frontend_artifact_path,
             frontend_artifact_mode, backend_project_path, backend_build_command, backend_artifact_path,
             package_type, ssh_host, ssh_port, ssh_username, ssh_auth_type, vault_entry_id,
-            ssh_private_key_path, frontend_remote_dir, backend_remote_path
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+            ssh_private_key_path, frontend_remote_dir, backend_remote_path,
+            frontend_success_keyword, backend_success_keyword, frontend_post_upload_command,
+            backend_post_upload_command
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
         params![
             project.name,
             project.output_root,
@@ -538,6 +566,10 @@ fn project_create_with_conn(conn: &Connection, payload: &Value) -> Result<Value,
             project.ssh_private_key_path,
             project.frontend_remote_dir,
             project.backend_remote_path,
+            project.frontend_success_keyword,
+            project.backend_success_keyword,
+            project.frontend_post_upload_command,
+            project.backend_post_upload_command,
         ],
     )
     .map_err(|e| format!("create release package project failed: {e}"))?;
@@ -556,8 +588,11 @@ fn project_update_with_conn(conn: &Connection, payload: &Value) -> Result<Value,
                 backend_project_path=?7, backend_build_command=?8, backend_artifact_path=?9,
                 package_type=?10, ssh_host=?11, ssh_port=?12, ssh_username=?13,
                 ssh_auth_type=?14, vault_entry_id=?15, ssh_private_key_path=?16,
-                frontend_remote_dir=?17, backend_remote_path=?18, updated_at=CURRENT_TIMESTAMP
-             WHERE id=?19",
+                frontend_remote_dir=?17, backend_remote_path=?18,
+                frontend_success_keyword=?19, backend_success_keyword=?20,
+                frontend_post_upload_command=?21, backend_post_upload_command=?22,
+                updated_at=CURRENT_TIMESTAMP
+             WHERE id=?23",
             params![
                 project.name,
                 project.output_root,
@@ -577,6 +612,10 @@ fn project_update_with_conn(conn: &Connection, payload: &Value) -> Result<Value,
                 project.ssh_private_key_path,
                 project.frontend_remote_dir,
                 project.backend_remote_path,
+                project.frontend_success_keyword,
+                project.backend_success_keyword,
+                project.frontend_post_upload_command,
+                project.backend_post_upload_command,
                 id,
             ],
         )
@@ -606,7 +645,9 @@ pub(crate) fn load_project(
         "SELECT id, name, output_root, frontend_project_path, frontend_build_command, frontend_artifact_path,
                 frontend_artifact_mode, backend_project_path, backend_build_command,
                 backend_artifact_path, package_type, ssh_host, ssh_port, ssh_username, ssh_auth_type,
-                vault_entry_id, ssh_private_key_path, frontend_remote_dir, backend_remote_path, created_at, updated_at
+                vault_entry_id, ssh_private_key_path, frontend_remote_dir, backend_remote_path,
+                frontend_success_keyword, backend_success_keyword, frontend_post_upload_command,
+                backend_post_upload_command, created_at, updated_at
          FROM release_package_projects
          WHERE id=?1",
         [id],
@@ -1161,10 +1202,14 @@ mod tests {
             "packageType": "server_upload",
             "frontendProjectPath": r"D:\work\web",
             "frontendBuildCommand": "pnpm build",
+            "frontendSuccessKeyword": "  Build completed  ",
+            "frontendPostUploadCommand": "\n  cd /srv/web\n  ./reload.sh\n",
             "frontendArtifactPath": "dist",
             "frontendArtifactMode": "copy_directory",
             "backendProjectPath": r"D:\work\server",
             "backendBuildCommand": "mvn clean package -Pprod",
+            "backendSuccessKeyword": "  BUILD SUCCESS  ",
+            "backendPostUploadCommand": "\n  systemctl restart portal\n",
             "backendArtifactPath": r"target\portal.jar",
             "sshHost": "deploy.example.internal",
             "sshPort": 2222,
@@ -1202,6 +1247,14 @@ mod tests {
             .collect::<Result<Vec<_>, _>>()
             .unwrap();
         assert!(columns.contains(&"vault_entry_id".to_string()));
+        for column in [
+            "frontend_success_keyword",
+            "backend_success_keyword",
+            "frontend_post_upload_command",
+            "backend_post_upload_command",
+        ] {
+            assert!(columns.contains(&column.to_string()));
+        }
     }
 
     #[test]
@@ -1218,6 +1271,16 @@ mod tests {
 
         let private_key = parse_project_payload(&payload()).unwrap();
         assert_eq!(private_key.vault_entry_id, None);
+        assert_eq!(private_key.frontend_success_keyword, "Build completed");
+        assert_eq!(private_key.backend_success_keyword, "BUILD SUCCESS");
+        assert_eq!(
+            private_key.frontend_post_upload_command,
+            "cd /srv/web\n  ./reload.sh"
+        );
+        assert_eq!(
+            private_key.backend_post_upload_command,
+            "systemctl restart portal"
+        );
     }
 
     #[test]
@@ -1383,11 +1446,16 @@ mod tests {
         .unwrap();
 
         ensure_schema(&conn).unwrap();
+        ensure_schema(&conn).unwrap();
         let projects = project_list_with_conn(&conn).unwrap();
         let project = &projects["projects"][0];
         assert_eq!(project["packageType"], "local_archive");
         assert_eq!(project["sshPort"], 22);
         assert_eq!(project["sshAuthType"], "password");
+        assert_eq!(project["frontendSuccessKeyword"], "");
+        assert_eq!(project["backendSuccessKeyword"], "");
+        assert_eq!(project["frontendPostUploadCommand"], "");
+        assert_eq!(project["backendPostUploadCommand"], "");
         assert!(project.get("password").is_none());
         assert!(project.get("privateKeyPassphrase").is_none());
     }
@@ -1566,13 +1634,35 @@ mod tests {
         assert_eq!(listed["projects"][0]["name"], "客户门户");
         assert_eq!(listed["projects"][0]["sshHost"], "deploy.example.internal");
         assert_eq!(listed["projects"][0]["sshPort"], 2222);
+        assert_eq!(
+            listed["projects"][0]["frontendSuccessKeyword"],
+            "Build completed"
+        );
+        assert_eq!(
+            listed["projects"][0]["backendSuccessKeyword"],
+            "BUILD SUCCESS"
+        );
+        assert_eq!(
+            listed["projects"][0]["frontendPostUploadCommand"],
+            "cd /srv/web\n  ./reload.sh"
+        );
+        assert_eq!(
+            listed["projects"][0]["backendPostUploadCommand"],
+            "systemctl restart portal"
+        );
         assert!(listed["projects"][0].get("password").is_none());
         assert!(listed["projects"][0].get("privateKeyPassphrase").is_none());
         let mut update = payload();
         update["id"] = json!(id);
         update["name"] = json!("客户门户 Pro");
+        update["backendPostUploadCommand"] = json!("systemctl restart portal-pro");
         project_update_with_conn(&conn, &update).unwrap();
-        assert_eq!(load_project(&conn, id).unwrap().name, "客户门户 Pro");
+        let updated = load_project(&conn, id).unwrap();
+        assert_eq!(updated.name, "客户门户 Pro");
+        assert_eq!(
+            updated.backend_post_upload_command,
+            "systemctl restart portal-pro"
+        );
         project_delete_with_conn(&conn, &json!({ "id": id })).unwrap();
         assert!(load_project(&conn, id).is_err());
     }
@@ -1769,10 +1859,14 @@ mod tests {
             package_type: ReleasePackageType::LocalArchive,
             frontend_project_path: root.join("missing-frontend").to_string_lossy().into_owned(),
             frontend_build_command: "exit 0".into(),
+            frontend_success_keyword: String::new(),
+            frontend_post_upload_command: String::new(),
             frontend_artifact_path: "dist".into(),
             frontend_artifact_mode: "copy_directory".into(),
             backend_project_path: backend.to_string_lossy().into_owned(),
             backend_build_command: "exit 0".into(),
+            backend_success_keyword: String::new(),
+            backend_post_upload_command: String::new(),
             backend_artifact_path: "app.jar".into(),
             ssh_host: String::new(),
             ssh_port: 22,
@@ -1898,10 +1992,14 @@ mod tests {
             package_type: ReleasePackageType::LocalArchive,
             frontend_project_path: root.join("missing-frontend").to_string_lossy().into_owned(),
             frontend_build_command: "exit 0".into(),
+            frontend_success_keyword: String::new(),
+            frontend_post_upload_command: String::new(),
             frontend_artifact_path: "dist".into(),
             frontend_artifact_mode: "copy_directory".into(),
             backend_project_path: backend.to_string_lossy().into_owned(),
             backend_build_command: "exit 0".into(),
+            backend_success_keyword: String::new(),
+            backend_post_upload_command: String::new(),
             backend_artifact_path: "app.jar".into(),
             ssh_host: String::new(),
             ssh_port: 22,

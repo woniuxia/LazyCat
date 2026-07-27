@@ -39,10 +39,14 @@ export interface ReleasePackageProjectDraft extends ReleasePackageUploadConfig {
   outputRoot: string;
   frontendProjectPath: string;
   frontendBuildCommand: string;
+  frontendSuccessKeyword: string;
+  frontendPostUploadCommand: string;
   frontendArtifactPath: string;
   frontendArtifactMode: ReleasePackageArtifactMode;
   backendProjectPath: string;
   backendBuildCommand: string;
+  backendSuccessKeyword: string;
+  backendPostUploadCommand: string;
   backendArtifactPath: string;
 }
 

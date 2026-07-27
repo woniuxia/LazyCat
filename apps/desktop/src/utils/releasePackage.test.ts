@@ -13,6 +13,7 @@ import {
   createDefaultReleasePackageTargets,
   createEmptyReleasePackageDraft,
   isReleasePackageDraftDirty,
+  normalizeReleasePackageDraft,
   normalizeVaultServerPort,
   projectToReleasePackageDraft,
   releasePackageRunStatusLabel,
@@ -29,10 +30,14 @@ const project: ReleasePackageProject = {
   outputRoot: "D:\\releases",
   frontendProjectPath: "D:\\work\\portal-web",
   frontendBuildCommand: "pnpm build",
+  frontendSuccessKeyword: "Build completed",
+  frontendPostUploadCommand: "cd /srv/web\n./reload.sh",
   frontendArtifactPath: "dist",
   frontendArtifactMode: "copy_directory",
   backendProjectPath: "D:\\work\\portal-server",
   backendBuildCommand: "mvn clean package -Pprod",
+  backendSuccessKeyword: "BUILD SUCCESS",
+  backendPostUploadCommand: "systemctl restart portal",
   backendArtifactPath: "target\\portal.jar",
   packageType: "local_archive",
   sshHost: "",
@@ -137,10 +142,14 @@ Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force
       outputRoot: "",
       frontendProjectPath: "",
       frontendBuildCommand: "",
+      frontendSuccessKeyword: "",
+      frontendPostUploadCommand: "",
       frontendArtifactPath: "",
       frontendArtifactMode: "copy_directory",
       backendProjectPath: "",
       backendBuildCommand: "",
+      backendSuccessKeyword: "",
+      backendPostUploadCommand: "",
       backendArtifactPath: "",
       packageType: "local_archive",
       sshHost: "",
@@ -179,10 +188,33 @@ Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force
 
   it("normalizes a project into an editable draft and detects dirty fields", () => {
     const draft = projectToReleasePackageDraft(project);
+    expect(draft).toMatchObject({
+      frontendSuccessKeyword: "Build completed",
+      backendSuccessKeyword: "BUILD SUCCESS",
+      frontendPostUploadCommand: "cd /srv/web\n./reload.sh",
+      backendPostUploadCommand: "systemctl restart portal",
+    });
     expect(isReleasePackageDraftDirty(project, draft)).toBe(false);
-    draft.frontendBuildCommand = "pnpm build:prod";
-    expect(isReleasePackageDraftDirty(project, draft)).toBe(true);
+    expect(isReleasePackageDraftDirty(project, { ...draft, frontendSuccessKeyword: "changed" })).toBe(true);
+    expect(isReleasePackageDraftDirty(project, { ...draft, backendSuccessKeyword: "changed" })).toBe(true);
+    expect(isReleasePackageDraftDirty(project, { ...draft, frontendPostUploadCommand: "changed" })).toBe(true);
+    expect(isReleasePackageDraftDirty(project, { ...draft, backendPostUploadCommand: "changed" })).toBe(true);
     expect(isReleasePackageDraftDirty(null, createEmptyReleasePackageDraft())).toBe(false);
+  });
+
+  it("trims success keywords and only surrounding whitespace from multiline commands", () => {
+    const draft = projectToReleasePackageDraft(project);
+    draft.frontendSuccessKeyword = "  Build completed  ";
+    draft.frontendPostUploadCommand = "\n  cd /srv/web\n  ./reload.sh\n";
+    draft.backendSuccessKeyword = "  BUILD SUCCESS  ";
+    draft.backendPostUploadCommand = "\n  systemctl restart portal\n";
+
+    const normalized = normalizeReleasePackageDraft(draft);
+
+    expect(normalized.frontendSuccessKeyword).toBe("Build completed");
+    expect(normalized.frontendPostUploadCommand).toBe("cd /srv/web\n  ./reload.sh");
+    expect(normalized.backendSuccessKeyword).toBe("BUILD SUCCESS");
+    expect(normalized.backendPostUploadCommand).toBe("systemctl restart portal");
   });
 
   it("returns the first required field error", () => {
