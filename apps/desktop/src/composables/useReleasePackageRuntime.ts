@@ -134,6 +134,7 @@ function applyProjectStatus(event: ReleasePackageStatusEvent): void {
       && event.status !== "prechecking"
       && event.status !== "uploading"
       && event.status !== "package_succeeded_upload_failed"
+      && event.status !== "upload_succeeded_command_failed"
     ) {
       runtime.targetStatus[event.phase] = event.status;
     }

@@ -274,6 +274,7 @@ export function releasePackageRunStatusLabel(status: ReleasePackageRunStatus): s
     partially_succeeded: "部分成功",
     package_succeeded_upload_failed: "构建完成，上传失败",
     failed: "失败",
+    upload_succeeded_command_failed: "文件已上传，命令失败",
     cancelled: "已终止",
   };
   return labels[status];

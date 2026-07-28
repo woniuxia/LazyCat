@@ -12,8 +12,8 @@ export type ReleasePackageRunStatus =
   | "partially_succeeded"
   | "package_succeeded_upload_failed"
   | "failed"
-  | "cancelled";
   | "upload_succeeded_command_failed"
+  | "cancelled";
 export type ReleasePackageTargetStatus =
   | "idle"
   | "pending"
@@ -21,8 +21,8 @@ export type ReleasePackageTargetStatus =
   | "succeeded"
   | "failed"
   | "cancelled"
-export type ReleasePackageCommandStatus = "skipped" | "pending" | "running" | "succeeded" | "failed" | "cancelled";
   | "skipped";
+export type ReleasePackageCommandStatus = "skipped" | "pending" | "running" | "succeeded" | "failed" | "cancelled";
 
 export interface ReleasePackageUploadConfig {
   sshHost: string;
@@ -96,6 +96,16 @@ export interface ReleasePackageRemoteTargetCheck {
   exists: boolean;
   parentReady: boolean;
   writable: boolean;
+}
+
+export interface ReleasePackageCommandRetryPrepareResult extends ReleasePackageRemoteProbeResult {
+  targets: ReleasePackageTarget[];
+  authType: ReleasePackageSshAuthType;
+}
+
+export interface ReleasePackageCommandRetryPreflightResult {
+  authToken: string;
+  expiresAt: string;
 }
 
 export interface ReleasePackageRemotePreflightResult {
