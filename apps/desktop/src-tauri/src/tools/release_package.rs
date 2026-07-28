@@ -552,6 +552,13 @@ pub struct ReleasePackageEnvironmentConfig {
     pub updated_at: String,
 }
 
+pub(crate) struct ReleasePackageActionTargetRow {
+    pub id: i64,
+    pub label: String,
+    pub available: bool,
+    pub unavailable_reason: Option<String>,
+}
+
 // Task 5 will move runtime entry points to environment IDs. Until then the runtime module still
 // constructs and consumes this flattened snapshot, so keep it explicit and fail on ambiguity.
 #[derive(Clone, Debug, Serialize)]
@@ -1100,7 +1107,7 @@ fn run_thread_hook(hook_slot: &Mutex<Option<ThreadHook>>) {
     }
 }
 
-fn project_list_with_conn(conn: &Connection) -> Result<Value, String> {
+fn load_project_list_items(conn: &Connection) -> Result<Vec<ProjectListItem>, String> {
     let transaction =
         Transaction::new_unchecked(conn, TransactionBehavior::Deferred).map_err(|error| {
             format!("begin release package project list transaction failed: {error}")
@@ -1164,40 +1171,63 @@ fn project_list_with_conn(conn: &Connection) -> Result<Value, String> {
     if !grouped.is_empty() {
         return Err("上线包项目环境配置不完整".into());
     }
-    let result = json!({ "projects": items });
     transaction.commit().map_err(|error| {
         format!("commit release package project list transaction failed: {error}")
     })?;
-    Ok(result)
+    Ok(items)
 }
 
-pub(crate) fn list_action_target_rows(conn: &Connection) -> Result<Vec<(i64, String)>, String> {
-    let mut statement = conn
-        .prepare(
-            "SELECT id, name
-             FROM release_package_projects
-             ORDER BY name COLLATE NOCASE ASC, id ASC",
-        )
-        .map_err(|error| format!("prepare release package action targets failed: {error}"))?;
-    let rows = statement
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
-        .map_err(|error| format!("query release package action targets failed: {error}"))?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|error| format!("read release package action target failed: {error}"))?;
+fn project_list_with_conn(conn: &Connection) -> Result<Value, String> {
+    Ok(json!({ "projects": load_project_list_items(conn)? }))
+}
+
+fn action_target_label(
+    project_name: &str,
+    environment: ReleasePackageEnvironmentKind,
+) -> String {
+    let environment_label = match environment {
+        ReleasePackageEnvironmentKind::Test => "测试环境",
+        ReleasePackageEnvironmentKind::Production => "生产环境",
+    };
+    format!("{project_name} · {environment_label}")
+}
+
+pub(crate) fn list_action_target_rows(
+    conn: &Connection,
+) -> Result<Vec<ReleasePackageActionTargetRow>, String> {
+    let projects = load_project_list_items(conn)?;
+    let mut rows = Vec::with_capacity(projects.len() * 2);
+    for project in projects {
+        for environment in project.environments {
+            rows.push(ReleasePackageActionTargetRow {
+                id: environment.id,
+                label: action_target_label(&project.project.name, environment.environment),
+                available: environment.configured,
+                unavailable_reason: (!environment.configured)
+                    .then(|| "环境配置不完整".to_string()),
+            });
+        }
+    }
     Ok(rows)
 }
 
 pub(crate) fn load_action_target_label(
     conn: &Connection,
-    id: i64,
+    environment_id: i64,
 ) -> Result<Option<String>, String> {
-    conn.query_row(
-        "SELECT name FROM release_package_projects WHERE id=?1",
-        [id],
-        |row| row.get(0),
-    )
-    .optional()
-    .map_err(|error| format!("load release package action target failed: {error}"))
+    let sql = format!("{ENVIRONMENT_SELECT} WHERE environment.id=?1");
+    let raw = conn
+        .query_row(&sql, [environment_id], raw_environment_from_row)
+        .optional()
+        .map_err(|error| format!("load release package action target failed: {error}"))?;
+    raw.map(|raw| {
+        environment_from_raw(raw)
+            .map(|environment| {
+                action_target_label(&environment.project_name, environment.environment)
+            })
+            .map_err(|_| "上线包项目环境配置不完整".to_string())
+    })
+    .transpose()
 }
 
 fn project_create_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {

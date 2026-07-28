@@ -98,12 +98,13 @@ pub(crate) fn validate_binding_target(
 
     match action_type {
         RELEASE_PACKAGE_RUN => {
-            let project_id = target_id
+            let environment_id = target_id
                 .parse::<i64>()
                 .ok()
                 .filter(|id| *id > 0)
                 .ok_or("上线包配置不存在")?;
-            if super::super::release_package::load_action_target_label(conn, project_id)?.is_none()
+            if super::super::release_package::load_action_target_label(conn, environment_id)?
+                .is_none()
             {
                 return Err("上线包配置不存在".into());
             }
@@ -202,8 +203,8 @@ fn binding_presentation(
 
     let (target_label, available, unavailable_reason) = match binding.action_type.as_str() {
         RELEASE_PACKAGE_RUN => {
-            let project_id = binding.target_id.parse::<i64>().ok().filter(|id| *id > 0);
-            let label = match project_id {
+            let environment_id = binding.target_id.parse::<i64>().ok().filter(|id| *id > 0);
+            let label = match environment_id {
                 Some(id) => super::super::release_package::load_action_target_label(conn, id)?,
                 None => None,
             };
@@ -390,16 +391,28 @@ mod tests {
         conn
     }
 
-    fn seed_project(conn: &Connection, id: i64, name: &str) {
+    fn seed_project(conn: &Connection, id: i64, name: &str) -> i64 {
         conn.execute(
             "INSERT INTO release_package_projects(
-                id, name, output_root, frontend_project_path, frontend_build_command,
-                frontend_artifact_path, frontend_artifact_mode, backend_project_path,
-                backend_build_command, backend_artifact_path
-             ) VALUES (?1, ?2, '', '', '', '', 'copy_directory', '', '', '')",
+                id, name, frontend_project_path, backend_project_path
+             ) VALUES (?1, ?2, '', '')",
             params![id, name],
         )
         .unwrap();
+        conn.execute(
+            "INSERT INTO release_package_environments(project_id, environment)
+             VALUES (?1, 'test')",
+            [id],
+        )
+        .unwrap();
+        let test_id = conn.last_insert_rowid();
+        conn.execute(
+            "INSERT INTO release_package_environments(project_id, environment)
+             VALUES (?1, 'production')",
+            [id],
+        )
+        .unwrap();
+        test_id
     }
 
     fn binding_count(conn: &Connection) -> i64 {
@@ -433,8 +446,8 @@ mod tests {
     #[test]
     fn binding_patch_create_update_and_remove_follow_three_state_semantics() {
         let conn = test_conn();
-        seed_project(&conn, 7, "客户门户");
-        seed_project(&conn, 8, "管理后台");
+        let first_environment_id = seed_project(&conn, 7, "客户门户");
+        let second_environment_id = seed_project(&conn, 8, "管理后台");
 
         apply_todo_binding_patch(&conn, 1, "one_off", BindingPatch::Preserve, true).unwrap();
         assert_eq!(binding_count(&conn), 0);
@@ -445,7 +458,7 @@ mod tests {
             "one_off",
             BindingPatch::Set {
                 action_type: "release_package.run".into(),
-                target_id: "7".into(),
+                target_id: first_environment_id.to_string(),
             },
             false,
         )
@@ -458,7 +471,7 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(target_id, "7");
+        assert_eq!(target_id, first_environment_id.to_string());
 
         apply_todo_binding_patch(
             &conn,
@@ -466,7 +479,7 @@ mod tests {
             "one_off",
             BindingPatch::Set {
                 action_type: "release_package.run".into(),
-                target_id: "8".into(),
+                target_id: second_environment_id.to_string(),
             },
             false,
         )
@@ -478,15 +491,15 @@ mod tests {
     #[test]
     fn active_dispatch_blocks_binding_replacement_and_removal() {
         let conn = test_conn();
-        seed_project(&conn, 7, "客户门户");
-        seed_project(&conn, 8, "管理后台");
+        let first_environment_id = seed_project(&conn, 7, "客户门户");
+        let second_environment_id = seed_project(&conn, 8, "管理后台");
         apply_todo_binding_patch(
             &conn,
             1,
             "one_off",
             BindingPatch::Set {
                 action_type: "release_package.run".into(),
-                target_id: "7".into(),
+                target_id: first_environment_id.to_string(),
             },
             false,
         )
@@ -499,8 +512,8 @@ mod tests {
                 id, binding_id, trigger_type, trigger_id, trigger_event_id,
                 action_type, target_id, status
              ) VALUES('dispatch-1', ?1, 'todo_item', '1', 'manual-1',
-                      'release_package.run', '7', 'running')",
-            [binding_id],
+                      'release_package.run', ?2, 'running')",
+            params![binding_id, first_environment_id.to_string()],
         )
         .unwrap();
 
@@ -510,7 +523,7 @@ mod tests {
             "one_off",
             BindingPatch::Set {
                 action_type: "release_package.run".into(),
-                target_id: "8".into(),
+                target_id: second_environment_id.to_string(),
             },
             false,
         )
@@ -524,14 +537,14 @@ mod tests {
     #[test]
     fn deleted_target_is_attached_as_unavailable_summary() {
         let conn = test_conn();
-        seed_project(&conn, 7, "客户门户");
+        let environment_id = seed_project(&conn, 7, "客户门户");
         apply_todo_binding_patch(
             &conn,
             1,
             "one_off",
             BindingPatch::Set {
                 action_type: "release_package.run".into(),
-                target_id: "7".into(),
+                target_id: environment_id.to_string(),
             },
             false,
         )
@@ -547,6 +560,32 @@ mod tests {
             items[0]["actionBinding"]["unavailableReason"],
             "上线包配置不存在"
         );
-        assert_eq!(items[0]["actionBinding"]["targetLabel"], "配置 #7");
+        assert_eq!(
+            items[0]["actionBinding"]["targetLabel"],
+            format!("配置 #{}", environment_id)
+        );
+    }
+
+    #[test]
+    fn binding_summary_uses_environment_id_and_label() {
+        let conn = test_conn();
+        let environment_id = seed_project(&conn, 7, "客户门户");
+        apply_todo_binding_patch(
+            &conn,
+            1,
+            "one_off",
+            BindingPatch::Set {
+                action_type: "release_package.run".into(),
+                target_id: environment_id.to_string(),
+            },
+            false,
+        )
+        .unwrap();
+
+        let summary = get_binding_summary(&conn, "todo_item", "1")
+            .unwrap()
+            .unwrap();
+        assert_eq!(summary["targetId"], environment_id.to_string());
+        assert_eq!(summary["targetLabel"], "客户门户 · 测试环境");
     }
 }

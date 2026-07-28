@@ -333,7 +333,7 @@ pub(crate) fn associate_release_package_run_with_conn(
     conn: &mut Connection,
     dispatch_id: &str,
     run_id: &str,
-    project_id: i64,
+    environment_id: i64,
 ) -> Result<(), String> {
     let dispatch_id = dispatch_id.trim();
     let run_id = run_id.trim();
@@ -343,8 +343,8 @@ pub(crate) fn associate_release_package_run_with_conn(
     if run_id.is_empty() {
         return Err("上线包 run id 不能为空".into());
     }
-    if project_id <= 0 {
-        return Err("上线包项目 id 不合法".into());
+    if environment_id <= 0 {
+        return Err("上线包环境 id 不合法".into());
     }
 
     let tx = conn
@@ -371,8 +371,8 @@ pub(crate) fn associate_release_package_run_with_conn(
     if action_type != "release_package.run" {
         return Err("动作派发不是上线包打包动作".into());
     }
-    if target_id != project_id.to_string() {
-        return Err("动作派发目标与上线包项目不匹配".into());
+    if target_id != environment_id.to_string() {
+        return Err("动作派发目标与上线包环境不匹配".into());
     }
     if external_run_id.is_some() {
         return Err("动作派发已关联上线包运行".into());
@@ -465,10 +465,10 @@ pub(crate) fn finish_release_package_run_with_conn(
 pub(crate) fn associate_release_package_run(
     dispatch_id: &str,
     run_id: &str,
-    project_id: i64,
+    environment_id: i64,
 ) -> Result<(), String> {
     let mut conn = super::super::helpers::db_conn()?;
-    associate_release_package_run_with_conn(&mut conn, dispatch_id, run_id, project_id)
+    associate_release_package_run_with_conn(&mut conn, dispatch_id, run_id, environment_id)
 }
 
 #[cfg(not(test))]
@@ -611,7 +611,7 @@ mod tests {
     use super::*;
     use rusqlite::{params, Connection, OptionalExtension};
 
-    fn seeded_action_conn() -> Connection {
+    fn seeded_action_conn() -> (Connection, i64, i64) {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch(
             "PRAGMA foreign_keys=ON;
@@ -646,21 +646,33 @@ mod tests {
         crate::tools::action_center::ensure_schema(&conn).unwrap();
         conn.execute(
             "INSERT INTO release_package_projects(
-                id, name, output_root, frontend_project_path, frontend_build_command,
-                frontend_artifact_path, frontend_artifact_mode, backend_project_path,
-                backend_build_command, backend_artifact_path
-             ) VALUES(7, '客户门户', '', '', '', '', 'copy_directory', '', '', '')",
+                id, name, frontend_project_path, backend_project_path
+             ) VALUES(7, '客户门户', '', '')",
             [],
         )
         .unwrap();
         conn.execute(
-            "INSERT INTO action_bindings(
-                id, trigger_type, trigger_id, action_type, target_id, enabled
-             ) VALUES(1, 'todo_item', '1', 'release_package.run', '7', 1)",
+            "INSERT INTO release_package_environments(project_id, environment)
+             VALUES(7, 'test')",
             [],
         )
         .unwrap();
-        conn
+        let test_environment_id = conn.last_insert_rowid();
+        conn.execute(
+            "INSERT INTO release_package_environments(project_id, environment, output_root)
+             VALUES(7, 'production', 'D:\\releases')",
+            [],
+        )
+        .unwrap();
+        let production_environment_id = conn.last_insert_rowid();
+        conn.execute(
+            "INSERT INTO action_bindings(
+                id, trigger_type, trigger_id, action_type, target_id, enabled
+             ) VALUES(1, 'todo_item', '1', 'release_package.run', ?1, 1)",
+            [production_environment_id.to_string()],
+        )
+        .unwrap();
+        (conn, test_environment_id, production_environment_id)
     }
 
     fn manual_request(todo_id: i64) -> CreateDispatchRequest {
@@ -687,14 +699,20 @@ mod tests {
         .unwrap();
     }
 
-    fn seed_dispatch(conn: &Connection, id: &str, status: &str, run_id: Option<&str>) {
+    fn seed_dispatch(
+        conn: &Connection,
+        id: &str,
+        status: &str,
+        run_id: Option<&str>,
+        environment_id: i64,
+    ) {
         conn.execute(
             "INSERT INTO action_dispatches(
                 id, binding_id, trigger_type, trigger_id, trigger_event_id,
                 action_type, target_id, status, external_run_id
              ) VALUES(?1, 1, 'todo_item', '1', ?1,
-                      'release_package.run', '7', ?2, ?3)",
-            params![id, status, run_id],
+                      'release_package.run', ?2, ?3, ?4)",
+            params![id, environment_id.to_string(), status, run_id],
         )
         .unwrap();
     }
@@ -728,7 +746,7 @@ mod tests {
 
     #[test]
     fn same_binding_can_only_have_one_active_dispatch() {
-        let mut conn = seeded_action_conn();
+        let (mut conn, _, _) = seeded_action_conn();
         let first = create_dispatch_with_conn(&mut conn, &manual_request(1)).unwrap();
         let error = create_dispatch_with_conn(&mut conn, &manual_request(1)).unwrap_err();
 
@@ -738,7 +756,7 @@ mod tests {
 
     #[test]
     fn reminder_event_must_belong_to_the_trigger_todo() {
-        let mut conn = seeded_action_conn();
+        let (mut conn, _, _) = seeded_action_conn();
         seed_reminder_event(&conn, 41, 2);
 
         let error = create_dispatch_with_conn(&mut conn, &reminder_request(1, 41)).unwrap_err();
@@ -748,7 +766,7 @@ mod tests {
 
     #[test]
     fn successful_reminder_dispatch_marks_event_read() {
-        let mut conn = seeded_action_conn();
+        let (mut conn, _, _) = seeded_action_conn();
         seed_reminder_event(&conn, 41, 1);
 
         create_dispatch_with_conn(&mut conn, &reminder_request(1, 41)).unwrap();
@@ -765,7 +783,7 @@ mod tests {
 
     #[test]
     fn invalid_target_and_completed_todo_are_rejected() {
-        let mut conn = seeded_action_conn();
+        let (mut conn, test_environment_id, production_environment_id) = seeded_action_conn();
         conn.execute("DELETE FROM release_package_projects WHERE id=7", [])
             .unwrap();
         assert!(create_dispatch_with_conn(&mut conn, &manual_request(1))
@@ -774,11 +792,21 @@ mod tests {
 
         conn.execute(
             "INSERT INTO release_package_projects(
-                id, name, output_root, frontend_project_path, frontend_build_command,
-                frontend_artifact_path, frontend_artifact_mode, backend_project_path,
-                backend_build_command, backend_artifact_path
-             ) VALUES(7, '客户门户', '', '', '', '', 'copy_directory', '', '', '')",
+                id, name, frontend_project_path, backend_project_path
+             ) VALUES(7, '客户门户', '', '')",
             [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO release_package_environments(id, project_id, environment)
+             VALUES(?1, 7, 'test')",
+            [test_environment_id],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO release_package_environments(id, project_id, environment, output_root)
+             VALUES(?1, 7, 'production', 'D:\\releases')",
+            [production_environment_id],
         )
         .unwrap();
         conn.execute("UPDATE todo_items SET status='completed' WHERE id=1", [])
@@ -790,7 +818,7 @@ mod tests {
 
     #[test]
     fn pending_dispatch_can_end_as_cancelled_or_failed_but_not_running_via_cancel_api() {
-        let mut conn = seeded_action_conn();
+        let (mut conn, _, _) = seeded_action_conn();
         let dispatch = create_dispatch_with_conn(&mut conn, &manual_request(1)).unwrap();
 
         stop_pending_with_conn(&mut conn, &dispatch.id, "failed", Some("页面有未保存配置"))
@@ -806,7 +834,7 @@ mod tests {
         );
         assert!(stop_pending_with_conn(&mut conn, &dispatch.id, "running", None).is_err());
 
-        let mut running_conn = seeded_action_conn();
+        let (mut running_conn, _, _) = seeded_action_conn();
         let running_dispatch =
             create_dispatch_with_conn(&mut running_conn, &manual_request(1)).unwrap();
         assert!(transition_with_conn(
@@ -830,8 +858,14 @@ mod tests {
 
     #[test]
     fn repeated_terminal_and_wrong_run_id_do_not_rewrite_dispatch() {
-        let mut conn = seeded_action_conn();
-        seed_dispatch(&conn, "running", "running", Some("run-1"));
+        let (mut conn, _, production_environment_id) = seeded_action_conn();
+        seed_dispatch(
+            &conn,
+            "running",
+            "running",
+            Some("run-1"),
+            production_environment_id,
+        );
 
         assert!(!transition_with_conn(
             &mut conn,
@@ -872,17 +906,19 @@ mod tests {
 
     #[test]
     fn release_package_run_association_requires_matching_pending_dispatch() {
-        let mut conn = seeded_action_conn();
+        let (mut conn, test_environment_id, production_environment_id) = seeded_action_conn();
         let dispatch = create_dispatch_with_conn(&mut conn, &manual_request(1)).unwrap();
 
-        assert!(associate_release_package_run_with_conn(
-            &mut conn,
-            &dispatch.id,
-            "run-wrong-target",
-            8,
-        )
-        .unwrap_err()
-        .contains("目标"));
+        assert_eq!(
+            associate_release_package_run_with_conn(
+                &mut conn,
+                &dispatch.id,
+                "run-wrong-target",
+                test_environment_id,
+            )
+            .unwrap_err(),
+            "动作派发目标与上线包环境不匹配"
+        );
         assert_eq!(dispatch_run_state(&conn, &dispatch.id).0, "pending_confirmation");
 
         conn.execute(
@@ -894,7 +930,7 @@ mod tests {
             &mut conn,
             &dispatch.id,
             "run-wrong-action",
-            7,
+            production_environment_id,
         )
         .unwrap_err()
         .contains("动作"));
@@ -904,7 +940,13 @@ mod tests {
         )
         .unwrap();
 
-        associate_release_package_run_with_conn(&mut conn, &dispatch.id, "run-1", 7).unwrap();
+        associate_release_package_run_with_conn(
+            &mut conn,
+            &dispatch.id,
+            "run-1",
+            production_environment_id,
+        )
+        .unwrap();
         let state = dispatch_run_state(&conn, &dispatch.id);
         assert_eq!(state.0, "running");
         assert_eq!(state.1.as_deref(), Some("run-1"));
@@ -913,7 +955,7 @@ mod tests {
             &mut conn,
             &dispatch.id,
             "run-2",
-            7,
+            production_environment_id,
         )
         .is_err());
     }
@@ -928,10 +970,15 @@ mod tests {
             ("failed", "failed", "pending"),
             ("cancelled", "cancelled", "pending"),
         ] {
-            let mut conn = seeded_action_conn();
+            let (mut conn, _, production_environment_id) = seeded_action_conn();
             let dispatch = create_dispatch_with_conn(&mut conn, &manual_request(1)).unwrap();
-            associate_release_package_run_with_conn(&mut conn, &dispatch.id, "run-1", 7)
-                .unwrap();
+            associate_release_package_run_with_conn(
+                &mut conn,
+                &dispatch.id,
+                "run-1",
+                production_environment_id,
+            )
+            .unwrap();
 
             assert!(finish_release_package_run_with_conn(&mut conn, "run-1", result_code)
                 .unwrap());
@@ -942,9 +989,15 @@ mod tests {
 
     #[test]
     fn wrong_or_repeated_run_terminal_is_idempotent() {
-        let mut conn = seeded_action_conn();
+        let (mut conn, _, production_environment_id) = seeded_action_conn();
         let dispatch = create_dispatch_with_conn(&mut conn, &manual_request(1)).unwrap();
-        associate_release_package_run_with_conn(&mut conn, &dispatch.id, "run-1", 7).unwrap();
+        associate_release_package_run_with_conn(
+            &mut conn,
+            &dispatch.id,
+            "run-1",
+            production_environment_id,
+        )
+        .unwrap();
 
         assert!(!finish_release_package_run_with_conn(&mut conn, "other-run", "succeeded")
             .unwrap());
@@ -957,9 +1010,15 @@ mod tests {
 
     #[test]
     fn release_package_terminal_ignores_other_action_runs() {
-        let mut conn = seeded_action_conn();
+        let (mut conn, _, production_environment_id) = seeded_action_conn();
         let dispatch = create_dispatch_with_conn(&mut conn, &manual_request(1)).unwrap();
-        associate_release_package_run_with_conn(&mut conn, &dispatch.id, "run-1", 7).unwrap();
+        associate_release_package_run_with_conn(
+            &mut conn,
+            &dispatch.id,
+            "run-1",
+            production_environment_id,
+        )
+        .unwrap();
         conn.execute(
             "UPDATE action_dispatches SET action_type='development_environment.start' WHERE id=?1",
             [&dispatch.id],
@@ -973,10 +1032,15 @@ mod tests {
 
     #[test]
     fn success_preserves_manual_completion_and_tolerates_deleted_todo() {
-        let mut completed_conn = seeded_action_conn();
+        let (mut completed_conn, _, production_environment_id) = seeded_action_conn();
         let dispatch = create_dispatch_with_conn(&mut completed_conn, &manual_request(1)).unwrap();
-        associate_release_package_run_with_conn(&mut completed_conn, &dispatch.id, "run-1", 7)
-            .unwrap();
+        associate_release_package_run_with_conn(
+            &mut completed_conn,
+            &dispatch.id,
+            "run-1",
+            production_environment_id,
+        )
+        .unwrap();
         completed_conn
             .execute(
                 "UPDATE todo_items SET status='completed', completed_at='2026-07-25 12:00:00' WHERE id=1",
@@ -990,14 +1054,14 @@ mod tests {
             ("completed".into(), Some("2026-07-25 12:00:00".into()))
         );
 
-        let mut deleted_conn = seeded_action_conn();
+        let (mut deleted_conn, _, production_environment_id) = seeded_action_conn();
         let deleted_dispatch =
             create_dispatch_with_conn(&mut deleted_conn, &manual_request(1)).unwrap();
         associate_release_package_run_with_conn(
             &mut deleted_conn,
             &deleted_dispatch.id,
             "run-2",
-            7,
+            production_environment_id,
         )
         .unwrap();
         deleted_conn.execute("DELETE FROM todo_items WHERE id=1", []).unwrap();
@@ -1008,7 +1072,7 @@ mod tests {
 
     #[test]
     fn deleting_binding_keeps_historical_dispatch() {
-        let mut conn = seeded_action_conn();
+        let (mut conn, _, _) = seeded_action_conn();
         let dispatch = create_dispatch_with_conn(&mut conn, &manual_request(1)).unwrap();
         stop_pending_with_conn(&mut conn, &dispatch.id, "cancelled", None).unwrap();
 
@@ -1029,21 +1093,39 @@ mod tests {
 
     #[test]
     fn startup_recovery_marks_orphaned_active_dispatches_interrupted() {
-        let mut conn = seeded_action_conn();
-        seed_dispatch(&conn, "pending", "pending_confirmation", None);
+        let (mut conn, _, production_environment_id) = seeded_action_conn();
+        seed_dispatch(
+            &conn,
+            "pending",
+            "pending_confirmation",
+            None,
+            production_environment_id,
+        );
         conn.execute(
             "UPDATE action_dispatches SET status='failed', result_code='old'
              WHERE id='pending'",
             [],
         )
         .unwrap();
-        seed_dispatch(&conn, "pending-2", "pending_confirmation", None);
+        seed_dispatch(
+            &conn,
+            "pending-2",
+            "pending_confirmation",
+            None,
+            production_environment_id,
+        );
         conn.execute(
             "UPDATE action_dispatches SET binding_id=NULL WHERE id='pending-2'",
             [],
         )
         .unwrap();
-        seed_dispatch(&conn, "running", "running", Some("run-1"));
+        seed_dispatch(
+            &conn,
+            "running",
+            "running",
+            Some("run-1"),
+            production_environment_id,
+        );
 
         assert_eq!(recover_interrupted_with_conn(&mut conn).unwrap(), 2);
         for id in ["pending-2", "running"] {

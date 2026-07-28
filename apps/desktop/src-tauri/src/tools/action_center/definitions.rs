@@ -36,7 +36,7 @@ const ACTION_DEFINITIONS: &[ActionDefinition] = &[
         action_type: RELEASE_PACKAGE_RUN,
         label: "开始打包",
         trigger_types: &["todo_item"],
-        target_kind: "release_package_project",
+        target_kind: "release_package_environment",
         target_tool_id: "release-package",
         execution_mode: "open_and_confirm",
         completion_policy: "on_succeeded",
@@ -115,11 +115,11 @@ pub(crate) fn list_targets(
         RELEASE_PACKAGE_RUN => {
             super::super::release_package::list_action_target_rows(conn).map(|rows| {
                 rows.into_iter()
-                    .map(|(id, label)| ActionTargetOption {
-                        id: id.to_string(),
-                        label,
-                        available: true,
-                        unavailable_reason: None,
+                    .map(|row| ActionTargetOption {
+                        id: row.id.to_string(),
+                        label: row.label,
+                        available: row.available,
+                        unavailable_reason: row.unavailable_reason,
                     })
                     .collect()
             })
@@ -139,40 +139,60 @@ mod tests {
         conn
     }
 
-    fn seed_release_project(conn: &Connection, id: i64, name: &str) {
+    fn seed_release_project(conn: &Connection, id: i64, name: &str) -> (i64, i64) {
         conn.execute(
             "INSERT INTO release_package_projects(
-                id, name, output_root, frontend_project_path, frontend_build_command,
-                frontend_artifact_path, frontend_artifact_mode, backend_project_path,
-                backend_build_command, backend_artifact_path
-             ) VALUES (?1, ?2, '', '', '', '', 'copy_directory', '', '', '')",
+                id, name, frontend_project_path, backend_project_path
+             ) VALUES (?1, ?2, '', '')",
             rusqlite::params![id, name],
         )
         .unwrap();
+        conn.execute(
+            "INSERT INTO release_package_environments(project_id, environment)
+             VALUES (?1, 'test')",
+            [id],
+        )
+        .unwrap();
+        let test_id = conn.last_insert_rowid();
+        conn.execute(
+            "INSERT INTO release_package_environments(project_id, environment, output_root)
+             VALUES (?1, 'production', 'D:\\releases')",
+            [id],
+        )
+        .unwrap();
+        (test_id, conn.last_insert_rowid())
     }
 
     #[test]
     fn release_package_definition_is_registered() {
         let definition = definition("release_package.run").expect("registered action");
         assert_eq!(definition.trigger_types, &["todo_item"]);
-        assert_eq!(definition.target_kind, "release_package_project");
+        assert_eq!(definition.target_kind, "release_package_environment");
         assert_eq!(definition.target_tool_id, "release-package");
         assert_eq!(definition.execution_mode, "open_and_confirm");
         assert_eq!(definition.completion_policy, "on_succeeded");
     }
 
     #[test]
-    fn release_package_targets_only_return_saved_projects() {
+    fn release_package_targets_return_fixed_environments_with_runtime_availability() {
         let conn = test_conn();
-        seed_release_project(&conn, 7, "客户门户");
+        let (test_id, production_id) = seed_release_project(&conn, 7, "客户门户");
         assert_eq!(
             list_targets(&conn, "release_package.run").unwrap(),
-            vec![ActionTargetOption {
-                id: "7".into(),
-                label: "客户门户".into(),
-                available: true,
-                unavailable_reason: None,
-            }]
+            vec![
+                ActionTargetOption {
+                    id: test_id.to_string(),
+                    label: "客户门户 · 测试环境".into(),
+                    available: false,
+                    unavailable_reason: Some("环境配置不完整".into()),
+                },
+                ActionTargetOption {
+                    id: production_id.to_string(),
+                    label: "客户门户 · 生产环境".into(),
+                    available: true,
+                    unavailable_reason: None,
+                },
+            ]
         );
     }
 }

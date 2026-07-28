@@ -236,16 +236,27 @@ mod tests {
             .unwrap()
     }
 
-    fn seed_release_project(conn: &Connection, id: i64, name: &str) {
+    fn seed_release_project(conn: &Connection, id: i64, name: &str) -> i64 {
         conn.execute(
             "INSERT INTO release_package_projects(
-                id, name, output_root, frontend_project_path, frontend_build_command,
-                frontend_artifact_path, frontend_artifact_mode, backend_project_path,
-                backend_build_command, backend_artifact_path
-             ) VALUES (?1, ?2, '', '', '', '', 'copy_directory', '', '', '')",
+                id, name, frontend_project_path, backend_project_path
+             ) VALUES (?1, ?2, '', '')",
             params![id, name],
         )
         .unwrap();
+        conn.execute(
+            "INSERT INTO release_package_environments(project_id, environment)
+             VALUES(?1, 'test')",
+            [id],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO release_package_environments(project_id, environment, output_root)
+             VALUES(?1, 'production', 'D:\\releases')",
+            [id],
+        )
+        .unwrap();
+        conn.last_insert_rowid()
     }
 
     #[test]
@@ -314,8 +325,8 @@ mod tests {
     #[test]
     fn todo_binding_three_state_is_visible_in_item_list() {
         let mut conn = create_test_conn();
-        seed_release_project(&conn, 7, "客户门户");
-        seed_release_project(&conn, 8, "管理后台");
+        let customer_environment_id = seed_release_project(&conn, 7, "客户门户");
+        let admin_environment_id = seed_release_project(&conn, 8, "管理后台");
         let created = item_create_with_conn(
             &mut conn,
             &json!({
@@ -323,7 +334,7 @@ mod tests {
                 "kind": "one_off",
                 "actionBinding": {
                     "actionType": "release_package.run",
-                    "targetId": "7"
+                    "targetId": customer_environment_id.to_string()
                 }
             }),
         )
@@ -336,7 +347,10 @@ mod tests {
         )
         .unwrap();
         let list = item_list_with_conn(&conn, &json!({})).unwrap();
-        assert_eq!(list["items"][0]["actionBinding"]["targetId"], "7");
+        assert_eq!(
+            list["items"][0]["actionBinding"]["targetId"],
+            customer_environment_id.to_string()
+        );
 
         item_update_with_conn(
             &mut conn,
@@ -345,13 +359,16 @@ mod tests {
                 "kind": "one_off",
                 "actionBinding": {
                     "actionType": "release_package.run",
-                    "targetId": "8"
+                    "targetId": admin_environment_id.to_string()
                 }
             }),
         )
         .unwrap();
         let list = item_list_with_conn(&conn, &json!({})).unwrap();
-        assert_eq!(list["items"][0]["actionBinding"]["targetLabel"], "管理后台");
+        assert_eq!(
+            list["items"][0]["actionBinding"]["targetLabel"],
+            "管理后台 · 生产环境"
+        );
 
         item_update_with_conn(
             &mut conn,
@@ -365,7 +382,7 @@ mod tests {
     #[test]
     fn deleting_todo_also_deletes_action_binding() {
         let mut conn = create_test_conn();
-        seed_release_project(&conn, 7, "客户门户");
+        let environment_id = seed_release_project(&conn, 7, "客户门户");
         let created = item_create_with_conn(
             &mut conn,
             &json!({
@@ -373,7 +390,7 @@ mod tests {
                 "kind": "one_off",
                 "actionBinding": {
                     "actionType": "release_package.run",
-                    "targetId": "7"
+                    "targetId": environment_id.to_string()
                 }
             }),
         )
@@ -389,7 +406,7 @@ mod tests {
     #[test]
     fn one_off_with_binding_must_be_unbound_before_becoming_recurring() {
         let mut conn = create_test_conn();
-        seed_release_project(&conn, 7, "客户门户");
+        let environment_id = seed_release_project(&conn, 7, "客户门户");
         let created = item_create_with_conn(
             &mut conn,
             &json!({
@@ -397,7 +414,7 @@ mod tests {
                 "kind": "one_off",
                 "actionBinding": {
                     "actionType": "release_package.run",
-                    "targetId": "7"
+                    "targetId": environment_id.to_string()
                 }
             }),
         )
@@ -587,7 +604,7 @@ mod tests {
     #[test]
     fn dispatch_due_reminders_should_include_priority_in_payload() {
         let conn = create_test_conn();
-        seed_release_project(&conn, 7, "客户门户");
+        let environment_id = seed_release_project(&conn, 7, "客户门户");
         conn.execute(
             "INSERT INTO todo_items(id, title, priority, description, status, event_at, kind, completed_at)
              VALUES(1, ?1, ?2, ?3, ?4, ?5, ?6, NULL)",
@@ -610,8 +627,8 @@ mod tests {
         conn.execute(
             "INSERT INTO action_bindings(
                 id, trigger_type, trigger_id, action_type, target_id, enabled
-             ) VALUES(21, 'todo_item', '1', 'release_package.run', '7', 1)",
-            [],
+             ) VALUES(21, 'todo_item', '1', 'release_package.run', ?1, 1)",
+            [environment_id.to_string()],
         )
         .expect("seed action binding");
 
@@ -629,7 +646,7 @@ mod tests {
         let action = reminders[0].action.as_ref().expect("action summary");
         assert_eq!(action.binding_id, 21);
         assert_eq!(action.action_type, "release_package.run");
-        assert_eq!(action.target_label, "客户门户");
+        assert_eq!(action.target_label, "客户门户 · 生产环境");
         assert!(action.available);
         assert_eq!(action.active_dispatch_status, None);
     }
@@ -639,7 +656,7 @@ mod tests {
         for status in ["pending_confirmation", "running"] {
             let conn = create_test_conn();
             seed_one_off(&conn, 1, "发布客户门户");
-            seed_release_project(&conn, 7, "客户门户");
+            let environment_id = seed_release_project(&conn, 7, "客户门户");
             conn.execute(
                 "INSERT INTO todo_item_reminders(
                     id, item_id, reminder_preset, offset_minutes, remind_at
@@ -650,8 +667,8 @@ mod tests {
             conn.execute(
                 "INSERT INTO action_bindings(
                     id, trigger_type, trigger_id, action_type, target_id, enabled
-                 ) VALUES(21, 'todo_item', '1', 'release_package.run', '7', 1)",
-                [],
+                 ) VALUES(21, 'todo_item', '1', 'release_package.run', ?1, 1)",
+                [environment_id.to_string()],
             )
             .unwrap();
             conn.execute(
@@ -659,8 +676,8 @@ mod tests {
                     id, binding_id, trigger_type, trigger_id, trigger_event_id,
                     action_type, target_id, status
                  ) VALUES('dispatch-1', 21, 'todo_item', '1', 'event-1',
-                          'release_package.run', '7', ?1)",
-                [status],
+                          'release_package.run', ?1, ?2)",
+                params![environment_id.to_string(), status],
             )
             .unwrap();
 
