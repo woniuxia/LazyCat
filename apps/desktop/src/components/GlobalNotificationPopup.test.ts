@@ -48,6 +48,15 @@ describe("GlobalNotificationPopup", () => {
     expect(source).toContain("releasePackageNotificationCopy(currentPackage.value.status, currentPackage.value.packageType)");
   });
 
+  it("renders the release environment without replacing the terminal status style", () => {
+    expect(source).toContain('currentPackage.value.environment === "production"');
+    expect(source).toContain('type="danger"');
+    expect(source).toContain("currentPackage.value.projectName");
+    expect(source).toContain("生产环境");
+    expect(source).toContain("测试环境");
+    expect(source).toContain("releasePackageNotificationCopy");
+  });
+
   it("renders uploaded command failures with an explicit failure state", () => {
     expect(source).toContain('currentPackage.value?.status === "upload_succeeded_command_failed"');
     expect(source).toContain('? "命令失败"');

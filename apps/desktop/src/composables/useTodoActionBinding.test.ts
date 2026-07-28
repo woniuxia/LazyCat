@@ -33,7 +33,7 @@ describe("useTodoActionBinding", () => {
         ],
       })
       .mockResolvedValueOnce({
-        targets: [{ id: "7", label: "客户门户", available: true }],
+        targets: [{ id: "42", label: "客户门户 · 生产环境", available: true }],
       });
     const draft = createDraft();
     const binding = useTodoActionBinding(draft);
@@ -49,8 +49,35 @@ describe("useTodoActionBinding", () => {
       actionType: "release_package.run",
     });
     expect(binding.actionTargets.value).toEqual([
-      { id: "7", label: "客户门户", available: true },
+      { id: "42", label: "客户门户 · 生产环境", available: true },
     ]);
+    draft.actionTargetId = "42";
+    expect(draft.actionTargetId).toBe("42");
+    expect(binding.isAvailableTarget("release_package.run", "42")).toBe(true);
+  });
+
+  it("keeps an unconfigured release environment unavailable with its reason", async () => {
+    invokeMock.mockResolvedValueOnce({
+      targets: [{
+        id: "41",
+        label: "客户门户 · 测试环境",
+        available: false,
+        unavailableReason: "环境配置不完整",
+      }],
+    });
+    const draft = createDraft();
+    const binding = useTodoActionBinding(draft);
+
+    await binding.onActionTypeChange("release_package.run");
+    draft.actionTargetId = "41";
+
+    expect(binding.actionTargets.value).toEqual([{
+      id: "41",
+      label: "客户门户 · 测试环境",
+      available: false,
+      unavailableReason: "环境配置不完整",
+    }]);
+    expect(binding.isAvailableTarget("release_package.run", "41")).toBe(false);
   });
 
   it("clears the target when the action is cleared", async () => {

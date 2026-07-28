@@ -229,6 +229,21 @@ const mountedProject: ReleasePackageProject = {
 };
 
 describe("ReleasePackagePanel", () => {
+  it("requires the final production confirmation and sends it only for production", () => {
+    expect(source).toContain("确认生产发布");
+    expect(source).toContain('selectedEnvironmentKind.value === "production"');
+    expect(source).toContain("async function confirmStart");
+    expect(source).toContain("productionConfirmed");
+    expect(source).toContain("selectedEnvironment.value.id");
+  });
+
+  it("selects an action target by environment id without keeping the default test environment", () => {
+    expect(source).toContain("async function applyActionDispatchIntent");
+    expect(source).toContain("findEnvironmentById");
+    expect(source).toContain("selectedEnvironmentKind.value = target.environment");
+    expect(source).toContain("await prepareStart()");
+  });
+
   it("renders fixed test and production environments and defaults to test", () => {
     expect(source).toContain('value="test"');
     expect(source).toContain('value="production"');
@@ -721,10 +736,12 @@ describe("ReleasePackagePanel", () => {
     const applySource = source.slice(applyStart, applyEnd);
 
     expect(applySource).toContain("const loaded = await loadProjects({ preserveEditor: true })");
-    expect(applySource).toContain("String(project.id) === intent.targetId");
-    expect(applySource).toContain('stopPendingActionDispatch("failed", "上线包配置不存在")');
+    expect(applySource).toContain("findEnvironmentById(intent.targetId)");
+    expect(applySource).toContain('stopPendingActionDispatch("failed", "上线包环境配置不存在")');
+    expect(applySource).toContain('stopPendingActionDispatch("failed", "上线包环境配置不完整")');
     expect(applySource).not.toContain("projects.value[0]");
-    expect(applySource).toContain("selectedId.value = target.id");
+    expect(applySource).toContain("selectedId.value = targetLocation.project.id");
+    expect(applySource).toContain("selectedEnvironmentKind.value = target.environment");
     expect(applySource).toContain("restoreSelectedDrafts()");
     expect(applySource).toContain("const prepareError = await prepareStart()");
   });
@@ -809,9 +826,9 @@ describe("ReleasePackagePanel", () => {
     expect(source).toContain("await commandRetry.prepare(");
     expect(source).toContain("await commandRetry.trustHost(");
     expect(source).toContain("await commandRetry.preflight()");
-    expect(source).toContain("runtime.beginStart(projectId, commandTargets)");
-    expect(source).toContain("await commandRetry.start()");
-    expect(source).toContain("runtime.bindStartedRun(result.runId, projectId)");
+    expect(source).toContain("runtime.beginStart(environmentId, commandTargets)");
+    expect(source).toContain("await commandRetry.start(productionConfirmed.value)");
+    expect(source).toContain("runtime.bindStartedRun(result.runId, environmentId)");
     expect(source).toContain('v-model="commandRetry.privateKeyPassphrase.value"');
     expect(source).toContain('@closed="resetCommandRetryDialog"');
   });

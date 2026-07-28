@@ -79,13 +79,14 @@ export function useReleasePackageCommandRetry() {
     }
   }
 
-  async function start(): Promise<ReleasePackageStartResult> {
+  async function start(productionConfirmed = false): Promise<ReleasePackageStartResult> {
     try {
       if (!environmentId.value || !retryToken.value || !authToken.value) throw new Error("请先完成命令重试认证");
       return await invokeToolByChannel("tool:release-package:command-retry-start", {
         environmentId: environmentId.value,
         retryToken: retryToken.value,
         authToken: authToken.value,
+        ...(productionConfirmed ? { productionConfirmed: true } : {}),
       }) as ReleasePackageStartResult;
     } finally {
       privateKeyPassphrase.value = "";

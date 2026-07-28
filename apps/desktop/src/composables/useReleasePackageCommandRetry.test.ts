@@ -97,6 +97,25 @@ describe("useReleasePackageCommandRetry", () => {
     expect(retry.privateKeyPassphrase.value).toBe("");
     expect(retry.authToken.value).toBe("");
   });
+
+  it("sends explicit production confirmation only when requested", async () => {
+    invokeMock
+      .mockResolvedValueOnce(prepareResult)
+      .mockResolvedValueOnce({ authToken: "auth-1", expiresAt: "2026-07-28T12:00:00Z" })
+      .mockResolvedValueOnce({ runId: "run-production" });
+    const retry = useReleasePackageCommandRetry();
+
+    await retry.prepare(42, "command-retry-production");
+    await retry.preflight();
+    await retry.start(true);
+
+    expect(invokeMock).toHaveBeenNthCalledWith(3, "tool:release-package:command-retry-start", {
+      environmentId: 42,
+      retryToken: "command-retry-production",
+      authToken: "auth-1",
+      productionConfirmed: true,
+    });
+  });
   it("clears the private key passphrase when preflight local validation fails", async () => {
     const retry = useReleasePackageCommandRetry();
     retry.privateKeyPassphrase.value = "must-not-survive-validation";

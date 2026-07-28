@@ -52,7 +52,11 @@
           <span class="status-badge" :class="`package-${currentPackage.status}`">{{
             packageStatusLabel
           }}</span>
-          <h1 class="notification-title">{{ currentPackage.projectName }}</h1>
+          <h1 class="notification-title">{{ packageProjectEnvironmentTitle }}</h1>
+          <el-tag v-if="currentPackage.environment === 'production'" type="danger" effect="plain" size="small">
+            生产环境
+          </el-tag>
+          <el-tag v-else type="info" effect="plain" size="small">测试环境</el-tag>
         </div>
         <p class="notification-body">{{ packageCopy.detail }}</p>
         <p v-if="packageError" class="error-summary">{{ packageError }}</p>
@@ -195,6 +199,11 @@ const packageStatusLabel = computed(() =>
           ? "已终止"
           : "失败",
 );
+const packageProjectEnvironmentTitle = computed(() => {
+  if (!currentPackage.value) return "";
+  const environmentLabel = currentPackage.value.environment === "production" ? "生产环境" : "测试环境";
+  return `${currentPackage.value.projectName} · ${environmentLabel}`;
+});
 const packageError = computed(() => summarizeNotificationError(currentPackage.value?.error));
 const canOpenDirectory = computed(() =>
   Boolean(

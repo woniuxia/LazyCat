@@ -6,7 +6,7 @@ const firstIntent = {
   dispatchId: "dispatch-1",
   actionType: "release_package.run",
   targetToolId: "release-package",
-  targetId: "7",
+  targetId: "42",
 };
 
 describe("useActionDispatchIntent", () => {
@@ -29,12 +29,12 @@ describe("useActionDispatchIntent", () => {
     center.setPendingIntent({
       ...firstIntent,
       dispatchId: "dispatch-2",
-      targetId: "8",
+      targetId: "43",
     });
 
     expect(center.consumePendingIntent("release-package")).toMatchObject({
       dispatchId: "dispatch-2",
-      targetId: "8",
+      targetId: "43",
     });
   });
 });

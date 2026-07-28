@@ -587,7 +587,7 @@
     >
       <el-form label-position="top">
         <el-form-item v-if="isLocalArchiveStart" label="归档目录名" required>
-          <el-input v-model="folderName" placeholder="例如：20260723-订单管理系统" />
+          <el-input v-model="folderName" :disabled="starting || productionConfirmed" placeholder="例如：20260723-订单管理系统" />
         </el-form-item>
         <el-form-item v-if="isUploadStart && environmentDraft.sshAuthType === 'private_key'" label="私钥口令（可选）">
           <el-input
@@ -595,7 +595,7 @@
             type="password"
             show-password
             autocomplete="new-password"
-            :disabled="starting"
+            :disabled="starting || productionConfirmed"
             placeholder="私钥未加密时可留空"
           />
         </el-form-item>
@@ -608,11 +608,26 @@
       <p v-if="isLocalArchiveStart" class="archive-preview">完整归档路径：{{ archivePathPreview || "请先设置归档根目录" }}</p>
       <div v-if="!retryMode" class="package-targets">
         <span class="package-targets-label">本次打包内容（默认全选）</span>
-        <el-checkbox-group v-model="selectedTargets" :disabled="starting">
+        <el-checkbox-group v-model="selectedTargets" :disabled="starting || productionConfirmed">
           <el-checkbox label="前端包" value="frontend" />
           <el-checkbox label="后端包" value="backend" />
         </el-checkbox-group>
       </div>
+      <section v-if="selectedEnvironmentKind === 'production'" class="production-confirmation-summary">
+        <header>
+          <strong>生产发布摘要</strong>
+          <el-tag type="danger" effect="plain" size="small">生产环境</el-tag>
+        </header>
+        <div class="production-summary-grid">
+          <div><span>项目</span><strong>{{ selectedProject?.name || "-" }}</strong></div>
+          <div><span>打包内容</span><strong>{{ productionTargetLabel }}</strong></div>
+          <div><span>交付方式</span><strong>{{ productionPackageTypeLabel }}</strong></div>
+          <div v-if="isLocalArchiveStart"><span>归档路径</span><code>{{ archivePathPreview || "-" }}</code></div>
+          <div v-else><span>SSH 目标</span><code>{{ productionSshEndpoint }}</code></div>
+          <div v-if="isUploadStart && selectedTargets.includes('frontend')"><span>前端远程目录</span><code>{{ environmentDraft.frontendRemoteDir || "-" }}</code></div>
+          <div v-if="isUploadStart && selectedTargets.includes('backend')"><span>后端远程文件</span><code>{{ environmentDraft.backendRemotePath || "-" }}</code></div>
+        </div>
+      </section>
       <div v-if="isUploadStart && uploadPreflight.probeResult.value" class="preflight-summary">
         <div class="preflight-host">
           <span>主机指纹</span>
@@ -633,7 +648,21 @@
           {{ cancelPendingStart ? "等待终止" : retryMode ? "终止上传" : "终止打包" }}
         </el-button>
         <el-button v-else @click="closeStartDialog">取消</el-button>
-        <el-button type="primary" :loading="starting" :disabled="starting" @click="confirmStart">
+        <el-button
+          v-if="selectedEnvironmentKind === 'production' && !productionConfirmed && productionSummaryReady"
+          type="danger"
+          :disabled="starting"
+          @click="confirmProductionStart"
+        >
+          确认生产发布
+        </el-button>
+        <el-button
+          v-else-if="selectedEnvironmentKind !== 'production' || productionConfirmed"
+          type="primary"
+          :loading="starting"
+          :disabled="starting"
+          @click="confirmStart"
+        >
           {{ retryMode ? "确认重试" : isUploadStart ? "确认构建并上传" : "确认归档" }}
         </el-button>
       </template>
@@ -676,7 +705,7 @@
             type="password"
             show-password
             autocomplete="new-password"
-            :disabled="commandRetryStarting"
+            :disabled="commandRetryStarting || productionConfirmed"
             placeholder="请重新输入；私钥未加密时可留空"
           />
         </el-form-item>
@@ -698,6 +727,15 @@
       <template #footer>
         <el-button :disabled="commandRetryStarting" @click="closeCommandRetryDialog">取消</el-button>
         <el-button
+          v-if="selectedEnvironmentKind === 'production' && !productionConfirmed && commandRetry.prepareResult.value"
+          type="danger"
+          :disabled="commandRetryStarting"
+          @click="confirmProductionStart"
+        >
+          确认生产发布
+        </el-button>
+        <el-button
+          v-else-if="selectedEnvironmentKind !== 'production' || productionConfirmed"
           type="primary"
           :loading="commandRetryStarting"
           :disabled="commandRetryStarting"
@@ -802,6 +840,7 @@ const pendingSavedIdentity = ref<PendingSavedIdentity | null>(null);
 const starting = ref(false);
 const cancelPendingStart = ref(false);
 const confirmVisible = ref(false);
+const productionConfirmed = ref(false);
 const pendingActionDispatchId = ref<string | null>(null);
 const prepareResult = ref<ReleasePackagePrepareResult | null>(null);
 const folderName = ref("");
@@ -952,6 +991,31 @@ const archivePathPreview = computed(() => {
   }
   return `${preparedRoot.replace(/[\\/]+$/, "")}/${folderName.value}`;
 });
+const productionTargetLabel = computed(() => selectedTargets.value
+  .map((target) => target === "frontend" ? "前端包" : "后端包")
+  .join("、") || "未选择");
+const productionPackageTypeLabel = computed(() => (
+  retryMode.value || prepareResult.value?.packageType === "server_upload"
+    ? retryMode.value ? "重试上传" : "构建并上传服务器"
+    : "本地归档"
+));
+const productionSshEndpoint = computed(() => {
+  if (environmentDraft.sshAuthType === "password") {
+    const credential = selectedVaultCredential.value;
+    return credential ? `${credential.account}@${credential.address}:${credential.port ?? 22}` : "-";
+  }
+  const host = environmentDraft.sshHost || "-";
+  const username = environmentDraft.sshUsername ? `${environmentDraft.sshUsername}@` : "";
+  return `${username}${host}:${environmentDraft.sshPort}`;
+});
+const productionSummaryReady = computed(() => {
+  if (selectedEnvironmentKind.value !== "production") return true;
+  if (!selectedProject.value || !selectedEnvironment.value?.configured || selectedTargets.value.length === 0) return false;
+  if (prepareResult.value?.packageType === "local_archive") return Boolean(archivePathPreview.value);
+  if (prepareResult.value?.packageType !== "server_upload" || productionSshEndpoint.value === "-") return false;
+  return (!selectedTargets.value.includes("frontend") || Boolean(environmentDraft.frontendRemoteDir))
+    && (!selectedTargets.value.includes("backend") || Boolean(environmentDraft.backendRemotePath));
+});
 
 function showError(error: unknown): void {
   ElMessage.error(error instanceof Error ? error.message : String(error));
@@ -1052,6 +1116,7 @@ async function copyCommandExample(command: string): Promise<void> {
 }
 
 function restoreSelectedDrafts(): void {
+  productionConfirmed.value = false;
   Object.assign(
     projectDraft,
     selectedProject.value
@@ -1334,7 +1399,13 @@ async function clearSensitiveStartState(): Promise<void> {
 
 async function resetStartDialog(): Promise<void> {
   retryMode.value = false;
+  productionConfirmed.value = false;
   await clearSensitiveStartState();
+}
+
+function confirmProductionStart(): void {
+  if (selectedEnvironmentKind.value !== "production") return;
+  productionConfirmed.value = true;
 }
 
 async function stopPendingActionDispatch(
@@ -1353,6 +1424,7 @@ async function stopPendingActionDispatch(
 
 async function closeStartDialog(): Promise<void> {
   await stopPendingActionDispatch("cancelled");
+  productionConfirmed.value = false;
   confirmVisible.value = false;
   await clearSensitiveStartState();
 }
@@ -1361,6 +1433,7 @@ async function beforeCloseStartDialog(done: () => void): Promise<void> {
   if (starting.value) return;
   try {
     await stopPendingActionDispatch("cancelled");
+    productionConfirmed.value = false;
     done();
   } catch (error) {
     showError(error);
@@ -1368,7 +1441,7 @@ async function beforeCloseStartDialog(done: () => void): Promise<void> {
 }
 
 async function prepareStart(): Promise<Error | null> {
-  if (!selectedProject.value || dirty.value) {
+  if (!selectedProject.value || !selectedEnvironment.value || dirty.value) {
     const error = new Error(dirty.value ? "请先保存项目配置" : "请先选择项目");
     ElMessage.warning(error.message);
     return error;
@@ -1378,7 +1451,7 @@ async function prepareStart(): Promise<Error | null> {
   try {
     await resetStartDialog();
     prepareResult.value = (await invokeToolByChannel("tool:release-package:prepare", {
-      projectId: selectedProject.value.id,
+      environmentId: selectedEnvironment.value.id,
     })) as ReleasePackagePrepareResult;
     folderName.value = prepareResult.value.packageType === "local_archive"
       ? prepareResult.value.defaultFolderName
@@ -1389,6 +1462,19 @@ async function prepareStart(): Promise<Error | null> {
     showError(error);
     return error instanceof Error ? error : new Error(String(error));
   }
+}
+
+function findEnvironmentById(environmentId: string | number): {
+  project: ReleasePackageProject;
+  environment: ReleasePackageEnvironmentConfig;
+} | null {
+  const parsedId = typeof environmentId === "number" ? environmentId : Number(environmentId);
+  if (!Number.isSafeInteger(parsedId) || parsedId <= 0) return null;
+  for (const project of projects.value) {
+    const environment = project.environments.find((item) => item.id === parsedId);
+    if (environment) return { project, environment };
+  }
+  return null;
 }
 
 async function applyActionDispatchIntent(intent: ActionDispatchRequest): Promise<void> {
@@ -1410,14 +1496,20 @@ async function applyActionDispatchIntent(intent: ActionDispatchRequest): Promise
       await stopPendingActionDispatch("failed", "加载上线包配置失败");
       return;
     }
-    const target = projects.value.find((project) => String(project.id) === intent.targetId);
-    if (!target) {
-      await stopPendingActionDispatch("failed", "上线包配置不存在");
-      ElMessage.error("上线包配置不存在，动作已停止");
+    const targetLocation = findEnvironmentById(intent.targetId);
+    if (!targetLocation) {
+      await stopPendingActionDispatch("failed", "上线包环境配置不存在");
+      ElMessage.error("上线包环境配置不存在，动作已停止");
       return;
     }
-    selectedId.value = target.id;
-    selectedEnvironmentKind.value = "test";
+    const target = targetLocation.environment;
+    if (!target.configured) {
+      await stopPendingActionDispatch("failed", "上线包环境配置不完整");
+      ElMessage.error("上线包环境配置不完整，动作已停止");
+      return;
+    }
+    selectedId.value = targetLocation.project.id;
+    selectedEnvironmentKind.value = target.environment;
     restoreSelectedDrafts();
     const prepareError = await prepareStart();
     if (prepareError) {
@@ -1447,6 +1539,7 @@ async function prepareUploadRetry(): Promise<void> {
 
 async function resetCommandRetryDialog(): Promise<void> {
   commandRetryStarting.value = false;
+  productionConfirmed.value = false;
   try {
     await commandRetry.reset();
   } catch (error) {
@@ -1455,6 +1548,7 @@ async function resetCommandRetryDialog(): Promise<void> {
 }
 
 async function closeCommandRetryDialog(): Promise<void> {
+  productionConfirmed.value = false;
   commandRetryVisible.value = false;
   await resetCommandRetryDialog();
 }
@@ -1470,10 +1564,11 @@ async function beforeCloseCommandRetryDialog(done: () => void): Promise<void> {
 }
 
 async function prepareCommandRetry(): Promise<void> {
-  const projectId = selectedProject.value?.id;
-  if (!projectId || !commandRetryToken.value || running.value) return;
+  const environmentId = selectedEnvironment.value?.id;
+  if (!environmentId || !commandRetryToken.value || running.value) return;
   try {
-    await commandRetry.prepare(projectId, commandRetryToken.value);
+    productionConfirmed.value = false;
+    await commandRetry.prepare(environmentId, commandRetryToken.value);
     commandRetryVisible.value = true;
   } catch (error) {
     await handleUploadIntegrationError(error);
@@ -1481,10 +1576,14 @@ async function prepareCommandRetry(): Promise<void> {
 }
 
 async function confirmCommandRetry(): Promise<void> {
-  const projectId = selectedProject.value?.id;
+  const environmentId = selectedEnvironment.value?.id;
   const prepared = commandRetry.prepareResult.value;
-  if (!projectId || !prepared) {
+  if (!environmentId || !prepared) {
     ElMessage.warning("命令重试信息已失效，请关闭窗口后重新发起");
+    return;
+  }
+  if (selectedEnvironmentKind.value === "production" && !productionConfirmed.value) {
+    ElMessage.warning("请先确认生产发布");
     return;
   }
   const commandTargets = [...prepared.targets];
@@ -1497,10 +1596,10 @@ async function confirmCommandRetry(): Promise<void> {
     }
     await commandRetry.preflight();
     await runtime.ensureListeners();
-    runtime.beginStart(projectId, commandTargets);
+    runtime.beginStart(environmentId, commandTargets);
     runtimeStartBegun = true;
-    const result = await commandRetry.start();
-    runtime.bindStartedRun(result.runId, projectId);
+    const result = await commandRetry.start(productionConfirmed.value);
+    runtime.bindStartedRun(result.runId, environmentId);
     commandRetryVisible.value = false;
   } catch (error) {
     if (runtimeStartBegun) {
@@ -1509,11 +1608,12 @@ async function confirmCommandRetry(): Promise<void> {
     await handleUploadIntegrationError(error);
   } finally {
     commandRetryStarting.value = false;
+    productionConfirmed.value = false;
   }
 }
-async function confirmArchiveOverwrite(projectId: number): Promise<boolean | null> {
+async function confirmArchiveOverwrite(environmentId: number): Promise<boolean | null> {
   const target = (await invokeToolByChannel("tool:release-package:target-check", {
-    projectId,
+    environmentId,
     folderName: folderName.value,
   })) as ReleasePackageTargetCheckResult;
   if (!target.exists) return false;
@@ -1570,11 +1670,11 @@ async function confirmHostTrust(probe: ReleasePackageRemoteProbeResult): Promise
   }
 }
 
-async function ensureHostTrusted(projectId: number): Promise<boolean> {
-  const probe = await uploadPreflight.probe(projectId);
+async function ensureHostTrusted(environmentId: number): Promise<boolean> {
+  const probe = await uploadPreflight.probe(environmentId);
   if (!probe || !(await confirmHostTrust(probe))) return false;
   if (probe.trust !== "trusted") {
-    await uploadPreflight.trustHost(projectId, probe.trust === "changed");
+    await uploadPreflight.trustHost(environmentId, probe.trust === "changed");
   }
   return true;
 }
@@ -1620,7 +1720,7 @@ async function confirmRemoteOverwrite(): Promise<boolean> {
 }
 
 async function runUploadPreflight(
-  projectId: number,
+  environmentId: number,
   targets: ReleasePackageTarget[],
 ): Promise<boolean> {
   const uploadError = validateReleasePackageUpload(environmentDraft);
@@ -1628,9 +1728,9 @@ async function runUploadPreflight(
   if (environmentDraft.sshAuthType === "password" && environmentDraft.vaultEntryId === null) {
     throw new Error("请选择密码库服务器凭据");
   }
-  if (!(await ensureHostTrusted(projectId))) return false;
+  if (!(await ensureHostTrusted(environmentId))) return false;
   await uploadPreflight.check({
-    projectId,
+    environmentId,
     targets: [...targets],
     ...(environmentDraft.sshAuthType === "private_key"
       ? { privateKeyPassphrase: credentialSecret.value || undefined }
@@ -1640,7 +1740,7 @@ async function runUploadPreflight(
 }
 
 async function confirmStart(): Promise<void> {
-  const projectId = selectedProject.value?.id;
+  const environmentId = selectedEnvironment.value?.id;
   const targetsError = validateReleasePackageTargets(selectedTargets.value);
   const isRetry = retryMode.value;
   const packageType = isRetry ? "server_upload" : prepareResult.value?.packageType;
@@ -1651,8 +1751,12 @@ async function confirmStart(): Promise<void> {
   const folderNameError = packageType === "local_archive"
     ? validateArchiveFolderName(folderName.value)
     : null;
-  if (!projectId || folderNameError || targetsError) {
+  if (!environmentId || folderNameError || targetsError) {
     ElMessage.warning(folderNameError ?? targetsError ?? "打包类型无效，请重新打开确认窗口");
+    return;
+  }
+  if (selectedEnvironmentKind.value === "production" && !productionConfirmed.value) {
+    ElMessage.warning("请先确认生产发布");
     return;
   }
   starting.value = true;
@@ -1662,14 +1766,14 @@ async function confirmStart(): Promise<void> {
   try {
     let overwriteExisting = false;
     if (packageType === "local_archive") {
-      const overwriteDecision = await confirmArchiveOverwrite(projectId);
+      const overwriteDecision = await confirmArchiveOverwrite(environmentId);
       if (overwriteDecision === null) {
         await stopPendingActionDispatch("cancelled");
         return;
       }
       overwriteExisting = overwriteDecision;
     } else if (packageType === "server_upload") {
-      const preflightAccepted = await runUploadPreflight(projectId, selectedTargets.value);
+      const preflightAccepted = await runUploadPreflight(environmentId, selectedTargets.value);
       if (!preflightAccepted) {
         await stopPendingActionDispatch("cancelled");
         return;
@@ -1682,29 +1786,31 @@ async function confirmStart(): Promise<void> {
       ElMessage.info(isRetry ? "已取消上传" : "已取消打包");
       return;
     }
-    runtime.beginStart(projectId, selectedTargets.value);
+    runtime.beginStart(environmentId, selectedTargets.value);
     runtimeStartBegun = true;
     const result = isRetry
       ? await invokeToolByChannel("tool:release-package:upload-retry", {
-          projectId,
+          environmentId,
           retryToken: retryTokenValue,
           preflightToken: uploadPreflight.preflightToken.value,
           overwriteRemoteTargets: [...overwriteRemoteTargets.value],
+          ...(productionConfirmed.value ? { productionConfirmed: true } : {}),
         }) as ReleasePackageStartResult
       : await invokeToolByChannel(
           "tool:release-package:start",
           createReleasePackageStartPayload(packageType, {
-            projectId,
+            environmentId,
             targets: selectedTargets.value,
             folderName: folderName.value,
             overwriteExisting,
             preflightToken: uploadPreflight.preflightToken.value,
             overwriteRemoteTargets: overwriteRemoteTargets.value,
+            productionConfirmed: productionConfirmed.value,
             actionDispatchId: pendingActionDispatchId.value ?? undefined,
           }),
         ) as ReleasePackageStartResult;
     pendingActionDispatchId.value = null;
-    runtime.bindStartedRun(result.runId, projectId);
+    runtime.bindStartedRun(result.runId, environmentId);
     confirmVisible.value = false;
     if (cancelPendingStart.value) {
       try {
@@ -1731,6 +1837,7 @@ async function confirmStart(): Promise<void> {
   } finally {
     starting.value = false;
     cancelPendingStart.value = false;
+    productionConfirmed.value = false;
     await clearSensitiveStartState();
   }
 }
@@ -2184,6 +2291,26 @@ onMounted(async () => {
   background: #fff;
 }
 .package-targets :deep(.el-checkbox.is-checked) { border-color: #a8c7fa; background: #f5f9ff; }
+.production-confirmation-summary {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid #f3c4c4;
+}
+.production-confirmation-summary header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.production-summary-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.production-summary-grid > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+  padding: 8px 10px;
+  border: 1px solid #e4e7ed;
+  border-radius: 6px;
+  background: #fafbfc;
+}
+.production-summary-grid span { color: #909399; font-size: 11px; }
+.production-summary-grid strong, .production-summary-grid code { overflow-wrap: anywhere; color: #303133; font-size: 12px; }
 .preflight-summary { display: grid; gap: 8px; margin-top: 16px; }
 .preflight-host, .preflight-target-row {
   display: grid;
@@ -2277,6 +2404,7 @@ onMounted(async () => {
   .server-target-grid { grid-template-columns: 1fr; }
   .server-command-grid { grid-template-columns: 1fr; }
   .command-retry-summary { grid-template-columns: 1fr; }
+  .production-summary-grid { grid-template-columns: 1fr; }
   .private-key-file-field { grid-column: auto; }
   .vault-credential-field { grid-column: auto; }
   .vault-credential-picker { flex-wrap: wrap; }
