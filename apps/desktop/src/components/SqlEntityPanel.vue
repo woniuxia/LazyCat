@@ -53,8 +53,7 @@
         <el-input
           v-model="sqlInput"
           type="textarea"
-          :rows="18"
-          resize="vertical"
+          resize="none"
           placeholder="粘贴 CREATE TABLE 语句，支持多表"
         />
       </div>
@@ -66,8 +65,7 @@
         <el-input
           v-model="codeOutput"
           type="textarea"
-          :rows="18"
-          resize="vertical"
+          resize="none"
           readonly
         />
       </div>
@@ -242,22 +240,29 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  flex: 1;
+  min-height: 0;
 }
 .sql-entity-toolbar {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 10px;
+  flex-shrink: 0;
 }
 .sql-entity-editors {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
+  flex: 1;
+  min-height: 0;
 }
 .editor-col {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  min-width: 0;
+  min-height: 0;
 }
 .editor-label {
   font-weight: 600;
@@ -266,9 +271,18 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 8px;
 }
+.editor-col :deep(.el-textarea) {
+  flex: 1;
+  min-height: 0;
+}
+.editor-col :deep(.el-textarea__inner) {
+  height: 100% !important;
+  min-height: 240px;
+}
 @media (max-width: 900px) {
   .sql-entity-editors {
     grid-template-columns: 1fr;
+    overflow: auto;
   }
 }
 </style>
