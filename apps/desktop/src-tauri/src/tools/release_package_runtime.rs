@@ -967,6 +967,9 @@ fn issue_command_retry(
     if SHUTTING_DOWN.load(Ordering::Acquire) {
         return Err("应用正在退出，不能创建命令重试任务".into());
     }
+    if binding.environment_id != environment_id {
+        return Err("命令重试令牌与环境快照不匹配".into());
+    }
     validate_failed_commands(&failed_commands)?;
     let token = uuid::Uuid::new_v4().to_string();
     command_retries()
@@ -1654,7 +1657,7 @@ fn execute_deployment_request(
     }
     if summary.status == "upload_succeeded_command_failed" && !cancelled.load(Ordering::Acquire) {
         if let Err(error) = issue_command_retry(
-            project_id,
+            binding.environment_id,
             CommandAuthBinding::from_preflight(binding.as_ref(), expected_fingerprint.as_ref()),
             summary.failed_commands.clone(),
         )

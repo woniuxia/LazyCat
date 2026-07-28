@@ -1965,6 +1965,7 @@ pub fn execute_with_app(
             let environment_id = required_positive_id(payload, "environmentId")?;
             let conn = db_conn()?;
             let project = load_environment(&conn, environment_id)?;
+            validate_start_confirmation(project.environment, payload)?;
             require_package_type(&project, ReleasePackageType::ServerUpload, "upload_retry")?;
             let retry_token = payload["retryToken"]
                 .as_str()
@@ -2009,6 +2010,7 @@ pub fn execute_with_app(
                 .ok_or("authToken is required")?;
             let conn = db_conn()?;
             let project = load_environment(&conn, environment_id)?;
+            validate_start_confirmation(project.environment, payload)?;
             require_package_type(
                 &project,
                 ReleasePackageType::ServerUpload,
@@ -3689,12 +3691,12 @@ mod tests {
     #[test]
     fn every_remote_running_action_checks_production_confirmation_before_side_effects() {
         let source = include_str!("release_package.rs");
-        assert_eq!(
-            source
-                .matches("validate_start_confirmation(project.environment, payload)?;")
-                .count(),
-            3
-        );
+        let confirmation = [
+            "validate_start_confirmation(",
+            "project.environment, payload)?;",
+        ]
+        .concat();
+        assert_eq!(source.matches(&confirmation).count(), 3);
     }
 
     #[test]
