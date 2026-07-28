@@ -13,6 +13,7 @@
 - [归档目录是项目配置](#归档目录是项目配置)
 - [已有归档完整替换](#已有归档完整替换)
 - [终态反馈在交付提交之后](#终态反馈在交付提交之后)
+- [文件提交与后置命令是两个不可回滚阶段](#文件提交与后置命令是两个不可回滚阶段)
 - [上传前必须完成真实预检](#上传前必须完成真实预检)
 - [主机指纹先于认证](#主机指纹先于认证)
 - [认证秘密只存在于一次性链路](#认证秘密只存在于一次性链路)
@@ -67,6 +68,20 @@
 ## 终态反馈在交付提交之后
 
 `local_archive` 只有归档 commit 成功后才以 `succeeded/partially_succeeded` 表达可用本地产物并显示目录入口。`server_upload` 只有远端 commit 成功后才表达服务器上传完成；任一目标构建失败时不得开始上传，`partially_succeeded` 必须明确说明构建部分失败、未上传服务器。取消或完全失败不显示成功入口。长任务终态通过统一全局通知窗口呈现，通知内容与面板状态使用同一结果对象。
+
+## 文件提交与后置命令是两个不可回滚阶段
+
+服务器上传与上传后命令必须作为两个边界清晰的阶段处理：只有全部目标文件事务提交完成后，才按前端、后端顺序执行已配置命令。文件提交成功后已经产生不可回滚的线上事实；命令失败、取消或连接中断不能伪装成上传失败，也不能尝试回滚已提交文件或远端命令可能产生的副作用。
+
+命令失败使用独立终态 `upload_succeeded_command_failed`，通知和日志必须明确“服务器文件已上传”。手动恢复只重试本次快照中明确失败的目标命令；已成功、已跳过和被用户取消的命令不进入重试。终态后的重试是新任务，必须重新完成主机信任与 SSH 认证，但不得重新构建、读取产物、写入 SFTP 或执行远端覆盖检查。
+
+**验证**：
+
+- `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml release_package -- --nocapture`
+- `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml action_center -- --nocapture`
+- `pnpm --filter @lazycat/desktop test -- src/utils/globalNotification.test.ts src/components/GlobalNotificationPopup.test.ts`
+
+**使用次数**：0
 
 ## 上传前必须完成真实预检
 

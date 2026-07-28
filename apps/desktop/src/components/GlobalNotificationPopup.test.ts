@@ -48,6 +48,13 @@ describe("GlobalNotificationPopup", () => {
     expect(source).toContain("releasePackageNotificationCopy(currentPackage.value.status, currentPackage.value.packageType)");
   });
 
+  it("renders uploaded command failures with an explicit failure state", () => {
+    expect(source).toContain('currentPackage.value?.status === "upload_succeeded_command_failed"');
+    expect(source).toContain('? "命令失败"');
+    expect(source).toContain(".tone-upload_succeeded_command_failed");
+    expect(source).toContain(".package-upload_succeeded_command_failed");
+  });
+
   it("shows the directory action only for local archives", () => {
     expect(source).toContain('currentPackage.value?.packageType === "local_archive"');
   });

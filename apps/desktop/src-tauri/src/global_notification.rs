@@ -78,6 +78,7 @@ pub(crate) fn build_release_package_notification(
             "succeeded"
                 | "partially_succeeded"
                 | "package_succeeded_upload_failed"
+                | "upload_succeeded_command_failed"
                 | "failed"
                 | "cancelled"
         )
@@ -243,6 +244,7 @@ mod tests {
             "succeeded",
             "partially_succeeded",
             "package_succeeded_upload_failed",
+            "upload_succeeded_command_failed",
             "failed",
             "cancelled",
         ] {
@@ -324,6 +326,26 @@ mod tests {
         let payload = serde_json::to_value(notification).unwrap();
 
         assert_eq!(payload["packageType"], "server_upload");
+        assert!(!payload.as_object().unwrap().contains_key("archivePath"));
+    }
+
+    #[test]
+    fn uploaded_command_failure_notification_has_no_archive_path() {
+        let notification = build_release_package_notification(
+            "run-command-failed",
+            7,
+            "Portal",
+            ReleasePackageType::ServerUpload,
+            "overall",
+            "upload_succeeded_command_failed",
+            None,
+            Some("服务器文件已上传，但后置命令失败".into()),
+        )
+        .expect("command failure should create a notification");
+        let payload = serde_json::to_value(notification).unwrap();
+
+        assert_eq!(payload["status"], "upload_succeeded_command_failed");
+        assert_eq!(payload["error"], "服务器文件已上传，但后置命令失败");
         assert!(!payload.as_object().unwrap().contains_key("archivePath"));
     }
 

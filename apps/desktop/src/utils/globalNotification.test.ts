@@ -83,6 +83,18 @@ describe("normalizeGlobalNotificationPayload", () => {
     expect(normalizeGlobalNotificationPayload(notification)).toEqual([notification]);
   });
 
+  it("accepts a command failure after server files were uploaded", () => {
+    const { archivePath: _archivePath, ...uploadNotification } = succeededNotification;
+    const notification = {
+      ...uploadNotification,
+      packageType: "server_upload" as const,
+      status: "upload_succeeded_command_failed" as const,
+      error: "服务器文件已上传，但上传后命令未全部成功",
+    };
+
+    expect(normalizeGlobalNotificationPayload(notification)).toEqual([notification]);
+  });
+
   it("rejects an upload failure status for a local archive notification", () => {
     expect(() => normalizeGlobalNotificationPayload({
       ...succeededNotification,
@@ -268,6 +280,16 @@ describe("releasePackageNotificationCopy", () => {
       .toContain("构建成功、上传失败");
   });
 
+  it("describes a post-upload command failure without calling it an upload failure", () => {
+    expect(releasePackageNotificationCopy(
+      "upload_succeeded_command_failed",
+      "server_upload",
+    )).toEqual({
+      title: "服务器命令执行失败",
+      detail: "服务器文件已上传，但上传后命令未全部成功，请打开上线包工具查看日志。",
+    });
+  });
+
   it("describes partial server uploads as not uploaded", () => {
     const detail = releasePackageNotificationCopy("partially_succeeded", "server_upload").detail;
 
@@ -275,11 +297,12 @@ describe("releasePackageNotificationCopy", () => {
     expect(detail).not.toContain("已上传服务器");
   });
 
-  it("rejects impossible local archive upload failures", () => {
-    expect(() => releasePackageNotificationCopy(
-      "package_succeeded_upload_failed",
-      "local_archive",
-    )).toThrow("无效的上线包终态组合");
+  it.each([
+    "package_succeeded_upload_failed",
+    "upload_succeeded_command_failed",
+  ] as const)("rejects impossible local archive server terminal %s", (status) => {
+    expect(() => releasePackageNotificationCopy(status, "local_archive"))
+      .toThrow("无效的上线包终态组合");
   });
 
   it.each([
@@ -295,6 +318,11 @@ describe("releasePackageNotificationCopy", () => {
     ["succeeded", "上线包上传成功", "所选产物服务器上传完成"],
     ["partially_succeeded", "上线包部分成功", "部分产物构建失败，未上传服务器"],
     ["package_succeeded_upload_failed", "上线包上传失败", "构建成功、上传失败，请查看上传日志"],
+    [
+      "upload_succeeded_command_failed",
+      "服务器命令执行失败",
+      "服务器文件已上传，但上传后命令未全部成功，请打开上线包工具查看日志。",
+    ],
     ["failed", "上线包上传失败", "未完成可用服务器上传，请查看打包日志"],
     ["cancelled", "上线包任务已终止", "任务已终止，请查看日志确认产物状态"],
   ] as const)("returns the Chinese copy for server upload %s", (status, title, detail) => {

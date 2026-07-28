@@ -14,6 +14,7 @@ const RELEASE_PACKAGE_STATUSES = new Set<ReleasePackageNotificationStatus>([
   "succeeded",
   "partially_succeeded",
   "package_succeeded_upload_failed",
+  "upload_succeeded_command_failed",
   "failed",
   "cancelled",
 ]);
@@ -57,7 +58,11 @@ function isValidReleasePackageStatusCombination(
   packageType: ReleasePackageType,
   status: ReleasePackageNotificationStatus,
 ): boolean {
-  return packageType !== "local_archive" || status !== "package_succeeded_upload_failed";
+  return packageType !== "local_archive"
+    || (
+      status !== "package_succeeded_upload_failed"
+      && status !== "upload_succeeded_command_failed"
+    );
 }
 
 function hasValidCommonFields(value: Record<string, unknown>): boolean {
@@ -189,6 +194,7 @@ function localArchiveNotificationCopy(
     case "partially_succeeded":
       return { title: "上线包部分成功", detail: "可用产物本地归档完成，请查看失败日志" };
     case "package_succeeded_upload_failed":
+    case "upload_succeeded_command_failed":
       return invalidReleasePackageStatusCombination();
     case "failed":
       return { title: "上线包打包失败", detail: "未生成可用归档，请查看打包日志" };
@@ -209,6 +215,11 @@ function serverUploadNotificationCopy(
       return { title: "上线包部分成功", detail: "部分产物构建失败，未上传服务器" };
     case "package_succeeded_upload_failed":
       return { title: "上线包上传失败", detail: "构建成功、上传失败，请查看上传日志" };
+    case "upload_succeeded_command_failed":
+      return {
+        title: "服务器命令执行失败",
+        detail: "服务器文件已上传，但上传后命令未全部成功，请打开上线包工具查看日志。",
+      };
     case "failed":
       return { title: "上线包上传失败", detail: "未完成可用服务器上传，请查看打包日志" };
     case "cancelled":

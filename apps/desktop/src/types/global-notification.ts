@@ -9,6 +9,7 @@ export type ReleasePackageNotificationStatus =
   | "succeeded"
   | "partially_succeeded"
   | "package_succeeded_upload_failed"
+  | "upload_succeeded_command_failed"
   | "failed"
   | "cancelled";
 
