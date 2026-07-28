@@ -101,6 +101,7 @@ export interface ReleasePackageRemoteTargetCheck {
 export interface ReleasePackageCommandRetryPrepareResult extends ReleasePackageRemoteProbeResult {
   targets: ReleasePackageTarget[];
   authType: ReleasePackageSshAuthType;
+  username: string;
 }
 
 export interface ReleasePackageCommandRetryPreflightResult {

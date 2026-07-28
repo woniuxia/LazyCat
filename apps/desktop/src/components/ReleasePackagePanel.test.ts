@@ -1,8 +1,181 @@
+// @vitest-environment happy-dom
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { resolve } from "node:path";
+import { createRenderer, defineComponent, h, nextTick } from "vue";
+import { describe, expect, it, vi } from "vitest";
+import { APP_EVENTS } from "../bridge/events";
+import type { ReleasePackageProject, ReleasePackageStatusEvent } from "../types/release-package";
 
-const source = readFileSync(new URL("./ReleasePackagePanel.vue", import.meta.url), "utf8");
-const appSource = readFileSync(new URL("../App.vue", import.meta.url), "utf8");
+const panelHarness = vi.hoisted(() => ({
+  listeners: new Map<string, (event: { payload: ReleasePackageStatusEvent }) => void>(),
+  invoke: vi.fn(),
+}));
+
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: vi.fn(async (
+    event: string,
+    callback: (event: { payload: ReleasePackageStatusEvent }) => void,
+  ) => {
+    panelHarness.listeners.set(event, callback);
+    return () => undefined;
+  }),
+}));
+
+vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
+vi.mock("../bridge/tauri", () => ({ invokeToolByChannel: panelHarness.invoke }));
+
+const source = readFileSync(resolve(process.cwd(), "src/components/ReleasePackagePanel.vue"), "utf8");
+const appSource = readFileSync(resolve(process.cwd(), "src/App.vue"), "utf8");
+interface HostNode {
+  type: string;
+  text: string;
+  props: Record<string, unknown>;
+  children: HostNode[];
+  parent: HostNode | null;
+}
+
+function hostNode(type: string, text = ""): HostNode {
+  return { type, text, props: {}, children: [], parent: null };
+}
+
+function createPanelRenderer() {
+  return createRenderer<HostNode, HostNode>({
+    patchProp(node, key, _previous, value) {
+      node.props[key] = value;
+    },
+    insert(node, parent, anchor) {
+      node.parent = parent;
+      const index = anchor ? parent.children.indexOf(anchor) : -1;
+      if (index >= 0) parent.children.splice(index, 0, node);
+      else parent.children.push(node);
+    },
+    remove(node) {
+      const index = node.parent?.children.indexOf(node) ?? -1;
+      if (index >= 0) node.parent?.children.splice(index, 1);
+      node.parent = null;
+    },
+    createElement(type) {
+      return hostNode(type);
+    },
+    createText(text) {
+      return hostNode("#text", text);
+    },
+    createComment(text) {
+      return hostNode("#comment", text);
+    },
+    setText(node, text) {
+      node.text = text;
+    },
+    setElementText(node, text) {
+      node.text = text;
+      node.children = [];
+    },
+    parentNode(node) {
+      return node.parent;
+    },
+    nextSibling(node) {
+      const siblings = node.parent?.children ?? [];
+      const index = siblings.indexOf(node);
+      return index >= 0 ? siblings[index + 1] ?? null : null;
+    },
+    setScopeId() {},
+    insertStaticContent(content, parent, anchor) {
+      const node = hostNode("#static", content);
+      node.parent = parent;
+      const index = anchor ? parent.children.indexOf(anchor) : -1;
+      if (index >= 0) parent.children.splice(index, 0, node);
+      else parent.children.push(node);
+      return [node, node];
+    },
+  });
+}
+
+function registerElementStubs(app: ReturnType<ReturnType<typeof createPanelRenderer>["createApp"]>): void {
+  for (const name of [
+    "el-checkbox",
+    "el-checkbox-group",
+    "el-collapse",
+    "el-collapse-item",
+    "el-dialog",
+    "el-form",
+    "el-form-item",
+    "el-input",
+    "el-input-number",
+    "el-option",
+    "el-popover",
+    "el-progress",
+    "el-radio-button",
+    "el-radio-group",
+    "el-select",
+  ]) {
+    app.component(name, defineComponent({
+      inheritAttrs: false,
+      setup(_props, { attrs, slots }) {
+        return () => h("div", attrs, slots.default?.());
+      },
+    }));
+  }
+  app.component("el-button", defineComponent({
+    inheritAttrs: false,
+    setup(_props, { attrs, slots }) {
+      return () => h("button", attrs, slots.default?.());
+    },
+  }));
+  app.component("el-tag", defineComponent({
+    inheritAttrs: false,
+    setup(_props, { attrs, slots }) {
+      return () => h("span", attrs, slots.default?.());
+    },
+  }));
+}
+
+function nodeText(node: HostNode): string {
+  return `${node.text}${node.children.map(nodeText).join("")}`;
+}
+
+function buttonTexts(root: HostNode): string[] {
+  const result: string[] = [];
+  const visit = (node: HostNode) => {
+    if (node.type === "button") result.push(nodeText(node).trim());
+    node.children.forEach(visit);
+  };
+  visit(root);
+  return result;
+}
+
+async function flushMountedPanel(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
+  await nextTick();
+}
+
+const mountedProject: ReleasePackageProject = {
+  id: 7,
+  name: "Portal",
+  packageType: "server_upload",
+  outputRoot: "",
+  frontendProjectPath: "C:\\portal\\web",
+  frontendBuildCommand: "pnpm build",
+  frontendSuccessKeyword: "Build completed",
+  frontendPostUploadCommand: "systemctl reload nginx",
+  frontendArtifactPath: "dist",
+  frontendArtifactMode: "copy_directory",
+  backendProjectPath: "C:\\portal\\api",
+  backendBuildCommand: "mvn package",
+  backendSuccessKeyword: "BUILD SUCCESS",
+  backendPostUploadCommand: "systemctl restart portal",
+  backendArtifactPath: "target/portal.jar",
+  sshHost: "deploy.internal",
+  sshPort: 22,
+  sshUsername: "deploy",
+  sshAuthType: "private_key",
+  vaultEntryId: null,
+  sshPrivateKeyPath: "C:\\keys\\deploy",
+  frontendRemoteDir: "/srv/portal/web",
+  backendRemotePath: "/srv/portal/portal.jar",
+  createdAt: "2026-07-28T00:00:00Z",
+  updatedAt: "2026-07-28T00:00:00Z",
+};
 
 describe("ReleasePackagePanel", () => {
   it("uses a master-detail workspace and explicit run confirmation", () => {
@@ -62,8 +235,12 @@ describe("ReleasePackagePanel", () => {
     expect(source).toContain('confirmButtonText: "直接覆盖"');
     expect(source).toContain('cancelButtonText: "取消"');
     expect(source).toContain("overwriteExisting");
-    expect(source.indexOf("tool:release-package:target-check")).toBeLessThan(
-      source.indexOf("runtime.beginStart"),
+    const confirmStart = source.slice(
+      source.indexOf("async function confirmStart"),
+      source.indexOf("async function cancelRun"),
+    );
+    expect(confirmStart.indexOf("confirmArchiveOverwrite")).toBeLessThan(
+      confirmStart.indexOf("runtime.beginStart"),
     );
   });
 
@@ -108,7 +285,8 @@ describe("ReleasePackagePanel", () => {
     expect(source).toMatch(
       /\.engineering-grid\s*\{[^}]*grid-template-columns:\s*repeat\(auto-fit,\s*minmax\(min\(100%,\s*380px\),\s*1fr\)\);/s,
     );
-    expect(source.match(/type="textarea"/g)).toHaveLength(2);
+    expect(source.match(/type="textarea"/g)).toHaveLength(4);
+    expect(source.match(/:autosize="\{ minRows: 3, maxRows: 8 \}"/g)).toHaveLength(2);
     expect(source.match(/:autosize="\{ minRows: 4, maxRows: 9 \}"/g)).toHaveLength(2);
     expect(source).toContain("同一 PowerShell 会话中顺序执行");
     expect(source).toContain("$LASTEXITCODE");
@@ -228,8 +406,12 @@ describe("ReleasePackagePanel", () => {
     }
     expect(source).toContain("useReleasePackageUploadPreflight");
     expect(source).toContain("tool:release-package:upload-retry");
-    expect(source.indexOf("await uploadPreflight.check")).toBeLessThan(
-      source.indexOf("runtime.beginStart"),
+    const confirmStart = source.slice(
+      source.indexOf("async function confirmStart"),
+      source.indexOf("async function cancelRun"),
+    );
+    expect(confirmStart.indexOf("runUploadPreflight")).toBeLessThan(
+      confirmStart.indexOf("runtime.beginStart"),
     );
     expect(source).toContain('type="password"');
     expect(source).toContain('credentialSecret.value = ""');
@@ -402,6 +584,85 @@ describe("ReleasePackagePanel", () => {
     expect(source).toContain("重试上传");
   });
 
+  it("configures independent build checks and post-upload commands", () => {
+    for (const model of [
+      "draft.frontendSuccessKeyword",
+      "draft.backendSuccessKeyword",
+      "draft.frontendPostUploadCommand",
+      "draft.backendPostUploadCommand",
+    ]) {
+      expect(source).toContain(`v-model="${model}"`);
+    }
+    expect(source).toContain("同时匹配 stdout 和 stderr，区分大小写；留空不检测。");
+    expect(source).toContain("全部选中目标上传成功后执行；不自动注入 sudo、工作目录或路径变量。");
+    expect(source).toContain("upload_succeeded_command_failed");
+    expect(source).toContain("仅重试失败命令");
+    expect(source).toContain("重试上传后命令");
+    expect(source).toContain("服务器文件已上传");
+    expect(source).toContain("useReleasePackageCommandRetry");
+    expect(source).toContain("await commandRetry.prepare(");
+    expect(source).toContain("await commandRetry.trustHost(");
+    expect(source).toContain("await commandRetry.preflight()");
+    expect(source).toContain("runtime.beginStart(projectId, commandTargets)");
+    expect(source).toContain("await commandRetry.start()");
+    expect(source).toContain("runtime.bindStartedRun(result.runId, projectId)");
+    expect(source).toContain('v-model="commandRetry.privateKeyPassphrase.value"');
+    expect(source).toContain('@closed="resetCommandRetryDialog"');
+  });
+
+  it("mounts with mutually exclusive upload and command retry actions", async () => {
+    panelHarness.listeners.clear();
+    panelHarness.invoke.mockImplementation(async (channel: string) => {
+      if (channel === "tool:release-package:project-list") return { projects: [mountedProject] };
+      if (channel === "tool:vault:meta-list") return [];
+      return {};
+    });
+    const [{ default: ReleasePackagePanel }, { useReleasePackageRuntime }] = await Promise.all([
+      import("./ReleasePackagePanel.vue"),
+      import("../composables/useReleasePackageRuntime"),
+    ]);
+    const runtime = useReleasePackageRuntime();
+    runtime.reset();
+    runtime.beginStart(mountedProject.id, ["frontend", "backend"]);
+    const renderer = createPanelRenderer();
+    const root = hostNode("root");
+    const app = renderer.createApp(ReleasePackagePanel);
+    registerElementStubs(app);
+    app.mount(root);
+    await flushMountedPanel();
+
+    const statusListener = panelHarness.listeners.get(APP_EVENTS.RELEASE_PACKAGE_STATUS);
+    expect(statusListener).toBeTypeOf("function");
+    statusListener?.({
+      payload: {
+        runId: "upload-run",
+        projectId: mountedProject.id,
+        status: "package_succeeded_upload_failed",
+        phase: "overall",
+        retryToken: "upload-retry",
+      },
+    });
+    await nextTick();
+    expect(buttonTexts(root)).toContain("重试上传");
+    expect(buttonTexts(root)).not.toContain("仅重试失败命令");
+
+    runtime.beginStart(mountedProject.id, ["frontend", "backend"]);
+    statusListener?.({
+      payload: {
+        runId: "command-run",
+        projectId: mountedProject.id,
+        status: "upload_succeeded_command_failed",
+        phase: "overall",
+        error: "服务器文件已上传，但上传后命令未全部成功",
+        commandRetryToken: "command-retry",
+      },
+    });
+    await nextTick();
+    expect(buttonTexts(root)).not.toContain("重试上传");
+    expect(buttonTexts(root)).toContain("仅重试失败命令");
+    app.unmount();
+    runtime.reset();
+  });
   it("renders mutually exclusive package types and type-specific fields", () => {
     expect(source).toContain('v-model="draft.packageType"');
     expect(source).toContain('value="local_archive"');

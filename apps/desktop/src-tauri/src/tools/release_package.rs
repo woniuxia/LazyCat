@@ -1022,6 +1022,7 @@ fn command_retry_prepare_with_conn(conn: &Connection, payload: &Value) -> Result
     let mut result = probe_result_with_conn(conn, snapshot)?;
     result["targets"] = json!(prepared.targets);
     result["authType"] = json!(prepared.binding.auth_type);
+    result["username"] = json!(prepared.binding.endpoint.username);
     Ok(result)
 }
 

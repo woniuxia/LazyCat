@@ -143,6 +143,14 @@
                 />
                 <p class="command-hint">多行命令将在同一 PowerShell 会话中顺序执行，前面设置的环境变量可在后续命令中复用。</p>
               </el-form-item>
+              <el-form-item label="成功日志关键字（可选）">
+                <el-input
+                  v-model="draft.frontendSuccessKeyword"
+                  :disabled="running"
+                  placeholder="例如：Build completed"
+                />
+                <p class="command-hint">同时匹配 stdout 和 stderr，区分大小写；留空不检测。</p>
+              </el-form-item>
               <div class="artifact-grid">
                 <el-form-item label="产物路径" required>
                   <el-input v-model="draft.frontendArtifactPath" :disabled="running" placeholder="相对工程目录或绝对目录路径">
@@ -217,6 +225,14 @@
                 <p class="command-hint">
                   多行命令将在同一 PowerShell 会话中顺序执行，环境变量可复用；关键外部工具失败后请检查 $LASTEXITCODE。
                 </p>
+              </el-form-item>
+              <el-form-item label="成功日志关键字（可选）">
+                <el-input
+                  v-model="draft.backendSuccessKeyword"
+                  :disabled="running"
+                  placeholder="例如：BUILD SUCCESS"
+                />
+                <p class="command-hint">同时匹配 stdout 和 stderr，区分大小写；留空不检测。</p>
               </el-form-item>
               <el-form-item label="产物路径" required>
                 <el-input v-model="draft.backendArtifactPath" :disabled="running" placeholder="相对工程目录或绝对文件路径">
@@ -350,6 +366,27 @@
                       <el-input v-model="draft.backendRemotePath" :disabled="running" placeholder="例如：/srv/portal/app.jar" />
                     </el-form-item>
                   </div>
+                  <div class="server-command-grid">
+                    <el-form-item label="前端上传后命令（可选）">
+                      <el-input
+                        v-model="draft.frontendPostUploadCommand"
+                        type="textarea"
+                        :autosize="{ minRows: 3, maxRows: 8 }"
+                        :disabled="running"
+                        placeholder="例如：systemctl reload nginx"
+                      />
+                    </el-form-item>
+                    <el-form-item label="后端上传后命令（可选）">
+                      <el-input
+                        v-model="draft.backendPostUploadCommand"
+                        type="textarea"
+                        :autosize="{ minRows: 3, maxRows: 8 }"
+                        :disabled="running"
+                        placeholder="例如：systemctl restart portal"
+                      />
+                    </el-form-item>
+                  </div>
+                  <p class="server-command-note">全部选中目标上传成功后执行；不自动注入 sudo、工作目录或路径变量。</p>
                 </section>
               </div>
             </el-collapse-item>
@@ -443,21 +480,52 @@
             </section>
             <section v-if="draft.packageType === 'server_upload'" class="release-package-log-lane upload-log-lane">
               <header class="log-lane-header upload-lane-header">
-                <div>
+                <div class="upload-lane-title">
                   <strong>上传日志</strong>
                   <span v-if="uploadProgress.currentPath" class="upload-current-path">{{ uploadProgress.currentPath }}</span>
                 </div>
-                <el-button
-                  v-if="status === 'package_succeeded_upload_failed' && retryToken"
-                  :icon="Refresh"
-                  size="small"
-                  type="primary"
-                  plain
-                  :disabled="running"
-                  @click="prepareUploadRetry"
-                >
-                  重试上传
-                </el-button>
+                <div class="upload-lane-actions">
+                  <div class="command-status-tags" aria-label="上传后命令状态">
+                    <el-tag
+                      size="small"
+                      effect="plain"
+                      :type="commandStatusTagTypes[frontendCommandStatus]"
+                      :title="frontendCommandError || undefined"
+                    >
+                      前端命令 · {{ commandStatusLabels[frontendCommandStatus] }}
+                    </el-tag>
+                    <el-tag
+                      size="small"
+                      effect="plain"
+                      :type="commandStatusTagTypes[backendCommandStatus]"
+                      :title="backendCommandError || undefined"
+                    >
+                      后端命令 · {{ commandStatusLabels[backendCommandStatus] }}
+                    </el-tag>
+                  </div>
+                  <el-button
+                    v-if="status === 'package_succeeded_upload_failed' && retryToken"
+                    :icon="Refresh"
+                    size="small"
+                    type="primary"
+                    plain
+                    :disabled="running"
+                    @click="prepareUploadRetry"
+                  >
+                    重试上传
+                  </el-button>
+                  <el-button
+                    v-else-if="status === 'upload_succeeded_command_failed' && commandRetryToken"
+                    :icon="Refresh"
+                    size="small"
+                    type="warning"
+                    plain
+                    :disabled="running"
+                    @click="prepareCommandRetry"
+                  >
+                    仅重试失败命令
+                  </el-button>
+                </div>
               </header>
               <div
                 v-if="overallError"
@@ -547,6 +615,75 @@
         </el-button>
       </template>
     </el-dialog>
+
+    <el-dialog
+      v-model="commandRetryVisible"
+      title="重试上传后命令"
+      width="min(560px, calc(100vw - 32px))"
+      :close-on-click-modal="false"
+      :close-on-press-escape="!commandRetryStarting"
+      :show-close="!commandRetryStarting"
+      :before-close="beforeCloseCommandRetryDialog"
+      @closed="resetCommandRetryDialog"
+    >
+      <p class="command-retry-notice" role="status">
+        服务器文件已上传。本次只重新认证并执行明确失败的上传后命令，不会重新构建或上传文件。
+      </p>
+      <div v-if="commandRetry.prepareResult.value" class="command-retry-summary">
+        <div>
+          <span>服务器</span>
+          <code>{{ commandRetry.prepareResult.value.host }}:{{ commandRetry.prepareResult.value.port }}</code>
+        </div>
+        <div>
+          <span>账号</span>
+          <code>{{ commandRetry.prepareResult.value.username }}</code>
+        </div>
+        <div>
+          <span>失败目标</span>
+          <strong>{{ commandRetryTargetLabel }}</strong>
+        </div>
+      </div>
+      <el-form label-position="top">
+        <el-form-item
+          v-if="commandRetry.prepareResult.value?.authType === 'private_key'"
+          label="私钥口令（可选）"
+        >
+          <el-input
+            v-model="commandRetry.privateKeyPassphrase.value"
+            type="password"
+            show-password
+            autocomplete="new-password"
+            :disabled="commandRetryStarting"
+            placeholder="请重新输入；私钥未加密时可留空"
+          />
+        </el-form-item>
+        <div
+          v-if="commandRetry.prepareResult.value?.authType === 'password'"
+          class="vault-start-summary"
+        >
+          <span>密码库认证</span>
+          <strong>{{ commandRetry.prepareResult.value.username }}@{{ commandRetry.prepareResult.value.host }}</strong>
+          <p>密码由失败任务绑定的 Vault 服务器凭据提供，前端不会读取或保存密码。</p>
+        </div>
+      </el-form>
+      <div v-if="commandRetry.prepareResult.value" class="preflight-summary">
+        <div class="preflight-host">
+          <span>主机指纹</span>
+          <code>{{ commandRetry.prepareResult.value.fingerprintSha256 }}</code>
+        </div>
+      </div>
+      <template #footer>
+        <el-button :disabled="commandRetryStarting" @click="closeCommandRetryDialog">取消</el-button>
+        <el-button
+          type="primary"
+          :loading="commandRetryStarting"
+          :disabled="commandRetryStarting"
+          @click="confirmCommandRetry"
+        >
+          仅重试失败命令
+        </el-button>
+      </template>
+    </el-dialog>
   </section>
 </template>
 
@@ -559,9 +696,11 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { invokeToolByChannel } from "../bridge/tauri";
 import { useActionDispatchIntent } from "../composables/useActionDispatchIntent";
 import { useReleasePackageRuntime } from "../composables/useReleasePackageRuntime";
+import { useReleasePackageCommandRetry } from "../composables/useReleasePackageCommandRetry";
 import { useReleasePackageUploadPreflight } from "../composables/useReleasePackageUploadPreflight";
 import type { ActionDispatchRequest } from "../types";
 import type {
+  ReleasePackageCommandStatus,
   ReleasePackagePrepareResult,
   ReleasePackageProject,
   ReleasePackageProjectDraft,
@@ -628,6 +767,8 @@ const selectedTargets = ref<ReleasePackageTarget[]>(createDefaultReleasePackageT
 const credentialSecret = ref("");
 const overwriteRemoteTargets = ref<ReleasePackageTarget[]>([]);
 const retryMode = ref(false);
+const commandRetryVisible = ref(false);
+const commandRetryStarting = ref(false);
 const serverConfigSections = ref<string[]>([]);
 const vaultServerOptions = ref<VaultServerOption[]>([]);
 const vaultOptionsLoading = ref(false);
@@ -639,6 +780,7 @@ const backendLogContainer = ref<HTMLElement | null>(null);
 const uploadLogContainer = ref<HTMLElement | null>(null);
 const runtime = useReleasePackageRuntime();
 const uploadPreflight = useReleasePackageUploadPreflight();
+const commandRetry = useReleasePackageCommandRetry();
 const { watchPendingIntent } = useActionDispatchIntent();
 const statusTagTypes: Record<ReleasePackageRunStatus, "primary" | "success" | "info" | "warning" | "danger"> = {
   idle: "info",
@@ -648,6 +790,7 @@ const statusTagTypes: Record<ReleasePackageRunStatus, "primary" | "success" | "i
   succeeded: "success",
   partially_succeeded: "warning",
   package_succeeded_upload_failed: "danger",
+  upload_succeeded_command_failed: "danger",
   failed: "danger",
   cancelled: "warning",
 };
@@ -669,6 +812,22 @@ const targetStatusLabels: Record<ReleasePackageTargetStatus, string> = {
   cancelled: "已终止",
   skipped: "未选择",
 };
+const commandStatusTagTypes: Record<ReleasePackageCommandStatus, "primary" | "success" | "info" | "warning" | "danger"> = {
+  pending: "info",
+  running: "primary",
+  succeeded: "success",
+  failed: "danger",
+  cancelled: "warning",
+  skipped: "info",
+};
+const commandStatusLabels: Record<ReleasePackageCommandStatus, string> = {
+  pending: "等待中",
+  running: "执行中",
+  succeeded: "成功",
+  failed: "失败",
+  cancelled: "已终止",
+  skipped: "未配置",
+};
 
 const selectedProject = computed(() => projects.value.find((item) => item.id === selectedId.value) ?? null);
 const dirty = computed(() => isReleasePackageDraftDirty(selectedProject.value, draft));
@@ -684,9 +843,22 @@ const uploadProgress = computed(() => currentProjectRuntime.value?.uploadProgres
   currentPath: "",
 });
 const retryToken = computed(() => currentProjectRuntime.value?.retryToken ?? "");
+const commandRetryToken = computed(() => currentProjectRuntime.value?.commandRetryToken ?? "");
 const overallError = computed(() => currentProjectRuntime.value?.error ?? "");
 const frontendError = computed(() => currentProjectRuntime.value?.targetErrors.frontend ?? "");
 const backendError = computed(() => currentProjectRuntime.value?.targetErrors.backend ?? "");
+const frontendCommandStatus = computed<ReleasePackageCommandStatus>(
+  () => currentProjectRuntime.value?.commandStatus.frontend ?? "skipped",
+);
+const backendCommandStatus = computed<ReleasePackageCommandStatus>(
+  () => currentProjectRuntime.value?.commandStatus.backend ?? "skipped",
+);
+const frontendCommandError = computed(() => currentProjectRuntime.value?.commandErrors.frontend ?? "");
+const backendCommandError = computed(() => currentProjectRuntime.value?.commandErrors.backend ?? "");
+const commandRetryTargetLabel = computed(() => {
+  const targets = commandRetry.prepareResult.value?.targets ?? [];
+  return targets.map((target) => target === "frontend" ? "前端" : "后端").join("、") || "-";
+});
 const frontendStatus = computed<ReleasePackageTargetStatus>(() => currentProjectRuntime.value?.targetStatus.frontend ?? "idle");
 const backendStatus = computed<ReleasePackageTargetStatus>(() => currentProjectRuntime.value?.targetStatus.backend ?? "idle");
 const running = runtime.isRunning;
@@ -1109,6 +1281,72 @@ async function prepareUploadRetry(): Promise<void> {
   confirmVisible.value = true;
 }
 
+async function resetCommandRetryDialog(): Promise<void> {
+  commandRetryStarting.value = false;
+  try {
+    await commandRetry.reset();
+  } catch (error) {
+    showError(error);
+  }
+}
+
+async function closeCommandRetryDialog(): Promise<void> {
+  commandRetryVisible.value = false;
+  await resetCommandRetryDialog();
+}
+
+async function beforeCloseCommandRetryDialog(done: () => void): Promise<void> {
+  if (commandRetryStarting.value) return;
+  try {
+    await commandRetry.reset();
+    done();
+  } catch (error) {
+    showError(error);
+  }
+}
+
+async function prepareCommandRetry(): Promise<void> {
+  const projectId = selectedProject.value?.id;
+  if (!projectId || !commandRetryToken.value || running.value) return;
+  try {
+    await commandRetry.prepare(projectId, commandRetryToken.value);
+    commandRetryVisible.value = true;
+  } catch (error) {
+    await handleUploadIntegrationError(error);
+  }
+}
+
+async function confirmCommandRetry(): Promise<void> {
+  const projectId = selectedProject.value?.id;
+  const prepared = commandRetry.prepareResult.value;
+  if (!projectId || !prepared) {
+    ElMessage.warning("命令重试信息已失效，请关闭窗口后重新发起");
+    return;
+  }
+  const commandTargets = [...prepared.targets];
+  commandRetryStarting.value = true;
+  let runtimeStartBegun = false;
+  try {
+    if (!(await ensureCommandRetryHostTrusted())) {
+      commandRetry.privateKeyPassphrase.value = "";
+      return;
+    }
+    await commandRetry.preflight();
+    await runtime.ensureListeners();
+    runtime.beginStart(projectId, commandTargets);
+    runtimeStartBegun = true;
+    const result = await commandRetry.start();
+    runtime.bindStartedRun(result.runId, projectId);
+    commandRetryVisible.value = false;
+  } catch (error) {
+    if (runtimeStartBegun) {
+      runtime.abortStart(error instanceof Error ? error.message : String(error));
+    }
+    await handleUploadIntegrationError(error);
+  } finally {
+    commandRetryStarting.value = false;
+  }
+}
 async function confirmArchiveOverwrite(projectId: number): Promise<boolean | null> {
   const target = (await invokeToolByChannel("tool:release-package:target-check", {
     projectId,
@@ -1149,9 +1387,8 @@ function hostTrustMessage(probe: ReleasePackageRemoteProbeResult) {
   ));
 }
 
-async function ensureHostTrusted(projectId: number): Promise<boolean> {
-  const probe = await uploadPreflight.probe(projectId);
-  if (!probe || probe.trust === "trusted") return Boolean(probe);
+async function confirmHostTrust(probe: ReleasePackageRemoteProbeResult): Promise<boolean> {
+  if (probe.trust === "trusted") return true;
   try {
     await ElMessageBox.confirm(
       hostTrustMessage(probe),
@@ -1162,11 +1399,28 @@ async function ensureHostTrusted(projectId: number): Promise<boolean> {
         cancelButtonText: "取消",
       },
     );
+    return true;
   } catch (error) {
     if (error === "cancel" || error === "close") return false;
     throw error;
   }
-  await uploadPreflight.trustHost(projectId, probe.trust === "changed");
+}
+
+async function ensureHostTrusted(projectId: number): Promise<boolean> {
+  const probe = await uploadPreflight.probe(projectId);
+  if (!probe || !(await confirmHostTrust(probe))) return false;
+  if (probe.trust !== "trusted") {
+    await uploadPreflight.trustHost(projectId, probe.trust === "changed");
+  }
+  return true;
+}
+
+async function ensureCommandRetryHostTrusted(): Promise<boolean> {
+  const probe = commandRetry.prepareResult.value;
+  if (!probe || !(await confirmHostTrust(probe))) return false;
+  if (probe.trust !== "trusted") {
+    await commandRetry.trustHost(probe.trust === "changed");
+  }
   return true;
 }
 
@@ -1566,6 +1820,17 @@ onMounted(async () => {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0 12px;
 }
+.server-command-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 12px;
+}
+.server-command-grid :deep(.el-textarea__inner) {
+  resize: vertical;
+  font-family: var(--lc-font-mono, Consolas, monospace);
+  line-height: 1.55;
+}
+.server-command-note { margin: -4px 0 12px; color: #606266; font-size: 12px; line-height: 1.5; }
 .vault-credential-field :deep(.el-form-item__content) { display: grid; gap: 8px; }
 .vault-credential-picker { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; }
 .vault-credential-picker :deep(.el-select) { min-width: 180px; }
@@ -1660,7 +1925,10 @@ onMounted(async () => {
   background: #fafbfc;
 }
 .log-lane-actions { display: inline-flex; align-items: center; gap: 4px; }
-.upload-lane-header > div { display: grid; min-width: 0; gap: 2px; }
+.upload-lane-header { align-items: flex-start; flex-wrap: wrap; }
+.upload-lane-title { display: grid; min-width: 0; gap: 2px; }
+.upload-lane-actions { display: flex; flex: 1 1 220px; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; }
+.command-status-tags { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
 .upload-current-path {
   overflow: hidden;
   max-width: 100%;
@@ -1704,6 +1972,29 @@ onMounted(async () => {
 }
 .vault-start-summary span { color: #606266; font-size: 12px; }
 .vault-start-summary p { margin: 0; color: #606266; font-size: 12px; line-height: 1.5; }
+.command-retry-notice {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border: 1px solid #fed7aa;
+  border-radius: 7px;
+  color: #8a4b08;
+  background: #fff7ed;
+  font-size: 13px;
+  line-height: 1.55;
+}
+.command-retry-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 14px; }
+.command-retry-summary > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+  padding: 8px 10px;
+  border: 1px solid #e4e7ed;
+  border-radius: 6px;
+  background: #fafbfc;
+}
+.command-retry-summary span { color: #909399; font-size: 11px; }
+.command-retry-summary code { overflow-wrap: anywhere; color: #303133; font: 12px/1.4 var(--lc-font-mono, Consolas, monospace); }
+.command-retry-summary strong { color: #303133; font-size: 12px; }
 .package-targets { display: grid; gap: 8px; margin-top: 16px; }
 .package-targets-label { color: #303133; font-size: 14px; font-weight: 600; }
 .package-targets :deep(.el-checkbox-group) { display: flex; flex-wrap: wrap; gap: 10px; }
@@ -1808,6 +2099,8 @@ onMounted(async () => {
   .server-config-heading { align-items: flex-start; }
   .private-key-config-grid { grid-template-columns: 1fr; }
   .server-target-grid { grid-template-columns: 1fr; }
+  .server-command-grid { grid-template-columns: 1fr; }
+  .command-retry-summary { grid-template-columns: 1fr; }
   .private-key-file-field { grid-column: auto; }
   .vault-credential-field { grid-column: auto; }
   .vault-credential-picker { flex-wrap: wrap; }
@@ -1816,6 +2109,7 @@ onMounted(async () => {
   .release-package-editor { padding: 10px; }
   .engineering-card { padding: 14px 12px 0; }
   .log-card-header { align-items: flex-start; }
+  .upload-lane-actions, .command-status-tags { justify-content: flex-start; }
   .release-package-log-columns { grid-template-columns: 1fr; }
   .upload-log-lane { grid-column: auto; }
   .release-package-log-lane + .release-package-log-lane { border-top: 1px solid #ebeef5; border-left: 0; }

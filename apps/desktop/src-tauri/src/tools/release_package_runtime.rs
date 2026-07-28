@@ -306,6 +306,10 @@ struct StatusEvent {
     retry_token: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     command_retry_token: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    command_target: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    command_status: Option<String>,
 }
 
 trait EventSink: Send + Sync {
@@ -359,6 +363,8 @@ fn emit_status(
         current_path: None,
         retry_token: None,
         command_retry_token: None,
+        command_target: None,
+        command_status: None,
     });
 }
 
@@ -382,9 +388,39 @@ fn emit_upload_status(
         current_path,
         retry_token: None,
         command_retry_token: None,
+        command_target: None,
+        command_status: None,
     });
 }
 
+fn emit_command_status(
+    sink: &dyn EventSink,
+    run_id: &str,
+    project_id: i64,
+    target: ReleaseTarget,
+    command_status: &str,
+    error: Option<String>,
+) {
+    let command_target = match target {
+        ReleaseTarget::Frontend => "frontend",
+        ReleaseTarget::Backend => "backend",
+    };
+    sink.status(StatusEvent {
+        run_id: run_id.into(),
+        project_id,
+        status: "running".into(),
+        phase: "upload".into(),
+        archive_path: None,
+        error,
+        uploaded_bytes: None,
+        total_bytes: None,
+        current_path: None,
+        retry_token: None,
+        command_retry_token: None,
+        command_target: Some(command_target.into()),
+        command_status: Some(command_status.into()),
+    });
+}
 #[derive(Default)]
 struct UploadProgressState {
     uploaded_bytes: u64,
@@ -538,6 +574,8 @@ fn emit_terminal_result(
         current_path: None,
         retry_token,
         command_retry_token,
+        command_target: None,
+        command_status: None,
     });
     if let Some(notification) = build_release_package_notification(
         run_id,
@@ -1136,6 +1174,25 @@ fn configured_post_upload_commands(
         .collect()
 }
 
+fn emit_cancelled_command_statuses(
+    sink: &dyn EventSink,
+    run_id: &str,
+    project_id: i64,
+    commands: &[CommandSnapshot],
+    message: &str,
+) {
+    for snapshot in commands {
+        emit_command_status(
+            sink,
+            run_id,
+            project_id,
+            snapshot.target,
+            "cancelled",
+            Some(message.into()),
+        );
+    }
+}
+
 fn run_post_upload_commands(
     run_id: &str,
     project_id: i64,
@@ -1155,16 +1212,32 @@ fn run_post_upload_commands(
     });
     let mut failed = Vec::new();
 
-    for snapshot in commands {
+    for (index, snapshot) in commands.iter().enumerate() {
         if cancelled.load(Ordering::Acquire) {
+            let message = "服务器文件已上传，上传后命令未全部完成，已按用户请求取消";
+            emit_cancelled_command_statuses(
+                sink.as_ref(),
+                run_id,
+                project_id,
+                &commands[index..],
+                message,
+            );
             summary.status = "cancelled";
-            summary.error = Some("服务器文件已上传，上传后命令未全部完成，已按用户请求取消".into());
+            summary.error = Some(message.into());
             summary.failed_commands.clear();
             summary.retry_descriptor = None;
             return summary;
         }
 
         let label = target_label(snapshot.target);
+        emit_command_status(
+            sink.as_ref(),
+            run_id,
+            project_id,
+            snapshot.target,
+            "running",
+            None,
+        );
         emit_system_log(
             sink.as_ref(),
             run_id,
@@ -1190,43 +1263,76 @@ fn run_post_upload_commands(
         );
 
         if cancelled.load(Ordering::Acquire) || matches!(&result, Err(error) if error.cancelled) {
+            let message = "服务器文件已上传，上传后命令未全部完成，已按用户请求取消";
+            emit_cancelled_command_statuses(
+                sink.as_ref(),
+                run_id,
+                project_id,
+                &commands[index..],
+                message,
+            );
             summary.status = "cancelled";
-            summary.error = Some("服务器文件已上传，上传后命令未全部完成，已按用户请求取消".into());
+            summary.error = Some(message.into());
             summary.failed_commands.clear();
             summary.retry_descriptor = None;
             return summary;
         }
 
         match result {
-            Ok(result) if result.exit_code == 0 => emit_system_log(
-                sink.as_ref(),
-                run_id,
-                project_id,
-                "upload",
-                &format!("[{label}命令] 上传后命令执行成功"),
-            ),
-            Ok(result) => {
+            Ok(result) if result.exit_code == 0 => {
                 emit_system_log(
                     sink.as_ref(),
                     run_id,
                     project_id,
                     "upload",
-                    &format!(
-                        "[{label}命令] 上传后命令执行失败，退出码：{}",
-                        result.exit_code
-                    ),
+                    &format!("[{label}命令] 上传后命令执行成功"),
                 );
-                failed.push(snapshot);
+                emit_command_status(
+                    sink.as_ref(),
+                    run_id,
+                    project_id,
+                    snapshot.target,
+                    "succeeded",
+                    None,
+                );
+            }
+            Ok(result) => {
+                let error = format!("上传后命令执行失败，退出码：{}", result.exit_code);
+                emit_system_log(
+                    sink.as_ref(),
+                    run_id,
+                    project_id,
+                    "upload",
+                    &format!("[{label}命令] {error}"),
+                );
+                emit_command_status(
+                    sink.as_ref(),
+                    run_id,
+                    project_id,
+                    snapshot.target,
+                    "failed",
+                    Some(error),
+                );
+                failed.push(snapshot.clone());
             }
             Err(error) => {
+                let message = format!("上传后命令执行失败：{}", error.message);
                 emit_system_log(
                     sink.as_ref(),
                     run_id,
                     project_id,
                     "upload",
-                    &format!("[{label}命令] 上传后命令执行失败：{}", error.message),
+                    &format!("[{label}命令] {message}"),
                 );
-                failed.push(snapshot);
+                emit_command_status(
+                    sink.as_ref(),
+                    run_id,
+                    project_id,
+                    snapshot.target,
+                    "failed",
+                    Some(message),
+                );
+                failed.push(snapshot.clone());
             }
         }
     }
@@ -3261,6 +3367,33 @@ mod pipeline_tests {
         let logs = sink.logs.lock().unwrap();
         assert!(logs.iter().any(|event| event.line.contains("[前端命令]")));
         assert!(logs.iter().any(|event| event.line.contains("[后端命令]")));
+        let statuses = sink.statuses.lock().unwrap();
+        let command_states = statuses
+            .iter()
+            .filter_map(|event| {
+                Some((
+                    event.command_target.as_deref()?.to_string(),
+                    event.command_status.as_deref()?.to_string(),
+                ))
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            command_states,
+            vec![
+                ("frontend".into(), "running".into()),
+                ("frontend".into(), "failed".into()),
+                ("backend".into(), "running".into()),
+                ("backend".into(), "succeeded".into()),
+            ]
+        );
+        assert!(statuses.iter().any(|event| {
+            event.command_target.as_deref() == Some("frontend")
+                && event.command_status.as_deref() == Some("failed")
+                && event
+                    .error
+                    .as_deref()
+                    .is_some_and(|error| error.contains("退出码：7"))
+        }));
     }
 
     #[test]
@@ -3369,6 +3502,7 @@ mod pipeline_tests {
         let cancelled = Arc::new(AtomicBool::new(false));
         let (remote, calls) =
             CommandRemote::cancelling_after([Ok(0), Ok(0)], 1, Arc::clone(&cancelled));
+        let sink = Arc::new(CollectingSink::default());
 
         let summary = run_post_upload_commands(
             "post-upload-run",
@@ -3380,7 +3514,7 @@ mod pipeline_tests {
             ],
             Box::new(remote),
             cancelled,
-            Arc::new(CollectingSink::default()),
+            sink.clone(),
         );
 
         assert_eq!(*calls.lock().unwrap(), vec!["reload-web".to_string()]);
@@ -3388,6 +3522,13 @@ mod pipeline_tests {
         assert!(summary.remote_committed);
         assert!(summary.failed_commands.is_empty());
         assert!(summary.error.unwrap().contains("服务器文件已上传"));
+        let statuses = sink.statuses.lock().unwrap();
+        let cancelled_targets = statuses
+            .iter()
+            .filter(|event| event.command_status.as_deref() == Some("cancelled"))
+            .filter_map(|event| event.command_target.as_deref())
+            .collect::<Vec<_>>();
+        assert_eq!(cancelled_targets, vec!["frontend", "backend"]);
     }
     #[test]
     fn upload_failure_keeps_source_manifests_without_archive_path() {

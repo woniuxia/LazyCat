@@ -15,6 +15,7 @@ const prepareResult = {
   trust: "unknown" as const,
   targets: ["frontend"] as const,
   authType: "private_key" as const,
+  username: "deploy",
 };
 
 const trustedResult = {

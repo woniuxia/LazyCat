@@ -45,6 +45,7 @@
     "@types/markdown-it": "^14.1.2",
     "@types/sortablejs": "^1.15.9",
     "@vitejs/plugin-vue": "^5.2.1",
+    "happy-dom": "15.11.7",
     "monaco-editor": "^0.52.2",
     "typescript": "^5.7.3",
     "unplugin-auto-import": "^21.0.0",
