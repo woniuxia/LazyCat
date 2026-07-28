@@ -5,6 +5,7 @@ import { createRenderer, defineComponent, h, nextTick } from "vue";
 import { describe, expect, it, vi } from "vitest";
 import { APP_EVENTS } from "../bridge/events";
 import type { ReleasePackageProject, ReleasePackageStatusEvent } from "../types/release-package";
+import { createEmptyReleasePackageEnvironmentDraft } from "../utils/releasePackage";
 
 const panelHarness = vi.hoisted(() => ({
   listeners: new Map<string, (event: { payload: ReleasePackageStatusEvent }) => void>(),
@@ -143,41 +144,166 @@ function buttonTexts(root: HostNode): string[] {
   return result;
 }
 
+function findButton(root: HostNode, text: string): HostNode | null {
+  let result: HostNode | null = null;
+  const visit = (node: HostNode) => {
+    if (!result && node.type === "button" && nodeText(node).trim() === text) result = node;
+    node.children.forEach(visit);
+  };
+  visit(root);
+  return result;
+}
+
+function modelValues(root: HostNode): unknown[] {
+  const result: unknown[] = [];
+  const visit = (node: HostNode) => {
+    if ("modelValue" in node.props) result.push(node.props.modelValue);
+    node.children.forEach(visit);
+  };
+  visit(root);
+  return result;
+}
+
 async function flushMountedPanel(): Promise<void> {
-  await Promise.resolve();
-  await Promise.resolve();
-  await nextTick();
+  for (let index = 0; index < 6; index += 1) {
+    await Promise.resolve();
+    await nextTick();
+  }
 }
 
 const mountedProject: ReleasePackageProject = {
   id: 7,
   name: "Portal",
-  packageType: "server_upload",
-  outputRoot: "",
   frontendProjectPath: "C:\\portal\\web",
-  frontendBuildCommand: "pnpm build",
-  frontendSuccessKeyword: "Build completed",
-  frontendPostUploadCommand: "systemctl reload nginx",
-  frontendArtifactPath: "dist",
-  frontendArtifactMode: "copy_directory",
   backendProjectPath: "C:\\portal\\api",
-  backendBuildCommand: "mvn package",
-  backendSuccessKeyword: "BUILD SUCCESS",
-  backendPostUploadCommand: "systemctl restart portal",
-  backendArtifactPath: "target/portal.jar",
-  sshHost: "deploy.internal",
-  sshPort: 22,
-  sshUsername: "deploy",
-  sshAuthType: "private_key",
-  vaultEntryId: null,
-  sshPrivateKeyPath: "C:\\keys\\deploy",
-  frontendRemoteDir: "/srv/portal/web",
-  backendRemotePath: "/srv/portal/portal.jar",
+  environments: [
+    {
+      ...createEmptyReleasePackageEnvironmentDraft(),
+      id: 41,
+      projectId: 7,
+      environment: "test",
+      configured: true,
+      packageType: "local_archive",
+      outputRoot: "D:\\releases-test",
+      frontendBuildCommand: "pnpm build:test",
+      frontendArtifactPath: "dist",
+      backendBuildCommand: "mvn package -Ptest",
+      backendArtifactPath: "target/portal.jar",
+      createdAt: "2026-07-28T00:00:00Z",
+      updatedAt: "2026-07-28T00:00:00Z",
+    },
+    {
+      ...createEmptyReleasePackageEnvironmentDraft(),
+      id: 42,
+      projectId: 7,
+      environment: "production",
+      configured: true,
+      packageType: "server_upload",
+      frontendBuildCommand: "pnpm build:prod",
+      frontendArtifactPath: "dist",
+      backendBuildCommand: "mvn package -Pprod",
+      backendArtifactPath: "target/portal.jar",
+      sshAuthType: "private_key",
+      sshHost: "deploy.internal",
+      sshPort: 22,
+      sshUsername: "deploy",
+      sshPrivateKeyPath: "C:\\keys\\deploy",
+      frontendRemoteDir: "/srv/portal/web",
+      backendRemotePath: "/srv/portal/portal.jar",
+      createdAt: "2026-07-28T00:00:00Z",
+      updatedAt: "2026-07-28T00:00:00Z",
+    },
+  ],
   createdAt: "2026-07-28T00:00:00Z",
   updatedAt: "2026-07-28T00:00:00Z",
 };
 
 describe("ReleasePackagePanel", () => {
+  it("renders fixed test and production environments and defaults to test", () => {
+    expect(source).toContain('value="test"');
+    expect(source).toContain('value="production"');
+    expect(source).toContain('const selectedEnvironmentKind = ref<ReleasePackageEnvironmentKind>("test")');
+    expect(source).toContain('environment.configured ? "已配置" : "待配置"');
+  });
+
+  it("guards dirty environment switches and saves shared plus selected environment", () => {
+    expect(source).toContain("async function selectEnvironment");
+    expect(source).toContain("await confirmDiscardChanges()");
+    expect(source).toContain("selectedEnvironmentKind.value = environment");
+    expect(source).toContain("async function saveProject");
+    expect(source).toContain("projectDraft");
+    expect(source).toContain("environmentDraft");
+    expect(source).toContain("environmentId");
+    expect(source).toContain("normalizeReleasePackageProjectDraft(projectDraft)");
+    expect(source).toContain("normalizeReleasePackageEnvironmentDraft(environmentDraft)");
+  });
+
+  it("mounts the test environment without leaking production commands", async () => {
+    panelHarness.listeners.clear();
+    panelHarness.invoke.mockImplementation(async (channel: string) => {
+      if (channel === "tool:release-package:project-list") return { projects: [mountedProject] };
+      if (channel === "tool:vault:meta-list") return [];
+      return {};
+    });
+    const { default: ReleasePackagePanel } = await import("./ReleasePackagePanel.vue");
+    const renderer = createPanelRenderer();
+    const root = hostNode("root");
+    const app = renderer.createApp(ReleasePackagePanel);
+    registerElementStubs(app);
+    app.mount(root);
+    await flushMountedPanel();
+
+    expect(nodeText(root)).toContain("测试环境");
+    expect(nodeText(root)).toContain("生产环境");
+    expect(modelValues(root)).toContain("pnpm build:test");
+    expect(modelValues(root)).not.toContain("pnpm build:prod");
+    app.unmount();
+  });
+
+  it("saves shared project fields with only the selected environment", async () => {
+    panelHarness.invoke.mockReset();
+    panelHarness.invoke.mockImplementation(async (channel: string) => {
+      if (channel === "tool:release-package:project-list") return { projects: [mountedProject] };
+      if (channel === "tool:release-package:project-update") return { id: 7, environmentId: 41 };
+      if (channel === "tool:vault:meta-list") return [];
+      return {};
+    });
+    const { default: ReleasePackagePanel } = await import("./ReleasePackagePanel.vue");
+    const renderer = createPanelRenderer();
+    const root = hostNode("root");
+    const app = renderer.createApp(ReleasePackagePanel);
+    registerElementStubs(app);
+    app.mount(root);
+    await flushMountedPanel();
+
+    const saveButton = findButton(root, "保存配置");
+    expect(saveButton).not.toBeNull();
+    await (saveButton?.props.onClick as (() => Promise<void>))();
+
+    const {
+      id: _id,
+      projectId: _projectId,
+      environment: _environment,
+      configured: _configured,
+      createdAt: _createdAt,
+      updatedAt: _updatedAt,
+      ...testEnvironmentConfig
+    } = mountedProject.environments[0];
+    expect(panelHarness.invoke).toHaveBeenCalledWith("tool:release-package:project-update", {
+      id: 7,
+      environmentId: 41,
+      environment: "test",
+      project: {
+        name: "Portal",
+        frontendProjectPath: "C:\\portal\\web",
+        backendProjectPath: "C:\\portal\\api",
+      },
+      environmentConfig: testEnvironmentConfig,
+    });
+    expect(JSON.stringify(panelHarness.invoke.mock.calls)).not.toContain("pnpm build:prod");
+    app.unmount();
+  });
+
   it("uses a master-detail workspace and explicit run confirmation", () => {
     expect(source).toContain('class="release-package-projects"');
     expect(source).toContain('class="release-package-editor"');
@@ -194,7 +320,7 @@ describe("ReleasePackagePanel", () => {
     expect(source).not.toContain('class="editor-hint"');
     expect(source).not.toContain('<el-form-item label="项目名称"');
     expect(source).toContain('ref="projectTitleInput"');
-    expect(source).toContain('v-model="draft.name"');
+    expect(source).toContain('v-model="projectDraft.name"');
     expect(source).toContain('@dblclick="startTitleEdit"');
     expect(source).toContain('@keydown.enter.prevent="startTitleEdit"');
     expect(source).toContain('@blur="finishTitleEdit"');
@@ -245,16 +371,16 @@ describe("ReleasePackagePanel", () => {
   });
 
   it("stores the archive root in each project and validates Windows folder names", () => {
-    expect(source).toContain('v-model="draft.outputRoot"');
+    expect(source).toContain('v-model="environmentDraft.outputRoot"');
     expect(source).toContain("readonly");
-    expect(source).toContain("draft.outputRoot = path");
+    expect(source).toContain("environmentDraft.outputRoot = path");
     expect(source).toContain("validateArchiveFolderName");
     expect(source).toContain("COM[1-9]");
     expect(source).toContain("cancelPendingStart");
   });
 
   it("restores the active runtime project and uses prepare paths after refresh", () => {
-    expect(source).toContain("runtime.activeProjectId");
+    expect(source).toContain("runtime.activeEnvironmentId");
     expect(source).toContain(
       'const preferActiveProject = (selectedId.value === null && !dirty.value) || runtime.status.value === "running"',
     );
@@ -268,7 +394,7 @@ describe("ReleasePackagePanel", () => {
     const deleteStart = source.indexOf("async function deleteProject");
     const removeProject = source.indexOf("projects.value = projects.value.filter", deleteStart);
     const clearSelection = source.indexOf("selectedId.value = null", deleteStart);
-    const clearDraft = source.indexOf("Object.assign(draft, createEmptyReleasePackageDraft())", deleteStart);
+    const clearDraft = source.indexOf("restoreSelectedDrafts()", deleteStart);
     const refresh = source.indexOf("const refreshed = await loadProjects()", deleteStart);
 
     expect(deleteStart).toBeGreaterThan(-1);
@@ -392,15 +518,15 @@ describe("ReleasePackagePanel", () => {
   });
 
   it("configures upload separately and preflights before runtime start", () => {
-    expect(source).toContain('v-model="draft.packageType"');
+    expect(source).toContain('v-model="environmentDraft.packageType"');
     for (const model of [
-      "draft.sshHost",
-      "draft.sshPort",
-      "draft.sshUsername",
-      "draft.sshAuthType",
-      "draft.sshPrivateKeyPath",
-      "draft.frontendRemoteDir",
-      "draft.backendRemotePath",
+      "environmentDraft.sshHost",
+      "environmentDraft.sshPort",
+      "environmentDraft.sshUsername",
+      "environmentDraft.sshAuthType",
+      "environmentDraft.sshPrivateKeyPath",
+      "environmentDraft.frontendRemoteDir",
+      "environmentDraft.backendRemotePath",
     ]) {
       expect(source).toContain(`v-model="${model}"`);
     }
@@ -415,7 +541,7 @@ describe("ReleasePackagePanel", () => {
     );
     expect(source).toContain('type="password"');
     expect(source).toContain('credentialSecret.value = ""');
-    expect(source).not.toContain("draft.password");
+    expect(source).not.toContain("environmentDraft.password");
   });
 
   it("awaits remote token revocation on dialog reset and terminal paths", () => {
@@ -437,9 +563,9 @@ describe("ReleasePackagePanel", () => {
 
   it("binds a Vault server credential for password auth without rendering a password field", () => {
     expect(source).toContain('label="密码库凭据"');
-    expect(source).toContain('v-model="draft.vaultEntryId"');
+    expect(source).toContain('v-model="environmentDraft.vaultEntryId"');
     expect(source).toContain('tool:vault:meta-list');
-    expect(source).toContain('v-if="draft.sshAuthType === \'password\'"');
+    expect(source).toContain('v-if="environmentDraft.sshAuthType === \'password\'"');
     expect(source).toContain("密码由密码库提供");
     expect(source).not.toContain("请输入服务器密码");
     expect(source).not.toContain("? { password: credentialSecret.value }");
@@ -449,7 +575,7 @@ describe("ReleasePackagePanel", () => {
     const mobileStyles = source.slice(source.indexOf("@media (max-width: 640px)"));
 
     expect(source).toContain(
-      '<el-form-item v-if="draft.sshAuthType === \'private_key\'" label="SSH 端口" required>',
+      '<el-form-item v-if="environmentDraft.sshAuthType === \'private_key\'" label="SSH 端口" required>',
     );
     expect(source).not.toContain('<el-form-item label="SSH 端口" required>');
     expect(source).toContain("port?: unknown");
@@ -470,7 +596,7 @@ describe("ReleasePackagePanel", () => {
   });
 
   it("keeps only the private-key passphrase input in the start dialog", () => {
-    expect(source).toContain("draft.sshAuthType === 'private_key'");
+    expect(source).toContain("environmentDraft.sshAuthType === 'private_key'");
     expect(source).toContain("privateKeyPassphrase: credentialSecret.value || undefined");
   });
 
@@ -505,7 +631,7 @@ describe("ReleasePackagePanel", () => {
     expect(applySource).toContain('intent.actionType !== "release_package.run"');
     expect(dirtyBranch).toContain('stopPendingActionDispatch("failed"');
     expect(dirtyBranch).not.toContain("selectedId.value =");
-    expect(dirtyBranch).not.toContain("Object.assign(draft");
+    expect(dirtyBranch).not.toContain("restoreSelectedDrafts");
     expect(applySource).toContain('stopPendingActionDispatch("failed", "已有发布打包任务正在运行")');
   });
 
@@ -519,7 +645,7 @@ describe("ReleasePackagePanel", () => {
     expect(applySource).toContain('stopPendingActionDispatch("failed", "上线包配置不存在")');
     expect(applySource).not.toContain("projects.value[0]");
     expect(applySource).toContain("selectedId.value = target.id");
-    expect(applySource).toContain("Object.assign(draft, projectToReleasePackageDraft(target))");
+    expect(applySource).toContain("restoreSelectedDrafts()");
     expect(applySource).toContain("const prepareError = await prepareStart()");
   });
 
@@ -575,9 +701,9 @@ describe("ReleasePackagePanel", () => {
   it("renders a separate upload lane and explicit remote replacement confirmation", () => {
     expect(source).toContain("上传日志");
     expect(source).toContain(
-      '<section v-if="draft.packageType === \'server_upload\'" class="release-package-log-lane upload-log-lane">',
+      '<section v-if="environmentDraft.packageType === \'server_upload\'" class="release-package-log-lane upload-log-lane">',
     );
-    expect(source).toContain(":class=\"{ 'has-upload-lane': draft.packageType === 'server_upload' }\"");
+    expect(source).toContain(":class=\"{ 'has-upload-lane': environmentDraft.packageType === 'server_upload' }\"");
     expect(source).toContain("uploadProgress");
     expect(source).toContain("完整替换以上远程目标");
     expect(source).toContain("package_succeeded_upload_failed");
@@ -586,10 +712,10 @@ describe("ReleasePackagePanel", () => {
 
   it("configures independent build checks and post-upload commands", () => {
     for (const model of [
-      "draft.frontendSuccessKeyword",
-      "draft.backendSuccessKeyword",
-      "draft.frontendPostUploadCommand",
-      "draft.backendPostUploadCommand",
+      "environmentDraft.frontendSuccessKeyword",
+      "environmentDraft.backendSuccessKeyword",
+      "environmentDraft.frontendPostUploadCommand",
+      "environmentDraft.backendPostUploadCommand",
     ]) {
       expect(source).toContain(`v-model="${model}"`);
     }
@@ -611,9 +737,14 @@ describe("ReleasePackagePanel", () => {
   });
 
   it("mounts with mutually exclusive upload and command retry actions", async () => {
-    panelHarness.listeners.clear();
+    const retryProject: ReleasePackageProject = {
+      ...mountedProject,
+      environments: mountedProject.environments.map((environment) => environment.environment === "test"
+        ? { ...environment, packageType: "server_upload" }
+        : environment),
+    };
     panelHarness.invoke.mockImplementation(async (channel: string) => {
-      if (channel === "tool:release-package:project-list") return { projects: [mountedProject] };
+      if (channel === "tool:release-package:project-list") return { projects: [retryProject] };
       if (channel === "tool:vault:meta-list") return [];
       return {};
     });
@@ -623,7 +754,7 @@ describe("ReleasePackagePanel", () => {
     ]);
     const runtime = useReleasePackageRuntime();
     runtime.reset();
-    runtime.beginStart(mountedProject.id, ["frontend", "backend"]);
+    runtime.beginStart(41, ["frontend", "backend"]);
     const renderer = createPanelRenderer();
     const root = hostNode("root");
     const app = renderer.createApp(ReleasePackagePanel);
@@ -636,7 +767,9 @@ describe("ReleasePackagePanel", () => {
     statusListener?.({
       payload: {
         runId: "upload-run",
+        environmentId: 41,
         projectId: mountedProject.id,
+        environment: "test",
         status: "package_succeeded_upload_failed",
         phase: "overall",
         retryToken: "upload-retry",
@@ -646,11 +779,13 @@ describe("ReleasePackagePanel", () => {
     expect(buttonTexts(root)).toContain("重试上传");
     expect(buttonTexts(root)).not.toContain("仅重试失败命令");
 
-    runtime.beginStart(mountedProject.id, ["frontend", "backend"]);
+    runtime.beginStart(41, ["frontend", "backend"]);
     statusListener?.({
       payload: {
         runId: "command-run",
+        environmentId: 41,
         projectId: mountedProject.id,
+        environment: "test",
         status: "upload_succeeded_command_failed",
         phase: "overall",
         error: "服务器文件已上传，但上传后命令未全部成功",
@@ -664,12 +799,12 @@ describe("ReleasePackagePanel", () => {
     runtime.reset();
   });
   it("renders mutually exclusive package types and type-specific fields", () => {
-    expect(source).toContain('v-model="draft.packageType"');
+    expect(source).toContain('v-model="environmentDraft.packageType"');
     expect(source).toContain('value="local_archive"');
     expect(source).toContain('value="server_upload"');
-    expect(source).toContain("draft.packageType === 'local_archive'");
-    expect(source).toContain("draft.packageType === 'server_upload'");
-    expect(source).not.toContain("draft.uploadEnabled");
+    expect(source).toContain("environmentDraft.packageType === 'local_archive'");
+    expect(source).toContain("environmentDraft.packageType === 'server_upload'");
+    expect(source).not.toContain("environmentDraft.uploadEnabled");
     expect(source).not.toContain("startMode");
   });
 

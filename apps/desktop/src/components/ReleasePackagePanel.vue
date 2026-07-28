@@ -32,7 +32,7 @@
                 <el-input
                   v-if="titleEditing"
                   ref="projectTitleInput"
-                  v-model="draft.name"
+                  v-model="projectDraft.name"
                   class="project-title-input"
                   :disabled="running"
                   aria-label="项目名称"
@@ -50,7 +50,7 @@
                     @dblclick="startTitleEdit"
                     @keydown.enter.prevent="startTitleEdit"
                   >
-                    {{ draft.name || "新建上线包项目" }}
+                    {{ projectDraft.name || "新建上线包项目" }}
                   </button>
                 </h2>
               </div>
@@ -65,16 +65,37 @@
               </div>
             </header>
 
+            <div class="environment-switcher" aria-label="发布环境">
+              <el-radio-group
+                :model-value="selectedEnvironmentKind"
+                :disabled="running"
+                @change="selectEnvironment"
+              >
+                <el-radio-button value="test">
+                  测试环境
+                  <el-tag size="small" effect="plain">
+                    {{ environmentStatusLabel("test") }}
+                  </el-tag>
+                </el-radio-button>
+                <el-radio-button value="production">
+                  生产环境
+                  <el-tag type="danger" size="small" effect="plain">
+                    {{ environmentStatusLabel("production") }}
+                  </el-tag>
+                </el-radio-button>
+              </el-radio-group>
+            </div>
+
             <div class="project-basics">
               <div class="project-basics-grid">
                 <el-form-item label="打包类型" required>
-                  <el-radio-group v-model="draft.packageType" :disabled="running" class="package-type-group">
+                  <el-radio-group v-model="environmentDraft.packageType" :disabled="running" class="package-type-group">
                     <el-radio-button value="local_archive">本地归档</el-radio-button>
                     <el-radio-button value="server_upload">上传服务器</el-radio-button>
                   </el-radio-group>
                 </el-form-item>
-                <el-form-item v-if="draft.packageType === 'local_archive'" label="归档根目录" required>
-                  <el-input v-model="draft.outputRoot" :disabled="running" placeholder="当前项目的上线包归档目录" readonly>
+                <el-form-item v-if="environmentDraft.packageType === 'local_archive'" label="归档根目录" required>
+                  <el-input v-model="environmentDraft.outputRoot" :disabled="running" placeholder="当前项目的上线包归档目录" readonly>
                     <template #append>
                       <el-button :icon="FolderOpened" :disabled="running" @click="chooseOutputRoot">选择</el-button>
                     </template>
@@ -95,7 +116,7 @@
               </header>
 
               <el-form-item label="工程目录" required>
-                <el-input v-model="draft.frontendProjectPath" :disabled="running" placeholder="前端工程绝对路径">
+                <el-input v-model="projectDraft.frontendProjectPath" :disabled="running" placeholder="前端工程绝对路径">
                   <template #append><el-button :icon="FolderOpened" :disabled="running" @click="chooseFrontendProject">选择</el-button></template>
                 </el-input>
               </el-form-item>
@@ -134,7 +155,7 @@
                   </div>
                 </template>
                 <el-input
-                  v-model="draft.frontendBuildCommand"
+                  v-model="environmentDraft.frontendBuildCommand"
                   class="command-input"
                   type="textarea"
                   :autosize="{ minRows: 4, maxRows: 9 }"
@@ -145,7 +166,7 @@
               </el-form-item>
               <el-form-item label="成功日志关键字（可选）">
                 <el-input
-                  v-model="draft.frontendSuccessKeyword"
+                  v-model="environmentDraft.frontendSuccessKeyword"
                   :disabled="running"
                   placeholder="例如：Build completed"
                 />
@@ -153,12 +174,12 @@
               </el-form-item>
               <div class="artifact-grid">
                 <el-form-item label="产物路径" required>
-                  <el-input v-model="draft.frontendArtifactPath" :disabled="running" placeholder="相对工程目录或绝对目录路径">
+                  <el-input v-model="environmentDraft.frontendArtifactPath" :disabled="running" placeholder="相对工程目录或绝对目录路径">
                     <template #append><el-button :icon="FolderOpened" :disabled="running" @click="chooseFrontendArtifact">选择目录</el-button></template>
                   </el-input>
                 </el-form-item>
-                <el-form-item v-if="draft.packageType === 'local_archive'" label="本地归档处理" required>
-                  <el-select v-model="draft.frontendArtifactMode" :disabled="running" class="full-width">
+                <el-form-item v-if="environmentDraft.packageType === 'local_archive'" label="本地归档处理" required>
+                  <el-select v-model="environmentDraft.frontendArtifactMode" :disabled="running" class="full-width">
                     <el-option label="直接复制目录" value="copy_directory" />
                     <el-option label="压缩为 ZIP" value="zip_directory" />
                   </el-select>
@@ -176,7 +197,7 @@
               </header>
 
               <el-form-item label="工程目录" required>
-                <el-input v-model="draft.backendProjectPath" :disabled="running" placeholder="后端工程绝对路径">
+                <el-input v-model="projectDraft.backendProjectPath" :disabled="running" placeholder="后端工程绝对路径">
                   <template #append><el-button :icon="FolderOpened" :disabled="running" @click="chooseBackendProject">选择</el-button></template>
                 </el-input>
               </el-form-item>
@@ -215,7 +236,7 @@
                   </div>
                 </template>
                 <el-input
-                  v-model="draft.backendBuildCommand"
+                  v-model="environmentDraft.backendBuildCommand"
                   class="command-input"
                   type="textarea"
                   :autosize="{ minRows: 4, maxRows: 9 }"
@@ -228,21 +249,21 @@
               </el-form-item>
               <el-form-item label="成功日志关键字（可选）">
                 <el-input
-                  v-model="draft.backendSuccessKeyword"
+                  v-model="environmentDraft.backendSuccessKeyword"
                   :disabled="running"
                   placeholder="例如：BUILD SUCCESS"
                 />
                 <p class="command-hint">同时匹配 stdout 和 stderr，区分大小写；留空不检测。</p>
               </el-form-item>
               <el-form-item label="产物路径" required>
-                <el-input v-model="draft.backendArtifactPath" :disabled="running" placeholder="相对工程目录或绝对文件路径">
+                <el-input v-model="environmentDraft.backendArtifactPath" :disabled="running" placeholder="相对工程目录或绝对文件路径">
                   <template #append><el-button :icon="Document" :disabled="running" @click="chooseBackendArtifact">选择文件</el-button></template>
                 </el-input>
               </el-form-item>
             </section>
           </div>
 
-          <el-collapse v-if="draft.packageType === 'server_upload'" v-model="serverConfigSections" class="server-config-collapse">
+          <el-collapse v-if="environmentDraft.packageType === 'server_upload'" v-model="serverConfigSections" class="server-config-collapse">
             <el-collapse-item name="server">
               <template #title>
                 <div class="server-config-heading">
@@ -265,7 +286,7 @@
 
                   <div class="server-auth-type-row">
                     <el-form-item label="认证方式" required>
-                      <el-radio-group v-model="draft.sshAuthType" :disabled="running" class="auth-type-group">
+                      <el-radio-group v-model="environmentDraft.sshAuthType" :disabled="running" class="auth-type-group">
                         <el-radio-button value="password">账户密码</el-radio-button>
                         <el-radio-button value="private_key">私钥文件</el-radio-button>
                       </el-radio-group>
@@ -274,18 +295,18 @@
 
                   <div class="server-auth-details">
                     <div
-                      v-if="draft.sshAuthType === 'password'"
+                      v-if="environmentDraft.sshAuthType === 'password'"
                       class="server-auth-details-panel password-auth-panel"
                     >
                       <el-form-item
-                        v-if="draft.sshAuthType === 'password'"
+                        v-if="environmentDraft.sshAuthType === 'password'"
                         label="密码库凭据"
                         required
                         class="vault-credential-field"
                       >
                         <div class="vault-credential-picker">
                           <el-select
-                            v-model="draft.vaultEntryId"
+                            v-model="environmentDraft.vaultEntryId"
                             :disabled="running"
                             :loading="vaultOptionsLoading"
                             filterable
@@ -326,21 +347,21 @@
                     </div>
 
                     <div
-                      v-if="draft.sshAuthType === 'private_key'"
+                      v-if="environmentDraft.sshAuthType === 'private_key'"
                       class="server-auth-details-panel private-key-auth-panel"
                     >
                       <div class="private-key-config-grid">
-                        <el-form-item v-if="draft.sshAuthType === 'private_key'" label="服务器地址" required>
-                          <el-input v-model="draft.sshHost" :disabled="running" placeholder="例如：10.0.0.8" />
+                        <el-form-item v-if="environmentDraft.sshAuthType === 'private_key'" label="服务器地址" required>
+                          <el-input v-model="environmentDraft.sshHost" :disabled="running" placeholder="例如：10.0.0.8" />
                         </el-form-item>
-                        <el-form-item v-if="draft.sshAuthType === 'private_key'" label="SSH 端口" required>
-                          <el-input-number v-model="draft.sshPort" :disabled="running" :min="1" :max="65535" controls-position="right" class="full-width" />
+                        <el-form-item v-if="environmentDraft.sshAuthType === 'private_key'" label="SSH 端口" required>
+                          <el-input-number v-model="environmentDraft.sshPort" :disabled="running" :min="1" :max="65535" controls-position="right" class="full-width" />
                         </el-form-item>
-                        <el-form-item v-if="draft.sshAuthType === 'private_key'" label="SSH 用户名" required>
-                          <el-input v-model="draft.sshUsername" :disabled="running" placeholder="例如：deploy" />
+                        <el-form-item v-if="environmentDraft.sshAuthType === 'private_key'" label="SSH 用户名" required>
+                          <el-input v-model="environmentDraft.sshUsername" :disabled="running" placeholder="例如：deploy" />
                         </el-form-item>
-                        <el-form-item v-if="draft.sshAuthType === 'private_key'" label="私钥文件" required class="private-key-file-field">
-                          <el-input v-model="draft.sshPrivateKeyPath" :disabled="running" placeholder="选择 OpenSSH 私钥文件" readonly>
+                        <el-form-item v-if="environmentDraft.sshAuthType === 'private_key'" label="私钥文件" required class="private-key-file-field">
+                          <el-input v-model="environmentDraft.sshPrivateKeyPath" :disabled="running" placeholder="选择 OpenSSH 私钥文件" readonly>
                             <template #append>
                               <el-button :icon="Document" :disabled="running" @click="choosePrivateKey">选择私钥</el-button>
                             </template>
@@ -360,16 +381,16 @@
                   </div>
                   <div class="server-target-grid">
                     <el-form-item label="前端远程目录" required>
-                      <el-input v-model="draft.frontendRemoteDir" :disabled="running" placeholder="例如：/srv/portal/web" />
+                      <el-input v-model="environmentDraft.frontendRemoteDir" :disabled="running" placeholder="例如：/srv/portal/web" />
                     </el-form-item>
                     <el-form-item label="后端远程文件" required>
-                      <el-input v-model="draft.backendRemotePath" :disabled="running" placeholder="例如：/srv/portal/app.jar" />
+                      <el-input v-model="environmentDraft.backendRemotePath" :disabled="running" placeholder="例如：/srv/portal/app.jar" />
                     </el-form-item>
                   </div>
                   <div class="server-command-grid">
                     <el-form-item label="前端上传后命令（可选）">
                       <el-input
-                        v-model="draft.frontendPostUploadCommand"
+                        v-model="environmentDraft.frontendPostUploadCommand"
                         type="textarea"
                         :autosize="{ minRows: 3, maxRows: 8 }"
                         :disabled="running"
@@ -378,7 +399,7 @@
                     </el-form-item>
                     <el-form-item label="后端上传后命令（可选）">
                       <el-input
-                        v-model="draft.backendPostUploadCommand"
+                        v-model="environmentDraft.backendPostUploadCommand"
                         type="textarea"
                         :autosize="{ minRows: 3, maxRows: 8 }"
                         :disabled="running"
@@ -419,7 +440,7 @@
               {{ overallError }}
             </div>
           </header>
-          <div class="release-package-log-columns" :class="{ 'has-upload-lane': draft.packageType === 'server_upload' }">
+          <div class="release-package-log-columns" :class="{ 'has-upload-lane': environmentDraft.packageType === 'server_upload' }">
             <section class="release-package-log-lane">
               <header class="log-lane-header">
                 <strong>前端</strong>
@@ -478,7 +499,7 @@
                 </div>
               </div>
             </section>
-            <section v-if="draft.packageType === 'server_upload'" class="release-package-log-lane upload-log-lane">
+            <section v-if="environmentDraft.packageType === 'server_upload'" class="release-package-log-lane upload-log-lane">
               <header class="log-lane-header upload-lane-header">
                 <div class="upload-lane-title">
                   <strong>上传日志</strong>
@@ -566,7 +587,7 @@
         <el-form-item v-if="isLocalArchiveStart" label="归档目录名" required>
           <el-input v-model="folderName" placeholder="例如：20260723-订单管理系统" />
         </el-form-item>
-        <el-form-item v-if="isUploadStart && draft.sshAuthType === 'private_key'" label="私钥口令（可选）">
+        <el-form-item v-if="isUploadStart && environmentDraft.sshAuthType === 'private_key'" label="私钥口令（可选）">
           <el-input
             v-model="credentialSecret"
             type="password"
@@ -576,9 +597,9 @@
             placeholder="私钥未加密时可留空"
           />
         </el-form-item>
-        <div v-if="isUploadStart && draft.sshAuthType === 'password'" class="vault-start-summary">
+        <div v-if="isUploadStart && environmentDraft.sshAuthType === 'password'" class="vault-start-summary">
           <span>密码库凭据</span>
-          <strong>{{ selectedVaultCredential?.title || `凭据 #${draft.vaultEntryId ?? "-"}` }}</strong>
+          <strong>{{ selectedVaultCredential?.title || `凭据 #${environmentDraft.vaultEntryId ?? "-"}` }}</strong>
           <p>密码由密码库提供，仅在已信任主机后由本地 Rust 进程读取。</p>
         </div>
       </el-form>
@@ -701,6 +722,9 @@ import { useReleasePackageUploadPreflight } from "../composables/useReleasePacka
 import type { ActionDispatchRequest } from "../types";
 import type {
   ReleasePackageCommandStatus,
+  ReleasePackageEnvironmentConfig,
+  ReleasePackageEnvironmentDraft,
+  ReleasePackageEnvironmentKind,
   ReleasePackagePrepareResult,
   ReleasePackageProject,
   ReleasePackageProjectDraft,
@@ -714,13 +738,18 @@ import type {
 import {
   RELEASE_PACKAGE_COMMAND_EXAMPLES,
   createDefaultReleasePackageTargets,
-  createEmptyReleasePackageDraft,
+  createEmptyReleasePackageEnvironmentDraft,
+  createEmptyReleasePackageProjectDraft,
   createReleasePackageStartPayload,
+  environmentToReleasePackageDraft,
   isReleasePackageDraftDirty,
+  normalizeReleasePackageEnvironmentDraft,
+  normalizeReleasePackageProjectDraft,
   normalizeVaultServerPort,
-  projectToReleasePackageDraft,
+  projectToReleasePackageProjectDraft,
   releasePackageRunStatusLabel,
-  validateReleasePackageDraft,
+  validateReleasePackageEnvironmentDraft,
+  validateReleasePackageProjectDraft,
   validateReleasePackageUpload,
   validateReleasePackageTargets,
   writeReleasePackageCommand,
@@ -754,7 +783,9 @@ const emit = defineEmits<{
 
 const projects = ref<ReleasePackageProject[]>([]);
 const selectedId = ref<number | null>(null);
-const draft = reactive<ReleasePackageProjectDraft>(createEmptyReleasePackageDraft());
+const projectDraft = reactive<ReleasePackageProjectDraft>(createEmptyReleasePackageProjectDraft());
+const environmentDraft = reactive<ReleasePackageEnvironmentDraft>(createEmptyReleasePackageEnvironmentDraft());
+const selectedEnvironmentKind = ref<ReleasePackageEnvironmentKind>("test");
 const loading = ref(false);
 const saving = ref(false);
 const starting = ref(false);
@@ -830,8 +861,18 @@ const commandStatusLabels: Record<ReleasePackageCommandStatus, string> = {
 };
 
 const selectedProject = computed(() => projects.value.find((item) => item.id === selectedId.value) ?? null);
-const dirty = computed(() => isReleasePackageDraftDirty(selectedProject.value, draft));
-const currentProjectRuntime = computed(() => selectedId.value === null ? null : runtime.getProjectRuntime(selectedId.value));
+const selectedEnvironment = computed(() => selectedProject.value?.environments.find(
+  (item) => item.environment === selectedEnvironmentKind.value,
+) ?? null);
+const dirty = computed(() => isReleasePackageDraftDirty(
+  selectedProject.value,
+  selectedEnvironment.value,
+  projectDraft,
+  environmentDraft,
+));
+const currentProjectRuntime = computed(() => selectedEnvironment.value === null
+  ? null
+  : runtime.getEnvironmentRuntime(selectedEnvironment.value.id));
 const status = computed<ReleasePackageRunStatus>(() => currentProjectRuntime.value?.status ?? "idle");
 const archivePath = computed(() => currentProjectRuntime.value?.archivePath ?? "");
 const frontendLogs = computed(() => currentProjectRuntime.value?.frontendLogs ?? []);
@@ -875,11 +916,11 @@ const uploadPercentage = computed(() => {
   ));
 });
 const selectedVaultCredential = computed(() => vaultServerOptions.value.find(
-  (option) => option.id === draft.vaultEntryId,
+  (option) => option.id === environmentDraft.vaultEntryId,
 ) ?? null);
 const vaultBindingInvalid = computed(() => (
-  draft.sshAuthType === "password"
-  && draft.vaultEntryId !== null
+  environmentDraft.sshAuthType === "password"
+  && environmentDraft.vaultEntryId !== null
   && vaultOptionsLoaded.value
   && (!selectedVaultCredential.value || !selectedVaultCredential.value.complete)
 ));
@@ -993,6 +1034,32 @@ async function copyCommandExample(command: string): Promise<void> {
   }
 }
 
+function restoreSelectedDrafts(): void {
+  Object.assign(
+    projectDraft,
+    selectedProject.value
+      ? projectToReleasePackageProjectDraft(selectedProject.value)
+      : createEmptyReleasePackageProjectDraft(),
+  );
+  Object.assign(
+    environmentDraft,
+    selectedEnvironment.value
+      ? environmentToReleasePackageDraft(selectedEnvironment.value)
+      : createEmptyReleasePackageEnvironmentDraft(),
+  );
+}
+
+function environmentConfiguredLabel(environment: ReleasePackageEnvironmentConfig): string {
+  return environment.configured ? "已配置" : "待配置";
+}
+
+function environmentStatusLabel(environmentKind: ReleasePackageEnvironmentKind): string {
+  const environment = selectedProject.value?.environments.find(
+    (item) => item.environment === environmentKind,
+  );
+  return environment ? environmentConfiguredLabel(environment) : "待配置";
+}
+
 async function loadProjects(
   options: { preserveEditor?: boolean } = {},
 ): Promise<boolean> {
@@ -1002,17 +1069,23 @@ async function loadProjects(
     projects.value = result.projects ?? [];
     if (options.preserveEditor) return true;
     const current = projects.value.find((project) => project.id === selectedId.value);
-    const active = projects.value.find((project) => project.id === runtime.activeProjectId.value);
+    const active = projects.value.find((project) => project.environments.some(
+      (environment) => environment.id === runtime.activeEnvironmentId.value,
+    ));
     const preferActiveProject = (selectedId.value === null && !dirty.value) || runtime.status.value === "running" || runtime.status.value === "uploading";
     const preserveUnsavedDraft = selectedId.value === null && dirty.value && !preferActiveProject;
     const target = preferActiveProject ? active ?? current ?? projects.value[0] : current;
     if (target) {
       const selectionChanged = selectedId.value !== target.id;
       selectedId.value = target.id;
-      if (selectionChanged || !dirty.value) Object.assign(draft, projectToReleasePackageDraft(target));
+      if (selectionChanged || !dirty.value) {
+        selectedEnvironmentKind.value = "test";
+        restoreSelectedDrafts();
+      }
     } else if (!preserveUnsavedDraft) {
       selectedId.value = null;
-      Object.assign(draft, createEmptyReleasePackageDraft());
+      selectedEnvironmentKind.value = "test";
+      restoreSelectedDrafts();
     }
     return true;
   } catch (error) {
@@ -1036,34 +1109,59 @@ async function confirmDiscardChanges(): Promise<boolean> {
 async function selectProject(project: ReleasePackageProject): Promise<void> {
   if (project.id === selectedId.value || !(await confirmDiscardChanges())) return;
   selectedId.value = project.id;
-  Object.assign(draft, projectToReleasePackageDraft(project));
+  selectedEnvironmentKind.value = "test";
+  restoreSelectedDrafts();
 }
 
 async function newProject(): Promise<void> {
   if (!(await confirmDiscardChanges())) return;
   selectedId.value = null;
-  Object.assign(draft, createEmptyReleasePackageDraft());
+  selectedEnvironmentKind.value = "test";
+  restoreSelectedDrafts();
+}
+
+async function selectEnvironment(environment: ReleasePackageEnvironmentKind): Promise<void> {
+  if (environment === selectedEnvironmentKind.value) return;
+  if (!(await confirmDiscardChanges())) return;
+  confirmVisible.value = false;
+  commandRetryVisible.value = false;
+  await resetStartDialog();
+  await resetCommandRetryDialog();
+  selectedEnvironmentKind.value = environment;
+  restoreSelectedDrafts();
 }
 
 async function saveProject(): Promise<void> {
-  const validationError = validateReleasePackageDraft(draft);
+  const validationError = validateReleasePackageProjectDraft(projectDraft)
+    ?? validateReleasePackageEnvironmentDraft(environmentDraft);
   if (validationError) {
     ElMessage.warning(validationError);
     return;
   }
   saving.value = true;
   try {
-    const payload = { ...draft };
+    const savedEnvironmentKind = selectedEnvironmentKind.value;
+    const payload = {
+      id: selectedProject.value?.id,
+      environmentId: selectedEnvironment.value?.id,
+      environment: selectedEnvironmentKind.value,
+      project: normalizeReleasePackageProjectDraft(projectDraft),
+      environmentConfig: normalizeReleasePackageEnvironmentDraft(environmentDraft),
+    };
     const channel = selectedId.value ? "tool:release-package:project-update" : "tool:release-package:project-create";
-    const result = (await invokeToolByChannel(channel, selectedId.value ? { id: selectedId.value, ...payload } : payload)) as { id?: number };
+    const result = (await invokeToolByChannel(channel, payload)) as { id?: number; environmentId?: number };
     const savedId = result.id ?? selectedId.value;
     if (savedId) selectedId.value = savedId;
-    const refreshed = await loadProjects();
+    const refreshed = await loadProjects({ preserveEditor: true });
     if (!refreshed) return;
     if (savedId) {
       selectedId.value = savedId;
       const saved = projects.value.find((project) => project.id === savedId);
-      if (saved) Object.assign(draft, projectToReleasePackageDraft(saved));
+      const savedEnvironment = saved?.environments.find(
+        (environment) => environment.id === result.environmentId,
+      );
+      selectedEnvironmentKind.value = savedEnvironment?.environment ?? savedEnvironmentKind;
+      restoreSelectedDrafts();
     }
     ElMessage.success("项目配置已保存");
   } catch (error) {
@@ -1085,7 +1183,8 @@ async function deleteProject(): Promise<void> {
     await invokeToolByChannel("tool:release-package:project-delete", { id: project.id });
     projects.value = projects.value.filter((item) => item.id !== project.id);
     selectedId.value = null;
-    Object.assign(draft, createEmptyReleasePackageDraft());
+    selectedEnvironmentKind.value = "test";
+    restoreSelectedDrafts();
     const refreshed = await loadProjects();
     if (!refreshed) return;
     ElMessage.success("项目配置已删除");
@@ -1108,7 +1207,7 @@ async function chooseOutputRoot(): Promise<void> {
   try {
     const path = await chooseDirectory("选择归档根目录");
     if (!path) return;
-    draft.outputRoot = path;
+    environmentDraft.outputRoot = path;
   } catch (error) {
     showError(error);
   }
@@ -1117,7 +1216,7 @@ async function chooseOutputRoot(): Promise<void> {
 async function chooseFrontendProject(): Promise<void> {
   try {
     const path = await chooseDirectory("选择前端工程目录");
-    if (path) draft.frontendProjectPath = path;
+    if (path) projectDraft.frontendProjectPath = path;
   } catch (error) {
     showError(error);
   }
@@ -1126,7 +1225,7 @@ async function chooseFrontendProject(): Promise<void> {
 async function chooseBackendProject(): Promise<void> {
   try {
     const path = await chooseDirectory("选择后端工程目录");
-    if (path) draft.backendProjectPath = path;
+    if (path) projectDraft.backendProjectPath = path;
   } catch (error) {
     showError(error);
   }
@@ -1135,7 +1234,7 @@ async function chooseBackendProject(): Promise<void> {
 async function chooseFrontendArtifact(): Promise<void> {
   try {
     const path = await chooseDirectory("选择前端产物目录");
-    if (path) draft.frontendArtifactPath = path;
+    if (path) environmentDraft.frontendArtifactPath = path;
   } catch (error) {
     showError(error);
   }
@@ -1144,7 +1243,7 @@ async function chooseFrontendArtifact(): Promise<void> {
 async function chooseBackendArtifact(): Promise<void> {
   try {
     const path = await chooseFile("选择后端产物文件");
-    if (path) draft.backendArtifactPath = path;
+    if (path) environmentDraft.backendArtifactPath = path;
   } catch (error) {
     showError(error);
   }
@@ -1153,7 +1252,7 @@ async function chooseBackendArtifact(): Promise<void> {
 async function choosePrivateKey(): Promise<void> {
   try {
     const path = await chooseFile("选择 SSH 私钥文件");
-    if (path) draft.sshPrivateKeyPath = path;
+    if (path) environmentDraft.sshPrivateKeyPath = path;
   } catch (error) {
     showError(error);
   }
@@ -1254,7 +1353,8 @@ async function applyActionDispatchIntent(intent: ActionDispatchRequest): Promise
       return;
     }
     selectedId.value = target.id;
-    Object.assign(draft, projectToReleasePackageDraft(target));
+    selectedEnvironmentKind.value = "test";
+    restoreSelectedDrafts();
     const prepareError = await prepareStart();
     if (prepareError) {
       await stopPendingActionDispatch("failed", prepareError.message);
@@ -1459,16 +1559,16 @@ async function runUploadPreflight(
   projectId: number,
   targets: ReleasePackageTarget[],
 ): Promise<boolean> {
-  const uploadError = validateReleasePackageUpload(draft);
+  const uploadError = validateReleasePackageUpload(environmentDraft);
   if (uploadError) throw new Error(uploadError);
-  if (draft.sshAuthType === "password" && draft.vaultEntryId === null) {
+  if (environmentDraft.sshAuthType === "password" && environmentDraft.vaultEntryId === null) {
     throw new Error("请选择密码库服务器凭据");
   }
   if (!(await ensureHostTrusted(projectId))) return false;
   await uploadPreflight.check({
     projectId,
     targets: [...targets],
-    ...(draft.sshAuthType === "private_key"
+    ...(environmentDraft.sshAuthType === "private_key"
       ? { privateKeyPassphrase: credentialSecret.value || undefined }
       : {}),
   });
@@ -1625,7 +1725,7 @@ async function scrollLogToBottom(container: HTMLElement | null): Promise<void> {
 watch(() => frontendLogs.value.length, () => scrollLogToBottom(frontendLogContainer.value));
 watch(() => backendLogs.value.length, () => scrollLogToBottom(backendLogContainer.value));
 watch(() => uploadLogs.value.length, () => scrollLogToBottom(uploadLogContainer.value));
-watch(() => draft.packageType, (packageType) => {
+watch(() => environmentDraft.packageType, (packageType) => {
   serverConfigSections.value = packageType === "server_upload" ? ["server"] : [];
 });
 watch(selectedId, () => {
@@ -1704,6 +1804,18 @@ onMounted(async () => {
 }
 .editor-title { min-width: 0; flex: 1; }
 .editor-header h2 { margin: 0; color: #303133; font-size: 18px; }
+.environment-switcher {
+  display: flex;
+  padding: 12px 16px 0;
+}
+.environment-switcher :deep(.el-radio-group) { display: flex; }
+.environment-switcher :deep(.el-radio-button__inner) {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+}
+.environment-switcher :deep(.el-tag) { pointer-events: none; }
 .project-title {
   overflow: hidden;
   max-width: 100%;
