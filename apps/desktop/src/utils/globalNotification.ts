@@ -5,7 +5,10 @@ import type {
   ReleasePackageNotificationStatus,
   TodoReminderNotification,
 } from "../types/global-notification";
-import type { ReleasePackageType } from "../types/release-package";
+import type {
+  ReleasePackageEnvironmentKind,
+  ReleasePackageType,
+} from "../types/release-package";
 
 const TODO_PRIORITIES = new Set(["P0", "P1", "P2", "P3"]);
 const TODO_REMINDER_PRESETS = new Set(["", "0m", "none", "5m", "10m", "30m", "1h", "1d", "2d"]);
@@ -19,6 +22,7 @@ const RELEASE_PACKAGE_STATUSES = new Set<ReleasePackageNotificationStatus>([
   "cancelled",
 ]);
 const RELEASE_PACKAGE_TYPES = new Set<ReleasePackageType>(["local_archive", "server_upload"]);
+const RELEASE_PACKAGE_ENVIRONMENTS = new Set<ReleasePackageEnvironmentKind>(["test", "production"]);
 
 function invalidNotification(): never {
   throw new Error("无效的全局通知");
@@ -46,6 +50,11 @@ function isPositiveSafeInteger(value: unknown): value is number {
 
 function isReleasePackageType(value: unknown): value is ReleasePackageType {
   return typeof value === "string" && RELEASE_PACKAGE_TYPES.has(value as ReleasePackageType);
+}
+
+function isReleasePackageEnvironment(value: unknown): value is ReleasePackageEnvironmentKind {
+  return typeof value === "string"
+    && RELEASE_PACKAGE_ENVIRONMENTS.has(value as ReleasePackageEnvironmentKind);
 }
 
 function isReleasePackageNotificationStatus(
@@ -110,6 +119,8 @@ function isReleasePackageNotification(value: unknown): value is ReleasePackageNo
     && hasValidCommonFields(value)
     && isNonEmptyString(value.runId)
     && value.id === `release-package:${value.runId}`
+    && isPositiveSafeInteger(value.environmentId)
+    && isReleasePackageEnvironment(value.environment)
     && isPositiveSafeInteger(value.projectId)
     && isNonEmptyString(value.projectName)
     && isReleasePackageType(value.packageType)

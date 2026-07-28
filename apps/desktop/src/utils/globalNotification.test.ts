@@ -38,6 +38,8 @@ const succeededNotification = {
   id: "release-package:run-1",
   createdAt: "2026-07-21T08:10:00.000Z",
   runId: "run-1",
+  environmentId: 42,
+  environment: "production" as const,
   projectId: 9,
   projectName: "客户门户",
   packageType: "local_archive" as const,
@@ -176,6 +178,28 @@ describe("normalizeGlobalNotificationPayload", () => {
       expect(() => normalizeGlobalNotificationPayload({ ...succeededNotification, projectId })).toThrow(
         "无效的全局通知",
       );
+    },
+  );
+
+  it("rejects a release notification without environmentId", () => {
+    const { environmentId: _, ...notification } = succeededNotification;
+
+    expect(() => normalizeGlobalNotificationPayload(notification)).toThrow("无效的全局通知");
+  });
+
+  it.each([0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1])(
+    "rejects invalid release environmentId=%s",
+    (environmentId) => {
+      expect(() => normalizeGlobalNotificationPayload({ ...succeededNotification, environmentId }))
+        .toThrow("无效的全局通知");
+    },
+  );
+
+  it.each([undefined, "staging", "Production", ""])(
+    "rejects invalid release environment=%s",
+    (environment) => {
+      expect(() => normalizeGlobalNotificationPayload({ ...succeededNotification, environment }))
+        .toThrow("无效的全局通知");
     },
   );
 

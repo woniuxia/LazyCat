@@ -3,7 +3,7 @@ import type {
   TodoReminderActionSummary,
   TodoReminderPreset,
 } from "./todo";
-import type { ReleasePackageType } from "./release-package";
+import type { ReleasePackageEnvironmentKind, ReleasePackageType } from "./release-package";
 
 export type ReleasePackageNotificationStatus =
   | "succeeded"
@@ -43,6 +43,8 @@ export interface TodoReminderNotification extends GlobalNotificationBase {
 export interface ReleasePackageNotification extends GlobalNotificationBase {
   kind: "release-package";
   runId: string;
+  environmentId: number;
+  environment: ReleasePackageEnvironmentKind;
   projectId: number;
   projectName: string;
   packageType: ReleasePackageType;

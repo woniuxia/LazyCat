@@ -10,9 +10,11 @@ use std::thread;
 use std::time::{Duration, Instant};
 use tauri::Emitter;
 
-use super::release_package::{ReleasePackageEnvironmentConfig, ReleaseTarget};
+use super::release_package::{
+    ReleasePackageEnvironmentConfig, ReleasePackageEnvironmentKind, ReleaseTarget,
+};
 #[cfg(test)]
-use super::release_package::{ReleasePackageEnvironmentKind, ReleasePackageType};
+use super::release_package::ReleasePackageType;
 use super::release_package_archive::{
     archive_backend_artifact, archive_frontend_artifact, resolve_artifact_path,
     validate_artifact_target_collision, ArchiveError, ArchiveSession,
@@ -303,11 +305,34 @@ fn active_run() -> &'static Mutex<Option<ActiveRun>> {
     ACTIVE_RUN.get_or_init(|| Mutex::new(None))
 }
 
+#[derive(Clone, Debug)]
+struct RunIdentity {
+    run_id: String,
+    environment_id: i64,
+    project_id: i64,
+    project_name: String,
+    environment: ReleasePackageEnvironmentKind,
+}
+
+impl RunIdentity {
+    fn new(run_id: impl Into<String>, project: &ReleasePackageEnvironmentConfig) -> Self {
+        Self {
+            run_id: run_id.into(),
+            environment_id: project.id,
+            project_id: project.project_id,
+            project_name: project.project_name.clone(),
+            environment: project.environment,
+        }
+    }
+}
+
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct LogEvent {
     run_id: String,
+    environment_id: i64,
     project_id: i64,
+    environment: ReleasePackageEnvironmentKind,
     phase: String,
     stream: String,
     line: String,
@@ -317,7 +342,9 @@ struct LogEvent {
 #[serde(rename_all = "camelCase")]
 struct StatusEvent {
     run_id: String,
+    environment_id: i64,
     project_id: i64,
+    environment: ReleasePackageEnvironmentKind,
     status: String,
     phase: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -372,16 +399,17 @@ enum PipelineError {
 
 fn emit_status(
     sink: &dyn EventSink,
-    run_id: &str,
-    project_id: i64,
+    identity: &RunIdentity,
     status: &str,
     phase: &str,
     archive_path: Option<String>,
     error: Option<String>,
 ) {
     sink.status(StatusEvent {
-        run_id: run_id.into(),
-        project_id,
+        run_id: identity.run_id.clone(),
+        environment_id: identity.environment_id,
+        project_id: identity.project_id,
+        environment: identity.environment,
         status: status.into(),
         phase: phase.into(),
         archive_path,
@@ -398,15 +426,16 @@ fn emit_status(
 
 fn emit_upload_status(
     sink: &dyn EventSink,
-    run_id: &str,
-    project_id: i64,
+    identity: &RunIdentity,
     uploaded_bytes: u64,
     total_bytes: u64,
     current_path: Option<String>,
 ) {
     sink.status(StatusEvent {
-        run_id: run_id.into(),
-        project_id,
+        run_id: identity.run_id.clone(),
+        environment_id: identity.environment_id,
+        project_id: identity.project_id,
+        environment: identity.environment,
         status: "uploading".into(),
         phase: "upload".into(),
         archive_path: None,
@@ -423,8 +452,7 @@ fn emit_upload_status(
 
 fn emit_command_status(
     sink: &dyn EventSink,
-    run_id: &str,
-    project_id: i64,
+    identity: &RunIdentity,
     target: ReleaseTarget,
     command_status: &str,
     error: Option<String>,
@@ -434,8 +462,10 @@ fn emit_command_status(
         ReleaseTarget::Backend => "backend",
     };
     sink.status(StatusEvent {
-        run_id: run_id.into(),
-        project_id,
+        run_id: identity.run_id.clone(),
+        environment_id: identity.environment_id,
+        project_id: identity.project_id,
+        environment: identity.environment,
         status: "running".into(),
         phase: "upload".into(),
         archive_path: None,
@@ -469,8 +499,7 @@ fn should_emit_upload_progress(
 
 struct UploadProgressReporter {
     sink: Arc<dyn EventSink>,
-    run_id: String,
-    project_id: i64,
+    identity: RunIdentity,
     total_bytes: u64,
     state: Mutex<UploadProgressState>,
 }
@@ -478,14 +507,12 @@ struct UploadProgressReporter {
 impl UploadProgressReporter {
     fn new(
         sink: Arc<dyn EventSink>,
-        run_id: impl Into<String>,
-        project_id: i64,
+        identity: RunIdentity,
         total_bytes: u64,
     ) -> Self {
         Self {
             sink,
-            run_id: run_id.into(),
-            project_id,
+            identity,
             total_bytes,
             state: Mutex::new(UploadProgressState::default()),
         }
@@ -505,8 +532,7 @@ impl UploadProgressReporter {
         state.last_emitted_at = Some(now);
         emit_upload_status(
             self.sink.as_ref(),
-            &self.run_id,
-            self.project_id,
+            &self.identity,
             state.uploaded_bytes,
             self.total_bytes,
             state.current_path.clone(),
@@ -526,8 +552,7 @@ impl UploadProgressReporter {
         state.last_emitted_at = Some(now);
         emit_upload_status(
             self.sink.as_ref(),
-            &self.run_id,
-            self.project_id,
+            &self.identity,
             state.uploaded_bytes,
             self.total_bytes,
             state.current_path.clone(),
@@ -542,7 +567,7 @@ impl UploadProgressReporter {
 
 fn emit_terminal_result(
     sink: &dyn EventSink,
-    run_id: &str,
+    identity: &RunIdentity,
     project: &ReleasePackageEnvironmentConfig,
     result: Result<PipelineSummary, PipelineError>,
     emit_package_logs: bool,
@@ -560,15 +585,20 @@ fn emit_terminal_result(
         Err(PipelineError::Failed { message }) => ("failed", None, Some(message), None),
     };
     #[cfg(not(test))]
-    if let Err(error) = crate::tools::action_center::finish_release_package_run(run_id, status) {
-        eprintln!("action-center terminal update failed for run {run_id}: {error}");
+    if let Err(error) =
+        crate::tools::action_center::finish_release_package_run(&identity.run_id, status)
+    {
+        eprintln!(
+            "action-center terminal update failed for run {}: {error}",
+            identity.run_id
+        );
     }
     if emit_package_logs
         && archive_path.is_some()
         && matches!(status, "succeeded" | "partially_succeeded")
     {
         for phase in ["frontend", "backend"] {
-            emit_system_log(sink, run_id, project.project_id, phase, "已完成打包");
+            emit_system_log(sink, identity, phase, "已完成打包");
         }
     }
     let retry_token = match retry_descriptor {
@@ -586,13 +616,15 @@ fn emit_terminal_result(
         None => None,
     };
     let command_retry_token = if status == "upload_succeeded_command_failed" {
-        take_command_retry_token(run_id)
+        take_command_retry_token(&identity.run_id)
     } else {
         None
     };
     sink.status(StatusEvent {
-        run_id: run_id.into(),
-        project_id: project.project_id,
+        run_id: identity.run_id.clone(),
+        environment_id: identity.environment_id,
+        project_id: identity.project_id,
+        environment: identity.environment,
         status: status.into(),
         phase: "overall".into(),
         archive_path: archive_path.clone(),
@@ -606,9 +638,11 @@ fn emit_terminal_result(
         command_status: None,
     });
     if let Some(notification) = build_release_package_notification(
-        run_id,
-        project.project_id,
-        &project.project_name,
+        &identity.run_id,
+        identity.environment_id,
+        identity.environment,
+        identity.project_id,
+        &identity.project_name,
         project.package_type,
         "overall",
         status,
@@ -619,10 +653,12 @@ fn emit_terminal_result(
     }
 }
 
-fn emit_system_log(sink: &dyn EventSink, run_id: &str, project_id: i64, phase: &str, line: &str) {
+fn emit_system_log(sink: &dyn EventSink, identity: &RunIdentity, phase: &str, line: &str) {
     sink.log(LogEvent {
-        run_id: run_id.into(),
-        project_id,
+        run_id: identity.run_id.clone(),
+        environment_id: identity.environment_id,
+        project_id: identity.project_id,
+        environment: identity.environment,
         phase: phase.into(),
         stream: "system".into(),
         line: line.into(),
@@ -630,8 +666,7 @@ fn emit_system_log(sink: &dyn EventSink, run_id: &str, project_id: i64, phase: &
 }
 
 fn run_command_phase(
-    run_id: &str,
-    project_id: i64,
+    identity: &RunIdentity,
     phase: &'static str,
     cwd: &Path,
     command: &str,
@@ -645,15 +680,14 @@ fn run_command_phase(
     }
     emit_status(
         sink.as_ref(),
-        run_id,
-        project_id,
+        identity,
         "running",
         phase,
         None,
         None,
     );
-    emit_system_log(sink.as_ref(), run_id, project_id, phase, "开始执行构建命令");
-    let event_run_id = run_id.to_owned();
+    emit_system_log(sink.as_ref(), identity, phase, "开始执行构建命令");
+    let event_identity = identity.clone();
     let event_phase = phase.to_owned();
     let event_sink = sink.clone();
     run_powershell(
@@ -664,8 +698,10 @@ fn run_command_phase(
         pid,
         Arc::new(move |stream, line| {
             event_sink.log(LogEvent {
-                run_id: event_run_id.clone(),
-                project_id,
+                run_id: event_identity.run_id.clone(),
+                environment_id: event_identity.environment_id,
+                project_id: event_identity.project_id,
+                environment: event_identity.environment,
                 phase: event_phase.clone(),
                 stream: stream.into(),
                 line,
@@ -723,7 +759,7 @@ struct BuildSummary {
 
 fn run_target(
     target: ReleaseTarget,
-    run_id: &str,
+    identity: &RunIdentity,
     project: &ReleasePackageEnvironmentConfig,
     cancelled: Arc<AtomicBool>,
     pid: Arc<Mutex<Option<u32>>>,
@@ -745,8 +781,7 @@ fn run_target(
         ),
     };
     let outcome = run_command_phase(
-        run_id,
-        project.project_id,
+        identity,
         phase,
         &project_path,
         command,
@@ -790,21 +825,19 @@ fn run_target(
 
 fn emit_target_result(
     sink: &dyn EventSink,
-    run_id: &str,
-    project_id: i64,
+    identity: &RunIdentity,
     target: ReleaseTarget,
     result: &Result<BuiltTarget, PipelineError>,
 ) {
     let phase = target_phase(target);
     match result {
-        Ok(_) => emit_status(sink, run_id, project_id, "succeeded", phase, None, None),
+        Ok(_) => emit_status(sink, identity, "succeeded", phase, None, None),
         Err(PipelineError::Cancelled { .. }) => {
-            emit_status(sink, run_id, project_id, "cancelled", phase, None, None)
+            emit_status(sink, identity, "cancelled", phase, None, None)
         }
         Err(PipelineError::Failed { message }) => emit_status(
             sink,
-            run_id,
-            project_id,
+            identity,
             "failed",
             phase,
             None,
@@ -1215,16 +1248,14 @@ fn configured_post_upload_commands(
 
 fn emit_cancelled_command_statuses(
     sink: &dyn EventSink,
-    run_id: &str,
-    project_id: i64,
+    identity: &RunIdentity,
     commands: &[CommandSnapshot],
     message: &str,
 ) {
     for snapshot in commands {
         emit_command_status(
             sink,
-            run_id,
-            project_id,
+            identity,
             snapshot.target,
             "cancelled",
             Some(message.into()),
@@ -1233,8 +1264,7 @@ fn emit_cancelled_command_statuses(
 }
 
 fn run_post_upload_commands(
-    run_id: &str,
-    project_id: i64,
+    identity: &RunIdentity,
     mut summary: PipelineSummary,
     mut commands: Vec<CommandSnapshot>,
     mut control: Box<dyn RemoteFs>,
@@ -1252,8 +1282,7 @@ fn run_post_upload_commands(
         {
             emit_command_status(
                 sink.as_ref(),
-                run_id,
-                project_id,
+                identity,
                 manifest.target,
                 "skipped",
                 None,
@@ -1275,8 +1304,7 @@ fn run_post_upload_commands(
             let message = "服务器文件已上传，上传后命令未全部完成，已按用户请求取消";
             emit_cancelled_command_statuses(
                 sink.as_ref(),
-                run_id,
-                project_id,
+                identity,
                 &commands[index..],
                 message,
             );
@@ -1290,29 +1318,29 @@ fn run_post_upload_commands(
         let label = target_label(snapshot.target);
         emit_command_status(
             sink.as_ref(),
-            run_id,
-            project_id,
+            identity,
             snapshot.target,
             "running",
             None,
         );
         emit_system_log(
             sink.as_ref(),
-            run_id,
-            project_id,
+            identity,
             "upload",
             &format!("[{label}命令] 开始执行上传后命令"),
         );
         let event_sink = Arc::clone(&sink);
-        let event_run_id = run_id.to_owned();
+        let event_identity = identity.clone();
         let prefix = format!("[{label}命令]");
         let result = control.execute_command(
             &snapshot.command,
             cancelled.as_ref(),
             &mut move |stream, line| {
                 event_sink.log(LogEvent {
-                    run_id: event_run_id.clone(),
-                    project_id,
+                    run_id: event_identity.run_id.clone(),
+                    environment_id: event_identity.environment_id,
+                    project_id: event_identity.project_id,
+                    environment: event_identity.environment,
                     phase: "upload".into(),
                     stream: stream.into(),
                     line: format!("{prefix}[{stream}] {line}"),
@@ -1324,8 +1352,7 @@ fn run_post_upload_commands(
             let message = "服务器文件已上传，上传后命令未全部完成，已按用户请求取消";
             emit_cancelled_command_statuses(
                 sink.as_ref(),
-                run_id,
-                project_id,
+                identity,
                 &commands[index..],
                 message,
             );
@@ -1340,15 +1367,13 @@ fn run_post_upload_commands(
             Ok(result) if result.exit_code == 0 => {
                 emit_system_log(
                     sink.as_ref(),
-                    run_id,
-                    project_id,
+                    identity,
                     "upload",
                     &format!("[{label}命令] 上传后命令执行成功"),
                 );
                 emit_command_status(
                     sink.as_ref(),
-                    run_id,
-                    project_id,
+                    identity,
                     snapshot.target,
                     "succeeded",
                     None,
@@ -1358,15 +1383,13 @@ fn run_post_upload_commands(
                 let error = format!("上传后命令执行失败，退出码：{}", result.exit_code);
                 emit_system_log(
                     sink.as_ref(),
-                    run_id,
-                    project_id,
+                    identity,
                     "upload",
                     &format!("[{label}命令] {error}"),
                 );
                 emit_command_status(
                     sink.as_ref(),
-                    run_id,
-                    project_id,
+                    identity,
                     snapshot.target,
                     "failed",
                     Some(error),
@@ -1377,15 +1400,13 @@ fn run_post_upload_commands(
                 let message = format!("上传后命令执行失败：{}", error.message);
                 emit_system_log(
                     sink.as_ref(),
-                    run_id,
-                    project_id,
+                    identity,
                     "upload",
                     &format!("[{label}命令] {message}"),
                 );
                 emit_command_status(
                     sink.as_ref(),
-                    run_id,
-                    project_id,
+                    identity,
                     snapshot.target,
                     "failed",
                     Some(message),
@@ -1511,7 +1532,7 @@ fn build_retry_deployment_request(
 }
 
 fn run_deployment_phase(
-    run_id: &str,
+    identity: &RunIdentity,
     project: &ReleasePackageEnvironmentConfig,
     summary: PipelineSummary,
     authorization: DeployAuthorization,
@@ -1524,7 +1545,7 @@ fn run_deployment_phase(
         return summary;
     }
     let commands = configured_post_upload_commands(project, &summary.manifests);
-    let request = match build_deployment_request(run_id, &summary, &authorization.consumed) {
+    let request = match build_deployment_request(&identity.run_id, &summary, &authorization.consumed) {
         Ok(request) => request,
         Err(error) => {
             return preserve_retry_commands(
@@ -1534,8 +1555,7 @@ fn run_deployment_phase(
         }
     };
     execute_deployment_request(
-        run_id,
-        project.project_id,
+        identity,
         summary,
         request,
         commands,
@@ -1548,8 +1568,7 @@ fn run_deployment_phase(
 }
 
 fn execute_deployment_request(
-    run_id: &str,
-    project_id: i64,
+    identity: &RunIdentity,
     summary: PipelineSummary,
     request: DeploymentRequest,
     commands: Vec<CommandSnapshot>,
@@ -1566,15 +1585,13 @@ fn execute_deployment_request(
         .sum();
     emit_system_log(
         sink.as_ref(),
-        run_id,
-        project_id,
+        identity,
         "upload",
         "开始上传服务器",
     );
     let reporter = Arc::new(UploadProgressReporter::new(
         Arc::clone(&sink),
-        run_id,
-        project_id,
+        identity.clone(),
         total_bytes,
     ));
     reporter.force_emit(false);
@@ -1638,15 +1655,13 @@ fn execute_deployment_request(
     if summary.remote_committed {
         emit_system_log(
             sink.as_ref(),
-            run_id,
-            project_id,
+            identity,
             "upload",
             "服务器上传完成",
         );
         if let Some(control) = control {
             summary = run_post_upload_commands(
-                run_id,
-                project_id,
+                identity,
                 summary,
                 commands,
                 control,
@@ -1661,7 +1676,7 @@ fn execute_deployment_request(
             CommandAuthBinding::from_preflight(binding.as_ref(), expected_fingerprint.as_ref()),
             summary.failed_commands.clone(),
         )
-        .and_then(|token| remember_command_retry_token(run_id, token))
+        .and_then(|token| remember_command_retry_token(&identity.run_id, token))
         {
             append_pipeline_error(&mut summary, format!("创建命令重试任务失败：{error}"));
         }
@@ -1671,8 +1686,7 @@ fn execute_deployment_request(
 }
 
 fn run_retry_deployment_phase(
-    run_id: &str,
-    project_id: i64,
+    identity: &RunIdentity,
     retry: RetryJob,
     authorization: DeployAuthorization,
     cancelled: Arc<AtomicBool>,
@@ -1692,7 +1706,8 @@ fn run_retry_deployment_phase(
         local_committed: false,
         failed_commands: Vec::new(),
     };
-    let request = match build_retry_deployment_request(run_id, &retry, &authorization.consumed) {
+    let request =
+        match build_retry_deployment_request(&identity.run_id, &retry, &authorization.consumed) {
         Ok(request) => request,
         Err(error) => {
             return preserve_retry_commands(
@@ -1702,8 +1717,7 @@ fn run_retry_deployment_phase(
         }
     };
     execute_deployment_request(
-        run_id,
-        project_id,
+        identity,
         summary,
         request,
         commands,
@@ -1716,7 +1730,7 @@ fn run_retry_deployment_phase(
 }
 
 fn run_build_pipeline(
-    run_id: &str,
+    identity: &RunIdentity,
     project: ReleasePackageEnvironmentConfig,
     targets: Vec<ReleaseTarget>,
     cancelled: Arc<AtomicBool>,
@@ -1726,7 +1740,7 @@ fn run_build_pipeline(
     let selected_count = targets.len();
     let mut handles = Vec::with_capacity(selected_count);
     for target in targets {
-        let thread_run_id = run_id.to_owned();
+        let thread_identity = identity.clone();
         let thread_project = project.clone();
         let thread_cancelled = cancelled.clone();
         let thread_sink = sink.clone();
@@ -1736,7 +1750,7 @@ fn run_build_pipeline(
             thread::spawn(move || {
                 let result = run_target(
                     target,
-                    &thread_run_id,
+                    &thread_identity,
                     &thread_project,
                     thread_cancelled,
                     pid,
@@ -1744,8 +1758,7 @@ fn run_build_pipeline(
                 );
                 emit_target_result(
                     thread_sink.as_ref(),
-                    &thread_run_id,
-                    thread_project.project_id,
+                    &thread_identity,
                     target,
                     &result,
                 );
@@ -1790,16 +1803,14 @@ fn run_build_pipeline(
 
 fn emit_local_archive_target_status(
     sink: &dyn EventSink,
-    run_id: &str,
-    project_id: i64,
+    identity: &RunIdentity,
     target: ReleaseTarget,
     status: &str,
     error: Option<String>,
 ) {
     emit_status(
         sink,
-        run_id,
-        project_id,
+        identity,
         status,
         target_phase(target),
         None,
@@ -1830,8 +1841,7 @@ fn merge_pipeline_error(existing: Option<&str>, error: PipelineError) -> Pipelin
 }
 
 fn run_local_archive_pipeline(
-    run_id: &str,
-    project_id: i64,
+    identity: &RunIdentity,
     summary: BuildSummary,
     output_root: PathBuf,
     folder_name: String,
@@ -1840,8 +1850,7 @@ fn run_local_archive_pipeline(
     sink: Arc<dyn EventSink>,
 ) -> Result<PipelineSummary, PipelineError> {
     run_local_archive_pipeline_with_commit(
-        run_id,
-        project_id,
+        identity,
         summary,
         output_root,
         folder_name,
@@ -1853,8 +1862,7 @@ fn run_local_archive_pipeline(
 }
 
 fn run_local_archive_pipeline_with_commit<C>(
-    run_id: &str,
-    project_id: i64,
+    identity: &RunIdentity,
     summary: BuildSummary,
     output_root: PathBuf,
     folder_name: String,
@@ -1870,8 +1878,7 @@ where
         for target in &summary.built_targets {
             emit_local_archive_target_status(
                 sink.as_ref(),
-                run_id,
-                project_id,
+                identity,
                 target.target,
                 "cancelled",
                 None,
@@ -1915,8 +1922,7 @@ where
             for target in &summary.built_targets {
                 emit_local_archive_target_status(
                     sink.as_ref(),
-                    run_id,
-                    project_id,
+                    identity,
                     target.target,
                     status,
                     message.clone(),
@@ -1932,7 +1938,7 @@ where
     let mut archive = match ArchiveSession::create(
         &output_root,
         &folder_name,
-        run_id,
+        &identity.run_id,
         overwrite_existing,
         cancelled.as_ref(),
     ) {
@@ -1946,8 +1952,7 @@ where
             for target in &summary.built_targets {
                 emit_local_archive_target_status(
                     sink.as_ref(),
-                    run_id,
-                    project_id,
+                    identity,
                     target.target,
                     status,
                     message.clone(),
@@ -1964,7 +1969,7 @@ where
     let mut errors = summary.error.into_iter().collect::<Vec<_>>();
     for built_target in summary.built_targets {
         let phase = target_phase(built_target.target);
-        let emit = |line: &str| emit_system_log(sink.as_ref(), run_id, project_id, phase, line);
+        let emit = |line: &str| emit_system_log(sink.as_ref(), identity, phase, line);
         let archive_result = match built_target.target {
             ReleaseTarget::Frontend => archive_frontend_artifact(
                 &built_target.source_path,
@@ -1988,8 +1993,7 @@ where
             }),
             Err(ArchiveError::Cancelled) => emit_local_archive_target_status(
                 sink.as_ref(),
-                run_id,
-                project_id,
+                identity,
                 built_target.target,
                 "cancelled",
                 None,
@@ -1997,8 +2001,7 @@ where
             Err(ArchiveError::Failed(message)) => {
                 emit_local_archive_target_status(
                     sink.as_ref(),
-                    run_id,
-                    project_id,
+                    identity,
                     built_target.target,
                     "failed",
                     Some(message.clone()),
@@ -2008,8 +2011,7 @@ where
             Err(ArchiveError::CommittedWithWarning { warning, .. }) => {
                 emit_local_archive_target_status(
                     sink.as_ref(),
-                    run_id,
-                    project_id,
+                    identity,
                     built_target.target,
                     "failed",
                     Some(warning.clone()),
@@ -2022,8 +2024,7 @@ where
         for target in &archived_targets {
             emit_local_archive_target_status(
                 sink.as_ref(),
-                run_id,
-                project_id,
+                identity,
                 target.target,
                 "cancelled",
                 None,
@@ -2061,8 +2062,7 @@ where
             for target in &archived_targets {
                 emit_local_archive_target_status(
                     sink.as_ref(),
-                    run_id,
-                    project_id,
+                    identity,
                     target.target,
                     status,
                     message.clone(),
@@ -2189,23 +2189,22 @@ pub fn start(
         }
     }
 
-    let thread_run_id = run_id.clone();
-    let project_id = project.project_id;
+    let identity = RunIdentity::new(&run_id, &project);
+    let thread_identity = identity.clone();
     let terminal_project = project.clone();
     let emit_package_logs = matches!(&request, RuntimeStartRequest::LocalArchive { .. });
     let sink: Arc<dyn EventSink> = Arc::new(TauriEventSink { app: app.clone() });
     thread::spawn(move || {
         emit_status(
             sink.as_ref(),
-            &thread_run_id,
-            project_id,
+            &thread_identity,
             "running",
             "overall",
             None,
             None,
         );
         let result = run_build_pipeline(
-            &thread_run_id,
+            &thread_identity,
             project,
             targets,
             cancelled.clone(),
@@ -2219,8 +2218,7 @@ pub fn start(
                 overwrite_existing,
             } => result.and_then(|summary| {
                 run_local_archive_pipeline(
-                    &thread_run_id,
-                    project_id,
+                    &thread_identity,
                     summary,
                     output_root,
                     folder_name,
@@ -2233,7 +2231,7 @@ pub fn start(
                 deploy_authorization,
             } => result.and_then(build_upload_summary).map(|summary| {
                 run_deployment_phase(
-                    &thread_run_id,
+                    &thread_identity,
                     &terminal_project,
                     summary,
                     deploy_authorization,
@@ -2247,13 +2245,15 @@ pub fn start(
         let result = claim_pipeline_result(result, &cancelled, &finished, &cancel_won, &claim_lock);
         emit_terminal_result(
             sink.as_ref(),
-            &thread_run_id,
+            &thread_identity,
             &terminal_project,
             result,
             emit_package_logs,
         );
         if let Ok(mut active) = active_run().lock() {
-            if active.as_ref().map(|run| run.run_id.as_str()) == Some(thread_run_id.as_str()) {
+            if active.as_ref().map(|run| run.run_id.as_str())
+                == Some(thread_identity.run_id.as_str())
+            {
                 *active = None;
             }
         }
@@ -2308,21 +2308,20 @@ pub fn upload_retry(
         }
     };
 
-    let thread_run_id = run_id.clone();
+    let identity = RunIdentity::new(&run_id, &project);
+    let thread_identity = identity.clone();
     let sink: Arc<dyn EventSink> = Arc::new(TauriEventSink { app: app.clone() });
     thread::spawn(move || {
         emit_status(
             sink.as_ref(),
-            &thread_run_id,
-            project.project_id,
+            &thread_identity,
             "running",
             "overall",
             None,
             None,
         );
         let summary = run_retry_deployment_phase(
-            &thread_run_id,
-            project.project_id,
+            &thread_identity,
             retry,
             deploy_authorization,
             cancelled.clone(),
@@ -2332,9 +2331,11 @@ pub fn upload_retry(
         );
         let result =
             claim_pipeline_result(Ok(summary), &cancelled, &finished, &cancel_won, &claim_lock);
-        emit_terminal_result(sink.as_ref(), &thread_run_id, &project, result, false);
+        emit_terminal_result(sink.as_ref(), &thread_identity, &project, result, false);
         if let Ok(mut active) = active_run().lock() {
-            if active.as_ref().map(|run| run.run_id.as_str()) == Some(thread_run_id.as_str()) {
+            if active.as_ref().map(|run| run.run_id.as_str())
+                == Some(thread_identity.run_id.as_str())
+            {
                 *active = None;
             }
         }
@@ -2384,7 +2385,8 @@ pub fn command_retry(
 
     let (start_tx, start_rx) =
         std::sync::mpsc::sync_channel::<(ConsumedPreflight, CommandRetryJob)>(1);
-    let thread_run_id = run_id.clone();
+    let identity = RunIdentity::new(&run_id, &project);
+    let thread_identity = identity.clone();
     let thread_project = project.clone();
     let sink: Arc<dyn EventSink> = Arc::new(TauriEventSink { app: app.clone() });
     let worker_ssh_sockets = ssh_sockets.clone();
@@ -2400,8 +2402,7 @@ pub fn command_retry(
             };
             emit_status(
                 sink.as_ref(),
-                &thread_run_id,
-                thread_project.project_id,
+                &thread_identity,
                 "running",
                 "overall",
                 None,
@@ -2417,8 +2418,7 @@ pub fn command_retry(
             );
             let summary = match remote {
                 Ok(remote) => run_post_upload_commands(
-                    &thread_run_id,
-                    thread_project.project_id,
+                    &thread_identity,
                     PipelineSummary {
                         status: "succeeded",
                         archive_path: None,
@@ -2468,7 +2468,7 @@ pub fn command_retry(
             let mut summary = summary;
             if summary.status == "upload_succeeded_command_failed" {
                 if let Err(error) = finish_command_retry(retry, summary.failed_commands.clone())
-                    .and_then(|token| remember_command_retry_token(&thread_run_id, token))
+                    .and_then(|token| remember_command_retry_token(&thread_identity.run_id, token))
                 {
                     append_pipeline_error(&mut summary, format!("创建命令重试任务失败：{error}"));
                 }
@@ -2482,13 +2482,15 @@ pub fn command_retry(
             );
             emit_terminal_result(
                 sink.as_ref(),
-                &thread_run_id,
+                &thread_identity,
                 &thread_project,
                 result,
                 false,
             );
             if let Ok(mut active) = active_run().lock() {
-                if active.as_ref().map(|run| run.run_id.as_str()) == Some(thread_run_id.as_str()) {
+                if active.as_ref().map(|run| run.run_id.as_str())
+                    == Some(thread_identity.run_id.as_str())
+                {
                     *active = None;
                 }
             }
@@ -3039,8 +3041,7 @@ mod pipeline_tests {
         let sink = Arc::new(TerminalSink::default());
         let reporter = Arc::new(UploadProgressReporter::new(
             sink.clone(),
-            "run-progress",
-            7,
+            run_identity("run-progress"),
             200,
         ));
         let start = Instant::now();
@@ -3072,8 +3073,7 @@ mod pipeline_tests {
         let sink = Arc::new(BlockingProgressSink::default());
         let reporter = Arc::new(UploadProgressReporter::new(
             sink.clone(),
-            "run-order",
-            7,
+            run_identity("run-order"),
             20,
         ));
         let start = Instant::now();
@@ -3139,6 +3139,15 @@ mod pipeline_tests {
         }
     }
 
+    fn run_identity(run_id: &str) -> RunIdentity {
+        let mut project = project();
+        project.id = 42;
+        project.project_id = 7;
+        project.project_name = "客户门户".into();
+        project.environment = ReleasePackageEnvironmentKind::Production;
+        RunIdentity::new(run_id, &project)
+    }
+
     #[cfg(windows)]
     fn frontend_build_project(root: &Path, artifact_mode: &str) -> ReleasePackageEnvironmentConfig {
         let frontend_project = root.join("web");
@@ -3182,7 +3191,7 @@ mod pipeline_tests {
         targets: Vec<ReleaseTarget>,
     ) -> BuildSummary {
         run_build_pipeline(
-            "keyword-run",
+            &run_identity("keyword-run"),
             project,
             targets,
             Arc::new(AtomicBool::new(false)),
@@ -3327,8 +3336,7 @@ mod pipeline_tests {
         fs::write(source.join("index.html"), "new").unwrap();
 
         let summary = run_local_archive_pipeline_with_commit(
-            "run-local-cleanup",
-            7,
+            &run_identity("run-local-cleanup"),
             BuildSummary {
                 status: if build_error.is_some() {
                     "partially_succeeded"
@@ -3399,10 +3407,15 @@ mod pipeline_tests {
     #[test]
     fn terminal_result_emits_status_and_one_package_notification() {
         let sink = TerminalSink::default();
+        let mut project = project();
+        project.id = 42;
+        project.project_id = 7;
+        project.project_name = "客户门户".into();
+        project.environment = ReleasePackageEnvironmentKind::Production;
         emit_terminal_result(
             &sink,
-            "run-1",
-            &project(),
+            &run_identity("run-1"),
+            &project,
             Ok(PipelineSummary {
                 status: "succeeded",
                 archive_path: Some(PathBuf::from("D:\\release\\target")),
@@ -3424,7 +3437,15 @@ mod pipeline_tests {
         assert!(logs.iter().any(|event| {
             event.phase == "backend" && event.stream == "system" && event.line == "已完成打包"
         }));
-        assert_eq!(sink.statuses.lock().unwrap().len(), 1);
+        assert!(logs.iter().all(|event| event.environment_id == 42));
+        let statuses = sink.statuses.lock().unwrap();
+        assert_eq!(statuses.len(), 1);
+        assert_eq!(statuses[0].environment_id, 42);
+        assert_eq!(statuses[0].project_id, 7);
+        assert_eq!(
+            statuses[0].environment,
+            ReleasePackageEnvironmentKind::Production
+        );
         assert_eq!(sink.notifications.lock().unwrap().len(), 1);
     }
 
@@ -3433,7 +3454,7 @@ mod pipeline_tests {
         let sink = TerminalSink::default();
         emit_terminal_result(
             &sink,
-            "run-1",
+            &run_identity("run-1"),
             &project(),
             Err(PipelineError::Cancelled { phase: "overall" }),
             true,
@@ -3452,8 +3473,7 @@ mod pipeline_tests {
         ];
 
         let summary = run_post_upload_commands(
-            "post-upload-run",
-            7,
+            &run_identity("post-upload-run"),
             succeeded_upload_summary(),
             commands,
             Box::new(remote),
@@ -3521,8 +3541,7 @@ mod pipeline_tests {
         );
 
         let summary = run_post_upload_commands(
-            "post-upload-run",
-            7,
+            &run_identity("post-upload-run"),
             summary,
             vec![CommandSnapshot::new(ReleaseTarget::Frontend, "reload-web")],
             control.expect("committed deployment keeps its control connection"),
@@ -3547,8 +3566,7 @@ mod pipeline_tests {
         ));
 
         let summary = run_post_upload_commands(
-            "post-upload-run",
-            7,
+            &run_identity("post-upload-run"),
             summary,
             vec![CommandSnapshot::new(ReleaseTarget::Frontend, "reload-web")],
             Box::new(remote),
@@ -3571,8 +3589,7 @@ mod pipeline_tests {
         summary.status = "package_succeeded_upload_failed";
 
         let result = run_post_upload_commands(
-            "post-upload-run",
-            7,
+            &run_identity("post-upload-run"),
             summary,
             vec![CommandSnapshot::new(ReleaseTarget::Frontend, "reload-web")],
             Box::new(remote),
@@ -3601,8 +3618,7 @@ mod pipeline_tests {
             .collect();
 
         let summary = run_post_upload_commands(
-            "post-upload-run",
-            7,
+            &run_identity("post-upload-run"),
             upload,
             Vec::new(),
             Box::new(remote),
@@ -3642,8 +3658,7 @@ mod pipeline_tests {
         let sink = Arc::new(CollectingSink::default());
 
         let summary = run_post_upload_commands(
-            "post-upload-run",
-            7,
+            &run_identity("post-upload-run"),
             succeeded_upload_summary(),
             vec![
                 CommandSnapshot::new(ReleaseTarget::Frontend, "reload-web"),
@@ -3720,7 +3735,7 @@ mod pipeline_tests {
         };
 
         let result = run_deployment_phase(
-            "initial-request-failure",
+            &run_identity("initial-request-failure"),
             &upload_project,
             summary,
             DeployAuthorization {
@@ -3766,7 +3781,7 @@ mod pipeline_tests {
         let sink = TerminalSink::default();
         emit_terminal_result(
             &sink,
-            "run-upload-cleanup",
+            &run_identity("run-upload-cleanup"),
             &upload_project,
             Ok(summary),
             false,
@@ -3859,7 +3874,7 @@ mod pipeline_tests {
 
         emit_terminal_result(
             &sink,
-            "run-upload-failed",
+            &run_identity("run-upload-failed"),
             &project(),
             Ok(combine_package_and_deploy(
                 package,
@@ -3878,7 +3893,7 @@ mod pipeline_tests {
         let sink = TerminalSink::default();
         emit_terminal_result(
             &sink,
-            "retry-run",
+            &run_identity("retry-run"),
             &project(),
             Ok(PipelineSummary {
                 status: "succeeded",
@@ -3991,7 +4006,7 @@ mod pipeline_tests {
     #[test]
     fn pipeline_cancellation_reports_the_active_phase() {
         let result = run_build_pipeline(
-            "run-phase",
+            &run_identity("run-phase"),
             project(),
             vec![ReleaseTarget::Frontend],
             Arc::new(AtomicBool::new(true)),
@@ -4191,8 +4206,7 @@ mod pipeline_tests {
         consumed.binding.targets = vec![RemoteTarget::Backend];
 
         let result = run_retry_deployment_phase(
-            "retry-request-failure",
-            7,
+            &run_identity("retry-request-failure"),
             retry,
             DeployAuthorization { consumed },
             Arc::new(AtomicBool::new(false)),
@@ -4344,7 +4358,7 @@ mod pipeline_tests {
         };
 
         let summary = run_build_pipeline(
-            "build-run",
+            &run_identity("build-run"),
             project,
             vec![ReleaseTarget::Frontend, ReleaseTarget::Backend],
             Arc::new(AtomicBool::new(false)),
@@ -4375,7 +4389,7 @@ mod pipeline_tests {
         let sink = Arc::new(CollectingSink::default());
         let cancelled = Arc::new(AtomicBool::new(false));
         let build = run_build_pipeline(
-            "archive-failed",
+            &run_identity("archive-failed"),
             project.clone(),
             vec![ReleaseTarget::Frontend],
             cancelled.clone(),
@@ -4385,8 +4399,7 @@ mod pipeline_tests {
         .unwrap();
 
         let summary = run_local_archive_pipeline(
-            "archive-failed",
-            project.id,
+            &run_identity("archive-failed"),
             build,
             output_root,
             "release".into(),
@@ -4419,8 +4432,7 @@ mod pipeline_tests {
         let sink = Arc::new(CollectingSink::default());
 
         let error = run_local_archive_pipeline(
-            "archive-setup-failed",
-            7,
+            &run_identity("archive-setup-failed"),
             build,
             root.0.join("missing-output"),
             "release".into(),
@@ -4449,7 +4461,7 @@ mod pipeline_tests {
         let project = frontend_build_project(&root.0, "zip_directory");
         let cancelled = Arc::new(AtomicBool::new(false));
         let build = run_build_pipeline(
-            "zip-run",
+            &run_identity("zip-run"),
             project.clone(),
             vec![ReleaseTarget::Frontend],
             cancelled.clone(),
@@ -4458,8 +4470,7 @@ mod pipeline_tests {
         )
         .unwrap();
         let summary = run_local_archive_pipeline(
-            "zip-run",
-            project.id,
+            &run_identity("zip-run"),
             build,
             output_root,
             "release".into(),
@@ -4486,7 +4497,7 @@ mod pipeline_tests {
         let project = frontend_build_project(&root.0, "copy_directory");
         let cancelled = Arc::new(AtomicBool::new(false));
         let build = run_build_pipeline(
-            "overwrite-run",
+            &run_identity("overwrite-run"),
             project.clone(),
             vec![ReleaseTarget::Frontend],
             cancelled.clone(),
@@ -4495,8 +4506,7 @@ mod pipeline_tests {
         )
         .unwrap();
         let summary = run_local_archive_pipeline(
-            "overwrite-run",
-            project.id,
+            &run_identity("overwrite-run"),
             build,
             output_root,
             "release".into(),
@@ -4521,7 +4531,7 @@ mod pipeline_tests {
         let cancelled = Arc::new(AtomicBool::new(false));
         let sink = Arc::new(CollectingSink::cancelling_during_archive(cancelled.clone()));
         let build = run_build_pipeline(
-            "cancel-archive",
+            &run_identity("cancel-archive"),
             project.clone(),
             vec![ReleaseTarget::Frontend],
             cancelled.clone(),
@@ -4531,8 +4541,7 @@ mod pipeline_tests {
         .unwrap();
 
         let result = run_local_archive_pipeline(
-            "cancel-archive",
-            project.id,
+            &run_identity("cancel-archive"),
             build,
             output_root.clone(),
             "release".into(),
@@ -4591,7 +4600,7 @@ mod pipeline_tests {
         };
         let sink = Arc::new(CollectingSink::default());
         let build = run_build_pipeline(
-            "smoke-run",
+            &run_identity("smoke-run"),
             project.clone(),
             vec![ReleaseTarget::Frontend, ReleaseTarget::Backend],
             Arc::new(AtomicBool::new(false)),
@@ -4600,8 +4609,7 @@ mod pipeline_tests {
         )
         .unwrap();
         let result = run_local_archive_pipeline(
-            "smoke-run",
-            project.id,
+            &run_identity("smoke-run"),
             build,
             output_root,
             "20260723-冒烟项目".into(),
@@ -4666,7 +4674,7 @@ mod pipeline_tests {
             updated_at: String::new(),
         };
         let build = run_build_pipeline(
-            "failed-run",
+            &run_identity("failed-run"),
             project.clone(),
             vec![ReleaseTarget::Frontend, ReleaseTarget::Backend],
             Arc::new(AtomicBool::new(false)),
@@ -4675,8 +4683,7 @@ mod pipeline_tests {
         )
         .unwrap();
         let summary = run_local_archive_pipeline(
-            "failed-run",
-            project.id,
+            &run_identity("failed-run"),
             build,
             output_root.clone(),
             "20260723-冒烟项目".into(),

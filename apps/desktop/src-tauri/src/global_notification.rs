@@ -6,7 +6,7 @@ use tauri::{
 };
 
 use crate::events::EVENT_GLOBAL_NOTIFICATION_PUSH;
-use crate::tools::release_package::ReleasePackageType;
+use crate::tools::release_package::{ReleasePackageEnvironmentKind, ReleasePackageType};
 use crate::tools::todo::{ReminderActionSummary, ReminderDispatch};
 
 pub(crate) const GLOBAL_NOTIFICATION_LABEL: &str = "global-notification";
@@ -51,6 +51,8 @@ pub(crate) enum GlobalNotification {
         id: String,
         created_at: String,
         run_id: String,
+        environment_id: i64,
+        environment: ReleasePackageEnvironmentKind,
         project_id: i64,
         project_name: String,
         package_type: ReleasePackageType,
@@ -64,6 +66,8 @@ pub(crate) enum GlobalNotification {
 
 pub(crate) fn build_release_package_notification(
     run_id: &str,
+    environment_id: i64,
+    environment: ReleasePackageEnvironmentKind,
     project_id: i64,
     project_name: &str,
     package_type: ReleasePackageType,
@@ -90,6 +94,8 @@ pub(crate) fn build_release_package_notification(
         id: format!("release-package:{run_id}"),
         created_at: Local::now().to_rfc3339(),
         run_id: run_id.to_string(),
+        environment_id,
+        environment,
         project_id,
         project_name: project_name.to_string(),
         package_type,
@@ -218,15 +224,17 @@ pub(crate) fn global_notification_open_tool(app: AppHandle, tool_id: String) -> 
 #[cfg(test)]
 mod tests {
     use super::{build_release_package_notification, todo_notifications, GlobalNotification};
-    use crate::tools::release_package::ReleasePackageType;
+    use crate::tools::release_package::{ReleasePackageEnvironmentKind, ReleasePackageType};
     use crate::tools::todo::{ReminderActionSummary, ReminderDispatch};
     use serde_json::{json, Value};
 
     fn release_payload(status: &str) -> Value {
         let notification = build_release_package_notification(
             "run-42",
+            42,
+            ReleasePackageEnvironmentKind::Production,
             7,
-            "  LazyCat Desktop  ",
+            "客户门户",
             ReleasePackageType::LocalArchive,
             "overall",
             status,
@@ -250,6 +258,8 @@ mod tests {
         ] {
             assert!(build_release_package_notification(
                 "run-42",
+                42,
+                ReleasePackageEnvironmentKind::Production,
                 7,
                 "LazyCat Desktop",
                 ReleasePackageType::LocalArchive,
@@ -271,6 +281,8 @@ mod tests {
         ] {
             assert!(build_release_package_notification(
                 "run-42",
+                42,
+                ReleasePackageEnvironmentKind::Production,
                 7,
                 "LazyCat Desktop",
                 ReleasePackageType::LocalArchive,
@@ -290,8 +302,10 @@ mod tests {
         assert_eq!(payload["id"], "release-package:run-42");
         assert_eq!(payload["kind"], "release-package");
         assert_eq!(payload["runId"], "run-42");
+        assert_eq!(payload["environmentId"], 42);
+        assert_eq!(payload["environment"], "production");
         assert_eq!(payload["projectId"], 7);
-        assert_eq!(payload["projectName"], "  LazyCat Desktop  ");
+        assert_eq!(payload["projectName"], "客户门户");
         assert_eq!(payload["packageType"], "local_archive");
         assert_eq!(payload["status"], "partially_succeeded");
         assert_eq!(payload["archivePath"], "E:\\releases\\LazyCat.zip");
@@ -314,6 +328,8 @@ mod tests {
     fn upload_release_serializes_type_without_archive_path() {
         let notification = build_release_package_notification(
             "run-upload",
+            42,
+            ReleasePackageEnvironmentKind::Production,
             7,
             "LazyCat Desktop",
             ReleasePackageType::ServerUpload,
@@ -333,6 +349,8 @@ mod tests {
     fn uploaded_command_failure_notification_has_no_archive_path() {
         let notification = build_release_package_notification(
             "run-command-failed",
+            42,
+            ReleasePackageEnvironmentKind::Production,
             7,
             "Portal",
             ReleasePackageType::ServerUpload,
@@ -353,6 +371,8 @@ mod tests {
     fn absent_optional_release_fields_are_not_serialized() {
         let notification = build_release_package_notification(
             "run-42",
+            42,
+            ReleasePackageEnvironmentKind::Production,
             7,
             "LazyCat Desktop",
             ReleasePackageType::LocalArchive,
