@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 import type {
+  ReleasePackageEnvironmentConfig,
   ReleasePackageLogEvent,
   ReleasePackageProject,
   ReleasePackageRunStatus,
@@ -11,14 +12,18 @@ import {
   appendReleasePackageLog,
   createReleasePackageStartPayload,
   createDefaultReleasePackageTargets,
-  createEmptyReleasePackageDraft,
+  createEmptyReleasePackageEnvironmentDraft,
+  createEmptyReleasePackageProjectDraft,
+  environmentToReleasePackageDraft,
   isReleasePackageDraftDirty,
-  normalizeReleasePackageDraft,
+  normalizeReleasePackageEnvironmentDraft,
+  normalizeReleasePackageProjectDraft,
   normalizeVaultServerPort,
-  projectToReleasePackageDraft,
+  projectToReleasePackageProjectDraft,
   releasePackageRunStatusLabel,
   RELEASE_PACKAGE_COMMAND_EXAMPLES,
-  validateReleasePackageDraft,
+  validateReleasePackageEnvironmentDraft,
+  validateReleasePackageProjectDraft,
   validateReleasePackageUpload,
   validateReleasePackageTargets,
   writeReleasePackageCommand,
@@ -27,33 +32,68 @@ import {
 const project: ReleasePackageProject = {
   id: 7,
   name: "客户门户",
-  outputRoot: "D:\\releases",
   frontendProjectPath: "D:\\work\\portal-web",
-  frontendBuildCommand: "pnpm build",
-  frontendSuccessKeyword: "Build completed",
-  frontendPostUploadCommand: "cd /srv/web\n./reload.sh",
-  frontendArtifactPath: "dist",
-  frontendArtifactMode: "copy_directory",
   backendProjectPath: "D:\\work\\portal-server",
-  backendBuildCommand: "mvn clean package -Pprod",
-  backendSuccessKeyword: "BUILD SUCCESS",
-  backendPostUploadCommand: "systemctl restart portal",
-  backendArtifactPath: "target\\portal.jar",
+  environments: [],
+  createdAt: "2026-07-18 10:00:00",
+  updatedAt: "2026-07-18 10:00:00",
+};
+
+const testEnvironment: ReleasePackageEnvironmentConfig = {
+  id: 11,
+  projectId: 7,
+  environment: "test",
+  configured: true,
   packageType: "local_archive",
+  outputRoot: "D:\\releases\\test",
+  frontendBuildCommand: "pnpm build:test",
+  frontendSuccessKeyword: "Build completed",
+  frontendPostUploadCommand: "cd /srv/test/web\n./reload.sh",
+  frontendArtifactPath: "dist-test",
+  frontendArtifactMode: "copy_directory",
+  backendBuildCommand: "mvn clean package -Ptest",
+  backendSuccessKeyword: "BUILD SUCCESS",
+  backendPostUploadCommand: "systemctl restart portal-test",
+  backendArtifactPath: "target\\portal-test.jar",
   sshHost: "",
   sshPort: 22,
   sshUsername: "",
   sshAuthType: "password",
   vaultEntryId: null,
   sshPrivateKeyPath: "",
-  frontendRemoteDir: "",
-  backendRemotePath: "",
+  frontendRemoteDir: "/srv/test/web",
+  backendRemotePath: "/srv/test/portal.jar",
   createdAt: "2026-07-18 10:00:00",
   updatedAt: "2026-07-18 10:00:00",
 };
 
+const productionEnvironment: ReleasePackageEnvironmentConfig = {
+  ...testEnvironment,
+  id: 12,
+  environment: "production",
+  outputRoot: "D:\\releases\\production",
+  frontendBuildCommand: "pnpm build:prod",
+  frontendPostUploadCommand: "cd /srv/prod/web\n./reload.sh",
+  frontendArtifactPath: "dist-prod",
+  backendBuildCommand: "mvn clean package -Pprod",
+  backendPostUploadCommand: "systemctl restart portal",
+  backendArtifactPath: "target\\portal.jar",
+  frontendRemoteDir: "/srv/prod/web",
+  backendRemotePath: "/srv/prod/portal.jar",
+};
+
+project.environments = [testEnvironment, productionEnvironment];
+
 function log(runId: string, line: string): ReleasePackageLogEvent {
-  return { runId, projectId: 7, phase: "frontend", stream: "stdout", line };
+  return {
+    runId,
+    projectId: 7,
+    environmentId: 11,
+    environment: "test",
+    phase: "frontend",
+    stream: "stdout",
+    line,
+  };
 }
 
 describe("release package view helpers", () => {
@@ -136,22 +176,27 @@ Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force
     });
   });
 
-  it("creates a blank project draft with copy mode", () => {
-    expect(createEmptyReleasePackageDraft()).toEqual({
+  it("creates an exact blank project draft", () => {
+    expect(createEmptyReleasePackageProjectDraft()).toEqual({
       name: "",
-      outputRoot: "",
       frontendProjectPath: "",
+      backendProjectPath: "",
+    });
+  });
+
+  it("creates a blank environment draft with all existing defaults", () => {
+    expect(createEmptyReleasePackageEnvironmentDraft()).toEqual({
+      packageType: "local_archive",
+      outputRoot: "",
       frontendBuildCommand: "",
       frontendSuccessKeyword: "",
       frontendPostUploadCommand: "",
       frontendArtifactPath: "",
       frontendArtifactMode: "copy_directory",
-      backendProjectPath: "",
       backendBuildCommand: "",
       backendSuccessKeyword: "",
       backendPostUploadCommand: "",
       backendArtifactPath: "",
-      packageType: "local_archive",
       sshHost: "",
       sshPort: 22,
       sshUsername: "",
@@ -186,48 +231,76 @@ Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force
     expect(validateReleasePackageTargets(["backend"])).toBeNull();
   });
 
-  it("normalizes a project into an editable draft and detects dirty fields", () => {
-    const draft = projectToReleasePackageDraft(project);
-    expect(draft).toMatchObject({
-      frontendSuccessKeyword: "Build completed",
-      backendSuccessKeyword: "BUILD SUCCESS",
-      frontendPostUploadCommand: "cd /srv/web\n./reload.sh",
-      backendPostUploadCommand: "systemctl restart portal",
+  it("maps public and environment records into independent drafts", () => {
+    expect(projectToReleasePackageProjectDraft(project)).toEqual({
+      name: "客户门户",
+      frontendProjectPath: "D:\\work\\portal-web",
+      backendProjectPath: "D:\\work\\portal-server",
     });
-    expect(isReleasePackageDraftDirty(project, draft)).toBe(false);
-    expect(isReleasePackageDraftDirty(project, { ...draft, frontendSuccessKeyword: "changed" })).toBe(true);
-    expect(isReleasePackageDraftDirty(project, { ...draft, backendSuccessKeyword: "changed" })).toBe(true);
-    expect(isReleasePackageDraftDirty(project, { ...draft, frontendPostUploadCommand: "changed" })).toBe(true);
-    expect(isReleasePackageDraftDirty(project, { ...draft, backendPostUploadCommand: "changed" })).toBe(true);
-    expect(isReleasePackageDraftDirty(null, createEmptyReleasePackageDraft())).toBe(false);
+    expect(environmentToReleasePackageDraft(testEnvironment)).toEqual({
+      packageType: testEnvironment.packageType,
+      outputRoot: testEnvironment.outputRoot,
+      frontendBuildCommand: testEnvironment.frontendBuildCommand,
+      frontendSuccessKeyword: testEnvironment.frontendSuccessKeyword,
+      frontendPostUploadCommand: testEnvironment.frontendPostUploadCommand,
+      frontendArtifactPath: testEnvironment.frontendArtifactPath,
+      frontendArtifactMode: testEnvironment.frontendArtifactMode,
+      backendBuildCommand: testEnvironment.backendBuildCommand,
+      backendSuccessKeyword: testEnvironment.backendSuccessKeyword,
+      backendPostUploadCommand: testEnvironment.backendPostUploadCommand,
+      backendArtifactPath: testEnvironment.backendArtifactPath,
+      sshHost: testEnvironment.sshHost,
+      sshPort: testEnvironment.sshPort,
+      sshUsername: testEnvironment.sshUsername,
+      sshAuthType: testEnvironment.sshAuthType,
+      vaultEntryId: testEnvironment.vaultEntryId,
+      sshPrivateKeyPath: testEnvironment.sshPrivateKeyPath,
+      frontendRemoteDir: testEnvironment.frontendRemoteDir,
+      backendRemotePath: testEnvironment.backendRemotePath,
+    });
   });
 
-  it("trims success keywords and only surrounding whitespace from multiline commands", () => {
-    const draft = projectToReleasePackageDraft(project);
-    draft.frontendSuccessKeyword = "  Build completed  ";
-    draft.frontendPostUploadCommand = "\n  cd /srv/web\n  ./reload.sh\n";
-    draft.backendSuccessKeyword = "  BUILD SUCCESS  ";
-    draft.backendPostUploadCommand = "\n  systemctl restart portal\n";
+  it("detects public and environment changes through four arguments", () => {
+    const projectDraft = projectToReleasePackageProjectDraft(project);
+    const environmentDraft = environmentToReleasePackageDraft(testEnvironment);
 
-    const normalized = normalizeReleasePackageDraft(draft);
+    expect(isReleasePackageDraftDirty(project, testEnvironment, projectDraft, environmentDraft)).toBe(false);
+    expect(isReleasePackageDraftDirty(project, testEnvironment, { ...projectDraft, name: "changed" }, environmentDraft)).toBe(true);
+    expect(isReleasePackageDraftDirty(project, testEnvironment, projectDraft, { ...environmentDraft, frontendBuildCommand: "changed" })).toBe(true);
+    expect(isReleasePackageDraftDirty(null, null, createEmptyReleasePackageProjectDraft(), createEmptyReleasePackageEnvironmentDraft())).toBe(false);
+  });
 
+  it("trims only surrounding whitespace in public and environment strings", () => {
+    const projectDraft = projectToReleasePackageProjectDraft(project);
+    projectDraft.name = "  客户门户  ";
+    const environmentDraft = environmentToReleasePackageDraft(testEnvironment);
+    environmentDraft.frontendSuccessKeyword = "  Build completed  ";
+    environmentDraft.frontendPostUploadCommand = "\n  cd /srv/web\n  ./reload.sh\n";
+    environmentDraft.backendSuccessKeyword = "  BUILD SUCCESS  ";
+    environmentDraft.backendPostUploadCommand = "\n  systemctl restart portal\n";
+
+    expect(normalizeReleasePackageProjectDraft(projectDraft).name).toBe("客户门户");
+    const normalized = normalizeReleasePackageEnvironmentDraft(environmentDraft);
     expect(normalized.frontendSuccessKeyword).toBe("Build completed");
     expect(normalized.frontendPostUploadCommand).toBe("cd /srv/web\n  ./reload.sh");
     expect(normalized.backendSuccessKeyword).toBe("BUILD SUCCESS");
     expect(normalized.backendPostUploadCommand).toBe("systemctl restart portal");
   });
 
-  it("returns the first required field error", () => {
-    const draft = createEmptyReleasePackageDraft();
-    expect(validateReleasePackageDraft(draft)).toBe("请输入项目名");
-    draft.name = "客户门户";
-    expect(validateReleasePackageDraft(draft)).toBe("请选择归档根目录");
-    draft.outputRoot = "D:\\releases";
-    expect(validateReleasePackageDraft(draft)).toBe("请选择前端工程目录");
+  it("returns the first required public and environment field errors", () => {
+    const projectDraft = createEmptyReleasePackageProjectDraft();
+    expect(validateReleasePackageProjectDraft(projectDraft)).toBe("请输入项目名");
+    projectDraft.name = "客户门户";
+    expect(validateReleasePackageProjectDraft(projectDraft)).toBe("请选择前端工程目录");
+
+    const environmentDraft = createEmptyReleasePackageEnvironmentDraft();
+    expect(validateReleasePackageEnvironmentDraft(environmentDraft)).toBe("请选择归档根目录");
+    environmentDraft.outputRoot = "D:\\releases";
+    expect(validateReleasePackageEnvironmentDraft(environmentDraft)).toBe("请输入前端构建命令");
   });
 
   it("validates enabled server upload settings", () => {
-    const draft = createEmptyReleasePackageDraft();
+    const draft = createEmptyReleasePackageEnvironmentDraft();
     draft.packageType = "server_upload";
     expect(validateReleasePackageUpload(draft)).toBe("请选择密码库服务器凭据");
     draft.vaultEntryId = 17;
@@ -246,7 +319,7 @@ Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force
   });
 
   it("validates the project SSH port only for private-key upload", () => {
-    const draft = createEmptyReleasePackageDraft();
+    const draft = createEmptyReleasePackageEnvironmentDraft();
     Object.assign(draft, {
       packageType: "server_upload",
       sshAuthType: "password",
@@ -268,7 +341,7 @@ Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force
   });
 
   it("requires a Vault credential only for password upload", () => {
-    const draft = createEmptyReleasePackageDraft();
+    const draft = createEmptyReleasePackageEnvironmentDraft();
     Object.assign(draft, {
       packageType: "server_upload",
       sshAuthType: "password",
@@ -289,16 +362,16 @@ Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force
     expect(validateReleasePackageUpload(draft)).toBe("请选择 SSH 私钥文件");
   });
 
-  it("maps and compares vaultEntryId as part of the project draft", () => {
-    const withBinding = { ...project, vaultEntryId: 9 };
-    const draft = projectToReleasePackageDraft(withBinding);
+  it("maps and compares vaultEntryId as part of the environment draft", () => {
+    const withBinding = { ...testEnvironment, vaultEntryId: 9 };
+    const draft = environmentToReleasePackageDraft(withBinding);
     expect(draft.vaultEntryId).toBe(9);
-    expect(isReleasePackageDraftDirty(withBinding, draft)).toBe(false);
+    expect(isReleasePackageDraftDirty(project, withBinding, projectToReleasePackageProjectDraft(project), draft)).toBe(false);
     draft.vaultEntryId = 10;
-    expect(isReleasePackageDraftDirty(withBinding, draft)).toBe(true);
+    expect(isReleasePackageDraftDirty(project, withBinding, projectToReleasePackageProjectDraft(project), draft)).toBe(true);
   });
   it("rejects non-canonical Linux deployment paths before preflight", () => {
-    const draft = createEmptyReleasePackageDraft();
+    const draft = createEmptyReleasePackageEnvironmentDraft();
     Object.assign(draft, {
       packageType: "server_upload",
       sshHost: "10.0.0.8",
@@ -313,38 +386,40 @@ Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force
     expect(validateReleasePackageUpload(draft)).toBe("后端远程文件路径必须是规范的 Linux 绝对路径");
   });
   it("validates only fields required by the selected package type", () => {
-    const draft = projectToReleasePackageDraft(project);
+    const draft = environmentToReleasePackageDraft(testEnvironment);
     draft.packageType = "server_upload";
     draft.outputRoot = "";
     draft.vaultEntryId = 17;
     draft.frontendRemoteDir = "/srv/app/web";
     draft.backendRemotePath = "/srv/app/app.jar";
-    expect(validateReleasePackageDraft(draft)).toBeNull();
+    expect(validateReleasePackageEnvironmentDraft(draft)).toBeNull();
 
     draft.vaultEntryId = null;
-    expect(validateReleasePackageDraft(draft)).toBe("请选择密码库服务器凭据");
+    expect(validateReleasePackageEnvironmentDraft(draft)).toBe("请选择密码库服务器凭据");
 
     draft.packageType = "local_archive";
-    expect(validateReleasePackageDraft(draft)).toBe("请选择归档根目录");
+    expect(validateReleasePackageEnvironmentDraft(draft)).toBe("请选择归档根目录");
   });
 
   it.each([
     {
       packageType: "local_archive",
       expected: {
-        projectId: 7,
+        environmentId: 11,
         targets: ["frontend", "backend"],
         folderName: "portal-20260722",
         overwriteExisting: true,
+        productionConfirmed: true,
       },
     },
     {
       packageType: "server_upload",
       expected: {
-        projectId: 7,
+        environmentId: 11,
         targets: ["frontend", "backend"],
         preflightToken: "preflight-1",
         overwriteRemoteTargets: ["frontend"],
+        productionConfirmed: true,
       },
     },
   ] satisfies ReadonlyArray<{
@@ -352,45 +427,65 @@ Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force
     expected: Record<string, unknown>;
   }>)("builds only $packageType start parameters", ({ packageType, expected }) => {
     expect(createReleasePackageStartPayload(packageType, {
-      projectId: 7,
+      environmentId: 11,
       targets: ["frontend", "backend"],
       folderName: "portal-20260722",
       overwriteExisting: true,
       preflightToken: "preflight-1",
       overwriteRemoteTargets: ["frontend"],
+      productionConfirmed: true,
     })).toEqual(expected);
   });
 
   it.each([undefined, "", "legacy_upload"])("rejects invalid start package type %s", (packageType) => {
     expect(() => createReleasePackageStartPayload(packageType, {
-      projectId: 7,
+      environmentId: 11,
       targets: ["frontend"],
       folderName: "portal-20260722",
       overwriteExisting: false,
       preflightToken: "preflight-1",
       overwriteRemoteTargets: [],
+      productionConfirmed: false,
     })).toThrow("打包类型无效，请重新打开确认窗口");
   });
 
   it("adds a dispatch id only to action-triggered starts", () => {
     expect(createReleasePackageStartPayload("local_archive", {
-      projectId: 7,
+      environmentId: 11,
       targets: ["frontend", "backend"],
       folderName: "20260725-客户门户",
       overwriteExisting: false,
       preflightToken: "",
       overwriteRemoteTargets: [],
+      productionConfirmed: false,
       actionDispatchId: "dispatch-1",
     })).toMatchObject({ actionDispatchId: "dispatch-1" });
 
     expect(createReleasePackageStartPayload("local_archive", {
-      projectId: 7,
+      environmentId: 11,
       targets: ["frontend"],
       folderName: "manual",
       overwriteExisting: false,
       preflightToken: "",
       overwriteRemoteTargets: [],
+      productionConfirmed: false,
     })).not.toHaveProperty("actionDispatchId");
+  });
+
+  it("adds production confirmation only for strict true", () => {
+    const input = {
+      environmentId: 12,
+      targets: ["frontend"] as const,
+      folderName: "production",
+      overwriteExisting: false,
+      preflightToken: "",
+      overwriteRemoteTargets: [] as const,
+      productionConfirmed: false,
+    };
+
+    expect(createReleasePackageStartPayload("local_archive", input)).not.toHaveProperty("productionConfirmed");
+    expect(createReleasePackageStartPayload("local_archive", { ...input, productionConfirmed: true }))
+      .toHaveProperty("productionConfirmed", true);
   });
 
   it("accepts events only for the active run", () => {

@@ -1,6 +1,7 @@
 export type ReleasePackageArtifactMode = "copy_directory" | "zip_directory";
 export type ReleasePackageSshAuthType = "password" | "private_key";
 export type ReleasePackageType = "local_archive" | "server_upload";
+export type ReleasePackageEnvironmentKind = "test" | "production";
 export type ReleasePackageTarget = "frontend" | "backend";
 export type ReleasePackagePhase = ReleasePackageTarget | "upload" | "overall";
 export type ReleasePackageRunStatus =
@@ -35,25 +36,38 @@ export interface ReleasePackageUploadConfig {
   backendRemotePath: string;
 }
 
-export interface ReleasePackageProjectDraft extends ReleasePackageUploadConfig {
+export interface ReleasePackageProjectDraft {
   name: string;
+  frontendProjectPath: string;
+  backendProjectPath: string;
+}
+
+export interface ReleasePackageEnvironmentDraft extends ReleasePackageUploadConfig {
   packageType: ReleasePackageType;
   outputRoot: string;
-  frontendProjectPath: string;
   frontendBuildCommand: string;
   frontendSuccessKeyword: string;
   frontendPostUploadCommand: string;
   frontendArtifactPath: string;
   frontendArtifactMode: ReleasePackageArtifactMode;
-  backendProjectPath: string;
   backendBuildCommand: string;
   backendSuccessKeyword: string;
   backendPostUploadCommand: string;
   backendArtifactPath: string;
 }
 
+export interface ReleasePackageEnvironmentConfig extends ReleasePackageEnvironmentDraft {
+  id: number;
+  projectId: number;
+  environment: ReleasePackageEnvironmentKind;
+  configured: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ReleasePackageProject extends ReleasePackageProjectDraft {
   id: number;
+  environments: ReleasePackageEnvironmentConfig[];
   createdAt: string;
   updatedAt: string;
 }
@@ -125,7 +139,9 @@ export interface ReleasePackageUploadProgress {
 
 export interface ReleasePackageLogEvent {
   runId: string;
+  environmentId: number;
   projectId: number;
+  environment: ReleasePackageEnvironmentKind;
   phase: ReleasePackagePhase;
   stream: "stdout" | "stderr" | "system";
   line: string;
@@ -133,7 +149,9 @@ export interface ReleasePackageLogEvent {
 
 export interface ReleasePackageStatusEvent {
   runId: string;
+  environmentId: number;
   projectId: number;
+  environment: ReleasePackageEnvironmentKind;
   status: Exclude<ReleasePackageRunStatus, "idle">;
   phase: ReleasePackagePhase;
   archivePath?: string;

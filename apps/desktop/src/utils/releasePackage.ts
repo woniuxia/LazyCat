@@ -1,4 +1,6 @@
 import type {
+  ReleasePackageEnvironmentConfig,
+  ReleasePackageEnvironmentDraft,
   ReleasePackageLogEvent,
   ReleasePackageProject,
   ReleasePackageProjectDraft,
@@ -68,28 +70,31 @@ export function validateReleasePackageTargets(targets: readonly ReleasePackageTa
 }
 
 export interface ReleasePackageStartPayloadInput {
-  projectId: number;
+  environmentId: number;
   targets: readonly ReleasePackageTarget[];
   folderName: string;
   overwriteExisting: boolean;
   preflightToken: string;
   overwriteRemoteTargets: readonly ReleasePackageTarget[];
+  productionConfirmed: boolean;
   actionDispatchId?: string;
 }
 
 export type ReleasePackageStartPayload =
   | {
-      projectId: number;
+      environmentId: number;
       targets: ReleasePackageTarget[];
       folderName: string;
       overwriteExisting: boolean;
+      productionConfirmed?: true;
       actionDispatchId?: string;
     }
   | {
-      projectId: number;
+      environmentId: number;
       targets: ReleasePackageTarget[];
       preflightToken: string;
       overwriteRemoteTargets: ReleasePackageTarget[];
+      productionConfirmed?: true;
       actionDispatchId?: string;
     };
 
@@ -98,8 +103,11 @@ export function createReleasePackageStartPayload(
   input: ReleasePackageStartPayloadInput,
 ): ReleasePackageStartPayload {
   const common = {
-    projectId: input.projectId,
+    environmentId: input.environmentId,
     targets: [...input.targets],
+    ...(input.productionConfirmed === true
+      ? { productionConfirmed: true as const }
+      : {}),
     ...(input.actionDispatchId !== undefined
       ? { actionDispatchId: input.actionDispatchId }
       : {}),
@@ -121,18 +129,23 @@ export function createReleasePackageStartPayload(
   throw new Error("打包类型无效，请重新打开确认窗口");
 }
 
-export function createEmptyReleasePackageDraft(): ReleasePackageProjectDraft {
+export function createEmptyReleasePackageProjectDraft(): ReleasePackageProjectDraft {
   return {
     name: "",
+    frontendProjectPath: "",
+    backendProjectPath: "",
+  };
+}
+
+export function createEmptyReleasePackageEnvironmentDraft(): ReleasePackageEnvironmentDraft {
+  return {
     packageType: "local_archive",
     outputRoot: "",
-    frontendProjectPath: "",
     frontendBuildCommand: "",
     frontendSuccessKeyword: "",
     frontendPostUploadCommand: "",
     frontendArtifactPath: "",
     frontendArtifactMode: "copy_directory",
-    backendProjectPath: "",
     backendBuildCommand: "",
     backendSuccessKeyword: "",
     backendPostUploadCommand: "",
@@ -155,41 +168,60 @@ export function normalizeVaultServerPort(value: unknown): number | null {
     : null;
 }
 
-export function projectToReleasePackageDraft(project: ReleasePackageProject): ReleasePackageProjectDraft {
+export function projectToReleasePackageProjectDraft(project: ReleasePackageProject): ReleasePackageProjectDraft {
   return {
     name: project.name,
-    packageType: project.packageType,
-    outputRoot: project.outputRoot,
     frontendProjectPath: project.frontendProjectPath,
-    frontendBuildCommand: project.frontendBuildCommand,
-    frontendSuccessKeyword: project.frontendSuccessKeyword,
-    frontendPostUploadCommand: project.frontendPostUploadCommand,
-    frontendArtifactPath: project.frontendArtifactPath,
-    frontendArtifactMode: project.frontendArtifactMode,
     backendProjectPath: project.backendProjectPath,
-    backendBuildCommand: project.backendBuildCommand,
-    backendSuccessKeyword: project.backendSuccessKeyword,
-    backendPostUploadCommand: project.backendPostUploadCommand,
-    backendArtifactPath: project.backendArtifactPath,
-    sshHost: project.sshHost,
-    sshPort: project.sshPort,
-    sshUsername: project.sshUsername,
-    sshAuthType: project.sshAuthType,
-    vaultEntryId: project.vaultEntryId,
-    sshPrivateKeyPath: project.sshPrivateKeyPath,
-    frontendRemoteDir: project.frontendRemoteDir,
-    backendRemotePath: project.backendRemotePath,
   };
 }
 
-export function normalizeReleasePackageDraft(draft: ReleasePackageProjectDraft): ReleasePackageProjectDraft {
-  return Object.fromEntries(
-    Object.entries(draft).map(([key, value]) => [key, typeof value === "string" ? value.trim() : value]),
-  ) as unknown as ReleasePackageProjectDraft;
+export function environmentToReleasePackageDraft(
+  environment: ReleasePackageEnvironmentConfig,
+): ReleasePackageEnvironmentDraft {
+  return {
+    packageType: environment.packageType,
+    outputRoot: environment.outputRoot,
+    frontendBuildCommand: environment.frontendBuildCommand,
+    frontendSuccessKeyword: environment.frontendSuccessKeyword,
+    frontendPostUploadCommand: environment.frontendPostUploadCommand,
+    frontendArtifactPath: environment.frontendArtifactPath,
+    frontendArtifactMode: environment.frontendArtifactMode,
+    backendBuildCommand: environment.backendBuildCommand,
+    backendSuccessKeyword: environment.backendSuccessKeyword,
+    backendPostUploadCommand: environment.backendPostUploadCommand,
+    backendArtifactPath: environment.backendArtifactPath,
+    sshHost: environment.sshHost,
+    sshPort: environment.sshPort,
+    sshUsername: environment.sshUsername,
+    sshAuthType: environment.sshAuthType,
+    vaultEntryId: environment.vaultEntryId,
+    sshPrivateKeyPath: environment.sshPrivateKeyPath,
+    frontendRemoteDir: environment.frontendRemoteDir,
+    backendRemotePath: environment.backendRemotePath,
+  };
 }
 
-export function validateReleasePackageUpload(draft: ReleasePackageProjectDraft): string | null {
-  const value = normalizeReleasePackageDraft(draft);
+function normalizeDraft<T extends object>(draft: T): T {
+  return Object.fromEntries(
+    Object.entries(draft).map(([key, value]) => [key, typeof value === "string" ? value.trim() : value]),
+  ) as T;
+}
+
+export function normalizeReleasePackageProjectDraft(
+  draft: ReleasePackageProjectDraft,
+): ReleasePackageProjectDraft {
+  return normalizeDraft(draft);
+}
+
+export function normalizeReleasePackageEnvironmentDraft(
+  draft: ReleasePackageEnvironmentDraft,
+): ReleasePackageEnvironmentDraft {
+  return normalizeDraft(draft);
+}
+
+export function validateReleasePackageUpload(draft: ReleasePackageEnvironmentDraft): string | null {
+  const value = normalizeReleasePackageEnvironmentDraft(draft);
   if (value.sshAuthType === "password" && value.vaultEntryId === null) {
     return "请选择密码库服务器凭据";
   }
@@ -225,14 +257,19 @@ function isCanonicalLinuxPath(value: string): boolean {
     && !value.includes("\0")
     && !value.split("/").some((segment) => segment === "." || segment === "..");
 }
-export function validateReleasePackageDraft(draft: ReleasePackageProjectDraft): string | null {
-  const value = normalizeReleasePackageDraft(draft);
+export function validateReleasePackageProjectDraft(draft: ReleasePackageProjectDraft): string | null {
+  const value = normalizeReleasePackageProjectDraft(draft);
   if (!value.name) return "请输入项目名";
-  if (value.packageType === "local_archive" && !value.outputRoot) return "请选择归档根目录";
   if (!value.frontendProjectPath) return "请选择前端工程目录";
+  if (!value.backendProjectPath) return "请选择后端工程目录";
+  return null;
+}
+
+export function validateReleasePackageEnvironmentDraft(draft: ReleasePackageEnvironmentDraft): string | null {
+  const value = normalizeReleasePackageEnvironmentDraft(draft);
+  if (value.packageType === "local_archive" && !value.outputRoot) return "请选择归档根目录";
   if (!value.frontendBuildCommand) return "请输入前端构建命令";
   if (!value.frontendArtifactPath) return "请输入前端产物路径";
-  if (!value.backendProjectPath) return "请选择后端工程目录";
   if (!value.backendBuildCommand) return "请输入后端构建命令";
   if (!value.backendArtifactPath) return "请输入后端产物路径";
   return value.packageType === "server_upload" ? validateReleasePackageUpload(value) : null;
@@ -240,12 +277,18 @@ export function validateReleasePackageDraft(draft: ReleasePackageProjectDraft): 
 
 export function isReleasePackageDraftDirty(
   project: ReleasePackageProject | null,
-  draft: ReleasePackageProjectDraft,
+  environment: ReleasePackageEnvironmentConfig | null,
+  projectDraft: ReleasePackageProjectDraft,
+  environmentDraft: ReleasePackageEnvironmentDraft,
 ): boolean {
-  if (!project) {
-    return JSON.stringify(normalizeReleasePackageDraft(draft)) !== JSON.stringify(createEmptyReleasePackageDraft());
-  }
-  return JSON.stringify(projectToReleasePackageDraft(project)) !== JSON.stringify(normalizeReleasePackageDraft(draft));
+  const savedProject = project
+    ? projectToReleasePackageProjectDraft(project)
+    : createEmptyReleasePackageProjectDraft();
+  const savedEnvironment = environment
+    ? environmentToReleasePackageDraft(environment)
+    : createEmptyReleasePackageEnvironmentDraft();
+  return JSON.stringify(savedProject) !== JSON.stringify(normalizeReleasePackageProjectDraft(projectDraft))
+    || JSON.stringify(savedEnvironment) !== JSON.stringify(normalizeReleasePackageEnvironmentDraft(environmentDraft));
 }
 
 export function acceptReleasePackageEvent(
