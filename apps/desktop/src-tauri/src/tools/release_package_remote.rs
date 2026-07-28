@@ -566,6 +566,113 @@ pub fn run_remote_preflight(
         .collect()
 }
 
+pub fn run_command_preflight(
+    endpoint: &RemoteEndpoint,
+    private_key_path: &str,
+    expected_fingerprint: &str,
+    secret: &AuthSecret,
+) -> Result<(), String> {
+    let session = handshake_session(endpoint)?;
+    if session_fingerprint(&session)? != expected_fingerprint {
+        return Err("SSH 主机指纹与已信任记录不一致".into());
+    }
+    authenticate_session(&session, endpoint, private_key_path, secret)?;
+    let mut channel = session
+        .channel_session()
+        .map_err(|error| format!("创建 SSH 命令通道失败：{error}"))?;
+    channel
+        .close()
+        .map_err(|error| format!("关闭 SSH 命令通道失败：{error}"))?;
+    channel
+        .wait_close()
+        .map_err(|error| format!("等待 SSH 命令通道关闭失败：{error}"))?;
+    Ok(())
+}
+
+pub struct CommandRemoteFs {
+    session: Session,
+}
+
+impl CommandRemoteFs {
+    pub fn connect(
+        endpoint: &RemoteEndpoint,
+        private_key_path: &str,
+        expected_fingerprint: &str,
+        secret: &AuthSecret,
+        sockets: &SshSocketRegistry,
+    ) -> Result<Self, DeployError> {
+        let session =
+            handshake_session_with_socket(endpoint, Some(sockets)).map_err(DeployError::failed)?;
+        if session_fingerprint(&session).map_err(DeployError::failed)? != expected_fingerprint {
+            return Err(DeployError::failed("SSH 主机指纹与已信任记录不一致"));
+        }
+        authenticate_session(&session, endpoint, private_key_path, secret)
+            .map_err(DeployError::failed)?;
+        Ok(Self { session })
+    }
+}
+
+impl RemoteFs for CommandRemoteFs {
+    fn metadata(&self, _path: &str) -> Result<Option<RemoteMetadata>, DeployError> {
+        Err(DeployError::failed("命令重试连接不支持 SFTP 操作"))
+    }
+
+    fn create_dir(&mut self, _path: &str) -> Result<(), DeployError> {
+        Err(DeployError::failed("命令重试连接不支持 SFTP 操作"))
+    }
+
+    fn read_dir(&self, _path: &str) -> Result<Vec<RemoteDirEntry>, DeployError> {
+        Err(DeployError::failed("命令重试连接不支持 SFTP 操作"))
+    }
+
+    fn write_file(
+        &mut self,
+        _remote_path: &str,
+        _local_path: &Path,
+        _cancelled: &AtomicBool,
+        _progress: &mut dyn FnMut(u64),
+    ) -> Result<(), DeployError> {
+        Err(DeployError::failed("命令重试连接不支持 SFTP 操作"))
+    }
+
+    fn rename(&mut self, _source: &str, _target: &str) -> Result<(), DeployError> {
+        Err(DeployError::failed("命令重试连接不支持 SFTP 操作"))
+    }
+
+    fn remove_tree(&mut self, _path: &str) -> Result<(), DeployError> {
+        Err(DeployError::failed("命令重试连接不支持 SFTP 操作"))
+    }
+
+    fn execute_command(
+        &mut self,
+        command: &str,
+        cancelled: &AtomicBool,
+        output: &mut dyn FnMut(&str, String),
+    ) -> Result<RemoteCommandResult, DeployError> {
+        if cancelled.load(Ordering::Acquire) {
+            return Err(DeployError::cancelled_command());
+        }
+        let mut channel = self
+            .session
+            .channel_session()
+            .map_err(|error| DeployError::failed(format!("创建 SSH 命令通道失败：{error}")))?;
+        channel
+            .exec(command)
+            .map_err(|error| DeployError::failed(format!("发送上传后命令失败：{error}")))?;
+        self.session.set_blocking(false);
+        let read_result = read_command_streams(&mut channel, cancelled, output);
+        self.session.set_blocking(true);
+        read_result?;
+        channel
+            .wait_close()
+            .map_err(|error| DeployError::failed(format!("等待上传后命令结束失败：{error}")))?;
+        let exit_code = channel
+            .exit_status()
+            .map_err(|error| DeployError::failed(format!("读取上传后命令退出码失败：{error}")))?;
+        Ok(RemoteCommandResult { exit_code })
+    }
+}
+
 pub struct SftpRemoteFs {
     session: Session,
     sftp: Sftp,

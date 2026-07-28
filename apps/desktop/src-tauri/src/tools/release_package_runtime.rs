@@ -21,6 +21,7 @@ use super::release_package_deploy::{
     deploy_parallel, ArchivedTarget, ArtifactManifest, DeployError, DeploymentPlan,
     DeploymentRequest, DeploymentSuccess, DeploymentTarget, RemoteFs,
 };
+use super::release_package_remote::RemoteEndpoint;
 use super::release_package_remote::{
     consume_preflight, ConsumedPreflight, PreflightBinding, RemoteTarget, SftpRemoteFs,
     SshSocketRegistry,
@@ -785,6 +786,116 @@ impl RetryJob {
             },
         }
     }
+}
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct CommandAuthBinding {
+    endpoint: RemoteEndpoint,
+    auth_type: String,
+    vault_entry_id: Option<i64>,
+    private_key_path: String,
+    fingerprint_sha256: String,
+}
+
+#[derive(Clone, Debug)]
+struct CommandRetryJob {
+    project_id: i64,
+    binding: CommandAuthBinding,
+    failed_commands: Vec<CommandSnapshot>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct PreparedCommandRetry {
+    targets: Vec<ReleaseTarget>,
+    binding: CommandAuthBinding,
+    failed_commands: Vec<CommandSnapshot>,
+}
+
+static COMMAND_RETRIES: OnceLock<Mutex<HashMap<String, CommandRetryJob>>> = OnceLock::new();
+
+fn command_retries() -> &'static Mutex<HashMap<String, CommandRetryJob>> {
+    COMMAND_RETRIES.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn validate_failed_commands(commands: &[CommandSnapshot]) -> Result<(), String> {
+    if commands.is_empty() {
+        return Err("没有可重试的失败上传后命令".into());
+    }
+    if commands
+        .iter()
+        .any(|snapshot| snapshot.command.trim().is_empty())
+        || commands.iter().enumerate().any(|(index, snapshot)| {
+            commands[..index]
+                .iter()
+                .any(|other| other.target == snapshot.target)
+        })
+    {
+        return Err("失败上传后命令快照无效".into());
+    }
+    Ok(())
+}
+
+fn issue_command_retry(
+    project_id: i64,
+    binding: CommandAuthBinding,
+    failed_commands: Vec<CommandSnapshot>,
+) -> Result<String, String> {
+    validate_failed_commands(&failed_commands)?;
+    let token = uuid::Uuid::new_v4().to_string();
+    command_retries()
+        .lock()
+        .map_err(|_| "命令重试任务存储不可用".to_string())?
+        .insert(
+            token.clone(),
+            CommandRetryJob {
+                project_id,
+                binding,
+                failed_commands,
+            },
+        );
+    Ok(token)
+}
+
+fn prepare_command_retry(token: &str, project_id: i64) -> Result<PreparedCommandRetry, String> {
+    let retries = command_retries()
+        .lock()
+        .map_err(|_| "命令重试任务存储不可用".to_string())?;
+    let retry = retries
+        .get(token)
+        .ok_or_else(|| "命令重试令牌无效或已使用".to_string())?;
+    if retry.project_id != project_id {
+        return Err("命令重试令牌与当前项目不匹配".into());
+    }
+    Ok(PreparedCommandRetry {
+        targets: retry
+            .failed_commands
+            .iter()
+            .map(|command| command.target)
+            .collect(),
+        binding: retry.binding.clone(),
+        failed_commands: retry.failed_commands.clone(),
+    })
+}
+
+fn consume_command_retry(token: &str, project_id: i64) -> Result<CommandRetryJob, String> {
+    let mut retries = command_retries()
+        .lock()
+        .map_err(|_| "命令重试任务存储不可用".to_string())?;
+    let retry = retries
+        .get(token)
+        .ok_or_else(|| "命令重试令牌无效或已使用".to_string())?;
+    if retry.project_id != project_id {
+        return Err("命令重试令牌与当前项目不匹配".into());
+    }
+    retries
+        .remove(token)
+        .ok_or_else(|| "命令重试令牌无效或已使用".to_string())
+}
+
+fn finish_command_retry(
+    job: CommandRetryJob,
+    failed_commands: Vec<CommandSnapshot>,
+) -> Result<String, String> {
+    issue_command_retry(job.project_id, job.binding, failed_commands)
 }
 
 static RETRY_JOBS: OnceLock<Mutex<HashMap<String, RetryJob>>> = OnceLock::new();
@@ -2004,6 +2115,11 @@ pub fn cancel(run_id: &str) -> Result<Value, String> {
 pub fn on_app_exit() {
     super::release_package_remote::clear_temporary_stores();
     if let Some(retries) = RETRY_JOBS.get() {
+        if let Ok(mut retries) = retries.lock() {
+            retries.clear();
+        }
+    }
+    if let Some(retries) = COMMAND_RETRIES.get() {
         if let Ok(mut retries) = retries.lock() {
             retries.clear();
         }
@@ -3531,6 +3647,62 @@ mod pipeline_tests {
         assert!(consume_retry(&token, 7).is_err());
     }
 
+    #[test]
+    fn command_retry_contains_only_failed_commands_and_rotates_after_failure() {
+        let binding = CommandAuthBinding {
+            endpoint: RemoteEndpoint {
+                host: "deploy.example.internal".into(),
+                port: 22,
+                username: "deploy".into(),
+            },
+            auth_type: "private_key".into(),
+            vault_entry_id: None,
+            private_key_path: r"C:\Users\tester\.ssh\deploy".into(),
+            fingerprint_sha256: "SHA256:trusted".into(),
+        };
+        let failed = vec![CommandSnapshot::new(ReleaseTarget::Frontend, "reload-web")];
+        let first = issue_command_retry(7, binding.clone(), failed.clone()).unwrap();
+
+        let prepared = prepare_command_retry(&first, 7).unwrap();
+        assert_eq!(prepared.targets, vec![ReleaseTarget::Frontend]);
+        assert_eq!(prepared.binding, binding);
+        assert_eq!(prepared.failed_commands, failed);
+
+        let job = consume_command_retry(&first, 7).unwrap();
+        assert!(consume_command_retry(&first, 7).is_err());
+        assert!(prepare_command_retry(&first, 7).is_err());
+
+        let second = finish_command_retry(
+            job,
+            vec![CommandSnapshot::new(ReleaseTarget::Frontend, "reload-web")],
+        )
+        .unwrap();
+        assert_ne!(first, second);
+    }
+
+    #[test]
+    fn command_retry_rejects_a_different_project_without_consuming_the_job() {
+        let token = issue_command_retry(
+            7,
+            CommandAuthBinding {
+                endpoint: RemoteEndpoint {
+                    host: "deploy.example.internal".into(),
+                    port: 22,
+                    username: "deploy".into(),
+                },
+                auth_type: "password".into(),
+                vault_entry_id: Some(9),
+                private_key_path: String::new(),
+                fingerprint_sha256: "SHA256:trusted".into(),
+            },
+            vec![CommandSnapshot::new(ReleaseTarget::Backend, "restart-api")],
+        )
+        .unwrap();
+
+        assert!(prepare_command_retry(&token, 8).is_err());
+        assert!(consume_command_retry(&token, 8).is_err());
+        assert!(prepare_command_retry(&token, 7).is_ok());
+    }
     #[cfg(windows)]
     #[test]
     fn build_targets_returns_sources_without_archiving() {
