@@ -124,6 +124,7 @@ pub struct PreflightBinding {
     pub vault_entry_id: Option<i64>,
     pub private_key_path: String,
     pub targets: Vec<RemoteTarget>,
+    pub command_retry_token: Option<String>,
     pub frontend_remote_dir: String,
     pub backend_remote_path: String,
 }
@@ -196,25 +197,46 @@ impl PreflightStore {
         Ok(IssuedPreflight { token, expires_at })
     }
 
+    pub fn consume_after<T, F>(
+        &self,
+        token: &str,
+        binding: &PreflightBinding,
+        after: F,
+    ) -> Result<(ConsumedPreflight, T), String>
+    where
+        F: FnOnce(&ConsumedPreflight) -> Result<T, String>,
+    {
+        let mut values = self
+            .values
+            .lock()
+            .map_err(|_| "SSH 预检令牌存储不可用".to_string())?;
+        let now = Instant::now();
+        {
+            let value = values
+                .get(token)
+                .ok_or_else(|| "SSH 预检令牌无效或已使用".to_string())?;
+            if value.expires_at <= now {
+                values.remove(token);
+                return Err("SSH 预检令牌已过期".into());
+            }
+            if &value.value.binding != binding {
+                return Err("项目或远程上传配置已变化，请重新预检".into());
+            }
+        }
+        let after_value = after(&values.get(token).expect("validated preflight token").value)?;
+        let value = values
+            .remove(token)
+            .ok_or_else(|| "SSH 预检令牌无效或已使用".to_string())?;
+        Ok((value.value, after_value))
+    }
+
     pub fn consume(
         &self,
         token: &str,
         binding: &PreflightBinding,
     ) -> Result<ConsumedPreflight, String> {
-        let mut values = self
-            .values
-            .lock()
-            .map_err(|_| "SSH 预检令牌存储不可用".to_string())?;
-        let value = values
-            .remove(token)
-            .ok_or_else(|| "SSH 预检令牌无效或已使用".to_string())?;
-        if value.expires_at <= Instant::now() {
-            return Err("SSH 预检令牌已过期".into());
-        }
-        if &value.value.binding != binding {
-            return Err("项目或远程上传配置已变化，请重新预检".into());
-        }
-        Ok(value.value)
+        self.consume_after(token, binding, |_| Ok(()))
+            .map(|(value, ())| value)
     }
 
     pub fn discard(&self, token: &str) -> Result<(), String> {
@@ -932,6 +954,17 @@ pub fn consume_preflight(
     preflight_store().consume(token, binding)
 }
 
+pub fn consume_preflight_after<T, F>(
+    token: &str,
+    binding: &PreflightBinding,
+    after: F,
+) -> Result<(ConsumedPreflight, T), String>
+where
+    F: FnOnce(&ConsumedPreflight) -> Result<T, String>,
+{
+    preflight_store().consume_after(token, binding, after)
+}
+
 pub fn discard_preflight(token: &str) -> Result<(), String> {
     preflight_store().discard(token)
 }
@@ -1146,6 +1179,7 @@ mod tests {
             vault_entry_id: None,
             private_key_path: String::new(),
             targets,
+            command_retry_token: None,
             frontend_remote_dir: "/srv/app/web".into(),
             backend_remote_path: "/srv/app/app.jar".into(),
         }
@@ -1225,9 +1259,10 @@ mod tests {
                 vec![],
             )
             .unwrap();
-        let mut changed = binding;
+        let mut changed = binding.clone();
         changed.backend_remote_path = "/srv/other/app.jar".into();
         assert!(store.consume(&issued.token, &changed).is_err());
+        assert!(store.consume(&issued.token, &binding).is_ok());
     }
 
     #[test]
@@ -1249,6 +1284,40 @@ mod tests {
             store.consume(&issued.token, &changed).err().unwrap(),
             "项目或远程上传配置已变化，请重新预检"
         );
+    }
+
+    #[test]
+    fn preflight_token_is_preserved_when_dependent_consumption_fails() {
+        let store = PreflightStore::new(Duration::from_secs(300));
+        let binding = binding(vec![RemoteTarget::Frontend]);
+        let issued = store
+            .insert(
+                binding.clone(),
+                "SHA256:trusted".into(),
+                AuthSecret::Password(Zeroizing::new("secret".into())),
+                vec![],
+            )
+            .unwrap();
+
+        let error = store
+            .consume_after(&issued.token, &binding, |_| {
+                Err::<(), String>("命令重试令牌无效或已使用".into())
+            })
+            .err()
+            .unwrap();
+
+        assert_eq!(error, "命令重试令牌无效或已使用");
+        assert!(store.consume(&issued.token, &binding).is_ok());
+    }
+
+    #[test]
+    fn command_retry_token_is_part_of_the_preflight_binding() {
+        let mut first = binding(vec![RemoteTarget::Frontend]);
+        first.command_retry_token = Some("retry-1".into());
+        let mut second = first.clone();
+        second.command_retry_token = Some("retry-2".into());
+
+        assert_ne!(first, second);
     }
 
     #[test]
@@ -1397,6 +1466,7 @@ mod tests {
                 vault_entry_id: None,
                 private_key_path: self.private_key_path.clone(),
                 targets: vec![RemoteTarget::Frontend, RemoteTarget::Backend],
+                command_retry_token: None,
                 frontend_remote_dir: format!("{remote_root}/web"),
                 backend_remote_path: format!("{remote_root}/app.jar"),
             }

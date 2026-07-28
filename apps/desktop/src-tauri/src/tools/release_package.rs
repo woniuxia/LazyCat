@@ -6,7 +6,6 @@ use std::path::PathBuf;
 
 use super::helpers::db_conn;
 use super::release_package_archive::{default_folder_name, validate_folder_name};
-use super::release_package_remote::consume_preflight;
 use super::release_package_remote::run_command_preflight;
 use super::release_package_remote::{
     classify_trust, consume_probe, discard_preflight, discard_probe, issue_preflight, load_probe,
@@ -943,6 +942,7 @@ fn preflight_binding(
         vault_entry_id: upload.vault_entry_id,
         private_key_path: project.ssh_private_key_path.clone(),
         targets: remote_targets(targets),
+        command_retry_token: None,
         frontend_remote_dir: project.frontend_remote_dir.clone(),
         backend_remote_path: project.backend_remote_path.clone(),
     }
@@ -1078,6 +1078,7 @@ fn command_retry_preflight_with_conn(conn: &Connection, payload: &Value) -> Resu
         vault_entry_id: prepared.binding.vault_entry_id,
         private_key_path: prepared.binding.private_key_path,
         targets: remote_targets(&prepared.targets),
+        command_retry_token: Some(retry_token.to_string()),
         frontend_remote_dir: String::new(),
         backend_remote_path: String::new(),
     };
@@ -1283,11 +1284,17 @@ pub fn execute_with_app(
                 vault_entry_id: prepared.binding.vault_entry_id,
                 private_key_path: prepared.binding.private_key_path,
                 targets: remote_targets(&prepared.targets),
+                command_retry_token: Some(retry_token.to_string()),
                 frontend_remote_dir: String::new(),
                 backend_remote_path: String::new(),
             };
-            let authorization = consume_preflight(auth_token, &binding)?;
-            super::release_package_runtime::command_retry(app, project, retry_token, authorization)
+            super::release_package_runtime::command_retry(
+                app,
+                project,
+                retry_token,
+                auth_token,
+                binding,
+            )
         }
         "cancel" => {
             let run_id = payload["runId"].as_str().ok_or("runId is required")?;
@@ -2065,6 +2072,7 @@ mod tests {
             vault_entry_id: None,
             private_key_path: r"C:\Users\tester\.ssh\lazycat".into(),
             targets: vec![RemoteTarget::Backend],
+            command_retry_token: None,
             frontend_remote_dir: "/srv/app/web".into(),
             backend_remote_path: "/srv/app/app.jar".into(),
         };

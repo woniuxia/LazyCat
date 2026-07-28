@@ -24,8 +24,8 @@ use super::release_package_deploy::{
 use super::release_package_remote::CommandRemoteFs;
 use super::release_package_remote::RemoteEndpoint;
 use super::release_package_remote::{
-    consume_preflight, ConsumedPreflight, PreflightBinding, RemoteTarget, SftpRemoteFs,
-    SshSocketRegistry,
+    consume_preflight, consume_preflight_after, ConsumedPreflight, PreflightBinding, RemoteTarget,
+    SftpRemoteFs, SshSocketRegistry,
 };
 use crate::events::{EVENT_RELEASE_PACKAGE_LOG, EVENT_RELEASE_PACKAGE_STATUS};
 use crate::global_notification::{build_release_package_notification, GlobalNotification};
@@ -845,10 +845,25 @@ fn command_retry_tokens() -> &'static Mutex<HashMap<String, String>> {
     COMMAND_RETRY_TOKENS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-fn remember_command_retry_token(run_id: &str, token: String) {
-    if let Ok(mut tokens) = command_retry_tokens().lock() {
-        tokens.insert(run_id.to_string(), token);
-    }
+fn remember_command_retry_token(run_id: &str, token: String) -> Result<(), String> {
+    let mut tokens = match command_retry_tokens().lock() {
+        Ok(tokens) => tokens,
+        Err(_) => {
+            if let Ok(mut retries) = command_retries().lock() {
+                retries.remove(&token);
+            }
+            return Err("命令重试令牌登记失败".into());
+        }
+    };
+    tokens.insert(run_id.to_string(), token);
+    Ok(())
+}
+
+fn append_pipeline_error(summary: &mut PipelineSummary, message: String) {
+    summary.error = Some(match summary.error.take() {
+        Some(existing) if !existing.is_empty() => format!("{existing}；{message}"),
+        _ => message,
+    });
 }
 
 fn take_command_retry_token(run_id: &str) -> Option<String> {
@@ -881,6 +896,9 @@ fn issue_command_retry(
     binding: CommandAuthBinding,
     failed_commands: Vec<CommandSnapshot>,
 ) -> Result<String, String> {
+    if SHUTTING_DOWN.load(Ordering::Acquire) {
+        return Err("应用正在退出，不能创建命令重试任务".into());
+    }
     validate_failed_commands(&failed_commands)?;
     let token = uuid::Uuid::new_v4().to_string();
     command_retries()
@@ -1474,12 +1492,14 @@ fn execute_deployment_request(
         }
     }
     if summary.status == "upload_succeeded_command_failed" && !cancelled.load(Ordering::Acquire) {
-        if let Ok(token) = issue_command_retry(
+        if let Err(error) = issue_command_retry(
             project_id,
             CommandAuthBinding::from_preflight(binding.as_ref(), expected_fingerprint.as_ref()),
             summary.failed_commands.clone(),
-        ) {
-            remember_command_retry_token(run_id, token);
+        )
+        .and_then(|token| remember_command_retry_token(run_id, token))
+        {
+            append_pipeline_error(&mut summary, format!("创建命令重试任务失败：{error}"));
         }
     }
     ssh_sockets.clear();
@@ -2160,9 +2180,11 @@ pub fn command_retry(
     app: &tauri::AppHandle,
     project: ReleasePackageProjectConfig,
     retry_token: &str,
-    authorization: ConsumedPreflight,
+    auth_token: &str,
+    auth_binding: PreflightBinding,
 ) -> Result<Value, String> {
     let run_id = uuid::Uuid::new_v4().to_string();
+    let project_id = project.id;
     let cancelled = Arc::new(AtomicBool::new(false));
     let upload_stop = Arc::new(AtomicBool::new(false));
     let ssh_sockets = Arc::new(SshSocketRegistry::new());
@@ -2170,116 +2192,163 @@ pub fn command_retry(
     let cancel_won = Arc::new(AtomicBool::new(false));
     let claim_lock = Arc::new(Mutex::new(()));
     let process_slots = ProcessSlots::new();
-    let retry = consume_command_retry(retry_token, project.id)?;
-    if retry.binding.endpoint != authorization.binding.endpoint
-        || retry.binding.auth_type != authorization.binding.auth_type
-        || retry.binding.vault_entry_id != authorization.binding.vault_entry_id
-        || retry.binding.private_key_path != authorization.binding.private_key_path
-        || retry.binding.fingerprint_sha256 != authorization.expected_fingerprint
+    let prepared = prepare_command_retry(retry_token, project_id)?;
+
+    if auth_binding.project_id != project_id
+        || auth_binding.command_retry_token.as_deref() != Some(retry_token)
+        || auth_binding.endpoint != prepared.binding.endpoint
+        || auth_binding.auth_type != prepared.binding.auth_type
+        || auth_binding.vault_entry_id != prepared.binding.vault_entry_id
+        || auth_binding.private_key_path != prepared.binding.private_key_path
     {
         return Err("命令重试认证令牌与失败任务不匹配".into());
     }
-    {
-        let mut active = active_run()
-            .lock()
-            .map_err(|_| "release package runtime lock poisoned")?;
-        if SHUTTING_DOWN.load(Ordering::Acquire) {
-            return Err("应用正在退出，不能启动命令重试".into());
-        }
-        if active.is_some() {
-            return Err("已有发布打包或上传任务正在运行".into());
-        }
-        *active = Some(ActiveRun {
-            run_id: run_id.clone(),
-            cancelled: cancelled.clone(),
-            upload_stop: upload_stop.clone(),
-            process_slots,
-            ssh_sockets: ssh_sockets.clone(),
-            finished: finished.clone(),
-            cancel_won: cancel_won.clone(),
-            claim_lock: claim_lock.clone(),
-        });
+
+    let mut active = active_run()
+        .lock()
+        .map_err(|_| "release package runtime lock poisoned")?;
+    if SHUTTING_DOWN.load(Ordering::Acquire) {
+        return Err("应用正在退出，不能启动命令重试".into());
     }
+    if active.is_some() {
+        return Err("已有发布打包或上传任务正在运行".into());
+    }
+
+    let (start_tx, start_rx) =
+        std::sync::mpsc::sync_channel::<(ConsumedPreflight, CommandRetryJob)>(1);
     let thread_run_id = run_id.clone();
+    let thread_project = project.clone();
     let sink: Arc<dyn EventSink> = Arc::new(TauriEventSink { app: app.clone() });
-    thread::spawn(move || {
-        emit_status(
-            sink.as_ref(),
-            &thread_run_id,
-            project.id,
-            "running",
-            "overall",
-            None,
-            None,
-        );
-        let commands = retry.failed_commands.clone();
-        let remote = CommandRemoteFs::connect(
-            &authorization.binding.endpoint,
-            &authorization.binding.private_key_path,
-            &authorization.expected_fingerprint,
-            &authorization.secret,
-            ssh_sockets.as_ref(),
-        );
-        let summary = match remote {
-            Ok(remote) => run_post_upload_commands(
+    let worker_ssh_sockets = ssh_sockets.clone();
+    let worker_cancelled = cancelled.clone();
+    let worker_finished = finished.clone();
+    let worker_cancel_won = cancel_won.clone();
+    let worker_claim_lock = claim_lock.clone();
+    thread::Builder::new()
+        .name("release-package-command-retry".into())
+        .spawn(move || {
+            let Ok((authorization, retry)) = start_rx.recv() else {
+                return;
+            };
+            emit_status(
+                sink.as_ref(),
                 &thread_run_id,
-                project.id,
-                PipelineSummary {
-                    status: "succeeded",
+                thread_project.id,
+                "running",
+                "overall",
+                None,
+                None,
+            );
+            let commands = retry.failed_commands.clone();
+            let remote = CommandRemoteFs::connect(
+                &authorization.binding.endpoint,
+                &authorization.binding.private_key_path,
+                &authorization.expected_fingerprint,
+                &authorization.secret,
+                worker_ssh_sockets.as_ref(),
+            );
+            let summary = match remote {
+                Ok(remote) => run_post_upload_commands(
+                    &thread_run_id,
+                    thread_project.id,
+                    PipelineSummary {
+                        status: "succeeded",
+                        archive_path: None,
+                        archived_targets: Vec::new(),
+                        manifests: Vec::new(),
+                        error: None,
+                        retry_descriptor: None,
+                        remote_committed: true,
+                        local_committed: false,
+                        failed_commands: Vec::new(),
+                    },
+                    commands,
+                    Box::new(remote),
+                    worker_cancelled.clone(),
+                    sink.clone(),
+                ),
+                Err(error) if worker_cancelled.load(Ordering::Acquire) || error.cancelled => {
+                    PipelineSummary {
+                        status: "cancelled",
+                        archive_path: None,
+                        archived_targets: Vec::new(),
+                        manifests: Vec::new(),
+                        error: Some(
+                            "服务器文件已上传，上传后命令未全部完成，已按用户请求取消".into(),
+                        ),
+                        retry_descriptor: None,
+                        remote_committed: true,
+                        local_committed: false,
+                        failed_commands: Vec::new(),
+                    }
+                }
+                Err(error) => PipelineSummary {
+                    status: "upload_succeeded_command_failed",
                     archive_path: None,
                     archived_targets: Vec::new(),
                     manifests: Vec::new(),
-                    error: None,
+                    error: Some(format!(
+                        "服务器文件已上传，但上传后命令未全部成功：{}",
+                        error.message
+                    )),
                     retry_descriptor: None,
                     remote_committed: true,
                     local_committed: false,
-                    failed_commands: Vec::new(),
+                    failed_commands: commands,
                 },
-                commands,
-                Box::new(remote),
-                cancelled.clone(),
-                sink.clone(),
-            ),
-            Err(error) if cancelled.load(Ordering::Acquire) || error.cancelled => PipelineSummary {
-                status: "cancelled",
-                archive_path: None,
-                archived_targets: Vec::new(),
-                manifests: Vec::new(),
-                error: Some("服务器文件已上传，上传后命令未全部完成，已按用户请求取消".into()),
-                retry_descriptor: None,
-                remote_committed: true,
-                local_committed: false,
-                failed_commands: Vec::new(),
-            },
-            Err(error) => PipelineSummary {
-                status: "upload_succeeded_command_failed",
-                archive_path: None,
-                archived_targets: Vec::new(),
-                manifests: Vec::new(),
-                error: Some(format!(
-                    "服务器文件已上传，但上传后命令未全部成功：{}",
-                    error.message
-                )),
-                retry_descriptor: None,
-                remote_committed: true,
-                local_committed: false,
-                failed_commands: commands,
-            },
-        };
-        if summary.status == "upload_succeeded_command_failed" {
-            if let Ok(token) = finish_command_retry(retry, summary.failed_commands.clone()) {
-                remember_command_retry_token(&thread_run_id, token);
+            };
+            let mut summary = summary;
+            if summary.status == "upload_succeeded_command_failed" {
+                if let Err(error) = finish_command_retry(retry, summary.failed_commands.clone())
+                    .and_then(|token| remember_command_retry_token(&thread_run_id, token))
+                {
+                    append_pipeline_error(&mut summary, format!("创建命令重试任务失败：{error}"));
+                }
             }
-        }
-        let result =
-            claim_pipeline_result(Ok(summary), &cancelled, &finished, &cancel_won, &claim_lock);
-        emit_terminal_result(sink.as_ref(), &thread_run_id, &project, result, false);
-        if let Ok(mut active) = active_run().lock() {
-            if active.as_ref().map(|run| run.run_id.as_str()) == Some(thread_run_id.as_str()) {
-                *active = None;
+            let result = claim_pipeline_result(
+                Ok(summary),
+                &worker_cancelled,
+                &worker_finished,
+                &worker_cancel_won,
+                &worker_claim_lock,
+            );
+            emit_terminal_result(
+                sink.as_ref(),
+                &thread_run_id,
+                &thread_project,
+                result,
+                false,
+            );
+            if let Ok(mut active) = active_run().lock() {
+                if active.as_ref().map(|run| run.run_id.as_str()) == Some(thread_run_id.as_str()) {
+                    *active = None;
+                }
             }
-        }
+        })
+        .map_err(|error| format!("启动命令重试线程失败：{error}"))?;
+
+    let (authorization, retry) =
+        consume_preflight_after(auth_token, &auth_binding, |authorization| {
+            if authorization.expected_fingerprint != prepared.binding.fingerprint_sha256 {
+                return Err("命令重试认证令牌与失败任务指纹不匹配".into());
+            }
+            consume_command_retry(retry_token, project_id)
+        })?;
+
+    *active = Some(ActiveRun {
+        run_id: run_id.clone(),
+        cancelled,
+        upload_stop,
+        process_slots,
+        ssh_sockets,
+        finished,
+        cancel_won,
+        claim_lock,
     });
+    if start_tx.send((authorization, retry)).is_err() {
+        *active = None;
+        return Err("命令重试线程未能接收启动数据".into());
+    }
     Ok(json!({ "runId": run_id }))
 }
 pub fn cancel(run_id: &str) -> Result<Value, String> {
@@ -2293,6 +2362,12 @@ pub fn cancel(run_id: &str) -> Result<Value, String> {
 }
 
 pub fn on_app_exit() {
+    SHUTTING_DOWN.store(true, Ordering::Release);
+    if let Ok(active) = active_run().lock() {
+        if let Some(active) = active.as_ref() {
+            request_cancel(active);
+        }
+    }
     super::release_package_remote::clear_temporary_stores();
     if let Some(retries) = RETRY_JOBS.get() {
         if let Ok(mut retries) = retries.lock() {
@@ -2304,14 +2379,12 @@ pub fn on_app_exit() {
             retries.clear();
         }
     }
-    SHUTTING_DOWN.store(true, Ordering::Release);
-    if let Ok(active) = active_run().lock() {
-        if let Some(active) = active.as_ref() {
-            request_cancel(active);
+    if let Some(tokens) = COMMAND_RETRY_TOKENS.get() {
+        if let Ok(mut tokens) = tokens.lock() {
+            tokens.clear();
         }
     }
 }
-
 #[cfg(all(test, windows))]
 mod tests {
     use super::*;
@@ -2319,6 +2392,47 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
+
+    #[test]
+    fn command_retry_claims_the_run_slot_before_atomic_token_consumption() {
+        let source = include_str!("release_package_runtime.rs");
+        let start = source.find("pub fn command_retry(").unwrap();
+        let end = source[start..]
+            .find("pub fn cancel(")
+            .map(|offset| start + offset)
+            .unwrap();
+        let command_retry = &source[start..end];
+
+        let slot_check = command_retry.find("if active.is_some()").unwrap();
+        let worker_spawn = command_retry.find("thread::Builder::new()").unwrap();
+        let token_consumption = command_retry.find("consume_preflight_after(").unwrap();
+        let slot_claim = command_retry.find("*active = Some(ActiveRun").unwrap();
+        let worker_release = command_retry.find("start_tx.send").unwrap();
+
+        assert!(slot_check < worker_spawn);
+        assert!(worker_spawn < token_consumption);
+        assert!(token_consumption < slot_claim);
+        assert!(slot_claim < worker_release);
+        assert!(command_retry.contains("command_retry_token.as_deref() != Some(retry_token)"));
+    }
+
+    #[test]
+    fn exit_blocks_new_retry_state_before_clearing_all_command_tokens() {
+        let source = include_str!("release_package_runtime.rs");
+        let start = source.find("pub fn on_app_exit()").unwrap();
+        let end = source[start..]
+            .find("#[cfg(all(test, windows))]")
+            .map(|offset| start + offset)
+            .unwrap();
+        let exit = &source[start..end];
+
+        assert!(
+            exit.find("SHUTTING_DOWN.store(true").unwrap()
+                < exit.find("clear_temporary_stores()").unwrap()
+        );
+        assert!(exit.contains("COMMAND_RETRIES.get()"));
+        assert!(exit.contains("COMMAND_RETRY_TOKENS.get()"));
+    }
 
     #[test]
     fn action_dispatch_is_bound_before_worker_spawn_and_finished_before_status_emit() {
@@ -3058,6 +3172,7 @@ mod pipeline_tests {
                 vault_entry_id: None,
                 private_key_path: String::new(),
                 targets: vec![RemoteTarget::Frontend, RemoteTarget::Backend],
+                command_retry_token: None,
                 frontend_remote_dir: "/srv/app/web".into(),
                 backend_remote_path: "/srv/app/app.jar".into(),
             },
