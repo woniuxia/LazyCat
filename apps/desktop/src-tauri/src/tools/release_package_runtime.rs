@@ -10,9 +10,9 @@ use std::thread;
 use std::time::{Duration, Instant};
 use tauri::Emitter;
 
+use super::release_package::{ReleasePackageEnvironmentConfig, ReleaseTarget};
 #[cfg(test)]
-use super::release_package::ReleasePackageType;
-use super::release_package::{ReleasePackageRuntimeConfig, ReleaseTarget};
+use super::release_package::{ReleasePackageEnvironmentKind, ReleasePackageType};
 use super::release_package_archive::{
     archive_backend_artifact, archive_frontend_artifact, resolve_artifact_path,
     validate_artifact_target_collision, ArchiveError, ArchiveSession,
@@ -543,7 +543,7 @@ impl UploadProgressReporter {
 fn emit_terminal_result(
     sink: &dyn EventSink,
     run_id: &str,
-    project: &ReleasePackageRuntimeConfig,
+    project: &ReleasePackageEnvironmentConfig,
     result: Result<PipelineSummary, PipelineError>,
     emit_package_logs: bool,
 ) {
@@ -568,7 +568,7 @@ fn emit_terminal_result(
         && matches!(status, "succeeded" | "partially_succeeded")
     {
         for phase in ["frontend", "backend"] {
-            emit_system_log(sink, run_id, project.id, phase, "已完成打包");
+            emit_system_log(sink, run_id, project.project_id, phase, "已完成打包");
         }
     }
     let retry_token = match retry_descriptor {
@@ -592,7 +592,7 @@ fn emit_terminal_result(
     };
     sink.status(StatusEvent {
         run_id: run_id.into(),
-        project_id: project.id,
+        project_id: project.project_id,
         status: status.into(),
         phase: "overall".into(),
         archive_path: archive_path.clone(),
@@ -607,8 +607,8 @@ fn emit_terminal_result(
     });
     if let Some(notification) = build_release_package_notification(
         run_id,
-        project.id,
-        &project.name,
+        project.project_id,
+        &project.project_name,
         project.package_type,
         "overall",
         status,
@@ -724,7 +724,7 @@ struct BuildSummary {
 fn run_target(
     target: ReleaseTarget,
     run_id: &str,
-    project: &ReleasePackageRuntimeConfig,
+    project: &ReleasePackageEnvironmentConfig,
     cancelled: Arc<AtomicBool>,
     pid: Arc<Mutex<Option<u32>>>,
     sink: Arc<dyn EventSink>,
@@ -746,7 +746,7 @@ fn run_target(
     };
     let outcome = run_command_phase(
         run_id,
-        project.id,
+        project.project_id,
         phase,
         &project_path,
         command,
@@ -849,14 +849,14 @@ struct RetryDescriptor {
 
 #[derive(Clone, Debug)]
 struct RetryJob {
-    project_id: i64,
+    environment_id: i64,
     descriptor: RetryDescriptor,
 }
 
 impl RetryJob {
-    fn from_manifests(project_id: i64, manifests: Vec<ArtifactManifest>) -> Self {
+    fn from_manifests(environment_id: i64, manifests: Vec<ArtifactManifest>) -> Self {
         Self {
-            project_id,
+            environment_id,
             descriptor: RetryDescriptor {
                 manifests,
                 commands: Vec::new(),
@@ -866,6 +866,7 @@ impl RetryJob {
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct CommandAuthBinding {
+    pub(crate) environment_id: i64,
     pub(crate) endpoint: RemoteEndpoint,
     pub(crate) auth_type: String,
     pub(crate) vault_entry_id: Option<i64>,
@@ -876,6 +877,7 @@ pub(crate) struct CommandAuthBinding {
 impl CommandAuthBinding {
     fn from_preflight(binding: &PreflightBinding, fingerprint_sha256: &str) -> Self {
         Self {
+            environment_id: binding.environment_id,
             endpoint: binding.endpoint.clone(),
             auth_type: binding.auth_type.clone(),
             vault_entry_id: binding.vault_entry_id,
@@ -887,7 +889,7 @@ impl CommandAuthBinding {
 
 #[derive(Clone, Debug)]
 struct CommandRetryJob {
-    project_id: i64,
+    environment_id: i64,
     binding: CommandAuthBinding,
     failed_commands: Vec<CommandSnapshot>,
 }
@@ -958,7 +960,7 @@ fn validate_failed_commands(commands: &[CommandSnapshot]) -> Result<(), String> 
 }
 
 fn issue_command_retry(
-    project_id: i64,
+    environment_id: i64,
     binding: CommandAuthBinding,
     failed_commands: Vec<CommandSnapshot>,
 ) -> Result<String, String> {
@@ -973,7 +975,7 @@ fn issue_command_retry(
         .insert(
             token.clone(),
             CommandRetryJob {
-                project_id,
+                environment_id,
                 binding,
                 failed_commands,
             },
@@ -983,7 +985,7 @@ fn issue_command_retry(
 
 pub(crate) fn prepare_command_retry(
     token: &str,
-    project_id: i64,
+    environment_id: i64,
 ) -> Result<PreparedCommandRetry, String> {
     let retries = command_retries()
         .lock()
@@ -991,8 +993,8 @@ pub(crate) fn prepare_command_retry(
     let retry = retries
         .get(token)
         .ok_or_else(|| "命令重试令牌无效或已使用".to_string())?;
-    if retry.project_id != project_id {
-        return Err("命令重试令牌与当前项目不匹配".into());
+    if retry.environment_id != environment_id {
+        return Err("命令重试令牌与当前环境不匹配".into());
     }
     Ok(PreparedCommandRetry {
         targets: retry
@@ -1005,15 +1007,15 @@ pub(crate) fn prepare_command_retry(
     })
 }
 
-fn consume_command_retry(token: &str, project_id: i64) -> Result<CommandRetryJob, String> {
+fn consume_command_retry(token: &str, environment_id: i64) -> Result<CommandRetryJob, String> {
     let mut retries = command_retries()
         .lock()
         .map_err(|_| "命令重试任务存储不可用".to_string())?;
     let retry = retries
         .get(token)
         .ok_or_else(|| "命令重试令牌无效或已使用".to_string())?;
-    if retry.project_id != project_id {
-        return Err("命令重试令牌与当前项目不匹配".into());
+    if retry.environment_id != environment_id {
+        return Err("命令重试令牌与当前环境不匹配".into());
     }
     retries
         .remove(token)
@@ -1024,7 +1026,7 @@ fn finish_command_retry(
     job: CommandRetryJob,
     failed_commands: Vec<CommandSnapshot>,
 ) -> Result<String, String> {
-    issue_command_retry(job.project_id, job.binding, failed_commands)
+    issue_command_retry(job.environment_id, job.binding, failed_commands)
 }
 
 static RETRY_JOBS: OnceLock<Mutex<HashMap<String, RetryJob>>> = OnceLock::new();
@@ -1033,7 +1035,7 @@ fn retry_jobs() -> &'static Mutex<HashMap<String, RetryJob>> {
     RETRY_JOBS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-fn issue_retry(project_id: i64, descriptor: RetryDescriptor) -> Result<String, String> {
+fn issue_retry(environment_id: i64, descriptor: RetryDescriptor) -> Result<String, String> {
     let token = uuid::Uuid::new_v4().to_string();
     retry_jobs()
         .lock()
@@ -1041,33 +1043,39 @@ fn issue_retry(project_id: i64, descriptor: RetryDescriptor) -> Result<String, S
         .insert(
             token.clone(),
             RetryJob {
-                project_id,
+                environment_id,
                 descriptor,
             },
         );
     Ok(token)
 }
 
-fn consume_retry(token: &str, project_id: i64) -> Result<RetryJob, String> {
-    let retry = retry_jobs()
+fn consume_retry(token: &str, environment_id: i64) -> Result<RetryJob, String> {
+    let mut retries = retry_jobs()
         .lock()
-        .map_err(|_| "上传重试任务存储不可用".to_string())?
-        .remove(token)
+        .map_err(|_| "上传重试任务存储不可用".to_string())?;
+    let retry = retries
+        .get(token)
         .ok_or_else(|| "上传重试令牌无效或已使用".to_string())?;
-    if retry.project_id != project_id {
-        return Err("上传重试令牌与当前项目不匹配".into());
+    if retry.environment_id != environment_id {
+        return Err("上传重试令牌与当前环境不匹配".into());
     }
-    Ok(retry)
+    retries
+        .remove(token)
+        .ok_or_else(|| "上传重试令牌无效或已使用".to_string())
 }
 
-pub(crate) fn retry_targets(token: &str, project_id: i64) -> Result<Vec<ReleaseTarget>, String> {
+pub(crate) fn retry_targets(
+    token: &str,
+    environment_id: i64,
+) -> Result<Vec<ReleaseTarget>, String> {
     let retries = retry_jobs()
         .lock()
         .map_err(|_| "上传重试任务存储不可用".to_string())?;
     let retry = retries
         .get(token)
-        .filter(|retry| retry.project_id == project_id)
-        .ok_or_else(|| "上传重试令牌无效或与当前项目不匹配".to_string())?;
+        .filter(|retry| retry.environment_id == environment_id)
+        .ok_or_else(|| "上传重试令牌无效或与当前环境不匹配".to_string())?;
     Ok(retry
         .descriptor
         .manifests
@@ -1186,7 +1194,7 @@ fn preserve_retry_commands(
 }
 
 fn configured_post_upload_commands(
-    project: &ReleasePackageRuntimeConfig,
+    project: &ReleasePackageEnvironmentConfig,
     manifests: &[ArtifactManifest],
 ) -> Vec<CommandSnapshot> {
     [ReleaseTarget::Frontend, ReleaseTarget::Backend]
@@ -1501,7 +1509,7 @@ fn build_retry_deployment_request(
 
 fn run_deployment_phase(
     run_id: &str,
-    project: &ReleasePackageRuntimeConfig,
+    project: &ReleasePackageEnvironmentConfig,
     summary: PipelineSummary,
     authorization: DeployAuthorization,
     cancelled: Arc<AtomicBool>,
@@ -1524,7 +1532,7 @@ fn run_deployment_phase(
     };
     execute_deployment_request(
         run_id,
-        project.id,
+        project.project_id,
         summary,
         request,
         commands,
@@ -1661,6 +1669,7 @@ fn execute_deployment_request(
 
 fn run_retry_deployment_phase(
     run_id: &str,
+    project_id: i64,
     retry: RetryJob,
     authorization: DeployAuthorization,
     cancelled: Arc<AtomicBool>,
@@ -1691,7 +1700,7 @@ fn run_retry_deployment_phase(
     };
     execute_deployment_request(
         run_id,
-        retry.project_id,
+        project_id,
         summary,
         request,
         commands,
@@ -1705,7 +1714,7 @@ fn run_retry_deployment_phase(
 
 fn run_build_pipeline(
     run_id: &str,
-    project: ReleasePackageRuntimeConfig,
+    project: ReleasePackageEnvironmentConfig,
     targets: Vec<ReleaseTarget>,
     cancelled: Arc<AtomicBool>,
     process_slots: ProcessSlots,
@@ -1733,7 +1742,7 @@ fn run_build_pipeline(
                 emit_target_result(
                     thread_sink.as_ref(),
                     &thread_run_id,
-                    thread_project.id,
+                    thread_project.project_id,
                     target,
                     &result,
                 );
@@ -2127,7 +2136,7 @@ fn request_cancel(active: &ActiveRun) -> bool {
 
 pub fn start(
     app: &tauri::AppHandle,
-    project: ReleasePackageRuntimeConfig,
+    project: ReleasePackageEnvironmentConfig,
     targets: Vec<ReleaseTarget>,
     request: RuntimeStartRequest,
     action_dispatch_id: Option<String>,
@@ -2178,7 +2187,7 @@ pub fn start(
     }
 
     let thread_run_id = run_id.clone();
-    let project_id = project.id;
+    let project_id = project.project_id;
     let terminal_project = project.clone();
     let emit_package_logs = matches!(&request, RuntimeStartRequest::LocalArchive { .. });
     let sink: Arc<dyn EventSink> = Arc::new(TauriEventSink { app: app.clone() });
@@ -2251,7 +2260,7 @@ pub fn start(
 
 pub fn upload_retry(
     app: &tauri::AppHandle,
-    project: ReleasePackageRuntimeConfig,
+    project: ReleasePackageEnvironmentConfig,
     retry_token: &str,
     deploy_authorization: DeployAuthorization,
 ) -> Result<Value, String> {
@@ -2302,7 +2311,7 @@ pub fn upload_retry(
         emit_status(
             sink.as_ref(),
             &thread_run_id,
-            project.id,
+            project.project_id,
             "running",
             "overall",
             None,
@@ -2310,6 +2319,7 @@ pub fn upload_retry(
         );
         let summary = run_retry_deployment_phase(
             &thread_run_id,
+            project.project_id,
             retry,
             deploy_authorization,
             cancelled.clone(),
@@ -2331,13 +2341,14 @@ pub fn upload_retry(
 
 pub fn command_retry(
     app: &tauri::AppHandle,
-    project: ReleasePackageRuntimeConfig,
+    project: ReleasePackageEnvironmentConfig,
     retry_token: &str,
     auth_token: &str,
     auth_binding: PreflightBinding,
 ) -> Result<Value, String> {
     let run_id = uuid::Uuid::new_v4().to_string();
-    let project_id = project.id;
+    let project_id = project.project_id;
+    let environment_id = project.id;
     let cancelled = Arc::new(AtomicBool::new(false));
     let upload_stop = Arc::new(AtomicBool::new(false));
     let ssh_sockets = Arc::new(SshSocketRegistry::new());
@@ -2345,9 +2356,10 @@ pub fn command_retry(
     let cancel_won = Arc::new(AtomicBool::new(false));
     let claim_lock = Arc::new(Mutex::new(()));
     let process_slots = ProcessSlots::new();
-    let prepared = prepare_command_retry(retry_token, project_id)?;
+    let prepared = prepare_command_retry(retry_token, environment_id)?;
 
-    if auth_binding.project_id != project_id
+    if auth_binding.environment_id != environment_id
+        || auth_binding.project_id != project_id
         || auth_binding.command_retry_token.as_deref() != Some(retry_token)
         || auth_binding.endpoint != prepared.binding.endpoint
         || auth_binding.auth_type != prepared.binding.auth_type
@@ -2386,7 +2398,7 @@ pub fn command_retry(
             emit_status(
                 sink.as_ref(),
                 &thread_run_id,
-                thread_project.id,
+                thread_project.project_id,
                 "running",
                 "overall",
                 None,
@@ -2403,7 +2415,7 @@ pub fn command_retry(
             let summary = match remote {
                 Ok(remote) => run_post_upload_commands(
                     &thread_run_id,
-                    thread_project.id,
+                    thread_project.project_id,
                     PipelineSummary {
                         status: "succeeded",
                         archive_path: None,
@@ -2485,7 +2497,7 @@ pub fn command_retry(
             if authorization.expected_fingerprint != prepared.binding.fingerprint_sha256 {
                 return Err("命令重试认证令牌与失败任务指纹不匹配".into());
             }
-            consume_command_retry(retry_token, project_id)
+            consume_command_retry(retry_token, environment_id)
         })?;
 
     *active = Some(ActiveRun {
@@ -3091,10 +3103,13 @@ mod pipeline_tests {
         assert_eq!(progress, vec![10, 20]);
     }
 
-    fn project() -> ReleasePackageRuntimeConfig {
-        ReleasePackageRuntimeConfig {
+    fn project() -> ReleasePackageEnvironmentConfig {
+        ReleasePackageEnvironmentConfig {
             id: 7,
-            name: "test".into(),
+            project_id: 7,
+            project_name: "test".into(),
+            environment: ReleasePackageEnvironmentKind::Test,
+            configured: true,
             output_root: "Z:\\output".into(),
             package_type: ReleasePackageType::LocalArchive,
             frontend_project_path: "Z:\\missing".into(),
@@ -3122,7 +3137,7 @@ mod pipeline_tests {
     }
 
     #[cfg(windows)]
-    fn frontend_build_project(root: &Path, artifact_mode: &str) -> ReleasePackageRuntimeConfig {
+    fn frontend_build_project(root: &Path, artifact_mode: &str) -> ReleasePackageEnvironmentConfig {
         let frontend_project = root.join("web");
         let backend_project = root.join("server");
         fs::create_dir_all(&frontend_project).unwrap();
@@ -3139,7 +3154,7 @@ mod pipeline_tests {
     }
 
     #[cfg(windows)]
-    fn keyword_build_project(root: &Path) -> ReleasePackageRuntimeConfig {
+    fn keyword_build_project(root: &Path) -> ReleasePackageEnvironmentConfig {
         let frontend_project = root.join("web");
         let backend_project = root.join("server");
         fs::create_dir_all(&frontend_project).unwrap();
@@ -3160,7 +3175,7 @@ mod pipeline_tests {
 
     #[cfg(windows)]
     fn run_keyword_build(
-        project: ReleasePackageRuntimeConfig,
+        project: ReleasePackageEnvironmentConfig,
         targets: Vec<ReleaseTarget>,
     ) -> BuildSummary {
         run_build_pipeline(
@@ -3354,7 +3369,9 @@ mod pipeline_tests {
     ) -> ConsumedPreflight {
         ConsumedPreflight {
             binding: crate::tools::release_package_remote::PreflightBinding {
+                environment_id: 7,
                 project_id: 7,
+                environment: ReleasePackageEnvironmentKind::Test,
                 endpoint: crate::tools::release_package_remote::RemoteEndpoint {
                     host: "server.example".into(),
                     port: 22,
@@ -4161,7 +4178,7 @@ mod pipeline_tests {
         let manifest = ArtifactManifest::from_file(ReleaseTarget::Backend, &source).unwrap();
         fs::write(&source, "changed-size").unwrap();
         let retry = RetryJob {
-            project_id: 7,
+            environment_id: 7,
             descriptor: RetryDescriptor {
                 manifests: vec![manifest],
                 commands: vec![CommandSnapshot::new(ReleaseTarget::Backend, "restart-api")],
@@ -4172,6 +4189,7 @@ mod pipeline_tests {
 
         let result = run_retry_deployment_phase(
             "retry-request-failure",
+            7,
             retry,
             DeployAuthorization { consumed },
             Arc::new(AtomicBool::new(false)),
@@ -4188,21 +4206,23 @@ mod pipeline_tests {
     }
 
     #[test]
-    fn retry_tokens_are_consumed_once_and_bound_to_the_project() {
+    fn retry_tokens_are_consumed_once_and_bound_to_the_environment() {
         let descriptor = RetryDescriptor {
             manifests: Vec::new(),
             commands: Vec::new(),
         };
         let token = issue_retry(7, descriptor).unwrap();
 
+        assert!(consume_retry(&token, 8).is_err());
         let retry = consume_retry(&token, 7).unwrap();
-        assert_eq!(retry.project_id, 7);
+        assert_eq!(retry.environment_id, 7);
         assert!(consume_retry(&token, 7).is_err());
     }
 
     #[test]
     fn command_retry_contains_only_failed_commands_and_rotates_after_failure() {
         let binding = CommandAuthBinding {
+            environment_id: 7,
             endpoint: RemoteEndpoint {
                 host: "deploy.example.internal".into(),
                 port: 22,
@@ -4234,10 +4254,34 @@ mod pipeline_tests {
     }
 
     #[test]
+    fn command_retry_token_requires_its_binding_environment() {
+        let error = issue_command_retry(
+            8,
+            CommandAuthBinding {
+                environment_id: 7,
+                endpoint: RemoteEndpoint {
+                    host: "deploy.example.internal".into(),
+                    port: 22,
+                    username: "deploy".into(),
+                },
+                auth_type: "password".into(),
+                vault_entry_id: Some(9),
+                private_key_path: String::new(),
+                fingerprint_sha256: "SHA256:trusted".into(),
+            },
+            vec![CommandSnapshot::new(ReleaseTarget::Backend, "restart-api")],
+        )
+        .unwrap_err();
+
+        assert_eq!(error, "命令重试令牌与环境快照不匹配");
+    }
+
+    #[test]
     fn command_retry_rejects_a_different_project_without_consuming_the_job() {
         let token = issue_command_retry(
             7,
             CommandAuthBinding {
+                environment_id: 7,
                 endpoint: RemoteEndpoint {
                     host: "deploy.example.internal".into(),
                     port: 22,
@@ -4265,9 +4309,12 @@ mod pipeline_tests {
         let output_root = root.0.join("output");
         fs::create_dir_all(&frontend_project).unwrap();
         fs::create_dir_all(&backend_project).unwrap();
-        let project = ReleasePackageRuntimeConfig {
+        let project = ReleasePackageEnvironmentConfig {
             id: 1,
-            name: "构建项目".into(),
+            project_id: 1,
+            project_name: "构建项目".into(),
+            environment: ReleasePackageEnvironmentKind::Test,
+            configured: true,
             output_root: output_root.to_string_lossy().into_owned(),
             package_type: ReleasePackageType::LocalArchive,
             frontend_project_path: frontend_project.to_string_lossy().into_owned(),
@@ -4509,9 +4556,12 @@ mod pipeline_tests {
         fs::create_dir_all(&frontend_project).unwrap();
         fs::create_dir_all(&backend_project).unwrap();
         fs::create_dir_all(&output_root).unwrap();
-        let project = ReleasePackageRuntimeConfig {
+        let project = ReleasePackageEnvironmentConfig {
             id: 1,
-            name: "冒烟项目".into(),
+            project_id: 1,
+            project_name: "冒烟项目".into(),
+            environment: ReleasePackageEnvironmentKind::Test,
+            configured: true,
             output_root: output_root.to_string_lossy().into_owned(),
             package_type: ReleasePackageType::LocalArchive,
             frontend_project_path: frontend_project.to_string_lossy().into_owned(),
@@ -4582,9 +4632,12 @@ mod pipeline_tests {
         fs::create_dir_all(&frontend_project).unwrap();
         fs::create_dir_all(&backend_project).unwrap();
         fs::create_dir_all(&output_root).unwrap();
-        let project = ReleasePackageRuntimeConfig {
+        let project = ReleasePackageEnvironmentConfig {
             id: 2,
-            name: "冒烟项目".into(),
+            project_id: 2,
+            project_name: "冒烟项目".into(),
+            environment: ReleasePackageEnvironmentKind::Test,
+            configured: true,
             output_root: output_root.to_string_lossy().into_owned(),
             package_type: ReleasePackageType::LocalArchive,
             frontend_project_path: frontend_project.to_string_lossy().into_owned(),

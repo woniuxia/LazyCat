@@ -16,6 +16,7 @@ use ssh2::{ErrorCode, FileType, HostKeyType, Session, Sftp};
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
+use super::release_package::ReleasePackageEnvironmentKind;
 use super::release_package_deploy::{
     DeployError, RemoteCommandOutputDecoder, RemoteCommandResult, RemoteDirEntry, RemoteFs,
     RemoteKind, RemoteMetadata,
@@ -99,6 +100,7 @@ pub struct RemoteEndpoint {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProbeSnapshot {
+    pub environment_id: i64,
     pub endpoint: RemoteEndpoint,
     pub key_type: String,
     pub fingerprint_sha256: String,
@@ -118,7 +120,9 @@ pub enum RemoteTarget {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PreflightBinding {
+    pub environment_id: i64,
     pub project_id: i64,
+    pub environment: ReleasePackageEnvironmentKind,
     pub endpoint: RemoteEndpoint,
     pub auth_type: String,
     pub vault_entry_id: Option<i64>,
@@ -402,12 +406,13 @@ fn handshake_session_with_socket(
         .map_err(|error| format!("SSH 握手失败：{error}"))?;
     Ok(session)
 }
-pub fn probe_host(endpoint: &RemoteEndpoint) -> Result<ProbeSnapshot, String> {
+pub fn probe_host(environment_id: i64, endpoint: &RemoteEndpoint) -> Result<ProbeSnapshot, String> {
     let session = handshake_session(endpoint)?;
     let (key, key_type) = session
         .host_key()
         .ok_or_else(|| "SSH 服务器未返回主机公钥".to_string())?;
     Ok(ProbeSnapshot {
+        environment_id,
         endpoint: endpoint.clone(),
         key_type: host_key_type_name(key_type),
         fingerprint_sha256: fingerprint_sha256(key),
@@ -1041,7 +1046,7 @@ mod tests {
         HostTrust, PreflightBinding, PreflightStore, ProbeSnapshot, RemoteEndpoint, RemoteTarget,
         SftpRemoteFs, SshSocketRegistry,
     };
-    use crate::tools::release_package::ReleaseTarget;
+    use crate::tools::release_package::{ReleasePackageEnvironmentKind, ReleaseTarget};
     use crate::tools::release_package_deploy::{
         deploy, deploy_parallel, ArtifactManifest, DeployError, DeploymentPlan, DeploymentRequest,
         DeploymentTarget, RemoteFs, RemoteKind,
@@ -1058,6 +1063,7 @@ mod tests {
 
     fn snapshot() -> ProbeSnapshot {
         ProbeSnapshot {
+            environment_id: 7,
             endpoint: RemoteEndpoint {
                 host: "server.example.internal".into(),
                 port: 22,
@@ -1169,7 +1175,9 @@ mod tests {
 
     fn binding(targets: Vec<RemoteTarget>) -> PreflightBinding {
         PreflightBinding {
+            environment_id: 7,
             project_id: 7,
+            environment: ReleasePackageEnvironmentKind::Test,
             endpoint: RemoteEndpoint {
                 host: "server.example.internal".into(),
                 port: 22,
@@ -1284,6 +1292,29 @@ mod tests {
             store.consume(&issued.token, &changed).err().unwrap(),
             "项目或远程上传配置已变化，请重新预检"
         );
+    }
+
+    #[test]
+    fn preflight_token_cannot_cross_environments_in_the_same_project() {
+        let store = PreflightStore::new(Duration::from_secs(300));
+        let test_binding = binding(vec![RemoteTarget::Frontend]);
+        let issued = store
+            .insert(
+                test_binding.clone(),
+                "SHA256:trusted".into(),
+                AuthSecret::Password(Zeroizing::new("secret".into())),
+                vec![],
+            )
+            .unwrap();
+        let mut production_binding = test_binding.clone();
+        production_binding.environment_id = 8;
+        production_binding.environment = ReleasePackageEnvironmentKind::Production;
+
+        assert!(matches!(
+            store.consume(&issued.token, &production_binding),
+            Err(error) if error == "项目或远程上传配置已变化，请重新预检"
+        ));
+        assert!(store.consume(&issued.token, &test_binding).is_ok());
     }
 
     #[test]
@@ -1460,7 +1491,9 @@ mod tests {
 
         fn binding(&self, remote_root: &str, auth_type: &str) -> PreflightBinding {
             PreflightBinding {
+                environment_id: 1,
                 project_id: 1,
+                environment: ReleasePackageEnvironmentKind::Test,
                 endpoint: self.endpoint.clone(),
                 auth_type: auth_type.into(),
                 vault_entry_id: None,
@@ -1633,7 +1666,7 @@ mod tests {
     #[ignore = "requires LAZYCAT_SSH_TEST_* variables and a loopback SSH fixture"]
     fn parallel_targets_upload_to_local_fixture() {
         let fixture = SshTestFixture::from_env().unwrap();
-        let probe = probe_host(&fixture.endpoint).unwrap();
+        let probe = probe_host(1, &fixture.endpoint).unwrap();
         let suffix = Uuid::new_v4().simple().to_string();
         let remote_root = format!("/tmp/lazycat-release-package-parallel-test-{suffix}");
         let binding = Arc::new(fixture.binding(&remote_root, "password"));
@@ -1728,7 +1761,7 @@ mod tests {
     #[ignore = "requires LAZYCAT_SSH_TEST_* variables and a loopback SSH fixture"]
     fn password_and_private_key_upload_to_local_fixture() {
         let fixture = SshTestFixture::from_env().unwrap();
-        let probe = probe_host(&fixture.endpoint).unwrap();
+        let probe = probe_host(1, &fixture.endpoint).unwrap();
 
         let password_binding =
             fixture.binding("/tmp/lazycat-release-package-test-auth", "password");

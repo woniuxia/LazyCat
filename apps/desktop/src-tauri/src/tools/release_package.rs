@@ -492,7 +492,7 @@ impl ReleasePackageType {
 }
 
 fn require_package_type(
-    project: &ReleasePackageRuntimeConfig,
+    project: &ReleasePackageEnvironmentConfig,
     expected: ReleasePackageType,
     action: &str,
 ) -> Result<(), String> {
@@ -557,38 +557,6 @@ pub(crate) struct ReleasePackageActionTargetRow {
     pub label: String,
     pub available: bool,
     pub unavailable_reason: Option<String>,
-}
-
-// Task 5 will move runtime entry points to environment IDs. Until then the runtime module still
-// constructs and consumes this flattened snapshot, so keep it explicit and fail on ambiguity.
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ReleasePackageRuntimeConfig {
-    pub id: i64,
-    pub name: String,
-    pub output_root: String,
-    pub package_type: ReleasePackageType,
-    pub frontend_project_path: String,
-    pub frontend_build_command: String,
-    pub frontend_success_keyword: String,
-    pub frontend_post_upload_command: String,
-    pub frontend_artifact_path: String,
-    pub frontend_artifact_mode: String,
-    pub backend_project_path: String,
-    pub backend_build_command: String,
-    pub backend_success_keyword: String,
-    pub backend_post_upload_command: String,
-    pub backend_artifact_path: String,
-    pub ssh_host: String,
-    pub ssh_port: u16,
-    pub ssh_username: String,
-    pub ssh_auth_type: String,
-    pub vault_entry_id: Option<i64>,
-    pub ssh_private_key_path: String,
-    pub frontend_remote_dir: String,
-    pub backend_remote_path: String,
-    pub created_at: String,
-    pub updated_at: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -748,6 +716,24 @@ fn parse_start_input(
                 overwrite_remote_targets,
             })
         }
+    }
+}
+
+fn validate_start_confirmation(
+    environment: ReleasePackageEnvironmentKind,
+    payload: &Value,
+) -> Result<(), String> {
+    match environment {
+        ReleasePackageEnvironmentKind::Test if payload.get("productionConfirmed").is_some() => {
+            Err("测试环境启动不能携带生产确认参数".into())
+        }
+        ReleasePackageEnvironmentKind::Test => Ok(()),
+        ReleasePackageEnvironmentKind::Production
+            if matches!(payload.get("productionConfirmed"), Some(Value::Bool(true))) =>
+        {
+            Ok(())
+        }
+        ReleasePackageEnvironmentKind::Production => Err("生产环境发布需要明确确认".into()),
     }
 }
 
@@ -1078,9 +1064,6 @@ type ThreadHook = (ThreadId, Box<dyn FnOnce() + Send>);
 static PROJECT_LIST_AFTER_PROJECTS_HOOK: Mutex<Option<ThreadHook>> = Mutex::new(None);
 
 #[cfg(test)]
-static LOAD_PROJECT_AFTER_EXISTS_HOOK: Mutex<Option<ThreadHook>> = Mutex::new(None);
-
-#[cfg(test)]
 fn install_thread_hook(
     hook_slot: &Mutex<Option<ThreadHook>>,
     thread_id: ThreadId,
@@ -1181,10 +1164,7 @@ fn project_list_with_conn(conn: &Connection) -> Result<Value, String> {
     Ok(json!({ "projects": load_project_list_items(conn)? }))
 }
 
-fn action_target_label(
-    project_name: &str,
-    environment: ReleasePackageEnvironmentKind,
-) -> String {
+fn action_target_label(project_name: &str, environment: ReleasePackageEnvironmentKind) -> String {
     let environment_label = match environment {
         ReleasePackageEnvironmentKind::Test => "测试环境",
         ReleasePackageEnvironmentKind::Production => "生产环境",
@@ -1421,88 +1401,8 @@ fn project_delete_with_conn(conn: &Connection, payload: &Value) -> Result<Value,
     Ok(json!({ "ok": true }))
 }
 
-pub(crate) fn load_project(
-    conn: &Connection,
-    id: i64,
-) -> Result<ReleasePackageRuntimeConfig, String> {
-    let transaction =
-        Transaction::new_unchecked(conn, TransactionBehavior::Deferred).map_err(|error| {
-            format!("begin release package project load transaction failed: {error}")
-        })?;
-    let exists = transaction
-        .query_row(
-            "SELECT EXISTS(SELECT 1 FROM release_package_projects WHERE id=?1)",
-            [id],
-            |row| row.get::<_, bool>(0),
-        )
-        .map_err(|error| format!("load release package project failed: {error}"))?;
-    if !exists {
-        return Err("release package project not found".into());
-    }
-    #[cfg(test)]
-    run_thread_hook(&LOAD_PROJECT_AFTER_EXISTS_HOOK);
-    let mut statement = transaction
-        .prepare(
-            "SELECT id FROM release_package_environments
-             WHERE project_id=?1 ORDER BY id",
-        )
-        .map_err(|error| format!("prepare release package environments failed: {error}"))?;
-    let environment_ids = statement
-        .query_map([id], |row| row.get::<_, i64>(0))
-        .map_err(|error| format!("query release package environments failed: {error}"))?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|error| format!("read release package environment failed: {error}"))?;
-    drop(statement);
-    let mut configured = Vec::new();
-    for environment_id in environment_ids {
-        let environment = load_environment(&transaction, environment_id)?;
-        if environment.configured {
-            configured.push(environment);
-        }
-    }
-    if configured.len() != 1 {
-        return Err(if configured.is_empty() {
-            "release package project is not configured".into()
-        } else {
-            "上线包项目存在多个已配置环境，请使用环境 ID".into()
-        });
-    }
-    let environment = configured.pop().unwrap();
-    let project = ReleasePackageRuntimeConfig {
-        id: environment.project_id,
-        name: environment.project_name,
-        output_root: environment.output_root,
-        package_type: environment.package_type,
-        frontend_project_path: environment.frontend_project_path,
-        frontend_build_command: environment.frontend_build_command,
-        frontend_success_keyword: environment.frontend_success_keyword,
-        frontend_post_upload_command: environment.frontend_post_upload_command,
-        frontend_artifact_path: environment.frontend_artifact_path,
-        frontend_artifact_mode: environment.frontend_artifact_mode,
-        backend_project_path: environment.backend_project_path,
-        backend_build_command: environment.backend_build_command,
-        backend_success_keyword: environment.backend_success_keyword,
-        backend_post_upload_command: environment.backend_post_upload_command,
-        backend_artifact_path: environment.backend_artifact_path,
-        ssh_host: environment.ssh_host,
-        ssh_port: environment.ssh_port,
-        ssh_username: environment.ssh_username,
-        ssh_auth_type: environment.ssh_auth_type,
-        vault_entry_id: environment.vault_entry_id,
-        ssh_private_key_path: environment.ssh_private_key_path,
-        frontend_remote_dir: environment.frontend_remote_dir,
-        backend_remote_path: environment.backend_remote_path,
-        created_at: environment.created_at,
-        updated_at: environment.updated_at,
-    };
-    transaction.commit().map_err(|error| {
-        format!("commit release package project load transaction failed: {error}")
-    })?;
-    Ok(project)
-}
-
 fn validate_run_inputs(
-    project: &ReleasePackageRuntimeConfig,
+    project: &ReleasePackageEnvironmentConfig,
     folder_name: &str,
     targets: &[ReleaseTarget],
     overwrite_existing: bool,
@@ -1525,7 +1425,7 @@ fn validate_run_inputs(
 }
 
 fn validate_project_directories(
-    project: &ReleasePackageRuntimeConfig,
+    project: &ReleasePackageEnvironmentConfig,
     targets: &[ReleaseTarget],
 ) -> Result<(), String> {
     if targets.contains(&ReleaseTarget::Frontend)
@@ -1543,10 +1443,10 @@ fn validate_project_directories(
 
 fn prepare_with_conn(
     conn: &Connection,
-    project_id: i64,
+    environment_id: i64,
     today: NaiveDate,
 ) -> Result<Value, String> {
-    let project = load_project(conn, project_id)?;
+    let project = load_environment(conn, environment_id)?;
     if project.package_type == ReleasePackageType::ServerUpload {
         return Ok(json!({ "packageType": "server_upload" }));
     }
@@ -1554,7 +1454,7 @@ fn prepare_with_conn(
         return Err("请先为当前项目配置归档根目录".into());
     }
     let output_root = project.output_root.clone();
-    let folder_name = default_folder_name(today, &project.name);
+    let folder_name = default_folder_name(today, &project.project_name);
     validate_folder_name(&folder_name)?;
     let archive_path = PathBuf::from(&output_root)
         .join(&folder_name)
@@ -1572,10 +1472,10 @@ fn prepare_with_conn(
 
 fn target_check_with_conn(
     conn: &Connection,
-    project_id: i64,
+    environment_id: i64,
     folder_name: &str,
 ) -> Result<Value, String> {
-    let project = load_project(conn, project_id)?;
+    let project = load_environment(conn, environment_id)?;
     require_package_type(&project, ReleasePackageType::LocalArchive, "target_check")?;
     validate_folder_name(folder_name)?;
     let output_root = PathBuf::from(&project.output_root);
@@ -1632,7 +1532,7 @@ fn probe_result_with_conn(conn: &Connection, snapshot: ProbeSnapshot) -> Result<
     Ok(result)
 }
 
-fn validate_upload_project(project: &ReleasePackageRuntimeConfig) -> Result<(), String> {
+fn validate_upload_project(project: &ReleasePackageEnvironmentConfig) -> Result<(), String> {
     if !matches!(project.ssh_auth_type.as_str(), "password" | "private_key") {
         return Err("不支持的 SSH 认证方式".into());
     }
@@ -1663,7 +1563,7 @@ struct UploadEndpoint {
 
 fn upload_endpoint_with_conn(
     conn: &Connection,
-    project: &ReleasePackageRuntimeConfig,
+    project: &ReleasePackageEnvironmentConfig,
 ) -> Result<UploadEndpoint, String> {
     if project.ssh_auth_type == "password" {
         let entry_id = project.vault_entry_id.ok_or("vault_entry_id_missing")?;
@@ -1689,12 +1589,12 @@ fn upload_endpoint_with_conn(
     })
 }
 
-fn remote_probe_with_conn(conn: &Connection, project_id: i64) -> Result<Value, String> {
-    let project = load_project(conn, project_id)?;
+fn remote_probe_with_conn(conn: &Connection, environment_id: i64) -> Result<Value, String> {
+    let project = load_environment(conn, environment_id)?;
     require_package_type(&project, ReleasePackageType::ServerUpload, "remote_probe")?;
     validate_upload_project(&project)?;
     let upload = upload_endpoint_with_conn(conn, &project)?;
-    let snapshot = probe_host(&upload.endpoint)?;
+    let snapshot = probe_host(environment_id, &upload.endpoint)?;
     probe_result_with_conn(conn, snapshot)
 }
 
@@ -1730,13 +1630,16 @@ fn trust_host_with_conn(
 
 fn host_trust_with_conn(
     conn: &Connection,
-    project_id: i64,
+    environment_id: i64,
     probe_token: &str,
     replace_existing: bool,
 ) -> Result<Value, String> {
-    let project = load_project(conn, project_id)?;
+    let project = load_environment(conn, environment_id)?;
     require_package_type(&project, ReleasePackageType::ServerUpload, "host_trust")?;
     let snapshot = consume_probe(probe_token)?;
+    if snapshot.environment_id != environment_id {
+        return Err("SSH 探测令牌与当前环境不匹配".into());
+    }
     trust_host_with_conn(conn, &snapshot, replace_existing)?;
     let next_token = store_probe(snapshot.clone())?;
     Ok(json!({
@@ -1772,12 +1675,14 @@ fn parse_private_key_auth_secret(payload: &Value) -> Result<AuthSecret, String> 
 }
 
 fn preflight_binding(
-    project: &ReleasePackageRuntimeConfig,
+    project: &ReleasePackageEnvironmentConfig,
     upload: &UploadEndpoint,
     targets: &[ReleaseTarget],
 ) -> PreflightBinding {
     PreflightBinding {
-        project_id: project.id,
+        environment_id: project.id,
+        project_id: project.project_id,
+        environment: project.environment,
         endpoint: upload.endpoint.clone(),
         auth_type: project.ssh_auth_type.clone(),
         vault_entry_id: upload.vault_entry_id,
@@ -1790,10 +1695,8 @@ fn preflight_binding(
 }
 
 fn remote_preflight_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
-    let project_id = payload["projectId"]
-        .as_i64()
-        .ok_or("projectId is required")?;
-    let project = load_project(conn, project_id)?;
+    let environment_id = required_positive_id(payload, "environmentId")?;
+    let project = load_environment(conn, environment_id)?;
     require_package_type(
         &project,
         ReleasePackageType::ServerUpload,
@@ -1807,6 +1710,9 @@ fn remote_preflight_with_conn(conn: &Connection, payload: &Value) -> Result<Valu
     let upload = upload_endpoint_with_conn(conn, &project)?;
     let binding = preflight_binding(&project, &upload, &targets);
     let probe = load_probe(probe_token)?;
+    if probe.environment_id != environment_id {
+        return Err("SSH 探测令牌与当前环境不匹配".into());
+    }
     if probe.endpoint != binding.endpoint {
         return Err("SSH 探测令牌与当前项目服务器配置不匹配".into());
     }
@@ -1845,21 +1751,20 @@ fn optional_token<'a>(payload: &'a Value, key: &str) -> Result<Option<&'a str>, 
 }
 
 fn command_retry_prepare_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
-    let project_id = payload["projectId"]
-        .as_i64()
-        .ok_or("projectId is required")?;
+    let environment_id = required_positive_id(payload, "environmentId")?;
     let retry_token = payload["retryToken"]
         .as_str()
         .filter(|value| !value.is_empty())
         .ok_or("retryToken is required")?;
-    let project = load_project(conn, project_id)?;
+    let project = load_environment(conn, environment_id)?;
     require_package_type(
         &project,
         ReleasePackageType::ServerUpload,
         "command_retry_prepare",
     )?;
-    let prepared = super::release_package_runtime::prepare_command_retry(retry_token, project_id)?;
-    let snapshot = probe_host(&prepared.binding.endpoint)?;
+    let prepared =
+        super::release_package_runtime::prepare_command_retry(retry_token, environment_id)?;
+    let snapshot = probe_host(environment_id, &prepared.binding.endpoint)?;
     let mut result = probe_result_with_conn(conn, snapshot)?;
     result["targets"] = json!(prepared.targets);
     result["authType"] = json!(prepared.binding.auth_type);
@@ -1868,9 +1773,7 @@ fn command_retry_prepare_with_conn(conn: &Connection, payload: &Value) -> Result
 }
 
 fn command_retry_preflight_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
-    let project_id = payload["projectId"]
-        .as_i64()
-        .ok_or("projectId is required")?;
+    let environment_id = required_positive_id(payload, "environmentId")?;
     let retry_token = payload["retryToken"]
         .as_str()
         .filter(|value| !value.is_empty())
@@ -1879,14 +1782,18 @@ fn command_retry_preflight_with_conn(conn: &Connection, payload: &Value) -> Resu
         .as_str()
         .filter(|value| !value.is_empty())
         .ok_or("probeToken is required")?;
-    let project = load_project(conn, project_id)?;
+    let project = load_environment(conn, environment_id)?;
     require_package_type(
         &project,
         ReleasePackageType::ServerUpload,
         "command_retry_preflight",
     )?;
-    let prepared = super::release_package_runtime::prepare_command_retry(retry_token, project_id)?;
+    let prepared =
+        super::release_package_runtime::prepare_command_retry(retry_token, environment_id)?;
     let probe = load_probe(probe_token)?;
+    if probe.environment_id != environment_id {
+        return Err("SSH 探测令牌与当前环境不匹配".into());
+    }
     if probe.endpoint != prepared.binding.endpoint {
         return Err("SSH 探测令牌与命令重试服务器不匹配".into());
     }
@@ -1914,7 +1821,9 @@ fn command_retry_preflight_with_conn(conn: &Connection, payload: &Value) -> Resu
         &secret,
     )?;
     let binding = PreflightBinding {
-        project_id,
+        environment_id,
+        project_id: project.project_id,
+        environment: project.environment,
         endpoint: prepared.binding.endpoint,
         auth_type: prepared.binding.auth_type,
         vault_entry_id: prepared.binding.vault_entry_id,
@@ -1960,30 +1869,22 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
         "project_update" => project_update_with_conn(&conn, payload),
         "project_delete" => project_delete_with_conn(&conn, payload),
         "prepare" => {
-            let id = payload["projectId"]
-                .as_i64()
-                .ok_or("projectId is required")?;
+            let id = required_positive_id(payload, "environmentId")?;
             prepare_with_conn(&conn, id, Local::now().date_naive())
         }
         "target_check" => {
-            let id = payload["projectId"]
-                .as_i64()
-                .ok_or("projectId is required")?;
+            let id = required_positive_id(payload, "environmentId")?;
             let folder_name = payload["folderName"]
                 .as_str()
                 .ok_or("folderName is required")?;
             target_check_with_conn(&conn, id, folder_name)
         }
         "remote_probe" => {
-            let id = payload["projectId"]
-                .as_i64()
-                .ok_or("projectId is required")?;
+            let id = required_positive_id(payload, "environmentId")?;
             remote_probe_with_conn(&conn, id)
         }
         "host_trust" => {
-            let project_id = payload["projectId"]
-                .as_i64()
-                .ok_or("projectId is required")?;
+            let environment_id = required_positive_id(payload, "environmentId")?;
             let probe_token = payload["probeToken"]
                 .as_str()
                 .ok_or("probeToken is required")?;
@@ -1992,7 +1893,7 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
                 Some(Value::Bool(value)) => *value,
                 Some(_) => return Err("replaceExisting must be a boolean".into()),
             };
-            host_trust_with_conn(&conn, project_id, probe_token, replace_existing)
+            host_trust_with_conn(&conn, environment_id, probe_token, replace_existing)
         }
         "remote_preflight" => remote_preflight_with_conn(&conn, payload),
         "command_retry_preflight" => command_retry_preflight_with_conn(&conn, payload),
@@ -2008,12 +1909,11 @@ pub fn execute_with_app(
 ) -> Result<Value, String> {
     match action {
         "start" => {
-            let project_id = payload["projectId"]
-                .as_i64()
-                .ok_or("projectId is required")?;
+            let environment_id = required_positive_id(payload, "environmentId")?;
             let action_dispatch_id = parse_action_dispatch_id(payload)?;
             let conn = db_conn()?;
-            let project = load_project(&conn, project_id)?;
+            let project = load_environment(&conn, environment_id)?;
+            validate_start_confirmation(project.environment, payload)?;
             let targets = parse_targets(payload.get("targets").unwrap_or(&Value::Null))?;
             match parse_start_input(project.package_type, payload)? {
                 ReleaseStartInput::LocalArchive {
@@ -2062,11 +1962,9 @@ pub fn execute_with_app(
             }
         }
         "upload_retry" => {
-            let project_id = payload["projectId"]
-                .as_i64()
-                .ok_or("projectId is required")?;
+            let environment_id = required_positive_id(payload, "environmentId")?;
             let conn = db_conn()?;
-            let project = load_project(&conn, project_id)?;
+            let project = load_environment(&conn, environment_id)?;
             require_package_type(&project, ReleasePackageType::ServerUpload, "upload_retry")?;
             let retry_token = payload["retryToken"]
                 .as_str()
@@ -2081,7 +1979,8 @@ pub fn execute_with_app(
                 Some(Value::Array(values)) if values.is_empty() => Vec::new(),
                 Some(value) => parse_targets(value)?,
             };
-            let targets = super::release_package_runtime::retry_targets(retry_token, project_id)?;
+            let targets =
+                super::release_package_runtime::retry_targets(retry_token, environment_id)?;
             validate_upload_project(&project)?;
             let upload = upload_endpoint_with_conn(&conn, &project)?;
             let binding = preflight_binding(&project, &upload, &targets);
@@ -2099,9 +1998,7 @@ pub fn execute_with_app(
             )
         }
         "command_retry_start" => {
-            let project_id = payload["projectId"]
-                .as_i64()
-                .ok_or("projectId is required")?;
+            let environment_id = required_positive_id(payload, "environmentId")?;
             let retry_token = payload["retryToken"]
                 .as_str()
                 .filter(|value| !value.is_empty())
@@ -2111,16 +2008,18 @@ pub fn execute_with_app(
                 .filter(|value| !value.is_empty())
                 .ok_or("authToken is required")?;
             let conn = db_conn()?;
-            let project = load_project(&conn, project_id)?;
+            let project = load_environment(&conn, environment_id)?;
             require_package_type(
                 &project,
                 ReleasePackageType::ServerUpload,
                 "command_retry_start",
             )?;
             let prepared =
-                super::release_package_runtime::prepare_command_retry(retry_token, project_id)?;
+                super::release_package_runtime::prepare_command_retry(retry_token, environment_id)?;
             let binding = PreflightBinding {
-                project_id,
+                environment_id,
+                project_id: project.project_id,
+                environment: project.environment,
                 endpoint: prepared.binding.endpoint,
                 auth_type: prepared.binding.auth_type,
                 vault_entry_id: prepared.binding.vault_entry_id,
@@ -2417,83 +2316,6 @@ mod tests {
             .as_array()
             .unwrap()
             .is_empty());
-    }
-
-    #[test]
-    fn load_project_uses_one_snapshot_during_concurrent_delete() {
-        let (database, reader_conn) = TempDatabase::new();
-        let project_id =
-            project_create_with_conn(&reader_conn, &environment_project_payload("production"))
-                .unwrap()["id"]
-                .as_i64()
-                .unwrap();
-        let writer_conn = database.connect();
-        install_thread_hook(
-            &LOAD_PROJECT_AFTER_EXISTS_HOOK,
-            thread::current().id(),
-            move || {
-                thread::spawn(move || {
-                    writer_conn
-                        .execute(
-                            "DELETE FROM release_package_projects WHERE id=?1",
-                            [project_id],
-                        )
-                        .unwrap();
-                })
-                .join()
-                .unwrap();
-            },
-        );
-
-        let loaded = load_project(&reader_conn, project_id).unwrap();
-
-        assert_eq!(loaded.id, project_id);
-        assert_eq!(loaded.name, "客户门户");
-        assert_eq!(
-            load_project(&reader_conn, project_id).unwrap_err(),
-            "release package project not found"
-        );
-    }
-
-    #[test]
-    fn load_project_reports_not_configured_when_both_environments_are_blank() {
-        let conn = test_conn();
-        conn.execute(
-            "INSERT INTO release_package_projects(name, frontend_project_path, backend_project_path)
-             VALUES ('blank', 'D:\\web', 'D:\\server')",
-            [],
-        )
-        .unwrap();
-        let project_id = conn.last_insert_rowid();
-        conn.execute(
-            "INSERT INTO release_package_environments(project_id, environment)
-             VALUES (?1, 'test'), (?1, 'production')",
-            [project_id],
-        )
-        .unwrap();
-
-        assert_eq!(
-            load_project(&conn, project_id).unwrap_err(),
-            "release package project is not configured"
-        );
-    }
-
-    #[test]
-    fn load_project_rejects_two_configured_environments() {
-        let conn = test_conn();
-        let created =
-            project_create_with_conn(&conn, &environment_project_payload("test")).unwrap();
-        let project_id = created["id"].as_i64().unwrap();
-        let production_environment_id = environment_id(&conn, project_id, "production");
-        let mut production = environment_project_payload("production");
-        production["id"] = json!(project_id);
-        production["environmentId"] = json!(production_environment_id);
-        project_update_with_conn(&conn, &production).unwrap();
-
-        assert_eq!(
-            load_project(&conn, project_id).unwrap_err(),
-            "上线包项目存在多个已配置环境，请使用环境 ID"
-        );
     }
 
     #[test]
@@ -3284,7 +3106,8 @@ mod tests {
         let password_id = project_create_with_conn(&conn, &password_project_payload).unwrap()["id"]
             .as_i64()
             .unwrap();
-        let mut password_project = load_project(&conn, password_id).unwrap();
+        let mut password_project =
+            load_environment(&conn, environment_id(&conn, password_id, "production")).unwrap();
         password_project.ssh_port = 0;
         assert!(validate_upload_project(&password_project).is_ok());
 
@@ -3302,7 +3125,8 @@ mod tests {
                 ["id"]
                 .as_i64()
                 .unwrap();
-        let mut private_key_project = load_project(&conn, private_key_id).unwrap();
+        let mut private_key_project =
+            load_environment(&conn, environment_id(&conn, private_key_id, "production")).unwrap();
         private_key_project.ssh_port = 0;
         assert_eq!(
             validate_upload_project(&private_key_project).err().unwrap(),
@@ -3327,10 +3151,8 @@ mod tests {
         input["environmentConfig"]["sshHost"] = json!("");
         input["environmentConfig"]["sshUsername"] = json!("");
 
-        let id = project_create_with_conn(&conn, &input).unwrap()["id"]
-            .as_i64()
-            .unwrap();
-        let saved = load_project(&conn, id).unwrap();
+        let created = project_create_with_conn(&conn, &input).unwrap();
+        let saved = load_environment(&conn, created["environmentId"].as_i64().unwrap()).unwrap();
         assert_eq!(saved.vault_entry_id, Some(17));
         let listed = project_list_with_conn(&conn).unwrap();
         let production = &listed["projects"][0]["environments"][1];
@@ -3374,8 +3196,11 @@ mod tests {
             .unwrap();
         super::super::vault::install_test_session([7u8; 32]);
 
-        let endpoint =
-            upload_endpoint_with_conn(&conn, &load_project(&conn, project_id).unwrap()).unwrap();
+        let endpoint = upload_endpoint_with_conn(
+            &conn,
+            &load_environment(&conn, environment_id(&conn, project_id, "production")).unwrap(),
+        )
+        .unwrap();
         assert_eq!(endpoint.endpoint.host, "deploy.example");
         assert_eq!(endpoint.endpoint.port, 2200);
         assert_eq!(endpoint.endpoint.username, "deploy");
@@ -3390,14 +3215,15 @@ mod tests {
     #[test]
     fn private_key_endpoint_keeps_using_the_project_port() {
         let conn = test_conn();
-        let project_id =
+        let environment_id =
             project_create_with_conn(&conn, &environment_project_payload("production")).unwrap()
-                ["id"]
+                ["environmentId"]
                 .as_i64()
                 .unwrap();
 
         let endpoint =
-            upload_endpoint_with_conn(&conn, &load_project(&conn, project_id).unwrap()).unwrap();
+            upload_endpoint_with_conn(&conn, &load_environment(&conn, environment_id).unwrap())
+                .unwrap();
 
         assert_eq!(endpoint.endpoint.host, "deploy.example.internal");
         assert_eq!(endpoint.endpoint.port, 2222);
@@ -3602,6 +3428,7 @@ mod tests {
     fn trusted_host_requires_explicit_replacement_when_fingerprint_changes() {
         let conn = test_conn();
         let probe = ProbeSnapshot {
+            environment_id: 1,
             endpoint: RemoteEndpoint {
                 host: "deploy.example.internal".into(),
                 port: 22,
@@ -3627,12 +3454,13 @@ mod tests {
     #[test]
     fn host_trust_rotates_the_probe_token_and_rejects_reuse() {
         let conn = test_conn();
-        let project_id =
+        let environment_id =
             project_create_with_conn(&conn, &environment_project_payload("production")).unwrap()
-                ["id"]
+                ["environmentId"]
                 .as_i64()
                 .unwrap();
         let snapshot = ProbeSnapshot {
+            environment_id,
             endpoint: RemoteEndpoint {
                 host: "server.example.internal".into(),
                 port: 22,
@@ -3642,10 +3470,10 @@ mod tests {
             fingerprint_sha256: "SHA256:new".into(),
         };
         let old_token = store_probe(snapshot.clone()).unwrap();
-        let result = host_trust_with_conn(&conn, project_id, &old_token, false).unwrap();
+        let result = host_trust_with_conn(&conn, environment_id, &old_token, false).unwrap();
         let next_token = result["probeToken"].as_str().unwrap();
         assert_ne!(next_token, old_token);
-        assert!(host_trust_with_conn(&conn, project_id, &old_token, false).is_err());
+        assert!(host_trust_with_conn(&conn, environment_id, &old_token, false).is_err());
         assert_eq!(consume_probe(next_token).unwrap(), snapshot);
     }
 
@@ -3654,10 +3482,11 @@ mod tests {
         let conn = test_conn();
         let mut local = environment_project_payload("production");
         local["environmentConfig"]["packageType"] = json!("local_archive");
-        let project_id = project_create_with_conn(&conn, &local).unwrap()["id"]
+        let environment_id = project_create_with_conn(&conn, &local).unwrap()["environmentId"]
             .as_i64()
             .unwrap();
         let snapshot = ProbeSnapshot {
+            environment_id,
             endpoint: RemoteEndpoint {
                 host: "server.example.internal".into(),
                 port: 22,
@@ -3668,9 +3497,11 @@ mod tests {
         };
         let probe_token = store_probe(snapshot.clone()).unwrap();
 
-        assert!(host_trust_with_conn(&conn, project_id, &probe_token, false)
-            .unwrap_err()
-            .contains("server_upload"));
+        assert!(
+            host_trust_with_conn(&conn, environment_id, &probe_token, false)
+                .unwrap_err()
+                .contains("server_upload")
+        );
         assert_eq!(consume_probe(&probe_token).unwrap(), snapshot);
     }
 
@@ -3713,14 +3544,14 @@ mod tests {
         update["environmentConfig"]["backendPostUploadCommand"] =
             json!("systemctl restart portal-pro");
         project_update_with_conn(&conn, &update).unwrap();
-        let updated = load_project(&conn, id).unwrap();
-        assert_eq!(updated.name, "客户门户 Pro");
+        let updated = load_environment(&conn, environment_id).unwrap();
+        assert_eq!(updated.project_name, "客户门户 Pro");
         assert_eq!(
             updated.backend_post_upload_command,
             "systemctl restart portal-pro"
         );
         project_delete_with_conn(&conn, &json!({ "id": id })).unwrap();
-        assert!(load_project(&conn, id).is_err());
+        assert!(load_environment(&conn, environment_id).is_err());
     }
 
     #[test]
@@ -3728,11 +3559,15 @@ mod tests {
         let conn = test_conn();
         let mut project = environment_project_payload("production");
         project["environmentConfig"]["packageType"] = json!("local_archive");
-        let id = project_create_with_conn(&conn, &project).unwrap()["id"]
+        let environment_id = project_create_with_conn(&conn, &project).unwrap()["environmentId"]
             .as_i64()
             .unwrap();
-        let out =
-            prepare_with_conn(&conn, id, NaiveDate::from_ymd_opt(2026, 7, 23).unwrap()).unwrap();
+        let out = prepare_with_conn(
+            &conn,
+            environment_id,
+            NaiveDate::from_ymd_opt(2026, 7, 23).unwrap(),
+        )
+        .unwrap();
         assert_eq!(out["packageType"], "local_archive");
         assert_eq!(out["defaultFolderName"], "20260723-客户门户");
         assert_eq!(out["archivePath"], r"D:\releases\20260723-客户门户");
@@ -3743,12 +3578,16 @@ mod tests {
         let conn = test_conn();
         let mut project = environment_project_payload("production");
         project["environmentConfig"]["outputRoot"] = json!("");
-        let id = project_create_with_conn(&conn, &project).unwrap()["id"]
+        let environment_id = project_create_with_conn(&conn, &project).unwrap()["environmentId"]
             .as_i64()
             .unwrap();
 
-        let out =
-            prepare_with_conn(&conn, id, NaiveDate::from_ymd_opt(2026, 7, 23).unwrap()).unwrap();
+        let out = prepare_with_conn(
+            &conn,
+            environment_id,
+            NaiveDate::from_ymd_opt(2026, 7, 23).unwrap(),
+        )
+        .unwrap();
 
         assert_eq!(out, json!({ "packageType": "server_upload" }));
     }
@@ -3813,6 +3652,52 @@ mod tests {
     }
 
     #[test]
+    fn production_start_requires_explicit_confirmation() {
+        assert!(
+            validate_start_confirmation(ReleasePackageEnvironmentKind::Test, &json!({})).is_ok()
+        );
+        assert_eq!(
+            validate_start_confirmation(
+                ReleasePackageEnvironmentKind::Test,
+                &json!({ "productionConfirmed": false })
+            )
+            .unwrap_err(),
+            "测试环境启动不能携带生产确认参数"
+        );
+        assert_eq!(
+            validate_start_confirmation(ReleasePackageEnvironmentKind::Production, &json!({}))
+                .unwrap_err(),
+            "生产环境发布需要明确确认"
+        );
+        assert_eq!(
+            validate_start_confirmation(
+                ReleasePackageEnvironmentKind::Production,
+                &json!({ "productionConfirmed": true })
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            validate_start_confirmation(
+                ReleasePackageEnvironmentKind::Production,
+                &json!({ "productionConfirmed": "true" })
+            )
+            .unwrap_err(),
+            "生产环境发布需要明确确认"
+        );
+    }
+
+    #[test]
+    fn every_remote_running_action_checks_production_confirmation_before_side_effects() {
+        let source = include_str!("release_package.rs");
+        assert_eq!(
+            source
+                .matches("validate_start_confirmation(project.environment, payload)?;")
+                .count(),
+            3
+        );
+    }
+
+    #[test]
     fn action_dispatch_id_is_optional_but_strict() {
         assert_eq!(parse_action_dispatch_id(&json!({})).unwrap(), None);
         assert_eq!(
@@ -3855,27 +3740,31 @@ mod tests {
     #[test]
     fn type_specific_actions_reject_the_other_package_type() {
         let conn = test_conn();
-        let upload_id = project_create_with_conn(&conn, &environment_project_payload("production"))
-            .unwrap()["id"]
-            .as_i64()
-            .unwrap();
-        assert!(target_check_with_conn(&conn, upload_id, "release")
-            .unwrap_err()
-            .contains("local_archive"));
+        let upload_environment_id =
+            project_create_with_conn(&conn, &environment_project_payload("production")).unwrap()
+                ["environmentId"]
+                .as_i64()
+                .unwrap();
+        assert!(
+            target_check_with_conn(&conn, upload_environment_id, "release")
+                .unwrap_err()
+                .contains("local_archive")
+        );
 
         let mut local = environment_project_payload("production");
         local["environmentConfig"]["packageType"] = json!("local_archive");
         local["environmentConfig"]["sshHost"] = json!("");
-        let local_id = project_create_with_conn(&conn, &local).unwrap()["id"]
+        let local_environment_id = project_create_with_conn(&conn, &local).unwrap()
+            ["environmentId"]
             .as_i64()
             .unwrap();
-        assert!(remote_probe_with_conn(&conn, local_id)
+        assert!(remote_probe_with_conn(&conn, local_environment_id)
             .unwrap_err()
             .contains("server_upload"));
         assert!(remote_preflight_with_conn(
             &conn,
             &json!({
-                "projectId": local_id,
+                "environmentId": local_environment_id,
                 "targets": ["frontend"],
                 "probeToken": "unused"
             }),
@@ -3891,7 +3780,7 @@ mod tests {
             .unwrap()["id"]
             .as_i64()
             .unwrap();
-        let project = load_project(&conn, id).unwrap();
+        let project = load_environment(&conn, environment_id(&conn, id, "production")).unwrap();
 
         assert!(validate_upload_project(&project).is_ok());
     }
@@ -3910,9 +3799,12 @@ mod tests {
         let output = root.join("output");
         fs::create_dir_all(&backend).unwrap();
         fs::create_dir_all(output.join("release")).unwrap();
-        let project = ReleasePackageRuntimeConfig {
+        let project = ReleasePackageEnvironmentConfig {
             id: 1,
-            name: "test".into(),
+            project_id: 1,
+            project_name: "test".into(),
+            environment: ReleasePackageEnvironmentKind::Test,
+            configured: true,
             output_root: output.to_string_lossy().into_owned(),
             package_type: ReleasePackageType::LocalArchive,
             frontend_project_path: root.join("missing-frontend").to_string_lossy().into_owned(),
@@ -3959,11 +3851,11 @@ mod tests {
         let mut project = environment_project_payload("production");
         project["environmentConfig"]["packageType"] = json!("local_archive");
         project["environmentConfig"]["outputRoot"] = json!(output.to_string_lossy());
-        let id = project_create_with_conn(&conn, &project).unwrap()["id"]
+        let environment_id = project_create_with_conn(&conn, &project).unwrap()["environmentId"]
             .as_i64()
             .unwrap();
 
-        let missing = target_check_with_conn(&conn, id, "release").unwrap();
+        let missing = target_check_with_conn(&conn, environment_id, "release").unwrap();
         assert_eq!(missing["exists"], false);
         assert_eq!(
             missing["archivePath"],
@@ -3971,12 +3863,12 @@ mod tests {
         );
 
         fs::create_dir(output.join("release")).unwrap();
-        let existing = target_check_with_conn(&conn, id, "release").unwrap();
+        let existing = target_check_with_conn(&conn, environment_id, "release").unwrap();
         assert_eq!(existing["exists"], true);
 
         fs::remove_dir(output.join("release")).unwrap();
         fs::write(output.join("release"), "file").unwrap();
-        assert!(target_check_with_conn(&conn, id, "release")
+        assert!(target_check_with_conn(&conn, environment_id, "release")
             .unwrap_err()
             .contains("不是文件夹"));
 
@@ -3987,6 +3879,7 @@ mod tests {
     fn remote_discard_action_revokes_both_token_types_idempotently() {
         assert!(supported_actions().contains(&"remote_discard"));
         let snapshot = ProbeSnapshot {
+            environment_id: 7,
             endpoint: RemoteEndpoint {
                 host: "server.example.internal".into(),
                 port: 22,
@@ -3997,7 +3890,9 @@ mod tests {
         };
         let probe_token = store_probe(snapshot).unwrap();
         let binding = PreflightBinding {
+            environment_id: 7,
             project_id: 7,
+            environment: ReleasePackageEnvironmentKind::Test,
             endpoint: RemoteEndpoint {
                 host: "server.example.internal".into(),
                 port: 22,
@@ -4044,9 +3939,12 @@ mod tests {
         let output = root.join("output");
         fs::create_dir_all(&backend).unwrap();
         fs::create_dir_all(&output).unwrap();
-        let project = ReleasePackageRuntimeConfig {
+        let project = ReleasePackageEnvironmentConfig {
             id: 1,
-            name: "test".into(),
+            project_id: 1,
+            project_name: "test".into(),
+            environment: ReleasePackageEnvironmentKind::Test,
+            configured: true,
             output_root: output.to_string_lossy().into_owned(),
             package_type: ReleasePackageType::LocalArchive,
             frontend_project_path: root.join("missing-frontend").to_string_lossy().into_owned(),
