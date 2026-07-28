@@ -487,7 +487,7 @@ impl ReleasePackageType {
 }
 
 fn require_package_type(
-    project: &ReleasePackageProjectConfig,
+    project: &ReleasePackageRuntimeConfig,
     expected: ReleasePackageType,
     action: &str,
 ) -> Result<(), String> {
@@ -502,13 +502,13 @@ fn require_package_type(
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct ReleasePackageProjectRecord {
-    id: i64,
-    name: String,
-    frontend_project_path: String,
-    backend_project_path: String,
-    created_at: String,
-    updated_at: String,
+pub struct ReleasePackageProjectConfig {
+    pub id: i64,
+    pub name: String,
+    pub frontend_project_path: String,
+    pub backend_project_path: String,
+    pub created_at: String,
+    pub updated_at: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -551,7 +551,7 @@ pub struct ReleasePackageEnvironmentConfig {
 // constructs and consumes this flattened snapshot, so keep it explicit and fail on ambiguity.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ReleasePackageProjectConfig {
+pub struct ReleasePackageRuntimeConfig {
     pub id: i64,
     pub name: String,
     pub output_root: String,
@@ -881,8 +881,8 @@ fn validate_vault_binding(
     Ok(())
 }
 
-fn project_record_from_row(row: &Row<'_>) -> rusqlite::Result<ReleasePackageProjectRecord> {
-    Ok(ReleasePackageProjectRecord {
+fn project_record_from_row(row: &Row<'_>) -> rusqlite::Result<ReleasePackageProjectConfig> {
+    Ok(ReleasePackageProjectConfig {
         id: row.get(0)?,
         name: row.get(1)?,
         frontend_project_path: row.get(2)?,
@@ -1064,7 +1064,7 @@ fn load_environment(
 #[serde(rename_all = "camelCase")]
 struct ProjectListItem {
     #[serde(flatten)]
-    project: ReleasePackageProjectRecord,
+    project: ReleasePackageProjectConfig,
     environments: Vec<ReleasePackageEnvironmentConfig>,
 }
 
@@ -1340,7 +1340,7 @@ fn project_delete_with_conn(conn: &Connection, payload: &Value) -> Result<Value,
 pub(crate) fn load_project(
     conn: &Connection,
     id: i64,
-) -> Result<ReleasePackageProjectConfig, String> {
+) -> Result<ReleasePackageRuntimeConfig, String> {
     let exists = conn
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM release_package_projects WHERE id=?1)",
@@ -1377,7 +1377,7 @@ pub(crate) fn load_project(
         });
     }
     let environment = configured.pop().unwrap();
-    Ok(ReleasePackageProjectConfig {
+    Ok(ReleasePackageRuntimeConfig {
         id: environment.project_id,
         name: environment.project_name,
         output_root: environment.output_root,
@@ -1407,7 +1407,7 @@ pub(crate) fn load_project(
 }
 
 fn validate_run_inputs(
-    project: &ReleasePackageProjectConfig,
+    project: &ReleasePackageRuntimeConfig,
     folder_name: &str,
     targets: &[ReleaseTarget],
     overwrite_existing: bool,
@@ -1430,7 +1430,7 @@ fn validate_run_inputs(
 }
 
 fn validate_project_directories(
-    project: &ReleasePackageProjectConfig,
+    project: &ReleasePackageRuntimeConfig,
     targets: &[ReleaseTarget],
 ) -> Result<(), String> {
     if targets.contains(&ReleaseTarget::Frontend)
@@ -1537,7 +1537,7 @@ fn probe_result_with_conn(conn: &Connection, snapshot: ProbeSnapshot) -> Result<
     Ok(result)
 }
 
-fn validate_upload_project(project: &ReleasePackageProjectConfig) -> Result<(), String> {
+fn validate_upload_project(project: &ReleasePackageRuntimeConfig) -> Result<(), String> {
     if !matches!(project.ssh_auth_type.as_str(), "password" | "private_key") {
         return Err("不支持的 SSH 认证方式".into());
     }
@@ -1568,7 +1568,7 @@ struct UploadEndpoint {
 
 fn upload_endpoint_with_conn(
     conn: &Connection,
-    project: &ReleasePackageProjectConfig,
+    project: &ReleasePackageRuntimeConfig,
 ) -> Result<UploadEndpoint, String> {
     if project.ssh_auth_type == "password" {
         let entry_id = project.vault_entry_id.ok_or("vault_entry_id_missing")?;
@@ -1677,7 +1677,7 @@ fn parse_private_key_auth_secret(payload: &Value) -> Result<AuthSecret, String> 
 }
 
 fn preflight_binding(
-    project: &ReleasePackageProjectConfig,
+    project: &ReleasePackageRuntimeConfig,
     upload: &UploadEndpoint,
     targets: &[ReleaseTarget],
 ) -> PreflightBinding {
@@ -2058,6 +2058,33 @@ mod tests {
     use rusqlite::Connection;
     use serde_json::{json, Value};
     use std::fs;
+
+    #[test]
+    fn project_config_serializes_only_project_fields() {
+        let project = ReleasePackageProjectConfig {
+            id: 7,
+            name: "Customer portal".into(),
+            frontend_project_path: r"D:\work\web".into(),
+            backend_project_path: r"D:\work\server".into(),
+            created_at: "2026-07-28 10:00:00".into(),
+            updated_at: "2026-07-28 11:00:00".into(),
+        };
+
+        let serialized = serde_json::to_value(project).unwrap();
+        assert_eq!(
+            serialized,
+            json!({
+                "id": 7,
+                "name": "Customer portal",
+                "frontendProjectPath": r"D:\work\web",
+                "backendProjectPath": r"D:\work\server",
+                "createdAt": "2026-07-28 10:00:00",
+                "updatedAt": "2026-07-28 11:00:00"
+            })
+        );
+        assert!(serialized.get("packageType").is_none());
+        assert!(serialized.get("outputRoot").is_none());
+    }
 
     fn test_conn() -> Connection {
         let conn = Connection::open_in_memory().unwrap();
@@ -3632,7 +3659,7 @@ mod tests {
         let output = root.join("output");
         fs::create_dir_all(&backend).unwrap();
         fs::create_dir_all(output.join("release")).unwrap();
-        let project = ReleasePackageProjectConfig {
+        let project = ReleasePackageRuntimeConfig {
             id: 1,
             name: "test".into(),
             output_root: output.to_string_lossy().into_owned(),
@@ -3766,7 +3793,7 @@ mod tests {
         let output = root.join("output");
         fs::create_dir_all(&backend).unwrap();
         fs::create_dir_all(&output).unwrap();
-        let project = ReleasePackageProjectConfig {
+        let project = ReleasePackageRuntimeConfig {
             id: 1,
             name: "test".into(),
             output_root: output.to_string_lossy().into_owned(),

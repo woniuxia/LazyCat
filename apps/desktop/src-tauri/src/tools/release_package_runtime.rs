@@ -12,7 +12,7 @@ use tauri::Emitter;
 
 #[cfg(test)]
 use super::release_package::ReleasePackageType;
-use super::release_package::{ReleasePackageProjectConfig, ReleaseTarget};
+use super::release_package::{ReleasePackageRuntimeConfig, ReleaseTarget};
 use super::release_package_archive::{
     archive_backend_artifact, archive_frontend_artifact, resolve_artifact_path,
     validate_artifact_target_collision, ArchiveError, ArchiveSession,
@@ -543,7 +543,7 @@ impl UploadProgressReporter {
 fn emit_terminal_result(
     sink: &dyn EventSink,
     run_id: &str,
-    project: &ReleasePackageProjectConfig,
+    project: &ReleasePackageRuntimeConfig,
     result: Result<PipelineSummary, PipelineError>,
     emit_package_logs: bool,
 ) {
@@ -724,7 +724,7 @@ struct BuildSummary {
 fn run_target(
     target: ReleaseTarget,
     run_id: &str,
-    project: &ReleasePackageProjectConfig,
+    project: &ReleasePackageRuntimeConfig,
     cancelled: Arc<AtomicBool>,
     pid: Arc<Mutex<Option<u32>>>,
     sink: Arc<dyn EventSink>,
@@ -1186,7 +1186,7 @@ fn preserve_retry_commands(
 }
 
 fn configured_post_upload_commands(
-    project: &ReleasePackageProjectConfig,
+    project: &ReleasePackageRuntimeConfig,
     manifests: &[ArtifactManifest],
 ) -> Vec<CommandSnapshot> {
     [ReleaseTarget::Frontend, ReleaseTarget::Backend]
@@ -1501,7 +1501,7 @@ fn build_retry_deployment_request(
 
 fn run_deployment_phase(
     run_id: &str,
-    project: &ReleasePackageProjectConfig,
+    project: &ReleasePackageRuntimeConfig,
     summary: PipelineSummary,
     authorization: DeployAuthorization,
     cancelled: Arc<AtomicBool>,
@@ -1705,7 +1705,7 @@ fn run_retry_deployment_phase(
 
 fn run_build_pipeline(
     run_id: &str,
-    project: ReleasePackageProjectConfig,
+    project: ReleasePackageRuntimeConfig,
     targets: Vec<ReleaseTarget>,
     cancelled: Arc<AtomicBool>,
     process_slots: ProcessSlots,
@@ -2127,7 +2127,7 @@ fn request_cancel(active: &ActiveRun) -> bool {
 
 pub fn start(
     app: &tauri::AppHandle,
-    project: ReleasePackageProjectConfig,
+    project: ReleasePackageRuntimeConfig,
     targets: Vec<ReleaseTarget>,
     request: RuntimeStartRequest,
     action_dispatch_id: Option<String>,
@@ -2251,7 +2251,7 @@ pub fn start(
 
 pub fn upload_retry(
     app: &tauri::AppHandle,
-    project: ReleasePackageProjectConfig,
+    project: ReleasePackageRuntimeConfig,
     retry_token: &str,
     deploy_authorization: DeployAuthorization,
 ) -> Result<Value, String> {
@@ -2331,7 +2331,7 @@ pub fn upload_retry(
 
 pub fn command_retry(
     app: &tauri::AppHandle,
-    project: ReleasePackageProjectConfig,
+    project: ReleasePackageRuntimeConfig,
     retry_token: &str,
     auth_token: &str,
     auth_binding: PreflightBinding,
@@ -3091,8 +3091,8 @@ mod pipeline_tests {
         assert_eq!(progress, vec![10, 20]);
     }
 
-    fn project() -> ReleasePackageProjectConfig {
-        ReleasePackageProjectConfig {
+    fn project() -> ReleasePackageRuntimeConfig {
+        ReleasePackageRuntimeConfig {
             id: 7,
             name: "test".into(),
             output_root: "Z:\\output".into(),
@@ -3122,7 +3122,7 @@ mod pipeline_tests {
     }
 
     #[cfg(windows)]
-    fn frontend_build_project(root: &Path, artifact_mode: &str) -> ReleasePackageProjectConfig {
+    fn frontend_build_project(root: &Path, artifact_mode: &str) -> ReleasePackageRuntimeConfig {
         let frontend_project = root.join("web");
         let backend_project = root.join("server");
         fs::create_dir_all(&frontend_project).unwrap();
@@ -3139,7 +3139,7 @@ mod pipeline_tests {
     }
 
     #[cfg(windows)]
-    fn keyword_build_project(root: &Path) -> ReleasePackageProjectConfig {
+    fn keyword_build_project(root: &Path) -> ReleasePackageRuntimeConfig {
         let frontend_project = root.join("web");
         let backend_project = root.join("server");
         fs::create_dir_all(&frontend_project).unwrap();
@@ -3160,7 +3160,7 @@ mod pipeline_tests {
 
     #[cfg(windows)]
     fn run_keyword_build(
-        project: ReleasePackageProjectConfig,
+        project: ReleasePackageRuntimeConfig,
         targets: Vec<ReleaseTarget>,
     ) -> BuildSummary {
         run_build_pipeline(
@@ -4265,7 +4265,7 @@ mod pipeline_tests {
         let output_root = root.0.join("output");
         fs::create_dir_all(&frontend_project).unwrap();
         fs::create_dir_all(&backend_project).unwrap();
-        let project = ReleasePackageProjectConfig {
+        let project = ReleasePackageRuntimeConfig {
             id: 1,
             name: "构建项目".into(),
             output_root: output_root.to_string_lossy().into_owned(),
@@ -4509,7 +4509,7 @@ mod pipeline_tests {
         fs::create_dir_all(&frontend_project).unwrap();
         fs::create_dir_all(&backend_project).unwrap();
         fs::create_dir_all(&output_root).unwrap();
-        let project = ReleasePackageProjectConfig {
+        let project = ReleasePackageRuntimeConfig {
             id: 1,
             name: "冒烟项目".into(),
             output_root: output_root.to_string_lossy().into_owned(),
@@ -4582,7 +4582,7 @@ mod pipeline_tests {
         fs::create_dir_all(&frontend_project).unwrap();
         fs::create_dir_all(&backend_project).unwrap();
         fs::create_dir_all(&output_root).unwrap();
-        let project = ReleasePackageProjectConfig {
+        let project = ReleasePackageRuntimeConfig {
             id: 2,
             name: "冒烟项目".into(),
             output_root: output_root.to_string_lossy().into_owned(),
