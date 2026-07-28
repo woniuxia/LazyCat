@@ -298,6 +298,19 @@ pub struct DeploymentRequest {
     pub targets: Vec<DeploymentTarget>,
 }
 
+pub struct DeploymentSuccess {
+    pub control: Box<dyn RemoteFs>,
+}
+
+impl std::fmt::Debug for DeploymentSuccess {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("DeploymentSuccess")
+            .field("control", &"<remote>")
+            .finish()
+    }
+}
+
 #[derive(Clone, Debug)]
 struct TransactionTarget {
     final_path: String,
@@ -894,7 +907,7 @@ pub(crate) fn deploy_parallel(
     progress: Arc<dyn Fn(u64, &str) + Send + Sync>,
     interrupt_transport: Arc<dyn Fn() + Send + Sync>,
     recover_remote: Arc<dyn Fn() -> Result<Box<dyn RemoteFs>, DeployError> + Send + Sync>,
-) -> Result<(), DeployError> {
+) -> Result<DeploymentSuccess, DeployError> {
     if remotes.len() != plan.target_count() || remotes.is_empty() || remotes.len() > 2 {
         return Err(DeployError::failed("SSH 会话数量与部署目标不一致"));
     }
@@ -904,7 +917,9 @@ pub(crate) fn deploy_parallel(
     if let Err(mut error) = plan.prepare_remote(control.as_mut(), user_cancelled.as_ref()) {
         if user_cancelled.load(Ordering::Acquire) {
             return match recover_remote() {
-                Ok(mut recovery) => plan.cancel_and_cleanup(recovery.as_mut()),
+                Ok(mut recovery) => plan
+                    .cancel_and_cleanup(recovery.as_mut())
+                    .map(|()| DeploymentSuccess { control: recovery }),
                 Err(recovery_error) => {
                     error.message = format!(
                         "{}；无法建立恢复 SSH 会话清理临时目标：{}",
@@ -977,7 +992,9 @@ pub(crate) fn deploy_parallel(
                     return Err(error);
                 }
             };
-            return plan.cancel_and_cleanup(recovery.as_mut());
+            return plan
+                .cancel_and_cleanup(recovery.as_mut())
+                .map(|()| DeploymentSuccess { control: recovery });
         }
         if stop_requested.load(Ordering::Acquire) {
             let mut error = DeployError::failed("并行上传因其他目标失败而停止");
@@ -988,7 +1005,8 @@ pub(crate) fn deploy_parallel(
             error.recovery_paths.dedup();
             return Err(error);
         }
-        return plan.commit(control.as_mut(), user_cancelled.as_ref());
+        plan.commit(control.as_mut(), user_cancelled.as_ref())?;
+        return Ok(DeploymentSuccess { control });
     }
 
     let plan = Arc::new(plan);
@@ -1105,7 +1123,9 @@ pub(crate) fn deploy_parallel(
         return Err(error);
     }
     if user_cancelled.load(Ordering::Acquire) {
-        return plan.cancel_and_cleanup(control.as_mut());
+        return plan
+            .cancel_and_cleanup(control.as_mut())
+            .map(|()| DeploymentSuccess { control });
     }
     if stop_requested.load(Ordering::Acquire) {
         let mut error = DeployError::failed("并行上传因其他目标失败而停止");
@@ -1124,7 +1144,8 @@ pub(crate) fn deploy_parallel(
         error.recovery_paths.dedup();
         return Err(error);
     }
-    plan.commit(control.as_mut(), user_cancelled.as_ref())
+    plan.commit(control.as_mut(), user_cancelled.as_ref())?;
+    Ok(DeploymentSuccess { control })
 }
 #[cfg(test)]
 mod tests {
@@ -1503,6 +1524,7 @@ mod transaction_tests {
         cancel_after_backup: Option<Arc<AtomicBool>>,
         cancel_after_temp_root: Option<Arc<AtomicBool>>,
         expected_thread: Option<(thread::ThreadId, Arc<AtomicBool>)>,
+        command_supported: bool,
     }
 
     impl SharedFakeRemoteFs {
@@ -1515,6 +1537,7 @@ mod transaction_tests {
                 cancel_after_backup: None,
                 cancel_after_temp_root: None,
                 expected_thread: None,
+                command_supported: false,
             }
         }
 
@@ -1550,6 +1573,11 @@ mod transaction_tests {
 
         fn expect_thread(mut self, expected: thread::ThreadId, observed: Arc<AtomicBool>) -> Self {
             self.expected_thread = Some((expected, observed));
+            self
+        }
+
+        fn allow_commands(mut self) -> Self {
+            self.command_supported = true;
             self
         }
     }
@@ -1744,10 +1772,16 @@ mod transaction_tests {
         fn execute_command(
             &mut self,
             _command: &str,
-            _cancelled: &AtomicBool,
+            cancelled: &AtomicBool,
             _output: &mut dyn FnMut(&str, String),
         ) -> Result<RemoteCommandResult, DeployError> {
-            Err(DeployError::failed("该测试连接不支持远程命令"))
+            if cancelled.load(Ordering::Acquire) {
+                return Err(DeployError::cancelled_command());
+            }
+            if !self.command_supported {
+                return Err(DeployError::failed("该测试连接不支持远程命令"));
+            }
+            Ok(RemoteCommandResult { exit_code: 0 })
         }
     }
 
@@ -2226,6 +2260,41 @@ mod transaction_tests {
         assert_eq!(shared_read(&nodes, "/srv/app/app.jar"), b"new-jar");
     }
 
+    #[test]
+    fn committed_connection_returns_control_remote_for_commands() {
+        let (root, request) = two_target_request();
+        let nodes = shared_existing_release();
+        let remotes = vec![
+            Box::new(
+                SharedFakeRemoteFs::new(Arc::clone(&nodes), SharedWriteBehavior::Normal)
+                    .allow_commands(),
+            ) as Box<dyn RemoteFs>,
+            Box::new(
+                SharedFakeRemoteFs::new(Arc::clone(&nodes), SharedWriteBehavior::Normal)
+                    .allow_commands(),
+            ) as Box<dyn RemoteFs>,
+        ];
+
+        let mut success = super::deploy_parallel(
+            remotes,
+            super::DeploymentPlan::new(request).unwrap(),
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(|_, _| {}),
+            Arc::new(|| {}),
+            Arc::new(|| Err(DeployError::failed("unexpected recovery"))),
+        )
+        .expect("deployment succeeds");
+        drop(root);
+
+        assert_eq!(shared_read(&nodes, "/srv/app/web/index.html"), b"new-web");
+        assert_eq!(shared_read(&nodes, "/srv/app/app.jar"), b"new-jar");
+        let result = success
+            .control
+            .execute_command("true", &AtomicBool::new(false), &mut |_, _| {})
+            .unwrap();
+        assert_eq!(result.exit_code, 0);
+    }
     #[test]
     fn parallel_deploy_stops_sibling_after_upload_failure() {
         let (root, request) = two_target_request();

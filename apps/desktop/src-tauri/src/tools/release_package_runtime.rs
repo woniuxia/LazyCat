@@ -19,7 +19,7 @@ use super::release_package_archive::{
 };
 use super::release_package_deploy::{
     deploy_parallel, ArchivedTarget, ArtifactManifest, DeployError, DeploymentPlan,
-    DeploymentRequest, DeploymentTarget, RemoteFs,
+    DeploymentRequest, DeploymentSuccess, DeploymentTarget, RemoteFs,
 };
 use super::release_package_remote::{
     consume_preflight, ConsumedPreflight, PreflightBinding, RemoteTarget, SftpRemoteFs,
@@ -735,6 +735,21 @@ fn emit_target_result(
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct CommandSnapshot {
+    target: ReleaseTarget,
+    command: String,
+}
+
+impl CommandSnapshot {
+    fn new(target: ReleaseTarget, command: impl Into<String>) -> Self {
+        Self {
+            target,
+            command: command.into(),
+        }
+    }
+}
+
 #[derive(Debug)]
 struct PipelineSummary {
     status: &'static str,
@@ -745,11 +760,13 @@ struct PipelineSummary {
     retry_descriptor: Option<RetryDescriptor>,
     remote_committed: bool,
     local_committed: bool,
+    failed_commands: Vec<CommandSnapshot>,
 }
 
 #[derive(Clone, Debug)]
 struct RetryDescriptor {
     manifests: Vec<ArtifactManifest>,
+    commands: Vec<CommandSnapshot>,
 }
 
 #[derive(Clone, Debug)]
@@ -762,7 +779,10 @@ impl RetryJob {
     fn from_manifests(project_id: i64, manifests: Vec<ArtifactManifest>) -> Self {
         Self {
             project_id,
-            descriptor: RetryDescriptor { manifests },
+            descriptor: RetryDescriptor {
+                manifests,
+                commands: Vec::new(),
+            },
         }
     }
 }
@@ -841,6 +861,7 @@ fn build_upload_summary(summary: BuildSummary) -> Result<PipelineSummary, Pipeli
         retry_descriptor: None,
         remote_committed: false,
         local_committed: false,
+        failed_commands: Vec::new(),
     })
 }
 
@@ -885,6 +906,7 @@ fn combine_package_and_deploy(
             summary.error = Some(format!("{}{recovery}", error.message));
             summary.retry_descriptor = Some(RetryDescriptor {
                 manifests: summary.manifests.clone(),
+                commands: Vec::new(),
             });
             summary.remote_committed = false;
             summary
@@ -892,6 +914,126 @@ fn combine_package_and_deploy(
     }
 }
 
+fn configured_post_upload_commands(
+    project: &ReleasePackageProjectConfig,
+    manifests: &[ArtifactManifest],
+) -> Vec<CommandSnapshot> {
+    [ReleaseTarget::Frontend, ReleaseTarget::Backend]
+        .into_iter()
+        .filter(|target| manifests.iter().any(|manifest| manifest.target == *target))
+        .filter_map(|target| {
+            let command = match target {
+                ReleaseTarget::Frontend => project.frontend_post_upload_command.trim(),
+                ReleaseTarget::Backend => project.backend_post_upload_command.trim(),
+            };
+            (!command.is_empty()).then(|| CommandSnapshot::new(target, command))
+        })
+        .collect()
+}
+
+fn run_post_upload_commands(
+    run_id: &str,
+    project_id: i64,
+    mut summary: PipelineSummary,
+    mut commands: Vec<CommandSnapshot>,
+    mut control: Box<dyn RemoteFs>,
+    cancelled: Arc<AtomicBool>,
+    sink: Arc<dyn EventSink>,
+) -> PipelineSummary {
+    if !summary.remote_committed || commands.is_empty() {
+        return summary;
+    }
+
+    commands.sort_by_key(|snapshot| match snapshot.target {
+        ReleaseTarget::Frontend => 0,
+        ReleaseTarget::Backend => 1,
+    });
+    let mut failed = Vec::new();
+
+    for snapshot in commands {
+        if cancelled.load(Ordering::Acquire) {
+            summary.status = "cancelled";
+            summary.error = Some("服务器文件已上传，上传后命令未全部完成，已按用户请求取消".into());
+            summary.failed_commands.clear();
+            summary.retry_descriptor = None;
+            return summary;
+        }
+
+        let label = target_label(snapshot.target);
+        emit_system_log(
+            sink.as_ref(),
+            run_id,
+            project_id,
+            "upload",
+            &format!("[{label}命令] 开始执行上传后命令"),
+        );
+        let event_sink = Arc::clone(&sink);
+        let event_run_id = run_id.to_owned();
+        let prefix = format!("[{label}命令]");
+        let result = control.execute_command(
+            &snapshot.command,
+            cancelled.as_ref(),
+            &mut move |stream, line| {
+                event_sink.log(LogEvent {
+                    run_id: event_run_id.clone(),
+                    project_id,
+                    phase: "upload".into(),
+                    stream: stream.into(),
+                    line: format!("{prefix}[{stream}] {line}"),
+                });
+            },
+        );
+
+        if cancelled.load(Ordering::Acquire) || matches!(&result, Err(error) if error.cancelled) {
+            summary.status = "cancelled";
+            summary.error = Some("服务器文件已上传，上传后命令未全部完成，已按用户请求取消".into());
+            summary.failed_commands.clear();
+            summary.retry_descriptor = None;
+            return summary;
+        }
+
+        match result {
+            Ok(result) if result.exit_code == 0 => emit_system_log(
+                sink.as_ref(),
+                run_id,
+                project_id,
+                "upload",
+                &format!("[{label}命令] 上传后命令执行成功"),
+            ),
+            Ok(result) => {
+                emit_system_log(
+                    sink.as_ref(),
+                    run_id,
+                    project_id,
+                    "upload",
+                    &format!(
+                        "[{label}命令] 上传后命令执行失败，退出码：{}",
+                        result.exit_code
+                    ),
+                );
+                failed.push(snapshot);
+            }
+            Err(error) => {
+                emit_system_log(
+                    sink.as_ref(),
+                    run_id,
+                    project_id,
+                    "upload",
+                    &format!("[{label}命令] 上传后命令执行失败：{}", error.message),
+                );
+                failed.push(snapshot);
+            }
+        }
+    }
+
+    if !failed.is_empty() {
+        summary.status = "upload_succeeded_command_failed";
+        summary.error = Some("服务器文件已上传，但上传后命令未全部成功".into());
+        summary.retry_descriptor = None;
+        summary.failed_commands = failed;
+    }
+    summary
+}
 fn validate_remote_overwrite(
     consumed: &ConsumedPreflight,
     confirmed: &[ReleaseTarget],
@@ -1008,6 +1150,7 @@ fn run_deployment_phase(
     if !package_can_upload(&summary) {
         return summary;
     }
+    let commands = configured_post_upload_commands(project, &summary.manifests);
     let request = match build_deployment_request(run_id, &summary, &authorization.consumed) {
         Ok(request) => request,
         Err(error) => return combine_package_and_deploy(summary, Err(error)),
@@ -1017,6 +1160,7 @@ fn run_deployment_phase(
         project.id,
         summary,
         request,
+        commands,
         authorization.consumed,
         cancelled,
         upload_stop,
@@ -1030,6 +1174,7 @@ fn execute_deployment_request(
     project_id: i64,
     summary: PipelineSummary,
     request: DeploymentRequest,
+    commands: Vec<CommandSnapshot>,
     consumed: ConsumedPreflight,
     cancelled: Arc<AtomicBool>,
     upload_stop: Arc<AtomicBool>,
@@ -1080,7 +1225,7 @@ fn execute_deployment_request(
             )?))
         })
     };
-    let deploy_result = (|| -> Result<(), DeployError> {
+    let deploy_result = (|| -> Result<DeploymentSuccess, DeployError> {
         let plan = DeploymentPlan::new(request)?;
         let mut remotes = Vec::with_capacity(plan.target_count());
         for _ in 0..plan.target_count() {
@@ -1108,9 +1253,20 @@ fn execute_deployment_request(
             recover_remote,
         )
     })();
-    ssh_sockets.clear();
     reporter.force_emit(deploy_result.is_ok());
-    let summary = combine_package_and_deploy(summary, deploy_result);
+    let retry_commands = commands.clone();
+    let (mut summary, control) = match deploy_result {
+        Ok(success) => (
+            combine_package_and_deploy(summary, Ok(())),
+            Some(success.control),
+        ),
+        Err(error) => (combine_package_and_deploy(summary, Err(error)), None),
+    };
+    if summary.status == "package_succeeded_upload_failed" {
+        if let Some(descriptor) = summary.retry_descriptor.as_mut() {
+            descriptor.commands = retry_commands;
+        }
+    }
     if summary.remote_committed {
         emit_system_log(
             sink.as_ref(),
@@ -1119,7 +1275,19 @@ fn execute_deployment_request(
             "upload",
             "服务器上传完成",
         );
+        if let Some(control) = control {
+            summary = run_post_upload_commands(
+                run_id,
+                project_id,
+                summary,
+                commands,
+                control,
+                cancelled,
+                Arc::clone(&sink),
+            );
+        }
     }
+    ssh_sockets.clear();
     summary
 }
 
@@ -1132,6 +1300,7 @@ fn run_retry_deployment_phase(
     ssh_sockets: &Arc<SshSocketRegistry>,
     sink: Arc<dyn EventSink>,
 ) -> PipelineSummary {
+    let commands = retry.descriptor.commands.clone();
     let summary = PipelineSummary {
         status: "succeeded",
         archive_path: None,
@@ -1141,6 +1310,7 @@ fn run_retry_deployment_phase(
         retry_descriptor: None,
         remote_committed: false,
         local_committed: false,
+        failed_commands: Vec::new(),
     };
     let request = match build_retry_deployment_request(run_id, &retry, &authorization.consumed) {
         Ok(request) => request,
@@ -1151,6 +1321,7 @@ fn run_retry_deployment_phase(
         retry.project_id,
         summary,
         request,
+        commands,
         authorization.consumed,
         cancelled,
         upload_stop,
@@ -1333,6 +1504,7 @@ where
             retry_descriptor: None,
             remote_committed: false,
             local_committed: false,
+            failed_commands: Vec::new(),
         });
     }
 
@@ -1485,6 +1657,7 @@ where
             retry_descriptor: None,
             remote_committed: false,
             local_committed: false,
+            failed_commands: Vec::new(),
         });
     }
     let (archive_path, cleanup_warning) = match commit_archive(&mut archive, cancelled.as_ref()) {
@@ -1530,6 +1703,7 @@ where
         retry_descriptor: None,
         remote_committed: false,
         local_committed: true,
+        failed_commands: Vec::new(),
     })
 }
 
@@ -1910,6 +2084,7 @@ mod tests {
 #[cfg(test)]
 mod pipeline_tests {
     use super::*;
+    use std::collections::VecDeque;
     #[cfg(windows)]
     use std::fs;
     use std::sync::atomic::AtomicBool;
@@ -1937,6 +2112,7 @@ mod pipeline_tests {
     #[cfg(windows)]
     #[derive(Default)]
     struct CollectingSink {
+        logs: Mutex<Vec<LogEvent>>,
         statuses: Mutex<Vec<StatusEvent>>,
         cancel_on_archive: Option<Arc<AtomicBool>>,
     }
@@ -1949,6 +2125,7 @@ mod pipeline_tests {
                     cancelled.store(true, Ordering::Release);
                 }
             }
+            self.logs.lock().unwrap().push(event);
         }
 
         fn status(&self, event: StatusEvent) {
@@ -1958,10 +2135,121 @@ mod pipeline_tests {
         fn notification(&self, _event: GlobalNotification) {}
     }
 
+    struct CommandRemote {
+        outcomes: VecDeque<Result<i32, DeployError>>,
+        calls: Arc<Mutex<Vec<String>>>,
+        cancel_after_calls: Option<(usize, Arc<AtomicBool>)>,
+    }
+
+    impl CommandRemote {
+        fn new(
+            outcomes: impl IntoIterator<Item = Result<i32, DeployError>>,
+        ) -> (Self, Arc<Mutex<Vec<String>>>) {
+            let calls = Arc::new(Mutex::new(Vec::new()));
+            (
+                Self {
+                    outcomes: outcomes.into_iter().collect(),
+                    calls: Arc::clone(&calls),
+                    cancel_after_calls: None,
+                },
+                calls,
+            )
+        }
+
+        fn cancelling_after(
+            outcomes: impl IntoIterator<Item = Result<i32, DeployError>>,
+            count: usize,
+            cancelled: Arc<AtomicBool>,
+        ) -> (Self, Arc<Mutex<Vec<String>>>) {
+            let (mut remote, calls) = Self::new(outcomes);
+            remote.cancel_after_calls = Some((count, cancelled));
+            (remote, calls)
+        }
+    }
+
+    impl RemoteFs for CommandRemote {
+        fn metadata(
+            &self,
+            _path: &str,
+        ) -> Result<Option<crate::tools::release_package_deploy::RemoteMetadata>, DeployError>
+        {
+            Ok(None)
+        }
+
+        fn create_dir(&mut self, _path: &str) -> Result<(), DeployError> {
+            Ok(())
+        }
+
+        fn read_dir(
+            &self,
+            _path: &str,
+        ) -> Result<Vec<crate::tools::release_package_deploy::RemoteDirEntry>, DeployError>
+        {
+            Ok(Vec::new())
+        }
+
+        fn write_file(
+            &mut self,
+            _remote_path: &str,
+            _local_path: &Path,
+            _cancelled: &AtomicBool,
+            _progress: &mut dyn FnMut(u64),
+        ) -> Result<(), DeployError> {
+            Ok(())
+        }
+
+        fn rename(&mut self, _source: &str, _target: &str) -> Result<(), DeployError> {
+            Ok(())
+        }
+
+        fn remove_tree(&mut self, _path: &str) -> Result<(), DeployError> {
+            Ok(())
+        }
+
+        fn execute_command(
+            &mut self,
+            command: &str,
+            cancelled: &AtomicBool,
+            output: &mut dyn FnMut(&str, String),
+        ) -> Result<crate::tools::release_package_deploy::RemoteCommandResult, DeployError>
+        {
+            if cancelled.load(Ordering::Acquire) {
+                return Err(DeployError::cancelled_command());
+            }
+            self.calls.lock().unwrap().push(command.to_string());
+            output("stdout", format!("{command}-out"));
+            if let Some((count, cancel)) = &self.cancel_after_calls {
+                if self.calls.lock().unwrap().len() == *count {
+                    cancel.store(true, Ordering::Release);
+                }
+            }
+            match self.outcomes.pop_front().unwrap_or(Ok(0)) {
+                Ok(exit_code) => {
+                    Ok(crate::tools::release_package_deploy::RemoteCommandResult { exit_code })
+                }
+                Err(error) => Err(error),
+            }
+        }
+    }
+
+    fn succeeded_upload_summary() -> PipelineSummary {
+        PipelineSummary {
+            status: "succeeded",
+            archive_path: None,
+            archived_targets: Vec::new(),
+            manifests: Vec::new(),
+            error: None,
+            retry_descriptor: None,
+            remote_committed: true,
+            local_committed: false,
+            failed_commands: Vec::new(),
+        }
+    }
     #[cfg(windows)]
     impl CollectingSink {
         fn cancelling_during_archive(cancelled: Arc<AtomicBool>) -> Self {
             Self {
+                logs: Mutex::new(Vec::new()),
                 statuses: Mutex::new(Vec::new()),
                 cancel_on_archive: Some(cancelled),
             }
@@ -2466,6 +2754,7 @@ mod pipeline_tests {
                 retry_descriptor: None,
                 remote_committed: false,
                 local_committed: false,
+                failed_commands: Vec::new(),
             }),
             true,
         );
@@ -2496,6 +2785,104 @@ mod pipeline_tests {
     }
 
     #[test]
+    fn post_upload_commands_run_after_commit_in_target_order() {
+        let sink = Arc::new(CollectingSink::default());
+        let (remote, calls) = CommandRemote::new([Ok(7), Ok(0)]);
+        let commands = vec![
+            CommandSnapshot::new(ReleaseTarget::Frontend, "reload-web"),
+            CommandSnapshot::new(ReleaseTarget::Backend, "restart-api"),
+        ];
+
+        let summary = run_post_upload_commands(
+            "post-upload-run",
+            7,
+            succeeded_upload_summary(),
+            commands,
+            Box::new(remote),
+            Arc::new(AtomicBool::new(false)),
+            sink.clone(),
+        );
+
+        assert_eq!(
+            *calls.lock().unwrap(),
+            vec!["reload-web".to_string(), "restart-api".to_string()]
+        );
+        assert_eq!(summary.status, "upload_succeeded_command_failed");
+        assert!(summary.remote_committed);
+        assert!(summary.retry_descriptor.is_none());
+        assert_eq!(summary.failed_commands.len(), 1);
+        assert_eq!(summary.failed_commands[0].target, ReleaseTarget::Frontend);
+        let logs = sink.logs.lock().unwrap();
+        assert!(logs.iter().any(|event| event.line.contains("[前端命令]")));
+        assert!(logs.iter().any(|event| event.line.contains("[后端命令]")));
+    }
+
+    #[test]
+    fn post_upload_commands_skip_when_upload_was_not_committed() {
+        let (remote, calls) = CommandRemote::new([Ok(0)]);
+        let mut summary = succeeded_upload_summary();
+        summary.remote_committed = false;
+        summary.status = "package_succeeded_upload_failed";
+
+        let result = run_post_upload_commands(
+            "post-upload-run",
+            7,
+            summary,
+            vec![CommandSnapshot::new(ReleaseTarget::Frontend, "reload-web")],
+            Box::new(remote),
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(CollectingSink::default()),
+        );
+
+        assert!(calls.lock().unwrap().is_empty());
+        assert_eq!(result.status, "package_succeeded_upload_failed");
+    }
+
+    #[test]
+    fn post_upload_commands_keep_success_when_no_command_is_configured() {
+        let (remote, calls) = CommandRemote::new([]);
+
+        let summary = run_post_upload_commands(
+            "post-upload-run",
+            7,
+            succeeded_upload_summary(),
+            Vec::new(),
+            Box::new(remote),
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(CollectingSink::default()),
+        );
+
+        assert!(calls.lock().unwrap().is_empty());
+        assert_eq!(summary.status, "succeeded");
+        assert!(summary.failed_commands.is_empty());
+    }
+
+    #[test]
+    fn post_upload_command_cancellation_stops_later_commands_without_retry_snapshot() {
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let (remote, calls) =
+            CommandRemote::cancelling_after([Ok(0), Ok(0)], 1, Arc::clone(&cancelled));
+
+        let summary = run_post_upload_commands(
+            "post-upload-run",
+            7,
+            succeeded_upload_summary(),
+            vec![
+                CommandSnapshot::new(ReleaseTarget::Frontend, "reload-web"),
+                CommandSnapshot::new(ReleaseTarget::Backend, "restart-api"),
+            ],
+            Box::new(remote),
+            cancelled,
+            Arc::new(CollectingSink::default()),
+        );
+
+        assert_eq!(*calls.lock().unwrap(), vec!["reload-web".to_string()]);
+        assert_eq!(summary.status, "cancelled");
+        assert!(summary.remote_committed);
+        assert!(summary.failed_commands.is_empty());
+        assert!(summary.error.unwrap().contains("服务器文件已上传"));
+    }
+    #[test]
     fn upload_failure_keeps_source_manifests_without_archive_path() {
         let manifest = ArtifactManifest {
             target: ReleaseTarget::Backend,
@@ -2514,6 +2901,7 @@ mod pipeline_tests {
                 retry_descriptor: None,
                 remote_committed: false,
                 local_committed: false,
+                failed_commands: Vec::new(),
             },
             Err(DeployError::failed("SFTP 传输中断")),
         );
@@ -2536,6 +2924,7 @@ mod pipeline_tests {
                 retry_descriptor: None,
                 remote_committed: false,
                 local_committed: false,
+                failed_commands: Vec::new(),
             },
             Err(DeployError {
                 message: "远端提交成功，但旧版本备份清理失败".into(),
@@ -2637,6 +3026,7 @@ mod pipeline_tests {
             retry_descriptor: None,
             remote_committed: false,
             local_committed: false,
+            failed_commands: Vec::new(),
         };
 
         emit_terminal_result(
@@ -2671,6 +3061,7 @@ mod pipeline_tests {
                 retry_descriptor: None,
                 remote_committed: true,
                 local_committed: false,
+                failed_commands: Vec::new(),
             }),
             false,
         );
@@ -2689,6 +3080,7 @@ mod pipeline_tests {
             retry_descriptor: None,
             remote_committed: false,
             local_committed: false,
+            failed_commands: Vec::new(),
         };
 
         assert!(!package_can_upload(&summary));
@@ -2706,6 +3098,7 @@ mod pipeline_tests {
                 retry_descriptor: None,
                 remote_committed: false,
                 local_committed: false,
+                failed_commands: Vec::new(),
             },
             Err(DeployError::cancelled()),
         );
@@ -2738,6 +3131,7 @@ mod pipeline_tests {
                     retry_descriptor: None,
                     remote_committed: false,
                     local_committed: false,
+                    failed_commands: Vec::new(),
                 },
                 Err(DeployError::failed("并行上传因其他目标失败而停止")),
             )),
@@ -2854,6 +3248,7 @@ mod pipeline_tests {
                 retry_descriptor: None,
                 remote_committed: false,
                 local_committed: false,
+                failed_commands: Vec::new(),
             }),
             &cancelled,
             &finished,
@@ -2886,6 +3281,7 @@ mod pipeline_tests {
             retry_descriptor: None,
             remote_committed: false,
             local_committed: false,
+            failed_commands: Vec::new(),
         };
         let result = claim_pipeline_result(
             Ok(combine_package_and_deploy(package, Ok(()))),
@@ -2952,6 +3348,7 @@ mod pipeline_tests {
     fn retry_tokens_are_consumed_once_and_bound_to_the_project() {
         let descriptor = RetryDescriptor {
             manifests: Vec::new(),
+            commands: Vec::new(),
         };
         let token = issue_retry(7, descriptor).unwrap();
 
