@@ -6,6 +6,7 @@ use std::path::PathBuf;
 
 use super::helpers::db_conn;
 use super::release_package_archive::{default_folder_name, validate_folder_name};
+use super::release_package_remote::consume_preflight;
 use super::release_package_remote::run_command_preflight;
 use super::release_package_remote::{
     classify_trust, consume_probe, discard_preflight, discard_probe, issue_preflight, load_probe,
@@ -128,6 +129,7 @@ const ACTIONS: &[&str] = &[
     "remote_discard",
     "command_retry_prepare",
     "command_retry_preflight",
+    "command_retry_start",
     "start",
     "upload_retry",
     "cancel",
@@ -1252,6 +1254,40 @@ pub fn execute_with_app(
                 retry_token,
                 deploy_authorization,
             )
+        }
+        "command_retry_start" => {
+            let project_id = payload["projectId"]
+                .as_i64()
+                .ok_or("projectId is required")?;
+            let retry_token = payload["retryToken"]
+                .as_str()
+                .filter(|value| !value.is_empty())
+                .ok_or("retryToken is required")?;
+            let auth_token = payload["authToken"]
+                .as_str()
+                .filter(|value| !value.is_empty())
+                .ok_or("authToken is required")?;
+            let conn = db_conn()?;
+            let project = load_project(&conn, project_id)?;
+            require_package_type(
+                &project,
+                ReleasePackageType::ServerUpload,
+                "command_retry_start",
+            )?;
+            let prepared =
+                super::release_package_runtime::prepare_command_retry(retry_token, project_id)?;
+            let binding = PreflightBinding {
+                project_id,
+                endpoint: prepared.binding.endpoint,
+                auth_type: prepared.binding.auth_type,
+                vault_entry_id: prepared.binding.vault_entry_id,
+                private_key_path: prepared.binding.private_key_path,
+                targets: remote_targets(&prepared.targets),
+                frontend_remote_dir: String::new(),
+                backend_remote_path: String::new(),
+            };
+            let authorization = consume_preflight(auth_token, &binding)?;
+            super::release_package_runtime::command_retry(app, project, retry_token, authorization)
         }
         "cancel" => {
             let run_id = payload["runId"].as_str().ok_or("runId is required")?;

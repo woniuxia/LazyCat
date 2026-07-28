@@ -21,6 +21,7 @@ use super::release_package_deploy::{
     deploy_parallel, ArchivedTarget, ArtifactManifest, DeployError, DeploymentPlan,
     DeploymentRequest, DeploymentSuccess, DeploymentTarget, RemoteFs,
 };
+use super::release_package_remote::CommandRemoteFs;
 use super::release_package_remote::RemoteEndpoint;
 use super::release_package_remote::{
     consume_preflight, ConsumedPreflight, PreflightBinding, RemoteTarget, SftpRemoteFs,
@@ -2155,6 +2156,132 @@ pub fn upload_retry(
     Ok(json!({ "runId": run_id }))
 }
 
+pub fn command_retry(
+    app: &tauri::AppHandle,
+    project: ReleasePackageProjectConfig,
+    retry_token: &str,
+    authorization: ConsumedPreflight,
+) -> Result<Value, String> {
+    let run_id = uuid::Uuid::new_v4().to_string();
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let upload_stop = Arc::new(AtomicBool::new(false));
+    let ssh_sockets = Arc::new(SshSocketRegistry::new());
+    let finished = Arc::new(AtomicBool::new(false));
+    let cancel_won = Arc::new(AtomicBool::new(false));
+    let claim_lock = Arc::new(Mutex::new(()));
+    let process_slots = ProcessSlots::new();
+    let retry = consume_command_retry(retry_token, project.id)?;
+    if retry.binding.endpoint != authorization.binding.endpoint
+        || retry.binding.auth_type != authorization.binding.auth_type
+        || retry.binding.vault_entry_id != authorization.binding.vault_entry_id
+        || retry.binding.private_key_path != authorization.binding.private_key_path
+        || retry.binding.fingerprint_sha256 != authorization.expected_fingerprint
+    {
+        return Err("命令重试认证令牌与失败任务不匹配".into());
+    }
+    {
+        let mut active = active_run()
+            .lock()
+            .map_err(|_| "release package runtime lock poisoned")?;
+        if SHUTTING_DOWN.load(Ordering::Acquire) {
+            return Err("应用正在退出，不能启动命令重试".into());
+        }
+        if active.is_some() {
+            return Err("已有发布打包或上传任务正在运行".into());
+        }
+        *active = Some(ActiveRun {
+            run_id: run_id.clone(),
+            cancelled: cancelled.clone(),
+            upload_stop: upload_stop.clone(),
+            process_slots,
+            ssh_sockets: ssh_sockets.clone(),
+            finished: finished.clone(),
+            cancel_won: cancel_won.clone(),
+            claim_lock: claim_lock.clone(),
+        });
+    }
+    let thread_run_id = run_id.clone();
+    let sink: Arc<dyn EventSink> = Arc::new(TauriEventSink { app: app.clone() });
+    thread::spawn(move || {
+        emit_status(
+            sink.as_ref(),
+            &thread_run_id,
+            project.id,
+            "running",
+            "overall",
+            None,
+            None,
+        );
+        let commands = retry.failed_commands.clone();
+        let remote = CommandRemoteFs::connect(
+            &authorization.binding.endpoint,
+            &authorization.binding.private_key_path,
+            &authorization.expected_fingerprint,
+            &authorization.secret,
+            ssh_sockets.as_ref(),
+        );
+        let summary = match remote {
+            Ok(remote) => run_post_upload_commands(
+                &thread_run_id,
+                project.id,
+                PipelineSummary {
+                    status: "succeeded",
+                    archive_path: None,
+                    archived_targets: Vec::new(),
+                    manifests: Vec::new(),
+                    error: None,
+                    retry_descriptor: None,
+                    remote_committed: true,
+                    local_committed: false,
+                    failed_commands: Vec::new(),
+                },
+                commands,
+                Box::new(remote),
+                cancelled.clone(),
+                sink.clone(),
+            ),
+            Err(error) if cancelled.load(Ordering::Acquire) || error.cancelled => PipelineSummary {
+                status: "cancelled",
+                archive_path: None,
+                archived_targets: Vec::new(),
+                manifests: Vec::new(),
+                error: Some("服务器文件已上传，上传后命令未全部完成，已按用户请求取消".into()),
+                retry_descriptor: None,
+                remote_committed: true,
+                local_committed: false,
+                failed_commands: Vec::new(),
+            },
+            Err(error) => PipelineSummary {
+                status: "upload_succeeded_command_failed",
+                archive_path: None,
+                archived_targets: Vec::new(),
+                manifests: Vec::new(),
+                error: Some(format!(
+                    "服务器文件已上传，但上传后命令未全部成功：{}",
+                    error.message
+                )),
+                retry_descriptor: None,
+                remote_committed: true,
+                local_committed: false,
+                failed_commands: commands,
+            },
+        };
+        if summary.status == "upload_succeeded_command_failed" {
+            if let Ok(token) = finish_command_retry(retry, summary.failed_commands.clone()) {
+                remember_command_retry_token(&thread_run_id, token);
+            }
+        }
+        let result =
+            claim_pipeline_result(Ok(summary), &cancelled, &finished, &cancel_won, &claim_lock);
+        emit_terminal_result(sink.as_ref(), &thread_run_id, &project, result, false);
+        if let Ok(mut active) = active_run().lock() {
+            if active.as_ref().map(|run| run.run_id.as_str()) == Some(thread_run_id.as_str()) {
+                *active = None;
+            }
+        }
+    });
+    Ok(json!({ "runId": run_id }))
+}
 pub fn cancel(run_id: &str) -> Result<Value, String> {
     let active = active_run()
         .lock()
