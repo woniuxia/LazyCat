@@ -914,6 +914,37 @@ fn combine_package_and_deploy(
     }
 }
 
+fn resolve_deployment_result(
+    summary: PipelineSummary,
+    deploy_result: Result<DeploymentSuccess, DeployError>,
+) -> (PipelineSummary, Option<Box<dyn RemoteFs>>) {
+    match deploy_result {
+        Ok(success) => {
+            let deploy_result = match success.warning {
+                Some(warning) => Err(warning),
+                None => Ok(()),
+            };
+            (
+                combine_package_and_deploy(summary, deploy_result),
+                Some(success.control),
+            )
+        }
+        Err(error) => (combine_package_and_deploy(summary, Err(error)), None),
+    }
+}
+
+fn preserve_retry_commands(
+    mut summary: PipelineSummary,
+    commands: Vec<CommandSnapshot>,
+) -> PipelineSummary {
+    if summary.status == "package_succeeded_upload_failed" {
+        if let Some(descriptor) = summary.retry_descriptor.as_mut() {
+            descriptor.commands = commands;
+        }
+    }
+    summary
+}
+
 fn configured_post_upload_commands(
     project: &ReleasePackageProjectConfig,
     manifests: &[ArtifactManifest],
@@ -1028,7 +1059,11 @@ fn run_post_upload_commands(
 
     if !failed.is_empty() {
         summary.status = "upload_succeeded_command_failed";
-        summary.error = Some("服务器文件已上传，但上传后命令未全部成功".into());
+        let command_error = "服务器文件已上传，但上传后命令未全部成功";
+        summary.error = Some(match summary.error.take() {
+            Some(existing) => format!("{existing}；{command_error}"),
+            None => command_error.into(),
+        });
         summary.retry_descriptor = None;
         summary.failed_commands = failed;
     }
@@ -1153,7 +1188,12 @@ fn run_deployment_phase(
     let commands = configured_post_upload_commands(project, &summary.manifests);
     let request = match build_deployment_request(run_id, &summary, &authorization.consumed) {
         Ok(request) => request,
-        Err(error) => return combine_package_and_deploy(summary, Err(error)),
+        Err(error) => {
+            return preserve_retry_commands(
+                combine_package_and_deploy(summary, Err(error)),
+                commands,
+            );
+        }
     };
     execute_deployment_request(
         run_id,
@@ -1255,18 +1295,8 @@ fn execute_deployment_request(
     })();
     reporter.force_emit(deploy_result.is_ok());
     let retry_commands = commands.clone();
-    let (mut summary, control) = match deploy_result {
-        Ok(success) => (
-            combine_package_and_deploy(summary, Ok(())),
-            Some(success.control),
-        ),
-        Err(error) => (combine_package_and_deploy(summary, Err(error)), None),
-    };
-    if summary.status == "package_succeeded_upload_failed" {
-        if let Some(descriptor) = summary.retry_descriptor.as_mut() {
-            descriptor.commands = retry_commands;
-        }
-    }
+    let (mut summary, control) = resolve_deployment_result(summary, deploy_result);
+    summary = preserve_retry_commands(summary, retry_commands);
     if summary.remote_committed {
         emit_system_log(
             sink.as_ref(),
@@ -1314,7 +1344,12 @@ fn run_retry_deployment_phase(
     };
     let request = match build_retry_deployment_request(run_id, &retry, &authorization.consumed) {
         Ok(request) => request,
-        Err(error) => return combine_package_and_deploy(summary, Err(error)),
+        Err(error) => {
+            return preserve_retry_commands(
+                combine_package_and_deploy(summary, Err(error)),
+                commands,
+            );
+        }
     };
     execute_deployment_request(
         run_id,
@@ -2818,6 +2853,67 @@ mod pipeline_tests {
     }
 
     #[test]
+    fn committed_cleanup_warning_keeps_control_for_post_upload_commands() {
+        let sink = Arc::new(CollectingSink::default());
+        let (remote, calls) = CommandRemote::new([Ok(0)]);
+        let backup_path = "/srv/app/web.__lazycat_backup_run-1";
+        let (summary, control) = resolve_deployment_result(
+            succeeded_upload_summary(),
+            Ok(DeploymentSuccess {
+                control: Box::new(remote),
+                warning: Some(DeployError {
+                    message: "远端提交成功，但旧版本备份清理失败".into(),
+                    cancelled: false,
+                    committed: true,
+                    recovery_paths: vec![backup_path.into()],
+                }),
+            }),
+        );
+
+        let summary = run_post_upload_commands(
+            "post-upload-run",
+            7,
+            summary,
+            vec![CommandSnapshot::new(ReleaseTarget::Frontend, "reload-web")],
+            control.expect("committed deployment keeps its control connection"),
+            Arc::new(AtomicBool::new(false)),
+            sink,
+        );
+
+        assert_eq!(*calls.lock().unwrap(), vec!["reload-web".to_string()]);
+        assert!(summary.remote_committed);
+        let warning = summary.error.expect("cleanup warning is preserved");
+        assert!(warning.contains("旧版本备份清理失败"));
+        assert!(warning.contains(backup_path));
+    }
+
+    #[test]
+    fn post_upload_command_failure_preserves_existing_committed_warning() {
+        let (remote, _calls) = CommandRemote::new([Ok(7)]);
+        let backup_path = "/srv/app/web.__lazycat_backup_run-1";
+        let mut summary = succeeded_upload_summary();
+        summary.error = Some(format!(
+            "远端提交成功，但旧版本备份清理失败；需人工检查：{backup_path}"
+        ));
+
+        let summary = run_post_upload_commands(
+            "post-upload-run",
+            7,
+            summary,
+            vec![CommandSnapshot::new(ReleaseTarget::Frontend, "reload-web")],
+            Box::new(remote),
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(CollectingSink::default()),
+        );
+
+        assert_eq!(summary.status, "upload_succeeded_command_failed");
+        let error = summary.error.expect("both warnings are preserved");
+        assert!(error.contains("旧版本备份清理失败"));
+        assert!(error.contains(backup_path));
+        assert!(error.contains("上传后命令未全部成功"));
+    }
+
+    #[test]
     fn post_upload_commands_skip_when_upload_was_not_committed() {
         let (remote, calls) = CommandRemote::new([Ok(0)]);
         let mut summary = succeeded_upload_summary();
@@ -2909,6 +3005,49 @@ mod pipeline_tests {
         assert_eq!(summary.status, "package_succeeded_upload_failed");
         assert!(summary.archive_path.is_none());
         assert_eq!(summary.retry_descriptor.unwrap().manifests, vec![manifest]);
+    }
+
+    #[test]
+    fn deployment_request_failure_keeps_post_upload_commands_for_retry() {
+        let manifest = ArtifactManifest {
+            target: ReleaseTarget::Frontend,
+            source_path: PathBuf::from(r"D:\build\dist"),
+            entries: Vec::new(),
+            file_count: 0,
+            total_bytes: 0,
+        };
+        let mut upload_project = project();
+        upload_project.frontend_post_upload_command = "reload-web".into();
+        let summary = PipelineSummary {
+            status: "succeeded",
+            archive_path: None,
+            archived_targets: Vec::new(),
+            manifests: vec![manifest],
+            error: None,
+            retry_descriptor: None,
+            remote_committed: false,
+            local_committed: false,
+            failed_commands: Vec::new(),
+        };
+
+        let result = run_deployment_phase(
+            "initial-request-failure",
+            &upload_project,
+            summary,
+            DeployAuthorization {
+                consumed: consumed_preflight_with_existing(Vec::new()),
+            },
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(AtomicBool::new(false)),
+            &Arc::new(SshSocketRegistry::new()),
+            Arc::new(Sink),
+        );
+
+        assert_eq!(result.status, "package_succeeded_upload_failed");
+        assert_eq!(
+            result.retry_descriptor.unwrap().commands,
+            vec![CommandSnapshot::new(ReleaseTarget::Frontend, "reload-web")]
+        );
     }
 
     #[test]
@@ -3342,6 +3481,41 @@ mod pipeline_tests {
             .unwrap();
 
         assert_eq!(error.message, "部署产物在打包后发生变化，请重新打包");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn retry_request_failure_keeps_post_upload_commands_for_next_retry() {
+        let root = TestDir::new();
+        let source = root.0.join("app.jar");
+        fs::write(&source, "v1").unwrap();
+        let manifest = ArtifactManifest::from_file(ReleaseTarget::Backend, &source).unwrap();
+        fs::write(&source, "changed-size").unwrap();
+        let retry = RetryJob {
+            project_id: 7,
+            descriptor: RetryDescriptor {
+                manifests: vec![manifest],
+                commands: vec![CommandSnapshot::new(ReleaseTarget::Backend, "restart-api")],
+            },
+        };
+        let mut consumed = consumed_preflight_with_existing(Vec::new());
+        consumed.binding.targets = vec![RemoteTarget::Backend];
+
+        let result = run_retry_deployment_phase(
+            "retry-request-failure",
+            retry,
+            DeployAuthorization { consumed },
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(AtomicBool::new(false)),
+            &Arc::new(SshSocketRegistry::new()),
+            Arc::new(Sink),
+        );
+
+        assert_eq!(result.status, "package_succeeded_upload_failed");
+        assert_eq!(
+            result.retry_descriptor.unwrap().commands,
+            vec![CommandSnapshot::new(ReleaseTarget::Backend, "restart-api")]
+        );
     }
 
     #[test]

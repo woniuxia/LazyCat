@@ -300,6 +300,7 @@ pub struct DeploymentRequest {
 
 pub struct DeploymentSuccess {
     pub control: Box<dyn RemoteFs>,
+    pub warning: Option<DeployError>,
 }
 
 impl std::fmt::Debug for DeploymentSuccess {
@@ -307,7 +308,31 @@ impl std::fmt::Debug for DeploymentSuccess {
         formatter
             .debug_struct("DeploymentSuccess")
             .field("control", &"<remote>")
+            .field("warning", &self.warning)
             .finish()
+    }
+}
+
+impl DeploymentSuccess {
+    fn complete(control: Box<dyn RemoteFs>) -> Self {
+        Self {
+            control,
+            warning: None,
+        }
+    }
+
+    fn from_commit(
+        control: Box<dyn RemoteFs>,
+        commit: Result<(), DeployError>,
+    ) -> Result<Self, DeployError> {
+        match commit {
+            Ok(()) => Ok(Self::complete(control)),
+            Err(error) if error.committed => Ok(Self {
+                control,
+                warning: Some(error),
+            }),
+            Err(error) => Err(error),
+        }
     }
 }
 
@@ -919,7 +944,7 @@ pub(crate) fn deploy_parallel(
             return match recover_remote() {
                 Ok(mut recovery) => plan
                     .cancel_and_cleanup(recovery.as_mut())
-                    .map(|()| DeploymentSuccess { control: recovery }),
+                    .map(|()| DeploymentSuccess::complete(recovery)),
                 Err(recovery_error) => {
                     error.message = format!(
                         "{}；无法建立恢复 SSH 会话清理临时目标：{}",
@@ -994,7 +1019,7 @@ pub(crate) fn deploy_parallel(
             };
             return plan
                 .cancel_and_cleanup(recovery.as_mut())
-                .map(|()| DeploymentSuccess { control: recovery });
+                .map(|()| DeploymentSuccess::complete(recovery));
         }
         if stop_requested.load(Ordering::Acquire) {
             let mut error = DeployError::failed("并行上传因其他目标失败而停止");
@@ -1005,8 +1030,8 @@ pub(crate) fn deploy_parallel(
             error.recovery_paths.dedup();
             return Err(error);
         }
-        plan.commit(control.as_mut(), user_cancelled.as_ref())?;
-        return Ok(DeploymentSuccess { control });
+        let commit = plan.commit(control.as_mut(), user_cancelled.as_ref());
+        return DeploymentSuccess::from_commit(control, commit);
     }
 
     let plan = Arc::new(plan);
@@ -1125,7 +1150,7 @@ pub(crate) fn deploy_parallel(
     if user_cancelled.load(Ordering::Acquire) {
         return plan
             .cancel_and_cleanup(control.as_mut())
-            .map(|()| DeploymentSuccess { control });
+            .map(|()| DeploymentSuccess::complete(control));
     }
     if stop_requested.load(Ordering::Acquire) {
         let mut error = DeployError::failed("并行上传因其他目标失败而停止");
@@ -1144,8 +1169,8 @@ pub(crate) fn deploy_parallel(
         error.recovery_paths.dedup();
         return Err(error);
     }
-    plan.commit(control.as_mut(), user_cancelled.as_ref())?;
-    Ok(DeploymentSuccess { control })
+    let commit = plan.commit(control.as_mut(), user_cancelled.as_ref());
+    DeploymentSuccess::from_commit(control, commit)
 }
 #[cfg(test)]
 mod tests {
@@ -2289,6 +2314,36 @@ mod transaction_tests {
 
         assert_eq!(shared_read(&nodes, "/srv/app/web/index.html"), b"new-web");
         assert_eq!(shared_read(&nodes, "/srv/app/app.jar"), b"new-jar");
+        let result = success
+            .control
+            .execute_command("true", &AtomicBool::new(false), &mut |_, _| {})
+            .unwrap();
+        assert_eq!(result.exit_code, 0);
+    }
+
+    #[test]
+    fn committed_cleanup_warning_returns_control_remote_for_commands() {
+        let (root, mut request) = two_target_request();
+        request.targets.remove(0);
+        let backup_path = "/srv/app/app.jar.__lazycat_backup_run-1";
+        let mut remote = FakeRemoteFs::with_existing_release();
+        remote.fail_remove_tree(backup_path);
+
+        let mut success = super::deploy_parallel(
+            vec![Box::new(remote)],
+            super::DeploymentPlan::new(request).unwrap(),
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(|_, _| {}),
+            Arc::new(|| {}),
+            Arc::new(|| Err(DeployError::failed("unexpected recovery"))),
+        )
+        .expect("committed deployment keeps its control connection");
+        drop(root);
+
+        let warning = success.warning.expect("cleanup warning is preserved");
+        assert!(warning.committed);
+        assert_eq!(warning.recovery_paths, vec![backup_path.to_string()]);
         let result = success
             .control
             .execute_command("true", &AtomicBool::new(false), &mut |_, _| {})
