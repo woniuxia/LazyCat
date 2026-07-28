@@ -303,6 +303,8 @@ struct StatusEvent {
     current_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     retry_token: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    command_retry_token: Option<String>,
 }
 
 trait EventSink: Send + Sync {
@@ -355,6 +357,7 @@ fn emit_status(
         total_bytes: None,
         current_path: None,
         retry_token: None,
+        command_retry_token: None,
     });
 }
 
@@ -377,6 +380,7 @@ fn emit_upload_status(
         total_bytes: Some(total_bytes),
         current_path,
         retry_token: None,
+        command_retry_token: None,
     });
 }
 
@@ -516,6 +520,11 @@ fn emit_terminal_result(
         },
         None => None,
     };
+    let command_retry_token = if status == "upload_succeeded_command_failed" {
+        take_command_retry_token(run_id)
+    } else {
+        None
+    };
     sink.status(StatusEvent {
         run_id: run_id.into(),
         project_id: project.id,
@@ -527,6 +536,7 @@ fn emit_terminal_result(
         total_bytes: None,
         current_path: None,
         retry_token,
+        command_retry_token,
     });
     if let Some(notification) = build_release_package_notification(
         run_id,
@@ -788,12 +798,24 @@ impl RetryJob {
     }
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
-struct CommandAuthBinding {
-    endpoint: RemoteEndpoint,
-    auth_type: String,
-    vault_entry_id: Option<i64>,
-    private_key_path: String,
-    fingerprint_sha256: String,
+pub(crate) struct CommandAuthBinding {
+    pub(crate) endpoint: RemoteEndpoint,
+    pub(crate) auth_type: String,
+    pub(crate) vault_entry_id: Option<i64>,
+    pub(crate) private_key_path: String,
+    pub(crate) fingerprint_sha256: String,
+}
+
+impl CommandAuthBinding {
+    fn from_preflight(binding: &PreflightBinding, fingerprint_sha256: &str) -> Self {
+        Self {
+            endpoint: binding.endpoint.clone(),
+            auth_type: binding.auth_type.clone(),
+            vault_entry_id: binding.vault_entry_id,
+            private_key_path: binding.private_key_path.clone(),
+            fingerprint_sha256: fingerprint_sha256.to_string(),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -804,9 +826,9 @@ struct CommandRetryJob {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-struct PreparedCommandRetry {
-    targets: Vec<ReleaseTarget>,
-    binding: CommandAuthBinding,
+pub(crate) struct PreparedCommandRetry {
+    pub(crate) targets: Vec<ReleaseTarget>,
+    pub(crate) binding: CommandAuthBinding,
     failed_commands: Vec<CommandSnapshot>,
 }
 
@@ -814,6 +836,25 @@ static COMMAND_RETRIES: OnceLock<Mutex<HashMap<String, CommandRetryJob>>> = Once
 
 fn command_retries() -> &'static Mutex<HashMap<String, CommandRetryJob>> {
     COMMAND_RETRIES.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+static COMMAND_RETRY_TOKENS: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
+
+fn command_retry_tokens() -> &'static Mutex<HashMap<String, String>> {
+    COMMAND_RETRY_TOKENS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn remember_command_retry_token(run_id: &str, token: String) {
+    if let Ok(mut tokens) = command_retry_tokens().lock() {
+        tokens.insert(run_id.to_string(), token);
+    }
+}
+
+fn take_command_retry_token(run_id: &str) -> Option<String> {
+    command_retry_tokens()
+        .lock()
+        .ok()
+        .and_then(|mut tokens| tokens.remove(run_id))
 }
 
 fn validate_failed_commands(commands: &[CommandSnapshot]) -> Result<(), String> {
@@ -855,7 +896,10 @@ fn issue_command_retry(
     Ok(token)
 }
 
-fn prepare_command_retry(token: &str, project_id: i64) -> Result<PreparedCommandRetry, String> {
+pub(crate) fn prepare_command_retry(
+    token: &str,
+    project_id: i64,
+) -> Result<PreparedCommandRetry, String> {
     let retries = command_retries()
         .lock()
         .map_err(|_| "命令重试任务存储不可用".to_string())?;
@@ -1423,9 +1467,18 @@ fn execute_deployment_request(
                 summary,
                 commands,
                 control,
-                cancelled,
+                Arc::clone(&cancelled),
                 Arc::clone(&sink),
             );
+        }
+    }
+    if summary.status == "upload_succeeded_command_failed" && !cancelled.load(Ordering::Acquire) {
+        if let Ok(token) = issue_command_retry(
+            project_id,
+            CommandAuthBinding::from_preflight(binding.as_ref(), expected_fingerprint.as_ref()),
+            summary.failed_commands.clone(),
+        ) {
+            remember_command_retry_token(run_id, token);
         }
     }
     ssh_sockets.clear();

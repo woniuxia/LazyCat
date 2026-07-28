@@ -6,6 +6,7 @@ use std::path::PathBuf;
 
 use super::helpers::db_conn;
 use super::release_package_archive::{default_folder_name, validate_folder_name};
+use super::release_package_remote::run_command_preflight;
 use super::release_package_remote::{
     classify_trust, consume_probe, discard_preflight, discard_probe, issue_preflight, load_probe,
     probe_host, run_remote_preflight, store_probe, validate_remote_dir, validate_remote_file,
@@ -125,6 +126,8 @@ const ACTIONS: &[&str] = &[
     "host_trust",
     "remote_preflight",
     "remote_discard",
+    "command_retry_prepare",
+    "command_retry_preflight",
     "start",
     "upload_retry",
     "cancel",
@@ -504,9 +507,7 @@ fn project_list_with_conn(conn: &Connection) -> Result<Value, String> {
     Ok(json!({ "projects": projects }))
 }
 
-pub(crate) fn list_action_target_rows(
-    conn: &Connection,
-) -> Result<Vec<(i64, String)>, String> {
+pub(crate) fn list_action_target_rows(conn: &Connection) -> Result<Vec<(i64, String)>, String> {
     let mut statement = conn
         .prepare(
             "SELECT id, name
@@ -823,9 +824,7 @@ fn upload_endpoint_with_conn(
     project: &ReleasePackageProjectConfig,
 ) -> Result<UploadEndpoint, String> {
     if project.ssh_auth_type == "password" {
-        let entry_id = project
-            .vault_entry_id
-            .ok_or("vault_entry_id_missing")?;
+        let entry_id = project.vault_entry_id.ok_or("vault_entry_id_missing")?;
         let metadata = super::vault::server_credential_metadata(conn, entry_id)?;
         super::vault::require_unlocked(conn)?;
         return Ok(UploadEndpoint {
@@ -974,9 +973,7 @@ fn remote_preflight_with_conn(conn: &Connection, payload: &Value) -> Result<Valu
         return Err("SSH 主机指纹未受信任或已变化".into());
     }
     let secret = if project.ssh_auth_type == "password" {
-        if payload.get("password").is_some()
-            || payload.get("privateKeyPassphrase").is_some()
-        {
+        if payload.get("password").is_some() || payload.get("privateKeyPassphrase").is_some() {
             return Err("密码库认证不接受前端认证秘密".into());
         }
         let entry_id = project.vault_entry_id.ok_or("vault_entry_id_missing")?;
@@ -1004,6 +1001,87 @@ fn optional_token<'a>(payload: &'a Value, key: &str) -> Result<Option<&'a str>, 
     }
 }
 
+fn command_retry_prepare_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
+    let project_id = payload["projectId"]
+        .as_i64()
+        .ok_or("projectId is required")?;
+    let retry_token = payload["retryToken"]
+        .as_str()
+        .filter(|value| !value.is_empty())
+        .ok_or("retryToken is required")?;
+    let project = load_project(conn, project_id)?;
+    require_package_type(
+        &project,
+        ReleasePackageType::ServerUpload,
+        "command_retry_prepare",
+    )?;
+    let prepared = super::release_package_runtime::prepare_command_retry(retry_token, project_id)?;
+    let snapshot = probe_host(&prepared.binding.endpoint)?;
+    let mut result = probe_result_with_conn(conn, snapshot)?;
+    result["targets"] = json!(prepared.targets);
+    result["authType"] = json!(prepared.binding.auth_type);
+    Ok(result)
+}
+
+fn command_retry_preflight_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
+    let project_id = payload["projectId"]
+        .as_i64()
+        .ok_or("projectId is required")?;
+    let retry_token = payload["retryToken"]
+        .as_str()
+        .filter(|value| !value.is_empty())
+        .ok_or("retryToken is required")?;
+    let probe_token = payload["probeToken"]
+        .as_str()
+        .filter(|value| !value.is_empty())
+        .ok_or("probeToken is required")?;
+    let project = load_project(conn, project_id)?;
+    require_package_type(
+        &project,
+        ReleasePackageType::ServerUpload,
+        "command_retry_preflight",
+    )?;
+    let prepared = super::release_package_runtime::prepare_command_retry(retry_token, project_id)?;
+    let probe = load_probe(probe_token)?;
+    if probe.endpoint != prepared.binding.endpoint {
+        return Err("SSH 探测令牌与命令重试服务器不匹配".into());
+    }
+    let known = known_host_with_conn(conn, &prepared.binding.endpoint)?
+        .ok_or_else(|| "请先确认并信任 SSH 主机指纹".to_string())?;
+    if known.0 != probe.key_type || known.1 != probe.fingerprint_sha256 {
+        return Err("SSH 主机指纹未受信任或已变化".into());
+    }
+    let secret = if prepared.binding.auth_type == "password" {
+        if payload.get("password").is_some() || payload.get("privateKeyPassphrase").is_some() {
+            return Err("密码库认证不接受前端认证秘密".into());
+        }
+        let entry_id = prepared
+            .binding
+            .vault_entry_id
+            .ok_or("vault_entry_id_missing")?;
+        AuthSecret::Password(super::vault::resolve_server_credential(conn, entry_id)?.password)
+    } else {
+        parse_private_key_auth_secret(payload)?
+    };
+    run_command_preflight(
+        &prepared.binding.endpoint,
+        &prepared.binding.private_key_path,
+        &known.1,
+        &secret,
+    )?;
+    let binding = PreflightBinding {
+        project_id,
+        endpoint: prepared.binding.endpoint,
+        auth_type: prepared.binding.auth_type,
+        vault_entry_id: prepared.binding.vault_entry_id,
+        private_key_path: prepared.binding.private_key_path,
+        targets: remote_targets(&prepared.targets),
+        frontend_remote_dir: String::new(),
+        backend_remote_path: String::new(),
+    };
+    let issued = issue_preflight(binding, known.1, secret, &[])?;
+    Ok(json!({ "authToken": issued.token, "expiresAt": issued.expires_at.to_rfc3339() }))
+}
 fn remote_discard(payload: &Value) -> Result<Value, String> {
     let preflight_token = optional_token(payload, "preflightToken")?;
     let probe_token = optional_token(payload, "probeToken")?;
@@ -1072,6 +1150,8 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
             host_trust_with_conn(&conn, project_id, probe_token, replace_existing)
         }
         "remote_preflight" => remote_preflight_with_conn(&conn, payload),
+        "command_retry_preflight" => command_retry_preflight_with_conn(&conn, payload),
+        "command_retry_prepare" => command_retry_prepare_with_conn(&conn, payload),
         _ => unreachable!(),
     }
 }
