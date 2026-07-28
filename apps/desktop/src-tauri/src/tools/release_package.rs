@@ -2,6 +2,7 @@ use chrono::{Local, NaiveDate};
 use rusqlite::{params, Connection, OptionalExtension, Row, Transaction, TransactionBehavior};
 use serde::Serialize;
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use super::helpers::db_conn;
@@ -501,6 +502,55 @@ fn require_package_type(
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct ReleasePackageProjectRecord {
+    id: i64,
+    name: String,
+    frontend_project_path: String,
+    backend_project_path: String,
+    created_at: String,
+    updated_at: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReleasePackageEnvironmentConfig {
+    pub id: i64,
+    pub project_id: i64,
+    #[serde(skip_serializing)]
+    pub project_name: String,
+    pub environment: ReleasePackageEnvironmentKind,
+    pub configured: bool,
+    pub output_root: String,
+    pub package_type: ReleasePackageType,
+    #[serde(skip_serializing)]
+    pub frontend_project_path: String,
+    pub frontend_build_command: String,
+    pub frontend_success_keyword: String,
+    pub frontend_post_upload_command: String,
+    pub frontend_artifact_path: String,
+    pub frontend_artifact_mode: String,
+    #[serde(skip_serializing)]
+    pub backend_project_path: String,
+    pub backend_build_command: String,
+    pub backend_success_keyword: String,
+    pub backend_post_upload_command: String,
+    pub backend_artifact_path: String,
+    pub ssh_host: String,
+    pub ssh_port: u16,
+    pub ssh_username: String,
+    pub ssh_auth_type: String,
+    pub vault_entry_id: Option<i64>,
+    pub ssh_private_key_path: String,
+    pub frontend_remote_dir: String,
+    pub backend_remote_path: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+// Task 5 will move runtime entry points to environment IDs. Until then the runtime module still
+// constructs and consumes this flattened snapshot, so keep it explicit and fail on ambiguity.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ReleasePackageProjectConfig {
     pub id: i64,
     pub name: String,
@@ -548,15 +598,19 @@ pub enum ReleaseTarget {
 
 struct ProjectPayload {
     name: String,
+    frontend_project_path: String,
+    backend_project_path: String,
+}
+
+#[derive(Clone)]
+struct EnvironmentPayload {
     output_root: String,
     package_type: ReleasePackageType,
-    frontend_project_path: String,
     frontend_build_command: String,
     frontend_success_keyword: String,
     frontend_post_upload_command: String,
     frontend_artifact_path: String,
     frontend_artifact_mode: String,
-    backend_project_path: String,
     backend_build_command: String,
     backend_success_keyword: String,
     backend_post_upload_command: String,
@@ -695,7 +749,25 @@ fn parse_action_dispatch_id(payload: &Value) -> Result<Option<String>, String> {
     }
 }
 
-fn parse_project_payload(payload: &Value) -> Result<ProjectPayload, String> {
+fn parse_common_project_payload(payload: &Value) -> Result<ProjectPayload, String> {
+    let project = payload
+        .get("project")
+        .filter(|value| value.is_object())
+        .ok_or("project is required")?;
+    let project = ProjectPayload {
+        name: required_string(project, "name")?,
+        frontend_project_path: required_string(project, "frontendProjectPath")?,
+        backend_project_path: required_string(project, "backendProjectPath")?,
+    };
+    validate_folder_name(&project.name)?;
+    Ok(project)
+}
+
+fn parse_environment_kind(payload: &Value) -> Result<ReleasePackageEnvironmentKind, String> {
+    ReleasePackageEnvironmentKind::parse(&required_string(payload, "environment")?)
+}
+
+fn parse_environment_fields(payload: &Value) -> Result<EnvironmentPayload, String> {
     let mut ssh_auth_type = optional_string(payload, "sshAuthType")?;
     if ssh_auth_type.is_empty() {
         ssh_auth_type = "password".into();
@@ -709,17 +781,14 @@ fn parse_project_payload(payload: &Value) -> Result<ProjectPayload, String> {
         22
     };
 
-    let project = ProjectPayload {
-        name: required_string(payload, "name")?,
+    let environment = EnvironmentPayload {
         output_root: optional_string(payload, "outputRoot")?,
         package_type: ReleasePackageType::parse(&required_string(payload, "packageType")?)?,
-        frontend_project_path: required_string(payload, "frontendProjectPath")?,
         frontend_build_command: required_string(payload, "frontendBuildCommand")?,
         frontend_success_keyword: optional_string(payload, "frontendSuccessKeyword")?,
         frontend_post_upload_command: optional_string(payload, "frontendPostUploadCommand")?,
         frontend_artifact_path: required_string(payload, "frontendArtifactPath")?,
         frontend_artifact_mode: required_string(payload, "frontendArtifactMode")?,
-        backend_project_path: required_string(payload, "backendProjectPath")?,
         backend_build_command: required_string(payload, "backendBuildCommand")?,
         backend_success_keyword: optional_string(payload, "backendSuccessKeyword")?,
         backend_post_upload_command: optional_string(payload, "backendPostUploadCommand")?,
@@ -733,106 +802,329 @@ fn parse_project_payload(payload: &Value) -> Result<ProjectPayload, String> {
         frontend_remote_dir: optional_string(payload, "frontendRemoteDir")?,
         backend_remote_path: optional_string(payload, "backendRemotePath")?,
     };
-    validate_folder_name(&project.name)?;
-    if project.package_type == ReleasePackageType::LocalArchive && project.output_root.is_empty() {
+    validate_environment_payload(&environment)?;
+    Ok(environment)
+}
+
+fn parse_environment_payload(payload: &Value) -> Result<EnvironmentPayload, String> {
+    let environment = payload
+        .get("environmentConfig")
+        .filter(|value| value.is_object())
+        .ok_or("environmentConfig is required")?;
+    parse_environment_fields(environment)
+}
+
+fn validate_environment_payload(environment: &EnvironmentPayload) -> Result<(), String> {
+    if environment.package_type == ReleasePackageType::LocalArchive
+        && environment.output_root.is_empty()
+    {
         return Err("outputRoot is required for local_archive".into());
     }
-    if project.package_type == ReleasePackageType::ServerUpload {
-        if project.ssh_auth_type == "password" {
-            if project.vault_entry_id.is_none() {
+    if environment.package_type == ReleasePackageType::ServerUpload {
+        if environment.ssh_auth_type == "password" {
+            if environment.vault_entry_id.is_none() {
                 return Err("vaultEntryId is required for password authentication".into());
             }
         } else {
-            if project.ssh_host.is_empty() {
+            if environment.ssh_host.is_empty() {
                 return Err("sshHost is required for private_key authentication".into());
             }
-            if project.ssh_username.is_empty() {
+            if environment.ssh_username.is_empty() {
                 return Err("sshUsername is required for private_key authentication".into());
             }
-            if project.ssh_private_key_path.is_empty() {
+            if environment.ssh_private_key_path.is_empty() {
                 return Err("sshPrivateKeyPath is required for private_key authentication".into());
             }
         }
-        if !project.frontend_remote_dir.starts_with('/') || project.frontend_remote_dir == "/" {
+        if !environment.frontend_remote_dir.starts_with('/')
+            || environment.frontend_remote_dir == "/"
+        {
             return Err("frontendRemoteDir must be an absolute Linux path".into());
         }
-        if !project.backend_remote_path.starts_with('/') || project.backend_remote_path == "/" {
+        if !environment.backend_remote_path.starts_with('/')
+            || environment.backend_remote_path == "/"
+        {
             return Err("backendRemotePath must be an absolute Linux path".into());
         }
     }
     if !matches!(
-        project.frontend_artifact_mode.as_str(),
+        environment.frontend_artifact_mode.as_str(),
         "copy_directory" | "zip_directory"
     ) {
         return Err("frontendArtifactMode must be copy_directory or zip_directory".into());
     }
-    Ok(project)
+    Ok(())
 }
 
-fn validate_vault_binding(conn: &Connection, project: &ProjectPayload) -> Result<(), String> {
-    if project.package_type != ReleasePackageType::ServerUpload
-        || project.ssh_auth_type != "password"
+#[cfg(test)]
+fn parse_project_payload(payload: &Value) -> Result<EnvironmentPayload, String> {
+    let name = required_string(payload, "name")?;
+    validate_folder_name(&name)?;
+    required_string(payload, "frontendProjectPath")?;
+    required_string(payload, "backendProjectPath")?;
+    parse_environment_fields(payload)
+}
+
+fn validate_vault_binding(
+    conn: &Connection,
+    environment: &EnvironmentPayload,
+) -> Result<(), String> {
+    if environment.package_type != ReleasePackageType::ServerUpload
+        || environment.ssh_auth_type != "password"
     {
         return Ok(());
     }
-    let entry_id = project
+    let entry_id = environment
         .vault_entry_id
         .ok_or("vaultEntryId is required for password authentication")?;
     super::vault::server_credential_metadata(conn, entry_id)?;
     Ok(())
 }
 
-fn project_from_row(row: &Row<'_>) -> rusqlite::Result<ReleasePackageProjectConfig> {
-    let package_type = ReleasePackageType::parse(&row.get::<_, String>(10)?)
-        .map_err(|_| rusqlite::Error::InvalidQuery)?;
-    Ok(ReleasePackageProjectConfig {
+fn project_record_from_row(row: &Row<'_>) -> rusqlite::Result<ReleasePackageProjectRecord> {
+    Ok(ReleasePackageProjectRecord {
         id: row.get(0)?,
         name: row.get(1)?,
-        output_root: row.get(2)?,
-        frontend_project_path: row.get(3)?,
-        frontend_build_command: row.get(4)?,
-        frontend_artifact_path: row.get(5)?,
-        frontend_artifact_mode: row.get(6)?,
-        backend_project_path: row.get(7)?,
-        backend_build_command: row.get(8)?,
-        backend_artifact_path: row.get(9)?,
-        package_type,
-        ssh_host: row.get(11)?,
-        ssh_port: row.get(12)?,
-        ssh_username: row.get(13)?,
-        ssh_auth_type: row.get(14)?,
-        vault_entry_id: row.get(15)?,
-        ssh_private_key_path: row.get(16)?,
-        frontend_remote_dir: row.get(17)?,
-        backend_remote_path: row.get(18)?,
-        frontend_success_keyword: row.get(19)?,
-        backend_success_keyword: row.get(20)?,
-        frontend_post_upload_command: row.get(21)?,
-        backend_post_upload_command: row.get(22)?,
-        created_at: row.get(23)?,
-        updated_at: row.get(24)?,
+        frontend_project_path: row.get(2)?,
+        backend_project_path: row.get(3)?,
+        created_at: row.get(4)?,
+        updated_at: row.get(5)?,
     })
 }
 
+struct RawEnvironmentConfig {
+    id: i64,
+    project_id: i64,
+    project_name: String,
+    environment: String,
+    output_root: String,
+    package_type: String,
+    frontend_project_path: String,
+    frontend_build_command: String,
+    frontend_success_keyword: String,
+    frontend_post_upload_command: String,
+    frontend_artifact_path: String,
+    frontend_artifact_mode: String,
+    backend_project_path: String,
+    backend_build_command: String,
+    backend_success_keyword: String,
+    backend_post_upload_command: String,
+    backend_artifact_path: String,
+    ssh_host: String,
+    ssh_port: i64,
+    ssh_username: String,
+    ssh_auth_type: String,
+    vault_entry_id: Option<i64>,
+    ssh_private_key_path: String,
+    frontend_remote_dir: String,
+    backend_remote_path: String,
+    created_at: String,
+    updated_at: String,
+}
+
+fn raw_environment_from_row(row: &Row<'_>) -> rusqlite::Result<RawEnvironmentConfig> {
+    Ok(RawEnvironmentConfig {
+        id: row.get(0)?,
+        project_id: row.get(1)?,
+        project_name: row.get(2)?,
+        environment: row.get(3)?,
+        output_root: row.get(4)?,
+        package_type: row.get(5)?,
+        frontend_project_path: row.get(6)?,
+        frontend_build_command: row.get(7)?,
+        frontend_success_keyword: row.get(8)?,
+        frontend_post_upload_command: row.get(9)?,
+        frontend_artifact_path: row.get(10)?,
+        frontend_artifact_mode: row.get(11)?,
+        backend_project_path: row.get(12)?,
+        backend_build_command: row.get(13)?,
+        backend_success_keyword: row.get(14)?,
+        backend_post_upload_command: row.get(15)?,
+        backend_artifact_path: row.get(16)?,
+        ssh_host: row.get(17)?,
+        ssh_port: row.get(18)?,
+        ssh_username: row.get(19)?,
+        ssh_auth_type: row.get(20)?,
+        vault_entry_id: row.get(21)?,
+        ssh_private_key_path: row.get(22)?,
+        frontend_remote_dir: row.get(23)?,
+        backend_remote_path: row.get(24)?,
+        created_at: row.get(25)?,
+        updated_at: row.get(26)?,
+    })
+}
+
+fn environment_payload_from_config(
+    environment: &ReleasePackageEnvironmentConfig,
+) -> EnvironmentPayload {
+    EnvironmentPayload {
+        output_root: environment.output_root.clone(),
+        package_type: environment.package_type,
+        frontend_build_command: environment.frontend_build_command.clone(),
+        frontend_success_keyword: environment.frontend_success_keyword.clone(),
+        frontend_post_upload_command: environment.frontend_post_upload_command.clone(),
+        frontend_artifact_path: environment.frontend_artifact_path.clone(),
+        frontend_artifact_mode: environment.frontend_artifact_mode.clone(),
+        backend_build_command: environment.backend_build_command.clone(),
+        backend_success_keyword: environment.backend_success_keyword.clone(),
+        backend_post_upload_command: environment.backend_post_upload_command.clone(),
+        backend_artifact_path: environment.backend_artifact_path.clone(),
+        ssh_host: environment.ssh_host.clone(),
+        ssh_port: environment.ssh_port,
+        ssh_username: environment.ssh_username.clone(),
+        ssh_auth_type: environment.ssh_auth_type.clone(),
+        vault_entry_id: environment.vault_entry_id,
+        ssh_private_key_path: environment.ssh_private_key_path.clone(),
+        frontend_remote_dir: environment.frontend_remote_dir.clone(),
+        backend_remote_path: environment.backend_remote_path.clone(),
+    }
+}
+
+fn environment_from_raw(
+    raw: RawEnvironmentConfig,
+) -> Result<ReleasePackageEnvironmentConfig, String> {
+    let environment = ReleasePackageEnvironmentKind::parse(&raw.environment)?;
+    let package_type = ReleasePackageType::parse(&raw.package_type)?;
+    if !matches!(
+        raw.frontend_artifact_mode.as_str(),
+        "copy_directory" | "zip_directory"
+    ) {
+        return Err("上线包环境的前端产物模式无效".into());
+    }
+    if !matches!(raw.ssh_auth_type.as_str(), "password" | "private_key") {
+        return Err("上线包环境的 SSH 认证方式无效".into());
+    }
+    let ssh_port = u16::try_from(raw.ssh_port)
+        .ok()
+        .filter(|port| *port > 0)
+        .ok_or("上线包环境的 SSH 端口无效")?;
+    let mut result = ReleasePackageEnvironmentConfig {
+        id: raw.id,
+        project_id: raw.project_id,
+        project_name: raw.project_name,
+        environment,
+        configured: false,
+        output_root: raw.output_root,
+        package_type,
+        frontend_project_path: raw.frontend_project_path,
+        frontend_build_command: raw.frontend_build_command,
+        frontend_success_keyword: raw.frontend_success_keyword,
+        frontend_post_upload_command: raw.frontend_post_upload_command,
+        frontend_artifact_path: raw.frontend_artifact_path,
+        frontend_artifact_mode: raw.frontend_artifact_mode,
+        backend_project_path: raw.backend_project_path,
+        backend_build_command: raw.backend_build_command,
+        backend_success_keyword: raw.backend_success_keyword,
+        backend_post_upload_command: raw.backend_post_upload_command,
+        backend_artifact_path: raw.backend_artifact_path,
+        ssh_host: raw.ssh_host,
+        ssh_port,
+        ssh_username: raw.ssh_username,
+        ssh_auth_type: raw.ssh_auth_type,
+        vault_entry_id: raw.vault_entry_id,
+        ssh_private_key_path: raw.ssh_private_key_path,
+        frontend_remote_dir: raw.frontend_remote_dir,
+        backend_remote_path: raw.backend_remote_path,
+        created_at: raw.created_at,
+        updated_at: raw.updated_at,
+    };
+    result.configured =
+        validate_environment_payload(&environment_payload_from_config(&result)).is_ok();
+    Ok(result)
+}
+
+const ENVIRONMENT_SELECT: &str = "SELECT environment.id, environment.project_id, project.name,
+            environment.environment, environment.output_root, environment.package_type,
+            project.frontend_project_path, environment.frontend_build_command,
+            environment.frontend_success_keyword, environment.frontend_post_upload_command,
+            environment.frontend_artifact_path, environment.frontend_artifact_mode,
+            project.backend_project_path, environment.backend_build_command,
+            environment.backend_success_keyword, environment.backend_post_upload_command,
+            environment.backend_artifact_path, environment.ssh_host, environment.ssh_port,
+            environment.ssh_username, environment.ssh_auth_type, environment.vault_entry_id,
+            environment.ssh_private_key_path, environment.frontend_remote_dir,
+            environment.backend_remote_path, environment.created_at, environment.updated_at
+     FROM release_package_environments environment
+     JOIN release_package_projects project ON project.id=environment.project_id";
+
+fn load_environment(
+    conn: &Connection,
+    environment_id: i64,
+) -> Result<ReleasePackageEnvironmentConfig, String> {
+    let sql = format!("{ENVIRONMENT_SELECT} WHERE environment.id=?1");
+    let raw = conn
+        .query_row(&sql, [environment_id], raw_environment_from_row)
+        .optional()
+        .map_err(|error| format!("load release package environment failed: {error}"))?
+        .ok_or_else(|| "release package environment not found".to_string())?;
+    environment_from_raw(raw)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProjectListItem {
+    #[serde(flatten)]
+    project: ReleasePackageProjectRecord,
+    environments: Vec<ReleasePackageEnvironmentConfig>,
+}
+
 fn project_list_with_conn(conn: &Connection) -> Result<Value, String> {
-    let mut stmt = conn
+    let mut project_statement = conn
         .prepare(
-            "SELECT id, name, output_root, frontend_project_path, frontend_build_command, frontend_artifact_path,
-                    frontend_artifact_mode, backend_project_path, backend_build_command,
-                    backend_artifact_path, package_type, ssh_host, ssh_port, ssh_username, ssh_auth_type,
-                    vault_entry_id, ssh_private_key_path, frontend_remote_dir, backend_remote_path,
-                    frontend_success_keyword, backend_success_keyword, frontend_post_upload_command,
-                    backend_post_upload_command, created_at, updated_at
+            "SELECT id, name, frontend_project_path, backend_project_path, created_at, updated_at
              FROM release_package_projects
              ORDER BY name COLLATE NOCASE ASC, id ASC",
         )
-        .map_err(|e| format!("prepare release package project list failed: {e}"))?;
-    let projects = stmt
-        .query_map([], project_from_row)
-        .map_err(|e| format!("query release package projects failed: {e}"))?
+        .map_err(|error| format!("prepare release package project list failed: {error}"))?;
+    let projects = project_statement
+        .query_map([], project_record_from_row)
+        .map_err(|error| format!("query release package projects failed: {error}"))?
         .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| format!("read release package project failed: {e}"))?;
-    Ok(json!({ "projects": projects }))
+        .map_err(|error| format!("read release package project failed: {error}"))?;
+
+    let mut environment_statement = conn
+        .prepare(&format!(
+            "{ENVIRONMENT_SELECT} ORDER BY environment.project_id, environment.id"
+        ))
+        .map_err(|error| format!("prepare release package environment list failed: {error}"))?;
+    let raw_environments = environment_statement
+        .query_map([], raw_environment_from_row)
+        .map_err(|error| format!("query release package environments failed: {error}"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| format!("read release package environment failed: {error}"))?;
+    let mut grouped: HashMap<i64, Vec<ReleasePackageEnvironmentConfig>> = HashMap::new();
+    for raw in raw_environments {
+        let environment =
+            environment_from_raw(raw).map_err(|_| "上线包项目环境配置不完整".to_string())?;
+        grouped
+            .entry(environment.project_id)
+            .or_default()
+            .push(environment);
+    }
+
+    let mut items = Vec::with_capacity(projects.len());
+    for project in projects {
+        let environments = grouped.remove(&project.id).unwrap_or_default();
+        let mut test = Vec::new();
+        let mut production = Vec::new();
+        for environment in environments {
+            match environment.environment {
+                ReleasePackageEnvironmentKind::Test => test.push(environment),
+                ReleasePackageEnvironmentKind::Production => production.push(environment),
+            }
+        }
+        if test.len() != 1 || production.len() != 1 {
+            return Err("上线包项目环境配置不完整".into());
+        }
+        items.push(ProjectListItem {
+            project,
+            environments: vec![test.pop().unwrap(), production.pop().unwrap()],
+        });
+    }
+    if !grouped.is_empty() {
+        return Err("上线包项目环境配置不完整".into());
+    }
+    Ok(json!({ "projects": items }))
 }
 
 pub(crate) fn list_action_target_rows(conn: &Connection) -> Result<Vec<(i64, String)>, String> {
@@ -865,98 +1157,177 @@ pub(crate) fn load_action_target_label(
 }
 
 fn project_create_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
-    let project = parse_project_payload(payload)?;
-    validate_vault_binding(conn, &project)?;
-    conn.execute(
-        "INSERT INTO release_package_projects(
-            name, output_root, frontend_project_path, frontend_build_command, frontend_artifact_path,
-            frontend_artifact_mode, backend_project_path, backend_build_command, backend_artifact_path,
-            package_type, ssh_host, ssh_port, ssh_username, ssh_auth_type, vault_entry_id,
-            ssh_private_key_path, frontend_remote_dir, backend_remote_path,
-            frontend_success_keyword, backend_success_keyword, frontend_post_upload_command,
-            backend_post_upload_command
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
-        params![
-            project.name,
-            project.output_root,
-            project.frontend_project_path,
-            project.frontend_build_command,
-            project.frontend_artifact_path,
-            project.frontend_artifact_mode,
-            project.backend_project_path,
-            project.backend_build_command,
-            project.backend_artifact_path,
-            project.package_type.as_str(),
-            project.ssh_host,
-            project.ssh_port,
-            project.ssh_username,
-            project.ssh_auth_type,
-            project.vault_entry_id,
-            project.ssh_private_key_path,
-            project.frontend_remote_dir,
-            project.backend_remote_path,
-            project.frontend_success_keyword,
-            project.backend_success_keyword,
-            project.frontend_post_upload_command,
-            project.backend_post_upload_command,
-        ],
-    )
-    .map_err(|e| format!("create release package project failed: {e}"))?;
-    Ok(json!({ "id": conn.last_insert_rowid() }))
+    let project = parse_common_project_payload(payload)?;
+    let environment_kind = parse_environment_kind(payload)?;
+    let environment = parse_environment_payload(payload)?;
+    let transaction = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)
+        .map_err(|error| format!("begin release package project create failed: {error}"))?;
+    validate_vault_binding(&transaction, &environment)?;
+    transaction
+        .execute(
+            "INSERT INTO release_package_projects(
+                name, frontend_project_path, backend_project_path
+             ) VALUES (?1, ?2, ?3)",
+            params![
+                project.name,
+                project.frontend_project_path,
+                project.backend_project_path,
+            ],
+        )
+        .map_err(|error| format!("create release package project failed: {error}"))?;
+    let project_id = transaction.last_insert_rowid();
+    transaction
+        .execute(
+            "INSERT INTO release_package_environments(
+                project_id, environment, output_root, package_type,
+                frontend_build_command, frontend_success_keyword,
+                frontend_post_upload_command, frontend_artifact_path, frontend_artifact_mode,
+                backend_build_command, backend_success_keyword,
+                backend_post_upload_command, backend_artifact_path,
+                ssh_host, ssh_port, ssh_username, ssh_auth_type, vault_entry_id,
+                ssh_private_key_path, frontend_remote_dir, backend_remote_path
+             ) VALUES (
+                ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
+                ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21
+             )",
+            params![
+                project_id,
+                environment_kind.as_str(),
+                environment.output_root,
+                environment.package_type.as_str(),
+                environment.frontend_build_command,
+                environment.frontend_success_keyword,
+                environment.frontend_post_upload_command,
+                environment.frontend_artifact_path,
+                environment.frontend_artifact_mode,
+                environment.backend_build_command,
+                environment.backend_success_keyword,
+                environment.backend_post_upload_command,
+                environment.backend_artifact_path,
+                environment.ssh_host,
+                environment.ssh_port,
+                environment.ssh_username,
+                environment.ssh_auth_type,
+                environment.vault_entry_id,
+                environment.ssh_private_key_path,
+                environment.frontend_remote_dir,
+                environment.backend_remote_path,
+            ],
+        )
+        .map_err(|error| format!("create release package environment failed: {error}"))?;
+    let environment_id = transaction.last_insert_rowid();
+    let blank_kind = match environment_kind {
+        ReleasePackageEnvironmentKind::Test => ReleasePackageEnvironmentKind::Production,
+        ReleasePackageEnvironmentKind::Production => ReleasePackageEnvironmentKind::Test,
+    };
+    transaction
+        .execute(
+            "INSERT INTO release_package_environments(project_id, environment) VALUES (?1, ?2)",
+            params![project_id, blank_kind.as_str()],
+        )
+        .map_err(|error| format!("create blank release package environment failed: {error}"))?;
+    transaction
+        .commit()
+        .map_err(|error| format!("commit release package project create failed: {error}"))?;
+    Ok(json!({ "id": project_id, "environmentId": environment_id }))
+}
+
+fn required_positive_id(payload: &Value, key: &str) -> Result<i64, String> {
+    payload
+        .get(key)
+        .and_then(Value::as_i64)
+        .filter(|id| *id > 0)
+        .ok_or_else(|| format!("{key} must be a positive integer"))
 }
 
 fn project_update_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
-    let id = payload["id"].as_i64().ok_or("id is required")?;
-    let project = parse_project_payload(payload)?;
-    validate_vault_binding(conn, &project)?;
-    let changed = conn
+    let id = required_positive_id(payload, "id")?;
+    let environment_id = required_positive_id(payload, "environmentId")?;
+    let project = parse_common_project_payload(payload)?;
+    let environment_kind = parse_environment_kind(payload)?;
+    let environment = parse_environment_payload(payload)?;
+    let transaction = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)
+        .map_err(|error| format!("begin release package project update failed: {error}"))?;
+    let owner = transaction
+        .query_row(
+            "SELECT project_id, environment FROM release_package_environments WHERE id=?1",
+            [environment_id],
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
+        )
+        .optional()
+        .map_err(|error| format!("load release package environment owner failed: {error}"))?;
+    let Some((owner_project_id, stored_environment)) = owner else {
+        return Err("上线包环境不属于当前项目".into());
+    };
+    if owner_project_id != id {
+        return Err("上线包环境不属于当前项目".into());
+    }
+    if stored_environment != environment_kind.as_str() {
+        return Err("上线包环境与提交环境不一致".into());
+    }
+    validate_vault_binding(&transaction, &environment)?;
+    let changed = transaction
         .execute(
             "UPDATE release_package_projects SET
-                name=?1, output_root=?2, frontend_project_path=?3, frontend_build_command=?4,
-                frontend_artifact_path=?5, frontend_artifact_mode=?6,
-                backend_project_path=?7, backend_build_command=?8, backend_artifact_path=?9,
-                package_type=?10, ssh_host=?11, ssh_port=?12, ssh_username=?13,
-                ssh_auth_type=?14, vault_entry_id=?15, ssh_private_key_path=?16,
-                frontend_remote_dir=?17, backend_remote_path=?18,
-                frontend_success_keyword=?19, backend_success_keyword=?20,
-                frontend_post_upload_command=?21, backend_post_upload_command=?22,
+                name=?1, frontend_project_path=?2, backend_project_path=?3,
                 updated_at=CURRENT_TIMESTAMP
-             WHERE id=?23",
+             WHERE id=?4",
             params![
                 project.name,
-                project.output_root,
                 project.frontend_project_path,
-                project.frontend_build_command,
-                project.frontend_artifact_path,
-                project.frontend_artifact_mode,
                 project.backend_project_path,
-                project.backend_build_command,
-                project.backend_artifact_path,
-                project.package_type.as_str(),
-                project.ssh_host,
-                project.ssh_port,
-                project.ssh_username,
-                project.ssh_auth_type,
-                project.vault_entry_id,
-                project.ssh_private_key_path,
-                project.frontend_remote_dir,
-                project.backend_remote_path,
-                project.frontend_success_keyword,
-                project.backend_success_keyword,
-                project.frontend_post_upload_command,
-                project.backend_post_upload_command,
                 id,
             ],
         )
-        .map_err(|e| format!("update release package project failed: {e}"))?;
+        .map_err(|error| format!("update release package project failed: {error}"))?;
     if changed == 0 {
         return Err("release package project not found".into());
     }
-    Ok(json!({ "id": id }))
+    transaction
+        .execute(
+            "UPDATE release_package_environments SET
+                output_root=?1, package_type=?2,
+                frontend_build_command=?3, frontend_success_keyword=?4,
+                frontend_post_upload_command=?5, frontend_artifact_path=?6,
+                frontend_artifact_mode=?7, backend_build_command=?8,
+                backend_success_keyword=?9, backend_post_upload_command=?10,
+                backend_artifact_path=?11, ssh_host=?12, ssh_port=?13,
+                ssh_username=?14, ssh_auth_type=?15, vault_entry_id=?16,
+                ssh_private_key_path=?17, frontend_remote_dir=?18,
+                backend_remote_path=?19, updated_at=CURRENT_TIMESTAMP
+             WHERE id=?20",
+            params![
+                environment.output_root,
+                environment.package_type.as_str(),
+                environment.frontend_build_command,
+                environment.frontend_success_keyword,
+                environment.frontend_post_upload_command,
+                environment.frontend_artifact_path,
+                environment.frontend_artifact_mode,
+                environment.backend_build_command,
+                environment.backend_success_keyword,
+                environment.backend_post_upload_command,
+                environment.backend_artifact_path,
+                environment.ssh_host,
+                environment.ssh_port,
+                environment.ssh_username,
+                environment.ssh_auth_type,
+                environment.vault_entry_id,
+                environment.ssh_private_key_path,
+                environment.frontend_remote_dir,
+                environment.backend_remote_path,
+                environment_id,
+            ],
+        )
+        .map_err(|error| format!("update release package environment failed: {error}"))?;
+    transaction
+        .commit()
+        .map_err(|error| format!("commit release package project update failed: {error}"))?;
+    Ok(json!({ "id": id, "environmentId": environment_id }))
 }
 
 fn project_delete_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
-    let id = payload["id"].as_i64().ok_or("id is required")?;
+    let id = required_positive_id(payload, "id")?;
     let changed = conn
         .execute("DELETE FROM release_package_projects WHERE id=?1", [id])
         .map_err(|e| format!("delete release package project failed: {e}"))?;
@@ -970,21 +1341,69 @@ pub(crate) fn load_project(
     conn: &Connection,
     id: i64,
 ) -> Result<ReleasePackageProjectConfig, String> {
-    conn.query_row(
-        "SELECT id, name, output_root, frontend_project_path, frontend_build_command, frontend_artifact_path,
-                frontend_artifact_mode, backend_project_path, backend_build_command,
-                backend_artifact_path, package_type, ssh_host, ssh_port, ssh_username, ssh_auth_type,
-                vault_entry_id, ssh_private_key_path, frontend_remote_dir, backend_remote_path,
-                frontend_success_keyword, backend_success_keyword, frontend_post_upload_command,
-                backend_post_upload_command, created_at, updated_at
-         FROM release_package_projects
-         WHERE id=?1",
-        [id],
-        project_from_row,
-    )
-    .optional()
-    .map_err(|e| format!("load release package project failed: {e}"))?
-    .ok_or_else(|| "release package project not found".into())
+    let exists = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM release_package_projects WHERE id=?1)",
+            [id],
+            |row| row.get::<_, bool>(0),
+        )
+        .map_err(|error| format!("load release package project failed: {error}"))?;
+    if !exists {
+        return Err("release package project not found".into());
+    }
+    let mut statement = conn
+        .prepare(
+            "SELECT id FROM release_package_environments
+             WHERE project_id=?1 ORDER BY id",
+        )
+        .map_err(|error| format!("prepare release package environments failed: {error}"))?;
+    let environment_ids = statement
+        .query_map([id], |row| row.get::<_, i64>(0))
+        .map_err(|error| format!("query release package environments failed: {error}"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| format!("read release package environment failed: {error}"))?;
+    let mut configured = Vec::new();
+    for environment_id in environment_ids {
+        let environment = load_environment(conn, environment_id)?;
+        if environment.configured {
+            configured.push(environment);
+        }
+    }
+    if configured.len() != 1 {
+        return Err(if configured.is_empty() {
+            "release package project is not configured".into()
+        } else {
+            "上线包项目存在多个已配置环境，请使用环境 ID".into()
+        });
+    }
+    let environment = configured.pop().unwrap();
+    Ok(ReleasePackageProjectConfig {
+        id: environment.project_id,
+        name: environment.project_name,
+        output_root: environment.output_root,
+        package_type: environment.package_type,
+        frontend_project_path: environment.frontend_project_path,
+        frontend_build_command: environment.frontend_build_command,
+        frontend_success_keyword: environment.frontend_success_keyword,
+        frontend_post_upload_command: environment.frontend_post_upload_command,
+        frontend_artifact_path: environment.frontend_artifact_path,
+        frontend_artifact_mode: environment.frontend_artifact_mode,
+        backend_project_path: environment.backend_project_path,
+        backend_build_command: environment.backend_build_command,
+        backend_success_keyword: environment.backend_success_keyword,
+        backend_post_upload_command: environment.backend_post_upload_command,
+        backend_artifact_path: environment.backend_artifact_path,
+        ssh_host: environment.ssh_host,
+        ssh_port: environment.ssh_port,
+        ssh_username: environment.ssh_username,
+        ssh_auth_type: environment.ssh_auth_type,
+        vault_entry_id: environment.vault_entry_id,
+        ssh_private_key_path: environment.ssh_private_key_path,
+        frontend_remote_dir: environment.frontend_remote_dir,
+        backend_remote_path: environment.backend_remote_path,
+        created_at: environment.created_at,
+        updated_at: environment.updated_at,
+    })
 }
 
 fn validate_run_inputs(
@@ -1760,6 +2179,348 @@ mod tests {
         })
     }
 
+    fn environment_project_payload(environment: &str) -> Value {
+        json!({
+            "project": {
+                "name": "客户门户",
+                "frontendProjectPath": r"D:\work\web",
+                "backendProjectPath": r"D:\work\server"
+            },
+            "environment": environment,
+            "environmentConfig": {
+                "packageType": "server_upload",
+                "outputRoot": r"D:\releases",
+                "frontendBuildCommand": "pnpm build",
+                "frontendSuccessKeyword": "  Build completed  ",
+                "frontendPostUploadCommand": "\n  cd /srv/web\n  ./reload.sh\n",
+                "frontendArtifactPath": "dist",
+                "frontendArtifactMode": "copy_directory",
+                "backendBuildCommand": "mvn clean package -Pprod",
+                "backendSuccessKeyword": "  BUILD SUCCESS  ",
+                "backendPostUploadCommand": "\n  systemctl restart portal\n",
+                "backendArtifactPath": r"target\portal.jar",
+                "sshHost": "deploy.example.internal",
+                "sshPort": 2222,
+                "sshUsername": "deploy",
+                "sshAuthType": "private_key",
+                "vaultEntryId": null,
+                "sshPrivateKeyPath": r"C:\Users\tester\.ssh\lazycat",
+                "frontendRemoteDir": "/srv/portal/web",
+                "backendRemotePath": "/srv/portal/app.jar"
+            }
+        })
+    }
+
+    fn environment_id(conn: &Connection, project_id: i64, environment: &str) -> i64 {
+        conn.query_row(
+            "SELECT id FROM release_package_environments
+             WHERE project_id=?1 AND environment=?2",
+            params![project_id, environment],
+            |row| row.get(0),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn project_crud_environment_create_test_and_list_fixed_environments() {
+        let conn = test_conn();
+        let created =
+            project_create_with_conn(&conn, &environment_project_payload("test")).unwrap();
+        let project_id = created["id"].as_i64().unwrap();
+        let selected_environment_id = created["environmentId"].as_i64().unwrap();
+
+        let stored = conn
+            .prepare(
+                "SELECT id, environment FROM release_package_environments
+                 WHERE project_id=?1 ORDER BY environment",
+            )
+            .unwrap()
+            .query_map([project_id], |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+            })
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(stored.len(), 2);
+        assert!(stored
+            .iter()
+            .any(|(id, kind)| *id == selected_environment_id && kind == "test"));
+
+        let listed = project_list_with_conn(&conn).unwrap();
+        let project = &listed["projects"][0];
+        assert_eq!(project["name"], "客户门户");
+        assert_eq!(project["frontendProjectPath"], r"D:\work\web");
+        assert_eq!(project["backendProjectPath"], r"D:\work\server");
+        let environments = project["environments"].as_array().unwrap();
+        assert_eq!(environments.len(), 2);
+        assert_eq!(environments[0]["environment"], "test");
+        assert_eq!(environments[0]["configured"], true);
+        assert_eq!(environments[0]["id"], selected_environment_id);
+        assert_eq!(environments[0]["frontendSuccessKeyword"], "Build completed");
+        assert_eq!(environments[1]["environment"], "production");
+        assert_eq!(environments[1]["configured"], false);
+    }
+
+    #[test]
+    fn project_crud_environment_create_production_marks_only_production_configured() {
+        let conn = test_conn();
+        let created =
+            project_create_with_conn(&conn, &environment_project_payload("production")).unwrap();
+        let listed = project_list_with_conn(&conn).unwrap();
+        let environments = listed["projects"][0]["environments"].as_array().unwrap();
+
+        assert_eq!(environments[0]["environment"], "test");
+        assert_eq!(environments[0]["configured"], false);
+        assert_eq!(environments[1]["environment"], "production");
+        assert_eq!(environments[1]["configured"], true);
+        assert_eq!(environments[1]["id"], created["environmentId"]);
+    }
+
+    #[test]
+    fn project_crud_environment_rejects_cross_project_update_without_changes() {
+        let conn = test_conn();
+        let first = project_create_with_conn(&conn, &environment_project_payload("test")).unwrap();
+        let mut second_payload = environment_project_payload("test");
+        second_payload["project"]["name"] = json!("管理后台");
+        let second = project_create_with_conn(&conn, &second_payload).unwrap();
+        let first_id = first["id"].as_i64().unwrap();
+        let second_environment_id = second["environmentId"].as_i64().unwrap();
+
+        let mut update = environment_project_payload("test");
+        update["id"] = json!(first_id);
+        update["environmentId"] = json!(second_environment_id);
+        update["project"]["name"] = json!("不应写入");
+        update["environmentConfig"]["frontendBuildCommand"] = json!("invalid mutation");
+
+        assert_eq!(
+            project_update_with_conn(&conn, &update).unwrap_err(),
+            "上线包环境不属于当前项目"
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT name FROM release_package_projects WHERE id=?1",
+                [first_id],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap(),
+            "客户门户"
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT frontend_build_command FROM release_package_environments WHERE id=?1",
+                [second_environment_id],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap(),
+            "pnpm build"
+        );
+    }
+
+    #[test]
+    fn project_crud_environment_update_is_atomic_and_keeps_other_environment() {
+        let conn = test_conn();
+        let created =
+            project_create_with_conn(&conn, &environment_project_payload("test")).unwrap();
+        let project_id = created["id"].as_i64().unwrap();
+        let test_environment_id = created["environmentId"].as_i64().unwrap();
+        let production_environment_id = environment_id(&conn, project_id, "production");
+        let mut production = environment_project_payload("production");
+        production["id"] = json!(project_id);
+        production["environmentId"] = json!(production_environment_id);
+        production["project"]["name"] = json!("客户门户 Pro");
+        production["project"]["frontendProjectPath"] = json!(r"D:\work\web-pro");
+        production["environmentConfig"]["frontendBuildCommand"] = json!("pnpm build:prod");
+
+        let updated = project_update_with_conn(&conn, &production).unwrap();
+        assert_eq!(
+            updated,
+            json!({
+                "id": project_id,
+                "environmentId": production_environment_id
+            })
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT name || '|' || frontend_project_path
+                 FROM release_package_projects WHERE id=?1",
+                [project_id],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap(),
+            r"客户门户 Pro|D:\work\web-pro"
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT frontend_build_command FROM release_package_environments WHERE id=?1",
+                [production_environment_id],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap(),
+            "pnpm build:prod"
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT frontend_build_command FROM release_package_environments WHERE id=?1",
+                [test_environment_id],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap(),
+            "pnpm build"
+        );
+
+        conn.execute_batch(
+            "CREATE TRIGGER reject_release_environment_update
+             BEFORE UPDATE ON release_package_environments
+             BEGIN SELECT RAISE(ABORT, 'forced environment failure'); END;",
+        )
+        .unwrap();
+        production["project"]["name"] = json!("事务不应部分提交");
+        production["environmentConfig"]["frontendBuildCommand"] = json!("also not saved");
+        assert!(project_update_with_conn(&conn, &production).is_err());
+        assert_eq!(
+            conn.query_row(
+                "SELECT name FROM release_package_projects WHERE id=?1",
+                [project_id],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap(),
+            "客户门户 Pro"
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT frontend_build_command FROM release_package_environments WHERE id=?1",
+                [production_environment_id],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap(),
+            "pnpm build:prod"
+        );
+    }
+
+    #[test]
+    fn project_crud_environment_create_rolls_back_project_when_environment_insert_fails() {
+        let conn = test_conn();
+        conn.execute_batch(
+            "CREATE TRIGGER reject_release_environment_insert
+             BEFORE INSERT ON release_package_environments
+             BEGIN SELECT RAISE(ABORT, 'forced environment failure'); END;",
+        )
+        .unwrap();
+
+        assert!(
+            project_create_with_conn(&conn, &environment_project_payload("test"))
+                .unwrap_err()
+                .contains("forced environment failure")
+        );
+        assert_eq!(
+            conn.query_row("SELECT COUNT(*) FROM release_package_projects", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .unwrap(),
+            0
+        );
+    }
+
+    #[test]
+    fn project_crud_environment_delete_project_cascades_both_environments() {
+        let conn = test_conn();
+        conn.execute_batch("PRAGMA foreign_keys=ON").unwrap();
+        let created =
+            project_create_with_conn(&conn, &environment_project_payload("test")).unwrap();
+        let project_id = created["id"].as_i64().unwrap();
+
+        project_delete_with_conn(&conn, &json!({ "id": project_id })).unwrap();
+        assert_eq!(
+            conn.query_row(
+                "SELECT COUNT(*) FROM release_package_environments WHERE project_id=?1",
+                [project_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+            0
+        );
+    }
+
+    #[test]
+    fn project_crud_environment_list_rejects_incomplete_duplicate_and_unknown_without_repair() {
+        let missing = test_conn();
+        let created =
+            project_create_with_conn(&missing, &environment_project_payload("test")).unwrap();
+        let project_id = created["id"].as_i64().unwrap();
+        missing
+            .execute(
+                "DELETE FROM release_package_environments
+                 WHERE project_id=?1 AND environment='production'",
+                [project_id],
+            )
+            .unwrap();
+        assert_eq!(
+            project_list_with_conn(&missing).unwrap_err(),
+            "上线包项目环境配置不完整"
+        );
+        assert_eq!(
+            missing
+                .query_row(
+                    "SELECT COUNT(*) FROM release_package_environments WHERE project_id=?1",
+                    [project_id],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap(),
+            1
+        );
+
+        for corrupt_kind in ["test", "staging"] {
+            let conn = Connection::open_in_memory().unwrap();
+            conn.execute_batch(
+                "CREATE TABLE release_package_projects (
+                    id INTEGER PRIMARY KEY, name TEXT NOT NULL,
+                    frontend_project_path TEXT NOT NULL, backend_project_path TEXT NOT NULL,
+                    created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+                 );
+                 CREATE TABLE release_package_environments AS
+                 SELECT 0 AS id, 0 AS project_id, '' AS environment, '' AS output_root,
+                    '' AS package_type, '' AS frontend_build_command,
+                    '' AS frontend_success_keyword, '' AS frontend_post_upload_command,
+                    '' AS frontend_artifact_path, '' AS frontend_artifact_mode,
+                    '' AS backend_build_command, '' AS backend_success_keyword,
+                    '' AS backend_post_upload_command, '' AS backend_artifact_path,
+                    '' AS ssh_host, 22 AS ssh_port, '' AS ssh_username,
+                    '' AS ssh_auth_type, NULL AS vault_entry_id, '' AS ssh_private_key_path,
+                    '' AS frontend_remote_dir, '' AS backend_remote_path,
+                    '' AS created_at, '' AS updated_at WHERE 0;
+                 INSERT INTO release_package_projects VALUES
+                    (1, '损坏项目', 'D:\\web', 'D:\\server', 'created', 'updated');
+                 INSERT INTO release_package_environments
+                 SELECT 1, 1, 'test', '', 'local_archive', '', '', '', '',
+                    'copy_directory', '', '', '', '', '', 22, '', 'password', NULL,
+                    '', '', '', 'created', 'updated';
+                 INSERT INTO release_package_environments
+                 SELECT 2, 1, 'production', '', 'local_archive', '', '', '', '',
+                    'copy_directory', '', '', '', '', '', 22, '', 'password', NULL,
+                    '', '', '', 'created', 'updated';",
+            )
+            .unwrap();
+            conn.execute(
+                "UPDATE release_package_environments SET environment=?1 WHERE id=2",
+                [corrupt_kind],
+            )
+            .unwrap();
+            assert_eq!(
+                project_list_with_conn(&conn).unwrap_err(),
+                "上线包项目环境配置不完整"
+            );
+            assert_eq!(
+                conn.query_row(
+                    "SELECT COUNT(*) FROM release_package_environments",
+                    [],
+                    |row| { row.get::<_, i64>(0) }
+                )
+                .unwrap(),
+                2
+            );
+        }
+    }
+
     #[test]
     fn schema_migrates_each_legacy_project_to_production_and_blank_test() {
         let conn = Connection::open_in_memory().unwrap();
@@ -2240,7 +3001,11 @@ mod tests {
 
         let parsed_password = parse_project_payload(&password).unwrap();
         assert_eq!(parsed_password.ssh_port, 22);
-        let password_id = project_create_with_conn(&conn, &password).unwrap()["id"]
+        let mut password_project_payload = environment_project_payload("production");
+        password_project_payload["environmentConfig"]["sshAuthType"] = json!("password");
+        password_project_payload["environmentConfig"]["vaultEntryId"] = json!(17);
+        password_project_payload["environmentConfig"]["sshPort"] = json!(0);
+        let password_id = project_create_with_conn(&conn, &password_project_payload).unwrap()["id"]
             .as_i64()
             .unwrap();
         let mut password_project = load_project(&conn, password_id).unwrap();
@@ -2254,9 +3019,11 @@ mod tests {
             "sshPort must be between 1 and 65535"
         );
 
-        let private_key_id = project_create_with_conn(&conn, &payload()).unwrap()["id"]
-            .as_i64()
-            .unwrap();
+        let private_key_id =
+            project_create_with_conn(&conn, &environment_project_payload("production")).unwrap()
+                ["id"]
+                .as_i64()
+                .unwrap();
         let mut private_key_project = load_project(&conn, private_key_id).unwrap();
         private_key_project.ssh_port = 0;
         assert_eq!(
@@ -2276,11 +3043,11 @@ mod tests {
             VALUES (17, 'server', '{\"address\":\"10.0.0.8\",\"account\":\"deploy\"}');",
         )
         .unwrap();
-        let mut input = payload();
-        input["sshAuthType"] = json!("password");
-        input["vaultEntryId"] = json!(17);
-        input["sshHost"] = json!("");
-        input["sshUsername"] = json!("");
+        let mut input = environment_project_payload("production");
+        input["environmentConfig"]["sshAuthType"] = json!("password");
+        input["environmentConfig"]["vaultEntryId"] = json!(17);
+        input["environmentConfig"]["sshHost"] = json!("");
+        input["environmentConfig"]["sshUsername"] = json!("");
 
         let id = project_create_with_conn(&conn, &input).unwrap()["id"]
             .as_i64()
@@ -2288,9 +3055,10 @@ mod tests {
         let saved = load_project(&conn, id).unwrap();
         assert_eq!(saved.vault_entry_id, Some(17));
         let listed = project_list_with_conn(&conn).unwrap();
-        assert_eq!(listed["projects"][0]["vaultEntryId"], 17);
-        assert!(listed["projects"][0].get("password").is_none());
-        assert!(listed["projects"][0].get("privateKeyPassphrase").is_none());
+        let production = &listed["projects"][0]["environments"][1];
+        assert_eq!(production["vaultEntryId"], 17);
+        assert!(production.get("password").is_none());
+        assert!(production.get("privateKeyPassphrase").is_none());
     }
 
     #[test]
@@ -2318,11 +3086,11 @@ mod tests {
             "deploy",
             "secret",
         );
-        let mut input = payload();
-        input["sshAuthType"] = json!("password");
-        input["vaultEntryId"] = json!(11);
-        input["sshHost"] = json!("");
-        input["sshUsername"] = json!("");
+        let mut input = environment_project_payload("production");
+        input["environmentConfig"]["sshAuthType"] = json!("password");
+        input["environmentConfig"]["vaultEntryId"] = json!(11);
+        input["environmentConfig"]["sshHost"] = json!("");
+        input["environmentConfig"]["sshUsername"] = json!("");
         let project_id = project_create_with_conn(&conn, &input).unwrap()["id"]
             .as_i64()
             .unwrap();
@@ -2344,9 +3112,11 @@ mod tests {
     #[test]
     fn private_key_endpoint_keeps_using_the_project_port() {
         let conn = test_conn();
-        let project_id = project_create_with_conn(&conn, &payload()).unwrap()["id"]
-            .as_i64()
-            .unwrap();
+        let project_id =
+            project_create_with_conn(&conn, &environment_project_payload("production")).unwrap()
+                ["id"]
+                .as_i64()
+                .unwrap();
 
         let endpoint =
             upload_endpoint_with_conn(&conn, &load_project(&conn, project_id).unwrap()).unwrap();
@@ -2579,9 +3349,11 @@ mod tests {
     #[test]
     fn host_trust_rotates_the_probe_token_and_rejects_reuse() {
         let conn = test_conn();
-        let project_id = project_create_with_conn(&conn, &payload()).unwrap()["id"]
-            .as_i64()
-            .unwrap();
+        let project_id =
+            project_create_with_conn(&conn, &environment_project_payload("production")).unwrap()
+                ["id"]
+                .as_i64()
+                .unwrap();
         let snapshot = ProbeSnapshot {
             endpoint: RemoteEndpoint {
                 host: "server.example.internal".into(),
@@ -2602,8 +3374,8 @@ mod tests {
     #[test]
     fn local_archive_cannot_trust_a_host_and_does_not_consume_the_probe_token() {
         let conn = test_conn();
-        let mut local = payload();
-        local["packageType"] = json!("local_archive");
+        let mut local = environment_project_payload("production");
+        local["environmentConfig"]["packageType"] = json!("local_archive");
         let project_id = project_create_with_conn(&conn, &local).unwrap()["id"]
             .as_i64()
             .unwrap();
@@ -2635,34 +3407,33 @@ mod tests {
     #[test]
     fn project_crud_round_trip() {
         let conn = test_conn();
-        let created = project_create_with_conn(&conn, &payload()).unwrap();
+        let created =
+            project_create_with_conn(&conn, &environment_project_payload("production")).unwrap();
         let id = created["id"].as_i64().unwrap();
+        let environment_id = created["environmentId"].as_i64().unwrap();
         let listed = project_list_with_conn(&conn).unwrap();
         assert_eq!(listed["projects"][0]["name"], "客户门户");
-        assert_eq!(listed["projects"][0]["sshHost"], "deploy.example.internal");
-        assert_eq!(listed["projects"][0]["sshPort"], 2222);
+        let production = &listed["projects"][0]["environments"][1];
+        assert_eq!(production["sshHost"], "deploy.example.internal");
+        assert_eq!(production["sshPort"], 2222);
+        assert_eq!(production["frontendSuccessKeyword"], "Build completed");
+        assert_eq!(production["backendSuccessKeyword"], "BUILD SUCCESS");
         assert_eq!(
-            listed["projects"][0]["frontendSuccessKeyword"],
-            "Build completed"
-        );
-        assert_eq!(
-            listed["projects"][0]["backendSuccessKeyword"],
-            "BUILD SUCCESS"
-        );
-        assert_eq!(
-            listed["projects"][0]["frontendPostUploadCommand"],
+            production["frontendPostUploadCommand"],
             "cd /srv/web\n  ./reload.sh"
         );
         assert_eq!(
-            listed["projects"][0]["backendPostUploadCommand"],
+            production["backendPostUploadCommand"],
             "systemctl restart portal"
         );
-        assert!(listed["projects"][0].get("password").is_none());
-        assert!(listed["projects"][0].get("privateKeyPassphrase").is_none());
-        let mut update = payload();
+        assert!(production.get("password").is_none());
+        assert!(production.get("privateKeyPassphrase").is_none());
+        let mut update = environment_project_payload("production");
         update["id"] = json!(id);
-        update["name"] = json!("客户门户 Pro");
-        update["backendPostUploadCommand"] = json!("systemctl restart portal-pro");
+        update["environmentId"] = json!(environment_id);
+        update["project"]["name"] = json!("客户门户 Pro");
+        update["environmentConfig"]["backendPostUploadCommand"] =
+            json!("systemctl restart portal-pro");
         project_update_with_conn(&conn, &update).unwrap();
         let updated = load_project(&conn, id).unwrap();
         assert_eq!(updated.name, "客户门户 Pro");
@@ -2677,8 +3448,8 @@ mod tests {
     #[test]
     fn prepare_uses_project_output_root_and_inclusive_thursday() {
         let conn = test_conn();
-        let mut project = payload();
-        project["packageType"] = json!("local_archive");
+        let mut project = environment_project_payload("production");
+        project["environmentConfig"]["packageType"] = json!("local_archive");
         let id = project_create_with_conn(&conn, &project).unwrap()["id"]
             .as_i64()
             .unwrap();
@@ -2692,8 +3463,8 @@ mod tests {
     #[test]
     fn prepare_returns_a_discriminated_result_without_archive_for_upload() {
         let conn = test_conn();
-        let mut project = payload();
-        project["outputRoot"] = json!("");
+        let mut project = environment_project_payload("production");
+        project["environmentConfig"]["outputRoot"] = json!("");
         let id = project_create_with_conn(&conn, &project).unwrap()["id"]
             .as_i64()
             .unwrap();
@@ -2806,16 +3577,17 @@ mod tests {
     #[test]
     fn type_specific_actions_reject_the_other_package_type() {
         let conn = test_conn();
-        let upload_id = project_create_with_conn(&conn, &payload()).unwrap()["id"]
+        let upload_id = project_create_with_conn(&conn, &environment_project_payload("production"))
+            .unwrap()["id"]
             .as_i64()
             .unwrap();
         assert!(target_check_with_conn(&conn, upload_id, "release")
             .unwrap_err()
             .contains("local_archive"));
 
-        let mut local = payload();
-        local["packageType"] = json!("local_archive");
-        local["sshHost"] = json!("");
+        let mut local = environment_project_payload("production");
+        local["environmentConfig"]["packageType"] = json!("local_archive");
+        local["environmentConfig"]["sshHost"] = json!("");
         let local_id = project_create_with_conn(&conn, &local).unwrap()["id"]
             .as_i64()
             .unwrap();
@@ -2837,7 +3609,8 @@ mod tests {
     #[test]
     fn server_upload_config_is_validated_independently() {
         let conn = test_conn();
-        let id = project_create_with_conn(&conn, &payload()).unwrap()["id"]
+        let id = project_create_with_conn(&conn, &environment_project_payload("production"))
+            .unwrap()["id"]
             .as_i64()
             .unwrap();
         let project = load_project(&conn, id).unwrap();
@@ -2905,9 +3678,9 @@ mod tests {
         let output = root.join("output");
         fs::create_dir_all(&output).unwrap();
         let conn = test_conn();
-        let mut project = payload();
-        project["packageType"] = json!("local_archive");
-        project["outputRoot"] = json!(output.to_string_lossy());
+        let mut project = environment_project_payload("production");
+        project["environmentConfig"]["packageType"] = json!("local_archive");
+        project["environmentConfig"]["outputRoot"] = json!(output.to_string_lossy());
         let id = project_create_with_conn(&conn, &project).unwrap()["id"]
             .as_i64()
             .unwrap();
