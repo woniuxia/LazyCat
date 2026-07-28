@@ -303,6 +303,46 @@ Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force
     expect(isReleasePackageDraftDirty(null, null, createEmptyReleasePackageProjectDraft(), createEmptyReleasePackageEnvironmentDraft())).toBe(false);
   });
 
+  it("does not mark saved surrounding whitespace as dirty after draft normalization", () => {
+    const savedProject = {
+      ...project,
+      name: "  客户门户  ",
+      frontendProjectPath: "  D:\\work\\portal-web  ",
+      backendProjectPath: "  D:\\work\\portal-server  ",
+    };
+    const savedEnvironment = {
+      ...testEnvironment,
+      outputRoot: "  D:\\releases\\test  ",
+      frontendBuildCommand: "  pnpm build:test  ",
+      frontendPostUploadCommand: "\n  cd /srv/test/web\n  ./reload.sh\n",
+    };
+    const projectDraft = projectToReleasePackageProjectDraft(savedProject);
+    const environmentDraft = environmentToReleasePackageDraft(savedEnvironment);
+
+    expect(isReleasePackageDraftDirty(
+      savedProject,
+      savedEnvironment,
+      normalizeReleasePackageProjectDraft(projectDraft),
+      normalizeReleasePackageEnvironmentDraft(environmentDraft),
+    )).toBe(false);
+  });
+
+  it("does not mark equal drafts with different property insertion order as dirty", () => {
+    const projectDraft = projectToReleasePackageProjectDraft(project);
+    const reorderedProjectDraft = {
+      backendProjectPath: projectDraft.backendProjectPath,
+      frontendProjectPath: projectDraft.frontendProjectPath,
+      name: projectDraft.name,
+    };
+    const environmentDraft = environmentToReleasePackageDraft(testEnvironment);
+    const reorderedEnvironmentDraft = Object.fromEntries(
+      Object.entries(environmentDraft).reverse(),
+    ) as typeof environmentDraft;
+
+    expect(isReleasePackageDraftDirty(project, testEnvironment, reorderedProjectDraft, environmentDraft)).toBe(false);
+    expect(isReleasePackageDraftDirty(project, testEnvironment, projectDraft, reorderedEnvironmentDraft)).toBe(false);
+  });
+
   it("trims only surrounding whitespace in public and environment strings", () => {
     const projectDraft = projectToReleasePackageProjectDraft(project);
     projectDraft.name = "  客户门户  ";

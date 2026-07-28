@@ -169,17 +169,17 @@ export function normalizeVaultServerPort(value: unknown): number | null {
 }
 
 export function projectToReleasePackageProjectDraft(project: ReleasePackageProject): ReleasePackageProjectDraft {
-  return {
+  return normalizeReleasePackageProjectDraft({
     name: project.name,
     frontendProjectPath: project.frontendProjectPath,
     backendProjectPath: project.backendProjectPath,
-  };
+  });
 }
 
 export function environmentToReleasePackageDraft(
   environment: ReleasePackageEnvironmentConfig,
 ): ReleasePackageEnvironmentDraft {
-  return {
+  return normalizeReleasePackageEnvironmentDraft({
     packageType: environment.packageType,
     outputRoot: environment.outputRoot,
     frontendBuildCommand: environment.frontendBuildCommand,
@@ -199,25 +199,43 @@ export function environmentToReleasePackageDraft(
     sshPrivateKeyPath: environment.sshPrivateKeyPath,
     frontendRemoteDir: environment.frontendRemoteDir,
     backendRemotePath: environment.backendRemotePath,
-  };
-}
-
-function normalizeDraft<T extends object>(draft: T): T {
-  return Object.fromEntries(
-    Object.entries(draft).map(([key, value]) => [key, typeof value === "string" ? value.trim() : value]),
-  ) as T;
+  });
 }
 
 export function normalizeReleasePackageProjectDraft(
   draft: ReleasePackageProjectDraft,
 ): ReleasePackageProjectDraft {
-  return normalizeDraft(draft);
+  return {
+    name: draft.name.trim(),
+    frontendProjectPath: draft.frontendProjectPath.trim(),
+    backendProjectPath: draft.backendProjectPath.trim(),
+  };
 }
 
 export function normalizeReleasePackageEnvironmentDraft(
   draft: ReleasePackageEnvironmentDraft,
 ): ReleasePackageEnvironmentDraft {
-  return normalizeDraft(draft);
+  return {
+    packageType: draft.packageType,
+    outputRoot: draft.outputRoot.trim(),
+    frontendBuildCommand: draft.frontendBuildCommand.trim(),
+    frontendSuccessKeyword: draft.frontendSuccessKeyword.trim(),
+    frontendPostUploadCommand: draft.frontendPostUploadCommand.trim(),
+    frontendArtifactPath: draft.frontendArtifactPath.trim(),
+    frontendArtifactMode: draft.frontendArtifactMode,
+    backendBuildCommand: draft.backendBuildCommand.trim(),
+    backendSuccessKeyword: draft.backendSuccessKeyword.trim(),
+    backendPostUploadCommand: draft.backendPostUploadCommand.trim(),
+    backendArtifactPath: draft.backendArtifactPath.trim(),
+    sshHost: draft.sshHost.trim(),
+    sshPort: draft.sshPort,
+    sshUsername: draft.sshUsername.trim(),
+    sshAuthType: draft.sshAuthType,
+    vaultEntryId: draft.vaultEntryId,
+    sshPrivateKeyPath: draft.sshPrivateKeyPath.trim(),
+    frontendRemoteDir: draft.frontendRemoteDir.trim(),
+    backendRemotePath: draft.backendRemotePath.trim(),
+  };
 }
 
 export function validateReleasePackageUpload(draft: ReleasePackageEnvironmentDraft): string | null {
