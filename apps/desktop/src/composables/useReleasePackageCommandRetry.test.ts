@@ -96,6 +96,16 @@ describe("useReleasePackageCommandRetry", () => {
     expect(retry.privateKeyPassphrase.value).toBe("");
     expect(retry.authToken.value).toBe("");
   });
+  it("clears the private key passphrase when preflight local validation fails", async () => {
+    const retry = useReleasePackageCommandRetry();
+    retry.privateKeyPassphrase.value = "must-not-survive-validation";
+
+    await expect(retry.preflight()).rejects.toThrow("请先准备命令重试");
+
+    expect(retry.privateKeyPassphrase.value).toBe("");
+    expect(retry.authToken.value).toBe("");
+  });
+
 
   it("clears one-time authentication state when start fails", async () => {
     invokeMock
@@ -116,6 +126,17 @@ describe("useReleasePackageCommandRetry", () => {
     expect(retry.privateKeyPassphrase.value).toBe("");
     expect(retry.authToken.value).toBe("");
   });
+  it("clears one-time authentication state when start local validation fails", async () => {
+    const retry = useReleasePackageCommandRetry();
+    retry.authToken.value = "orphan-auth-token";
+    retry.privateKeyPassphrase.value = "must-not-survive-validation";
+
+    await expect(retry.start()).rejects.toThrow("请先完成命令重试认证");
+
+    expect(retry.privateKeyPassphrase.value).toBe("");
+    expect(retry.authToken.value).toBe("");
+  });
+
 
   it.each(["discard", "reset"] as const)(
     "exposes remote discard failures from %s after clearing local state",

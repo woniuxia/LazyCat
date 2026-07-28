@@ -61,8 +61,8 @@ export function useReleasePackageCommandRetry() {
   }
 
   async function preflight(): Promise<ReleasePackageCommandRetryPreflightResult> {
-    if (!projectId.value || !retryToken.value || !prepareResult.value) throw new Error("请先准备命令重试");
     try {
+      if (!projectId.value || !retryToken.value || !prepareResult.value) throw new Error("请先准备命令重试");
       const result = await invokeToolByChannel("tool:release-package:command-retry-preflight", {
         projectId: projectId.value,
         retryToken: retryToken.value,
@@ -77,8 +77,8 @@ export function useReleasePackageCommandRetry() {
   }
 
   async function start(): Promise<ReleasePackageStartResult> {
-    if (!projectId.value || !retryToken.value || !authToken.value) throw new Error("请先完成命令重试认证");
     try {
+      if (!projectId.value || !retryToken.value || !authToken.value) throw new Error("请先完成命令重试认证");
       return await invokeToolByChannel("tool:release-package:command-retry-start", {
         projectId: projectId.value,
         retryToken: retryToken.value,

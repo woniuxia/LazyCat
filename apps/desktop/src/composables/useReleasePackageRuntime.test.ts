@@ -209,6 +209,13 @@ describe("release package runtime state", () => {
     await runtime.ensureListeners();
     runtime.beginStart(7, ["frontend", "backend"]);
     runtime.bindStartedRun("run-1", 7);
+    emit("release-package://status", {
+      ...status("run-1", 7, "uploading", "upload"),
+      uploadedBytes: 512,
+      totalBytes: 1_024,
+      currentPath: "assets/app.js",
+    });
+
 
     emit("release-package://status", {
       ...status("run-1", 7, "failed", "upload"),
@@ -227,5 +234,10 @@ describe("release package runtime state", () => {
     expect(projectRuntime.commandStatus.backend).toBe("pending");
     expect(projectRuntime.commandRetryToken).toBe("command-retry-1");
     expect(projectRuntime.retryToken).toBe("");
+    expect(projectRuntime.uploadProgress).toEqual({
+      uploadedBytes: 512,
+      totalBytes: 1_024,
+      currentPath: "assets/app.js",
+    });
   });
 });
