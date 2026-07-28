@@ -13,6 +13,7 @@ export type ReleasePackageRunStatus =
   | "package_succeeded_upload_failed"
   | "failed"
   | "cancelled";
+  | "upload_succeeded_command_failed"
 export type ReleasePackageTargetStatus =
   | "idle"
   | "pending"
@@ -20,6 +21,7 @@ export type ReleasePackageTargetStatus =
   | "succeeded"
   | "failed"
   | "cancelled"
+export type ReleasePackageCommandStatus = "skipped" | "pending" | "running" | "succeeded" | "failed" | "cancelled";
   | "skipped";
 
 export interface ReleasePackageUploadConfig {
@@ -124,6 +126,9 @@ export interface ReleasePackageStatusEvent {
   status: Exclude<ReleasePackageRunStatus, "idle">;
   phase: ReleasePackagePhase;
   archivePath?: string;
+  commandTarget?: ReleasePackageTarget;
+  commandStatus?: ReleasePackageCommandStatus;
+  commandRetryToken?: string;
   error?: string;
   uploadedBytes?: number;
   totalBytes?: number;

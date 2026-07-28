@@ -9,6 +9,7 @@ import type {
   ReleasePackageStatusEvent,
   ReleasePackageTarget,
   ReleasePackageTargetStatus,
+  ReleasePackageCommandStatus,
   ReleasePackageUploadProgress,
 } from "../types/release-package";
 import { acceptReleasePackageEvent, appendReleasePackageLog } from "../utils/releasePackage";
@@ -30,6 +31,9 @@ export interface ReleasePackageProjectRuntime {
   error: string;
   targetStatus: Record<ReleasePackageTarget, ReleasePackageTargetStatus>;
   targetErrors: Partial<Record<ReleasePackageTarget, string>>;
+  commandStatus: Record<ReleasePackageTarget, ReleasePackageCommandStatus>;
+  commandErrors: Partial<Record<ReleasePackageTarget, string>>;
+  commandRetryToken: string;
   frontendLogs: ReleasePackageLogEvent[];
   backendLogs: ReleasePackageLogEvent[];
   uploadLogs: ReleasePackageLogEvent[];
@@ -102,7 +106,13 @@ function createProjectRuntime(
       totalBytes: 0,
       currentPath: "",
     },
+    commandStatus: {
+      frontend: targets.includes("frontend") ? "pending" : "skipped",
+      backend: targets.includes("backend") ? "pending" : "skipped",
+    },
+    commandErrors: {},
     retryToken: "",
+    commandRetryToken: "",
   };
 }
 
@@ -131,6 +141,11 @@ function applyProjectStatus(event: ReleasePackageStatusEvent): void {
     return;
   }
   if (event.phase === "upload") {
+    if (event.commandTarget && event.commandStatus) {
+      runtime.commandStatus[event.commandTarget] = event.commandStatus;
+      if (event.error) runtime.commandErrors[event.commandTarget] = event.error;
+      return;
+    }
     runtime.status = event.status;
     runtime.uploadProgress = {
       uploadedBytes: event.uploadedBytes ?? runtime.uploadProgress.uploadedBytes,
@@ -143,6 +158,7 @@ function applyProjectStatus(event: ReleasePackageStatusEvent): void {
   runtime.archivePath = event.archivePath ?? "";
   runtime.error = event.error ?? "";
   runtime.retryToken = event.retryToken ?? "";
+  runtime.commandRetryToken = event.commandRetryToken ?? "";
 }
 
 function acceptPendingEvent(runId: string, projectId: number): boolean {
