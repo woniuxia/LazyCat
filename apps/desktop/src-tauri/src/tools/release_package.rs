@@ -1,5 +1,5 @@
 use chrono::{Local, NaiveDate};
-use rusqlite::{params, Connection, OptionalExtension, Row};
+use rusqlite::{params, Connection, OptionalExtension, Row, Transaction, TransactionBehavior};
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::path::PathBuf;
@@ -19,20 +19,26 @@ pub const RELEASE_PACKAGE_SCHEMA_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS release_package_projects (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
-    output_root TEXT NOT NULL,
-    package_type TEXT NOT NULL DEFAULT 'local_archive' CHECK (package_type IN ('local_archive', 'server_upload')),
     frontend_project_path TEXT NOT NULL,
-    frontend_build_command TEXT NOT NULL,
+    backend_project_path TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS release_package_environments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL REFERENCES release_package_projects(id) ON DELETE CASCADE,
+    environment TEXT NOT NULL CHECK (environment IN ('test', 'production')),
+    output_root TEXT NOT NULL DEFAULT '',
+    package_type TEXT NOT NULL DEFAULT 'local_archive' CHECK (package_type IN ('local_archive', 'server_upload')),
+    frontend_build_command TEXT NOT NULL DEFAULT '',
     frontend_success_keyword TEXT NOT NULL DEFAULT '',
     frontend_post_upload_command TEXT NOT NULL DEFAULT '',
-    frontend_artifact_path TEXT NOT NULL,
-    frontend_artifact_mode TEXT NOT NULL CHECK (frontend_artifact_mode IN ('copy_directory', 'zip_directory')),
-    backend_project_path TEXT NOT NULL,
-    backend_build_command TEXT NOT NULL,
+    frontend_artifact_path TEXT NOT NULL DEFAULT '',
+    frontend_artifact_mode TEXT NOT NULL DEFAULT 'copy_directory' CHECK (frontend_artifact_mode IN ('copy_directory', 'zip_directory')),
+    backend_build_command TEXT NOT NULL DEFAULT '',
     backend_success_keyword TEXT NOT NULL DEFAULT '',
     backend_post_upload_command TEXT NOT NULL DEFAULT '',
-    backend_artifact_path TEXT NOT NULL,
-    upload_enabled INTEGER NOT NULL DEFAULT 0,
+    backend_artifact_path TEXT NOT NULL DEFAULT '',
     ssh_host TEXT NOT NULL DEFAULT '',
     ssh_port INTEGER NOT NULL DEFAULT 22,
     ssh_username TEXT NOT NULL DEFAULT '',
@@ -42,7 +48,8 @@ CREATE TABLE IF NOT EXISTS release_package_projects (
     frontend_remote_dir TEXT NOT NULL DEFAULT '',
     backend_remote_path TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(project_id, environment)
 );
 CREATE TABLE IF NOT EXISTS release_package_known_hosts (
     host TEXT NOT NULL,
@@ -55,64 +62,293 @@ CREATE TABLE IF NOT EXISTS release_package_known_hosts (
 );
 "#;
 
-pub fn ensure_schema(conn: &Connection) -> Result<(), String> {
-    conn.execute_batch(RELEASE_PACKAGE_SCHEMA_SQL)
-        .map_err(|error| format!("create release package schema failed: {error}"))?;
-    for (column, statement) in [
-        ("output_root", "ALTER TABLE release_package_projects ADD COLUMN output_root TEXT NOT NULL DEFAULT ''"),
-        ("upload_enabled", "ALTER TABLE release_package_projects ADD COLUMN upload_enabled INTEGER NOT NULL DEFAULT 0"),
-        ("ssh_host", "ALTER TABLE release_package_projects ADD COLUMN ssh_host TEXT NOT NULL DEFAULT ''"),
-        ("ssh_port", "ALTER TABLE release_package_projects ADD COLUMN ssh_port INTEGER NOT NULL DEFAULT 22"),
-        ("ssh_username", "ALTER TABLE release_package_projects ADD COLUMN ssh_username TEXT NOT NULL DEFAULT ''"),
-        ("ssh_auth_type", "ALTER TABLE release_package_projects ADD COLUMN ssh_auth_type TEXT NOT NULL DEFAULT 'password'"),
-        ("vault_entry_id", "ALTER TABLE release_package_projects ADD COLUMN vault_entry_id INTEGER NULL"),
-        ("ssh_private_key_path", "ALTER TABLE release_package_projects ADD COLUMN ssh_private_key_path TEXT NOT NULL DEFAULT ''"),
-        ("frontend_remote_dir", "ALTER TABLE release_package_projects ADD COLUMN frontend_remote_dir TEXT NOT NULL DEFAULT ''"),
-        ("backend_remote_path", "ALTER TABLE release_package_projects ADD COLUMN backend_remote_path TEXT NOT NULL DEFAULT ''"),
-        ("frontend_success_keyword", "ALTER TABLE release_package_projects ADD COLUMN frontend_success_keyword TEXT NOT NULL DEFAULT ''"),
-        ("backend_success_keyword", "ALTER TABLE release_package_projects ADD COLUMN backend_success_keyword TEXT NOT NULL DEFAULT ''"),
-        ("frontend_post_upload_command", "ALTER TABLE release_package_projects ADD COLUMN frontend_post_upload_command TEXT NOT NULL DEFAULT ''"),
-        ("backend_post_upload_command", "ALTER TABLE release_package_projects ADD COLUMN backend_post_upload_command TEXT NOT NULL DEFAULT ''"),
+fn table_columns(conn: &Connection, table: &str) -> Result<Vec<String>, String> {
+    let mut query = conn
+        .prepare(&format!("PRAGMA table_info({table})"))
+        .map_err(|error| format!("inspect release package table {table} failed: {error}"))?;
+    let columns = query
+        .query_map([], |row| row.get(1))
+        .map_err(|error| format!("query release package table {table} failed: {error}"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| format!("read release package table {table} failed: {error}"))?;
+    Ok(columns)
+}
+
+fn table_exists(conn: &Connection, table: &str) -> Result<bool, String> {
+    conn.query_row(
+        "SELECT EXISTS(
+             SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1
+         )",
+        [table],
+        |row| row.get(0),
+    )
+    .map_err(|error| format!("inspect release package table {table} failed: {error}"))
+}
+
+fn add_legacy_column_if_missing(
+    transaction: &Transaction<'_>,
+    column: &str,
+    definition: &str,
+) -> Result<(), String> {
+    if table_columns(transaction, "release_package_projects")?
+        .iter()
+        .any(|name| name == column)
+    {
+        return Ok(());
+    }
+    transaction
+        .execute_batch(&format!(
+            "ALTER TABLE release_package_projects ADD COLUMN {column} {definition}"
+        ))
+        .map_err(|error| format!("migrate release package column {column} failed: {error}"))
+}
+
+fn migrate_legacy_schema(conn: &Connection) -> Result<(), String> {
+    let transaction = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)
+        .map_err(|error| format!("begin release package schema migration failed: {error}"))?;
+
+    for (column, definition) in [
+        ("output_root", "TEXT NOT NULL DEFAULT ''"),
+        ("upload_enabled", "INTEGER NOT NULL DEFAULT 0"),
+        ("ssh_host", "TEXT NOT NULL DEFAULT ''"),
+        ("ssh_port", "INTEGER NOT NULL DEFAULT 22"),
+        ("ssh_username", "TEXT NOT NULL DEFAULT ''"),
+        ("ssh_auth_type", "TEXT NOT NULL DEFAULT 'password'"),
+        ("vault_entry_id", "INTEGER NULL"),
+        ("ssh_private_key_path", "TEXT NOT NULL DEFAULT ''"),
+        ("frontend_remote_dir", "TEXT NOT NULL DEFAULT ''"),
+        ("backend_remote_path", "TEXT NOT NULL DEFAULT ''"),
+        ("frontend_success_keyword", "TEXT NOT NULL DEFAULT ''"),
+        ("backend_success_keyword", "TEXT NOT NULL DEFAULT ''"),
+        ("frontend_post_upload_command", "TEXT NOT NULL DEFAULT ''"),
+        ("backend_post_upload_command", "TEXT NOT NULL DEFAULT ''"),
     ] {
-        let mut query = conn
-            .prepare("PRAGMA table_info(release_package_projects)")
-            .map_err(|error| format!("inspect release package schema failed: {error}"))?;
-        let columns = query
-            .query_map([], |row| row.get::<_, String>(1))
-            .map_err(|error| format!("query release package schema failed: {error}"))?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|error| format!("read release package schema failed: {error}"))?;
-        let exists = columns.iter().any(|name| name == column);
-        if !exists {
-            conn.execute_batch(statement).map_err(|error| {
-                format!("migrate release package column {column} failed: {error}")
-            })?;
+        add_legacy_column_if_missing(&transaction, column, definition)?;
+    }
+    if !table_columns(&transaction, "release_package_projects")?
+        .iter()
+        .any(|name| name == "package_type")
+    {
+        transaction
+            .execute_batch(
+                "ALTER TABLE release_package_projects
+                 ADD COLUMN package_type TEXT NOT NULL DEFAULT 'local_archive'
+                 CHECK (package_type IN ('local_archive', 'server_upload'));
+                 UPDATE release_package_projects
+                 SET package_type = CASE
+                     WHEN upload_enabled = 1 THEN 'server_upload'
+                     ELSE 'local_archive'
+                 END;",
+            )
+            .map_err(|error| format!("migrate release package type failed: {error}"))?;
+    }
+
+    transaction
+        .execute_batch(
+            "ALTER TABLE release_package_projects
+             RENAME TO release_package_projects_legacy;",
+        )
+        .map_err(|error| format!("rename legacy release package projects failed: {error}"))?;
+    transaction
+        .execute_batch(RELEASE_PACKAGE_SCHEMA_SQL)
+        .map_err(|error| format!("create release package environment schema failed: {error}"))?;
+    transaction
+        .execute(
+            "INSERT INTO release_package_projects(
+                 id, name, frontend_project_path, backend_project_path, created_at, updated_at
+             )
+             SELECT id, name, frontend_project_path, backend_project_path, created_at, updated_at
+             FROM release_package_projects_legacy",
+            [],
+        )
+        .map_err(|error| format!("migrate release package projects failed: {error}"))?;
+    transaction
+        .execute(
+            "INSERT INTO release_package_environments(
+                 project_id, environment, output_root, package_type,
+                 frontend_build_command, frontend_success_keyword,
+                 frontend_post_upload_command, frontend_artifact_path, frontend_artifact_mode,
+                 backend_build_command, backend_success_keyword,
+                 backend_post_upload_command, backend_artifact_path,
+                 ssh_host, ssh_port, ssh_username, ssh_auth_type, vault_entry_id,
+                 ssh_private_key_path, frontend_remote_dir, backend_remote_path,
+                 created_at, updated_at
+             )
+             SELECT id, 'production', output_root, package_type,
+                    frontend_build_command, frontend_success_keyword,
+                    frontend_post_upload_command, frontend_artifact_path,
+                    frontend_artifact_mode, backend_build_command, backend_success_keyword,
+                    backend_post_upload_command, backend_artifact_path,
+                    ssh_host, ssh_port, ssh_username, ssh_auth_type, vault_entry_id,
+                    ssh_private_key_path, frontend_remote_dir, backend_remote_path,
+                    created_at, updated_at
+             FROM release_package_projects_legacy",
+            [],
+        )
+        .map_err(|error| {
+            format!("migrate production release package environments failed: {error}")
+        })?;
+    transaction
+        .execute(
+            "INSERT INTO release_package_environments(project_id, environment)
+             SELECT id, 'test' FROM release_package_projects",
+            [],
+        )
+        .map_err(|error| format!("create test release package environments failed: {error}"))?;
+
+    let invalid_environment_count: i64 = transaction
+        .query_row(
+            "SELECT COUNT(*) FROM release_package_projects project
+             WHERE (
+                 SELECT COUNT(*) FROM release_package_environments environment
+                 WHERE environment.project_id=project.id
+             ) <> 2",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|error| format!("verify release package environment count failed: {error}"))?;
+    if invalid_environment_count != 0 {
+        return Err(format!(
+            "release package environment migration invalid: {invalid_environment_count} projects do not have two environments"
+        ));
+    }
+    let foreign_key_violation_count: i64 = transaction
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_foreign_key_check('release_package_environments')",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|error| {
+            format!("verify release package environment foreign keys failed: {error}")
+        })?;
+    if foreign_key_violation_count != 0 {
+        return Err(format!(
+            "release package environment migration has {foreign_key_violation_count} foreign key violations"
+        ));
+    }
+
+    transaction
+        .execute_batch(
+            "CREATE TEMP TABLE release_package_environment_migration_map (
+                 project_id INTEGER PRIMARY KEY,
+                 production_environment_id INTEGER NOT NULL
+             );
+             INSERT INTO release_package_environment_migration_map(
+                 project_id, production_environment_id
+             )
+             SELECT project_id, id FROM release_package_environments
+             WHERE environment='production';",
+        )
+        .map_err(|error| {
+            format!("create release package environment migration map failed: {error}")
+        })?;
+
+    if table_exists(&transaction, "action_bindings")? {
+        transaction
+            .execute(
+                "UPDATE action_bindings
+                 SET target_id = (
+                     SELECT CAST(production_environment_id AS TEXT)
+                     FROM release_package_environment_migration_map migration
+                     WHERE migration.project_id=CAST(action_bindings.target_id AS INTEGER)
+                 )
+                 WHERE action_type='release_package.run'
+                   AND target_id<>''
+                   AND target_id NOT GLOB '*[^0-9]*'
+                   AND EXISTS (
+                       SELECT 1 FROM release_package_environment_migration_map migration
+                       WHERE migration.project_id=CAST(action_bindings.target_id AS INTEGER)
+                   )",
+                [],
+            )
+            .map_err(|error| format!("migrate release package action bindings failed: {error}"))?;
+        let invalid_binding_count: i64 = transaction
+            .query_row(
+                "SELECT COUNT(*) FROM action_bindings binding
+                 WHERE binding.action_type='release_package.run'
+                   AND (
+                       binding.target_id=''
+                       OR NOT EXISTS (
+                           SELECT 1 FROM release_package_environments environment
+                           WHERE CAST(environment.id AS TEXT)=binding.target_id
+                       )
+                   )",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(|error| format!("verify release package action bindings failed: {error}"))?;
+        if invalid_binding_count != 0 {
+            return Err(format!(
+                "release package action binding migration invalid: {invalid_binding_count} active bindings have no environment"
+            ));
         }
     }
-    let package_type_exists = conn
-        .prepare("PRAGMA table_info(release_package_projects)")
-        .and_then(|mut query| {
-            query
-                .query_map([], |row| row.get::<_, String>(1))?
-                .collect::<Result<Vec<_>, _>>()
-        })
-        .map_err(|error| format!("inspect release package type schema failed: {error}"))?
-        .iter()
-        .any(|name| name == "package_type");
-    if !package_type_exists {
-        conn.execute_batch(
-            "ALTER TABLE release_package_projects
-             ADD COLUMN package_type TEXT NOT NULL DEFAULT 'local_archive'
-             CHECK (package_type IN ('local_archive', 'server_upload'));
-             UPDATE release_package_projects
-             SET package_type = CASE
-                WHEN upload_enabled = 1 THEN 'server_upload'
-                ELSE 'local_archive'
-             END;",
-        )
-        .map_err(|error| format!("migrate release package type failed: {error}"))?;
+
+    if table_exists(&transaction, "action_dispatches")? {
+        transaction
+            .execute(
+                "UPDATE action_dispatches
+                 SET target_id = (
+                     SELECT CAST(production_environment_id AS TEXT)
+                     FROM release_package_environment_migration_map migration
+                     WHERE migration.project_id=CAST(action_dispatches.target_id AS INTEGER)
+                 )
+                 WHERE action_type='release_package.run'
+                   AND status IN ('pending_confirmation','running')
+                   AND target_id<>''
+                   AND target_id NOT GLOB '*[^0-9]*'
+                   AND EXISTS (
+                       SELECT 1 FROM release_package_environment_migration_map migration
+                       WHERE migration.project_id=CAST(action_dispatches.target_id AS INTEGER)
+                   )",
+                [],
+            )
+            .map_err(|error| {
+                format!("migrate release package action dispatches failed: {error}")
+            })?;
+        let invalid_dispatch_count: i64 = transaction
+            .query_row(
+                "SELECT COUNT(*) FROM action_dispatches dispatch
+                 WHERE dispatch.action_type='release_package.run'
+                   AND dispatch.status IN ('pending_confirmation','running')
+                   AND (
+                       dispatch.target_id=''
+                       OR NOT EXISTS (
+                           SELECT 1 FROM release_package_environments environment
+                           WHERE CAST(environment.id AS TEXT)=dispatch.target_id
+                       )
+                   )",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(|error| format!("verify release package action dispatches failed: {error}"))?;
+        if invalid_dispatch_count != 0 {
+            return Err(format!(
+                "release package action dispatch migration invalid: {invalid_dispatch_count} active dispatches have no environment"
+            ));
+        }
     }
-    Ok(())
+
+    transaction
+        .execute_batch(
+            "DROP TABLE release_package_environment_migration_map;
+             DROP TABLE release_package_projects_legacy;",
+        )
+        .map_err(|error| format!("finish release package schema migration failed: {error}"))?;
+    transaction
+        .commit()
+        .map_err(|error| format!("commit release package schema migration failed: {error}"))
+}
+
+pub fn ensure_schema(conn: &Connection) -> Result<(), String> {
+    let legacy_schema = table_columns(conn, "release_package_projects")?
+        .iter()
+        .any(|column| column == "frontend_build_command");
+    if legacy_schema {
+        return migrate_legacy_schema(conn);
+    }
+    conn.execute_batch(RELEASE_PACKAGE_SCHEMA_SQL)
+        .map_err(|error| format!("create release package schema failed: {error}"))
 }
 
 const ACTIONS: &[&str] = &[
@@ -133,6 +369,30 @@ const ACTIONS: &[&str] = &[
     "upload_retry",
     "cancel",
 ];
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReleasePackageEnvironmentKind {
+    Test,
+    Production,
+}
+
+impl ReleasePackageEnvironmentKind {
+    pub fn parse(value: &str) -> Result<Self, String> {
+        match value {
+            "test" => Ok(Self::Test),
+            "production" => Ok(Self::Production),
+            _ => Err("上线包环境无效".into()),
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Test => "test",
+            Self::Production => "production",
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -1319,6 +1579,94 @@ mod tests {
         conn
     }
 
+    fn seed_legacy_release_package_schema(conn: &Connection) {
+        conn.execute_batch(
+            "PRAGMA foreign_keys = ON;
+             CREATE TABLE release_package_projects (
+                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 name TEXT NOT NULL,
+                 output_root TEXT NOT NULL,
+                 package_type TEXT NOT NULL DEFAULT 'local_archive',
+                 frontend_project_path TEXT NOT NULL,
+                 frontend_build_command TEXT NOT NULL,
+                 frontend_success_keyword TEXT NOT NULL DEFAULT '',
+                 frontend_post_upload_command TEXT NOT NULL DEFAULT '',
+                 frontend_artifact_path TEXT NOT NULL,
+                 frontend_artifact_mode TEXT NOT NULL,
+                 backend_project_path TEXT NOT NULL,
+                 backend_build_command TEXT NOT NULL,
+                 backend_success_keyword TEXT NOT NULL DEFAULT '',
+                 backend_post_upload_command TEXT NOT NULL DEFAULT '',
+                 backend_artifact_path TEXT NOT NULL,
+                 upload_enabled INTEGER NOT NULL DEFAULT 0,
+                 ssh_host TEXT NOT NULL DEFAULT '',
+                 ssh_port INTEGER NOT NULL DEFAULT 22,
+                 ssh_username TEXT NOT NULL DEFAULT '',
+                 ssh_auth_type TEXT NOT NULL DEFAULT 'password',
+                 vault_entry_id INTEGER NULL,
+                 ssh_private_key_path TEXT NOT NULL DEFAULT '',
+                 frontend_remote_dir TEXT NOT NULL DEFAULT '',
+                 backend_remote_path TEXT NOT NULL DEFAULT '',
+                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+             );
+             CREATE TABLE release_package_known_hosts (
+                 host TEXT NOT NULL,
+                 port INTEGER NOT NULL,
+                 key_type TEXT NOT NULL,
+                 fingerprint_sha256 TEXT NOT NULL,
+                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                 PRIMARY KEY(host, port)
+             );
+             INSERT INTO release_package_known_hosts(
+                 host, port, key_type, fingerprint_sha256, created_at, updated_at
+             ) VALUES (
+                 'deploy.example.internal', 2222, 'ssh-ed25519', 'SHA256:legacy',
+                 '2026-07-01 08:00:00', '2026-07-02 09:00:00'
+             );
+             CREATE TABLE action_bindings (
+                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 action_type TEXT NOT NULL,
+                 target_id TEXT NOT NULL,
+                 enabled INTEGER NOT NULL DEFAULT 1
+             );
+             CREATE TABLE action_dispatches (
+                 id TEXT PRIMARY KEY,
+                 action_type TEXT NOT NULL,
+                 target_id TEXT NOT NULL,
+                 status TEXT NOT NULL
+             );",
+        )
+        .unwrap();
+    }
+
+    fn seed_legacy_release_project(conn: &Connection, id: i64) {
+        conn.execute(
+            "INSERT INTO release_package_projects(
+                 id, name, output_root, package_type,
+                 frontend_project_path, frontend_build_command, frontend_success_keyword,
+                 frontend_post_upload_command, frontend_artifact_path, frontend_artifact_mode,
+                 backend_project_path, backend_build_command, backend_success_keyword,
+                 backend_post_upload_command, backend_artifact_path, upload_enabled,
+                 ssh_host, ssh_port, ssh_username, ssh_auth_type, vault_entry_id,
+                 ssh_private_key_path, frontend_remote_dir, backend_remote_path,
+                 created_at, updated_at
+             ) VALUES (
+                 ?1, '客户门户', 'D:\\releases', 'server_upload',
+                 'D:\\work\\web', 'pnpm build', 'Build completed',
+                 'cd /srv/web && ./reload.sh', 'dist', 'zip_directory',
+                 'D:\\work\\server', 'mvn package -Pprod', 'BUILD SUCCESS',
+                 'systemctl restart portal', 'target/portal.jar', 0,
+                 'deploy.example.internal', 2222, 'deploy', 'password', 17,
+                 'C:\\keys\\legacy', '/srv/portal/web', '/srv/portal/app.jar',
+                 '2026-07-03 10:00:00', '2026-07-04 11:00:00'
+             )",
+            [id],
+        )
+        .unwrap();
+    }
+
     fn payload() -> Value {
         json!({
             "name": "客户门户",
@@ -1346,39 +1694,327 @@ mod tests {
     }
 
     #[test]
-    fn schema_migrates_vault_entry_id_and_project_round_trips_it() {
+    fn schema_migrates_each_legacy_project_to_production_and_blank_test() {
         let conn = Connection::open_in_memory().unwrap();
+        seed_legacy_release_package_schema(&conn);
+        seed_legacy_release_project(&conn, 42);
         conn.execute_batch(
-            "CREATE TABLE release_package_projects (
-                id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL,
-                output_root TEXT NOT NULL, frontend_project_path TEXT NOT NULL,
-                frontend_build_command TEXT NOT NULL, frontend_artifact_path TEXT NOT NULL,
-                frontend_artifact_mode TEXT NOT NULL, backend_project_path TEXT NOT NULL,
-                backend_build_command TEXT NOT NULL, backend_artifact_path TEXT NOT NULL,
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-            );",
+            "INSERT INTO action_bindings(action_type, target_id) VALUES
+                 ('release_package.run', '42'),
+                 ('hosts.activate', '42');
+             INSERT INTO action_dispatches(id, action_type, target_id, status) VALUES
+                 ('pending', 'release_package.run', '42', 'pending_confirmation'),
+                 ('running', 'release_package.run', '42', 'running'),
+                 ('succeeded', 'release_package.run', '42', 'succeeded'),
+                 ('failed', 'release_package.run', '42', 'failed'),
+                 ('other', 'hosts.activate', '42', 'running');",
         )
         .unwrap();
 
         ensure_schema(&conn).unwrap();
 
-        let columns = conn
+        let project_columns = conn
             .prepare("PRAGMA table_info(release_package_projects)")
             .unwrap()
             .query_map([], |row| row.get::<_, String>(1))
             .unwrap()
             .collect::<Result<Vec<_>, _>>()
             .unwrap();
-        assert!(columns.contains(&"vault_entry_id".to_string()));
-        for column in [
-            "frontend_success_keyword",
-            "backend_success_keyword",
-            "frontend_post_upload_command",
-            "backend_post_upload_command",
-        ] {
-            assert!(columns.contains(&column.to_string()));
+        assert_eq!(
+            project_columns,
+            [
+                "id",
+                "name",
+                "frontend_project_path",
+                "backend_project_path",
+                "created_at",
+                "updated_at",
+            ]
+        );
+        let project: (String, String, String, String, String) = conn
+            .query_row(
+                "SELECT name, frontend_project_path, backend_project_path, created_at, updated_at
+                 FROM release_package_projects WHERE id=42",
+                [],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                    ))
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            project,
+            (
+                "客户门户".into(),
+                r"D:\work\web".into(),
+                r"D:\work\server".into(),
+                "2026-07-03 10:00:00".into(),
+                "2026-07-04 11:00:00".into(),
+            )
+        );
+
+        assert_eq!(
+            conn.query_row(
+                "SELECT COUNT(*) FROM release_package_environments WHERE project_id=42",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+            2
+        );
+        let production_id: i64 = conn
+            .query_row(
+                "SELECT id FROM release_package_environments
+                 WHERE project_id=42 AND environment='production'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(production_id > 0);
+        conn.query_row(
+            "SELECT output_root, package_type,
+                    frontend_build_command, frontend_success_keyword,
+                    frontend_post_upload_command, frontend_artifact_path,
+                    frontend_artifact_mode, backend_build_command, backend_success_keyword,
+                    backend_post_upload_command, backend_artifact_path,
+                    ssh_host, ssh_port, ssh_username, ssh_auth_type, vault_entry_id,
+                    ssh_private_key_path, frontend_remote_dir, backend_remote_path,
+                    created_at, updated_at
+             FROM release_package_environments WHERE id=?1",
+            [production_id],
+            |row| {
+                assert_eq!(row.get::<_, String>(0)?, r"D:\releases");
+                assert_eq!(row.get::<_, String>(1)?, "server_upload");
+                assert_eq!(row.get::<_, String>(2)?, "pnpm build");
+                assert_eq!(row.get::<_, String>(3)?, "Build completed");
+                assert_eq!(row.get::<_, String>(4)?, "cd /srv/web && ./reload.sh");
+                assert_eq!(row.get::<_, String>(5)?, "dist");
+                assert_eq!(row.get::<_, String>(6)?, "zip_directory");
+                assert_eq!(row.get::<_, String>(7)?, "mvn package -Pprod");
+                assert_eq!(row.get::<_, String>(8)?, "BUILD SUCCESS");
+                assert_eq!(row.get::<_, String>(9)?, "systemctl restart portal");
+                assert_eq!(row.get::<_, String>(10)?, "target/portal.jar");
+                assert_eq!(row.get::<_, String>(11)?, "deploy.example.internal");
+                assert_eq!(row.get::<_, i64>(12)?, 2222);
+                assert_eq!(row.get::<_, String>(13)?, "deploy");
+                assert_eq!(row.get::<_, String>(14)?, "password");
+                assert_eq!(row.get::<_, Option<i64>>(15)?, Some(17));
+                assert_eq!(row.get::<_, String>(16)?, r"C:\keys\legacy");
+                assert_eq!(row.get::<_, String>(17)?, "/srv/portal/web");
+                assert_eq!(row.get::<_, String>(18)?, "/srv/portal/app.jar");
+                assert_eq!(row.get::<_, String>(19)?, "2026-07-03 10:00:00");
+                assert_eq!(row.get::<_, String>(20)?, "2026-07-04 11:00:00");
+                Ok(())
+            },
+        )
+        .unwrap();
+
+        let test_id: i64 = conn
+            .query_row(
+                "SELECT id FROM release_package_environments
+                 WHERE project_id=42 AND environment='test'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(test_id > 0);
+        let blank_test_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM release_package_environments
+                 WHERE id=?1 AND output_root='' AND package_type='local_archive'
+                   AND frontend_build_command='' AND frontend_success_keyword=''
+                   AND frontend_post_upload_command='' AND frontend_artifact_path=''
+                   AND frontend_artifact_mode='copy_directory'
+                   AND backend_build_command='' AND backend_success_keyword=''
+                   AND backend_post_upload_command='' AND backend_artifact_path=''
+                   AND ssh_host='' AND ssh_port=22 AND ssh_username=''
+                   AND ssh_auth_type='password' AND vault_entry_id IS NULL
+                   AND ssh_private_key_path='' AND frontend_remote_dir=''
+                   AND backend_remote_path=''",
+                [test_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(blank_test_count, 1);
+
+        let foreign_key_target: String = conn
+            .query_row(
+                "PRAGMA foreign_key_list(release_package_environments)",
+                [],
+                |row| row.get(2),
+            )
+            .unwrap();
+        assert_eq!(foreign_key_target, "release_package_projects");
+        assert_eq!(
+            conn.query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .unwrap(),
+            0
+        );
+
+        let mapped_target = production_id.to_string();
+        assert_eq!(
+            conn.query_row(
+                "SELECT target_id FROM action_bindings WHERE action_type='release_package.run'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap(),
+            mapped_target
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT target_id FROM action_bindings WHERE action_type='hosts.activate'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap(),
+            "42"
+        );
+        for dispatch_id in ["pending", "running"] {
+            assert_eq!(
+                conn.query_row(
+                    "SELECT target_id FROM action_dispatches WHERE id=?1",
+                    [dispatch_id],
+                    |row| row.get::<_, String>(0),
+                )
+                .unwrap(),
+                production_id.to_string()
+            );
         }
+        for dispatch_id in ["succeeded", "failed"] {
+            assert_eq!(
+                conn.query_row(
+                    "SELECT target_id FROM action_dispatches WHERE id=?1",
+                    [dispatch_id],
+                    |row| row.get::<_, String>(0),
+                )
+                .unwrap(),
+                "42"
+            );
+        }
+        assert_eq!(
+            conn.query_row(
+                "SELECT
+                    (SELECT COUNT(*) FROM action_bindings b
+                     JOIN release_package_environments e ON CAST(e.id AS TEXT)=b.target_id
+                     WHERE b.action_type='release_package.run')
+                    +
+                    (SELECT COUNT(*) FROM action_dispatches d
+                     JOIN release_package_environments e ON CAST(e.id AS TEXT)=d.target_id
+                     WHERE d.action_type='release_package.run'
+                       AND d.status IN ('pending_confirmation','running'))",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+            3
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT COUNT(*) FROM release_package_known_hosts
+                 WHERE host='deploy.example.internal' AND port=2222
+                   AND fingerprint_sha256='SHA256:legacy'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+            1
+        );
+
+        ensure_schema(&conn).unwrap();
+        assert_eq!(
+            conn.query_row(
+                "SELECT COUNT(*) FROM release_package_environments WHERE project_id=42",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+            2
+        );
+        assert!(conn
+            .execute(
+                "INSERT INTO release_package_environments(project_id, environment)
+                 VALUES (42, 'production')",
+                [],
+            )
+            .is_err());
+
+        conn.execute("DELETE FROM release_package_projects WHERE id=42", [])
+            .unwrap();
+        assert_eq!(
+            conn.query_row(
+                "SELECT COUNT(*) FROM release_package_environments WHERE project_id=42",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+            0
+        );
+    }
+
+    #[test]
+    fn schema_environment_kind_accepts_only_fixed_values() {
+        assert_eq!(
+            ReleasePackageEnvironmentKind::parse("test").unwrap(),
+            ReleasePackageEnvironmentKind::Test
+        );
+        assert_eq!(
+            ReleasePackageEnvironmentKind::parse("production").unwrap(),
+            ReleasePackageEnvironmentKind::Production
+        );
+        assert_eq!(
+            ReleasePackageEnvironmentKind::parse("staging")
+                .err()
+                .unwrap(),
+            "上线包环境无效"
+        );
+        assert_eq!(ReleasePackageEnvironmentKind::Test.as_str(), "test");
+        assert_eq!(
+            ReleasePackageEnvironmentKind::Production.as_str(),
+            "production"
+        );
+        assert_eq!(
+            serde_json::to_value(ReleasePackageEnvironmentKind::Production).unwrap(),
+            json!("production")
+        );
+    }
+
+    #[test]
+    fn schema_rolls_back_the_entire_migration_when_an_active_target_is_invalid() {
+        let conn = Connection::open_in_memory().unwrap();
+        seed_legacy_release_package_schema(&conn);
+        seed_legacy_release_project(&conn, 42);
+        conn.execute(
+            "INSERT INTO action_bindings(action_type, target_id)
+             VALUES ('release_package.run', '999')",
+            [],
+        )
+        .unwrap();
+
+        let error = ensure_schema(&conn).err().unwrap();
+        assert!(error.contains("active bindings have no environment"));
+        let project_columns = table_columns(&conn, "release_package_projects").unwrap();
+        assert!(project_columns
+            .iter()
+            .any(|column| column == "frontend_build_command"));
+        assert!(!table_exists(&conn, "release_package_environments").unwrap());
+        assert!(!table_exists(&conn, "release_package_projects_legacy").unwrap());
+        assert_eq!(
+            conn.query_row(
+                "SELECT target_id FROM action_bindings WHERE action_type='release_package.run'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap(),
+            "999"
+        );
     }
 
     #[test]
@@ -1571,17 +2207,63 @@ mod tests {
 
         ensure_schema(&conn).unwrap();
         ensure_schema(&conn).unwrap();
-        let projects = project_list_with_conn(&conn).unwrap();
-        let project = &projects["projects"][0];
-        assert_eq!(project["packageType"], "local_archive");
-        assert_eq!(project["sshPort"], 22);
-        assert_eq!(project["sshAuthType"], "password");
-        assert_eq!(project["frontendSuccessKeyword"], "");
-        assert_eq!(project["backendSuccessKeyword"], "");
-        assert_eq!(project["frontendPostUploadCommand"], "");
-        assert_eq!(project["backendPostUploadCommand"], "");
-        assert!(project.get("password").is_none());
-        assert!(project.get("privateKeyPassphrase").is_none());
+        let migrated: (
+            String,
+            i64,
+            String,
+            Option<i64>,
+            String,
+            String,
+            String,
+            String,
+        ) = conn
+            .query_row(
+                "SELECT package_type, ssh_port, ssh_auth_type, vault_entry_id,
+                        frontend_success_keyword, backend_success_keyword,
+                        frontend_post_upload_command, backend_post_upload_command
+                 FROM release_package_environments
+                 WHERE project_id=1 AND environment='production'",
+                [],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                        row.get(6)?,
+                        row.get(7)?,
+                    ))
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            migrated,
+            (
+                "local_archive".into(),
+                22,
+                "password".into(),
+                None,
+                String::new(),
+                String::new(),
+                String::new(),
+                String::new(),
+            )
+        );
+        let environment_columns: Vec<String> = conn
+            .prepare("PRAGMA table_info(release_package_environments)")
+            .unwrap()
+            .query_map([], |row| row.get(1))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert!(!environment_columns
+            .iter()
+            .any(|column| column == "password"));
+        assert!(!environment_columns
+            .iter()
+            .any(|column| column == "private_key_passphrase"));
     }
 
     #[test]
@@ -1623,20 +2305,42 @@ mod tests {
         .unwrap();
 
         ensure_schema(&conn).unwrap();
-        let local = load_project(&conn, 1).unwrap();
-        let upload = load_project(&conn, 2).unwrap();
-        assert_eq!(local.package_type, ReleasePackageType::LocalArchive);
-        assert_eq!(upload.package_type, ReleasePackageType::ServerUpload);
+        let local: String = conn
+            .query_row(
+                "SELECT package_type FROM release_package_environments
+                 WHERE project_id=1 AND environment='production'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let upload: String = conn
+            .query_row(
+                "SELECT package_type FROM release_package_environments
+                 WHERE project_id=2 AND environment='production'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(local, "local_archive");
+        assert_eq!(upload, "server_upload");
 
         conn.execute(
-            "UPDATE release_package_projects SET package_type='local_archive' WHERE id=2",
+            "UPDATE release_package_environments
+             SET package_type='local_archive'
+             WHERE project_id=2 AND environment='production'",
             [],
         )
         .unwrap();
         ensure_schema(&conn).unwrap();
         assert_eq!(
-            load_project(&conn, 2).unwrap().package_type,
-            ReleasePackageType::LocalArchive
+            conn.query_row(
+                "SELECT package_type FROM release_package_environments
+                 WHERE project_id=2 AND environment='production'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap(),
+            "local_archive"
         );
     }
 
