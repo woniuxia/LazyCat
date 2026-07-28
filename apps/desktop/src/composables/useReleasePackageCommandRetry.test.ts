@@ -41,16 +41,16 @@ describe("useReleasePackageCommandRetry", () => {
       .mockResolvedValueOnce({ runId: "run-2" });
     const retry = useReleasePackageCommandRetry();
 
-    await retry.prepare(7, "command-retry-1");
+    await retry.prepare(41, "command-retry-1");
     expect(invokeMock).toHaveBeenNthCalledWith(
       1,
       "tool:release-package:command-retry-prepare",
-      { projectId: 7, retryToken: "command-retry-1" },
+      { environmentId: 41, retryToken: "command-retry-1" },
     );
 
     await retry.trustHost(true);
     expect(invokeMock).toHaveBeenNthCalledWith(2, "tool:release-package:host-trust", {
-      projectId: 7,
+      environmentId: 41,
       probeToken: "probe-1",
       replaceExisting: true,
     });
@@ -61,7 +61,7 @@ describe("useReleasePackageCommandRetry", () => {
       3,
       "tool:release-package:command-retry-preflight",
       {
-        projectId: 7,
+        environmentId: 41,
         retryToken: "command-retry-1",
         probeToken: "probe-2",
         privateKeyPassphrase: "key-passphrase",
@@ -75,7 +75,7 @@ describe("useReleasePackageCommandRetry", () => {
       4,
       "tool:release-package:command-retry-start",
       {
-        projectId: 7,
+        environmentId: 41,
         retryToken: "command-retry-1",
         authToken: "auth-1",
       },
@@ -89,7 +89,7 @@ describe("useReleasePackageCommandRetry", () => {
       .mockResolvedValueOnce(prepareResult)
       .mockRejectedValueOnce(new Error("认证失败"));
     const retry = useReleasePackageCommandRetry();
-    await retry.prepare(7, "command-retry-1");
+    await retry.prepare(41, "command-retry-1");
     retry.privateKeyPassphrase.value = "wrong-passphrase";
 
     await expect(retry.preflight()).rejects.toThrow("认证失败");
@@ -117,7 +117,7 @@ describe("useReleasePackageCommandRetry", () => {
       })
       .mockRejectedValueOnce(new Error("启动失败"));
     const retry = useReleasePackageCommandRetry();
-    await retry.prepare(7, "command-retry-1");
+    await retry.prepare(41, "command-retry-1");
     retry.privateKeyPassphrase.value = "key-passphrase";
     await retry.preflight();
     retry.privateKeyPassphrase.value = "must-not-survive-start";
@@ -146,7 +146,7 @@ describe("useReleasePackageCommandRetry", () => {
         .mockResolvedValueOnce(prepareResult)
         .mockRejectedValueOnce(new Error("撤销失败"));
       const retry = useReleasePackageCommandRetry();
-      await retry.prepare(7, "command-retry-1");
+      await retry.prepare(41, "command-retry-1");
       retry.authToken.value = "auth-1";
       retry.privateKeyPassphrase.value = "key-passphrase";
 
@@ -159,7 +159,7 @@ describe("useReleasePackageCommandRetry", () => {
       expect(retry.prepareResult.value).toBeNull();
       expect(retry.authToken.value).toBe("");
       expect(retry.privateKeyPassphrase.value).toBe("");
-      expect(retry.projectId.value).toBeNull();
+      expect(retry.environmentId.value).toBeNull();
       expect(retry.retryToken.value).toBe("");
     },
   );

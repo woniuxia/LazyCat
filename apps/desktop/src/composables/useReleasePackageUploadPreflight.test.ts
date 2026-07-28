@@ -35,23 +35,23 @@ describe("useReleasePackageUploadPreflight", () => {
       .mockResolvedValueOnce({ ok: true });
     const preflight = useReleasePackageUploadPreflight();
 
-    await preflight.probe(7);
+    await preflight.probe(41);
     expect(invokeMock).toHaveBeenNthCalledWith(1, "tool:release-package:remote-probe", {
-      projectId: 7,
+      environmentId: 41,
     });
-    await preflight.trustHost(7, true);
+    await preflight.trustHost(41, true);
     expect(invokeMock).toHaveBeenNthCalledWith(2, "tool:release-package:host-trust", {
-      projectId: 7,
+      environmentId: 41,
       probeToken: "probe-1",
       replaceExisting: true,
     });
     await preflight.check({
-      projectId: 7,
+      environmentId: 41,
       targets: ["frontend"],
       privateKeyPassphrase: "key-passphrase",
     });
     expect(invokeMock).toHaveBeenNthCalledWith(3, "tool:release-package:remote-preflight", {
-      projectId: 7,
+      environmentId: 41,
       targets: ["frontend"],
       probeToken: "probe-2",
       privateKeyPassphrase: "key-passphrase",
@@ -92,17 +92,17 @@ describe("useReleasePackageUploadPreflight", () => {
       .mockResolvedValueOnce({ ok: true })
       .mockRejectedValueOnce(new Error("认证失败"));
     const preflight = useReleasePackageUploadPreflight();
-    await preflight.probe(7);
-    await preflight.check({ projectId: 7, targets: ["frontend"], privateKeyPassphrase: "secret" });
+    await preflight.probe(41);
+    await preflight.check({ environmentId: 41, targets: ["frontend"], privateKeyPassphrase: "secret" });
 
     await expect(
-      preflight.check({ projectId: 7, targets: ["frontend"], privateKeyPassphrase: "wrong" }),
+      preflight.check({ environmentId: 41, targets: ["frontend"], privateKeyPassphrase: "wrong" }),
     ).rejects.toThrow("认证失败");
     expect(invokeMock).toHaveBeenNthCalledWith(3, "tool:release-package:remote-discard", {
       preflightToken: "preflight-1",
     });
     expect(invokeMock).toHaveBeenNthCalledWith(4, "tool:release-package:remote-preflight", {
-      projectId: 7,
+      environmentId: 41,
       targets: ["frontend"],
       probeToken: "probe-1",
       privateKeyPassphrase: "wrong",
@@ -121,7 +121,7 @@ describe("useReleasePackageUploadPreflight", () => {
       .mockResolvedValueOnce({ ok: true });
     const preflight = useReleasePackageUploadPreflight();
 
-    const pendingProbe = preflight.probe(7);
+    const pendingProbe = preflight.probe(41);
     await vi.waitFor(() => expect(invokeMock).toHaveBeenCalledTimes(1));
     await preflight.reset();
     resolveProbe({
@@ -156,9 +156,9 @@ describe("useReleasePackageUploadPreflight", () => {
       }))
       .mockResolvedValueOnce({ ok: true });
     const preflight = useReleasePackageUploadPreflight();
-    await preflight.probe(7);
+    await preflight.probe(41);
 
-    const pendingProbe = preflight.probe(8);
+    const pendingProbe = preflight.probe(42);
     await vi.waitFor(() => expect(invokeMock).toHaveBeenCalledTimes(2));
     const pendingReset = preflight.reset();
     resolveDiscard({ ok: true });
@@ -190,11 +190,11 @@ describe("useReleasePackageUploadPreflight", () => {
       }))
       .mockResolvedValueOnce({ ok: true });
     const preflight = useReleasePackageUploadPreflight();
-    await preflight.probe(7);
-    await preflight.check({ projectId: 7, targets: ["frontend"], privateKeyPassphrase: "secret" });
+    await preflight.probe(41);
+    await preflight.check({ environmentId: 41, targets: ["frontend"], privateKeyPassphrase: "secret" });
 
     const pendingCheck = preflight.check({
-      projectId: 7,
+      environmentId: 41,
       targets: ["frontend"],
       privateKeyPassphrase: "secret",
     });
@@ -232,10 +232,10 @@ describe("useReleasePackageUploadPreflight", () => {
         trust: "trusted",
       });
     const preflight = useReleasePackageUploadPreflight();
-    await preflight.probe(7);
+    await preflight.probe(41);
 
     const pendingReset = preflight.reset();
-    await preflight.probe(8);
+    await preflight.probe(42);
     resolveDiscard({ ok: true });
     await pendingReset;
 
@@ -259,9 +259,9 @@ describe("useReleasePackageUploadPreflight", () => {
       })
       .mockRejectedValueOnce(new Error("撤销失败"));
     const preflight = useReleasePackageUploadPreflight();
-    await preflight.probe(7);
+    await preflight.probe(41);
     await preflight.check({
-      projectId: 7,
+      environmentId: 41,
       targets: ["frontend"],
       privateKeyPassphrase: "key-passphrase",
     });

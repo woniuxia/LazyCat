@@ -3,6 +3,7 @@ import { computed, reactive, toRefs } from "vue";
 import { APP_EVENTS } from "../bridge/events";
 import { invokeToolByChannel } from "../bridge/tauri";
 import type {
+  ReleasePackageEnvironmentKind,
   ReleasePackageLogEvent,
   ReleasePackagePhase,
   ReleasePackageRunStatus,
@@ -16,16 +17,18 @@ import { acceptReleasePackageEvent, appendReleasePackageLog } from "../utils/rel
 
 export interface ReleasePackageRuntimeState {
   activeRunId: string | null;
-  activeProjectId: number | null;
-  pendingProjectId: number | null;
+  activeEnvironmentId: number | null;
+  pendingEnvironmentId: number | null;
   status: ReleasePackageRunStatus;
   phase: ReleasePackagePhase | null;
   archivePath: string;
   error: string;
 }
 
-export interface ReleasePackageProjectRuntime {
+export interface ReleasePackageEnvironmentRuntime {
   runId: string | null;
+  readonly projectId: number | null;
+  readonly environment: ReleasePackageEnvironmentKind | null;
   status: ReleasePackageRunStatus;
   archivePath: string;
   error: string;
@@ -41,11 +44,15 @@ export interface ReleasePackageProjectRuntime {
   retryToken: string;
 }
 
+type MutableReleasePackageEnvironmentRuntime = {
+  -readonly [Key in keyof ReleasePackageEnvironmentRuntime]: ReleasePackageEnvironmentRuntime[Key];
+};
+
 export function createReleasePackageRuntimeState(): ReleasePackageRuntimeState {
   return {
     activeRunId: null,
-    activeProjectId: null,
-    pendingProjectId: null,
+    activeEnvironmentId: null,
+    pendingEnvironmentId: null,
     status: "idle",
     phase: null,
     archivePath: "",
@@ -57,11 +64,13 @@ export function reduceReleasePackageStatus(
   state: ReleasePackageRuntimeState,
   event: ReleasePackageStatusEvent,
 ): void {
-  if (!state.activeRunId && state.pendingProjectId === event.projectId) {
+  if (!state.activeRunId && state.pendingEnvironmentId === event.environmentId) {
     state.activeRunId = event.runId;
+    state.activeEnvironmentId = event.environmentId;
   }
+  if (state.activeEnvironmentId !== event.environmentId) return;
   if (!acceptReleasePackageEvent(state.activeRunId, event)) return;
-  state.activeProjectId = event.projectId;
+  state.activeEnvironmentId = event.environmentId;
   state.phase = event.phase;
   if (event.phase === "upload") {
     state.status = event.status;
@@ -71,25 +80,27 @@ export function reduceReleasePackageStatus(
   state.status = event.status;
   state.archivePath = event.archivePath ?? "";
   state.error = event.error ?? "";
-  if (event.status !== "running") state.pendingProjectId = null;
+  if (event.status !== "running") state.pendingEnvironmentId = null;
 }
 
 const state = reactive(createReleasePackageRuntimeState());
-const projectRuntimes = reactive(new Map<number, ReleasePackageProjectRuntime>());
+const environmentRuntimes = reactive(new Map<number, MutableReleasePackageEnvironmentRuntime>());
 const logs = computed(() => {
-  if (state.activeProjectId === null) return [];
-  const runtime = projectRuntimes.get(state.activeProjectId);
+  if (state.activeEnvironmentId === null) return [];
+  const runtime = environmentRuntimes.get(state.activeEnvironmentId);
   return runtime
     ? [...runtime.frontendLogs, ...runtime.backendLogs, ...runtime.uploadLogs]
     : [];
 });
 let listenerPromise: Promise<UnlistenFn[]> | null = null;
 
-function createProjectRuntime(
+function createEnvironmentRuntime(
   targets: readonly ReleasePackageTarget[] = [],
-): ReleasePackageProjectRuntime {
+): MutableReleasePackageEnvironmentRuntime {
   return {
     runId: null,
+    projectId: null,
+    environment: null,
     status: "idle",
     archivePath: "",
     error: "",
@@ -116,18 +127,24 @@ function createProjectRuntime(
   };
 }
 
-function getProjectRuntime(projectId: number): ReleasePackageProjectRuntime {
-  let runtime = projectRuntimes.get(projectId);
+function getMutableEnvironmentRuntime(environmentId: number): MutableReleasePackageEnvironmentRuntime {
+  let runtime = environmentRuntimes.get(environmentId);
   if (!runtime) {
-    projectRuntimes.set(projectId, createProjectRuntime());
-    runtime = projectRuntimes.get(projectId)!;
+    environmentRuntimes.set(environmentId, createEnvironmentRuntime());
+    runtime = environmentRuntimes.get(environmentId)!;
   }
   return runtime;
 }
 
-function applyProjectStatus(event: ReleasePackageStatusEvent): void {
-  const runtime = getProjectRuntime(event.projectId);
+function getEnvironmentRuntime(environmentId: number): ReleasePackageEnvironmentRuntime {
+  return getMutableEnvironmentRuntime(environmentId);
+}
+
+function applyEnvironmentStatus(event: ReleasePackageStatusEvent): void {
+  const runtime = getMutableEnvironmentRuntime(event.environmentId);
   runtime.runId = event.runId;
+  runtime.projectId = event.projectId;
+  runtime.environment = event.environment;
   if (event.phase === "frontend" || event.phase === "backend") {
     if (
       event.status !== "partially_succeeded"
@@ -162,13 +179,13 @@ function applyProjectStatus(event: ReleasePackageStatusEvent): void {
   runtime.commandRetryToken = event.commandRetryToken ?? "";
 }
 
-function acceptPendingEvent(runId: string, projectId: number): boolean {
-  if (!state.activeRunId && state.pendingProjectId === projectId) {
+function acceptPendingEvent(runId: string, environmentId: number): boolean {
+  if (!state.activeRunId && state.pendingEnvironmentId === environmentId) {
     state.activeRunId = runId;
-    getProjectRuntime(projectId).runId = runId;
+    getMutableEnvironmentRuntime(environmentId).runId = runId;
   }
-  return state.activeProjectId !== null
-    && state.activeProjectId === projectId
+  return state.activeEnvironmentId !== null
+    && state.activeEnvironmentId === environmentId
     && acceptReleasePackageEvent(state.activeRunId, { runId });
 }
 
@@ -176,10 +193,12 @@ function ensureListeners(): Promise<void> {
   if (!listenerPromise) {
     listenerPromise = Promise.all([
       listen<ReleasePackageLogEvent>(APP_EVENTS.RELEASE_PACKAGE_LOG, ({ payload }) => {
-        if (!acceptPendingEvent(payload.runId, payload.projectId)) return;
-        state.activeProjectId = payload.projectId;
+        if (!acceptPendingEvent(payload.runId, payload.environmentId)) return;
+        state.activeEnvironmentId = payload.environmentId;
         if (payload.phase === "overall") return;
-        const runtime = getProjectRuntime(payload.projectId);
+        const runtime = getMutableEnvironmentRuntime(payload.environmentId);
+        runtime.projectId = payload.projectId;
+        runtime.environment = payload.environment;
         const key = payload.phase === "frontend"
           ? "frontendLogs"
           : payload.phase === "backend"
@@ -188,8 +207,8 @@ function ensureListeners(): Promise<void> {
         runtime[key] = appendReleasePackageLog(runtime[key], payload, 1_000);
       }),
       listen<ReleasePackageStatusEvent>(APP_EVENTS.RELEASE_PACKAGE_STATUS, ({ payload }) => {
-        if (!acceptPendingEvent(payload.runId, payload.projectId)) return;
-        applyProjectStatus(payload);
+        if (!acceptPendingEvent(payload.runId, payload.environmentId)) return;
+        applyEnvironmentStatus(payload);
         reduceReleasePackageStatus(state, payload);
       }),
     ]);
@@ -197,33 +216,33 @@ function ensureListeners(): Promise<void> {
   return listenerPromise.then(() => undefined);
 }
 
-function beginStart(projectId: number, targets: readonly ReleasePackageTarget[] = ["frontend", "backend"]): void {
+function beginStart(environmentId: number, targets: readonly ReleasePackageTarget[] = ["frontend", "backend"]): void {
   Object.assign(state, createReleasePackageRuntimeState(), {
-    activeProjectId: projectId,
-    pendingProjectId: projectId,
+    activeEnvironmentId: environmentId,
+    pendingEnvironmentId: environmentId,
     status: "running",
   });
-  projectRuntimes.set(projectId, createProjectRuntime(targets));
-  getProjectRuntime(projectId).status = "running";
+  environmentRuntimes.set(environmentId, createEnvironmentRuntime(targets));
+  getMutableEnvironmentRuntime(environmentId).status = "running";
 }
 
-function bindStartedRun(runId: string, projectId: number): void {
+function bindStartedRun(runId: string, environmentId: number): void {
   state.activeRunId = runId;
-  state.activeProjectId = projectId;
-  state.pendingProjectId = projectId;
-  getProjectRuntime(projectId).runId = runId;
+  state.activeEnvironmentId = environmentId;
+  state.pendingEnvironmentId = environmentId;
+  getMutableEnvironmentRuntime(environmentId).runId = runId;
 }
 
 function abortStart(message: string): void {
-  const projectId = state.pendingProjectId ?? state.activeProjectId;
-  if (projectId !== null) {
-    const runtime = getProjectRuntime(projectId);
+  const environmentId = state.pendingEnvironmentId ?? state.activeEnvironmentId;
+  if (environmentId !== null) {
+    const runtime = getMutableEnvironmentRuntime(environmentId);
     runtime.status = "failed";
     runtime.error = message;
   }
   state.activeRunId = null;
-  state.activeProjectId = null;
-  state.pendingProjectId = null;
+  state.activeEnvironmentId = null;
+  state.pendingEnvironmentId = null;
   state.status = "failed";
   state.phase = null;
   state.error = message;
@@ -236,7 +255,7 @@ async function cancel(): Promise<void> {
 
 function reset(): void {
   Object.assign(state, createReleasePackageRuntimeState());
-  projectRuntimes.clear();
+  environmentRuntimes.clear();
 }
 
 export function useReleasePackageRuntime() {
@@ -249,7 +268,7 @@ export function useReleasePackageRuntime() {
     bindStartedRun,
     abortStart,
     cancel,
-    getProjectRuntime,
+    getEnvironmentRuntime,
     reset,
   };
 }

@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ReleasePackageLogEvent, ReleasePackageStatusEvent } from "../types/release-package";
+import type {
+  ReleasePackageEnvironmentKind,
+  ReleasePackageLogEvent,
+  ReleasePackageStatusEvent,
+} from "../types/release-package";
 
 const { listenMock, invokeMock, listeners } = vi.hoisted(() => ({
   listenMock: vi.fn(),
@@ -22,20 +26,30 @@ function emit(name: string, payload: unknown): void {
 
 function status(
   runId: string,
-  projectId: number,
+  environmentId: number,
   value: ReleasePackageStatusEvent["status"],
   phase: ReleasePackageStatusEvent["phase"] = "overall",
+  environment: ReleasePackageEnvironmentKind = "test",
 ): ReleasePackageStatusEvent {
-  return { runId, projectId, status: value, phase };
+  return { runId, environmentId, projectId: 7, environment, status: value, phase };
 }
 
 function log(
   runId: string,
-  projectId: number,
+  environmentId: number,
   line: string,
   phase: ReleasePackageLogEvent["phase"] = "frontend",
+  environment: ReleasePackageEnvironmentKind = "test",
 ): ReleasePackageLogEvent {
-  return { runId, projectId, phase, stream: "stdout", line };
+  return {
+    runId,
+    environmentId,
+    projectId: 7,
+    environment,
+    phase,
+    stream: "stdout",
+    line,
+  };
 }
 
 describe("release package runtime state", () => {
@@ -46,12 +60,12 @@ describe("release package runtime state", () => {
 
   it("binds the first event while start is pending and rejects stale runs", () => {
     const state = createReleasePackageRuntimeState();
-    state.pendingProjectId = 7;
-    reduceReleasePackageStatus(state, status("run-1", 7, "running"));
+    state.pendingEnvironmentId = 41;
+    reduceReleasePackageStatus(state, status("run-1", 41, "running"));
     expect(state.activeRunId).toBe("run-1");
 
     reduceReleasePackageStatus(state, {
-      ...status("old-run", 7, "failed"),
+      ...status("old-run", 41, "failed"),
       error: "old",
     });
     expect(state.status).toBe("running");
@@ -60,8 +74,9 @@ describe("release package runtime state", () => {
   it("keeps the final archive path on success", () => {
     const state = createReleasePackageRuntimeState();
     state.activeRunId = "run-1";
+    state.activeEnvironmentId = 41;
     reduceReleasePackageStatus(state, {
-      ...status("run-1", 7, "succeeded"),
+      ...status("run-1", 41, "succeeded"),
       archivePath: "D:\\releases\\20260723-客户门户",
     });
     expect(state.status).toBe("succeeded");
@@ -71,14 +86,14 @@ describe("release package runtime state", () => {
   it("keeps the overall run active when one target reaches a terminal state", () => {
     const state = createReleasePackageRuntimeState();
     state.activeRunId = "run-1";
-    state.activeProjectId = 7;
-    state.pendingProjectId = 7;
+    state.activeEnvironmentId = 41;
+    state.pendingEnvironmentId = 41;
     state.status = "running";
 
-    reduceReleasePackageStatus(state, status("run-1", 7, "succeeded", "frontend"));
+    reduceReleasePackageStatus(state, status("run-1", 41, "succeeded", "frontend"));
 
     expect(state.status).toBe("running");
-    expect(state.pendingProjectId).toBe(7);
+    expect(state.pendingEnvironmentId).toBe(41);
   });
 
   it("registers singleton listeners, filters stale events, and retains terminal state", async () => {
@@ -91,16 +106,16 @@ describe("release package runtime state", () => {
     await runtime.ensureListeners();
     expect(listenMock).toHaveBeenCalledTimes(2);
 
-    runtime.beginStart(7);
-    emit("release-package://log", log("run-1", 7, "frontend ready"));
-    emit("release-package://log", log("old-run", 7, "stale"));
+    runtime.beginStart(41);
+    emit("release-package://log", log("run-1", 41, "frontend ready"));
+    emit("release-package://log", log("old-run", 41, "stale"));
     expect(runtime.activeRunId.value).toBe("run-1");
     expect(runtime.logs.value.map((entry) => entry.line)).toEqual(["frontend ready"]);
 
-    runtime.bindStartedRun("run-1", 7);
-    emit("release-package://status", status("run-1", 7, "succeeded"));
+    runtime.bindStartedRun("run-1", 41);
+    emit("release-package://status", status("run-1", 41, "succeeded"));
     expect(runtime.status.value).toBe("succeeded");
-    expect(runtime.pendingProjectId.value).toBeNull();
+    expect(runtime.pendingEnvironmentId.value).toBeNull();
 
     await runtime.cancel();
     expect(invokeMock).toHaveBeenCalledWith("tool:release-package:cancel", { runId: "run-1" });
@@ -109,7 +124,7 @@ describe("release package runtime state", () => {
     expect(runtime.logs.value).toEqual([]);
   });
 
-  it("keeps the latest runtime isolated by project and log column", async () => {
+  it("keeps runtimes isolated by environment within the same project and log column", async () => {
     listenMock.mockImplementation(async (name: string, handler: (event: { payload: unknown }) => void) => {
       listeners.set(name, handler);
       return vi.fn();
@@ -117,22 +132,29 @@ describe("release package runtime state", () => {
     const runtime = useReleasePackageRuntime();
     await runtime.ensureListeners();
 
-    runtime.beginStart(7, ["frontend", "backend"]);
-    runtime.bindStartedRun("run-1", 7);
-    emit("release-package://log", log("run-1", 7, "web"));
-    emit("release-package://status", status("run-1", 7, "succeeded", "frontend"));
-    emit("release-package://status", status("run-1", 7, "partially_succeeded"));
+    runtime.beginStart(41, ["frontend", "backend"]);
+    runtime.bindStartedRun("run-1", 41);
+    emit("release-package://log", log("run-1", 41, "web"));
+    emit("release-package://status", status("run-1", 41, "succeeded", "frontend"));
+    emit("release-package://status", status("run-1", 41, "partially_succeeded"));
 
-    runtime.beginStart(8, ["backend"]);
-    runtime.bindStartedRun("run-2", 8);
-    emit("release-package://log", log("run-2", 8, "server", "backend"));
-    emit("release-package://log", log("run-1", 7, "late"));
+    runtime.beginStart(42, ["backend"]);
+    runtime.bindStartedRun("run-2", 42);
+    emit("release-package://log", log("run-2", 42, "server", "backend", "production"));
+    emit("release-package://log", log("run-1", 41, "late"));
 
-    expect(runtime.getProjectRuntime(7).status).toBe("partially_succeeded");
-    expect(runtime.getProjectRuntime(7).targetStatus.frontend).toBe("succeeded");
-    expect(runtime.getProjectRuntime(7).frontendLogs.map((entry) => entry.line)).toEqual(["web"]);
-    expect(runtime.getProjectRuntime(8).targetStatus.frontend).toBe("skipped");
-    expect(runtime.getProjectRuntime(8).backendLogs.map((entry) => entry.line)).toEqual(["server"]);
+    const testRuntime = runtime.getEnvironmentRuntime(41);
+    expect(testRuntime.projectId).toBe(7);
+    expect(testRuntime.environment).toBe("test");
+    expect(testRuntime.status).toBe("partially_succeeded");
+    expect(testRuntime.targetStatus.frontend).toBe("succeeded");
+    expect(testRuntime.frontendLogs.map((entry) => entry.line)).toEqual(["web"]);
+
+    const productionRuntime = runtime.getEnvironmentRuntime(42);
+    expect(productionRuntime.projectId).toBe(7);
+    expect(productionRuntime.environment).toBe("production");
+    expect(productionRuntime.targetStatus.frontend).toBe("skipped");
+    expect(productionRuntime.backendLogs.map((entry) => entry.line)).toEqual(["server"]);
   });
 
   it("clears previous archive paths immediately before a new upload run", async () => {
@@ -142,24 +164,24 @@ describe("release package runtime state", () => {
     });
     const runtime = useReleasePackageRuntime();
     await runtime.ensureListeners();
-    runtime.beginStart(7);
-    runtime.bindStartedRun("archive-run", 7);
+    runtime.beginStart(41);
+    runtime.bindStartedRun("archive-run", 41);
     emit("release-package://status", {
-      ...status("archive-run", 7, "succeeded"),
+      ...status("archive-run", 41, "succeeded"),
       archivePath: "D:\\releases\\portal",
     });
     expect(runtime.archivePath.value).toBe("D:\\releases\\portal");
-    expect(runtime.getProjectRuntime(7).archivePath).toBe("D:\\releases\\portal");
+    expect(runtime.getEnvironmentRuntime(41).archivePath).toBe("D:\\releases\\portal");
 
-    runtime.beginStart(7);
+    runtime.beginStart(41);
     expect(runtime.archivePath.value).toBe("");
-    expect(runtime.getProjectRuntime(7).archivePath).toBe("");
+    expect(runtime.getEnvironmentRuntime(41).archivePath).toBe("");
 
-    runtime.bindStartedRun("upload-run", 7);
-    emit("release-package://status", status("upload-run", 7, "succeeded"));
+    runtime.bindStartedRun("upload-run", 41);
+    emit("release-package://status", status("upload-run", 41, "succeeded"));
 
     expect(runtime.archivePath.value).toBe("");
-    expect(runtime.getProjectRuntime(7).archivePath).toBe("");
+    expect(runtime.getEnvironmentRuntime(41).archivePath).toBe("");
   });
 
   it("tracks upload logs, progress, failure retry token, and terminal running state", async () => {
@@ -169,33 +191,33 @@ describe("release package runtime state", () => {
     });
     const runtime = useReleasePackageRuntime();
     await runtime.ensureListeners();
-    runtime.beginStart(7, ["frontend", "backend"]);
-    runtime.bindStartedRun("run-1", 7);
+    runtime.beginStart(41, ["frontend", "backend"]);
+    runtime.bindStartedRun("run-1", 41);
 
-    emit("release-package://log", log("run-1", 7, "上传中", "upload"));
+    emit("release-package://log", log("run-1", 41, "上传中", "upload"));
     emit("release-package://status", {
-      ...status("run-1", 7, "uploading", "upload"),
+      ...status("run-1", 41, "uploading", "upload"),
       uploadedBytes: 50,
       totalBytes: 100,
       currentPath: "assets/app.js",
     });
     expect(runtime.isRunning.value).toBe(true);
     emit("release-package://status", {
-      ...status("run-1", 7, "package_succeeded_upload_failed"),
+      ...status("run-1", 41, "package_succeeded_upload_failed"),
       retryToken: "retry-1",
       error: "服务器上传失败",
     });
 
-    const projectRuntime = runtime.getProjectRuntime(7);
-    expect(projectRuntime.uploadLogs.map((entry) => entry.line)).toEqual(["上传中"]);
-    expect(projectRuntime.uploadProgress).toEqual({
+    const environmentRuntime = runtime.getEnvironmentRuntime(41);
+    expect(environmentRuntime.uploadLogs.map((entry) => entry.line)).toEqual(["上传中"]);
+    expect(environmentRuntime.uploadProgress).toEqual({
       uploadedBytes: 50,
       totalBytes: 100,
       currentPath: "assets/app.js",
     });
-    expect(projectRuntime.retryToken).toBe("retry-1");
-    expect(projectRuntime.commandRetryToken).toBe("");
-    expect(projectRuntime.archivePath).toBe("");
+    expect(environmentRuntime.retryToken).toBe("retry-1");
+    expect(environmentRuntime.commandRetryToken).toBe("");
+    expect(environmentRuntime.archivePath).toBe("");
     expect(runtime.archivePath.value).toBe("");
     expect(runtime.isRunning.value).toBe(false);
   });
@@ -207,10 +229,10 @@ describe("release package runtime state", () => {
     });
     const runtime = useReleasePackageRuntime();
     await runtime.ensureListeners();
-    runtime.beginStart(7, ["frontend", "backend"]);
-    runtime.bindStartedRun("run-1", 7);
+    runtime.beginStart(41, ["frontend", "backend"]);
+    runtime.bindStartedRun("run-1", 41);
     emit("release-package://status", {
-      ...status("run-1", 7, "uploading", "upload"),
+      ...status("run-1", 41, "uploading", "upload"),
       uploadedBytes: 512,
       totalBytes: 1_024,
       currentPath: "assets/app.js",
@@ -218,23 +240,23 @@ describe("release package runtime state", () => {
 
 
     emit("release-package://status", {
-      ...status("run-1", 7, "failed", "upload"),
+      ...status("run-1", 41, "failed", "upload"),
       commandTarget: "frontend",
       commandStatus: "failed",
       error: "退出码 7",
     });
     emit("release-package://status", {
-      ...status("run-1", 7, "upload_succeeded_command_failed"),
+      ...status("run-1", 41, "upload_succeeded_command_failed"),
       commandRetryToken: "command-retry-1",
     });
 
-    const projectRuntime = runtime.getProjectRuntime(7);
-    expect(projectRuntime.commandStatus.frontend).toBe("failed");
-    expect(projectRuntime.commandErrors.frontend).toBe("退出码 7");
-    expect(projectRuntime.commandStatus.backend).toBe("pending");
-    expect(projectRuntime.commandRetryToken).toBe("command-retry-1");
-    expect(projectRuntime.retryToken).toBe("");
-    expect(projectRuntime.uploadProgress).toEqual({
+    const environmentRuntime = runtime.getEnvironmentRuntime(41);
+    expect(environmentRuntime.commandStatus.frontend).toBe("failed");
+    expect(environmentRuntime.commandErrors.frontend).toBe("退出码 7");
+    expect(environmentRuntime.commandStatus.backend).toBe("pending");
+    expect(environmentRuntime.commandRetryToken).toBe("command-retry-1");
+    expect(environmentRuntime.retryToken).toBe("");
+    expect(environmentRuntime.uploadProgress).toEqual({
       uploadedBytes: 512,
       totalBytes: 1_024,
       currentPath: "assets/app.js",

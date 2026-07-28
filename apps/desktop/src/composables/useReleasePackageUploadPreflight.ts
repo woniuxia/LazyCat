@@ -7,7 +7,7 @@ import type {
 } from "../types/release-package";
 
 interface PreflightInput {
-  projectId: number;
+  environmentId: number;
   targets: ReleasePackageTarget[];
   privateKeyPassphrase?: string;
 }
@@ -48,14 +48,14 @@ export function useReleasePackageUploadPreflight() {
     await discardTokens(tokens);
   }
 
-  async function probe(projectId: number): Promise<ReleasePackageRemoteProbeResult | null> {
+  async function probe(environmentId: number): Promise<ReleasePackageRemoteProbeResult | null> {
     const token = ++requestToken;
     await discardCurrentState();
     if (token !== requestToken) return null;
     checking.value = true;
     try {
       const result = await invokeToolByChannel("tool:release-package:remote-probe", {
-        projectId,
+        environmentId,
       }) as ReleasePackageRemoteProbeResult;
       if (token !== requestToken) {
         await discardTokens({ probeToken: result.probeToken });
@@ -72,7 +72,7 @@ export function useReleasePackageUploadPreflight() {
   }
 
   async function trustHost(
-    projectId: number,
+    environmentId: number,
     replaceExisting: boolean,
   ): Promise<ReleasePackageRemoteProbeResult | null> {
     const probeToken = probeResult.value?.probeToken;
@@ -84,7 +84,7 @@ export function useReleasePackageUploadPreflight() {
     checking.value = true;
     try {
       const result = await invokeToolByChannel("tool:release-package:host-trust", {
-        projectId,
+        environmentId,
         probeToken,
         replaceExisting,
       }) as ReleasePackageRemoteProbeResult;
