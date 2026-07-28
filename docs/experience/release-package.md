@@ -2,11 +2,12 @@
 
 适用范围：上线包命令编排、互斥打包类型、并行目标、构建/归档事务、SSH/SFTP 上传、目录配置、覆盖和终态反馈。
 
-关键词：`release_package`、`archive`、`runtime`、`dispatch`、`parallel`、`SSH`、`SFTP`、`notification`
+关键词：`release_package`、`environment`、`archive`、`runtime`、`dispatch`、`parallel`、`SSH`、`SFTP`、`notification`
 
 ## 目录
 
 - [2026-07-26：外部动作在线程启动前关联运行](#2026-07-26外部动作在线程启动前关联运行)
+- [固定环境使用稳定环境 ID](#固定环境使用稳定环境-id)
 - [构建与归档是两阶段提交](#构建与归档是两阶段提交)
 - [多目标并行但状态独立](#多目标并行但状态独立)
 - [SSH 上传采用目标级有界并发](#ssh-上传采用目标级有界并发)
@@ -29,7 +30,7 @@
 
 **解决**：后端 `start` 严格解析可选 `actionDispatchId`，占用运行槽后、`thread::spawn` 前校验动作、目标和状态并关联 run；关联失败释放运行槽且不启动命令。所有原始终态在统一 `emit_terminal_result` 中、状态事件和通知发出前回写动作中心。
 
-**关键点**：只有 `succeeded` 映射成功并自动完成 Todo；`partially_succeeded`、`package_succeeded_upload_failed` 和 `failed` 都映射失败，`cancelled` 映射取消。普通手动打包没有 external run 关联，保持原通知和重试行为。动作中心只保存项目 ID，不接收 SSH 配置、密码或 Vault 秘密。
+**关键点**：只有 `succeeded` 映射成功并自动完成 Todo；`partially_succeeded`、`package_succeeded_upload_failed` 和 `failed` 都映射失败，`cancelled` 映射取消。普通手动打包没有 external run 关联，保持原通知和重试行为。动作中心只保存环境 ID，不接收 SSH 配置、密码或 Vault 秘密。
 
 **涉及文件**：
 
@@ -44,6 +45,12 @@
 - `pnpm --filter @lazycat/desktop test -- src/components/ReleasePackagePanel.test.ts src/utils/releasePackage.test.ts`
 
 **使用次数**：0
+
+## 固定环境使用稳定环境 ID
+
+同一上线包项目只保存一份项目名和前后端工程目录，测试、生产环境分别保存构建与交付配置。环境表使用自增 ID 作为 IPC、运行、令牌和动作绑定的稳定引用，同时以 `(project_id, environment)` 唯一约束保留业务语义。
+
+运行入口只接收环境 ID，后端加载环境及所属项目形成不可变快照。日志、状态、通知、上传预检和重试令牌都携带或绑定环境身份，不能依赖前端当前选择，也不能跨环境复用。测试环境默认且不得继承生产配置；生产启动必须经过显式确认。
 
 ## 构建与归档是两阶段提交
 
