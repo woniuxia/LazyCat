@@ -232,12 +232,18 @@ Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force
   });
 
   it("maps public and environment records into independent drafts", () => {
+    const testDraft = environmentToReleasePackageDraft(testEnvironment);
+    const productionDraft = environmentToReleasePackageDraft(productionEnvironment);
+
     expect(projectToReleasePackageProjectDraft(project)).toEqual({
       name: "客户门户",
       frontendProjectPath: "D:\\work\\portal-web",
       backendProjectPath: "D:\\work\\portal-server",
     });
-    expect(environmentToReleasePackageDraft(testEnvironment)).toEqual({
+    expect(testEnvironment.frontendBuildCommand).not.toBe(productionEnvironment.frontendBuildCommand);
+    expect(testEnvironment.frontendRemoteDir).not.toBe(productionEnvironment.frontendRemoteDir);
+    expect(testEnvironment.backendRemotePath).not.toBe(productionEnvironment.backendRemotePath);
+    expect(testDraft).toEqual({
       packageType: testEnvironment.packageType,
       outputRoot: testEnvironment.outputRoot,
       frontendBuildCommand: testEnvironment.frontendBuildCommand,
@@ -258,6 +264,33 @@ Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force
       frontendRemoteDir: testEnvironment.frontendRemoteDir,
       backendRemotePath: testEnvironment.backendRemotePath,
     });
+    expect(productionDraft).toEqual({
+      packageType: productionEnvironment.packageType,
+      outputRoot: productionEnvironment.outputRoot,
+      frontendBuildCommand: productionEnvironment.frontendBuildCommand,
+      frontendSuccessKeyword: productionEnvironment.frontendSuccessKeyword,
+      frontendPostUploadCommand: productionEnvironment.frontendPostUploadCommand,
+      frontendArtifactPath: productionEnvironment.frontendArtifactPath,
+      frontendArtifactMode: productionEnvironment.frontendArtifactMode,
+      backendBuildCommand: productionEnvironment.backendBuildCommand,
+      backendSuccessKeyword: productionEnvironment.backendSuccessKeyword,
+      backendPostUploadCommand: productionEnvironment.backendPostUploadCommand,
+      backendArtifactPath: productionEnvironment.backendArtifactPath,
+      sshHost: productionEnvironment.sshHost,
+      sshPort: productionEnvironment.sshPort,
+      sshUsername: productionEnvironment.sshUsername,
+      sshAuthType: productionEnvironment.sshAuthType,
+      vaultEntryId: productionEnvironment.vaultEntryId,
+      sshPrivateKeyPath: productionEnvironment.sshPrivateKeyPath,
+      frontendRemoteDir: productionEnvironment.frontendRemoteDir,
+      backendRemotePath: productionEnvironment.backendRemotePath,
+    });
+
+    const projectDraft = projectToReleasePackageProjectDraft(project);
+    expect(isReleasePackageDraftDirty(project, testEnvironment, projectDraft, testDraft)).toBe(false);
+    expect(isReleasePackageDraftDirty(project, productionEnvironment, projectDraft, productionDraft)).toBe(false);
+    expect(isReleasePackageDraftDirty(project, testEnvironment, projectDraft, productionDraft)).toBe(true);
+    expect(isReleasePackageDraftDirty(project, productionEnvironment, projectDraft, testDraft)).toBe(true);
   });
 
   it("detects public and environment changes through four arguments", () => {
@@ -484,6 +517,14 @@ Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force
     };
 
     expect(createReleasePackageStartPayload("local_archive", input)).not.toHaveProperty("productionConfirmed");
+    expect(createReleasePackageStartPayload("local_archive", {
+      ...input,
+      productionConfirmed: "true" as unknown as boolean,
+    })).not.toHaveProperty("productionConfirmed");
+    expect(createReleasePackageStartPayload("local_archive", {
+      ...input,
+      productionConfirmed: 1 as unknown as boolean,
+    })).not.toHaveProperty("productionConfirmed");
     expect(createReleasePackageStartPayload("local_archive", { ...input, productionConfirmed: true }))
       .toHaveProperty("productionConfirmed", true);
   });
