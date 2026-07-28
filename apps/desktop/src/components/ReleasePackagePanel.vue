@@ -5,8 +5,8 @@
         <div class="projects-heading">
           <strong>项目配置</strong>
           <div class="projects-actions">
-            <el-button :icon="Refresh" size="small" text :disabled="running || loading" aria-label="刷新项目配置" @click="loadProjects" />
-            <el-button :icon="Plus" size="small" text :disabled="running" @click="newProject">新建</el-button>
+            <el-button :icon="Refresh" size="small" text :disabled="editorLocked || loading" aria-label="刷新项目配置" @click="loadProjects" />
+            <el-button :icon="Plus" size="small" text :disabled="editorLocked" @click="newProject">新建</el-button>
           </div>
         </div>
         <div v-if="projects.length === 0" class="projects-empty">暂无项目配置</div>
@@ -16,7 +16,7 @@
           type="button"
           class="project-item"
           :class="{ active: project.id === selectedId }"
-          :disabled="running"
+          :disabled="editorLocked"
           @click="selectProject(project)"
         >
           <span class="project-name">{{ project.name }}</span>
@@ -25,7 +25,7 @@
       </aside>
 
       <main class="release-package-editor">
-        <el-form label-position="top" class="release-package-form">
+        <el-form label-position="top" class="release-package-form" :disabled="editorLocked">
           <section class="project-overview">
             <header class="editor-header">
               <div class="editor-title">
@@ -45,7 +45,7 @@
                   <button
                     type="button"
                     class="project-title"
-                    :disabled="running"
+                    :disabled="editorLocked"
                     title="双击编辑项目标题"
                     @dblclick="startTitleEdit"
                     @keydown.enter.prevent="startTitleEdit"
@@ -55,11 +55,13 @@
                 </h2>
               </div>
               <div class="editor-actions">
-                <el-button v-if="selectedProject" :icon="Delete" type="danger" text :disabled="running || saving" @click="deleteProject">
+                <el-button v-if="selectedProject" :icon="Delete" type="danger" text :disabled="editorLocked" @click="deleteProject">
                   删除配置
                 </el-button>
-                <el-button :icon="DocumentChecked" :loading="saving" :disabled="running" @click="saveProject">保存配置</el-button>
-                <el-button :icon="VideoPlay" type="primary" :disabled="running || !selectedProject || dirty" @click="prepareStart">开始打包</el-button>
+                <el-button :icon="DocumentChecked" :loading="saving" :disabled="running || switchingEnvironment" @click="saveProject">
+                  {{ pendingSavedIdentity ? "重试刷新" : "保存配置" }}
+                </el-button>
+                <el-button :icon="VideoPlay" type="primary" :disabled="editorLocked || !selectedProject || dirty" @click="prepareStart">开始打包</el-button>
                 <el-button v-if="running" :icon="VideoPause" type="danger" @click="cancelRun">终止打包</el-button>
                 <el-button v-else-if="hasCommittedArchive" :icon="FolderOpened" @click="openArchive">打开归档目录</el-button>
               </div>
@@ -68,7 +70,7 @@
             <div class="environment-switcher" aria-label="发布环境">
               <el-radio-group
                 :model-value="selectedEnvironmentKind"
-                :disabled="running"
+                :disabled="editorLocked"
                 @change="selectEnvironment"
               >
                 <el-radio-button value="test">
@@ -777,6 +779,13 @@ interface VaultMetaEntry {
   } | null;
 }
 
+interface PendingSavedIdentity {
+  projectId: number;
+  environmentId: number;
+  environmentKind: ReleasePackageEnvironmentKind;
+  wasCreating: boolean;
+}
+
 const emit = defineEmits<{
   (event: "open-tool", toolId: string): void;
 }>();
@@ -788,6 +797,8 @@ const environmentDraft = reactive<ReleasePackageEnvironmentDraft>(createEmptyRel
 const selectedEnvironmentKind = ref<ReleasePackageEnvironmentKind>("test");
 const loading = ref(false);
 const saving = ref(false);
+const switchingEnvironment = ref(false);
+const pendingSavedIdentity = ref<PendingSavedIdentity | null>(null);
 const starting = ref(false);
 const cancelPendingStart = ref(false);
 const confirmVisible = ref(false);
@@ -903,6 +914,12 @@ const commandRetryTargetLabel = computed(() => {
 const frontendStatus = computed<ReleasePackageTargetStatus>(() => currentProjectRuntime.value?.targetStatus.frontend ?? "idle");
 const backendStatus = computed<ReleasePackageTargetStatus>(() => currentProjectRuntime.value?.targetStatus.backend ?? "idle");
 const running = runtime.isRunning;
+const editorLocked = computed(() => (
+  running.value
+  || saving.value
+  || switchingEnvironment.value
+  || pendingSavedIdentity.value !== null
+));
 const statusLabel = computed(() => releasePackageRunStatusLabel(status.value));
 const hasCommittedArchive = computed(() => Boolean(archivePath.value) && [
   "succeeded",
@@ -1107,6 +1124,7 @@ async function confirmDiscardChanges(): Promise<boolean> {
 }
 
 async function selectProject(project: ReleasePackageProject): Promise<void> {
+  if (editorLocked.value) return;
   if (project.id === selectedId.value || !(await confirmDiscardChanges())) return;
   selectedId.value = project.id;
   selectedEnvironmentKind.value = "test";
@@ -1114,6 +1132,7 @@ async function selectProject(project: ReleasePackageProject): Promise<void> {
 }
 
 async function newProject(): Promise<void> {
+  if (editorLocked.value) return;
   if (!(await confirmDiscardChanges())) return;
   selectedId.value = null;
   selectedEnvironmentKind.value = "test";
@@ -1121,17 +1140,59 @@ async function newProject(): Promise<void> {
 }
 
 async function selectEnvironment(environment: ReleasePackageEnvironmentKind): Promise<void> {
+  if (editorLocked.value) return;
   if (environment === selectedEnvironmentKind.value) return;
-  if (!(await confirmDiscardChanges())) return;
-  confirmVisible.value = false;
-  commandRetryVisible.value = false;
-  await resetStartDialog();
-  await resetCommandRetryDialog();
-  selectedEnvironmentKind.value = environment;
+  switchingEnvironment.value = true;
+  try {
+    if (!(await confirmDiscardChanges())) return;
+    confirmVisible.value = false;
+    commandRetryVisible.value = false;
+    await resetStartDialog();
+    await resetCommandRetryDialog();
+    selectedEnvironmentKind.value = environment;
+    restoreSelectedDrafts();
+  } finally {
+    switchingEnvironment.value = false;
+  }
+}
+
+async function restoreSavedProject(identity: PendingSavedIdentity): Promise<boolean> {
+  const refreshed = await loadProjects({ preserveEditor: true });
+  if (!refreshed) return false;
+  const savedProject = projects.value.find((project) => project.id === identity.projectId);
+  const savedEnvironment = savedProject?.environments.find(
+    (environment) => environment.id === identity.environmentId,
+  );
+  const targetEnvironmentKind = identity.wasCreating
+    ? "test"
+    : savedEnvironment?.environment ?? identity.environmentKind;
+  const targetEnvironment = savedProject?.environments.find(
+    (environment) => environment.environment === targetEnvironmentKind,
+  );
+  if (!savedProject || !targetEnvironment) {
+    showError(new Error("项目配置已保存，但刷新结果缺少对应环境，请重试刷新"));
+    return false;
+  }
+  selectedId.value = savedProject.id;
+  selectedEnvironmentKind.value = targetEnvironment.environment;
   restoreSelectedDrafts();
+  pendingSavedIdentity.value = null;
+  return true;
 }
 
 async function saveProject(): Promise<void> {
+  if (saving.value || switchingEnvironment.value || running.value) return;
+  if (pendingSavedIdentity.value) {
+    saving.value = true;
+    try {
+      if (await restoreSavedProject(pendingSavedIdentity.value)) {
+        ElMessage.success("项目配置已保存");
+      }
+    } finally {
+      saving.value = false;
+    }
+    return;
+  }
   const validationError = validateReleasePackageProjectDraft(projectDraft)
     ?? validateReleasePackageEnvironmentDraft(environmentDraft);
   if (validationError) {
@@ -1140,6 +1201,7 @@ async function saveProject(): Promise<void> {
   }
   saving.value = true;
   try {
+    const wasCreating = selectedProject.value === null;
     const savedEnvironmentKind = selectedEnvironmentKind.value;
     const payload = {
       id: selectedProject.value?.id,
@@ -1148,20 +1210,21 @@ async function saveProject(): Promise<void> {
       project: normalizeReleasePackageProjectDraft(projectDraft),
       environmentConfig: normalizeReleasePackageEnvironmentDraft(environmentDraft),
     };
-    const channel = selectedId.value ? "tool:release-package:project-update" : "tool:release-package:project-create";
+    const channel = wasCreating ? "tool:release-package:project-create" : "tool:release-package:project-update";
     const result = (await invokeToolByChannel(channel, payload)) as { id?: number; environmentId?: number };
-    const savedId = result.id ?? selectedId.value;
-    if (savedId) selectedId.value = savedId;
-    const refreshed = await loadProjects({ preserveEditor: true });
-    if (!refreshed) return;
-    if (savedId) {
-      selectedId.value = savedId;
-      const saved = projects.value.find((project) => project.id === savedId);
-      const savedEnvironment = saved?.environments.find(
-        (environment) => environment.id === result.environmentId,
-      );
-      selectedEnvironmentKind.value = savedEnvironment?.environment ?? savedEnvironmentKind;
-      restoreSelectedDrafts();
+    if (!result.id || !result.environmentId) {
+      throw new Error("保存结果缺少项目或环境 ID");
+    }
+    const savedIdentity: PendingSavedIdentity = {
+      projectId: result.id,
+      environmentId: result.environmentId,
+      environmentKind: savedEnvironmentKind,
+      wasCreating,
+    };
+    pendingSavedIdentity.value = savedIdentity;
+    if (!(await restoreSavedProject(savedIdentity))) {
+      ElMessage.warning("项目配置已保存，但列表刷新失败，请点击重试刷新");
+      return;
     }
     ElMessage.success("项目配置已保存");
   } catch (error) {
@@ -1172,6 +1235,7 @@ async function saveProject(): Promise<void> {
 }
 
 async function deleteProject(): Promise<void> {
+  if (editorLocked.value) return;
   const project = selectedProject.value;
   if (!project) return;
   try {

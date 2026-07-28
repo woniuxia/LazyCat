@@ -154,6 +154,16 @@ function findButton(root: HostNode, text: string): HostNode | null {
   return result;
 }
 
+function findNode(root: HostNode, predicate: (node: HostNode) => boolean): HostNode | null {
+  let result: HostNode | null = null;
+  const visit = (node: HostNode) => {
+    if (!result && predicate(node)) result = node;
+    node.children.forEach(visit);
+  };
+  visit(root);
+  return result;
+}
+
 function modelValues(root: HostNode): unknown[] {
   const result: unknown[] = [];
   const visit = (node: HostNode) => {
@@ -236,6 +246,9 @@ describe("ReleasePackagePanel", () => {
     expect(source).toContain("environmentId");
     expect(source).toContain("normalizeReleasePackageProjectDraft(projectDraft)");
     expect(source).toContain("normalizeReleasePackageEnvironmentDraft(environmentDraft)");
+    expect(source).toMatch(/const targetEnvironmentKind = identity\.wasCreating\s*\? "test"/u);
+    expect(source).toContain('class="release-package-form" :disabled="editorLocked"');
+    expect(source).toContain("if (editorLocked.value) return;");
   });
 
   it("mounts the test environment without leaking production commands", async () => {
@@ -301,6 +314,73 @@ describe("ReleasePackagePanel", () => {
       environmentConfig: testEnvironmentConfig,
     });
     expect(JSON.stringify(panelHarness.invoke.mock.calls)).not.toContain("pnpm build:prod");
+    app.unmount();
+  });
+
+  it("locks project and environment transitions while a save is pending", async () => {
+    let resolveUpdate!: (value: { id: number; environmentId: number }) => void;
+    panelHarness.invoke.mockReset();
+    panelHarness.invoke.mockImplementation(async (channel: string) => {
+      if (channel === "tool:release-package:project-list") return { projects: [mountedProject] };
+      if (channel === "tool:release-package:project-update") {
+        return new Promise((resolve) => {
+          resolveUpdate = resolve;
+        });
+      }
+      if (channel === "tool:vault:meta-list") return [];
+      return {};
+    });
+    const { default: ReleasePackagePanel } = await import("./ReleasePackagePanel.vue");
+    const renderer = createPanelRenderer();
+    const root = hostNode("root");
+    const app = renderer.createApp(ReleasePackagePanel);
+    registerElementStubs(app);
+    app.mount(root);
+    await flushMountedPanel();
+
+    const savePromise = (findButton(root, "保存配置")?.props.onClick as (() => Promise<void>))();
+    await nextTick();
+    const environmentControl = findNode(root, (node) => node.props["model-value"] === "test");
+    expect(environmentControl).not.toBeNull();
+
+    await (environmentControl?.props.onChange as ((value: string) => Promise<void>))("production");
+    resolveUpdate({ id: 7, environmentId: 41 });
+    await savePromise;
+    expect(findNode(root, (node) => node.props["model-value"] === "test")).not.toBeNull();
+    expect(modelValues(root)).not.toContain("pnpm build:prod");
+    app.unmount();
+  });
+
+  it("retries only the list refresh after a committed save", async () => {
+    let projectListCalls = 0;
+    let failRefresh = true;
+    panelHarness.invoke.mockReset();
+    panelHarness.invoke.mockImplementation(async (channel: string) => {
+      if (channel === "tool:release-package:project-list") {
+        projectListCalls += 1;
+        if (projectListCalls > 1 && failRefresh) throw new Error("refresh failed");
+        return { projects: [mountedProject] };
+      }
+      if (channel === "tool:release-package:project-update") return { id: 7, environmentId: 41 };
+      if (channel === "tool:vault:meta-list") return [];
+      return {};
+    });
+    const { default: ReleasePackagePanel } = await import("./ReleasePackagePanel.vue");
+    const renderer = createPanelRenderer();
+    const root = hostNode("root");
+    const app = renderer.createApp(ReleasePackagePanel);
+    registerElementStubs(app);
+    app.mount(root);
+    await flushMountedPanel();
+
+    await (findButton(root, "保存配置")?.props.onClick as (() => Promise<void>))();
+    expect(findButton(root, "重试刷新")).not.toBeNull();
+    expect(panelHarness.invoke.mock.calls.filter(([channel]) => channel === "tool:release-package:project-update")).toHaveLength(1);
+
+    failRefresh = false;
+    await (findButton(root, "重试刷新")?.props.onClick as (() => Promise<void>))();
+    expect(findButton(root, "保存配置")).not.toBeNull();
+    expect(panelHarness.invoke.mock.calls.filter(([channel]) => channel === "tool:release-package:project-update")).toHaveLength(1);
     app.unmount();
   });
 
