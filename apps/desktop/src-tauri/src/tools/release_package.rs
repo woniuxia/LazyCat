@@ -103,6 +103,26 @@ fn add_legacy_column_if_missing(
         .map_err(|error| format!("migrate release package column {column} failed: {error}"))
 }
 
+fn legacy_release_project_has_production_environment(
+    transaction: &Transaction<'_>,
+    target_id: &str,
+) -> Result<bool, rusqlite::Error> {
+    let Ok(project_id) = target_id.parse::<i64>() else {
+        return Ok(false);
+    };
+    if project_id <= 0 {
+        return Ok(false);
+    }
+    transaction.query_row(
+        "SELECT EXISTS(
+             SELECT 1 FROM release_package_environment_migration_map
+             WHERE project_id=?1
+         )",
+        [project_id],
+        |row| row.get(0),
+    )
+}
+
 fn migrate_legacy_schema(conn: &Connection) -> Result<(), String> {
     let transaction = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)
         .map_err(|error| format!("begin release package schema migration failed: {error}"))?;
@@ -244,24 +264,29 @@ fn migrate_legacy_schema(conn: &Connection) -> Result<(), String> {
         })?;
 
     if table_exists(&transaction, "action_bindings")? {
-        let invalid_binding_count: i64 = transaction
-            .query_row(
-                "SELECT COUNT(*) FROM action_bindings binding
-                 WHERE binding.action_type='release_package.run'
-                   AND (
-                       binding.target_id=''
-                       OR binding.target_id GLOB '*[^0-9]*'
-                       OR NOT EXISTS (
-                           SELECT 1 FROM release_package_environment_migration_map migration
-                           WHERE migration.project_id=CAST(binding.target_id AS INTEGER)
-                       )
-                   )",
-                [],
-                |row| row.get(0),
+        let binding_targets = transaction
+            .prepare(
+                "SELECT target_id FROM action_bindings
+                 WHERE action_type='release_package.run'",
             )
+            .and_then(|mut statement| {
+                statement
+                    .query_map([], |row| row.get::<_, String>(0))?
+                    .collect::<Result<Vec<_>, _>>()
+            })
             .map_err(|error| {
                 format!("validate release package action bindings before migration failed: {error}")
             })?;
+        let mut invalid_binding_count = 0;
+        for target_id in binding_targets {
+            let valid = legacy_release_project_has_production_environment(&transaction, &target_id)
+                .map_err(|error| {
+                    format!(
+                        "validate release package action bindings before migration failed: {error}"
+                    )
+                })?;
+            invalid_binding_count += i64::from(!valid);
+        }
         if invalid_binding_count != 0 {
             return Err(format!(
                 "release package action binding migration invalid: {invalid_binding_count} active bindings have no environment"
@@ -275,13 +300,7 @@ fn migrate_legacy_schema(conn: &Connection) -> Result<(), String> {
                      FROM release_package_environment_migration_map migration
                      WHERE migration.project_id=CAST(action_bindings.target_id AS INTEGER)
                  )
-                 WHERE action_type='release_package.run'
-                   AND target_id<>''
-                   AND target_id NOT GLOB '*[^0-9]*'
-                   AND EXISTS (
-                       SELECT 1 FROM release_package_environment_migration_map migration
-                       WHERE migration.project_id=CAST(action_bindings.target_id AS INTEGER)
-                   )",
+                 WHERE action_type='release_package.run'",
                 [],
             )
             .map_err(|error| format!("migrate release package action bindings failed: {error}"))?;
@@ -308,27 +327,32 @@ fn migrate_legacy_schema(conn: &Connection) -> Result<(), String> {
     }
 
     if table_exists(&transaction, "action_dispatches")? {
-        let invalid_dispatch_count: i64 = transaction
-            .query_row(
-                "SELECT COUNT(*) FROM action_dispatches dispatch
-                 WHERE dispatch.action_type='release_package.run'
-                   AND dispatch.status IN ('pending_confirmation','running')
-                   AND (
-                       dispatch.target_id=''
-                       OR dispatch.target_id GLOB '*[^0-9]*'
-                       OR NOT EXISTS (
-                           SELECT 1 FROM release_package_environment_migration_map migration
-                           WHERE migration.project_id=CAST(dispatch.target_id AS INTEGER)
-                       )
-                   )",
-                [],
-                |row| row.get(0),
+        let dispatch_targets = transaction
+            .prepare(
+                "SELECT target_id FROM action_dispatches
+                 WHERE action_type='release_package.run'
+                   AND status IN ('pending_confirmation','running')",
             )
+            .and_then(|mut statement| {
+                statement
+                    .query_map([], |row| row.get::<_, String>(0))?
+                    .collect::<Result<Vec<_>, _>>()
+            })
             .map_err(|error| {
                 format!(
                     "validate release package action dispatches before migration failed: {error}"
                 )
             })?;
+        let mut invalid_dispatch_count = 0;
+        for target_id in dispatch_targets {
+            let valid = legacy_release_project_has_production_environment(&transaction, &target_id)
+                .map_err(|error| {
+                    format!(
+                        "validate release package action dispatches before migration failed: {error}"
+                    )
+                })?;
+            invalid_dispatch_count += i64::from(!valid);
+        }
         if invalid_dispatch_count != 0 {
             return Err(format!(
                 "release package action dispatch migration invalid: {invalid_dispatch_count} active dispatches have no environment"
@@ -343,13 +367,7 @@ fn migrate_legacy_schema(conn: &Connection) -> Result<(), String> {
                      WHERE migration.project_id=CAST(action_dispatches.target_id AS INTEGER)
                  )
                  WHERE action_type='release_package.run'
-                   AND status IN ('pending_confirmation','running')
-                   AND target_id<>''
-                   AND target_id NOT GLOB '*[^0-9]*'
-                   AND EXISTS (
-                       SELECT 1 FROM release_package_environment_migration_map migration
-                       WHERE migration.project_id=CAST(action_dispatches.target_id AS INTEGER)
-                   )",
+                   AND status IN ('pending_confirmation','running')",
                 [],
             )
             .map_err(|error| {
@@ -1749,10 +1767,10 @@ mod tests {
         seed_legacy_release_project(&conn, 42);
         conn.execute_batch(
             "INSERT INTO action_bindings(action_type, target_id) VALUES
-                 ('release_package.run', '42'),
+                 ('release_package.run', '+42'),
                  ('hosts.activate', '42');
              INSERT INTO action_dispatches(id, action_type, target_id, status) VALUES
-                 ('pending', 'release_package.run', '42', 'pending_confirmation'),
+                 ('pending', 'release_package.run', '00042', 'pending_confirmation'),
                  ('running', 'release_package.run', '42', 'running'),
                  ('succeeded', 'release_package.run', '42', 'succeeded'),
                  ('failed', 'release_package.run', '42', 'failed'),
@@ -2032,6 +2050,87 @@ mod tests {
         assert_eq!(
             serde_json::to_value(ReleasePackageEnvironmentKind::Production).unwrap(),
             json!("production")
+        );
+    }
+
+    #[test]
+    fn schema_new_environment_table_rejects_staging_via_check_constraint() {
+        let conn = test_conn();
+        conn.execute(
+            "INSERT INTO release_package_projects(name, frontend_project_path, backend_project_path)
+             VALUES ('客户门户', 'D:\\work\\web', 'D:\\work\\server')",
+            [],
+        )
+        .unwrap();
+
+        let result = conn.execute(
+            "INSERT INTO release_package_environments(project_id, environment)
+             VALUES (1, 'staging')",
+            [],
+        );
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn schema_rolls_back_when_a_binding_target_overflows_i64() {
+        let conn = Connection::open_in_memory().unwrap();
+        seed_legacy_release_package_schema(&conn);
+        seed_legacy_release_project(&conn, i64::MAX);
+        conn.execute(
+            "INSERT INTO action_bindings(action_type, target_id)
+             VALUES ('release_package.run', '9223372036854775808')",
+            [],
+        )
+        .unwrap();
+
+        let error = ensure_schema(&conn).err().unwrap();
+        assert!(error.contains("active bindings have no environment"));
+        let project_columns = table_columns(&conn, "release_package_projects").unwrap();
+        assert!(project_columns
+            .iter()
+            .any(|column| column == "frontend_build_command"));
+        assert!(!table_exists(&conn, "release_package_environments").unwrap());
+        assert!(!table_exists(&conn, "release_package_projects_legacy").unwrap());
+        assert_eq!(
+            conn.query_row(
+                "SELECT target_id FROM action_bindings WHERE action_type='release_package.run'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap(),
+            "9223372036854775808"
+        );
+    }
+
+    #[test]
+    fn schema_rolls_back_when_an_active_dispatch_target_is_zero() {
+        let conn = Connection::open_in_memory().unwrap();
+        seed_legacy_release_package_schema(&conn);
+        seed_legacy_release_project(&conn, 0);
+        conn.execute(
+            "INSERT INTO action_dispatches(id, action_type, target_id, status)
+             VALUES ('zero', 'release_package.run', '0', 'running')",
+            [],
+        )
+        .unwrap();
+
+        let error = ensure_schema(&conn).err().unwrap();
+        assert!(error.contains("active dispatches have no environment"));
+        let project_columns = table_columns(&conn, "release_package_projects").unwrap();
+        assert!(project_columns
+            .iter()
+            .any(|column| column == "frontend_build_command"));
+        assert!(!table_exists(&conn, "release_package_environments").unwrap());
+        assert!(!table_exists(&conn, "release_package_projects_legacy").unwrap());
+        assert_eq!(
+            conn.query_row(
+                "SELECT target_id FROM action_dispatches WHERE id='zero'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap(),
+            "0"
         );
     }
 
