@@ -4,6 +4,11 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::PathBuf;
+#[cfg(test)]
+use std::{
+    sync::Mutex,
+    thread::{self, ThreadId},
+};
 
 use super::helpers::db_conn;
 use super::release_package_archive::{default_folder_name, validate_folder_name};
@@ -856,15 +861,6 @@ fn validate_environment_payload(environment: &EnvironmentPayload) -> Result<(), 
     Ok(())
 }
 
-#[cfg(test)]
-fn parse_project_payload(payload: &Value) -> Result<EnvironmentPayload, String> {
-    let name = required_string(payload, "name")?;
-    validate_folder_name(&name)?;
-    required_string(payload, "frontendProjectPath")?;
-    required_string(payload, "backendProjectPath")?;
-    parse_environment_fields(payload)
-}
-
 fn validate_vault_binding(
     conn: &Connection,
     environment: &EnvironmentPayload,
@@ -1068,8 +1064,48 @@ struct ProjectListItem {
     environments: Vec<ReleasePackageEnvironmentConfig>,
 }
 
+#[cfg(test)]
+type ThreadHook = (ThreadId, Box<dyn FnOnce() + Send>);
+
+#[cfg(test)]
+static PROJECT_LIST_AFTER_PROJECTS_HOOK: Mutex<Option<ThreadHook>> = Mutex::new(None);
+
+#[cfg(test)]
+static LOAD_PROJECT_AFTER_EXISTS_HOOK: Mutex<Option<ThreadHook>> = Mutex::new(None);
+
+#[cfg(test)]
+fn install_thread_hook(
+    hook_slot: &Mutex<Option<ThreadHook>>,
+    thread_id: ThreadId,
+    hook: impl FnOnce() + Send + 'static,
+) {
+    let mut slot = hook_slot.lock().unwrap();
+    assert!(slot.is_none(), "thread hook already installed");
+    *slot = Some((thread_id, Box::new(hook)));
+}
+
+#[cfg(test)]
+fn run_thread_hook(hook_slot: &Mutex<Option<ThreadHook>>) {
+    let hook = {
+        let mut slot = hook_slot.lock().unwrap();
+        match slot.as_ref() {
+            Some((thread_id, _)) if *thread_id == thread::current().id() => {
+                slot.take().map(|(_, hook)| hook)
+            }
+            _ => None,
+        }
+    };
+    if let Some(hook) = hook {
+        hook();
+    }
+}
+
 fn project_list_with_conn(conn: &Connection) -> Result<Value, String> {
-    let mut project_statement = conn
+    let transaction =
+        Transaction::new_unchecked(conn, TransactionBehavior::Deferred).map_err(|error| {
+            format!("begin release package project list transaction failed: {error}")
+        })?;
+    let mut project_statement = transaction
         .prepare(
             "SELECT id, name, frontend_project_path, backend_project_path, created_at, updated_at
              FROM release_package_projects
@@ -1081,8 +1117,11 @@ fn project_list_with_conn(conn: &Connection) -> Result<Value, String> {
         .map_err(|error| format!("query release package projects failed: {error}"))?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|error| format!("read release package project failed: {error}"))?;
+    drop(project_statement);
+    #[cfg(test)]
+    run_thread_hook(&PROJECT_LIST_AFTER_PROJECTS_HOOK);
 
-    let mut environment_statement = conn
+    let mut environment_statement = transaction
         .prepare(&format!(
             "{ENVIRONMENT_SELECT} ORDER BY environment.project_id, environment.id"
         ))
@@ -1092,6 +1131,7 @@ fn project_list_with_conn(conn: &Connection) -> Result<Value, String> {
         .map_err(|error| format!("query release package environments failed: {error}"))?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|error| format!("read release package environment failed: {error}"))?;
+    drop(environment_statement);
     let mut grouped: HashMap<i64, Vec<ReleasePackageEnvironmentConfig>> = HashMap::new();
     for raw in raw_environments {
         let environment =
@@ -1124,7 +1164,11 @@ fn project_list_with_conn(conn: &Connection) -> Result<Value, String> {
     if !grouped.is_empty() {
         return Err("上线包项目环境配置不完整".into());
     }
-    Ok(json!({ "projects": items }))
+    let result = json!({ "projects": items });
+    transaction.commit().map_err(|error| {
+        format!("commit release package project list transaction failed: {error}")
+    })?;
+    Ok(result)
 }
 
 pub(crate) fn list_action_target_rows(conn: &Connection) -> Result<Vec<(i64, String)>, String> {
@@ -1341,7 +1385,11 @@ pub(crate) fn load_project(
     conn: &Connection,
     id: i64,
 ) -> Result<ReleasePackageRuntimeConfig, String> {
-    let exists = conn
+    let transaction =
+        Transaction::new_unchecked(conn, TransactionBehavior::Deferred).map_err(|error| {
+            format!("begin release package project load transaction failed: {error}")
+        })?;
+    let exists = transaction
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM release_package_projects WHERE id=?1)",
             [id],
@@ -1351,7 +1399,9 @@ pub(crate) fn load_project(
     if !exists {
         return Err("release package project not found".into());
     }
-    let mut statement = conn
+    #[cfg(test)]
+    run_thread_hook(&LOAD_PROJECT_AFTER_EXISTS_HOOK);
+    let mut statement = transaction
         .prepare(
             "SELECT id FROM release_package_environments
              WHERE project_id=?1 ORDER BY id",
@@ -1362,9 +1412,10 @@ pub(crate) fn load_project(
         .map_err(|error| format!("query release package environments failed: {error}"))?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|error| format!("read release package environment failed: {error}"))?;
+    drop(statement);
     let mut configured = Vec::new();
     for environment_id in environment_ids {
-        let environment = load_environment(conn, environment_id)?;
+        let environment = load_environment(&transaction, environment_id)?;
         if environment.configured {
             configured.push(environment);
         }
@@ -1377,7 +1428,7 @@ pub(crate) fn load_project(
         });
     }
     let environment = configured.pop().unwrap();
-    Ok(ReleasePackageRuntimeConfig {
+    let project = ReleasePackageRuntimeConfig {
         id: environment.project_id,
         name: environment.project_name,
         output_root: environment.output_root,
@@ -1403,7 +1454,11 @@ pub(crate) fn load_project(
         backend_remote_path: environment.backend_remote_path,
         created_at: environment.created_at,
         updated_at: environment.updated_at,
-    })
+    };
+    transaction.commit().map_err(|error| {
+        format!("commit release package project load transaction failed: {error}")
+    })?;
+    Ok(project)
 }
 
 fn validate_run_inputs(
@@ -2057,7 +2112,13 @@ mod tests {
     use chrono::NaiveDate;
     use rusqlite::Connection;
     use serde_json::{json, Value};
-    use std::fs;
+    use std::{
+        ffi::OsString,
+        fs,
+        path::{Path, PathBuf},
+        thread,
+    };
+    use uuid::Uuid;
 
     #[test]
     fn project_config_serializes_only_project_fields() {
@@ -2090,6 +2151,60 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch(RELEASE_PACKAGE_SCHEMA_SQL).unwrap();
         conn
+    }
+
+    struct TempDatabase {
+        path: PathBuf,
+    }
+
+    impl TempDatabase {
+        fn new() -> (Self, Connection) {
+            let path = std::env::temp_dir()
+                .join(format!("lazycat-release-package-{}.sqlite", Uuid::new_v4()));
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(
+                "PRAGMA foreign_keys = ON;
+                 PRAGMA journal_mode = WAL;
+                 PRAGMA busy_timeout = 5000;",
+            )
+            .unwrap();
+            ensure_schema(&conn).unwrap();
+            (Self { path }, conn)
+        }
+
+        fn connect(&self) -> Connection {
+            let conn = Connection::open(&self.path).unwrap();
+            conn.execute_batch(
+                "PRAGMA foreign_keys = ON;
+                 PRAGMA busy_timeout = 5000;",
+            )
+            .unwrap();
+            conn
+        }
+    }
+
+    impl Drop for TempDatabase {
+        fn drop(&mut self) {
+            for path in [
+                self.path.clone(),
+                sidecar_path(&self.path, "-wal"),
+                sidecar_path(&self.path, "-shm"),
+            ] {
+                match fs::remove_file(&path) {
+                    Ok(()) => {}
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(error) => {
+                        panic!("remove temporary sqlite file {}: {error}", path.display())
+                    }
+                }
+            }
+        }
+    }
+
+    fn sidecar_path(path: &Path, suffix: &str) -> PathBuf {
+        let mut value = OsString::from(path.as_os_str());
+        value.push(suffix);
+        PathBuf::from(value)
     }
 
     fn seed_legacy_release_package_schema(conn: &Connection) {
@@ -2180,32 +2295,6 @@ mod tests {
         .unwrap();
     }
 
-    fn payload() -> Value {
-        json!({
-            "name": "客户门户",
-            "outputRoot": r"D:\releases",
-            "packageType": "server_upload",
-            "frontendProjectPath": r"D:\work\web",
-            "frontendBuildCommand": "pnpm build",
-            "frontendSuccessKeyword": "  Build completed  ",
-            "frontendPostUploadCommand": "\n  cd /srv/web\n  ./reload.sh\n",
-            "frontendArtifactPath": "dist",
-            "frontendArtifactMode": "copy_directory",
-            "backendProjectPath": r"D:\work\server",
-            "backendBuildCommand": "mvn clean package -Pprod",
-            "backendSuccessKeyword": "  BUILD SUCCESS  ",
-            "backendPostUploadCommand": "\n  systemctl restart portal\n",
-            "backendArtifactPath": r"target\portal.jar",
-            "sshHost": "deploy.example.internal",
-            "sshPort": 2222,
-            "sshUsername": "deploy",
-            "sshAuthType": "private_key",
-            "sshPrivateKeyPath": r"C:\Users\tester\.ssh\lazycat",
-            "frontendRemoteDir": "/srv/portal/web",
-            "backendRemotePath": "/srv/portal/app.jar"
-        })
-    }
-
     fn environment_project_payload(environment: &str) -> Value {
         json!({
             "project": {
@@ -2246,6 +2335,125 @@ mod tests {
             |row| row.get(0),
         )
         .unwrap()
+    }
+
+    #[test]
+    fn project_list_uses_one_snapshot_during_concurrent_delete() {
+        let (database, reader_conn) = TempDatabase::new();
+        let project_id =
+            project_create_with_conn(&reader_conn, &environment_project_payload("production"))
+                .unwrap()["id"]
+                .as_i64()
+                .unwrap();
+        let writer_conn = database.connect();
+        install_thread_hook(
+            &PROJECT_LIST_AFTER_PROJECTS_HOOK,
+            thread::current().id(),
+            move || {
+                thread::spawn(move || {
+                    writer_conn
+                        .execute(
+                            "DELETE FROM release_package_projects WHERE id=?1",
+                            [project_id],
+                        )
+                        .unwrap();
+                })
+                .join()
+                .unwrap();
+            },
+        );
+
+        let listed = project_list_with_conn(&reader_conn).unwrap();
+
+        assert_eq!(listed["projects"][0]["id"], project_id);
+        assert_eq!(
+            listed["projects"][0]["environments"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+        assert!(project_list_with_conn(&reader_conn).unwrap()["projects"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn load_project_uses_one_snapshot_during_concurrent_delete() {
+        let (database, reader_conn) = TempDatabase::new();
+        let project_id =
+            project_create_with_conn(&reader_conn, &environment_project_payload("production"))
+                .unwrap()["id"]
+                .as_i64()
+                .unwrap();
+        let writer_conn = database.connect();
+        install_thread_hook(
+            &LOAD_PROJECT_AFTER_EXISTS_HOOK,
+            thread::current().id(),
+            move || {
+                thread::spawn(move || {
+                    writer_conn
+                        .execute(
+                            "DELETE FROM release_package_projects WHERE id=?1",
+                            [project_id],
+                        )
+                        .unwrap();
+                })
+                .join()
+                .unwrap();
+            },
+        );
+
+        let loaded = load_project(&reader_conn, project_id).unwrap();
+
+        assert_eq!(loaded.id, project_id);
+        assert_eq!(loaded.name, "客户门户");
+        assert_eq!(
+            load_project(&reader_conn, project_id).unwrap_err(),
+            "release package project not found"
+        );
+    }
+
+    #[test]
+    fn load_project_reports_not_configured_when_both_environments_are_blank() {
+        let conn = test_conn();
+        conn.execute(
+            "INSERT INTO release_package_projects(name, frontend_project_path, backend_project_path)
+             VALUES ('blank', 'D:\\web', 'D:\\server')",
+            [],
+        )
+        .unwrap();
+        let project_id = conn.last_insert_rowid();
+        conn.execute(
+            "INSERT INTO release_package_environments(project_id, environment)
+             VALUES (?1, 'test'), (?1, 'production')",
+            [project_id],
+        )
+        .unwrap();
+
+        assert_eq!(
+            load_project(&conn, project_id).unwrap_err(),
+            "release package project is not configured"
+        );
+    }
+
+    #[test]
+    fn load_project_rejects_two_configured_environments() {
+        let conn = test_conn();
+        let created =
+            project_create_with_conn(&conn, &environment_project_payload("test")).unwrap();
+        let project_id = created["id"].as_i64().unwrap();
+        let production_environment_id = environment_id(&conn, project_id, "production");
+        let mut production = environment_project_payload("production");
+        production["id"] = json!(project_id);
+        production["environmentId"] = json!(production_environment_id);
+        project_update_with_conn(&conn, &production).unwrap();
+
+        assert_eq!(
+            load_project(&conn, project_id).unwrap_err(),
+            "上线包项目存在多个已配置环境，请使用环境 ID"
+        );
     }
 
     #[test]
@@ -2986,17 +3194,18 @@ mod tests {
 
     #[test]
     fn password_project_requires_vault_entry_but_private_key_keeps_host_and_username() {
-        let mut password = payload();
-        password["sshAuthType"] = json!("password");
-        password["vaultEntryId"] = Value::Null;
-        password["sshHost"] = json!("");
-        password["sshUsername"] = json!("");
+        let mut password = environment_project_payload("production");
+        password["environmentConfig"]["sshAuthType"] = json!("password");
+        password["environmentConfig"]["vaultEntryId"] = Value::Null;
+        password["environmentConfig"]["sshHost"] = json!("");
+        password["environmentConfig"]["sshUsername"] = json!("");
         assert_eq!(
-            parse_project_payload(&password).err().unwrap(),
+            parse_environment_payload(&password).err().unwrap(),
             "vaultEntryId is required for password authentication"
         );
 
-        let private_key = parse_project_payload(&payload()).unwrap();
+        let private_key =
+            parse_environment_payload(&environment_project_payload("production")).unwrap();
         assert_eq!(private_key.vault_entry_id, None);
         assert_eq!(private_key.frontend_success_keyword, "Build completed");
         assert_eq!(private_key.backend_success_keyword, "BUILD SUCCESS");
@@ -3021,12 +3230,12 @@ mod tests {
             VALUES (17, 'server', '{\"address\":\"10.0.0.8\",\"port\":2200,\"account\":\"deploy\"}');",
         )
         .unwrap();
-        let mut password = payload();
-        password["sshAuthType"] = json!("password");
-        password["vaultEntryId"] = json!(17);
-        password["sshPort"] = json!(0);
+        let mut password = environment_project_payload("production");
+        password["environmentConfig"]["sshAuthType"] = json!("password");
+        password["environmentConfig"]["vaultEntryId"] = json!(17);
+        password["environmentConfig"]["sshPort"] = json!(0);
 
-        let parsed_password = parse_project_payload(&password).unwrap();
+        let parsed_password = parse_environment_payload(&password).unwrap();
         assert_eq!(parsed_password.ssh_port, 22);
         let mut password_project_payload = environment_project_payload("production");
         password_project_payload["environmentConfig"]["sshAuthType"] = json!("password");
@@ -3039,10 +3248,12 @@ mod tests {
         password_project.ssh_port = 0;
         assert!(validate_upload_project(&password_project).is_ok());
 
-        let mut invalid_private_key = payload();
-        invalid_private_key["sshPort"] = json!(0);
+        let mut invalid_private_key = environment_project_payload("production");
+        invalid_private_key["environmentConfig"]["sshPort"] = json!(0);
         assert_eq!(
-            parse_project_payload(&invalid_private_key).err().unwrap(),
+            parse_environment_payload(&invalid_private_key)
+                .err()
+                .unwrap(),
             "sshPort must be between 1 and 65535"
         );
 
@@ -3322,28 +3533,28 @@ mod tests {
 
     #[test]
     fn project_validation_depends_on_package_type() {
-        let mut upload = payload();
-        upload["packageType"] = json!("server_upload");
-        upload["outputRoot"] = json!("");
-        assert!(parse_project_payload(&upload).is_ok());
+        let mut upload = environment_project_payload("production");
+        upload["environmentConfig"]["packageType"] = json!("server_upload");
+        upload["environmentConfig"]["outputRoot"] = json!("");
+        assert!(parse_environment_payload(&upload).is_ok());
 
-        upload["sshHost"] = json!("");
+        upload["environmentConfig"]["sshHost"] = json!("");
         assert_eq!(
-            parse_project_payload(&upload).err().unwrap(),
+            parse_environment_payload(&upload).err().unwrap(),
             "sshHost is required for private_key authentication"
         );
 
-        let mut local = payload();
-        local["packageType"] = json!("local_archive");
-        local["sshHost"] = json!("");
-        local["sshUsername"] = json!("");
-        local["frontendRemoteDir"] = json!("");
-        local["backendRemotePath"] = json!("");
-        assert!(parse_project_payload(&local).is_ok());
+        let mut local = environment_project_payload("production");
+        local["environmentConfig"]["packageType"] = json!("local_archive");
+        local["environmentConfig"]["sshHost"] = json!("");
+        local["environmentConfig"]["sshUsername"] = json!("");
+        local["environmentConfig"]["frontendRemoteDir"] = json!("");
+        local["environmentConfig"]["backendRemotePath"] = json!("");
+        assert!(parse_environment_payload(&local).is_ok());
 
-        local["outputRoot"] = json!("");
+        local["environmentConfig"]["outputRoot"] = json!("");
         assert_eq!(
-            parse_project_payload(&local).err().unwrap(),
+            parse_environment_payload(&local).err().unwrap(),
             "outputRoot is required for local_archive"
         );
     }
