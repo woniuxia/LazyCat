@@ -1230,7 +1230,26 @@ fn run_post_upload_commands(
     cancelled: Arc<AtomicBool>,
     sink: Arc<dyn EventSink>,
 ) -> PipelineSummary {
-    if !summary.remote_committed || commands.is_empty() {
+    if !summary.remote_committed {
+        return summary;
+    }
+
+    for manifest in &summary.manifests {
+        if !commands
+            .iter()
+            .any(|command| command.target == manifest.target)
+        {
+            emit_command_status(
+                sink.as_ref(),
+                run_id,
+                project_id,
+                manifest.target,
+                "skipped",
+                None,
+            );
+        }
+    }
+    if commands.is_empty() {
         return summary;
     }
 
@@ -3548,20 +3567,51 @@ mod pipeline_tests {
     #[test]
     fn post_upload_commands_keep_success_when_no_command_is_configured() {
         let (remote, calls) = CommandRemote::new([]);
+        let sink = Arc::new(CollectingSink::default());
+        let mut upload = succeeded_upload_summary();
+        upload.manifests = [ReleaseTarget::Frontend, ReleaseTarget::Backend]
+            .into_iter()
+            .map(|target| ArtifactManifest {
+                target,
+                source_path: PathBuf::new(),
+                entries: Vec::new(),
+                file_count: 0,
+                total_bytes: 0,
+            })
+            .collect();
 
         let summary = run_post_upload_commands(
             "post-upload-run",
             7,
-            succeeded_upload_summary(),
+            upload,
             Vec::new(),
             Box::new(remote),
             Arc::new(AtomicBool::new(false)),
-            Arc::new(CollectingSink::default()),
+            sink.clone(),
         );
 
         assert!(calls.lock().unwrap().is_empty());
         assert_eq!(summary.status, "succeeded");
         assert!(summary.failed_commands.is_empty());
+        let command_states = sink
+            .statuses
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|event| {
+                Some((
+                    event.command_target.as_deref()?.to_string(),
+                    event.command_status.as_deref()?.to_string(),
+                ))
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            command_states,
+            vec![
+                ("frontend".to_string(), "skipped".to_string()),
+                ("backend".to_string(), "skipped".to_string()),
+            ]
+        );
     }
 
     #[test]
