@@ -14,10 +14,13 @@ use super::helpers::db_conn;
 use super::release_package_archive::{default_folder_name, validate_folder_name};
 use super::release_package_remote::run_command_preflight;
 use super::release_package_remote::{
-    classify_trust, consume_probe, discard_preflight, discard_probe, issue_preflight, load_probe,
-    probe_host, run_remote_preflight, store_probe, validate_remote_dir, validate_remote_file,
-    AuthSecret, HostTrust, PreflightBinding, ProbeSnapshot, RemoteEndpoint, RemoteTarget,
+    classify_trust, consume_probe_for_environment, discard_preflight, discard_probe,
+    issue_preflight, load_probe, probe_host, run_remote_preflight, store_probe,
+    validate_remote_dir, validate_remote_file, AuthSecret, HostTrust, PreflightBinding,
+    ProbeSnapshot, RemoteEndpoint, RemoteTarget,
 };
+#[cfg(test)]
+use super::release_package_remote::consume_probe;
 use zeroize::Zeroizing;
 
 pub const LEGACY_OUTPUT_ROOT_KEY: &str = "release_package.output_root";
@@ -1636,10 +1639,7 @@ fn host_trust_with_conn(
 ) -> Result<Value, String> {
     let project = load_environment(conn, environment_id)?;
     require_package_type(&project, ReleasePackageType::ServerUpload, "host_trust")?;
-    let snapshot = consume_probe(probe_token)?;
-    if snapshot.environment_id != environment_id {
-        return Err("SSH 探测令牌与当前环境不匹配".into());
-    }
+    let snapshot = consume_probe_for_environment(probe_token, environment_id)?;
     trust_host_with_conn(conn, &snapshot, replace_existing)?;
     let next_token = store_probe(snapshot.clone())?;
     Ok(json!({
@@ -1965,7 +1965,6 @@ pub fn execute_with_app(
             let environment_id = required_positive_id(payload, "environmentId")?;
             let conn = db_conn()?;
             let project = load_environment(&conn, environment_id)?;
-            validate_start_confirmation(project.environment, payload)?;
             require_package_type(&project, ReleasePackageType::ServerUpload, "upload_retry")?;
             let retry_token = payload["retryToken"]
                 .as_str()
@@ -2010,7 +2009,6 @@ pub fn execute_with_app(
                 .ok_or("authToken is required")?;
             let conn = db_conn()?;
             let project = load_environment(&conn, environment_id)?;
-            validate_start_confirmation(project.environment, payload)?;
             require_package_type(
                 &project,
                 ReleasePackageType::ServerUpload,
@@ -3480,6 +3478,39 @@ mod tests {
     }
 
     #[test]
+    fn host_trust_environment_mismatch_does_not_consume_the_probe_token() {
+        let conn = test_conn();
+        let created =
+            project_create_with_conn(&conn, &environment_project_payload("test")).unwrap();
+        let project_id = created["id"].as_i64().unwrap();
+        let test_environment_id = created["environmentId"].as_i64().unwrap();
+        let production_environment_id = environment_id(&conn, project_id, "production");
+        let mut production = environment_project_payload("production");
+        production["id"] = json!(project_id);
+        production["environmentId"] = json!(production_environment_id);
+        project_update_with_conn(&conn, &production).unwrap();
+
+        let snapshot = ProbeSnapshot {
+            environment_id: test_environment_id,
+            endpoint: RemoteEndpoint {
+                host: "server.example.internal".into(),
+                port: 22,
+                username: "deploy".into(),
+            },
+            key_type: "ed25519".into(),
+            fingerprint_sha256: "SHA256:test".into(),
+        };
+        let probe_token = store_probe(snapshot).unwrap();
+
+        assert_eq!(
+            host_trust_with_conn(&conn, production_environment_id, &probe_token, false)
+                .unwrap_err(),
+            "SSH 探测令牌与当前环境不匹配"
+        );
+        assert!(host_trust_with_conn(&conn, test_environment_id, &probe_token, false).is_ok());
+    }
+
+    #[test]
     fn local_archive_cannot_trust_a_host_and_does_not_consume_the_probe_token() {
         let conn = test_conn();
         let mut local = environment_project_payload("production");
@@ -3689,14 +3720,18 @@ mod tests {
     }
 
     #[test]
-    fn every_remote_running_action_checks_production_confirmation_before_side_effects() {
+    fn start_checks_production_confirmation_before_starting_the_runtime() {
         let source = include_str!("release_package.rs");
-        let confirmation = [
-            "validate_start_confirmation(",
-            "project.environment, payload)?;",
-        ]
-        .concat();
-        assert_eq!(source.matches(&confirmation).count(), 3);
+        let execute = source.find("pub fn execute_with_app(").unwrap();
+        let start = source[execute..].find("\"start\" => {").unwrap() + execute;
+        let end = source[start..].find("\"upload_retry\" => {").unwrap() + start;
+        let start_action = &source[start..end];
+
+        let confirmation = start_action.find("validate_start_confirmation(").unwrap();
+        let runtime_start = start_action
+            .find("super::release_package_runtime::start(")
+            .unwrap();
+        assert!(confirmation < runtime_start);
     }
 
     #[test]

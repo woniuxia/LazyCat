@@ -1028,6 +1028,33 @@ pub fn consume_probe(token: &str) -> Result<ProbeSnapshot, String> {
     Ok(probe.snapshot)
 }
 
+pub fn consume_probe_for_environment(
+    token: &str,
+    environment_id: i64,
+) -> Result<ProbeSnapshot, String> {
+    let mut probes = PROBES
+        .get_or_init(|| Mutex::new(HashMap::new()))
+        .lock()
+        .map_err(|_| "SSH 探测令牌存储不可用".to_string())?;
+    let now = Instant::now();
+    {
+        let probe = probes
+            .get(token)
+            .ok_or_else(|| "SSH 探测令牌无效或已使用".to_string())?;
+        if probe.expires_at <= now {
+            probes.remove(token);
+            return Err("SSH 探测令牌已过期".into());
+        }
+        if probe.snapshot.environment_id != environment_id {
+            return Err("SSH 探测令牌与当前环境不匹配".into());
+        }
+    }
+    probes
+        .remove(token)
+        .map(|probe| probe.snapshot)
+        .ok_or_else(|| "SSH 探测令牌无效或已使用".to_string())
+}
+
 pub fn discard_probe(token: &str) -> Result<(), String> {
     let mut probes = PROBES
         .get_or_init(|| Mutex::new(HashMap::new()))
