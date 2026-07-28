@@ -194,8 +194,38 @@ describe("release package runtime state", () => {
       currentPath: "assets/app.js",
     });
     expect(projectRuntime.retryToken).toBe("retry-1");
+    expect(projectRuntime.commandRetryToken).toBe("");
     expect(projectRuntime.archivePath).toBe("");
     expect(runtime.archivePath.value).toBe("");
     expect(runtime.isRunning.value).toBe(false);
+  });
+
+  it("tracks failed post-upload commands without overwriting the upload retry token", async () => {
+    listenMock.mockImplementation(async (name: string, handler: (event: { payload: unknown }) => void) => {
+      listeners.set(name, handler);
+      return vi.fn();
+    });
+    const runtime = useReleasePackageRuntime();
+    await runtime.ensureListeners();
+    runtime.beginStart(7, ["frontend", "backend"]);
+    runtime.bindStartedRun("run-1", 7);
+
+    emit("release-package://status", {
+      ...status("run-1", 7, "failed", "upload"),
+      commandTarget: "frontend",
+      commandStatus: "failed",
+      error: "退出码 7",
+    });
+    emit("release-package://status", {
+      ...status("run-1", 7, "upload_succeeded_command_failed"),
+      commandRetryToken: "command-retry-1",
+    });
+
+    const projectRuntime = runtime.getProjectRuntime(7);
+    expect(projectRuntime.commandStatus.frontend).toBe("failed");
+    expect(projectRuntime.commandErrors.frontend).toBe("退出码 7");
+    expect(projectRuntime.commandStatus.backend).toBe("pending");
+    expect(projectRuntime.commandRetryToken).toBe("command-retry-1");
+    expect(projectRuntime.retryToken).toBe("");
   });
 });
