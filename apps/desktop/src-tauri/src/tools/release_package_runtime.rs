@@ -41,6 +41,7 @@ enum CommandError {
     ExitCode(i32),
     Spawn(String),
     Wait(String),
+    Output(String),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -53,7 +54,7 @@ impl CommandError {
         match self {
             Self::Cancelled => "构建已取消".into(),
             Self::ExitCode(code) => format!("PowerShell 命令退出码：{code}"),
-            Self::Spawn(message) | Self::Wait(message) => message.clone(),
+            Self::Spawn(message) | Self::Wait(message) | Self::Output(message) => message.clone(),
         }
     }
 }
@@ -67,38 +68,63 @@ fn decode_console_line(bytes: &[u8]) -> String {
     }
 }
 
+fn read_console_output<R: BufRead>(
+    reader: &mut R,
+    stream: &'static str,
+    emit: &dyn Fn(&'static str, String),
+    success_keyword: Option<&str>,
+    success_keyword_matched: &AtomicBool,
+) -> Result<(), String> {
+    let mut bytes = Vec::new();
+    loop {
+        bytes.clear();
+        match reader.read_until(b'\n', &mut bytes) {
+            Ok(0) => return Ok(()),
+            Ok(_) => {
+                let line = decode_console_line(&bytes);
+                if success_keyword.is_some_and(|keyword| line.contains(keyword)) {
+                    success_keyword_matched.store(true, Ordering::Release);
+                }
+                emit(stream, line);
+            }
+            Err(error) => {
+                return Err(format!("读取 PowerShell {stream} 输出失败：{error}"));
+            }
+        }
+    }
+}
+
 fn spawn_reader<R>(
     reader: R,
     stream: &'static str,
     emit: Arc<dyn Fn(&'static str, String) + Send + Sync>,
     success_keyword: Option<Arc<String>>,
     success_keyword_matched: Arc<AtomicBool>,
-) -> thread::JoinHandle<()>
+) -> thread::JoinHandle<Result<(), String>>
 where
     R: Read + Send + 'static,
 {
     thread::spawn(move || {
         let mut reader = BufReader::new(reader);
-        let mut bytes = Vec::new();
-        loop {
-            bytes.clear();
-            match reader.read_until(b'\n', &mut bytes) {
-                Ok(0) | Err(_) => break,
-                Ok(_) => {
-                    let line = decode_console_line(&bytes);
-                    if success_keyword
-                        .as_deref()
-                        .is_some_and(|keyword| line.contains(keyword.as_str()))
-                    {
-                        success_keyword_matched.store(true, Ordering::Release);
-                    }
-                    emit(stream, line);
-                }
-            }
-        }
+        read_console_output(
+            &mut reader,
+            stream,
+            emit.as_ref(),
+            success_keyword.as_deref().map(String::as_str),
+            success_keyword_matched.as_ref(),
+        )
     })
 }
 
+fn join_reader(
+    handle: thread::JoinHandle<Result<(), String>>,
+    stream: &'static str,
+) -> Result<(), CommandError> {
+    handle
+        .join()
+        .map_err(|_| CommandError::Output(format!("PowerShell {stream} 输出读取线程异常退出")))?
+        .map_err(CommandError::Output)
+}
 #[cfg(windows)]
 fn run_powershell(
     cwd: &Path,
@@ -172,12 +198,14 @@ fn run_powershell(
             }
         }
     };
-    let _ = stdout.join();
-    let _ = stderr.join();
+    let stdout_result = join_reader(stdout, "stdout");
+    let stderr_result = join_reader(stderr, "stderr");
     *pid_slot.lock().unwrap() = None;
     if cancelled.load(Ordering::Acquire) {
         return Err(CommandError::Cancelled);
     }
+    stdout_result?;
+    stderr_result?;
     if status.success() {
         Ok(CommandOutcome {
             success_keyword_matched: success_keyword_matched.load(Ordering::Acquire),
@@ -2559,6 +2587,45 @@ mod tests {
             terminal.find("finish_release_package_run").unwrap()
                 < terminal.find("sink.status").unwrap()
         );
+    }
+
+    #[test]
+    fn powershell_output_read_error_is_not_treated_as_eof_after_keyword_match() {
+        struct FailingReader {
+            delivered_line: bool,
+        }
+
+        impl Read for FailingReader {
+            fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+                if self.delivered_line {
+                    return Err(std::io::Error::other("injected output read failure"));
+                }
+                self.delivered_line = true;
+                let line = b"Build completed\n";
+                buffer[..line.len()].copy_from_slice(line);
+                Ok(line.len())
+            }
+        }
+
+        let matched = AtomicBool::new(false);
+        let logs = Mutex::new(Vec::new());
+        let mut reader = BufReader::new(FailingReader {
+            delivered_line: false,
+        });
+        let error = read_console_output(
+            &mut reader,
+            "stdout",
+            &|stream: &'static str, line: String| {
+                logs.lock().unwrap().push((stream.to_string(), line))
+            },
+            Some("Build completed"),
+            &matched,
+        )
+        .unwrap_err();
+
+        assert!(matched.load(Ordering::Acquire));
+        assert_eq!(logs.lock().unwrap().len(), 1);
+        assert!(error.contains("读取 PowerShell stdout 输出失败"));
     }
 
     #[test]
