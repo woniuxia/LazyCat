@@ -61,6 +61,20 @@ Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force
   },
 ] as const satisfies readonly ReleasePackageCommandExample[];
 
+export const RELEASE_PACKAGE_BACKEND_COMMAND_EXAMPLES = [
+  ...RELEASE_PACKAGE_COMMAND_EXAMPLES,
+  {
+    id: "maven-build-settings",
+    title: "使用指定 settings.xml 构建",
+    description: "通过 Maven settings.xml 指定仓库、镜像和认证配置，并在构建失败时退出脚本。",
+    command: `mvn --settings "C:\\Tools\\maven\\conf\\settings.xml" clean package -Pprod
+if (-not $?) {
+  $code = if ($null -ne $LASTEXITCODE -and $LASTEXITCODE -ne 0) { $LASTEXITCODE } else { 1 }
+  exit $code
+}`,
+  },
+] as const satisfies readonly ReleasePackageCommandExample[];
+
 export function createDefaultReleasePackageTargets(): ReleasePackageTarget[] {
   return ["frontend", "backend"];
 }

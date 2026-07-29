@@ -58,7 +58,12 @@
                 <el-button v-if="selectedProject" :icon="Delete" type="danger" text :disabled="editorLocked" @click="deleteProject">
                   删除配置
                 </el-button>
-                <el-button :icon="DocumentChecked" :loading="saving" :disabled="running || switchingEnvironment" @click="saveProject">
+                <el-button
+                  :icon="DocumentChecked"
+                  :loading="saving"
+                  :disabled="saving || running || switchingEnvironment || (!dirty && !pendingSavedIdentity)"
+                  @click="saveProject"
+                >
                   {{ pendingSavedIdentity ? "重试刷新" : "保存配置" }}
                 </el-button>
                 <el-button :icon="VideoPlay" type="primary" :disabled="editorLocked || !selectedProject || dirty" @click="prepareStart">开始打包</el-button>
@@ -67,25 +72,35 @@
               </div>
             </header>
 
-            <div class="environment-switcher" aria-label="发布环境">
-              <el-radio-group
-                :model-value="selectedEnvironmentKind"
-                :disabled="editorLocked"
-                @change="selectEnvironment"
+            <div class="environment-toolbar">
+              <div class="environment-switcher" aria-label="发布环境">
+                <el-radio-group
+                  :model-value="selectedEnvironmentKind"
+                  :disabled="editorLocked"
+                  @change="selectEnvironment"
+                >
+                  <el-radio-button value="test">
+                    测试环境
+                    <el-tag size="small" effect="plain">
+                      {{ environmentStatusLabel("test") }}
+                    </el-tag>
+                  </el-radio-button>
+                  <el-radio-button value="production">
+                    生产环境
+                    <el-tag type="danger" size="small" effect="plain">
+                      {{ environmentStatusLabel("production") }}
+                    </el-tag>
+                  </el-radio-button>
+                </el-radio-group>
+              </div>
+              <el-button
+                :icon="CopyDocument"
+                :disabled="!canCopyEnvironment"
+                :title="canCopyEnvironment ? `复制当前配置到${copyTargetEnvironmentLabel}` : '请先保存当前环境的完整配置'"
+                @click="copyEnvironmentConfiguration"
               >
-                <el-radio-button value="test">
-                  测试环境
-                  <el-tag size="small" effect="plain">
-                    {{ environmentStatusLabel("test") }}
-                  </el-tag>
-                </el-radio-button>
-                <el-radio-button value="production">
-                  生产环境
-                  <el-tag type="danger" size="small" effect="plain">
-                    {{ environmentStatusLabel("production") }}
-                  </el-tag>
-                </el-radio-button>
-              </el-radio-group>
+                复制到{{ copyTargetEnvironmentLabel }}
+              </el-button>
             </div>
 
             <div class="project-basics">
@@ -218,7 +233,7 @@
                         <el-button type="primary" text size="small">常用示例</el-button>
                       </template>
                       <div class="command-example-list">
-                        <article v-for="example in RELEASE_PACKAGE_COMMAND_EXAMPLES" :key="example.id" class="command-example-item">
+                        <article v-for="example in RELEASE_PACKAGE_BACKEND_COMMAND_EXAMPLES" :key="example.id" class="command-example-item">
                           <div class="command-example-heading">
                             <strong>{{ example.title }}</strong>
                             <el-button
@@ -776,6 +791,7 @@ import type {
   ReleasePackageTargetStatus,
 } from "../types/release-package";
 import {
+  RELEASE_PACKAGE_BACKEND_COMMAND_EXAMPLES,
   RELEASE_PACKAGE_COMMAND_EXAMPLES,
   createDefaultReleasePackageTargets,
   createEmptyReleasePackageEnvironmentDraft,
@@ -959,6 +975,17 @@ const editorLocked = computed(() => (
   || switchingEnvironment.value
   || pendingSavedIdentity.value !== null
 ));
+const copyTargetEnvironmentKind = computed<ReleasePackageEnvironmentKind>(() => (
+  selectedEnvironmentKind.value === "test" ? "production" : "test"
+));
+const copyTargetEnvironmentLabel = computed(() => (
+  copyTargetEnvironmentKind.value === "production" ? "生产环境" : "测试环境"
+));
+const canCopyEnvironment = computed(() => (
+  selectedEnvironment.value?.configured === true
+  && !dirty.value
+  && !editorLocked.value
+));
 const statusLabel = computed(() => releasePackageRunStatusLabel(status.value));
 const hasCommittedArchive = computed(() => Boolean(archivePath.value) && [
   "succeeded",
@@ -1113,6 +1140,21 @@ async function copyCommandExample(command: string): Promise<void> {
   } catch (error) {
     showError(error);
   }
+}
+
+function copyEnvironmentConfiguration(): void {
+  const sourceEnvironment = selectedEnvironment.value;
+  if (!sourceEnvironment?.configured || dirty.value || editorLocked.value) return;
+
+  const sourceLabel = sourceEnvironment.environment === "production" ? "生产环境" : "测试环境";
+  const targetKind = copyTargetEnvironmentKind.value;
+  const targetLabel = targetKind === "production" ? "生产环境" : "测试环境";
+  const copiedDraft = environmentToReleasePackageDraft(sourceEnvironment);
+
+  selectedEnvironmentKind.value = targetKind;
+  Object.assign(environmentDraft, copiedDraft);
+  productionConfirmed.value = false;
+  ElMessage.success(`已从${sourceLabel}复制到${targetLabel}，请确认后保存`);
 }
 
 function restoreSelectedDrafts(): void {
@@ -1975,10 +2017,15 @@ onMounted(async () => {
 }
 .editor-title { min-width: 0; flex: 1; }
 .editor-header h2 { margin: 0; color: #303133; font-size: 18px; }
-.environment-switcher {
+.environment-toolbar {
   display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
   padding: 12px 16px 0;
 }
+.environment-switcher { display: flex; }
 .environment-switcher :deep(.el-radio-group) { display: flex; }
 .environment-switcher :deep(.el-radio-button__inner) {
   display: inline-flex;
@@ -2396,6 +2443,7 @@ onMounted(async () => {
 @media (max-width: 640px) {
   .editor-header { flex-direction: column; }
   .editor-actions { justify-content: flex-start; }
+  .environment-toolbar { align-items: flex-start; }
   .artifact-grid { grid-template-columns: 1fr; gap: 0; }
   .project-basics-grid { grid-template-columns: 1fr; gap: 0; }
   .server-auth-type-row { width: 100%; }

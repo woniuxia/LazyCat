@@ -21,6 +21,7 @@ import {
   normalizeVaultServerPort,
   projectToReleasePackageProjectDraft,
   releasePackageRunStatusLabel,
+  RELEASE_PACKAGE_BACKEND_COMMAND_EXAMPLES,
   RELEASE_PACKAGE_COMMAND_EXAMPLES,
   validateReleasePackageEnvironmentDraft,
   validateReleasePackageProjectDraft,
@@ -128,6 +129,20 @@ if (-not $?) {
   $code = if ($null -ne $LASTEXITCODE -and $LASTEXITCODE -ne 0) { $LASTEXITCODE } else { 1 }
   exit $code
 }`);
+  });
+
+  it("provides a backend-only Maven settings file build example", () => {
+    const example = RELEASE_PACKAGE_BACKEND_COMMAND_EXAMPLES.find(
+      (item) => item.id === "maven-build-settings",
+    );
+
+    expect(example).toMatchObject({
+      title: "使用指定 settings.xml 构建",
+      description: "通过 Maven settings.xml 指定仓库、镜像和认证配置，并在构建失败时退出脚本。",
+    });
+    expect(example?.command).toContain('mvn --settings "C:\\Tools\\maven\\conf\\settings.xml" clean package -Pprod');
+    expect(example?.command).toContain("$LASTEXITCODE");
+    expect(RELEASE_PACKAGE_COMMAND_EXAMPLES.some((item) => String(item.id) === "maven-build-settings")).toBe(false);
   });
 
   describe.runIf(process.platform === "win32")("Maven PowerShell command failure propagation", () => {

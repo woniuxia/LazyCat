@@ -251,6 +251,88 @@ describe("ReleasePackagePanel", () => {
     expect(source).toContain('environment.configured ? "已配置" : "待配置"');
   });
 
+  it("disables save for a clean draft and enables it after an edit", async () => {
+    panelHarness.invoke.mockReset();
+    panelHarness.invoke.mockImplementation(async (channel: string) => {
+      if (channel === "tool:release-package:project-list") return { projects: [mountedProject] };
+      if (channel === "tool:vault:meta-list") return [];
+      return {};
+    });
+    const { default: ReleasePackagePanel } = await import("./ReleasePackagePanel.vue");
+    const renderer = createPanelRenderer();
+    const root = hostNode("root");
+    const app = renderer.createApp(ReleasePackagePanel);
+    registerElementStubs(app);
+    app.mount(root);
+    await flushMountedPanel();
+
+    expect(findButton(root, "保存配置")?.props.disabled).toBe(true);
+    const commandInput = findNode(root, (node) => node.props.modelValue === "pnpm build:test");
+    expect(commandInput).not.toBeNull();
+    (commandInput?.props["onUpdate:modelValue"] as ((value: string) => void))("pnpm build:test --changed");
+    await nextTick();
+
+    expect(findButton(root, "保存配置")?.props.disabled).toBe(false);
+    app.unmount();
+  });
+
+  it("copies a saved environment into the opposite environment as an unsaved draft", async () => {
+    panelHarness.invoke.mockReset();
+    panelHarness.invoke.mockImplementation(async (channel: string) => {
+      if (channel === "tool:release-package:project-list") return { projects: [mountedProject] };
+      if (channel === "tool:vault:meta-list") return [];
+      return {};
+    });
+    const { default: ReleasePackagePanel } = await import("./ReleasePackagePanel.vue");
+    const renderer = createPanelRenderer();
+    const root = hostNode("root");
+    const app = renderer.createApp(ReleasePackagePanel);
+    registerElementStubs(app);
+    app.mount(root);
+    await flushMountedPanel();
+
+    const copyToProduction = findButton(root, "复制到生产环境");
+    expect(copyToProduction?.props.disabled).toBe(false);
+    await (copyToProduction?.props.onClick as (() => Promise<void>))();
+    await nextTick();
+
+    expect(findNode(root, (node) => node.props["model-value"] === "production")).not.toBeNull();
+    expect(modelValues(root)).toContain("pnpm build:test");
+    expect(modelValues(root)).not.toContain("pnpm build:prod");
+    expect(findButton(root, "复制到测试环境")).not.toBeNull();
+    expect(findButton(root, "保存配置")?.props.disabled).toBe(false);
+    expect(panelHarness.invoke).not.toHaveBeenCalledWith("tool:release-package:project-update", expect.anything());
+    app.unmount();
+  });
+
+  it("supports copying production configuration back to test", async () => {
+    panelHarness.invoke.mockReset();
+    panelHarness.invoke.mockImplementation(async (channel: string) => {
+      if (channel === "tool:release-package:project-list") return { projects: [mountedProject] };
+      if (channel === "tool:vault:meta-list") return [];
+      return {};
+    });
+    const { default: ReleasePackagePanel } = await import("./ReleasePackagePanel.vue");
+    const renderer = createPanelRenderer();
+    const root = hostNode("root");
+    const app = renderer.createApp(ReleasePackagePanel);
+    registerElementStubs(app);
+    app.mount(root);
+    await flushMountedPanel();
+
+    const environmentControl = findNode(root, (node) => node.props["model-value"] === "test");
+    await (environmentControl?.props.onChange as ((value: string) => Promise<void>))("production");
+    await nextTick();
+    await (findButton(root, "复制到测试环境")?.props.onClick as (() => Promise<void>))();
+    await nextTick();
+
+    expect(findNode(root, (node) => node.props["model-value"] === "test")).not.toBeNull();
+    expect(modelValues(root)).toContain("pnpm build:prod");
+    expect(modelValues(root)).not.toContain("pnpm build:test");
+    expect(findButton(root, "保存配置")?.props.disabled).toBe(false);
+    app.unmount();
+  });
+
   it("guards dirty environment switches and saves shared plus selected environment", () => {
     expect(source).toContain("async function selectEnvironment");
     expect(source).toContain("await confirmDiscardChanges()");
@@ -267,7 +349,6 @@ describe("ReleasePackagePanel", () => {
   });
 
   it("mounts the test environment without leaking production commands", async () => {
-    panelHarness.listeners.clear();
     panelHarness.invoke.mockImplementation(async (channel: string) => {
       if (channel === "tool:release-package:project-list") return { projects: [mountedProject] };
       if (channel === "tool:vault:meta-list") return [];
@@ -524,6 +605,7 @@ describe("ReleasePackagePanel", () => {
     const copyFunctionSource = source.slice(copyFunctionStart, nextAsyncFunction);
 
     expect(source).toContain("RELEASE_PACKAGE_COMMAND_EXAMPLES");
+    expect(source).toContain("RELEASE_PACKAGE_BACKEND_COMMAND_EXAMPLES");
     expect(source.match(/常用示例/g)?.length).toBeGreaterThanOrEqual(2);
     expect(source).toContain("CopyDocument");
     expect(copyFunctionStart).toBeGreaterThan(-1);
