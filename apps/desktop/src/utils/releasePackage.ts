@@ -155,11 +155,13 @@ export function createEmptyReleasePackageEnvironmentDraft(): ReleasePackageEnvir
   return {
     packageType: "local_archive",
     outputRoot: "",
+    frontendExpectedBranch: "master",
     frontendBuildCommand: "",
     frontendSuccessKeyword: "",
     frontendPostUploadCommand: "",
     frontendArtifactPath: "",
     frontendArtifactMode: "copy_directory",
+    backendExpectedBranch: "master",
     backendBuildCommand: "",
     backendSuccessKeyword: "",
     backendPostUploadCommand: "",
@@ -196,11 +198,13 @@ export function environmentToReleasePackageDraft(
   return normalizeReleasePackageEnvironmentDraft({
     packageType: environment.packageType,
     outputRoot: environment.outputRoot,
+    frontendExpectedBranch: environment.frontendExpectedBranch,
     frontendBuildCommand: environment.frontendBuildCommand,
     frontendSuccessKeyword: environment.frontendSuccessKeyword,
     frontendPostUploadCommand: environment.frontendPostUploadCommand,
     frontendArtifactPath: environment.frontendArtifactPath,
     frontendArtifactMode: environment.frontendArtifactMode,
+    backendExpectedBranch: environment.backendExpectedBranch,
     backendBuildCommand: environment.backendBuildCommand,
     backendSuccessKeyword: environment.backendSuccessKeyword,
     backendPostUploadCommand: environment.backendPostUploadCommand,
@@ -232,11 +236,13 @@ export function normalizeReleasePackageEnvironmentDraft(
   return {
     packageType: draft.packageType,
     outputRoot: draft.outputRoot.trim(),
+    frontendExpectedBranch: draft.frontendExpectedBranch.trim(),
     frontendBuildCommand: draft.frontendBuildCommand.trim(),
     frontendSuccessKeyword: draft.frontendSuccessKeyword.trim(),
     frontendPostUploadCommand: draft.frontendPostUploadCommand.trim(),
     frontendArtifactPath: draft.frontendArtifactPath.trim(),
     frontendArtifactMode: draft.frontendArtifactMode,
+    backendExpectedBranch: draft.backendExpectedBranch.trim(),
     backendBuildCommand: draft.backendBuildCommand.trim(),
     backendSuccessKeyword: draft.backendSuccessKeyword.trim(),
     backendPostUploadCommand: draft.backendPostUploadCommand.trim(),
@@ -300,8 +306,10 @@ export function validateReleasePackageProjectDraft(draft: ReleasePackageProjectD
 export function validateReleasePackageEnvironmentDraft(draft: ReleasePackageEnvironmentDraft): string | null {
   const value = normalizeReleasePackageEnvironmentDraft(draft);
   if (value.packageType === "local_archive" && !value.outputRoot) return "请选择归档根目录";
+  if (!value.frontendExpectedBranch) return "请输入前端生产分支";
   if (!value.frontendBuildCommand) return "请输入前端构建命令";
   if (!value.frontendArtifactPath) return "请输入前端产物路径";
+  if (!value.backendExpectedBranch) return "请输入后端生产分支";
   if (!value.backendBuildCommand) return "请输入后端构建命令";
   if (!value.backendArtifactPath) return "请输入后端产物路径";
   return value.packageType === "server_upload" ? validateReleasePackageUpload(value) : null;

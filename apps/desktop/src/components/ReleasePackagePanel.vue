@@ -137,6 +137,14 @@
                   <template #append><el-button :icon="FolderOpened" :disabled="running" @click="chooseFrontendProject">选择</el-button></template>
                 </el-input>
               </el-form-item>
+              <el-form-item v-if="selectedEnvironmentKind === 'production'" label="生产分支" required>
+                <el-input
+                  v-model="environmentDraft.frontendExpectedBranch"
+                  :disabled="running"
+                  placeholder="master"
+                />
+                <p class="command-hint">生产打包前必须与当前 Git 分支完全一致。</p>
+              </el-form-item>
               <el-form-item required>
                 <template #label>
                   <div class="command-label-row">
@@ -217,6 +225,14 @@
                 <el-input v-model="projectDraft.backendProjectPath" :disabled="running" placeholder="后端工程绝对路径">
                   <template #append><el-button :icon="FolderOpened" :disabled="running" @click="chooseBackendProject">选择</el-button></template>
                 </el-input>
+              </el-form-item>
+              <el-form-item v-if="selectedEnvironmentKind === 'production'" label="生产分支" required>
+                <el-input
+                  v-model="environmentDraft.backendExpectedBranch"
+                  :disabled="running"
+                  placeholder="master"
+                />
+                <p class="command-hint">生产打包前必须与当前 Git 分支完全一致。</p>
               </el-form-item>
               <el-form-item required>
                 <template #label>
@@ -623,7 +639,11 @@
       <p v-if="isLocalArchiveStart" class="archive-preview">完整归档路径：{{ archivePathPreview || "请先设置归档根目录" }}</p>
       <div v-if="!retryMode" class="package-targets">
         <span class="package-targets-label">本次打包内容（默认全选）</span>
-        <el-checkbox-group v-model="selectedTargets" :disabled="starting || productionConfirmed">
+        <el-checkbox-group
+          v-model="selectedTargets"
+          :disabled="starting || branchChecking || productionConfirmed"
+          @change="resetProductionBranchCheck"
+        >
           <el-checkbox label="前端包" value="frontend" />
           <el-checkbox label="后端包" value="backend" />
         </el-checkbox-group>
@@ -637,10 +657,21 @@
           <div><span>项目</span><strong>{{ selectedProject?.name || "-" }}</strong></div>
           <div><span>打包内容</span><strong>{{ productionTargetLabel }}</strong></div>
           <div><span>交付方式</span><strong>{{ productionPackageTypeLabel }}</strong></div>
+          <div v-if="!retryMode && selectedTargets.includes('frontend')"><span>前端生产分支</span><code>{{ environmentDraft.frontendExpectedBranch }}</code></div>
+          <div v-if="!retryMode && selectedTargets.includes('backend')"><span>后端生产分支</span><code>{{ environmentDraft.backendExpectedBranch }}</code></div>
           <div v-if="isLocalArchiveStart"><span>归档路径</span><code>{{ archivePathPreview || "-" }}</code></div>
           <div v-else><span>SSH 目标</span><code>{{ productionSshEndpoint }}</code></div>
           <div v-if="isUploadStart && selectedTargets.includes('frontend')"><span>前端远程目录</span><code>{{ environmentDraft.frontendRemoteDir || "-" }}</code></div>
           <div v-if="isUploadStart && selectedTargets.includes('backend')"><span>后端远程文件</span><code>{{ environmentDraft.backendRemotePath || "-" }}</code></div>
+        </div>
+        <div v-if="!retryMode && branchCheckResult" class="branch-check-summary" aria-live="polite">
+          <div v-for="check in branchCheckResult.checks" :key="check.target" class="branch-check-row">
+            <span>{{ check.target === "frontend" ? "前端" : "后端" }}</span>
+            <code>{{ branchCheckCurrentLabel(check) }} → {{ check.expectedBranch }}</code>
+            <el-tag :type="check.matches ? 'success' : 'danger'" effect="plain" size="small">
+              {{ check.matches ? "通过" : "不匹配" }}
+            </el-tag>
+          </div>
         </div>
       </section>
       <div v-if="isUploadStart && uploadPreflight.probeResult.value" class="preflight-summary">
@@ -666,10 +697,11 @@
         <el-button
           v-if="selectedEnvironmentKind === 'production' && !productionConfirmed && productionSummaryReady"
           type="danger"
-          :disabled="starting"
+          :loading="branchChecking"
+          :disabled="starting || branchChecking"
           @click="confirmProductionStart"
         >
-          确认生产发布
+          {{ retryMode ? "确认生产发布" : "检查分支并确认" }}
         </el-button>
         <el-button
           v-else-if="selectedEnvironmentKind !== 'production' || productionConfirmed"
@@ -745,7 +777,7 @@
           v-if="selectedEnvironmentKind === 'production' && !productionConfirmed && commandRetry.prepareResult.value"
           type="danger"
           :disabled="commandRetryStarting"
-          @click="confirmProductionStart"
+          @click="confirmProductionRetry"
         >
           确认生产发布
         </el-button>
@@ -776,6 +808,8 @@ import { useReleasePackageCommandRetry } from "../composables/useReleasePackageC
 import { useReleasePackageUploadPreflight } from "../composables/useReleasePackageUploadPreflight";
 import type { ActionDispatchRequest } from "../types";
 import type {
+  ReleasePackageBranchCheck,
+  ReleasePackageBranchCheckResult,
   ReleasePackageCommandStatus,
   ReleasePackageEnvironmentConfig,
   ReleasePackageEnvironmentDraft,
@@ -857,6 +891,9 @@ const starting = ref(false);
 const cancelPendingStart = ref(false);
 const confirmVisible = ref(false);
 const productionConfirmed = ref(false);
+const branchChecking = ref(false);
+const branchCheckResult = ref<ReleasePackageBranchCheckResult | null>(null);
+let branchCheckRequestId = 0;
 const pendingActionDispatchId = ref<string | null>(null);
 const prepareResult = ref<ReleasePackagePrepareResult | null>(null);
 const folderName = ref("");
@@ -1441,13 +1478,59 @@ async function clearSensitiveStartState(): Promise<void> {
 
 async function resetStartDialog(): Promise<void> {
   retryMode.value = false;
-  productionConfirmed.value = false;
+  resetProductionBranchCheck();
   await clearSensitiveStartState();
 }
 
-function confirmProductionStart(): void {
+function resetProductionBranchCheck(): void {
+  branchCheckRequestId += 1;
+  branchChecking.value = false;
+  branchCheckResult.value = null;
+  productionConfirmed.value = false;
+}
+
+function branchCheckCurrentLabel(check: ReleasePackageBranchCheck): string {
+  return check.currentBranch ?? `detached ${check.detachedCommit ?? "-"}`;
+}
+
+function confirmProductionRetry(): void {
   if (selectedEnvironmentKind.value !== "production") return;
   productionConfirmed.value = true;
+}
+
+async function confirmProductionStart(): Promise<void> {
+  if (selectedEnvironmentKind.value !== "production") return;
+  if (retryMode.value) {
+    confirmProductionRetry();
+    return;
+  }
+  const environmentId = selectedEnvironment.value?.id;
+  const targetsError = validateReleasePackageTargets(selectedTargets.value);
+  if (!environmentId || targetsError) {
+    ElMessage.warning(targetsError ?? "请先选择生产环境");
+    return;
+  }
+
+  const requestId = ++branchCheckRequestId;
+  branchChecking.value = true;
+  branchCheckResult.value = null;
+  try {
+    const result = await invokeToolByChannel("tool:release-package:branch-check", {
+      environmentId,
+      targets: [...selectedTargets.value],
+    }) as ReleasePackageBranchCheckResult;
+    if (requestId !== branchCheckRequestId || !confirmVisible.value) return;
+    branchCheckResult.value = result;
+    if (!result.checks.every((check) => check.matches)) {
+      ElMessage.error("生产分支检查未通过");
+      return;
+    }
+    productionConfirmed.value = true;
+  } catch (error) {
+    if (requestId === branchCheckRequestId) showError(error);
+  } finally {
+    if (requestId === branchCheckRequestId) branchChecking.value = false;
+  }
 }
 
 async function stopPendingActionDispatch(
@@ -1466,7 +1549,7 @@ async function stopPendingActionDispatch(
 
 async function closeStartDialog(): Promise<void> {
   await stopPendingActionDispatch("cancelled");
-  productionConfirmed.value = false;
+  resetProductionBranchCheck();
   confirmVisible.value = false;
   await clearSensitiveStartState();
 }
@@ -1475,7 +1558,7 @@ async function beforeCloseStartDialog(done: () => void): Promise<void> {
   if (starting.value) return;
   try {
     await stopPendingActionDispatch("cancelled");
-    productionConfirmed.value = false;
+    resetProductionBranchCheck();
     done();
   } catch (error) {
     showError(error);
@@ -2358,6 +2441,19 @@ onMounted(async () => {
 }
 .production-summary-grid span { color: #909399; font-size: 11px; }
 .production-summary-grid strong, .production-summary-grid code { overflow-wrap: anywhere; color: #303133; font-size: 12px; }
+.branch-check-summary { display: grid; gap: 7px; }
+.branch-check-row {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid #e4e7ed;
+  border-radius: 6px;
+  background: #fff;
+}
+.branch-check-row > span { color: #606266; font-size: 12px; font-weight: 600; }
+.branch-check-row code { min-width: 0; overflow-wrap: anywhere; color: #303133; font-size: 12px; }
 .preflight-summary { display: grid; gap: 8px; margin-top: 16px; }
 .preflight-host, .preflight-target-row {
   display: grid;
@@ -2453,6 +2549,8 @@ onMounted(async () => {
   .server-command-grid { grid-template-columns: 1fr; }
   .command-retry-summary { grid-template-columns: 1fr; }
   .production-summary-grid { grid-template-columns: 1fr; }
+  .branch-check-row { grid-template-columns: 42px minmax(0, 1fr); }
+  .branch-check-row :deep(.el-tag) { grid-column: 2; justify-self: start; }
   .private-key-file-field { grid-column: auto; }
   .vault-credential-field { grid-column: auto; }
   .vault-credential-picker { flex-wrap: wrap; }

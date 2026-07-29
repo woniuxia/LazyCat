@@ -47,11 +47,13 @@ const testEnvironment: ReleasePackageEnvironmentConfig = {
   configured: true,
   packageType: "local_archive",
   outputRoot: "D:\\releases\\test",
+  frontendExpectedBranch: "master",
   frontendBuildCommand: "pnpm build:test",
   frontendSuccessKeyword: "Build completed",
   frontendPostUploadCommand: "cd /srv/test/web\n./reload.sh",
   frontendArtifactPath: "dist-test",
   frontendArtifactMode: "copy_directory",
+  backendExpectedBranch: "master",
   backendBuildCommand: "mvn clean package -Ptest",
   backendSuccessKeyword: "BUILD SUCCESS",
   backendPostUploadCommand: "systemctl restart portal-test",
@@ -203,11 +205,13 @@ Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force
     expect(createEmptyReleasePackageEnvironmentDraft()).toEqual({
       packageType: "local_archive",
       outputRoot: "",
+      frontendExpectedBranch: "master",
       frontendBuildCommand: "",
       frontendSuccessKeyword: "",
       frontendPostUploadCommand: "",
       frontendArtifactPath: "",
       frontendArtifactMode: "copy_directory",
+      backendExpectedBranch: "master",
       backendBuildCommand: "",
       backendSuccessKeyword: "",
       backendPostUploadCommand: "",
@@ -261,11 +265,13 @@ Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force
     expect(testDraft).toEqual({
       packageType: testEnvironment.packageType,
       outputRoot: testEnvironment.outputRoot,
+      frontendExpectedBranch: testEnvironment.frontendExpectedBranch,
       frontendBuildCommand: testEnvironment.frontendBuildCommand,
       frontendSuccessKeyword: testEnvironment.frontendSuccessKeyword,
       frontendPostUploadCommand: testEnvironment.frontendPostUploadCommand,
       frontendArtifactPath: testEnvironment.frontendArtifactPath,
       frontendArtifactMode: testEnvironment.frontendArtifactMode,
+      backendExpectedBranch: testEnvironment.backendExpectedBranch,
       backendBuildCommand: testEnvironment.backendBuildCommand,
       backendSuccessKeyword: testEnvironment.backendSuccessKeyword,
       backendPostUploadCommand: testEnvironment.backendPostUploadCommand,
@@ -282,11 +288,13 @@ Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force
     expect(productionDraft).toEqual({
       packageType: productionEnvironment.packageType,
       outputRoot: productionEnvironment.outputRoot,
+      frontendExpectedBranch: productionEnvironment.frontendExpectedBranch,
       frontendBuildCommand: productionEnvironment.frontendBuildCommand,
       frontendSuccessKeyword: productionEnvironment.frontendSuccessKeyword,
       frontendPostUploadCommand: productionEnvironment.frontendPostUploadCommand,
       frontendArtifactPath: productionEnvironment.frontendArtifactPath,
       frontendArtifactMode: productionEnvironment.frontendArtifactMode,
+      backendExpectedBranch: productionEnvironment.backendExpectedBranch,
       backendBuildCommand: productionEnvironment.backendBuildCommand,
       backendSuccessKeyword: productionEnvironment.backendSuccessKeyword,
       backendPostUploadCommand: productionEnvironment.backendPostUploadCommand,
@@ -384,6 +392,9 @@ Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force
     const environmentDraft = createEmptyReleasePackageEnvironmentDraft();
     expect(validateReleasePackageEnvironmentDraft(environmentDraft)).toBe("请选择归档根目录");
     environmentDraft.outputRoot = "D:\\releases";
+    environmentDraft.frontendExpectedBranch = "";
+    expect(validateReleasePackageEnvironmentDraft(environmentDraft)).toBe("请输入前端生产分支");
+    environmentDraft.frontendExpectedBranch = "master";
     expect(validateReleasePackageEnvironmentDraft(environmentDraft)).toBe("请输入前端构建命令");
   });
 

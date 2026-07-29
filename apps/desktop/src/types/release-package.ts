@@ -45,11 +45,13 @@ export interface ReleasePackageProjectDraft {
 export interface ReleasePackageEnvironmentDraft extends ReleasePackageUploadConfig {
   packageType: ReleasePackageType;
   outputRoot: string;
+  frontendExpectedBranch: string;
   frontendBuildCommand: string;
   frontendSuccessKeyword: string;
   frontendPostUploadCommand: string;
   frontendArtifactPath: string;
   frontendArtifactMode: ReleasePackageArtifactMode;
+  backendExpectedBranch: string;
   backendBuildCommand: string;
   backendSuccessKeyword: string;
   backendPostUploadCommand: string;
@@ -86,6 +88,18 @@ export type ReleasePackagePrepareResult =
 export interface ReleasePackageTargetCheckResult {
   archivePath: string;
   exists: boolean;
+}
+
+export interface ReleasePackageBranchCheck {
+  target: ReleasePackageTarget;
+  expectedBranch: string;
+  currentBranch?: string;
+  detachedCommit?: string;
+  matches: boolean;
+}
+
+export interface ReleasePackageBranchCheckResult {
+  checks: ReleasePackageBranchCheck[];
 }
 
 export interface ReleasePackageRemoteProbeResult {

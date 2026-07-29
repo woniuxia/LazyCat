@@ -230,11 +230,19 @@ const mountedProject: ReleasePackageProject = {
 
 describe("ReleasePackagePanel", () => {
   it("requires the final production confirmation and sends it only for production", () => {
-    expect(source).toContain("确认生产发布");
+    expect(source).toContain("检查分支并确认");
+    expect(source).toContain('"tool:release-package:branch-check"');
     expect(source).toContain('selectedEnvironmentKind.value === "production"');
     expect(source).toContain("async function confirmStart");
     expect(source).toContain("productionConfirmed");
     expect(source).toContain("selectedEnvironment.value.id");
+  });
+
+  it("configures independent production branches and skips checks for retries", () => {
+    expect(source).toContain("environmentDraft.frontendExpectedBranch");
+    expect(source).toContain("environmentDraft.backendExpectedBranch");
+    expect(source).toContain("if (retryMode.value)");
+    expect(source).toContain("confirmProductionRetry()");
   });
 
   it("selects an action target by environment id without keeping the default test environment", () => {

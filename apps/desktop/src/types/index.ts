@@ -208,6 +208,8 @@ export type {
   ReleasePackageProject,
   ReleasePackageProjectListResult,
   ReleasePackagePrepareResult,
+  ReleasePackageBranchCheck,
+  ReleasePackageBranchCheckResult,
   ReleasePackageStartResult,
   ReleasePackageCancelResult,
   ReleasePackageLogEvent,

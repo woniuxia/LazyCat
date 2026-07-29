@@ -4,6 +4,7 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::process::Command;
 #[cfg(test)]
 use std::{
     sync::Mutex,
@@ -12,6 +13,8 @@ use std::{
 
 use super::helpers::db_conn;
 use super::release_package_archive::{default_folder_name, validate_folder_name};
+#[cfg(test)]
+use super::release_package_remote::consume_probe;
 use super::release_package_remote::run_command_preflight;
 use super::release_package_remote::{
     classify_trust, consume_probe_for_environment, discard_preflight, discard_probe,
@@ -19,8 +22,6 @@ use super::release_package_remote::{
     validate_remote_dir, validate_remote_file, AuthSecret, HostTrust, PreflightBinding,
     ProbeSnapshot, RemoteEndpoint, RemoteTarget,
 };
-#[cfg(test)]
-use super::release_package_remote::consume_probe;
 use zeroize::Zeroizing;
 
 const LEGACY_OUTPUT_ROOT_KEY: &str = "release_package.output_root";
@@ -39,11 +40,13 @@ CREATE TABLE IF NOT EXISTS release_package_environments (
     environment TEXT NOT NULL CHECK (environment IN ('test', 'production')),
     output_root TEXT NOT NULL DEFAULT '',
     package_type TEXT NOT NULL DEFAULT 'local_archive' CHECK (package_type IN ('local_archive', 'server_upload')),
+    frontend_expected_branch TEXT NOT NULL DEFAULT 'master',
     frontend_build_command TEXT NOT NULL DEFAULT '',
     frontend_success_keyword TEXT NOT NULL DEFAULT '',
     frontend_post_upload_command TEXT NOT NULL DEFAULT '',
     frontend_artifact_path TEXT NOT NULL DEFAULT '',
     frontend_artifact_mode TEXT NOT NULL DEFAULT 'copy_directory' CHECK (frontend_artifact_mode IN ('copy_directory', 'zip_directory')),
+    backend_expected_branch TEXT NOT NULL DEFAULT 'master',
     backend_build_command TEXT NOT NULL DEFAULT '',
     backend_success_keyword TEXT NOT NULL DEFAULT '',
     backend_post_upload_command TEXT NOT NULL DEFAULT '',
@@ -110,6 +113,26 @@ fn add_legacy_column_if_missing(
             "ALTER TABLE release_package_projects ADD COLUMN {column} {definition}"
         ))
         .map_err(|error| format!("migrate release package column {column} failed: {error}"))
+}
+
+fn add_environment_column_if_missing(
+    transaction: &Transaction<'_>,
+    column: &str,
+    definition: &str,
+) -> Result<(), String> {
+    if table_columns(transaction, "release_package_environments")?
+        .iter()
+        .any(|name| name == column)
+    {
+        return Ok(());
+    }
+    transaction
+        .execute_batch(&format!(
+            "ALTER TABLE release_package_environments ADD COLUMN {column} {definition}"
+        ))
+        .map_err(|error| {
+            format!("migrate release package environment column {column} failed: {error}")
+        })
 }
 
 fn legacy_release_project_has_production_environment(
@@ -424,7 +447,24 @@ pub fn ensure_schema(conn: &Connection) -> Result<(), String> {
         return migrate_legacy_schema(conn);
     }
     conn.execute_batch(RELEASE_PACKAGE_SCHEMA_SQL)
-        .map_err(|error| format!("create release package schema failed: {error}"))
+        .map_err(|error| format!("create release package schema failed: {error}"))?;
+    let transaction =
+        Transaction::new_unchecked(conn, TransactionBehavior::Immediate).map_err(|error| {
+            format!("begin release package branch schema migration failed: {error}")
+        })?;
+    add_environment_column_if_missing(
+        &transaction,
+        "frontend_expected_branch",
+        "TEXT NOT NULL DEFAULT 'master'",
+    )?;
+    add_environment_column_if_missing(
+        &transaction,
+        "backend_expected_branch",
+        "TEXT NOT NULL DEFAULT 'master'",
+    )?;
+    transaction
+        .commit()
+        .map_err(|error| format!("commit release package branch schema migration failed: {error}"))
 }
 
 pub(crate) fn migrate_legacy_output_root(conn: &Connection) -> Result<(), String> {
@@ -452,6 +492,7 @@ const ACTIONS: &[&str] = &[
     "project_update",
     "project_delete",
     "prepare",
+    "branch_check",
     "target_check",
     "remote_probe",
     "host_trust",
@@ -551,6 +592,7 @@ pub struct ReleasePackageEnvironmentConfig {
     pub package_type: ReleasePackageType,
     #[serde(skip_serializing)]
     pub frontend_project_path: String,
+    pub frontend_expected_branch: String,
     pub frontend_build_command: String,
     pub frontend_success_keyword: String,
     pub frontend_post_upload_command: String,
@@ -558,6 +600,7 @@ pub struct ReleasePackageEnvironmentConfig {
     pub frontend_artifact_mode: String,
     #[serde(skip_serializing)]
     pub backend_project_path: String,
+    pub backend_expected_branch: String,
     pub backend_build_command: String,
     pub backend_success_keyword: String,
     pub backend_post_upload_command: String,
@@ -598,6 +641,139 @@ pub enum ReleaseTarget {
     Backend,
 }
 
+#[derive(Debug)]
+enum GitHead {
+    Branch(String),
+    Detached(String),
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BranchCheck {
+    target: ReleaseTarget,
+    expected_branch: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    current_branch: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    detached_commit: Option<String>,
+    matches: bool,
+}
+
+fn git_output(project_path: &str, args: &[&str]) -> Result<std::process::Output, String> {
+    Command::new("git")
+        .arg("-C")
+        .arg(project_path)
+        .args(args)
+        .output()
+        .map_err(|error| {
+            if error.kind() == std::io::ErrorKind::NotFound {
+                "未找到 Git，无法执行生产分支检查".to_string()
+            } else {
+                format!("无法执行 Git：{error}")
+            }
+        })
+}
+
+fn inspect_git_head(project_path: &str, target_label: &str) -> Result<GitHead, String> {
+    let repository = git_output(project_path, &["rev-parse", "--is-inside-work-tree"])?;
+    if !repository.status.success() || String::from_utf8_lossy(&repository.stdout).trim() != "true"
+    {
+        return Err(format!(
+            "{target_label}工程目录不是 Git 工作区：{project_path}"
+        ));
+    }
+
+    let branch = git_output(
+        project_path,
+        &["symbolic-ref", "--quiet", "--short", "HEAD"],
+    )?;
+    if branch.status.success() {
+        let value = String::from_utf8_lossy(&branch.stdout).trim().to_string();
+        if !value.is_empty() {
+            return Ok(GitHead::Branch(value));
+        }
+    }
+
+    let commit = git_output(project_path, &["rev-parse", "--short", "HEAD"])?;
+    if commit.status.success() {
+        let value = String::from_utf8_lossy(&commit.stdout).trim().to_string();
+        if !value.is_empty() {
+            return Ok(GitHead::Detached(value));
+        }
+    }
+    let detail = String::from_utf8_lossy(&branch.stderr).trim().to_string();
+    Err(if detail.is_empty() {
+        format!("无法读取{target_label}工程当前 Git 分支")
+    } else {
+        format!("无法读取{target_label}工程当前 Git 分支：{detail}")
+    })
+}
+
+fn inspect_production_branches(
+    project: &ReleasePackageEnvironmentConfig,
+    targets: &[ReleaseTarget],
+) -> Result<Vec<BranchCheck>, String> {
+    let mut checks = Vec::with_capacity(targets.len());
+    for target in targets {
+        let (label, project_path, expected_branch) = match target {
+            ReleaseTarget::Frontend => (
+                "前端",
+                project.frontend_project_path.as_str(),
+                project.frontend_expected_branch.as_str(),
+            ),
+            ReleaseTarget::Backend => (
+                "后端",
+                project.backend_project_path.as_str(),
+                project.backend_expected_branch.as_str(),
+            ),
+        };
+        let head = inspect_git_head(project_path, label)?;
+        let (current_branch, detached_commit, matches) = match head {
+            GitHead::Branch(branch) => {
+                let matches = branch == expected_branch;
+                (Some(branch), None, matches)
+            }
+            GitHead::Detached(commit) => (None, Some(commit), false),
+        };
+        checks.push(BranchCheck {
+            target: *target,
+            expected_branch: expected_branch.to_string(),
+            current_branch,
+            detached_commit,
+            matches,
+        });
+    }
+    Ok(checks)
+}
+
+fn validate_production_branches(
+    project: &ReleasePackageEnvironmentConfig,
+    targets: &[ReleaseTarget],
+) -> Result<(), String> {
+    if project.environment != ReleasePackageEnvironmentKind::Production {
+        return Ok(());
+    }
+    for check in inspect_production_branches(project, targets)? {
+        let label = match check.target {
+            ReleaseTarget::Frontend => "前端",
+            ReleaseTarget::Backend => "后端",
+        };
+        if let Some(branch) = check.current_branch.filter(|_| !check.matches) {
+            return Err(format!(
+                "{label}生产分支不匹配：当前为 {branch}，要求为 {}",
+                check.expected_branch
+            ));
+        }
+        if let Some(commit) = check.detached_commit {
+            return Err(format!(
+                "{label}工程当前处于 detached HEAD：{commit}，生产打包要求分支 {}",
+                check.expected_branch
+            ));
+        }
+    }
+    Ok(())
+}
+
 struct ProjectPayload {
     name: String,
     frontend_project_path: String,
@@ -608,11 +784,13 @@ struct ProjectPayload {
 struct EnvironmentPayload {
     output_root: String,
     package_type: ReleasePackageType,
+    frontend_expected_branch: String,
     frontend_build_command: String,
     frontend_success_keyword: String,
     frontend_post_upload_command: String,
     frontend_artifact_path: String,
     frontend_artifact_mode: String,
+    backend_expected_branch: String,
     backend_build_command: String,
     backend_success_keyword: String,
     backend_post_upload_command: String,
@@ -804,11 +982,13 @@ fn parse_environment_fields(payload: &Value) -> Result<EnvironmentPayload, Strin
     let environment = EnvironmentPayload {
         output_root: optional_string(payload, "outputRoot")?,
         package_type: ReleasePackageType::parse(&required_string(payload, "packageType")?)?,
+        frontend_expected_branch: required_string(payload, "frontendExpectedBranch")?,
         frontend_build_command: required_string(payload, "frontendBuildCommand")?,
         frontend_success_keyword: optional_string(payload, "frontendSuccessKeyword")?,
         frontend_post_upload_command: optional_string(payload, "frontendPostUploadCommand")?,
         frontend_artifact_path: required_string(payload, "frontendArtifactPath")?,
         frontend_artifact_mode: required_string(payload, "frontendArtifactMode")?,
+        backend_expected_branch: required_string(payload, "backendExpectedBranch")?,
         backend_build_command: required_string(payload, "backendBuildCommand")?,
         backend_success_keyword: optional_string(payload, "backendSuccessKeyword")?,
         backend_post_upload_command: optional_string(payload, "backendPostUploadCommand")?,
@@ -911,12 +1091,14 @@ struct RawEnvironmentConfig {
     output_root: String,
     package_type: String,
     frontend_project_path: String,
+    frontend_expected_branch: String,
     frontend_build_command: String,
     frontend_success_keyword: String,
     frontend_post_upload_command: String,
     frontend_artifact_path: String,
     frontend_artifact_mode: String,
     backend_project_path: String,
+    backend_expected_branch: String,
     backend_build_command: String,
     backend_success_keyword: String,
     backend_post_upload_command: String,
@@ -942,26 +1124,28 @@ fn raw_environment_from_row(row: &Row<'_>) -> rusqlite::Result<RawEnvironmentCon
         output_root: row.get(4)?,
         package_type: row.get(5)?,
         frontend_project_path: row.get(6)?,
-        frontend_build_command: row.get(7)?,
-        frontend_success_keyword: row.get(8)?,
-        frontend_post_upload_command: row.get(9)?,
-        frontend_artifact_path: row.get(10)?,
-        frontend_artifact_mode: row.get(11)?,
-        backend_project_path: row.get(12)?,
-        backend_build_command: row.get(13)?,
-        backend_success_keyword: row.get(14)?,
-        backend_post_upload_command: row.get(15)?,
-        backend_artifact_path: row.get(16)?,
-        ssh_host: row.get(17)?,
-        ssh_port: row.get(18)?,
-        ssh_username: row.get(19)?,
-        ssh_auth_type: row.get(20)?,
-        vault_entry_id: row.get(21)?,
-        ssh_private_key_path: row.get(22)?,
-        frontend_remote_dir: row.get(23)?,
-        backend_remote_path: row.get(24)?,
-        created_at: row.get(25)?,
-        updated_at: row.get(26)?,
+        frontend_expected_branch: row.get(7)?,
+        frontend_build_command: row.get(8)?,
+        frontend_success_keyword: row.get(9)?,
+        frontend_post_upload_command: row.get(10)?,
+        frontend_artifact_path: row.get(11)?,
+        frontend_artifact_mode: row.get(12)?,
+        backend_project_path: row.get(13)?,
+        backend_expected_branch: row.get(14)?,
+        backend_build_command: row.get(15)?,
+        backend_success_keyword: row.get(16)?,
+        backend_post_upload_command: row.get(17)?,
+        backend_artifact_path: row.get(18)?,
+        ssh_host: row.get(19)?,
+        ssh_port: row.get(20)?,
+        ssh_username: row.get(21)?,
+        ssh_auth_type: row.get(22)?,
+        vault_entry_id: row.get(23)?,
+        ssh_private_key_path: row.get(24)?,
+        frontend_remote_dir: row.get(25)?,
+        backend_remote_path: row.get(26)?,
+        created_at: row.get(27)?,
+        updated_at: row.get(28)?,
     })
 }
 
@@ -971,11 +1155,13 @@ fn environment_payload_from_config(
     EnvironmentPayload {
         output_root: environment.output_root.clone(),
         package_type: environment.package_type,
+        frontend_expected_branch: environment.frontend_expected_branch.clone(),
         frontend_build_command: environment.frontend_build_command.clone(),
         frontend_success_keyword: environment.frontend_success_keyword.clone(),
         frontend_post_upload_command: environment.frontend_post_upload_command.clone(),
         frontend_artifact_path: environment.frontend_artifact_path.clone(),
         frontend_artifact_mode: environment.frontend_artifact_mode.clone(),
+        backend_expected_branch: environment.backend_expected_branch.clone(),
         backend_build_command: environment.backend_build_command.clone(),
         backend_success_keyword: environment.backend_success_keyword.clone(),
         backend_post_upload_command: environment.backend_post_upload_command.clone(),
@@ -1018,12 +1204,14 @@ fn environment_from_raw(
         output_root: raw.output_root,
         package_type,
         frontend_project_path: raw.frontend_project_path,
+        frontend_expected_branch: raw.frontend_expected_branch,
         frontend_build_command: raw.frontend_build_command,
         frontend_success_keyword: raw.frontend_success_keyword,
         frontend_post_upload_command: raw.frontend_post_upload_command,
         frontend_artifact_path: raw.frontend_artifact_path,
         frontend_artifact_mode: raw.frontend_artifact_mode,
         backend_project_path: raw.backend_project_path,
+        backend_expected_branch: raw.backend_expected_branch,
         backend_build_command: raw.backend_build_command,
         backend_success_keyword: raw.backend_success_keyword,
         backend_post_upload_command: raw.backend_post_upload_command,
@@ -1046,10 +1234,12 @@ fn environment_from_raw(
 
 const ENVIRONMENT_SELECT: &str = "SELECT environment.id, environment.project_id, project.name,
             environment.environment, environment.output_root, environment.package_type,
-            project.frontend_project_path, environment.frontend_build_command,
+            project.frontend_project_path, environment.frontend_expected_branch,
+            environment.frontend_build_command,
             environment.frontend_success_keyword, environment.frontend_post_upload_command,
             environment.frontend_artifact_path, environment.frontend_artifact_mode,
-            project.backend_project_path, environment.backend_build_command,
+            project.backend_project_path, environment.backend_expected_branch,
+            environment.backend_build_command,
             environment.backend_success_keyword, environment.backend_post_upload_command,
             environment.backend_artifact_path, environment.ssh_host, environment.ssh_port,
             environment.ssh_username, environment.ssh_auth_type, environment.vault_entry_id,
@@ -1266,26 +1456,29 @@ fn project_create_with_conn(conn: &Connection, payload: &Value) -> Result<Value,
         .execute(
             "INSERT INTO release_package_environments(
                 project_id, environment, output_root, package_type,
-                frontend_build_command, frontend_success_keyword,
+                frontend_expected_branch, frontend_build_command, frontend_success_keyword,
                 frontend_post_upload_command, frontend_artifact_path, frontend_artifact_mode,
-                backend_build_command, backend_success_keyword,
+                backend_expected_branch, backend_build_command, backend_success_keyword,
                 backend_post_upload_command, backend_artifact_path,
                 ssh_host, ssh_port, ssh_username, ssh_auth_type, vault_entry_id,
                 ssh_private_key_path, frontend_remote_dir, backend_remote_path
              ) VALUES (
                 ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
-                ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21
+                ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21,
+                ?22, ?23
              )",
             params![
                 project_id,
                 environment_kind.as_str(),
                 environment.output_root,
                 environment.package_type.as_str(),
+                environment.frontend_expected_branch,
                 environment.frontend_build_command,
                 environment.frontend_success_keyword,
                 environment.frontend_post_upload_command,
                 environment.frontend_artifact_path,
                 environment.frontend_artifact_mode,
+                environment.backend_expected_branch,
                 environment.backend_build_command,
                 environment.backend_success_keyword,
                 environment.backend_post_upload_command,
@@ -1373,23 +1566,26 @@ fn project_update_with_conn(conn: &Connection, payload: &Value) -> Result<Value,
         .execute(
             "UPDATE release_package_environments SET
                 output_root=?1, package_type=?2,
-                frontend_build_command=?3, frontend_success_keyword=?4,
-                frontend_post_upload_command=?5, frontend_artifact_path=?6,
-                frontend_artifact_mode=?7, backend_build_command=?8,
-                backend_success_keyword=?9, backend_post_upload_command=?10,
-                backend_artifact_path=?11, ssh_host=?12, ssh_port=?13,
-                ssh_username=?14, ssh_auth_type=?15, vault_entry_id=?16,
-                ssh_private_key_path=?17, frontend_remote_dir=?18,
-                backend_remote_path=?19, updated_at=CURRENT_TIMESTAMP
-             WHERE id=?20",
+                frontend_expected_branch=?3, frontend_build_command=?4,
+                frontend_success_keyword=?5, frontend_post_upload_command=?6,
+                frontend_artifact_path=?7, frontend_artifact_mode=?8,
+                backend_expected_branch=?9, backend_build_command=?10,
+                backend_success_keyword=?11, backend_post_upload_command=?12,
+                backend_artifact_path=?13, ssh_host=?14, ssh_port=?15,
+                ssh_username=?16, ssh_auth_type=?17, vault_entry_id=?18,
+                ssh_private_key_path=?19, frontend_remote_dir=?20,
+                backend_remote_path=?21, updated_at=CURRENT_TIMESTAMP
+             WHERE id=?22",
             params![
                 environment.output_root,
                 environment.package_type.as_str(),
+                environment.frontend_expected_branch,
                 environment.frontend_build_command,
                 environment.frontend_success_keyword,
                 environment.frontend_post_upload_command,
                 environment.frontend_artifact_path,
                 environment.frontend_artifact_mode,
+                environment.backend_expected_branch,
                 environment.backend_build_command,
                 environment.backend_success_keyword,
                 environment.backend_post_upload_command,
@@ -1490,6 +1686,18 @@ fn prepare_with_conn(
         frontend_artifact_mode: project.frontend_artifact_mode,
     })
     .map_err(|e| format!("serialize release package prepare result failed: {e}"))
+}
+
+fn branch_check_with_conn(conn: &Connection, payload: &Value) -> Result<Value, String> {
+    let environment_id = required_positive_id(payload, "environmentId")?;
+    let project = load_environment(conn, environment_id)?;
+    if project.environment != ReleasePackageEnvironmentKind::Production {
+        return Err("仅生产环境需要执行分支检查".into());
+    }
+    let targets = parse_targets(payload.get("targets").unwrap_or(&Value::Null))?;
+    validate_project_directories(&project, &targets)?;
+    let checks = inspect_production_branches(&project, &targets)?;
+    Ok(json!({ "checks": checks }))
 }
 
 fn target_check_with_conn(
@@ -1891,6 +2099,7 @@ pub fn execute(action: &str, payload: &Value) -> Result<Value, String> {
             let id = required_positive_id(payload, "environmentId")?;
             prepare_with_conn(&conn, id, Local::now().date_naive())
         }
+        "branch_check" => branch_check_with_conn(&conn, payload),
         "target_check" => {
             let id = required_positive_id(payload, "environmentId")?;
             let folder_name = payload["folderName"]
@@ -1934,7 +2143,10 @@ pub fn execute_with_app(
             let project = load_environment(&conn, environment_id)?;
             validate_start_confirmation(project.environment, payload)?;
             let targets = parse_targets(payload.get("targets").unwrap_or(&Value::Null))?;
-            match parse_start_input(project.package_type, payload)? {
+            let start_input = parse_start_input(project.package_type, payload)?;
+            validate_project_directories(&project, &targets)?;
+            validate_production_branches(&project, &targets)?;
+            match start_input {
                 ReleaseStartInput::LocalArchive {
                     folder_name,
                     overwrite_existing,
@@ -1958,7 +2170,6 @@ pub fn execute_with_app(
                     preflight_token,
                     overwrite_remote_targets,
                 } => {
-                    validate_project_directories(&project, &targets)?;
                     validate_upload_project(&project)?;
                     let upload = upload_endpoint_with_conn(&conn, &project)?;
                     let binding = preflight_binding(&project, &upload, &targets);
@@ -2306,11 +2517,13 @@ mod tests {
             "environmentConfig": {
                 "packageType": "server_upload",
                 "outputRoot": r"D:\releases",
+                "frontendExpectedBranch": "master",
                 "frontendBuildCommand": "pnpm build",
                 "frontendSuccessKeyword": "  Build completed  ",
                 "frontendPostUploadCommand": "\n  cd /srv/web\n  ./reload.sh\n",
                 "frontendArtifactPath": "dist",
                 "frontendArtifactMode": "copy_directory",
+                "backendExpectedBranch": "master",
                 "backendBuildCommand": "mvn clean package -Pprod",
                 "backendSuccessKeyword": "  BUILD SUCCESS  ",
                 "backendPostUploadCommand": "\n  systemctl restart portal\n",
@@ -2637,10 +2850,12 @@ mod tests {
                  );
                  CREATE TABLE release_package_environments AS
                  SELECT 0 AS id, 0 AS project_id, '' AS environment, '' AS output_root,
-                    '' AS package_type, '' AS frontend_build_command,
+                    '' AS package_type, '' AS frontend_expected_branch,
+                    '' AS frontend_build_command,
                     '' AS frontend_success_keyword, '' AS frontend_post_upload_command,
                     '' AS frontend_artifact_path, '' AS frontend_artifact_mode,
-                    '' AS backend_build_command, '' AS backend_success_keyword,
+                    '' AS backend_expected_branch, '' AS backend_build_command,
+                    '' AS backend_success_keyword,
                     '' AS backend_post_upload_command, '' AS backend_artifact_path,
                     '' AS ssh_host, 22 AS ssh_port, '' AS ssh_username,
                     '' AS ssh_auth_type, NULL AS vault_entry_id, '' AS ssh_private_key_path,
@@ -2649,12 +2864,12 @@ mod tests {
                  INSERT INTO release_package_projects VALUES
                     (1, '损坏项目', 'D:\\web', 'D:\\server', 'created', 'updated');
                  INSERT INTO release_package_environments
-                 SELECT 1, 1, 'test', '', 'local_archive', '', '', '', '',
-                    'copy_directory', '', '', '', '', '', 22, '', 'password', NULL,
+                 SELECT 1, 1, 'test', '', 'local_archive', 'master', '', '', '', '',
+                    'copy_directory', 'master', '', '', '', '', '', 22, '', 'password', NULL,
                     '', '', '', 'created', 'updated';
                  INSERT INTO release_package_environments
-                 SELECT 2, 1, 'production', '', 'local_archive', '', '', '', '',
-                    'copy_directory', '', '', '', '', '', 22, '', 'password', NULL,
+                 SELECT 2, 1, 'production', '', 'local_archive', 'master', '', '', '', '',
+                    'copy_directory', 'master', '', '', '', '', '', 22, '', 'password', NULL,
                     '', '', '', 'created', 'updated';",
             )
             .unwrap();
@@ -2942,6 +3157,50 @@ mod tests {
             )
             .unwrap(),
             0
+        );
+    }
+
+    #[test]
+    fn schema_adds_default_branches_to_existing_environment_tables() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE release_package_projects (
+                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 name TEXT NOT NULL,
+                 frontend_project_path TEXT NOT NULL,
+                 backend_project_path TEXT NOT NULL,
+                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+             );
+             CREATE TABLE release_package_environments (
+                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 project_id INTEGER NOT NULL,
+                 environment TEXT NOT NULL
+             );
+             INSERT INTO release_package_environments(project_id, environment)
+             VALUES (1, 'production');",
+        )
+        .unwrap();
+
+        ensure_schema(&conn).unwrap();
+
+        let branches = conn
+            .query_row(
+                "SELECT frontend_expected_branch, backend_expected_branch
+                 FROM release_package_environments WHERE id=1",
+                [],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )
+            .unwrap();
+        assert_eq!(branches, ("master".into(), "master".into()));
+        ensure_schema(&conn).unwrap();
+        assert_eq!(
+            table_columns(&conn, "release_package_environments")
+                .unwrap()
+                .iter()
+                .filter(|column| column.ends_with("_expected_branch"))
+                .count(),
+            2
         );
     }
 
@@ -3780,6 +4039,90 @@ mod tests {
         );
     }
 
+    fn init_git_repository(path: &Path, branch: &str) {
+        fs::create_dir_all(path).unwrap();
+        let output = std::process::Command::new("git")
+            .args(["init", "-b", branch])
+            .arg(path)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "git init failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[test]
+    fn production_branch_check_uses_only_selected_targets_and_reports_mismatch() {
+        let root = std::env::temp_dir().join(format!(
+            "lazycat-release-branch-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let frontend = root.join("frontend");
+        let backend = root.join("backend");
+        init_git_repository(&frontend, "master");
+        init_git_repository(&backend, "release");
+
+        let conn = test_conn();
+        let mut payload = environment_project_payload("production");
+        payload["project"]["frontendProjectPath"] = json!(frontend.to_string_lossy());
+        payload["project"]["backendProjectPath"] = json!(backend.to_string_lossy());
+        let environment_id = project_create_with_conn(&conn, &payload).unwrap()["environmentId"]
+            .as_i64()
+            .unwrap();
+        let project = load_environment(&conn, environment_id).unwrap();
+
+        let frontend_only =
+            inspect_production_branches(&project, &[ReleaseTarget::Frontend]).unwrap();
+        assert_eq!(frontend_only.len(), 1);
+        assert!(frontend_only[0].matches);
+        assert_eq!(frontend_only[0].current_branch.as_deref(), Some("master"));
+        assert!(validate_production_branches(&project, &[ReleaseTarget::Frontend]).is_ok());
+
+        let result = branch_check_with_conn(
+            &conn,
+            &json!({
+                "environmentId": environment_id,
+                "targets": ["frontend", "backend"]
+            }),
+        )
+        .unwrap();
+        assert_eq!(result["checks"][0]["matches"], true);
+        assert_eq!(result["checks"][1]["currentBranch"], "release");
+        assert_eq!(result["checks"][1]["expectedBranch"], "master");
+        assert_eq!(result["checks"][1]["matches"], false);
+        assert_eq!(
+            validate_production_branches(
+                &project,
+                &[ReleaseTarget::Frontend, ReleaseTarget::Backend]
+            )
+            .unwrap_err(),
+            "后端生产分支不匹配：当前为 release，要求为 master"
+        );
+
+        let mut test_project = project;
+        test_project.environment = ReleasePackageEnvironmentKind::Test;
+        assert!(validate_production_branches(
+            &test_project,
+            &[ReleaseTarget::Frontend, ReleaseTarget::Backend]
+        )
+        .is_ok());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn production_branch_check_rejects_non_git_directories() {
+        let root = std::env::temp_dir().join(format!(
+            "lazycat-release-non-git-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let error = inspect_git_head(root.to_string_lossy().as_ref(), "前端").unwrap_err();
+        assert!(error.contains("前端工程目录不是 Git 工作区"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn start_checks_production_confirmation_before_starting_the_runtime() {
         let source = include_str!("release_package.rs");
@@ -3789,10 +4132,14 @@ mod tests {
         let start_action = &source[start..end];
 
         let confirmation = start_action.find("validate_start_confirmation(").unwrap();
+        let branch_check = start_action.find("validate_production_branches(").unwrap();
         let runtime_start = start_action
             .find("super::release_package_runtime::start(")
             .unwrap();
-        assert!(confirmation < runtime_start);
+        let consume_upload_token = start_action.find("consume_deploy_authorization(").unwrap();
+        assert!(confirmation < branch_check);
+        assert!(branch_check < runtime_start);
+        assert!(branch_check < consume_upload_token);
     }
 
     #[test]
@@ -3906,12 +4253,14 @@ mod tests {
             output_root: output.to_string_lossy().into_owned(),
             package_type: ReleasePackageType::LocalArchive,
             frontend_project_path: root.join("missing-frontend").to_string_lossy().into_owned(),
+            frontend_expected_branch: "master".into(),
             frontend_build_command: "exit 0".into(),
             frontend_success_keyword: String::new(),
             frontend_post_upload_command: String::new(),
             frontend_artifact_path: "dist".into(),
             frontend_artifact_mode: "copy_directory".into(),
             backend_project_path: backend.to_string_lossy().into_owned(),
+            backend_expected_branch: "master".into(),
             backend_build_command: "exit 0".into(),
             backend_success_keyword: String::new(),
             backend_post_upload_command: String::new(),
@@ -4046,12 +4395,14 @@ mod tests {
             output_root: output.to_string_lossy().into_owned(),
             package_type: ReleasePackageType::LocalArchive,
             frontend_project_path: root.join("missing-frontend").to_string_lossy().into_owned(),
+            frontend_expected_branch: "master".into(),
             frontend_build_command: "exit 0".into(),
             frontend_success_keyword: String::new(),
             frontend_post_upload_command: String::new(),
             frontend_artifact_path: "dist".into(),
             frontend_artifact_mode: "copy_directory".into(),
             backend_project_path: backend.to_string_lossy().into_owned(),
+            backend_expected_branch: "master".into(),
             backend_build_command: "exit 0".into(),
             backend_success_keyword: String::new(),
             backend_post_upload_command: String::new(),
