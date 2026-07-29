@@ -1,17 +1,23 @@
 <template>
-  <div class="panel-grid">
+  <div class="panel-grid csv-json-panel">
     <!-- CSV Input -->
     <div class="panel-grid-full" style="display:flex;gap:8px;align-items:center;">
       <el-button @click="pickFile">选择 CSV 文件</el-button>
       <span v-if="filePath" style="font-size:13px;color:var(--el-text-color-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ filePath }}</span>
     </div>
-    <el-input v-model="csvInput" type="textarea" :rows="10" placeholder="输入 CSV 或通过上方按钮选择文件" />
+    <el-input
+      v-model="csvInput"
+      class="csv-input"
+      type="textarea"
+      resize="none"
+      placeholder="输入 CSV 或通过上方按钮选择文件"
+    />
     <div class="csv-output-wrap">
       <el-input
         v-if="outputMode === 'text' || !outputTreeAvailable"
         :model-value="jsonOutput"
         type="textarea"
-        :rows="10"
+        resize="none"
         readonly
         placeholder="JSON 结果"
       />
@@ -233,11 +239,29 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.csv-json-panel {
+  flex: 1;
+  min-height: 0;
+  grid-template-rows: auto minmax(240px, 1fr) auto;
+  overflow: auto;
+}
+
+.csv-input {
+  height: 100%;
+  min-height: 0;
+}
+
+.csv-input :deep(.el-textarea__inner) {
+  height: 100% !important;
+  min-height: 240px;
+}
+
 .csv-output-wrap {
   position: relative;
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
 }
 
 .csv-output-wrap :deep(.el-textarea),
@@ -245,9 +269,12 @@ onBeforeUnmount(() => {
   height: 100%;
 }
 
+.csv-output-wrap :deep(.el-textarea__inner) {
+  min-height: 240px;
+}
+
 .csv-output-tree {
-  min-height: 230px;
-  max-height: 480px;
+  min-height: 240px;
   flex: 1 1 auto;
 }
 
@@ -257,5 +284,11 @@ onBeforeUnmount(() => {
   bottom: 6px;
   z-index: 1;
   opacity: 0.85;
+}
+
+@media (max-width: 1000px) {
+  .csv-json-panel {
+    grid-template-rows: auto minmax(200px, 1fr) minmax(200px, 1fr) auto;
+  }
 }
 </style>

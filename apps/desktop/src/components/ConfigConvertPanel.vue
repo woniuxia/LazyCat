@@ -15,14 +15,14 @@
     <div class="config-editors">
       <div class="editor-col">
         <div class="editor-label">输入 ({{ fromLabel }})</div>
-        <el-input v-model="input" type="textarea" :rows="16" resize="vertical" placeholder="粘贴配置内容" />
+        <el-input v-model="input" type="textarea" resize="none" placeholder="粘贴配置内容" />
       </div>
       <div class="editor-col">
         <div class="editor-label">
           输出 ({{ toLabel }})
           <el-button size="small" @click="copyOutput">复制</el-button>
         </div>
-        <el-input v-model="output" type="textarea" :rows="16" resize="vertical" readonly />
+        <el-input v-model="output" type="textarea" resize="none" readonly />
       </div>
     </div>
   </div>
@@ -109,21 +109,28 @@ async function copyOutput() {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  flex: 1;
+  min-height: 0;
 }
 .config-toolbar {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex-shrink: 0;
 }
 .config-editors {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
+  flex: 1;
+  min-height: 0;
 }
 .editor-col {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  min-width: 0;
+  min-height: 0;
 }
 .editor-label {
   font-weight: 600;
@@ -132,9 +139,18 @@ async function copyOutput() {
   align-items: center;
   gap: 8px;
 }
+.editor-col :deep(.el-textarea) {
+  flex: 1;
+  min-height: 0;
+}
+.editor-col :deep(.el-textarea__inner) {
+  height: 100% !important;
+  min-height: 240px;
+}
 @media (max-width: 900px) {
   .config-editors {
     grid-template-columns: 1fr;
+    overflow: auto;
   }
 }
 </style>

@@ -1,5 +1,5 @@
 <template>
-  <div class="panel-grid">
+  <div class="panel-grid escape-panel">
     <div class="panel-grid-full">
       <el-radio-group v-model="mode" size="small">
         <el-radio-button value="json">JSON 字符串</el-radio-button>
@@ -13,7 +13,7 @@
       <el-input
         v-model="input"
         type="textarea"
-        :rows="12"
+        resize="none"
         placeholder="输入原始文本或已转义文本"
       />
       <span class="char-count">{{ input.length }} 字符</span>
@@ -23,7 +23,7 @@
       <el-input
         v-model="output"
         type="textarea"
-        :rows="12"
+        resize="none"
         readonly
         placeholder="结果"
       />
@@ -205,6 +205,26 @@ function clearAll() {
 <style scoped>
 .textarea-wrap {
   position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.escape-panel {
+  flex: 1;
+  min-height: 0;
+  grid-template-rows: auto minmax(240px, 1fr) auto;
+}
+
+.textarea-wrap :deep(.el-textarea) {
+  flex: 1;
+  min-height: 0;
+}
+
+.textarea-wrap :deep(.el-textarea__inner) {
+  height: 100% !important;
+  min-height: 240px;
 }
 
 .char-count {
@@ -214,5 +234,12 @@ function clearAll() {
   font-size: 11px;
   color: var(--el-text-color-placeholder);
   pointer-events: none;
+}
+
+@media (max-width: 1000px) {
+  .escape-panel {
+    grid-template-rows: auto minmax(200px, 1fr) minmax(200px, 1fr) auto;
+    overflow: auto;
+  }
 }
 </style>

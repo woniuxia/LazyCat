@@ -1,15 +1,17 @@
 <template>
-  <div class="panel-grid">
+  <div class="panel-grid java-bean-panel">
     <el-input
+      class="java-bean-editor"
       v-model="beanInput"
       type="textarea"
-      :rows="12"
+      resize="none"
       placeholder="输入 Java Bean 源码"
     />
     <el-input
+      class="java-bean-editor"
       v-model="jsonOutput"
       type="textarea"
-      :rows="12"
+      resize="none"
       readonly
       placeholder="JSON 输出"
     />
@@ -22,9 +24,9 @@
     </div>
     <el-input
       v-model="jsObjectOutput"
-      class="panel-grid-full"
+      class="panel-grid-full java-bean-output"
       type="textarea"
-      :rows="10"
+      resize="none"
       readonly
       placeholder="JS Object 输出"
     />
@@ -43,6 +45,33 @@ const javaBeanState = {
   jsObjectOutput: "",
 };
 </script>
+
+<style scoped>
+.java-bean-panel {
+  flex: 1;
+  min-height: 0;
+  grid-template-rows: minmax(240px, 1fr) auto minmax(200px, 1fr);
+}
+
+.java-bean-editor,
+.java-bean-output {
+  height: 100%;
+  min-height: 0;
+}
+
+.java-bean-editor :deep(.el-textarea__inner),
+.java-bean-output :deep(.el-textarea__inner) {
+  height: 100% !important;
+  min-height: 200px;
+}
+
+@media (max-width: 1000px) {
+  .java-bean-panel {
+    grid-template-rows: minmax(200px, 1fr) minmax(200px, 1fr) auto minmax(200px, 1fr);
+    overflow: auto;
+  }
+}
+</style>
 
 <script setup lang="ts">
 import { onBeforeUnmount, ref } from "vue";

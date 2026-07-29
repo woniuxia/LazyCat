@@ -316,6 +316,7 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  flex: 1;
   min-height: 0;
 }
 
@@ -344,6 +345,8 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 12px;
+  flex: 1;
+  min-height: 300px;
 }
 
 .editor-card,
@@ -355,7 +358,9 @@ onBeforeUnmount(() => {
 }
 
 .editor-card :deep(.monaco-pane) {
-  height: 330px;
+  flex: 1;
+  height: auto;
+  min-height: 300px;
 }
 
 .example-card :deep(.monaco-pane) {
@@ -392,10 +397,12 @@ onBeforeUnmount(() => {
 @media (max-width: 900px) {
   .schema-editors {
     grid-template-columns: 1fr;
+    grid-template-rows: repeat(2, minmax(240px, 1fr));
+    overflow: auto;
   }
 
   .editor-card :deep(.monaco-pane) {
-    height: 280px;
+    min-height: 240px;
   }
 }
 </style>

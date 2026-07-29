@@ -1,7 +1,7 @@
 <template>
-  <div>
+  <div class="encode-panel">
     <!-- Base64 -->
-    <div v-if="activeTool === 'base64'" class="panel-grid">
+    <div v-if="activeTool === 'base64'" class="panel-grid encode-grid encode-grid--toolbar">
       <div class="panel-grid-full">
         <el-radio-group :model-value="base64UrlSafe" size="small" @update:model-value="handleBase64TypeChange">
           <el-radio-button :value="false">Standard</el-radio-button>
@@ -9,11 +9,11 @@
         </el-radio-group>
       </div>
       <div class="textarea-wrap">
-        <el-input v-model="base64Input" type="textarea" :rows="10" placeholder="输入文本" />
+        <el-input v-model="base64Input" type="textarea" resize="none" placeholder="输入文本" />
         <span class="char-count">{{ base64Input.length }} 字符</span>
       </div>
       <div class="textarea-wrap">
-        <el-input :model-value="base64Output" type="textarea" :rows="10" readonly placeholder="结果" />
+        <el-input :model-value="base64Output" type="textarea" resize="none" readonly placeholder="结果" />
         <span class="char-count">{{ base64Output.length }} 字符</span>
       </div>
       <div class="panel-grid-full">
@@ -28,13 +28,13 @@
     </div>
 
     <!-- URL -->
-    <div v-else-if="activeTool === 'url'" class="panel-grid">
+    <div v-else-if="activeTool === 'url'" class="panel-grid encode-grid encode-grid--simple">
       <div class="textarea-wrap">
-        <el-input v-model="urlInput" type="textarea" :rows="10" placeholder="输入 URL 文本" />
+        <el-input v-model="urlInput" type="textarea" resize="none" placeholder="输入 URL 文本" />
         <span class="char-count">{{ urlInput.length }} 字符</span>
       </div>
       <div class="textarea-wrap">
-        <el-input :model-value="urlOutput" type="textarea" :rows="10" readonly placeholder="结果" />
+        <el-input :model-value="urlOutput" type="textarea" resize="none" readonly placeholder="结果" />
         <span class="char-count">{{ urlOutput.length }} 字符</span>
       </div>
       <div class="panel-grid-full">
@@ -49,13 +49,13 @@
     </div>
 
     <!-- MD5 -->
-    <div v-else-if="activeTool === 'md5'" class="panel-grid">
+    <div v-else-if="activeTool === 'md5'" class="panel-grid encode-grid encode-grid--simple">
       <div class="textarea-wrap">
-        <el-input v-model="md5Input" type="textarea" :rows="10" placeholder="输入文本" />
+        <el-input v-model="md5Input" type="textarea" resize="none" placeholder="输入文本" />
         <span class="char-count">{{ md5Input.length }} 字符</span>
       </div>
       <div class="textarea-wrap">
-        <el-input :model-value="md5Output" type="textarea" :rows="10" readonly placeholder="MD5 结果" />
+        <el-input :model-value="md5Output" type="textarea" resize="none" readonly placeholder="MD5 结果" />
         <span class="char-count">{{ md5Output.length }} 字符</span>
       </div>
       <div class="panel-grid-full">
@@ -95,7 +95,7 @@
     </div>
 
     <!-- Hash (SHA/HMAC) -->
-    <div v-else-if="activeTool === 'hash'" class="panel-grid">
+    <div v-else-if="activeTool === 'hash'" class="panel-grid encode-grid encode-grid--hash">
       <div class="panel-grid-full">
         <el-radio-group v-model="hashAlgo" size="small">
           <el-radio-button value="sha1">SHA-1</el-radio-button>
@@ -105,15 +105,15 @@
         </el-radio-group>
       </div>
       <div class="textarea-wrap">
-        <el-input v-model="hashInput" type="textarea" :rows="8" placeholder="输入文本" />
+        <el-input v-model="hashInput" type="textarea" resize="none" placeholder="输入文本" />
         <span class="char-count">{{ hashInput.length }} 字符</span>
+      </div>
+      <div class="textarea-wrap">
+        <el-input :model-value="hashOutput" type="textarea" resize="none" readonly placeholder="散列结果" />
+        <span class="char-count">{{ hashOutput.length }} 字符</span>
       </div>
       <div v-if="hashAlgo === 'hmac-sha256'" class="panel-grid-full">
         <el-input v-model="hmacKey" placeholder="HMAC 密钥" />
-      </div>
-      <div class="textarea-wrap">
-        <el-input :model-value="hashOutput" type="textarea" :rows="4" readonly placeholder="散列结果" />
-        <span class="char-count">{{ hashOutput.length }} 字符</span>
       </div>
       <div class="panel-grid-full">
         <el-space>
@@ -353,8 +353,45 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.encode-panel {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.encode-grid {
+  flex: 1;
+  min-height: 0;
+}
+
+.encode-grid--toolbar {
+  grid-template-rows: auto minmax(240px, 1fr) auto;
+}
+
+.encode-grid--simple {
+  grid-template-rows: minmax(240px, 1fr) auto;
+}
+
+.encode-grid--hash {
+  grid-template-rows: auto minmax(240px, 1fr) auto auto;
+}
+
 .textarea-wrap {
   position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.textarea-wrap :deep(.el-textarea) {
+  flex: 1;
+  min-height: 0;
+}
+
+.textarea-wrap :deep(.el-textarea__inner) {
+  height: 100% !important;
+  min-height: 240px;
 }
 .char-count {
   position: absolute;
@@ -363,5 +400,21 @@ onBeforeUnmount(() => {
   font-size: 11px;
   color: var(--el-text-color-placeholder);
   pointer-events: none;
+}
+
+@media (max-width: 1000px) {
+  .encode-grid--toolbar {
+    grid-template-rows: auto minmax(200px, 1fr) minmax(200px, 1fr) auto;
+  }
+
+  .encode-grid--simple {
+    grid-template-rows: minmax(200px, 1fr) minmax(200px, 1fr) auto;
+    overflow: auto;
+  }
+
+  .encode-grid--hash {
+    grid-template-rows: auto minmax(200px, 1fr) minmax(200px, 1fr) auto auto;
+    overflow: auto;
+  }
 }
 </style>

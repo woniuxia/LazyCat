@@ -36,8 +36,7 @@
         <el-input
           v-model="textInput"
           type="textarea"
-          :rows="12"
-          resize="vertical"
+          resize="none"
           placeholder="输入日志、配置或多行文本"
         />
       </div>
@@ -50,8 +49,7 @@
         <el-input
           v-model="textOutput"
           type="textarea"
-          :rows="12"
-          resize="vertical"
+          resize="none"
           readonly
           placeholder="处理结果"
         />
@@ -567,6 +565,8 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  flex: 1;
+  min-height: 0;
 }
 
 .panel-toolbar {
@@ -574,6 +574,7 @@ onMounted(() => {
   flex-wrap: wrap;
   gap: 10px;
   align-items: center;
+  flex-shrink: 0;
 }
 
 .preset-select {
@@ -588,6 +589,15 @@ onMounted(() => {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
+  flex: 1;
+  min-height: 240px;
+}
+
+.textarea-card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
 }
 
 .textarea-card,
@@ -597,6 +607,20 @@ onMounted(() => {
   border-radius: 10px;
   background: var(--el-bg-color-page);
   padding: 10px;
+}
+
+.textarea-card :deep(.el-textarea) {
+  flex: 1;
+  min-height: 0;
+}
+
+.textarea-card :deep(.el-textarea__inner) {
+  height: 100% !important;
+  min-height: 240px;
+}
+
+.process-tabs {
+  flex-shrink: 0;
 }
 
 .card-head {
@@ -670,6 +694,8 @@ onMounted(() => {
 @media (max-width: 1100px) {
   .text-grid {
     grid-template-columns: 1fr;
+    grid-template-rows: repeat(2, minmax(200px, 1fr));
+    overflow: auto;
   }
 
   .summary-grid {

@@ -23,7 +23,7 @@ use super::release_package_remote::{
 use super::release_package_remote::consume_probe;
 use zeroize::Zeroizing;
 
-pub const LEGACY_OUTPUT_ROOT_KEY: &str = "release_package.output_root";
+const LEGACY_OUTPUT_ROOT_KEY: &str = "release_package.output_root";
 pub const RELEASE_PACKAGE_SCHEMA_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS release_package_projects (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -425,6 +425,25 @@ pub fn ensure_schema(conn: &Connection) -> Result<(), String> {
     }
     conn.execute_batch(RELEASE_PACKAGE_SCHEMA_SQL)
         .map_err(|error| format!("create release package schema failed: {error}"))
+}
+
+pub(crate) fn migrate_legacy_output_root(conn: &Connection) -> Result<(), String> {
+    conn.execute(
+        "UPDATE release_package_environments
+         SET output_root = (
+             SELECT value FROM user_settings
+             WHERE key = ?1
+         )
+         WHERE environment = 'production'
+           AND TRIM(output_root) = ''
+           AND EXISTS (
+               SELECT 1 FROM user_settings
+               WHERE key = ?1 AND TRIM(value) <> ''
+           )",
+        [LEGACY_OUTPUT_ROOT_KEY],
+    )
+    .map_err(|error| format!("migrate release package output root failed: {error}"))?;
+    Ok(())
 }
 
 const ACTIONS: &[&str] = &[
@@ -2090,6 +2109,48 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch(RELEASE_PACKAGE_SCHEMA_SQL).unwrap();
         conn
+    }
+
+    #[test]
+    fn legacy_output_root_migrates_only_to_blank_production_environments() {
+        let conn = test_conn();
+        conn.execute_batch(
+            "CREATE TABLE user_settings (
+                 key TEXT PRIMARY KEY,
+                 value TEXT NOT NULL
+             );
+             INSERT INTO user_settings(key, value)
+             VALUES ('release_package.output_root', 'D:\\legacy-releases');
+             INSERT INTO release_package_projects(
+                 id, name, frontend_project_path, backend_project_path
+             ) VALUES
+                 (1, 'blank', '', ''),
+                 (2, 'configured', '', '');
+             INSERT INTO release_package_environments(
+                 project_id, environment, output_root
+             ) VALUES
+                 (1, 'test', ''),
+                 (1, 'production', ''),
+                 (2, 'test', ''),
+                 (2, 'production', 'D:\\configured');",
+        )
+        .unwrap();
+
+        migrate_legacy_output_root(&conn).unwrap();
+
+        let output_root = |project_id, environment| {
+            conn.query_row(
+                "SELECT output_root FROM release_package_environments
+                 WHERE project_id=?1 AND environment=?2",
+                params![project_id, environment],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap()
+        };
+        assert_eq!(output_root(1, "production"), r"D:\legacy-releases");
+        assert_eq!(output_root(1, "test"), "");
+        assert_eq!(output_root(2, "production"), r"D:\configured");
+        assert_eq!(output_root(2, "test"), "");
     }
 
     struct TempDatabase {
