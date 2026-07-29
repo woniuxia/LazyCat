@@ -18,6 +18,7 @@ const RELEASE_PACKAGE_STATUSES = new Set<ReleasePackageNotificationStatus>([
   "partially_succeeded",
   "package_succeeded_upload_failed",
   "upload_succeeded_command_failed",
+  "deployed_health_check_failed",
   "failed",
   "cancelled",
 ]);
@@ -71,6 +72,7 @@ function isValidReleasePackageStatusCombination(
     || (
       status !== "package_succeeded_upload_failed"
       && status !== "upload_succeeded_command_failed"
+      && status !== "deployed_health_check_failed"
     );
 }
 
@@ -206,6 +208,7 @@ function localArchiveNotificationCopy(
       return { title: "上线包部分成功", detail: "可用产物本地归档完成，请查看失败日志" };
     case "package_succeeded_upload_failed":
     case "upload_succeeded_command_failed":
+    case "deployed_health_check_failed":
       return invalidReleasePackageStatusCombination();
     case "failed":
       return { title: "上线包打包失败", detail: "未生成可用归档，请查看打包日志" };
@@ -230,6 +233,11 @@ function serverUploadNotificationCopy(
       return {
         title: "服务器命令执行失败",
         detail: "服务器文件已上传，但上传后命令未全部成功，请打开上线包工具查看日志。",
+      };
+    case "deployed_health_check_failed":
+      return {
+        title: "部署验证失败",
+        detail: "服务器文件已部署且后置命令已完成，但健康检查未通过，请查看上传日志。",
       };
     case "failed":
       return { title: "上线包上传失败", detail: "未完成可用服务器上传，请查看打包日志" };

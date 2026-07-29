@@ -314,6 +314,20 @@ describe("releasePackageNotificationCopy", () => {
     });
   });
 
+  it("describes a deployed service whose health check failed", () => {
+    expect(releasePackageNotificationCopy(
+      "deployed_health_check_failed",
+      "server_upload",
+    )).toEqual({
+      title: "部署验证失败",
+      detail: "服务器文件已部署且后置命令已完成，但健康检查未通过，请查看上传日志。",
+    });
+    expect(() => releasePackageNotificationCopy(
+      "deployed_health_check_failed",
+      "local_archive",
+    )).toThrow("无效的上线包终态组合");
+  });
+
   it("describes partial server uploads as not uploaded", () => {
     const detail = releasePackageNotificationCopy("partially_succeeded", "server_upload").detail;
 

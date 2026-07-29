@@ -404,7 +404,7 @@ pub(crate) fn finish_release_package_run_with_conn(
         "succeeded" => STATUS_SUCCEEDED,
         "cancelled" => STATUS_CANCELLED,
         "partially_succeeded" | "package_succeeded_upload_failed" | "failed" => STATUS_FAILED,
-        "upload_succeeded_command_failed" => STATUS_FAILED,
+        "upload_succeeded_command_failed" | "deployed_health_check_failed" => STATUS_FAILED,
         _ => return Err(format!("未知的上线包终态: {result_code}")),
     };
 
@@ -967,6 +967,7 @@ mod tests {
             ("partially_succeeded", "failed", "pending"),
             ("package_succeeded_upload_failed", "failed", "pending"),
             ("upload_succeeded_command_failed", "failed", "pending"),
+            ("deployed_health_check_failed", "failed", "pending"),
             ("failed", "failed", "pending"),
             ("cancelled", "cancelled", "pending"),
         ] {

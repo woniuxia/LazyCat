@@ -14,6 +14,7 @@ export type ReleasePackageRunStatus =
   | "package_succeeded_upload_failed"
   | "failed"
   | "upload_succeeded_command_failed"
+  | "deployed_health_check_failed"
   | "cancelled";
 export type ReleasePackageTargetStatus =
   | "idle"
@@ -56,6 +57,9 @@ export interface ReleasePackageEnvironmentDraft extends ReleasePackageUploadConf
   backendSuccessKeyword: string;
   backendPostUploadCommand: string;
   backendArtifactPath: string;
+  healthCheckEnabled: boolean;
+  healthCheckUrl: string;
+  healthCheckMaxRetries: number;
 }
 
 export interface ReleasePackageEnvironmentConfig extends ReleasePackageEnvironmentDraft {

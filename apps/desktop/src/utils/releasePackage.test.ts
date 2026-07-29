@@ -66,6 +66,9 @@ const testEnvironment: ReleasePackageEnvironmentConfig = {
   sshPrivateKeyPath: "",
   frontendRemoteDir: "/srv/test/web",
   backendRemotePath: "/srv/test/portal.jar",
+  healthCheckEnabled: false,
+  healthCheckUrl: "",
+  healthCheckMaxRetries: 6,
   createdAt: "2026-07-18 10:00:00",
   updatedAt: "2026-07-18 10:00:00",
 };
@@ -224,6 +227,9 @@ Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force
       sshPrivateKeyPath: "",
       frontendRemoteDir: "",
       backendRemotePath: "",
+      healthCheckEnabled: false,
+      healthCheckUrl: "",
+      healthCheckMaxRetries: 6,
     });
   });
 
@@ -284,6 +290,9 @@ Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force
       sshPrivateKeyPath: testEnvironment.sshPrivateKeyPath,
       frontendRemoteDir: testEnvironment.frontendRemoteDir,
       backendRemotePath: testEnvironment.backendRemotePath,
+      healthCheckEnabled: testEnvironment.healthCheckEnabled,
+      healthCheckUrl: testEnvironment.healthCheckUrl,
+      healthCheckMaxRetries: testEnvironment.healthCheckMaxRetries,
     });
     expect(productionDraft).toEqual({
       packageType: productionEnvironment.packageType,
@@ -307,6 +316,9 @@ Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force
       sshPrivateKeyPath: productionEnvironment.sshPrivateKeyPath,
       frontendRemoteDir: productionEnvironment.frontendRemoteDir,
       backendRemotePath: productionEnvironment.backendRemotePath,
+      healthCheckEnabled: productionEnvironment.healthCheckEnabled,
+      healthCheckUrl: productionEnvironment.healthCheckUrl,
+      healthCheckMaxRetries: productionEnvironment.healthCheckMaxRetries,
     });
 
     const projectDraft = projectToReleasePackageProjectDraft(project);
@@ -415,6 +427,29 @@ Copy-Item -Path '.\\config\\*' -Destination '.\\release\\config' -Recurse -Force
     expect(validateReleasePackageUpload(draft)).toBe("请输入 SSH 用户名");
     draft.sshUsername = "deploy";
     expect(validateReleasePackageUpload(draft)).toBe("请选择 SSH 私钥文件");
+  });
+
+  it("validates deployment health check settings only when enabled", () => {
+    const draft = createEmptyReleasePackageEnvironmentDraft();
+    Object.assign(draft, {
+      packageType: "server_upload",
+      frontendBuildCommand: "pnpm build",
+      frontendArtifactPath: "dist",
+      backendBuildCommand: "mvn package",
+      backendArtifactPath: "target/app.jar",
+      vaultEntryId: 17,
+      frontendRemoteDir: "/srv/app/web",
+      backendRemotePath: "/srv/app/app.jar",
+    });
+    expect(validateReleasePackageEnvironmentDraft(draft)).toBeNull();
+
+    draft.healthCheckEnabled = true;
+    expect(validateReleasePackageEnvironmentDraft(draft)).toBe("健康检查地址必须使用 http 或 https");
+    draft.healthCheckUrl = "https://portal.example.com/health";
+    draft.healthCheckMaxRetries = 61;
+    expect(validateReleasePackageEnvironmentDraft(draft)).toBe("健康检查最多重试次数必须在 0 到 60 之间");
+    draft.healthCheckMaxRetries = 0;
+    expect(validateReleasePackageEnvironmentDraft(draft)).toBeNull();
   });
 
   it("validates the project SSH port only for private-key upload", () => {

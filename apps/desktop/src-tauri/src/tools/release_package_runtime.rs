@@ -1428,6 +1428,129 @@ fn run_post_upload_commands(
     }
     summary
 }
+
+const HEALTH_CHECK_RETRY_INTERVAL: Duration = Duration::from_secs(10);
+
+fn wait_for_health_check_retry(cancelled: &AtomicBool) -> bool {
+    let deadline = Instant::now() + HEALTH_CHECK_RETRY_INTERVAL;
+    while Instant::now() < deadline {
+        if cancelled.load(Ordering::Acquire) {
+            return false;
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
+    !cancelled.load(Ordering::Acquire)
+}
+
+fn probe_health_check(url: &str) -> Result<u16, String> {
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(Duration::from_secs(5))
+        .timeout_read(Duration::from_secs(5))
+        .timeout_write(Duration::from_secs(5))
+        .build();
+    match agent.get(url).call() {
+        Ok(response) => Ok(response.status()),
+        Err(ureq::Error::Status(status, _)) => Ok(status),
+        Err(ureq::Error::Transport(error)) => Err(error.to_string()),
+    }
+}
+
+fn run_health_check_with<P, W>(
+    identity: &RunIdentity,
+    mut summary: PipelineSummary,
+    url: &str,
+    max_retries: u32,
+    cancelled: &AtomicBool,
+    sink: &dyn EventSink,
+    mut probe: P,
+    mut wait: W,
+) -> PipelineSummary
+where
+    P: FnMut(&str) -> Result<u16, String>,
+    W: FnMut(&AtomicBool) -> bool,
+{
+    if !summary.remote_committed || summary.status != "succeeded" {
+        return summary;
+    }
+
+    let attempts = max_retries.saturating_add(1);
+    emit_status(sink, identity, "running", "upload", None, None);
+    emit_system_log(
+        sink,
+        identity,
+        "upload",
+        &format!("[健康检查] 开始检测 {url}"),
+    );
+    let mut last_error = String::new();
+    for attempt in 1..=attempts {
+        if cancelled.load(Ordering::Acquire) {
+            summary.status = "cancelled";
+            summary.error = Some("服务器文件已部署，健康检查已按用户请求取消".into());
+            return summary;
+        }
+        match probe(url) {
+            Ok(status) if (200..300).contains(&status) => {
+                emit_system_log(
+                    sink,
+                    identity,
+                    "upload",
+                    &format!("[健康检查] 第 {attempt}/{attempts} 次检测成功，HTTP {status}"),
+                );
+                return summary;
+            }
+            Ok(status) => {
+                last_error = format!("HTTP {status}");
+            }
+            Err(error) => {
+                last_error = error;
+            }
+        }
+        emit_system_log(
+            sink,
+            identity,
+            "upload",
+            &format!("[健康检查] 第 {attempt}/{attempts} 次检测失败：{last_error}"),
+        );
+        if attempt < attempts {
+            emit_system_log(sink, identity, "upload", "[健康检查] 10 秒后重试");
+            if !wait(cancelled) {
+                summary.status = "cancelled";
+                summary.error = Some("服务器文件已部署，健康检查已按用户请求取消".into());
+                return summary;
+            }
+        }
+    }
+
+    summary.status = "deployed_health_check_failed";
+    append_pipeline_error(
+        &mut summary,
+        format!("已部署但是验证失败：健康检查共检测 {attempts} 次，最后一次失败：{last_error}"),
+    );
+    summary
+}
+
+fn run_health_check(
+    identity: &RunIdentity,
+    summary: PipelineSummary,
+    project: &ReleasePackageEnvironmentConfig,
+    cancelled: &AtomicBool,
+    sink: &dyn EventSink,
+) -> PipelineSummary {
+    if !project.health_check_enabled {
+        return summary;
+    }
+    run_health_check_with(
+        identity,
+        summary,
+        &project.health_check_url,
+        project.health_check_max_retries,
+        cancelled,
+        sink,
+        probe_health_check,
+        wait_for_health_check_retry,
+    )
+}
+
 fn validate_remote_overwrite(
     consumed: &ConsumedPreflight,
     confirmed: &[ReleaseTarget],
@@ -1554,17 +1677,18 @@ fn run_deployment_phase(
             );
         }
     };
-    execute_deployment_request(
+    let summary = execute_deployment_request(
         identity,
         summary,
         request,
         commands,
         authorization.consumed,
-        cancelled,
+        Arc::clone(&cancelled),
         upload_stop,
         ssh_sockets,
-        sink,
-    )
+        Arc::clone(&sink),
+    );
+    run_health_check(identity, summary, project, cancelled.as_ref(), sink.as_ref())
 }
 
 fn execute_deployment_request(
@@ -1687,6 +1811,7 @@ fn execute_deployment_request(
 
 fn run_retry_deployment_phase(
     identity: &RunIdentity,
+    project: &ReleasePackageEnvironmentConfig,
     retry: RetryJob,
     authorization: DeployAuthorization,
     cancelled: Arc<AtomicBool>,
@@ -1716,17 +1841,18 @@ fn run_retry_deployment_phase(
             );
         }
     };
-    execute_deployment_request(
+    let summary = execute_deployment_request(
         identity,
         summary,
         request,
         commands,
         authorization.consumed,
-        cancelled,
+        Arc::clone(&cancelled),
         upload_stop,
         ssh_sockets,
-        sink,
-    )
+        Arc::clone(&sink),
+    );
+    run_health_check(identity, summary, project, cancelled.as_ref(), sink.as_ref())
 }
 
 fn run_build_pipeline(
@@ -2322,6 +2448,7 @@ pub fn upload_retry(
         );
         let summary = run_retry_deployment_phase(
             &thread_identity,
+            &project,
             retry,
             deploy_authorization,
             cancelled.clone(),
@@ -2465,7 +2592,13 @@ pub fn command_retry(
                     failed_commands: commands,
                 },
             };
-            let mut summary = summary;
+            let mut summary = run_health_check(
+                &thread_identity,
+                summary,
+                &thread_project,
+                worker_cancelled.as_ref(),
+                sink.as_ref(),
+            );
             if summary.status == "upload_succeeded_command_failed" {
                 if let Err(error) = finish_command_retry(retry, summary.failed_commands.clone())
                     .and_then(|token| remember_command_retry_token(&thread_identity.run_id, token))
@@ -2899,6 +3032,90 @@ mod pipeline_tests {
             failed_commands: Vec::new(),
         }
     }
+
+    #[test]
+    fn health_check_retries_until_success() {
+        let sink = CollectingSink::default();
+        let cancelled = AtomicBool::new(false);
+        let mut attempts = 0;
+        let mut waits = 0;
+
+        let summary = run_health_check_with(
+            &run_identity("health-success"),
+            succeeded_upload_summary(),
+            "https://example.com/health",
+            2,
+            &cancelled,
+            &sink,
+            |_| {
+                attempts += 1;
+                Ok(if attempts == 3 { 204 } else { 503 })
+            },
+            |_| {
+                waits += 1;
+                true
+            },
+        );
+
+        assert_eq!(summary.status, "succeeded");
+        assert_eq!(attempts, 3);
+        assert_eq!(waits, 2);
+    }
+
+    #[test]
+    fn health_check_exhaustion_keeps_deployment_and_reports_validation_failure() {
+        let sink = CollectingSink::default();
+        let cancelled = AtomicBool::new(false);
+        let mut attempts = 0;
+
+        let summary = run_health_check_with(
+            &run_identity("health-failed"),
+            succeeded_upload_summary(),
+            "https://example.com/health",
+            1,
+            &cancelled,
+            &sink,
+            |_| {
+                attempts += 1;
+                Err("connection refused".into())
+            },
+            |_| true,
+        );
+
+        assert_eq!(summary.status, "deployed_health_check_failed");
+        assert!(summary.remote_committed);
+        assert_eq!(attempts, 2);
+        assert!(summary.error.unwrap().contains("已部署但是验证失败"));
+    }
+
+    #[test]
+    fn health_check_cancellation_during_retry_wait_stops_requests() {
+        let sink = CollectingSink::default();
+        let cancelled = AtomicBool::new(false);
+        let mut attempts = 0;
+
+        let summary = run_health_check_with(
+            &run_identity("health-cancelled"),
+            succeeded_upload_summary(),
+            "https://example.com/health",
+            3,
+            &cancelled,
+            &sink,
+            |_| {
+                attempts += 1;
+                Ok(503)
+            },
+            |cancelled| {
+                cancelled.store(true, Ordering::Release);
+                false
+            },
+        );
+
+        assert_eq!(summary.status, "cancelled");
+        assert!(summary.remote_committed);
+        assert_eq!(attempts, 1);
+        assert!(summary.error.unwrap().contains("健康检查已按用户请求取消"));
+    }
     #[cfg(windows)]
     impl CollectingSink {
         fn cancelling_during_archive(cancelled: Arc<AtomicBool>) -> Self {
@@ -3136,6 +3353,9 @@ mod pipeline_tests {
             ssh_private_key_path: String::new(),
             frontend_remote_dir: String::new(),
             backend_remote_path: String::new(),
+            health_check_enabled: false,
+            health_check_url: String::new(),
+            health_check_max_retries: 6,
             created_at: String::new(),
             updated_at: String::new(),
         }
@@ -4206,9 +4426,11 @@ mod pipeline_tests {
         };
         let mut consumed = consumed_preflight_with_existing(Vec::new());
         consumed.binding.targets = vec![RemoteTarget::Backend];
+        let project = project();
 
         let result = run_retry_deployment_phase(
             &run_identity("retry-request-failure"),
+            &project,
             retry,
             DeployAuthorization { consumed },
             Arc::new(AtomicBool::new(false)),
@@ -4357,6 +4579,9 @@ mod pipeline_tests {
             ssh_private_key_path: String::new(),
             frontend_remote_dir: String::new(),
             backend_remote_path: String::new(),
+            health_check_enabled: false,
+            health_check_url: String::new(),
+            health_check_max_retries: 6,
             created_at: String::new(),
             updated_at: String::new(),
         };
@@ -4601,6 +4826,9 @@ mod pipeline_tests {
             ssh_private_key_path: String::new(),
             frontend_remote_dir: String::new(),
             backend_remote_path: String::new(),
+            health_check_enabled: false,
+            health_check_url: String::new(),
+            health_check_max_retries: 6,
             created_at: String::new(),
             updated_at: String::new(),
         };
@@ -4678,6 +4906,9 @@ mod pipeline_tests {
             ssh_private_key_path: String::new(),
             frontend_remote_dir: String::new(),
             backend_remote_path: String::new(),
+            health_check_enabled: false,
+            health_check_url: String::new(),
+            health_check_max_retries: 6,
             created_at: String::new(),
             updated_at: String::new(),
         };

@@ -64,6 +64,13 @@ describe("GlobalNotificationPopup", () => {
     expect(source).toContain(".package-upload_succeeded_command_failed");
   });
 
+  it("renders deployment verification failures as an explicit failure state", () => {
+    expect(source).toContain('currentPackage.value?.status === "deployed_health_check_failed"');
+    expect(source).toContain('? "验证失败"');
+    expect(source).toContain(".tone-deployed_health_check_failed");
+    expect(source).toContain(".package-deployed_health_check_failed");
+  });
+
   it("shows the directory action only for local archives", () => {
     expect(source).toContain('currentPackage.value?.packageType === "local_archive"');
   });

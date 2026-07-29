@@ -59,6 +59,9 @@ CREATE TABLE IF NOT EXISTS release_package_environments (
     ssh_private_key_path TEXT NOT NULL DEFAULT '',
     frontend_remote_dir TEXT NOT NULL DEFAULT '',
     backend_remote_path TEXT NOT NULL DEFAULT '',
+    health_check_enabled INTEGER NOT NULL DEFAULT 0 CHECK (health_check_enabled IN (0, 1)),
+    health_check_url TEXT NOT NULL DEFAULT '',
+    health_check_max_retries INTEGER NOT NULL DEFAULT 6 CHECK (health_check_max_retries BETWEEN 0 AND 60),
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(project_id, environment)
@@ -459,6 +462,21 @@ pub fn ensure_schema(conn: &Connection) -> Result<(), String> {
     )?;
     add_environment_column_if_missing(
         &transaction,
+        "health_check_enabled",
+        "INTEGER NOT NULL DEFAULT 0 CHECK (health_check_enabled IN (0, 1))",
+    )?;
+    add_environment_column_if_missing(
+        &transaction,
+        "health_check_url",
+        "TEXT NOT NULL DEFAULT ''",
+    )?;
+    add_environment_column_if_missing(
+        &transaction,
+        "health_check_max_retries",
+        "INTEGER NOT NULL DEFAULT 6 CHECK (health_check_max_retries BETWEEN 0 AND 60)",
+    )?;
+    add_environment_column_if_missing(
+        &transaction,
         "backend_expected_branch",
         "TEXT NOT NULL DEFAULT 'master'",
     )?;
@@ -613,6 +631,9 @@ pub struct ReleasePackageEnvironmentConfig {
     pub ssh_private_key_path: String,
     pub frontend_remote_dir: String,
     pub backend_remote_path: String,
+    pub health_check_enabled: bool,
+    pub health_check_url: String,
+    pub health_check_max_retries: u32,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -803,6 +824,9 @@ struct EnvironmentPayload {
     ssh_private_key_path: String,
     frontend_remote_dir: String,
     backend_remote_path: String,
+    health_check_enabled: bool,
+    health_check_url: String,
+    health_check_max_retries: u32,
 }
 fn required_string(payload: &Value, key: &str) -> Result<String, String> {
     payload
@@ -841,6 +865,25 @@ fn optional_i64(payload: &Value, key: &str) -> Result<Option<i64>, String> {
             .filter(|id| *id > 0)
             .map(Some)
             .ok_or_else(|| format!("{key} must be a positive integer")),
+    }
+}
+
+fn optional_bool(payload: &Value, key: &str, default: bool) -> Result<bool, String> {
+    match payload.get(key) {
+        None => Ok(default),
+        Some(Value::Bool(value)) => Ok(*value),
+        Some(_) => Err(format!("{key} must be a boolean")),
+    }
+}
+
+fn optional_bounded_u32(payload: &Value, key: &str, default: u32, max: u32) -> Result<u32, String> {
+    match payload.get(key) {
+        None => Ok(default),
+        Some(value) => value
+            .as_u64()
+            .filter(|number| *number <= u64::from(max))
+            .map(|number| number as u32)
+            .ok_or_else(|| format!("{key} must be between 0 and {max}")),
     }
 }
 fn parse_targets(value: &Value) -> Result<Vec<ReleaseTarget>, String> {
@@ -1001,6 +1044,9 @@ fn parse_environment_fields(payload: &Value) -> Result<EnvironmentPayload, Strin
         ssh_private_key_path: optional_string(payload, "sshPrivateKeyPath")?,
         frontend_remote_dir: optional_string(payload, "frontendRemoteDir")?,
         backend_remote_path: optional_string(payload, "backendRemotePath")?,
+        health_check_enabled: optional_bool(payload, "healthCheckEnabled", false)?,
+        health_check_url: optional_string(payload, "healthCheckUrl")?,
+        health_check_max_retries: optional_bounded_u32(payload, "healthCheckMaxRetries", 6, 60)?,
     };
     validate_environment_payload(&environment)?;
     Ok(environment)
@@ -1045,6 +1091,13 @@ fn validate_environment_payload(environment: &EnvironmentPayload) -> Result<(), 
             || environment.backend_remote_path == "/"
         {
             return Err("backendRemotePath must be an absolute Linux path".into());
+        }
+        if environment.health_check_enabled {
+            let url = url::Url::parse(&environment.health_check_url)
+                .map_err(|_| "healthCheckUrl must be a valid HTTP URL")?;
+            if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {
+                return Err("healthCheckUrl must be a valid HTTP URL".into());
+            }
         }
     }
     if !matches!(
@@ -1111,6 +1164,9 @@ struct RawEnvironmentConfig {
     ssh_private_key_path: String,
     frontend_remote_dir: String,
     backend_remote_path: String,
+    health_check_enabled: bool,
+    health_check_url: String,
+    health_check_max_retries: i64,
     created_at: String,
     updated_at: String,
 }
@@ -1144,8 +1200,11 @@ fn raw_environment_from_row(row: &Row<'_>) -> rusqlite::Result<RawEnvironmentCon
         ssh_private_key_path: row.get(24)?,
         frontend_remote_dir: row.get(25)?,
         backend_remote_path: row.get(26)?,
-        created_at: row.get(27)?,
-        updated_at: row.get(28)?,
+        health_check_enabled: row.get(27)?,
+        health_check_url: row.get(28)?,
+        health_check_max_retries: row.get(29)?,
+        created_at: row.get(30)?,
+        updated_at: row.get(31)?,
     })
 }
 
@@ -1174,6 +1233,9 @@ fn environment_payload_from_config(
         ssh_private_key_path: environment.ssh_private_key_path.clone(),
         frontend_remote_dir: environment.frontend_remote_dir.clone(),
         backend_remote_path: environment.backend_remote_path.clone(),
+        health_check_enabled: environment.health_check_enabled,
+        health_check_url: environment.health_check_url.clone(),
+        health_check_max_retries: environment.health_check_max_retries,
     }
 }
 
@@ -1195,6 +1257,10 @@ fn environment_from_raw(
         .ok()
         .filter(|port| *port > 0)
         .ok_or("上线包环境的 SSH 端口无效")?;
+    let health_check_max_retries = u32::try_from(raw.health_check_max_retries)
+        .ok()
+        .filter(|retries| *retries <= 60)
+        .ok_or("上线包环境的健康检查最多重试次数无效")?;
     let mut result = ReleasePackageEnvironmentConfig {
         id: raw.id,
         project_id: raw.project_id,
@@ -1224,6 +1290,9 @@ fn environment_from_raw(
         ssh_private_key_path: raw.ssh_private_key_path,
         frontend_remote_dir: raw.frontend_remote_dir,
         backend_remote_path: raw.backend_remote_path,
+        health_check_enabled: raw.health_check_enabled,
+        health_check_url: raw.health_check_url,
+        health_check_max_retries,
         created_at: raw.created_at,
         updated_at: raw.updated_at,
     };
@@ -1244,7 +1313,9 @@ const ENVIRONMENT_SELECT: &str = "SELECT environment.id, environment.project_id,
             environment.backend_artifact_path, environment.ssh_host, environment.ssh_port,
             environment.ssh_username, environment.ssh_auth_type, environment.vault_entry_id,
             environment.ssh_private_key_path, environment.frontend_remote_dir,
-            environment.backend_remote_path, environment.created_at, environment.updated_at
+            environment.backend_remote_path, environment.health_check_enabled,
+            environment.health_check_url, environment.health_check_max_retries,
+            environment.created_at, environment.updated_at
      FROM release_package_environments environment
      JOIN release_package_projects project ON project.id=environment.project_id";
 
@@ -1461,11 +1532,12 @@ fn project_create_with_conn(conn: &Connection, payload: &Value) -> Result<Value,
                 backend_expected_branch, backend_build_command, backend_success_keyword,
                 backend_post_upload_command, backend_artifact_path,
                 ssh_host, ssh_port, ssh_username, ssh_auth_type, vault_entry_id,
-                ssh_private_key_path, frontend_remote_dir, backend_remote_path
+                ssh_private_key_path, frontend_remote_dir, backend_remote_path,
+                health_check_enabled, health_check_url, health_check_max_retries
              ) VALUES (
                 ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
                 ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21,
-                ?22, ?23
+                ?22, ?23, ?24, ?25, ?26
              )",
             params![
                 project_id,
@@ -1491,6 +1563,9 @@ fn project_create_with_conn(conn: &Connection, payload: &Value) -> Result<Value,
                 environment.ssh_private_key_path,
                 environment.frontend_remote_dir,
                 environment.backend_remote_path,
+                environment.health_check_enabled,
+                environment.health_check_url,
+                environment.health_check_max_retries,
             ],
         )
         .map_err(|error| format!("create release package environment failed: {error}"))?;
@@ -1574,8 +1649,10 @@ fn project_update_with_conn(conn: &Connection, payload: &Value) -> Result<Value,
                 backend_artifact_path=?13, ssh_host=?14, ssh_port=?15,
                 ssh_username=?16, ssh_auth_type=?17, vault_entry_id=?18,
                 ssh_private_key_path=?19, frontend_remote_dir=?20,
-                backend_remote_path=?21, updated_at=CURRENT_TIMESTAMP
-             WHERE id=?22",
+                backend_remote_path=?21, health_check_enabled=?22,
+                health_check_url=?23, health_check_max_retries=?24,
+                updated_at=CURRENT_TIMESTAMP
+             WHERE id=?25",
             params![
                 environment.output_root,
                 environment.package_type.as_str(),
@@ -1598,6 +1675,9 @@ fn project_update_with_conn(conn: &Connection, payload: &Value) -> Result<Value,
                 environment.ssh_private_key_path,
                 environment.frontend_remote_dir,
                 environment.backend_remote_path,
+                environment.health_check_enabled,
+                environment.health_check_url,
+                environment.health_check_max_retries,
                 environment_id,
             ],
         )
@@ -2535,7 +2615,10 @@ mod tests {
                 "vaultEntryId": null,
                 "sshPrivateKeyPath": r"C:\Users\tester\.ssh\lazycat",
                 "frontendRemoteDir": "/srv/portal/web",
-                "backendRemotePath": "/srv/portal/app.jar"
+                "backendRemotePath": "/srv/portal/app.jar",
+                "healthCheckEnabled": true,
+                "healthCheckUrl": "https://portal.example.com/health",
+                "healthCheckMaxRetries": 4
             }
         })
     }
@@ -2860,17 +2943,19 @@ mod tests {
                     '' AS ssh_host, 22 AS ssh_port, '' AS ssh_username,
                     '' AS ssh_auth_type, NULL AS vault_entry_id, '' AS ssh_private_key_path,
                     '' AS frontend_remote_dir, '' AS backend_remote_path,
+                    0 AS health_check_enabled, '' AS health_check_url,
+                    6 AS health_check_max_retries,
                     '' AS created_at, '' AS updated_at WHERE 0;
                  INSERT INTO release_package_projects VALUES
                     (1, '损坏项目', 'D:\\web', 'D:\\server', 'created', 'updated');
                  INSERT INTO release_package_environments
                  SELECT 1, 1, 'test', '', 'local_archive', 'master', '', '', '', '',
                     'copy_directory', 'master', '', '', '', '', '', 22, '', 'password', NULL,
-                    '', '', '', 'created', 'updated';
+                    '', '', '', 0, '', 6, 'created', 'updated';
                  INSERT INTO release_package_environments
                  SELECT 2, 1, 'production', '', 'local_archive', 'master', '', '', '', '',
                     'copy_directory', 'master', '', '', '', '', '', 22, '', 'password', NULL,
-                    '', '', '', 'created', 'updated';",
+                    '', '', '', 0, '', 6, 'created', 'updated';",
             )
             .unwrap();
             conn.execute(
@@ -3880,6 +3965,9 @@ mod tests {
         assert_eq!(production["sshPort"], 2222);
         assert_eq!(production["frontendSuccessKeyword"], "Build completed");
         assert_eq!(production["backendSuccessKeyword"], "BUILD SUCCESS");
+        assert_eq!(production["healthCheckEnabled"], true);
+        assert_eq!(production["healthCheckUrl"], "https://portal.example.com/health");
+        assert_eq!(production["healthCheckMaxRetries"], 4);
         assert_eq!(
             production["frontendPostUploadCommand"],
             "cd /srv/web\n  ./reload.sh"
@@ -3896,6 +3984,7 @@ mod tests {
         update["project"]["name"] = json!("客户门户 Pro");
         update["environmentConfig"]["backendPostUploadCommand"] =
             json!("systemctl restart portal-pro");
+        update["environmentConfig"]["healthCheckMaxRetries"] = json!(8);
         project_update_with_conn(&conn, &update).unwrap();
         let updated = load_environment(&conn, environment_id).unwrap();
         assert_eq!(updated.project_name, "客户门户 Pro");
@@ -3903,6 +3992,9 @@ mod tests {
             updated.backend_post_upload_command,
             "systemctl restart portal-pro"
         );
+        assert!(updated.health_check_enabled);
+        assert_eq!(updated.health_check_url, "https://portal.example.com/health");
+        assert_eq!(updated.health_check_max_retries, 8);
         project_delete_with_conn(&conn, &json!({ "id": id })).unwrap();
         assert!(load_environment(&conn, environment_id).is_err());
     }
@@ -4273,6 +4365,9 @@ mod tests {
             ssh_private_key_path: String::new(),
             frontend_remote_dir: String::new(),
             backend_remote_path: String::new(),
+            health_check_enabled: false,
+            health_check_url: String::new(),
+            health_check_max_retries: 6,
             created_at: String::new(),
             updated_at: String::new(),
         };
@@ -4415,6 +4510,9 @@ mod tests {
             ssh_private_key_path: String::new(),
             frontend_remote_dir: String::new(),
             backend_remote_path: String::new(),
+            health_check_enabled: false,
+            health_check_url: String::new(),
+            health_check_max_retries: 6,
             created_at: String::new(),
             updated_at: String::new(),
         };

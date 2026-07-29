@@ -441,6 +441,39 @@
                     </el-form-item>
                   </div>
                   <p class="server-command-note">全部选中目标上传成功后执行；不自动注入 sudo、工作目录或路径变量。</p>
+                  <div class="health-check-header">
+                    <div>
+                      <strong>部署后健康检查</strong>
+                      <span>上传及全部后置命令完成后，通过 HTTP 验证服务状态</span>
+                    </div>
+                    <el-switch
+                      v-model="environmentDraft.healthCheckEnabled"
+                      :disabled="running"
+                      aria-label="启用部署后健康检查"
+                    />
+                  </div>
+                  <div v-if="environmentDraft.healthCheckEnabled" class="health-check-grid">
+                    <el-form-item label="健康检查地址" required>
+                      <el-input
+                        v-model="environmentDraft.healthCheckUrl"
+                        :disabled="running"
+                        placeholder="例如：https://portal.example.com/health"
+                      />
+                    </el-form-item>
+                    <el-form-item label="最多重试次数" required>
+                      <el-input-number
+                        v-model="environmentDraft.healthCheckMaxRetries"
+                        :disabled="running"
+                        :min="0"
+                        :max="60"
+                        controls-position="right"
+                        class="full-width"
+                      />
+                    </el-form-item>
+                  </div>
+                  <p v-if="environmentDraft.healthCheckEnabled" class="server-command-note">
+                    HTTP 2xx 表示验证成功；首次失败后每隔 10 秒重试，0 表示不重试。
+                  </p>
                 </section>
               </div>
             </el-collapse-item>
@@ -925,6 +958,7 @@ const statusTagTypes: Record<ReleasePackageRunStatus, "primary" | "success" | "i
   partially_succeeded: "warning",
   package_succeeded_upload_failed: "danger",
   upload_succeeded_command_failed: "danger",
+  deployed_health_check_failed: "danger",
   failed: "danger",
   cancelled: "warning",
 };
@@ -2244,6 +2278,22 @@ onMounted(async () => {
   line-height: 1.55;
 }
 .server-command-note { margin: -4px 0 12px; color: #606266; font-size: 12px; line-height: 1.5; }
+.health-check-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 0 4px;
+  border-top: 1px solid #ebeef5;
+}
+.health-check-header > div { display: grid; gap: 3px; min-width: 0; }
+.health-check-header strong { color: #303133; font-size: 13px; }
+.health-check-header span { color: #606266; font-size: 12px; line-height: 1.45; }
+.health-check-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 160px;
+  gap: 12px;
+}
 .vault-credential-field :deep(.el-form-item__content) { display: grid; gap: 8px; }
 .vault-credential-picker { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; }
 .vault-credential-picker :deep(.el-select) { min-width: 180px; }
@@ -2546,7 +2596,8 @@ onMounted(async () => {
   .server-config-heading { align-items: flex-start; }
   .private-key-config-grid { grid-template-columns: 1fr; }
   .server-target-grid { grid-template-columns: 1fr; }
-  .server-command-grid { grid-template-columns: 1fr; }
+  .server-command-grid,
+  .health-check-grid { grid-template-columns: 1fr; }
   .command-retry-summary { grid-template-columns: 1fr; }
   .production-summary-grid { grid-template-columns: 1fr; }
   .branch-check-row { grid-template-columns: 42px minmax(0, 1fr); }

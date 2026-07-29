@@ -195,6 +195,8 @@ const packageStatusLabel = computed(() =>
         ? "上传失败"
         : currentPackage.value?.status === "upload_succeeded_command_failed"
           ? "命令失败"
+          : currentPackage.value?.status === "deployed_health_check_failed"
+            ? "验证失败"
           : currentPackage.value?.status === "cancelled"
           ? "已终止"
           : "失败",
@@ -222,6 +224,7 @@ const headerIcon = computed(() => {
     currentPackage.value?.status === "failed"
     || currentPackage.value?.status === "package_succeeded_upload_failed"
     || currentPackage.value?.status === "upload_succeeded_command_failed"
+    || currentPackage.value?.status === "deployed_health_check_failed"
     || currentPackage.value?.status === "cancelled"
   ) return WarningFilled;
   return CircleCheckFilled;
@@ -410,6 +413,7 @@ onBeforeUnmount(() => {
   color: #8a4b08;
 }
 .tone-upload_succeeded_command_failed,
+.tone-deployed_health_check_failed,
 .tone-failed {
   background: #fee4e2;
   color: #b42318;
@@ -507,6 +511,7 @@ onBeforeUnmount(() => {
   background: #fff4df;
 }
 .package-upload_succeeded_command_failed,
+.package-deployed_health_check_failed,
 .package-failed {
   color: #b42318;
   background: #fee4e2;

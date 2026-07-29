@@ -108,6 +108,7 @@ function registerElementStubs(app: ReturnType<ReturnType<typeof createPanelRende
     "el-radio-button",
     "el-radio-group",
     "el-select",
+    "el-switch",
   ]) {
     app.component(name, defineComponent({
       inheritAttrs: false,
@@ -921,6 +922,15 @@ describe("ReleasePackagePanel", () => {
     expect(source).toContain("runtime.bindStartedRun(result.runId, environmentId)");
     expect(source).toContain('v-model="commandRetry.privateKeyPassphrase.value"');
     expect(source).toContain('@closed="resetCommandRetryDialog"');
+  });
+
+  it("configures deployment health checks after post-upload commands", () => {
+    expect(source).toContain("部署后健康检查");
+    expect(source).toContain('v-model="environmentDraft.healthCheckEnabled"');
+    expect(source).toContain('v-model="environmentDraft.healthCheckUrl"');
+    expect(source).toContain('v-model="environmentDraft.healthCheckMaxRetries"');
+    expect(source).toContain("首次失败后每隔 10 秒重试");
+    expect(source).toContain("deployed_health_check_failed");
   });
 
   it("mounts with mutually exclusive upload and command retry actions", async () => {

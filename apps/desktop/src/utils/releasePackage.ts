@@ -166,6 +166,9 @@ export function createEmptyReleasePackageEnvironmentDraft(): ReleasePackageEnvir
     backendSuccessKeyword: "",
     backendPostUploadCommand: "",
     backendArtifactPath: "",
+    healthCheckEnabled: false,
+    healthCheckUrl: "",
+    healthCheckMaxRetries: 6,
     sshHost: "",
     sshPort: 22,
     sshUsername: "",
@@ -209,6 +212,9 @@ export function environmentToReleasePackageDraft(
     backendSuccessKeyword: environment.backendSuccessKeyword,
     backendPostUploadCommand: environment.backendPostUploadCommand,
     backendArtifactPath: environment.backendArtifactPath,
+    healthCheckEnabled: environment.healthCheckEnabled,
+    healthCheckUrl: environment.healthCheckUrl,
+    healthCheckMaxRetries: environment.healthCheckMaxRetries,
     sshHost: environment.sshHost,
     sshPort: environment.sshPort,
     sshUsername: environment.sshUsername,
@@ -247,6 +253,9 @@ export function normalizeReleasePackageEnvironmentDraft(
     backendSuccessKeyword: draft.backendSuccessKeyword.trim(),
     backendPostUploadCommand: draft.backendPostUploadCommand.trim(),
     backendArtifactPath: draft.backendArtifactPath.trim(),
+    healthCheckEnabled: draft.healthCheckEnabled,
+    healthCheckUrl: draft.healthCheckUrl.trim(),
+    healthCheckMaxRetries: draft.healthCheckMaxRetries,
     sshHost: draft.sshHost.trim(),
     sshPort: draft.sshPort,
     sshUsername: draft.sshUsername.trim(),
@@ -312,6 +321,14 @@ export function validateReleasePackageEnvironmentDraft(draft: ReleasePackageEnvi
   if (!value.backendExpectedBranch) return "请输入后端生产分支";
   if (!value.backendBuildCommand) return "请输入后端构建命令";
   if (!value.backendArtifactPath) return "请输入后端产物路径";
+  if (value.packageType === "server_upload" && value.healthCheckEnabled) {
+    if (!/^https?:\/\//u.test(value.healthCheckUrl)) return "健康检查地址必须使用 http 或 https";
+    if (!Number.isInteger(value.healthCheckMaxRetries)
+      || value.healthCheckMaxRetries < 0
+      || value.healthCheckMaxRetries > 60) {
+      return "健康检查最多重试次数必须在 0 到 60 之间";
+    }
+  }
   return value.packageType === "server_upload" ? validateReleasePackageUpload(value) : null;
 }
 
@@ -358,6 +375,7 @@ export function releasePackageRunStatusLabel(status: ReleasePackageRunStatus): s
     package_succeeded_upload_failed: "构建完成，上传失败",
     failed: "失败",
     upload_succeeded_command_failed: "文件已上传，命令失败",
+    deployed_health_check_failed: "已部署，验证失败",
     cancelled: "已终止",
   };
   return labels[status];
