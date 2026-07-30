@@ -6,6 +6,7 @@ use tauri::{
 };
 
 use crate::events::EVENT_GLOBAL_NOTIFICATION_PUSH;
+use crate::tools::action_center::CombinationRunDetail;
 use crate::tools::release_package::{ReleasePackageEnvironmentKind, ReleasePackageType};
 use crate::tools::todo::{ReminderActionSummary, ReminderDispatch};
 
@@ -62,6 +63,52 @@ pub(crate) enum GlobalNotification {
         #[serde(skip_serializing_if = "Option::is_none")]
         error: Option<String>,
     },
+    ActionCombination {
+        id: String,
+        created_at: String,
+        run_id: String,
+        combination_id: i64,
+        combination_name: String,
+        status: String,
+        failed_step_labels: Vec<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        error: Option<String>,
+    },
+}
+
+pub(crate) fn build_action_combination_notification(
+    run: &CombinationRunDetail,
+) -> Option<GlobalNotification> {
+    if !matches!(
+        run.status.as_str(),
+        "succeeded" | "partially_succeeded" | "failed"
+    ) {
+        return None;
+    }
+    let combination_id = run.combination_id?;
+    let failed_steps = run
+        .steps
+        .iter()
+        .filter(|step| step.status == "failed")
+        .map(|step| format!("{} · {}", step.action_label, step.target_label))
+        .collect::<Vec<_>>();
+    let error = run.error.clone().or_else(|| {
+        run.steps
+            .iter()
+            .find(|step| step.status == "failed")
+            .and_then(|step| step.message.clone())
+    });
+
+    Some(GlobalNotification::ActionCombination {
+        id: format!("action-combination:{}", run.id),
+        created_at: Local::now().to_rfc3339(),
+        run_id: run.id.clone(),
+        combination_id,
+        combination_name: run.combination_name.clone(),
+        status: run.status.clone(),
+        failed_step_labels: failed_steps,
+        error,
+    })
 }
 
 pub(crate) fn build_release_package_notification(
@@ -222,9 +269,30 @@ pub(crate) fn global_notification_open_tool(app: AppHandle, tool_id: String) -> 
     crate::navigate_main_window_to_tool(&app, &tool_id)
 }
 
+#[tauri::command]
+pub(crate) fn global_notification_open_action_run(
+    app: AppHandle,
+    run_id: String,
+) -> Result<(), String> {
+    let run_id = run_id.trim();
+    if run_id.is_empty() {
+        return Err("runId 不能为空".into());
+    }
+    crate::navigate_main_window_to_tool_context(
+        &app,
+        "action-center",
+        Some(run_id.to_string()),
+        Some("run".into()),
+    )
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{build_release_package_notification, todo_notifications, GlobalNotification};
+    use super::{
+        build_action_combination_notification, build_release_package_notification,
+        todo_notifications, GlobalNotification,
+    };
+    use crate::tools::action_center::{CombinationRunDetail, CombinationRunStep, ExecutionMode};
     use crate::tools::release_package::{ReleasePackageEnvironmentKind, ReleasePackageType};
     use crate::tools::todo::{ReminderActionSummary, ReminderDispatch};
     use serde_json::{json, Value};
@@ -459,5 +527,45 @@ mod tests {
                 "available": true,
             }),
         );
+    }
+
+    #[test]
+    fn action_combination_notification_keeps_run_identity_and_failed_steps() {
+        let notification = build_action_combination_notification(&CombinationRunDetail {
+            id: "run-7".into(),
+            combination_id: Some(7),
+            combination_name: "客户门户开发环境".into(),
+            execution_mode: ExecutionMode::Serial,
+            status: "partially_succeeded".into(),
+            result_code: None,
+            error: None,
+            created_at: "2026-07-30T10:00:00+08:00".into(),
+            started_at: Some("2026-07-30T10:00:01+08:00".into()),
+            finished_at: Some("2026-07-30T10:00:02+08:00".into()),
+            steps: vec![CombinationRunStep {
+                id: 11,
+                action_type: "launcher.launch".into(),
+                action_label: "快捷启动".into(),
+                target_id: "18".into(),
+                target_label: "IDE".into(),
+                sort_order: 0,
+                status: "failed".into(),
+                result_code: None,
+                message: Some("路径不存在".into()),
+                started_at: Some("2026-07-30T10:00:01+08:00".into()),
+                finished_at: Some("2026-07-30T10:00:02+08:00".into()),
+            }],
+        })
+        .unwrap();
+        let payload = serde_json::to_value(notification).unwrap();
+
+        assert_eq!(payload["kind"], "action-combination");
+        assert_eq!(payload["id"], "action-combination:run-7");
+        assert_eq!(payload["runId"], "run-7");
+        assert_eq!(payload["combinationId"], 7);
+        assert_eq!(payload["combinationName"], "客户门户开发环境");
+        assert_eq!(payload["status"], "partially_succeeded");
+        assert_eq!(payload["failedStepLabels"], json!(["快捷启动 · IDE"]));
+        assert_eq!(payload["error"], "路径不存在");
     }
 }

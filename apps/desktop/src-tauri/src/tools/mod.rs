@@ -48,6 +48,7 @@ pub mod snippets;
 pub mod text;
 pub mod time;
 pub mod todo;
+pub mod usage;
 pub mod vault;
 mod vault_lock;
 pub mod attachments;
@@ -103,6 +104,7 @@ fn dispatch_tool(domain: &str, action: &str, payload: &Value) -> Result<Value, S
         "vault" => vault::execute(action, payload),
         "launcher" => launcher::execute(action, payload),
         "todo" => todo::execute(action, payload),
+        "usage" => usage::execute(action, payload),
         "pm" => pm::execute(action, payload),
         "pomodoro" => pomodoro::execute(action, payload),
         "maven" => maven::execute(action, payload),
@@ -152,6 +154,7 @@ pub fn supported_actions(domain: &str) -> Option<&'static [&'static str]> {
         "vault" => Some(vault::supported_actions()),
         "launcher" => Some(launcher::supported_actions()),
         "todo" => Some(todo::supported_actions()),
+        "usage" => Some(usage::supported_actions()),
         "pm" => Some(pm::supported_actions()),
         "pomodoro" => Some(pomodoro::supported_actions()),
         "maven" => Some(maven::supported_actions()),

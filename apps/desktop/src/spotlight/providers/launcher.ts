@@ -42,7 +42,6 @@ async function prefetchLauncher(): Promise<SpotlightItem[]> {
 
   return list.map<SpotlightItem>((e) => {
     const isDir = isDirPath(e.exe_path);
-    const count = e.launch_count ?? 0;
     const stem = e.exe_path.split(/[\\/]/).pop()?.replace(/\.[^.]+$/, "") ?? "";
     return {
       providerId: "launcher",
@@ -51,7 +50,13 @@ async function prefetchLauncher(): Promise<SpotlightItem[]> {
       subtitle: e.group_name || (isDir ? "文件夹" : "应用"),
       badge: { short: "启", tone: "primary" },
       searchFields: [makeField(e.name, 1.2), makeField(stem, 0.6)],
-      weight: 1 + Math.min(count, 50) * 0.01,
+      ranking: {
+        usageRef: {
+          resourceType: "launcher-entry",
+          resourceId: String(e.id),
+          actions: ["launch"],
+        },
+      },
       payload: {
         exePath: e.exe_path,
         arguments: e.arguments ?? "",

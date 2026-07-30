@@ -140,6 +140,7 @@ import "../../spotlight/providers/data-dictionary";
 import "../../spotlight/providers/browser-profiles";
 import "../../spotlight/providers/suggestion";
 import "../../spotlight/providers/launcher";
+import "../../spotlight/providers/action-center";
 import type {
   KeywordCommandCustom,
   ProviderDescriptor,

@@ -3,6 +3,10 @@ import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 
 import { useActionCombinations } from "../composables/useActionCombinations";
+import {
+  useActionCenterNavigation,
+  type ActionCenterNavigationTarget,
+} from "../composables/useActionCenterNavigation";
 import { isCombinationRunTerminal } from "../utils/actionCombination";
 import ActionCombinationEditor from "./action-center/ActionCombinationEditor.vue";
 import ActionCombinationList from "./action-center/ActionCombinationList.vue";
@@ -29,11 +33,14 @@ const {
   createCombination: createDraft,
   copyCombination,
   loadStepTargets,
+  getRun,
+  trackRun,
   reorderSteps,
   saveCombination: persistCombination,
   deleteCombination,
   runCombination: startCombination,
 } = useActionCombinations();
+const actionCenterNavigation = useActionCenterNavigation();
 
 let panelMounted = true;
 let notifiedRunId = "";
@@ -41,8 +48,14 @@ const initializing = ref(true);
 const selecting = ref(false);
 
 const displayedRun = computed(() =>
-  draft.value?.id !== undefined
-  && draft.value?.id === activeRun.value?.combinationId
+  activeRun.value
+  && (
+    activeRun.value.combinationId == null
+    || (
+      draft.value?.id !== undefined
+      && draft.value.id === activeRun.value.combinationId
+    )
+  )
     ? activeRun.value
     : null,
 );
@@ -78,6 +91,29 @@ async function loadStoredCombination(id: number): Promise<void> {
   await selectStoredCombination(id);
   if (!panelMounted) return;
   await loadDraftTargets();
+}
+
+async function focusNavigationTarget(target: ActionCenterNavigationTarget): Promise<void> {
+  if (!panelMounted || selecting.value) return;
+  selecting.value = true;
+  try {
+    if (!(await confirmDiscardChanges("打开动作记录"))) return;
+    if (target.kind === "combination") {
+      await loadStoredCombination(target.combinationId);
+    } else {
+      const run = await getRun(target.runId);
+      if (typeof run.combinationId === "number") {
+        await loadStoredCombination(run.combinationId);
+      }
+      if (!panelMounted) return;
+      await trackRun(run);
+    }
+    actionCenterNavigation.consume(target);
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : String(error));
+  } finally {
+    selecting.value = false;
+  }
 }
 
 async function selectCombination(id: number): Promise<void> {
@@ -176,11 +212,21 @@ watch(
   },
 );
 
+watch(
+  actionCenterNavigation.pendingTarget,
+  (target) => {
+    if (target && !initializing.value) void focusNavigationTarget(target);
+  },
+);
+
 onMounted(async () => {
   try {
     await start();
     if (!panelMounted) return;
-    if (combinations.value.length) {
+    const navigationTarget = actionCenterNavigation.pendingTarget.value;
+    if (navigationTarget) {
+      await focusNavigationTarget(navigationTarget);
+    } else if (combinations.value.length) {
       const initialId = activeRun.value?.combinationId ?? combinations.value[0].id;
       await loadStoredCombination(initialId);
     } else {

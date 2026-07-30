@@ -147,7 +147,7 @@ export interface ActionCombinationRunStep {
 
 export interface ActionCombinationRunDetail {
   id: string;
-  combinationId?: number;
+  combinationId?: number | null;
   combinationName: string;
   executionMode: ActionCombinationExecutionMode;
   status: ActionCombinationRunStatus;

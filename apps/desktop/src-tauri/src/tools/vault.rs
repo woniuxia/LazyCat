@@ -13,6 +13,7 @@ use tauri::Emitter;
 use zeroize::{Zeroize, Zeroizing};
 
 use super::helpers::db_conn;
+use super::usage::{self, UsageKey, ACTION_COPY, ACTION_REVEAL, RESOURCE_VAULT_ENTRY};
 use super::vault_lock::{expired_reason, load_config, LockReason, VaultLockConfig};
 use super::widget::guards::{try_system_input_snapshot, SystemInputSnapshot};
 
@@ -812,29 +813,38 @@ fn cmd_list(payload: &Value) -> Result<Value, String> {
     let tag_filter = payload["tag"].as_str().unwrap_or("");
 
     let mut sql = String::from(
-        "SELECT id, category, title, environment, iv, encrypted_blob, plain_fields, created_at, updated_at FROM vault_entries WHERE 1=1",
+        "SELECT ve.id, ve.category, ve.title, ve.environment, ve.iv, ve.encrypted_blob,
+                ve.plain_fields, ve.created_at, ve.updated_at
+         FROM vault_entries ve WHERE 1=1",
     );
     let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
 
     if !category.is_empty() {
-        sql.push_str(" AND category = ?");
+        sql.push_str(" AND ve.category = ?");
         param_values.push(Box::new(category.to_string()));
     }
     if !keyword.is_empty() {
-        sql.push_str(" AND title LIKE ?");
+        sql.push_str(" AND ve.title LIKE ?");
         param_values.push(Box::new(format!("%{keyword}%")));
     }
     // Tag filter via join
     let tag_sql: String;
     if !tag_filter.is_empty() {
         tag_sql = format!(
-            "{} AND id IN (SELECT entry_id FROM vault_entry_tags WHERE tag = ?)",
+            "{} AND ve.id IN (SELECT entry_id FROM vault_entry_tags WHERE tag = ?)",
             sql
         );
         sql = tag_sql;
         param_values.push(Box::new(tag_filter.to_string()));
     }
-    sql.push_str(" ORDER BY (view_count + copy_count) DESC, updated_at DESC");
+    sql.push_str(
+        " ORDER BY COALESCE((
+            SELECT SUM(u.use_count) FROM usage_daily u
+            WHERE u.resource_type = 'vault-entry' AND u.scope_id = ''
+              AND u.resource_id = CAST(ve.id AS TEXT)
+              AND u.action IN ('reveal', 'copy')
+          ), 0) DESC, ve.updated_at DESC",
+    );
 
     let params_refs: Vec<&dyn rusqlite::types::ToSql> =
         param_values.iter().map(|p| p.as_ref()).collect();
@@ -1075,10 +1085,23 @@ fn cmd_delete(payload: &Value) -> Result<Value, String> {
     let id = payload["id"].as_i64().ok_or("id required")?;
 
     let conn = db_conn()?;
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|error| format!("begin vault delete transaction: {error}"))?;
     // Tags will be auto-deleted by CASCADE, but we can explicitly clear first
-    clear_entry_tags(&conn, id)?;
-    conn.execute("DELETE FROM vault_entries WHERE id = ?1", params![id])
+    clear_entry_tags(&tx, id)?;
+    tx.execute("DELETE FROM vault_entries WHERE id = ?1", params![id])
         .map_err(|e| format!("delete: {e}"))?;
+    usage::delete_resource(
+        &tx,
+        UsageKey {
+            resource_type: RESOURCE_VAULT_ENTRY,
+            scope_id: "",
+            resource_id: &id.to_string(),
+        },
+    )?;
+    tx.commit()
+        .map_err(|error| format!("commit vault delete transaction: {error}"))?;
 
     Ok(json!({ "ok": true }))
 }
@@ -1165,20 +1188,36 @@ fn cmd_delete_tag(payload: &Value) -> Result<Value, String> {
 }
 
 fn cmd_record_usage(payload: &Value) -> Result<Value, String> {
-    // 免会话：仅递增明文计数列，与 meta_list 免会话口径一致（锁定态复制账号也计数）
+    // 免会话：只记录条目 ID 与动作，不读取或写入秘密字段。
     let id = payload["id"].as_i64().ok_or("id required")?;
     let usage_type = payload["type"].as_str().ok_or("type required")?;
 
-    let column = match usage_type {
-        "view" => "view_count",
-        "copy" => "copy_count",
+    let action = match usage_type {
+        "view" => ACTION_REVEAL,
+        "copy" => ACTION_COPY,
         _ => return Err("type must be 'view' or 'copy'".to_string()),
     };
 
     let conn = db_conn()?;
-    let sql = format!("UPDATE vault_entries SET {column} = {column} + 1 WHERE id = ?1");
-    conn.execute(&sql, params![id])
-        .map_err(|e| format!("record_usage: {e}"))?;
+    let exists = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM vault_entries WHERE id = ?1)",
+            params![id],
+            |row| row.get::<_, bool>(0),
+        )
+        .map_err(|error| format!("record_usage validate entry: {error}"))?;
+    if !exists {
+        return Err("vault entry not found".into());
+    }
+    usage::record(
+        &conn,
+        UsageKey {
+            resource_type: RESOURCE_VAULT_ENTRY,
+            scope_id: "",
+            resource_id: &id.to_string(),
+        },
+        action,
+    )?;
 
     Ok(json!({ "success": true }))
 }
@@ -1246,21 +1285,32 @@ fn cmd_meta_list(payload: &Value) -> Result<Value, String> {
     let keyword = payload["keyword"].as_str().unwrap_or("");
 
     let mut sql = String::from(
-        "SELECT id, category, title, environment, view_count, copy_count, plain_fields, created_at, updated_at \
-         FROM vault_entries WHERE 1=1",
+        "SELECT ve.id, ve.category, ve.title, ve.environment,
+                COALESCE((
+                    SELECT SUM(u.use_count) FROM usage_daily u
+                    WHERE u.resource_type = 'vault-entry' AND u.scope_id = ''
+                      AND u.resource_id = CAST(ve.id AS TEXT) AND u.action = 'reveal'
+                ), 0) AS view_count,
+                COALESCE((
+                    SELECT SUM(u.use_count) FROM usage_daily u
+                    WHERE u.resource_type = 'vault-entry' AND u.scope_id = ''
+                      AND u.resource_id = CAST(ve.id AS TEXT) AND u.action = 'copy'
+                ), 0) AS copy_count,
+                ve.plain_fields, ve.created_at, ve.updated_at
+         FROM vault_entries ve WHERE 1=1",
     );
     let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
 
     if !category.is_empty() {
-        sql.push_str(" AND category = ?");
+        sql.push_str(" AND ve.category = ?");
         param_values.push(Box::new(category.to_string()));
     }
     if !keyword.is_empty() {
-        sql.push_str(" AND (title LIKE ? OR IFNULL(plain_fields, '') LIKE ?)");
+        sql.push_str(" AND (ve.title LIKE ? OR IFNULL(ve.plain_fields, '') LIKE ?)");
         param_values.push(Box::new(format!("%{keyword}%")));
         param_values.push(Box::new(format!("%{keyword}%")));
     }
-    sql.push_str(" ORDER BY (view_count + copy_count) DESC, updated_at DESC");
+    sql.push_str(" ORDER BY (view_count + copy_count) DESC, ve.updated_at DESC");
 
     let params_refs: Vec<&dyn rusqlite::types::ToSql> =
         param_values.iter().map(|p| p.as_ref()).collect();

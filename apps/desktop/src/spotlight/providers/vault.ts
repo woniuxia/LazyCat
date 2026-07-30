@@ -97,8 +97,6 @@ function makeField(text: string, weight: number) {
 export function buildItem(entry: VaultMetaEntry, unlocked: boolean): SpotlightItem {
   const tagsField = entry.tags?.length ? entry.tags.join(" ") : "";
   const subtitle = buildSubtitle(entry);
-  const usage = (entry.viewCount ?? 0) + (entry.copyCount ?? 0);
-  const weight = 1 + Math.min(usage, 50) * 0.01;
   const pf = entry.plainFields ?? undefined;
   const account = pf?.account ?? "";
   const searchFields = [
@@ -126,7 +124,13 @@ export function buildItem(entry: VaultMetaEntry, unlocked: boolean): SpotlightIt
       tone: unlocked ? "success" : "muted",
     },
     searchFields,
-    weight,
+    ranking: {
+      usageRef: {
+        resourceType: "vault-entry",
+        resourceId: String(entry.id),
+        actions: ["reveal", "copy"],
+      },
+    },
     payload: {
       entryId: entry.id,
       category: entry.category,

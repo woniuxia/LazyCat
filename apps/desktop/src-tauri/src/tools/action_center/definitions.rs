@@ -5,6 +5,7 @@ pub(crate) const RELEASE_PACKAGE_RUN: &str = "release_package.run";
 pub(crate) const HOSTS_ACTIVATE: &str = "hosts.activate";
 pub(crate) const BROWSER_PROFILE_LAUNCH: &str = "browser_profile.launch";
 pub(crate) const REQUEST_FORWARD_START: &str = "request_forward.start";
+pub(crate) const LAUNCHER_LAUNCH: &str = "launcher.launch";
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -71,6 +72,17 @@ const ACTION_DEFINITIONS: &[ActionDefinition] = &[
         trigger_types: &[],
         target_kind: "request_forward_rule",
         target_tool_id: "request-forward",
+        execution_mode: "direct",
+        completion_policy: "on_succeeded",
+        supports_combination: true,
+        parallel_conflict_group: None,
+    },
+    ActionDefinition {
+        action_type: LAUNCHER_LAUNCH,
+        label: "快捷启动",
+        trigger_types: &[],
+        target_kind: "launcher_entry",
+        target_tool_id: "launcher",
         execution_mode: "direct",
         completion_policy: "on_succeeded",
         supports_combination: true,

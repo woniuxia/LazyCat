@@ -18,8 +18,8 @@ const emit = defineEmits<{
 
 const exposedListener = computed(() => isExposedForwardBindHost(props.modelValue.bindHost));
 const protocolTip = computed(() => props.persisted
-  ? "HTTP 规则在本地以 HTTP 接收，目标可为 HTTP 或 HTTPS。协议在规则创建后不可修改。"
-  : "HTTP 规则在本地以 HTTP 接收，目标可为 HTTP 或 HTTPS。TCP 和 UDP 会按连接或数据报转发。");
+  ? "HTTP 规则支持普通 HTTP 请求和 WebSocket Upgrade，目标可为 HTTP 或 HTTPS。协议在规则创建后不可修改。"
+  : "HTTP 规则支持普通 HTTP 请求和 WebSocket Upgrade，目标可为 HTTP 或 HTTPS。TCP 和 UDP 会按连接或数据报转发。");
 
 function update<K extends keyof RequestForwardRuleForm>(
   key: K,
@@ -122,7 +122,7 @@ function update<K extends keyof RequestForwardRuleForm>(
         >
           <template #label>
             <span class="field-label">目标 URL
-              <el-tooltip content="仅支持 HTTP/HTTPS 基础地址，不包含查询参数或片段。请求路径会追加到该地址。" placement="top">
+              <el-tooltip content="支持 HTTP/HTTPS 基础地址及 WebSocket Upgrade，不包含查询参数或片段。请求路径会追加到该地址。" placement="top">
                 <el-icon class="field-tip" tabindex="0" aria-label="目标 URL 提示"><QuestionFilled /></el-icon>
               </el-tooltip>
             </span>

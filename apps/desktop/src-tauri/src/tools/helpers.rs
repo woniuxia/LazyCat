@@ -751,6 +751,8 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
 
     super::release_package::migrate_legacy_output_root(conn)?;
 
+    super::usage::ensure_schema_and_migrate(conn)?;
+
     ensure_request_forward_schema(conn)?;
 
     Ok(())

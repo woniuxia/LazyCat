@@ -624,9 +624,9 @@ describe("RequestForwardPanel source structure", () => {
   it("distinguishes the local HTTP listener from HTTP or HTTPS targets", () => {
     expect(formSource).toContain('<el-option label="HTTP" value="http" />');
     expect(formSource).not.toContain('label="HTTP / HTTPS"');
-    expect(formSource).toContain("HTTP 规则在本地以 HTTP 接收，目标可为 HTTP 或 HTTPS。");
+    expect(formSource).toContain("HTTP 规则支持普通 HTTP 请求和 WebSocket Upgrade，目标可为 HTTP 或 HTTPS。");
     expect(formSource).not.toContain("HTTP 规则的本地监听使用 HTTP，目标 URL 支持 HTTP/HTTPS。");
-    expect(formSource).toContain("仅支持 HTTP/HTTPS 基础地址");
+    expect(formSource).toContain("支持 HTTP/HTTPS 基础地址及 WebSocket Upgrade");
   });
 
   it("delegates endpoint action rendering to a semantic event-only component", () => {

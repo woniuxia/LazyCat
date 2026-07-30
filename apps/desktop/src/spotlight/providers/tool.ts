@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getSidebarItems, isRealToolId } from "../../composables/toolCatalog";
 import { initSettings, getSettingJson } from "../../composables/useSettings";
 import { buildToolIndex } from "../../utils/search-index";
-import type { ToolClickHistory, ToolSearchMetaMap } from "../../types";
+import type { ToolSearchMetaMap } from "../../types";
 import type {
   ProviderDescriptor,
   SpotlightExecuteContext,
@@ -10,17 +10,9 @@ import type {
   SpotlightItem,
 } from "../types";
 
-const CLICK_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
-
-function recentCount(history: ToolClickHistory, toolId: string): number {
-  const cutoff = Date.now() - CLICK_WINDOW_MS;
-  return (history[toolId] ?? []).filter((ts) => ts >= cutoff).length;
-}
-
 async function prefetchTools(): Promise<SpotlightItem[]> {
   await initSettings();
   const metaMap = getSettingJson<ToolSearchMetaMap>("tool_search_meta_v1", {});
-  const clickHistory = getSettingJson<ToolClickHistory>("tool_clicks", {});
   const favoriteIds = getSettingJson<string[]>("favorites", []);
   const favoriteSet = new Set(
     Array.isArray(favoriteIds)
@@ -29,37 +21,29 @@ async function prefetchTools(): Promise<SpotlightItem[]> {
   );
 
   const indexed = buildToolIndex(getSidebarItems(), metaMap);
-
-  const entries = indexed.map((entry, index) => {
+  return indexed.map((entry, index) => {
     const id = entry.tool.id;
-    const count = recentCount(clickHistory, id);
     const isFav = favoriteSet.has(id);
-    const tier = isFav ? 0 : count > 0 ? 1 : 2;
-    const item: SpotlightItem = {
+    return {
       providerId: "tool",
       itemId: id,
       title: entry.tool.name,
       subtitle: entry.tool.desc,
       badge: { short: "工具", tone: "primary" },
-      status: isFav
-        ? { text: "收藏", tone: "warn" }
-        : count > 0
-        ? { text: `高频 ${count}`, tone: "info" }
-        : undefined,
+      status: isFav ? { text: "收藏", tone: "warn" } : undefined,
       searchFields: entry.fields,
-      weight: isFav ? 1.15 : count > 0 ? 1 + Math.min(count, 20) * 0.01 : 1,
+      ranking: {
+        favorite: isFav,
+        sourceOrder: index,
+        usageRef: {
+          resourceType: "tool",
+          resourceId: id,
+          actions: ["open"],
+        },
+      },
       payload: { toolId: id },
-    };
-    return { item, tier, count, index };
+    } satisfies SpotlightItem;
   });
-
-  entries.sort((a, b) => {
-    if (a.tier !== b.tier) return a.tier - b.tier;
-    if (a.tier === 1 && a.count !== b.count) return b.count - a.count;
-    return a.index - b.index;
-  });
-
-  return entries.map((entry) => entry.item);
 }
 
 async function defaultAction(
@@ -78,6 +62,7 @@ export const toolProvider: ProviderDescriptor = {
   badgeShort: "工具",
   badgeTone: "primary",
   weight: 1.0,
+  emptyQueryQuota: 8,
   defaultAliases: [],
   defaultEnabled: true,
   prefetch: prefetchTools,

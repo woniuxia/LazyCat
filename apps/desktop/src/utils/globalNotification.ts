@@ -1,6 +1,7 @@
 import type {
   GlobalNotification,
   GlobalNotificationAction,
+  ActionCombinationNotification,
   ReleasePackageNotification,
   ReleasePackageNotificationStatus,
   TodoReminderNotification,
@@ -24,6 +25,7 @@ const RELEASE_PACKAGE_STATUSES = new Set<ReleasePackageNotificationStatus>([
 ]);
 const RELEASE_PACKAGE_TYPES = new Set<ReleasePackageType>(["local_archive", "server_upload"]);
 const RELEASE_PACKAGE_ENVIRONMENTS = new Set<ReleasePackageEnvironmentKind>(["test", "production"]);
+const ACTION_COMBINATION_STATUSES = new Set(["succeeded", "partially_succeeded", "failed"]);
 
 function invalidNotification(): never {
   throw new Error("无效的全局通知");
@@ -133,9 +135,25 @@ function isReleasePackageNotification(value: unknown): value is ReleasePackageNo
     && (value.error === undefined || typeof value.error === "string");
 }
 
+function isActionCombinationNotification(value: unknown): value is ActionCombinationNotification {
+  if (!isRecord(value)) return false;
+  return value.kind === "action-combination"
+    && hasValidCommonFields(value)
+    && isNonEmptyString(value.runId)
+    && value.id === `action-combination:${value.runId}`
+    && isPositiveSafeInteger(value.combinationId)
+    && isNonEmptyString(value.combinationName)
+    && typeof value.status === "string"
+    && ACTION_COMBINATION_STATUSES.has(value.status)
+    && Array.isArray(value.failedStepLabels)
+    && value.failedStepLabels.every(isNonEmptyString)
+    && (value.error === undefined || typeof value.error === "string");
+}
+
 function parseGlobalNotification(value: unknown): GlobalNotification {
   if (isTodoReminderNotification(value)) return value;
   if (isReleasePackageNotification(value)) return value;
+  if (isActionCombinationNotification(value)) return value;
   return invalidNotification();
 }
 
@@ -172,6 +190,10 @@ export function globalNotificationActions(
     ];
   }
 
+  if (notification.kind === "action-combination") {
+    return ["open-tool", "acknowledge"];
+  }
+
   const actions: GlobalNotificationAction[] = ["open-tool"];
   if (
     notification.packageType === "local_archive"
@@ -182,6 +204,21 @@ export function globalNotificationActions(
   }
   actions.push("acknowledge");
   return actions;
+}
+
+export function actionCombinationNotificationCopy(
+  status: ActionCombinationNotification["status"],
+): { title: string; detail: string } {
+  switch (status) {
+    case "succeeded":
+      return { title: "组合动作运行成功", detail: "全部动作步骤已完成" };
+    case "partially_succeeded":
+      return { title: "组合动作部分完成", detail: "部分步骤失败，请查看运行记录" };
+    case "failed":
+      return { title: "组合动作运行失败", detail: "没有步骤成功完成，请查看运行记录" };
+    default:
+      return assertNever(status);
+  }
 }
 
 export function releasePackageNotificationCopy(

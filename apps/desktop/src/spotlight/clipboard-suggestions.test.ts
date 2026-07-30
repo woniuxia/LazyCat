@@ -43,7 +43,10 @@ describe("buildClipboardSuggestionItems", () => {
       kind: "open-reference-card",
       text,
     });
-    expect(items[0].weight).toBeGreaterThan(items[1].weight ?? 0);
+    expect(items.map((item) => item.ranking)).toEqual([
+      { contextual: true, sourceOrder: 0 },
+      { contextual: true, sourceOrder: 1 },
+    ]);
   });
 
   it("为未识别的有效文本只生成参考卡建议", () => {

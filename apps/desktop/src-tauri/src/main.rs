@@ -754,6 +754,15 @@ pub(crate) fn navigate_main_window_to_tool(
     app: &tauri::AppHandle,
     tool_id: &str,
 ) -> Result<(), String> {
+    navigate_main_window_to_tool_context(app, tool_id, None, None)
+}
+
+pub(crate) fn navigate_main_window_to_tool_context(
+    app: &tauri::AppHandle,
+    tool_id: &str,
+    item_id: Option<String>,
+    view: Option<String>,
+) -> Result<(), String> {
     let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) else {
         return Err("主窗口不可用".into());
     };
@@ -773,9 +782,9 @@ pub(crate) fn navigate_main_window_to_tool(
                 was_window_focused: focused,
                 text: None,
                 source: None,
-                item_id: None,
+                item_id,
                 project_id: None,
-                view: None,
+                view,
             },
         )
         .map_err(|error| error.to_string())
@@ -1243,10 +1252,7 @@ fn main() {
 
             // 允许附件目录通过 asset:// 协议访问，覆盖默认目录与用户自定义数据目录两种场景
             if let Ok(dir) = tools::helpers::get_attachments_dir() {
-                if let Err(e) = app
-                    .asset_protocol_scope()
-                    .allow_directory(&dir, true)
-                {
+                if let Err(e) = app.asset_protocol_scope().allow_directory(&dir, true) {
                     eprintln!("allow attachments dir failed: {e}");
                 }
             }
@@ -1457,6 +1463,7 @@ fn main() {
             reminder_popup_snooze,
             reminder_popup_dismiss,
             global_notification::global_notification_open_tool,
+            global_notification::global_notification_open_action_run,
             suppress_clipboard_capture,
             spotlight_pick,
             spotlight_close,

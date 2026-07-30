@@ -2,11 +2,12 @@
 
 适用范围：跨前后端结构、IPC、Tauri 窗口能力、工具接入、富文本、数据目录、模块拆分和删除功能。
 
-关键词：`IPC`、`Tauri capabilities`、`结构治理`、`动作中心`、`dispatch`、`attachments`、`数据目录`
+关键词：`IPC`、`Tauri capabilities`、`结构治理`、`动作中心`、`dispatch`、`usage`、`Spotlight 排序`、`attachments`、`数据目录`
 
 ## 目录
 
 - [2026-07-26：跨工具动作使用注册表、适配器与派发状态机](#2026-07-26跨工具动作使用注册表适配器与派发状态机)
+- [2026-07-30：使用统计与 Spotlight 排序使用统一事实源](#2026-07-30使用统计与-spotlight-排序使用统一事实源)
 - [Tauri 窗口必须同步声明 capability](#tauri-窗口必须同步声明-capability)
 - [动态 Tauri 窗口使用前端 ready 握手](#动态-tauri-窗口使用前端-ready-握手)
 - [IPC 契约按唯一事实源治理](#ipc-契约按唯一事实源治理)
@@ -40,6 +41,36 @@
 - `pnpm --filter @lazycat/desktop test -- src/composables/useActionDispatchIntent.test.ts`
 
 **使用次数**：1（2026-07-26）
+
+## 2026-07-30：使用统计与 Spotlight 排序使用统一事实源
+
+**场景**：工具入口、快捷启动、浏览器身份、代码片段、Vault 和数据字典分别维护累计次数、最近时间或点击时间数组，各自实现高频排序；Spotlight 还会叠加 Provider 和 Item 权重。
+
+**问题**：多套计数口径会产生重复写入、窗口定义不一致和排序漂移。Provider 直接读取计数并预排序后，Spotlight 无法统一约束相关性、使用度、收藏/置顶等业务信号的优先级。
+
+**解决**：SQLite `usage_daily` 是使用统计唯一事实源，按 `resource_type + scope_id + resource_id + action + day_utc` 聚合。领域行为只在成功后记录，删除业务对象时在同一事务清理统计。旧字段暂时保留作回退数据，但迁移完成后不再写入。
+
+**历史迁移**：带真实时间戳的 `tool_clicks` 按 UTC 日期迁移；只有累计次数或无法还原每日分布的数据进入 `day_utc = 0` 的 legacy 桶。legacy 桶参与累计统计，但不得计入 30 天窗口。迁移使用事务和 `usage_migrations` 幂等标记，任一结构化来源失败时整体回滚；损坏的可选 JSON 设置记录告警并跳过，不能阻断应用启动。
+
+**Spotlight 边界**：Provider 只声明稳定的 `UsageRef` 以及 `favorite`、`pinned`、`enabled`、`contextual`、`sourceOrder` 等业务信号，不读取使用统计或自行计算使用权重。Spotlight 集中批量读取摘要并排序：搜索相关性是主分，30 天使用频率和最近度提供有上限的增益，legacy 累计只作为低权重基线。明显更差的文本匹配不得靠高频或收藏反超。
+
+**扩展要求**：新领域先定义稳定资源标识和动作，再接入统一记录、摘要、删除清理和历史迁移；不得新增领域计数列作为第二事实源。批量摘要调用必须分批，避免资源数量超过单次 IPC 上限。
+
+**涉及文件**：
+
+- `apps/desktop/src-tauri/src/tools/usage.rs`
+- `apps/desktop/src/types/usage.ts`
+- `apps/desktop/src/spotlight/ranking.ts`
+- `apps/desktop/src/components/SpotlightPanel.vue`
+
+**验证**：
+
+- `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml usage::tests -- --nocapture`
+- `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml contract_tests -- --nocapture`
+- `pnpm --filter @lazycat/desktop test -- src/spotlight`
+- `pnpm typecheck`
+
+**使用次数**：1（2026-07-30）
 
 ## Tauri 窗口必须同步声明 capability
 

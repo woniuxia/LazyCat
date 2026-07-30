@@ -5,6 +5,13 @@ const source = readFileSync(new URL("./GlobalNotificationPopup.vue", import.meta
 const mainSource = readFileSync(new URL("../main.ts", import.meta.url), "utf8");
 
 describe("GlobalNotificationPopup", () => {
+  it("renders action combination results and opens the exact run", () => {
+    expect(source).toContain('currentNotification.value?.kind === "action-combination"');
+    expect(source).toContain("currentActionCombination.failedStepLabels.slice(0, 3)");
+    expect(source).toContain('invoke("global_notification_open_action_run", { runId })');
+    expect(source).toContain("查看运行记录");
+  });
+
   it("mounts a generic notification view and deduplicated queue", () => {
     expect(mainSource).toContain('currentView === "global-notification"');
     expect(mainSource).toContain('import("./GlobalNotificationApp")');

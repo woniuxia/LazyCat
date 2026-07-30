@@ -58,7 +58,7 @@ async function prefetchHosts(): Promise<SpotlightItem[]> {
         makeField(profile.name, 1.2),
         makeField(comment, 0.85),
       ],
-      weight: enabled ? 1.1 : 1,
+      ranking: { enabled },
       payload: { profileName: profile.name, content: profile.content, enabled },
     };
   });

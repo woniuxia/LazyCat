@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  actionCombinationNotificationCopy,
   globalNotificationActions,
   mergeGlobalNotificationQueue,
   normalizeGlobalNotificationPayload,
@@ -47,6 +48,18 @@ const succeededNotification = {
   archivePath: "D:\\releases\\customer-portal",
 };
 
+const actionCombinationNotification = {
+  kind: "action-combination" as const,
+  id: "action-combination:run-7",
+  createdAt: "2026-07-30T08:10:00.000Z",
+  runId: "run-7",
+  combinationId: 7,
+  combinationName: "客户门户开发环境",
+  status: "partially_succeeded" as const,
+  failedStepLabels: ["快捷启动 · IDE"],
+  error: "路径不存在",
+};
+
 describe("normalizeGlobalNotificationPayload", () => {
   it("normalizes a single notification", () => {
     expect(normalizeGlobalNotificationPayload(todoNotification)).toEqual([todoNotification]);
@@ -62,6 +75,21 @@ describe("normalizeGlobalNotificationPayload", () => {
   it("normalizes null to an empty array", () => {
     expect(normalizeGlobalNotificationPayload(null)).toEqual([]);
   });
+
+  it("accepts a complete action combination notification", () => {
+    expect(normalizeGlobalNotificationPayload(actionCombinationNotification)).toEqual([
+      actionCombinationNotification,
+    ]);
+  });
+
+  it.each(["runId", "combinationId", "combinationName", "status", "failedStepLabels"] as const)(
+    "rejects an action combination notification without %s",
+    (field) => {
+      const notification = { ...actionCombinationNotification } as Record<string, unknown>;
+      delete notification[field];
+      expect(() => normalizeGlobalNotificationPayload(notification)).toThrow("无效的全局通知");
+    },
+  );
 
   it.each(["cancelled"] as const)(
     "accepts release terminal status %s",
@@ -255,6 +283,13 @@ describe("globalNotificationActions", () => {
     ]);
   });
 
+  it("opens the action center for a combination result", () => {
+    expect(globalNotificationActions(actionCombinationNotification)).toEqual([
+      "open-tool",
+      "acknowledge",
+    ]);
+  });
+
   it("returns archive actions for a successful package with a non-empty archive path", () => {
     expect(globalNotificationActions(succeededNotification)).toEqual([
       "open-tool",
@@ -294,6 +329,16 @@ describe("globalNotificationActions", () => {
       })).toEqual(["open-tool", "acknowledge"]);
     },
   );
+});
+
+describe("actionCombinationNotificationCopy", () => {
+  it.each([
+    ["succeeded", "组合动作运行成功", "全部动作步骤已完成"],
+    ["partially_succeeded", "组合动作部分完成", "部分步骤失败，请查看运行记录"],
+    ["failed", "组合动作运行失败", "没有步骤成功完成，请查看运行记录"],
+  ] as const)("returns copy for %s", (status, title, detail) => {
+    expect(actionCombinationNotificationCopy(status)).toEqual({ title, detail });
+  });
 });
 
 describe("releasePackageNotificationCopy", () => {

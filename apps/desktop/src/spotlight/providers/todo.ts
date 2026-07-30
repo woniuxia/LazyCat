@@ -67,7 +67,7 @@ async function prefetchTodo(): Promise<SpotlightItem[]> {
       badge: { short: "待", tone: "success" },
       status,
       searchFields: [makeField(todo.title, 1.2), makeField(todo.typeName ?? "", 0.6)],
-      weight: todo.pinned ? 1.2 : 1,
+      ranking: { pinned: todo.pinned },
       payload: {
         todoId: todo.id,
         status: todo.status,

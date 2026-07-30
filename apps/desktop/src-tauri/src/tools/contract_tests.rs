@@ -42,6 +42,7 @@ const DOMAINS: &[&str] = &[
     "vault",
     "launcher",
     "todo",
+    "usage",
     "pm",
     "pomodoro",
     "maven",

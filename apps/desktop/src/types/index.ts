@@ -6,6 +6,7 @@ export type {
   ToolSearchMeta,
   ToolSearchMetaMap,
 } from "./tools";
+export type { UsageSummary, ToolUsageMap, UsageRef } from "./usage";
 export type { HostsProfile, HostsBackupEntry } from "./hosts";
 export type {
   PortUsageResponse,

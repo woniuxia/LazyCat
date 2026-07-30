@@ -319,7 +319,7 @@ async function selectSnippet(id: number) {
   current.value = detail;
   activeFragmentName.value = "0";
   // 使用统计失败不影响用户查看片段。
-  await invokeSilent("tool:snippets:v2:mark-used", { id });
+  await invokeSilent("tool:snippets:v2:mark-used", { id, type: "view" });
   void loadSnippets();
 }
 
@@ -492,7 +492,7 @@ async function copyCurrentCode() {
   ElMessage.success("代码已复制");
   if (current.value) {
     // 使用统计失败不影响已经完成的复制操作。
-    await invokeSilent("tool:snippets:v2:mark-used", { id: current.value.id });
+    await invokeSilent("tool:snippets:v2:mark-used", { id: current.value.id, type: "copy" });
     await loadSnippets();
   }
 }

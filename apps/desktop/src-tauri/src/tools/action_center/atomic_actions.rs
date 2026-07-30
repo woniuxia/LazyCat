@@ -1,7 +1,8 @@
 use rusqlite::Connection;
 
 use super::definitions::{
-    definition, ActionTargetOption, BROWSER_PROFILE_LAUNCH, HOSTS_ACTIVATE, REQUEST_FORWARD_START,
+    definition, ActionTargetOption, BROWSER_PROFILE_LAUNCH, HOSTS_ACTIVATE, LAUNCHER_LAUNCH,
+    REQUEST_FORWARD_START,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -75,6 +76,8 @@ impl AtomicActionExecutor for RegisteredAtomicActionExecutor {
             }
             REQUEST_FORWARD_START => crate::tools::request_forward::start_action_target(target_id)
                 .map(AtomicStepSuccess::from_changed),
+            LAUNCHER_LAUNCH => crate::tools::launcher::launch_action_target(target_id)
+                .map(AtomicStepSuccess::succeeded),
             _ => Err(format!("组合动作类型不存在: {action_type}")),
         }
     }
@@ -142,6 +145,15 @@ pub(super) fn list_targets_with_conn(
                     .map(|(id, label)| target_option(id, label, true, None))
                     .collect()
             }),
+        LAUNCHER_LAUNCH => {
+            crate::tools::launcher::list_action_targets_with_conn(conn).map(|rows| {
+                rows.into_iter()
+                    .map(|(id, label, available, reason)| {
+                        target_option(id, label, available, reason)
+                    })
+                    .collect()
+            })
+        }
         _ => unreachable!("combination action registry and target adapters must stay in sync"),
     }
 }
@@ -180,6 +192,14 @@ fn resolve_target_with_conn(
             let id = parse_numeric_target_id(target_id)?;
             crate::tools::request_forward::load_action_target_with_conn(conn, id)
                 .map(|target| target.map(|label| target_option(id.to_string(), label, true, None)))
+        }
+        LAUNCHER_LAUNCH => {
+            let id = parse_numeric_target_id(target_id)?;
+            crate::tools::launcher::load_action_target_with_conn(conn, id).map(|target| {
+                target.map(|(label, available, reason)| {
+                    target_option(id.to_string(), label, available, reason)
+                })
+            })
         }
         _ => unreachable!("combination action registry and target adapters must stay in sync"),
     }
@@ -282,7 +302,7 @@ mod tests {
     use super::*;
     use crate::tools::action_center::definitions::{
         all_definitions, combination_definitions, definition, BROWSER_PROFILE_LAUNCH,
-        HOSTS_ACTIVATE, RELEASE_PACKAGE_RUN, REQUEST_FORWARD_START,
+        HOSTS_ACTIVATE, LAUNCHER_LAUNCH, RELEASE_PACKAGE_RUN, REQUEST_FORWARD_START,
     };
     use rusqlite::{params, Connection};
 
@@ -295,6 +315,18 @@ mod tests {
                 content TEXT NOT NULL,
                 enabled INTEGER NOT NULL DEFAULT 0,
                 sort_order INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE launcher_entries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                exe_path TEXT NOT NULL,
+                arguments TEXT NOT NULL DEFAULT '',
+                icon_base64 TEXT NOT NULL DEFAULT '',
+                group_name TEXT NOT NULL DEFAULT '',
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                launch_count INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );",
         )
@@ -324,6 +356,14 @@ mod tests {
         .unwrap();
     }
 
+    fn seed_launcher(conn: &Connection, id: i64, name: &str, exe_path: &str) {
+        conn.execute(
+            "INSERT INTO launcher_entries(id, name, exe_path) VALUES (?1, ?2, ?3)",
+            params![id, name, exe_path],
+        )
+        .unwrap();
+    }
+
     #[test]
     fn only_registered_safe_actions_are_composable() {
         assert_eq!(
@@ -334,7 +374,8 @@ mod tests {
             vec![
                 HOSTS_ACTIVATE,
                 BROWSER_PROFILE_LAUNCH,
-                REQUEST_FORWARD_START
+                REQUEST_FORWARD_START,
+                LAUNCHER_LAUNCH,
             ],
         );
         assert!(
@@ -371,6 +412,8 @@ mod tests {
         let conn = test_conn();
         seed_hosts(&conn, 7, "开发");
         seed_forward(&conn, 12, "本地 API");
+        let executable = std::env::current_exe().unwrap();
+        seed_launcher(&conn, 18, "测试工具", executable.to_str().unwrap());
         assert_eq!(
             crate::tools::hosts::list_action_targets_with_conn(&conn).unwrap()[0].0,
             "7"
@@ -379,6 +422,10 @@ mod tests {
             crate::tools::request_forward::list_action_targets_with_conn(&conn).unwrap()[0].0,
             "12"
         );
+        assert_eq!(
+            crate::tools::launcher::list_action_targets_with_conn(&conn).unwrap()[0].0,
+            "18"
+        );
     }
 
     #[test]
@@ -386,6 +433,8 @@ mod tests {
         let conn = test_conn();
         seed_hosts(&conn, 7, "开发");
         seed_forward(&conn, 12, "本地 API");
+        let executable = std::env::current_exe().unwrap();
+        seed_launcher(&conn, 18, "测试工具", executable.to_str().unwrap());
 
         let hosts = list_targets_with_conn(&conn, HOSTS_ACTIVATE).unwrap();
         assert_eq!(hosts.len(), 1);
@@ -396,6 +445,30 @@ mod tests {
         let forward = validate_target_with_conn(&conn, REQUEST_FORWARD_START, "12").unwrap();
         assert_eq!(forward.label, "本地 API");
         assert!(forward.available);
+
+        let launcher = validate_target_with_conn(&conn, LAUNCHER_LAUNCH, "18").unwrap();
+        assert_eq!(launcher.label, "测试工具");
+        assert!(launcher.available);
+    }
+
+    #[test]
+    fn unavailable_launcher_target_is_preserved_with_path_error() {
+        let conn = test_conn();
+        seed_launcher(&conn, 18, "旧工具", "Z:\\missing\\lazycat-tool.exe");
+
+        let targets = list_targets_with_conn(&conn, LAUNCHER_LAUNCH).unwrap();
+        assert_eq!(targets.len(), 1);
+        assert_eq!(targets[0].id, "18");
+        assert_eq!(targets[0].label, "旧工具");
+        assert!(!targets[0].available);
+        assert!(targets[0]
+            .unavailable_reason
+            .as_deref()
+            .unwrap()
+            .contains("路径不存在"));
+        assert!(validate_target_with_conn(&conn, LAUNCHER_LAUNCH, "18")
+            .unwrap_err()
+            .contains("路径不存在"));
     }
 
     #[test]

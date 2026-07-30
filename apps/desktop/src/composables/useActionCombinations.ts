@@ -187,6 +187,13 @@ export function useActionCombinations(options: UseActionCombinationsOptions = {}
     }
   }
 
+  async function getRun(runId: string): Promise<ActionCombinationRunDetail> {
+    return (await invokeToolByChannel(
+      "tool:action-center:combination-run-get",
+      { runId },
+    )) as ActionCombinationRunDetail;
+  }
+
   function schedulePoll(runId: string): void {
     clearPoll();
     pollTimer = setInterval(() => {
@@ -411,6 +418,7 @@ export function useActionCombinations(options: UseActionCombinationsOptions = {}
     loadRunHistory,
     loadStepTargets,
     refreshActiveRun,
+    getRun,
     trackRun,
     selectCombination,
     createCombination,

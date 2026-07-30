@@ -64,7 +64,11 @@ describe("buildBrowserProfileSpotlightItem", () => {
       "测试账号",
       "Profile 2",
     ]);
-    expect(item.weight).toBeGreaterThan(1.08);
+    expect(item.ranking?.usageRef).toEqual({
+      resourceType: "browser-profile",
+      resourceId: '["edge","Profile 2"]',
+      actions: ["launch"],
+    });
   });
 
   it("uses a Chrome badge for Chrome profiles", () => {

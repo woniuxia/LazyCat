@@ -67,7 +67,7 @@ export function buildClipboardSuggestionItems(text: string): SpotlightItem[] {
       subtitle: "Enter 打开并预填剪贴板内容",
       badge: { short: "建议", tone: "warn" },
       searchFields: [],
-      weight: 2,
+      ranking: { contextual: true, sourceOrder: 0 },
       payload: { suggestionAction },
     });
   }
@@ -89,7 +89,7 @@ export function buildClipboardSuggestionItems(text: string): SpotlightItem[] {
       initials: toPinyinInitials(term),
       weight: 1,
     })),
-    weight: 1.5,
+    ranking: { contextual: true, sourceOrder: 1 },
     payload: { suggestionAction },
   });
 

@@ -64,6 +64,22 @@
           {{ currentPackage.archivePath }}
         </div>
       </section>
+
+      <section v-else-if="currentActionCombination" class="notification-card action-combination-card">
+        <div class="title-row">
+          <span class="status-badge" :class="`combination-${currentActionCombination.status}`">
+            {{ actionCombinationStatusLabel }}
+          </span>
+          <h1 class="notification-title">{{ currentActionCombination.combinationName }}</h1>
+        </div>
+        <p class="notification-body">{{ actionCombinationCopy.detail }}</p>
+        <p v-if="actionCombinationError" class="error-summary">{{ actionCombinationError }}</p>
+        <ul v-if="currentActionCombination.failedStepLabels.length" class="failed-step-list">
+          <li v-for="label in currentActionCombination.failedStepLabels.slice(0, 3)" :key="label">
+            {{ label }}
+          </li>
+        </ul>
+      </section>
     </main>
 
     <footer v-if="currentTodo" class="popup-actions">
@@ -132,6 +148,24 @@
         知道了
       </button>
     </footer>
+    <footer v-else-if="currentActionCombination" class="popup-actions package-actions">
+      <button
+        class="action-btn action-primary"
+        type="button"
+        :disabled="actionPending"
+        @click="openActionCombinationRun"
+      >
+        查看运行记录
+      </button>
+      <button
+        class="action-btn"
+        type="button"
+        :disabled="actionPending"
+        @click="acknowledgeCurrent"
+      >
+        知道了
+      </button>
+    </footer>
   </div>
 </template>
 
@@ -146,6 +180,7 @@ import { APP_EVENTS } from "../bridge/events";
 import { invokeToolByChannel } from "../bridge/tauri";
 import type { GlobalNotification } from "../types/global-notification";
 import {
+  actionCombinationNotificationCopy,
   mergeGlobalNotificationQueue,
   normalizeGlobalNotificationPayload,
   releasePackageNotificationCopy,
@@ -180,6 +215,9 @@ const currentTodo = computed(() =>
 const currentPackage = computed(() =>
   currentNotification.value?.kind === "release-package" ? currentNotification.value : null,
 );
+const currentActionCombination = computed(() =>
+  currentNotification.value?.kind === "action-combination" ? currentNotification.value : null,
+);
 const currentIndexLabel = computed(() => `1/${queue.value.length}`);
 const packageCopy = computed(() =>
   currentPackage.value
@@ -207,6 +245,21 @@ const packageProjectEnvironmentTitle = computed(() => {
   return `${currentPackage.value.projectName} · ${environmentLabel}`;
 });
 const packageError = computed(() => summarizeNotificationError(currentPackage.value?.error));
+const actionCombinationCopy = computed(() =>
+  currentActionCombination.value
+    ? actionCombinationNotificationCopy(currentActionCombination.value.status)
+    : { title: "", detail: "" },
+);
+const actionCombinationStatusLabel = computed(() =>
+  currentActionCombination.value?.status === "succeeded"
+    ? "成功"
+    : currentActionCombination.value?.status === "partially_succeeded"
+      ? "部分成功"
+      : "失败",
+);
+const actionCombinationError = computed(() =>
+  summarizeNotificationError(currentActionCombination.value?.error),
+);
 const canOpenDirectory = computed(() =>
   Boolean(
     currentPackage.value?.packageType === "local_archive"
@@ -214,12 +267,22 @@ const canOpenDirectory = computed(() =>
     && currentPackage.value.archivePath,
   ),
 );
-const headerTitle = computed(() => (currentTodo.value ? "任务提醒" : packageCopy.value.title));
+const headerTitle = computed(() => {
+  if (currentTodo.value) return "任务提醒";
+  if (currentActionCombination.value) return actionCombinationCopy.value.title;
+  return packageCopy.value.title;
+});
 const headerSubtitle = computed(() =>
-  currentTodo.value ? formatFireTime(currentTodo.value.fireAt) : "上线包打包结果",
+  currentTodo.value
+    ? formatFireTime(currentTodo.value.fireAt)
+    : currentActionCombination.value
+      ? "动作中心运行结果"
+      : "上线包打包结果",
 );
 const headerIcon = computed(() => {
   if (currentTodo.value) return AlarmClock;
+  if (currentActionCombination.value?.status === "failed") return WarningFilled;
+  if (currentActionCombination.value) return CircleCheckFilled;
   if (
     currentPackage.value?.status === "failed"
     || currentPackage.value?.status === "package_succeeded_upload_failed"
@@ -230,7 +293,9 @@ const headerIcon = computed(() => {
   return CircleCheckFilled;
 });
 const headerTone = computed(() =>
-  currentTodo.value ? "tone-reminder" : `tone-${currentPackage.value?.status ?? "failed"}`,
+  currentTodo.value
+    ? "tone-reminder"
+    : `tone-${currentActionCombination.value?.status ?? currentPackage.value?.status ?? "failed"}`,
 );
 const todoPrimaryLabel = computed(() => {
   const action = currentTodo.value?.action;
@@ -334,6 +399,11 @@ async function openReleasePackageDirectory() {
   await runAction(async () => {
     await invokeToolByChannel("tool:system:open-local-path", { path });
   });
+}
+async function openActionCombinationRun() {
+  const runId = currentActionCombination.value?.runId;
+  if (!runId) return;
+  await runAction(() => invoke("global_notification_open_action_run", { runId }));
 }
 
 onMounted(async () => {
@@ -501,7 +571,15 @@ onBeforeUnmount(() => {
   color: #237a3b;
   background: #eaf8ef;
 }
+.combination-succeeded {
+  color: #237a3b;
+  background: #eaf8ef;
+}
 .package-partially_succeeded {
+  color: #8a4b08;
+  background: #fff4df;
+}
+.combination-partially_succeeded {
   color: #8a4b08;
   background: #fff4df;
 }
@@ -513,6 +591,10 @@ onBeforeUnmount(() => {
 .package-upload_succeeded_command_failed,
 .package-deployed_health_check_failed,
 .package-failed {
+  color: #b42318;
+  background: #fee4e2;
+}
+.combination-failed {
   color: #b42318;
   background: #fee4e2;
 }
@@ -554,6 +636,13 @@ onBeforeUnmount(() => {
   font-size: 12px;
   line-height: 1.5;
   word-break: break-word;
+}
+.failed-step-list {
+  margin: 0;
+  padding: 0 0 0 18px;
+  color: #52606d;
+  font-size: 12px;
+  line-height: 1.6;
 }
 .reminder-action-summary {
   display: flex;

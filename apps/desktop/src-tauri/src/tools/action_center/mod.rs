@@ -14,6 +14,8 @@ pub(crate) use bindings::{
     ensure_todo_can_become_recurring, parse_binding_patch, todo_reminder_action_summary,
     BindingPatch,
 };
+pub(crate) use combination_runs::{CombinationRunDetail, CombinationRunStep};
+pub(crate) use combinations::ExecutionMode;
 #[cfg(not(test))]
 pub(crate) use dispatches::finish_release_package_run;
 pub(crate) use dispatches::{associate_release_package_run, recover_interrupted_dispatches};
@@ -249,6 +251,10 @@ pub fn execute_with_app(
         "combination_run" => serde_json::to_value(combination_runs::start_with_app(
             app,
             parse_combination_id(payload)?,
+            payload
+                .get("notifyOnCompletion")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
         )?)
         .map_err(|error| format!("serialize started combination run failed: {error}")),
         _ => execute(action, payload),

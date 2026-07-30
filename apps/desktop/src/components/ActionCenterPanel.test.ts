@@ -35,12 +35,23 @@ describe("ActionCenterPanel contracts", () => {
     expect(source).toContain(".slice(0, 20)");
   });
 
-  it("shows an active run only for the currently saved combination", () => {
+  it("shows a selected combination run and preserves an orphaned focused snapshot", () => {
     const source = readFileSync(new URL("./ActionCenterPanel.vue", import.meta.url), "utf8");
 
     expect(source).toContain("const displayedRun = computed(() =>");
-    expect(source).toContain("draft.value?.id === activeRun.value?.combinationId");
+    expect(source).toContain("activeRun.value.combinationId == null");
+    expect(source).toContain("draft.value.id === activeRun.value.combinationId");
     expect(source).toContain(':active-run="displayedRun"');
+  });
+
+  it("consumes combination and run navigation only after loading the target", () => {
+    const source = readFileSync(new URL("./ActionCenterPanel.vue", import.meta.url), "utf8");
+
+    expect(source).toContain("async function focusNavigationTarget");
+    expect(source).toContain("const run = await getRun(target.runId)");
+    expect(source).toContain("await trackRun(run)");
+    expect(source).toContain("actionCenterNavigation.consume(target)");
+    expect(source).toContain("actionCenterNavigation.pendingTarget.value");
   });
 
   it("clears saved target snapshots when the action or target changes", () => {

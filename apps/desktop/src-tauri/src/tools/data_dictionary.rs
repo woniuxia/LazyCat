@@ -1,4 +1,5 @@
 use super::helpers::db_conn;
+use super::usage::{self, UsageKey, ACTION_VIEW, RESOURCE_DATA_DICTIONARY_RECORD};
 use rusqlite::{params, Connection, OptionalExtension, Row, ToSql};
 use serde_json::{json, Value};
 use std::cmp::Ordering;
@@ -645,7 +646,7 @@ fn action_popular_records(payload: &Value) -> Result<Value, String> {
     );
     if let Some(dictionary_id) = dictionary_id {
         ensure_dictionary_exists(&conn, dictionary_id)?;
-        where_clause.push_str(" AND u.dictionary_id = ?");
+        where_clause.push_str(" AND CAST(u.scope_id AS INTEGER) = ?");
         params_list.push(Box::new(dictionary_id));
     }
     params_list.push(Box::new(limit));
@@ -660,10 +661,9 @@ fn action_popular_records(payload: &Value) -> Result<Value, String> {
             Ok((
                 row.get::<_, i64>(0)?,
                 row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
+                row.get::<_, i64>(2)?,
                 row.get::<_, i64>(3)?,
                 row.get::<_, String>(4)?,
-                row.get::<_, String>(5)?,
             ))
         })
         .map_err(|e| format!("query popular data dictionary records failed: {e}"))?;
@@ -678,10 +678,9 @@ fn action_popular_records(payload: &Value) -> Result<Value, String> {
     let mut stale = Vec::new();
     for (
         dictionary_id,
-        business_record_id,
         normalized_value,
         used_count,
-        last_used_at,
+        last_used_at_ms,
         primary_field_path,
     ) in candidates
     {
@@ -692,6 +691,12 @@ fn action_popular_records(payload: &Value) -> Result<Value, String> {
             &normalized_value,
         )? {
             Some(record) => {
+                let (business_record_id, _) = load_record_primary_usage_value(
+                    &conn,
+                    record.id,
+                    record.dictionary_id,
+                    &primary_field_path,
+                )?;
                 let searchable_paths = load_searchable_paths(&conn, record.dictionary_id)?;
                 let fields = load_field_configs(&conn, record.dictionary_id)?;
                 let mut value =
@@ -700,7 +705,10 @@ fn action_popular_records(payload: &Value) -> Result<Value, String> {
                     object.insert("recordId".to_string(), json!(business_record_id));
                     object.insert("normalizedValue".to_string(), json!(normalized_value));
                     object.insert("usedCount".to_string(), json!(used_count));
-                    object.insert("lastUsedAt".to_string(), json!(last_used_at));
+                    object.insert(
+                        "lastUsedAt".to_string(),
+                        json!(usage::format_timestamp_ms(Some(last_used_at_ms))),
+                    );
                 }
                 items.push(value);
             }
@@ -709,12 +717,14 @@ fn action_popular_records(payload: &Value) -> Result<Value, String> {
     }
 
     for (dictionary_id, normalized_value) in stale {
-        conn.execute(
-            "DELETE FROM data_dictionary_record_usage
-             WHERE dictionary_id = ?1 AND normalized_value = ?2",
-            params![dictionary_id, normalized_value],
-        )
-        .map_err(|e| format!("delete stale data dictionary usage failed: {e}"))?;
+        usage::delete_resource(
+            &conn,
+            UsageKey {
+                resource_type: RESOURCE_DATA_DICTIONARY_RECORD,
+                scope_id: &dictionary_id.to_string(),
+                resource_id: &normalized_value,
+            },
+        )?;
     }
 
     Ok(json!({ "items": items }))
@@ -727,24 +737,22 @@ fn action_mark_record_used(payload: &Value) -> Result<Value, String> {
     let primary_field_path = load_dictionary_primary_field_path(&conn, record.dictionary_id)?
         .filter(|value| !value.trim().is_empty())
         .ok_or_else(|| "dictionary primaryFieldPath is required".to_string())?;
-    let (business_record_id, normalized_value) = load_record_primary_usage_value(
+    let (_business_record_id, normalized_value) = load_record_primary_usage_value(
         &conn,
         record.id,
         record.dictionary_id,
         &primary_field_path,
     )?;
 
-    conn.execute(
-        "INSERT INTO data_dictionary_record_usage
-         (dictionary_id, primary_value_text, normalized_value, used_count, last_used_at)
-         VALUES (?1, ?2, ?3, 1, CURRENT_TIMESTAMP)
-         ON CONFLICT(dictionary_id, normalized_value) DO UPDATE SET
-           primary_value_text = excluded.primary_value_text,
-           used_count = data_dictionary_record_usage.used_count + 1,
-           last_used_at = CURRENT_TIMESTAMP",
-        params![record.dictionary_id, business_record_id, normalized_value],
-    )
-    .map_err(|e| format!("mark data dictionary record used failed: {e}"))?;
+    usage::record(
+        &conn,
+        UsageKey {
+            resource_type: RESOURCE_DATA_DICTIONARY_RECORD,
+            scope_id: &record.dictionary_id.to_string(),
+            resource_id: &normalized_value,
+        },
+        ACTION_VIEW,
+    )?;
 
     Ok(json!({ "ok": true }))
 }
@@ -863,8 +871,14 @@ fn action_record_detail(payload: &Value) -> Result<Value, String> {
 fn action_delete(payload: &Value) -> Result<Value, String> {
     let id = payload["id"].as_i64().ok_or("id is required")?;
     let conn = db_conn()?;
-    conn.execute("DELETE FROM data_dictionaries WHERE id = ?1", params![id])
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|error| format!("begin delete data dictionary transaction failed: {error}"))?;
+    tx.execute("DELETE FROM data_dictionaries WHERE id = ?1", params![id])
         .map_err(|e| format!("delete data dictionary failed: {e}"))?;
+    usage::delete_scope(&tx, RESOURCE_DATA_DICTIONARY_RECORD, &id.to_string())?;
+    tx.commit()
+        .map_err(|error| format!("commit delete data dictionary transaction failed: {error}"))?;
     Ok(json!({ "ok": true }))
 }
 
@@ -1478,12 +1492,18 @@ fn build_keyword_search_condition(keyword: &str) -> (String, String) {
 
 fn build_popular_records_query(where_clause: &str) -> String {
     format!(
-        "SELECT u.dictionary_id, u.primary_value_text, u.normalized_value, u.used_count, u.last_used_at,
+        "SELECT CAST(u.scope_id AS INTEGER) AS dictionary_id,
+                u.resource_id AS normalized_value,
+                SUM(u.use_count) AS used_count,
+                MAX(u.last_used_at_ms) AS last_used_at_ms,
                 d.primary_field_path
-         FROM data_dictionary_record_usage u
-         JOIN data_dictionaries d ON d.id = u.dictionary_id
+         FROM usage_daily u
+         JOIN data_dictionaries d ON d.id = CAST(u.scope_id AS INTEGER)
          {where_clause}
-         ORDER BY u.used_count DESC, u.last_used_at DESC
+           AND u.resource_type = 'data-dictionary-record'
+           AND u.action = 'view'
+         GROUP BY u.scope_id, u.resource_id, d.primary_field_path
+         ORDER BY used_count DESC, last_used_at_ms DESC
          LIMIT ?"
     )
 }
@@ -2963,12 +2983,13 @@ mod tests {
     }
 
     #[test]
-    fn popular_records_query_uses_primary_value_text_name() {
+    fn popular_records_query_uses_unified_usage_identity() {
         let sql = build_popular_records_query("WHERE 1 = 1");
 
-        assert!(sql.contains("u.primary_value_text"));
-        assert!(!sql.contains("u.record_id"));
-        assert!(!sql.contains(" record_id"));
+        assert!(sql.contains("u.resource_id AS normalized_value"));
+        assert!(sql.contains("u.resource_type = 'data-dictionary-record'"));
+        assert!(sql.contains("SUM(u.use_count) AS used_count"));
+        assert!(!sql.contains("data_dictionary_record_usage"));
     }
 
     #[test]

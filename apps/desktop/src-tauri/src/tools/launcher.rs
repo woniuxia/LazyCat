@@ -1,9 +1,10 @@
-use rusqlite::params;
+use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use super::helpers::db_conn;
+use super::usage::{self, UsageKey, ACTION_LAUNCH, RESOURCE_LAUNCHER_ENTRY};
 
 const ACTIONS: &[&str] = &[
     "scan",
@@ -199,9 +200,16 @@ fn list_entries() -> Result<Value, String> {
     let conn = db_conn()?;
     let mut stmt = conn
         .prepare(
-            "SELECT id, name, exe_path, arguments, icon_base64, group_name, sort_order,
-                    launch_count, created_at, updated_at
-             FROM launcher_entries ORDER BY launch_count DESC, sort_order ASC, id ASC",
+            "SELECT le.id, le.name, le.exe_path, le.arguments, le.icon_base64, le.group_name,
+                    le.sort_order,
+                    COALESCE((
+                        SELECT SUM(u.use_count) FROM usage_daily u
+                        WHERE u.resource_type = 'launcher-entry' AND u.scope_id = ''
+                          AND u.resource_id = CAST(le.id AS TEXT) AND u.action = 'launch'
+                    ), 0) AS usage_count,
+                    le.created_at, le.updated_at
+             FROM launcher_entries le
+             ORDER BY usage_count DESC, le.sort_order ASC, le.id ASC",
         )
         .map_err(|e| format!("list query failed: {e}"))?;
 
@@ -227,6 +235,122 @@ fn list_entries() -> Result<Value, String> {
 
     let items: Vec<Value> = rows.filter_map(|r| r.ok()).collect();
     Ok(json!({ "items": items }))
+}
+
+struct LauncherActionEntry {
+    id: i64,
+    name: String,
+    exe_path: String,
+    arguments: String,
+}
+
+fn load_action_entry_with_conn(
+    conn: &Connection,
+    id: i64,
+) -> Result<Option<LauncherActionEntry>, String> {
+    conn.query_row(
+        "SELECT id, name, exe_path, arguments FROM launcher_entries WHERE id=?1",
+        [id],
+        |row| {
+            Ok(LauncherActionEntry {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                exe_path: row.get(2)?,
+                arguments: row.get(3)?,
+            })
+        },
+    )
+    .optional()
+    .map_err(|error| format!("读取快捷启动目标失败: {error}"))
+}
+
+fn action_entry_availability(entry: &LauncherActionEntry) -> (bool, Option<String>) {
+    if Path::new(&entry.exe_path).exists() {
+        (true, None)
+    } else {
+        (false, Some(format!("路径不存在: {}", entry.exe_path)))
+    }
+}
+
+pub(crate) fn list_action_targets_with_conn(
+    conn: &Connection,
+) -> Result<Vec<(String, String, bool, Option<String>)>, String> {
+    usage::ensure_schema_and_migrate(conn)?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT le.id, le.name, le.exe_path, le.arguments
+             FROM launcher_entries le
+             ORDER BY COALESCE((
+                 SELECT SUM(u.use_count) FROM usage_daily u
+                 WHERE u.resource_type = 'launcher-entry' AND u.scope_id = ''
+                   AND u.resource_id = CAST(le.id AS TEXT) AND u.action = 'launch'
+             ), 0) DESC, le.sort_order ASC, le.id ASC",
+        )
+        .map_err(|error| format!("读取快捷启动目标失败: {error}"))?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(LauncherActionEntry {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                exe_path: row.get(2)?,
+                arguments: row.get(3)?,
+            })
+        })
+        .map_err(|error| format!("读取快捷启动目标失败: {error}"))?;
+
+    rows.map(|row| {
+        let entry = row.map_err(|error| format!("读取快捷启动目标失败: {error}"))?;
+        let (available, unavailable_reason) = action_entry_availability(&entry);
+        Ok((
+            entry.id.to_string(),
+            entry.name,
+            available,
+            unavailable_reason,
+        ))
+    })
+    .collect()
+}
+
+pub(crate) fn load_action_target_with_conn(
+    conn: &Connection,
+    id: i64,
+) -> Result<Option<(String, bool, Option<String>)>, String> {
+    load_action_entry_with_conn(conn, id).map(|entry| {
+        entry.map(|entry| {
+            let (available, unavailable_reason) = action_entry_availability(&entry);
+            (entry.name, available, unavailable_reason)
+        })
+    })
+}
+
+pub(crate) fn launch_action_target(target_id: &str) -> Result<Option<String>, String> {
+    let id = target_id
+        .parse::<i64>()
+        .ok()
+        .filter(|id| *id > 0)
+        .ok_or_else(|| format!("快捷启动目标 ID 无效: {target_id}"))?;
+    let conn = db_conn()?;
+    let entry = load_action_entry_with_conn(&conn, id)?
+        .ok_or_else(|| format!("快捷启动目标不存在: {target_id}"))?;
+    if let (_, Some(reason)) = action_entry_availability(&entry) {
+        return Err(reason);
+    }
+
+    launch_path(&entry.exe_path, &entry.arguments, false)?;
+    let warning = usage::record(
+        &conn,
+        UsageKey {
+            resource_type: RESOURCE_LAUNCHER_ENTRY,
+            scope_id: "",
+            resource_id: &entry.id.to_string(),
+        },
+        ACTION_LAUNCH,
+    )
+    .err();
+    Ok(Some(match warning {
+        Some(warning) => format!("已启动 {}，但使用统计保存失败：{warning}", entry.name),
+        None => format!("已启动 {}", entry.name),
+    }))
 }
 
 fn add_entries(payload: &Value) -> Result<Value, String> {
@@ -359,8 +483,21 @@ fn remove_entry(payload: &Value) -> Result<Value, String> {
         .and_then(|v| v.as_i64())
         .ok_or("missing id")?;
     let conn = db_conn()?;
-    conn.execute("DELETE FROM launcher_entries WHERE id = ?1", params![id])
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|error| format!("begin remove launcher transaction failed: {error}"))?;
+    tx.execute("DELETE FROM launcher_entries WHERE id = ?1", params![id])
         .map_err(|e| format!("remove failed: {e}"))?;
+    usage::delete_resource(
+        &tx,
+        UsageKey {
+            resource_type: RESOURCE_LAUNCHER_ENTRY,
+            scope_id: "",
+            resource_id: &id.to_string(),
+        },
+    )?;
+    tx.commit()
+        .map_err(|error| format!("commit remove launcher transaction failed: {error}"))?;
     Ok(json!({ "ok": true }))
 }
 
@@ -397,33 +534,50 @@ fn launch_app(payload: &Value) -> Result<Value, String> {
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
 
-    let p = Path::new(exe_path);
-    if !p.exists() {
+    launch_path(exe_path, arguments, admin)?;
+
+    let conn = db_conn()?;
+    let entry_id = conn
+        .query_row(
+            "SELECT id FROM launcher_entries WHERE exe_path = ?1",
+            params![exe_path],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()
+        .map_err(|error| format!("load launched entry failed: {error}"))?;
+    let warning = entry_id.and_then(|entry_id| {
+        usage::record(
+            &conn,
+            UsageKey {
+                resource_type: RESOURCE_LAUNCHER_ENTRY,
+                scope_id: "",
+                resource_id: &entry_id.to_string(),
+            },
+            ACTION_LAUNCH,
+        )
+        .err()
+    });
+    Ok(json!({ "ok": true, "warning": warning }))
+}
+
+fn launch_path(exe_path: &str, arguments: &str, admin: bool) -> Result<(), String> {
+    let path = Path::new(exe_path);
+    if !path.exists() {
         return Err(format!("file not found: {exe_path}"));
     }
-
-    // Increment launch_count
-    let conn = db_conn()?;
-    conn.execute(
-        "UPDATE launcher_entries SET launch_count = launch_count + 1 WHERE exe_path = ?1",
-        params![exe_path],
-    )
-    .ok();
-
-    // Directories: open in default file manager
-    if p.is_dir() {
-        open::that(exe_path).map_err(|e| format!("open folder failed: {e}"))?;
-        return Ok(json!({ "ok": true }));
+    if path.is_dir() {
+        return open::that(exe_path).map_err(|error| format!("open folder failed: {error}"));
     }
-
     if admin {
-        launch_as_admin(exe_path, arguments)?;
+        launch_as_admin(exe_path, arguments)
     } else {
-        let mut cmd = Command::new(exe_path);
-        apply_command_arguments(&mut cmd, arguments);
-        cmd.spawn().map_err(|e| format!("launch failed: {e}"))?;
+        let mut command = Command::new(exe_path);
+        apply_command_arguments(&mut command, arguments);
+        command
+            .spawn()
+            .map(|_| ())
+            .map_err(|error| format!("launch failed: {error}"))
     }
-    Ok(json!({ "ok": true }))
 }
 
 #[cfg(windows)]

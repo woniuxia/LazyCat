@@ -8,6 +8,7 @@ use rusqlite::Connection;
 use serde_json::{json, Value};
 
 use crate::tools::helpers::db_conn;
+use crate::tools::usage::{self, RESOURCE_TOOL};
 use crate::tools::widget::config;
 use crate::tools::widget::dashboard_logic::{
     merge_and_dedup_items, sort_dashboard_items,
@@ -135,31 +136,20 @@ fn load_todo_rows(conn: &Connection) -> Result<Vec<Value>, String> {
 
 // ── 热点工具 ──────────────────────────────────────
 
-/// 读取 `tool_clicks`，统计近 30 天每个工具的点击数，取 Top N。
+/// 读取统一使用统计，按近 30 天点击数取 Top N。
 /// 排除 `todo`（挂件已有快捷入口）和 `widget`（挂件不应推荐自身）。
 fn compute_hot_tools(conn: &Connection, limit: usize) -> Vec<Value> {
-    let raw = match config::read_string(conn, "tool_clicks") {
-        Some(s) => s,
-        None => return Vec::new(),
-    };
-
-    let clicks: std::collections::HashMap<String, Vec<i64>> = match serde_json::from_str(&raw) {
-        Ok(v) => v,
-        Err(e) => {
-            eprintln!("[widget] parse tool_clicks failed: {e}");
+    let summaries = match usage::summaries_for_type(conn, RESOURCE_TOOL, 30) {
+        Ok(value) => value,
+        Err(error) => {
+            eprintln!("[widget] load tool usage failed: {error}");
             return Vec::new();
         }
     };
-
-    let cutoff = Utc::now().timestamp_millis() - 30 * 24 * 3600 * 1000;
-
-    let mut counts: Vec<(&str, usize)> = clicks
-        .iter()
-        .filter(|(id, _)| *id != "todo" && *id != "widget")
-        .map(|(id, timestamps)| {
-            let count = timestamps.iter().filter(|&&ts| ts >= cutoff).count();
-            (id.as_str(), count)
-        })
+    let mut counts: Vec<(String, i64)> = summaries
+        .into_iter()
+        .filter(|((scope_id, id), _)| scope_id.is_empty() && id != "todo" && id != "widget")
+        .map(|((_, id), summary)| (id, summary.window_count))
         .filter(|(_, count)| *count > 0)
         .collect();
 

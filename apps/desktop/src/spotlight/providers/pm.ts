@@ -102,7 +102,7 @@ async function prefetchPm(): Promise<SpotlightItem[]> {
         makeField(projectName, 0.7),
         makeField(tagsField, 0.85),
       ],
-      weight: it.pinned ? 1.2 : 1,
+      ranking: { pinned: it.pinned },
       payload: {
         pmId: it.id,
         projectId: it.projectId,

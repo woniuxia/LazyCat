@@ -1831,7 +1831,7 @@ onUnmounted(() => {
       <div v-else class="workbench-empty">
         <div class="workbench-empty__mark">RF</div>
         <h1>选择或新建转发规则</h1>
-        <p>在左侧选择规则查看日志，或新建 HTTP、TCP、UDP 转发规则。</p>
+        <p>在左侧选择规则查看日志，或新建 HTTP/WebSocket、TCP、UDP 转发规则。</p>
         <el-button type="primary" :disabled="interactionBusy" @click="openCreateDialog">
           新建规则
         </el-button>

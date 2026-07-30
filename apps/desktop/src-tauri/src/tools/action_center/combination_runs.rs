@@ -867,11 +867,12 @@ fn panic_message(payload: Box<dyn Any + Send>) -> String {
 pub(crate) fn start_with_app(
     app: &tauri::AppHandle,
     combination_id: i64,
+    notify_on_completion: bool,
 ) -> Result<CombinationRunDetail, String> {
     let mut conn = crate::tools::helpers::db_conn()?;
     let event_app = app.clone();
     let emitter: EventEmitter = Arc::new(move |run_id, status| {
-        event_app
+        let event_result = event_app
             .emit(
                 EVENT_ACTION_CENTER_COMBINATION_RUN_UPDATED,
                 CombinationRunUpdatedPayload {
@@ -879,7 +880,18 @@ pub(crate) fn start_with_app(
                     status: status.to_string(),
                 },
             )
-            .map_err(|error| format!("emit combination run update failed: {error}"))
+            .map_err(|error| format!("emit combination run update failed: {error}"));
+        if notify_on_completion && matches!(status, "succeeded" | "partially_succeeded" | "failed")
+        {
+            let conn = crate::tools::helpers::db_conn()?;
+            let run = get_run_with_conn(&conn, run_id)?;
+            if let Some(notification) =
+                crate::global_notification::build_action_combination_notification(&run)
+            {
+                crate::global_notification::show_notifications(&event_app, vec![notification]);
+            }
+        }
+        event_result
     });
     start_with_dependencies(
         &mut conn,

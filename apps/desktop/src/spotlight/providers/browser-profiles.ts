@@ -7,7 +7,6 @@ import type {
 import {
   buildBrowserProfileSearchFields,
   getBrowserProfileDisplayName,
-  getBrowserProfileSpotlightWeight,
 } from "../../utils/browserProfiles";
 import { notifyBrowserProfilesChanged } from "../browser-profiles-events";
 import { registerProvider } from "../registry";
@@ -40,7 +39,13 @@ export function buildBrowserProfileSpotlightItem(
     subtitle: subtitleParts.join(" · "),
     badge: { short: browserLabel, tone: "primary" },
     searchFields: buildBrowserProfileSearchFields(profile),
-    weight: getBrowserProfileSpotlightWeight(profile),
+    ranking: {
+      usageRef: {
+        resourceType: "browser-profile",
+        resourceId: JSON.stringify([profile.browser, profile.profileDir]),
+        actions: ["launch"],
+      },
+    },
     payload: {
       browser: profile.browser,
       profileDir: profile.profileDir,

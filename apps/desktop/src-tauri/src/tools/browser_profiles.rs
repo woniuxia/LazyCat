@@ -9,6 +9,8 @@ use rusqlite::params;
 use serde_json::json;
 use serde_json::{Map, Value};
 
+use super::usage::{self, UsageKey, ACTION_LAUNCH, RESOURCE_BROWSER_PROFILE};
+
 const CONFIG_KEY: &str = "browser_profiles_config_v1";
 const BROWSER_EDGE: &str = "edge";
 const BROWSER_CHROME: &str = "chrome";
@@ -505,6 +507,7 @@ fn list_profiles_with_conn(conn: &rusqlite::Connection) -> Result<Value, String>
         chrome_discovered,
         &config.chrome,
     ));
+    apply_usage_stats(conn, &mut profiles)?;
     sort_profiles(&mut profiles);
 
     Ok(json!({
@@ -693,16 +696,22 @@ fn launch_profile_inner(browser: &str, profile_dir: &str) -> Result<LaunchProfil
         .spawn()
         .map_err(|err| format!("launch failed: {err}"))?;
 
-    let now = chrono::Local::now().to_rfc3339();
-    let stats_result = mutate_config(|config| {
-        update_launch_stats_for_browser(config, browser, profile_dir, &now);
-        Ok(())
-    });
-    let launch_count = match stats_result {
-        Ok(config) => config_entries(&config, browser)
-            .get(profile_dir)
-            .and_then(|entry| entry.launch_count)
-            .unwrap_or_default(),
+    let now = chrono::Utc::now().to_rfc3339();
+    let resource_id = encode_action_target(browser, profile_dir)?;
+    let usage_result = {
+        let conn = super::helpers::db_conn()?;
+        usage::record(
+            &conn,
+            UsageKey {
+                resource_type: RESOURCE_BROWSER_PROFILE,
+                scope_id: "",
+                resource_id: &resource_id,
+            },
+            ACTION_LAUNCH,
+        )
+    };
+    let launch_count = match usage_result {
+        Ok(summary) => summary.total_count,
         Err(err) => {
             warnings.push(format!("启动成功，但使用统计保存失败：{err}"));
             config_entries(&config, browser)
@@ -811,6 +820,7 @@ fn update_launch_stats_in_config(config: &mut BrowserProfilesConfig, profile_dir
     update_launch_stats_for_browser(config, BROWSER_EDGE, profile_dir, now);
 }
 
+#[cfg(test)]
 fn update_launch_stats_for_browser(
     config: &mut BrowserProfilesConfig,
     browser: &str,
@@ -822,6 +832,23 @@ fn update_launch_stats_for_browser(
         .or_default();
     entry.launch_count = Some(entry.launch_count.unwrap_or_default() + 1);
     entry.last_launched_at = Some(now.to_string());
+}
+
+fn apply_usage_stats(
+    conn: &rusqlite::Connection,
+    profiles: &mut [BrowserProfileItem],
+) -> Result<(), String> {
+    let summaries = usage::summaries_for_type(conn, RESOURCE_BROWSER_PROFILE, 30)?;
+    for profile in profiles {
+        let resource_id = encode_action_target(&profile.browser, &profile.profile_dir)?;
+        let summary = summaries
+            .get(&(String::new(), resource_id))
+            .cloned()
+            .unwrap_or_default();
+        profile.launch_count = summary.total_count;
+        profile.last_launched_at = usage::format_timestamp_ms(summary.last_used_at);
+    }
+    Ok(())
 }
 
 fn config_entries<'a>(

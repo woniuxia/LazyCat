@@ -54,4 +54,17 @@ export interface ReleasePackageNotification extends GlobalNotificationBase {
   error?: string;
 }
 
-export type GlobalNotification = TodoReminderNotification | ReleasePackageNotification;
+export interface ActionCombinationNotification extends GlobalNotificationBase {
+  kind: "action-combination";
+  runId: string;
+  combinationId: number;
+  combinationName: string;
+  status: "succeeded" | "partially_succeeded" | "failed";
+  failedStepLabels: string[];
+  error?: string;
+}
+
+export type GlobalNotification =
+  | TodoReminderNotification
+  | ReleasePackageNotification
+  | ActionCombinationNotification;

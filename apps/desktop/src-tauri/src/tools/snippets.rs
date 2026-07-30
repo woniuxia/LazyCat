@@ -2,6 +2,7 @@ use rusqlite::{params, Connection};
 use serde_json::{json, Value};
 
 use super::helpers::db_conn;
+use super::usage::{self, UsageKey, ACTION_COPY, ACTION_VIEW, RESOURCE_SNIPPET};
 
 const ACTIONS: &[&str] = &[
     "v2_list",
@@ -118,12 +119,34 @@ fn parse_fragments(payload: &Value) -> Vec<(String, String, String)> {
     frags
 }
 
-fn parse_sort(payload: &Value) -> &'static str {
+fn usage_total_expr(alias: &str) -> String {
+    format!(
+        "COALESCE((SELECT SUM(u.use_count) FROM usage_daily u
+          WHERE u.resource_type = 'snippet' AND u.scope_id = ''
+            AND u.resource_id = CAST({alias}.id AS TEXT)
+            AND u.action IN ('view', 'copy')), 0)"
+    )
+}
+
+fn usage_last_ms_expr(alias: &str) -> String {
+    format!(
+        "COALESCE((SELECT MAX(NULLIF(u.last_used_at_ms, 0)) FROM usage_daily u
+          WHERE u.resource_type = 'snippet' AND u.scope_id = ''
+            AND u.resource_id = CAST({alias}.id AS TEXT)
+            AND u.action IN ('view', 'copy')), 0)"
+    )
+}
+
+fn parse_sort(payload: &Value) -> String {
     match payload["sort_by"].as_str().unwrap_or("last_used") {
-        "updated_at" => "se.updated_at DESC",
-        "created_at" => "se.created_at DESC",
-        "title" => "se.title COLLATE NOCASE ASC",
-        _ => "se.last_used_at DESC, se.use_count DESC, se.updated_at DESC",
+        "updated_at" => "se.updated_at DESC".into(),
+        "created_at" => "se.created_at DESC".into(),
+        "title" => "se.title COLLATE NOCASE ASC".into(),
+        _ => format!(
+            "MAX({}, unixepoch(se.created_at) * 1000) DESC, {} DESC, se.updated_at DESC",
+            usage_last_ms_expr("se"),
+            usage_total_expr("se")
+        ),
     }
 }
 
@@ -290,7 +313,10 @@ fn build_v2_filters(payload: &Value) -> (Vec<String>, Vec<Box<dyn rusqlite::type
         );
     }
     if recent_days > 0 {
-        conditions.push("se.last_used_at >= datetime('now', ?)".to_string());
+        conditions.push(format!(
+            "MAX({}, unixepoch(se.created_at) * 1000) >= unixepoch('now', ?) * 1000",
+            usage_last_ms_expr("se")
+        ));
         params_boxed.push(Box::new(format!("-{recent_days} days")));
     }
 
@@ -303,6 +329,8 @@ fn execute_v2_query(
     order_clause: &str,
     params_boxed: Vec<Box<dyn rusqlite::types::ToSql>>,
 ) -> Result<Value, String> {
+    let usage_last_ms = usage_last_ms_expr("se");
+    let usage_total = usage_total_expr("se");
     let sql = format!(
         "SELECT
             se.id,
@@ -313,8 +341,11 @@ fn execute_v2_query(
             se.primary_language,
             se.created_at,
             se.updated_at,
-            se.last_used_at,
-            se.use_count,
+            COALESCE(
+                strftime('%Y-%m-%dT%H:%M:%SZ', NULLIF({usage_last_ms}, 0) / 1000, 'unixepoch'),
+                se.created_at
+            ) AS last_used_at,
+            {usage_total} AS use_count,
             (SELECT COUNT(*) FROM snippet_fragments_v2 sf WHERE sf.entry_id = se.id) AS fragment_count,
             (
                 SELECT GROUP_CONCAT(tag, CHAR(31))
@@ -365,10 +396,21 @@ fn v2_get(payload: &Value) -> Result<Value, String> {
     let entry_id = payload["id"].as_i64().ok_or("id is required")?;
     let conn = db_conn()?;
 
+    let usage_last_ms = usage_last_ms_expr("se");
+    let usage_total = usage_total_expr("se");
+    let query = format!(
+        "SELECT se.id, se.title, se.description, se.folder_id, se.is_favorite,
+                se.primary_language, se.created_at, se.updated_at,
+                COALESCE(
+                    strftime('%Y-%m-%dT%H:%M:%SZ', NULLIF({usage_last_ms}, 0) / 1000, 'unixepoch'),
+                    se.created_at
+                ),
+                {usage_total}
+         FROM snippet_entries se WHERE se.id = ?1"
+    );
     let mut snippet = conn
         .query_row(
-            "SELECT id, title, description, folder_id, is_favorite, primary_language, created_at, updated_at, last_used_at, use_count
-             FROM snippet_entries WHERE id = ?1",
+            &query,
             params![entry_id],
             |r| {
                 Ok(json!({
@@ -532,31 +574,59 @@ fn v2_update(payload: &Value) -> Result<Value, String> {
 fn v2_delete(payload: &Value) -> Result<Value, String> {
     let entry_id = payload["id"].as_i64().ok_or("id is required")?;
     let conn = db_conn()?;
-    conn.execute(
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|error| format!("v2_delete begin transaction failed: {error}"))?;
+    tx.execute(
         "DELETE FROM snippet_entries WHERE id = ?1",
         params![entry_id],
     )
     .map_err(|e| format!("v2_delete failed: {e}"))?;
-    conn.execute(
+    tx.execute(
         "DELETE FROM snippet_fts WHERE entry_id = ?1",
         params![entry_id],
     )
     .ok();
+    usage::delete_resource(
+        &tx,
+        UsageKey {
+            resource_type: RESOURCE_SNIPPET,
+            scope_id: "",
+            resource_id: &entry_id.to_string(),
+        },
+    )?;
+    tx.commit()
+        .map_err(|error| format!("v2_delete commit transaction failed: {error}"))?;
     Ok(json!({ "ok": true }))
 }
 
 fn v2_mark_used(payload: &Value) -> Result<Value, String> {
     let entry_id = payload["id"].as_i64().ok_or("id is required")?;
+    let action = match payload["type"].as_str().unwrap_or("view") {
+        "view" => ACTION_VIEW,
+        "copy" => ACTION_COPY,
+        _ => return Err("type must be 'view' or 'copy'".into()),
+    };
     let conn = db_conn()?;
-    conn.execute(
-        "UPDATE snippet_entries
-         SET last_used_at = CURRENT_TIMESTAMP,
-             use_count = use_count + 1,
-             updated_at = CURRENT_TIMESTAMP
-         WHERE id = ?1",
-        params![entry_id],
-    )
-    .map_err(|e| format!("v2_mark_used failed: {e}"))?;
+    let exists = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM snippet_entries WHERE id = ?1)",
+            params![entry_id],
+            |row| row.get::<_, bool>(0),
+        )
+        .map_err(|error| format!("v2_mark_used validate entry failed: {error}"))?;
+    if !exists {
+        return Err("snippet entry not found".into());
+    }
+    usage::record(
+        &conn,
+        UsageKey {
+            resource_type: RESOURCE_SNIPPET,
+            scope_id: "",
+            resource_id: &entry_id.to_string(),
+        },
+        action,
+    )?;
 
     Ok(json!({ "ok": true }))
 }
@@ -876,6 +946,14 @@ fn batch_delete(payload: &Value) -> Result<Value, String> {
             .map_err(|e| format!("batch_delete delete failed: {e}"))?;
         tx.execute("DELETE FROM snippet_fts WHERE entry_id = ?1", params![id])
             .ok();
+        usage::delete_resource(
+            &tx,
+            UsageKey {
+                resource_type: RESOURCE_SNIPPET,
+                scope_id: "",
+                resource_id: &id.to_string(),
+            },
+        )?;
     }
     tx.commit()
         .map_err(|e| format!("batch_delete commit failed: {e}"))?;

@@ -1,6 +1,7 @@
 import { computed, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
-import type { ToolDef, ToolClickHistory } from "../types";
+import { invokeToolByChannel } from "../bridge/tauri";
+import type { ToolDef, ToolUsageMap, UsageSummary } from "../types";
 import { getSettingJson, setSettingJson } from "./useSettings";
 
 export interface MergedHomeTool {
@@ -8,9 +9,6 @@ export interface MergedHomeTool {
   isFavorite: boolean;
   count: number; // 近 30 天点击次数
 }
-
-const CLICK_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
-const MAX_CLICK_HISTORY_PER_TOOL = 500;
 
 export const TODO_TOOL_ID = "todo";
 export const TODO_FAVORITE_SEEDED_KEY = "favorites_todo_seeded";
@@ -66,7 +64,7 @@ export function bootstrapFavoriteToolIds(
 
 export function useFavorites(allTools: ToolDef[], isRealToolId: (id: string) => boolean) {
   const favoriteToolIds = ref<string[]>([]);
-  const toolClickHistory = ref<ToolClickHistory>({});
+  const toolUsage = ref<ToolUsageMap>({});
   const homeTopLimit = ref<number>(12);
 
   const allToolMap = new Map(allTools.map((t) => [t.id, t]));
@@ -78,14 +76,13 @@ export function useFavorites(allTools: ToolDef[], isRealToolId: (id: string) => 
   );
 
   const mergedHomeTools = computed<MergedHomeTool[]>(() => {
-    const cutoff = Date.now() - CLICK_WINDOW_MS;
     const favoriteSet = new Set(favoriteToolIds.value);
 
     // 收藏工具按存储顺序全部显示
     const favItems: MergedHomeTool[] = favoriteTools.value.map((tool) => ({
       tool,
       isFavorite: true,
-      count: (toolClickHistory.value[tool.id] ?? []).filter((ts) => ts >= cutoff).length,
+      count: toolUsage.value[tool.id]?.windowCount ?? 0,
     }));
 
     // 非收藏工具填充剩余槽位
@@ -97,7 +94,7 @@ export function useFavorites(allTools: ToolDef[], isRealToolId: (id: string) => 
       .map((tool) => ({
         tool,
         isFavorite: false,
-        count: (toolClickHistory.value[tool.id] ?? []).filter((ts) => ts >= cutoff).length,
+        count: toolUsage.value[tool.id]?.windowCount ?? 0,
       }))
       .filter((item) => item.count > 0)
       .sort((a, b) => b.count - a.count)
@@ -132,32 +129,22 @@ export function useFavorites(allTools: ToolDef[], isRealToolId: (id: string) => 
     ElMessage.success("已加入收藏");
   }
 
-  function pruneClicks(history: ToolClickHistory): ToolClickHistory {
-    const cutoff = Date.now() - CLICK_WINDOW_MS;
-    const result: ToolClickHistory = {};
-    for (const [toolId, timestamps] of Object.entries(history)) {
-      if (!isRealToolId(toolId) || !Array.isArray(timestamps)) continue;
-      const valid = timestamps
-        .filter(
-          (item): item is number =>
-            typeof item === "number" && Number.isFinite(item) && item >= cutoff,
-        )
-        .sort((a, b) => a - b)
-        .slice(-MAX_CLICK_HISTORY_PER_TOOL);
-      if (valid.length) result[toolId] = valid;
-    }
-    return result;
-  }
-
-  function recordToolClick(id: string) {
+  async function recordToolOpen(id: string) {
     if (!isRealToolId(id)) return;
-    const next = { ...toolClickHistory.value };
-    const history = [...(next[id] ?? []), Date.now()];
-    next[id] = history.slice(-MAX_CLICK_HISTORY_PER_TOOL);
-    toolClickHistory.value = next;
+    try {
+      const result = (await invokeToolByChannel("tool:usage:record-tool-open", {
+        toolId: id,
+      })) as { resourceId: string; summary: UsageSummary };
+      toolUsage.value = {
+        ...toolUsage.value,
+        [result.resourceId]: result.summary,
+      };
+    } catch (error) {
+      console.warn("record tool usage failed", error);
+    }
   }
 
-  function loadFromStorage() {
+  async function loadFromStorage() {
     // Favorites
     const rawFav = getSettingJson<string[]>("favorites", []);
     const hasSeededTodoFavorite = getSettingJson<boolean>(TODO_FAVORITE_SEEDED_KEY, false);
@@ -171,9 +158,19 @@ export function useFavorites(allTools: ToolDef[], isRealToolId: (id: string) => 
       setSettingJson(TODO_FAVORITE_SEEDED_KEY, true);
     }
 
-    // Click history
-    const rawClicks = getSettingJson<ToolClickHistory>("tool_clicks", {});
-    toolClickHistory.value = pruneClicks(rawClicks);
+    try {
+      const result = (await invokeToolByChannel("tool:usage:tool-summaries", {
+        toolIds: allTools.map((tool) => tool.id),
+      })) as { items: Array<{ resourceId: string; summary: UsageSummary }> };
+      toolUsage.value = Object.fromEntries(
+        result.items
+          .filter((item) => isRealToolId(item.resourceId))
+          .map((item) => [item.resourceId, item.summary]),
+      );
+    } catch (error) {
+      console.warn("load tool usage failed", error);
+      toolUsage.value = {};
+    }
 
     // Home top limit
     const rawLimit = getSettingJson<string>("home_top_limit", "12");
@@ -185,23 +182,18 @@ export function useFavorites(allTools: ToolDef[], isRealToolId: (id: string) => 
   watch(favoriteToolIds, () => setSettingJson("favorites", favoriteToolIds.value), {
     deep: true,
   });
-  watch(
-    toolClickHistory,
-    () => setSettingJson("tool_clicks", pruneClicks(toolClickHistory.value)),
-    { deep: true },
-  );
   watch(homeTopLimit, (v) => setSettingJson("home_top_limit", String(v)));
 
   return {
     favoriteToolIds,
-    toolClickHistory,
+    toolUsage,
     homeTopLimit,
     favoriteTools,
     mergedHomeTools,
     isFavorite,
     toggleFavorite,
     reorderFavorites,
-    recordToolClick,
+    recordToolOpen,
     loadFromStorage,
   };
 }

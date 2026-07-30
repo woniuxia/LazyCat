@@ -11,7 +11,7 @@ vi.mock("../../bridge/tauri", () => ({ showReferenceCard }));
 import type { SpotlightItem } from "../types";
 import { MAX_REFERENCE_CARD_TEXT_BYTES } from "../../utils/monacoLanguages";
 import { buildClipboardSuggestionItems } from "../clipboard-suggestions";
-import { searchItems } from "../registry";
+import { registerProvider, searchItems } from "../registry";
 import { suggestionProvider } from "./suggestion";
 
 function createSuggestionItem(suggestionAction: unknown): SpotlightItem {
@@ -27,6 +27,7 @@ function createSuggestionItem(suggestionAction: unknown): SpotlightItem {
 describe("suggestionProvider.defaultAction", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    registerProvider(suggestionProvider);
   });
 
   it("直接通过 bridge 打开参考卡并关闭 Spotlight", async () => {
@@ -114,13 +115,14 @@ describe("suggestionProvider.defaultAction", () => {
     },
   );
 
-  it("空查询建议按构建顺序和权重保持工具优先", () => {
+  it("空查询建议按构建顺序和显式上下文顺序保持工具优先", () => {
     const items = buildClipboardSuggestionItems('{"port":8080}');
 
     expect(items.map((item) => item.itemId)).toEqual([
       "suggestion:tool:formatter",
       "suggestion:reference-card",
     ]);
-    expect(items[0].weight).toBeGreaterThan(items[1].weight ?? 0);
+    expect(items[0].ranking).toMatchObject({ contextual: true, sourceOrder: 0 });
+    expect(items[1].ranking).toMatchObject({ contextual: true, sourceOrder: 1 });
   });
 });

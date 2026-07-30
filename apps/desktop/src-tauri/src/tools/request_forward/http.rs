@@ -377,11 +377,13 @@ use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::client::legacy::Client;
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use rustls::{ClientConfig, RootCertStore};
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::TcpListener;
-use tokio::sync::Semaphore;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio::task::JoinSet;
 use tokio::time::timeout;
 use tokio_util::sync::{CancellationToken, WaitForCancellationFutureOwned};
+use tokio_util::task::TaskTracker;
 
 use super::model::ForwardRule;
 #[cfg(test)]
@@ -709,6 +711,7 @@ async fn run_listener(
 ) -> Result<(), String> {
     let client = Client::builder(TokioExecutor::new()).build(connector);
     let semaphore = Arc::new(Semaphore::new(connection_limit));
+    let upgrade_tasks = TaskTracker::new();
     let mut children = JoinSet::new();
 
     loop {
@@ -722,6 +725,7 @@ async fn run_listener(
                     let child_cancellation = cancellation.clone();
                     let child_observability = Arc::clone(&observability);
                     let child_semaphore = Arc::clone(&semaphore);
+                    let child_upgrade_tasks = upgrade_tasks.clone();
                     children.spawn(async move {
                         let service_cancellation = child_cancellation.clone();
                         let service_observability = Arc::clone(&child_observability);
@@ -734,13 +738,15 @@ async fn run_listener(
                                 service_cancellation.clone(),
                                 Arc::clone(&service_observability),
                                 Arc::clone(&child_semaphore),
+                                child_upgrade_tasks.clone(),
                                 pre_response_timeout,
                                 capture_http_headers,
                                 capture_http_body,
                             )
                         });
                         let serve = hyper::server::conn::http1::Builder::new()
-                            .serve_connection(TokioIo::new(stream), service);
+                            .serve_connection(TokioIo::new(stream), service)
+                            .with_upgrades();
                         tokio::select! {
                             _ = child_cancellation.cancelled() => {}
                             result = serve => {
@@ -758,6 +764,8 @@ async fn run_listener(
                     observability.listener_failed(error.clone());
                     cancellation.cancel();
                     while children.join_next().await.is_some() {}
+                    upgrade_tasks.close();
+                    upgrade_tasks.wait().await;
                     return Err(error);
                 }
             },
@@ -767,6 +775,8 @@ async fn run_listener(
                     observability.child_task_failed(error.clone());
                     cancellation.cancel();
                     while children.join_next().await.is_some() {}
+                    upgrade_tasks.close();
+                    upgrade_tasks.wait().await;
                     return Err(error);
                 }
             },
@@ -776,17 +786,20 @@ async fn run_listener(
     drop(listener);
     cancellation.cancel();
     while children.join_next().await.is_some() {}
+    upgrade_tasks.close();
+    upgrade_tasks.wait().await;
     Ok(())
 }
 
 async fn forward_request(
-    request: Request<Incoming>,
+    mut request: Request<Incoming>,
     client_addr: SocketAddr,
     target_url: Url,
     client: HttpClient,
     cancellation: CancellationToken,
     observability: Arc<HttpObservability>,
     semaphore: Arc<Semaphore>,
+    upgrade_tasks: TaskTracker,
     pre_response_timeout: Duration,
     capture_http_headers: bool,
     capture_http_body: bool,
@@ -814,13 +827,14 @@ async fn forward_request(
         capture_http_body,
     );
 
-    if is_upgrade_request(request.headers()) {
-        let error = "HTTP 转发不支持 WebSocket 或 Upgrade 请求".to_string();
+    let websocket_upgrade = is_websocket_upgrade(request.headers());
+    if is_upgrade_request(request.headers()) && !websocket_upgrade {
+        let error = "HTTP 转发仅支持标准 WebSocket Upgrade 请求".to_string();
         trace.upgrade_rejected(error.clone());
         return Ok(text_response(StatusCode::BAD_REQUEST, &error));
     }
 
-    let _permit = match semaphore.try_acquire_owned() {
+    let permit = match semaphore.try_acquire_owned() {
         Ok(permit) => permit,
         Err(_) => {
             let error = "HTTP 并发请求已达到上限".to_string();
@@ -828,6 +842,8 @@ async fn forward_request(
             return Ok(text_response(StatusCode::SERVICE_UNAVAILABLE, &error));
         }
     };
+
+    let inbound_upgrade = websocket_upgrade.then(|| hyper::upgrade::on(&mut request));
 
     let (mut parts, body) = request.into_parts();
     let target_uri = match build_target_uri(&target_url, &parts.uri) {
@@ -837,7 +853,13 @@ async fn forward_request(
             return Ok(text_response(StatusCode::BAD_REQUEST, &error));
         }
     };
+    let upgrade_header = websocket_upgrade
+        .then(|| parts.headers.get(UPGRADE).cloned())
+        .flatten();
     strip_hop_by_hop(&mut parts.headers);
+    if let Some(upgrade_header) = upgrade_header {
+        restore_upgrade_headers(&mut parts.headers, upgrade_header);
+    }
     if let Err(error) =
         rebuild_forward_headers(&mut parts.headers, client_addr.ip(), original_host.as_ref())
     {
@@ -850,7 +872,7 @@ async fn forward_request(
     }
     parts.uri = target_uri;
     let outbound = Request::from_parts(parts, observe_request_body(body, Arc::clone(&trace)));
-    let response = tokio::select! {
+    let mut response = tokio::select! {
         _ = cancellation.cancelled() => return Ok(text_response(StatusCode::SERVICE_UNAVAILABLE, "HTTP 转发已停止")),
         response = timeout(pre_response_timeout, client.request(outbound)) => match response {
             Ok(Ok(response)) => response,
@@ -867,6 +889,33 @@ async fn forward_request(
         },
     };
 
+    if websocket_upgrade && response.status() == StatusCode::SWITCHING_PROTOCOLS {
+        if !is_websocket_upgrade(response.headers()) {
+            let error = "下游返回了无效的 WebSocket Upgrade 响应".to_string();
+            trace.upgrade_failed(error.clone());
+            return Ok(text_response(StatusCode::BAD_GATEWAY, &error));
+        }
+
+        let downstream_upgrade = hyper::upgrade::on(&mut response);
+        let (mut parts, _body) = response.into_parts();
+        let upgrade_header = parts
+            .headers
+            .get(UPGRADE)
+            .cloned()
+            .expect("validated WebSocket response has Upgrade header");
+        strip_hop_by_hop(&mut parts.headers);
+        restore_upgrade_headers(&mut parts.headers, upgrade_header);
+        trace.response_started(parts.status.as_u16(), &parts.headers);
+        upgrade_tasks.spawn(relay_websocket_upgrade(
+            inbound_upgrade.expect("validated WebSocket request has upgrade future"),
+            downstream_upgrade,
+            cancellation,
+            Arc::clone(&trace),
+            permit,
+        ));
+        return Ok(Response::from_parts(parts, empty_body()));
+    }
+
     let (mut parts, body) = response.into_parts();
     strip_hop_by_hop(&mut parts.headers);
     trace.response_started(parts.status.as_u16(), &parts.headers);
@@ -874,6 +923,107 @@ async fn forward_request(
         parts,
         observe_response_body(body, trace, cancellation),
     ))
+}
+
+async fn relay_websocket_upgrade(
+    inbound_upgrade: hyper::upgrade::OnUpgrade,
+    downstream_upgrade: hyper::upgrade::OnUpgrade,
+    cancellation: CancellationToken,
+    trace: Arc<HttpRequestTrace>,
+    _permit: OwnedSemaphorePermit,
+) {
+    let upgraded = tokio::select! {
+        _ = cancellation.cancelled() => {
+            trace.response_completed();
+            return;
+        }
+        result = async { tokio::try_join!(inbound_upgrade, downstream_upgrade) } => result,
+    };
+    let (inbound, downstream) = match upgraded {
+        Ok(upgraded) => upgraded,
+        Err(error) => {
+            trace.upgrade_failed(format!("建立 WebSocket 隧道失败: {error}"));
+            return;
+        }
+    };
+
+    let mut inbound = CountingIo::new(
+        TokioIo::new(inbound),
+        Arc::clone(&trace),
+        TransferDirection::Upload,
+    );
+    let mut downstream = CountingIo::new(
+        TokioIo::new(downstream),
+        Arc::clone(&trace),
+        TransferDirection::Download,
+    );
+    let relay = tokio::io::copy_bidirectional(&mut inbound, &mut downstream);
+    tokio::select! {
+        _ = cancellation.cancelled() => trace.response_completed(),
+        result = relay => match result {
+            Ok(_) => trace.response_completed(),
+            Err(error) => trace.upgrade_failed(format!("WebSocket 双向转发失败: {error}")),
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum TransferDirection {
+    Upload,
+    Download,
+}
+
+struct CountingIo<T> {
+    inner: T,
+    trace: Arc<HttpRequestTrace>,
+    direction: TransferDirection,
+}
+
+impl<T> CountingIo<T> {
+    fn new(inner: T, trace: Arc<HttpRequestTrace>, direction: TransferDirection) -> Self {
+        Self {
+            inner,
+            trace,
+            direction,
+        }
+    }
+}
+
+impl<T: AsyncRead + Unpin> AsyncRead for CountingIo<T> {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buffer: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        let before = buffer.filled().len();
+        let result = Pin::new(&mut self.inner).poll_read(cx, buffer);
+        if matches!(result, Poll::Ready(Ok(()))) {
+            let bytes = buffer.filled().len().saturating_sub(before);
+            match self.direction {
+                TransferDirection::Upload => self.trace.uploaded(bytes),
+                TransferDirection::Download => self.trace.downloaded(bytes),
+            }
+        }
+        result
+    }
+}
+
+impl<T: AsyncWrite + Unpin> AsyncWrite for CountingIo<T> {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buffer: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
+        Pin::new(&mut self.inner).poll_write(cx, buffer)
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.inner).poll_flush(cx)
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.inner).poll_shutdown(cx)
+    }
 }
 
 fn format_error_chain(error: &(dyn Error + 'static)) -> String {
@@ -1061,6 +1211,31 @@ fn is_upgrade_request(headers: &HeaderMap) -> bool {
             .filter_map(|value| value.to_str().ok())
             .flat_map(|value| value.split(','))
             .any(|value| value.trim().eq_ignore_ascii_case("upgrade"))
+}
+
+fn is_websocket_upgrade(headers: &HeaderMap) -> bool {
+    headers
+        .get_all(UPGRADE)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .any(|value| value.trim().eq_ignore_ascii_case("websocket"))
+        && headers
+            .get_all(CONNECTION)
+            .iter()
+            .filter_map(|value| value.to_str().ok())
+            .flat_map(|value| value.split(','))
+            .any(|value| value.trim().eq_ignore_ascii_case("upgrade"))
+}
+
+fn restore_upgrade_headers(headers: &mut HeaderMap, upgrade: HeaderValue) {
+    headers.insert(CONNECTION, HeaderValue::from_static("upgrade"));
+    headers.insert(UPGRADE, upgrade);
+}
+
+fn empty_body() -> ProxyBody {
+    Full::new(Bytes::new())
+        .map_err(|never| -> ProxyError { match never {} })
+        .boxed()
 }
 
 fn text_response(status: StatusCode, message: &str) -> Response<ProxyBody> {
@@ -1924,20 +2099,101 @@ pub(crate) mod integration_tests {
     }
 
     #[test]
-    fn http_rejects_websocket_upgrade_explicitly() {
+    fn http_forwards_websocket_upgrade_and_bidirectional_bytes() {
+        const CLIENT_PAYLOAD: &[u8] = b"client-websocket-frame";
+        const SERVER_PAYLOAD: &[u8] = b"server-websocket-frame";
+
+        let (upstream_addr, upstream) = accept_once(|mut stream| {
+            let head = read_head(&mut stream);
+            let head_text = std::str::from_utf8(&head).expect("WebSocket request head text");
+            assert!(head_text.starts_with("GET /api/socket?room=7 HTTP/1.1\r\n"));
+            assert_eq!(
+                header_value(&head, "connection").as_deref(),
+                Some("upgrade")
+            );
+            assert_eq!(header_value(&head, "upgrade").as_deref(), Some("websocket"));
+            assert_eq!(
+                header_value(&head, "sec-websocket-key").as_deref(),
+                Some("fixture-key")
+            );
+            assert!(header_value(&head, "x-remove-me").is_none());
+            stream
+                .write_all(b"HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Accept: fixture-accept\r\n\r\n")
+                .expect("write WebSocket upgrade response");
+            stream.flush().expect("flush WebSocket upgrade response");
+
+            let mut payload = vec![0; CLIENT_PAYLOAD.len()];
+            stream
+                .read_exact(&mut payload)
+                .expect("upstream receives WebSocket bytes");
+            assert_eq!(payload, CLIENT_PAYLOAD);
+            stream
+                .write_all(SERVER_PAYLOAD)
+                .expect("upstream writes WebSocket bytes");
+            stream.flush().expect("flush upstream WebSocket bytes");
+        });
+        let rule = http_rule(8, format!("http://{upstream_addr}/api"), true, false);
+        let runner = HttpRuleRunner::new();
+        let handle = runner.start(&rule).expect("start WebSocket HTTP rule");
+        let mut client = connect(runner.listener_addr(handle).expect("read listener"));
+        client
+            .write_all(b"GET /socket?room=7 HTTP/1.1\r\nHost: public.example\r\nConnection: keep-alive, Upgrade, x-remove-me\r\nUpgrade: websocket\r\nSec-WebSocket-Key: fixture-key\r\nSec-WebSocket-Version: 13\r\nX-Remove-Me: yes\r\n\r\n")
+            .expect("write WebSocket upgrade request");
+
+        let head = read_head(&mut client);
+        let head_text = std::str::from_utf8(&head).expect("WebSocket response head text");
+        assert!(head_text.starts_with("HTTP/1.1 101"));
+        assert_eq!(
+            header_value(&head, "connection").as_deref(),
+            Some("upgrade")
+        );
+        assert_eq!(header_value(&head, "upgrade").as_deref(), Some("websocket"));
+        assert_eq!(
+            header_value(&head, "sec-websocket-accept").as_deref(),
+            Some("fixture-accept")
+        );
+
+        client
+            .write_all(CLIENT_PAYLOAD)
+            .expect("client writes WebSocket bytes");
+        client.flush().expect("flush client WebSocket bytes");
+        let mut payload = vec![0; SERVER_PAYLOAD.len()];
+        client
+            .read_exact(&mut payload)
+            .expect("client receives WebSocket bytes");
+        assert_eq!(payload, SERVER_PAYLOAD);
+        drop(client);
+        upstream.join().expect("join WebSocket upstream");
+
+        let snapshot = runner
+            .wait_for_snapshot(handle, |snapshot| {
+                snapshot.events.iter().any(|event| {
+                    event.kind == HttpEventKind::Accepted
+                        && event.status_code == Some(101)
+                        && event.upload_bytes == CLIENT_PAYLOAD.len() as u64
+                        && event.download_bytes == SERVER_PAYLOAD.len() as u64
+                })
+            })
+            .expect("wait for completed WebSocket event");
+        assert_eq!(snapshot.error_count, 0);
+        runner.stop(handle).expect("stop WebSocket HTTP rule");
+    }
+
+    #[test]
+    fn http_rejects_non_websocket_upgrade_explicitly() {
         let unavailable = TcpListener::bind("127.0.0.1:0").expect("reserve target port");
         let target_addr = unavailable.local_addr().expect("read target port");
         drop(unavailable);
-        let rule = http_rule(8, format!("http://{target_addr}"), false, false);
+        let rule = http_rule(81, format!("http://{target_addr}"), false, false);
         let runner = HttpRuleRunner::new();
         let handle = runner.start(&rule).expect("start HTTP rule");
         let mut client = connect(runner.listener_addr(handle).expect("read listener"));
         client
-            .write_all(b"GET /socket HTTP/1.1\r\nHost: public.example\r\nContent-Length: 0\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nConnection: close\r\n\r\n")
-            .expect("write websocket upgrade request");
+            .write_all(b"GET /h2 HTTP/1.1\r\nHost: public.example\r\nContent-Length: 0\r\nConnection: Upgrade\r\nUpgrade: h2c\r\n\r\n")
+            .expect("write unsupported upgrade request");
         let (head, _) = read_response(&mut client);
         let head = std::str::from_utf8(&head).expect("response head text");
-        assert!(head.starts_with("HTTP/1.1 400") || head.starts_with("HTTP/1.1 426"));
+        assert!(head.starts_with("HTTP/1.1 400"));
         let snapshot = runner
             .wait_for_snapshot(handle, |snapshot| snapshot.error_count == 1)
             .expect("wait for upgrade rejection event");
@@ -1946,6 +2202,60 @@ pub(crate) mod integration_tests {
             .iter()
             .any(|event| event.kind == HttpEventKind::UpgradeRejected));
         runner.stop(handle).expect("stop HTTP rule");
+    }
+
+    #[test]
+    fn stopping_http_rule_closes_active_websocket_tunnel() {
+        let (upgraded_tx, upgraded_rx) = mpsc::channel();
+        let (closed_tx, closed_rx) = mpsc::channel();
+        let (upstream_addr, upstream) = accept_once(move |mut stream| {
+            let _ = read_head(&mut stream);
+            stream
+                .write_all(b"HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n")
+                .expect("write active WebSocket response");
+            stream.flush().expect("flush active WebSocket response");
+            upgraded_tx.send(()).expect("signal WebSocket upgraded");
+            let mut remaining = Vec::new();
+            let _ = stream.read_to_end(&mut remaining);
+            closed_tx
+                .send(())
+                .expect("signal WebSocket downstream closed");
+        });
+        let rule = http_rule(82, format!("http://{upstream_addr}"), false, false);
+        let runner = HttpRuleRunner::new();
+        let handle = runner.start(&rule).expect("start active WebSocket rule");
+        let listener_addr = runner.listener_addr(handle).expect("read listener");
+        let mut client = connect(listener_addr);
+        client
+            .write_all(b"GET /socket HTTP/1.1\r\nHost: public.example\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n")
+            .expect("write active WebSocket request");
+        let response = read_head(&mut client);
+        assert!(std::str::from_utf8(&response)
+            .expect("active WebSocket response text")
+            .starts_with("HTTP/1.1 101"));
+        upgraded_rx
+            .recv_timeout(SOCKET_TIMEOUT)
+            .expect("upstream accepted WebSocket upgrade");
+
+        runner.stop(handle).expect("stop active WebSocket rule");
+        closed_rx
+            .recv_timeout(SOCKET_TIMEOUT)
+            .expect("downstream WebSocket closes on stop");
+        upstream.join().expect("join stopped WebSocket upstream");
+        assert!(TcpStream::connect_timeout(&listener_addr, RESPONSE_TIMEOUT).is_err());
+
+        let mut remaining = Vec::new();
+        match client.read_to_end(&mut remaining) {
+            Ok(_) => {}
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::ConnectionReset
+                        | std::io::ErrorKind::ConnectionAborted
+                        | std::io::ErrorKind::NotConnected
+                ) => {}
+            result => panic!("client WebSocket did not close after HTTP stop: {result:?}"),
+        }
     }
 
     #[test]

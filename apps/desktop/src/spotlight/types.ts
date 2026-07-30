@@ -1,4 +1,5 @@
 import type { SearchField } from "../utils/fuzzy-match";
+import type { UsageRef } from "../types/usage";
 
 export type SpotlightProviderId =
   | "tool"
@@ -10,6 +11,7 @@ export type SpotlightProviderId =
   | "browser-profiles"
   | "suggestion"
   | "launcher"
+  | "action-center"
   | "__keyword__";
 
 export type QuickCommandId = "todo-create" | "calc" | "calc-eq";
@@ -45,6 +47,14 @@ export interface SpotlightItem {
   status?: SpotlightStatus;
   searchFields: SearchField[];
   weight?: number;
+  ranking?: {
+    usageRef?: UsageRef;
+    favorite?: boolean;
+    pinned?: boolean;
+    enabled?: boolean;
+    contextual?: boolean;
+    sourceOrder?: number;
+  };
   payload?: Record<string, unknown>;
 }
 
@@ -80,6 +90,7 @@ export interface ProviderDescriptor {
   badgeShort: string;
   badgeTone: StatusTone;
   weight: number;
+  emptyQueryQuota?: number;
   defaultAliases: string[];
   defaultEnabled: boolean;
   hiddenInSettings?: boolean;

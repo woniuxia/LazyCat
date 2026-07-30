@@ -838,6 +838,7 @@ pub(crate) enum HttpEventKind {
     ResponseTimeout,
     Overloaded,
     UpgradeRejected,
+    UpgradeFailed,
     ResponseStreamFailed,
     ListenerFailed,
     ChildTaskFailed,
@@ -1184,6 +1185,10 @@ impl HttpRequestTrace {
 
     pub(crate) fn upgrade_rejected(&self, error: String) {
         self.complete(HttpEventKind::UpgradeRejected, Some(error));
+    }
+
+    pub(crate) fn upgrade_failed(&self, error: String) {
+        self.complete(HttpEventKind::UpgradeFailed, Some(error));
     }
 
     fn complete(&self, kind: HttpEventKind, error: Option<String>) {

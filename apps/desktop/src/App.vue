@@ -90,6 +90,7 @@ import ShortcutHelpOverlay from "./components/ShortcutHelpOverlay.vue";
 import ClipboardSuggestionBar from "./components/ClipboardSuggestionBar.vue";
 import { useClipboardSuggestion } from "./composables/useClipboardSuggestion";
 import { useActionDispatchIntent } from "./composables/useActionDispatchIntent";
+import { useActionCenterNavigation } from "./composables/useActionCenterNavigation";
 import { buildClipboardPathSuggestion, detectClipboardPath } from "./utils/clipboard-detect";
 import {
   shouldHideNamedHotkeyWindow,
@@ -98,6 +99,7 @@ import {
 
 const { ensureClipboardListener, showSuggestion, setPendingToolInput } = useClipboardSuggestion();
 const { setPendingIntent } = useActionDispatchIntent();
+const actionCenterNavigation = useActionCenterNavigation();
 const isTauriEnv = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 const appWindow = isTauriEnv ? getCurrentWindow() : null;
 
@@ -140,18 +142,17 @@ function onKeydown(e: KeyboardEvent) {
 
 const {
   homeTopLimit,
-  toolClickHistory,
+  toolUsage,
   mergedHomeTools,
   isFavorite,
   toggleFavorite,
   reorderFavorites,
-  recordToolClick,
+  recordToolOpen,
   loadFromStorage: loadFavoritesFromStorage,
 } = useFavorites(allTools, isRealToolId);
 
 function recentClickCount(toolId: string): number {
-  const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
-  return (toolClickHistory.value[toolId] ?? []).filter((ts) => ts >= cutoff).length;
+  return toolUsage.value[toolId]?.windowCount ?? 0;
 }
 
 const sortedSidebarItems = computed<SidebarItem[]>(() => {
@@ -245,7 +246,7 @@ const allTabs = computed(() => openTabs.value);
 
 function onSelect(id: string) {
   const name = getToolName(id);
-  if (id !== HOME_ID) recordToolClick(id);
+  if (id !== HOME_ID) void recordToolOpen(id);
   openTab(id, name);
 }
 
@@ -260,7 +261,7 @@ function getToolName(id: string): string {
 }
 
 function onClipboardToolOpen(toolId: string, toolName: string) {
-  recordToolClick(toolId);
+  void recordToolOpen(toolId);
   openTab(toolId, toolName);
 }
 
@@ -317,7 +318,7 @@ async function ensureInboxCaptureConsent() {
 onMounted(async () => {
   await initSettings();
   await ensureInboxCaptureConsent();
-  loadFavoritesFromStorage();
+  await loadFavoritesFromStorage();
   loadMenuVisibility();
   const savedHotkey = getSetting("hotkey") ?? "";
   hotkeyInput.value = savedHotkey;
@@ -400,6 +401,16 @@ onMounted(async () => {
         } catch { /* ignore in non-Tauri env */ }
       }
       if (itemId) {
+        if (target === "action-center") {
+          if (view === "run") {
+            actionCenterNavigation.requestRun(itemId);
+          } else {
+            const combinationId = Number(itemId);
+            if (Number.isSafeInteger(combinationId) && combinationId > 0) {
+              actionCenterNavigation.requestCombination(combinationId);
+            }
+          }
+        }
         const parsedItem = Number(itemId);
         if (Number.isFinite(parsedItem)) {
           if (target === "pm") {

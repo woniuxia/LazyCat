@@ -619,7 +619,10 @@ async function copySnippetCodeAction(
     return { errorMessage: "复制到剪贴板失败" };
   }
   try {
-    await invokeToolByChannel("tool:snippets:v2:mark-used", { id: payload.entryId });
+    await invokeToolByChannel("tool:snippets:v2:mark-used", {
+      id: payload.entryId,
+      type: "copy",
+    });
   } catch {
     /* 不阻断主流程 */
   }

@@ -5,6 +5,8 @@ import type {
   SpotlightProviderId,
 } from "./types";
 import { matchScore } from "../utils/fuzzy-match";
+import type { UsageSummary } from "../types/usage";
+import { rankSearchCandidate } from "./ranking";
 import { toolProvider } from "./providers/tool";
 
 const DESCRIPTORS = new Map<SpotlightProviderId, ProviderDescriptor>();
@@ -33,12 +35,16 @@ export function listDescriptors(includeHidden = false): ProviderDescriptor[] {
 // 默认注册：工具源。其它 provider 由其模块导入时主动注册。
 registerProvider(toolProvider);
 
-export function scoreItem(query: string, item: SpotlightItem, providerWeight: number): number {
+export function scoreItem(
+  query: string,
+  item: SpotlightItem,
+  _providerWeight: number,
+  usageSummaries: ReadonlyMap<string, UsageSummary> = new Map(),
+): number {
   if (!query.trim()) return 0;
   const baseScore = matchScore(query, item.searchFields);
   if (baseScore <= 0) return 0;
-  const itemWeight = item.weight ?? 1;
-  return baseScore * providerWeight * itemWeight;
+  return rankSearchCandidate(baseScore, item, usageSummaries);
 }
 
 export function searchItems(
@@ -48,9 +54,10 @@ export function searchItems(
     scope: SpotlightProviderId | null;
     limit: number;
     enabledIds?: Set<SpotlightProviderId>;
+    usageSummaries?: ReadonlyMap<string, UsageSummary>;
   },
 ): ScoredSpotlightItem[] {
-  const { scope, limit, enabledIds } = options;
+  const { scope, limit, enabledIds, usageSummaries = new Map() } = options;
   const scored: ScoredSpotlightItem[] = [];
 
   for (const provider of listProviders()) {
@@ -58,13 +65,18 @@ export function searchItems(
     if (enabledIds && !enabledIds.has(provider.id)) continue;
     const items = itemsByProvider.get(provider.id) ?? [];
     for (const item of items) {
-      const score = scoreItem(query, item, provider.weight);
+      const score = scoreItem(query, item, provider.weight, usageSummaries);
       if (score > 0) {
         scored.push({ item, score });
       }
     }
   }
 
-  scored.sort((a, b) => b.score - a.score);
+  scored.sort((a, b) =>
+    Number(b.item.ranking?.contextual === true) - Number(a.item.ranking?.contextual === true) ||
+    b.score - a.score ||
+    a.item.providerId.localeCompare(b.item.providerId) ||
+    a.item.itemId.localeCompare(b.item.itemId),
+  );
   return scored.slice(0, limit);
 }

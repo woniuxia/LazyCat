@@ -22,7 +22,7 @@
     <div class="spotlight-results">
       <div v-if="isLoadingView && results.length === 0" class="spotlight-empty">加载中…</div>
       <div v-else-if="results.length === 0" class="spotlight-empty">
-        {{ query.trim() ? "没有匹配的结果" : "输入关键词以搜索工具、凭据、Hosts、任务、项目" }}
+        {{ query.trim() ? "没有匹配的结果" : "输入关键词以搜索工具、动作、凭据、Hosts、任务、项目" }}
       </div>
       <div
         v-for="(entry, idx) in results"
@@ -91,7 +91,9 @@ import SpotlightSuccessBar from "./SpotlightSuccessBar.vue";
 import SpotlightVaultUnlockInput from "./SpotlightVaultUnlockInput.vue";
 
 import { APP_EVENTS } from "../bridge/events";
+import { invokeToolByChannel } from "../bridge/tauri";
 import { listProviders, getDescriptor, searchItems } from "../spotlight/registry";
+import { rankEmptyItems, usageRefKey } from "../spotlight/ranking";
 import "../spotlight/providers/tool";
 import "../spotlight/providers/vault";
 import "../spotlight/providers/hosts";
@@ -101,6 +103,7 @@ import "../spotlight/providers/data-dictionary";
 import { browserProfilesProvider } from "../spotlight/providers/browser-profiles";
 import "../spotlight/providers/suggestion";
 import "../spotlight/providers/launcher";
+import "../spotlight/providers/action-center";
 import { listenBrowserProfilesChanged } from "../spotlight/browser-profiles-events";
 import {
   BROWSER_PROFILES_PROVIDER_ID,
@@ -142,8 +145,10 @@ import type {
   SpotlightProviderId,
   SpotlightView,
 } from "../spotlight/types";
+import type { UsageRef, UsageSummary } from "../types/usage";
 
 type ScopedItemsMap = Map<SpotlightProviderId, SpotlightItem[]>;
+const USAGE_SUMMARY_BATCH_SIZE = 256;
 
 const RESULT_LIMIT = 9;
 
@@ -180,6 +185,9 @@ const queryLoading = ref(false);
 const queryGuard = createQueryTimeResultGuard();
 const view = ref<SpotlightView | null>(null);
 const browserProfilesRefreshGuard = createBrowserProfilesRefreshGuard();
+const usageSummaries = ref<Map<string, UsageSummary>>(new Map());
+let usageRequestSeq = 0;
+let lastUsageSignature = "";
 
 const clipboardSuggestionItems = ref<SpotlightItem[]>([]);
 const clipboardSuggestionRefresh = createClipboardSuggestionRefreshCoordinator((items) => {
@@ -240,6 +248,50 @@ const searchableItemsByProvider = computed(() => {
   );
   return next;
 });
+
+async function refreshUsageSummaries(itemsByProvider: ScopedItemsMap) {
+  const refs = new Map<string, UsageRef>();
+  for (const items of itemsByProvider.values()) {
+    for (const item of items) {
+      const usageRef = item.ranking?.usageRef;
+      if (usageRef) refs.set(usageRefKey(usageRef), usageRef);
+    }
+  }
+  const signature = [...refs.keys()].sort().join("\n");
+  if (signature === lastUsageSignature) return;
+  lastUsageSignature = signature;
+  const requestSeq = ++usageRequestSeq;
+  if (refs.size === 0) {
+    usageSummaries.value = new Map();
+    return;
+  }
+  try {
+    const values = [...refs.values()];
+    const batches: UsageRef[][] = [];
+    for (let index = 0; index < values.length; index += USAGE_SUMMARY_BATCH_SIZE) {
+      batches.push(values.slice(index, index + USAGE_SUMMARY_BATCH_SIZE));
+    }
+    const responses = await Promise.all(
+      batches.map((batch) => invokeToolByChannel("tool:usage:summaries", { refs: batch })) as Array<
+        Promise<{ items: Array<UsageRef & { summary: UsageSummary }> }>
+      >,
+    );
+    if (requestSeq !== usageRequestSeq) return;
+    usageSummaries.value = new Map(
+      responses.flatMap((response) => response.items)
+        .map((item) => [usageRefKey(item), item.summary]),
+    );
+  } catch (error) {
+    if (requestSeq === usageRequestSeq) {
+      console.warn("[Spotlight] load usage summaries failed:", error);
+      usageSummaries.value = new Map();
+    }
+  }
+}
+
+watch(searchableItemsByProvider, (items) => {
+  void refreshUsageSummaries(items);
+}, { immediate: true });
 
 const isLoadingView = computed(() => loading.value || keywordLoading.value || queryLoading.value);
 
@@ -414,36 +466,19 @@ const results = computed(() => {
   }
   const text = parsed.value.query;
   if (!text.trim()) {
-    // 空查询:合并多 provider 高频项作为首屏
-    // - tool 自身已按 收藏/高频/其他 排序,作为主干
-    // - 其它 provider 各取少量 top 项(按 prefetch 返回顺序,已排好)
-    // - 整体按 provider.weight * item.weight 倒序,让重度使用的 launcher/vault 也能上首屏
-    const SLOT_PER_OTHER = 2;
-    const SLOT_TOOL = 8;
-    const collected: { item: SpotlightItem; score: number }[] = [];
-    const seen = new Set<string>();
-    const providerWeight = (id: SpotlightProviderId) =>
-      view.value?.providers.find((p) => p.id === id)?.weight ??
-      getDescriptor(id)?.weight ??
-      1;
-    for (const [pid, items] of searchableItemsByProvider.value) {
-      const slot = pid === "tool" ? SLOT_TOOL : SLOT_PER_OTHER;
-      const pw = providerWeight(pid);
-      const top = items.slice(0, slot);
-      for (const item of top) {
-        const key = item.providerId + ":" + item.itemId;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        collected.push({ item, score: pw * (item.weight ?? 1) });
-      }
-    }
-    collected.sort((a, b) => b.score - a.score);
-    return collected.slice(0, RESULT_LIMIT);
+    const providers = view.value?.providers.filter((provider) => provider.enabled) ?? listProviders();
+    return rankEmptyItems(
+      searchableItemsByProvider.value,
+      providers,
+      usageSummaries.value,
+      RESULT_LIMIT,
+    );
   }
   return searchItems(text, searchableItemsByProvider.value, {
     scope: scope.value,
     limit: RESULT_LIMIT,
     enabledIds: enabledProviderIds.value ?? undefined,
+    usageSummaries: usageSummaries.value,
   });
 });
 
@@ -552,6 +587,8 @@ async function refreshBrowserProfilesProvider() {
       itemsByProvider.value,
       items,
     );
+    lastUsageSignature = "";
+    void refreshUsageSummaries(searchableItemsByProvider.value);
     activeIndex.value = nextSpotlightActiveIndex({
       currentIndex: activeIndex.value,
       resultCount: results.value.length,
@@ -895,6 +932,7 @@ onMounted(async () => {
       actionMenuOpen.value = false;
       queryItemsByProvider.value = new Map();
       queryLoading.value = false;
+      lastUsageSignature = "";
       // 窗口显示兜底:重新拉取配置,防止跨窗口广播丢失
       void configStore.ensureLoaded(true).then((v) => {
         view.value = v;
