@@ -414,6 +414,7 @@ pub(crate) struct HttpRuleRunner {
     connection_limit: usize,
     pre_response_timeout: Duration,
     tls_config_loader: TlsConfigLoader,
+    log_capture_enabled_on_start: bool,
 }
 
 struct HttpRunningRule {
@@ -451,6 +452,12 @@ impl HttpRuleRunner {
         Self::with_options(HTTP_MAX_CONNECTIONS_PER_RULE, HTTP_PRE_RESPONSE_TIMEOUT)
     }
 
+    pub(crate) fn new_paused() -> Self {
+        let mut runner = Self::new();
+        runner.log_capture_enabled_on_start = false;
+        runner
+    }
+
     #[cfg(test)]
     pub(crate) fn with_connection_limit(connection_limit: usize) -> Self {
         Self::with_options(connection_limit, HTTP_PRE_RESPONSE_TIMEOUT)
@@ -479,6 +486,7 @@ impl HttpRuleRunner {
             connection_limit,
             pre_response_timeout,
             tls_config_loader,
+            log_capture_enabled_on_start: true,
         }
     }
 
@@ -609,6 +617,7 @@ impl RuleRunner for HttpRuleRunner {
             .map_err(|error| format!("无法创建 HTTP 转发运行时: {error}"))?;
         let cancellation = CancellationToken::new();
         let observability = Arc::new(HttpObservability::default());
+        observability.set_log_capture_enabled(self.log_capture_enabled_on_start);
         let completion = Arc::new(HttpWorkerCompletion::default());
         let worker_cancellation = cancellation.clone();
         let worker_observability = Arc::clone(&observability);

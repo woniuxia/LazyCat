@@ -51,6 +51,7 @@ pub(crate) struct RuntimeStatus {
     pub state: RuntimeState,
     pub last_error: Option<String>,
     pub last_observability_error: Option<String>,
+    pub log_capture_enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -156,6 +157,22 @@ impl ObservationSource {
             Self::Http(source) => UnifiedObservationBatch::Http(source.batch_since(cursor)),
         }
     }
+
+    fn set_log_capture_enabled(&self, enabled: bool) {
+        match self {
+            Self::Tcp(source) => source.set_log_capture_enabled(enabled),
+            Self::Udp(source) => source.set_log_capture_enabled(enabled),
+            Self::Http(source) => source.set_log_capture_enabled(enabled),
+        }
+    }
+
+    fn log_capture_enabled(&self) -> bool {
+        match self {
+            Self::Tcp(source) => source.log_capture_enabled(),
+            Self::Udp(source) => source.log_capture_enabled(),
+            Self::Http(source) => source.log_capture_enabled(),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -174,7 +191,12 @@ impl RuntimeInstance {
         }
     }
 
-    fn status(&self, rule_id: i64, last_observability_error: Option<String>) -> RuntimeStatus {
+    fn status(
+        &self,
+        rule_id: i64,
+        last_observability_error: Option<String>,
+        log_capture_enabled: bool,
+    ) -> RuntimeStatus {
         RuntimeStatus {
             rule_id,
             state: self.state,
@@ -183,6 +205,7 @@ impl RuntimeInstance {
                 .as_deref()
                 .map(|error| encode_request_forward_error(error, self.state.as_str())),
             last_observability_error,
+            log_capture_enabled,
         }
     }
 }
@@ -365,12 +388,25 @@ impl RuntimeManager {
     pub(crate) fn status(&self, rule_id: i64) -> RuntimeStatus {
         self.reconcile_runner_failure(rule_id);
         let last_observability_error = self.last_observability_error(rule_id);
+        let log_capture_enabled = self.log_capture_enabled(rule_id);
         self.instances
             .lock()
             .expect("request-forward instances lock poisoned")
             .get(&rule_id)
-            .map(|instance| instance.status(rule_id, last_observability_error.clone()))
-            .unwrap_or_else(|| RuntimeInstance::stopped().status(rule_id, last_observability_error))
+            .map(|instance| {
+                instance.status(
+                    rule_id,
+                    last_observability_error.clone(),
+                    log_capture_enabled,
+                )
+            })
+            .unwrap_or_else(|| {
+                RuntimeInstance::stopped().status(
+                    rule_id,
+                    last_observability_error,
+                    log_capture_enabled,
+                )
+            })
     }
 
     pub(crate) fn statuses(&self, rule_ids: impl IntoIterator<Item = i64>) -> Vec<RuntimeStatus> {
@@ -378,6 +414,41 @@ impl RuntimeManager {
             .into_iter()
             .map(|rule_id| self.status(rule_id))
             .collect()
+    }
+
+    pub(crate) fn update_log_capture(
+        &self,
+        rule_id: i64,
+        enabled: bool,
+    ) -> Result<RuntimeStatus, String> {
+        self.with_rule_lock(rule_id, || {
+            if self.status(rule_id).state != RuntimeState::Running {
+                return Err("转发规则未运行，无法开启实时日志采集".into());
+            }
+            let state = self.observability_state(rule_id);
+            let mut guard = state
+                .lock()
+                .expect("request-forward rule observability lock poisoned");
+            let source = guard
+                .source
+                .clone()
+                .ok_or_else(|| "转发规则观测源不可用".to_string())?;
+            if source.log_capture_enabled() == enabled {
+                drop(guard);
+                return Ok(self.status(rule_id));
+            }
+            if !enabled {
+                flush_observability_locked(rule_id, &mut guard, &*self.observability_persistence)?;
+            }
+            source.set_log_capture_enabled(enabled);
+            if !enabled {
+                guard.cursor.last_event_sequence =
+                    unified_next_cursor(&source.batch_since(ObservationCursor::default()))
+                        .last_event_sequence;
+            }
+            drop(guard);
+            Ok(self.status(rule_id))
+        })
     }
 
     pub(crate) fn ensure_rule_mutable(&self, rule_id: i64) -> Result<(), String> {
@@ -680,13 +751,20 @@ impl RuntimeManager {
         let Some(source) = self.runner.observation_source(handle) else {
             return;
         };
+        source.set_log_capture_enabled(false);
+        let initial_event_sequence =
+            unified_next_cursor(&source.batch_since(ObservationCursor::default()))
+                .last_event_sequence;
         self.stop_observability(rule.id);
         let state = self.observability_state(rule.id);
         {
             let mut guard = state
                 .lock()
                 .expect("request-forward rule observability lock poisoned");
-            guard.cursor = ObservationCursor::default();
+            guard.cursor = ObservationCursor {
+                last_event_sequence: initial_event_sequence,
+                ..ObservationCursor::default()
+            };
             guard.source = Some(source);
             guard.last_error = None;
         }
@@ -772,6 +850,21 @@ impl RuntimeManager {
                     .clone()
             })
     }
+
+    fn log_capture_enabled(&self, rule_id: i64) -> bool {
+        self.observability_states
+            .lock()
+            .expect("request-forward observability states lock poisoned")
+            .get(&rule_id)
+            .and_then(|state| {
+                state
+                    .lock()
+                    .expect("request-forward rule observability lock poisoned")
+                    .source
+                    .clone()
+            })
+            .is_some_and(|source| source.log_capture_enabled())
+    }
 }
 
 fn flush_observability_state(
@@ -782,8 +875,16 @@ fn flush_observability_state(
     let mut state = state
         .lock()
         .expect("request-forward rule observability lock poisoned");
+    let _ = flush_observability_locked(rule_id, &mut state, persistence);
+}
+
+fn flush_observability_locked(
+    rule_id: i64,
+    state: &mut RuleObservabilityState,
+    persistence: &dyn ObservabilityPersistence,
+) -> Result<(), String> {
     let Some(source) = state.source.clone() else {
-        return;
+        return Ok(());
     };
     let batch = source.batch_since(state.cursor);
     let delta = unified_delta(&batch);
@@ -791,18 +892,21 @@ fn flush_observability_state(
     let next_cursor = unified_next_cursor(&batch);
     let logs = unified_logs(batch);
     if delta == StatsDelta::default() && logs.is_empty() && gap_error.is_none() {
-        return;
+        return Ok(());
     }
     match persistence.persist(rule_id, delta, &logs) {
         Ok(()) => {
             state.cursor = next_cursor;
             state.last_error = gap_error;
+            Ok(())
         }
         Err(error) => {
-            state.last_error = Some(match gap_error {
+            let error = match gap_error {
                 Some(gap) => format!("{error}; {gap}"),
                 None => error,
-            });
+            };
+            state.last_error = Some(error.clone());
+            Err(error)
         }
     }
 }
@@ -945,9 +1049,9 @@ enum ProtocolChildHandle {
 impl Default for ProtocolRunner {
     fn default() -> Self {
         Self {
-            http: HttpRuleRunner::new(),
-            tcp: TcpRuleRunner::new(),
-            udp: UdpRuleRunner::new(),
+            http: HttpRuleRunner::new_paused(),
+            tcp: TcpRuleRunner::new_paused(),
+            udp: UdpRuleRunner::new_paused(),
             next_handle: AtomicU64::new(1),
             running: Mutex::new(HashMap::new()),
         }
@@ -1316,6 +1420,19 @@ mod tests {
         }
     }
 
+    fn persisted_log_count(persistence: &MemoryObservabilityPersistence, rule_id: i64) -> i64 {
+        persistence
+            .conn
+            .lock()
+            .expect("lock memory database")
+            .query_row(
+                "SELECT COUNT(*) FROM request_forward_logs WHERE rule_id = ?1",
+                [rule_id],
+                |row| row.get(0),
+            )
+            .expect("count persisted logs")
+    }
+
     #[derive(Default)]
     struct FakePersistence {
         values: Mutex<HashMap<i64, bool>>,
@@ -1620,6 +1737,42 @@ mod tests {
     }
 
     #[test]
+    fn log_capture_defaults_paused_and_only_persists_events_while_enabled() {
+        let mut conn = test_conn();
+        let stored_rule = repository::create_with_conn(&mut conn, write_input("capture"))
+            .expect("create capture rule");
+        let persistence = Arc::new(MemoryObservabilityPersistence::new(conn));
+        let runner = Arc::new(FakeRunner::default());
+        let observability = Arc::new(TcpObservability::default());
+        runner.set_observation_source(ObservationSource::Tcp(Arc::clone(&observability)));
+        let manager = RuntimeManager::with_observability_persistence(runner, persistence.clone());
+
+        let started = manager.start(&stored_rule).expect("start capture rule");
+        assert!(!started.log_capture_enabled);
+        observability.accepted();
+        manager.flush_observability(stored_rule.id);
+        assert_eq!(manager.stats(stored_rule.id).unwrap().event_count, 1);
+        assert_eq!(persisted_log_count(&persistence, stored_rule.id), 0);
+
+        let enabled = manager
+            .update_log_capture(stored_rule.id, true)
+            .expect("enable capture");
+        assert!(enabled.log_capture_enabled);
+        observability.accepted();
+        manager.flush_observability(stored_rule.id);
+        assert_eq!(persisted_log_count(&persistence, stored_rule.id), 1);
+
+        let paused = manager
+            .update_log_capture(stored_rule.id, false)
+            .expect("pause capture");
+        assert!(!paused.log_capture_enabled);
+        observability.accepted();
+        manager.flush_observability(stored_rule.id);
+        assert_eq!(manager.stats(stored_rule.id).unwrap().event_count, 3);
+        assert_eq!(persisted_log_count(&persistence, stored_rule.id), 1);
+    }
+
+    #[test]
     fn stats_get_repeated_flush_and_active_reset_do_not_double_count() {
         let mut conn = test_conn();
         let stored_rule = repository::create_with_conn(&mut conn, write_input("stats"))
@@ -1629,9 +1782,10 @@ mod tests {
         let observability = Arc::new(TcpObservability::default());
         runner.set_observation_source(ObservationSource::Tcp(Arc::clone(&observability)));
         let manager = RuntimeManager::with_observability_persistence(runner, persistence.clone());
+        manager.start(&stored_rule).expect("start stats rule");
         manager
-            .start(&stored_rule)
-            .expect("start stats rule");
+            .update_log_capture(stored_rule.id, true)
+            .expect("enable stats test capture");
         observability.accepted();
         observability.transferred(10, 20);
 

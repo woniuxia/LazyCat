@@ -36,6 +36,7 @@ const ACTIONS: &[&str] = &[
     "stop_all",
     "auto_start_update",
     "status",
+    "log_capture_update",
     "log_list",
     "log_clear",
     "stats_get",
@@ -170,12 +171,22 @@ mod action_contract_tests {
     use serde_json::json;
 
     use super::{
-        parse_auto_start_enabled, parse_batch_rule_ids, resolve_batch_rule_ids, supported_actions,
+        parse_auto_start_enabled, parse_batch_rule_ids, parse_log_capture_enabled,
+        resolve_batch_rule_ids, supported_actions,
     };
 
     #[test]
     fn supports_explicit_auto_start_update_action() {
         assert!(supported_actions().contains(&"auto_start_update"));
+    }
+
+    #[test]
+    fn log_capture_update_requires_an_explicit_boolean() {
+        assert!(supported_actions().contains(&"log_capture_update"));
+        assert!(parse_log_capture_enabled(&json!({ "enabled": true })).unwrap());
+        assert!(!parse_log_capture_enabled(&json!({ "enabled": false })).unwrap());
+        assert!(parse_log_capture_enabled(&json!({})).is_err());
+        assert!(parse_log_capture_enabled(&json!({ "enabled": 1 })).is_err());
     }
 
     #[test]
@@ -329,6 +340,14 @@ fn execute_inner(action: &str, payload: &Value) -> Result<Value, String> {
                 Ok(json!({ "items": items }))
             }
         }
+        "log_capture_update" => {
+            let conn = db_conn()?;
+            let id = parse_rule_id(payload)?;
+            repository::get_with_conn(&conn, id)?;
+            let enabled = parse_log_capture_enabled(payload)?;
+            let item = runtime::global_manager().update_log_capture(id, enabled)?;
+            Ok(json!({ "item": item }))
+        }
         "log_list" => {
             let conn = db_conn()?;
             let page = repository::list_logs_with_conn(&conn, &parse_log_query(payload)?)?;
@@ -364,6 +383,13 @@ fn parse_auto_start_enabled(payload: &Value) -> Result<bool, String> {
         .get("enabled")
         .and_then(Value::as_bool)
         .ok_or_else(|| "自动恢复开关参数无效".to_string())
+}
+
+fn parse_log_capture_enabled(payload: &Value) -> Result<bool, String> {
+    payload
+        .get("enabled")
+        .and_then(Value::as_bool)
+        .ok_or_else(|| "实时日志采集开关参数无效".to_string())
 }
 
 fn parse_batch_rule_ids(payload: &Value) -> Result<Option<Vec<i64>>, String> {
@@ -1125,10 +1151,12 @@ mod tests {
             state: RuntimeState::Running,
             last_error: None,
             last_observability_error: Some("database is read-only".into()),
+            log_capture_enabled: true,
         })
         .expect("serialize status");
         assert_eq!(value["ruleId"], 7);
         assert_eq!(value["lastObservabilityError"], "database is read-only");
+        assert_eq!(value["logCaptureEnabled"], true);
         assert!(value.get("last_observability_error").is_none());
 
         let log_value = serde_json::to_value(repository::ForwardLog {

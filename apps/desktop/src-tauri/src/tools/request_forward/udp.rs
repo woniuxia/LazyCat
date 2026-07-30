@@ -63,6 +63,7 @@ pub(crate) struct UdpRuleRunner {
     next_handle: AtomicU64,
     running: Mutex<HashMap<u64, UdpRunningRule>>,
     limits: UdpLimits,
+    log_capture_enabled_on_start: bool,
 }
 
 struct UdpRunningRule {
@@ -322,12 +323,19 @@ impl UdpRuleRunner {
         Self::with_limits(UdpLimits::production())
     }
 
+    pub(crate) fn new_paused() -> Self {
+        let mut runner = Self::new();
+        runner.log_capture_enabled_on_start = false;
+        runner
+    }
+
     pub(crate) fn with_limits(limits: UdpLimits) -> Self {
         limits.assert_valid();
         Self {
             next_handle: AtomicU64::new(1),
             running: Mutex::new(HashMap::new()),
             limits,
+            log_capture_enabled_on_start: true,
         }
     }
 
@@ -428,6 +436,7 @@ impl RuleRunner for UdpRuleRunner {
             .map_err(|error| format!("无法创建 UDP 转发运行时: {error}"))?;
         let cancellation = CancellationToken::new();
         let observability = Arc::new(UdpObservability::default());
+        observability.set_log_capture_enabled(self.log_capture_enabled_on_start);
         let sessions = Arc::new(UdpSessionRegistry::default());
         let completion = Arc::new(UdpWorkerCompletion::default());
         let worker_cancellation = cancellation.clone();

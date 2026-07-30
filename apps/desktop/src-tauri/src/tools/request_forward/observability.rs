@@ -90,6 +90,36 @@ mod tests {
     }
 
     #[test]
+    fn paused_http_capture_keeps_stats_without_allocating_log_details() {
+        let observability = Arc::new(HttpObservability::default());
+        observability.set_log_capture_enabled(false);
+        let mut headers = HeaderMap::new();
+        headers.insert("content-type", HeaderValue::from_static("application/json"));
+        headers.insert("authorization", HeaderValue::from_static("Bearer secret"));
+
+        let trace = observability.accepted(
+            "127.0.0.1:12001".parse().unwrap(),
+            "example.com:80".into(),
+            "POST".into(),
+            "/items".into(),
+            &headers,
+            true,
+            true,
+        );
+        assert!(trace.record.request_headers.is_none());
+        assert!(trace.record.request_body_preview.is_none());
+        trace.observe_request(br#"{"name":"hidden"}"#);
+        trace.response_started(200, &headers);
+        assert!(trace.record.response_headers.lock().unwrap().is_none());
+        assert!(trace.record.response_body_preview.lock().unwrap().is_none());
+        trace.response_completed();
+
+        let batch = observability.batch_since(ObservationCursor::default());
+        assert_eq!(batch.delta.event_count, 1);
+        assert!(batch.events.is_empty());
+    }
+
+    #[test]
     fn stats_merge_has_no_double_count_across_repeated_get_and_flush() {
         let observability = TcpObservability::default();
         observability.accepted();
@@ -279,7 +309,6 @@ pub(crate) struct TcpObservationSnapshot {
     pub(crate) events: Vec<TcpEvent>,
 }
 
-#[derive(Default)]
 struct TcpObservationState {
     event_count: u64,
     upload_bytes: u64,
@@ -287,6 +316,21 @@ struct TcpObservationState {
     error_count: u64,
     next_event_sequence: u64,
     events: VecDeque<TcpEvent>,
+    log_capture_epoch: u64,
+}
+
+impl Default for TcpObservationState {
+    fn default() -> Self {
+        Self {
+            event_count: 0,
+            upload_bytes: 0,
+            download_bytes: 0,
+            error_count: 0,
+            next_event_sequence: 0,
+            events: VecDeque::new(),
+            log_capture_epoch: 1,
+        }
+    }
 }
 
 #[derive(Default)]
@@ -302,9 +346,25 @@ pub(crate) struct TcpConnectionObservation {
     upload_bytes: AtomicU64,
     download_bytes: AtomicU64,
     finalized: AtomicBool,
+    log_capture_epoch: Option<u64>,
 }
 
 impl TcpObservability {
+    pub(crate) fn set_log_capture_enabled(&self, enabled: bool) {
+        self.update(|state| {
+            set_log_capture_state(&mut state.log_capture_epoch, &mut state.events, enabled)
+        });
+    }
+
+    pub(crate) fn log_capture_enabled(&self) -> bool {
+        self.state
+            .lock()
+            .expect("TCP observability lock poisoned")
+            .log_capture_epoch
+            % 2
+            == 1
+    }
+
     #[cfg(test)]
     pub(crate) fn accepted(&self) {
         self.update(|state| {
@@ -318,8 +378,9 @@ impl TcpObservability {
         client_addr: Option<SocketAddr>,
         target_addr: Option<String>,
     ) -> Arc<TcpConnectionObservation> {
-        self.update(|state| {
+        let log_capture_epoch = self.update(|state| {
             state.event_count = state.event_count.saturating_add(1);
+            enabled_capture_epoch(state.log_capture_epoch)
         });
         Arc::new(TcpConnectionObservation {
             observability: Arc::clone(self),
@@ -328,6 +389,7 @@ impl TcpObservability {
             upload_bytes: AtomicU64::new(0),
             download_bytes: AtomicU64::new(0),
             finalized: AtomicBool::new(false),
+            log_capture_epoch,
         })
     }
 
@@ -402,10 +464,11 @@ impl TcpObservability {
         });
     }
 
-    fn update(&self, update: impl FnOnce(&mut TcpObservationState)) {
+    fn update<T>(&self, update: impl FnOnce(&mut TcpObservationState) -> T) -> T {
         let mut state = self.state.lock().expect("TCP observability lock poisoned");
-        update(&mut state);
+        let result = update(&mut state);
         self.changed.notify_all();
+        result
     }
 }
 
@@ -447,15 +510,17 @@ impl TcpConnectionObservation {
             if error.is_some() {
                 state.error_count = state.error_count.saturating_add(1);
             }
-            push_tcp_event_with_addresses_and_bytes(
-                state,
-                kind,
-                self.client_addr.clone(),
-                self.target_addr.clone(),
-                upload_bytes,
-                download_bytes,
-                error,
-            );
+            if self.log_capture_epoch == Some(state.log_capture_epoch) {
+                push_tcp_event_with_addresses_and_bytes(
+                    state,
+                    kind,
+                    self.client_addr.clone(),
+                    self.target_addr.clone(),
+                    upload_bytes,
+                    download_bytes,
+                    error,
+                );
+            }
         });
     }
 }
@@ -489,6 +554,9 @@ fn push_tcp_event_with_addresses_and_bytes(
     download_bytes: u64,
     error: Option<String>,
 ) {
+    if state.log_capture_epoch % 2 == 0 {
+        return;
+    }
     if state.events.len() == TCP_EVENT_BUFFER_LIMIT {
         state.events.pop_front();
     }
@@ -554,7 +622,6 @@ pub(crate) struct UdpObservationSnapshot {
     pub(crate) events: Vec<UdpEvent>,
 }
 
-#[derive(Default)]
 struct UdpObservationState {
     event_count: u64,
     upload_bytes: u64,
@@ -562,6 +629,21 @@ struct UdpObservationState {
     error_count: u64,
     next_event_sequence: u64,
     events: VecDeque<UdpEvent>,
+    log_capture_epoch: u64,
+}
+
+impl Default for UdpObservationState {
+    fn default() -> Self {
+        Self {
+            event_count: 0,
+            upload_bytes: 0,
+            download_bytes: 0,
+            error_count: 0,
+            next_event_sequence: 0,
+            events: VecDeque::new(),
+            log_capture_epoch: 1,
+        }
+    }
 }
 
 #[derive(Default)]
@@ -571,6 +653,21 @@ pub(crate) struct UdpObservability {
 }
 
 impl UdpObservability {
+    pub(crate) fn set_log_capture_enabled(&self, enabled: bool) {
+        self.update(|state| {
+            set_log_capture_state(&mut state.log_capture_epoch, &mut state.events, enabled)
+        });
+    }
+
+    pub(crate) fn log_capture_enabled(&self) -> bool {
+        self.state
+            .lock()
+            .expect("UDP observability lock poisoned")
+            .log_capture_epoch
+            % 2
+            == 1
+    }
+
     pub(crate) fn client_datagram(
         &self,
         client_addr: SocketAddr,
@@ -802,6 +899,9 @@ fn push_udp_event_with_bytes(
     download_bytes: u64,
     error: Option<String>,
 ) {
+    if state.log_capture_epoch % 2 == 0 {
+        return;
+    }
     if state.events.len() == UDP_EVENT_BUFFER_LIMIT {
         state.events.pop_front();
     }
@@ -934,7 +1034,6 @@ impl HttpEventRecord {
     }
 }
 
-#[derive(Default)]
 struct HttpObservationState {
     event_count: u64,
     upload_bytes: u64,
@@ -942,6 +1041,21 @@ struct HttpObservationState {
     error_count: u64,
     next_event_sequence: u64,
     events: VecDeque<Arc<HttpEventRecord>>,
+    log_capture_epoch: u64,
+}
+
+impl Default for HttpObservationState {
+    fn default() -> Self {
+        Self {
+            event_count: 0,
+            upload_bytes: 0,
+            download_bytes: 0,
+            error_count: 0,
+            next_event_sequence: 0,
+            events: VecDeque::new(),
+            log_capture_epoch: 1,
+        }
+    }
 }
 
 #[derive(Default)]
@@ -955,9 +1069,25 @@ pub(crate) struct HttpRequestTrace {
     record: Arc<HttpEventRecord>,
     capture_response_headers: bool,
     capture_response_body: bool,
+    log_capture_epoch: Option<u64>,
 }
 
 impl HttpObservability {
+    pub(crate) fn set_log_capture_enabled(&self, enabled: bool) {
+        self.update(|state| {
+            set_log_capture_state(&mut state.log_capture_epoch, &mut state.events, enabled)
+        });
+    }
+
+    pub(crate) fn log_capture_enabled(&self) -> bool {
+        self.state
+            .lock()
+            .expect("HTTP observability lock poisoned")
+            .log_capture_epoch
+            % 2
+            == 1
+    }
+
     pub(crate) fn accepted(
         self: &Arc<Self>,
         client_addr: SocketAddr,
@@ -968,6 +1098,12 @@ impl HttpObservability {
         capture_headers: bool,
         capture_body: bool,
     ) -> Arc<HttpRequestTrace> {
+        let log_capture_epoch = self.update(|state| {
+            state.event_count = state.event_count.saturating_add(1);
+            enabled_capture_epoch(state.log_capture_epoch)
+        });
+        let capture_headers = capture_headers && log_capture_epoch.is_some();
+        let capture_body = capture_body && log_capture_epoch.is_some();
         let request_body_preview = (capture_body && should_capture_body(request_headers))
             .then(|| Arc::new(Mutex::new(PreviewTap::new())));
         let record = Arc::new(HttpEventRecord {
@@ -988,14 +1124,12 @@ impl HttpObservability {
             request_body_preview,
             response_body_preview: Mutex::new(None),
         });
-        self.update(|state| {
-            state.event_count = state.event_count.saturating_add(1);
-        });
         Arc::new(HttpRequestTrace {
             observability: Arc::clone(self),
             record,
             capture_response_headers: capture_headers,
             capture_response_body: capture_body,
+            log_capture_epoch,
         })
     }
 
@@ -1072,34 +1206,37 @@ impl HttpObservability {
     fn failed(&self, kind: HttpEventKind, error: String) {
         self.update(|state| {
             state.error_count = state.error_count.saturating_add(1);
-            push_http_event(
-                state,
-                Arc::new(HttpEventRecord {
-                    sequence: AtomicU64::new(0),
-                    completed: AtomicBool::new(true),
-                    kind: Mutex::new(kind),
-                    error: Mutex::new(Some(error)),
-                    client_addr: None,
-                    target_addr: "HTTP".into(),
-                    method: None,
-                    path: None,
-                    status_code: Mutex::new(None),
-                    upload_bytes: AtomicU64::new(0),
-                    download_bytes: AtomicU64::new(0),
-                    started_at: Instant::now(),
-                    request_headers: None,
-                    response_headers: Mutex::new(None),
-                    request_body_preview: None,
-                    response_body_preview: Mutex::new(None),
-                }),
-            );
+            if state.log_capture_epoch % 2 == 1 {
+                push_http_event(
+                    state,
+                    Arc::new(HttpEventRecord {
+                        sequence: AtomicU64::new(0),
+                        completed: AtomicBool::new(true),
+                        kind: Mutex::new(kind),
+                        error: Mutex::new(Some(error)),
+                        client_addr: None,
+                        target_addr: "HTTP".into(),
+                        method: None,
+                        path: None,
+                        status_code: Mutex::new(None),
+                        upload_bytes: AtomicU64::new(0),
+                        download_bytes: AtomicU64::new(0),
+                        started_at: Instant::now(),
+                        request_headers: None,
+                        response_headers: Mutex::new(None),
+                        request_body_preview: None,
+                        response_body_preview: Mutex::new(None),
+                    }),
+                );
+            }
         });
     }
 
-    fn update(&self, update: impl FnOnce(&mut HttpObservationState)) {
+    fn update<T>(&self, update: impl FnOnce(&mut HttpObservationState) -> T) -> T {
         let mut state = self.state.lock().expect("HTTP observability lock poisoned");
-        update(&mut state);
+        let result = update(&mut state);
         self.changed.notify_all();
+        result
     }
 }
 
@@ -1215,8 +1352,24 @@ impl HttpRequestTrace {
             {
                 state.error_count = state.error_count.saturating_add(1);
             }
-            push_http_event(state, Arc::clone(&self.record));
+            if self.log_capture_epoch == Some(state.log_capture_epoch) {
+                push_http_event(state, Arc::clone(&self.record));
+            }
         });
+    }
+}
+
+fn enabled_capture_epoch(epoch: u64) -> Option<u64> {
+    (epoch % 2 == 1).then_some(epoch)
+}
+
+fn set_log_capture_state<E>(epoch: &mut u64, events: &mut VecDeque<E>, enabled: bool) {
+    if (*epoch % 2 == 1) == enabled {
+        return;
+    }
+    *epoch = epoch.wrapping_add(1);
+    if !enabled {
+        events.clear();
     }
 }
 

@@ -34,6 +34,7 @@ pub(crate) struct TcpRuleRunner {
     connection_limit: usize,
     worker_failure: Option<Arc<Notify>>,
     worker_abrupt_exit: Option<WorkerAbruptExit>,
+    log_capture_enabled_on_start: bool,
 }
 
 #[derive(Clone)]
@@ -130,6 +131,12 @@ impl TcpRuleRunner {
         Self::with_connection_limit(TCP_MAX_CONNECTIONS_PER_RULE)
     }
 
+    pub(crate) fn new_paused() -> Self {
+        let mut runner = Self::new();
+        runner.log_capture_enabled_on_start = false;
+        runner
+    }
+
     pub(crate) fn with_connection_limit(connection_limit: usize) -> Self {
         assert!(
             connection_limit > 0,
@@ -141,6 +148,7 @@ impl TcpRuleRunner {
             connection_limit,
             worker_failure: None,
             worker_abrupt_exit: None,
+            log_capture_enabled_on_start: true,
         }
     }
 
@@ -316,6 +324,7 @@ impl RuleRunner for TcpRuleRunner {
             .map_err(|error| format!("无法创建 TCP 转发运行时: {error}"))?;
         let cancellation = CancellationToken::new();
         let observability = Arc::new(TcpObservability::default());
+        observability.set_log_capture_enabled(self.log_capture_enabled_on_start);
         let completion = Arc::new(WorkerCompletion::default());
         let worker_cancellation = cancellation.clone();
         let worker_observability = Arc::clone(&observability);

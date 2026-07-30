@@ -701,20 +701,20 @@ describe("RequestForwardPanel source structure", () => {
     expect(logListSource).toContain("暂无转发日志");
   });
 
-  it("pauses without replacing the visible window and rebuilds from zero on resume", () => {
-    const probeBody = source.match(
-      /async function probePausedLogs[\s\S]*?\n}\n\nfunction flushPendingLogRefresh/,
-    )?.[0] ?? "";
-    expect(source).toContain("const logLive = ref(true)");
-    expect(source).toContain("latestLogId");
-    expect(source).toContain("pausedNewCount");
-    expect(source).toMatch(/if \(!logLive\.value\) \{\s*await probePausedLogs\(context\)/);
-    expect(probeBody).toContain("queryLogs(context, 0, 1)");
-    expect(probeBody).not.toContain("logItems.value =");
-    expect(source).toMatch(
-      /function setLogLive\(live: boolean\)[\s\S]*?if \(live\) void loadLogs\(false\)/,
+  it("defaults to paused and starts real-time collection only on explicit resume", () => {
+    expect(typesSource).toContain("logCaptureEnabled: boolean");
+    expect(bridgeSource).toContain(
+      '"tool:request-forward:log-capture-update": { domain: "request_forward", action: "log_capture_update" }',
     );
-    expect(source).toContain("恢复实时");
+    expect(source).toContain("selectedStatus.value?.logCaptureEnabled ?? false");
+    expect(source).toMatch(/async function refreshLogsInBackground[\s\S]*?if \(!logLive\.value\) return/);
+    expect(source).not.toContain("probePausedLogs");
+    expect(source).not.toContain("pausedNewCount");
+    expect(source).toMatch(
+      /async function setLogLive\(live: boolean\)[\s\S]*?tool:request-forward:log-capture-update/,
+    );
+    expect(source).toContain("statuses.value = upsertStatus(statuses.value, result.item)");
+    expect(source).toContain("开启实时采集");
   });
 
   it("exports the current filtered query with an explicit 1000-row cap", () => {

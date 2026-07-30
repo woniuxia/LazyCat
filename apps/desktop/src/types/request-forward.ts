@@ -77,6 +77,7 @@ export interface RequestForwardRuntimeStatus {
   state: RequestForwardRuntimeState;
   lastError: string | null;
   lastObservabilityError: string | null;
+  logCaptureEnabled: boolean;
 }
 
 export interface RequestForwardBatchOperationResult {

@@ -145,11 +145,7 @@ const logRangeDefaultTime: [Date, Date] = [
   new Date(2000, 0, 1, 0, 0, 0),
   new Date(2000, 0, 1, 23, 59, 59),
 ];
-const logLive = ref(true);
-const pausedNewCount = ref(0);
-const pausedHasNew = ref(false);
-const latestLogId = ref<number | null>(null);
-const pausedProbeTotal = ref(0);
+const logCaptureUpdating = ref(false);
 const exportLoading = ref(false);
 const logsLoading = ref(false);
 const loadingMore = ref(false);
@@ -186,6 +182,7 @@ const selectedRule = computed(
 const selectedStatus = computed<RequestForwardRuntimeStatus | null>(
   () => statuses.value.find((status) => status.ruleId === selectedId.value) ?? null,
 );
+const logLive = computed(() => selectedStatus.value?.logCaptureEnabled ?? false);
 const selectedState = computed<RequestForwardRuntimeState>(
   () => selectedStatus.value?.state ?? "stopped",
 );
@@ -224,7 +221,8 @@ const interactionBusy = computed(
     saving.value ||
     preflighting.value ||
     recoveryPreflighting.value ||
-    observabilityMutating.value,
+    observabilityMutating.value ||
+    logCaptureUpdating.value,
 );
 const hasActiveRuntimeRule = computed(() =>
   statuses.value.some((status) => isRequestForwardRuleReadonly(status.state)),
@@ -439,10 +437,6 @@ function resetObservabilityState() {
   loadingMore.value = false;
   logError.value = "";
   logRefreshError.value = "";
-  latestLogId.value = null;
-  pausedProbeTotal.value = 0;
-  pausedNewCount.value = 0;
-  pausedHasNew.value = false;
   logInFlight = false;
   pendingLogRefresh = null;
 }
@@ -502,10 +496,6 @@ async function loadLogs(
       logItems.value,
     );
     logTotal.value = result.total;
-    latestLogId.value = result.latestId ?? null;
-    pausedProbeTotal.value = result.total;
-    pausedNewCount.value = 0;
-    pausedHasNew.value = false;
     logRefreshError.value = "";
   } catch (error) {
     if (requestToken === logRequestToken && isLogQueryContextCurrent(context)) {
@@ -528,10 +518,7 @@ async function refreshLogsInBackground(
     !context ||
     !isLogQueryContextCurrent(context)
   ) return;
-  if (!logLive.value) {
-    await probePausedLogs(context);
-    return;
-  }
+  if (!logLive.value) return;
   if (observabilityMutating.value || logInFlight || loadingMore.value || logDebounceTimer) {
     pendingLogRefresh = context;
     return;
@@ -566,50 +553,10 @@ async function refreshLogsInBackground(
       logItems.value,
     );
     logTotal.value = page.total;
-    latestLogId.value = page.latestId ?? null;
-    pausedProbeTotal.value = page.total;
     logRefreshError.value = "";
   } catch (error) {
     if (requestToken === logRequestToken && isLogQueryContextCurrent(context)) {
       logRefreshError.value = `日志自动刷新失败：${errorMessage(error)}`;
-    }
-  } finally {
-    if (requestToken === logRequestToken) logInFlight = false;
-    flushPendingLogRefresh();
-  }
-}
-
-async function probePausedLogs(context: LogQueryContext): Promise<void> {
-  if (
-    observabilityMutating.value ||
-    logInFlight ||
-    loadingMore.value ||
-    logDebounceTimer
-  ) {
-    pendingLogRefresh = context;
-    return;
-  }
-
-  pendingLogRefresh = null;
-  const requestToken = ++logRequestToken;
-  logInFlight = true;
-  try {
-    const probe = await queryLogs(context, 0, 1);
-    if (requestToken !== logRequestToken || !isLogQueryContextCurrent(context)) return;
-    const hasNewLatest =
-      probe.latestId != null &&
-      (latestLogId.value == null || probe.latestId > latestLogId.value);
-    if (hasNewLatest) {
-      pausedHasNew.value = true;
-      const totalIncrease = Math.max(0, probe.total - pausedProbeTotal.value);
-      pausedNewCount.value += totalIncrease;
-    }
-    latestLogId.value = probe.latestId ?? null;
-    pausedProbeTotal.value = probe.total;
-    logRefreshError.value = "";
-  } catch (error) {
-    if (requestToken === logRequestToken && isLogQueryContextCurrent(context)) {
-      logRefreshError.value = `日志暂停探测失败：${errorMessage(error)}`;
     }
   } finally {
     if (requestToken === logRequestToken) logInFlight = false;
@@ -652,18 +599,37 @@ function selectLog(id: number) {
   selectedLogId.value = id;
 }
 
-function setLogLive(live: boolean) {
-  if (logLive.value === live) return;
-  logRequestToken += 1;
-  logInFlight = false;
-  logsLoading.value = false;
-  loadingMore.value = false;
-  pendingLogRefresh = null;
-  logLive.value = live;
-  pausedNewCount.value = 0;
-  pausedHasNew.value = false;
-  pausedProbeTotal.value = logTotal.value;
-  if (live) void loadLogs(false);
+async function setLogLive(live: boolean) {
+  const ruleId = selectedId.value;
+  if (ruleId == null || logLive.value === live || logCaptureUpdating.value) return;
+  if (selectedState.value !== "running") {
+    ElMessage.warning("请先启动转发规则，再开启实时日志采集");
+    return;
+  }
+  const intentToken = selectionIntentToken;
+  refreshRequestToken += 1;
+  logCaptureUpdating.value = true;
+  try {
+    const result = await invoke<StatusEnvelope>(
+      "tool:request-forward:log-capture-update",
+      { id: ruleId, enabled: live },
+    );
+    if (selectionIntentToken !== intentToken || selectedId.value !== ruleId) return;
+    statuses.value = upsertStatus(statuses.value, result.item);
+    logRequestToken += 1;
+    logInFlight = false;
+    logsLoading.value = false;
+    loadingMore.value = false;
+    pendingLogRefresh = null;
+    logRefreshError.value = "";
+    if (live) await loadLogs(false, ruleId, intentToken);
+  } catch (error) {
+    if (selectionIntentToken === intentToken && selectedId.value === ruleId) {
+      ElMessage.error(`切换实时日志采集失败：${errorMessage(error)}`);
+    }
+  } finally {
+    logCaptureUpdating.value = false;
+  }
 }
 
 function clearLogFilters() {
@@ -1672,17 +1638,23 @@ onUnmounted(() => {
                       <h2>转发日志</h2>
                     </div>
                     <div class="log-header__actions">
-                      <div class="log-live-mode" aria-label="日志刷新状态">
+                      <div
+                        class="log-live-mode"
+                        aria-label="日志实时采集状态"
+                        :aria-busy="logCaptureUpdating"
+                      >
                         <button
                           type="button"
                           :aria-pressed="logLive"
                           :class="{ 'is-active': logLive }"
+                          :disabled="selectedState !== 'running' || logCaptureUpdating"
                           @click="setLogLive(true)"
-                        >实时</button>
+                        >实时采集</button>
                         <button
                           type="button"
                           :aria-pressed="!logLive"
                           :class="{ 'is-active': !logLive }"
+                          :disabled="selectedState !== 'running' || logCaptureUpdating"
                           @click="setLogLive(false)"
                         >暂停</button>
                       </div>
@@ -1797,13 +1769,17 @@ onUnmounted(() => {
                   </div>
 
                   <div v-if="!logLive" class="log-paused-status" role="status">
-                    <strong>日志刷新已暂停</strong>
-                    <span v-if="pausedHasNew">
-                      {{ pausedNewCount > 0 ? `至少 ${pausedNewCount} 条新日志` : "有新日志" }}
-                    </span>
-                    <span v-else>当前窗口保持不变</span>
-                    <el-button size="small" type="primary" plain @click="setLogLive(true)">
-                      恢复实时
+                    <strong>实时采集已暂停</strong>
+                    <span>{{ selectedState === "running" ? "新请求不会写入日志" : "启动规则后可手动开启" }}</span>
+                    <el-button
+                      size="small"
+                      type="primary"
+                      plain
+                      :disabled="selectedState !== 'running'"
+                      :loading="logCaptureUpdating"
+                      @click="setLogLive(true)"
+                    >
+                      开启实时采集
                     </el-button>
                   </div>
 
