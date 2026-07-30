@@ -54,22 +54,22 @@ async function copyLogSection(
 
     <template v-else>
       <header class="log-inspector__header">
-        <div>
+        <div class="log-inspector__header-top">
           <p>{{ log.protocol.toUpperCase() }} · LOG #{{ log.id }}</p>
-          <h2>{{ requestTitle(log) }}</h2>
+          <div class="log-inspector__header-actions">
+            <el-button
+              size="small"
+              :icon="CopyDocument"
+              @click="copyLogSection(log, 'full', '完整日志')"
+            >
+              复制完整日志
+            </el-button>
+            <el-tooltip content="关闭详情" placement="bottom">
+              <el-button text circle :icon="Close" aria-label="关闭日志详情" @click="$emit('close')" />
+            </el-tooltip>
+          </div>
         </div>
-        <div class="log-inspector__header-actions">
-          <el-button
-            size="small"
-            :icon="CopyDocument"
-            @click="copyLogSection(log, 'full', '完整日志')"
-          >
-            复制完整日志
-          </el-button>
-          <el-tooltip content="关闭详情" placement="bottom">
-            <el-button text circle :icon="Close" aria-label="关闭日志详情" @click="$emit('close')" />
-          </el-tooltip>
-        </div>
+        <h2 :title="requestTitle(log)">{{ requestTitle(log) }}</h2>
       </header>
 
       <div class="log-inspector__scroll">
@@ -185,11 +185,11 @@ async function copyLogSection(
 .log-inspector__empty { display: grid; margin: auto; justify-items: center; gap: 6px; padding: 24px; color: #7a8797; text-align: center; }
 .log-inspector__empty strong { color: #405065; font-size: 16px; }
 .log-inspector__empty span { max-width: 280px; font-size: 14px; line-height: 1.5; }
-.log-inspector__header { display: flex; min-height: 58px; flex: none; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 11px 12px 9px; border-bottom: 1px solid #dfe4e9; background: #fff; }
-.log-inspector__header > div:first-child { min-width: 0; }
+.log-inspector__header { display: grid; min-height: 58px; flex: none; gap: 4px; padding: 7px 12px 9px; border-bottom: 1px solid #dfe4e9; background: #fff; }
+.log-inspector__header-top { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 12px; }
 .log-inspector__header-actions { display: flex; flex: none; align-items: center; gap: 4px; }
-.log-inspector__header p { margin: 0 0 4px; color: #657386; font-size: 12px; font-weight: 800; letter-spacing: .08em; }
-.log-inspector__header h2 { overflow-wrap: anywhere; margin: 0; color: #273548; font-size: 18px; line-height: 1.4; }
+.log-inspector__header p { overflow: hidden; margin: 0; color: #657386; font-size: 12px; font-weight: 800; letter-spacing: .08em; text-overflow: ellipsis; white-space: nowrap; }
+.log-inspector__header h2 { min-width: 0; overflow: hidden; margin: 0; color: #273548; font-size: 18px; line-height: 1.4; text-overflow: ellipsis; white-space: nowrap; }
 .log-inspector__scroll { min-height: 0; flex: 1; overflow: auto; padding: 12px; }
 .summary-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border: 1px solid #e0e5ea; border-radius: 5px; background: #fff; overflow: hidden; }
 .summary-grid div { min-width: 0; padding: 7px 8px; border-right: 1px solid #e8ecf0; border-bottom: 1px solid #e8ecf0; }

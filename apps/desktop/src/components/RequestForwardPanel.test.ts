@@ -314,11 +314,12 @@ describe("RequestForwardPanel source structure", () => {
     expect(source).toMatch(/logRefreshError[\s\S]*?RequestForwardLogList/);
   });
 
-  it("keeps rule selection separate from row actions", () => {
+  it("keeps rule selection separate from runtime controls and the row menu", () => {
     expect(listSource).not.toMatch(/<button[^>]*class="rule-row"/);
     expect(listSource).toContain('class="rule-row__select"');
-    expect(listSource).toContain('class="rule-row__actions"');
-    expect(listSource).toMatch(/<\/button>\s*<div class="rule-row__actions">/);
+    expect(listSource).toContain('class="rule-row__controls"');
+    expect(listSource).toContain('class="rule-row__menu"');
+    expect(listSource).toMatch(/<\/button>\s*<div class="rule-row__controls"/);
   });
 
   it("uses a compact rule navigation with context editing", () => {
@@ -371,9 +372,17 @@ describe("RequestForwardPanel source structure", () => {
     expect(dialogSource).toContain("检测并启动");
   });
 
-  it("keeps inline start and stop controls in the rule navigation", () => {
+  it("separates current runtime controls from the application startup policy", () => {
     expect(listSource).toMatch(/emit\(["']start["'], rule\.id\)/);
     expect(listSource).toMatch(/emit\(["']stop["'], rule\.id\)/);
+    expect(listSource).toContain("应用启动时");
+    expect(listSource).toContain('active-text="开"');
+    expect(listSource).toContain('inactive-text="关"');
+    expect(source).toContain('@start="startRule"');
+    expect(source).not.toContain('@start="startRuleWithPrompt"');
+    expect(listSource).not.toContain('command="start-once"');
+    expect(listSource).not.toContain('command="start-auto"');
+    expect(listSource).not.toContain('command="stop-cancel-auto"');
   });
 
   it("exposes explicit auto-start intent controls", () => {
@@ -381,7 +390,7 @@ describe("RequestForwardPanel source structure", () => {
     expect(source).toContain("仅本次启动");
     expect(source).toContain("启动并自动恢复");
     expect(source).toContain("停止并取消自动恢复");
-    expect(listSource).toContain("随应用启动");
+    expect(listSource).toContain("应用启动时");
   });
 
   it("does not overwrite dirty forms during background refresh", () => {
@@ -536,6 +545,14 @@ describe("RequestForwardPanel source structure", () => {
     expect(inspectorSource).toContain("响应体预览");
   });
 
+  it("keeps the inspector header to two full-width rows and reveals the full request on hover", () => {
+    expect(inspectorSource).toContain('class="log-inspector__header-top"');
+    expect(inspectorSource).toContain('<h2 :title="requestTitle(log)">');
+    expect(inspectorSource).toMatch(
+      /\.log-inspector__header h2\s*\{[^}]*overflow:\s*hidden;[^}]*text-overflow:\s*ellipsis;[^}]*white-space:\s*nowrap;/s,
+    );
+  });
+
   it("adapts log columns to the log region instead of the viewport", () => {
     expect(logListSource).toContain("container-type: inline-size");
     expect(logListSource).toContain("@container forward-log-list");
@@ -560,7 +577,7 @@ describe("RequestForwardPanel source structure", () => {
     expect(listSource).toContain("listenEndpoint(rule)");
     expect(listSource).toContain("targetEndpoint(rule)");
     expect(listSource).toMatch(/\.rule-row\s*\{[^}]*position:\s*relative/s);
-    expect(listSource).toMatch(/\.rule-row__actions\s*\{[^}]*position:\s*absolute/s);
+    expect(listSource).toMatch(/\.rule-row__menu\s*\{[^}]*position:\s*absolute/s);
     expect(listSource).toMatch(/\.rule-row__summary-line span\s*\{[^}]*white-space:\s*normal/s);
   });
 

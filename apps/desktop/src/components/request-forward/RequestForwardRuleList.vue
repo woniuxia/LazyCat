@@ -35,10 +35,7 @@ const emit = defineEmits<{
   add: [];
   select: [id: number];
   start: [id: number];
-  "start-once": [id: number];
-  "start-auto": [id: number];
   stop: [id: number];
-  "stop-cancel-auto": [id: number];
   "auto-start-update": [id: number, enabled: boolean];
   edit: [id: number];
   duplicate: [id: number];
@@ -121,13 +118,16 @@ function openMenu(ruleId: number) {
 }
 
 function handleCommand(
-  command: "edit" | "duplicate" | "delete" | "start-once" | "start-auto" | "stop-cancel-auto",
+  command: "edit" | "duplicate" | "delete",
   ruleId: number,
 ) {
-  if (command === "start-once") return emit("start-once", ruleId);
-  if (command === "start-auto") return emit("start-auto", ruleId);
-  if (command === "stop-cancel-auto") return emit("stop-cancel-auto", ruleId);
   emit(command, ruleId);
+}
+
+function autoStartTooltip(rule: RequestForwardRule): string {
+  return rule.autoStart
+    ? "已开启：下次启动应用时会自动运行此规则"
+    : "已关闭：启动应用时不会自动运行此规则";
 }
 
 function stateOf(ruleId: number): RequestForwardRuntimeState {
@@ -230,7 +230,7 @@ function targetEndpoint(rule: RequestForwardRule): string {
         :ref="(value: unknown) => setMenuRef(rule.id, value)"
         class="rule-menu"
         trigger="contextmenu"
-        @command="(command: 'edit' | 'duplicate' | 'delete' | 'start-once' | 'start-auto' | 'stop-cancel-auto') => handleCommand(command, rule.id)"
+        @command="(command: 'edit' | 'duplicate' | 'delete') => handleCommand(command, rule.id)"
       >
         <div
           class="rule-row"
@@ -249,7 +249,7 @@ function targetEndpoint(rule: RequestForwardRule): string {
             type="button"
             class="rule-row__select"
             :disabled="busy"
-            :title="`${rule.name}，左键查看日志，右键编辑规则`"
+            :title="`${rule.name}，左键查看日志，右键打开更多操作`"
             @click="emit('select', rule.id)"
           >
             <span class="rule-row__title">
@@ -258,9 +258,8 @@ function targetEndpoint(rule: RequestForwardRule): string {
             <span class="rule-row__meta">
               <b class="protocol-label">{{ rule.protocol.toUpperCase() }}</b>
               <span class="state-label" :class="`is-${stateOf(rule.id)}`">
-                {{ stateLabel(stateOf(rule.id)) }}
+                当前：{{ stateLabel(stateOf(rule.id)) }}
               </span>
-              <span v-if="rule.autoStart" class="auto-start-label">随应用启动</span>
             </span>
             <span
               class="rule-row__summary"
@@ -277,40 +276,47 @@ function targetEndpoint(rule: RequestForwardRule): string {
             </span>
           </button>
 
-          <div class="rule-row__actions">
-            <el-tooltip :content="canStart(stateOf(rule.id)) ? '启动规则' : '停止规则'" placement="bottom">
-              <el-button
-                v-if="canStart(stateOf(rule.id))"
-                text
-                circle
-                size="small"
-                :icon="VideoPlay"
-                :disabled="busy"
-                aria-label="启动规则"
-                @click="emit('start', rule.id)"
-              />
-              <el-button
-                v-else
-                text
-                circle
-                size="small"
-                :icon="VideoPause"
-                :disabled="busy || !canStop(stateOf(rule.id))"
-                aria-label="停止规则"
-                @click="emit('stop', rule.id)"
-              />
+          <div class="rule-row__controls" role="group" aria-label="规则运行控制" @click.stop>
+            <el-button
+              v-if="canStart(stateOf(rule.id))"
+              class="rule-row__runtime-action"
+              type="primary"
+              plain
+              size="small"
+              :icon="VideoPlay"
+              :disabled="busy"
+              :aria-label="`启动规则${rule.name}`"
+              @click="emit('start', rule.id)"
+            >启动</el-button>
+            <el-button
+              v-else
+              class="rule-row__runtime-action"
+              plain
+              size="small"
+              :icon="VideoPause"
+              :disabled="busy || !canStop(stateOf(rule.id))"
+              :aria-label="`停止规则${rule.name}`"
+              @click="emit('stop', rule.id)"
+            >{{ stateOf(rule.id) === "stopping" ? "停止中" : "停止" }}</el-button>
+            <el-tooltip :content="autoStartTooltip(rule)" placement="bottom">
+              <span class="rule-row__auto-start">
+                <span>应用启动时</span>
+                <el-switch
+                  :model-value="rule.autoStart"
+                  size="small"
+                  inline-prompt
+                  active-text="开"
+                  inactive-text="关"
+                  :disabled="busy"
+                  :aria-label="`${rule.name}应用启动时自动运行`"
+                  @update:model-value="emit('auto-start-update', rule.id, $event)"
+                />
+              </span>
             </el-tooltip>
-            <el-tooltip content="随应用启动" placement="bottom">
-              <el-switch
-                :model-value="rule.autoStart"
-                size="small"
-                :disabled="busy"
-                :aria-label="rule.name + '随应用启动'"
-                @click.stop
-                @update:model-value="emit('auto-start-update', rule.id, $event)"
-              />
-            </el-tooltip>
-            <el-tooltip content="规则菜单" placement="bottom">
+          </div>
+
+          <div class="rule-row__menu">
+            <el-tooltip content="更多操作" placement="bottom">
               <el-button
                 text
                 circle
@@ -326,21 +332,6 @@ function targetEndpoint(rule: RequestForwardRule): string {
 
         <template #dropdown>
           <el-dropdown-menu>
-            <el-dropdown-item
-              v-if="canStart(stateOf(rule.id))"
-              command="start-once"
-              :icon="VideoPlay"
-            >仅本次启动</el-dropdown-item>
-            <el-dropdown-item
-              v-if="canStart(stateOf(rule.id))"
-              command="start-auto"
-              :icon="VideoPlay"
-            >启动并自动恢复</el-dropdown-item>
-            <el-dropdown-item
-              v-if="canStop(stateOf(rule.id)) && rule.autoStart"
-              command="stop-cancel-auto"
-              :icon="VideoPause"
-            >停止并取消自动恢复</el-dropdown-item>
             <el-dropdown-item command="edit" :icon="Edit">编辑规则</el-dropdown-item>
             <el-dropdown-item command="duplicate" :icon="CopyDocument">复制规则</el-dropdown-item>
             <el-dropdown-item command="delete" :icon="Delete" divided>删除规则</el-dropdown-item>
@@ -381,7 +372,9 @@ function targetEndpoint(rule: RequestForwardRule): string {
 .rule-row__summary,
 .rule-row__summary-line,
 .rule-row__meta,
-.rule-row__actions {
+.rule-row__controls,
+.rule-row__auto-start,
+.rule-row__menu {
   display: flex;
   align-items: center;
 }
@@ -455,18 +448,22 @@ function targetEndpoint(rule: RequestForwardRule): string {
 
 .rule-row__select:disabled { cursor: not-allowed; opacity: .68; }
 .rule-row__select:focus-visible { outline: 2px solid var(--el-color-primary, #409eff); outline-offset: -2px; }
-.rule-row__title { min-width: 0; padding-right: 92px; }
+.rule-row__title { min-width: 0; padding-right: 28px; }
 .rule-row__title strong { overflow: hidden; color: #273548; font-size: 16px; text-overflow: ellipsis; white-space: nowrap; }
 .rule-row__meta { min-width: 0; flex-wrap: wrap; gap: 7px; }
 .protocol-label { color: #45627b; font-size: 12px; }
-.auto-start-label { color: #2f7b59; font-size: 11px; font-weight: 600; }
 .rule-row__summary { display: grid; min-width: 0; gap: 3px; color: #56667a; font-size: 14px; line-height: 1.5; }
 .rule-row__summary-line { min-width: 0; align-items: flex-start; gap: 7px; }
 .rule-row__summary-line b { width: 34px; flex: none; color: #45627b; font-size: 12px; }
 .rule-row__summary-line span { min-width: 0; overflow-wrap: anywhere; white-space: normal; }
 
-.rule-row__actions { position: absolute; top: 5px; right: 3px; gap: 0; }
-.rule-row__actions :deep(.el-button) { width: 26px; height: 26px; margin: 0; }
+.rule-row__controls { justify-content: space-between; gap: 8px; margin: 0 5px 9px 8px; padding-top: 7px; border-top: 1px solid #e2e7ec; }
+.rule-row__controls :deep(.el-button) { margin: 0; }
+.rule-row__runtime-action { width: 68px; flex: none; }
+.rule-row__auto-start { min-width: 0; justify-content: flex-end; gap: 6px; color: #526275; font-size: 12px; white-space: nowrap; }
+.rule-row__auto-start :deep(.el-switch) { flex: none; }
+.rule-row__menu { position: absolute; z-index: 2; top: 5px; right: 3px; }
+.rule-row__menu :deep(.el-button) { width: 26px; height: 26px; margin: 0; }
 
 .state-label { flex: none; font-size: 12px; font-weight: 600; }
 .state-label::before { display: inline-block; width: 5px; height: 5px; margin-right: 4px; border-radius: 50%; background: currentColor; content: ""; vertical-align: 1px; }

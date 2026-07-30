@@ -1154,20 +1154,6 @@ async function startRule(id: number, feedback = true, autoStart?: boolean) {
   }
 }
 
-async function startRuleWithPrompt(id: number) {
-  const autoStart = await chooseStartIntent();
-  if (autoStart == null) return;
-  await startRule(id, true, autoStart);
-}
-
-function startRuleOnce(id: number) {
-  return startRule(id, true, false);
-}
-
-function startRuleWithAutoRecovery(id: number) {
-  return startRule(id, true, true);
-}
-
 async function setAutoStartIntent(id: number, enabled: boolean, feedback = true) {
   if (interactionBusy.value) return false;
   const intent = captureRequestForwardMutationIntent(currentSelectionIntent(), id);
@@ -1522,11 +1508,8 @@ onUnmounted(() => {
       :busy="interactionBusy"
       @add="openCreateDialog"
       @select="selectRule"
-      @start="startRuleWithPrompt"
-      @start-once="startRuleOnce"
-      @start-auto="startRuleWithAutoRecovery"
+      @start="startRule"
       @stop="stopRule"
-      @stop-cancel-auto="stopAndCancelAutoStart"
       @auto-start-update="setAutoStartIntent"
       @edit="openEditDialog"
       @duplicate="openDuplicateDialog"
