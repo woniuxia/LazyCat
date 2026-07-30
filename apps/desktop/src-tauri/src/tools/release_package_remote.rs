@@ -21,6 +21,9 @@ use super::release_package_deploy::{
     DeployError, RemoteCommandOutputDecoder, RemoteCommandResult, RemoteDirEntry, RemoteFs,
     RemoteKind, RemoteMetadata,
 };
+use super::release_package_transfer::{
+    create_preflight_probe_archive, PREFLIGHT_PROBE_CONTENT, PREFLIGHT_PROBE_ENTRY,
+};
 
 const SSH_TIMEOUT: Duration = Duration::from_secs(10);
 const PROBE_TTL: Duration = Duration::from_secs(300);
@@ -487,6 +490,14 @@ fn remote_stat(sftp: &Sftp, path: &Path) -> Result<Option<ssh2::FileStat>, Strin
     }
 }
 
+fn remote_lstat(sftp: &Sftp, path: &Path) -> Result<Option<ssh2::FileStat>, String> {
+    match sftp.lstat(path) {
+        Ok(stat) => Ok(Some(stat)),
+        Err(error) if is_remote_missing(&error) => Ok(None),
+        Err(error) => Err(format!("读取远程路径失败：{error}")),
+    }
+}
+
 fn remote_parent(path: &str) -> Result<String, String> {
     let (parent, name) = path
         .rsplit_once('/')
@@ -559,6 +570,178 @@ fn check_target(
     })
 }
 
+fn posix_single_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\"'\"'"))
+}
+
+fn remove_sftp_tree(sftp: &Sftp, path: &Path) -> Result<(), String> {
+    let Some(stat) = remote_lstat(sftp, path)? else {
+        return Ok(());
+    };
+    if stat.is_dir() {
+        for (child, _) in sftp
+            .readdir(path)
+            .map_err(|error| format!("读取远程探针目录失败：{error}"))?
+        {
+            remove_sftp_tree(sftp, &child)?;
+        }
+        sftp.rmdir(path)
+            .map_err(|error| format!("删除远程探针目录失败：{error}"))
+    } else {
+        sftp.unlink(path)
+            .map_err(|error| format!("删除远程探针文件失败：{error}"))
+    }
+}
+
+fn extract_tar_gz_with_session(
+    session: &Session,
+    archive_path: &str,
+    destination: &str,
+    cancelled: &AtomicBool,
+) -> Result<(), DeployError> {
+    if cancelled.load(Ordering::Acquire) {
+        return Err(DeployError::cancelled_extraction());
+    }
+    let command = format!(
+        "tar -xzf {} -C {}",
+        posix_single_quote(archive_path),
+        posix_single_quote(destination)
+    );
+    let mut channel = session
+        .channel_session()
+        .map_err(|error| DeployError::failed(format!("创建远端解压通道失败：{error}")))?;
+    channel
+        .exec(&command)
+        .map_err(|error| DeployError::failed(format!("发送远端解压命令失败：{error}")))?;
+    session.set_blocking(false);
+    let mut decoder = RemoteCommandOutputDecoder::default();
+    let mut output_lines = Vec::new();
+    let read_result = (|| loop {
+        if cancelled.load(Ordering::Acquire) {
+            return Err(DeployError::cancelled_extraction());
+        }
+        let stdout_read = read_command_stream(
+            &mut channel,
+            "stdout",
+            "读取远端解压命令",
+            &mut decoder,
+            &mut |stream, line| output_lines.push(format!("{stream}: {line}")),
+        )?;
+        let stderr_read = {
+            let mut stderr = channel.stderr();
+            read_command_stream(
+                &mut stderr,
+                "stderr",
+                "读取远端解压命令",
+                &mut decoder,
+                &mut |stream, line| output_lines.push(format!("{stream}: {line}")),
+            )?
+        };
+        if channel.eof() {
+            decoder.flush(&mut |stream, line| output_lines.push(format!("{stream}: {line}")));
+            break Ok(());
+        }
+        if !stdout_read && !stderr_read {
+            thread::sleep(Duration::from_millis(10));
+        }
+    })();
+    session.set_blocking(true);
+    read_result?;
+    channel
+        .wait_close()
+        .map_err(|error| DeployError::failed(format!("等待远端解压结束失败：{error}")))?;
+    let exit_code = channel
+        .exit_status()
+        .map_err(|error| DeployError::failed(format!("读取远端解压退出码失败：{error}")))?;
+    if exit_code != 0 {
+        let detail = output_lines.last().cloned().unwrap_or_default();
+        return Err(DeployError::failed(format!(
+            "远端 tar.gz 解压失败，退出码 {exit_code}{}",
+            if detail.is_empty() {
+                String::new()
+            } else {
+                format!("：{detail}")
+            }
+        )));
+    }
+    Ok(())
+}
+
+fn check_frontend_tar_probe(
+    session: &Session,
+    sftp: &Sftp,
+    target_path: &str,
+    run_suffix: &str,
+) -> Result<(), String> {
+    let parent = remote_parent(target_path)?;
+    let archive = format!("{parent}/.lazycat-preflight-{run_suffix}-frontend.tar.gz");
+    let destination = format!("{parent}/.lazycat-preflight-{run_suffix}-frontend");
+    let probe_file = format!("{destination}/{PREFLIGHT_PROBE_ENTRY}");
+    let local_archive = create_preflight_probe_archive()?;
+    let result = (|| -> Result<(), String> {
+        if remote_lstat(sftp, Path::new(&archive))?.is_some()
+            || remote_lstat(sftp, Path::new(&destination))?.is_some()
+        {
+            return Err("远程前端压缩预检探针路径已存在，请稍后重试".into());
+        }
+        let mut local = File::open(local_archive.path())
+            .map_err(|error| format!("读取前端压缩预检探针失败：{error}"))?;
+        let mut remote = sftp
+            .create(Path::new(&archive))
+            .map_err(|error| format!("上传前端压缩预检探针失败：{error}"))?;
+        std::io::copy(&mut local, &mut remote)
+            .map_err(|error| format!("写入前端压缩预检探针失败：{error}"))?;
+        remote
+            .flush()
+            .map_err(|error| format!("刷新前端压缩预检探针失败：{error}"))?;
+        drop(remote);
+        let uploaded = remote_stat(sftp, Path::new(&archive))?
+            .ok_or_else(|| "远程前端压缩预检探针不存在".to_string())?;
+        if !uploaded.is_file() || uploaded.size != Some(local_archive.compressed_bytes) {
+            return Err("远程前端压缩预检探针大小校验失败".into());
+        }
+        sftp.mkdir(Path::new(&destination), 0o755)
+            .map_err(|error| format!("创建前端压缩预检解压目录失败：{error}"))?;
+        extract_tar_gz_with_session(session, &archive, &destination, &AtomicBool::new(false))
+            .map_err(|error| format!("服务器不支持 tar + gzip 前端传输：{}", error.message))?;
+        let stat = remote_stat(sftp, Path::new(&probe_file))?
+            .ok_or_else(|| "前端压缩预检解压后缺少探针文件".to_string())?;
+        if !stat.is_file() {
+            return Err("前端压缩预检探针不是普通文件".into());
+        }
+        let mut file = sftp
+            .open(Path::new(&probe_file))
+            .map_err(|error| format!("读取前端压缩预检探针失败：{error}"))?;
+        let mut content = Vec::new();
+        file.read_to_end(&mut content)
+            .map_err(|error| format!("读取前端压缩预检探针失败：{error}"))?;
+        if content != PREFLIGHT_PROBE_CONTENT {
+            return Err("前端压缩预检探针内容校验失败".into());
+        }
+        Ok(())
+    })();
+
+    let mut cleanup_errors = Vec::new();
+    if let Err(error) = remove_sftp_tree(sftp, Path::new(&archive)) {
+        cleanup_errors.push(error);
+    }
+    if let Err(error) = remove_sftp_tree(sftp, Path::new(&destination)) {
+        cleanup_errors.push(error);
+    }
+    match (result, cleanup_errors.is_empty()) {
+        (Ok(()), true) => Ok(()),
+        (Ok(()), false) => Err(format!(
+            "前端压缩预检探针清理失败：{}",
+            cleanup_errors.join("；")
+        )),
+        (Err(error), true) => Err(error),
+        (Err(error), false) => Err(format!(
+            "{error}；探针清理失败：{}",
+            cleanup_errors.join("；")
+        )),
+    }
+}
+
 pub fn run_remote_preflight(
     binding: &PreflightBinding,
     expected_fingerprint: &str,
@@ -580,7 +763,7 @@ pub fn run_remote_preflight(
         .map_err(|_| "初始化 SFTP 会话失败".to_string())?;
     let run_suffix = Uuid::new_v4().simple().to_string();
     let run_suffix = &run_suffix[..12];
-    binding
+    let checks = binding
         .targets
         .iter()
         .map(|target| {
@@ -590,7 +773,11 @@ pub fn run_remote_preflight(
             };
             check_target(&sftp, *target, path, run_suffix)
         })
-        .collect()
+        .collect::<Result<Vec<_>, _>>()?;
+    if binding.targets.contains(&RemoteTarget::Frontend) {
+        check_frontend_tar_probe(&session, &sftp, &binding.frontend_remote_dir, run_suffix)?;
+    }
+    Ok(checks)
 }
 
 pub fn run_command_preflight(
@@ -660,6 +847,15 @@ impl RemoteFs for CommandRemoteFs {
         _progress: &mut dyn FnMut(u64),
     ) -> Result<(), DeployError> {
         Err(DeployError::failed("命令重试连接不支持 SFTP 操作"))
+    }
+
+    fn extract_tar_gz(
+        &mut self,
+        _archive_path: &str,
+        _destination: &str,
+        _cancelled: &AtomicBool,
+    ) -> Result<(), DeployError> {
+        Err(DeployError::failed("命令重试连接不支持远端解压"))
     }
 
     fn rename(&mut self, _source: &str, _target: &str) -> Result<(), DeployError> {
@@ -756,6 +952,7 @@ impl SftpRemoteFs {
 fn read_command_stream<R: Read>(
     reader: &mut R,
     stream: &'static str,
+    context: &str,
     decoder: &mut RemoteCommandOutputDecoder,
     output: &mut dyn FnMut(&str, String),
 ) -> Result<bool, DeployError> {
@@ -771,7 +968,7 @@ fn read_command_stream<R: Read>(
             Err(error) if error.kind() == ErrorKind::WouldBlock => break,
             Err(error) => {
                 return Err(DeployError::failed(format!(
-                    "读取上传后命令{stream}输出失败：{error}"
+                    "{context}{stream}输出失败：{error}"
                 )));
             }
         }
@@ -789,10 +986,17 @@ fn read_command_streams(
         if cancelled.load(Ordering::Acquire) {
             return Err(DeployError::cancelled_command());
         }
-        let stdout_read = read_command_stream(channel, "stdout", &mut decoder, output)?;
+        let stdout_read =
+            read_command_stream(channel, "stdout", "读取上传后命令", &mut decoder, output)?;
         let stderr_read = {
             let mut stderr = channel.stderr();
-            read_command_stream(&mut stderr, "stderr", &mut decoder, output)?
+            read_command_stream(
+                &mut stderr,
+                "stderr",
+                "读取上传后命令",
+                &mut decoder,
+                output,
+            )?
         };
         if channel.eof() {
             decoder.flush(output);
@@ -866,6 +1070,15 @@ impl RemoteFs for SftpRemoteFs {
         remote.flush().map_err(|error| {
             DeployError::failed(format!("完成远端文件失败（{remote_path}）：{error}"))
         })
+    }
+
+    fn extract_tar_gz(
+        &mut self,
+        archive_path: &str,
+        destination: &str,
+        cancelled: &AtomicBool,
+    ) -> Result<(), DeployError> {
+        extract_tar_gz_with_session(&self.session, archive_path, destination, cancelled)
     }
 
     fn rename(&mut self, source: &str, target: &str) -> Result<(), DeployError> {
@@ -1068,10 +1281,10 @@ pub fn discard_probe(token: &str) -> Result<(), String> {
 mod tests {
     use super::{
         authenticate_for_test, classify_trust, consume_preflight, consume_probe, create_session,
-        discard_preflight, discard_probe, issue_preflight, load_probe, probe_host, store_probe,
-        validate_remote_dir, validate_remote_file, validate_target_relationships, AuthSecret,
-        HostTrust, PreflightBinding, PreflightStore, ProbeSnapshot, RemoteEndpoint, RemoteTarget,
-        SftpRemoteFs, SshSocketRegistry,
+        discard_preflight, discard_probe, issue_preflight, load_probe, posix_single_quote,
+        probe_host, run_remote_preflight, store_probe, validate_remote_dir, validate_remote_file,
+        validate_target_relationships, AuthSecret, HostTrust, PreflightBinding, PreflightStore,
+        ProbeSnapshot, RemoteEndpoint, RemoteTarget, SftpRemoteFs, SshSocketRegistry,
     };
     use crate::tools::release_package::{ReleasePackageEnvironmentKind, ReleaseTarget};
     use crate::tools::release_package_deploy::{
@@ -1104,6 +1317,15 @@ mod tests {
     #[test]
     fn creates_an_ssh_session_without_network_access() {
         assert!(create_session().is_ok());
+    }
+
+    #[test]
+    fn posix_paths_are_single_quoted_without_shell_injection() {
+        assert_eq!(posix_single_quote("/srv/app"), "'/srv/app'");
+        assert_eq!(
+            posix_single_quote("/srv/customer's app"),
+            "'/srv/customer'\"'\"'s app'"
+        );
     }
 
     #[test]
@@ -1592,18 +1814,27 @@ mod tests {
         empty_frontend: bool,
     ) -> Result<DeploymentRequest, String> {
         let (frontend, backend) = write_local_fixture(local_root, empty_frontend)?;
+        let frontend_manifest =
+            ArtifactManifest::from_directory(ReleaseTarget::Frontend, &frontend)?;
+        let frontend_archive = crate::tools::release_package_transfer::create_frontend_transfer(
+            &frontend_manifest,
+            &AtomicBool::new(false),
+        )
+        .map_err(|error| error.message)?;
         Ok(DeploymentRequest {
             run_id: run_id.into(),
             targets: vec![
                 DeploymentTarget {
-                    manifest: ArtifactManifest::from_directory(ReleaseTarget::Frontend, &frontend)?,
+                    manifest: frontend_manifest,
                     remote_path: format!("{remote_root}/web"),
                     expected_exists,
+                    frontend_archive: Some(frontend_archive),
                 },
                 DeploymentTarget {
                     manifest: ArtifactManifest::from_file(ReleaseTarget::Backend, &backend)?,
                     remote_path: format!("{remote_root}/app.jar"),
                     expected_exists,
+                    frontend_archive: None,
                 },
             ],
         })
@@ -1637,7 +1868,7 @@ mod tests {
                 != initial
                     .targets
                     .iter()
-                    .map(|target| target.manifest.total_bytes)
+                    .map(DeploymentTarget::transfer_bytes)
                     .sum::<u64>()
             {
                 return Err("uploaded byte count mismatch".into());
@@ -1708,7 +1939,7 @@ mod tests {
             .request()
             .targets
             .iter()
-            .map(|target| target.manifest.total_bytes)
+            .map(DeploymentTarget::transfer_bytes)
             .sum::<u64>();
         let connect_remote = {
             let binding = Arc::clone(&binding);
@@ -1755,6 +1986,7 @@ mod tests {
                 Arc::new(AtomicBool::new(false)),
                 Arc::new(AtomicBool::new(false)),
                 progress,
+                Arc::new(|_| {}),
                 interrupt_transport,
                 recover_remote,
             )
@@ -1824,5 +2056,49 @@ mod tests {
             fixture.private_key_auth(),
         )
         .unwrap();
+    }
+
+    #[test]
+    #[ignore = "requires LAZYCAT_SSH_TEST_* variables and a loopback SSH fixture"]
+    fn frontend_preflight_really_extracts_tar_gz_and_cleans_the_probe() {
+        let fixture = SshTestFixture::from_env().unwrap();
+        let probe = probe_host(1, &fixture.endpoint).unwrap();
+        let suffix = Uuid::new_v4().simple().to_string();
+        let binding = fixture.binding(
+            &format!("/tmp/lazycat-release-package-preflight-{suffix}"),
+            "password",
+        );
+        let sockets = SshSocketRegistry::new();
+        let remote = SftpRemoteFs::connect(
+            &binding,
+            &probe.fingerprint_sha256,
+            &fixture.password_auth(),
+            &sockets,
+        )
+        .unwrap();
+        let before = remote
+            .read_dir("/tmp")
+            .unwrap()
+            .into_iter()
+            .filter(|entry| entry.path.contains(".lazycat-preflight-"))
+            .map(|entry| entry.path)
+            .collect::<std::collections::BTreeSet<_>>();
+
+        let checks = run_remote_preflight(
+            &binding,
+            &probe.fingerprint_sha256,
+            &fixture.password_auth(),
+        )
+        .unwrap();
+        assert_eq!(checks.len(), 2);
+
+        let after = remote
+            .read_dir("/tmp")
+            .unwrap()
+            .into_iter()
+            .filter(|entry| entry.path.contains(".lazycat-preflight-"))
+            .map(|entry| entry.path)
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(after, before);
     }
 }

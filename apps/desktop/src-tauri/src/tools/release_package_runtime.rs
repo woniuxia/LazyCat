@@ -20,7 +20,7 @@ use super::release_package_archive::{
     validate_artifact_target_collision, ArchiveError, ArchiveSession,
 };
 use super::release_package_deploy::{
-    deploy_parallel, ArchivedTarget, ArtifactManifest, DeployError, DeploymentPlan,
+    deploy_parallel, ArchivedTarget, ArtifactManifest, DeployError, DeployEvent, DeploymentPlan,
     DeploymentRequest, DeploymentSuccess, DeploymentTarget, RemoteFs,
 };
 use super::release_package_remote::CommandRemoteFs;
@@ -29,6 +29,7 @@ use super::release_package_remote::{
     consume_preflight, consume_preflight_after, ConsumedPreflight, PreflightBinding, RemoteTarget,
     SftpRemoteFs, SshSocketRegistry,
 };
+use super::release_package_transfer::create_frontend_transfer;
 use crate::events::{EVENT_RELEASE_PACKAGE_LOG, EVENT_RELEASE_PACKAGE_STATUS};
 use crate::global_notification::{build_release_package_notification, GlobalNotification};
 
@@ -1633,6 +1634,7 @@ fn build_manifest_deployment_request(
             manifest: manifest.clone(),
             remote_path,
             expected_exists: consumed.expected_existing_targets.contains(&remote_target),
+            frontend_archive: None,
         });
     }
     Ok(DeploymentRequest {
@@ -1694,7 +1696,7 @@ fn run_deployment_phase(
 fn execute_deployment_request(
     identity: &RunIdentity,
     summary: PipelineSummary,
-    request: DeploymentRequest,
+    mut request: DeploymentRequest,
     commands: Vec<CommandSnapshot>,
     consumed: ConsumedPreflight,
     cancelled: Arc<AtomicBool>,
@@ -1702,10 +1704,19 @@ fn execute_deployment_request(
     ssh_sockets: &Arc<SshSocketRegistry>,
     sink: Arc<dyn EventSink>,
 ) -> PipelineSummary {
+    if let Err(error) = prepare_frontend_transfers(
+        identity,
+        &mut request,
+        cancelled.as_ref(),
+        sink.as_ref(),
+    ) {
+        ssh_sockets.clear();
+        return preserve_retry_commands(combine_package_and_deploy(summary, Err(error)), commands);
+    }
     let total_bytes = request
         .targets
         .iter()
-        .map(|target| target.manifest.total_bytes)
+        .map(DeploymentTarget::transfer_bytes)
         .sum();
     emit_system_log(
         sink.as_ref(),
@@ -1723,6 +1734,24 @@ fn execute_deployment_request(
         let reporter = Arc::clone(&reporter);
         Arc::new(move |bytes: u64, path: &str| reporter.report(bytes, path))
             as Arc<dyn Fn(u64, &str) + Send + Sync>
+    };
+    let event = {
+        let sink = Arc::clone(&sink);
+        let identity = identity.clone();
+        Arc::new(move |event: DeployEvent| match event {
+            DeployEvent::FrontendArchiveUploaded { duration } => emit_system_log(
+                sink.as_ref(),
+                &identity,
+                "upload",
+                &format!("[前端传输] tar.gz 上传完成，耗时 {} ms", duration.as_millis()),
+            ),
+            DeployEvent::FrontendArchiveExtracted { duration } => emit_system_log(
+                sink.as_ref(),
+                &identity,
+                "upload",
+                &format!("[前端传输] 远端 tar.gz 解压完成，耗时 {} ms", duration.as_millis()),
+            ),
+        }) as Arc<dyn Fn(DeployEvent) + Send + Sync>
     };
     let binding = Arc::new(consumed.binding);
     let expected_fingerprint = Arc::new(consumed.expected_fingerprint);
@@ -1768,6 +1797,7 @@ fn execute_deployment_request(
             Arc::clone(&cancelled),
             upload_stop,
             progress,
+            event,
             interrupt_transport,
             recover_remote,
         )
@@ -1807,6 +1837,55 @@ fn execute_deployment_request(
     }
     ssh_sockets.clear();
     summary
+}
+
+fn prepare_frontend_transfers(
+    identity: &RunIdentity,
+    request: &mut DeploymentRequest,
+    cancelled: &AtomicBool,
+    sink: &dyn EventSink,
+) -> Result<(), DeployError> {
+    for target in &mut request.targets {
+        if target.manifest.target != ReleaseTarget::Frontend {
+            continue;
+        }
+        emit_system_log(
+            sink,
+            identity,
+            "upload",
+            &format!(
+                "[前端传输] 开始生成 tar.gz：{} 个文件，原始大小 {} 字节",
+                target.manifest.file_count, target.manifest.total_bytes
+            ),
+        );
+        let archive = create_frontend_transfer(&target.manifest, cancelled).map_err(|error| {
+            if error.cancelled {
+                DeployError::cancelled_compression()
+            } else {
+                DeployError::failed(error.message)
+            }
+        })?;
+        let ratio = if archive.original_bytes == 0 {
+            0.0
+        } else {
+            archive.compressed_bytes as f64 * 100.0 / archive.original_bytes as f64
+        };
+        emit_system_log(
+            sink,
+            identity,
+            "upload",
+            &format!(
+                "[前端传输] tar.gz 生成完成：{} 个文件，原始 {} 字节，压缩后 {} 字节，压缩率 {:.2}%，耗时 {} ms",
+                archive.file_count,
+                archive.original_bytes,
+                archive.compressed_bytes,
+                ratio,
+                archive.compression_duration.as_millis()
+            ),
+        );
+        target.frontend_archive = Some(archive);
+    }
+    Ok(())
 }
 
 fn run_retry_deployment_phase(
@@ -2981,6 +3060,15 @@ mod pipeline_tests {
             _local_path: &Path,
             _cancelled: &AtomicBool,
             _progress: &mut dyn FnMut(u64),
+        ) -> Result<(), DeployError> {
+            Ok(())
+        }
+
+        fn extract_tar_gz(
+            &mut self,
+            _archive_path: &str,
+            _destination: &str,
+            _cancelled: &AtomicBool,
         ) -> Result<(), DeployError> {
             Ok(())
         }
@@ -4407,6 +4495,59 @@ mod pipeline_tests {
             .unwrap();
 
         assert_eq!(error.message, "部署产物在打包后发生变化，请重新打包");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn retry_recreates_a_fresh_frontend_transfer_archive() {
+        let root = TestDir::new();
+        let source = root.0.join("dist");
+        fs::create_dir(&source).unwrap();
+        fs::write(source.join("index.html"), "v1").unwrap();
+        let manifest = ArtifactManifest::from_directory(ReleaseTarget::Frontend, &source).unwrap();
+        let retry = RetryJob::from_manifests(7, vec![manifest]);
+        let mut consumed = consumed_preflight_with_existing(Vec::new());
+        consumed.binding.targets = vec![RemoteTarget::Frontend];
+        consumed.binding.frontend_remote_dir = "/srv/app/web".into();
+        let cancelled = AtomicBool::new(false);
+        let sink = Sink;
+
+        let mut first = build_retry_deployment_request("retry-1", &retry, &consumed).unwrap();
+        prepare_frontend_transfers(
+            &run_identity("retry-1"),
+            &mut first,
+            &cancelled,
+            &sink,
+        )
+        .unwrap();
+        let first_path = first.targets[0]
+            .frontend_archive
+            .as_ref()
+            .unwrap()
+            .path()
+            .to_path_buf();
+
+        let mut second = build_retry_deployment_request("retry-2", &retry, &consumed).unwrap();
+        prepare_frontend_transfers(
+            &run_identity("retry-2"),
+            &mut second,
+            &cancelled,
+            &sink,
+        )
+        .unwrap();
+        let second_path = second.targets[0]
+            .frontend_archive
+            .as_ref()
+            .unwrap()
+            .path()
+            .to_path_buf();
+
+        assert_ne!(first_path, second_path);
+        assert!(first_path.is_file());
+        assert!(second_path.is_file());
+        drop(first);
+        assert!(!first_path.exists());
+        assert!(second_path.is_file());
     }
 
     #[cfg(windows)]

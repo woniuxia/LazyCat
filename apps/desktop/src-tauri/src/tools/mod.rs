@@ -39,6 +39,7 @@ pub mod release_package_archive;
 pub mod release_package_deploy;
 pub mod release_package_remote;
 pub mod release_package_runtime;
+pub mod release_package_transfer;
 pub mod request_forward;
 pub mod schema;
 pub mod sql_entity;

@@ -3,11 +3,13 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use walkdir::WalkDir;
 
 use super::release_package::ReleaseTarget;
+use super::release_package_transfer::{create_frontend_transfer, FrontendTransferArchive};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -259,6 +261,24 @@ impl DeployError {
         }
     }
 
+    pub fn cancelled_compression() -> Self {
+        Self {
+            message: "前端传输包压缩已取消".into(),
+            cancelled: true,
+            committed: false,
+            recovery_paths: Vec::new(),
+        }
+    }
+
+    pub fn cancelled_extraction() -> Self {
+        Self {
+            message: "远端前端传输包解压已取消".into(),
+            cancelled: true,
+            committed: false,
+            recovery_paths: Vec::new(),
+        }
+    }
+
     pub fn local_io(error: std::io::Error) -> Self {
         Self::failed(format!("读取本地部署产物失败：{error}"))
     }
@@ -275,6 +295,12 @@ pub trait RemoteFs: Send {
         cancelled: &AtomicBool,
         progress: &mut dyn FnMut(u64),
     ) -> Result<(), DeployError>;
+    fn extract_tar_gz(
+        &mut self,
+        archive_path: &str,
+        destination: &str,
+        cancelled: &AtomicBool,
+    ) -> Result<(), DeployError>;
     fn rename(&mut self, source: &str, target: &str) -> Result<(), DeployError>;
     fn remove_tree(&mut self, path: &str) -> Result<(), DeployError>;
     fn execute_command(
@@ -290,6 +316,16 @@ pub struct DeploymentTarget {
     pub manifest: ArtifactManifest,
     pub remote_path: String,
     pub expected_exists: bool,
+    pub frontend_archive: Option<FrontendTransferArchive>,
+}
+
+impl DeploymentTarget {
+    pub fn transfer_bytes(&self) -> u64 {
+        self.frontend_archive
+            .as_ref()
+            .map(|archive| archive.compressed_bytes)
+            .unwrap_or(self.manifest.total_bytes)
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -341,6 +377,7 @@ struct TransactionTarget {
     final_path: String,
     temp_path: String,
     backup_path: String,
+    transfer_path: Option<String>,
     expected_exists: bool,
     backed_up: bool,
     committed: bool,
@@ -355,13 +392,21 @@ pub(crate) struct DeploymentPlan {
 }
 
 impl DeploymentPlan {
-    pub(crate) fn new(request: DeploymentRequest) -> Result<Self, DeployError> {
+    pub(crate) fn new(mut request: DeploymentRequest) -> Result<Self, DeployError> {
         validate_request(&request)?;
-        for target in &request.targets {
+        for target in &mut request.targets {
             target
                 .manifest
                 .verify_source()
                 .map_err(DeployError::failed)?;
+            if target.manifest.target == ReleaseTarget::Frontend
+                && target.frontend_archive.is_none()
+            {
+                target.frontend_archive = Some(
+                    create_frontend_transfer(&target.manifest, &AtomicBool::new(false))
+                        .map_err(|error| DeployError::failed(error.message))?,
+                );
+            }
         }
         let transactions = request
             .targets
@@ -370,6 +415,8 @@ impl DeploymentPlan {
                 final_path: target.remote_path.clone(),
                 temp_path: transaction_path(&target.remote_path, "tmp", &request.run_id),
                 backup_path: transaction_path(&target.remote_path, "backup", &request.run_id),
+                transfer_path: (target.manifest.target == ReleaseTarget::Frontend)
+                    .then(|| frontend_transfer_path(&target.remote_path, &request.run_id)),
                 expected_exists: target.expected_exists,
                 backed_up: false,
                 committed: false,
@@ -397,10 +444,16 @@ impl DeploymentPlan {
     }
 
     pub(crate) fn temp_paths(&self) -> Vec<String> {
-        self.transactions
+        let mut paths = self
+            .transactions
             .iter()
-            .map(|transaction| transaction.temp_path.clone())
-            .collect()
+            .flat_map(|transaction| {
+                std::iter::once(transaction.temp_path.clone())
+                    .chain(transaction.transfer_path.iter().cloned())
+            })
+            .collect::<Vec<_>>();
+        paths.sort();
+        paths
     }
 
     pub(crate) fn prepare_remote(
@@ -414,7 +467,12 @@ impl DeploymentPlan {
             check_cancelled(cancelled)?;
             let backup_exists = remote.metadata(&transaction.backup_path)?.is_some();
             check_cancelled(cancelled)?;
-            if temp_exists || backup_exists {
+            let transfer_exists = match &transaction.transfer_path {
+                Some(path) => remote.metadata(path)?.is_some(),
+                None => false,
+            };
+            check_cancelled(cancelled)?;
+            if temp_exists || backup_exists || transfer_exists {
                 return Err(DeployError::failed(format!(
                     "远端部署临时或备份路径已存在：{}",
                     transaction.final_path
@@ -462,6 +520,7 @@ impl DeploymentPlan {
         remote: &mut dyn RemoteFs,
         cancelled: &AtomicBool,
         progress: &mut dyn FnMut(u64, &str),
+        event: &dyn Fn(DeployEvent),
     ) -> Result<(), DeployError> {
         let target = self
             .request
@@ -477,19 +536,39 @@ impl DeploymentPlan {
         }
         match target.manifest.target {
             ReleaseTarget::Frontend => {
-                for entry in &target.manifest.entries {
-                    if cancelled.load(Ordering::Acquire) {
-                        return Err(DeployError::cancelled());
-                    }
-                    let remote_path = format!("{}/{}", transaction.temp_path, entry.relative_path);
-                    let mut file_progress = |bytes| progress(bytes, entry.relative_path.as_str());
-                    remote.write_file(
-                        &remote_path,
-                        &local_entry_path(&target.manifest, entry),
-                        cancelled,
-                        &mut file_progress,
-                    )?;
+                let archive = target
+                    .frontend_archive
+                    .as_ref()
+                    .ok_or_else(|| DeployError::failed("前端传输包尚未生成"))?;
+                let remote_path = transaction
+                    .transfer_path
+                    .as_ref()
+                    .ok_or_else(|| DeployError::failed("前端远端传输包路径缺失"))?;
+                let archive_name = remote_path.rsplit('/').next().unwrap_or(remote_path);
+                self.mark_temp_owned(remote_path);
+                let upload_started_at = Instant::now();
+                let mut file_progress = |bytes| progress(bytes, archive_name);
+                remote.write_file(remote_path, archive.path(), cancelled, &mut file_progress)?;
+                event(DeployEvent::FrontendArchiveUploaded {
+                    duration: upload_started_at.elapsed(),
+                });
+                let metadata = remote
+                    .metadata(remote_path)?
+                    .ok_or_else(|| DeployError::failed("远端前端传输包不存在"))?;
+                if metadata.kind != RemoteKind::File || metadata.size != archive.compressed_bytes {
+                    return Err(DeployError::failed("远端前端传输包大小校验失败"));
                 }
+                check_cancelled(cancelled)?;
+                let extract_started_at = Instant::now();
+                remote.extract_tar_gz(remote_path, &transaction.temp_path, cancelled)?;
+                event(DeployEvent::FrontendArchiveExtracted {
+                    duration: extract_started_at.elapsed(),
+                });
+                check_cancelled(cancelled)?;
+                remote.remove_tree(remote_path).map_err(|error| {
+                    DeployError::failed(format!("清理远端前端传输包失败：{}", error.message))
+                })?;
+                self.unmark_temp_owned(remote_path);
             }
             ReleaseTarget::Backend => {
                 let entry = target
@@ -531,17 +610,6 @@ impl DeploymentPlan {
                     .ok_or_else(|| DeployError::failed("远端前端临时目录不存在"))?;
                 if metadata.kind != RemoteKind::Directory {
                     return Err(DeployError::failed("远端前端临时目标不是目录"));
-                }
-                let mut files = Vec::new();
-                collect_remote_files(
-                    remote,
-                    &transaction.temp_path,
-                    &transaction.temp_path,
-                    &mut files,
-                )?;
-                files.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
-                if files != target.manifest.entries {
-                    return Err(DeployError::failed("远端前端临时目录校验失败"));
                 }
             }
             ReleaseTarget::Backend => {
@@ -622,6 +690,13 @@ impl DeploymentPlan {
             .lock()
             .expect("owned temp paths lock poisoned")
             .insert(temp_path.to_string());
+    }
+
+    fn unmark_temp_owned(&self, temp_path: &str) {
+        self.owned_temp_paths
+            .lock()
+            .expect("owned temp paths lock poisoned")
+            .remove(temp_path);
     }
 
     pub(crate) fn cancel_and_cleanup(&self, remote: &mut dyn RemoteFs) -> Result<(), DeployError> {
@@ -725,6 +800,14 @@ fn transaction_path(final_path: &str, kind: &str, run_id: &str) -> String {
     format!("{final_path}.__lazycat_{kind}_{run_id}")
 }
 
+fn frontend_transfer_path(final_path: &str, run_id: &str) -> String {
+    let parent = final_path
+        .rsplit_once('/')
+        .map(|(parent, _)| parent)
+        .unwrap_or("");
+    format!("{parent}/.lazycat-upload-{run_id}-frontend.tar.gz")
+}
+
 fn check_cancelled(cancelled: &AtomicBool) -> Result<(), DeployError> {
     if cancelled.load(Ordering::Acquire) {
         Err(DeployError::cancelled())
@@ -759,18 +842,6 @@ fn collect_frontend_directories(
             continue;
         }
         directories.insert(transaction.temp_path.clone());
-        for entry in &target.manifest.entries {
-            let mut current = transaction.temp_path.clone();
-            let mut segments = entry.relative_path.split('/').peekable();
-            while let Some(segment) = segments.next() {
-                if segments.peek().is_none() {
-                    break;
-                }
-                current.push('/');
-                current.push_str(segment);
-                directories.insert(current.clone());
-            }
-        }
     }
     let mut directories = directories.into_iter().collect::<Vec<_>>();
     directories.sort_by_key(|path| (path.split('/').count(), path.clone()));
@@ -823,35 +894,10 @@ fn local_entry_path(manifest: &ArtifactManifest, entry: &ArtifactEntry) -> PathB
         })
 }
 
-fn collect_remote_files(
-    remote: &dyn RemoteFs,
-    root: &str,
-    current: &str,
-    files: &mut Vec<ArtifactEntry>,
-) -> Result<(), DeployError> {
-    for entry in remote.read_dir(current)? {
-        match entry.metadata.kind {
-            RemoteKind::Directory => collect_remote_files(remote, root, &entry.path, files)?,
-            RemoteKind::File => {
-                let relative = entry
-                    .path
-                    .strip_prefix(root)
-                    .and_then(|value| value.strip_prefix('/'))
-                    .ok_or_else(|| DeployError::failed("远端清单路径逃逸"))?;
-                files.push(ArtifactEntry {
-                    relative_path: relative.to_string(),
-                    size: entry.metadata.size,
-                });
-            }
-            RemoteKind::Symlink | RemoteKind::Other => {
-                return Err(DeployError::failed(format!(
-                    "远端临时目标包含不支持的文件类型：{}",
-                    entry.path
-                )))
-            }
-        }
-    }
-    Ok(())
+#[derive(Clone, Debug)]
+pub enum DeployEvent {
+    FrontendArchiveUploaded { duration: Duration },
+    FrontendArchiveExtracted { duration: Duration },
 }
 
 fn rollback(remote: &mut dyn RemoteFs, transactions: &[TransactionTarget]) -> Vec<String> {
@@ -899,7 +945,8 @@ pub fn deploy(
         return Err(error);
     }
     for index in 0..plan.target_count() {
-        if let Err(mut error) = plan.upload_target(index, remote, cancelled, &mut progress) {
+        if let Err(mut error) = plan.upload_target(index, remote, cancelled, &mut progress, &|_| {})
+        {
             error.recovery_paths.extend(plan.cleanup_temps(remote));
             error.recovery_paths.sort();
             error.recovery_paths.dedup();
@@ -930,6 +977,7 @@ pub(crate) fn deploy_parallel(
     user_cancelled: Arc<AtomicBool>,
     stop_requested: Arc<AtomicBool>,
     progress: Arc<dyn Fn(u64, &str) + Send + Sync>,
+    event: Arc<dyn Fn(DeployEvent) + Send + Sync>,
     interrupt_transport: Arc<dyn Fn() + Send + Sync>,
     recover_remote: Arc<dyn Fn() -> Result<Box<dyn RemoteFs>, DeployError> + Send + Sync>,
 ) -> Result<DeploymentSuccess, DeployError> {
@@ -973,6 +1021,7 @@ pub(crate) fn deploy_parallel(
                 control.as_mut(),
                 stop_requested.as_ref(),
                 &mut |bytes, path| progress(bytes, path),
+                event.as_ref(),
             )
             .and_then(|()| plan.verify_target(0, control.as_ref()))
             .and_then(|()| plan.validate_formal_targets(control.as_ref()));
@@ -1045,6 +1094,7 @@ pub(crate) fn deploy_parallel(
         let stop_requested = Arc::clone(&stop_requested);
         let user_cancelled = Arc::clone(&user_cancelled);
         let progress = Arc::clone(&progress);
+        let event = Arc::clone(&event);
         let interrupt_transport = Arc::clone(&interrupt_transport);
         let transport_interrupted = Arc::clone(&transport_interrupted);
         let first_worker_error = Arc::clone(&first_worker_error);
@@ -1055,6 +1105,7 @@ pub(crate) fn deploy_parallel(
                     remote.as_mut(),
                     stop_requested.as_ref(),
                     &mut |bytes, path| progress(bytes, path),
+                    event.as_ref(),
                 )
                 .and_then(|()| plan.verify_target(index, remote.as_ref()))
             }))
@@ -1236,10 +1287,14 @@ mod transaction_tests {
     use std::cell::RefCell;
     use std::collections::{BTreeMap, VecDeque};
     use std::fs;
+    use std::io::{Cursor, Read};
     use std::path::Path;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::sync::{Arc, Barrier, Mutex};
     use std::thread;
+
+    use flate2::read::GzDecoder;
+    use tar::Archive;
 
     use super::{
         deploy, ArtifactManifest, DeployError, DeploymentRequest, DeploymentTarget,
@@ -1262,6 +1317,7 @@ mod transaction_tests {
     struct FakeRemoteFs {
         nodes: BTreeMap<String, Node>,
         metadata_calls: RefCell<Vec<String>>,
+        read_dir_calls: RefCell<Vec<String>>,
         create_dir_calls: Vec<String>,
         fail_rename_targets: VecDeque<String>,
         fail_remove_targets: VecDeque<String>,
@@ -1270,6 +1326,11 @@ mod transaction_tests {
         command_exit_code: i32,
         command_events: VecDeque<FakeCommandEvent>,
         command_calls: Vec<String>,
+        write_file_calls: Vec<String>,
+        extract_calls: Vec<(String, String)>,
+        fail_extract: bool,
+        cancel_during_extract: bool,
+        reported_archive_size_delta: i64,
     }
 
     impl FakeRemoteFs {
@@ -1281,6 +1342,7 @@ mod transaction_tests {
             Self {
                 nodes,
                 metadata_calls: RefCell::new(Vec::new()),
+                read_dir_calls: RefCell::new(Vec::new()),
                 create_dir_calls: Vec::new(),
                 fail_rename_targets: VecDeque::new(),
                 fail_remove_targets: VecDeque::new(),
@@ -1289,6 +1351,11 @@ mod transaction_tests {
                 command_exit_code: 0,
                 command_events: VecDeque::new(),
                 command_calls: Vec::new(),
+                write_file_calls: Vec::new(),
+                extract_calls: Vec::new(),
+                fail_extract: false,
+                cancel_during_extract: false,
+                reported_archive_size_delta: 0,
             }
         }
 
@@ -1359,7 +1426,11 @@ mod transaction_tests {
                 },
                 Node::File(value) => RemoteMetadata {
                     kind: RemoteKind::File,
-                    size: value.len() as u64,
+                    size: if path.ends_with(".tar.gz") {
+                        (value.len() as i64 + self.reported_archive_size_delta).max(0) as u64
+                    } else {
+                        value.len() as u64
+                    },
                 },
             }))
         }
@@ -1382,6 +1453,7 @@ mod transaction_tests {
         }
 
         fn read_dir(&self, path: &str) -> Result<Vec<RemoteDirEntry>, DeployError> {
+            self.read_dir_calls.borrow_mut().push(path.to_string());
             let prefix = format!("{}/", path.trim_end_matches('/'));
             let mut entries = Vec::new();
             for (entry_path, node) in &self.nodes {
@@ -1425,8 +1497,30 @@ mod transaction_tests {
             }
             let content = fs::read(local_path).map_err(DeployError::local_io)?;
             progress(content.len() as u64);
+            self.write_file_calls.push(remote_path.to_string());
             self.nodes.insert(remote_path.into(), Node::File(content));
             Ok(())
+        }
+
+        fn extract_tar_gz(
+            &mut self,
+            archive_path: &str,
+            destination: &str,
+            cancelled: &AtomicBool,
+        ) -> Result<(), DeployError> {
+            self.extract_calls
+                .push((archive_path.to_string(), destination.to_string()));
+            if self.cancel_during_extract || cancelled.load(Ordering::Acquire) {
+                return Err(DeployError::cancelled_extraction());
+            }
+            if self.fail_extract {
+                return Err(DeployError::failed("injected extraction failure"));
+            }
+            let content = match self.nodes.get(archive_path) {
+                Some(Node::File(content)) => content.clone(),
+                _ => return Err(DeployError::failed("archive missing")),
+            };
+            extract_archive_into_nodes(&mut self.nodes, destination, &content)
         }
 
         fn rename(&mut self, source: &str, target: &str) -> Result<(), DeployError> {
@@ -1747,6 +1841,24 @@ mod transaction_tests {
             Ok(())
         }
 
+        fn extract_tar_gz(
+            &mut self,
+            archive_path: &str,
+            destination: &str,
+            cancelled: &AtomicBool,
+        ) -> Result<(), DeployError> {
+            self.ensure_transport_available()?;
+            if cancelled.load(Ordering::Acquire) {
+                return Err(DeployError::cancelled_extraction());
+            }
+            let mut nodes = self.nodes.lock().unwrap();
+            let content = match nodes.get(archive_path) {
+                Some(Node::File(content)) => content.clone(),
+                _ => return Err(DeployError::failed("archive missing")),
+            };
+            extract_archive_into_nodes(&mut nodes, destination, &content)
+        }
+
         fn rename(&mut self, source: &str, target: &str) -> Result<(), DeployError> {
             self.ensure_transport_available()?;
             if target == "/srv/app/web" || target == "/srv/app/app.jar" {
@@ -1864,6 +1976,41 @@ mod transaction_tests {
         (root, frontend_manifest, backend_manifest)
     }
 
+    fn extract_archive_into_nodes(
+        nodes: &mut BTreeMap<String, Node>,
+        destination: &str,
+        content: &[u8],
+    ) -> Result<(), DeployError> {
+        let decoder = GzDecoder::new(Cursor::new(content));
+        let mut archive = Archive::new(decoder);
+        let entries = archive
+            .entries()
+            .map_err(|error| DeployError::failed(format!("decode archive: {error}")))?;
+        for entry in entries {
+            let mut entry = entry
+                .map_err(|error| DeployError::failed(format!("decode archive entry: {error}")))?;
+            let relative = entry
+                .path()
+                .map_err(|error| DeployError::failed(format!("decode archive path: {error}")))?
+                .to_string_lossy()
+                .replace('\\', "/");
+            let remote_path = format!("{destination}/{relative}");
+            let mut current = destination.to_string();
+            let segments = relative.split('/').collect::<Vec<_>>();
+            for segment in segments.iter().take(segments.len().saturating_sub(1)) {
+                current.push('/');
+                current.push_str(segment);
+                nodes.insert(current.clone(), Node::Directory);
+            }
+            let mut bytes = Vec::new();
+            entry
+                .read_to_end(&mut bytes)
+                .map_err(|error| DeployError::failed(format!("decode archive content: {error}")))?;
+            nodes.insert(remote_path, Node::File(bytes));
+        }
+        Ok(())
+    }
+
     fn two_target_request() -> (super::tests::TestDir, DeploymentRequest) {
         let (root, frontend, backend) = local_manifests();
         let request = DeploymentRequest {
@@ -1873,11 +2020,13 @@ mod transaction_tests {
                     manifest: frontend,
                     remote_path: "/srv/app/web".into(),
                     expected_exists: true,
+                    frontend_archive: None,
                 },
                 DeploymentTarget {
                     manifest: backend,
                     remote_path: "/srv/app/app.jar".into(),
                     expected_exists: true,
+                    frontend_archive: None,
                 },
             ],
         };
@@ -1975,17 +2124,14 @@ mod transaction_tests {
     }
 
     #[test]
-    fn deployment_plan_deduplicates_frontend_directories_parent_first() {
+    fn deployment_plan_creates_only_the_frontend_transaction_root() {
         let (root, request) = two_target_request();
         let plan = super::DeploymentPlan::new(request).unwrap();
         drop(root);
 
         assert_eq!(
             plan.frontend_directories(),
-            &[
-                "/srv/app/web.__lazycat_tmp_run-1".to_string(),
-                "/srv/app/web.__lazycat_tmp_run-1/assets".to_string(),
-            ]
+            &["/srv/app/web.__lazycat_tmp_run-1".to_string()]
         );
     }
 
@@ -2011,7 +2157,7 @@ mod transaction_tests {
     }
 
     #[test]
-    fn deployment_prepares_each_frontend_directory_once() {
+    fn deployment_prepares_the_frontend_transaction_root_once() {
         let (root, request) = two_target_request();
         let plan = super::DeploymentPlan::new(request).unwrap();
         let mut remote = FakeRemoteFs::with_existing_release();
@@ -2026,7 +2172,7 @@ mod transaction_tests {
                 .iter()
                 .filter(|path| path.contains("__lazycat_tmp_run-1"))
                 .count(),
-            2
+            1
         );
         for directory in plan.frontend_directories() {
             assert_eq!(
@@ -2054,6 +2200,7 @@ mod transaction_tests {
                     .unwrap(),
                 remote_path: "/srv/app/empty-web".into(),
                 expected_exists: false,
+                frontend_archive: None,
             }],
         };
         let plan = super::DeploymentPlan::new(request).unwrap();
@@ -2172,6 +2319,79 @@ mod transaction_tests {
         assert!(!remote.exists("/srv/app/web/dist/assets/app.js"));
         assert!(!remote.any_path_contains("__lazycat_tmp_"));
         assert!(!remote.any_path_contains("__lazycat_backup_"));
+        assert!(!remote.any_path_contains(".lazycat-upload-"));
+        assert!(remote.read_dir_calls.borrow().is_empty());
+    }
+
+    #[test]
+    fn frontend_archive_size_mismatch_never_commits() {
+        let (root, request) = two_target_request();
+        let mut remote = FakeRemoteFs::with_existing_release();
+        remote.reported_archive_size_delta = 1;
+
+        let error = deploy(&mut remote, &request, &AtomicBool::new(false), |_, _| {}).unwrap_err();
+        drop(root);
+
+        assert!(error.message.contains("传输包大小校验失败"));
+        assert_eq!(remote.read("/srv/app/web/old.js"), b"old");
+        assert_eq!(remote.read("/srv/app/app.jar"), b"old-jar");
+        assert!(!remote.any_path_contains("__lazycat_backup_"));
+        assert!(!remote.any_path_contains("__lazycat_tmp_"));
+        assert!(!remote.any_path_contains(".lazycat-upload-"));
+    }
+
+    #[test]
+    fn frontend_extraction_failure_never_commits_and_cleans_transport_paths() {
+        let (root, request) = two_target_request();
+        let mut remote = FakeRemoteFs::with_existing_release();
+        remote.fail_extract = true;
+
+        let error = deploy(&mut remote, &request, &AtomicBool::new(false), |_, _| {}).unwrap_err();
+        drop(root);
+
+        assert!(error.message.contains("injected extraction failure"));
+        assert_eq!(remote.read("/srv/app/web/old.js"), b"old");
+        assert_eq!(remote.read("/srv/app/app.jar"), b"old-jar");
+        assert!(!remote.any_path_contains("__lazycat_backup_"));
+        assert!(!remote.any_path_contains("__lazycat_tmp_"));
+        assert!(!remote.any_path_contains(".lazycat-upload-"));
+    }
+
+    #[test]
+    fn frontend_extraction_cancellation_has_its_own_error_and_never_commits() {
+        let (root, request) = two_target_request();
+        let mut remote = FakeRemoteFs::with_existing_release();
+        remote.cancel_during_extract = true;
+
+        let error = deploy(&mut remote, &request, &AtomicBool::new(false), |_, _| {}).unwrap_err();
+        drop(root);
+
+        assert!(error.cancelled);
+        assert_eq!(error.message, "远端前端传输包解压已取消");
+        assert_eq!(remote.read("/srv/app/web/old.js"), b"old");
+        assert_eq!(remote.read("/srv/app/app.jar"), b"old-jar");
+        assert!(!remote.any_path_contains("__lazycat_tmp_"));
+        assert!(!remote.any_path_contains(".lazycat-upload-"));
+    }
+
+    #[test]
+    fn frontend_archive_cleanup_failure_never_commits_and_reports_the_archive() {
+        let (root, request) = two_target_request();
+        let archive_path = "/srv/app/.lazycat-upload-run-1-frontend.tar.gz";
+        let mut remote = FakeRemoteFs::with_existing_release();
+        remote.fail_remove_tree(archive_path);
+        remote.fail_remove_tree(archive_path);
+
+        let error = deploy(&mut remote, &request, &AtomicBool::new(false), |_, _| {}).unwrap_err();
+        drop(root);
+
+        assert!(error.message.contains("清理远端前端传输包失败"));
+        assert!(!error.committed);
+        assert!(error.recovery_paths.contains(&archive_path.to_string()));
+        assert_eq!(remote.read("/srv/app/web/old.js"), b"old");
+        assert_eq!(remote.read("/srv/app/app.jar"), b"old-jar");
+        assert!(!remote.any_path_contains("__lazycat_backup_"));
+        assert!(!remote.any_path_contains("__lazycat_tmp_"));
     }
 
     #[test]
@@ -2191,7 +2411,7 @@ mod transaction_tests {
     }
 
     #[test]
-    fn deployment_progress_includes_the_current_remote_path() {
+    fn deployment_progress_uses_the_frontend_archive_name_and_backend_file() {
         let (root, request) = two_target_request();
         let mut remote = FakeRemoteFs::with_existing_release();
         let mut progress = Vec::new();
@@ -2204,8 +2424,18 @@ mod transaction_tests {
         .unwrap();
         drop(root);
 
-        assert!(progress.iter().any(|(_, path)| path == "index.html"));
+        assert!(progress
+            .iter()
+            .any(|(_, path)| path == ".lazycat-upload-run-1-frontend.tar.gz"));
         assert!(progress.iter().any(|(_, path)| path == "app.jar"));
+        assert_eq!(
+            remote
+                .write_file_calls
+                .iter()
+                .filter(|path| path.ends_with("frontend.tar.gz"))
+                .count(),
+            1
+        );
     }
 
     #[test]
@@ -2273,6 +2503,7 @@ mod transaction_tests {
             Arc::new(AtomicBool::new(false)),
             Arc::new(AtomicBool::new(false)),
             Arc::new(|_, _| {}),
+            Arc::new(|_| {}),
             Arc::new(|| {}),
             Arc::new(|| Err(DeployError::failed("unexpected recovery"))),
         )
@@ -2306,6 +2537,7 @@ mod transaction_tests {
             Arc::new(AtomicBool::new(false)),
             Arc::new(AtomicBool::new(false)),
             Arc::new(|_, _| {}),
+            Arc::new(|_| {}),
             Arc::new(|| {}),
             Arc::new(|| Err(DeployError::failed("unexpected recovery"))),
         )
@@ -2335,6 +2567,7 @@ mod transaction_tests {
             Arc::new(AtomicBool::new(false)),
             Arc::new(AtomicBool::new(false)),
             Arc::new(|_, _| {}),
+            Arc::new(|_| {}),
             Arc::new(|| {}),
             Arc::new(|| Err(DeployError::failed("unexpected recovery"))),
         )
@@ -2374,6 +2607,7 @@ mod transaction_tests {
             Arc::new(AtomicBool::new(false)),
             Arc::clone(&stop_requested),
             Arc::new(|_, _| {}),
+            Arc::new(|_| {}),
             Arc::new(|| {}),
             Arc::new(move || {
                 Ok(Box::new(SharedFakeRemoteFs::new(
@@ -2416,6 +2650,7 @@ mod transaction_tests {
             Arc::new(AtomicBool::new(false)),
             Arc::new(AtomicBool::new(false)),
             Arc::new(|_, _| {}),
+            Arc::new(|_| {}),
             Arc::new(|| {}),
             Arc::new(move || {
                 Ok(Box::new(SharedFakeRemoteFs::new(
@@ -2457,6 +2692,7 @@ mod transaction_tests {
             Arc::new(AtomicBool::new(false)),
             Arc::new(AtomicBool::new(false)),
             Arc::new(|_, _| {}),
+            Arc::new(|_| {}),
             Arc::new(move || {
                 interrupt_probe
                     .transport_interrupted
@@ -2511,6 +2747,7 @@ mod transaction_tests {
             Arc::clone(&user_cancelled),
             user_cancelled,
             Arc::new(|_, _| {}),
+            Arc::new(|_| {}),
             Arc::new(|| {}),
             Arc::new(move || {
                 recovery_used_for_closure.store(true, Ordering::Release);
@@ -2554,6 +2791,7 @@ mod transaction_tests {
             user_cancelled,
             Arc::new(AtomicBool::new(false)),
             Arc::new(|_, _| {}),
+            Arc::new(|_| {}),
             Arc::new(|| {}),
             Arc::new(move || {
                 recovery_used_for_closure.store(true, Ordering::Release);
@@ -2599,6 +2837,7 @@ mod transaction_tests {
             Arc::new(AtomicBool::new(false)),
             Arc::new(AtomicBool::new(false)),
             Arc::new(|_, _| {}),
+            Arc::new(|_| {}),
             Arc::new(|| {}),
             Arc::new(move || {
                 Ok(Box::new(SharedFakeRemoteFs::new(
@@ -2631,6 +2870,7 @@ mod transaction_tests {
             Arc::new(AtomicBool::new(false)),
             Arc::new(AtomicBool::new(false)),
             Arc::new(|_, _| {}),
+            Arc::new(|_| {}),
             Arc::new(|| {}),
             Arc::new(|| Err(DeployError::failed("unexpected recovery"))),
         )
@@ -2656,6 +2896,7 @@ mod transaction_tests {
             user_cancelled,
             Arc::new(AtomicBool::new(false)),
             Arc::new(|_, _| {}),
+            Arc::new(|_| {}),
             Arc::new(|| {}),
             Arc::new(|| Err(DeployError::failed("unexpected recovery"))),
         )
