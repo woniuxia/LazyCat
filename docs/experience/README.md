@@ -13,8 +13,8 @@
 
 | 领域 | 文件 |
 |------|------|
-| 架构、IPC、Tauri、结构治理 | [architecture.md](./architecture.md) |
-| UI、Element Plus、Teleport | [ui-and-styling.md](./ui-and-styling.md) |
+| 产品边界、架构、IPC、Tauri、SQLite 迁移、结构治理 | [architecture.md](./architecture.md) |
+| UI、响应式、滚动、scoped CSS、Element Plus、Teleport | [ui-and-styling.md](./ui-and-styling.md) |
 | 数据字典 | [data-dictionary.md](./data-dictionary.md) |
 | Todo | [todo.md](./todo.md) |
 | PM | [pm.md](./pm.md) |
@@ -25,7 +25,7 @@
 | Windows 构建与发布 | [windows-build-and-release.md](./windows-build-and-release.md) |
 | Vault 与 Inbox | [vault-and-inbox.md](./vault-and-inbox.md) |
 | 手册与资源 | [manuals-and-resources.md](./manuals-and-resources.md) |
-| Agent 协作 | [agent-workflow.md](./agent-workflow.md) |
+| Agent 协作、只读边界、续作、交接与主动提交 | [agent-workflow.md](./agent-workflow.md) |
 | 其他工具 | [other-tools.md](./other-tools.md) |
 
 ## 迁移审计

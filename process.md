@@ -13,8 +13,8 @@
 
 | 任务 / 关键词 | 经验文件 |
 |---|---|
-| 架构、IPC、Tauri、capabilities、结构治理、删除功能 | [architecture.md](docs/experience/architecture.md) |
-| UI、Element Plus、Teleport、Dropdown、弹层 | [ui-and-styling.md](docs/experience/ui-and-styling.md) |
+| 产品边界、架构、IPC、Tauri、capabilities、SQLite 迁移、结构治理、删除功能 | [architecture.md](docs/experience/architecture.md) |
+| UI、响应式、滚动、scoped CSS、Element Plus、Teleport、Dropdown、弹层 | [ui-and-styling.md](docs/experience/ui-and-styling.md) |
 | 数据字典、JSON、FTS、sort_key、关系、导入 | [data-dictionary.md](docs/experience/data-dictionary.md) |
 | Todo、提醒、eventAt、displayAt、逾期、周期系列 | [todo.md](docs/experience/todo.md) |
 | PM、甘特、看板、状态筛选、思源 | [pm.md](docs/experience/pm.md) |
@@ -25,7 +25,7 @@
 | Windows、portable、NSIS、WebView2、Release | [windows-build-and-release.md](docs/experience/windows-build-and-release.md) |
 | Vault、Inbox、剪贴板采集 | [vault-and-inbox.md](docs/experience/vault-and-inbox.md) |
 | 离线手册、资源、本地预览、壁纸 | [manuals-and-resources.md](docs/experience/manuals-and-resources.md) |
-| Agent 文档、计划、验证、dirty worktree | [agent-workflow.md](docs/experience/agent-workflow.md) |
+| Agent 文档、只读边界、计划、续作、交接、主动提交、验证、dirty worktree | [agent-workflow.md](docs/experience/agent-workflow.md) |
 | JSON 树、Base64、片段、番茄钟、SQL 生成 | [other-tools.md](docs/experience/other-tools.md) |
 
 完整迁移对账见 [docs/experience/README.md](docs/experience/README.md)。
